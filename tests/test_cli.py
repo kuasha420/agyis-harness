@@ -162,6 +162,27 @@ class TestPslCli(unittest.TestCase):
             code = main(["test", "-s", self.temp_dir.name])
             self.assertEqual(code, 0)
 
+    def test_cli_audit_session_json(self):
+        """Verifies `psl audit session --json` parses and emits report."""
+        dummy_report = {
+            "session_id": "test-session-1234",
+            "coordinator": {
+                "compacted_transcript": {"total_steps": 10},
+                "full_transcript": {"total_steps": 10, "total_chars": 500, "estimated_tokens": 125, "tool_errors": 0},
+                "compaction_savings_chars": 0,
+                "compaction_savings_pct": 0.0,
+            },
+            "subagents": [],
+            "collective_pipeline": {"total_steps": 10, "total_tools": 5, "total_tokens": 125, "offload_step_pct": 0, "offload_tool_pct": 0, "offload_token_pct": 0}
+        }
+        with patch("pipeline.analyze_live_session.find_latest_session_dir", return_value=Path(self.temp_dir.name)), \
+             patch("pipeline.analyze_live_session.analyze_session", return_value=dummy_report), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["audit", "session", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue())
+            self.assertEqual(data["session_id"], "test-session-1234")
+
 
 if __name__ == "__main__":
     unittest.main()

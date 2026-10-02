@@ -135,6 +135,84 @@ def cmd_audit(args: argparse.Namespace) -> int:
         print("\n▶ [4/4] Summarizing Operator Interventions...")
         from pipeline import summarize_interventions
         summarize_interventions.main()
+    elif sub in ("session", "live"):
+        from pipeline import analyze_live_session
+        session_id = getattr(args, "session_id", None)
+        save_db = getattr(args, "save_db", False)
+        out_path = getattr(args, "out", None)
+        as_json = getattr(args, "json", False)
+
+        if session_id:
+            s_dir = Path.home() / ".gemini" / "antigravity" / "brain" / session_id
+        else:
+            s_dir = analyze_live_session.find_latest_session_dir()
+
+        if not s_dir or not s_dir.exists():
+            sys.stderr.write(f"Error: Session directory not found for {session_id or 'latest'}\n")
+            return 1
+
+        report = analyze_live_session.analyze_session(s_dir)
+
+        if save_db:
+            from pipeline import extract_transcripts
+            import sqlite3
+            db_path = DEFAULT_DB
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.executescript(extract_transcripts.SCHEMA_SQL)
+            conn.commit()
+
+            t_path = s_dir / ".system_generated" / "logs" / "transcript.jsonl"
+            res = extract_transcripts.extract_session(t_path)
+            if res:
+                s_row, _, _, _ = res
+                cur.execute("""
+                    INSERT OR REPLACE INTO sessions (
+                        session_id, start_time, end_time, duration_seconds, total_steps,
+                        model, workspace_path, transcript_path, file_size_bytes, has_errors,
+                        tool_call_count, tool_error_count, intervention_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    s_row["session_id"], s_row["start_time"], s_row["end_time"],
+                    s_row["duration_seconds"], s_row["total_steps"], s_row["model"],
+                    s_row["workspace_path"], s_row["transcript_path"], s_row["file_size_bytes"],
+                    s_row["has_errors"], s_row["tool_call_count"], s_row["tool_error_count"],
+                    s_row["intervention_count"]
+                ))
+                conn.commit()
+
+            for sa in report["subagents"]:
+                sub_p = s_dir.parent / sa["conversation_id"] / ".system_generated" / "logs" / "transcript.jsonl"
+                sub_res = extract_transcripts.extract_session(sub_p)
+                if sub_res:
+                    s_row, _, _, _ = sub_res
+                    cur.execute("""
+                        INSERT OR REPLACE INTO sessions (
+                            session_id, start_time, end_time, duration_seconds, total_steps,
+                            model, workspace_path, transcript_path, file_size_bytes, has_errors,
+                            tool_call_count, tool_error_count, intervention_count
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        s_row["session_id"], s_row["start_time"], s_row["end_time"],
+                        s_row["duration_seconds"], s_row["total_steps"], s_row["model"],
+                        s_row["workspace_path"], s_row["transcript_path"], s_row["file_size_bytes"],
+                        s_row["has_errors"], s_row["tool_call_count"], s_row["tool_error_count"],
+                        s_row["intervention_count"]
+                    ))
+                    conn.commit()
+            conn.close()
+            print(f"✔ Synchronized session {report['session_id'][:8]} and {len(report['subagents'])} subagents into telemetry.db\n")
+
+        if as_json:
+            print(json.dumps(report, indent=2))
+        else:
+            analyze_live_session.print_report(report)
+
+        if out_path:
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2)
+            print(f"✔ Exported structured analysis to {out_path}")
+        return 0
     else:
         sys.stderr.write(f"Error: Unknown audit stage '{sub}'.\n")
         return 1
@@ -391,9 +469,13 @@ def build_parser() -> argparse.ArgumentParser:
         "stage",
         nargs="?",
         default="all",
-        choices=["all", "extract", "classify", "inventory", "dynamics", "traces", "interventions"],
+        choices=["all", "extract", "classify", "inventory", "dynamics", "traces", "interventions", "session", "live"],
         help="Audit pipeline stage to run (default: all)",
     )
+    p_audit.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID for session audit")
+    p_audit.add_argument("--save-db", action="store_true", help="Sync audited session into data/telemetry.db")
+    p_audit.add_argument("--out", type=Path, default=None, help="Export session analysis JSON path")
+    p_audit.add_argument("--json", action="store_true", help="Output session report in JSON format")
 
     # skills
     p_skills = subparsers.add_parser("skills", help="List and inspect modular product skills")
