@@ -106,6 +106,34 @@ def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
                     and len(val) >= 2
                 ):
                     result[key] = val[1:-1]
+                elif val.startswith("[") and val.endswith("]"):
+                    inner = val[1:-1].strip()
+                    if not inner:
+                        result[key] = []
+                    else:
+                        result[key] = [
+                            item.strip().strip("'\"")
+                            for item in inner.split(",")
+                            if item.strip()
+                        ]
+                elif val.startswith("{") and val.endswith("}"):
+                    inner = val[1:-1].strip()
+                    c_dict: Dict[str, Any] = {}
+                    if inner:
+                        for pair in inner.split(","):
+                            if ":" in pair:
+                                pk, pv = pair.split(":", 1)
+                                pk = pk.strip().strip("'\"")
+                                pv = pv.strip().strip("'\"")
+                                if pv.lower() == "true":
+                                    c_dict[pk] = True
+                                elif pv.lower() == "false":
+                                    c_dict[pk] = False
+                                elif pv.isdigit():
+                                    c_dict[pk] = int(pv)
+                                else:
+                                    c_dict[pk] = pv
+                    result[key] = c_dict
                 else:
                     result[key] = val
         i += 1

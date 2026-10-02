@@ -41,7 +41,7 @@ class TestSpecialistSubagents(unittest.TestCase):
     def test_list_agents_discovers_all_archetypes(self) -> None:
         """Every specialist agent in harness/agents/ must be loaded and cataloged."""
         agents = list_agent_specs()
-        self.assertEqual(len(agents), 3)
+        self.assertEqual(len(agents), 5)
 
         archetypes = {a.archetype for a in agents}
         self.assertEqual(
@@ -50,6 +50,8 @@ class TestSpecialistSubagents(unittest.TestCase):
                 AgentArchetype.EXECUTIONER,
                 AgentArchetype.HAMMER,
                 AgentArchetype.AUDITOR,
+                AgentArchetype.PLANNER,
+                AgentArchetype.COORDINATOR,
             },
         )
 
@@ -78,11 +80,16 @@ class TestSpecialistSubagents(unittest.TestCase):
                     0,
                     f"Agent '{agent.name}' must declare at least one allowed tool",
                 )
-                # Verify subagent recursion is disabled across all specialist agents
-                self.assertFalse(
-                    agent.can_subagent,
-                    f"Specialist agent '{agent.name}' must not have subagent recursion enabled",
-                )
+                if agent.archetype == AgentArchetype.COORDINATOR:
+                    self.assertTrue(
+                        agent.can_subagent,
+                        f"Coordinator '{agent.name}' must have subagent permission enabled",
+                    )
+                else:
+                    self.assertFalse(
+                        agent.can_subagent,
+                        f"Specialist agent '{agent.name}' must not have subagent recursion enabled",
+                    )
 
     def test_builder_toolgroup_permissions(self) -> None:
         """Builder (Executioner) must have write tools, exec tools, and no subagents."""
@@ -142,6 +149,42 @@ class TestSpecialistSubagents(unittest.TestCase):
                 wt, tool_set, f"Auditor must NEVER include write tool '{wt}'"
             )
 
+    def test_planner_toolgroup_permissions(self) -> None:
+        """Planner must have read permission, zero write/exec, and MCP enabled."""
+        planner = get_agent_spec("planner")
+        self.assertIsNotNone(planner)
+        self.assertEqual(planner.archetype, AgentArchetype.PLANNER)
+        self.assertTrue(planner.permissions.read)
+        self.assertFalse(planner.can_write, "Planner must not have write permission")
+        self.assertFalse(planner.can_execute, "Planner must not have exec permission")
+        self.assertFalse(planner.can_subagent, "Planner must not spawn subagents")
+        self.assertTrue(planner.can_mcp, "Planner must have MCP access")
+
+        tool_set = set(planner.allowed_tools)
+        for wt in self.WRITE_TOOLS:
+            self.assertNotIn(wt, tool_set, f"Planner must NEVER include write tool '{wt}'")
+        self.assertNotIn("run_command", tool_set)
+        self.assertIn("view_file", tool_set)
+        self.assertIn("manage_task", tool_set)
+
+    def test_coordinator_toolgroup_permissions(self) -> None:
+        """Coordinator must have read and subagent permissions, but zero write/exec."""
+        coord = get_agent_spec("coordinator")
+        self.assertIsNotNone(coord)
+        self.assertEqual(coord.archetype, AgentArchetype.COORDINATOR)
+        self.assertTrue(coord.permissions.read)
+        self.assertFalse(coord.can_write, "Coordinator must not have write permission")
+        self.assertFalse(coord.can_execute, "Coordinator must not have exec permission")
+        self.assertTrue(coord.can_subagent, "Coordinator must have subagent permission")
+
+        tool_set = set(coord.allowed_tools)
+        for wt in self.WRITE_TOOLS:
+            self.assertNotIn(wt, tool_set, f"Coordinator must NEVER include write tool '{wt}'")
+        self.assertNotIn("run_command", tool_set)
+        self.assertIn("invoke_subagent", tool_set)
+        self.assertIn("send_message", tool_set)
+        self.assertIn("manage_subagents", tool_set)
+
     def test_get_agent_spec_lookups_and_aliases(self) -> None:
         """get_agent_spec must resolve names, stems, and archetype aliases."""
         self.assertIsNotNone(get_agent_spec("harness_builder"))
@@ -156,6 +199,12 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIsNotNone(get_agent_spec("harness_auditor"))
         self.assertIsNotNone(get_agent_spec("auditor"))
         self.assertIsNotNone(get_agent_spec("qa"))
+
+        self.assertIsNotNone(get_agent_spec("planner"))
+        self.assertIsNotNone(get_agent_spec("architect"))
+
+        self.assertIsNotNone(get_agent_spec("coordinator"))
+        self.assertIsNotNone(get_agent_spec("orchestrator"))
 
         self.assertIsNone(get_agent_spec("unknown_agent_spec"))
 
@@ -173,6 +222,10 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertEqual(
             AgentArchetype.from_string("qa_verifier"), AgentArchetype.AUDITOR
         )
+        self.assertEqual(AgentArchetype.from_string("planner"), AgentArchetype.PLANNER)
+        self.assertEqual(AgentArchetype.from_string("architect"), AgentArchetype.PLANNER)
+        self.assertEqual(AgentArchetype.from_string("coordinator"), AgentArchetype.COORDINATOR)
+        self.assertEqual(AgentArchetype.from_string("orchestrator"), AgentArchetype.COORDINATOR)
 
         with self.assertRaises(ValueError):
             AgentArchetype.from_string("non_existent_archetype")
@@ -182,11 +235,13 @@ class TestSpecialistSubagents(unittest.TestCase):
         target = self.isolated_path / "agents_target"
         synced = sync_agent_definitions(target_dir=target)
 
-        self.assertEqual(len(synced), 3)
+        self.assertEqual(len(synced), 5)
         for expected_file in [
             "harness_builder.md",
             "harness_reviewer.md",
             "harness_auditor.md",
+            "planner.md",
+            "coordinator.md",
         ]:
             dest = target / expected_file
             self.assertTrue(dest.exists(), f"Expected synced file {dest} not found")
@@ -213,7 +268,7 @@ class TestSpecialistSubagents(unittest.TestCase):
 
     def test_zero_exploration_invariant_in_prompts(self) -> None:
         """All specialist subagent system prompts must enforce Zero-Exploration Invariant."""
-        for name in ("harness_auditor", "harness_builder", "harness_reviewer"):
+        for name in ("harness_auditor", "harness_builder", "harness_reviewer", "planner", "coordinator"):
             agent = get_agent_spec(name)
             self.assertIsNotNone(agent, f"Agent {name} must exist")
             self.assertIn(

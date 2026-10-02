@@ -438,6 +438,41 @@ class TestAntiDriftHook(unittest.TestCase):
             self.assertEqual(res["decision"], "deny")
             self.assertIn("PSL Auditor Invariant", res["reason"])
 
+    def test_planner_and_coordinator_write_block(self):
+        """Planner and coordinator subagents are blocked from mutating files."""
+        for role in ("planner", "architect", "coordinator", "orchestrator"):
+            payload = {
+                "role": role,
+                "toolCall": {
+                    "name": "replace_file_content",
+                    "args": {"TargetFile": "src/app.py"},
+                },
+            }
+            res = check_auditor_write_block(payload)
+            self.assertIsNotNone(res, f"Expected block for {role}")
+            self.assertEqual(res["decision"], "deny")
+            self.assertIn("PSL Write-Block Guard", res["reason"])
+
+    def test_explicit_write_false_block(self):
+        """Any agent with write: false or permissions: {write: false} is blocked from mutating files."""
+        payload1 = {
+            "role": "custom_agent",
+            "write": False,
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": "src/app.py"}},
+        }
+        res1 = check_auditor_write_block(payload1)
+        self.assertIsNotNone(res1)
+        self.assertEqual(res1["decision"], "deny")
+
+        payload2 = {
+            "role": "custom_agent_2",
+            "permissions": {"write": False},
+            "toolCall": {"name": "replace_file_content", "args": {"TargetFile": "src/app.py"}},
+        }
+        res2 = check_auditor_write_block(payload2)
+        self.assertIsNotNone(res2)
+        self.assertEqual(res2["decision"], "deny")
+
 
 if __name__ == "__main__":
     unittest.main()

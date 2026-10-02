@@ -3,12 +3,25 @@ name: harness_builder
 archetype: executioner
 description: Surgical single-phase task execution following an approved implementation plan.
 role: Executioner (Worker / Implementer)
+subagent: true
+mainAgent: true
+model: inherit
 permissions:
   read: true
   write: true
   execute: true
   subagents: false
   mcp: false
+  enable_write_tools: true
+tools:
+  - view_file
+  - list_dir
+  - grep_search
+  - find_by_name
+  - write_to_file
+  - replace_file_content
+  - run_command
+  - manage_task
 allowed_tools:
   - view_file
   - list_dir

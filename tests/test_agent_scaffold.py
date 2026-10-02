@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""
+Hermetic unit and integration tests for PSL Agent Scaffolding & Validation Engine (ADR-026).
+
+Tests:
+- Capability bundle hierarchies and ANTIGRAVITY_PLATFORM_TOOLS membership
+- Workspace context inspection across package manifests
+- Deterministic Markdown scaffolding with hybrid grounding
+- Validation gate: invalid tool rejection, contradiction checks, invariant enforcement
+- CLI 'agents create' and 'agents validate' end-to-end execution
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from harness.cli import main
+from harness.skills import parse_frontmatter
+from harness.subagents import (
+    ANTIGRAVITY_PLATFORM_TOOLS,
+    CAPABILITY_BUNDLES,
+    REPO_ROOT,
+    AgentArchetype,
+    ToolPermissions,
+    inspect_workspace_context,
+    load_agent_spec,
+    scaffold_agent_markdown,
+    validate_agent_spec,
+)
+
+
+class TestAgentScaffoldAndValidation(unittest.TestCase):
+    """Test suite for agent generator, validator, and CLI commands."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_platform_tools_and_capability_bundles(self) -> None:
+        """Every tool in capability bundles must exist in ANTIGRAVITY_PLATFORM_TOOLS."""
+        self.assertIn("read_only", CAPABILITY_BUNDLES)
+        self.assertIn("verifier", CAPABILITY_BUNDLES)
+        self.assertIn("builder", CAPABILITY_BUNDLES)
+        self.assertIn("orchestrator", CAPABILITY_BUNDLES)
+
+        for bundle_name, tools in CAPABILITY_BUNDLES.items():
+            for tool in tools:
+                self.assertIn(
+                    tool,
+                    ANTIGRAVITY_PLATFORM_TOOLS,
+                    f"Tool '{tool}' in bundle '{bundle_name}' not in ANTIGRAVITY_PLATFORM_TOOLS",
+                )
+
+        # Bundle hierarchies
+        read_only = set(CAPABILITY_BUNDLES["read_only"])
+        verifier = set(CAPABILITY_BUNDLES["verifier"])
+        builder = set(CAPABILITY_BUNDLES["builder"])
+        orchestrator = set(CAPABILITY_BUNDLES["orchestrator"])
+
+        self.assertTrue(read_only.issubset(verifier))
+        self.assertTrue(verifier.issubset(builder))
+        self.assertTrue(read_only.issubset(orchestrator))
+
+        self.assertIn("run_command", verifier)
+        self.assertIn("write_to_file", builder)
+        self.assertIn("replace_file_content", builder)
+        self.assertIn("invoke_subagent", orchestrator)
+        self.assertNotIn("write_to_file", orchestrator)
+
+    def test_inspect_workspace_context_repo_root(self) -> None:
+        """inspect_workspace_context successfully parses current repo project files."""
+        ctx = inspect_workspace_context(REPO_ROOT)
+        self.assertEqual(ctx["project_name"], "psl-agy-harness")
+        self.assertIn("Python", ctx["languages"])
+        self.assertIn("pytest", ctx["test_runners"])
+        self.assertIn("pyproject.toml", ctx["detected_files"])
+        self.assertIn("package.json", ctx["detected_files"])
+        self.assertIsInstance(ctx["commands"], list)
+        self.assertIsInstance(ctx["rules"], list)
+
+    def test_inspect_workspace_context_isolated(self) -> None:
+        """inspect_workspace_context parses Cargo.toml, AGENTS.md, and matrix.json."""
+        (self.workspace / "Cargo.toml").write_text(
+            '[package]\nname = "my-rust-crate"\nversion = "0.1.0"\n', encoding="utf-8"
+        )
+        (self.workspace / "AGENTS.md").write_text(
+            "# Rules\n- Rule 1: Zero error swallowing\n- Rule 2: Hermetic tests\n",
+            encoding="utf-8",
+        )
+        (self.workspace / "matrix.json").write_text(
+            json.dumps({"python": "3.12", "shell": "bash"}), encoding="utf-8"
+        )
+
+        ctx = inspect_workspace_context(self.workspace)
+        self.assertEqual(ctx["project_name"], "my-rust-crate")
+        self.assertIn("Rust", ctx["languages"])
+        self.assertIn("cargo test", ctx["test_runners"])
+        self.assertTrue(any("Zero error swallowing" in r for r in ctx["rules"]))
+        self.assertIn("Cargo.toml", ctx["detected_files"])
+        self.assertIn("AGENTS.md", ctx["detected_files"])
+        self.assertIn("matrix.json", ctx["detected_files"])
+
+    def test_scaffold_agent_markdown_structure(self) -> None:
+        """scaffold_agent_markdown generates valid YAML frontmatter and hybrid prompt."""
+        ws_ctx = {
+            "project_name": "sample-project",
+            "languages": ["Python", "TypeScript"],
+            "test_runners": ["pytest"],
+            "commands": ["test", "lint"],
+            "rules": ["Enforce strict types"],
+        }
+        md = scaffold_agent_markdown(
+            name="custom_worker",
+            archetype=AgentArchetype.EXECUTIONER,
+            workspace_context=ws_ctx,
+            custom_instructions="Focus on performance.",
+        )
+
+        self.assertTrue(md.startswith("---"))
+        fm, prompt = parse_frontmatter(md)
+        self.assertEqual(fm["name"], "custom_worker")
+        self.assertEqual(fm["archetype"], "executioner")
+        self.assertTrue(fm["subagent"])
+        self.assertTrue(fm["mainAgent"])
+        self.assertEqual(fm["model"], "inherit")
+        self.assertTrue(fm["permissions"]["write"])
+        self.assertTrue(fm["permissions"]["execute"])
+        self.assertFalse(fm["permissions"]["subagents"])
+
+        # Check hybrid grounding in body
+        self.assertIn("sample-project", prompt)
+        self.assertIn("Python, TypeScript", prompt)
+        self.assertIn("Enforce strict types", prompt)
+        self.assertIn("Zero-Exploration Invariant", prompt)
+        self.assertIn("Focus on performance.", prompt)
+
+    def test_validate_agent_spec_accepts_valid_scaffold(self) -> None:
+        """Generated agents from scaffold_agent_markdown pass validation with zero errors."""
+        for arch in AgentArchetype:
+            with self.subTest(archetype=arch.value):
+                md = scaffold_agent_markdown(name=f"test_{arch.value}", archetype=arch)
+                spec_path = self.workspace / f"test_{arch.value}.md"
+                spec_path.write_text(md, encoding="utf-8")
+
+                errors = validate_agent_spec(spec_path)
+                self.assertEqual(errors, [], f"Validation failed for {arch.value}: {errors}")
+
+    def test_validate_agent_spec_rejects_unknown_tools(self) -> None:
+        """Rejects agent specs declaring tools not in ANTIGRAVITY_PLATFORM_TOOLS."""
+        invalid_md = """---
+name: bad_agent
+archetype: hammer
+description: Invalid tool test.
+role: Reviewer
+subagent: true
+mainAgent: true
+model: inherit
+permissions:
+  read: true
+  write: false
+  execute: false
+  subagents: false
+tools:
+  - view_file
+  - imaginary_nonexistent_tool
+allowed_tools:
+  - view_file
+  - imaginary_nonexistent_tool
+---
+
+# Reviewer
+
+You are `bad_agent`.
+
+## Operational Invariants
+1. Zero-Exploration Invariant: Prohibit blind list_dir and find_by_name sweeps.
+"""
+        bad_path = self.workspace / "bad_agent.md"
+        bad_path.write_text(invalid_md, encoding="utf-8")
+
+        errors = validate_agent_spec(bad_path)
+        self.assertTrue(any("imaginary_nonexistent_tool" in e for e in errors))
+
+    def test_validate_agent_spec_detects_contradictions(self) -> None:
+        """Rejects agent specs declaring write tools when permissions.write is false."""
+        contradictory_md = """---
+name: liar_agent
+archetype: hammer
+description: Contradictory permission test.
+role: Reviewer
+subagent: true
+mainAgent: true
+model: inherit
+permissions:
+  read: true
+  write: false
+  execute: false
+  subagents: false
+tools:
+  - view_file
+  - write_to_file
+allowed_tools:
+  - view_file
+  - write_to_file
+---
+
+# Reviewer
+
+You are `liar_agent`.
+
+## Operational Invariants
+1. Zero-Exploration Invariant: Prohibit blind list_dir and find_by_name sweeps.
+"""
+        c_path = self.workspace / "liar_agent.md"
+        c_path.write_text(contradictory_md, encoding="utf-8")
+
+        errors = validate_agent_spec(c_path)
+        self.assertTrue(any("Contradiction: agent has 'write: false'" in e for e in errors))
+
+    def test_validate_agent_spec_requires_zero_exploration_invariant(self) -> None:
+        """Rejects agent specs that do not enforce the Zero-Exploration Invariant."""
+        no_zero_expl = """---
+name: careless_agent
+archetype: hammer
+description: Missing invariant test.
+role: Reviewer
+subagent: true
+mainAgent: true
+model: inherit
+permissions:
+  read: true
+  write: false
+  execute: false
+  subagents: false
+tools:
+  - view_file
+allowed_tools:
+  - view_file
+---
+
+# Reviewer
+
+You are `careless_agent`. Explore the whole repository freely!
+"""
+        c_path = self.workspace / "careless_agent.md"
+        c_path.write_text(no_zero_expl, encoding="utf-8")
+
+        errors = validate_agent_spec(c_path)
+        self.assertTrue(any("Zero-Exploration Invariant" in e for e in errors))
+
+    def test_cli_agents_create_and_validate(self) -> None:
+        """CLI agents create and validate subcommands function end-to-end."""
+        agent_name = "test_cli_agent_scaffold"
+        created_file = REPO_ROOT / ".agents" / "agents" / f"{agent_name}.md"
+
+        try:
+            # 1. Create agent via CLI
+            buf_out = io.StringIO()
+            with patch("sys.stdout", buf_out):
+                exit_code = main([
+                    "agents",
+                    "create",
+                    agent_name,
+                    "--archetype",
+                    "planner",
+                    "--bundle",
+                    "read_only",
+                    "--scope",
+                    "project",
+                ])
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(created_file.is_file())
+            self.assertIn(f"Created agent '{agent_name}'", buf_out.getvalue())
+
+            # 2. Validate created agent via CLI by name
+            buf_out2 = io.StringIO()
+            with patch("sys.stdout", buf_out2):
+                val_code = main(["agents", "validate", agent_name])
+            self.assertEqual(val_code, 0)
+            self.assertIn("is valid", buf_out2.getvalue())
+
+            # 3. Validate created agent via CLI by path
+            buf_out3 = io.StringIO()
+            with patch("sys.stdout", buf_out3):
+                val_code2 = main(["agents", "validate", str(created_file)])
+            self.assertEqual(val_code2, 0)
+            self.assertIn("is valid", buf_out3.getvalue())
+
+            # 4. Validate non-existent agent returns error
+            buf_err = io.StringIO()
+            with patch("sys.stderr", buf_err):
+                err_code = main(["agents", "validate", "non_existent_fake_agent_xyz"])
+            self.assertEqual(err_code, 1)
+            self.assertIn("not found", buf_err.getvalue())
+
+        finally:
+            if created_file.is_file():
+                created_file.unlink()
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -3,6 +3,9 @@ name: harness_auditor
 archetype: auditor
 description: Hermetic verification, doctor audit, and sub-second test suite benchmarking.
 role: QA Verifier (Hermetic Benchmark Auditor)
+subagent: true
+mainAgent: true
+model: inherit
 permissions:
   read: true
   write: false
@@ -10,6 +13,13 @@ permissions:
   subagents: false
   mcp: false
   enable_write_tools: true
+tools:
+  - view_file
+  - list_dir
+  - grep_search
+  - find_by_name
+  - run_command
+  - manage_task
 allowed_tools:
   - view_file
   - list_dir

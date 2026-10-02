@@ -258,10 +258,11 @@ def check_drift(target_file: str, plan_files: set[str], strict: bool = False) ->
 
 def check_auditor_write_block(payload: dict) -> Optional[dict]:
     """
-    PSL PreToolUse Auditor Write-Block Guard (ADR-025).
+    PSL PreToolUse Write-Block Guard (ADR-024 / ADR-025).
 
     Blocks file modification tools (write_to_file, replace_file_content, edit_file)
-    when the calling subagent role is an auditor (harness_auditor, auditor).
+    when the calling subagent role is an auditor, planner, coordinator, reviewer,
+    or any agent declaring write: false.
     """
     if not isinstance(payload, dict):
         return None
@@ -282,7 +283,35 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
         r_lower in ("auditor", "harness_auditor", "qa_verifier", "qa")
         or "auditor" in r_lower
     )
-    if not is_auditor:
+    is_planner = (
+        r_lower in ("planner", "architect", "designer", "researcher")
+        or "planner" in r_lower
+    )
+    is_coordinator = (
+        r_lower in ("coordinator", "orchestrator", "swarm_lead", "lead")
+        or "coordinator" in r_lower
+    )
+    is_reviewer = (
+        r_lower in ("hammer", "reviewer", "inspector", "harness_reviewer")
+        or "reviewer" in r_lower
+    )
+
+    perms = payload.get("permissions")
+    explicit_write_false = (
+        payload.get("write") is False
+        or payload.get("can_write") is False
+        or (isinstance(perms, dict) and perms.get("write") is False)
+    )
+
+    is_builder = (
+        r_lower in ("builder", "worker", "implementer", "harness_builder", "executioner")
+        or "builder" in r_lower
+    )
+    if is_builder and not explicit_write_false:
+        return None
+
+    should_block = is_auditor or is_planner or is_coordinator or is_reviewer or explicit_write_false
+    if not should_block:
         return None
 
     tool_call = payload.get("toolCall", {})
@@ -295,11 +324,18 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
 
     tool_lower = tool_name.strip().lower()
     if tool_lower in ("write_to_file", "replace_file_content", "edit_file"):
+        if is_auditor:
+            reason = "PSL Auditor Invariant: harness_auditor is strictly verification-only and cannot mutate files."
+        elif is_planner:
+            reason = f"PSL Write-Block Guard: {role or 'planner'} is artifact-only and cannot mutate files directly."
+        elif is_coordinator:
+            reason = f"PSL Write-Block Guard: {role or 'coordinator'} is orchestration-only and cannot mutate files."
+        else:
+            reason = f"PSL Write-Block Guard: agent '{role or 'agent'}' has write: false and cannot mutate files."
+
         return {
             "decision": "deny",
-            "reason": (
-                "PSL Auditor Invariant: harness_auditor is strictly verification-only and cannot mutate files."
-            ),
+            "reason": reason,
         }
 
     return None

@@ -310,9 +310,148 @@ def cmd_skills(args: argparse.Namespace) -> int:
 
 
 def cmd_agents(args: argparse.Namespace) -> int:
-    """Lists, inspects, or synchronizes specialist subagents."""
-    from harness.subagents import get_agent_spec, list_agent_specs, sync_agent_definitions
+    """Lists, inspects, creates, validates, or synchronizes specialist subagents."""
+    from harness.subagents import (
+        DEFAULT_AGENTS_DIR,
+        REPO_ROOT,
+        AgentArchetype,
+        CAPABILITY_BUNDLES,
+        get_agent_spec,
+        inspect_workspace_context,
+        list_agent_specs,
+        scaffold_agent_markdown,
+        sync_agent_definitions,
+        validate_agent_spec,
+    )
 
+    action_or_name = getattr(args, "name", None)
+    target_name = getattr(args, "target_name", None)
+
+    # 1. agents create <name>
+    if action_or_name == "create":
+        name = target_name
+        if not name:
+            if sys.stdin.isatty():
+                try:
+                    name = input("Enter agent name: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    sys.stderr.write("\nAborted.\n")
+                    return 1
+            if not name:
+                sys.stderr.write("Error: Agent name is required for create.\n")
+                return 1
+
+        name = name.strip().lower().replace(" ", "_")
+        arch_str = getattr(args, "archetype", None)
+        if not arch_str:
+            if sys.stdin.isatty():
+                print("Available archetypes:")
+                print("  1) executioner  (Worker / Implementer)")
+                print("  2) hammer       (Ruthless Reviewer)")
+                print("  3) auditor      (QA Verifier)")
+                print("  4) planner      (Architect / Planner)")
+                print("  5) coordinator  (Swarm Coordinator)")
+                try:
+                    choice = input("Select archetype [1-5 or name] (default: executioner): ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    sys.stderr.write("\nAborted.\n")
+                    return 1
+                mapping = {"1": "executioner", "2": "hammer", "3": "auditor", "4": "planner", "5": "coordinator"}
+                arch_str = mapping.get(choice, choice) or "executioner"
+            else:
+                arch_str = "executioner"
+
+        try:
+            archetype = AgentArchetype.from_string(arch_str)
+        except ValueError as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            return 1
+
+        bundle_str = getattr(args, "bundle", None)
+        if not bundle_str:
+            if sys.stdin.isatty():
+                print("Available capability bundles:")
+                print("  1) read_only    (view_file, list_dir, grep_search, find_by_name, read_url, search_web)")
+                print("  2) verifier     (read_only + run_command, manage_task)")
+                print("  3) builder      (verifier + write_to_file, replace_file_content)")
+                print("  4) orchestrator (read_only + invoke_subagent, send_message, manage_subagents, manage_task)")
+                try:
+                    choice = input("Select capability bundle [1-4 or name] (default: auto): ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    sys.stderr.write("\nAborted.\n")
+                    return 1
+                b_map = {"1": "read_only", "2": "verifier", "3": "builder", "4": "orchestrator"}
+                bundle_str = b_map.get(choice, choice) or None
+
+        scope = getattr(args, "scope", "project") or "project"
+        if scope == "global":
+            target_dir = Path.home() / ".gemini" / "antigravity" / "agents"
+        else:
+            target_dir = REPO_ROOT / ".agents" / "agents"
+
+        model = getattr(args, "model", "inherit") or "inherit"
+        ws_ctx = inspect_workspace_context()
+        content = scaffold_agent_markdown(
+            name=name,
+            archetype=archetype,
+            bundle=bundle_str,
+            model=model,
+            workspace_context=ws_ctx,
+        )
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        out_path = target_dir / f"{name}.md"
+        out_path.write_text(content, encoding="utf-8")
+
+        val_errors = validate_agent_spec(out_path)
+        if val_errors:
+            for e in val_errors:
+                sys.stderr.write(f"Warning: {e}\n")
+
+        print(f"✔ Created agent '{name}' ({archetype.value}) at {out_path}")
+        return 0
+
+    # 2. agents validate <path_or_name>
+    if action_or_name == "validate":
+        target = target_name
+        if not target:
+            sys.stderr.write("Error: Path or agent name required for validate.\n")
+            return 1
+
+        cand = Path(target)
+        found_file: Optional[Path] = None
+        if cand.is_file():
+            found_file = cand
+        else:
+            for check_dir in (REPO_ROOT / ".agents" / "agents", DEFAULT_AGENTS_DIR):
+                p1 = check_dir / f"{target}.md"
+                p2 = check_dir / target
+                if p1.is_file():
+                    found_file = p1
+                    break
+                elif p2.is_file():
+                    found_file = p2
+                    break
+            if not found_file:
+                spec = get_agent_spec(target)
+                if spec and spec.source_file and spec.source_file.is_file():
+                    found_file = spec.source_file
+
+        if not found_file:
+            sys.stderr.write(f"Error: Agent file '{target}' not found.\n")
+            return 1
+
+        errors = validate_agent_spec(found_file)
+        if not errors:
+            print(f"✔ Agent '{found_file.name}' is valid.")
+            return 0
+        else:
+            sys.stderr.write(f"✘ Agent '{found_file.name}' failed validation with {len(errors)} error(s):\n")
+            for err in errors:
+                sys.stderr.write(f"  • {err}\n")
+            return 1
+
+    # 3. agents --sync
     if getattr(args, "sync", False):
         synced = sync_agent_definitions()
         print(f"✔ Synchronized {len(synced)} agent definitions to .agents/agents/:")
@@ -320,10 +459,11 @@ def cmd_agents(args: argparse.Namespace) -> int:
             print(f"  • {p.name} -> {p}")
         return 0
 
-    if getattr(args, "name", None):
-        spec = get_agent_spec(args.name)
+    # 4. agents <name> (inspect)
+    if action_or_name:
+        spec = get_agent_spec(action_or_name)
         if not spec:
-            sys.stderr.write(f"Error: Agent '{args.name}' not found.\n")
+            sys.stderr.write(f"Error: Agent '{action_or_name}' not found.\n")
             return 1
         if getattr(args, "json", False):
             print(
@@ -628,10 +768,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_skills.add_argument("--json", action="store_true", help="Output skills in JSON format")
 
     # agents
-    p_agents = subparsers.add_parser("agents", help="List and inspect specialist subagent archetypes")
-    p_agents.add_argument("name", nargs="?", default=None, help="Name of specific agent to view")
+    p_agents = subparsers.add_parser("agents", help="List, inspect, create, or validate specialist subagents")
+    p_agents.add_argument("name", nargs="?", default=None, help="Name of specific agent to view, or action (create, validate)")
+    p_agents.add_argument("target_name", nargs="?", default=None, help="Target agent name for create or file/name for validate")
     p_agents.add_argument("--sync", action="store_true", help="Sync agent definitions to .agents/agents")
     p_agents.add_argument("--json", action="store_true", help="Output agents in JSON format")
+    p_agents.add_argument("--archetype", "-a", type=str, default=None, help="Agent archetype for creation (executioner, hammer, auditor, planner, coordinator)")
+    p_agents.add_argument("--bundle", "-b", type=str, default=None, help="Capability bundle (read_only, verifier, builder, orchestrator)")
+    p_agents.add_argument("--scope", type=str, choices=["project", "global"], default="project", help="Target scope (project or global)")
+    p_agents.add_argument("--model", "-m", type=str, default="inherit", help="Model specification (default: inherit)")
 
     # subagents
     p_subagents = subparsers.add_parser(

@@ -3,12 +3,20 @@ name: harness_reviewer
 archetype: hammer
 description: Delta-focused code review against the 5 Ground Rules and stack invariants.
 role: Hammer (Ruthless Reviewer / Auditor)
+subagent: true
+mainAgent: true
+model: inherit
 permissions:
   read: true
   write: false
   execute: false
   subagents: false
   mcp: false
+tools:
+  - view_file
+  - list_dir
+  - grep_search
+  - find_by_name
 allowed_tools:
   - view_file
   - list_dir
