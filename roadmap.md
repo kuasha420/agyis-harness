@@ -19,7 +19,7 @@ We rely heavily on Google's modern Gemini models—with **Gemini 3.8 Flash** as 
 ### The Product Definition
 Rather than creating an isolated competing framework that reinvents agent execution from scratch, **`psl-agy-harness` is a dual-purpose system**:
 1. **The Empirical Laboratory**: Automated telemetry mining tools that extract mathematical ground truth from thousands of real developer trajectories, loop patterns, and failure modes.
-2. **The Reference Extension Harness**: A high-performance, deterministic extension harness built *strictly on official Google Antigravity surfaces* (`plugin.json`, lifecycle hooks, MCP, rules) that solves environment and context bottlenecks deterministically in code—so our patterns can either be used directly by developers or **upstreamed directly to Google DeepMind**.
+2. **The Reference Extension Harness**: A high-performance, deterministic extension harness built *strictly on official Google Antigravity surfaces* (`plugin.json`, lifecycle hooks, MCP, rules) that solves environment and context bottlenecks deterministically in code, ensuring high autonomy and reliability for local and distributed agent execution.
 
 ### The Victory Playbook: Reinforcing What Worked Across 348 Sessions
 The mission of PAH is not merely defensive error mitigation; it is **actively codifying and amplifying the battle-tested patterns that produced near-zero error and intervention rates** across our empirical dataset:
@@ -104,7 +104,7 @@ A critical architectural boundary separates the runtime software delivered to ag
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **The Product**: Ships to developers, client projects, or upstream DeepMind. Contains zero developer-specific telemetry scripts or scratch files.
+1. **The Product**: Ships to developers and agent strands across workspaces. Contains zero developer-specific telemetry scripts or scratch files.
 2. **The Project**: The engineering repository where PAH is developed, containing the 348-session database, multi-dimensional taxonomy reports, and internal verification suites.
 
 ---
@@ -223,12 +223,3 @@ To protect both the operator and the agent from cognitive exhaustion, the harnes
   - Out-of-band multi-agent coordination via Linda Tuplespace and GitHub Discussions (`swarm-council`).
   - Decoupled visual cockpits on worker displays.
 
----
-
-### ⚪ Horizon 3: Upstream RFCs to Google DeepMind (UPSTREAM)
-* **Goal**: Feed empirical data and reference implementations back into official Google Antigravity platforms.
-* **Resolution**: **Low Resolution (Strategic Vision)**.
-* **Key Milestones**:
-  - RFC 1: Native configurable tool output compaction thresholds in `agy`.
-  - RFC 2: Native `PreToolUse` environment variable / PATH injection contracts.
-  - RFC 3: Deprecation of agent polling loops in favor of reactive task notification wakeups.

@@ -28,7 +28,7 @@ Rather than creating an isolated, competing framework that reinvents agent execu
 - **Audits Reality**: Ingests hundreds of local developer sessions (`~/.gemini/antigravity/brain/*/transcript.jsonl`) to construct an empirical taxonomy of real failure modes, loop states, and human operator interventions.
 - **Dissects Official Surfaces**: Deeply analyzes the official `google-antigravity` Python SDK, `agy` CLI, plugin manifests, lifecycle hooks (`PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop`), and MCP servers.
 - **Solves Friction in Code, Not Prompts**: Transparently guarantees certified runtimes and sanitized shell execution in deterministic lifecycle hooks, freeing prompt tokens for actual task reasoning.
-- **Upstreams Enhancements**: Delivers all patterns within official Antigravity plugin contracts so enhancements can be directly upstreamed to Google DeepMind.
+- **Strict Contract Adherence**: Delivers all patterns strictly within official Antigravity plugin contracts, lifecycle hooks, and MCP interfaces for seamless compatibility.
 
 ---
 
@@ -115,7 +115,7 @@ For the complete architectural design, cognitive guardrails, and horizon breakdo
 * **Horizon 0 (Current)**: Empirical Ground Truth & POC Prototyping (Completed & Compacted).
 * **Horizon 1 (Next Session)**: Product Foundation, Rule/Skill Delivery Architecture & In-Band Compactor.
 * **Horizon 2 (Future)**: Knot Hardware Mesh & Multi-Agent Fleet Scaling.
-* **Horizon 3 (Upstream)**: Reference RFC submissions to Google DeepMind.
+
 
 Permanent architectural decisions are recorded in the living compact ledger:
 👉 **[docs/taxonomy/project-ledger.md](docs/taxonomy/project-ledger.md)**
