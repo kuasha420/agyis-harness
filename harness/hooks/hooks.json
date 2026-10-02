@@ -40,5 +40,30 @@
         ]
       }
     ]
+  },
+  "psl-stop-verification-fence": {
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content|edit_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.cli hook verification-fence",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.cli hook verification-fence",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }

@@ -137,3 +137,19 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - CLI Integration: [harness/cli.py](harness/cli.py) (`psl audit volume`)
   - Canonical Report: [docs/taxonomy/tool-volume-distribution-report.md](docs/taxonomy/tool-volume-distribution-report.md)
   - Test Suite: [tests/test_volume_mining.py](tests/test_volume_mining.py)
+
+---
+
+## [Phase 1] Deterministic Stop-Hook Verification Fence
+* **Status**: Completed | **Compaction Date**: 2026-10-02
+* **Key Architectural Decisions (ADRs)**:
+  - **ADR-022 (Stop Verification Fence & State Machine)**: Deterministic gate on agent completion (`Stop`). Edits to code files (`.py`, `.ts`, `.rs`, `.go`, etc.) mark state dirty; docs (`.md`), assets (`.png`), and lockfiles are exempt. Agents cannot stop without clean verification (`./psl test`). Includes 2-block anti-deadlock safety valve and live `PreToolUse` file-write interception (`write_to_file`, `replace_file_content`, `edit_file`).
+* **Empirical Baselines Established & Verified**:
+  - Live interception via `PreToolUse` for `write_to_file`, `replace_file_content`, and `edit_file`.
+  - Automatic dirty-flag clearance across active conversations upon successful `./psl test` execution.
+  - Sub-second performance (<1.0s benchmark across 91 unit and contract tests).
+* **Reference Assets Committed**:
+  - Hook Implementation: [harness/hooks/completion_fence_hook.py](harness/hooks/completion_fence_hook.py)
+  - Lifecycle Configuration: [harness/hooks/hooks.json](harness/hooks/hooks.json)
+  - CLI Dispatch & Test Clearance: [harness/cli.py](harness/cli.py)
+  - Test Suite: [tests/test_completion_fence.py](tests/test_completion_fence.py)

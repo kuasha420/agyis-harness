@@ -146,6 +146,19 @@ class TestPslCli(unittest.TestCase):
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res, {})
 
+    def test_cli_hook_dispatch_verification_fence(self):
+        """Verifies `psl hook verification-fence` dispatches cleanly to completion_fence_hook."""
+        payload = {
+            "conversationId": "test-cli-fence",
+            "action": "evaluate_stop",
+        }
+        with patch("sys.stdin", io.StringIO(json.dumps(payload))), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["hook", "verification-fence"])
+            self.assertEqual(code, 0)
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res["decision"], "allow")
+
     def test_cli_test_runner(self):
         """Verifies `psl test` runs discovery against an isolated test folder without self-recursion."""
         sample_test = (
@@ -161,6 +174,38 @@ class TestPslCli(unittest.TestCase):
              patch("sys.stderr", new_callable=io.StringIO):
             code = main(["test", "-s", self.temp_dir.name])
             self.assertEqual(code, 0)
+
+    def test_cli_test_runner_clears_verification_states(self):
+        """Verifies `psl test` clears dirty flags across active state files."""
+        from harness.hooks import completion_fence_hook
+        # Record dirty states in multiple conversation files
+        completion_fence_hook.record_edit("src/file1.py", conv_id="conv-1")
+        completion_fence_hook.record_edit("src/file2.py", conv_id="conv-2")
+
+        state1 = completion_fence_hook.load_state(conv_id="conv-1")
+        self.assertTrue(state1["code_dirty"])
+
+        sample_test = (
+            "import unittest\n"
+            "class Sample(unittest.TestCase):\n"
+            "    def test_ok(self):\n"
+            "        self.assertTrue(True)\n"
+        )
+        sample_file = Path(self.temp_dir.name) / "test_clear_state_sample.py"
+        sample_file.write_text(sample_test, encoding="utf-8")
+
+        with patch("sys.stdout", new_callable=io.StringIO), \
+             patch("sys.stderr", new_callable=io.StringIO):
+            code = main(["test", "-s", self.temp_dir.name])
+            self.assertEqual(code, 0)
+
+        # Both states should now have code_dirty = False
+        state1_after = completion_fence_hook.load_state(conv_id="conv-1")
+        state2_after = completion_fence_hook.load_state(conv_id="conv-2")
+        self.assertFalse(state1_after["code_dirty"])
+        self.assertFalse(state2_after["code_dirty"])
+        self.assertEqual(state1_after["block_count"], 0)
+        self.assertEqual(state2_after["block_count"], 0)
 
     def test_cli_audit_session_json(self):
         """Verifies `psl audit session --json` parses and emits report."""

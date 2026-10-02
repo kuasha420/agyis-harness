@@ -20,7 +20,7 @@ import unittest
 from typing import List, Optional
 
 import harness
-from harness.hooks import anti_loop_hook, command_safety_hook, output_compactor_hook
+from harness.hooks import anti_loop_hook, command_safety_hook, completion_fence_hook, output_compactor_hook
 from pipeline import psl_doctor
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -73,10 +73,13 @@ def cmd_hook(args: argparse.Namespace) -> int:
     elif hook_name in ("compactor", "output-compactor", "output_compactor"):
         output_compactor_hook.main()
         return 0
+    elif hook_name in ("verification-fence", "fence", "stop-fence", "stop", "completion-fence"):
+        completion_fence_hook.main()
+        return 0
     else:
         sys.stderr.write(
             f"Error: Unknown hook '{args.hook_name}'. "
-            "Supported hooks: command-safety, anti-loop, output-compactor\n"
+            "Supported hooks: command-safety, anti-loop, output-compactor, verification-fence\n"
         )
         return 1
 
@@ -94,7 +97,14 @@ def cmd_test(args: argparse.Namespace) -> int:
     runner = unittest.TextTestRunner(verbosity=verbosity)
     result = runner.run(suite)
 
-    return 0 if result.wasSuccessful() else 1
+    success = result.wasSuccessful()
+    completion_fence_hook.record_verification(success=success)
+    state_dir = completion_fence_hook.get_state_dir()
+    if state_dir.exists():
+        for sf in state_dir.glob("verification_state_*.json"):
+            cid = sf.stem.replace("verification_state_", "")
+            completion_fence_hook.record_verification(success=success, conv_id=cid)
+    return 0 if success else 1
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
@@ -433,6 +443,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     print("   ✔ command-safety   (PreToolUse: CPython 3.12, f-string, grep sanitization)")
     print("   ✔ anti-loop        (PreToolUse: repetitive tool call breaker)")
     print("   ✔ output-compactor (PostToolUse: deterministic 2KB output truncation)")
+    print("   ✔ verification-fence (Stop: unverified code edit completion guard)")
     print("-" * 70)
     print(" Specialist Subagents:")
     for ag in agents:
@@ -469,7 +480,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_hook = subparsers.add_parser("hook", help="Run a lifecycle hook handler directly")
     p_hook.add_argument(
         "hook_name",
-        choices=["command-safety", "safety", "anti-loop", "loop", "output-compactor", "compactor"],
+        choices=[
+            "command-safety", "safety",
+            "anti-loop", "loop",
+            "output-compactor", "compactor",
+            "verification-fence", "fence", "stop-fence", "stop", "completion-fence",
+        ],
         help="Name of the lifecycle hook to invoke",
     )
 
