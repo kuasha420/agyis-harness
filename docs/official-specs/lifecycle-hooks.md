@@ -58,6 +58,7 @@ In `harness/hooks/`, we provide reference hooks:
 1. `anti_loop_hook.py`: Intercepts repetitive consecutive calls to identical files/queries in `PreToolUse`.
 2. `output_truncator_hook.py`: Monitors tool output size in `PostToolUse` to prevent context explosion.
 3. `completion_fence_hook.py`: Validates test/verification state in `Stop` before allowing the agent to claim victory.
+4. `command_safety_hook.py`: Audits `PreToolUse` shell execution, injects user toolchain PATH shims, enforces non-blocking network probe timeouts, and guarantees hermetic runtime safety (ADR-011, ADR-013, ADR-023).
 
 ### 3.1 The `psl-stop-verification-fence` Contract (ADR-022)
 
@@ -125,3 +126,33 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
 3. **Verification Clearance via Test Runner**:
    - Running `./psl test` or `python3 -m harness.cli test` executes the test suite.
    - Upon successful completion (`success == True`), clears `code_dirty = False`, resets `block_count = 0`, and sweeps all active session state files in `$PSL_HARNESS_STATE_DIR/verification_state_*.json`.
+
+
+### 3.2 Command Safety & Subshell PATH Reliability Contract (ADR-023)
+
+The `command_safety_hook.py` hook intercepts `run_command` in `PreToolUse` to guarantee reliable subshell execution:
+
+#### A. User-Space Toolchain PATH Shim Recovery
+- **Problem**: Non-login subshells (`bash -c "..."`) spawned by agent execution do not source user dotfiles (`~/.bashrc`, `~/.profile`), leading to Exit 127 ("command not found") for user-space binaries.
+- **Discovery**: `get_user_path_shims()` dynamically discovers candidate user toolchain directories if they exist on the host:
+  `~/.local/bin`, `~/.cargo/bin`, `~/.local/share/pnpm`, `~/.pyenv/shims`.
+- **Injection**: When a command invokes user toolchains (`uv`, `pnpm`, `npm`, `npx`, `cargo`, `rustc`, `pytest`, `ruff`, `black`, `mypy`, `flake8`, `tsc`) and `PATH=` is not already defined, `inject_path_shims()` prepends:
+  ```bash
+  export PATH="<discovered_shims>:$PATH"; <cmd>
+  ```
+- **Idempotency**: If `PATH=` or user-space paths are already present in the command string, no modification is performed.
+
+#### B. Network Probe Timeout Injection
+- **Problem**: Standalone `ssh` calls to unreachable or offline mesh nodes hang indefinitely, causing agent background tasks to stall.
+- **Injection**: When `ssh` is invoked without explicit timeout configuration, `inject_ssh_timeouts()` injects non-blocking options:
+  ```bash
+  -o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2
+  ```
+- **Idempotency**: If `ConnectTimeout` is already defined, the command is left untouched.
+
+#### C. Preserved Invariants
+- Hard-blocks dangerous patterns (`rm -rf /`, `mkfs`, `dd`).
+- Hard-blocks interactive TUI commands (`nano`, `vim`, `less`, etc.).
+- Enforces non-interactive pagers (`PAGER=cat` for `git`, `gh`).
+- Injects certified CPython 3.12+ for inline Python scripts (`python3 -c`) and sanitizes f-string quote escapes.
+- Surgical tail sanitization (`|| [ $? -eq 1 ]`) for standalone pattern searches (`grep`, `diff`).

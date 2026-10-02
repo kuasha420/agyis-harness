@@ -14,6 +14,11 @@ Audits and optimizes terminal commands before execution:
 6. Surgical Tail Sanitization: Neutralizes false-positive Exit Code 1 failures on
    standalone grep/diff pattern probes via `|| [ $? -eq 1 ]`, while preserving
    genuine Exit Code 2 errors.
+7. User-Space Toolchain PATH Shim Recovery: Discovers existing user bin directories
+   (~/.local/bin, ~/.cargo/bin, ~/.local/share/pnpm, ~/.pyenv/shims) and prepends
+   export PATH="<shims>:$PATH"; <cmd> for non-login subshell reliability (ADR-023).
+8. Network Probe Timeout Injection: Transparently injects non-blocking timeouts and
+   BatchMode flags into ssh invocations to prevent hanging background tasks (ADR-023).
 """
 
 from __future__ import annotations
@@ -38,6 +43,91 @@ DANGEROUS_PATTERNS = [
 INTERACTIVE_COMMANDS = [
     "nano", "vim", "vi", "emacs", "less", "more", "top", "htop", "glances"
 ]
+
+USER_TOOLCHAINS = (
+    "uv", "pnpm", "npm", "npx", "cargo", "rustc",
+    "pytest", "ruff", "black", "mypy", "flake8", "tsc",
+)
+
+USER_TOOLCHAIN_REGEX = re.compile(
+    r"(?:^|[;&|]\s*|\b(?:sudo|xargs|nohup|exec|env|time)\s+)\s*(?:/[^\s]+/)?\b("
+    + "|".join(USER_TOOLCHAINS)
+    + r")\b"
+)
+
+SSH_TIMEOUT_OPTIONS = "-o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2"
+
+SSH_PATTERN = re.compile(
+    r"(^|[;&|]\s*|(?:sudo|nohup|timeout\s+\S+)\s+)((?:\S+/)?ssh)(\s+|$)"
+)
+
+
+def get_user_path_shims() -> List[str]:
+    """
+    Discovers existing candidate user bin directories on the host:
+    ~/.local/bin, ~/.cargo/bin, ~/.local/share/pnpm, ~/.pyenv/shims.
+    """
+    candidates = [
+        Path.home() / ".local/bin",
+        Path.home() / ".cargo/bin",
+        Path.home() / ".local/share/pnpm",
+        Path.home() / ".pyenv/shims",
+    ]
+    return [str(p) for p in candidates if p.is_dir()]
+
+
+def inject_path_shims(cmd: str) -> Tuple[str, bool]:
+    """
+    Prepend export PATH="<shims>:$PATH"; <cmd> if user toolchains
+    (uv, pnpm, npm, npx, cargo, rustc, pytest, ruff, black, mypy, flake8, tsc)
+    are invoked and PATH= is not already defined. Idempotent.
+    """
+    if not cmd.strip():
+        return cmd, False
+
+    if "PATH=" in cmd:
+        return cmd, False
+
+    if not USER_TOOLCHAIN_REGEX.search(cmd):
+        return cmd, False
+
+    shims = get_user_path_shims()
+    if not shims:
+        return cmd, False
+
+    candidate_names = (".local/bin", ".cargo/bin", ".local/share/pnpm", ".pyenv/shims")
+    if any(shim in cmd for shim in shims) or any(cand in cmd for cand in candidate_names):
+        return cmd, False
+
+    shim_str = ":".join(shims)
+    return f'export PATH="{shim_str}:$PATH"; {cmd.strip()}', True
+
+
+def inject_ssh_timeouts(cmd: str) -> Tuple[str, bool]:
+    """
+    When ssh is called without -o ConnectTimeout=, injects:
+    -o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2.
+    Idempotent.
+    """
+    if not cmd.strip():
+        return cmd, False
+
+    if re.search(r"\bConnectTimeout=", cmd, re.IGNORECASE):
+        return cmd, False
+
+    m = SSH_PATTERN.search(cmd)
+    if not m:
+        return cmd, False
+
+    prefix = m.group(1)
+    ssh_bin = m.group(2)
+    sep = m.group(3) or " "
+    span_start = m.start()
+    span_end = m.end()
+
+    injected = f"{prefix}{ssh_bin} {SSH_TIMEOUT_OPTIONS}{sep}"
+    res = (cmd[:span_start] + injected + cmd[span_end:]).strip()
+    return res, True
 
 
 def find_hermetic_uv_python_bin() -> Optional[Path]:
@@ -195,7 +285,19 @@ def sanitize_command(raw_cmd: str) -> Tuple[Optional[str], Optional[str], Option
         modified_cmd = f"PAGER=cat {modified_cmd}"
         reasons.append("enforced non-interactive PAGER=cat")
 
-    # 4. Hermetic Python Runtime Injection & f-string expression sanitization
+    # 4. SSH timeout and non-blocking probe guards
+    mod_ssh, ssh_injected = inject_ssh_timeouts(modified_cmd)
+    if ssh_injected:
+        modified_cmd = mod_ssh
+        reasons.append("injected non-blocking SSH timeout and batch mode guards")
+
+    # 5. User-space toolchain PATH shim injection
+    mod_path, path_injected = inject_path_shims(modified_cmd)
+    if path_injected:
+        modified_cmd = mod_path
+        reasons.append("injected user-space toolchain PATH shims")
+
+    # 6. Hermetic Python Runtime Injection & f-string expression sanitization
     if is_inline_python_command(modified_cmd):
         # Sanitize spurious backslashes in f-strings
         sanitized_py = sanitize_fstring_expressions(modified_cmd)
@@ -208,7 +310,7 @@ def sanitize_command(raw_cmd: str) -> Tuple[Optional[str], Optional[str], Option
             modified_cmd = f'PATH="{hermetic_bin}:$PATH" {modified_cmd}'
             reasons.append("injected hermetic CPython >= 3.12 for PEP 701 f-string safety")
 
-    # 5. Surgical Tail Sanitization for simple grep / diff pattern searches
+    # 7. Surgical Tail Sanitization for simple grep / diff pattern searches
     if should_sanitize_grep_or_diff(cmd):
         modified_cmd = f"{modified_cmd} || [ $? -eq 1 ]"
         reasons.append("sanitized pattern search against benign Exit Code 1")

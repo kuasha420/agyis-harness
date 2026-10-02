@@ -9,7 +9,12 @@ import sqlite3
 import subprocess
 import unittest
 
+from unittest.mock import patch
+
 from harness.hooks.command_safety_hook import (
+    get_user_path_shims,
+    inject_path_shims,
+    inject_ssh_timeouts,
     is_inline_python_command,
     sanitize_command,
     should_sanitize_grep_or_diff,
@@ -98,6 +103,135 @@ class TestCommandSafety(unittest.TestCase):
         decision, mod, reason = sanitize_command("git diff | grep 'class '")
         self.assertEqual(decision, "allow")
         self.assertEqual(mod, "PAGER=cat git diff | grep 'class ' || [ $? -eq 1 ]")
+
+    def test_get_user_path_shims(self):
+        shims = get_user_path_shims()
+        self.assertIsInstance(shims, list)
+        for s in shims:
+            self.assertTrue(Path(s).is_dir())
+
+        # Test discovery with mocked directories
+        with patch("pathlib.Path.is_dir") as mock_is_dir:
+            # All 4 candidate dirs exist
+            mock_is_dir.return_value = True
+            mocked_shims = get_user_path_shims()
+            self.assertEqual(len(mocked_shims), 4)
+            self.assertTrue(any(".local/bin" in s for s in mocked_shims))
+            self.assertTrue(any(".cargo/bin" in s for s in mocked_shims))
+            self.assertTrue(any(".local/share/pnpm" in s for s in mocked_shims))
+            self.assertTrue(any(".pyenv/shims" in s for s in mocked_shims))
+
+    def test_user_path_shim_injection(self):
+        # Candidate toolchains
+        for tool in ("pnpm test", "uv run pytest", "cargo build --release", "pytest tests/"):
+            mod, changed = inject_path_shims(tool)
+            self.assertTrue(changed, f"Expected injection for: {tool}")
+            self.assertTrue(mod.startswith('export PATH="'), f"Expected PATH export for: {tool}")
+            self.assertIn(f':$PATH"; {tool}', mod)
+
+            decision, mod_cmd, reason = sanitize_command(tool)
+            self.assertEqual(decision, "allow")
+            self.assertIsNotNone(mod_cmd)
+            self.assertIn("injected user-space toolchain PATH shims", reason)
+
+        # Non-toolchain commands should not trigger injection
+        non_tools = ["ls -la", "echo 'hello'", "python script.py", "cat README.md"]
+        for cmd in non_tools:
+            mod, changed = inject_path_shims(cmd)
+            self.assertFalse(changed, f"Should not inject for: {cmd}")
+            self.assertEqual(mod, cmd)
+
+        # Already configured PATH should be ignored
+        already_configured = [
+            'export PATH="/custom/bin:$PATH"; pnpm test',
+            'PATH=/usr/bin cargo build',
+        ]
+        for cmd in already_configured:
+            mod, changed = inject_path_shims(cmd)
+            self.assertFalse(changed, f"Should not inject when PATH already present: {cmd}")
+            self.assertEqual(mod, cmd)
+
+        # Existing candidate path in command should not re-inject
+        with_candidate = "~/.local/bin/uv run pytest"
+        mod, changed = inject_path_shims(with_candidate)
+        self.assertFalse(changed)
+        self.assertEqual(mod, with_candidate)
+
+    def test_ssh_timeout_injection(self):
+        # Simple SSH invocation
+        mod, changed = inject_ssh_timeouts("ssh knot-desktop")
+        self.assertTrue(changed)
+        expected = "ssh -o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2 knot-desktop"
+        self.assertEqual(mod, expected)
+
+        # SSH with user, host, and remote command
+        mod, changed = inject_ssh_timeouts("ssh user@knot-laptop uptime")
+        self.assertTrue(changed)
+        expected = "ssh -o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2 user@knot-laptop uptime"
+        self.assertEqual(mod, expected)
+
+        # Absolute binary path
+        mod, changed = inject_ssh_timeouts("/usr/bin/ssh knot-deck")
+        self.assertTrue(changed)
+        expected = "/usr/bin/ssh -o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2 knot-deck"
+        self.assertEqual(mod, expected)
+
+        # Chained command
+        mod, changed = inject_ssh_timeouts("echo ping && ssh knot-desktop")
+        self.assertTrue(changed)
+        expected = "echo ping && ssh -o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2 knot-desktop"
+        self.assertEqual(mod, expected)
+
+        # End-to-end via sanitize_command
+        decision, mod_cmd, reason = sanitize_command("ssh knot-desktop")
+        self.assertEqual(decision, "allow")
+        self.assertIn("-o ConnectTimeout=5", mod_cmd)
+        self.assertIn("-o BatchMode=yes", mod_cmd)
+        self.assertIn("injected non-blocking SSH timeout and batch mode guards", reason)
+
+        # Existing ConnectTimeout should not be touched
+        existing_timeout = "ssh -o ConnectTimeout=10 knot-desktop"
+        mod, changed = inject_ssh_timeouts(existing_timeout)
+        self.assertFalse(changed)
+        self.assertEqual(mod, existing_timeout)
+
+        # Non-ssh commands containing 'ssh' substring or path
+        non_ssh = [
+            "cat ~/.ssh/config",
+            "ssh-keygen -t ed25519",
+            "ssh-copy-id knot-desktop",
+            "git clone git@github.com:foo/bar.git",
+        ]
+        for cmd in non_ssh:
+            mod, changed = inject_ssh_timeouts(cmd)
+            self.assertFalse(changed, f"Should not inject for non-ssh command: {cmd}")
+            self.assertEqual(mod, cmd)
+
+    def test_idempotency(self):
+        # PATH shims idempotency
+        for cmd in ("pnpm build", "uv run pytest", "cargo test", "pytest tests/"):
+            mod1, changed1 = inject_path_shims(cmd)
+            self.assertTrue(changed1)
+            mod2, changed2 = inject_path_shims(mod1)
+            self.assertFalse(changed2)
+            self.assertEqual(mod1, mod2)
+
+        # SSH timeout idempotency
+        mod1, changed1 = inject_ssh_timeouts("ssh knot-desktop")
+        self.assertTrue(changed1)
+        mod2, changed2 = inject_ssh_timeouts(mod1)
+        self.assertFalse(changed2)
+        self.assertEqual(mod1, mod2)
+
+        # Full sanitize_command pipeline idempotency
+        for cmd in ("pnpm test", "ssh knot-desktop"):
+            decision1, mod1, reason1 = sanitize_command(cmd)
+            self.assertEqual(decision1, "allow")
+            self.assertIsNotNone(mod1)
+            decision2, mod2, reason2 = sanitize_command(mod1)
+            self.assertEqual(decision2, "allow")
+            self.assertIsNone(mod2)
+            self.assertIsNone(reason2)
 
     def test_historical_fstring_failures_replay(self):
         """
