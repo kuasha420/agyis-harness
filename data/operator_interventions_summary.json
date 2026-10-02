@@ -1,0 +1,265 @@
+{
+  "total_interventions": 1690,
+  "breakdown_by_type": {
+    "OPERATOR_GUIDANCE": 1054,
+    "CONFIRMATION": 261,
+    "CONTINUATION": 128,
+    "STEERING": 127,
+    "CREDENTIALS": 98,
+    "ERROR_RECOVERY": 22
+  },
+  "preceding_failed_tools": {
+    "run_command": 21,
+    "list_dir": 1
+  },
+  "steering_cluster_counts": {
+    "drift_or_off_track": 4,
+    "stop_or_hold": 69,
+    "clarification_or_planning": 15,
+    "mesh_or_remote_node": 13,
+    "credential_or_auth": 5,
+    "reversion_or_undo": 2
+  },
+  "sample_clusters": {
+    "drift_or_off_track": [
+      {
+        "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+        "step_index": 4462,
+        "prompt_snippet": "@[Quote] Oh no you drifted - what was the initial plan I shared?",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "4021bbec-5a6c-46a6-82ae-c2cb0039d47b",
+        "step_index": 1238,
+        "prompt_snippet": "I've discovered another issue - overfit - across the agentic docs, skills, and prompt templates - trying to repeat same inverients - but due to the generative n",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "8cbe936a-0e60-40e9-bacf-9ce78b89a274",
+        "step_index": 3,
+        "prompt_snippet": "Loving the KDE Connect + Input Leap idea to make all my workspaces integrated and come together.   I want to add another commectivity - passwordless private key",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "8d6608ca-003c-4792-b6fd-2a0aee4874ba",
+        "step_index": 2407,
+        "prompt_snippet": "Hey,   First, the on the fly role update fix did not solve the login in the current prod deployment.   Fetch and address the CR feedback on the newly created PR",
+        "preceding_tool": ""
+      }
+    ],
+    "stop_or_hold": [
+      {
+        "session_id": "8d6608ca-003c-4792-b6fd-2a0aee4874ba",
+        "step_index": 8394,
+        "prompt_snippet": "Thanks. While we wait for the CR feedback. Let's get ahead by refreshing our memory about staging and production deployment for all 3 projects we're working on ",
+        "preceding_tool": "list_dir"
+      },
+      {
+        "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+        "step_index": 314,
+        "prompt_snippet": "Wait we need to onboard the new account in steam deck from desktop, help",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "e4e3c534-6635-409e-859a-079ef3cabbac",
+        "step_index": 206,
+        "prompt_snippet": "Here's an anti pattern - confidently waiting for a novel command across the device and socket bounderies to finish gracefully without having proactive timers an",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "57edf3ef-c6a9-4ef0-ac26-d75a711c342f",
+        "step_index": 1900,
+        "prompt_snippet": "Comments on artifact URI: file:///home/kuasha/.gemini/antigravity/brain/57edf3ef-c6a9-4ef0-ac26-d75a711c342f/implementation_plan.md  Selection: >nd tears it dow",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "57edf3ef-c6a9-4ef0-ac26-d75a711c342f",
+        "step_index": 3240,
+        "prompt_snippet": "@[Quote] still invisible, invisible, the laptop cursur stil behaves erratically, and the monitor still died a bit later. There wa allso an warning about non 0 e",
+        "preceding_tool": ""
+      }
+    ],
+    "clarification_or_planning": [
+      {
+        "session_id": "8d6608ca-003c-4792-b6fd-2a0aee4874ba",
+        "step_index": 7401,
+        "prompt_snippet": "Changes should be made as per the standard defined throughout the projects - pawthy for source of truth, synced via gh secrets or coolify env for staging and pr",
+        "preceding_tool": "run_command"
+      },
+      {
+        "session_id": "3c863067-3e07-43a9-8c59-61c49249cf45",
+        "step_index": 190,
+        "prompt_snippet": "LGTM on most part. Let's first figure out what assets we need from our design team so I can get started on handing over that to design team. Then we will decide",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "afa20cf4-4d4c-4c9e-ba63-6f0f063b725c",
+        "step_index": 476,
+        "prompt_snippet": "Reviewed the hard CVs, the redesigned gh readme and the io site. Everything is looking pretty good - but has moderate to high ammount of slop energy - focusing ",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "4021bbec-5a6c-46a6-82ae-c2cb0039d47b",
+        "step_index": 141,
+        "prompt_snippet": "Comments on artifact URI: file:///home/kuasha/.gemini/antigravity/brain/4021bbec-5a6c-46a6-82ae-c2cb0039d47b/knot_mesh_codebase_audit.md  Selection: >REDESIGN  ",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "4021bbec-5a6c-46a6-82ae-c2cb0039d47b",
+        "step_index": 977,
+        "prompt_snippet": "@[Quote] Not just that - the subagents didn't have a clean way to figure out what `phase_1_plan.md` or `implemenrtation_plan.md` etc - the cordinator only passe",
+        "preceding_tool": ""
+      }
+    ],
+    "mesh_or_remote_node": [
+      {
+        "session_id": "57edf3ef-c6a9-4ef0-ac26-d75a711c342f",
+        "step_index": 3137,
+        "prompt_snippet": "Not laptop final, laptop cursor2 shows the last seen state by me on laptop before you cleanly shut it down",
+        "preceding_tool": "run_command"
+      },
+      {
+        "session_id": "57edf3ef-c6a9-4ef0-ac26-d75a711c342f",
+        "step_index": 3139,
+        "prompt_snippet": "we are back, let's continue the fix - but before that, reconcile with remote changes :)",
+        "preceding_tool": "run_command"
+      },
+      {
+        "session_id": "4ecaf914-7036-4f0a-b5f2-bf895bd6b506",
+        "step_index": 1183,
+        "prompt_snippet": "@[Quote] Can confirm - I set up kde connect between some nodes manually, but didn't get any help from knot-mesh, yet. @[Quote] yikes @[Quote] and @[Quote] we sh",
+        "preceding_tool": "run_command"
+      },
+      {
+        "session_id": "8d6608ca-003c-4792-b6fd-2a0aee4874ba",
+        "step_index": 10444,
+        "prompt_snippet": "\u2571  ~/Dev/purrfectcore-001 \u2571   develop ?2  pnpm run grant:access --env staging --email jeorge@purrfecthq.com --jobRole OPERATIONS_MANAGER  > purrfectcore-001@0.0",
+        "preceding_tool": "run_command"
+      },
+      {
+        "session_id": "e4e3c534-6635-409e-859a-079ef3cabbac",
+        "step_index": 156,
+        "prompt_snippet": "And do our existing tooling actually work? Ie. does steering work when launched in laptop etc? This skill needs to be bullet proof. Pkease, don't just assume, v",
+        "preceding_tool": ""
+      }
+    ],
+    "credential_or_auth": [
+      {
+        "session_id": "9499fee6-5f38-4cfc-b618-76af7acd1940",
+        "step_index": 3930,
+        "prompt_snippet": "Looks good to me. Just ensure good and strict TypeScript practices in this TypeScript REPL from the get-go so we don't have to monkey-patch and fix types later.",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "c282d931-67f9-4702-9e51-122097fa5e8c",
+        "step_index": 194,
+        "prompt_snippet": "We don't want to over support login managers. All 3 systems share endeavorOS - allthough installed at different time.",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "8cbe936a-0e60-40e9-bacf-9ce78b89a274",
+        "step_index": 83,
+        "prompt_snippet": "@[Quote] I don't understand the concept here. Won't drop ins override the currently configured (no)passwd rules? My idea here is very limited however, as I've o",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "1a189987-bd4d-4554-bc34-62ba23a4cb42",
+        "step_index": 2984,
+        "prompt_snippet": "Okay so I don't undetstand what happened to lockscreen, which was needed for apps like firefox and password autofills. Did we get rid of the pattern lock in the",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "8a06bca0-8722-40e6-a5cf-439cab9cc94b",
+        "step_index": 2434,
+        "prompt_snippet": "Okay, all methods of pasting now works.   Found two issues - the physical keyboard - most things don't work, the copy paste shortcut and return key works, but n",
+        "preceding_tool": ""
+      }
+    ],
+    "reversion_or_undo": [
+      {
+        "session_id": "40d9fe8a-bf3e-4b3e-9af9-f50a725a9c78",
+        "step_index": 1132,
+        "prompt_snippet": "@[Quote] Will this be honored by the GUI app or we will face a similar situation to mcp disable? @[Quote] remove @[Quote] remove@[Quote] Let's test the theory b",
+        "preceding_tool": ""
+      },
+      {
+        "session_id": "9d122830-e2f7-4504-a7c8-b32a4ace9841",
+        "step_index": 1204,
+        "prompt_snippet": "Purrfecto el mundo. Well done We've beeen at this since yesterday - I thought fixing it was impossible - and seeing the buttons visible fills me with joy",
+        "preceding_tool": ""
+      }
+    ]
+  },
+  "operator_fatigue_sessions": [
+    {
+      "session_id": "8d6608ca-003c-4792-b6fd-2a0aee4874ba",
+      "interventions": 201,
+      "total_steps": 10717,
+      "model": "Gemini 3",
+      "workspace": "/home/kuasha/Dev/mm-website"
+    },
+    {
+      "session_id": "8a06bca0-8722-40e6-a5cf-439cab9cc94b",
+      "interventions": 125,
+      "total_steps": 4824,
+      "model": "Gemini 3",
+      "workspace": "/home/kuasha/Dev/purr"
+    },
+    {
+      "session_id": "9499fee6-5f38-4cfc-b618-76af7acd1940",
+      "interventions": 83,
+      "total_steps": 8435,
+      "model": "Gemini 3",
+      "workspace": "/home/kuasha/Dev/knot"
+    },
+    {
+      "session_id": "4ecaf914-7036-4f0a-b5f2-bf895bd6b506",
+      "interventions": 81,
+      "total_steps": 7514,
+      "model": "Gemini 3",
+      "workspace": "/home/kuasha/Dev/knot"
+    },
+    {
+      "session_id": "1a189987-bd4d-4554-bc34-62ba23a4cb42",
+      "interventions": 74,
+      "total_steps": 3697,
+      "model": "Gemini 3",
+      "workspace": "/home/kuasha/Dev/purr"
+    },
+    {
+      "session_id": "efa95f0e-33e1-48dc-b324-66764c42402c",
+      "interventions": 63,
+      "total_steps": 4200,
+      "model": "Gemini 3",
+      "workspace": "/home/kuasha/Dev/knot-mesh"
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "interventions": 54,
+      "total_steps": 4455,
+      "model": "Gemini 3",
+      "workspace": "/home/kuasha/Dev/Jasper"
+    },
+    {
+      "session_id": "495022c7-4b12-41a0-b802-1e330c27c02b",
+      "interventions": 37,
+      "total_steps": 926,
+      "model": "Gemini 3",
+      "workspace": "/home/kuasha/Dev/purrmission"
+    },
+    {
+      "session_id": "8cbe936a-0e60-40e9-bacf-9ce78b89a274",
+      "interventions": 36,
+      "total_steps": 3357,
+      "model": "Gemini 3",
+      "workspace": "/home/kuasha/Dev/8-Ball-Pool-Guide-Line"
+    },
+    {
+      "session_id": "40d9fe8a-bf3e-4b3e-9af9-f50a725a9c78",
+      "interventions": 33,
+      "total_steps": 1800,
+      "model": "Gemini 3",
+      "workspace": "/home/kuasha/Dev/sunshine-physio-univers"
+    }
+  ]
+}

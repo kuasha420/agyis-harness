@@ -1,0 +1,22 @@
+{
+  "name": "psl-agy-harness",
+  "version": "0.1.0",
+  "description": "Empirical audit and official extension harness for Google Antigravity",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "inventory": "python3 pipeline/inventory_customizations.py",
+    "extract": "python3 pipeline/extract_transcripts.py",
+    "classify": "python3 pipeline/classify_failures.py",
+    "audit": "npm run inventory && npm run extract && npm run classify"
+  },
+  "keywords": [
+    "antigravity",
+    "gemini",
+    "harness",
+    "telemetry",
+    "audit"
+  ],
+  "author": "Purrfect Software Limited (PSL)",
+  "license": "Apache-2.0"
+}

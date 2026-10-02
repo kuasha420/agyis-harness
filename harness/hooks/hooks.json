@@ -1,0 +1,30 @@
+{
+  "psl-anti-loop-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "view_file|grep_search|run_command|manage_task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 harness/hooks/anti_loop_hook.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "psl-command-safety-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 harness/hooks/command_safety_hook.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
