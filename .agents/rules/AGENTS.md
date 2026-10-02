@@ -1,44 +1,37 @@
 # Empirical Agent Rules: PSL Harness Guidelines
 
-These operational rules are grounded directly in the empirical audit of 348 developer sessions, 139,953 steps, and 2,229 tool failures recorded on this workstation (see `docs/taxonomy/workstation-audit-report.md`).
+These operational rules govern cognitive behavior and human-in-the-loop alignment. All deterministic environment guarantees (CPython >= 3.12 runtime injection, pager normalization, surgical grep exit sanitization, output compaction) are enforced transparently by harness hooks and require zero prompt overhead.
 
 ---
 
-## 1. Terminal & Command Invariants (`run_command`)
-*Terminal commands accounted for 98.4% of all tool failures (2,192 errors). Adhere strictly to the following:*
+## 1. Terminal Invariants & Context Protection
+*Terminal commands accounted for 98.4% of all tool failures in telemetry:*
 
 1. **Pre-flight Tool Availability (Mitigate Exit Code 127)**:
-   - Never assume optional binaries exist. Before invoking a tool, verify availability (e.g. `which <bin>` or `command -v <bin>`) or handle fallback paths gracefully.
-2. **Defend Against False-Failure Exit Codes (Mitigate Exit Code 1)**:
-   - Benign commands like `grep`, `diff`, or `git diff | grep` exit with code `1` when no match is found. Do not treat empty search results as execution failures.
-   - When running pattern matching commands where zero matches are acceptable, append `|| true` or test explicitly.
-3. **Prevent Interactive TUI & Subshell Hangs**:
-   - Commands must run strictly non-interactively. Never run commands that prompt for stdin without input redirection or piping.
-   - Always run with `PAGER=cat` or disable pagers (`--no-pager`).
-4. **Context Flood Prevention (The 200+ Step Context Cliff)**:
-   - Never execute unfiltered commands that dump thousands of lines of output into context.
-   - Pipe large outputs through `head -n <N>`, `tail -n <N>`, or `wc -l`.
-   - Use targeted grep / ripgrep rather than recursive raw prints.
-5. **Mesh & Hardware Remote Calls (Mitigate Exit Code 255)**:
-   - SSH commands to Knot mesh nodes (`laptop`, `rog-ally`, `steamdeck`) must specify short connection timeouts (`-o ConnectTimeout=5`) and verify host reachability before running critical work.
+   - Never assume optional binaries exist. Verify availability (`command -v <bin>`) or handle fallback paths gracefully.
+2. **Context Flood Prevention (The 200+ Step Cliff)**:
+   - Never execute unfiltered commands that dump thousands of lines into context. Pipe large outputs through `head -n <N>`, `tail -n <N>`, or `wc -l`.
+3. **Multi-line Script Hygiene**:
+   - For Python scripts longer than a single expression, write to `<artifactDir>/scratch/script.py` and execute the file rather than wrestling with double-escaped bash `-c` strings.
+4. **Mesh Remote Calls (Mitigate Exit Code 255)**:
+   - SSH commands to Knot mesh nodes (`laptop`, `rog-ally`, `steamdeck`) must specify connection timeouts (`-o ConnectTimeout=5`) and verify host reachability.
 
 ---
 
 ## 2. Anti-Loop & Thrashing Heuristics
-*Audit revealed 5,773 repeated consecutive tool calls (3,951 on `view_file`, 625 on `grep_search`, 300 on `manage_task`).*
+*Audit revealed 5,773 repeated consecutive tool calls:*
 
 1. **File Read State Retention**:
-   - Do NOT repeatedly call `view_file` on the same file within consecutive steps unless an edit tool (`replace_file_content` or `write_to_file`) was executed in between.
-   - Use the content already present in context rather than re-reading.
+   - Do NOT repeatedly call `view_file` on the same file within consecutive steps unless an edit tool was executed in between. Use content already present in context.
 2. **Grep Query Evolution**:
-   - If a `grep_search` returns zero results or fails, do NOT repeat the identical query. Broaden the pattern, check case-sensitivity, or inspect directory listing.
-3. **No Polling Loops on Background Tasks**:
+   - If a `grep_search` returns zero results, do NOT repeat the identical query. Broaden the pattern, check case-sensitivity, or inspect directory listing.
+3. **Reactive Task Wakeups**:
    - Never poll `manage_task(Action='status')` in a loop. Antigravity automatically wakes up the agent when a task finishes. Stop calling tools and await reactive wakeup.
 
 ---
 
 ## 3. Human-in-the-Loop & Steering Alignment
-*Audit revealed 1,690 operator interventions, including 69 halt fences and frequent trajectory drift corrections.*
+*Audit revealed 1,690 operator interventions and 69 halt fences:*
 
 1. **Anti-Drift Commitment**:
    - Anchor all implementation decisions to the agreed plan. If novel obstacles arise requiring architectural deviation, pause and present options rather than silently pivoting.
@@ -60,17 +53,8 @@ These operational rules are grounded directly in the empirical audit of 348 deve
 
 ---
 
-## 5. Hermetic Runtimes & Python Invariants (ADR-011)
-1. **No Syntax Downgrading in Cognition**:
-   - Never degrade Python code or suppress modern syntax (e.g. PEP 701 f-strings) to accommodate outdated host pyenv shims.
-   - The harness transparently guarantees CPython >= 3.12 execution via `PreToolUse` PATH injection for utility one-liners (`python3 -c`), while preserving project-local `.venv` for repository builds.
-2. **Multi-line Script Hygiene**:
-   - For Python scripts longer than a single pipeline expression, write to `<artifactDir>/scratch/script.py` and execute the file rather than wrestling with double-escaped bash `-c` strings.
-
----
-
-## 6. The Artifact-First Planning Invariant (ADR-012)
+## 5. The Artifact-First Planning Invariant (ADR-012)
 1. **Anti-Chatbot Seduction**:
    - Never propose multi-component architectural changes or multi-step execution plans in raw conversational chat turns.
-   - All non-trivial proposals must immediately crystallize into an interactive implementation plan artifact before requesting operator confirmation.
+   - All non-trivial proposals must immediately crystallize into an interactive `implementation_plan.md` artifact before requesting operator confirmation.
    - Never end turns with open-ended conversational proposals (*"Would you like me to build X?"*) without an accompanying plan artifact.
