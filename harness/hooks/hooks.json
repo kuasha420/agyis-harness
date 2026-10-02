@@ -26,5 +26,19 @@
         ]
       }
     ]
+  },
+  "psl-output-compactor": {
+    "PostToolUse": [
+      {
+        "matcher": "run_command|view_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 harness/hooks/output_compactor_hook.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }
