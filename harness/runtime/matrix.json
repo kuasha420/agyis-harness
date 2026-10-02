@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "psl-runtime-compatibility-matrix",
+  "version": "1.0.0",
+  "description": "Baseline tool versions and runtime guarantees required for reliable autonomous SWE agent execution.",
+  "tiers": {
+    "tier_1_languages": {
+      "description": "Core language runtimes and package managers",
+      "tools": {
+        "python": {
+          "binary": "python3",
+          "min_version": "3.12.0",
+          "recommended": "3.12.8",
+          "manager": "uv",
+          "version_command": "python3 --version",
+          "version_regex": "Python\\s+([0-9]+\\.[0-9]+\\.[0-9]+)",
+          "purpose": "PEP 701 f-string support, modern type union syntax, and robust standard library expected by modern foundation models.",
+          "heal_strategy": {
+            "type": "user_space_manager",
+            "manager_binary": "uv",
+            "install_command": "uv python install 3.12"
+          }
+        },
+        "uv": {
+          "binary": "uv",
+          "min_version": "0.4.0",
+          "recommended": "0.5.0",
+          "version_command": "uv --version",
+          "version_regex": "uv\\s+([0-9]+\\.[0-9]+\\.[0-9]+)",
+          "purpose": "Hermetic user-space Python runtime provisioner and sub-millisecond virtualenv manager.",
+          "heal_strategy": {
+            "type": "script",
+            "install_command": "curl -LsSf https://astral.sh/uv/install.sh | sh"
+          }
+        },
+        "node": {
+          "binary": "node",
+          "min_version": "20.0.0",
+          "recommended": "22.0.0",
+          "manager": "pnpm",
+          "version_command": "node --version",
+          "version_regex": "v([0-9]+\\.[0-9]+\\.[0-9]+)",
+          "purpose": "Modern ECMAScript features, Fetch API, and TypeScript runtime compatibility.",
+          "heal_strategy": {
+            "type": "user_space_manager",
+            "manager_binary": "pnpm",
+            "install_command": "pnpm env use --global 20"
+          }
+        },
+        "pnpm": {
+          "binary": "pnpm",
+          "min_version": "9.0.0",
+          "recommended": "9.15.0",
+          "version_command": "pnpm --version",
+          "version_regex": "([0-9]+\\.[0-9]+\\.[0-9]+)",
+          "purpose": "Deterministic, fast JavaScript/TypeScript package management.",
+          "heal_strategy": {
+            "type": "script",
+            "install_command": "curl -fsSL https://get.pnpm.io/install.sh | sh"
+          }
+        }
+      }
+    },
+    "tier_2_swe_cli": {
+      "description": "Essential SWE command-line development tools",
+      "tools": {
+        "git": {
+          "binary": "git",
+          "min_version": "2.38.0",
+          "version_command": "git --version",
+          "version_regex": "git version\\s+([0-9]+\\.[0-9]+\\.[0-9]+)",
+          "purpose": "Core version control, sparse-checkout, safe worktrees.",
+          "heal_strategy": {
+            "type": "distro_package",
+            "package_names": {
+              "arch": "git",
+              "debian": "git",
+              "fedora": "git",
+              "darwin": "git"
+            }
+          }
+        },
+        "gh": {
+          "binary": "gh",
+          "min_version": "2.30.0",
+          "version_command": "gh --version",
+          "version_regex": "gh version\\s+([0-9]+\\.[0-9]+\\.[0-9]+)",
+          "purpose": "GitHub CLI automation for PR review fences, issue tracking, and discussion boards.",
+          "heal_strategy": {
+            "type": "distro_package",
+            "package_names": {
+              "arch": "github-cli",
+              "debian": "gh",
+              "fedora": "gh",
+              "darwin": "gh"
+            }
+          }
+        },
+        "ripgrep": {
+          "binary": "rg",
+          "min_version": "13.0.0",
+          "version_command": "rg --version",
+          "version_regex": "ripgrep\\s+([0-9]+\\.[0-9]+\\.[0-9]+)",
+          "purpose": "Sub-millisecond source indexing, pattern searches without memory exhaustion.",
+          "heal_strategy": {
+            "type": "distro_package",
+            "package_names": {
+              "arch": "ripgrep",
+              "debian": "ripgrep",
+              "fedora": "ripgrep",
+              "darwin": "ripgrep"
+            }
+          }
+        },
+        "fd": {
+          "binary": "fd",
+          "fallback_binary": "fdfind",
+          "min_version": "8.7.0",
+          "version_command": "fd --version",
+          "version_regex": "fd\\s+([0-9]+\\.[0-9]+\\.[0-9]+)",
+          "purpose": "Safe, non-recursive directory traversals preventing runaway context loops.",
+          "heal_strategy": {
+            "type": "distro_package",
+            "package_names": {
+              "arch": "fd",
+              "debian": "fd-find",
+              "fedora": "fd-find",
+              "darwin": "fd"
+            }
+          }
+        }
+      }
+    },
+    "tier_3_mesh_host": {
+      "description": "Hardware mesh and node coordination utilities",
+      "tools": {
+        "ssh": {
+          "binary": "ssh",
+          "min_version": "8.9",
+          "version_command": "ssh -V",
+          "version_regex": "OpenSSH_([0-9]+\\.[0-9]+)",
+          "purpose": "Secure cross-node command dispatch across the Knot mesh.",
+          "heal_strategy": {
+            "type": "distro_package",
+            "package_names": {
+              "arch": "openssh",
+              "debian": "openssh-client",
+              "fedora": "openssh-clients",
+              "darwin": "openssh"
+            }
+          }
+        },
+        "knot": {
+          "binary": "knot",
+          "optional": true,
+          "version_command": "knot --version",
+          "version_regex": "(?:knot-mesh\\s+version|knot)\\s+([0-9]+\\.[0-9]+\\.[0-9]+)",
+          "purpose": "Knot hardware mesh orchestrator and strand telemetry router.",
+          "heal_strategy": {
+            "type": "manual",
+            "instructions": "Install knot from ~/.config/knot or local mesh repository."
+          }
+        }
+      }
+    }
+  }
+}

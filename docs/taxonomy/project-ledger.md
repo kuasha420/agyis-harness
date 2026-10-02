@@ -68,4 +68,21 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Hook Registry: [harness/hooks/hooks.json](file:///home/kuasha/Dev/psl-agy-harness/harness/hooks/hooks.json)
   - Benchmark Report: [docs/taxonomy/output-compactor-poc-results.md](file:///home/kuasha/Dev/psl-agy-harness/docs/taxonomy/output-compactor-poc-results.md)
 
+---
+
+## [Phase 4.2] Hermetic Runtime Guarantee & Command Safety Hook
+* **Status**: Completed | **Compaction Date**: 2026-10-02
+* **Key Architectural Decisions (ADRs)**:
+  - **ADR-011 (The Hermetic Runtime Guarantee)**: Toolchain compatibility is guaranteed by the harness product, not offloaded to model prompting. Bifurcated strategy: transparently injects CPython >= 3.12 from `uv`'s cache for inline utility one-liners (`python3 -c`) to eliminate PEP 701 f-string crashes, while respecting project-local `.venv` for repository builds.
+  - **ADR-012 (The Artifact-First Planning Invariant)**: Prohibits architectural and execution proposals in raw chat turns. All non-trivial proposals must be anchored in structured artifacts before requesting confirmation.
+  - **ADR-013 (Surgical Shell Sanitization)**: Terminal standalone pattern searches (`grep`/`diff`) without conditionals are sanitized via `|| [ $? -eq 1 ]`, neutralizing benign zero-match failures while preserving exit code 2 errors and complex compound scripts.
+* **Verified Baseline Metrics**:
+  - 100% of PEP 701 f-string syntax errors eliminated via transparent uv CPython 3.12 injection.
+  - Exit code 1 forensic de-aggregation: 329 grep misses (21.3%), 58 python syntax errors (3.8%), 142 tracebacks (9.2%).
+  - `psl doctor` CLI audits 10 core binaries across 3 telemetry tiers with zero-sudo auto-healing.
+* **Reference Assets Committed**:
+  - Runtime Matrix: [harness/runtime/matrix.json](file:///home/kuasha/Dev/psl-agy-harness/harness/runtime/matrix.json)
+  - Workstation Doctor: [pipeline/psl_doctor.py](file:///home/kuasha/Dev/psl-agy-harness/pipeline/psl_doctor.py)
+  - Command Safety Hook: [harness/hooks/command_safety_hook.py](file:///home/kuasha/Dev/psl-agy-harness/harness/hooks/command_safety_hook.py)
+
 

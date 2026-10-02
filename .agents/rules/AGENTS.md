@@ -57,3 +57,20 @@ These operational rules are grounded directly in the empirical audit of 348 deve
 2. **Retroactive Horizon Compaction**:
    - When completing a phase or milestone, implementation details, scratch scripts, and multi-turn debug transcripts fade out into git history.
    - Only permanent Architectural Decisions (ADRs), schema contracts, and verified baseline metrics are retained in the project ledger (`docs/taxonomy/project-ledger.md`), strictly constrained under 50 lines per milestone.
+
+---
+
+## 5. Hermetic Runtimes & Python Invariants (ADR-011)
+1. **No Syntax Downgrading in Cognition**:
+   - Never degrade Python code or suppress modern syntax (e.g. PEP 701 f-strings) to accommodate outdated host pyenv shims.
+   - The harness transparently guarantees CPython >= 3.12 execution via `PreToolUse` PATH injection for utility one-liners (`python3 -c`), while preserving project-local `.venv` for repository builds.
+2. **Multi-line Script Hygiene**:
+   - For Python scripts longer than a single pipeline expression, write to `<artifactDir>/scratch/script.py` and execute the file rather than wrestling with double-escaped bash `-c` strings.
+
+---
+
+## 6. The Artifact-First Planning Invariant (ADR-012)
+1. **Anti-Chatbot Seduction**:
+   - Never propose multi-component architectural changes or multi-step execution plans in raw conversational chat turns.
+   - All non-trivial proposals must immediately crystallize into an interactive implementation plan artifact before requesting operator confirmation.
+   - Never end turns with open-ended conversational proposals (*"Would you like me to build X?"*) without an accompanying plan artifact.

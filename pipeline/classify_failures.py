@@ -55,6 +55,54 @@ def run_classification_audit(db_path: Path) -> Dict[str, Any]:
     """)
     exit_codes = [{"exit_code": r[0], "count": r[1]} for r in c.fetchall()]
 
+    # Forensic breakdown of Exit Code 1
+    c.execute("SELECT COUNT(*) FROM tool_calls WHERE tool_name = 'run_command' AND exit_code = 1")
+    total_ec1 = c.fetchone()[0] or 0
+
+    c.execute("""
+        SELECT COUNT(*) FROM tool_calls 
+        WHERE tool_name = 'run_command' AND exit_code = 1 
+          AND (command_line LIKE '%grep%' OR command_line LIKE '%diff%')
+    """)
+    ec1_grep_diff = c.fetchone()[0] or 0
+
+    c.execute("""
+        SELECT COUNT(*) FROM tool_calls 
+        WHERE tool_name = 'run_command' AND exit_code = 1 
+          AND error_snippet LIKE '%f-string expression part cannot include a backslash%'
+    """)
+    ec1_fstring_bs = c.fetchone()[0] or 0
+
+    c.execute("""
+        SELECT COUNT(*) FROM tool_calls 
+        WHERE tool_name = 'run_command' AND exit_code = 1 
+          AND error_snippet LIKE '%SyntaxError%'
+    """)
+    ec1_syntax_total = c.fetchone()[0] or 0
+
+    c.execute("""
+        SELECT COUNT(*) FROM tool_calls 
+        WHERE tool_name = 'run_command' AND exit_code = 1 
+          AND (error_snippet LIKE '%Traceback%' AND error_snippet NOT LIKE '%SyntaxError%')
+    """)
+    ec1_traceback = c.fetchone()[0] or 0
+
+    ec1_other = total_ec1 - (ec1_grep_diff + ec1_syntax_total + ec1_traceback)
+
+    exit_code_1_breakdown = {
+        "total": total_ec1,
+        "grep_diff_benign": ec1_grep_diff,
+        "grep_diff_pct": round(ec1_grep_diff * 100.0 / total_ec1, 2) if total_ec1 else 0,
+        "python_syntax_total": ec1_syntax_total,
+        "python_syntax_pct": round(ec1_syntax_total * 100.0 / total_ec1, 2) if total_ec1 else 0,
+        "fstring_backslash": ec1_fstring_bs,
+        "fstring_backslash_pct": round(ec1_fstring_bs * 100.0 / total_ec1, 2) if total_ec1 else 0,
+        "python_traceback": ec1_traceback,
+        "python_traceback_pct": round(ec1_traceback * 100.0 / total_ec1, 2) if total_ec1 else 0,
+        "other_cli": ec1_other,
+        "other_cli_pct": round(ec1_other * 100.0 / total_ec1, 2) if total_ec1 else 0,
+    }
+
     # Loop candidates by tool
     c.execute("""
         SELECT tool_name, COUNT(*) as cnt
@@ -145,6 +193,7 @@ def run_classification_audit(db_path: Path) -> Dict[str, Any]:
         "clean_sessions": clean_sessions,
         "interventions": interventions_breakdown,
         "failing_commands": failing_cmds,
+        "exit_code_1_breakdown": exit_code_1_breakdown,
     }
 
 
@@ -223,6 +272,18 @@ The terminal tool (`run_command`) is responsible for **98.4% of all tool failure
             )
         )
         md += f"- **Exit Code {ec['exit_code']}** ({ec['count']:,} occurrences): {desc}\n"
+
+    ec1 = audit.get("exit_code_1_breakdown", {})
+    if ec1:
+        md += f"""
+##### Forensic Sub-Distribution of Exit Code 1 ({ec1.get('total', 0):,} Total Occurrences)
+| Failure Sub-Category | Occurrences | % of Exit Code 1 | Root Cause & Mitigation |
+| :--- | :--- | :--- | :--- |
+| **Grep / Diff Pattern No-Match** | {ec1.get('grep_diff_benign', 0):,} | {ec1.get('grep_diff_pct', 0)}% | Benign zero-match exits; mitigated by PreToolUse surgical `|| [ $? -eq 1 ]` sanitization |
+| **Python Syntax Errors** | {ec1.get('python_syntax_total', 0):,} | {ec1.get('python_syntax_pct', 0)}% | Parsing failures in `python3 -c` (includes {ec1.get('fstring_backslash', 0)} f-string backslash errors); mitigated by Hermetic Python >= 3.12 injection |
+| **Python Runtime Tracebacks** | {ec1.get('python_traceback', 0):,} | {ec1.get('python_traceback_pct', 0)}% | Unhandled exceptions and missing library imports in inline scripts |
+| **Other CLI / Build Failures** | {ec1.get('other_cli', 0):,} | {ec1.get('other_cli_pct', 0)}% | Test suite failures, compile errors, linter violations |
+"""
 
     md += f"""
 #### Tool Thrashing & Loop Traps ({sum(l['loop_calls'] for l in loops):,} Occurrences)

@@ -2,7 +2,7 @@
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
-**Generated At**: 2026-10-02 04:40:39Z  
+**Generated At**: 2026-10-02 05:50:44Z  
 **Data Source**: Workstation telemetry mined from `~/.gemini/antigravity/brain/*/transcript.jsonl`
 
 ---
@@ -58,6 +58,14 @@ The terminal tool (`run_command`) is responsible for **98.4% of all tool failure
 - **Exit Code 128** (52 occurrences): Invalid git argument / fatal repository error
 - **Exit Code 3** (31 occurrences): Process exit code 3
 - **Exit Code 8** (16 occurrences): Process exit code 8
+
+##### Forensic Sub-Distribution of Exit Code 1 (1,544 Total Occurrences)
+| Failure Sub-Category | Occurrences | % of Exit Code 1 | Root Cause & Mitigation |
+| :--- | :--- | :--- | :--- |
+| **Grep / Diff Pattern No-Match** | 329 | 21.31% | Benign zero-match exits; mitigated by PreToolUse surgical `|| [ $? -eq 1 ]` sanitization |
+| **Python Syntax Errors** | 58 | 3.76% | Parsing failures in `python3 -c` (includes 23 f-string backslash errors); mitigated by Hermetic Python >= 3.12 injection |
+| **Python Runtime Tracebacks** | 142 | 9.2% | Unhandled exceptions and missing library imports in inline scripts |
+| **Other CLI / Build Failures** | 1,015 | 65.74% | Test suite failures, compile errors, linter violations |
 
 #### Tool Thrashing & Loop Traps (5,773 Occurrences)
 Redundant consecutive tool calls on identical arguments:
