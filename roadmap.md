@@ -204,6 +204,13 @@ To protect both the operator and the agent from cognitive exhaustion, the harnes
     - Updated agent archetypes (`harness_auditor`, `harness_builder`, `harness_reviewer`) with Zero-Exploration Invariants and synced `.agents/agents/`.
     - Added `psl subagents` subcommand (`--json`, `--brain-dir`) and wired live active subagent health gauges into `psl status`.
     - Expanded test suite to **135 hermetic unit/contract tests passing in <0.92s** (<1.0s benchmark invariant).
+  - [x] **Custom Codebase & Workspace-Aware Agents (ADR-026 Phase 5)**:
+    - Expanded specialist catalog to 5 personas (`planner`, `coordinator`, `harness_builder`, `harness_reviewer`, `harness_auditor`) with `mainAgent: true` surfacing in the Antigravity chat UI.
+    - Implemented registry, capability bundles (`read_only`, `verifier`, `builder`, `orchestrator`), automated workspace inspection, and specification validator in `harness/subagents.py`.
+    - Added `agents create`, `agents validate`, and `agents --sync` CLI subcommands.
+    - Authored modular `agent-builder` skill with automated scanning and validation gates.
+    - Expanded write-block protection across `planner`, `coordinator`, `auditor`, and `reviewer` in `anti_drift_hook.py`.
+    - Expanded test suite to **149 hermetic tests passing in 0.968s** (<1.0s benchmark invariant).
 * **Upcoming Milestones**:
   1. **The Rule/Skill Delivery & Coexistence Engine**:
      - Implement Layer 1 vs Layer 3 resolution engine.

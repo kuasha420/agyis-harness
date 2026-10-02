@@ -207,3 +207,28 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - CLI Subagent Discovery: [harness/cli.py](harness/cli.py) (`psl subagents`)
   - Test Suites: [tests/test_subagent_context.py](tests/test_subagent_context.py), [tests/test_anti_drift.py](tests/test_anti_drift.py), [tests/test_subagents.py](tests/test_subagents.py), [tests/test_cli.py](tests/test_cli.py)
   - Specification: [docs/official-specs/lifecycle-hooks.md](docs/official-specs/lifecycle-hooks.md)
+
+---
+
+## [Phase 5] Custom Codebase & Workspace-Aware Agents (ADR-026)
+* **Status**: Completed | **Compaction Date**: 2026-10-03
+* **Key Architectural Decisions (ADRs)**:
+  - **ADR-026 (Custom Codebase & Workspace-Aware Agents Architecture)**:
+    - **Dual-Mode Discovery Invariant**: Agents defined in `.agents/agents/*.md` are discovered simultaneously as background subagents (`invoke_subagent`) and top-level conversational entrypoint personas (`mainAgent: true`) in the Antigravity chat UI and CLI `/agents` panel.
+    - **Protobuf Enum Boundary & Model Inheritance**: Hardcoded `invoke_subagent` protobuf enum (`inherit`, `flash_lite`, `flash`, `pro`) prohibits dynamic `--effort` parameters; `Model: "inherit"` is codified as the workhorse pattern to automatically propagate session model and reasoning tier.
+    - **Accuracy vs. Latency Paradox**: Empirical benchmark (`data/reasoning_benchmark_results.json`) demonstrated `gemini-3.8-flash-low` achieved 100% accuracy identically to High effort, while running 2.55x faster (3.63s vs 9.26s) and consuming 3.1x fewer thinking tokens.
+    - **Platform Tool Hanging Hardening**: Codified verified 20-tool catalog (`ANTIGRAVITY_PLATFORM_TOOLS`) and capability bundles (`read_only`, `verifier`, `builder`, `orchestrator`) with compile-time linting in `validate_agent_spec` to eliminate the official tool typo hang.
+    - **Automated Workspace Inspection**: `inspect_workspace_context()` extracts manifests, test commands, ADRs, and active rules to ground scaffolded prompts.
+    - **Multi-Role Write-Block Guard**: Generalized `check_auditor_write_block` in `anti_drift_hook.py` to block mutations across `planner`, `coordinator`, `auditor`, and `reviewer`.
+* **Empirical Baselines Established & Verified**:
+  - 149 hermetic tests passing in 0.968s (strictly < 1.0s benchmark invariant).
+  - 10/10 agent specifications certified valid across product and project directories.
+  - Subagent Ladder trajectory offloaded 64.4% of context volume (~201k tokens preserved) with 0 coordinator tool errors.
+* **Reference Assets Committed**:
+  - Research Specification: [docs/official-specs/custom-agents.md](docs/official-specs/custom-agents.md)
+  - Expanded Catalog: [harness/agents/planner.md](harness/agents/planner.md), [harness/agents/coordinator.md](harness/agents/coordinator.md)
+  - Registry, Context Scanner & Scaffolder: [harness/subagents.py](harness/subagents.py)
+  - CLI Subcommands: [harness/cli.py](harness/cli.py) (`agents create`, `agents validate`, `agents --sync`)
+  - Modular Skill: [harness/skills/agent-builder/SKILL.md](harness/skills/agent-builder/SKILL.md)
+  - Unit Test Suite: [tests/test_agent_scaffold.py](tests/test_agent_scaffold.py)
+
