@@ -17,7 +17,8 @@
     "rules-audit": "python3 pipeline/audit_project_configs.py",
     "context-audit": "python3 pipeline/analyze_context_dynamics.py",
     "cognitive-audit": "python3 pipeline/extract_cognitive_traces.py",
-    "artifacts-audit": "python3 pipeline/audit_artifacts.py",
+    "audit:volume": "python3 -m harness.cli audit volume",
+    "audit:deep": "python3 -m harness.cli audit deep",
     "audit": "npm run inventory && npm run extract && npm run classify && npm run rules-audit && npm run context-audit && npm run cognitive-audit && npm run artifacts-audit"
   },
   "keywords": [

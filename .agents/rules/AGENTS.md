@@ -24,6 +24,7 @@ python3 -m harness.cli hook compactor          # PostToolUse 2KB output compacto
 
 # 📊 Empirical Telemetry Laboratory
 ./psl sync                                     # Audit & synchronize active session into telemetry.db
+./psl audit deep                               # Dissect 30 titan sessions (>=1k steps) & Knot inception
 ./psl audit volume                             # Analyze tool & command volume distributions
 python3 -m harness.cli audit all               # Run full extraction, classification & summary
 python3 -m harness.cli audit extract           # Ingest ~/.gemini/antigravity transcripts to telemetry.db

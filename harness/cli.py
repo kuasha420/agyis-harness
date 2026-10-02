@@ -122,6 +122,9 @@ def cmd_audit(args: argparse.Namespace) -> int:
     elif sub == "volume":
         from pipeline import analyze_volume_distributions
         return analyze_volume_distributions.main(args)
+    elif sub == "deep":
+        from pipeline import analyze_ultra_deep_sessions
+        return analyze_ultra_deep_sessions.main(args)
     elif sub == "all":
         print("▶ [1/4] Scanning Customization Inventory...")
         from pipeline import inventory_customizations
@@ -481,7 +484,7 @@ def build_parser() -> argparse.ArgumentParser:
         "stage",
         nargs="?",
         default="all",
-        choices=["all", "extract", "classify", "inventory", "dynamics", "traces", "interventions", "volume", "session", "live"],
+        choices=["all", "extract", "classify", "inventory", "dynamics", "traces", "interventions", "volume", "deep", "session", "live"],
         help="Audit pipeline stage to run (default: all)",
     )
     p_audit.add_argument("--db", type=str, default=None, help="Path to SQLite database")
@@ -490,8 +493,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_audit.add_argument("--save-db", action="store_true", help="Sync audited session into data/telemetry.db")
     p_audit.add_argument("--out", type=Path, default=None, help="Export session analysis JSON path")
     p_audit.add_argument("--json", action="store_true", help="Output session report in JSON format")
-    p_audit.add_argument("--output-json", type=Path, default=None, help="Export volume analysis JSON path")
-    p_audit.add_argument("--output-report", type=Path, default=None, help="Export volume report Markdown path")
+    p_audit.add_argument("--output-json", type=Path, default=None, help="Export analysis JSON path")
+    p_audit.add_argument("--output-report", type=Path, default=None, help="Export analysis report Markdown path")
+    p_audit.add_argument("--quiet", action="store_true", help="Suppress verbose stdout in pipeline stages")
 
     # skills
     p_skills = subparsers.add_parser("skills", help="List and inspect modular product skills")
