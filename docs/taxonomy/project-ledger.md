@@ -85,4 +85,23 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Workstation Doctor: [pipeline/psl_doctor.py](pipeline/psl_doctor.py)
   - Command Safety Hook: [harness/hooks/command_safety_hook.py](harness/hooks/command_safety_hook.py)
 
+---
+
+## [Phase 5.1] Testing Codification, Anti-Loop Test Suite & Unified Developer CLI
+* **Status**: Completed | **Compaction Date**: 2026-10-02
+* **Key Architectural Decisions (ADRs)**:
+  - **ADR-014 (Product vs Project Bifurcation)**: Formalized strict boundary between The Product (distributable runtime plugin, CLI toolchain, deterministic hooks, product rules/skills) and The Project (local empirical lab, `data/telemetry.db`, research specs).
+  - **ADR-015 (Hermetic Test Isolation Invariant)**: Enforced tempfile isolation, dynamic state directory overrides (`PSL_HARNESS_STATE_DIR`), sub-second benchmark (<1.0s), and official protojson contract assertions across all hooks.
+  - **ADR-016 (Unified Hook Dispatch Architecture)**: Standardized hook execution in `hooks.json` via `python3 -m harness.cli hook <name>`, eliminating fragile relative script paths and CWD desyncs.
+* **Verified Baseline Metrics**:
+  - 43 tests passing with 100% coverage in 0.838s (<1.0s benchmark invariant met).
+  - 100% test coverage across all 3 lifecycle hooks (`anti_loop_hook`, `command_safety_hook`, `output_compactor_hook`).
+  - Unified CLI `psl` operational (`doctor`, `hook`, `test`, `audit`, `status`).
+* **Reference Assets Committed**:
+  - Unified CLI: [harness/cli.py](harness/cli.py)
+  - Testing Contract: [docs/official-specs/testing-contracts.md](docs/official-specs/testing-contracts.md)
+  - Test Suites: [tests/test_anti_loop.py](tests/test_anti_loop.py), [tests/test_cli.py](tests/test_cli.py)
+  - Hook Registry: [harness/hooks/hooks.json](harness/hooks/hooks.json)
+
+
 

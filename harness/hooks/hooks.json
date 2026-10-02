@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 harness/hooks/anti_loop_hook.py",
+            "command": "python3 -m harness.cli hook anti-loop",
             "timeout": 5
           }
         ]
@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 harness/hooks/command_safety_hook.py",
+            "command": "python3 -m harness.cli hook command-safety",
             "timeout": 5
           }
         ]
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 harness/hooks/output_compactor_hook.py",
+            "command": "python3 -m harness.cli hook compactor",
             "timeout": 5
           }
         ]

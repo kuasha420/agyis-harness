@@ -3,14 +3,14 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity-4285F4.svg)](https://antigravity.google)
 [![Status](https://img.shields.io/badge/Status-Active_Development_(Research_&_POC)-orange.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-29%2F29_Passing_(100%25)-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-43%2F43_Passing_(100%25)-brightgreen.svg)]()
 
 > An open-source empirical audit pipeline and reference extension harness for **Google Antigravity™** by **Purrfect Software Limited (PSL)** under the **Apache-2.0** license.
 
 ---
 
 > [!NOTE]
-> **Project State Notice**: This repository is currently in **Active Research & Proof-of-Concept (POC) Phase**. We have completed empirical ingestion of 348 real-world developer sessions and verified isolated lifecycle hooks. The unified product architecture and rule/skill delivery system are currently being designed. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
+> **Project State Notice**: This repository is currently in **Active Research & Proof-of-Concept (POC) Phase**. We have completed empirical ingestion of 348 real-world developer sessions, verified isolated lifecycle hooks, codified our testing contracts, and packaged the unified `psl` developer CLI. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
 
 ---
 
@@ -50,7 +50,19 @@ From our automated audit of **348 developer sessions** on this workstation:
 
 ## 🏛️ Verified POC Components
 
-### 1. Workstation Diagnostic Engine (`psl doctor`)
+### 1. Unified Developer CLI (`psl`)
+Provides a single modular CLI entrypoint for diagnostics, tests, and hooks:
+- `psl doctor [--heal] [--json]`: Workstation environment diagnostic.
+- `psl test [-v]`: Sub-second project test runner.
+- `psl hook <hook_name>`: Deterministic lifecycle hook handler.
+- `psl audit [subcommand]`: Telemetry lab extraction and failure classifier.
+- `psl status`: High-level system and active hook health overview.
+
+```bash
+python3 -m harness.cli --help
+```
+
+### 2. Workstation Diagnostic Engine (`psl doctor`)
 Audits the host environment against the 3-Tier Telemetry-Scaffolded Matrix ([matrix.json](harness/runtime/matrix.json)):
 - **Tier 1 (Languages)**: Python >= 3.12 (PEP 701 f-string support), Node >= 20, `uv`, `pnpm`.
 - **Tier 2 (Core SWE CLI)**: `git >= 2.38`, `gh >= 2.30`, `ripgrep >= 13.0`, `fd >= 8.7`.
@@ -58,17 +70,22 @@ Audits the host environment against the 3-Tier Telemetry-Scaffolded Matrix ([mat
 - **Auto-Healing (`--heal`)**: Provisions user-space runtimes via `uv` with zero sudo and zero host pollution.
 
 ```bash
-python3 pipeline/psl_doctor.py
+python3 -m harness.cli doctor
 ```
 
-### 2. PreToolUse Command Safety & Hermetic Runtime Hook
+### 3. PreToolUse Command Safety & Hermetic Runtime Hook
 Implements deterministic terminal guards before commands reach the subshell:
 - **Hermetic Python Injection**: Prepends `uv`'s CPython 3.12 to `PATH` for inline utility scripts (`python3 -c`), eliminating PEP 701 syntax crashes.
 - **F-String Sanitization**: Neutralizes spurious backslashes before quotes inside `{...}` expressions.
 - **Surgical Grep Sanitization**: Appends `|| [ $? -eq 1 ]` to standalone `grep`/`diff` queries, neutralizing empty-match failures without masking Exit Code 2 errors.
 - **Interactive Pager Suppression**: Enforces `PAGER=cat` on git and gh commands.
 
-### 3. PostToolUse Deterministic Output Compactor
+### 4. PreToolUse Anti-Loop Guard Hook
+Tracks consecutive executions per conversation ID in `/tmp/psl_agy_harness_state/`:
+- Intercepts and denies execution after 3 identical consecutive calls.
+- Forces agent reasoning shifts before runaway thrashing occurs.
+
+### 5. PostToolUse Deterministic Output Compactor
 - Caps tool outputs exceeding 2KB while strictly preserving the first 500 characters, the last 1,000 characters, and all intermediate lines containing exit codes or error markers.
 - Sub-millisecond latency (<0.25ms at 50KB).
 
@@ -76,18 +93,19 @@ Implements deterministic terminal guards before commands reach the subshell:
 
 ## 🧪 Verification & Test Suite
 
-All 29 unit and contract integration tests pass with 100% coverage:
+All 43 unit, integration, and replay tests pass with 100% coverage in **<0.85s**:
 
 ```bash
-python3 -m unittest discover -s tests -v
+python3 -m harness.cli test
 ```
 
 ```text
-Ran 29 tests in 0.811s
+Ran 43 tests in 0.838s
 OK
 ```
 
----
+For our testing standards and verification specifications, read:
+👉 **[docs/official-specs/testing-contracts.md](docs/official-specs/testing-contracts.md)**
 
 ## 🗺️ Master Roadmap & Architecture Horizons
 

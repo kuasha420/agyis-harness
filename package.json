@@ -5,6 +5,9 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
+    "psl": "python3 -m harness.cli",
+    "doctor": "python3 -m harness.cli doctor",
+    "test": "python3 -m harness.cli test",
     "inventory": "python3 pipeline/inventory_customizations.py",
     "extract": "python3 pipeline/extract_transcripts.py",
     "classify": "python3 pipeline/classify_failures.py",

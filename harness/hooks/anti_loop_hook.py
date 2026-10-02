@@ -13,25 +13,29 @@ import os
 from pathlib import Path
 import sys
 
-STATE_DIR = Path("/tmp/psl_agy_harness_state")
+def get_state_dir() -> Path:
+    return Path(os.environ.get("PSL_HARNESS_STATE_DIR", "/tmp/psl_agy_harness_state"))
+
+
 MAX_REPEATS = 3
 
 
-def main() -> None:
-    try:
-        payload = json.load(sys.stdin)
-    except Exception:
-        # Default allow if input cannot be read
-        print(json.dumps({"decision": "allow"}))
-        return
+def check_anti_loop(
+    tool_name: str,
+    tool_args: dict,
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+    max_repeats: int = MAX_REPEATS,
+) -> dict:
+    """
+    Evaluates a tool call against recent history for the given conversation ID.
 
-    conv_id = payload.get("conversationId", "default")
-    tool_call = payload.get("toolCall", {})
-    tool_name = tool_call.get("name", "")
-    tool_args = tool_call.get("args", {})
-
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    history_file = STATE_DIR / f"history_{conv_id}.json"
+    Returns:
+        {"decision": "allow"} or {"decision": "deny", "reason": ...}
+    """
+    target_dir = state_dir or get_state_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    history_file = target_dir / f"history_{conv_id}.json"
 
     history = []
     if history_file.exists():
@@ -51,26 +55,48 @@ def main() -> None:
         else:
             break
 
-    if repeats >= MAX_REPEATS:
+    if repeats >= max_repeats:
         # Deny repetitive execution to force reasoning shift
-        result = {
+        return {
             "decision": "deny",
             "reason": (
                 f"PSL Anti-Loop Guard: Intercepted {repeats + 1} identical consecutive executions "
                 f"of '{tool_name}'. Refine arguments, inspect prior outputs, or pursue an alternative strategy."
-            )
+            ),
         }
-    else:
-        # Record into history (keep last 10)
-        history.append(sig)
-        history = history[-10:]
-        try:
-            history_file.write_text(json.dumps(history), encoding="utf-8")
-        except Exception:
-            pass
 
-        result = {"decision": "allow"}
+    # Record into history (keep last 10)
+    history.append(sig)
+    history = history[-10:]
+    try:
+        history_file.write_text(json.dumps(history), encoding="utf-8")
+    except Exception:
+        pass
 
+    return {"decision": "allow"}
+
+
+def main() -> None:
+    try:
+        raw_stdin = sys.stdin.read()
+        if not raw_stdin.strip():
+            print(json.dumps({"decision": "allow"}))
+            return
+        payload = json.loads(raw_stdin)
+        if not isinstance(payload, dict):
+            print(json.dumps({"decision": "allow"}))
+            return
+    except Exception:
+        # Default allow if input cannot be read
+        print(json.dumps({"decision": "allow"}))
+        return
+
+    conv_id = payload.get("conversationId", "default")
+    tool_call = payload.get("toolCall", {})
+    tool_name = tool_call.get("name", "")
+    tool_args = tool_call.get("args", {})
+
+    result = check_anti_loop(tool_name, tool_args, conv_id=conv_id)
     print(json.dumps(result))
 
 

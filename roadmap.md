@@ -63,6 +63,33 @@ A central unsolved architectural challenge of this product is **how the harness 
 2. **Deterministic Precedence**: Project-local skills and rules always specialize or override harness-level skills of the same name.
 3. **Non-Destructive Cascading**: Harness hooks operate globally at the platform layer, providing safety and compaction across all repositories without requiring repo-specific setup.
 
+### C. The Product vs. Project Bifurcation (ADR-014)
+A critical architectural boundary separates the runtime software delivered to agents from the internal development workspace:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                   THE PRODUCT (psl-agy-harness runtime)                │
+│ Distributable Antigravity plugin and developer CLI toolchain:           │
+│ - Runtime Matrix (matrix.json) & Auto-Healing Doctor                   │
+│ - Deterministic Lifecycle Hooks (hooks.json, command safety, anti-loop) │
+│ - Unified CLI Entrypoint (`psl doctor`, `psl hook`, `psl audit`)        │
+│ - Product-Level Rules & Skills (AGENTS.md, testing contracts, toolkit) │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ engineered & audited by
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                   THE PROJECT (Development & Empirical Lab)            │
+│ Local repository workspace (kuasha420/psl-agy-harness):               │
+│ - Telemetry Database (data/telemetry.db: 348 sessions, 140k steps)     │
+│ - Analysis Pipelines (pipeline/extract_*.py, analyze_*.py)             │
+│ - Project Test Suite (tests/: hermetic unit & contract tests)          │
+│ - Architecture Specifications & Research Ledgers (docs/taxonomy/)      │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+1. **The Product**: Ships to developers, client projects, or upstream DeepMind. Contains zero developer-specific telemetry scripts or scratch files.
+2. **The Project**: The engineering repository where PAH is developed, containing the 348-session database, multi-dimensional taxonomy reports, and internal verification suites.
+
 ---
 
 ## 3. Cognitive Exhaustion Guardrails & Visual Indicators
@@ -99,7 +126,7 @@ To protect both the operator and the agent from cognitive exhaustion, the harnes
 
 ## 4. Master Roadmap Horizons (Dynamic Sliding Aperture)
 
-### 🟢 Horizon 0: Empirical Ground Truth & POC Prototyping (CURRENT — LOCKED IN)
+### 🟢 Horizon 0: Empirical Ground Truth & POC Prototyping (COMPLETED & COMPACTED)
 * **Goal**: Replace intuition with empirical telemetry; dissect platform interfaces; build isolated proof-of-concept hooks.
 * **Status**: **Complete & Compacted** (All code on `main`, tests green, ledger updated).
 * **Delivered Assets**:
@@ -114,20 +141,33 @@ To protect both the operator and the agent from cognitive exhaustion, the harnes
 
 ---
 
-### 🟡 Horizon 1: Product Foundation, Delivery Architecture & Packaging (NEXT SESSION)
-* **Goal**: Move from isolated scripts to a unified developer product; solve the rule/skill delivery and coexistence problem; integrate in-band context compaction.
+### 🟡 Horizon 1: Product Foundation, Delivery Architecture & Packaging (IN PROGRESS)
+* **Goal**: Move from isolated scripts to a unified developer product; codify testing contracts; build the delivery engine; harvest deeper telemetry.
 * **Resolution**: **Medium Resolution (Macro Milestones & Architectural Boundaries)**.
-* **Key Milestones**:
-  1. **Unified CLI & Manifest Packaging**:
-     - Package the toolchain into a single distributable binary or Python entrypoint: `psl doctor`, `psl audit`, `psl hook`.
-     - Finalize `plugin.json` for 1-command installation via `agy plugin install .`.
-  2. **The Rule/Skill Delivery Engine**:
-     - Formalize and implement the Layer 1 vs Layer 3 resolution engine.
-     - Ensure global harness skills (audit toolkit, mesh runners) are discoverable without polluting project repositories.
-  3. **In-Band PreToolUse Context Compactor**:
-     - Move beyond `PostToolUse` telemetry logging: wrap execution so that large tool outputs are compacted *before* reaching the LLM context window, physically eliminating the 100k token cliff during live runs.
-  4. **Context Cockpit & Visual Status Display**:
-     - Implement token depth and step horizon indicators in Antigravity's auxiliary pane or terminal headers.
+* **Completed Milestones**:
+  - [x] **Unified Developer CLI (`psl`)**:
+    - Created `harness/cli.py` providing `psl doctor`, `psl hook`, `psl test`, `psl audit`, and `psl status`.
+    - Registered `psl` in `pyproject.toml` and `package.json`.
+    - Standardized `hooks.json` to invoke `python3 -m harness.cli hook <name>`, eliminating relative path bugs.
+  - [x] **Testing Codification & Anti-Loop Test Suite**:
+    - Refactored `anti_loop_hook.py` with pure `check_anti_loop()` and dynamic `PSL_HARNESS_STATE_DIR` support.
+    - Added `tests/test_anti_loop.py` (7 tests) and `tests/test_cli.py` (7 tests).
+    - Codified `docs/official-specs/testing-contracts.md` (Tier 1 Project Contracts & Tier 2 Product Blueprint).
+    - Entire test suite passes with **43/43 tests in <0.85s** (Sub-second benchmark invariant met).
+* **Upcoming Milestones**:
+  1. **Telemetry Data Gathering & Deep Mining (Active Priority)**:
+     - Expand telemetry extraction on `data/telemetry.db` to audit character volume distributions by tool and command pattern.
+     - Build continuous harvesting tooling for fresh sessions across Knot mesh nodes.
+  2. **Product-Delivered Testing Rules & Verification Skills**:
+     - Implement the `Stop` lifecycle verification fence (`completion_fence_hook.py`) to prevent premature convergence when source files were modified without running tests.
+     - Supply standardized testing runner skills (`psl-test-runner`) for Python, Node, Cargo, and Go.
+  3. **The Rule/Skill Delivery & Coexistence Engine**:
+     - Implement Layer 1 vs Layer 3 resolution engine.
+     - Provide `psl install [--global]` to register the plugin into `~/.gemini/config/plugins/` without polluting workspace git repositories.
+  4. **In-Band PreToolUse Execution Compactor (HELD)**:
+     - *Status*: **Held pending telemetry gathering**. Model output volume dynamics will be analyzed from telemetry before prototyping live execution wrappers.
+  5. **Context Cockpit & Visual Status Display**:
+     - Design and integrate token depth and step horizon indicators in Antigravity auxiliary views.
 
 ---
 

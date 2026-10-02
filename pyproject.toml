@@ -21,6 +21,8 @@ dev = [
 ]
 
 [project.scripts]
+psl = "harness.cli:main"
+psl-doctor = "pipeline.psl_doctor:main"
 psl-audit = "pipeline.extract_transcripts:main"
 psl-inventory = "pipeline.inventory_customizations:main"
 psl-classify = "pipeline.classify_failures:main"
