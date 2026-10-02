@@ -1,0 +1,350 @@
+{
+  "timestamp": "2026-10-02 05:08:17Z",
+  "total_markdown_artifacts": 474,
+  "total_sessions_with_artifacts": 155,
+  "artifacts_by_type": {
+    "implementation_plan.md": 130,
+    "walkthrough.md": 118,
+    "task.md": 81,
+    "learning_proposal.md": 11,
+    "phase_1_plan.md": 7,
+    "phase_1_delivery_final.md": 7,
+    "prompt_draft.md": 6,
+    "phase_2_plan.md": 6,
+    "phase_2_delivery_final.md": 6,
+    "phase_3_plan.md": 5,
+    "phase_3_delivery_final.md": 5,
+    "phase_4_plan.md": 4,
+    "phase_4_delivery_final.md": 4,
+    "phase_5_plan.md": 4,
+    "phase_5_delivery_final.md": 4,
+    "pull_request_draft.md": 1,
+    "issue_9_brief.md": 1,
+    "asset_audit_issue.md": 1,
+    "issue_8_body.md": 1,
+    "review_gemini.md": 1,
+    "review_chatgpt.md": 1,
+    "review_copilot.md": 1,
+    "handoff_issue_83.md": 1,
+    "handoff_issue_57.md": 1,
+    "handoff_issue_21.md": 1,
+    "work_report.md": 1,
+    "credential_sync_analysis_report.md": 1,
+    "qa_report_issue_36.md": 1,
+    "handover_report.md": 1,
+    "garage_band_status_report.md": 1,
+    "garage_band_epic_closure_post.md": 1,
+    "server_analysis_and_deployment_plan.md": 1,
+    "production_auth_investigation.md": 1,
+    "deployment_pipelines_refresher.md": 1,
+    "conversation_retrospective.md": 1,
+    "git_inspector_report.md": 1,
+    "git_inspection_report.md": 1,
+    "pawthy_analysis.md": 1,
+    "sprint2_handover_meowgent47.md": 1,
+    "submodule_comments.md": 1,
+    "host_comments.md": 1,
+    "gemini_comments.md": 1,
+    "copilot_comments.md": 1,
+    "gemini_comments_round2.md": 1,
+    "copilot_comments_round2.md": 1,
+    "chatgpt_comments.md": 1,
+    "review_comments_gemini.md": 1,
+    "review_comments_copilot.md": 1,
+    "review_comments_110.md": 1,
+    "review_comments_108_gemini.md": 1,
+    "review_comments_108_copilot.md": 1,
+    "review_comments_111.md": 1,
+    "implementation_progress.md": 1,
+    "referral_flows_analysis.md": 1,
+    "referral_verification_report.md": 1,
+    "development_state_report.md": 1,
+    "session_completion_report.md": 1,
+    "space_reverse_audit.md": 1,
+    "project_portfolio_analysis.md": 1,
+    "local_llm_hardware_assessment.md": 1,
+    "handover_prompt_issue_130.md": 1,
+    "audit_report.md": 1,
+    "knot_swarm_vision_and_roadmap.md": 1,
+    "knot_swarm_konversations_and_primitives.md": 1,
+    "strategic_handover_dossier.md": 1,
+    "handover_prompt.md": 1,
+    "swarm_monitoring_prompt.md": 1,
+    "cross_domain_rule9_audit_report.md": 1,
+    "knot_mesh_development_journey.md": 1,
+    "knot_mesh_codebase_audit.md": 1,
+    "master_plan.md": 1,
+    "subagent_execution_protocol.md": 1,
+    "frontend_qa_test_suite_audit.md": 1,
+    "focused_homepage_refinement_report.md": 1,
+    "homepage_enhancements_delivery_report.md": 1,
+    "mission_log.md": 1,
+    "knot_user_surface_master.md": 1,
+    "reality.md": 1,
+    "rog_display_audit.md": 1,
+    "handover_prompt_kdeconnect.md": 1,
+    "design_team_asset_requisition.md": 1,
+    "phase_6_plan.md": 1,
+    "phase_6_delivery_final.md": 1,
+    "phase_7_plan.md": 1,
+    "phase_7_delivery_final.md": 1,
+    "phase_8_plan.md": 1,
+    "phase_8_delivery_final.md": 1,
+    "jimha_release_dossier.md": 1,
+    "operator_ledger.md": 1,
+    "wave0_staging_verification_guide.md": 1,
+    "MASTER_CONSOLIDATION_DOSSIER.md": 1
+  },
+  "planning_stats": {
+    "implementation_plans": 130,
+    "plans_with_feedback_requested": 0,
+    "walkthroughs": 118,
+    "paired_plan_walkthrough_sessions": 94,
+    "average_plan_to_walkthrough_fidelity_pct": 51.4
+  },
+  "drift_samples": [
+    {
+      "session_id": "783bc84d-a70e-4d44-a55b-ad5244acf456",
+      "planned_files_count": 5,
+      "delivered_files_count": 7,
+      "common_files_count": 5,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        "cdn.discord.com",
+        "deploy-commands.ts"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "d877c7c4-6933-4061-83eb-b282ea339583",
+      "planned_files_count": 1,
+      "delivered_files_count": 2,
+      "common_files_count": 1,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        "search-input.tsx"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "65d2b822-a3b8-42dc-bc7a-c8cddb18cdf6",
+      "planned_files_count": 5,
+      "delivered_files_count": 5,
+      "common_files_count": 5,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "0b0f7dbc-c166-4d09-87f9-94f69a79b006",
+      "planned_files_count": 2,
+      "delivered_files_count": 2,
+      "common_files_count": 2,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "e182b0f1-496f-414c-9f52-2908e4ddf3c2",
+      "planned_files_count": 4,
+      "delivered_files_count": 4,
+      "common_files_count": 4,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "3e2da5dc-ea3a-4cd8-97ba-c2f93a5ecb7e",
+      "planned_files_count": 3,
+      "delivered_files_count": 3,
+      "common_files_count": 3,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "14f34a67-6958-44dd-bbff-506faf9d649b",
+      "planned_files_count": 2,
+      "delivered_files_count": 2,
+      "common_files_count": 2,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "699dcde8-478a-4dd0-8fc9-4209fa15dcec",
+      "planned_files_count": 2,
+      "delivered_files_count": 4,
+      "common_files_count": 2,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        "verify-stats.ts",
+        "globals.node"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "0fab1b1c-0593-4130-b2b1-9189808b785d",
+      "planned_files_count": 4,
+      "delivered_files_count": 6,
+      "common_files_count": 4,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        ".env.example",
+        "infra-setup.sh"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "d5c789b4-31a8-4273-9d38-d9ea55c2ed20",
+      "planned_files_count": 2,
+      "delivered_files_count": 7,
+      "common_files_count": 2,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        "Architecture.tsx",
+        "7.898s",
+        "index.css",
+        "Showcase.tsx",
+        "ForDevelopers.tsx"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "861b8b43-69a8-48c3-920c-1c02d9732f40",
+      "planned_files_count": 3,
+      "delivered_files_count": 11,
+      "common_files_count": 3,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        "pnpm-lock.yaml",
+        "Promise.allSettled",
+        "plugin-manager.ts",
+        "path.resolve",
+        "garage-band-1.0.5.zip"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "a4128131-6348-4a50-b2c0-b7e130f09cfb",
+      "planned_files_count": 5,
+      "delivered_files_count": 10,
+      "common_files_count": 5,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        "build-plugins.ts",
+        "package.json",
+        "v1.0.6",
+        "garage-band-1.0.6.zip",
+        "index.ts"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "313e14fe-f56a-4268-a579-076b7075a303",
+      "planned_files_count": 1,
+      "delivered_files_count": 2,
+      "common_files_count": 1,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        "services.js"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "85713a87-58f5-41ef-b6d8-ed86cfd4d095",
+      "planned_files_count": 3,
+      "delivered_files_count": 18,
+      "common_files_count": 3,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        ".env.example",
+        "config.toml",
+        "quick-start.sh",
+        "verify-mcp.js",
+        "project-config.json"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "39a982aa-e636-4de4-a9c5-039305be8745",
+      "planned_files_count": 1,
+      "delivered_files_count": 9,
+      "common_files_count": 1,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        "tuki.1",
+        "purr-tray.1",
+        "install.sh",
+        "purr-integrate.1",
+        "_purr.zsh"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "f92e3806-eebd-42dc-88fb-42629697185e",
+      "planned_files_count": 9,
+      "delivered_files_count": 13,
+      "common_files_count": 9,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        "sys.stderr",
+        "proc.returncode",
+        "proc.stderr",
+        "uninstall.sh"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "df31c415-27a7-4be1-b270-101a489ecc28",
+      "planned_files_count": 8,
+      "delivered_files_count": 10,
+      "common_files_count": 8,
+      "drift_fidelity_pct": 100.0,
+      "unplanned_files_delivered": [
+        "c77df798-cee6-426f-9b16-1be4b2fd2fb2.json",
+        "test_council_steer.sh"
+      ],
+      "planned_files_missed": []
+    },
+    {
+      "session_id": "b632242b-5254-4242-9e6a-3ebe2ab242c2",
+      "planned_files_count": 11,
+      "delivered_files_count": 11,
+      "common_files_count": 10,
+      "drift_fidelity_pct": 90.9,
+      "unplanned_files_delivered": [
+        "dns.conf"
+      ],
+      "planned_files_missed": [
+        "stub-resolv.conf"
+      ]
+    },
+    {
+      "session_id": "a4b10c2a-1962-4616-8a6c-e3a3f986df01",
+      "planned_files_count": 7,
+      "delivered_files_count": 7,
+      "common_files_count": 6,
+      "drift_fidelity_pct": 85.7,
+      "unplanned_files_delivered": [
+        "env.test.ts"
+      ],
+      "planned_files_missed": [
+        "process.env"
+      ]
+    },
+    {
+      "session_id": "4ecaf914-7036-4f0a-b5f2-bf895bd6b506",
+      "planned_files_count": 7,
+      "delivered_files_count": 7,
+      "common_files_count": 6,
+      "drift_fidelity_pct": 85.7,
+      "unplanned_files_delivered": [
+        "resolve_node.py"
+      ],
+      "planned_files_missed": [
+        "classifier.py"
+      ]
+    }
+  ]
+}

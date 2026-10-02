@@ -1,0 +1,378 @@
+{
+  "timestamp": "2026-10-02 05:06:50Z",
+  "total_estimated_tokens": 32419638,
+  "step_volumes": [
+    {
+      "step_type": "GENERIC",
+      "step_count": 49423,
+      "avg_chars": 1581.7,
+      "max_chars": 4121,
+      "total_chars": 78174451,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 19543612
+    },
+    {
+      "step_type": "VIEW_FILE",
+      "step_count": 3716,
+      "avg_chars": 2795.6,
+      "max_chars": 4121,
+      "total_chars": 10388424,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 2597106
+    },
+    {
+      "step_type": "RUN_COMMAND",
+      "step_count": 6264,
+      "avg_chars": 1248.6,
+      "max_chars": 4120,
+      "total_chars": 7821201,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 1955300
+    },
+    {
+      "step_type": "SYSTEM_MESSAGE",
+      "step_count": 3650,
+      "avg_chars": 1682.9,
+      "max_chars": 4121,
+      "total_chars": 6142495,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 1535623
+    },
+    {
+      "step_type": "EPHEMERAL_MESSAGE",
+      "step_count": 2179,
+      "avg_chars": 2680.4,
+      "max_chars": 4120,
+      "total_chars": 5840597,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 1460149
+    },
+    {
+      "step_type": "PLANNER_RESPONSE",
+      "step_count": 67670,
+      "avg_chars": 70.9,
+      "max_chars": 4120,
+      "total_chars": 4797823,
+      "total_thinking_chars": 9952487,
+      "estimated_tokens": 3687577
+    },
+    {
+      "step_type": "CODE_ACTION",
+      "step_count": 2254,
+      "avg_chars": 929.6,
+      "max_chars": 4121,
+      "total_chars": 2095339,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 523834
+    },
+    {
+      "step_type": "USER_INPUT",
+      "step_count": 2030,
+      "avg_chars": 712.6,
+      "max_chars": 4121,
+      "total_chars": 1446479,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 361619
+    },
+    {
+      "step_type": "CHECKPOINT",
+      "step_count": 514,
+      "avg_chars": 2668.3,
+      "max_chars": 4121,
+      "total_chars": 1371511,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 342877
+    },
+    {
+      "step_type": "GREP_SEARCH",
+      "step_count": 787,
+      "avg_chars": 1042.5,
+      "max_chars": 4121,
+      "total_chars": 820466,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 205116
+    },
+    {
+      "step_type": "LIST_DIRECTORY",
+      "step_count": 485,
+      "avg_chars": 651.9,
+      "max_chars": 4121,
+      "total_chars": 316170,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 79042
+    },
+    {
+      "step_type": "FIND",
+      "step_count": 246,
+      "avg_chars": 479.3,
+      "max_chars": 2469,
+      "total_chars": 117913,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 29478
+    },
+    {
+      "step_type": "SEARCH_WEB",
+      "step_count": 31,
+      "avg_chars": 3634.6,
+      "max_chars": 4120,
+      "total_chars": 112672,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 28168
+    },
+    {
+      "step_type": "ERROR_MESSAGE",
+      "step_count": 396,
+      "avg_chars": 262.3,
+      "max_chars": 728,
+      "total_chars": 103852,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 25963
+    },
+    {
+      "step_type": "MCP_TOOL",
+      "step_count": 110,
+      "avg_chars": 864.3,
+      "max_chars": 4118,
+      "total_chars": 95077,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 23769
+    },
+    {
+      "step_type": "INVOKE_SUBAGENT",
+      "step_count": 77,
+      "avg_chars": 644.3,
+      "max_chars": 1641,
+      "total_chars": 49613,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 12403
+    },
+    {
+      "step_type": "CONVERSATION_HISTORY",
+      "step_count": 142,
+      "avg_chars": 167.2,
+      "max_chars": 2677,
+      "total_chars": 23749,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 5937
+    },
+    {
+      "step_type": "ASK_QUESTION",
+      "step_count": 25,
+      "avg_chars": 228.3,
+      "max_chars": 642,
+      "total_chars": 5708,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 1427
+    },
+    {
+      "step_type": "READ_URL_CONTENT",
+      "step_count": 6,
+      "avg_chars": 425.8,
+      "max_chars": 717,
+      "total_chars": 2555,
+      "total_thinking_chars": 0,
+      "estimated_tokens": 638
+    }
+  ],
+  "token_saturation_buckets": [
+    {
+      "bucket": "< 20k tokens",
+      "sessions": 142,
+      "avg_steps": 52.3,
+      "avg_errors": 0.71,
+      "avg_interventions": 0.14,
+      "avg_tokens": 11144.0
+    },
+    {
+      "bucket": "20k - 50k tokens",
+      "sessions": 108,
+      "avg_steps": 133.1,
+      "avg_errors": 1.05,
+      "avg_interventions": 0.63,
+      "avg_tokens": 32882.0
+    },
+    {
+      "bucket": "50k - 100k tokens",
+      "sessions": 35,
+      "avg_steps": 303.3,
+      "avg_errors": 4.74,
+      "avg_interventions": 4.34,
+      "avg_tokens": 71999.0
+    },
+    {
+      "bucket": "100k - 200k tokens",
+      "sessions": 27,
+      "avg_steps": 641.9,
+      "avg_errors": 10.93,
+      "avg_interventions": 7.19,
+      "avg_tokens": 145128.0
+    },
+    {
+      "bucket": "200k+ tokens",
+      "sessions": 36,
+      "avg_steps": 2507.0,
+      "avg_errors": 43.25,
+      "avg_interventions": 34.89,
+      "avg_tokens": 579095.0
+    }
+  ],
+  "compaction_simulation": {
+    "steps_exceeding_2kb": 19452,
+    "total_oversized_chars": 67446837,
+    "chars_saved_at_2kb_cap": 27609141,
+    "estimated_token_savings": 6902285,
+    "potential_savings_pct": 21.29
+  },
+  "top_bloaters": [
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 900,
+      "tool_name": "run_command",
+      "command_or_target": "\"./node_modules/.bin/turbo run typecheck && pnpm --filter jasper-bot test -- --run\"",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 2
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 1488,
+      "tool_name": "run_command",
+      "command_or_target": "\"ssh rog-ally \\\"echo WAYLAND: \\\\$WAYLAND_DISPLAY, DISPLAY: \\\\$DISPLAY; ps aux | grep -E 'kwin|wayland|Xorg' | grep -v gr",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 3
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 1724,
+      "tool_name": "run_command",
+      "command_or_target": "\"ssh laptop \\\"echo WAYLAND: \\\\$WAYLAND_DISPLAY, DISPLAY: \\\\$DISPLAY; ps aux | grep -E 'kwin|wayland|Xorg|plasma' | grep ",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 1
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2128,
+      "tool_name": "run_command",
+      "command_or_target": "\"git rebase --skip\\n\"",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 1
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2140,
+      "tool_name": "run_command",
+      "command_or_target": "\"pnpm --filter @jasper/types build\\npnpm turbo run typecheck\\nCI=true pnpm test\\n\"",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 1
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2147,
+      "tool_name": "run_command",
+      "command_or_target": "\"CI=true pnpm test\\n\"",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 1
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2163,
+      "tool_name": "run_command",
+      "command_or_target": "\"CI=true pnpm test\\n\"",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 1
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2401,
+      "tool_name": "run_command",
+      "command_or_target": "\"pnpm turbo run typecheck\"",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 2
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2492,
+      "tool_name": "run_command",
+      "command_or_target": "\"pnpm turbo run typecheck\"",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 2
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2500,
+      "tool_name": "run_command",
+      "command_or_target": "\"git commit -am \\\"fix(plugins): remove unused isProductionPlugin import in packager (HJ-OSS-12)\\\" && git push origin fea",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 1
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2596,
+      "tool_name": "run_command",
+      "command_or_target": "\"git checkout -B feat/hj-oss-11-runtime-identity-sharding origin/feat/hj-oss-11-runtime-identity-sharding && git rebase ",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 1
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2764,
+      "tool_name": "run_command",
+      "command_or_target": "\"gh pr diff 165 --stat\"",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 1
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2923,
+      "tool_name": "run_command",
+      "command_or_target": "\"git checkout feat/hj-oss-20-operational-safety-policy && git pull origin feat/hj-oss-20-operational-safety-policy && gi",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 1
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2962,
+      "tool_name": "run_command",
+      "command_or_target": "\"git add packages/types/src/bot-types.ts && git -c core.editor=true rebase --continue\"",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 1
+    },
+    {
+      "session_id": "7a2a32af-cc3d-47a9-951d-27cc0d00a932",
+      "step_index": 2980,
+      "tool_name": "run_command",
+      "command_or_target": "\"pnpm turbo run typecheck && CI=true pnpm --filter jasper-bot test -- src/core/__tests__/operational-safety.test.ts\"",
+      "snippet_len_chars": 800,
+      "estimated_tokens": 200,
+      "status": "FAILED",
+      "exit_code": 2
+    }
+  ]
+}
