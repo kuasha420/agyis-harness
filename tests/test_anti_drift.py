@@ -12,8 +12,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 from harness.hooks.anti_drift_hook import (
+    check_auditor_write_block,
     check_drift,
     find_active_plan,
     is_exempt_file,
@@ -374,6 +376,67 @@ class TestAntiDriftHook(unittest.TestCase):
             main()
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "allow")
+
+    def test_auditor_write_block_direct(self):
+        """Auditor write guard blocks file mutation tools directly."""
+        for tool in ("write_to_file", "replace_file_content", "edit_file"):
+            for role in ("auditor", "harness_auditor", "qa_verifier"):
+                payload = {
+                    "role": role,
+                    "toolCall": {"name": tool, "args": {"TargetFile": "src/app.py"}},
+                }
+                res = check_auditor_write_block(payload)
+                self.assertIsNotNone(res, f"Expected block for {role} using {tool}")
+                self.assertEqual(res["decision"], "deny")
+                self.assertIn("PSL Auditor Invariant", res["reason"])
+
+    def test_auditor_allowed_for_read_and_exec(self):
+        """Auditor write guard allows read and execution tools."""
+        for tool in ("run_command", "view_file", "list_dir", "grep_search"):
+            payload = {
+                "role": "harness_auditor",
+                "toolCall": {"name": tool, "args": {"CommandLine": "./psl test"}},
+            }
+            res = check_auditor_write_block(payload)
+            self.assertIsNone(res, f"Expected allow for auditor using {tool}")
+
+    def test_non_auditor_not_blocked_by_auditor_guard(self):
+        """Non-auditor agents (builder, implementer) are not blocked by auditor guard."""
+        payload = {
+            "role": "harness_builder",
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": "src/app.py"}},
+        }
+        res = check_auditor_write_block(payload)
+        self.assertIsNone(res)
+
+    def test_auditor_write_block_via_env_var(self):
+        """Auditor role via PSL_SUBAGENT_ROLE environment variable blocks file mutations."""
+        with patch.dict(os.environ, {"PSL_SUBAGENT_ROLE": "auditor"}):
+            payload = {
+                "toolCall": {"name": "write_to_file", "args": {"TargetFile": "src/app.py"}},
+            }
+            res = check_auditor_write_block(payload)
+            self.assertIsNotNone(res)
+            self.assertEqual(res["decision"], "deny")
+
+    def test_cli_hook_main_auditor_write_block(self):
+        """main() intercepts auditor file mutation and outputs block response."""
+        import io
+        from unittest.mock import patch
+        from harness.hooks.anti_drift_hook import main
+
+        payload = {
+            "role": "harness_auditor",
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": "src/app.py", "CodeContent": "bad"},
+            },
+        }
+        with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            main()
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res["decision"], "deny")
+            self.assertIn("PSL Auditor Invariant", res["reason"])
 
 
 if __name__ == "__main__":

@@ -400,6 +400,98 @@ def cmd_agents(args: argparse.Namespace) -> int:
     return 0
 
 
+def format_subagents_table(statuses: List[Any]) -> str:
+    """Format a list of SubagentContextStatus as an ASCII table."""
+    if not statuses:
+        return "No active subagents found."
+
+    headers = [
+        "Conversation ID",
+        "Role",
+        "Steps",
+        "Tokens",
+        "Health Zone",
+        "Recommendation",
+        "Latency",
+    ]
+    rows = []
+    for s in statuses:
+        cid = s.conversation_id[:12] if len(s.conversation_id) > 12 else s.conversation_id
+        hz_badge = s.health_zone
+        if s.health_zone == "HEALTHY":
+            hz_badge = "🟢 HEALTHY"
+        elif s.health_zone == "AMBER":
+            hz_badge = "🟡 AMBER"
+        elif s.health_zone == "RED_ALERT":
+            hz_badge = "🔴 RED_ALERT"
+
+        rows.append([
+            cid,
+            s.role[:20],
+            str(s.step_count),
+            f"{s.token_count:,}",
+            hz_badge,
+            s.recommendation,
+            f"{s.latency_ms:.1f}ms",
+        ])
+
+    col_widths = [len(h) for h in headers]
+    for row in rows:
+        for i, val in enumerate(row):
+            col_widths[i] = max(col_widths[i], len(val))
+
+    sep = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"
+    header_str = (
+        "| "
+        + " | ".join(f"{h:<{col_widths[i]}}" for i, h in enumerate(headers))
+        + " |"
+    )
+
+    table_lines = [sep, header_str, sep]
+    for row in rows:
+        line = (
+            "| "
+            + " | ".join(f"{val:<{col_widths[i]}}" for i, val in enumerate(row))
+            + " |"
+        )
+        table_lines.append(line)
+    table_lines.append(sep)
+    return "\n".join(table_lines)
+
+
+def cmd_subagents(args: argparse.Namespace) -> int:
+    """Renders active subagents table and zero-token context health gauge."""
+    from harness.subagents import list_active_subagent_statuses
+
+    brain_dir = getattr(args, "brain_dir", None)
+    statuses = list_active_subagent_statuses(brain_dir=brain_dir)
+
+    if getattr(args, "json", False):
+        data = [
+            {
+                "conversation_id": s.conversation_id,
+                "role": s.role,
+                "step_count": s.step_count,
+                "token_count": s.token_count,
+                "health_zone": s.health_zone,
+                "recommendation": s.recommendation,
+                "latency_ms": s.latency_ms,
+            }
+            for s in statuses
+        ]
+        print(json.dumps(data, indent=2))
+        return 0
+
+    if not statuses:
+        print("No active subagents found in brain directory.")
+        return 0
+
+    print(f"PSL Active Subagents ({len(statuses)} active):")
+    print(format_subagents_table(statuses))
+    print()
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Prints a high-level status summary of the PSL Harness."""
     print("=" * 70)
@@ -414,10 +506,11 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(" Hermetic Python: Not found in uv cache")
 
     from harness.skills import list_skills
-    from harness.subagents import list_agent_specs
+    from harness.subagents import list_active_subagent_statuses, list_agent_specs
 
     skills = list_skills()
     agents = list_agent_specs()
+    active_subagents = list_active_subagent_statuses()
     print(f" Modular Skills:  {len(skills)} installed")
     print(
         f" Subagents:       {len(agents)} registered ({', '.join(a.archetype.value for a in agents)})"
@@ -464,6 +557,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(" Modular Skills:")
     for sk in skills:
         print(f"   ✔ {sk.name:<22} - {sk.description[:42]}...")
+    if active_subagents:
+        print("-" * 70)
+        print(f" Live Active Subagents ({len(active_subagents)} active):")
+        for line in format_subagents_table(active_subagents).splitlines():
+            print(f"   {line}")
     print("=" * 70)
     return 0
 
@@ -535,6 +633,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_agents.add_argument("--sync", action="store_true", help="Sync agent definitions to .agents/agents")
     p_agents.add_argument("--json", action="store_true", help="Output agents in JSON format")
 
+    # subagents
+    p_subagents = subparsers.add_parser(
+        "subagents", help="List active subagents and context health gauge"
+    )
+    p_subagents.add_argument(
+        "--json", action="store_true", help="Output subagents in JSON format"
+    )
+    p_subagents.add_argument(
+        "--brain-dir", type=Path, default=None, help="Custom brain directory path"
+    )
+
     # status / info
     subparsers.add_parser("status", help="Print harness installation and health summary")
 
@@ -568,6 +677,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_skills(args)
     elif args.subcommand == "agents":
         return cmd_agents(args)
+    elif args.subcommand == "subagents":
+        return cmd_subagents(args)
     elif args.subcommand == "status":
         return cmd_status(args)
 

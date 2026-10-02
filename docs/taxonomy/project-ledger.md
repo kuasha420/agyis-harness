@@ -185,3 +185,25 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Registry & Dispatch: [harness/hooks/hooks.json](harness/hooks/hooks.json), [harness/cli.py](harness/cli.py)
   - Test Suite: [tests/test_anti_drift.py](tests/test_anti_drift.py)
   - Specification: [docs/official-specs/lifecycle-hooks.md](docs/official-specs/lifecycle-hooks.md)
+
+---
+
+## [Phase 4] Subagent Lifecycle Ergonomics, Zero-Token Context Gauge & Execution Reliability (ADR-025)
+* **Status**: Completed | **Compaction Date**: 2026-10-03
+* **Key Architectural Decisions (ADRs)**:
+  - **ADR-025 (Subagent Lifecycle Ergonomics, Zero-Token Context Gauge & Execution Reliability)**:
+    - **Zero-Token Context Gauge (`estimate_subagent_context`)**: Evaluates subagent context window consumption and lifecycle recommendations (`HEALTHY/REUSE`, `AMBER/COMPACT_RECREATE`, `RED_ALERT/RETIRE`) with zero LLM API tokens. Uses exact streaming JSON parser for transcripts $\le 2\text{MB}$ ($<1\text{ms}$) and fast size-stat heuristic for titan runaway transcripts $>2\text{MB}$ ($<0.05\text{ms}$).
+    - **Auditor Permissions Paradox & Write-Block Guard (`check_auditor_write_block`)**: Resolves the permissions paradox where `harness_auditor` needs execution permissions (`run_command`) for automated testing without having file mutation access. Intercepts file mutation tools (`write_to_file`, `replace_file_content`, `edit_file`) in `PreToolUse` while preserving read and command execution.
+    - **Zero-Exploration Invariant**: Strictly forbids blind repository listing sweeps (`list_dir`, `find_by_name`) across all specialist agent archetypes (`harness_builder`, `harness_reviewer`, `harness_auditor`), requiring agents to open target files directly from plan and prompt directives.
+    - **Live Developer Cockpit Telemetry (`psl subagents`)**: Standardizes active subagent discovery in CLI (`psl subagents [--json]`) and embeds real-time context health gauges in `psl status`.
+* **Empirical Baselines Established & Verified**:
+  - Context estimation latency strictly $<3.5\text{ms}$ on real 350KB transcripts; $<0.02\text{ms}$ on mock suites.
+  - 100% block accuracy on unauthorized auditor file mutations with descriptive invariant reasoning.
+  - Sub-second benchmark invariant maintained: 135 unit and integration tests passing in 0.912s (<1.0s benchmark).
+* **Reference Assets Committed**:
+  - Subagent Context & Health Engine: [harness/subagents.py](harness/subagents.py)
+  - PreToolUse Write-Block Guard: [harness/hooks/anti_drift_hook.py](harness/hooks/anti_drift_hook.py)
+  - Specialist Agent Definitions: [harness/agents/harness_auditor.md](harness/agents/harness_auditor.md), [harness/agents/harness_builder.md](harness/agents/harness_builder.md), [harness/agents/harness_reviewer.md](harness/agents/harness_reviewer.md)
+  - CLI Subagent Discovery: [harness/cli.py](harness/cli.py) (`psl subagents`)
+  - Test Suites: [tests/test_subagent_context.py](tests/test_subagent_context.py), [tests/test_anti_drift.py](tests/test_anti_drift.py), [tests/test_subagents.py](tests/test_subagents.py), [tests/test_cli.py](tests/test_cli.py)
+  - Specification: [docs/official-specs/lifecycle-hooks.md](docs/official-specs/lifecycle-hooks.md)

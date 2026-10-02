@@ -3,7 +3,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Repository**: `kuasha420/psl-agy-harness` (Private Development → Public Release)  
-**Last Updated**: 2026-10-02  
+**Last Updated**: 2026-10-03  
 
 ---
 
@@ -198,6 +198,12 @@ To protect both the operator and the agent from cognitive exhaustion, the harnes
   - [x] **Plan-to-Execution Anti-Drift & Cognitive Anchors (ADR-024 Phase 3)**:
     - Implemented `anti_drift_hook.py` with multi-syntax boundary parser, non-code exemptions (`.md`, `.txt`, artifacts, scratch), and dual-mode gating (non-strict notices vs strict `ask` confirmation gates).
     - Integrated Cognitive Attention Horizon Gauge into `psl status` across Healthy, Amber, and Red Alert depth zones.
+  - [x] **Subagent Lifecycle Ergonomics, Zero-Token Context Gauge & Execution Reliability (ADR-025 Phase 4)**:
+    - Implemented `SubagentContextStatus`, zero-token context estimator (`estimate_subagent_context`), and high-performance directory scanner (`list_active_subagent_statuses`) in `harness/subagents.py`.
+    - Wired PreToolUse Auditor Write-Block Guard (`check_auditor_write_block`) in `harness/hooks/anti_drift_hook.py`, enforcing verification-only safety for `harness_auditor` without disabling `run_command` or reading tools.
+    - Updated agent archetypes (`harness_auditor`, `harness_builder`, `harness_reviewer`) with Zero-Exploration Invariants and synced `.agents/agents/`.
+    - Added `psl subagents` subcommand (`--json`, `--brain-dir`) and wired live active subagent health gauges into `psl status`.
+    - Expanded test suite to **135 hermetic unit/contract tests passing in <0.92s** (<1.0s benchmark invariant).
 * **Upcoming Milestones**:
   1. **The Rule/Skill Delivery & Coexistence Engine**:
      - Implement Layer 1 vs Layer 3 resolution engine.

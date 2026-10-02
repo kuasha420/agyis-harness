@@ -127,6 +127,10 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertEqual(auditor.archetype, AgentArchetype.AUDITOR)
         self.assertFalse(auditor.can_write, "Auditor must not have write permission")
         self.assertTrue(auditor.can_execute, "Auditor must have exec permission")
+        self.assertTrue(
+            auditor.permissions.enable_write_tools,
+            "Auditor frontmatter must declare enable_write_tools: true",
+        )
         self.assertFalse(auditor.can_subagent, "Auditor must not spawn subagents")
 
         tool_set = set(auditor.allowed_tools)
@@ -205,6 +209,27 @@ class TestSpecialistSubagents(unittest.TestCase):
                 source_content,
                 mirrored_content,
                 f"Mirrored agent at {mirrored} is out of sync with source {spec.source_file}",
+            )
+
+    def test_zero_exploration_invariant_in_prompts(self) -> None:
+        """All specialist subagent system prompts must enforce Zero-Exploration Invariant."""
+        for name in ("harness_auditor", "harness_builder", "harness_reviewer"):
+            agent = get_agent_spec(name)
+            self.assertIsNotNone(agent, f"Agent {name} must exist")
+            self.assertIn(
+                "Zero-Exploration Invariant",
+                agent.system_prompt,
+                f"Agent {name} missing Zero-Exploration Invariant in prompt",
+            )
+            self.assertIn(
+                "list_dir",
+                agent.system_prompt,
+                f"Agent {name} prompt must explicitly mention list_dir",
+            )
+            self.assertIn(
+                "find_by_name",
+                agent.system_prompt,
+                f"Agent {name} prompt must explicitly mention find_by_name",
             )
 
 

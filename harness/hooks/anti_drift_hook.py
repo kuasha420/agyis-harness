@@ -256,6 +256,55 @@ def check_drift(target_file: str, plan_files: set[str], strict: bool = False) ->
         }
 
 
+def check_auditor_write_block(payload: dict) -> Optional[dict]:
+    """
+    PSL PreToolUse Auditor Write-Block Guard (ADR-025).
+
+    Blocks file modification tools (write_to_file, replace_file_content, edit_file)
+    when the calling subagent role is an auditor (harness_auditor, auditor).
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    role = (
+        payload.get("agent_role")
+        or payload.get("agentRole")
+        or payload.get("role")
+        or payload.get("agent_name")
+        or payload.get("agentName")
+        or payload.get("agent")
+        or os.environ.get("PSL_SUBAGENT_ROLE")
+        or os.environ.get("PSL_AGENT_ROLE")
+        or ""
+    )
+    r_lower = role.strip().lower().replace("-", "_")
+    is_auditor = (
+        r_lower in ("auditor", "harness_auditor", "qa_verifier", "qa")
+        or "auditor" in r_lower
+    )
+    if not is_auditor:
+        return None
+
+    tool_call = payload.get("toolCall", {})
+    if isinstance(tool_call, dict):
+        tool_name = tool_call.get("name") or ""
+    else:
+        tool_name = ""
+    if not tool_name:
+        tool_name = payload.get("tool_name") or payload.get("action") or ""
+
+    tool_lower = tool_name.strip().lower()
+    if tool_lower in ("write_to_file", "replace_file_content", "edit_file"):
+        return {
+            "decision": "deny",
+            "reason": (
+                "PSL Auditor Invariant: harness_auditor is strictly verification-only and cannot mutate files."
+            ),
+        }
+
+    return None
+
+
 def find_active_plan(
     conv_id: Optional[str] = None,
     workspace_root: Optional[Path | str] = None,
@@ -361,12 +410,22 @@ def main() -> None:
 
     # Action override for direct testing/IPC
     action = payload.get("action")
+    if action == "check_auditor_write_block":
+        result = check_auditor_write_block(payload)
+        print(json.dumps(result or {"decision": "allow"}))
+        return
     if action == "check_drift":
         target = payload.get("target_file", "")
         plan_files = set(payload.get("plan_files", []))
         strict = bool(payload.get("strict", False))
         result = check_drift(target, plan_files, strict=strict)
         print(json.dumps(result))
+        return
+
+    # Intercept auditor file mutations before plan check
+    auditor_block = check_auditor_write_block(payload)
+    if auditor_block:
+        print(json.dumps(auditor_block))
         return
 
     conv_id = payload.get("conversationId") or payload.get("conversation_id")

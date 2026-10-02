@@ -216,3 +216,43 @@ Non-code and operational files are never blocked by the anti-drift gate:
     "reason": "PSL Anti-Drift Gate: Target file '<file>' is not listed in implementation_plan.md. Please confirm intentional edit."
   }
   ```
+
+---
+
+### 5. PreToolUse Auditor Write-Block Guard & Zero-Token Context Health Gauge (ADR-025)
+
+* **Hook Name**: `anti-drift` (auditor write-block extension) & `harness.subagents`
+* **Trigger Event**: `PreToolUse` (interception) and programmatic telemetry
+* **File Location**: `harness/hooks/anti_drift_hook.py`, `harness/subagents.py`
+
+#### A. Auditor Permissions Paradox & Write-Block Guard
+In the PSL Subagent Ladder protocol, the **Auditor** (`harness_auditor`) requires command execution privileges (`run_command`) to run automated tests and doctor diagnostics, but must never mutate source files or test fixtures. Because granting platform execute permissions often surfaces editing tools in the agent's environment, `check_auditor_write_block()` enforces a deterministic software fence in `PreToolUse`.
+
+- **Interception Trigger**: Tool call is `write_to_file`, `replace_file_content`, or `edit_file`, AND calling agent role is `harness_auditor`, `auditor`, `qa_verifier`, or `PSL_SUBAGENT_ROLE=auditor`.
+- **Response Contract**:
+  ```json
+  {
+    "decision": "deny",
+    "reason": "PSL Auditor Invariant: harness_auditor is strictly verification-only and cannot mutate files."
+  }
+  ```
+- **Allowed Tools**: Read and command execution tools (`run_command`, `view_file`, `list_dir`, `grep_search`, `manage_task`) remain fully available for hermetic verification.
+
+#### B. Zero-Token Context Estimator & Health Gauge
+`estimate_subagent_context()` calculates subagent context consumption, step depth, and health status in microseconds with zero LLM API token overhead:
+- **Transcripts $\le 2\text{ MB}$**: Exact line-by-line streaming parser extracting exact steps, characters, and explicit token telemetry in $<1.5\text{ ms}$.
+- **Titan Transcripts $> 2\text{ MB}$**: Fast size-heuristic fallback estimating token volume and step depth in $<0.1\text{ ms}$ without loading titan payloads into RAM.
+- **Threshold Health Zones**:
+  - 🟢 **HEALTHY** ($<40\text{k tokens}$ AND $<40\text{ steps}$): Attention aperture wide open. Recommendation: `REUSE`.
+  - 🟡 **AMBER** ($40\text{k}–80\text{k tokens}$ OR $40–80\text{ steps}$): Context degradation beginning. Recommendation: `COMPACT_RECREATE`.
+  - 🔴 **RED ALERT** ($>80\text{k tokens}$ OR $>80\text{ steps}$): Context cliff active. Recommendation: `RETIRE`.
+
+#### C. Zero-Exploration Invariant
+All specialist subagent archetypes (`harness_builder`, `harness_reviewer`, `harness_auditor`) enforce the **Zero-Exploration Invariant**:
+- Blind recursive exploration (`list_dir`, `find_by_name`) is prohibited.
+- Subagents open target files directly from the plan or prompt instructions, or communicate back to the coordinator and halt immediately.
+
+#### D. Developer CLI Integration
+- `psl subagents [--json] [--brain-dir <path>]`: Renders formatted ASCII table of live active subagents.
+- `psl status`: Automatically embeds live active subagents health table when subagents are active.
+

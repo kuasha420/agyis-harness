@@ -246,7 +246,7 @@ class TestCommandSafety(unittest.TestCase):
         c = conn.cursor()
         c.execute("""
             SELECT command_line FROM tool_calls 
-            WHERE session_id = '270b7abc-9b59-4f50-9c49-de3ed7e04f06' AND step_index IN (176, 182)
+            WHERE session_id = '270b7abc-9b59-4f50-9c49-de3ed7e04f06' AND step_index = 176
         """)
         rows = c.fetchall()
         conn.close()

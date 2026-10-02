@@ -267,6 +267,74 @@ class TestPslCli(unittest.TestCase):
             data = json.loads(mock_out.getvalue())
             self.assertEqual(data["session_id"], "test-session-sync")
 
+    def test_cli_subagents_subcommand(self):
+        """Verifies `psl subagents` renders ASCII table and handles empty directories."""
+        empty_brain = Path(self.temp_dir.name) / "empty_brain"
+        empty_brain.mkdir()
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["subagents", "--brain-dir", str(empty_brain)])
+            self.assertEqual(code, 0)
+            self.assertIn("No active subagents found", mock_out.getvalue())
+
+        # Now create mock subagents
+        mock_brain = Path(self.temp_dir.name) / "mock_brain"
+        sub_dir = mock_brain / "mock-subagent-1" / ".system_generated" / "logs"
+        sub_dir.mkdir(parents=True)
+        (sub_dir / "transcript.jsonl").write_text(
+            json.dumps({"step_index": 0, "content": "You are harness_builder to implement"})
+        )
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["subagents", "--brain-dir", str(mock_brain)])
+            self.assertEqual(code, 0)
+            out = mock_out.getvalue()
+            self.assertIn("PSL Active Subagents", out)
+            self.assertIn("Conversation ID", out)
+            self.assertIn("harness_builder", out)
+
+    def test_cli_subagents_json(self):
+        """Verifies `psl subagents --json` outputs structured JSON."""
+        mock_brain = Path(self.temp_dir.name) / "json_brain"
+        sub_dir = mock_brain / "mock-json-sub" / ".system_generated" / "logs"
+        sub_dir.mkdir(parents=True)
+        (sub_dir / "transcript.jsonl").write_text(
+            json.dumps({"step_index": 0, "content": "You are harness_auditor, verifying"})
+        )
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["subagents", "--brain-dir", str(mock_brain), "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertIsInstance(data, list)
+            self.assertEqual(len(data), 1)
+            self.assertEqual(data[0]["conversation_id"], "mock-json-sub")
+            self.assertEqual(data[0]["role"], "harness_auditor")
+            self.assertEqual(data[0]["health_zone"], "HEALTHY")
+            self.assertEqual(data[0]["recommendation"], "REUSE")
+
+    def test_cli_status_with_active_subagents(self):
+        """Verifies `psl status` renders live subagents section when subagents are active."""
+        from harness.subagents import SubagentContextStatus
+
+        mock_status = SubagentContextStatus(
+            conversation_id="test-sub-1234",
+            role="ladder_executioner",
+            step_count=25,
+            token_count=12000,
+            health_zone="HEALTHY",
+            recommendation="REUSE",
+            latency_ms=1.2,
+        )
+        with patch("harness.subagents.list_active_subagent_statuses", return_value=[mock_status]), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["status"])
+            self.assertEqual(code, 0)
+            out = mock_out.getvalue()
+            self.assertIn("Live Active Subagents (1 active):", out)
+            self.assertIn("ladder_executioner", out)
+            self.assertIn("HEALTHY", out)
+
 
 if __name__ == "__main__":
     unittest.main()
