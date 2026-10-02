@@ -70,3 +70,4 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+.agents/artifacts

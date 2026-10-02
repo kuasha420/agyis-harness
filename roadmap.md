@@ -171,6 +171,12 @@ To protect both the operator and the agent from cognitive exhaustion, the harnes
     - Added `tests/test_anti_loop.py` (7 tests) and `tests/test_cli.py` (7 tests).
     - Codified `docs/official-specs/testing-contracts.md` (Tier 1 Project Contracts & Tier 2 Product Blueprint).
     - Entire test suite passes with **43/43 tests in <0.85s** (Sub-second benchmark invariant met).
+  - [x] **Modular Product Skills & Specialist Agent Scaffold (Phase 5.2)**:
+    - Codified 5 modular stack skills (`psl-stack-shell`, `psl-stack-typescript`, `psl-stack-python`, `psl-stack-backend`, `psl-stack-systems`) with frontmatter parser and sync engine.
+    - Codified 3 specialist subagent archetypes (`harness_builder`, `harness_reviewer`, `harness_auditor`) with toolgroup permissions and programmatic registry (`harness/subagents.py`).
+    - Added CLI discovery subcommands (`psl skills`, `psl agents`) and updated `psl status`.
+    - Added hermetic test suites (`tests/test_skills.py`, `tests/test_subagents.py`), passing 61/61 tests in 0.904s (<1.0s benchmark invariant).
+    - Executed end-to-end via the **Subagent Ladder** protocol (`Executioner` -> `Hammer` -> `Auditor`).
 * **Upcoming Milestones**:
   1. **Telemetry Data Gathering & Deep Mining (Active Priority)**:
      - Expand telemetry extraction on `data/telemetry.db` to audit character volume distributions by tool and command pattern.

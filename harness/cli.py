@@ -142,6 +142,158 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_skills(args: argparse.Namespace) -> int:
+    """Lists, inspects, or synchronizes modular product skills."""
+    from harness.skills import get_skill, list_skills, sync_skills
+
+    if getattr(args, "sync", False):
+        synced = sync_skills()
+        print(f"✔ Synchronized {len(synced)} skills to .agents/skills/:")
+        for p in synced:
+            print(f"  • {p.parent.name} -> {p}")
+        return 0
+
+    if getattr(args, "name", None):
+        spec = get_skill(args.name)
+        if not spec:
+            sys.stderr.write(f"Error: Skill '{args.name}' not found.\n")
+            return 1
+        if getattr(args, "json", False):
+            print(
+                json.dumps(
+                    {
+                        "name": spec.name,
+                        "description": spec.description,
+                        "path": str(spec.path),
+                        "frontmatter": spec.frontmatter,
+                    },
+                    indent=2,
+                )
+            )
+            return 0
+        print(f"Skill: {spec.name}")
+        print(f"Path:  {spec.path}")
+        print(f"Description:\n  {spec.description}\n")
+        print("=" * 60)
+        print(spec.body.strip())
+        return 0
+
+    skills = list_skills()
+    if getattr(args, "json", False):
+        print(
+            json.dumps(
+                [
+                    {
+                        "name": s.name,
+                        "description": s.description,
+                        "path": str(s.path),
+                    }
+                    for s in skills
+                ],
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"PSL Modular Skills ({len(skills)} available):")
+    print("-" * 60)
+    for s in skills:
+        print(f"  • {s.name:<24} {s.description}")
+    print()
+    return 0
+
+
+def cmd_agents(args: argparse.Namespace) -> int:
+    """Lists, inspects, or synchronizes specialist subagents."""
+    from harness.subagents import get_agent_spec, list_agent_specs, sync_agent_definitions
+
+    if getattr(args, "sync", False):
+        synced = sync_agent_definitions()
+        print(f"✔ Synchronized {len(synced)} agent definitions to .agents/agents/:")
+        for p in synced:
+            print(f"  • {p.name} -> {p}")
+        return 0
+
+    if getattr(args, "name", None):
+        spec = get_agent_spec(args.name)
+        if not spec:
+            sys.stderr.write(f"Error: Agent '{args.name}' not found.\n")
+            return 1
+        if getattr(args, "json", False):
+            print(
+                json.dumps(
+                    {
+                        "name": spec.name,
+                        "archetype": spec.archetype.value,
+                        "role": spec.role,
+                        "description": spec.description,
+                        "permissions": {
+                            "read": spec.permissions.read,
+                            "write": spec.permissions.write,
+                            "execute": spec.permissions.execute,
+                            "subagent": spec.permissions.subagent,
+                            "mcp": spec.permissions.mcp,
+                        },
+                        "allowed_tools": spec.allowed_tools,
+                        "source_file": str(spec.source_file) if spec.source_file else None,
+                    },
+                    indent=2,
+                )
+            )
+            return 0
+        print(f"Agent:       {spec.name}")
+        print(f"Archetype:   {spec.archetype.value}")
+        print(f"Role:        {spec.role}")
+        print(
+            f"Permissions: write={spec.can_write}, exec={spec.can_execute}, subagent={spec.can_subagent}"
+        )
+        print(f"Allowed Tools ({len(spec.allowed_tools)}): {', '.join(spec.allowed_tools)}")
+        print(f"Description:\n  {spec.description}\n")
+        print("=" * 60)
+        print(spec.system_prompt)
+        return 0
+
+    agents = list_agent_specs()
+    if getattr(args, "json", False):
+        print(
+            json.dumps(
+                [
+                    {
+                        "name": a.name,
+                        "archetype": a.archetype.value,
+                        "role": a.role,
+                        "description": a.description,
+                        "can_write": a.can_write,
+                        "can_execute": a.can_execute,
+                        "tools_count": len(a.allowed_tools),
+                    }
+                    for a in agents
+                ],
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"PSL Specialist Subagents ({len(agents)} registered):")
+    print("-" * 60)
+    for a in agents:
+        caps = []
+        if a.can_write:
+            caps.append("write")
+        else:
+            caps.append("read-only")
+        if a.can_execute:
+            caps.append("exec")
+        if a.can_subagent:
+            caps.append("subagent")
+        cap_str = f"[{' | '.join(caps)}]"
+        print(f"  • {a.name:<18} ({a.role}) {cap_str}")
+        print(f"    {a.description}")
+        print(f"    Tools ({len(a.allowed_tools)}): {', '.join(a.allowed_tools)}")
+    print()
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Prints a high-level status summary of the PSL Harness."""
     print("=" * 70)
@@ -155,9 +307,20 @@ def cmd_status(args: argparse.Namespace) -> int:
     else:
         print(" Hermetic Python: Not found in uv cache")
 
+    from harness.skills import list_skills
+    from harness.subagents import list_agent_specs
+
+    skills = list_skills()
+    agents = list_agent_specs()
+    print(f" Modular Skills:  {len(skills)} installed")
+    print(
+        f" Subagents:       {len(agents)} registered ({', '.join(a.archetype.value for a in agents)})"
+    )
+
     # Quick count of telemetry
     if DEFAULT_DB.exists():
         import sqlite3
+
         try:
             conn = sqlite3.connect(DEFAULT_DB)
             c = conn.cursor()
@@ -167,7 +330,7 @@ def cmd_status(args: argparse.Namespace) -> int:
             step_cnt = c.fetchone()[0]
             conn.close()
             print(f" Telemetry DB:    {DEFAULT_DB.name} ({sess_cnt:,} sessions, {step_cnt:,} steps)")
-        except Exception:
+        except (sqlite3.Error, OSError):
             print(f" Telemetry DB:    {DEFAULT_DB.name} (present)")
     else:
         print(" Telemetry DB:    Not initialized")
@@ -177,6 +340,17 @@ def cmd_status(args: argparse.Namespace) -> int:
     print("   ✔ command-safety   (PreToolUse: CPython 3.12, f-string, grep sanitization)")
     print("   ✔ anti-loop        (PreToolUse: repetitive tool call breaker)")
     print("   ✔ output-compactor (PostToolUse: deterministic 2KB output truncation)")
+    print("-" * 70)
+    print(" Specialist Subagents:")
+    for ag in agents:
+        caps = ["write" if ag.can_write else "read-only"]
+        if ag.can_execute:
+            caps.append("exec")
+        print(f"   ✔ {ag.name:<18} ({ag.role}) [{' | '.join(caps)}]")
+    print("-" * 70)
+    print(" Modular Skills:")
+    for sk in skills:
+        print(f"   ✔ {sk.name:<22} - {sk.description[:42]}...")
     print("=" * 70)
     return 0
 
@@ -221,6 +395,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Audit pipeline stage to run (default: all)",
     )
 
+    # skills
+    p_skills = subparsers.add_parser("skills", help="List and inspect modular product skills")
+    p_skills.add_argument("name", nargs="?", default=None, help="Name of specific skill to view")
+    p_skills.add_argument("--sync", action="store_true", help="Sync skills to .agents/skills")
+    p_skills.add_argument("--json", action="store_true", help="Output skills in JSON format")
+
+    # agents
+    p_agents = subparsers.add_parser("agents", help="List and inspect specialist subagent archetypes")
+    p_agents.add_argument("name", nargs="?", default=None, help="Name of specific agent to view")
+    p_agents.add_argument("--sync", action="store_true", help="Sync agent definitions to .agents/agents")
+    p_agents.add_argument("--json", action="store_true", help="Output agents in JSON format")
+
     # status / info
     subparsers.add_parser("status", help="Print harness installation and health summary")
 
@@ -243,6 +429,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_test(args)
     elif args.subcommand == "audit":
         return cmd_audit(args)
+    elif args.subcommand == "skills":
+        return cmd_skills(args)
+    elif args.subcommand == "agents":
+        return cmd_agents(args)
     elif args.subcommand == "status":
         return cmd_status(args)
 

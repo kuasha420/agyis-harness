@@ -101,7 +101,24 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Unified CLI: [harness/cli.py](harness/cli.py)
   - Testing Contract: [docs/official-specs/testing-contracts.md](docs/official-specs/testing-contracts.md)
   - Test Suites: [tests/test_anti_loop.py](tests/test_anti_loop.py), [tests/test_cli.py](tests/test_cli.py)
-  - Hook Registry: [harness/hooks/hooks.json](harness/hooks/hooks.json)
+
+---
+
+## [Phase 5.2] Modular Product Skills & Specialist Agent Scaffold
+* **Status**: Completed | **Compaction Date**: 2026-10-02
+* **Key Architectural Decisions (ADRs)**:
+  - **ADR-017 (Progressive Stack Disclosure)**: Offloaded stack-specific rules from monolithic prompts into on-demand modular skills (`harness/skills/`), keeping primary context in the healthy zone (<50k tokens).
+  - **ADR-018 (Specialist Subagent Archetypes)**: Codified 3 bounded specialist archetypes (`Executioner` with write/exec, `Hammer` strictly read-only, `Auditor` exec-only for verification). Enforced `can_subagent=False` across all archetypes to eliminate runaway recursive subagent trees.
+  - **ADR-019 (Subagent Ladder Pipeline)**: Executed via the multi-agent SWE pipeline (`Executioner -> Hammer -> Auditor`), enforcing anti-bypass and zero-coordinator-remediation invariants.
+* **Verified Baseline Metrics**:
+  - 61 tests passing with 100% coverage in 0.904s (<1.0s benchmark invariant met).
+  - 8 modular skills cataloged; 3 specialist agent archetypes registered with zero-dep YAML frontmatter parser.
+  - Subagent Ladder pipeline executed end-to-end with 100% first-pass Hammer and Auditor approvals.
+* **Reference Assets Committed**:
+  - Skills Engine: [harness/skills/__init__.py](harness/skills/__init__.py), [harness/skills/psl-stack-shell/SKILL.md](harness/skills/psl-stack-shell/SKILL.md), [harness/skills/psl-stack-typescript/SKILL.md](harness/skills/psl-stack-typescript/SKILL.md), [harness/skills/psl-stack-python/SKILL.md](harness/skills/psl-stack-python/SKILL.md), [harness/skills/psl-stack-backend/SKILL.md](harness/skills/psl-stack-backend/SKILL.md), [harness/skills/psl-stack-systems/SKILL.md](harness/skills/psl-stack-systems/SKILL.md)
+  - Subagent Registry: [harness/subagents.py](harness/subagents.py), [harness/agents/harness_builder.md](harness/agents/harness_builder.md), [harness/agents/harness_reviewer.md](harness/agents/harness_reviewer.md), [harness/agents/harness_auditor.md](harness/agents/harness_auditor.md)
+  - CLI Discovery: [harness/cli.py](harness/cli.py) (`psl skills`, `psl agents`)
+  - Test Suites: [tests/test_skills.py](tests/test_skills.py), [tests/test_subagents.py](tests/test_subagents.py)
 
 
 

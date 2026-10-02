@@ -45,13 +45,60 @@ class TestPslCli(unittest.TestCase):
             self.assertIn("psl-agy-harness 0.1.0", mock_out.getvalue())
 
     def test_cli_status(self):
-        """Verifies `psl status` prints repository and hook status."""
+        """Verifies `psl status` prints repository, skills, agents, and hook status."""
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             code = main(["status"])
             self.assertEqual(code, 0)
             out = mock_out.getvalue()
             self.assertIn("PSL Harness for Google Antigravity", out)
             self.assertIn("Active Lifecycle Hooks", out)
+            self.assertIn("Modular Skills:", out)
+            self.assertIn("Specialist Subagents:", out)
+
+    def test_cli_skills_subcommand(self):
+        """Verifies `psl skills` lists skills and inspects details."""
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["skills"])
+            self.assertEqual(code, 0)
+            out = mock_out.getvalue()
+            self.assertIn("PSL Modular Skills", out)
+            self.assertIn("psl-stack-shell", out)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["skills", "psl-stack-python"])
+            self.assertEqual(code, 0)
+            out = mock_out.getvalue()
+            self.assertIn("Skill: psl-stack-python", out)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["skills", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertIsInstance(data, list)
+            self.assertGreaterEqual(len(data), 8)
+
+    def test_cli_agents_subcommand(self):
+        """Verifies `psl agents` lists agents and inspects details."""
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["agents"])
+            self.assertEqual(code, 0)
+            out = mock_out.getvalue()
+            self.assertIn("PSL Specialist Subagents", out)
+            self.assertIn("harness_builder", out)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["agents", "harness_reviewer"])
+            self.assertEqual(code, 0)
+            out = mock_out.getvalue()
+            self.assertIn("Agent:       harness_reviewer", out)
+            self.assertIn("Archetype:   hammer", out)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["agents", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertIsInstance(data, list)
+            self.assertEqual(len(data), 3)
 
     def test_cli_hook_dispatch_safety(self):
         """Verifies `psl hook safety` dispatches to command_safety_hook."""
