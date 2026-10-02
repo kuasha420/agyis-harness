@@ -191,8 +191,8 @@ def extract_session(transcript_path: Path) -> Optional[Tuple[Dict[str, Any], Lis
             if m:
                 model_detected = m.group(1).strip()
 
-        if not workspace_detected and "/home/kuasha/Dev/" in content:
-            m = re.search(r"(/home/kuasha/Dev/[a-zA-Z0-9_\-]+)", content)
+        if not workspace_detected and "/Dev/" in content:
+            m = re.search(r"(/[a-zA-Z0-9_\-]+/Dev/[a-zA-Z0-9_\-]+)", content)
             if m:
                 workspace_detected = m.group(1)
 

@@ -17,10 +17,10 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - **Context Cliff**: Trajectories >200 steps suffer a 20x error spike (1.0 -> 20.5) and 40x intervention spike (0.4 -> 16.3).
   - **Rule Calibration**: Explicit command dictionaries (e.g. `purrmission`) yield 1.67 interventions/session; multi-file rule indirection (e.g. `mm-website`) causes 18.2 interventions/session (10x higher).
 * **Reference Harness Assets Committed**:
-  - Manifest: [plugin.json](file:///home/kuasha/Dev/psl-agy-harness/plugin.json)
-  - Rules: [.agents/rules/AGENTS.md](file:///home/kuasha/Dev/psl-agy-harness/.agents/rules/AGENTS.md)
-  - Lifecycle Hooks: [harness/hooks/anti_loop_hook.py](file:///home/kuasha/Dev/psl-agy-harness/harness/hooks/anti_loop_hook.py), [harness/hooks/command_safety_hook.py](file:///home/kuasha/Dev/psl-agy-harness/harness/hooks/command_safety_hook.py), [harness/hooks/hooks.json](file:///home/kuasha/Dev/psl-agy-harness/harness/hooks/hooks.json).
-  - Skill: [.agents/skills/psl-audit-toolkit/SKILL.md](file:///home/kuasha/Dev/psl-agy-harness/.agents/skills/psl-audit-toolkit/SKILL.md)
+  - Manifest: [plugin.json](plugin.json)
+  - Rules: [.agents/rules/AGENTS.md](.agents/rules/AGENTS.md)
+  - Lifecycle Hooks: [harness/hooks/anti_loop_hook.py](harness/hooks/anti_loop_hook.py), [harness/hooks/command_safety_hook.py](harness/hooks/command_safety_hook.py), [harness/hooks/hooks.json](harness/hooks/hooks.json).
+  - Skill: [.agents/skills/psl-audit-toolkit/SKILL.md](.agents/skills/psl-audit-toolkit/SKILL.md)
 
 ---
 
@@ -35,10 +35,10 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - **Cognitive Traces**: 14,476 thinking traces extracted and analyzed; mapped 5 primary failure modes (Repetition Trap, Exit Code 1 Panic, Hallucinated Environment, Attention Sink Collapse, False Rationalization).
   - **Planning & Drift**: 474 artifacts audited across 155 sessions (94 plan-walkthrough pairs).
 * **Canonical Specifications Committed**:
-  - [docs/taxonomy/context-cliff-dynamics.md](file:///home/kuasha/Dev/psl-agy-harness/docs/taxonomy/context-cliff-dynamics.md)
-  - [docs/taxonomy/cognitive-traces-report.md](file:///home/kuasha/Dev/psl-agy-harness/docs/taxonomy/cognitive-traces-report.md)
-  - [docs/taxonomy/cognitive-failure-taxonomy-deepdive.md](file:///home/kuasha/Dev/psl-agy-harness/docs/taxonomy/cognitive-failure-taxonomy-deepdive.md)
-  - [docs/taxonomy/planning-and-drift-report.md](file:///home/kuasha/Dev/psl-agy-harness/docs/taxonomy/planning-and-drift-report.md)
+  - [docs/taxonomy/context-cliff-dynamics.md](docs/taxonomy/context-cliff-dynamics.md)
+  - [docs/taxonomy/cognitive-traces-report.md](docs/taxonomy/cognitive-traces-report.md)
+  - [docs/taxonomy/cognitive-failure-taxonomy-deepdive.md](docs/taxonomy/cognitive-failure-taxonomy-deepdive.md)
+  - [docs/taxonomy/planning-and-drift-report.md](docs/taxonomy/planning-and-drift-report.md)
 
 ---
 
@@ -49,7 +49,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - **ADR-005 (Reactive Wakeup Supremacy)**: Prohibited agent polling loops on `manage_task(Action='status')` in favor of Antigravity 2.0 reactive wakeups.
   - **ADR-006 (Argument Rewrite Interception)**: Standardized on `PreToolUse` shallow `overwrite` dictionaries to sanitize benign pattern-matching pipelines (`|| true`), enforce non-interactive pagers (`PAGER=cat`), and inject network timeouts (`-o ConnectTimeout=5`).
 * **Canonical Specifications Committed**:
-  - [docs/official-specs/platform-surface-mapping.md](file:///home/kuasha/Dev/psl-agy-harness/docs/official-specs/platform-surface-mapping.md): 655-line definitive deconstruction of CLI (`agy`), 2.0 Desktop Platform, Python SDK (`google-antigravity`), Lifecycle Hooks (`hooks.json`), and MCP boundaries mapped against the 348-session audit.
+  - [docs/official-specs/platform-surface-mapping.md](docs/official-specs/platform-surface-mapping.md): 655-line definitive deconstruction of CLI (`agy`), 2.0 Desktop Platform, Python SDK (`google-antigravity`), Lifecycle Hooks (`hooks.json`), and MCP boundaries mapped against the 348-session audit.
 
 ---
 
@@ -63,10 +63,10 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Micro-benchmark latency <0.25 ms (241 µs at 50KB; 1.1 µs decision latency for failures).
   - 100% pass rate across 13 automated unit and contract integration tests.
 * **Reference Assets Committed**:
-  - Hook Implementation: [harness/hooks/output_compactor_hook.py](file:///home/kuasha/Dev/psl-agy-harness/harness/hooks/output_compactor_hook.py)
-  - Test Suite: [tests/test_output_compactor.py](file:///home/kuasha/Dev/psl-agy-harness/tests/test_output_compactor.py)
-  - Hook Registry: [harness/hooks/hooks.json](file:///home/kuasha/Dev/psl-agy-harness/harness/hooks/hooks.json)
-  - Benchmark Report: [docs/taxonomy/output-compactor-poc-results.md](file:///home/kuasha/Dev/psl-agy-harness/docs/taxonomy/output-compactor-poc-results.md)
+  - Hook Implementation: [harness/hooks/output_compactor_hook.py](harness/hooks/output_compactor_hook.py)
+  - Test Suite: [tests/test_output_compactor.py](tests/test_output_compactor.py)
+  - Hook Registry: [harness/hooks/hooks.json](harness/hooks/hooks.json)
+  - Benchmark Report: [docs/taxonomy/output-compactor-poc-results.md](docs/taxonomy/output-compactor-poc-results.md)
 
 ---
 
@@ -81,8 +81,8 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Exit code 1 forensic de-aggregation: 329 grep misses (21.3%), 58 python syntax errors (3.8%), 142 tracebacks (9.2%).
   - `psl doctor` CLI audits 10 core binaries across 3 telemetry tiers with zero-sudo auto-healing.
 * **Reference Assets Committed**:
-  - Runtime Matrix: [harness/runtime/matrix.json](file:///home/kuasha/Dev/psl-agy-harness/harness/runtime/matrix.json)
-  - Workstation Doctor: [pipeline/psl_doctor.py](file:///home/kuasha/Dev/psl-agy-harness/pipeline/psl_doctor.py)
-  - Command Safety Hook: [harness/hooks/command_safety_hook.py](file:///home/kuasha/Dev/psl-agy-harness/harness/hooks/command_safety_hook.py)
+  - Runtime Matrix: [harness/runtime/matrix.json](harness/runtime/matrix.json)
+  - Workstation Doctor: [pipeline/psl_doctor.py](pipeline/psl_doctor.py)
+  - Command Safety Hook: [harness/hooks/command_safety_hook.py](harness/hooks/command_safety_hook.py)
 
 

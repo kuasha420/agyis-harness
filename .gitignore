@@ -1,9 +1,11 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+
+# Distribution / packaging
 build/
 develop-eggs/
 dist/
@@ -21,7 +23,9 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-.venv
+
+# Virtual environments
+.venv/
 venv/
 ENV/
 env/
@@ -29,24 +33,35 @@ env/
 .coverage
 htmlcov/
 
-# Node
+# Node & package managers
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# PSL Harness Telemetry & Data Extracts (contain session telemetry)
+# PSL Telemetry Data & Session History (Strictly Private)
+# All mined transcripts, sqlite databases, and extracted session JSONs
 data/*.db
 data/*.sqlite
 data/*.sqlite3
 data/*.jsonl
+data/*.json
 data/extracted/
 data/cache/
 *.log
 
-# Keep data directory structure
+# Keep data directory structure and templates
 !data/.gitkeep
-!data/customization_inventory.json
+
+# Local agent artifacts, scratchpads, and sidecars
+scratch/
+.system_generated/
+*.env
+*.env.*
+*.token
+*.key
+*.pem
 
 # OS & Editor
 .DS_Store

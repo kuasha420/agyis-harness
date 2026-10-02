@@ -368,9 +368,9 @@ Every hook configured in `hooks.json` receives a JSON payload on `stdin` and mus
 ```json
 {
   "conversationId": "270b7abc-9b59-4f50-9c49-de3ed7e04f06",
-  "workspacePaths": ["/home/kuasha/Dev/psl-agy-harness"],
-  "transcriptPath": "/home/kuasha/.gemini/antigravity/brain/270b7abc.../transcript.jsonl",
-  "artifactDirectoryPath": "/home/kuasha/.gemini/antigravity/brain/270b7abc.../",
+  "workspacePaths": ["/workspace/psl-agy-harness"],
+  "transcriptPath": "~/.gemini/antigravity/brain/270b7abc.../transcript.jsonl",
+  "artifactDirectoryPath": "~/.gemini/antigravity/brain/270b7abc.../",
   "modelName": "auto"
 }
 ```
@@ -383,7 +383,7 @@ Every hook configured in `hooks.json` receives a JSON payload on `stdin` and mus
       "name": "run_command",
       "args": {
         "CommandLine": "git diff | grep TODO",
-        "Cwd": "/home/kuasha/Dev/psl-agy-harness"
+        "Cwd": "/workspace/psl-agy-harness"
       }
     },
     "stepIdx": 42,

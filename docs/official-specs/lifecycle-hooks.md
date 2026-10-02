@@ -23,9 +23,9 @@ Antigravity lifecycle hooks allow execution of external shell commands or script
 ```json
 {
   "conversationId": "270b7abc-9b59-4f50-9c49-de3ed7e04f06",
-  "workspacePaths": ["/home/kuasha/Dev/psl-agy-harness"],
-  "transcriptPath": "/home/kuasha/.gemini/antigravity/brain/.../transcript.jsonl",
-  "artifactDirectoryPath": "/home/kuasha/.gemini/antigravity/brain/.../",
+  "workspacePaths": ["/workspace/psl-agy-harness"],
+  "transcriptPath": "~/.gemini/antigravity/brain/.../transcript.jsonl",
+  "artifactDirectoryPath": "~/.gemini/antigravity/brain/.../",
   "modelName": "auto"
 }
 ```

@@ -62,13 +62,13 @@ The agent recognizes that a tool call did not succeed, or that a process is runn
 *Context*: In workspace `mm-website`, the agent generated a scratch script `list_projects.js` requiring `axios`.
 ```text
 Step 3230 [write_to_file]: Creates scratch/list_projects.js requiring 'axios'
-Step 3231 [run_command] Cwd: /home/kuasha/Dev
+Step 3231 [run_command] Cwd: /workspace
      ↳ Exit Code 1: "Error: Cannot find module 'axios'"
-Step 3233 [run_command] Cwd: /home/kuasha/Dev/mm-website
+Step 3233 [run_command] Cwd: /workspace/mm-website
      ↳ Exit Code 1: "Error: Cannot find module 'axios'"
-Step 3235 [run_command] Cwd: /home/kuasha/Dev/purrmission/apps/pawthy
+Step 3235 [run_command] Cwd: /workspace/purrmission/apps/pawthy
      ↳ Exit Code 1: "Error: Cannot find module 'axios'"
-Step 3237 [run_command] Cwd: /home/kuasha/Dev/purrmission
+Step 3237 [run_command] Cwd: /workspace/purrmission
      ↳ Exit Code 1: "Error: Cannot find module 'axios'"
 Step 3239 [write_to_file]: Finally rewrites list_projects.js to use native fetch()!
 ```
@@ -78,9 +78,9 @@ Step 3239 [write_to_file]: Finally rewrites list_projects.js to use native fetch
 #### Case 1B: Runaway Task Log Polling (`39a982aa`, Steps 391–455)
 *Context*: A background build `task-388` was running.
 ```text
-Step 391 [view_file]: /home/kuasha/.../tasks/task-388.log (lines 1-800)
-Step 393 [view_file]: /home/kuasha/.../tasks/task-388.log (lines 1-800)
-Step 395 [view_file]: /home/kuasha/.../tasks/task-388.log (lines 1-800)
+Step 391 [view_file]: ~/.../tasks/task-388.log (lines 1-800)
+Step 393 [view_file]: ~/.../tasks/task-388.log (lines 1-800)
+Step 395 [view_file]: ~/.../tasks/task-388.log (lines 1-800)
 ... [Repeated 32 times across 64 steps] ...
 Step 397 [SYSTEM CHECKPOINT]: Context truncated due to length!
 Step 398-454: Model continues re-reading task-388.log every 3 seconds!
@@ -119,7 +119,7 @@ Output: Error: unexpected argument "login". Prompts are read only from -p/--prin
 *Context*: Automated cockpit screenshot capture across the Knot mesh.
 *Direct Thinking Trace (Step 6870)*:
 > *"Initial monitoring begins. Will capture the screen every 30 seconds, analyzing for any changes in state. Protocol dictates escalating to more detailed capture only if the initial scan indicates a significant event or anomaly."*
-*Tool Call*: `grim /home/kuasha/.gemini/antigravity/brain/4ecaf914.../cockpit_scan_8.png`  
+*Tool Call*: `grim ~/.gemini/antigravity/brain/4ecaf914.../cockpit_scan_8.png`  
 *Outcome*:
 ```text
 The command exited with code 127.
