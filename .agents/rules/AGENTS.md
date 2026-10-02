@@ -46,3 +46,14 @@ These operational rules are grounded directly in the empirical audit of 348 deve
    - When encountering destructive operations (file deletion, git branch force-push, remote node reboots), pause for explicit operator review.
 3. **Clear Error Reporting**:
    - If a command fails twice, stop thrashing. State the error concisely, identify the underlying cause, and propose a concrete path forward.
+
+---
+
+## 4. The Resolution Gradient & Horizon Compaction Invariant
+1. **Dynamic Sliding Aperture**:
+   - Keep current task execution at **High Resolution** (concrete file edits, explicit tests, verifiable exit codes).
+   - Near-future items remain at **Medium Resolution** (macro milestones and architectural boundaries; do not write speculative code or micro-specs).
+   - Far-future items remain at **Low Resolution** (strategic vision in documentation).
+2. **Retroactive Horizon Compaction**:
+   - When completing a phase or milestone, implementation details, scratch scripts, and multi-turn debug transcripts fade out into git history.
+   - Only permanent Architectural Decisions (ADRs), schema contracts, and verified baseline metrics are retained in the project ledger (`docs/taxonomy/project-ledger.md`), strictly constrained under 50 lines per milestone.
