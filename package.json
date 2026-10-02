@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "psl": "python3 -m harness.cli",
+    "sync": "python3 -m harness.cli sync",
+    "status": "python3 -m harness.cli status",
     "doctor": "python3 -m harness.cli doctor",
     "test": "python3 -m harness.cli test",
     "inventory": "python3 pipeline/inventory_customizations.py",

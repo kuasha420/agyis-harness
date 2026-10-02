@@ -234,10 +234,15 @@ class TestVolumeMining(unittest.TestCase):
         ensure_volume_columns(conn)
         conn.close()
 
+        out_json = self.dir_path / "test_volume.json"
+        out_report = self.dir_path / "test_report.md"
+
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             exit_code = cli_main([
                 "audit", "volume",
                 "--db", str(self.db_path),
+                "--output-json", str(out_json),
+                "--output-report", str(out_report),
             ])
             self.assertEqual(exit_code, 0)
             self.assertIn("TOOL & COMMAND VOLUME AUDIT COMPLETE", mock_out.getvalue())

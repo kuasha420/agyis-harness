@@ -23,6 +23,8 @@ python3 -m harness.cli hook anti-loop          # PreToolUse redundant call break
 python3 -m harness.cli hook compactor          # PostToolUse 2KB output compactor
 
 # 📊 Empirical Telemetry Laboratory
+./psl sync                                     # Audit & synchronize active session into telemetry.db
+./psl audit volume                             # Analyze tool & command volume distributions
 python3 -m harness.cli audit all               # Run full extraction, classification & summary
 python3 -m harness.cli audit extract           # Ingest ~/.gemini/antigravity transcripts to telemetry.db
 python3 -m harness.cli audit classify          # Categorize trajectories into WHAT_WORKED / WHAT_FAILED

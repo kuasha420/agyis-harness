@@ -183,6 +183,27 @@ class TestPslCli(unittest.TestCase):
             data = json.loads(mock_out.getvalue())
             self.assertEqual(data["session_id"], "test-session-1234")
 
+    def test_cli_sync(self):
+        """Verifies `psl sync` dispatches session audit with save_db=True."""
+        dummy_report = {
+            "session_id": "test-session-sync",
+            "coordinator": {
+                "compacted_transcript": {"total_steps": 5},
+                "full_transcript": {"total_steps": 5, "total_chars": 200, "estimated_tokens": 50, "tool_errors": 0},
+                "compaction_savings_chars": 0,
+                "compaction_savings_pct": 0.0,
+            },
+            "subagents": [],
+            "collective_pipeline": {"total_steps": 5, "total_tools": 2, "total_tokens": 50, "offload_step_pct": 0, "offload_tool_pct": 0, "offload_token_pct": 0}
+        }
+        with patch("pipeline.analyze_live_session.find_latest_session_dir", return_value=Path(self.temp_dir.name)), \
+             patch("pipeline.analyze_live_session.analyze_session", return_value=dummy_report), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["sync", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue())
+            self.assertEqual(data["session_id"], "test-session-sync")
+
 
 if __name__ == "__main__":
     unittest.main()

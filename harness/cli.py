@@ -204,7 +204,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
                     ))
                     conn.commit()
             conn.close()
-            print(f"✔ Synchronized session {report['session_id'][:8]} and {len(report['subagents'])} subagents into telemetry.db\n")
+            if not as_json:
+                print(f"✔ Synchronized session {report['session_id'][:8]} and {len(report['subagents'])} subagents into telemetry.db\n")
 
         if as_json:
             print(json.dumps(report, indent=2))
@@ -221,6 +222,14 @@ def cmd_audit(args: argparse.Namespace) -> int:
         return 1
 
     return 0
+
+
+def cmd_sync(args: argparse.Namespace) -> int:
+    """Shortcut command to audit and synchronize the current session into telemetry.db."""
+    args.stage = "session"
+    args.save_db = True
+    args.out = None
+    return cmd_audit(args)
 
 
 def cmd_skills(args: argparse.Namespace) -> int:
@@ -481,6 +490,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_audit.add_argument("--save-db", action="store_true", help="Sync audited session into data/telemetry.db")
     p_audit.add_argument("--out", type=Path, default=None, help="Export session analysis JSON path")
     p_audit.add_argument("--json", action="store_true", help="Output session report in JSON format")
+    p_audit.add_argument("--output-json", type=Path, default=None, help="Export volume analysis JSON path")
+    p_audit.add_argument("--output-report", type=Path, default=None, help="Export volume report Markdown path")
 
     # skills
     p_skills = subparsers.add_parser("skills", help="List and inspect modular product skills")
@@ -496,6 +507,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     # status / info
     subparsers.add_parser("status", help="Print harness installation and health summary")
+
+    # sync (shortcut for audit session --save-db)
+    p_sync = subparsers.add_parser("sync", help="Audit and synchronize the active session into telemetry.db")
+    p_sync.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID (default: latest)")
+    p_sync.add_argument("--json", action="store_true", help="Output session report in JSON format")
 
     return parser
 
@@ -516,6 +532,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_test(args)
     elif args.subcommand == "audit":
         return cmd_audit(args)
+    elif args.subcommand == "sync":
+        return cmd_sync(args)
     elif args.subcommand == "skills":
         return cmd_skills(args)
     elif args.subcommand == "agents":
