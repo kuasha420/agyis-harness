@@ -177,19 +177,23 @@ To protect both the operator and the agent from cognitive exhaustion, the harnes
     - Added CLI discovery subcommands (`psl skills`, `psl agents`) and updated `psl status`.
     - Added hermetic test suites (`tests/test_skills.py`, `tests/test_subagents.py`), passing 61/61 tests in 0.904s (<1.0s benchmark invariant).
     - Executed end-to-end via the **Subagent Ladder** protocol (`Executioner` -> `Hammer` -> `Auditor`).
+  - [x] **Telemetry Data Gathering & Deep Mining (Phase 1)**:
+    - Enriched `tool_calls` schema non-destructively with `output_length_chars`, `output_lines`, `arguments_length_chars`, `command_category`, and `is_truncated`.
+    - Backfilled 64,402 tool calls across 347 sessions in `data/telemetry.db`.
+    - Created `pipeline/analyze_volume_distributions.py` and CLI command `psl audit volume`.
+    - Proved 2KB compactor eliminates **35,754,488 characters (~8,938,622 tokens)**, achieving **35.75% volume reduction** with **0 ADR-008 failure preservation violations**.
+    - Produced canonical report `docs/taxonomy/tool-volume-distribution-report.md` and machine-readable data `data/volume_distributions.json`.
+    - Complete test suite passes: 67/67 tests in 0.932s (<1.0s benchmark).
 * **Upcoming Milestones**:
-  1. **Telemetry Data Gathering & Deep Mining (Active Priority)**:
-     - Expand telemetry extraction on `data/telemetry.db` to audit character volume distributions by tool and command pattern.
-     - Build continuous harvesting tooling for fresh sessions across Knot mesh nodes.
-  2. **Product-Delivered Testing Rules & Verification Skills**:
+  1. **Product-Delivered Testing Rules & Verification Skills**:
      - Implement the `Stop` lifecycle verification fence (`completion_fence_hook.py`) to prevent premature convergence when source files were modified without running tests.
      - Supply standardized testing runner skills (`psl-test-runner`) for Python, Node, Cargo, and Go.
-  3. **The Rule/Skill Delivery & Coexistence Engine**:
+  2. **The Rule/Skill Delivery & Coexistence Engine**:
      - Implement Layer 1 vs Layer 3 resolution engine.
      - Provide `psl install [--global]` to register the plugin into `~/.gemini/config/plugins/` without polluting workspace git repositories.
-  4. **In-Band PreToolUse Execution Compactor (HELD)**:
-     - *Status*: **Held pending telemetry gathering**. Model output volume dynamics will be analyzed from telemetry before prototyping live execution wrappers.
-  5. **Context Cockpit & Visual Status Display**:
+  3. **In-Band PreToolUse Execution Compactor**:
+     - Evaluate tuning and live wrapper prototypes based on the codified 2KB sweet spot.
+  4. **Context Cockpit & Visual Status Display**:
      - Design and integrate token depth and step horizon indicators in Antigravity auxiliary views.
 
 ---

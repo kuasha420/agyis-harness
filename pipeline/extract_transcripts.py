@@ -79,6 +79,11 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     exit_code INTEGER,
     error_snippet TEXT,
     is_loop_candidate INTEGER DEFAULT 0,
+    output_length_chars INTEGER,
+    output_lines INTEGER,
+    arguments_length_chars INTEGER,
+    command_category TEXT,
+    is_truncated INTEGER DEFAULT 0,
     FOREIGN KEY(session_id) REFERENCES sessions(session_id)
 );
 
@@ -100,6 +105,8 @@ CREATE INDEX IF NOT EXISTS idx_steps_session ON steps(session_id);
 CREATE INDEX IF NOT EXISTS idx_tools_session ON tool_calls(session_id);
 CREATE INDEX IF NOT EXISTS idx_tools_name ON tool_calls(tool_name);
 CREATE INDEX IF NOT EXISTS idx_tools_status ON tool_calls(status);
+CREATE INDEX IF NOT EXISTS idx_tools_category ON tool_calls(command_category);
+CREATE INDEX IF NOT EXISTS idx_tools_output_len ON tool_calls(output_length_chars);
 CREATE INDEX IF NOT EXISTS idx_interventions_session ON user_interventions(session_id);
 CREATE INDEX IF NOT EXISTS idx_interventions_type ON user_interventions(intervention_type);
 """
@@ -136,6 +143,96 @@ def classify_intervention(text: str, preceding_failed: bool) -> str:
     if any(k in lower for k in ["continue", "next", "keep going", "proceed with next"]):
         return "CONTINUATION"
     return "OPERATOR_GUIDANCE"
+
+
+def classify_command(cmd_line: Optional[str]) -> Optional[str]:
+    """Classifies a shell command into high-level operational categories."""
+    if not cmd_line or not isinstance(cmd_line, str):
+        return None
+    cleaned = cmd_line.strip()
+    if not cleaned:
+        return None
+    lower = cleaned.lower()
+
+    # Test runners
+    if any(k in lower for k in [
+        "pytest", "unittest", "test_", "-m unittest", "pnpm test", "npm test", "yarn test",
+        "cargo test", "go test", "jest", "vitest", "mocha", "playwright", "cypress",
+        "harness.cli test", "python3 -m unittest", "python -m unittest"
+    ]):
+        return "test_runner"
+
+    # Git & GitHub CLI
+    if lower.startswith("git ") or " git " in lower or lower.startswith("gh ") or " gh " in lower:
+        return "git"
+
+    # Grep & text search
+    if any(lower.startswith(k) or f" {k}" in lower for k in ["grep ", "rg ", "ripgrep ", "ag ", "diff "]):
+        return "grep_search"
+
+    # File search & listing
+    if any(lower.startswith(k) or f" {k}" in lower for k in ["find ", "fd ", "ls ", "tree ", "locate "]):
+        return "file_search"
+
+    # Package managers
+    if any(lower.startswith(k) or f" {k}" in lower for k in [
+        "pnpm ", "npm ", "yarn ", "bun ", "pip ", "pip3 ", "uv ", "pacman ", "yay ",
+        "apt ", "apt-get ", "cargo add", "cargo install"
+    ]):
+        return "package_manager"
+
+    # Build & compilers
+    if any(lower.startswith(k) or f" {k}" in lower for k in [
+        "tsc", "esbuild", "cargo build", "go build", "make", "gcc", "g++", "clang",
+        "vite build", "webpack", "next build", "ninja"
+    ]):
+        return "build_compile"
+
+    # Python scripts & one-liners
+    if any(lower.startswith(k) or f" {k}" in lower for k in ["python ", "python3 ", "python3.12 ", "ipython "]):
+        return "python_exec"
+
+    # System probes
+    if any(lower.startswith(k) or f" {k}" in lower for k in [
+        "which ", "command -v", "ps ", "top ", "htop ", "uname", "uptime", "whoami",
+        "id ", "df ", "du ", "systemctl ", "journalctl "
+    ]):
+        return "system_probe"
+
+    # Network probes
+    if any(lower.startswith(k) or f" {k}" in lower for k in ["curl ", "wget ", "ping ", "ssh ", "scp ", "rsync ", "nc "]):
+        return "network"
+
+    # Filesystem operations
+    if any(lower.startswith(k) or f" {k}" in lower for k in [
+        "cat ", "head ", "tail ", "mkdir ", "cp ", "mv ", "rm ", "touch ", "chmod ", "chown ", "sed ", "awk "
+    ]):
+        return "file_system"
+
+    return "other"
+
+
+def ensure_volume_columns(conn: sqlite3.Connection) -> None:
+    """Non-destructively ensures volume & character distribution columns exist."""
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(tool_calls)")
+    existing_cols = {row[1] for row in cur.fetchall()}
+
+    new_cols = [
+        ("output_length_chars", "INTEGER"),
+        ("output_lines", "INTEGER"),
+        ("arguments_length_chars", "INTEGER"),
+        ("command_category", "TEXT"),
+        ("is_truncated", "INTEGER DEFAULT 0"),
+    ]
+    for col_name, col_type in new_cols:
+        if col_name not in existing_cols:
+            cur.execute(f"ALTER TABLE tool_calls ADD COLUMN {col_name} {col_type}")
+
+    # Ensure indexes
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_tools_category ON tool_calls(command_category)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_tools_output_len ON tool_calls(output_length_chars)")
+    conn.commit()
 
 
 def extract_session(transcript_path: Path) -> Optional[Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]]:
@@ -280,6 +377,12 @@ def extract_session(transcript_path: Path) -> Optional[Tuple[Dict[str, Any], Lis
                     recent_tool_name = ""
                     recent_error_snippet = ""
 
+                out_len = len(res_content) if res_content else 0
+                out_lines = (res_content.count('\n') + 1) if res_content else 0
+                args_len = len(json.dumps(t_args)) if isinstance(t_args, dict) else len(str(t_args))
+                cmd_cat = classify_command(cmd_line) if cmd_line else None
+                is_trunc = 1 if (res_content and ('<truncated' in res_content or ('truncated_fields' in (res_step or {}) and 'content' in (res_step or {}).get('truncated_fields', [])))) else 0
+
                 tool_calls_extracted.append({
                     "session_id": session_id,
                     "step_index": s_idx,
@@ -295,7 +398,12 @@ def extract_session(transcript_path: Path) -> Optional[Tuple[Dict[str, Any], Lis
                     "status": t_status,
                     "exit_code": exit_code,
                     "error_snippet": err_snippet,
-                    "is_loop_candidate": is_loop
+                    "is_loop_candidate": is_loop,
+                    "output_length_chars": out_len,
+                    "output_lines": out_lines,
+                    "arguments_length_chars": args_len,
+                    "command_category": cmd_cat,
+                    "is_truncated": is_trunc
                 })
 
     step_rows = []
@@ -335,11 +443,103 @@ def extract_session(transcript_path: Path) -> Optional[Tuple[Dict[str, Any], Lis
     return session_row, step_rows, tool_calls_extracted, interventions_extracted
 
 
+def backfill_tool_volumes(db_path: Path, verbose: bool = True) -> Dict[str, int]:
+    """Backfills output_length_chars, output_lines, arguments_length_chars, command_category,
+    and is_truncated for all existing rows in tool_calls that lack volume data.
+    """
+    conn = sqlite3.connect(db_path)
+    ensure_volume_columns(conn)
+    cur = conn.cursor()
+
+    cur.execute("SELECT COUNT(*) FROM tool_calls WHERE output_length_chars IS NULL")
+    unpopulated_count = cur.fetchone()[0]
+    if unpopulated_count == 0:
+        if verbose:
+            print("[✓] All tool calls already have volume metrics populated.")
+        conn.close()
+        return {"updated_tool_calls": 0, "sessions_processed": 0}
+
+    cur.execute("""
+        SELECT DISTINCT s.session_id, s.transcript_path
+        FROM sessions s
+        JOIN tool_calls t ON s.session_id = t.session_id
+        WHERE t.output_length_chars IS NULL
+    """)
+    target_sessions = cur.fetchall()
+
+    if verbose:
+        print(f"[*] Backfilling volume metrics for {unpopulated_count} tool calls across {len(target_sessions)} sessions...")
+
+    total_updated = 0
+    sessions_processed = 0
+
+    cur.execute("PRAGMA synchronous = OFF")
+    cur.execute("PRAGMA journal_mode = MEMORY")
+
+    for s_id, t_path_str in target_sessions:
+        if not t_path_str:
+            continue
+        t_path = Path(t_path_str)
+        if not t_path.exists():
+            # Fallback if transcript file is missing on disk
+            cur.execute("SELECT step_index, command_line FROM tool_calls WHERE session_id = ? AND output_length_chars IS NULL", (s_id,))
+            fallback_rows = cur.fetchall()
+            fallback_updates = []
+            for step_idx, cmd_line in fallback_rows:
+                fallback_updates.append((0, 0, 0, classify_command(cmd_line), 0, s_id, step_idx))
+            if fallback_updates:
+                cur.executemany("""
+                    UPDATE tool_calls
+                    SET output_length_chars=?, output_lines=?, arguments_length_chars=?, command_category=?, is_truncated=?
+                    WHERE session_id=? AND step_index=?
+                """, fallback_updates)
+                total_updated += len(fallback_updates)
+                sessions_processed += 1
+            continue
+
+        res = extract_session(t_path)
+        if not res:
+            continue
+        _, _, tool_rows, _ = res
+
+        updates = []
+        for t in tool_rows:
+            updates.append((
+                t.get("output_length_chars", 0),
+                t.get("output_lines", 0),
+                t.get("arguments_length_chars", 0),
+                t.get("command_category"),
+                t.get("is_truncated", 0),
+                s_id,
+                t["step_index"]
+            ))
+
+        if updates:
+            cur.executemany("""
+                UPDATE tool_calls
+                SET output_length_chars=?, output_lines=?, arguments_length_chars=?, command_category=?, is_truncated=?
+                WHERE session_id=? AND step_index=?
+            """, updates)
+            total_updated += len(updates)
+            sessions_processed += 1
+
+        if verbose and (sessions_processed % 50 == 0 or sessions_processed == len(target_sessions)):
+            conn.commit()
+            print(f"  ... processed {sessions_processed}/{len(target_sessions)} sessions ({total_updated} tool calls updated)")
+
+    conn.commit()
+    conn.close()
+    if verbose:
+        print(f"[✓] Backfill complete: updated {total_updated} tool calls across {sessions_processed} sessions.")
+    return {"updated_tool_calls": total_updated, "sessions_processed": sessions_processed}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Harvest Antigravity transcripts into SQLite.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of sessions processed")
     parser.add_argument("--reset", action="store_true", help="Reset/rebuild database tables")
+    parser.add_argument("--backfill-volumes", action="store_true", help="Backfill character volume metrics on existing database")
     args = parser.parse_args()
 
     db_path = Path(args.db)
@@ -351,7 +551,13 @@ def main() -> None:
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.executescript(SCHEMA_SQL)
+    ensure_volume_columns(conn)
     conn.commit()
+
+    if args.backfill_volumes:
+        conn.close()
+        backfill_tool_volumes(db_path, verbose=True)
+        return
 
     pattern = str(Path.home() / ".gemini" / "antigravity" / "brain" / "*" / ".system_generated" / "logs" / "transcript.jsonl")
     transcript_paths = sorted(glob.glob(pattern), key=lambda p: os.path.getmtime(p), reverse=True)
@@ -416,14 +622,18 @@ def main() -> None:
                 INSERT INTO tool_calls (
                     session_id, step_index, result_step_index, tool_name, arguments_json,
                     arguments_snippet, target_path, command_line, started_at, completed_at,
-                    duration_seconds, status, exit_code, error_snippet, is_loop_candidate
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    duration_seconds, status, exit_code, error_snippet, is_loop_candidate,
+                    output_length_chars, output_lines, arguments_length_chars, command_category, is_truncated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
                 (
                     t["session_id"], t["step_index"], t["result_step_index"], t["tool_name"],
                     t["arguments_json"], t["arguments_snippet"], t["target_path"], t["command_line"],
                     t["started_at"], t["completed_at"], t["duration_seconds"], t["status"],
-                    t["exit_code"], t["error_snippet"], t["is_loop_candidate"]
+                    t["exit_code"], t["error_snippet"], t["is_loop_candidate"],
+                    t.get("output_length_chars", 0), t.get("output_lines", 0),
+                    t.get("arguments_length_chars", 0), t.get("command_category"),
+                    t.get("is_truncated", 0)
                 )
                 for t in tool_rows
             ])

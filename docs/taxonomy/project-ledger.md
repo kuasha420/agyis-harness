@@ -120,5 +120,20 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - CLI Discovery: [harness/cli.py](harness/cli.py) (`psl skills`, `psl agents`)
   - Test Suites: [tests/test_skills.py](tests/test_skills.py), [tests/test_subagents.py](tests/test_subagents.py)
 
+---
 
-
+## [Phase 5.3] Telemetry Deep Mining & Character Volume Distribution
+* **Status**: Completed | **Compaction Date**: 2026-10-02
+* **Key Architectural Decisions (ADRs)**:
+  - **ADR-020 (Empirical Volume Telemetry Schema)**: Enriched `tool_calls` schema non-destructively (`output_length_chars`, `output_lines`, `arguments_length_chars`, `command_category`, `is_truncated`) with idempotent migration and automatic backfill across 347 historical sessions.
+  - **ADR-021 (Failure Compaction Exemption Audit)**: Validated empirical compaction simulation across 64,065 tool calls; proved 2KB compactor eliminates 35.75M characters (~8.94M tokens, 35.75% reduction) with strictly 0 violations of the Failure Preservation Invariant (ADR-008).
+* **Verified Baseline Metrics**:
+  - 67 tests passing with 100% coverage in 0.932s (<1.0s benchmark invariant met).
+  - 100,018,724 characters analyzed across 64,065 calls; `view_file` (48.5M chars, 64.7% >2KB) and `run_command` (33.3M chars, 20.3% >2KB) identified as primary volume bloaters.
+  - Test runner commands (`test_runner`) and search probes (`grep_search`) identified as highest category bloaters (>30% exceeding 2KB).
+* **Reference Assets Committed**:
+  - Ingestion & Backfill Engine: [pipeline/extract_transcripts.py](pipeline/extract_transcripts.py)
+  - Volume Analyzer: [pipeline/analyze_volume_distributions.py](pipeline/analyze_volume_distributions.py)
+  - CLI Integration: [harness/cli.py](harness/cli.py) (`psl audit volume`)
+  - Canonical Report: [docs/taxonomy/tool-volume-distribution-report.md](docs/taxonomy/tool-volume-distribution-report.md)
+  - Test Suite: [tests/test_volume_mining.py](tests/test_volume_mining.py)
