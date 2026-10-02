@@ -16,7 +16,7 @@
 
 ## 🎯 North Star & PSL Motivation
 
-Google's Gemini models (Gemini 1.5 Pro/Flash, Gemini 2.0) demonstrate market-leading long-context reasoning, tool fidelity, and price-to-performance efficiency for software engineering automation. However, developer productivity in long-horizon coding tasks is frequently constrained by harness-level friction:
+Google's Gemini models—with **Gemini 3.8 Flash** as our primary high-throughput SWE workhorse and **Gemini 3.1 Pro** as our deep architectural reasoning model—demonstrate market-leading long-context reasoning, tool fidelity, and price-to-performance efficiency for software engineering automation. However, developer productivity in long-horizon coding tasks is frequently constrained by harness-level friction:
 
 1. **Context Cliffs & Output Flooding**: Unpruned tool outputs dump thousands of lines into context, accelerating the 100k-token cognitive degradation cliff.
 2. **Terminal Desyncs & False-Positive Failures**: 98.4% of all tool failures occur in `run_command`, driven by benign exit code 1 panics (grep/diff), pyenv/conda shim hijacking, and interactive subshell hangs.

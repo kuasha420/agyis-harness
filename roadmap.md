@@ -10,7 +10,7 @@
 ## 1. The North Star & Product Vision
 
 ### The Fundamental Motivation
-We rely heavily on Google's models (Gemini 1.5 Pro/Flash, Gemini 2.0) for their market-leading reasoning, massive context windows, and price-to-performance ratio in SWE automation. However, the model is frequently throttled by official harness limitations:
+We rely heavily on Google's modern Gemini models—with **Gemini 3.8 Flash** as our primary high-throughput SWE workhorse and **Gemini 3.1 Pro** as our deep architectural reasoning model—for their market-leading reasoning aperture, rapid tool dispatch, massive context windows, and price-to-performance ratio in software engineering automation. However, developer productivity in long-horizon coding tasks is frequently constrained by harness-level friction:
 - **Context Cliffs**: Unpruned tool outputs dump thousands of lines into context, accelerating the 100k-token cognitive degradation cliff.
 - **Brittle Terminal Desyncs**: 98.4% of all tool failures occur in `run_command`, driven by benign exit code 1 panics, pyenv/conda shim hijacking, and interactive subshell hangs.
 - **Premature Convergence & Cognitive Drift**: In deep sessions, models succumb to "chatbot seduction", confusing speculative text proposals with working code, rationalizing incomplete work, and perseverating on repetitive thought mantras.
@@ -20,6 +20,23 @@ We rely heavily on Google's models (Gemini 1.5 Pro/Flash, Gemini 2.0) for their 
 Rather than creating an isolated competing framework that reinvents agent execution from scratch, **`psl-agy-harness` is a dual-purpose system**:
 1. **The Empirical Laboratory**: Automated telemetry mining tools that extract mathematical ground truth from thousands of real developer trajectories, loop patterns, and failure modes.
 2. **The Reference Extension Harness**: A high-performance, deterministic extension harness built *strictly on official Google Antigravity surfaces* (`plugin.json`, lifecycle hooks, MCP, rules) that solves environment and context bottlenecks deterministically in code—so our patterns can either be used directly by developers or **upstreamed directly to Google DeepMind**.
+
+### The Victory Playbook: Reinforcing What Worked Across 348 Sessions
+The mission of PAH is not merely defensive error mitigation; it is **actively codifying and amplifying the battle-tested patterns that produced near-zero error and intervention rates** across our empirical dataset:
+
+1. **Subagent Ladder & Worktree Sharding (`Executioner -> Hammer -> Auditor`)**:
+   - `invoke_subagent` and `manage_subagents` achieved a **99.5% success rate** across 215 calls in the telemetry database.
+   - Spawning isolated subagents in worktrees for multi-phase tasks (test suites, refactors, lint passes) protects the coordinator's attention aperture, preventing the primary context window from crossing the 50k token cliff.
+2. **Explicit Command Dictionaries (The Golden Monorepo Pattern)**:
+   - Workspaces declaring exact, copy-pasteable CLI invocations (`purrmission` with **1.67 interventions/session**, `sunshine-physio` with **1.91**) experienced **10x lower human interventions** than workspaces with multi-file rule indirection (`mm-website` with **18.2**).
+   - The harness product must automatically inject verified project script palettes (`package.json`, `pyproject.toml`) so agents never guess command invocations or monorepo filters.
+3. **Delta-Focused Code Review Cycles**:
+   - High-performing trajectories rely on structured PR review delay fences (e.g. `node scripts/gh-pr-review-comments.cjs`) and incremental delta resolution rather than full-repository diff re-reads, allowing CI checks to settle before fixes are attempted.
+4. **Surgical Contiguous Edits**:
+   - `replace_file_content` achieved a **99.9% tool success rate** (only 4 failures out of 4,650 calls).
+   - High-fidelity sessions enforce single contiguous block modifications rather than destructive whole-file rewrites.
+5. **Knot Physical Mesh Specialization**:
+   - Multi-node hardware strand specialization (Desktop Anchor Architect, Laptop CUDA Compute Worker, Handheld Controllers on Steam Deck and ROG Ally) succeeds when bound to strict role profiles, network timeouts (`-o ConnectTimeout=5`), and zero-sudo user-space toolchains (`uv`).
 
 ---
 
