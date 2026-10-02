@@ -1,0 +1,1122 @@
+{
+  "timestamp": "2026-10-02 04:52:22Z",
+  "total_workspaces": 17,
+  "workspaces": [
+    {
+      "workspace_path": "/home/kuasha/Dev/sunshine-physio-universalapp",
+      "repo_name": "sunshine-physio-universalapp",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/sunshine-physio-universalapp",
+        "repo_name": "sunshine-physio-universalapp",
+        "exists": true,
+        "rule_files": [
+          {
+            "path": "AGENTS.md",
+            "size_bytes": 23605,
+            "lines": 173,
+            "estimated_tokens": 5900
+          },
+          {
+            "path": "apps/web/AGENTS.md",
+            "size_bytes": 678,
+            "lines": 9,
+            "estimated_tokens": 168
+          }
+        ],
+        "rule_file_count": 2,
+        "total_rule_tokens": 6069,
+        "skills": [
+          {
+            "name": "milestone-handoff",
+            "path": ".agents/skills/milestone-handoff/SKILL.md",
+            "estimated_tokens": 2776
+          },
+          {
+            "name": "code-review",
+            "path": ".agents/skills/code-review/SKILL.md",
+            "estimated_tokens": 1639
+          },
+          {
+            "name": "resolving-merge-conflicts",
+            "path": ".agents/skills/resolving-merge-conflicts/SKILL.md",
+            "estimated_tokens": 229
+          }
+        ],
+        "skill_count": 3,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": true,
+          "bans_error_swallowing": true,
+          "bans_product_homework": true,
+          "enforces_subagent_ladder": true,
+          "has_pr_delay_fence": false,
+          "has_multi_file_indirection": false,
+          "has_gpg_signing_rule": true,
+          "has_mesh_or_hardware_rules": false
+        }
+      },
+      "performance": {
+        "session_count": 99,
+        "avg_steps": 326.1,
+        "total_tools": 14937,
+        "total_errors": 296,
+        "error_rate_pct": 1.98,
+        "total_interventions": 189,
+        "interventions_per_session": 1.91,
+        "autonomous_sessions": 72,
+        "autonomous_pct": 72.7
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/Jasper",
+      "repo_name": "Jasper",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/Jasper",
+        "repo_name": "Jasper",
+        "exists": true,
+        "rule_files": [
+          {
+            "path": ".agents/AGENTS.md",
+            "size_bytes": 605,
+            "lines": 4,
+            "estimated_tokens": 151
+          },
+          {
+            "path": ".agent/rules/README.md",
+            "size_bytes": 1192,
+            "lines": 21,
+            "estimated_tokens": 296
+          },
+          {
+            "path": ".agent/rules/code-review.md",
+            "size_bytes": 2352,
+            "lines": 67,
+            "estimated_tokens": 581
+          },
+          {
+            "path": ".agent/rules/development.md",
+            "size_bytes": 2821,
+            "lines": 57,
+            "estimated_tokens": 701
+          },
+          {
+            "path": ".agent/rules/overview.md",
+            "size_bytes": 3837,
+            "lines": 69,
+            "estimated_tokens": 919
+          },
+          {
+            "path": ".agent/rules/plugins.md",
+            "size_bytes": 1720,
+            "lines": 33,
+            "estimated_tokens": 429
+          },
+          {
+            "path": ".agent/rules/workflow.md",
+            "size_bytes": 2240,
+            "lines": 60,
+            "estimated_tokens": 554
+          }
+        ],
+        "rule_file_count": 7,
+        "total_rule_tokens": 3635,
+        "skills": [
+          {
+            "name": "multi-repo-coordination",
+            "path": ".agents/skills/multi-repo-coordination/SKILL.md",
+            "estimated_tokens": 833
+          },
+          {
+            "name": "boundary-discipline",
+            "path": ".agents/skills/boundary-discipline/SKILL.md",
+            "estimated_tokens": 478
+          },
+          {
+            "name": "grill-with-docs",
+            "path": ".agents/skills/grill-with-docs/SKILL.md",
+            "estimated_tokens": 719
+          },
+          {
+            "name": "make-operations-idempotent",
+            "path": ".agents/skills/make-operations-idempotent/SKILL.md",
+            "estimated_tokens": 345
+          },
+          {
+            "name": "migrate-then-delete-legacy-apis",
+            "path": ".agents/skills/migrate-then-delete-legacy-apis/SKILL.md",
+            "estimated_tokens": 284
+          },
+          {
+            "name": "resolving-merge-conflicts",
+            "path": ".agents/skills/resolving-merge-conflicts/SKILL.md",
+            "estimated_tokens": 229
+          },
+          {
+            "name": "separate-before-serializing-shared-state",
+            "path": ".agents/skills/separate-before-serializing-shared-state/SKILL.md",
+            "estimated_tokens": 405
+          },
+          {
+            "name": "tdd",
+            "path": ".agents/skills/tdd/SKILL.md",
+            "estimated_tokens": 885
+          },
+          {
+            "name": "to-spec",
+            "path": ".agents/skills/to-spec/SKILL.md",
+            "estimated_tokens": 1017
+          },
+          {
+            "name": "to-tickets",
+            "path": ".agents/skills/to-tickets/SKILL.md",
+            "estimated_tokens": 1645
+          },
+          {
+            "name": "typescript-best-practices",
+            "path": ".agents/skills/typescript-best-practices/SKILL.md",
+            "estimated_tokens": 1074
+          },
+          {
+            "name": "unslop",
+            "path": ".agents/skills/unslop/SKILL.md",
+            "estimated_tokens": 1648
+          },
+          {
+            "name": "why",
+            "path": ".agents/skills/why/SKILL.md",
+            "estimated_tokens": 5336
+          },
+          {
+            "name": "multi-repo-coordination",
+            "path": ".agent/skills/multi-repo-coordination/SKILL.md",
+            "estimated_tokens": 833
+          },
+          {
+            "name": "boundary-discipline",
+            "path": ".agent/skills/boundary-discipline/SKILL.md",
+            "estimated_tokens": 478
+          },
+          {
+            "name": "grill-with-docs",
+            "path": ".agent/skills/grill-with-docs/SKILL.md",
+            "estimated_tokens": 719
+          },
+          {
+            "name": "make-operations-idempotent",
+            "path": ".agent/skills/make-operations-idempotent/SKILL.md",
+            "estimated_tokens": 345
+          },
+          {
+            "name": "migrate-then-delete-legacy-apis",
+            "path": ".agent/skills/migrate-then-delete-legacy-apis/SKILL.md",
+            "estimated_tokens": 284
+          },
+          {
+            "name": "resolving-merge-conflicts",
+            "path": ".agent/skills/resolving-merge-conflicts/SKILL.md",
+            "estimated_tokens": 229
+          },
+          {
+            "name": "separate-before-serializing-shared-state",
+            "path": ".agent/skills/separate-before-serializing-shared-state/SKILL.md",
+            "estimated_tokens": 405
+          },
+          {
+            "name": "tdd",
+            "path": ".agent/skills/tdd/SKILL.md",
+            "estimated_tokens": 885
+          },
+          {
+            "name": "to-spec",
+            "path": ".agent/skills/to-spec/SKILL.md",
+            "estimated_tokens": 1017
+          },
+          {
+            "name": "to-tickets",
+            "path": ".agent/skills/to-tickets/SKILL.md",
+            "estimated_tokens": 1645
+          },
+          {
+            "name": "typescript-best-practices",
+            "path": ".agent/skills/typescript-best-practices/SKILL.md",
+            "estimated_tokens": 1074
+          },
+          {
+            "name": "unslop",
+            "path": ".agent/skills/unslop/SKILL.md",
+            "estimated_tokens": 1648
+          },
+          {
+            "name": "why",
+            "path": ".agent/skills/why/SKILL.md",
+            "estimated_tokens": 5336
+          }
+        ],
+        "skill_count": 26,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": true,
+          "bans_error_swallowing": false,
+          "bans_product_homework": false,
+          "enforces_subagent_ladder": false,
+          "has_pr_delay_fence": true,
+          "has_multi_file_indirection": false,
+          "has_gpg_signing_rule": false,
+          "has_mesh_or_hardware_rules": false
+        }
+      },
+      "performance": {
+        "session_count": 72,
+        "avg_steps": 265.9,
+        "total_tools": 8817,
+        "total_errors": 320,
+        "error_rate_pct": 3.63,
+        "total_interventions": 227,
+        "interventions_per_session": 3.15,
+        "autonomous_sessions": 45,
+        "autonomous_pct": 62.5
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/purrmission",
+      "repo_name": "purrmission",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/purrmission",
+        "repo_name": "purrmission",
+        "exists": true,
+        "rule_files": [
+          {
+            "path": "AGENTS.md",
+            "size_bytes": 2882,
+            "lines": 64,
+            "estimated_tokens": 720
+          },
+          {
+            "path": ".agent/rules/README.md",
+            "size_bytes": 1080,
+            "lines": 20,
+            "estimated_tokens": 268
+          },
+          {
+            "path": ".agent/rules/code-review.md",
+            "size_bytes": 3231,
+            "lines": 78,
+            "estimated_tokens": 802
+          },
+          {
+            "path": ".agent/rules/development.md",
+            "size_bytes": 3712,
+            "lines": 75,
+            "estimated_tokens": 923
+          },
+          {
+            "path": ".agent/rules/overview.md",
+            "size_bytes": 3467,
+            "lines": 75,
+            "estimated_tokens": 834
+          },
+          {
+            "path": ".agent/rules/workflow.md",
+            "size_bytes": 2273,
+            "lines": 60,
+            "estimated_tokens": 563
+          },
+          {
+            "path": "scripts/AGENTS.md",
+            "size_bytes": 1241,
+            "lines": 22,
+            "estimated_tokens": 310
+          },
+          {
+            "path": "apps/purrmission-bot/AGENTS.md",
+            "size_bytes": 1347,
+            "lines": 31,
+            "estimated_tokens": 336
+          },
+          {
+            "path": "apps/pawthy/AGENTS.md",
+            "size_bytes": 1261,
+            "lines": 24,
+            "estimated_tokens": 315
+          }
+        ],
+        "rule_file_count": 9,
+        "total_rule_tokens": 5076,
+        "skills": [],
+        "skill_count": 0,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": true,
+          "bans_error_swallowing": false,
+          "bans_product_homework": false,
+          "enforces_subagent_ladder": false,
+          "has_pr_delay_fence": true,
+          "has_multi_file_indirection": false,
+          "has_gpg_signing_rule": false,
+          "has_mesh_or_hardware_rules": false
+        }
+      },
+      "performance": {
+        "session_count": 55,
+        "avg_steps": 160.7,
+        "total_tools": 4000,
+        "total_errors": 153,
+        "error_rate_pct": 3.83,
+        "total_interventions": 92,
+        "interventions_per_session": 1.67,
+        "autonomous_sessions": 40,
+        "autonomous_pct": 72.7
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/knot-mesh",
+      "repo_name": "knot-mesh",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/knot-mesh",
+        "repo_name": "knot-mesh",
+        "exists": true,
+        "rule_files": [
+          {
+            "path": "AGENTS.md",
+            "size_bytes": 7536,
+            "lines": 141,
+            "estimated_tokens": 1882
+          },
+          {
+            "path": ".agent/rules/00-devops-hygiene.md",
+            "size_bytes": 2286,
+            "lines": 43,
+            "estimated_tokens": 571
+          },
+          {
+            "path": ".agent/rules/01-git-conventions.md",
+            "size_bytes": 1419,
+            "lines": 25,
+            "estimated_tokens": 354
+          },
+          {
+            "path": ".agent/rules/02-zero-error-swallowing.md",
+            "size_bytes": 5781,
+            "lines": 162,
+            "estimated_tokens": 1441
+          },
+          {
+            "path": ".agent/rules/03-wayland-desktop-services.md",
+            "size_bytes": 10143,
+            "lines": 95,
+            "estimated_tokens": 2535
+          }
+        ],
+        "rule_file_count": 5,
+        "total_rule_tokens": 6786,
+        "skills": [
+          {
+            "name": "core-mesh",
+            "path": ".agents/skills/core-mesh/SKILL.md",
+            "estimated_tokens": 282
+          },
+          {
+            "name": "goal-with-lease",
+            "path": ".agents/skills/goal-with-lease/SKILL.md",
+            "estimated_tokens": 1053
+          },
+          {
+            "name": "hardware-profiles",
+            "path": ".agents/skills/hardware-profiles/SKILL.md",
+            "estimated_tokens": 360
+          },
+          {
+            "name": "knot-swarm",
+            "path": ".agents/skills/knot-swarm/SKILL.md",
+            "estimated_tokens": 1198
+          },
+          {
+            "name": "subagent-ladder",
+            "path": ".agents/skills/subagent-ladder/SKILL.md",
+            "estimated_tokens": 2733
+          },
+          {
+            "name": "swarm-council",
+            "path": ".agents/skills/swarm-council/SKILL.md",
+            "estimated_tokens": 2855
+          },
+          {
+            "name": "swarm-orchestrator",
+            "path": ".agents/skills/swarm-orchestrator/SKILL.md",
+            "estimated_tokens": 8680
+          }
+        ],
+        "skill_count": 7,
+        "hooks": [
+          {
+            "path": ".agents/hooks.json",
+            "hooks": [
+              "swarm-council-coordinator"
+            ]
+          }
+        ],
+        "rule_patterns": {
+          "has_explicit_commands": false,
+          "bans_error_swallowing": true,
+          "bans_product_homework": true,
+          "enforces_subagent_ladder": true,
+          "has_pr_delay_fence": false,
+          "has_multi_file_indirection": false,
+          "has_gpg_signing_rule": true,
+          "has_mesh_or_hardware_rules": true
+        }
+      },
+      "performance": {
+        "session_count": 28,
+        "avg_steps": 616.5,
+        "total_tools": 8053,
+        "total_errors": 261,
+        "error_rate_pct": 3.24,
+        "total_interventions": 162,
+        "interventions_per_session": 5.79,
+        "autonomous_sessions": 13,
+        "autonomous_pct": 46.4
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/mm-website",
+      "repo_name": "mm-website",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/mm-website",
+        "repo_name": "mm-website",
+        "exists": true,
+        "rule_files": [
+          {
+            "path": "AGENTS.md",
+            "size_bytes": 1336,
+            "lines": 41,
+            "estimated_tokens": 334
+          },
+          {
+            "path": ".agent/rules/README.md",
+            "size_bytes": 1020,
+            "lines": 20,
+            "estimated_tokens": 253
+          },
+          {
+            "path": ".agent/rules/code-review.md",
+            "size_bytes": 2584,
+            "lines": 67,
+            "estimated_tokens": 639
+          },
+          {
+            "path": ".agent/rules/development.md",
+            "size_bytes": 2248,
+            "lines": 58,
+            "estimated_tokens": 558
+          },
+          {
+            "path": ".agent/rules/overview.md",
+            "size_bytes": 2866,
+            "lines": 61,
+            "estimated_tokens": 680
+          },
+          {
+            "path": ".agent/rules/workflow.md",
+            "size_bytes": 2299,
+            "lines": 51,
+            "estimated_tokens": 569
+          }
+        ],
+        "rule_file_count": 6,
+        "total_rule_tokens": 3036,
+        "skills": [],
+        "skill_count": 0,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": true,
+          "bans_error_swallowing": false,
+          "bans_product_homework": false,
+          "enforces_subagent_ladder": false,
+          "has_pr_delay_fence": true,
+          "has_multi_file_indirection": true,
+          "has_gpg_signing_rule": false,
+          "has_mesh_or_hardware_rules": false
+        }
+      },
+      "performance": {
+        "session_count": 20,
+        "avg_steps": 858.1,
+        "total_tools": 6988,
+        "total_errors": 397,
+        "error_rate_pct": 5.68,
+        "total_interventions": 364,
+        "interventions_per_session": 18.2,
+        "autonomous_sessions": 3,
+        "autonomous_pct": 15.0
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/jimha",
+      "repo_name": "jimha",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/jimha",
+        "repo_name": "jimha",
+        "exists": true,
+        "rule_files": [],
+        "rule_file_count": 0,
+        "total_rule_tokens": 0,
+        "skills": [],
+        "skill_count": 0,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": false,
+          "bans_error_swallowing": false,
+          "bans_product_homework": false,
+          "enforces_subagent_ladder": false,
+          "has_pr_delay_fence": false,
+          "has_multi_file_indirection": false,
+          "has_gpg_signing_rule": false,
+          "has_mesh_or_hardware_rules": false
+        }
+      },
+      "performance": {
+        "session_count": 17,
+        "avg_steps": 143.9,
+        "total_tools": 1141,
+        "total_errors": 30,
+        "error_rate_pct": 2.63,
+        "total_interventions": 24,
+        "interventions_per_session": 1.41,
+        "autonomous_sessions": 11,
+        "autonomous_pct": 64.7
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/knot",
+      "repo_name": "knot",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/knot",
+        "exists": false,
+        "rule_files": [],
+        "skills": [],
+        "hooks": [],
+        "total_rule_tokens": 0,
+        "rule_patterns": {}
+      },
+      "performance": {
+        "session_count": 12,
+        "avg_steps": 1668.3,
+        "total_tools": 9511,
+        "total_errors": 313,
+        "error_rate_pct": 3.29,
+        "total_interventions": 198,
+        "interventions_per_session": 16.5,
+        "autonomous_sessions": 3,
+        "autonomous_pct": 25.0
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/purr",
+      "repo_name": "purr",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/purr",
+        "repo_name": "purr",
+        "exists": true,
+        "rule_files": [
+          {
+            "path": "AGENTS.md",
+            "size_bytes": 4847,
+            "lines": 43,
+            "estimated_tokens": 1208
+          }
+        ],
+        "rule_file_count": 1,
+        "total_rule_tokens": 1208,
+        "skills": [
+          {
+            "name": "arch-kde-devops",
+            "path": ".agents/skills/arch-kde-devops/SKILL.md",
+            "estimated_tokens": 388
+          },
+          {
+            "name": "pacman-conflict-resolver",
+            "path": ".agents/skills/pacman-conflict-resolver/SKILL.md",
+            "estimated_tokens": 502
+          },
+          {
+            "name": "purr-release",
+            "path": ".agents/skills/purr-release/SKILL.md",
+            "estimated_tokens": 1344
+          }
+        ],
+        "skill_count": 3,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": true,
+          "bans_error_swallowing": true,
+          "bans_product_homework": false,
+          "enforces_subagent_ladder": false,
+          "has_pr_delay_fence": false,
+          "has_multi_file_indirection": false,
+          "has_gpg_signing_rule": false,
+          "has_mesh_or_hardware_rules": true
+        }
+      },
+      "performance": {
+        "session_count": 10,
+        "avg_steps": 1106.5,
+        "total_tools": 5172,
+        "total_errors": 208,
+        "error_rate_pct": 4.02,
+        "total_interventions": 223,
+        "interventions_per_session": 22.3,
+        "autonomous_sessions": 5,
+        "autonomous_pct": 50.0
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/react-native-template-ts-plus",
+      "repo_name": "react-native-template-ts-plus",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/react-native-template-ts-plus",
+        "repo_name": "react-native-template-ts-plus",
+        "exists": true,
+        "rule_files": [
+          {
+            "path": "AGENTS.md",
+            "size_bytes": 1658,
+            "lines": 23,
+            "estimated_tokens": 414
+          },
+          {
+            "path": ".agents/rules/react-native-modernization.md",
+            "size_bytes": 4582,
+            "lines": 51,
+            "estimated_tokens": 1145
+          }
+        ],
+        "rule_file_count": 2,
+        "total_rule_tokens": 1560,
+        "skills": [
+          {
+            "name": "react-native-harness",
+            "path": ".agents/skills/react-native-harness/SKILL.md",
+            "estimated_tokens": 1350
+          }
+        ],
+        "skill_count": 1,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": false,
+          "bans_error_swallowing": false,
+          "bans_product_homework": false,
+          "enforces_subagent_ladder": false,
+          "has_pr_delay_fence": false,
+          "has_multi_file_indirection": false,
+          "has_gpg_signing_rule": false,
+          "has_mesh_or_hardware_rules": false
+        }
+      },
+      "performance": {
+        "session_count": 4,
+        "avg_steps": 364.5,
+        "total_tools": 682,
+        "total_errors": 54,
+        "error_rate_pct": 7.92,
+        "total_interventions": 15,
+        "interventions_per_session": 3.75,
+        "autonomous_sessions": 1,
+        "autonomous_pct": 25.0
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/psl-website",
+      "repo_name": "psl-website",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/psl-website",
+        "repo_name": "psl-website",
+        "exists": true,
+        "rule_files": [
+          {
+            "path": "AGENTS.md",
+            "size_bytes": 1338,
+            "lines": 43,
+            "estimated_tokens": 334
+          },
+          {
+            "path": ".agent/rules/code-review.md",
+            "size_bytes": 2659,
+            "lines": 73,
+            "estimated_tokens": 659
+          },
+          {
+            "path": ".agent/rules/overview.md",
+            "size_bytes": 3191,
+            "lines": 56,
+            "estimated_tokens": 765
+          },
+          {
+            "path": ".agent/rules/workflow.md",
+            "size_bytes": 2240,
+            "lines": 60,
+            "estimated_tokens": 554
+          },
+          {
+            "path": ".agent/rules/development.md",
+            "size_bytes": 2717,
+            "lines": 43,
+            "estimated_tokens": 675
+          },
+          {
+            "path": ".agent/rules/README.md",
+            "size_bytes": 1274,
+            "lines": 21,
+            "estimated_tokens": 316
+          }
+        ],
+        "rule_file_count": 6,
+        "total_rule_tokens": 3307,
+        "skills": [],
+        "skill_count": 0,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": true,
+          "bans_error_swallowing": false,
+          "bans_product_homework": false,
+          "enforces_subagent_ladder": false,
+          "has_pr_delay_fence": true,
+          "has_multi_file_indirection": true,
+          "has_gpg_signing_rule": false,
+          "has_mesh_or_hardware_rules": true
+        }
+      },
+      "performance": {
+        "session_count": 4,
+        "avg_steps": 497.0,
+        "total_tools": 876,
+        "total_errors": 41,
+        "error_rate_pct": 4.68,
+        "total_interventions": 66,
+        "interventions_per_session": 16.5,
+        "autonomous_sessions": 0,
+        "autonomous_pct": 0.0
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/purrmission-worktrees",
+      "repo_name": "purrmission-worktrees",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/purrmission-worktrees",
+        "repo_name": "purrmission-worktrees",
+        "exists": true,
+        "rule_files": [
+          {
+            "path": "issue-117/AGENTS.md",
+            "size_bytes": 2882,
+            "lines": 64,
+            "estimated_tokens": 720
+          },
+          {
+            "path": "issue-118/AGENTS.md",
+            "size_bytes": 2882,
+            "lines": 64,
+            "estimated_tokens": 720
+          },
+          {
+            "path": "issue-119/AGENTS.md",
+            "size_bytes": 2882,
+            "lines": 64,
+            "estimated_tokens": 720
+          }
+        ],
+        "rule_file_count": 3,
+        "total_rule_tokens": 2162,
+        "skills": [],
+        "skill_count": 0,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": true,
+          "bans_error_swallowing": false,
+          "bans_product_homework": false,
+          "enforces_subagent_ladder": false,
+          "has_pr_delay_fence": false,
+          "has_multi_file_indirection": false,
+          "has_gpg_signing_rule": false,
+          "has_mesh_or_hardware_rules": false
+        }
+      },
+      "performance": {
+        "session_count": 2,
+        "avg_steps": 596.0,
+        "total_tools": 562,
+        "total_errors": 12,
+        "error_rate_pct": 2.14,
+        "total_interventions": 22,
+        "interventions_per_session": 11.0,
+        "autonomous_sessions": 0,
+        "autonomous_pct": 0.0
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/purrfectcore-001",
+      "repo_name": "purrfectcore-001",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/purrfectcore-001",
+        "repo_name": "purrfectcore-001",
+        "exists": true,
+        "rule_files": [
+          {
+            "path": "AGENTS.md",
+            "size_bytes": 1375,
+            "lines": 35,
+            "estimated_tokens": 343
+          },
+          {
+            "path": ".agent/rules/README.md",
+            "size_bytes": 1062,
+            "lines": 20,
+            "estimated_tokens": 263
+          },
+          {
+            "path": ".agent/rules/code-review.md",
+            "size_bytes": 2352,
+            "lines": 59,
+            "estimated_tokens": 581
+          },
+          {
+            "path": ".agent/rules/development.md",
+            "size_bytes": 2175,
+            "lines": 52,
+            "estimated_tokens": 539
+          },
+          {
+            "path": ".agent/rules/overview.md",
+            "size_bytes": 3022,
+            "lines": 67,
+            "estimated_tokens": 721
+          },
+          {
+            "path": ".agent/rules/workflow.md",
+            "size_bytes": 2299,
+            "lines": 51,
+            "estimated_tokens": 569
+          }
+        ],
+        "rule_file_count": 6,
+        "total_rule_tokens": 3021,
+        "skills": [],
+        "skill_count": 0,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": true,
+          "bans_error_swallowing": false,
+          "bans_product_homework": false,
+          "enforces_subagent_ladder": false,
+          "has_pr_delay_fence": true,
+          "has_multi_file_indirection": true,
+          "has_gpg_signing_rule": false,
+          "has_mesh_or_hardware_rules": false
+        }
+      },
+      "performance": {
+        "session_count": 2,
+        "avg_steps": 191.0,
+        "total_tools": 183,
+        "total_errors": 12,
+        "error_rate_pct": 6.56,
+        "total_interventions": 0,
+        "interventions_per_session": 0.0,
+        "autonomous_sessions": 1,
+        "autonomous_pct": 50.0
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/purrfectcore-client",
+      "repo_name": "purrfectcore-client",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/purrfectcore-client",
+        "repo_name": "purrfectcore-client",
+        "exists": true,
+        "rule_files": [
+          {
+            "path": "AGENTS.md",
+            "size_bytes": 1215,
+            "lines": 35,
+            "estimated_tokens": 303
+          },
+          {
+            "path": ".agent/rules/README.md",
+            "size_bytes": 1049,
+            "lines": 20,
+            "estimated_tokens": 260
+          },
+          {
+            "path": ".agent/rules/code-review.md",
+            "size_bytes": 2637,
+            "lines": 73,
+            "estimated_tokens": 653
+          },
+          {
+            "path": ".agent/rules/development.md",
+            "size_bytes": 2780,
+            "lines": 72,
+            "estimated_tokens": 691
+          },
+          {
+            "path": ".agent/rules/overview.md",
+            "size_bytes": 2538,
+            "lines": 60,
+            "estimated_tokens": 605
+          },
+          {
+            "path": ".agent/rules/workflow.md",
+            "size_bytes": 2527,
+            "lines": 58,
+            "estimated_tokens": 624
+          }
+        ],
+        "rule_file_count": 6,
+        "total_rule_tokens": 3139,
+        "skills": [
+          {
+            "name": "migrate-to-vinext",
+            "path": ".agents/skills/migrate-to-vinext/SKILL.md",
+            "estimated_tokens": 2449
+          },
+          {
+            "name": "migrate-to-vinext",
+            "path": ".agent/skills/migrate-to-vinext/SKILL.md",
+            "estimated_tokens": 2449
+          }
+        ],
+        "skill_count": 2,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": true,
+          "bans_error_swallowing": false,
+          "bans_product_homework": false,
+          "enforces_subagent_ladder": false,
+          "has_pr_delay_fence": true,
+          "has_multi_file_indirection": true,
+          "has_gpg_signing_rule": false,
+          "has_mesh_or_hardware_rules": false
+        }
+      },
+      "performance": {
+        "session_count": 1,
+        "avg_steps": 70.0,
+        "total_tools": 31,
+        "total_errors": 0,
+        "error_rate_pct": 0.0,
+        "total_interventions": 0,
+        "interventions_per_session": 0.0,
+        "autonomous_sessions": 1,
+        "autonomous_pct": 100.0
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/purr-aurora",
+      "repo_name": "purr-aurora",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/purr-aurora",
+        "exists": false,
+        "rule_files": [],
+        "skills": [],
+        "hooks": [],
+        "total_rule_tokens": 0,
+        "rule_patterns": {}
+      },
+      "performance": {
+        "session_count": 1,
+        "avg_steps": 1656.0,
+        "total_tools": 801,
+        "total_errors": 27,
+        "error_rate_pct": 3.37,
+        "total_interventions": 14,
+        "interventions_per_session": 14.0,
+        "autonomous_sessions": 0,
+        "autonomous_pct": 0.0
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/p",
+      "repo_name": "p",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/p",
+        "exists": false,
+        "rule_files": [],
+        "skills": [],
+        "hooks": [],
+        "total_rule_tokens": 0,
+        "rule_patterns": {}
+      },
+      "performance": {
+        "session_count": 1,
+        "avg_steps": 105.0,
+        "total_tools": 48,
+        "total_errors": 4,
+        "error_rate_pct": 8.33,
+        "total_interventions": 3,
+        "interventions_per_session": 3.0,
+        "autonomous_sessions": 0,
+        "autonomous_pct": 0.0
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/kno",
+      "repo_name": "kno",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/kno",
+        "exists": false,
+        "rule_files": [],
+        "skills": [],
+        "hooks": [],
+        "total_rule_tokens": 0,
+        "rule_patterns": {}
+      },
+      "performance": {
+        "session_count": 1,
+        "avg_steps": 84.0,
+        "total_tools": 31,
+        "total_errors": 2,
+        "error_rate_pct": 6.45,
+        "total_interventions": 9,
+        "interventions_per_session": 9.0,
+        "autonomous_sessions": 0,
+        "autonomous_pct": 0.0
+      }
+    },
+    {
+      "workspace_path": "/home/kuasha/Dev/8-Ball-Pool-Guide-Line",
+      "repo_name": "8-Ball-Pool-Guide-Line",
+      "config": {
+        "workspace_path": "/home/kuasha/Dev/8-Ball-Pool-Guide-Line",
+        "repo_name": "8-Ball-Pool-Guide-Line",
+        "exists": true,
+        "rule_files": [],
+        "rule_file_count": 0,
+        "total_rule_tokens": 0,
+        "skills": [],
+        "skill_count": 0,
+        "hooks": [],
+        "rule_patterns": {
+          "has_explicit_commands": false,
+          "bans_error_swallowing": false,
+          "bans_product_homework": false,
+          "enforces_subagent_ladder": false,
+          "has_pr_delay_fence": false,
+          "has_multi_file_indirection": false,
+          "has_gpg_signing_rule": false,
+          "has_mesh_or_hardware_rules": false
+        }
+      },
+      "performance": {
+        "session_count": 1,
+        "avg_steps": 3357.0,
+        "total_tools": 1616,
+        "total_errors": 80,
+        "error_rate_pct": 4.95,
+        "total_interventions": 36,
+        "interventions_per_session": 36.0,
+        "autonomous_sessions": 0,
+        "autonomous_pct": 0.0
+      }
+    }
+  ]
+}

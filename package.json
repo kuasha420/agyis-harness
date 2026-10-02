@@ -8,7 +8,9 @@
     "inventory": "python3 pipeline/inventory_customizations.py",
     "extract": "python3 pipeline/extract_transcripts.py",
     "classify": "python3 pipeline/classify_failures.py",
-    "audit": "npm run inventory && npm run extract && npm run classify"
+    "interventions": "python3 pipeline/summarize_interventions.py",
+    "rules-audit": "python3 pipeline/audit_project_configs.py",
+    "audit": "npm run inventory && npm run extract && npm run classify && npm run rules-audit"
   },
   "keywords": [
     "antigravity",
