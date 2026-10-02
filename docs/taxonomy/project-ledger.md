@@ -169,3 +169,19 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Hook Implementation: [harness/hooks/command_safety_hook.py](harness/hooks/command_safety_hook.py)
   - Test Suite: [tests/test_command_safety.py](tests/test_command_safety.py)
   - Specification: [docs/official-specs/lifecycle-hooks.md](docs/official-specs/lifecycle-hooks.md)
+---
+
+## [Phase 3] Plan-to-Execution Anti-Drift & Cognitive Anchors (ADR-024)
+* **Status**: Completed | **Compaction Date**: 2026-10-03
+* **Key Architectural Decisions (ADRs)**:
+  - **ADR-024 (Plan-to-Execution Anti-Drift & Cognitive Anchors)**: Enforces plan boundary fidelity during code generation. Intercepts file mutation tools (`write_to_file`, `replace_file_content`, `edit_file`) in `PreToolUse`. Automatically discovers active plan (`find_active_plan`) and parses declared boundary paths (`parse_plan_files`) across markdown links, action headers, and backticked paths. Protects against accidental mutation while granting zero-friction exemptions (`is_exempt_file`) for documentation (`.md`, `.txt`), artifacts (`.agents/artifacts/*`, brain dirs), and temporary scratch spaces (`scratch/*`, `tmp/*`).
+* **Empirical Baselines Established & Verified**:
+  - Live `PreToolUse` interception registered in `hooks.json` via `python3 -m harness.cli hook anti-drift`.
+  - Configurable strict mode (`PSL_STRICT_ANTI_DRIFT=1`) emitting operator confirmation requests (`ask`) and non-strict mode emitting advisory notices (`allow`).
+  - Cognitive attention horizon indicators integrated into `psl status`.
+  - 111 tests passing with 100% coverage in <1.0s benchmark (0.91s actual).
+* **Reference Assets Committed**:
+  - Hook Implementation: [harness/hooks/anti_drift_hook.py](harness/hooks/anti_drift_hook.py)
+  - Registry & Dispatch: [harness/hooks/hooks.json](harness/hooks/hooks.json), [harness/cli.py](harness/cli.py)
+  - Test Suite: [tests/test_anti_drift.py](tests/test_anti_drift.py)
+  - Specification: [docs/official-specs/lifecycle-hooks.md](docs/official-specs/lifecycle-hooks.md)

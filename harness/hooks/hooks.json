@@ -1,4 +1,18 @@
 {
+  "psl-anti-drift-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content|edit_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.cli hook anti-drift",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
   "psl-anti-loop-guard": {
     "PreToolUse": [
       {

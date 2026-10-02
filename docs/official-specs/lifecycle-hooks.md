@@ -156,3 +156,63 @@ The `command_safety_hook.py` hook intercepts `run_command` in `PreToolUse` to gu
 - Enforces non-interactive pagers (`PAGER=cat` for `git`, `gh`).
 - Injects certified CPython 3.12+ for inline Python scripts (`python3 -c`) and sanitizes f-string quote escapes.
 - Surgical tail sanitization (`|| [ $? -eq 1 ]`) for standalone pattern searches (`grep`, `diff`).
+### 3.3 Plan-to-Execution Anti-Drift Verification Gate (ADR-024)
+
+The `anti_drift_hook.py` hook (`psl-anti-drift-guard`) intercepts file modifications in `PreToolUse` to ensure agents do not mutate files outside the boundaries of the approved implementation plan.
+
+#### A. Registration in `hooks.json`
+```json
+{
+  "psl-anti-drift-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content|edit_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.cli hook anti-drift",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+#### B. Plan Discovery & Boundary Extraction
+1. **Plan Discovery (`find_active_plan`)**:
+   - Searches `PSL_PLAN_PATH` environment variable override.
+   - Searches workspace root: `.agents/artifacts/implementation_plan.md`, `implementation_plan.md`, `phase_*_plan.md`.
+   - Searches current working directory and walks parent worktrees.
+   - Searches active conversation brain directory (`~/.gemini/antigravity/brain/<conv_id>/`).
+2. **Boundary Parsing (`parse_plan_files`)**:
+   - Extracts targets from markdown links (`[basename](file:///path/to/file)` or relative links).
+   - Extracts targets from action headers (`#### [MODIFY] [file](...)`, `#### [NEW] path/to/file`, `#### [DELETE] ...`).
+   - Extracts targets from backticks (` `path/to/file.py` `), excluding tool names, commands, keywords, and flags.
+   - Indexes full paths, relative subpaths, and basenames for multi-resolution matching.
+
+#### C. Exemption Model (`is_exempt_file`)
+Non-code and operational files are never blocked by the anti-drift gate:
+- Markdown documentation (`.md`, `.markdown`).
+- Text documentation (`.txt`, `.rst`, `.adoc`).
+- Artifact directories (`.agents/artifacts/*`, brain directories).
+- Temporary scratch files (`scratch/*`, `tmp/*`, `/tmp/*`).
+
+#### D. Decision Matrix (`check_drift`)
+- **Exempt / In-Plan**: Emits `{"decision": "allow"}`.
+- **Unconstrained (no plan or empty declared files)**: Emits `{"decision": "allow"}`.
+- **Undeclared Edit (Non-Strict Mode, Default)**: Emits:
+  ```json
+  {
+    "decision": "allow",
+    "reason": "PSL Anti-Drift Notice: Target file '<file>' was not declared in implementation_plan.md; permitted under non-strict mode."
+  }
+  ```
+- **Undeclared Edit (Strict Mode, `PSL_STRICT_ANTI_DRIFT=1` or `strict=True`)**: Emits:
+  ```json
+  {
+    "decision": "ask",
+    "reason": "PSL Anti-Drift Gate: Target file '<file>' is not listed in implementation_plan.md. Please confirm intentional edit."
+  }
+  ```

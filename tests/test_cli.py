@@ -52,6 +52,8 @@ class TestPslCli(unittest.TestCase):
             out = mock_out.getvalue()
             self.assertIn("PSL Harness for Google Antigravity", out)
             self.assertIn("Active Lifecycle Hooks", out)
+            self.assertIn("anti-drift", out)
+            self.assertIn("Cognitive Attention Horizon Gauge", out)
             self.assertIn("Modular Skills:", out)
             self.assertIn("Specialist Subagents:", out)
 
@@ -158,6 +160,22 @@ class TestPslCli(unittest.TestCase):
             self.assertEqual(code, 0)
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "allow")
+
+    def test_cli_hook_dispatch_anti_drift(self):
+        """Verifies `psl hook anti-drift` and its aliases dispatch to anti_drift_hook."""
+        payload = {
+            "conversationId": "test-cli-drift",
+            "action": "check_drift",
+            "target_file": "main.py",
+            "plan_files": ["main.py"],
+        }
+        for alias in ("anti-drift", "drift", "anti_drift"):
+            with patch("sys.stdin", io.StringIO(json.dumps(payload))), \
+                 patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                code = main(["hook", alias])
+                self.assertEqual(code, 0)
+                res = json.loads(mock_out.getvalue().strip())
+                self.assertEqual(res["decision"], "allow")
 
     def test_cli_test_runner(self):
         """Verifies `psl test` runs discovery against an isolated test folder without self-recursion."""

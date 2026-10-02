@@ -20,7 +20,7 @@ import unittest
 from typing import List, Optional
 
 import harness
-from harness.hooks import anti_loop_hook, command_safety_hook, completion_fence_hook, output_compactor_hook
+from harness.hooks import anti_drift_hook, anti_loop_hook, command_safety_hook, completion_fence_hook, output_compactor_hook
 from pipeline import psl_doctor
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -76,10 +76,13 @@ def cmd_hook(args: argparse.Namespace) -> int:
     elif hook_name in ("verification-fence", "fence", "stop-fence", "stop", "completion-fence"):
         completion_fence_hook.main()
         return 0
+    elif hook_name in ("anti-drift", "anti_drift", "drift"):
+        anti_drift_hook.main()
+        return 0
     else:
         sys.stderr.write(
             f"Error: Unknown hook '{args.hook_name}'. "
-            "Supported hooks: command-safety, anti-loop, output-compactor, verification-fence\n"
+            "Supported hooks: command-safety, anti-loop, output-compactor, verification-fence, anti-drift\n"
         )
         return 1
 
@@ -444,6 +447,12 @@ def cmd_status(args: argparse.Namespace) -> int:
     print("   ✔ anti-loop        (PreToolUse: repetitive tool call breaker)")
     print("   ✔ output-compactor (PostToolUse: deterministic 2KB output truncation)")
     print("   ✔ verification-fence (Stop: unverified code edit completion guard)")
+    print("   ✔ anti-drift       (PreToolUse: plan boundary & cognitive anchor gate)")
+    print("-" * 70)
+    print(" Cognitive Attention Horizon Gauge:")
+    print("   🟢 Healthy Zone: <50k tokens / <50 steps (High Attention Aperture)")
+    print("   🟡 Amber Zone:   50k–100k tokens / 50–100 steps (Attention Compaction Advised)")
+    print("   🔴 Red Alert:    >100k tokens / >100 steps (Context Cliff Active)")
     print("-" * 70)
     print(" Specialist Subagents:")
     for ag in agents:
@@ -485,6 +494,7 @@ def build_parser() -> argparse.ArgumentParser:
             "anti-loop", "loop",
             "output-compactor", "compactor",
             "verification-fence", "fence", "stop-fence", "stop", "completion-fence",
+            "anti-drift", "drift", "anti_drift",
         ],
         help="Name of the lifecycle hook to invoke",
     )

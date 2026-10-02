@@ -184,17 +184,28 @@ To protect both the operator and the agent from cognitive exhaustion, the harnes
     - Proved 2KB compactor eliminates **35,754,488 characters (~8,938,622 tokens)**, achieving **35.75% volume reduction** with **0 ADR-008 failure preservation violations**.
     - Produced canonical report `docs/taxonomy/tool-volume-distribution-report.md` and machine-readable data `data/volume_distributions.json`.
     - Complete test suite passes: 67/67 tests in 0.932s (<1.0s benchmark).
+  - [x] **Ultra-Deep Horizon Microscope & Knot Autopsy (Phase 0.5)**:
+    - Dissected all 30 titan sessions ($\ge 1,000$ steps) representing 84,755 steps (60% of total workstation history).
+    - Identified 3 empirical survival archetypes: Type A Survivors, Type B Systems Breakthroughs, and Type C Thrashing Traps.
+    - Conducted forensic timeline autopsy of Knot genesis session (`8cbe936a`, 3,357 steps).
+    - Produced canonical report `docs/taxonomy/ultra-deep-sessions-survival-report.md` and CLI integration `./psl audit deep`.
+  - [x] **Deterministic Stop-Hook Verification Fence (ADR-022 Phase 1)**:
+    - Implemented `completion_fence_hook.py` intercepting code file edits (`write_to_file`, `replace_file_content`, `edit_file`) in `PreToolUse` and blocking premature exits in `Stop`.
+    - Integrated multi-session dirty clearance in `./psl test` and 2-block anti-deadlock safety valve.
+  - [x] **Terminal Execution & Subshell PATH Reliability (ADR-023 Phase 2)**:
+    - Implemented `get_user_path_shims()`, `inject_path_shims()`, and `inject_ssh_timeouts()` in `command_safety_hook.py`.
+    - Eliminated non-login subshell Exit 127 for modern toolchains (`uv`, `pnpm`, `cargo`, `pytest`) and resolved indefinite SSH hangs with non-blocking timeouts (`-o ConnectTimeout=5`).
+  - [x] **Plan-to-Execution Anti-Drift & Cognitive Anchors (ADR-024 Phase 3)**:
+    - Implemented `anti_drift_hook.py` with multi-syntax boundary parser, non-code exemptions (`.md`, `.txt`, artifacts, scratch), and dual-mode gating (non-strict notices vs strict `ask` confirmation gates).
+    - Integrated Cognitive Attention Horizon Gauge into `psl status` across Healthy, Amber, and Red Alert depth zones.
 * **Upcoming Milestones**:
-  1. **Product-Delivered Testing Rules & Verification Skills**:
-     - Implement the `Stop` lifecycle verification fence (`completion_fence_hook.py`) to prevent premature convergence when source files were modified without running tests.
-     - Supply standardized testing runner skills (`psl-test-runner`) for Python, Node, Cargo, and Go.
-  2. **The Rule/Skill Delivery & Coexistence Engine**:
+  1. **The Rule/Skill Delivery & Coexistence Engine**:
      - Implement Layer 1 vs Layer 3 resolution engine.
      - Provide `psl install [--global]` to register the plugin into `~/.gemini/config/plugins/` without polluting workspace git repositories.
+  2. **Standardized Testing Runner Skills**:
+     - Supply standardized testing runner skills (`psl-test-runner`) for Python, Node, Cargo, and Go.
   3. **In-Band PreToolUse Execution Compactor**:
      - Evaluate tuning and live wrapper prototypes based on the codified 2KB sweet spot.
-  4. **Context Cockpit & Visual Status Display**:
-     - Design and integrate token depth and step horizon indicators in Antigravity auxiliary views.
 
 ---
 
