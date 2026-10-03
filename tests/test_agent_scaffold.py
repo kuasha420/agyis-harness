@@ -51,6 +51,7 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         self.assertIn("verifier", CAPABILITY_BUNDLES)
         self.assertIn("builder", CAPABILITY_BUNDLES)
         self.assertIn("orchestrator", CAPABILITY_BUNDLES)
+        self.assertIn("full", CAPABILITY_BUNDLES)
 
         for bundle_name, tools in CAPABILITY_BUNDLES.items():
             for tool in tools:
@@ -65,16 +66,23 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         verifier = set(CAPABILITY_BUNDLES["verifier"])
         builder = set(CAPABILITY_BUNDLES["builder"])
         orchestrator = set(CAPABILITY_BUNDLES["orchestrator"])
+        full = set(CAPABILITY_BUNDLES["full"])
 
         self.assertTrue(read_only.issubset(verifier))
         self.assertTrue(verifier.issubset(builder))
         self.assertTrue(read_only.issubset(orchestrator))
+        self.assertTrue(builder.issubset(full))
+        self.assertTrue(orchestrator.issubset(full))
+        self.assertEqual(full, ANTIGRAVITY_PLATFORM_TOOLS)
 
         self.assertIn("run_command", verifier)
         self.assertIn("write_to_file", builder)
         self.assertIn("replace_file_content", builder)
         self.assertIn("invoke_subagent", orchestrator)
         self.assertNotIn("write_to_file", orchestrator)
+        self.assertIn("write_to_file", full)
+        self.assertIn("invoke_subagent", full)
+        self.assertEqual(len(full), len(ANTIGRAVITY_PLATFORM_TOOLS))
 
     def test_inspect_workspace_context_repo_root(self) -> None:
         """inspect_workspace_context successfully parses current repo project files."""
@@ -131,6 +139,7 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         self.assertEqual(fm["archetype"], "executioner")
         self.assertTrue(fm["subagent"])
         self.assertTrue(fm["mainAgent"])
+        self.assertTrue(fm.get("inheritCustomizations"))
         self.assertEqual(fm["model"], "inherit")
         self.assertTrue(fm["permissions"]["write"])
         self.assertTrue(fm["permissions"]["execute"])
@@ -142,6 +151,138 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         self.assertIn("Enforce strict types", prompt)
         self.assertIn("Zero-Exploration Invariant", prompt)
         self.assertIn("Focus on performance.", prompt)
+
+    def test_main_archetype_scaffold_and_validation(self) -> None:
+        """Main archetype scaffolding generates full bundle, permissions, invariants, and passes validation."""
+        md = scaffold_agent_markdown(name="test_psl_lead", archetype=AgentArchetype.MAIN)
+        self.assertTrue(md.startswith("---"))
+        fm, prompt = parse_frontmatter(md)
+
+        self.assertEqual(fm["name"], "test_psl_lead")
+        self.assertEqual(fm["archetype"], "main")
+        self.assertTrue(fm["subagent"])
+        self.assertTrue(fm["mainAgent"])
+        self.assertTrue(fm["inheritCustomizations"])
+        self.assertEqual(fm["model"], "inherit")
+
+        # Full permissions
+        perms = fm["permissions"]
+        self.assertTrue(perms["read"])
+        self.assertTrue(perms["write"])
+        self.assertTrue(perms["execute"])
+        self.assertTrue(perms["subagents"])
+        self.assertTrue(perms["mcp"])
+        self.assertTrue(perms.get("enable_write_tools"))
+
+        # All 20 platform tools in tools & allowed_tools
+        self.assertEqual(len(fm["tools"]), len(ANTIGRAVITY_PLATFORM_TOOLS))
+        self.assertEqual(set(fm["tools"]), ANTIGRAVITY_PLATFORM_TOOLS)
+        self.assertEqual(set(fm["allowed_tools"]), ANTIGRAVITY_PLATFORM_TOOLS)
+
+        # Invariants in prompt
+        self.assertIn("The 5 Ground Rules", prompt)
+        self.assertIn("python3 -m harness.cli test", prompt)
+        self.assertIn("python3 -m harness.cli doctor", prompt)
+        self.assertIn("python3 -m harness.cli status", prompt)
+        self.assertIn("./psl sync", prompt)
+        self.assertIn("ADR-012", prompt)
+        self.assertIn("ADR-013", prompt)
+        self.assertIn("ADR-014", prompt)
+        self.assertIn("ADR-015", prompt)
+        self.assertIn("@<subagent>", prompt)
+        self.assertIn("Zero-Exploration Invariant", prompt)
+        self.assertIn("list_dir", prompt)
+        self.assertIn("find_by_name", prompt)
+
+        # Validate with validate_agent_spec
+        spec_path = self.workspace / "test_psl_lead.md"
+        spec_path.write_text(md, encoding="utf-8")
+        errors = validate_agent_spec(spec_path)
+        self.assertEqual(errors, [], f"Validation failed for test_psl_lead: {errors}")
+
+    def test_inherit_customizations_parsing_round_trip_and_validation(self) -> None:
+        """inheritCustomizations parses correctly, round trips, and validates boolean constraint."""
+        # 1. Parsing when true
+        p_true = self.workspace / "agent_true.md"
+        p_true.write_text(
+            scaffold_agent_markdown("agent_true", AgentArchetype.EXECUTIONER, inherit_customizations=True),
+            encoding="utf-8",
+        )
+        spec_true = load_agent_spec(p_true)
+        self.assertTrue(spec_true.inherit_customizations)
+        self.assertEqual(validate_agent_spec(p_true), [])
+
+        # 2. Parsing when false
+        p_false = self.workspace / "agent_false.md"
+        p_false.write_text(
+            scaffold_agent_markdown("agent_false", AgentArchetype.EXECUTIONER, inherit_customizations=False),
+            encoding="utf-8",
+        )
+        spec_false = load_agent_spec(p_false)
+        self.assertFalse(spec_false.inherit_customizations)
+        self.assertEqual(validate_agent_spec(p_false), [])
+
+        # 3. Parsing when omitted
+        raw_omitted = """---
+name: agent_omitted
+archetype: hammer
+description: Omitted inheritance test.
+role: Reviewer
+subagent: true
+mainAgent: true
+model: inherit
+permissions:
+  read: true
+  write: false
+  execute: false
+  subagents: false
+tools:
+  - view_file
+allowed_tools:
+  - view_file
+---
+
+# Reviewer
+You are `agent_omitted`.
+## Operational Invariants
+1. Zero-Exploration Invariant: Prohibit blind list_dir and find_by_name sweeps.
+"""
+        p_omitted = self.workspace / "agent_omitted.md"
+        p_omitted.write_text(raw_omitted, encoding="utf-8")
+        spec_omitted = load_agent_spec(p_omitted)
+        self.assertTrue(spec_omitted.inherit_customizations, "Should default to True when omitted")
+        self.assertEqual(validate_agent_spec(p_omitted), [])
+
+        # 4. Validation rejects non-boolean inheritCustomizations
+        raw_invalid = """---
+name: agent_invalid
+archetype: hammer
+description: Invalid inheritance test.
+role: Reviewer
+subagent: true
+mainAgent: true
+inheritCustomizations: "non_boolean_string"
+model: inherit
+permissions:
+  read: true
+  write: false
+  execute: false
+  subagents: false
+tools:
+  - view_file
+allowed_tools:
+  - view_file
+---
+
+# Reviewer
+You are `agent_invalid`.
+## Operational Invariants
+1. Zero-Exploration Invariant: Prohibit blind list_dir and find_by_name sweeps.
+"""
+        p_invalid = self.workspace / "agent_invalid.md"
+        p_invalid.write_text(raw_invalid, encoding="utf-8")
+        errors = validate_agent_spec(p_invalid)
+        self.assertTrue(any("inheritCustomizations' must be a boolean" in e for e in errors))
 
     def test_validate_agent_spec_accepts_valid_scaffold(self) -> None:
         """Generated agents from scaffold_agent_markdown pass validation with zero errors."""
@@ -258,53 +399,55 @@ You are `careless_agent`. Explore the whole repository freely!
         self.assertTrue(any("Zero-Exploration Invariant" in e for e in errors))
 
     def test_cli_agents_create_and_validate(self) -> None:
-        """CLI agents create and validate subcommands function end-to-end."""
+        """CLI agents create and validate subcommands function end-to-end within isolated workspace."""
         agent_name = "test_cli_agent_scaffold"
-        created_file = REPO_ROOT / ".agents" / "agents" / f"{agent_name}.md"
+        created_file = self.workspace / ".agents" / "agents" / f"{agent_name}.md"
 
-        try:
-            # 1. Create agent via CLI
-            buf_out = io.StringIO()
-            with patch("sys.stdout", buf_out):
-                exit_code = main([
-                    "agents",
-                    "create",
-                    agent_name,
-                    "--archetype",
-                    "planner",
-                    "--bundle",
-                    "read_only",
-                    "--scope",
-                    "project",
-                ])
-            self.assertEqual(exit_code, 0)
-            self.assertTrue(created_file.is_file())
-            self.assertIn(f"Created agent '{agent_name}'", buf_out.getvalue())
+        with patch("harness.cli.REPO_ROOT", self.workspace), \
+             patch("harness.subagents.REPO_ROOT", self.workspace):
+            try:
+                # 1. Create agent via CLI
+                buf_out = io.StringIO()
+                with patch("sys.stdout", buf_out):
+                    exit_code = main([
+                        "agents",
+                        "create",
+                        agent_name,
+                        "--archetype",
+                        "planner",
+                        "--bundle",
+                        "read_only",
+                        "--scope",
+                        "project",
+                    ])
+                self.assertEqual(exit_code, 0)
+                self.assertTrue(created_file.is_file())
+                self.assertIn(f"Created agent '{agent_name}'", buf_out.getvalue())
 
-            # 2. Validate created agent via CLI by name
-            buf_out2 = io.StringIO()
-            with patch("sys.stdout", buf_out2):
-                val_code = main(["agents", "validate", agent_name])
-            self.assertEqual(val_code, 0)
-            self.assertIn("is valid", buf_out2.getvalue())
+                # 2. Validate created agent via CLI by name
+                buf_out2 = io.StringIO()
+                with patch("sys.stdout", buf_out2):
+                    val_code = main(["agents", "validate", agent_name])
+                self.assertEqual(val_code, 0)
+                self.assertIn("is valid", buf_out2.getvalue())
 
-            # 3. Validate created agent via CLI by path
-            buf_out3 = io.StringIO()
-            with patch("sys.stdout", buf_out3):
-                val_code2 = main(["agents", "validate", str(created_file)])
-            self.assertEqual(val_code2, 0)
-            self.assertIn("is valid", buf_out3.getvalue())
+                # 3. Validate created agent via CLI by path
+                buf_out3 = io.StringIO()
+                with patch("sys.stdout", buf_out3):
+                    val_code2 = main(["agents", "validate", str(created_file)])
+                self.assertEqual(val_code2, 0)
+                self.assertIn("is valid", buf_out3.getvalue())
 
-            # 4. Validate non-existent agent returns error
-            buf_err = io.StringIO()
-            with patch("sys.stderr", buf_err):
-                err_code = main(["agents", "validate", "non_existent_fake_agent_xyz"])
-            self.assertEqual(err_code, 1)
-            self.assertIn("not found", buf_err.getvalue())
+                # 4. Validate non-existent agent returns error
+                buf_err = io.StringIO()
+                with patch("sys.stderr", buf_err):
+                    err_code = main(["agents", "validate", "non_existent_fake_agent_xyz"])
+                self.assertEqual(err_code, 1)
+                self.assertIn("not found", buf_err.getvalue())
 
-        finally:
-            if created_file.is_file():
-                created_file.unlink()
+            finally:
+                if created_file.is_file():
+                    created_file.unlink()
 
 
 if __name__ == "__main__":

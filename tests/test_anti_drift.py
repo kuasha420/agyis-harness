@@ -473,6 +473,19 @@ class TestAntiDriftHook(unittest.TestCase):
         self.assertIsNotNone(res2)
         self.assertEqual(res2["decision"], "deny")
 
+    def test_main_and_lead_not_blocked(self):
+        """Main and lead agents are permitted to mutate files when explicit_write_false is not set."""
+        for role in ("main", "psl_main", "lead", "PSL Lead Architect & Master Implementer"):
+            payload = {
+                "role": role,
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {"TargetFile": "src/app.py"},
+                },
+            }
+            res = check_auditor_write_block(payload)
+            self.assertIsNone(res, f"Expected no block for {role}")
+
 
 if __name__ == "__main__":
     unittest.main()

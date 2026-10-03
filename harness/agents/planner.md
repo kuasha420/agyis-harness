@@ -5,6 +5,7 @@ description: Architectural research, dependency analysis, and artifact-first imp
 role: Software Architect & Solution Planner
 subagent: true
 mainAgent: true
+inheritCustomizations: true
 model: inherit
 permissions:
   read: true

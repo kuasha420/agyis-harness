@@ -47,6 +47,7 @@ To prevent session freezes and maintain strict toolgroup scoping, custom agents 
 | `verifier` | `read_only` + `run_command`, `manage_task` | `read: true`, `write: false`, `execute: true`, `subagents: false` | QA Verifier, Benchmark Auditor, Linter |
 | `builder` | `verifier` + `write_to_file`, `replace_file_content` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Executioner, Implementer, Refactorer |
 | `orchestrator` | `read_only` + `invoke_subagent`, `send_message`, `manage_subagents`, `manage_task` | `read: true`, `write: false`, `execute: false`, `subagents: true` | Swarm Coordinator, Milestone Lead |
+| `full` | All 20 platform tools (`ANTIGRAVITY_PLATFORM_TOOLS`) | `read: true`, `write: true`, `execute: true`, `subagents: true`, `mcp: true`, `enable_write_tools: true` | Main Agent (`main` archetype), Lead Architect |
 
 > [!CAUTION]
 > **Platform Hanging Bug**: Never declare tools outside `ANTIGRAVITY_PLATFORM_TOOLS` (such as `edit_file` or speculative MCP tool names) in frontmatter `tools:` or `allowed_tools:`. Doing so causes the Antigravity subagent dispatcher to hang without returning an error.
@@ -59,6 +60,9 @@ To prevent session freezes and maintain strict toolgroup scoping, custom agents 
 ```bash
 # Interactive creation
 python3 -m harness.cli agents create <agent_name>
+
+# Create lead architect / main agent with full capability bundle
+python3 -m harness.cli agents create psl_main --archetype main --bundle full --scope project
 
 # Non-interactive / scripted creation with bundle and archetype
 python3 -m harness.cli agents create security_auditor --archetype auditor --bundle verifier --scope project
@@ -77,9 +81,10 @@ python3 -m harness.cli agents validate .agents/agents/security_auditor.md
 
 The validation gate verifies:
 1. **Frontmatter Integrity**: Required keys (`name`, `archetype`, `role`, `description`, `permissions`).
-2. **Tool Existence**: Asserts all declared tools exist in `ANTIGRAVITY_PLATFORM_TOOLS`.
-3. **Contradiction Guard**: Rejects contradictory configs (e.g. declaring `write_to_file` when `permissions.write: false`).
-4. **Prompt Invariants**: Ensures `Zero-Exploration Invariant` is declared and explicitly references `list_dir` and `find_by_name`.
+2. **Customization Inheritance**: Validates `inheritCustomizations: true` boolean frontmatter property to ensure workspace-level instructions and developer rules (`AGENTS.md`) propagate down.
+3. **Tool Existence**: Asserts all declared tools exist in `ANTIGRAVITY_PLATFORM_TOOLS`.
+4. **Contradiction Guard**: Rejects contradictory configs (e.g. declaring `write_to_file` when `permissions.write: false`).
+5. **Prompt Invariants**: Ensures `Zero-Exploration Invariant` is declared and explicitly references `list_dir` and `find_by_name`.
 
 ### Synchronize Agent Definitions
 ```bash
@@ -88,12 +93,18 @@ python3 -m harness.cli agents --sync
 
 ---
 
-## 5. UI Activation Instructions
+## 5. UI Activation & Platform Behaviors
 
-1. **Project Scope (`.agents/agents/<name>.md`)**:
+1. **Native `@<subagent>` Prompt Syntax (Antigravity v1.2.9+)**:
+   - Subagents can be invoked directly inside any prompt turn using native `@<agent_name>` inline syntax (e.g. `@harness_builder`, `@harness_reviewer`, `@psl_main`).
+   - Seamlessly hand off context across stages in the Subagent Ladder protocol without manual session reconstruction.
+2. **Tool Prerequisite Pruning in `/` Menu (Antigravity v1.2.16+)**:
+   - In Antigravity v1.2.16+, when invoking commands or subagents from the `/` menu, tools lacking declared prerequisite capabilities or masked by restrictive permissions are pruned from the execution environment.
+   - Using the `full` capability bundle and `inheritCustomizations: true` ensures all platform tools, MCP capabilities, and custom rule prompts remain accessible without unexpected tool pruning.
+3. **Project Scope (`.agents/agents/<name>.md`)**:
    - Files in `.agents/agents/` are automatically discovered by Antigravity for the active workspace.
    - Invoke in chat by typing `@<agent_name>` or selecting the agent from the subagent dispatch dropdown.
-2. **Global Scope (`~/.gemini/antigravity/agents/<name>.md`)**:
+4. **Global Scope (`~/.gemini/antigravity/agents/<name>.md`)**:
    - Files in `~/.gemini/antigravity/agents/` are globally available across all repositories and workspaces.
-3. **PreToolUse Interception**:
+5. **PreToolUse Interception**:
    - All subagents are governed by the `anti_drift_hook.py` PreToolUse hook. Any unauthorized file mutations by read-only archetypes (`auditor`, `planner`, `coordinator`, `hammer`) are deterministically blocked at runtime.

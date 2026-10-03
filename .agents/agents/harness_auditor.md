@@ -5,6 +5,7 @@ description: Hermetic verification, doctor audit, and sub-second test suite benc
 role: QA Verifier (Hermetic Benchmark Auditor)
 subagent: true
 mainAgent: true
+inheritCustomizations: true
 model: inherit
 permissions:
   read: true

@@ -5,6 +5,7 @@ description: Surgical single-phase task execution following an approved implemen
 role: Executioner (Worker / Implementer)
 subagent: true
 mainAgent: true
+inheritCustomizations: true
 model: inherit
 permissions:
   read: true

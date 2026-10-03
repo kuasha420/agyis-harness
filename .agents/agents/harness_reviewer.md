@@ -5,6 +5,7 @@ description: Delta-focused code review against the 5 Ground Rules and stack inva
 role: Hammer (Ruthless Reviewer / Auditor)
 subagent: true
 mainAgent: true
+inheritCustomizations: true
 model: inherit
 permissions:
   read: true

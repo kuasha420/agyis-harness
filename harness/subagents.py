@@ -34,6 +34,7 @@ class AgentArchetype(str, Enum):
     AUDITOR = "auditor"
     PLANNER = "planner"
     COORDINATOR = "coordinator"
+    MAIN = "main"
 
     @classmethod
     def from_string(cls, val: str) -> AgentArchetype:
@@ -43,7 +44,9 @@ class AgentArchetype(str, Enum):
             if member.value == norm or member.name.lower() == norm:
                 return member
         # Fallback aliases
-        if norm in ("builder", "worker", "implementer", "executioner"):
+        if norm in ("main", "psl_main", "lead", "general", "default"):
+            return cls.MAIN
+        elif norm in ("builder", "worker", "implementer", "executioner"):
             return cls.EXECUTIONER
         elif norm in ("reviewer", "inspector", "hammer"):
             return cls.HAMMER
@@ -51,7 +54,7 @@ class AgentArchetype(str, Enum):
             return cls.AUDITOR
         elif norm in ("planner", "architect", "designer", "researcher"):
             return cls.PLANNER
-        elif norm in ("coordinator", "orchestrator", "swarm_lead", "lead"):
+        elif norm in ("coordinator", "orchestrator", "swarm_lead"):
             return cls.COORDINATOR
         raise ValueError(f"Unknown AgentArchetype: {val}")
 
@@ -122,6 +125,28 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "manage_subagents",
         "manage_task",
     ],
+    "full": [
+        "view_file",
+        "list_dir",
+        "grep_search",
+        "find_by_name",
+        "write_to_file",
+        "replace_file_content",
+        "run_command",
+        "manage_task",
+        "invoke_subagent",
+        "send_message",
+        "manage_subagents",
+        "define_subagent",
+        "schedule",
+        "generate_image",
+        "read_url_content",
+        "search_web",
+        "call_mcp_tool",
+        "list_resources",
+        "read_resource",
+        "ask_question",
+    ],
 }
 
 
@@ -164,6 +189,7 @@ class AgentSpec:
     tools: List[str] = field(default_factory=list)
     subagent: bool = True
     main_agent: bool = True
+    inherit_customizations: bool = True
     model: str = "inherit"
     source_file: Optional[Path] = None
 
@@ -226,6 +252,13 @@ def load_agent_spec(file_path: Path) -> AgentSpec:
 
     subagent = bool(fm.get("subagent", True))
     main_agent = bool(fm.get("mainAgent", fm.get("main_agent", True)))
+    raw_inherit = fm.get("inheritCustomizations", fm.get("inherit_customizations", True))
+    if isinstance(raw_inherit, str):
+        inherit_customizations = raw_inherit.strip().lower() not in ("false", "0", "no")
+    elif raw_inherit is None:
+        inherit_customizations = True
+    else:
+        inherit_customizations = bool(raw_inherit)
     model = str(fm.get("model", "inherit"))
 
     return AgentSpec(
@@ -239,6 +272,7 @@ def load_agent_spec(file_path: Path) -> AgentSpec:
         tools=tools_list,
         subagent=subagent,
         main_agent=main_agent,
+        inherit_customizations=inherit_customizations,
         model=model,
         source_file=file_path,
     )
@@ -444,6 +478,7 @@ def scaffold_agent_markdown(
     model: str = "inherit",
     subagent: bool = True,
     main_agent: bool = True,
+    inherit_customizations: bool = True,
     permissions: Optional[ToolPermissions | Dict[str, Any]] = None,
     skills: Optional[List[str]] = None,
     workspace_context: Optional[Dict[str, Any]] = None,
@@ -461,7 +496,9 @@ def scaffold_agent_markdown(
     # Determine bundle and tools
     resolved_bundle = bundle
     if resolved_bundle is None and tools is None:
-        if arch == AgentArchetype.EXECUTIONER:
+        if arch == AgentArchetype.MAIN:
+            resolved_bundle = "full"
+        elif arch == AgentArchetype.EXECUTIONER:
             resolved_bundle = "builder"
         elif arch == AgentArchetype.AUDITOR:
             resolved_bundle = "verifier"
@@ -485,7 +522,9 @@ def scaffold_agent_markdown(
 
     # Derive role if not provided
     if not role:
-        if arch == AgentArchetype.EXECUTIONER:
+        if arch == AgentArchetype.MAIN:
+            role = "PSL Lead Architect & Master Implementer"
+        elif arch == AgentArchetype.EXECUTIONER:
             role = "Executioner (Worker / Implementer)"
         elif arch == AgentArchetype.HAMMER:
             role = "Hammer (Ruthless Reviewer / Auditor)"
@@ -500,7 +539,13 @@ def scaffold_agent_markdown(
 
     # Derive description if not provided
     if not description:
-        if arch == AgentArchetype.EXECUTIONER:
+        if arch == AgentArchetype.MAIN:
+            description = (
+                "PSL lead architect, systems engineer, and master implementer "
+                "with full tool capabilities, complete customization inheritance, "
+                "and verified operational discipline."
+            )
+        elif arch == AgentArchetype.EXECUTIONER:
             description = "Surgical single-phase task execution following an approved implementation plan."
         elif arch == AgentArchetype.HAMMER:
             description = "Delta-focused code review against the 5 Ground Rules and stack invariants."
@@ -515,19 +560,29 @@ def scaffold_agent_markdown(
 
     # Derive permissions
     if permissions is None:
-        can_w = any(t in tools for t in ("write_to_file", "replace_file_content", "edit_file"))
-        can_e = any(t in tools for t in ("run_command",))
-        can_s = any(t in tools for t in ("invoke_subagent", "manage_subagents", "define_subagent")) or arch == AgentArchetype.COORDINATOR
-        can_m = arch == AgentArchetype.PLANNER or "call_mcp_tool" in tools
-        enable_w = arch in (AgentArchetype.EXECUTIONER, AgentArchetype.AUDITOR) or can_w
-        perms = ToolPermissions(
-            read=True,
-            write=can_w,
-            execute=can_e,
-            subagent=can_s,
-            mcp=can_m,
-            enable_write_tools=enable_w,
-        )
+        if arch == AgentArchetype.MAIN:
+            perms = ToolPermissions(
+                read=True,
+                write=True,
+                execute=True,
+                subagent=True,
+                mcp=True,
+                enable_write_tools=True,
+            )
+        else:
+            can_w = any(t in tools for t in ("write_to_file", "replace_file_content", "edit_file"))
+            can_e = any(t in tools for t in ("run_command",))
+            can_s = any(t in tools for t in ("invoke_subagent", "manage_subagents", "define_subagent")) or arch == AgentArchetype.COORDINATOR
+            can_m = arch == AgentArchetype.PLANNER or "call_mcp_tool" in tools
+            enable_w = arch in (AgentArchetype.EXECUTIONER, AgentArchetype.AUDITOR) or can_w
+            perms = ToolPermissions(
+                read=True,
+                write=can_w,
+                execute=can_e,
+                subagent=can_s,
+                mcp=can_m,
+                enable_write_tools=enable_w,
+            )
     elif isinstance(permissions, dict):
         perms = ToolPermissions.from_dict(permissions)
     else:
@@ -542,6 +597,7 @@ def scaffold_agent_markdown(
         f"role: {role}",
         f"subagent: {'true' if subagent else 'false'}",
         f"mainAgent: {'true' if main_agent else 'false'}",
+        f"inheritCustomizations: {'true' if inherit_customizations else 'false'}",
         f"model: {model}",
         "permissions:",
         f"  read: {'true' if perms.read else 'false'}",
@@ -597,7 +653,11 @@ def scaffold_agent_markdown(
 
     # Operational Invariants
     body_lines.append("## Operational Invariants")
-    if arch == AgentArchetype.EXECUTIONER:
+    if arch == AgentArchetype.MAIN:
+        body_lines.append("1. **Lead Architecture & Governance**:")
+        body_lines.append("   - Act as lead architect, systems engineer, and master implementer with end-to-end accountability.")
+        body_lines.append("   - Enforce system invariants, clean-room testing, and bounded execution scopes across all tasks.")
+    elif arch == AgentArchetype.EXECUTIONER:
         body_lines.append("1. **Plan Adherence**: Read the approved implementation plan before making edits. Implement ONLY tasks specified in the plan. Zero speculative expansions.")
     elif arch == AgentArchetype.HAMMER:
         body_lines.append("1. **Delta Focus**: Inspect ONLY modified files and contiguous diff lines (`git diff -U3`). Do not re-read entire repositories.")
@@ -617,23 +677,47 @@ def scaffold_agent_markdown(
         "   - **Rule 5 (Stop & Inquire)**: Stop and ask if an unforeseen blocker, architectural conflict, or ambiguity arises.",
     ])
 
-    # Toolgroup restrictions
-    body_lines.append("3. **Toolgroup Restrictions**:")
-    body_lines.append(f"   - Allowed tools: {', '.join(tools)}.")
-    if not perms.write:
-        body_lines.append("   - File modifications (`write_to_file`, `replace_file_content`, `edit_file`) are strictly disabled.")
-    if not perms.execute:
-        body_lines.append("   - Command executions (`run_command`) are strictly disabled.")
-    if not perms.subagent:
-        body_lines.append("   - Nested subagent spawning is strictly disabled.")
+    if arch == AgentArchetype.MAIN:
+        body_lines.extend([
+            "3. **Explicit Command Dictionary (The Victory Pattern)**:",
+            "   - `python3 -m harness.cli test`: Run complete hermetic test suite (sub-second benchmark invariant).",
+            "   - `python3 -m harness.cli doctor`: Audit host workstation runtimes and auto-heal environment.",
+            "   - `python3 -m harness.cli status`: Display harness health, active hooks, and telemetry gauge.",
+            "   - `./psl sync`: Audit and synchronize active session into telemetry.db.",
+            "4. **Architectural Decisions & Standards**:",
+            "   - **ADR-012 (Artifact-First Planning)**: Never propose multi-component changes in raw chat. Crystallize into interactive `implementation_plan.md` artifacts before execution.",
+            "   - **ADR-013 (Terminal Invariants & Pattern Probing)**: Always use `set -euo pipefail`. Pattern probes (`grep`, `diff`) without conditionals must append `|| [ $? -eq 1 ]`. Pre-flight test tools with `command -v`.",
+            "   - **ADR-014 (Product vs. Project Bifurcation)**: Distributable plugin and CLI toolchain live in `harness/`; pipeline scripts, test suites, and telemetry data live in `pipeline/`, `tests/`, and `data/`.",
+            "   - **ADR-015 (Clean-Room Testing)**: All verification must be hermetic and execute strictly in <1.0s benchmark runtime.",
+            "5. **Subagent Delegation Ladder Protocol**:",
+            "   - Decompose multi-phase tasks and delegate using native `@<subagent>` syntax (e.g., `@harness_builder`, `@harness_reviewer`, `@harness_auditor`, `@planner`, `@coordinator`).",
+            "   - Follow the Ladder lifecycle: Plan -> Implement (Builder) -> Review (Reviewer) -> Audit (Auditor).",
+            "6. **Toolgroup Capabilities**:",
+            f"   - Full capability bundle enabled: {', '.join(tools)}.",
+            "7. **Stack Invariants**:",
+            "   - Python: Hermetic CPython 3.12, no bare except, clean tempfile state.",
+            "   - Shell: `set -euo pipefail`, ADR-013 pattern probing exit exception (`|| [ $? -eq 1 ]`).",
+            "8. **Zero-Exploration Invariant**:",
+            "   - Prohibit blind `list_dir` / `find_by_name` sweeps across the repository. Open target files directly from instructions, or communicate back and halt immediately.",
+        ])
+    else:
+        # Toolgroup restrictions
+        body_lines.append("3. **Toolgroup Restrictions**:")
+        body_lines.append(f"   - Allowed tools: {', '.join(tools)}.")
+        if not perms.write:
+            body_lines.append("   - File modifications (`write_to_file`, `replace_file_content`, `edit_file`) are strictly disabled.")
+        if not perms.execute:
+            body_lines.append("   - Command executions (`run_command`) are strictly disabled.")
+        if not perms.subagent:
+            body_lines.append("   - Nested subagent spawning is strictly disabled.")
 
-    body_lines.append("4. **Stack Invariants**:")
-    body_lines.append("   - Python: Hermetic CPython 3.12, no bare except, clean tempfile state.")
-    body_lines.append("   - Shell: `set -euo pipefail`, ADR-013 pattern probing exit exception (`|| [ $? -eq 1 ]`).")
+        body_lines.append("4. **Stack Invariants**:")
+        body_lines.append("   - Python: Hermetic CPython 3.12, no bare except, clean tempfile state.")
+        body_lines.append("   - Shell: `set -euo pipefail`, ADR-013 pattern probing exit exception (`|| [ $? -eq 1 ]`).")
 
-    # Zero-Exploration Invariant
-    body_lines.append("5. **Zero-Exploration Invariant**:")
-    body_lines.append("   - Prohibit blind `list_dir` / `find_by_name` sweeps across the repository. Open target files directly from instructions, or communicate back and halt immediately.")
+        # Zero-Exploration Invariant
+        body_lines.append("5. **Zero-Exploration Invariant**:")
+        body_lines.append("   - Prohibit blind `list_dir` / `find_by_name` sweeps across the repository. Open target files directly from instructions, or communicate back and halt immediately.")
 
     if custom_instructions and custom_instructions.strip():
         body_lines.append("")
@@ -688,6 +772,15 @@ def validate_agent_spec(file_path: Path) -> List[str]:
         except ValueError:
             valid_archs = [a.value for a in AgentArchetype]
             errors.append(f"Invalid archetype '{raw_arch}'. Expected one of: {valid_archs}")
+
+    # Validate inheritCustomizations
+    for key in ("inheritCustomizations", "inherit_customizations"):
+        if key in fm:
+            val = fm[key]
+            if not isinstance(val, bool) and not (
+                isinstance(val, str) and val.strip().lower() in ("true", "false")
+            ):
+                errors.append(f"Field '{key}' must be a boolean (true or false)")
 
     # Validate permissions
     raw_perms = fm.get("permissions", {})

@@ -5,6 +5,7 @@ description: Multi-agent swarm orchestration, milestone decomposition, and proje
 role: Swarm Coordinator & Multi-Agent Lead
 subagent: true
 mainAgent: true
+inheritCustomizations: true
 model: inherit
 permissions:
   read: true

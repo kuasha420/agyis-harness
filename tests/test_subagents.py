@@ -41,7 +41,7 @@ class TestSpecialistSubagents(unittest.TestCase):
     def test_list_agents_discovers_all_archetypes(self) -> None:
         """Every specialist agent in harness/agents/ must be loaded and cataloged."""
         agents = list_agent_specs()
-        self.assertEqual(len(agents), 5)
+        self.assertEqual(len(agents), 6)
 
         archetypes = {a.archetype for a in agents}
         self.assertEqual(
@@ -52,6 +52,7 @@ class TestSpecialistSubagents(unittest.TestCase):
                 AgentArchetype.AUDITOR,
                 AgentArchetype.PLANNER,
                 AgentArchetype.COORDINATOR,
+                AgentArchetype.MAIN,
             },
         )
 
@@ -80,10 +81,14 @@ class TestSpecialistSubagents(unittest.TestCase):
                     0,
                     f"Agent '{agent.name}' must declare at least one allowed tool",
                 )
-                if agent.archetype == AgentArchetype.COORDINATOR:
+                self.assertTrue(
+                    agent.inherit_customizations,
+                    f"Agent '{agent.name}' must have inherit_customizations enabled",
+                )
+                if agent.archetype in (AgentArchetype.COORDINATOR, AgentArchetype.MAIN):
                     self.assertTrue(
                         agent.can_subagent,
-                        f"Coordinator '{agent.name}' must have subagent permission enabled",
+                        f"Agent '{agent.name}' must have subagent permission enabled",
                     )
                 else:
                     self.assertFalse(
@@ -185,8 +190,38 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIn("send_message", tool_set)
         self.assertIn("manage_subagents", tool_set)
 
+    def test_psl_main_toolgroup_permissions(self) -> None:
+        """Main agent (psl_main) must have full permissions across read, write, exec, subagent, mcp."""
+        main_spec = get_agent_spec("psl_main")
+        self.assertIsNotNone(main_spec)
+        self.assertEqual(main_spec.archetype, AgentArchetype.MAIN)
+        self.assertTrue(main_spec.can_write, "Main agent must have write permission")
+        self.assertTrue(main_spec.can_execute, "Main agent must have exec permission")
+        self.assertTrue(main_spec.can_subagent, "Main agent must have subagent permission")
+        self.assertTrue(main_spec.can_mcp, "Main agent must have mcp permission")
+        self.assertTrue(main_spec.permissions.enable_write_tools)
+        self.assertTrue(main_spec.inherit_customizations)
+
+        # Must include all write, exec, subagent tools, and full platform tools
+        tool_set = set(main_spec.allowed_tools)
+        for wt in self.WRITE_TOOLS:
+            self.assertIn(wt, tool_set, f"Main agent must include write tool '{wt}'")
+        for et in self.EXEC_TOOLS:
+            self.assertIn(et, tool_set, f"Main agent must include exec tool '{et}'")
+        self.assertIn("invoke_subagent", tool_set)
+        self.assertIn("manage_subagents", tool_set)
+        self.assertIn("call_mcp_tool", tool_set)
+        self.assertEqual(len(main_spec.allowed_tools), 20)
+
     def test_get_agent_spec_lookups_and_aliases(self) -> None:
         """get_agent_spec must resolve names, stems, and archetype aliases."""
+        self.assertIsNotNone(get_agent_spec("psl_main"))
+        self.assertIsNotNone(get_agent_spec("psl-main"))
+        self.assertIsNotNone(get_agent_spec("main"))
+        self.assertIsNotNone(get_agent_spec("lead"))
+        self.assertIsNotNone(get_agent_spec("general"))
+        self.assertIsNotNone(get_agent_spec("default"))
+
         self.assertIsNotNone(get_agent_spec("harness_builder"))
         self.assertIsNotNone(get_agent_spec("harness-builder"))
         self.assertIsNotNone(get_agent_spec("builder"))
@@ -210,6 +245,12 @@ class TestSpecialistSubagents(unittest.TestCase):
 
     def test_archetype_from_string(self) -> None:
         """AgentArchetype.from_string resolves canonical names and aliases, rejects invalid."""
+        self.assertEqual(AgentArchetype.from_string("main"), AgentArchetype.MAIN)
+        self.assertEqual(AgentArchetype.from_string("psl_main"), AgentArchetype.MAIN)
+        self.assertEqual(AgentArchetype.from_string("lead"), AgentArchetype.MAIN)
+        self.assertEqual(AgentArchetype.from_string("general"), AgentArchetype.MAIN)
+        self.assertEqual(AgentArchetype.from_string("default"), AgentArchetype.MAIN)
+
         self.assertEqual(
             AgentArchetype.from_string("executioner"), AgentArchetype.EXECUTIONER
         )
@@ -235,13 +276,14 @@ class TestSpecialistSubagents(unittest.TestCase):
         target = self.isolated_path / "agents_target"
         synced = sync_agent_definitions(target_dir=target)
 
-        self.assertEqual(len(synced), 5)
+        self.assertEqual(len(synced), 6)
         for expected_file in [
             "harness_builder.md",
             "harness_reviewer.md",
             "harness_auditor.md",
             "planner.md",
             "coordinator.md",
+            "psl_main.md",
         ]:
             dest = target / expected_file
             self.assertTrue(dest.exists(), f"Expected synced file {dest} not found")
@@ -268,24 +310,25 @@ class TestSpecialistSubagents(unittest.TestCase):
 
     def test_zero_exploration_invariant_in_prompts(self) -> None:
         """All specialist subagent system prompts must enforce Zero-Exploration Invariant."""
-        for name in ("harness_auditor", "harness_builder", "harness_reviewer", "planner", "coordinator"):
-            agent = get_agent_spec(name)
-            self.assertIsNotNone(agent, f"Agent {name} must exist")
-            self.assertIn(
-                "Zero-Exploration Invariant",
-                agent.system_prompt,
-                f"Agent {name} missing Zero-Exploration Invariant in prompt",
-            )
-            self.assertIn(
-                "list_dir",
-                agent.system_prompt,
-                f"Agent {name} prompt must explicitly mention list_dir",
-            )
-            self.assertIn(
-                "find_by_name",
-                agent.system_prompt,
-                f"Agent {name} prompt must explicitly mention find_by_name",
-            )
+        specs = list_agent_specs()
+        self.assertGreaterEqual(len(specs), 6)
+        for agent in specs:
+            with self.subTest(agent=agent.name):
+                self.assertIn(
+                    "Zero-Exploration Invariant",
+                    agent.system_prompt,
+                    f"Agent {agent.name} missing Zero-Exploration Invariant in prompt",
+                )
+                self.assertIn(
+                    "list_dir",
+                    agent.system_prompt,
+                    f"Agent {agent.name} prompt must explicitly mention list_dir",
+                )
+                self.assertIn(
+                    "find_by_name",
+                    agent.system_prompt,
+                    f"Agent {agent.name} prompt must explicitly mention find_by_name",
+                )
 
 
 if __name__ == "__main__":

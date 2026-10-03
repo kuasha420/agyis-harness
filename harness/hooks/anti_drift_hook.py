@@ -288,12 +288,16 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
         or "planner" in r_lower
     )
     is_coordinator = (
-        r_lower in ("coordinator", "orchestrator", "swarm_lead", "lead")
+        r_lower in ("coordinator", "orchestrator", "swarm_lead")
         or "coordinator" in r_lower
     )
     is_reviewer = (
         r_lower in ("hammer", "reviewer", "inspector", "harness_reviewer")
         or "reviewer" in r_lower
+    )
+    is_main = (
+        r_lower in ("main", "psl_main", "lead")
+        or "master" in r_lower
     )
 
     perms = payload.get("permissions")
@@ -307,7 +311,7 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
         r_lower in ("builder", "worker", "implementer", "harness_builder", "executioner")
         or "builder" in r_lower
     )
-    if is_builder and not explicit_write_false:
+    if (is_builder or is_main) and not explicit_write_false:
         return None
 
     should_block = is_auditor or is_planner or is_coordinator or is_reviewer or explicit_write_false

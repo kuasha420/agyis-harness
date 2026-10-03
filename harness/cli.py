@@ -346,17 +346,25 @@ def cmd_agents(args: argparse.Namespace) -> int:
         if not arch_str:
             if sys.stdin.isatty():
                 print("Available archetypes:")
-                print("  1) executioner  (Worker / Implementer)")
-                print("  2) hammer       (Ruthless Reviewer)")
-                print("  3) auditor      (QA Verifier)")
-                print("  4) planner      (Architect / Planner)")
-                print("  5) coordinator  (Swarm Coordinator)")
+                print("  1) main         (Lead Architect & Master Implementer)")
+                print("  2) executioner  (Worker / Implementer)")
+                print("  3) hammer       (Ruthless Reviewer)")
+                print("  4) auditor      (QA Verifier)")
+                print("  5) planner      (Architect / Planner)")
+                print("  6) coordinator  (Swarm Coordinator)")
                 try:
-                    choice = input("Select archetype [1-5 or name] (default: executioner): ").strip()
+                    choice = input("Select archetype [1-6 or name] (default: executioner): ").strip()
                 except (EOFError, KeyboardInterrupt):
                     sys.stderr.write("\nAborted.\n")
                     return 1
-                mapping = {"1": "executioner", "2": "hammer", "3": "auditor", "4": "planner", "5": "coordinator"}
+                mapping = {
+                    "1": "main",
+                    "2": "executioner",
+                    "3": "hammer",
+                    "4": "auditor",
+                    "5": "planner",
+                    "6": "coordinator",
+                }
                 arch_str = mapping.get(choice, choice) or "executioner"
             else:
                 arch_str = "executioner"
@@ -375,12 +383,19 @@ def cmd_agents(args: argparse.Namespace) -> int:
                 print("  2) verifier     (read_only + run_command, manage_task)")
                 print("  3) builder      (verifier + write_to_file, replace_file_content)")
                 print("  4) orchestrator (read_only + invoke_subagent, send_message, manage_subagents, manage_task)")
+                print("  5) full         (all platform tools enabled)")
                 try:
-                    choice = input("Select capability bundle [1-4 or name] (default: auto): ").strip()
+                    choice = input("Select capability bundle [1-5 or name] (default: auto): ").strip()
                 except (EOFError, KeyboardInterrupt):
                     sys.stderr.write("\nAborted.\n")
                     return 1
-                b_map = {"1": "read_only", "2": "verifier", "3": "builder", "4": "orchestrator"}
+                b_map = {
+                    "1": "read_only",
+                    "2": "verifier",
+                    "3": "builder",
+                    "4": "orchestrator",
+                    "5": "full",
+                }
                 bundle_str = b_map.get(choice, choice) or None
 
         scope = getattr(args, "scope", "project") or "project"
@@ -773,8 +788,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_agents.add_argument("target_name", nargs="?", default=None, help="Target agent name for create or file/name for validate")
     p_agents.add_argument("--sync", action="store_true", help="Sync agent definitions to .agents/agents")
     p_agents.add_argument("--json", action="store_true", help="Output agents in JSON format")
-    p_agents.add_argument("--archetype", "-a", type=str, default=None, help="Agent archetype for creation (executioner, hammer, auditor, planner, coordinator)")
-    p_agents.add_argument("--bundle", "-b", type=str, default=None, help="Capability bundle (read_only, verifier, builder, orchestrator)")
+    p_agents.add_argument("--archetype", "-a", type=str, default=None, help="Agent archetype for creation (main, executioner, hammer, auditor, planner, coordinator)")
+    p_agents.add_argument("--bundle", "-b", type=str, default=None, help="Capability bundle (read_only, verifier, builder, orchestrator, full)")
     p_agents.add_argument("--scope", type=str, choices=["project", "global"], default="project", help="Target scope (project or global)")
     p_agents.add_argument("--model", "-m", type=str, default="inherit", help="Model specification (default: inherit)")
 
