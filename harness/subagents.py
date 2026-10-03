@@ -76,9 +76,6 @@ ANTIGRAVITY_PLATFORM_TOOLS: frozenset[str] = frozenset({
     "generate_image",
     "read_url_content",
     "search_web",
-    "call_mcp_tool",
-    "list_resources",
-    "read_resource",
     "ask_question",
 })
 
@@ -142,9 +139,6 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "generate_image",
         "read_url_content",
         "search_web",
-        "call_mcp_tool",
-        "list_resources",
-        "read_resource",
         "ask_question",
     ],
 }
@@ -573,7 +567,7 @@ def scaffold_agent_markdown(
             can_w = any(t in tools for t in ("write_to_file", "replace_file_content", "edit_file"))
             can_e = any(t in tools for t in ("run_command",))
             can_s = any(t in tools for t in ("invoke_subagent", "manage_subagents", "define_subagent")) or arch == AgentArchetype.COORDINATOR
-            can_m = arch == AgentArchetype.PLANNER or "call_mcp_tool" in tools
+            can_m = arch in (AgentArchetype.PLANNER, AgentArchetype.MAIN) or bool(skills)
             enable_w = arch in (AgentArchetype.EXECUTIONER, AgentArchetype.AUDITOR) or can_w
             perms = ToolPermissions(
                 read=True,
@@ -805,7 +799,13 @@ def validate_agent_spec(file_path: Path) -> List[str]:
         errors.append("Agent must declare at least one tool in 'tools' or 'allowed_tools'")
 
     for tool in declared_tools:
-        if tool not in ANTIGRAVITY_PLATFORM_TOOLS:
+        if tool in ("call_mcp_tool", "list_resources", "read_resource"):
+            errors.append(
+                f"Invalid tool '{tool}': MCP tools (call_mcp_tool, list_resources, read_resource) cannot be listed "
+                "in 'tools' or 'allowed_tools'. Enable MCP via 'permissions: {mcp: true}' and 'inheritCustomizations: true' "
+                "instead. Listing MCP tools statically causes Antigravity executor resolution to crash."
+            )
+        elif tool not in ANTIGRAVITY_PLATFORM_TOOLS:
             errors.append(
                 f"Unknown tool '{tool}' not recognized in ANTIGRAVITY_PLATFORM_TOOLS. "
                 "Non-existent tools cause Antigravity subagent sessions to hang indefinitely."

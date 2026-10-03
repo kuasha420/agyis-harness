@@ -331,6 +331,43 @@ You are `bad_agent`.
         errors = validate_agent_spec(bad_path)
         self.assertTrue(any("imaginary_nonexistent_tool" in e for e in errors))
 
+    def test_validate_agent_spec_rejects_mcp_tools(self) -> None:
+        """Rejects agent specs declaring MCP tools statically in tools or allowed_tools."""
+        mcp_md = """---
+name: mcp_agent
+archetype: main
+description: MCP tool declaration test.
+role: PSL Lead Architect & Master Implementer
+subagent: true
+mainAgent: true
+model: inherit
+permissions:
+  read: true
+  write: true
+  execute: true
+  subagents: true
+  mcp: true
+tools:
+  - view_file
+  - call_mcp_tool
+allowed_tools:
+  - view_file
+  - call_mcp_tool
+---
+
+# PSL Lead Architect & Master Implementer
+You are `mcp_agent`.
+## Operational Invariants
+1. Zero-Exploration Invariant: Prohibit blind list_dir and find_by_name sweeps.
+"""
+        mcp_path = self.workspace / "mcp_agent.md"
+        mcp_path.write_text(mcp_md, encoding="utf-8")
+        errors = validate_agent_spec(mcp_path)
+        self.assertTrue(
+            any("MCP tools (call_mcp_tool, list_resources, read_resource) cannot be listed" in e for e in errors),
+            f"Expected MCP tool rejection error, got: {errors}",
+        )
+
     def test_validate_agent_spec_detects_contradictions(self) -> None:
         """Rejects agent specs declaring write tools when permissions.write is false."""
         contradictory_md = """---

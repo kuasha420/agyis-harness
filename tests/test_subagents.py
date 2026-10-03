@@ -209,9 +209,8 @@ class TestSpecialistSubagents(unittest.TestCase):
         for et in self.EXEC_TOOLS:
             self.assertIn(et, tool_set, f"Main agent must include exec tool '{et}'")
         self.assertIn("invoke_subagent", tool_set)
-        self.assertIn("manage_subagents", tool_set)
-        self.assertIn("call_mcp_tool", tool_set)
-        self.assertEqual(len(main_spec.allowed_tools), 20)
+        self.assertNotIn("call_mcp_tool", tool_set, "MCP tools must not be listed statically in allowed_tools")
+        self.assertEqual(len(main_spec.allowed_tools), 17)
 
     def test_get_agent_spec_lookups_and_aliases(self) -> None:
         """get_agent_spec must resolve names, stems, and archetype aliases."""

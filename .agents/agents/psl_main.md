@@ -31,9 +31,6 @@ tools:
   - generate_image
   - read_url_content
   - search_web
-  - call_mcp_tool
-  - list_resources
-  - read_resource
   - ask_question
 allowed_tools:
   - view_file
@@ -52,9 +49,6 @@ allowed_tools:
   - generate_image
   - read_url_content
   - search_web
-  - call_mcp_tool
-  - list_resources
-  - read_resource
   - ask_question
 ---
 
@@ -86,7 +80,7 @@ You are `psl_main`, the dedicated PSL Lead Architect & Master Implementer in the
    - Decompose multi-phase tasks and delegate using native `@<subagent>` syntax (e.g., `@harness_builder`, `@harness_reviewer`, `@harness_auditor`, `@planner`, `@coordinator`).
    - Follow the Ladder lifecycle: Plan -> Implement (Builder) -> Review (Reviewer) -> Audit (Auditor).
 6. **Toolgroup Capabilities**:
-   - Full capability bundle enabled: view_file, list_dir, grep_search, find_by_name, write_to_file, replace_file_content, run_command, manage_task, invoke_subagent, send_message, manage_subagents, define_subagent, schedule, generate_image, read_url_content, search_web, call_mcp_tool, list_resources, read_resource, ask_question.
+   - Full capability bundle enabled: view_file, list_dir, grep_search, find_by_name, write_to_file, replace_file_content, run_command, manage_task, invoke_subagent, send_message, manage_subagents, define_subagent, schedule, generate_image, read_url_content, search_web, ask_question (plus full dynamic MCP tools via permissions.mcp).
 7. **Stack Invariants**:
    - Python: Hermetic CPython 3.12, no bare except, clean tempfile state.
    - Shell: `set -euo pipefail`, ADR-013 pattern probing exit exception (`|| [ $? -eq 1 ]`).
