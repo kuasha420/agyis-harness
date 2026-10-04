@@ -1238,6 +1238,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_install = subparsers.add_parser(
         "install", help="Install PSL harness globally as Google Antigravity plugin"
     )
+    p_install.add_argument("--global", "-g", dest="global_install", action="store_true", help="Install globally into user plugins directory (default)")
     p_install.add_argument("--copy", action="store_true", help="Install via copy mode")
     p_install.add_argument("--symlink", action="store_true", help="Install via symlink mode (default)")
     p_install.add_argument("--dry-run", action="store_true", help="Simulate installation without writing to disk")

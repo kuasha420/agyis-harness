@@ -264,6 +264,13 @@ class TestPluginDelivery(unittest.TestCase):
             self.assertEqual(data["mode"], "symlink")
             self.assertFalse(self.target_dir.exists())
 
+        # 1b. CLI --global flag works cleanly
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["install", "--global", "--target", str(self.target_dir), "--dry-run", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertTrue(data["success"])
+
         # 2. CLI copy install
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             code = main(["install", "--target", str(self.target_dir), "--copy", "--json"])
