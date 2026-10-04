@@ -35,6 +35,7 @@ class AgentArchetype(str, Enum):
     PLANNER = "planner"
     COORDINATOR = "coordinator"
     MAIN = "main"
+    CUSTODIAN = "custodian"
 
     @classmethod
     def from_string(cls, val: str) -> AgentArchetype:
@@ -56,6 +57,8 @@ class AgentArchetype(str, Enum):
             return cls.PLANNER
         elif norm in ("coordinator", "orchestrator", "swarm_lead"):
             return cls.COORDINATOR
+        elif norm in ("custodian", "git_custodian", "commit_gate", "subagent_x_custodian"):
+            return cls.CUSTODIAN
         raise ValueError(f"Unknown AgentArchetype: {val}")
 
 
@@ -497,6 +500,8 @@ def scaffold_agent_markdown(
             resolved_bundle = "builder"
         elif arch == AgentArchetype.AUDITOR:
             resolved_bundle = "verifier"
+        elif arch == AgentArchetype.CUSTODIAN:
+            resolved_bundle = "verifier"
         elif arch == AgentArchetype.COORDINATOR:
             resolved_bundle = "orchestrator"
         elif arch == AgentArchetype.PLANNER:
@@ -530,6 +535,8 @@ def scaffold_agent_markdown(
             role = "Hammer (Ruthless Reviewer / Auditor)"
         elif arch == AgentArchetype.AUDITOR:
             role = "QA Verifier (Hermetic Benchmark Auditor)"
+        elif arch == AgentArchetype.CUSTODIAN:
+            role = "Custodian (Macro Reviewer, Deduplication & Git Commit Gate)"
         elif arch == AgentArchetype.PLANNER:
             role = "Software Architect & Solution Planner"
         elif arch == AgentArchetype.COORDINATOR:
@@ -551,6 +558,11 @@ def scaffold_agent_markdown(
             description = "Delta-focused code review against the 5 Ground Rules and stack invariants."
         elif arch == AgentArchetype.AUDITOR:
             description = "Hermetic verification, doctor audit, and sub-second test suite benchmarking."
+        elif arch == AgentArchetype.CUSTODIAN:
+            description = (
+                "Macro architectural review, DRY code deduplication audit, "
+                "workspace hygiene, and atomic git commit gate."
+            )
         elif arch == AgentArchetype.PLANNER:
             description = "Architectural research, dependency analysis, and artifact-first implementation plan synthesis."
         elif arch == AgentArchetype.COORDINATOR:
@@ -574,7 +586,7 @@ def scaffold_agent_markdown(
             can_e = any(t in tools for t in ("run_command",))
             can_s = any(t in tools for t in ("invoke_subagent", "manage_subagents", "define_subagent")) or arch == AgentArchetype.COORDINATOR
             can_m = arch in (AgentArchetype.PLANNER, AgentArchetype.MAIN) or bool(skills)
-            enable_w = arch in (AgentArchetype.EXECUTIONER, AgentArchetype.AUDITOR) or can_w
+            enable_w = arch in (AgentArchetype.EXECUTIONER, AgentArchetype.AUDITOR, AgentArchetype.CUSTODIAN) or can_w
             perms = ToolPermissions(
                 read=True,
                 write=can_w,
@@ -663,6 +675,13 @@ def scaffold_agent_markdown(
         body_lines.append("1. **Delta Focus**: Inspect ONLY modified files and contiguous diff lines (`git diff -U3`). Do not re-read entire repositories.")
     elif arch == AgentArchetype.AUDITOR:
         body_lines.append("1. **Hermetic Verification**: Execute test suites, doctor audits, and runtime linters to establish deterministic ground truth.")
+    elif arch == AgentArchetype.CUSTODIAN:
+        body_lines.extend([
+            "1. **Macro Review & Deduplication Mandate**:",
+            "   - **DRY & Code Deduplication Audit**: Before approving any commit gate, actively search the repository (`grep_search`, `find_by_name`) to ensure newly introduced helpers, utilities, constants, and test mocks do NOT duplicate existing logic elsewhere in the codebase. If duplicate logic is found, reject the commit gate with a DRY defect report instructing Executioner to reuse existing modules.",
+            "   - **Macro Architectural Review**: Evaluate repository-wide architectural integrity beyond Hammer's micro-diff: verify cross-module boundary compliance (e.g. ADR-014 Product vs. Project bifurcation: `harness/` must never import `pipeline/`), detect orphan files, dead code, leftover temporary scripts, and uncommitted working-tree residue.",
+            "   - **Git Commit Gate**: Verify clean porcelain tree status (`git status --porcelain`), stage strictly intended deliverables (never blind `git add .` or `git add -A`), and seal an atomic conventional commit on HEAD so Stage 5 Auditor audits an immutable revision.",
+        ])
     elif arch == AgentArchetype.PLANNER:
         body_lines.append("1. **Artifact-First Planning (ADR-012)**: Synthesize codebase research and architecture analysis into interactive `implementation_plan.md` artifacts. You can write to exempt artifact paths for synthesis, but cannot mutate product code directly.")
     elif arch == AgentArchetype.COORDINATOR:
@@ -715,9 +734,14 @@ def scaffold_agent_markdown(
         body_lines.append("   - Python: Hermetic CPython 3.12, no bare except, clean tempfile state.")
         body_lines.append("   - Shell: `set -euo pipefail`, ADR-013 pattern probing exit exception (`|| [ $? -eq 1 ]`).")
 
-        # Zero-Exploration Invariant
-        body_lines.append("5. **Zero-Exploration Invariant**:")
-        body_lines.append("   - Prohibit blind `list_dir` / `find_by_name` sweeps across the repository. Open target files directly from instructions, or communicate back and halt immediately.")
+        # Zero-Exploration / Targeted Macro Sweeps Invariant
+        if arch == AgentArchetype.CUSTODIAN:
+            body_lines.append("5. **Targeted Macro & Deduplication Sweep Invariant**:")
+            body_lines.append("   - Blind wandering without a query or hypothesis remains strictly prohibited.")
+            body_lines.append("   - Targeted repository sweeps (`grep_search`, `find_by_name`, `list_dir`) for symbol discovery, code deduplication audits, and macro consistency are explicitly mandated and prescribed.")
+        else:
+            body_lines.append("5. **Zero-Exploration Invariant**:")
+            body_lines.append("   - Prohibit blind `list_dir` / `find_by_name` sweeps across the repository. Open target files directly from instructions, or communicate back and halt immediately.")
 
     if custom_instructions and custom_instructions.strip():
         body_lines.append("")
@@ -843,10 +867,16 @@ def validate_agent_spec(file_path: Path) -> List[str]:
     if not prompt or not prompt.strip():
         errors.append("System prompt body cannot be empty")
     else:
-        if "Zero-Exploration Invariant" not in prompt:
-            errors.append("System prompt must declare 'Zero-Exploration Invariant'")
+        has_sweep_invariant = (
+            "Zero-Exploration Invariant" in prompt
+            or "Targeted Macro & Deduplication Sweep Invariant" in prompt
+        )
+        if not has_sweep_invariant:
+            errors.append(
+                "System prompt must declare 'Zero-Exploration Invariant' or 'Targeted Macro & Deduplication Sweep Invariant'"
+            )
         if "list_dir" not in prompt or "find_by_name" not in prompt:
-            errors.append("System prompt Zero-Exploration Invariant must explicitly reference 'list_dir' and 'find_by_name'")
+            errors.append("System prompt exploration invariant must explicitly reference 'list_dir' and 'find_by_name'")
 
     return errors
 

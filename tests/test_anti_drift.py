@@ -507,6 +507,21 @@ class TestAntiDriftHook(unittest.TestCase):
         self.assertIsNotNone(res2)
         self.assertEqual(res2["decision"], "deny")
 
+    def test_custodian_write_block(self):
+        """Custodian role is blocked from mutating files with custodian invariant reason."""
+        for role in ("custodian", "git_custodian", "commit_gate", "subagent_x_custodian"):
+            payload = {
+                "role": role,
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {"TargetFile": "src/app.py", "CodeContent": "bad"},
+                },
+            }
+            res = check_auditor_write_block(payload)
+            self.assertIsNotNone(res, f"Expected block for {role}")
+            self.assertEqual(res["decision"], "deny")
+            self.assertIn("PSL Custodian Invariant", res["reason"])
+
     def test_main_and_lead_not_blocked(self):
         """Main and lead agents are permitted to mutate files when explicit_write_false is not set."""
         for role in ("main", "psl_main", "lead", "PSL Lead Architect & Master Implementer"):

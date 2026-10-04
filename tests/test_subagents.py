@@ -41,7 +41,7 @@ class TestSpecialistSubagents(unittest.TestCase):
     def test_list_agents_discovers_all_archetypes(self) -> None:
         """Every specialist agent in harness/agents/ must be loaded and cataloged."""
         agents = list_agent_specs()
-        self.assertEqual(len(agents), 6)
+        self.assertEqual(len(agents), 7)
 
         archetypes = {a.archetype for a in agents}
         self.assertEqual(
@@ -53,6 +53,7 @@ class TestSpecialistSubagents(unittest.TestCase):
                 AgentArchetype.PLANNER,
                 AgentArchetype.COORDINATOR,
                 AgentArchetype.MAIN,
+                AgentArchetype.CUSTODIAN,
             },
         )
 
@@ -152,6 +153,28 @@ class TestSpecialistSubagents(unittest.TestCase):
         for wt in self.WRITE_TOOLS:
             self.assertNotIn(
                 wt, tool_set, f"Auditor must NEVER include write tool '{wt}'"
+            )
+
+    def test_custodian_toolgroup_permissions(self) -> None:
+        """Custodian (Git Commit Gate) must have exec tools to run git, but zero write tools."""
+        custodian = get_agent_spec("custodian")
+        self.assertIsNotNone(custodian)
+        self.assertEqual(custodian.archetype, AgentArchetype.CUSTODIAN)
+        self.assertFalse(custodian.can_write, "Custodian must not have write permission")
+        self.assertTrue(custodian.can_execute, "Custodian must have exec permission")
+        self.assertTrue(
+            custodian.permissions.enable_write_tools,
+            "Custodian frontmatter must declare enable_write_tools: true",
+        )
+        self.assertFalse(custodian.can_subagent, "Custodian must not spawn subagents")
+
+        tool_set = set(custodian.allowed_tools)
+        # Must have exec tools
+        self.assertIn("run_command", tool_set)
+        # Must NOT have write tools
+        for wt in self.WRITE_TOOLS:
+            self.assertNotIn(
+                wt, tool_set, f"Custodian must NEVER include write tool '{wt}'"
             )
 
     def test_planner_toolgroup_permissions(self) -> None:
@@ -270,6 +293,10 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertEqual(AgentArchetype.from_string("architect"), AgentArchetype.PLANNER)
         self.assertEqual(AgentArchetype.from_string("coordinator"), AgentArchetype.COORDINATOR)
         self.assertEqual(AgentArchetype.from_string("orchestrator"), AgentArchetype.COORDINATOR)
+        self.assertEqual(AgentArchetype.from_string("custodian"), AgentArchetype.CUSTODIAN)
+        self.assertEqual(AgentArchetype.from_string("git_custodian"), AgentArchetype.CUSTODIAN)
+        self.assertEqual(AgentArchetype.from_string("commit_gate"), AgentArchetype.CUSTODIAN)
+        self.assertEqual(AgentArchetype.from_string("subagent_x_custodian"), AgentArchetype.CUSTODIAN)
 
         with self.assertRaises(ValueError):
             AgentArchetype.from_string("non_existent_archetype")
@@ -279,7 +306,7 @@ class TestSpecialistSubagents(unittest.TestCase):
         target = self.isolated_path / "agents_target"
         synced = sync_agent_definitions(target_dir=target)
 
-        self.assertEqual(len(synced), 6)
+        self.assertEqual(len(synced), 7)
         for expected_file in [
             "harness_builder.md",
             "harness_reviewer.md",
@@ -287,6 +314,7 @@ class TestSpecialistSubagents(unittest.TestCase):
             "planner.md",
             "coordinator.md",
             "psl_main.md",
+            "custodian.md",
         ]:
             dest = target / expected_file
             self.assertTrue(dest.exists(), f"Expected synced file {dest} not found")
@@ -312,15 +340,18 @@ class TestSpecialistSubagents(unittest.TestCase):
             )
 
     def test_zero_exploration_invariant_in_prompts(self) -> None:
-        """All specialist subagent system prompts must enforce Zero-Exploration Invariant."""
+        """All specialist subagent system prompts must enforce Zero-Exploration or Targeted Macro Sweep Invariant."""
         specs = list_agent_specs()
         self.assertGreaterEqual(len(specs), 6)
         for agent in specs:
             with self.subTest(agent=agent.name):
-                self.assertIn(
-                    "Zero-Exploration Invariant",
-                    agent.system_prompt,
-                    f"Agent {agent.name} missing Zero-Exploration Invariant in prompt",
+                has_inv = (
+                    "Zero-Exploration Invariant" in agent.system_prompt
+                    or "Targeted Macro & Deduplication Sweep Invariant" in agent.system_prompt
+                )
+                self.assertTrue(
+                    has_inv,
+                    f"Agent {agent.name} missing exploration invariant in prompt",
                 )
                 self.assertIn(
                     "list_dir",

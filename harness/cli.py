@@ -20,6 +20,7 @@ import unittest
 from typing import List, Optional
 
 import harness
+from harness.delivery import DeliveryMode, PluginInstaller
 from harness.hooks import anti_drift_hook, anti_loop_hook, command_safety_hook, completion_fence_hook, output_compactor_hook
 from pipeline import psl_doctor
 
@@ -825,6 +826,57 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_install(args: argparse.Namespace) -> int:
+    """Installs the PSL harness globally as a Google Antigravity plugin."""
+    mode = DeliveryMode.COPY if getattr(args, "copy", False) else DeliveryMode.SYMLINK
+    installer = PluginInstaller()
+    target_dir = Path(args.target) if getattr(args, "target", None) else None
+    result = installer.install(mode=mode, dry_run=getattr(args, "dry_run", False), target_dir=target_dir)
+
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "success": result.success,
+            "mode": result.mode,
+            "target_dir": str(result.target_dir),
+            "source_dir": str(result.source_dir),
+            "items_installed": result.items_installed,
+            "message": result.message,
+        }, indent=2))
+        return 0 if result.success else 1
+
+    if result.success:
+        print(f"✔ {result.message}")
+        return 0
+    else:
+        sys.stderr.write(f"✘ Error: {result.message}\n")
+        return 1
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    """Uninstalls the PSL harness global plugin."""
+    installer = PluginInstaller()
+    target_dir = Path(args.target) if getattr(args, "target", None) else None
+    result = installer.uninstall(dry_run=getattr(args, "dry_run", False), target_dir=target_dir)
+
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "success": result.success,
+            "mode": result.mode,
+            "target_dir": str(result.target_dir),
+            "source_dir": str(result.source_dir),
+            "items_installed": result.items_installed,
+            "message": result.message,
+        }, indent=2))
+        return 0 if result.success else 1
+
+    if result.success:
+        print(f"✔ {result.message}")
+        return 0
+    else:
+        sys.stderr.write(f"✘ Error: {result.message}\n")
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="psl",
@@ -984,6 +1036,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID (default: latest)")
     p_sync.add_argument("--json", action="store_true", help="Output session report in JSON format")
 
+    # install
+    p_install = subparsers.add_parser(
+        "install", help="Install PSL harness globally as Google Antigravity plugin"
+    )
+    p_install.add_argument("--copy", action="store_true", help="Install via copy mode")
+    p_install.add_argument("--symlink", action="store_true", help="Install via symlink mode (default)")
+    p_install.add_argument("--dry-run", action="store_true", help="Simulate installation without writing to disk")
+    p_install.add_argument("--target", type=Path, default=None, help="Custom target installation directory")
+    p_install.add_argument("--json", action="store_true", help="Output result in JSON format")
+
+    # uninstall
+    p_uninstall = subparsers.add_parser(
+        "uninstall", help="Uninstall PSL harness global plugin"
+    )
+    p_uninstall.add_argument("--dry-run", action="store_true", help="Simulate uninstallation without removing files")
+    p_uninstall.add_argument("--target", type=Path, default=None, help="Custom target installation directory")
+    p_uninstall.add_argument("--json", action="store_true", help="Output result in JSON format")
+
     return parser
 
 
@@ -1015,6 +1085,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_remote(args)
     elif args.subcommand == "status":
         return cmd_status(args)
+    elif args.subcommand == "install":
+        return cmd_install(args)
+    elif args.subcommand == "uninstall":
+        return cmd_uninstall(args)
 
     return 0
 

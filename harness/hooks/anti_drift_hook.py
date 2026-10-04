@@ -320,6 +320,10 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
         r_lower in ("hammer", "reviewer", "inspector", "harness_reviewer")
         or "reviewer" in r_lower
     )
+    is_custodian = (
+        r_lower in ("custodian", "git_custodian", "commit_gate")
+        or "custodian" in r_lower
+    )
     is_main = (
         r_lower in ("main", "psl_main", "lead")
         or "master" in r_lower
@@ -339,7 +343,7 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
     if (is_builder or is_main) and not explicit_write_false:
         return None
 
-    should_block = is_auditor or is_planner or is_coordinator or is_reviewer or explicit_write_false
+    should_block = is_auditor or is_planner or is_coordinator or is_reviewer or is_custodian or explicit_write_false
     if not should_block:
         return None
 
@@ -364,6 +368,8 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
             }
         elif is_auditor:
             reason = "PSL Auditor Invariant: harness_auditor is strictly verification-only and cannot mutate files."
+        elif is_custodian:
+            reason = "PSL Custodian Invariant: custodian is strictly git commit gate / workspace hygiene and cannot mutate code files directly."
         else:
             reason = f"PSL Write-Block Guard: agent '{role or 'agent'}' has write: false and cannot mutate files."
 

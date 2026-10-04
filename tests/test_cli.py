@@ -100,7 +100,7 @@ class TestPslCli(unittest.TestCase):
             self.assertEqual(code, 0)
             data = json.loads(mock_out.getvalue().strip())
             self.assertIsInstance(data, list)
-            self.assertEqual(len(data), 6)
+            self.assertEqual(len(data), 7)
 
     def test_cli_hook_dispatch_safety(self):
         """Verifies `psl hook safety` dispatches to command_safety_hook."""

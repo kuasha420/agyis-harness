@@ -224,6 +224,26 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         errors = validate_agent_spec(spec_path)
         self.assertEqual(errors, [], f"Validation failed for test_planner: {errors}")
 
+    def test_custodian_archetype_scaffold_tools_and_permissions(self) -> None:
+        """Custodian archetype scaffolds with verifier bundle, exec tools, write: false, and enable_write_tools: true."""
+        md = scaffold_agent_markdown(name="test_custodian", archetype=AgentArchetype.CUSTODIAN)
+        fm, prompt = parse_frontmatter(md)
+        self.assertEqual(fm["archetype"], "custodian")
+        self.assertFalse(fm["permissions"]["write"])
+        self.assertTrue(fm["permissions"]["execute"])
+        self.assertTrue(fm["permissions"]["enable_write_tools"])
+        self.assertFalse(fm["permissions"]["subagents"])
+        self.assertIn("run_command", fm["tools"])
+        self.assertNotIn("write_to_file", fm["tools"])
+        self.assertIn("Macro Review & Deduplication Mandate", prompt)
+        self.assertIn("Targeted Macro & Deduplication Sweep Invariant", prompt)
+
+        # Validate spec
+        spec_path = self.workspace / "test_custodian.md"
+        spec_path.write_text(md, encoding="utf-8")
+        errors = validate_agent_spec(spec_path)
+        self.assertEqual(errors, [], f"Validation failed for test_custodian: {errors}")
+
     def test_inherit_customizations_parsing_round_trip_and_validation(self) -> None:
         """inheritCustomizations parses correctly, round trips, and validates boolean constraint."""
         # 1. Parsing when true
