@@ -246,26 +246,102 @@ class TestPslCli(unittest.TestCase):
             data = json.loads(mock_out.getvalue())
             self.assertEqual(data["session_id"], "test-session-1234")
 
-    def test_cli_sync(self):
-        """Verifies `psl sync` dispatches session audit with save_db=True."""
-        dummy_report = {
-            "session_id": "test-session-sync",
-            "coordinator": {
-                "compacted_transcript": {"total_steps": 5},
-                "full_transcript": {"total_steps": 5, "total_chars": 200, "estimated_tokens": 50, "tool_errors": 0},
-                "compaction_savings_chars": 0,
-                "compaction_savings_pct": 0.0,
-            },
-            "subagents": [],
-            "collective_pipeline": {"total_steps": 5, "total_tools": 2, "total_tokens": 50, "offload_step_pct": 0, "offload_tool_pct": 0, "offload_token_pct": 0}
-        }
-        with patch("pipeline.analyze_live_session.find_latest_session_dir", return_value=Path(self.temp_dir.name)), \
-             patch("pipeline.analyze_live_session.analyze_session", return_value=dummy_report), \
+    def test_cli_auth_login(self):
+        """Verifies `psl auth login` validates token and saves credentials."""
+        with patch("harness.telemetry.sync.verify_auth_token", return_value={"status": "ok", "authenticated": True, "username": "alice", "org": "purrfectsoft"}), \
              patch("sys.stdout", new_callable=io.StringIO) as mock_out:
-            code = main(["sync", "--json"])
+            code = main(["auth", "login", "--token", "test-token-123", "--endpoint", "https://hub.example.com"])
             self.assertEqual(code, 0)
+            self.assertIn("Successfully authenticated as alice", mock_out.getvalue())
+
+        from harness.telemetry import config
+        creds = config.load_credentials()
+        self.assertEqual(creds["token"], "test-token-123")
+        self.assertEqual(creds["github_username"], "alice")
+        cfg = config.load_config()
+        self.assertEqual(cfg["endpoint"], "https://hub.example.com")
+
+    def test_cli_auth_status_and_logout(self):
+        """Verifies `psl auth status` and `psl auth logout`."""
+        from harness.telemetry import config
+        config.save_credentials({"token": "ghp_1234567890abcdef", "github_username": "bob"})
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["auth", "status"])
+            self.assertEqual(code, 0)
+            out = mock_out.getvalue()
+            self.assertIn("Authenticated: Yes", out)
+            self.assertIn("Username:      bob", out)
+            self.assertIn("ghp_****cdef", out)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["auth", "logout"])
+            self.assertEqual(code, 0)
+            self.assertIn("Credentials cleared successfully", mock_out.getvalue())
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["auth", "status", "--json"])
+            self.assertEqual(code, 1)
             data = json.loads(mock_out.getvalue())
-            self.assertEqual(data["session_id"], "test-session-sync")
+            self.assertFalse(data["authenticated"])
+
+    def test_cli_sync_bi_directional_default(self):
+        """Verifies `psl sync` defaults to bi-directional sync and formats output."""
+        mock_res = {
+            "status": "success",
+            "direction": "both",
+            "push": {"sessions_pushed": 2, "steps_pushed": 5, "tool_calls_pushed": 3},
+            "pull": {"sessions_inserted": 1, "steps_inserted": 2, "sessions_pulled": 1, "steps_pulled": 2},
+        }
+        with patch("harness.telemetry.sync.sync_telemetry", return_value=mock_res) as mock_sync, \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["sync"])
+            self.assertEqual(code, 0)
+            mock_sync.assert_called_once_with(
+                direction="both",
+                interactive=False,
+                endpoint=None,
+                limit=None,
+                dry_run=False,
+            )
+            out = mock_out.getvalue()
+            self.assertIn("Telemetry sync completed successfully", out)
+            self.assertIn("Pushed: 2 sessions", out)
+            self.assertIn("Pulled: 1 new sessions", out)
+
+    def test_cli_sync_flags_and_json(self):
+        """Verifies `psl sync` flag variations: --push, --pull, --dry-run, --json."""
+        mock_res = {
+            "status": "dry_run",
+            "direction": "push",
+            "push": {"status": "dry_run", "sessions_pushed": 1},
+            "pull": None,
+        }
+        with patch("harness.telemetry.sync.sync_telemetry", return_value=mock_res) as mock_sync, \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["sync", "--push", "--dry-run", "--json"])
+            self.assertEqual(code, 0)
+            mock_sync.assert_called_once_with(
+                direction="push",
+                interactive=False,
+                endpoint=None,
+                limit=None,
+                dry_run=True,
+            )
+            data = json.loads(mock_out.getvalue())
+            self.assertEqual(data["status"], "dry_run")
+            self.assertEqual(data["direction"], "push")
+
+    def test_cli_sync_with_session_id_ingestion(self):
+        """Verifies `psl sync --session-id <id>` ingests session before synchronizing."""
+        mock_res = {"status": "success", "direction": "both", "push": None, "pull": None}
+        with patch("pipeline.analyze_live_session.find_session_dir", return_value=Path(self.temp_dir.name)) as mock_find, \
+             patch("harness.telemetry.sync.sync_telemetry", return_value=mock_res) as mock_sync, \
+             patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["sync", "--session-id", "test-sess-123"])
+            self.assertEqual(code, 0)
+            mock_find.assert_called_once_with("test-sess-123")
+            mock_sync.assert_called_once()
 
     def test_cli_subagents_subcommand(self):
         """Verifies `psl subagents` renders ASCII table and handles empty directories."""

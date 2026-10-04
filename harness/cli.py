@@ -242,12 +242,181 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_auth(args: argparse.Namespace) -> int:
+    """Manages GitHub PAT authentication and telemetry credentials."""
+    import urllib.error
+    from harness.telemetry import config
+
+    sub = getattr(args, "auth_cmd", None) or "status"
+
+    if sub == "login":
+        token = getattr(args, "token", None)
+        endpoint = getattr(args, "endpoint", None) or config.get_sync_endpoint()
+
+        if not token:
+            if sys.stdin.isatty():
+                import getpass
+                try:
+                    token = getpass.getpass("Enter GitHub Personal Access Token (PAT): ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    sys.stderr.write("\nAborted.\n")
+                    return 1
+            else:
+                try:
+                    token = input().strip()
+                except (EOFError, KeyboardInterrupt):
+                    sys.stderr.write("Error: GitHub PAT required. Provide via --token or stdin.\n")
+                    return 1
+
+        if not token:
+            sys.stderr.write("Error: GitHub PAT required.\n")
+            return 1
+
+        from harness.telemetry.sync import verify_auth_token
+        try:
+            verify_res = verify_auth_token(endpoint=endpoint, token=token)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 401:
+                sys.stderr.write("Error 401: Invalid GitHub Personal Access Token.\n")
+            elif exc.code == 403:
+                sys.stderr.write("Error 403: User is not an authorized member of the organization.\n")
+            else:
+                sys.stderr.write(f"Error {exc.code}: {exc.reason}\n")
+            return 1
+        except Exception as exc:
+            sys.stderr.write(f"Error verifying authentication: {exc}\n")
+            return 1
+
+        username = verify_res.get("username")
+        org = verify_res.get("org", "purrfectsoft")
+
+        from datetime import datetime, timezone
+        config.save_credentials({
+            "token": token,
+            "github_username": username,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+        if getattr(args, "endpoint", None):
+            cfg = config.load_config()
+            cfg["endpoint"] = endpoint
+            config.save_config(cfg)
+
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "status": "success",
+                "authenticated": True,
+                "username": username,
+                "org": org,
+                "endpoint": endpoint,
+            }, indent=2))
+        else:
+            print(f"✔ Successfully authenticated as {username} ({org})")
+            print(f"  Endpoint: {endpoint}")
+        return 0
+
+    elif sub == "status":
+        creds = config.load_credentials()
+        cfg = config.load_config()
+        endpoint = cfg.get("endpoint", "http://localhost:8000")
+        token = creds.get("token")
+        username = creds.get("github_username")
+        is_auth = bool(token and username)
+
+        masked = None
+        if token:
+            masked = f"{token[:4]}****{token[-4:]}" if len(token) > 8 else "****"
+
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "authenticated": is_auth,
+                "username": username,
+                "token_masked": masked,
+                "endpoint": endpoint,
+            }, indent=2))
+            return 0 if is_auth else 1
+
+        print("=" * 60)
+        print(" PSL Telemetry Authentication Status")
+        print("=" * 60)
+        print(f"  Authenticated: {'Yes' if is_auth else 'No'}")
+        print(f"  Username:      {username or 'Not logged in'}")
+        print(f"  Token:         {masked or 'None'}")
+        print(f"  Hub Endpoint:  {endpoint}")
+        print("=" * 60)
+        return 0 if is_auth else 1
+
+    elif sub == "logout":
+        config.clear_credentials()
+        if getattr(args, "json", False):
+            print(json.dumps({"status": "success", "message": "Credentials cleared successfully."}, indent=2))
+        else:
+            print("✔ Credentials cleared successfully.")
+        return 0
+
+    else:
+        sys.stderr.write(f"Error: Unknown auth command '{sub}'. Use login, status, or logout.\n")
+        return 1
+
+
 def cmd_sync(args: argparse.Namespace) -> int:
-    """Shortcut command to audit and synchronize the current session into telemetry.db."""
-    args.stage = "session"
-    args.save_db = True
-    args.out = None
-    return cmd_audit(args)
+    """Synchronizes telemetry with the central hub (push, pull, or bi-directional)."""
+    if getattr(args, "session_id", None):
+        try:
+            from pipeline import analyze_live_session
+            s_dir = analyze_live_session.find_session_dir(args.session_id)
+            if s_dir and s_dir.exists():
+                t_file = s_dir / ".system_generated" / "logs" / "transcript.jsonl"
+                if t_file.exists():
+                    from pipeline import extract_transcripts
+                    extract_transcripts.extract_and_store([t_file], db_path=DEFAULT_DB)
+        except Exception as exc:
+            sys.stderr.write(f"Warning: Session ingestion failed: {exc}\n")
+
+    push_flag = getattr(args, "push", False)
+    pull_flag = getattr(args, "pull", False)
+    if push_flag and not pull_flag:
+        direction = "push"
+    elif pull_flag and not push_flag:
+        direction = "pull"
+    else:
+        direction = "both"
+
+    endpoint = getattr(args, "remote", None)
+    interactive = getattr(args, "interactive", False)
+    limit = getattr(args, "limit", None)
+    dry_run = getattr(args, "dry_run", False)
+
+    from harness.telemetry.sync import sync_telemetry
+    try:
+        res = sync_telemetry(
+            direction=direction,
+            interactive=interactive,
+            endpoint=endpoint,
+            limit=limit,
+            dry_run=dry_run,
+        )
+    except Exception as exc:
+        sys.stderr.write(f"Sync error: {exc}\n")
+        return 1
+
+    if getattr(args, "json", False):
+        print(json.dumps(res, indent=2))
+        return 0
+
+    if res.get("status") == "aborted":
+        print("✘ Sync aborted by user.")
+        return 0
+
+    mode_str = " (dry run)" if dry_run else ""
+    print(f"✔ Telemetry sync completed successfully{mode_str}:")
+    if res.get("push"):
+        p = res["push"]
+        print(f"  • Pushed: {p.get('sessions_pushed', 0)} sessions, {p.get('steps_pushed', 0)} steps, {p.get('tool_calls_pushed', 0)} tools")
+    if res.get("pull"):
+        pl = res["pull"]
+        print(f"  • Pulled: {pl.get('sessions_inserted', pl.get('sessions_pulled', 0))} new sessions, {pl.get('steps_inserted', pl.get('steps_pulled', 0))} steps")
+    return 0
 
 
 def cmd_skills(args: argparse.Namespace) -> int:
@@ -1031,10 +1200,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Socket action to perform (default: status)",
     )
 
-    # sync (shortcut for audit session --save-db)
-    p_sync = subparsers.add_parser("sync", help="Audit and synchronize the active session into telemetry.db")
-    p_sync.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID (default: latest)")
-    p_sync.add_argument("--json", action="store_true", help="Output session report in JSON format")
+    # auth
+    p_auth = subparsers.add_parser("auth", help="Manage GitHub organization authentication for telemetry")
+    auth_subs = p_auth.add_subparsers(dest="auth_cmd", help="Auth subcommands")
+
+    p_auth_login = auth_subs.add_parser("login", help="Authenticate with GitHub Personal Access Token")
+    p_auth_login.add_argument("--token", "-t", type=str, default=None, help="GitHub Personal Access Token")
+    p_auth_login.add_argument("--endpoint", "-e", type=str, default=None, help="Central telemetry hub endpoint URL")
+    p_auth_login.add_argument("--json", action="store_true", help="Output result in JSON format")
+
+    p_auth_status = auth_subs.add_parser("status", help="Display current telemetry authentication status")
+    p_auth_status.add_argument("--json", action="store_true", help="Output status in JSON format")
+
+    p_auth_logout = auth_subs.add_parser("logout", help="Log out and clear stored telemetry credentials")
+    p_auth_logout.add_argument("--json", action="store_true", help="Output result in JSON format")
+
+    # sync
+    p_sync = subparsers.add_parser("sync", help="Synchronize telemetry with the central hub (bi-directional default)")
+    p_sync.add_argument("--push", action="store_true", help="Push local unsynced telemetry to remote hub")
+    p_sync.add_argument("--pull", action="store_true", help="Pull remote telemetry deltas into local database")
+    p_sync.add_argument("--remote", "-r", type=str, default=None, help="Central telemetry hub endpoint URL")
+    p_sync.add_argument("--interactive", "-i", action="store_true", help="Interactively confirm batch push")
+    p_sync.add_argument("--limit", "-l", type=int, default=None, help="Maximum number of sessions to push")
+    p_sync.add_argument("--dry-run", action="store_true", help="Simulate synchronization without modifications")
+    p_sync.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID to ingest before syncing")
+    p_sync.add_argument("--json", action="store_true", help="Output sync summary in JSON format")
 
     # install
     p_install = subparsers.add_parser(
@@ -1073,6 +1263,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_test(args)
     elif args.subcommand == "audit":
         return cmd_audit(args)
+    elif args.subcommand == "auth":
+        return cmd_auth(args)
     elif args.subcommand == "sync":
         return cmd_sync(args)
     elif args.subcommand == "skills":

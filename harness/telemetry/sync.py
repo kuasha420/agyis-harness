@@ -51,6 +51,38 @@ def ensure_sync_columns(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def verify_auth_token(
+    endpoint: Optional[str] = None,
+    token: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Verifies GitHub PAT against the centralized telemetry hub (/api/v1/auth/verify)."""
+    resolved_endpoint = endpoint or config.get_sync_endpoint()
+    resolved_token = token or config.get_auth_token()
+
+    if not resolved_endpoint:
+        raise ValueError("Sync endpoint required for token verification.")
+    if not resolved_token:
+        raise ValueError("Authentication token required for token verification.")
+
+    endpoint_clean = resolved_endpoint.rstrip("/")
+    url = f"{endpoint_clean}/api/v1/auth/verify"
+    payload = json.dumps({"token": resolved_token}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {resolved_token}",
+            "Content-Type": "application/json",
+            "User-Agent": "psl-harness/1.0.0",
+        },
+        method="POST",
+    )
+
+    with urllib.request.urlopen(req, timeout=15.0) as resp:
+        body = resp.read().decode("utf-8")
+        return json.loads(body)
+
+
 def push_local_sessions(
     endpoint: Optional[str] = None,
     token: Optional[str] = None,
@@ -202,21 +234,36 @@ def push_local_sessions(
                 "dry_run": True,
             }
 
-        url = f"{endpoint_clean}/api/v1/telemetry/batch"
+        primary_url = f"{endpoint_clean}/api/v1/sync/push"
         payload_bytes = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Authorization": f"Bearer {resolved_token}",
+            "Content-Type": "application/json",
+            "User-Agent": "psl-harness/1.0.0",
+        }
         req = urllib.request.Request(
-            url,
+            primary_url,
             data=payload_bytes,
-            headers={
-                "Authorization": f"Bearer {resolved_token}",
-                "Content-Type": "application/json",
-                "User-Agent": "psl-harness/1.0.0",
-            },
+            headers=headers,
             method="POST",
         )
 
-        with urllib.request.urlopen(req, timeout=30.0) as resp:
-            _ = resp.read()
+        try:
+            with urllib.request.urlopen(req, timeout=30.0) as resp:
+                _ = resp.read()
+        except urllib.error.HTTPError as err:
+            if err.code == 404:
+                fallback_url = f"{endpoint_clean}/api/v1/telemetry/batch"
+                req_fallback = urllib.request.Request(
+                    fallback_url,
+                    data=payload_bytes,
+                    headers=headers,
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_fallback, timeout=30.0) as resp:
+                    _ = resp.read()
+            else:
+                raise
 
         now_iso = datetime.now(timezone.utc).isoformat()
         cur.executemany(
@@ -277,19 +324,33 @@ def pull_remote_sessions(
             else:
                 since = "1970-01-01T00:00:00Z"
 
-        url = f"{endpoint_clean}/api/v1/telemetry/delta?since={urllib.parse.quote(str(since))}"
+        primary_url = f"{endpoint_clean}/api/v1/sync/pull?since={urllib.parse.quote(str(since))}"
+        headers = {
+            "Authorization": f"Bearer {resolved_token}",
+            "Accept": "application/json",
+            "User-Agent": "psl-harness/1.0.0",
+        }
         req = urllib.request.Request(
-            url,
-            headers={
-                "Authorization": f"Bearer {resolved_token}",
-                "Accept": "application/json",
-                "User-Agent": "psl-harness/1.0.0",
-            },
+            primary_url,
+            headers=headers,
             method="GET",
         )
 
-        with urllib.request.urlopen(req, timeout=30.0) as resp:
-            body = resp.read().decode("utf-8")
+        try:
+            with urllib.request.urlopen(req, timeout=30.0) as resp:
+                body = resp.read().decode("utf-8")
+        except urllib.error.HTTPError as err:
+            if err.code == 404:
+                fallback_url = f"{endpoint_clean}/api/v1/telemetry/delta?since={urllib.parse.quote(str(since))}"
+                req_fallback = urllib.request.Request(
+                    fallback_url,
+                    headers=headers,
+                    method="GET",
+                )
+                with urllib.request.urlopen(req_fallback, timeout=30.0) as resp:
+                    body = resp.read().decode("utf-8")
+            else:
+                raise
         data = json.loads(body)
 
         pulled_sessions = data.get("sessions", [])
@@ -300,6 +361,9 @@ def pull_remote_sessions(
         now_iso = datetime.now(timezone.utc).isoformat()
         sessions_inserted = 0
         for s in pulled_sessions:
+            origin_val = s.get("origin_developer")
+            if not origin_val or origin_val == "local":
+                origin_val = "remote"
             cur.execute("""
                 INSERT OR IGNORE INTO sessions (
                     session_id, start_time, end_time, duration_seconds, total_steps,
@@ -313,7 +377,7 @@ def pull_remote_sessions(
                 s.get("workspace_path"), s.get("transcript_path"), s.get("file_size_bytes"),
                 s.get("has_errors"), s.get("tool_call_count"), s.get("tool_error_count"),
                 s.get("intervention_count"),
-                s.get("origin_developer", "remote"),
+                origin_val,
                 s.get("remote_synced_at") or now_iso,
             ))
             if cur.rowcount > 0:
@@ -409,3 +473,93 @@ def pull_remote_sessions(
         }
     finally:
         conn.close()
+
+
+def sync_telemetry(
+    direction: str = "both",
+    interactive: bool = False,
+    endpoint: Optional[str] = None,
+    token: Optional[str] = None,
+    db_path: Optional[Union[str, Path]] = None,
+    limit: Optional[int] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Coordinates bi-directional sync (push then pull), push-only, or pull-only.
+
+    Parameters:
+        direction: 'both', 'push', or 'pull'
+        interactive: If True and direction includes push, prompts for user confirmation before pushing.
+        endpoint: Telemetry hub URL (default from config/env)
+        token: Authentication bearer token (default from credentials/env)
+        db_path: Path to local SQLite telemetry database
+        limit: Max sessions to push
+        dry_run: If True, simulates push without sending or updating DB
+    """
+    if direction not in ("both", "push", "pull"):
+        raise ValueError(f"Invalid sync direction: '{direction}'. Must be 'both', 'push', or 'pull'.")
+
+    push_result = None
+    pull_result = None
+
+    if direction in ("both", "push"):
+        if interactive and not dry_run:
+            db_file = Path(db_path or "data/telemetry.db")
+            pending_count = 0
+            if db_file.exists():
+                conn = sqlite3.connect(db_file)
+                try:
+                    ensure_sync_columns(conn)
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT COUNT(*) FROM sessions "
+                        "WHERE (origin_developer = 'local' OR origin_developer IS NULL) "
+                        "  AND (remote_synced_at IS NULL OR remote_synced_at = '')"
+                    )
+                    row = cur.fetchone()
+                    pending_count = row[0] if row else 0
+                finally:
+                    conn.close()
+
+            resolved_endpoint = endpoint or config.get_sync_endpoint()
+            print(f"Pending local sessions to push: {pending_count} -> {resolved_endpoint}")
+            prompt_res = input(f"Proceed to push {pending_count} session(s)? [y/N]: ").strip().lower()
+            if prompt_res not in ("y", "yes"):
+                return {
+                    "status": "aborted",
+                    "direction": direction,
+                    "reason": "user_cancelled",
+                    "push": None,
+                    "pull": None,
+                }
+
+        push_result = push_local_sessions(
+            endpoint=endpoint,
+            token=token,
+            db_path=db_path,
+            limit=limit,
+            dry_run=dry_run,
+        )
+
+    if direction in ("both", "pull"):
+        if dry_run:
+            pull_result = {
+                "status": "dry_run",
+                "sessions_pulled": 0,
+                "steps_pulled": 0,
+                "tool_calls_pulled": 0,
+                "user_interventions_pulled": 0,
+            }
+        else:
+            pull_result = pull_remote_sessions(
+                endpoint=endpoint,
+                token=token,
+                db_path=db_path,
+            )
+
+    return {
+        "status": "success" if not dry_run else "dry_run",
+        "direction": direction,
+        "push": push_result,
+        "pull": pull_result,
+    }
+

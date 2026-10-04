@@ -1,0 +1,17 @@
+[Unit]
+Description=PSL Centralized Telemetry Hub Service
+Requires=docker.service
+After=docker.service network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/psl-telemetry/htdocs/bd.purrfectsoft.co.uk/server
+ExecStart=/usr/bin/docker compose -f docker-compose.yml up -d --build --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.yml down
+ExecReload=/usr/bin/docker compose -f docker-compose.yml restart
+TimeoutStartSec=0
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

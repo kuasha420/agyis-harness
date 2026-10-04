@@ -189,6 +189,17 @@ class TestConfigManagement(unittest.TestCase):
         self.assertEqual(loaded_creds["token"], "gho_testsecret1234567890abcdef")
         self.assertEqual(loaded_creds["github_username"], "octocat")
 
+    def test_clear_credentials(self):
+        config.save_credentials({"token": "secret-to-clear", "github_username": "octocat"})
+        loaded = config.load_credentials()
+        self.assertEqual(loaded["token"], "secret-to-clear")
+
+        cleared_path = config.clear_credentials()
+        self.assertTrue(cleared_path.is_file())
+        reloaded = config.load_credentials()
+        self.assertIsNone(reloaded["token"])
+        self.assertIsNone(reloaded["github_username"])
+
     def test_get_auth_token_precedence(self):
         # 1. No token set
         self.assertIsNone(config.get_auth_token())
@@ -405,7 +416,7 @@ class TestSyncPush(unittest.TestCase):
             # Verify HTTP call arguments
             mock_urlopen.assert_called_once()
             req: urllib.request.Request = mock_urlopen.call_args[0][0]
-            self.assertEqual(req.get_full_url(), "https://api.telemetry.test/api/v1/telemetry/batch")
+            self.assertEqual(req.get_full_url(), "https://api.telemetry.test/api/v1/sync/push")
             self.assertEqual(req.get_header("Authorization"), "Bearer test-bearer-token")
             self.assertEqual(req.get_header("Content-type"), "application/json")
 
@@ -475,6 +486,35 @@ class TestSyncPush(unittest.TestCase):
         with patch.dict(os.environ, {"PSL_AUTH_TOKEN": ""}):
             with self.assertRaises(ValueError):
                 sync.push_local_sessions(db_path=self.db_path, token=None)
+
+    def test_push_fallback_to_telemetry_batch_on_404(self):
+        """Verifies push falls back to /api/v1/telemetry/batch when /api/v1/sync/push returns 404."""
+        err_404 = urllib.error.HTTPError(
+            url="https://api.telemetry.test/api/v1/sync/push",
+            code=404,
+            msg="Not Found",
+            hdrs=MagicMock(),
+            fp=io.BytesIO(b"Not Found"),
+        )
+        mock_success = MagicMock()
+        mock_success.read.return_value = b'{"status": "accepted"}'
+        mock_success.__enter__.return_value = mock_success
+
+        try:
+            with patch("urllib.request.urlopen", side_effect=[err_404, mock_success]) as mock_urlopen:
+                res = sync.push_local_sessions(
+                    db_path=self.db_path,
+                    workspace_root="/home/kuasha/Dev/project-alpha",
+                    dry_run=False,
+                )
+                self.assertEqual(res["status"], "success")
+                self.assertEqual(mock_urlopen.call_count, 2)
+                req1 = mock_urlopen.call_args_list[0][0][0]
+                req2 = mock_urlopen.call_args_list[1][0][0]
+                self.assertEqual(req1.get_full_url(), "https://api.telemetry.test/api/v1/sync/push")
+                self.assertEqual(req2.get_full_url(), "https://api.telemetry.test/api/v1/telemetry/batch")
+        finally:
+            err_404.close()
 
 
 class TestSyncPull(unittest.TestCase):
@@ -742,6 +782,119 @@ class TestSyncPull(unittest.TestCase):
             self.assertEqual(summary["since"], "2026-03-02T10:05:00Z")
             req = mock_urlopen.call_args[0][0]
             self.assertIn("since=2026-03-02T10%3A05%3A00Z", req.get_full_url())
+
+    def test_pull_fallback_to_telemetry_delta_on_404(self):
+        """Verifies pull falls back to /api/v1/telemetry/delta when /api/v1/sync/pull returns 404."""
+        err_404 = urllib.error.HTTPError(
+            url="https://api.telemetry.test/api/v1/sync/pull",
+            code=404,
+            msg="Not Found",
+            hdrs=MagicMock(),
+            fp=io.BytesIO(b"Not Found"),
+        )
+        mock_success = MagicMock()
+        mock_success.read.return_value = b'{"sessions": [], "steps": [], "tool_calls": [], "user_interventions": []}'
+        mock_success.__enter__.return_value = mock_success
+
+        try:
+            with patch("urllib.request.urlopen", side_effect=[err_404, mock_success]) as mock_urlopen:
+                res = sync.pull_remote_sessions(db_path=self.db_path)
+                self.assertEqual(res["status"], "success")
+                self.assertEqual(mock_urlopen.call_count, 2)
+                req1 = mock_urlopen.call_args_list[0][0][0]
+                req2 = mock_urlopen.call_args_list[1][0][0]
+                self.assertIn("/api/v1/sync/pull", req1.get_full_url())
+                self.assertIn("/api/v1/telemetry/delta", req2.get_full_url())
+        finally:
+            err_404.close()
+
+
+class TestVerifyAuthToken(unittest.TestCase):
+    """Verifies verify_auth_token behavior."""
+
+    def test_verify_auth_token_success(self):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"status": "ok", "authenticated": true, "username": "alice", "org": "purrfectsoft"}'
+        mock_resp.__enter__.return_value = mock_resp
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            res = sync.verify_auth_token(endpoint="http://localhost:8000", token="valid-tok")
+            self.assertTrue(res["authenticated"])
+            self.assertEqual(res["username"], "alice")
+            self.assertEqual(res["org"], "purrfectsoft")
+
+    def test_verify_auth_token_missing_token_raises(self):
+        with patch("harness.telemetry.config.get_auth_token", return_value=None):
+            with self.assertRaises(ValueError):
+                sync.verify_auth_token(endpoint="http://localhost:8000", token=None)
+
+
+class TestSyncTelemetry(unittest.TestCase):
+    """Verifies sync_telemetry bi-directional orchestration."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.tmpdir.name) / "telemetry.db"
+        conn = sqlite3.connect(self.db_path)
+        extract_transcripts.ensure_sync_columns(conn)
+        conn.close()
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_sync_telemetry_both_push_and_pull(self):
+        with patch("harness.telemetry.sync.push_local_sessions", return_value={"status": "success", "sessions_pushed": 2}) as mock_push, \
+             patch("harness.telemetry.sync.pull_remote_sessions", return_value={"status": "success", "sessions_pulled": 1}) as mock_pull:
+            res = sync.sync_telemetry(direction="both", db_path=self.db_path, token="tok", endpoint="http://hub")
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["direction"], "both")
+            self.assertEqual(res["push"]["sessions_pushed"], 2)
+            self.assertEqual(res["pull"]["sessions_pulled"], 1)
+            mock_push.assert_called_once()
+            mock_pull.assert_called_once()
+
+    def test_sync_telemetry_push_only(self):
+        with patch("harness.telemetry.sync.push_local_sessions", return_value={"status": "success", "sessions_pushed": 1}) as mock_push, \
+             patch("harness.telemetry.sync.pull_remote_sessions") as mock_pull:
+            res = sync.sync_telemetry(direction="push", db_path=self.db_path, token="tok", endpoint="http://hub")
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["direction"], "push")
+            self.assertIsNotNone(res["push"])
+            self.assertIsNone(res["pull"])
+            mock_push.assert_called_once()
+            mock_pull.assert_not_called()
+
+    def test_sync_telemetry_pull_only(self):
+        with patch("harness.telemetry.sync.push_local_sessions") as mock_push, \
+             patch("harness.telemetry.sync.pull_remote_sessions", return_value={"status": "success", "sessions_pulled": 3}) as mock_pull:
+            res = sync.sync_telemetry(direction="pull", db_path=self.db_path, token="tok", endpoint="http://hub")
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["direction"], "pull")
+            self.assertIsNone(res["push"])
+            self.assertIsNotNone(res["pull"])
+            mock_push.assert_not_called()
+            mock_pull.assert_called_once()
+
+    def test_sync_telemetry_dry_run(self):
+        with patch("harness.telemetry.sync.push_local_sessions", return_value={"status": "dry_run", "sessions_pushed": 0}) as mock_push:
+            res = sync.sync_telemetry(direction="both", db_path=self.db_path, token="tok", endpoint="http://hub", dry_run=True)
+            self.assertEqual(res["status"], "dry_run")
+            self.assertEqual(res["pull"]["status"], "dry_run")
+
+    def test_sync_telemetry_interactive_abort(self):
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("INSERT INTO sessions (session_id, origin_developer, remote_synced_at) VALUES ('s1', 'local', NULL)")
+        conn.commit()
+        conn.close()
+
+        with patch("builtins.input", return_value="n"), \
+             patch("sys.stdout", new_callable=io.StringIO), \
+             patch("harness.telemetry.sync.push_local_sessions") as mock_push:
+            res = sync.sync_telemetry(direction="push", interactive=True, db_path=self.db_path, token="tok", endpoint="http://hub")
+            self.assertEqual(res["status"], "aborted")
+            self.assertEqual(res["reason"], "user_cancelled")
+            mock_push.assert_not_called()
 
 
 class TestProductProjectSeparation(unittest.TestCase):

@@ -44,6 +44,15 @@ def find_latest_session_dir() -> Optional[Path]:
     return Path(matches[0]).parents[2]
 
 
+def find_session_dir(session_id: str) -> Optional[Path]:
+    """Locates the directory for a specific session ID under ~/.gemini/antigravity/brain."""
+    brain_root = Path.home() / ".gemini" / "antigravity" / "brain"
+    target = brain_root / session_id
+    if target.is_dir():
+        return target
+    return None
+
+
 def parse_transcript_lines(transcript_path: Path) -> List[Dict[str, Any]]:
     if not transcript_path.exists():
         return []

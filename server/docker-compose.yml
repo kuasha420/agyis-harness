@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-psl_telemetry}
+      POSTGRES_USER: ${POSTGRES_USER:-psl_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-psl_secure_default_pass_change_in_production}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-psl_admin} -d ${POSTGRES_DB:-psl_telemetry}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - psl-internal
+
+  hub:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    ports:
+      # Bound to 127.0.0.1 for CloudPanel NGINX reverse-proxy routing
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-psl_admin}:${POSTGRES_PASSWORD:-psl_secure_default_pass_change_in_production}@db:5432/${POSTGRES_DB:-psl_telemetry}
+      PSL_GITHUB_ORG: ${PSL_GITHUB_ORG:-purrfectsoft}
+      PSL_GITHUB_TEAM: ${PSL_GITHUB_TEAM:-}
+      PORT: 8000
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - psl-internal
+
+volumes:
+  pgdata:
+    driver: local
+
+networks:
+  psl-internal:
+    driver: bridge

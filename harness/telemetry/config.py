@@ -103,6 +103,11 @@ def save_credentials(credentials: Dict[str, Any]) -> Path:
     return p
 
 
+def clear_credentials() -> Path:
+    """Atomically clears stored credentials by resetting to defaults with mode 0o600."""
+    return save_credentials(dict(DEFAULT_CREDENTIALS))
+
+
 def get_auth_token() -> Optional[str]:
     """Retrieves auth token from environment or stored credentials."""
     env_token = os.environ.get("PSL_AUTH_TOKEN")
