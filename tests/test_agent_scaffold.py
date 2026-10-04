@@ -49,6 +49,7 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         """Every tool in capability bundles must exist in ANTIGRAVITY_PLATFORM_TOOLS."""
         self.assertIn("read_only", CAPABILITY_BUNDLES)
         self.assertIn("verifier", CAPABILITY_BUNDLES)
+        self.assertIn("adversarial_verifier", CAPABILITY_BUNDLES)
         self.assertIn("builder", CAPABILITY_BUNDLES)
         self.assertIn("orchestrator", CAPABILITY_BUNDLES)
         self.assertIn("full", CAPABILITY_BUNDLES)

@@ -101,6 +101,18 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "run_command",
         "manage_task",
     ],
+    "adversarial_verifier": [
+        "view_file",
+        "list_dir",
+        "grep_search",
+        "find_by_name",
+        "read_url_content",
+        "search_web",
+        "run_command",
+        "manage_task",
+        "write_to_file",
+        "replace_file_content",
+    ],
     "builder": [
         "view_file",
         "list_dir",

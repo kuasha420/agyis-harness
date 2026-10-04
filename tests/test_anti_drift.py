@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 from harness.hooks.anti_drift_hook import (
     check_auditor_write_block,
     check_drift,
+    check_plan_mode_lock,
     find_active_plan,
     is_exempt_file,
     parse_plan_files,
@@ -534,6 +535,48 @@ class TestAntiDriftHook(unittest.TestCase):
             }
             res = check_auditor_write_block(payload)
             self.assertIsNone(res, f"Expected no block for {role}")
+
+    def test_plan_mode_blocks_code_mutations(self):
+        """When in plan mode, code file modifications are blocked (ADR-031)."""
+        payload = {
+            "mode": "plan",
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": "harness/core.py", "CodeContent": "x = 1"},
+            },
+        }
+        res = check_plan_mode_lock(payload)
+        self.assertIsNotNone(res)
+        self.assertEqual(res["decision"], "deny")
+        self.assertIn("PSL Native Plan-Mode Lock", res["reason"])
+
+    def test_plan_mode_allows_exempt_files(self):
+        """When in plan mode, documentation and artifacts remain editable."""
+        for exempt_path in (
+            ".agents/artifacts/implementation_plan.md",
+            "docs/official-specs/spec.md",
+            "scratch/notes.py",
+        ):
+            payload = {
+                "mode": "plan",
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {"TargetFile": exempt_path, "CodeContent": "doc"},
+                },
+            }
+            res = check_plan_mode_lock(payload)
+            self.assertIsNone(res, f"Expected exempt edit for {exempt_path}")
+
+    def test_plan_mode_inactive_allows_flow(self):
+        """When mode is default or not plan, check_plan_mode_lock returns None."""
+        payload = {
+            "mode": "default",
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": "src/app.py"},
+            },
+        }
+        self.assertIsNone(check_plan_mode_lock(payload))
 
 
 if __name__ == "__main__":

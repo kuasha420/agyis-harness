@@ -215,13 +215,22 @@ def push_local_sessions(
                 )
             sanitized_interventions.append(ui_clean)
 
-        payload = {
+        def _strip_nul(obj: Any) -> Any:
+            if isinstance(obj, str):
+                return obj.replace("\x00", "")
+            if isinstance(obj, dict):
+                return {k: _strip_nul(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_strip_nul(v) for v in obj]
+            return obj
+
+        payload = _strip_nul({
             "client_version": "1.0.0",
             "sessions": sanitized_sessions,
             "steps": sanitized_steps,
             "tool_calls": sanitized_tools,
             "user_interventions": sanitized_interventions,
-        }
+        })
 
         if dry_run:
             return {

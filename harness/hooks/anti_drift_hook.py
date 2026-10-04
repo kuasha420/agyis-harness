@@ -281,6 +281,51 @@ def _extract_target_file(payload: dict) -> str:
     return str(target).strip()
 
 
+def check_plan_mode_lock(payload: dict) -> Optional[dict]:
+    """
+    PSL Native Plan-Mode Lock (ADR-031).
+
+    Blocks code file modifications when the active session is in Plan Mode (/plan).
+    Exempts documentation, implementation_plan.md, and scratch/tmp files.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    is_plan_mode = (
+        payload.get("mode") == "plan"
+        or payload.get("agent_mode") == "plan"
+        or payload.get("agentMode") == "plan"
+        or os.environ.get("ANTIGRAVITY_MODE") == "plan"
+        or os.environ.get("AGY_MODE") == "plan"
+        or os.environ.get("PSL_MODE") == "plan"
+    )
+    if not is_plan_mode:
+        return None
+
+    tool_call = payload.get("toolCall", {})
+    if isinstance(tool_call, dict):
+        tool_name = tool_call.get("name") or ""
+    else:
+        tool_name = ""
+    if not tool_name:
+        tool_name = payload.get("tool_name") or payload.get("action") or ""
+
+    tool_lower = tool_name.strip().lower()
+    if tool_lower in ("write_to_file", "replace_file_content", "edit_file"):
+        target_path = _extract_target_file(payload)
+        if target_path and is_exempt_file(target_path):
+            return None
+        return {
+            "decision": "deny",
+            "reason": (
+                "PSL Native Plan-Mode Lock (ADR-031): Session is in Plan Mode (/plan). "
+                "Code modifications are locked until plan approval."
+            ),
+        }
+
+    return None
+
+
 def check_auditor_write_block(payload: dict) -> Optional[dict]:
     """
     PSL PreToolUse Write-Block Guard (ADR-024 / ADR-025).
@@ -496,6 +541,12 @@ def main() -> None:
         strict = bool(payload.get("strict", False))
         result = check_drift(target, plan_files, strict=strict)
         print(json.dumps(result))
+        return
+
+    # Intercept plan-mode write attempts (ADR-031)
+    plan_block = check_plan_mode_lock(payload)
+    if plan_block:
+        print(json.dumps(plan_block))
         return
 
     # Intercept auditor file mutations before plan check

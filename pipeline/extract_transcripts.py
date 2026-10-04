@@ -135,12 +135,18 @@ def calculate_duration(start_str: Optional[str], end_str: Optional[str]) -> Opti
 
 
 def classify_intervention(text: str, preceding_failed: bool) -> str:
-    lower = text.lower()
+    lower = text.lower().strip()
+    if lower.startswith("/boost") or "/boost " in lower:
+        return "BOOST_ORCHESTRATION"
+    if lower.startswith("/plan") or "/plan " in lower:
+        return "PLAN_INITIATION"
+    if lower.startswith("/agent-builder") or "/agent-builder " in lower or "agent-builder" in lower:
+        return "AGENT_BUILDER_INVOCATION"
     if preceding_failed:
         return "ERROR_RECOVERY"
     if any(k in lower for k in ["stop", "don't", "dont", "wait", "no,", "no!", "wrong", "drifted", "cancel", "undo"]):
         return "STEERING"
-    if any(k in lower for k in ["lgtm", "looks good", "proceed", "approved", "go ahead", "yes, please", "sure"]):
+    if any(k in lower for k in ["lgtm", "looks good", "proceed", "approved", "go ahead", "yes, please", "sure", "approved this document"]):
         return "CONFIRMATION"
     if any(k in lower for k in ["password", "token", "secret", "api_key", "credentials", "auth"]):
         return "CREDENTIALS"
@@ -564,13 +570,13 @@ def backfill_tool_volumes(db_path: Path, verbose: bool = True) -> Dict[str, int]
     return {"updated_tool_calls": total_updated, "sessions_processed": sessions_processed}
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Harvest Antigravity transcripts into SQLite.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of sessions processed")
     parser.add_argument("--reset", action="store_true", help="Reset/rebuild database tables")
     parser.add_argument("--backfill-volumes", action="store_true", help="Backfill character volume metrics on existing database")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     db_path = Path(args.db)
     db_path.parent.mkdir(parents=True, exist_ok=True)

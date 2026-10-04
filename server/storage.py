@@ -445,6 +445,20 @@ class Storage:
         tool_calls: List[Dict[str, Any]],
         user_interventions: List[Dict[str, Any]],
     ) -> Dict[str, int]:
+        def _strip_nul(obj: Any) -> Any:
+            if isinstance(obj, str):
+                return obj.replace("\x00", "")
+            if isinstance(obj, dict):
+                return {k: _strip_nul(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_strip_nul(v) for v in obj]
+            return obj
+
+        sessions = [_strip_nul(s) for s in sessions]
+        steps = [_strip_nul(st) for st in steps]
+        tool_calls = [_strip_nul(tc) for tc in tool_calls]
+        user_interventions = [_strip_nul(ui) for ui in user_interventions]
+
         conn = self._get_pg_conn()
         try:
             with conn.cursor() as cur:

@@ -45,6 +45,7 @@ To prevent session freezes and maintain strict toolgroup scoping, custom agents 
 | :--- | :--- | :--- | :--- |
 | `read_only` | `view_file`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `search_web` | `read: true`, `write: false`, `execute: false`, `subagents: false` | Hammer, Code Reviewer, Security Inspector |
 | `verifier` | `read_only` + `run_command`, `manage_task` | `read: true`, `write: false`, `execute: true`, `subagents: false` | QA Verifier, Benchmark Auditor, Linter |
+| `adversarial_verifier` | `verifier` + `write_to_file`, `replace_file_content` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Test Generator, Fuzzer, Stress Oracle (/boost-inspired) |
 | `builder` | `verifier` + `write_to_file`, `replace_file_content` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Executioner, Implementer, Refactorer |
 | `orchestrator` | `read_only` + `invoke_subagent`, `send_message`, `manage_subagents`, `manage_task` | `read: true`, `write: false`, `execute: false`, `subagents: true` | Swarm Coordinator, Milestone Lead |
 | `full` | All 20 platform tools (`ANTIGRAVITY_PLATFORM_TOOLS`) | `read: true`, `write: true`, `execute: true`, `subagents: true`, `mcp: true`, `enable_write_tools: true` | Main Agent (`main` archetype), Lead Architect |

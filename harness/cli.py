@@ -117,7 +117,12 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
     if sub == "extract":
         from pipeline import extract_transcripts
-        extract_transcripts.main()
+        extra = []
+        if getattr(args, "db", None):
+            extra.extend(["--db", args.db])
+        if getattr(args, "backfill", False):
+            extra.append("--backfill-volumes")
+        extract_transcripts.main(extra)
     elif sub == "classify":
         from pipeline import classify_failures
         classify_failures.main()
@@ -146,7 +151,10 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
         print("\n▶ [2/4] Harvesting Transcripts...")
         from pipeline import extract_transcripts
-        extract_transcripts.main()
+        extra = []
+        if getattr(args, "db", None):
+            extra.extend(["--db", args.db])
+        extract_transcripts.main(extra)
 
         print("\n▶ [3/4] Classifying Failures & Workstation Metrics...")
         from pipeline import classify_failures
