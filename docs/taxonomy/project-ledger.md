@@ -232,3 +232,27 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Modular Skill: [harness/skills/agent-builder/SKILL.md](harness/skills/agent-builder/SKILL.md)
   - Unit Test Suite: [tests/test_agent_scaffold.py](tests/test_agent_scaffold.py)
 
+
+---
+
+## [Phase 6] Global Plugin Delivery, Coexistence Engine & 6-Stage Subagent Ladder (ADR-030)
+* **Status**: Completed | **Compaction Date**: 2026-10-05
+* **Key Architectural Decisions (ADRs)**:
+  - **ADR-030 (Global Plugin Delivery & Coexistence Hierarchy)**:
+    - **Product vs. Project Packaging Bifurcation**: Distributable package (`harness/`, `plugin.json`, `matrix.json`, `hooks.json`) is hermetically separated from dev pipelines (`pipeline/`, `data/`, `tests/`, `docs/`, `scratch/`).
+    - **Path Safety Guard**: `PluginInstaller` strictly forbids deleting `REPO_ROOT` or parent directories; symlink uninstallations invoke `target.unlink()` and never `shutil.rmtree(target.resolve())`.
+    - **Three-Tier Precedence Hierarchy**: Layer 3 (Workspace Local `.agents/`) > Layer 2 (User Preferences `~/.gemini/antigravity/`) > Layer 1 (Global Plugin `~/.gemini/config/plugins/psl-agy-harness/`).
+    - **Stage 4 Custodian Commit Gate**: Positioned between Hammer (Stage 3) and Auditor (Stage 5) to guarantee Stage 5 tests execute against an immutable committed git revision on HEAD, eliminating the tested-vs-uncommitted desync.
+    - **Targeted Macro & Deduplication Sweep Invariant**: Custodian is explicitly mandated to perform targeted sweeps (`grep_search`, `find_by_name`) for DRY deduplication and cross-module architectural audits before staging commits.
+* **Empirical Baselines Established & Verified**:
+  - Full test suite expanded to **237 unit and integration tests passing in 1.456s** (~6.1ms/test throughput).
+  - 10 new hermetic delivery tests executing in 0.056s.
+  - 7 specialist subagents cataloged and certified valid (`coordinator`, `custodian`, `harness_auditor`, `harness_builder`, `harness_reviewer`, `planner`, `psl_main`).
+  - Working tree verified 100% clean on commit `8fb2bde`.
+* **Reference Assets Committed**:
+  - Plugin Installer & Coexistence Subsystem: [harness/delivery.py](harness/delivery.py)
+  - CLI Integration: [harness/cli.py](harness/cli.py) (`psl install`, `psl uninstall`)
+  - Custodian Archetype & Scaffolding: [harness/subagents.py](harness/subagents.py), [harness/agents/custodian.md](harness/agents/custodian.md), [.agents/agents/custodian.md](.agents/agents/custodian.md)
+  - PreToolUse Write-Block Guard: [harness/hooks/anti_drift_hook.py](harness/hooks/anti_drift_hook.py)
+  - 6-Stage Subagent Ladder Specification: [runtime/skills/subagent-ladder/SKILL.md](runtime/skills/subagent-ladder/SKILL.md)
+  - Test Suite: [tests/test_delivery.py](tests/test_delivery.py)
