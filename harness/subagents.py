@@ -121,6 +121,7 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "send_message",
         "manage_subagents",
         "manage_task",
+        "ask_question",
     ],
     "full": [
         "view_file",
@@ -507,6 +508,11 @@ def scaffold_agent_markdown(
                 "read_url_content",
                 "search_web",
                 "manage_task",
+                "write_to_file",
+                "ask_question",
+                "invoke_subagent",
+                "send_message",
+                "manage_subagents",
             ]
         else:
             resolved_bundle = "read_only"
@@ -658,7 +664,7 @@ def scaffold_agent_markdown(
     elif arch == AgentArchetype.AUDITOR:
         body_lines.append("1. **Hermetic Verification**: Execute test suites, doctor audits, and runtime linters to establish deterministic ground truth.")
     elif arch == AgentArchetype.PLANNER:
-        body_lines.append("1. **Artifact-First Planning (ADR-012)**: Synthesize codebase research and architecture analysis into interactive `implementation_plan.md` artifacts. Zero direct file mutations.")
+        body_lines.append("1. **Artifact-First Planning (ADR-012)**: Synthesize codebase research and architecture analysis into interactive `implementation_plan.md` artifacts. You can write to exempt artifact paths for synthesis, but cannot mutate product code directly.")
     elif arch == AgentArchetype.COORDINATOR:
         body_lines.append("1. **Swarm Orchestration**: Decompose milestones into single-phase tasks, delegate to specialist subagents, and govern the project ledger.")
 

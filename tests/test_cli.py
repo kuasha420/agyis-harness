@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from harness.cli import main
 
@@ -334,6 +334,94 @@ class TestPslCli(unittest.TestCase):
             self.assertIn("Live Active Subagents (1 active):", out)
             self.assertIn("ladder_executioner", out)
             self.assertIn("HEALTHY", out)
+
+    def test_cli_remote_exec(self):
+        """Verifies `psl remote exec` dispatches command to RemoteRunner."""
+        from harness.remote import RemoteRunner
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "uptime 12:00:00\n"
+        mock_proc.stderr = ""
+
+        with patch.object(RemoteRunner, "run", return_value=mock_proc) as mock_run, \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["remote", "exec", "user@target", "uptime"])
+            self.assertEqual(code, 0)
+            mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args[1]
+            self.assertEqual(call_kwargs["target"], "user@target")
+            self.assertEqual(call_kwargs["remote_cmd"], "uptime")
+            self.assertIn("uptime 12:00:00", mock_out.getvalue())
+
+    def test_cli_remote_script_streaming_and_staging(self):
+        """Verifies `psl remote script` dispatches to ScriptStreamer stream and stage."""
+        from harness.remote import ScriptStreamer
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "script done\n"
+        mock_proc.stderr = ""
+
+        script_file = Path(self.temp_dir.name) / "test_remote.sh"
+        script_file.write_text("echo hi\n")
+
+        with patch.object(ScriptStreamer, "stream_script", return_value=mock_proc) as mock_stream, \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["remote", "script", "target-host", str(script_file)])
+            self.assertEqual(code, 0)
+            mock_stream.assert_called_once()
+            self.assertIn("script done", mock_out.getvalue())
+
+        with patch.object(ScriptStreamer, "stage_script", return_value=mock_proc) as mock_stage, \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["remote", "script", "target-host", str(script_file), "--stage"])
+            self.assertEqual(code, 0)
+            mock_stage.assert_called_once()
+
+    def test_cli_remote_triage(self):
+        """Verifies `psl remote triage` dispatches to RemoteTriage and renders reports."""
+        from harness.remote import RemoteTriage
+        mock_report = {
+            "target": "vps-box",
+            "profile": "ports",
+            "service": None,
+            "exit_code": 0,
+            "report_markdown": "### Triage Report\nListening on 80\n",
+            "raw_output": "raw",
+        }
+
+        with patch.object(RemoteTriage, "run_triage", return_value=mock_report) as mock_triage, \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["remote", "triage", "vps-box", "--profile", "ports"])
+            self.assertEqual(code, 0)
+            mock_triage.assert_called_once()
+            self.assertIn("### Triage Report", mock_out.getvalue())
+
+        # Test --json flag
+        with patch.object(RemoteTriage, "run_triage", return_value=mock_report), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["remote", "triage", "vps-box", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(data["target"], "vps-box")
+
+    def test_cli_remote_socket(self):
+        """Verifies `psl remote socket status` and `psl remote socket cleanup`."""
+        from harness.remote import RemoteRunner
+        runner = RemoteRunner()
+        sock = runner.socket_dir / "cm_test_socket"
+        sock.write_text("socket")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["remote", "socket", "status"])
+            self.assertEqual(code, 0)
+            self.assertIn("Active OpenSSH ControlMaster sockets", mock_out.getvalue())
+            self.assertIn("cm_test_socket", mock_out.getvalue())
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["remote", "socket", "cleanup"])
+            self.assertEqual(code, 0)
+            self.assertIn("Cleaned up 1 active ControlMaster socket(s)", mock_out.getvalue())
+            self.assertFalse(sock.exists())
 
 
 if __name__ == "__main__":

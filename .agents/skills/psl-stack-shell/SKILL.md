@@ -79,10 +79,51 @@ Avoid escaping long, complex multi-line bash `-c` strings containing nested quot
 
 ---
 
-## 3. Operational Command Verification Checklist
+## 3. Remote Execution Invariants (ADR-027)
+
+### 3.1 OpenSSH Multiplexing & Socket Directory Invariant
+- Always enable OpenSSH multiplexing for programmatic/agentic SSH commands:
+  ```bash
+  -o ControlMaster=auto -o ControlPath=~/.cache/psl/ssh/cm_%C -o ControlPersist=10m -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15
+  ```
+- **Socket Path Security**: Keep ControlPath within user space (`~/.cache/psl/ssh/`) with strict `0700` permissions. Use `%C` (hash) to prevent socket path length exhaustion against the 108-byte UNIX socket limit.
+
+### 3.2 Non-Login `$PATH` Elimination (Login-Shell Promotion)
+- Non-interactive SSH commands bypass `.bashrc` and NVM PATH shims, causing false `Exit Code 127` failures when invoking toolchain binaries (`pm2`, `node`, `pnpm`, `cargo`, `nvm`, `uv`).
+- **INVARIANT**: Wrap remote toolchain invocations in a login shell (`bash -l -c '...'`) unless explicit `PATH=` is defined:
+  ```bash
+  ssh host "bash -l -c 'pm2 status'"
+  ```
+
+### 3.3 Remote ADR-013 Pattern Probing Sanitization
+- Remote grep/diff commands must have `|| [ $? -eq 1 ]` placed **inside** the remote execution payload, preventing false exits from zero matches:
+  ```bash
+  ssh host "grep ERROR /var/log/app.log || [ \$? -eq 1 ]"
+  ```
+- Never leave `|| [ $? -eq 1 ]` unquoted outside the SSH argument; doing so evaluates `$?` locally rather than on the remote host.
+
+### 3.4 Zero-Disk-Footprint Stdin Script Streaming
+- Favor streaming local scripts into remote interpreters over `scp` + remote file creation:
+  ```bash
+  # Python stdin streaming
+  ssh host "python3 -s -" < local_script.py
+  # Bash stdin streaming
+  ssh host "bash -l -s -- arg1 arg2" < local_script.sh
+  ```
+- When file staging is required (`--stage`), always enclose the staging directory in an EXIT trap:
+  ```bash
+  ssh host "mkdir -p /tmp/.psl_remote_xyz && trap 'rm -rf /tmp/.psl_remote_xyz' EXIT; ..."
+  ```
+
+---
+
+## 4. Operational Command Verification Checklist
 
 1. [ ] Does the script begin with `set -euo pipefail`?
-2. [ ] Do pattern-probing commands (`grep`, `diff`) append `|| [ $? -eq 1 ]`?
+2. [ ] Do pattern-probing commands (`grep`, `diff`, `pgrep`) append `|| [ $? -eq 1 ]`?
 3. [ ] Are external dependencies checked with `command -v` before execution?
 4. [ ] Are high-volume command outputs constrained with `head -n`, `tail -n`, or `--limit`?
 5. [ ] Are complex scripts stored in `scratch/` rather than passed as unwieldy inline `-c` strings?
+6. [ ] Are remote commands executed with OpenSSH multiplexing and selective `bash -l -c`?
+7. [ ] Are remote pattern probes sanitized inside quotes?
+8. [ ] Do staged remote scripts include an automatic `trap 'rm -rf ...' EXIT` cleanup handler?

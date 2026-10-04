@@ -200,6 +200,30 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         errors = validate_agent_spec(spec_path)
         self.assertEqual(errors, [], f"Validation failed for test_psl_lead: {errors}")
 
+    def test_planner_archetype_scaffold_tools_and_permissions(self) -> None:
+        """Planner archetype scaffolds with write, subagent permissions and artifact synthesis tools."""
+        md = scaffold_agent_markdown(name="test_planner", archetype=AgentArchetype.PLANNER)
+        fm, prompt = parse_frontmatter(md)
+        self.assertEqual(fm["archetype"], "planner")
+        self.assertTrue(fm["permissions"]["write"])
+        self.assertTrue(fm["permissions"]["subagents"])
+        for expected_tool in [
+            "write_to_file",
+            "ask_question",
+            "invoke_subagent",
+            "send_message",
+            "manage_subagents",
+        ]:
+            self.assertIn(expected_tool, fm["tools"])
+            self.assertIn(expected_tool, fm["allowed_tools"])
+        self.assertIn("Artifact-First Planning", prompt)
+
+        # Validate spec
+        spec_path = self.workspace / "test_planner.md"
+        spec_path.write_text(md, encoding="utf-8")
+        errors = validate_agent_spec(spec_path)
+        self.assertEqual(errors, [], f"Validation failed for test_planner: {errors}")
+
     def test_inherit_customizations_parsing_round_trip_and_validation(self) -> None:
         """inheritCustomizations parses correctly, round trips, and validates boolean constraint."""
         # 1. Parsing when true

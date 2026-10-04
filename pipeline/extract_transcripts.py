@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     has_errors INTEGER,
     tool_call_count INTEGER,
     tool_error_count INTEGER,
-    intervention_count INTEGER
+    intervention_count INTEGER,
+    origin_developer TEXT DEFAULT 'local',
+    remote_synced_at TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS steps (
@@ -109,6 +111,8 @@ CREATE INDEX IF NOT EXISTS idx_tools_category ON tool_calls(command_category);
 CREATE INDEX IF NOT EXISTS idx_tools_output_len ON tool_calls(output_length_chars);
 CREATE INDEX IF NOT EXISTS idx_interventions_session ON user_interventions(session_id);
 CREATE INDEX IF NOT EXISTS idx_interventions_type ON user_interventions(intervention_type);
+CREATE INDEX IF NOT EXISTS idx_sessions_origin ON sessions(origin_developer);
+CREATE INDEX IF NOT EXISTS idx_sessions_synced ON sessions(remote_synced_at);
 """
 
 
@@ -232,6 +236,30 @@ def ensure_volume_columns(conn: sqlite3.Connection) -> None:
     # Ensure indexes
     cur.execute("CREATE INDEX IF NOT EXISTS idx_tools_category ON tool_calls(command_category)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_tools_output_len ON tool_calls(output_length_chars)")
+    conn.commit()
+
+
+def ensure_sync_columns(conn: sqlite3.Connection) -> None:
+    """Non-destructively ensures sync & federation columns exist on sessions table."""
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(sessions)")
+    existing_cols = {row[1] for row in cur.fetchall()}
+    if not existing_cols:
+        cur.executescript(SCHEMA_SQL)
+        conn.commit()
+        return
+
+    new_cols = [
+        ("origin_developer", "TEXT DEFAULT 'local'"),
+        ("remote_synced_at", "TEXT DEFAULT NULL"),
+    ]
+    for col_name, col_type in new_cols:
+        if col_name not in existing_cols:
+            cur.execute(f"ALTER TABLE sessions ADD COLUMN {col_name} {col_type}")
+
+    # Ensure indexes
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_origin ON sessions(origin_developer)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_synced ON sessions(remote_synced_at)")
     conn.commit()
 
 
@@ -437,7 +465,9 @@ def extract_session(transcript_path: Path) -> Optional[Tuple[Dict[str, Any], Lis
         "has_errors": 1 if has_errors else 0,
         "tool_call_count": len(tool_calls_extracted),
         "tool_error_count": tool_error_count,
-        "intervention_count": len(interventions_extracted)
+        "intervention_count": len(interventions_extracted),
+        "origin_developer": "local",
+        "remote_synced_at": None
     }
 
     return session_row, step_rows, tool_calls_extracted, interventions_extracted
@@ -552,6 +582,7 @@ def main() -> None:
     cur = conn.cursor()
     cur.executescript(SCHEMA_SQL)
     ensure_volume_columns(conn)
+    ensure_sync_columns(conn)
     conn.commit()
 
     if args.backfill_volumes:
@@ -593,14 +624,17 @@ def main() -> None:
             INSERT OR REPLACE INTO sessions (
                 session_id, start_time, end_time, duration_seconds, total_steps,
                 model, workspace_path, transcript_path, file_size_bytes, has_errors,
-                tool_call_count, tool_error_count, intervention_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                tool_call_count, tool_error_count, intervention_count,
+                origin_developer, remote_synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             session_row["session_id"], session_row["start_time"], session_row["end_time"],
             session_row["duration_seconds"], session_row["total_steps"], session_row["model"],
             session_row["workspace_path"], session_row["transcript_path"], session_row["file_size_bytes"],
             session_row["has_errors"], session_row["tool_call_count"], session_row["tool_error_count"],
-            session_row["intervention_count"]
+            session_row["intervention_count"],
+            session_row.get("origin_developer", "local"),
+            session_row.get("remote_synced_at", None)
         ))
 
         cur.executemany("""

@@ -256,6 +256,31 @@ def check_drift(target_file: str, plan_files: set[str], strict: bool = False) ->
         }
 
 
+def _extract_target_file(payload: dict) -> str:
+    """Extracts target file path from tool arguments or payload."""
+    tool_call = payload.get("toolCall", {})
+    tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else {}
+    if not isinstance(tool_args, dict):
+        tool_args = {}
+
+    target = (
+        tool_args.get("TargetFile")
+        or tool_args.get("target_file")
+        or tool_args.get("FilePath")
+        or tool_args.get("file_path")
+        or tool_args.get("AbsolutePath")
+        or tool_args.get("path")
+        or payload.get("TargetFile")
+        or payload.get("target_file")
+        or payload.get("FilePath")
+        or payload.get("file_path")
+        or payload.get("AbsolutePath")
+        or payload.get("path")
+        or ""
+    )
+    return str(target).strip()
+
+
 def check_auditor_write_block(payload: dict) -> Optional[dict]:
     """
     PSL PreToolUse Write-Block Guard (ADR-024 / ADR-025).
@@ -328,12 +353,17 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
 
     tool_lower = tool_name.strip().lower()
     if tool_lower in ("write_to_file", "replace_file_content", "edit_file"):
-        if is_auditor:
+        target_path = _extract_target_file(payload)
+        if is_planner or is_coordinator:
+            if target_path and is_exempt_file(target_path):
+                return None
+            agent_type = "coordinator" if is_coordinator else "planner"
+            return {
+                "decision": "deny",
+                "reason": f"PSL Write-Block Guard: {role or agent_type} is artifact-only and cannot mutate code files directly.",
+            }
+        elif is_auditor:
             reason = "PSL Auditor Invariant: harness_auditor is strictly verification-only and cannot mutate files."
-        elif is_planner:
-            reason = f"PSL Write-Block Guard: {role or 'planner'} is artifact-only and cannot mutate files directly."
-        elif is_coordinator:
-            reason = f"PSL Write-Block Guard: {role or 'coordinator'} is orchestration-only and cannot mutate files."
         else:
             reason = f"PSL Write-Block Guard: agent '{role or 'agent'}' has write: false and cannot mutate files."
 
@@ -477,15 +507,7 @@ def main() -> None:
     tool_name = tool_call.get("name", "")
     tool_args = tool_call.get("args", {})
 
-    target_file = (
-        tool_args.get("TargetFile")
-        or tool_args.get("target_file")
-        or tool_args.get("FilePath")
-        or tool_args.get("file_path")
-        or tool_args.get("AbsolutePath")
-        or tool_args.get("path")
-        or ""
-    )
+    target_file = _extract_target_file(payload)
 
     if not target_file:
         print(json.dumps({"decision": "allow"}))

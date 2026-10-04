@@ -453,6 +453,40 @@ class TestAntiDriftHook(unittest.TestCase):
             self.assertEqual(res["decision"], "deny")
             self.assertIn("PSL Write-Block Guard", res["reason"])
 
+    def test_planner_write_blocked_for_code_files(self):
+        """Planner cannot mutate code files directly."""
+        for role in ("planner", "architect"):
+            payload = {
+                "role": role,
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {"TargetFile": "src/app.py", "CodeContent": "print(1)"},
+                },
+            }
+            res = check_auditor_write_block(payload)
+            self.assertIsNotNone(res)
+            self.assertEqual(res["decision"], "deny")
+            self.assertIn("is artifact-only and cannot mutate code files directly", res["reason"])
+
+    def test_planner_write_allowed_for_exempt_artifact_files(self):
+        """Planner can write to exempt artifact files for synthesis."""
+        exempt_paths = [
+            ".agents/artifacts/plan.md",
+            "/brain/test/plan.md",
+            "scratch/notes.txt",
+        ]
+        for role in ("planner", "architect", "coordinator", "orchestrator"):
+            for path in exempt_paths:
+                payload = {
+                    "role": role,
+                    "toolCall": {
+                        "name": "write_to_file",
+                        "args": {"TargetFile": path, "CodeContent": "# Plan"},
+                    },
+                }
+                res = check_auditor_write_block(payload)
+                self.assertIsNone(res, f"Expected planner write to be allowed for exempt path: {path}")
+
     def test_explicit_write_false_block(self):
         """Any agent with write: false or permissions: {write: false} is blocked from mutating files."""
         payload1 = {

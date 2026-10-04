@@ -161,31 +161,32 @@ class TestCommandSafety(unittest.TestCase):
         # Simple SSH invocation
         mod, changed = inject_ssh_timeouts("ssh knot-desktop")
         self.assertTrue(changed)
-        expected = "ssh -o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2 knot-desktop"
+        expected = "ssh -o ControlMaster=auto -o ControlPath=~/.cache/psl/ssh/cm_%C -o ControlPersist=10m -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 knot-desktop"
         self.assertEqual(mod, expected)
 
         # SSH with user, host, and remote command
         mod, changed = inject_ssh_timeouts("ssh user@knot-laptop uptime")
         self.assertTrue(changed)
-        expected = "ssh -o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2 user@knot-laptop uptime"
+        expected = "ssh -o ControlMaster=auto -o ControlPath=~/.cache/psl/ssh/cm_%C -o ControlPersist=10m -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 user@knot-laptop uptime"
         self.assertEqual(mod, expected)
 
         # Absolute binary path
         mod, changed = inject_ssh_timeouts("/usr/bin/ssh knot-deck")
         self.assertTrue(changed)
-        expected = "/usr/bin/ssh -o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2 knot-deck"
+        expected = "/usr/bin/ssh -o ControlMaster=auto -o ControlPath=~/.cache/psl/ssh/cm_%C -o ControlPersist=10m -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 knot-deck"
         self.assertEqual(mod, expected)
 
         # Chained command
         mod, changed = inject_ssh_timeouts("echo ping && ssh knot-desktop")
         self.assertTrue(changed)
-        expected = "echo ping && ssh -o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2 knot-desktop"
+        expected = "echo ping && ssh -o ControlMaster=auto -o ControlPath=~/.cache/psl/ssh/cm_%C -o ControlPersist=10m -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 knot-desktop"
         self.assertEqual(mod, expected)
 
         # End-to-end via sanitize_command
         decision, mod_cmd, reason = sanitize_command("ssh knot-desktop")
         self.assertEqual(decision, "allow")
-        self.assertIn("-o ConnectTimeout=5", mod_cmd)
+        self.assertIn("-o ControlMaster=auto", mod_cmd)
+        self.assertIn("-o ConnectTimeout=10", mod_cmd)
         self.assertIn("-o BatchMode=yes", mod_cmd)
         self.assertIn("injected non-blocking SSH timeout and batch mode guards", reason)
 

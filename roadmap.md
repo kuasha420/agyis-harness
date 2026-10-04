@@ -210,7 +210,19 @@ To protect both the operator and the agent from cognitive exhaustion, the harnes
     - Added `agents create`, `agents validate`, and `agents --sync` CLI subcommands.
     - Authored modular `agent-builder` skill with automated scanning and validation gates.
     - Expanded write-block protection across `planner`, `coordinator`, `auditor`, and `reviewer` in `anti_drift_hook.py`.
-    - Expanded test suite to **149 hermetic tests passing in 0.968s** (<1.0s benchmark invariant).
+  - [x] **Remote Agentic Execution, SSH Multiplexing & Cloud/Mesh Troubleshooting Harness (ADR-027 Phase 7)**:
+    - Dissected 3,257 SSH calls across 37 sessions, uncovering the 7 primary friction vectors of remote execution.
+    - Upgraded `command_safety_hook.py` with transparent OpenSSH ControlMaster multiplexing (`~/.cache/psl/ssh/cm_%C`), dropping latency from ~2,000ms to <50ms.
+    - Implemented remote ADR-013 pattern probe sanitization (`|| [ \$? -eq 1 ]`) inside SSH payloads, neutralizing false-positive Exit 1 failures on remote grep/diff.
+    - Implemented selective login-shell wrapping (`bash -l -c '...'`) for toolchains (`node`, `pm2`, `pnpm`, `cargo`, `nvm`, `uv`), eliminating the non-login Exit 127 trap.
+    - Built unified `harness/remote/` subsystem with `RemoteRunner`, zero-residue `ScriptStreamer` (stdin streaming), and compact `<2KB` `RemoteTriage`.
+    - Added `psl remote` CLI palette (`exec`, `script`, `triage`, `socket`).
+    - Codified modular skill `remote-ops` and updated `psl-stack-shell` with Remote Invariants.
+    - Expanded hermetic test suite to **180 tests passing in 0.933s** (<1.0s benchmark invariant).
+  - [x] **Agent Tooling Realignment & Client-Side Redaction Engine (ADR-030 Phases 1 & 2)**:
+    - Resolved agent permissions paradox by enabling write/subagent/question tooling for `planner` and `coordinator`, delegating fine-grained safety boundaries to `anti_drift_hook.py`.
+    - Implemented zero-dependency client-side telemetry redaction engine (`harness/telemetry/redaction.py`) scrubbing secrets, credentials, and private filesystem paths.
+    - Added comprehensive hermetic test suite (`tests/test_redaction.py`), expanding suite to 208 passing tests.
 * **Upcoming Milestones**:
   1. **The Rule/Skill Delivery & Coexistence Engine**:
      - Implement Layer 1 vs Layer 3 resolution engine.

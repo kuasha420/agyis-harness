@@ -27,6 +27,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -55,7 +56,28 @@ USER_TOOLCHAIN_REGEX = re.compile(
     + r")\b"
 )
 
-SSH_TIMEOUT_OPTIONS = "-o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2"
+REMOTE_TOOLCHAINS = ("pm2", "node", "pnpm", "cargo", "nvm", "uv")
+
+REMOTE_TOOLCHAIN_REGEX = re.compile(
+    r"(?:^|[;&|]\s*|\b(?:sudo|xargs|nohup|exec|env|time)\s+)\s*(?:/[^\s]+/)?\b("
+    + "|".join(REMOTE_TOOLCHAINS)
+    + r")\b"
+)
+
+SSH_TIMEOUT_OPTIONS = (
+    "-o ControlMaster=auto "
+    "-o ControlPath=~/.cache/psl/ssh/cm_%C "
+    "-o ControlPersist=10m "
+    "-o BatchMode=yes "
+    "-o ConnectTimeout=10 "
+    "-o ServerAliveInterval=15"
+)
+
+SSH_OPTION_FLAGS_WITH_ARG = {
+    "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J",
+    "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S",
+    "-W", "-w",
+}
 
 SSH_PATTERN = re.compile(
     r"(^|[;&|]\s*|(?:sudo|nohup|timeout\s+\S+)\s+)((?:\S+/)?ssh)(\s+|$)"
@@ -103,21 +125,43 @@ def inject_path_shims(cmd: str) -> Tuple[str, bool]:
     return f'export PATH="{shim_str}:$PATH"; {cmd.strip()}', True
 
 
+def ensure_ssh_socket_dir() -> Path:
+    """
+    Ensures ~/.cache/psl/ssh/ socket directory exists with 0700 permissions.
+    Supports PSL_HARNESS_STATE_DIR if configured.
+    """
+    state_dir = os.environ.get("PSL_HARNESS_STATE_DIR")
+    if state_dir:
+        ssh_dir = Path(state_dir) / "ssh"
+    else:
+        ssh_dir = Path.home() / ".cache/psl/ssh"
+    try:
+        ssh_dir.mkdir(parents=True, exist_ok=True)
+        ssh_dir.chmod(0o700)
+    except OSError:
+        pass
+    return ssh_dir
+
+
 def inject_ssh_timeouts(cmd: str) -> Tuple[str, bool]:
     """
-    When ssh is called without -o ConnectTimeout=, injects:
-    -o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=2 -o ServerAliveCountMax=2.
+    When ssh is called without -o ConnectTimeout= or -o ControlMaster=, injects:
+    OpenSSH multiplexing and non-blocking timeout options:
+    -o ControlMaster=auto -o ControlPath=~/.cache/psl/ssh/cm_%C -o ControlPersist=10m
+    -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15.
     Idempotent.
     """
     if not cmd.strip():
         return cmd, False
 
-    if re.search(r"\bConnectTimeout=", cmd, re.IGNORECASE):
+    if re.search(r"\b(?:ConnectTimeout=|ControlMaster=)", cmd, re.IGNORECASE):
         return cmd, False
 
     m = SSH_PATTERN.search(cmd)
     if not m:
         return cmd, False
+
+    ensure_ssh_socket_dir()
 
     prefix = m.group(1)
     ssh_bin = m.group(2)
@@ -128,6 +172,149 @@ def inject_ssh_timeouts(cmd: str) -> Tuple[str, bool]:
     injected = f"{prefix}{ssh_bin} {SSH_TIMEOUT_OPTIONS}{sep}"
     res = (cmd[:span_start] + injected + cmd[span_end:]).strip()
     return res, True
+
+
+def sanitize_ssh_remote_payload(cmd: str) -> Tuple[str, bool, List[str]]:
+    """
+    Inspects SSH remote execution payload to apply ADR-013 pattern probe
+    sanitization (|| [ $? -eq 1 ]) and selective toolchain login-shell promotion
+    (bash -l -c '...').
+    """
+    if not cmd.strip():
+        return cmd, False, []
+
+    m = SSH_PATTERN.search(cmd)
+    if not m:
+        return cmd, False, []
+
+    ssh_start = m.start(2)
+    prefix = cmd[:ssh_start]
+    rest = cmd[ssh_start:]
+
+    # Locate top-level shell separators outside quotes
+    in_single = False
+    in_double = False
+    escaped = False
+    sep_idx = -1
+    i = 0
+    n = len(rest)
+    while i < n:
+        c = rest[i]
+        if escaped:
+            escaped = False
+            i += 1
+            continue
+        if c == "\\":
+            escaped = True
+            i += 1
+            continue
+        if c == "'" and not in_double:
+            in_single = not in_single
+            i += 1
+            continue
+        if c == '"' and not in_single:
+            in_double = not in_double
+            i += 1
+            continue
+        if not in_single and not in_double:
+            if c in (";", "&"):
+                sep_idx = i
+                break
+            if c == "|" and i + 1 < n and rest[i + 1] == "|":
+                sep_idx = i
+                break
+            if c == "|":
+                sep_idx = i
+                break
+        i += 1
+
+    if sep_idx != -1:
+        ssh_part = rest[:sep_idx].strip()
+        suffix = rest[sep_idx:]
+    else:
+        ssh_part = rest.strip()
+        suffix = ""
+
+    try:
+        tokens = shlex.split(ssh_part)
+    except ValueError:
+        return cmd, False, []
+
+    if len(tokens) < 2:
+        return cmd, False, []
+
+    ssh_bin = tokens[0]
+    idx = 1
+    ssh_opts: List[str] = []
+    target: Optional[str] = None
+    remote_tokens: List[str] = []
+
+    while idx < len(tokens):
+        tok = tokens[idx]
+        if target is None:
+            if tok.startswith("-"):
+                if tok in SSH_OPTION_FLAGS_WITH_ARG:
+                    ssh_opts.append(tok)
+                    if idx + 1 < len(tokens):
+                        idx += 1
+                        ssh_opts.append(tokens[idx])
+                else:
+                    ssh_opts.append(tok)
+                idx += 1
+            else:
+                target = tok
+                idx += 1
+        else:
+            remote_tokens.append(tokens[idx])
+            idx += 1
+
+    if not target or not remote_tokens:
+        return cmd, False, []
+
+    target_pos = ssh_part.find(target)
+    after_target = ssh_part[target_pos + len(target):].strip()
+    quote_style = None
+    if after_target.startswith("'") and after_target.endswith("'") and len(after_target) >= 2:
+        quote_style = "'"
+    elif after_target.startswith('"') and after_target.endswith('"') and len(after_target) >= 2:
+        quote_style = '"'
+
+    remote_cmd = remote_tokens[0] if len(remote_tokens) == 1 else " ".join(remote_tokens)
+    modified_remote = remote_cmd
+    reasons: List[str] = []
+
+    # Check if toolchain login-shell promotion will wrap the payload in single quotes bash -l -c '...'
+    is_login_shell = bool(re.search(r"\b(?:bash|zsh|sh)\s+-[a-zA-Z]*l\b", modified_remote))
+    has_explicit_path = "PATH=" in modified_remote
+    will_wrap_toolchain = REMOTE_TOOLCHAIN_REGEX.search(modified_remote) and not is_login_shell and not has_explicit_path
+
+    # Outer quotes will be single quotes ONLY IF quote_style is "'" AND no single quotes inside AND not wrapping toolchain
+    will_use_single_quotes = (quote_style == "'") and ("'" not in modified_remote) and not will_wrap_toolchain
+
+    # 1. ADR-013 pattern probe sanitization (grep, diff, pgrep)
+    if should_sanitize_grep_or_diff(modified_remote):
+        dollar_probe = "|| [ $? -eq 1 ]" if will_use_single_quotes else "|| [ \\$? -eq 1 ]"
+        modified_remote = f"{modified_remote} {dollar_probe}"
+        reasons.append("sanitized remote pattern search against benign Exit Code 1")
+
+    # 2. Toolchain login-shell promotion (pm2, node, pnpm, cargo, nvm, uv)
+    if will_wrap_toolchain:
+        escaped = modified_remote.replace("'", "'\\''")
+        modified_remote = f"bash -l -c '{escaped}'"
+        reasons.append("wrapped remote command in login shell (bash -l) for toolchain PATH availability")
+
+    if modified_remote == remote_cmd:
+        return cmd, False, []
+
+    if will_use_single_quotes:
+        formatted_remote = f"'{modified_remote}'"
+    else:
+        formatted_remote = f'"{modified_remote}"'
+
+    opts_str = f" {' '.join(ssh_opts)}" if ssh_opts else ""
+    new_ssh_part = f"{ssh_bin}{opts_str} {target} {formatted_remote}"
+    new_cmd = f"{prefix}{new_ssh_part}{suffix}"
+    return new_cmd, True, reasons
 
 
 def find_hermetic_uv_python_bin() -> Optional[Path]:
@@ -230,8 +417,8 @@ def should_sanitize_grep_or_diff(cmd: str) -> bool:
     Check if command is a simple, standalone grep or diff pattern search
     that should be sanitized against false-positive exit code 1.
     """
-    # 1. Do not touch if already guarded with || true, || :, or [ $? -eq 1 ]
-    if re.search(r"\|\|\s*(?:true|:|\s*\[\s*\$\?\s*-eq\s*1\s*\])\b", cmd):
+    # 1. Do not touch if already guarded with || true, || :, or [ $? -eq 1 ] / [ \$? -eq 1 ]
+    if re.search(r"\|\|\s*(?:true|:|\s*\[\s*\\?\$\?\s*-eq\s*1\s*\])\b", cmd):
         return False
 
     # 2. Split pipeline segments cleanly
@@ -246,7 +433,7 @@ def should_sanitize_grep_or_diff(cmd: str) -> bool:
         return False
 
     bin_name = tokens[0].split("/")[-1]
-    return bin_name in ("grep", "egrep", "fgrep", "diff")
+    return bin_name in ("grep", "egrep", "fgrep", "diff", "pgrep")
 
 
 def sanitize_command(raw_cmd: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
@@ -285,19 +472,25 @@ def sanitize_command(raw_cmd: str) -> Tuple[Optional[str], Optional[str], Option
         modified_cmd = f"PAGER=cat {modified_cmd}"
         reasons.append("enforced non-interactive PAGER=cat")
 
-    # 4. SSH timeout and non-blocking probe guards
+    # 4. SSH timeout and multiplexing guards
     mod_ssh, ssh_injected = inject_ssh_timeouts(modified_cmd)
     if ssh_injected:
         modified_cmd = mod_ssh
         reasons.append("injected non-blocking SSH timeout and batch mode guards")
 
-    # 5. User-space toolchain PATH shim injection
+    # 5. Remote SSH payload inspection (ADR-013 pattern probe sanitization and toolchain login-shell promotion)
+    mod_remote, remote_injected, remote_reasons = sanitize_ssh_remote_payload(modified_cmd)
+    if remote_injected:
+        modified_cmd = mod_remote
+        reasons.extend(remote_reasons)
+
+    # 6. User-space toolchain PATH shim injection
     mod_path, path_injected = inject_path_shims(modified_cmd)
     if path_injected:
         modified_cmd = mod_path
         reasons.append("injected user-space toolchain PATH shims")
 
-    # 6. Hermetic Python Runtime Injection & f-string expression sanitization
+    # 7. Hermetic Python Runtime Injection & f-string expression sanitization
     if is_inline_python_command(modified_cmd):
         # Sanitize spurious backslashes in f-strings
         sanitized_py = sanitize_fstring_expressions(modified_cmd)
@@ -310,7 +503,7 @@ def sanitize_command(raw_cmd: str) -> Tuple[Optional[str], Optional[str], Option
             modified_cmd = f'PATH="{hermetic_bin}:$PATH" {modified_cmd}'
             reasons.append("injected hermetic CPython >= 3.12 for PEP 701 f-string safety")
 
-    # 7. Surgical Tail Sanitization for simple grep / diff pattern searches
+    # 8. Surgical Tail Sanitization for simple grep / diff pattern searches
     if should_sanitize_grep_or_diff(cmd):
         modified_cmd = f"{modified_cmd} || [ $? -eq 1 ]"
         reasons.append("sanitized pattern search against benign Exit Code 1")

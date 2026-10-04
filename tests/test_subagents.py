@@ -85,7 +85,7 @@ class TestSpecialistSubagents(unittest.TestCase):
                     agent.inherit_customizations,
                     f"Agent '{agent.name}' must have inherit_customizations enabled",
                 )
-                if agent.archetype in (AgentArchetype.COORDINATOR, AgentArchetype.MAIN):
+                if agent.archetype in (AgentArchetype.COORDINATOR, AgentArchetype.MAIN, AgentArchetype.PLANNER):
                     self.assertTrue(
                         agent.can_subagent,
                         f"Agent '{agent.name}' must have subagent permission enabled",
@@ -155,40 +155,44 @@ class TestSpecialistSubagents(unittest.TestCase):
             )
 
     def test_planner_toolgroup_permissions(self) -> None:
-        """Planner must have read permission, zero write/exec, and MCP enabled."""
+        """Planner must have read, write (artifact synthesis), subagent, and MCP enabled, but zero exec."""
         planner = get_agent_spec("planner")
         self.assertIsNotNone(planner)
         self.assertEqual(planner.archetype, AgentArchetype.PLANNER)
         self.assertTrue(planner.permissions.read)
-        self.assertFalse(planner.can_write, "Planner must not have write permission")
+        self.assertTrue(planner.can_write, "Planner must have write permission for artifact synthesis")
         self.assertFalse(planner.can_execute, "Planner must not have exec permission")
-        self.assertFalse(planner.can_subagent, "Planner must not spawn subagents")
+        self.assertTrue(planner.can_subagent, "Planner must have subagents enabled")
         self.assertTrue(planner.can_mcp, "Planner must have MCP access")
 
         tool_set = set(planner.allowed_tools)
-        for wt in self.WRITE_TOOLS:
-            self.assertNotIn(wt, tool_set, f"Planner must NEVER include write tool '{wt}'")
+        self.assertIn("write_to_file", tool_set)
+        self.assertIn("ask_question", tool_set)
+        self.assertIn("invoke_subagent", tool_set)
+        self.assertIn("send_message", tool_set)
+        self.assertIn("manage_subagents", tool_set)
         self.assertNotIn("run_command", tool_set)
         self.assertIn("view_file", tool_set)
         self.assertIn("manage_task", tool_set)
 
     def test_coordinator_toolgroup_permissions(self) -> None:
-        """Coordinator must have read and subagent permissions, but zero write/exec."""
+        """Coordinator must have read, write (artifact synthesis), and subagent permissions, but zero exec."""
         coord = get_agent_spec("coordinator")
         self.assertIsNotNone(coord)
         self.assertEqual(coord.archetype, AgentArchetype.COORDINATOR)
         self.assertTrue(coord.permissions.read)
-        self.assertFalse(coord.can_write, "Coordinator must not have write permission")
+        self.assertTrue(coord.can_write, "Coordinator must have write permission for artifact synthesis")
         self.assertFalse(coord.can_execute, "Coordinator must not have exec permission")
         self.assertTrue(coord.can_subagent, "Coordinator must have subagent permission")
 
         tool_set = set(coord.allowed_tools)
-        for wt in self.WRITE_TOOLS:
-            self.assertNotIn(wt, tool_set, f"Coordinator must NEVER include write tool '{wt}'")
+        self.assertIn("write_to_file", tool_set)
+        self.assertNotIn("replace_file_content", tool_set)
         self.assertNotIn("run_command", tool_set)
         self.assertIn("invoke_subagent", tool_set)
         self.assertIn("send_message", tool_set)
         self.assertIn("manage_subagents", tool_set)
+        self.assertIn("ask_question", tool_set)
 
     def test_psl_main_toolgroup_permissions(self) -> None:
         """Main agent (psl_main) must have full permissions across read, write, exec, subagent, mcp."""

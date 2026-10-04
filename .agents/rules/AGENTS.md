@@ -34,6 +34,14 @@ python3 -m harness.cli audit inventory         # Catalog plugins, skills, hooks 
 # 🧩 Skills & Subagents Discovery
 python3 -m harness.cli skills                  # List installed modular skills & triggers
 python3 -m harness.cli agents                  # List registered specialist subagents & tools
+
+# 🌐 Remote Operations & Cloud/Mesh Triage (ADR-027)
+python3 -m harness.cli remote exec <target> "<cmd>"    # Multiplexed SSH with login-shell promotion
+python3 -m harness.cli remote script <target> <file>   # Stdin script streaming (zero disk footprint)
+python3 -m harness.cli remote script <target> <file> --stage # Staged execution with trap cleanup
+python3 -m harness.cli remote triage <target>          # Compact (<2KB) multi-component health report
+python3 -m harness.cli remote socket status            # List active OpenSSH ControlMaster sockets
+python3 -m harness.cli remote socket cleanup           # Remove active ControlMaster sockets
 ```
 
 ---

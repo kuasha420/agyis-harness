@@ -177,6 +177,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
             import sqlite3
             db_path = DEFAULT_DB
             conn = sqlite3.connect(db_path)
+            extract_transcripts.ensure_sync_columns(conn)
             cur = conn.cursor()
             cur.executescript(extract_transcripts.SCHEMA_SQL)
             conn.commit()
@@ -647,6 +648,109 @@ def cmd_subagents(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_remote(args: argparse.Namespace) -> int:
+    """Dispatches remote execution, script streaming, and triage subcommands."""
+    sub = getattr(args, "remote_cmd", None)
+    if not sub:
+        sys.stderr.write("Usage: psl remote <exec|script|triage|socket> ...\n")
+        return 1
+
+    from harness.remote import RemoteRunner, ScriptStreamer, RemoteTriage
+
+    runner = RemoteRunner()
+
+    if sub == "exec":
+        login_shell = getattr(args, "login_shell", False)
+        if not login_shell:
+            from harness.hooks.command_safety_hook import REMOTE_TOOLCHAIN_REGEX
+            if REMOTE_TOOLCHAIN_REGEX.search(args.command):
+                login_shell = True
+
+        res = runner.run(
+            target=args.target,
+            remote_cmd=args.command,
+            port=args.port,
+            timeout=args.timeout,
+            login_shell=login_shell,
+            capture_output=True,
+            text=True,
+        )
+        if res.stdout:
+            sys.stdout.write(res.stdout)
+        if res.stderr:
+            sys.stderr.write(res.stderr)
+        return res.returncode
+
+    elif sub == "script":
+        script_path = Path(args.script)
+        if not script_path.exists():
+            sys.stderr.write(f"Error: Local script not found: {script_path}\n")
+            return 1
+
+        script_args = getattr(args, "args", [])
+        if getattr(args, "stage", False):
+            res = ScriptStreamer.stage_script(
+                runner=runner,
+                target=args.target,
+                script_path=script_path,
+                args=script_args,
+                port=args.port,
+                timeout=args.timeout,
+            )
+        else:
+            res = ScriptStreamer.stream_script(
+                runner=runner,
+                target=args.target,
+                script_path=script_path,
+                args=script_args,
+                port=args.port,
+                timeout=args.timeout,
+            )
+
+        if res.stdout:
+            sys.stdout.write(res.stdout)
+        if res.stderr:
+            sys.stderr.write(res.stderr)
+        return res.returncode
+
+    elif sub == "triage":
+        report_data = RemoteTriage.run_triage(
+            runner=runner,
+            target=args.target,
+            profile=args.profile,
+            service=args.service,
+            lines=args.lines,
+            port=args.port,
+            timeout=args.timeout,
+        )
+
+        if getattr(args, "json", False):
+            print(json.dumps(report_data, indent=2))
+        else:
+            print(report_data["report_markdown"])
+        return int(report_data.get("exit_code", 0))
+
+    elif sub == "socket":
+        action = getattr(args, "socket_action", None) or "status"
+        if action == "cleanup":
+            removed = runner.cleanup_sockets()
+            print(f"🧹 Cleaned up {len(removed)} active ControlMaster socket(s).")
+            for sock in removed:
+                print(f"  ✔ Removed: {sock.name}")
+            return 0
+        else:
+            sockets = runner.list_sockets()
+            if not sockets:
+                print(f"No active OpenSSH ControlMaster sockets found in {runner.socket_dir}")
+                return 0
+            print(f"Active OpenSSH ControlMaster sockets ({len(sockets)}):")
+            for sock in sockets:
+                print(f"  ✔ {sock['name']} (Path: {sock['path']})")
+            return 0
+
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Prints a high-level status summary of the PSL Harness."""
     print("=" * 70)
@@ -807,6 +911,74 @@ def build_parser() -> argparse.ArgumentParser:
     # status / info
     subparsers.add_parser("status", help="Print harness installation and health summary")
 
+    # remote
+    p_remote = subparsers.add_parser(
+        "remote", help="Remote agentic execution, script streaming & triage (ADR-027)"
+    )
+    p_remote_subs = p_remote.add_subparsers(dest="remote_cmd", help="Remote subcommands")
+
+    # remote exec
+    p_rexec = p_remote_subs.add_parser(
+        "exec", help="Execute command on target over multiplexed SSH"
+    )
+    p_rexec.add_argument("target", help="Remote target (user@host or host)")
+    p_rexec.add_argument("command", help="Command to execute remotely")
+    p_rexec.add_argument("-p", "--port", type=int, default=None, help="SSH port")
+    p_rexec.add_argument(
+        "-l", "--login-shell", action="store_true", help="Wrap in login shell (bash -l -c)"
+    )
+    p_rexec.add_argument(
+        "-t", "--timeout", type=int, default=30, help="Command timeout in seconds"
+    )
+
+    # remote script
+    p_rscript = p_remote_subs.add_parser(
+        "script", help="Stream or stage local script to remote target"
+    )
+    p_rscript.add_argument("target", help="Remote target (user@host or host)")
+    p_rscript.add_argument("script", type=Path, help="Local script file to execute remotely")
+    p_rscript.add_argument(
+        "--stage", action="store_true", help="Stage file on remote target with trap cleanup"
+    )
+    p_rscript.add_argument("-p", "--port", type=int, default=None, help="SSH port")
+    p_rscript.add_argument(
+        "-t", "--timeout", type=int, default=60, help="Command timeout in seconds"
+    )
+    p_rscript.add_argument("args", nargs="*", default=[], help="Arguments to pass to script")
+
+    # remote triage
+    p_rtriage = p_remote_subs.add_parser(
+        "triage", help="Run bounded diagnostic audit on remote host"
+    )
+    p_rtriage.add_argument("target", help="Remote target (user@host or host)")
+    p_rtriage.add_argument(
+        "--profile",
+        choices=["all", "ports", "services", "resources", "logs"],
+        default="all",
+        help="Diagnostic profile filter (default: all)",
+    )
+    p_rtriage.add_argument(
+        "--service", type=str, default=None, help="Target service name for log inspection"
+    )
+    p_rtriage.add_argument("-n", "--lines", type=int, default=50, help="Log line count limit")
+    p_rtriage.add_argument("-p", "--port", type=int, default=None, help="SSH port")
+    p_rtriage.add_argument(
+        "-t", "--timeout", type=int, default=30, help="Probe timeout in seconds"
+    )
+    p_rtriage.add_argument("--json", action="store_true", help="Output report in JSON format")
+
+    # remote socket
+    p_rsock = p_remote_subs.add_parser(
+        "socket", help="Inspect or clean up ControlMaster sockets"
+    )
+    p_rsock.add_argument(
+        "socket_action",
+        nargs="?",
+        choices=["cleanup", "status"],
+        default="status",
+        help="Socket action to perform (default: status)",
+    )
+
     # sync (shortcut for audit session --save-db)
     p_sync = subparsers.add_parser("sync", help="Audit and synchronize the active session into telemetry.db")
     p_sync.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID (default: latest)")
@@ -839,6 +1011,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_agents(args)
     elif args.subcommand == "subagents":
         return cmd_subagents(args)
+    elif args.subcommand == "remote":
+        return cmd_remote(args)
     elif args.subcommand == "status":
         return cmd_status(args)
 
