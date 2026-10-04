@@ -3,7 +3,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Repository**: `kuasha420/psl-agy-harness` (Private Development → Public Release)  
-**Last Updated**: 2026-10-03  
+**Last Updated**: 2026-10-05  
 
 ---
 
@@ -24,7 +24,7 @@ Rather than creating an isolated competing framework that reinvents agent execut
 ### The Victory Playbook: Reinforcing What Worked Across 348 Sessions
 The mission of PAH is not merely defensive error mitigation; it is **actively codifying and amplifying the battle-tested patterns that produced near-zero error and intervention rates** across our empirical dataset:
 
-1. **Subagent Ladder & Worktree Sharding (`Executioner -> Hammer -> Auditor`)**:
+1. **Subagent Ladder & Worktree Sharding (`Executioner -> Hammer -> Custodian -> Auditor`)**:
    - `invoke_subagent` and `manage_subagents` achieved a **99.5% success rate** across 215 calls in the telemetry database.
    - Spawning isolated subagents in worktrees for multi-phase tasks (test suites, refactors, lint passes) protects the coordinator's attention aperture, preventing the primary context window from crossing the 50k token cliff.
 2. **Explicit Command Dictionaries (The Golden Monorepo Pattern)**:
@@ -50,9 +50,7 @@ The mission of PAH is not merely defensive error mitigation; it is **actively co
   - Context volume suppression is handled by output compaction hooks.
 * **Agent rules (`AGENTS.md`) are reserved strictly for cognitive invariants** that software cannot deterministically enforce (anti-loop heuristics, context flood piping, artifact-first planning, human confirmation gates).
 
-### B. The Rule & Skill Delivery & Coexistence Contract (Unresolved Core Challenge)
-A central unsolved architectural challenge of this product is **how the harness delivers runtime rules and skills without colliding with or overwriting project-specific customizations**:
-
+### B. The Rule & Skill Delivery & Coexistence Contract
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │ Layer 3: Project / Workspace (.agents/rules/, .agents/skills/)         │
@@ -81,8 +79,6 @@ A central unsolved architectural challenge of this product is **how the harness 
 3. **Non-Destructive Cascading**: Harness hooks operate globally at the platform layer, providing safety and compaction across all repositories without requiring repo-specific setup.
 
 ### C. The Product vs. Project Bifurcation (ADR-014)
-A critical architectural boundary separates the runtime software delivered to agents from the internal development workspace:
-
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                   THE PRODUCT (psl-agy-harness runtime)                │
@@ -116,8 +112,6 @@ Our empirical audit proved that session depth is the single greatest catalyst of
 - Trajectories `>200` steps / `>100k` tokens experience a **20x error spike** and **40x intervention spike**, culminating in **Attention Sink Collapse** (where models perseverate on identical thought loops 85.5% of the time) and **Premature Convergence** (declaring prototypes "complete").
 
 ### The Visual Cockpit & Guardrail Architecture
-
-To protect both the operator and the agent from cognitive exhaustion, the harness introduces three guardrails:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -223,14 +217,26 @@ To protect both the operator and the agent from cognitive exhaustion, the harnes
     - Resolved agent permissions paradox by enabling write/subagent/question tooling for `planner` and `coordinator`, delegating fine-grained safety boundaries to `anti_drift_hook.py`.
     - Implemented zero-dependency client-side telemetry redaction engine (`harness/telemetry/redaction.py`) scrubbing secrets, credentials, and private filesystem paths.
     - Added comprehensive hermetic test suite (`tests/test_redaction.py`), expanding suite to 208 passing tests.
+  - [x] **Global Plugin Delivery, Coexistence Engine & 6-Stage Subagent Ladder (ADR-030 Phase 6)**:
+    - Implemented `PluginInstaller` in `harness/delivery.py` supporting global installations to `~/.gemini/config/plugins/` with path safety guards.
+    - Codified Three-Tier Precedence Hierarchy: Layer 3 (Workspace Local `.agents/`) > Layer 2 (User Preferences `~/.gemini/antigravity/`) > Layer 1 (Global Plugin).
+    - Standardized 6-Stage Subagent Ladder with Stage 4 Custodian Commit Gate to guarantee immutable git revisions before verification.
+    - Cataloged 7 specialist subagents and expanded test suite to 237 tests.
+  - [x] **Centralized Telemetry Gateway, GitHub Org Auth & Client Transport (ADR-030 Final Closure)**:
+    - Implemented in-tree Starlette gateway (`server/`) with dual-engine storage (PostgreSQL in production/Docker, in-memory SQLite for tests).
+    - Delivered GitHub Org authentication (`purrfectsoft` default / `PSL_GITHUB_ORG`) with in-memory token cache (TTL 300s).
+    - Implemented idempotent session upserts (`ON CONFLICT DO UPDATE`) and anti-echo delta replication (`origin_developer != requesting_user`).
+    - Built zero-dependency client transport in `harness/telemetry/sync.py` (`urllib.request` only) with mandatory pre-serialization secret scrubbing.
+    - Delivered `psl auth login|status|logout` and upgraded `psl sync` bi-directional CLI.
+    - Generated containerization and CloudPanel loopback deployment profiles (`server/deploy.sh`, `docker-compose.yml`, systemd unit).
+    - Expanded hermetic test suite to **256 passing tests in 1.289s**.
 * **Upcoming Milestones**:
-  1. **The Rule/Skill Delivery & Coexistence Engine**:
-     - Implement Layer 1 vs Layer 3 resolution engine.
-     - Provide `psl install [--global]` to register the plugin into `~/.gemini/config/plugins/` without polluting workspace git repositories.
-  2. **Standardized Testing Runner Skills**:
+  1. **Standardized Testing Runner Skills**:
      - Supply standardized testing runner skills (`psl-test-runner`) for Python, Node, Cargo, and Go.
-  3. **In-Band PreToolUse Execution Compactor**:
+  2. **In-Band PreToolUse Execution Compactor**:
      - Evaluate tuning and live wrapper prototypes based on the codified 2KB sweet spot.
+  3. **Empirical Telemetry Laboratory Analysis on Multi-Agent Coordination**:
+     - Mine `data/telemetry.db` for Subagent Ladder runs, Knot-mesh early prototypes, and conversational emergence patterns.
 
 ---
 
@@ -241,4 +247,3 @@ To protect both the operator and the agent from cognitive exhaustion, the harnes
   - Remote strand telemetry routing (`laptop`, `rog-ally`, `steamdeck`).
   - Out-of-band multi-agent coordination via Linda Tuplespace and GitHub Discussions (`swarm-council`).
   - Decoupled visual cockpits on worker displays.
-

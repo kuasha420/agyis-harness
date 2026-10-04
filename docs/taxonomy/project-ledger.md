@@ -256,3 +256,25 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - PreToolUse Write-Block Guard: [harness/hooks/anti_drift_hook.py](harness/hooks/anti_drift_hook.py)
   - 6-Stage Subagent Ladder Specification: [runtime/skills/subagent-ladder/SKILL.md](runtime/skills/subagent-ladder/SKILL.md)
   - Test Suite: [tests/test_delivery.py](tests/test_delivery.py)
+
+---
+
+## [Phase 7] Centralized Telemetry Gateway, GitHub Org Auth & Client Transport (ADR-030 Final Closure)
+* **Status**: Completed | **Compaction Date**: 2026-10-05
+* **Key Architectural Decisions (ADRs)**:
+  - **ADR-030 (Lane 1 + Lane 5 Closure: Centralized Gateway & Sync Transport)**:
+    - **In-Tree Centralized Telemetry Gateway (`server/`)**: Starlette ASGI service with dual-engine storage (PostgreSQL in production/Docker, in-memory SQLite for hermetic tests). Exposes `/api/v1/health`, `/api/v1/auth/verify`, `/api/v1/sync/push`, and `/api/v1/sync/pull`.
+    - **GitHub Org Authorization & Caching**: Enforces active organization membership (`purrfectsoft` default / `PSL_GITHUB_ORG`) via GitHub API with 300s TTL in-memory caching to eliminate rate limit exhaustion.
+    - **Replication Hygiene & Anti-Echo Filter**: Upserts sessions via `ON CONFLICT DO UPDATE` while isolating `origin_developer != requesting_user` during pull replication to prevent echo loops.
+    - **Client Zero-Dependency Transport**: `harness/telemetry/sync.py` uses strictly CPython standard library `urllib.request` (zero third-party imports). Mandatory client-side scrubbing (`redaction.py`) executes before JSON serialization.
+    - **CLI Auth & Sync Suite**: `psl auth login|status|logout` (storing credentials in `~/.config/psl/credentials.json` with 0o600 permissions); `psl sync` default bi-directional sync with `--push`, `--pull`, `--interactive`, and legacy `--session-id` support.
+    - **CloudPanel Staging Architecture**: Bound to loopback `127.0.0.1:8000` for CloudPanel NGINX reverse-proxy routing on `bd.purrfectsoft.co.uk`.
+* **Empirical Baselines Established & Verified**:
+  - Full test suite expanded to **256 hermetic unit and integration tests passing in 1.289s**.
+  - 100% test pass rate across independent standard unittest runner and harness runner.
+  - Zero third-party dependencies in `harness/` asserted and certified.
+* **Reference Assets Committed**:
+  - Central Gateway: [server/app.py](server/app.py), [server/storage.py](server/storage.py), [server/auth.py](server/auth.py)
+  - Containerization & Ops: [server/Dockerfile](server/Dockerfile), [server/docker-compose.yml](server/docker-compose.yml), [server/deploy.sh](server/deploy.sh), [server/psl-telemetry-hub.service](server/psl-telemetry-hub.service)
+  - Client Sync Transport & CLI: [harness/telemetry/sync.py](harness/telemetry/sync.py), [harness/telemetry/config.py](harness/telemetry/config.py), [harness/cli.py](harness/cli.py)
+  - Hermetic Test Suites: [tests/test_server_api.py](tests/test_server_api.py), [tests/test_telemetry_sync.py](tests/test_telemetry_sync.py), [tests/test_cli.py](tests/test_cli.py)
