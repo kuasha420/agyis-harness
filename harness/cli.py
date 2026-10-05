@@ -396,16 +396,19 @@ def cmd_sync(args: argparse.Namespace) -> int:
     interactive = getattr(args, "interactive", False)
     limit = getattr(args, "limit", None)
     dry_run = getattr(args, "dry_run", False)
+    kwargs = {
+        "direction": direction,
+        "interactive": interactive,
+        "endpoint": endpoint,
+        "limit": limit,
+        "dry_run": dry_run,
+    }
+    if getattr(args, "db", None) is not None:
+        kwargs["db_path"] = args.db
 
     from harness.telemetry.sync import sync_telemetry
     try:
-        res = sync_telemetry(
-            direction=direction,
-            interactive=interactive,
-            endpoint=endpoint,
-            limit=limit,
-            dry_run=dry_run,
-        )
+        res = sync_telemetry(**kwargs)
     except Exception as exc:
         sys.stderr.write(f"Sync error: {exc}\n")
         return 1
@@ -1234,6 +1237,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync.add_argument("--limit", "-l", type=int, default=None, help="Maximum number of sessions to push")
     p_sync.add_argument("--dry-run", action="store_true", help="Simulate synchronization without modifications")
     p_sync.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID to ingest before syncing")
+    p_sync.add_argument("--db", type=str, default=None, help="Path to SQLite database")
     p_sync.add_argument("--json", action="store_true", help="Output sync summary in JSON format")
 
     # install

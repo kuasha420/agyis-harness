@@ -25,6 +25,18 @@ from harness.telemetry.redaction import (
 )
 from harness.telemetry.schema import SCHEMA_SQL
 
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_DB = REPO_ROOT / "data/telemetry.db"
+
+
+def resolve_db_path(db_path: Optional[Union[str, Path]] = None) -> Path:
+    """Resolves telemetry database path with fallback to repo default."""
+    if db_path:
+        return Path(db_path)
+    if Path("data/telemetry.db").exists():
+        return Path("data/telemetry.db")
+    return DEFAULT_DB
+
 
 def ensure_sync_columns(conn: sqlite3.Connection) -> None:
     """Non-destructively ensures sync & federation columns exist on sessions table."""
@@ -105,7 +117,7 @@ def push_local_sessions(
         raise ValueError("Authentication token required for telemetry sync.")
 
     endpoint_clean = resolved_endpoint.rstrip("/")
-    db_file = Path(db_path or "data/telemetry.db")
+    db_file = resolve_db_path(db_path)
     db_file.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(db_file)
@@ -348,7 +360,7 @@ def pull_remote_sessions(
         raise ValueError("Authentication token required for telemetry sync.")
 
     endpoint_clean = resolved_endpoint.rstrip("/")
-    db_file = Path(db_path or "data/telemetry.db")
+    db_file = resolve_db_path(db_path)
     db_file.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(db_file)
@@ -547,7 +559,7 @@ def sync_telemetry(
 
     if direction in ("both", "push"):
         if interactive and not dry_run:
-            db_file = Path(db_path or "data/telemetry.db")
+            db_file = resolve_db_path(db_path)
             pending_count = 0
             if db_file.exists():
                 conn = sqlite3.connect(db_file)
