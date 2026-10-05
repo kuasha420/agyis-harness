@@ -120,6 +120,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
         extra = []
         if getattr(args, "db", None):
             extra.extend(["--db", args.db])
+        else:
+            extra.extend(["--db", str(DEFAULT_DB)])
         if getattr(args, "backfill", False):
             extra.append("--backfill-volumes")
         extract_transcripts.main(extra)

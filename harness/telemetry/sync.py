@@ -145,75 +145,24 @@ def push_local_sessions(
             }
 
         session_ids = [s["session_id"] for s in eligible_sessions]
-        placeholders = ",".join(["?"] * len(session_ids))
 
-        cur.execute(
-            f"SELECT * FROM steps WHERE session_id IN ({placeholders}) ORDER BY session_id, step_index ASC",
-            session_ids,
-        )
-        raw_steps = [dict(r) for r in cur.fetchall()]
-
-        cur.execute(
-            f"SELECT * FROM tool_calls WHERE session_id IN ({placeholders}) ORDER BY session_id, step_index ASC",
-            session_ids,
-        )
-        raw_tools = [dict(r) for r in cur.fetchall()]
-
-        cur.execute(
-            f"SELECT * FROM user_interventions WHERE session_id IN ({placeholders}) ORDER BY session_id, step_index ASC",
-            session_ids,
-        )
-        raw_interventions = [dict(r) for r in cur.fetchall()]
-
-        # Per-session workspace mapping for path anonymization
-        session_ws_map = {
-            s["session_id"]: (workspace_root or s.get("workspace_path"))
-            for s in eligible_sessions
-        }
-
-        # Sanitize client-side using redaction engine
-        sanitized_sessions: List[Dict[str, Any]] = []
-        for s in eligible_sessions:
-            s_clean = dict(s)
-            ws = session_ws_map.get(s["session_id"])
-            if s_clean.get("workspace_path"):
-                s_clean["workspace_path"] = anonymize_paths(s_clean["workspace_path"], workspace_root=ws)
-            if s_clean.get("transcript_path"):
-                s_clean["transcript_path"] = anonymize_paths(s_clean["transcript_path"], workspace_root=ws)
-            sanitized_sessions.append(s_clean)
-
-        sanitized_steps: List[Dict[str, Any]] = []
-        for st in raw_steps:
-            st_clean = dict(st)
-            st_clean.pop("id", None)
-            ws = session_ws_map.get(st_clean.get("session_id"))
-            if st_clean.get("content_snippet"):
-                st_clean["content_snippet"] = anonymize_paths(
-                    strip_secrets(st_clean["content_snippet"]), workspace_root=ws
-                )
-            sanitized_steps.append(st_clean)
-
-        sanitized_tools: List[Dict[str, Any]] = []
-        for tc in raw_tools:
-            tc_clean = dict(tc)
-            tc_clean.pop("id", None)
-            ws = session_ws_map.get(tc_clean.get("session_id"))
-            sanitized_tools.append(sanitize_tool_call(tc_clean, workspace_root=ws))
-
-        sanitized_interventions: List[Dict[str, Any]] = []
-        for ui in raw_interventions:
-            ui_clean = dict(ui)
-            ui_clean.pop("id", None)
-            ws = session_ws_map.get(ui_clean.get("session_id"))
-            if ui_clean.get("prompt_text"):
-                ui_clean["prompt_text"] = sanitize_intervention(
-                    ui_clean["prompt_text"], workspace_root=ws
-                )
-            if ui_clean.get("preceding_error_snippet"):
-                ui_clean["preceding_error_snippet"] = anonymize_paths(
-                    strip_secrets(ui_clean["preceding_error_snippet"]), workspace_root=ws
-                )
-            sanitized_interventions.append(ui_clean)
+        if dry_run:
+            placeholders = ",".join(["?"] * len(session_ids))
+            cur.execute(f"SELECT COUNT(*) FROM steps WHERE session_id IN ({placeholders})", session_ids)
+            steps_cnt = cur.fetchone()[0]
+            cur.execute(f"SELECT COUNT(*) FROM tool_calls WHERE session_id IN ({placeholders})", session_ids)
+            tools_cnt = cur.fetchone()[0]
+            cur.execute(f"SELECT COUNT(*) FROM user_interventions WHERE session_id IN ({placeholders})", session_ids)
+            interv_cnt = cur.fetchone()[0]
+            return {
+                "status": "dry_run",
+                "sessions_pushed": len(eligible_sessions),
+                "steps_pushed": steps_cnt,
+                "tool_calls_pushed": tools_cnt,
+                "user_interventions_pushed": interv_cnt,
+                "synced_at": None,
+                "dry_run": True,
+            }
 
         def _strip_nul(obj: Any) -> Any:
             if isinstance(obj, str):
@@ -224,69 +173,155 @@ def push_local_sessions(
                 return [_strip_nul(v) for v in obj]
             return obj
 
-        payload = _strip_nul({
-            "client_version": "1.0.0",
-            "sessions": sanitized_sessions,
-            "steps": sanitized_steps,
-            "tool_calls": sanitized_tools,
-            "user_interventions": sanitized_interventions,
-        })
+        # Partition eligible sessions into batches (max 10 sessions or max 2500 steps per batch)
+        batches: List[List[Dict[str, Any]]] = []
+        current_batch: List[Dict[str, Any]] = []
+        current_steps = 0
+        for s in eligible_sessions:
+            s_steps = s.get("total_steps") or 0
+            if current_batch and (len(current_batch) >= 10 or (current_steps + s_steps > 2500)):
+                batches.append(current_batch)
+                current_batch = [s]
+                current_steps = s_steps
+            else:
+                current_batch.append(s)
+                current_steps += s_steps
+        if current_batch:
+            batches.append(current_batch)
 
-        if dry_run:
-            return {
-                "status": "dry_run",
-                "sessions_pushed": len(sanitized_sessions),
-                "steps_pushed": len(sanitized_steps),
-                "tool_calls_pushed": len(sanitized_tools),
-                "user_interventions_pushed": len(sanitized_interventions),
-                "synced_at": None,
-                "dry_run": True,
-            }
+        total_sessions_pushed = 0
+        total_steps_pushed = 0
+        total_tools_pushed = 0
+        total_interventions_pushed = 0
+        now_iso = datetime.now(timezone.utc).isoformat()
 
         primary_url = f"{endpoint_clean}/api/v1/sync/push"
-        payload_bytes = json.dumps(payload).encode("utf-8")
         headers = {
             "Authorization": f"Bearer {resolved_token}",
             "Content-Type": "application/json",
             "User-Agent": "psl-harness/1.0.0",
         }
-        req = urllib.request.Request(
-            primary_url,
-            data=payload_bytes,
-            headers=headers,
-            method="POST",
-        )
 
-        try:
-            with urllib.request.urlopen(req, timeout=30.0) as resp:
-                _ = resp.read()
-        except urllib.error.HTTPError as err:
-            if err.code == 404:
-                fallback_url = f"{endpoint_clean}/api/v1/telemetry/batch"
-                req_fallback = urllib.request.Request(
-                    fallback_url,
-                    data=payload_bytes,
-                    headers=headers,
-                    method="POST",
-                )
-                with urllib.request.urlopen(req_fallback, timeout=30.0) as resp:
+        for b_idx, batch in enumerate(batches, 1):
+            batch_session_ids = [s["session_id"] for s in batch]
+            placeholders = ",".join(["?"] * len(batch_session_ids))
+
+            cur.execute(
+                f"SELECT * FROM steps WHERE session_id IN ({placeholders}) ORDER BY session_id, step_index ASC",
+                batch_session_ids,
+            )
+            raw_steps = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                f"SELECT * FROM tool_calls WHERE session_id IN ({placeholders}) ORDER BY session_id, step_index ASC",
+                batch_session_ids,
+            )
+            raw_tools = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                f"SELECT * FROM user_interventions WHERE session_id IN ({placeholders}) ORDER BY session_id, step_index ASC",
+                batch_session_ids,
+            )
+            raw_interventions = [dict(r) for r in cur.fetchall()]
+
+            session_ws_map = {
+                s["session_id"]: (workspace_root or s.get("workspace_path"))
+                for s in batch
+            }
+
+            sanitized_sessions: List[Dict[str, Any]] = []
+            for s in batch:
+                s_clean = dict(s)
+                ws = session_ws_map.get(s["session_id"])
+                if s_clean.get("workspace_path"):
+                    s_clean["workspace_path"] = anonymize_paths(s_clean["workspace_path"], workspace_root=ws)
+                if s_clean.get("transcript_path"):
+                    s_clean["transcript_path"] = anonymize_paths(s_clean["transcript_path"], workspace_root=ws)
+                sanitized_sessions.append(s_clean)
+
+            sanitized_steps: List[Dict[str, Any]] = []
+            for st in raw_steps:
+                st_clean = dict(st)
+                st_clean.pop("id", None)
+                ws = session_ws_map.get(st_clean.get("session_id"))
+                if st_clean.get("content_snippet"):
+                    st_clean["content_snippet"] = anonymize_paths(
+                        strip_secrets(st_clean["content_snippet"]), workspace_root=ws
+                    )
+                sanitized_steps.append(st_clean)
+
+            sanitized_tools: List[Dict[str, Any]] = []
+            for tc in raw_tools:
+                tc_clean = dict(tc)
+                tc_clean.pop("id", None)
+                ws = session_ws_map.get(tc_clean.get("session_id"))
+                sanitized_tools.append(sanitize_tool_call(tc_clean, workspace_root=ws))
+
+            sanitized_interventions: List[Dict[str, Any]] = []
+            for ui in raw_interventions:
+                ui_clean = dict(ui)
+                ui_clean.pop("id", None)
+                ws = session_ws_map.get(ui_clean.get("session_id"))
+                if ui_clean.get("prompt_text"):
+                    ui_clean["prompt_text"] = sanitize_intervention(
+                        ui_clean["prompt_text"], workspace_root=ws
+                    )
+                if ui_clean.get("preceding_error_snippet"):
+                    ui_clean["preceding_error_snippet"] = anonymize_paths(
+                        strip_secrets(ui_clean["preceding_error_snippet"]), workspace_root=ws
+                    )
+                sanitized_interventions.append(ui_clean)
+
+            payload = _strip_nul({
+                "client_version": "1.0.0",
+                "sessions": sanitized_sessions,
+                "steps": sanitized_steps,
+                "tool_calls": sanitized_tools,
+                "user_interventions": sanitized_interventions,
+            })
+
+            payload_bytes = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                primary_url,
+                data=payload_bytes,
+                headers=headers,
+                method="POST",
+            )
+
+            try:
+                with urllib.request.urlopen(req, timeout=45.0) as resp:
                     _ = resp.read()
-            else:
-                raise
+            except urllib.error.HTTPError as err:
+                if err.code == 404:
+                    fallback_url = f"{endpoint_clean}/api/v1/telemetry/batch"
+                    req_fallback = urllib.request.Request(
+                        fallback_url,
+                        data=payload_bytes,
+                        headers=headers,
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req_fallback, timeout=45.0) as resp:
+                        _ = resp.read()
+                else:
+                    raise
 
-        now_iso = datetime.now(timezone.utc).isoformat()
-        cur.executemany(
-            "UPDATE sessions SET remote_synced_at = ? WHERE session_id = ?",
-            [(now_iso, s_id) for s_id in session_ids],
-        )
-        conn.commit()
+            cur.executemany(
+                "UPDATE sessions SET remote_synced_at = ? WHERE session_id = ?",
+                [(now_iso, s_id) for s_id in batch_session_ids],
+            )
+            conn.commit()
+
+            total_sessions_pushed += len(sanitized_sessions)
+            total_steps_pushed += len(sanitized_steps)
+            total_tools_pushed += len(sanitized_tools)
+            total_interventions_pushed += len(sanitized_interventions)
 
         return {
             "status": "success",
-            "sessions_pushed": len(sanitized_sessions),
-            "steps_pushed": len(sanitized_steps),
-            "tool_calls_pushed": len(sanitized_tools),
-            "user_interventions_pushed": len(sanitized_interventions),
+            "sessions_pushed": total_sessions_pushed,
+            "steps_pushed": total_steps_pushed,
+            "tool_calls_pushed": total_tools_pushed,
+            "user_interventions_pushed": total_interventions_pushed,
             "synced_at": now_iso,
             "dry_run": False,
         }
