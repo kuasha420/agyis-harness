@@ -136,10 +136,12 @@ def calculate_duration(start_str: Optional[str], end_str: Optional[str]) -> Opti
 
 def classify_intervention(text: str, preceding_failed: bool) -> str:
     lower = text.lower().strip()
+    # Native Antigravity slash commands (ADR-031)
     if lower.startswith("/boost") or "/boost " in lower:
         return "BOOST_ORCHESTRATION"
     if lower.startswith("/plan") or "/plan " in lower:
         return "PLAN_INITIATION"
+    # PSL Harness Skill invocation via progressive skill dispatch (ADR-026)
     if lower.startswith("/agent-builder") or "/agent-builder " in lower or "agent-builder" in lower:
         return "AGENT_BUILDER_INVOCATION"
     if preceding_failed:

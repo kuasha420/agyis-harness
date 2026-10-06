@@ -281,24 +281,24 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
 
 ---
 
-## [Phase 8] Native Orchestration Alignment: Boost, Plan Mode & Agent Builder Primitives (ADR-031)
-* **Status**: Completed | **Compaction Date**: 2026-10-05
+## [Phase 8] Native Orchestration Alignment: Boost Swarm & Plan Mode (ADR-031)
+* **Status**: Completed | **Compaction Date**: 2026-10-05 (Finalized 2026-10-06)
 * **Key Architectural Decisions (ADRs)**:
-  - **ADR-031 (Native Orchestration Alignment: Boost, Plan Mode & Agent Builder Primitives)**:
+  - **ADR-031 (Native Orchestration Alignment: Boost Swarm & Plan Mode)**:
     - **Native Plan-Mode Lock Invariant**: PreToolUse Anti-Drift Guard (`anti_drift_hook.py`) intercepts active Plan Mode (`/plan` or `mode: "plan"`) and unapproved implementation plans as zero-mutation boundaries, deterministically blocking code edits outside `implementation_plan.md` and scratch directories.
     - **Dual Orchestration Taxonomy**: Bifurcated task execution into (1) Native `/boost` Stigmergic Swarm (probabilistic multi-worker parallel search, synthetic test oracles, and adversarial verification for hard concurrency/algorithmic problems) and (2) PSL 6-Stage Subagent Ladder (deterministic linear pipeline with Stage 4 Custodian Git commit gate on HEAD and Stage 5 clean-room testing).
-    - **Adversarial Verifier Capability Bundle**: Codified `adversarial_verifier` bundle in `harness/subagents.py` and `agent-builder` skill to support fuzzer, property testing, and test generator personas inspired by the `/boost` verifier architecture.
-    - **Telemetry Ingestion & Slash Classification**: `pipeline/extract_transcripts.py` classifies `BOOST_ORCHESTRATION`, `PLAN_INITIATION`, and `AGENT_BUILDER_INVOCATION` interventions to profile native slash-command usage in `telemetry.db`.
+    - **Adversarial Verifier Capability Bundle**: Codified `adversarial_verifier` bundle in `harness/subagents.py` to support fuzzer, property testing, and test generator personas inspired by the `/boost` verifier architecture.
+    - **Telemetry Ingestion for Native Slash Commands**: `pipeline/extract_transcripts.py` classifies `BOOST_ORCHESTRATION` and `PLAN_INITIATION` native slash commands in `telemetry.db`.
+    - **Decoupled Architecture Note**: `/agent-builder` and custom agents remain strictly decoupled from ADR-031/ADR-030, anchored solely in ADR-026.
 * **Empirical Baselines Established & Verified**:
   - Full test suite expanded to **259 hermetic tests passing in 1.297s** (with 47 anti-drift and scaffolding tests passing in 0.028s).
   - 7/7 specialist subagent specifications validated and certified compliant.
-  - Zero platform hanging risks: verified against `ANTIGRAVITY_PLATFORM_TOOLS`.
+  - Clean-room verification passed with zero regressions.
 * **Reference Assets Committed**:
-  - Research Specification: [docs/official-specs/antigravity-boost-plan-agent-builder.md](docs/official-specs/antigravity-boost-plan-agent-builder.md)
+  - Research Specification: [docs/official-specs/antigravity-boost-and-plan.md](docs/official-specs/antigravity-boost-and-plan.md)
   - Formal Decision Record: [docs/adr/ADR-031-native-orchestration-alignment.md](docs/adr/ADR-031-native-orchestration-alignment.md)
   - PreToolUse Plan-Mode Lock: [harness/hooks/anti_drift_hook.py](harness/hooks/anti_drift_hook.py)
   - Subagent Registry & Capability Bundles: [harness/subagents.py](harness/subagents.py)
-  - Modular Skill Definitions: [harness/skills/agent-builder/SKILL.md](harness/skills/agent-builder/SKILL.md), [.agents/skills/agent-builder/SKILL.md](.agents/skills/agent-builder/SKILL.md)
   - Telemetry Ingestion Classifier: [pipeline/extract_transcripts.py](pipeline/extract_transcripts.py)
   - Test Suites: [tests/test_anti_drift.py](tests/test_anti_drift.py), [tests/test_agent_scaffold.py](tests/test_agent_scaffold.py)
 

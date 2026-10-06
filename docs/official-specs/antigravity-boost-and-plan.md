@@ -1,33 +1,35 @@
-# Comprehensive Technical Specification: Antigravity `/boost`, `/plan`, and `/agent-builder`
+# Comprehensive Technical Specification: Antigravity Native Orchestration Primitives (/boost & /plan) & PSL Harness Alignment
 
 ## Executive Summary
 
-As Google Antigravity transitioned through versions **v1.1.0** to **v1.2.16**, the platform underwent a fundamental architectural shift: moving from a conversational pair-programmer to a **structured multi-agent operating system**. At the core of this evolution are three interconnected capabilities:
+As Google Antigravity transitioned through versions **v1.1.0** to **v1.2.16**, the platform underwent a fundamental architectural shift: moving from a conversational pair-programmer to a **structured multi-agent operating system**. At the core of this native evolution are two core platform orchestration primitives:
 
-1. **`/boost`**: An on-demand, multi-agent deep reasoning and adversarial verification orchestrator designed for high-concurrency bugs, deep architectural refactoring, and large-scale migrations.
-2. **`/plan`**: A first-class modal planning loop (`default` $\to$ `accept-edits` $\to$ `plan`) and slash-command prefix that mandates read-only exploration and an interactive artifact gate (`implementation_plan.md`) prior to any workspace mutation.
-3. **`/agent-builder` & Custom Agents**: The convergence of file-based specialist personas (`.agents/agents/*.md`), native inline routing (`@<subagent>`), tool prerequisite gating, and progressive skill execution (`/<skill-name>`).
+1. **`/boost` (Native Deep Swarm)**: An on-demand, multi-agent deep reasoning and adversarial verification orchestrator designed for high-concurrency bugs, deep architectural refactoring, and large-scale migrations.
+2. **`/plan` (Native Plan Mode)**: A first-class modal planning loop (`default` $\to$ `accept-edits` $\to$ `plan`) and slash-command prefix that mandates read-only exploration and an interactive artifact gate (`implementation_plan.md`) prior to workspace mutations.
 
-This specification reverse-engineers the internal Go binary implementations, protobuf definitions, stop hooks, and stigmergic coordination protocols behind these primitives. It also establishes the comparative architecture and integration contracts for **`psl-agy-harness`**.
+> [!NOTE] Architectural Decoupling: Native Primitives vs. Custom Agent Features
+> This specification and **ADR-031** focus exclusively on native Antigravity runtime orchestration primitives (`/boost` and `/plan`). Custom agent scaffolding and the `/agent-builder` skill are **PSL harness features**, governed and codified separately under **ADR-026** ([`docs/official-specs/custom-agents.md`](custom-agents.md) and [`.agents/skills/agent-builder/SKILL.md`](../../.agents/skills/agent-builder/SKILL.md)), completely decoupled from native orchestration alignment.
+
+This specification reverse-engineers the internal Go binary implementations, protobuf definitions, stop hooks, and stigmergic coordination protocols behind `/boost` and `/plan`, and documents the verified integration contracts for **`psl-agy-harness`**.
 
 ```mermaid
 flowchart TD
     subgraph Antigravity Core Orchestration
         PLAN["/plan (Plan Mode)<br/>• Shift+Tab cycle<br/>• PrependSlashPlanIfNeeded<br/>• RequestFeedback stop hook<br/>• implementation_plan.md"]
         BOOST["/boost (Deep Swarm)<br/>• Boost Multi-Agent Orchestrator<br/>• Stigmergic Blackboard File<br/>• Adversarial Verifier (Oracles)<br/>• High-Reliability Reviewer<br/>• Synthesizer Consolidation"]
-        BUILDER["/agent-builder (Specialists)<br/>• .agents/agents/*.md<br/>• @<agent> routing (v1.2.9+)<br/>• Tool Prerequisite Pruning (v1.2.16+)<br/>• Anti-hang Capability Bundles"]
     end
 
-    subgraph PSL Harness Integrations
-        ADR012["ADR-012 Plan Invariant<br/>• Zero-write enforcement<br/>• Walkthrough artifact lifecycle"]
+    subgraph PSL Harness Integrations (ADR-031)
+        ADR012["PreToolUse Plan Lock (ADR-031)<br/>• Zero-write enforcement<br/>• Walkthrough artifact lifecycle"]
         LADDER["6-Stage Subagent Ladder<br/>• Deterministic ladder vs. Swarm<br/>• Custodian HEAD commit gate"]
-        TELEMETRY["Telemetry Laboratory<br/>• Ingest Boost traces into telemetry.db<br/>• Classify planning interventions"]
+        VERIFIER["Adversarial Verifier Bundle<br/>• Oracles, fuzzers, test generators<br/>• Scoped execute & isolated write"]
+        TELEMETRY["Telemetry Laboratory<br/>• Ingest Boost traces into telemetry.db<br/>• Classify native slash commands"]
     end
 
     PLAN --> ADR012
     BOOST --> LADDER
+    BOOST --> VERIFIER
     BOOST --> TELEMETRY
-    BUILDER --> LADDER
 ```
 
 ---
@@ -142,75 +144,16 @@ During the planning turn, the agent is strictly prohibited from mutating product
 
 ---
 
-## 3. Feature Deep-Dive: Antigravity `/agent-builder` & Custom Agents
+## 3. Comparative Architecture: Antigravity Native Swarm vs. PSL Subagent Ladder
 
-### A. Skill-as-Slash-Command Discovery
-In Antigravity, every modular skill installed in `.agents/skills/<name>/SKILL.md` or `~/.gemini/antigravity/builtin/skills/<name>/SKILL.md` is registered in the command palette as a slash command `/<name>`.
-
-When a user types `/agent-builder <request>`, the runtime injects:
-```xml
-<SKILL>
-The user has explicitly invoked the (agent-builder) skill.
-You must strictly follow the instructions in this skill to process their request.
-Here are its contents:
-...
-</SKILL>
-```
-
-### B. Custom Agent Specification (`.agents/agents/*.md`)
-Antigravity discovers custom agents across three hierarchical directories:
-1. **Workspace**: `<workspace_root>/.agents/agents/*.md` (shared in Git).
-2. **Global**: `~/.gemini/config/agents/*.md` (user-wide).
-3. **Plugins**: `~/.gemini/config/plugins/<plugin>/agents/*.md`.
-
-Each agent is defined as Markdown with YAML frontmatter:
-```yaml
----
-name: security_auditor
-archetype: auditor
-role: Security & Sandbox Auditor
-description: Verifies terminal sandbox rules and inspects permission boundaries.
-model: inherit                           # Inherits model tier or pins gemini-3.8-pro
-subagent: true                          # Accessible via invoke_subagent
-mainAgent: true                         # Accessible in UI New Conversation dropdown
-permissions:
-  read: true
-  write: false                          # Strictly read-only
-  execute: true
-  subagents: false
-allowed_tools:
-  - view_file
-  - run_command
-  - manage_task
----
-# Instructions ...
-```
-
-### C. Platform Mechanics Added in Recent Releases
-1. **Native `@<subagent>` Routing (v1.2.9+)**:
-   - Users can route prompts directly to specific agents using inline `@` mentions in chat:
-     ```text
-     @harness_reviewer Please perform a delta review on the last commit.
-     ```
-2. **Tool Prerequisite Pruning in `/` Menu (v1.2.16+)**:
-   - The CLI `/` suggestions menu dynamically queries the active agent's capability bundle.
-   - If an agent declares `write: false`, write tools and file mutation commands are pruned from suggestions, preventing tool hallucination.
-3. **The Platform Hanging Bug Hardening**:
-   - An internal flaw in Antigravity's subagent loader: declaring an invalid or unmounted tool name in `allowed_tools:` causes the dispatcher to hang indefinitely without returning an error.
-   - PSL's `agent-builder` skill enforces compile-time validation against the 20 verified platform tools (`ANTIGRAVITY_PLATFORM_TOOLS`).
-
----
-
-## 4. Comparative Architecture: Antigravity Native vs. PSL Harness
-
-| Dimension | Native `/boost` | PSL 6-Stage Subagent Ladder | Native `/plan` | PSL ADR-012 Invariant |
+| Dimension | Native `/boost` Swarm | PSL 6-Stage Subagent Ladder | Native `/plan` Mode | PSL ADR-012 Invariant |
 | :--- | :--- | :--- | :--- | :--- |
 | **Orchestration Model** | Dynamic Stigmergic Swarm | Deterministic Linear Pipeline | Modal Single Agent | Interactive Artifact Protocol |
-| **Coordination Medium** | `.swarm_blackboard.md` | Staged Worktrees & Memory Sync | Single Prompt Prepend | `implementation_plan.md` |
-| **Worker Roles** | Coder, Adversarial Verifier, Reviewer | Planner, Builder, Reviewer, Custodian, Auditor | None (Single Persona) | Lead Architect & Specialists |
-| **Commit Gate** | Synthesizer merges patches | Stage 4 Custodian atomic commit on HEAD | None | Retroactive Horizon Compaction |
+| **Coordination Medium** | `.swarm_blackboard_<task>.md` | Staged Worktrees & State Dir | Single Prompt Prepend | `implementation_plan.md` |
+| **Worker Roles** | Coder, Adversarial Verifier, Reviewer | Planner, Builder, Reviewer, Custodian, Auditor | Single Persona | Lead Architect & Specialists |
+| **Commit Gate** | Synthesizer merges candidate diffs | Stage 4 Custodian atomic commit on HEAD | None | Retroactive Horizon Compaction |
 | **Context Cliff Guard** | 16-Spawn Succession Protocol | Fresh context per ladder stage (<50k tokens) | Read-only planning turn | Aperture Compaction in Ledger |
-| **Adversarial Verification** | Internal test generators/oracles | Sub-second benchmark & doctor audit | None | `python3 -m harness.cli test` |
+| **Adversarial Verification**| Internal test generators & oracles | Sub-second benchmark & doctor audit | None | `python3 -m harness.cli test` |
 | **Execution Cost** | High (Multi-agent fanout; paid plan) | Optimized (`Model: inherit`, targeted stages) | Low (Single turn) | Sub-second, zero-token overhead |
 
 ### When to Use Which Pattern:
@@ -220,19 +163,23 @@ allowed_tools:
 
 ---
 
-## 5. Harness Architectural Extensions
+## 4. Harness Architectural Extensions & Implementations
 
 ### A. PreToolUse Plan-Lock Enforcement (`anti_drift_hook.py`)
-Enhance `harness/hooks/anti_drift_hook.py` to inspect the prompt trajectory:
-- If the current turn is a `/plan` turn or if `implementation_plan.md` has `RequestFeedback: true` and has not yet received a user confirmation message (`Proceed`), any code-modifying tool call (`write_to_file`, `replace_file_content`, `edit_file`) is deterministically rejected with exit code 2.
+Implemented `check_plan_mode_lock` in `harness/hooks/anti_drift_hook.py`:
+- Inspects session mode (`mode: "plan"` or `agent_mode: "plan"` or environment variables).
+- During active Plan Mode, any code-modifying tool call (`write_to_file`, `replace_file_content`, `edit_file`) is deterministically denied with a clear invariant message (`PSL Native Plan-Mode Lock (ADR-031)`).
+- Exempt paths (`is_exempt_file`) like `implementation_plan.md`, `walkthrough.md`, documentation, and scratch files remain writable for planning artifact authoring.
 
-### B. Telemetry Classification for `/boost` and `/plan` (`pipeline/`)
-Update `pipeline/extract_transcripts.py` and `harness/telemetry/sync.py`:
-- Detect user prompts starting with `/boost` and tag session attribute `orchestration_mode = 'BOOST'`.
-- Detect prompts starting with `/plan` and classify interventions as `PLAN_INITIATION`.
-- Track subagent fanout and verify if `/boost` blackboard files are present in the workspace.
+### B. Dual Orchestration Taxonomy & Adversarial Verifier Bundle (`harness/subagents.py`)
+Implemented in `harness/subagents.py`:
+- Added the `adversarial_verifier` capability bundle inspired by `/boost`'s test generator and oracle persona:
+  - Allowed Tools: `view_file`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `search_web`, `run_command`, `manage_task`, `write_to_file`, `replace_file_content`.
+  - Permissions: `read: true`, `write: true`, `execute: true`, `subagents: false`.
+  - Scoped to authoring generative fuzzers, test oracles, and stress benchmarks.
 
-### C. Agent Builder Capability Bundle Validation (`harness/subagents.py`)
-Update `harness/subagents.py` and `harness/skills/agent-builder/SKILL.md`:
-- Validate that all scaffolded agents explicitly support the Antigravity v1.2.16+ tool prerequisite pruning rules.
-- Add an `adversarial_verifier` capability bundle inspired by `/boost`'s test generator pattern for testing lifecycle hooks.
+### C. Telemetry Classification for Native Slash Commands (`pipeline/`)
+Implemented in `pipeline/extract_transcripts.py` and `harness/telemetry/sync.py`:
+- Detects user prompts starting with `/boost` and tags `BOOST_ORCHESTRATION`.
+- Detects prompts starting with `/plan` and tags `PLAN_INITIATION`.
+- Tracks plan confirmation phrases (`proceed`, `approved this document`, `lgtm`) as `CONFIRMATION`.

@@ -230,12 +230,13 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - Delivered `psl auth login|status|logout` and upgraded `psl sync` bi-directional CLI.
     - Generated containerization and CloudPanel loopback deployment profiles (`server/deploy.sh`, `docker-compose.yml`, systemd unit).
     - Expanded hermetic test suite to **256 passing tests in 1.289s**.
-  - [x] **Native Orchestration Alignment: Boost, Plan Mode & Agent Builder Primitives (ADR-031 Phase 8)**:
-    - Reverse-engineered Antigravity internal Go binary implementation of `/boost`, `/plan`, and `/agent-builder`.
-    - Formulated ADR-031 and authored complete research specification (`docs/official-specs/antigravity-boost-plan-agent-builder.md`).
+  - [x] **Native Orchestration Alignment: Boost Swarm & Plan Mode (ADR-031 Phase 8)**:
+    - Reverse-engineered Antigravity internal Go binary implementations of native `/boost` and `/plan`.
+    - Formulated and finalized ADR-031 and authored complete research specification (`docs/official-specs/antigravity-boost-and-plan.md`).
     - Implemented PreToolUse Native Plan-Mode Lock (`check_plan_mode_lock`) in `harness/hooks/anti_drift_hook.py`.
-    - Codified `adversarial_verifier` capability bundle in `harness/subagents.py` and `harness/skills/agent-builder/SKILL.md`.
-    - Extended transcript extraction in `pipeline/extract_transcripts.py` to classify `BOOST_ORCHESTRATION`, `PLAN_INITIATION`, and `AGENT_BUILDER_INVOCATION`.
+    - Codified `adversarial_verifier` capability bundle in `harness/subagents.py` for test generators and stress oracles.
+    - Extended transcript extraction in `pipeline/extract_transcripts.py` to classify native slash commands (`BOOST_ORCHESTRATION`, `PLAN_INITIATION`).
+    - Decoupled custom agent scaffolding (`agent-builder`) to remain solely anchored in ADR-026.
     - Expanded hermetic test suite to **259 passing tests in 1.297s** (with 47 anti-drift & scaffold tests in 0.028s).
 * **Upcoming Milestones**:
   1. **Standardized Testing Runner Skills**:
