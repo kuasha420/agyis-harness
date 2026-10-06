@@ -246,6 +246,35 @@ class TestPslCli(unittest.TestCase):
             data = json.loads(mock_out.getvalue())
             self.assertEqual(data["session_id"], "test-session-1234")
 
+    def test_cli_audit_session_with_db_flag(self):
+        """Verifies `psl audit session --save-db --db <path>` saves into specified database."""
+        sess_dir = Path(self.temp_dir.name) / "sess_dir"
+        log_dir = sess_dir / ".system_generated" / "logs"
+        log_dir.mkdir(parents=True)
+        (log_dir / "transcript.jsonl").write_text(json.dumps({"step_index": 0}) + "\n")
+
+        dummy_report = {
+            "session_id": "test-session-5678",
+            "coordinator": {},
+            "subagents": [],
+            "collective_pipeline": {}
+        }
+        custom_db = Path(self.temp_dir.name) / "audit_target.db"
+
+        with patch("pipeline.analyze_live_session.find_latest_session_dir", return_value=sess_dir), \
+             patch("pipeline.analyze_live_session.analyze_session", return_value=dummy_report), \
+             patch("pipeline.extract_transcripts.extract_session", return_value=({
+                 "session_id": "test-session-5678", "start_time": "2026-01-01", "end_time": "2026-01-01",
+                 "duration_seconds": 1.0, "total_steps": 1, "model": "gemini",
+                 "workspace_path": "/ws", "transcript_path": str(log_dir / "transcript.jsonl"),
+                 "file_size_bytes": 10, "has_errors": 0, "tool_call_count": 0,
+                 "tool_error_count": 0, "intervention_count": 0
+             }, [], [], [])), \
+             patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["audit", "session", "--save-db", "--db", str(custom_db), "--json"])
+            self.assertEqual(code, 0)
+            self.assertTrue(custom_db.exists())
+
     def test_cli_auth_login(self):
         """Verifies `psl auth login` validates token and saves credentials."""
         with patch("harness.telemetry.sync.verify_auth_token", return_value={"status": "ok", "authenticated": True, "username": "alice", "org": "purrfectsoft"}), \
@@ -260,6 +289,37 @@ class TestPslCli(unittest.TestCase):
         self.assertEqual(creds["github_username"], "alice")
         cfg = config.load_config()
         self.assertEqual(cfg["endpoint"], "https://hub.example.com")
+
+    def test_cli_auth_login_with_gh(self):
+        """Verifies `psl auth login --gh` lifts token via gh CLI."""
+        with patch("harness.telemetry.config.get_gh_cli_token", return_value="gho_cli_token_999") as mock_gh, \
+             patch("harness.telemetry.sync.verify_auth_token", return_value={"status": "ok", "authenticated": True, "username": "gh-alice", "org": "mesh"}), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["auth", "login", "--gh"])
+            self.assertEqual(code, 0)
+            mock_gh.assert_called_once()
+            self.assertIn("Successfully authenticated as gh-alice", mock_out.getvalue())
+
+        from harness.telemetry import config
+        creds = config.load_credentials()
+        self.assertEqual(creds["token"], "gho_cli_token_999")
+        self.assertEqual(creds["github_username"], "gh-alice")
+
+    def test_cli_auth_login_workspace_scope(self):
+        """Verifies `psl auth login --workspace` persists endpoint into workspace config."""
+        ws_root = Path(self.temp_dir.name) / "workspace"
+        (ws_root / ".git").mkdir(parents=True)
+
+        with patch("harness.telemetry.config.find_workspace_root", return_value=ws_root), \
+             patch("harness.telemetry.sync.verify_auth_token", return_value={"status": "ok", "authenticated": True, "username": "ws-alice"}), \
+             patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["auth", "login", "--token", "tok-123", "--endpoint", "https://ws.example.com", "--workspace"])
+            self.assertEqual(code, 0)
+
+        ws_cfg_path = ws_root / ".psl" / "config.json"
+        self.assertTrue(ws_cfg_path.exists())
+        ws_data = json.loads(ws_cfg_path.read_text())
+        self.assertEqual(ws_data["endpoint"], "https://ws.example.com")
 
     def test_cli_auth_status_and_logout(self):
         """Verifies `psl auth status` and `psl auth logout`."""
@@ -301,8 +361,10 @@ class TestPslCli(unittest.TestCase):
                 direction="both",
                 interactive=False,
                 endpoint=None,
+                db_path=None,
                 limit=None,
                 dry_run=False,
+                on_progress=unittest.mock.ANY,
             )
             out = mock_out.getvalue()
             self.assertIn("Telemetry sync completed successfully", out)
@@ -325,12 +387,32 @@ class TestPslCli(unittest.TestCase):
                 direction="push",
                 interactive=False,
                 endpoint=None,
+                db_path=None,
                 limit=None,
                 dry_run=True,
+                on_progress=None,
             )
             data = json.loads(mock_out.getvalue())
             self.assertEqual(data["status"], "dry_run")
             self.assertEqual(data["direction"], "push")
+
+    def test_cli_sync_with_db_flag(self):
+        """Verifies `psl sync --db <path>` passes custom db path to sync_telemetry."""
+        mock_res = {"status": "success", "direction": "both", "push": None, "pull": None}
+        custom_db = Path(self.temp_dir.name) / "custom.db"
+        with patch("harness.telemetry.sync.sync_telemetry", return_value=mock_res) as mock_sync, \
+             patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["sync", "--db", str(custom_db)])
+            self.assertEqual(code, 0)
+            mock_sync.assert_called_once_with(
+                direction="both",
+                interactive=False,
+                endpoint=None,
+                db_path=str(custom_db),
+                limit=None,
+                dry_run=False,
+                on_progress=unittest.mock.ANY,
+            )
 
     def test_cli_sync_with_session_id_ingestion(self):
         """Verifies `psl sync --session-id <id>` ingests session before synchronizing."""

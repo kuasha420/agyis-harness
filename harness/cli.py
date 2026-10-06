@@ -184,7 +184,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
         if save_db:
             from pipeline import extract_transcripts
             import sqlite3
-            db_path = DEFAULT_DB
+            from harness.telemetry import config
+            db_path = config.resolve_db_path(getattr(args, "db", None))
             conn = sqlite3.connect(db_path)
             extract_transcripts.ensure_sync_columns(conn)
             cur = conn.cursor()
@@ -261,20 +262,38 @@ def cmd_auth(args: argparse.Namespace) -> int:
         token = getattr(args, "token", None)
         endpoint = getattr(args, "endpoint", None) or config.get_sync_endpoint()
 
+        if getattr(args, "gh", False):
+            token = config.get_gh_cli_token()
+            if not token:
+                sys.stderr.write("Error: Failed to retrieve token from GitHub CLI ('gh auth token'). Ensure gh is installed and authenticated.\n")
+                return 1
+
         if not token:
             if sys.stdin.isatty():
-                import getpass
-                try:
-                    token = getpass.getpass("Enter GitHub Personal Access Token (PAT): ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    sys.stderr.write("\nAborted.\n")
-                    return 1
-            else:
-                try:
-                    token = input().strip()
-                except (EOFError, KeyboardInterrupt):
-                    sys.stderr.write("Error: GitHub PAT required. Provide via --token or stdin.\n")
-                    return 1
+                gh_token = config.get_gh_cli_token()
+                if gh_token:
+                    try:
+                        ans = input("GitHub CLI token detected. Use it for authentication? [Y/n]: ").strip().lower()
+                    except (EOFError, KeyboardInterrupt):
+                        sys.stderr.write("\nAborted.\n")
+                        return 1
+                    if ans in ("", "y", "yes"):
+                        token = gh_token
+
+            if not token:
+                if sys.stdin.isatty():
+                    import getpass
+                    try:
+                        token = getpass.getpass("Enter GitHub Personal Access Token (PAT): ").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        sys.stderr.write("\nAborted.\n")
+                        return 1
+                else:
+                    try:
+                        token = input().strip()
+                    except (EOFError, KeyboardInterrupt):
+                        sys.stderr.write("Error: GitHub PAT required. Provide via --token or stdin.\n")
+                        return 1
 
         if not token:
             sys.stderr.write("Error: GitHub PAT required.\n")
@@ -305,10 +324,15 @@ def cmd_auth(args: argparse.Namespace) -> int:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
 
-        if getattr(args, "endpoint", None):
+        if getattr(args, "workspace_scope", False):
+            ws_cfg = config.load_config()
+            if getattr(args, "endpoint", None):
+                ws_cfg["endpoint"] = endpoint
+            config.save_config(ws_cfg, scope="workspace")
+        elif getattr(args, "endpoint", None):
             cfg = config.load_config()
             cfg["endpoint"] = endpoint
-            config.save_config(cfg)
+            config.save_config(cfg, scope="global")
 
         if getattr(args, "json", False):
             print(json.dumps({
@@ -369,6 +393,8 @@ def cmd_auth(args: argparse.Namespace) -> int:
 
 def cmd_sync(args: argparse.Namespace) -> int:
     """Synchronizes telemetry with the central hub (push, pull, or bi-directional)."""
+    db_path = getattr(args, "db", None)
+
     if getattr(args, "session_id", None):
         try:
             from pipeline import analyze_live_session
@@ -377,7 +403,9 @@ def cmd_sync(args: argparse.Namespace) -> int:
                 t_file = s_dir / ".system_generated" / "logs" / "transcript.jsonl"
                 if t_file.exists():
                     from pipeline import extract_transcripts
-                    extract_transcripts.extract_and_store([t_file], db_path=DEFAULT_DB)
+                    from harness.telemetry import config
+                    resolved_db = config.resolve_db_path(db_path)
+                    extract_transcripts.extract_and_store([t_file], db_path=resolved_db)
         except Exception as exc:
             sys.stderr.write(f"Warning: Session ingestion failed: {exc}\n")
 
@@ -395,14 +423,22 @@ def cmd_sync(args: argparse.Namespace) -> int:
     limit = getattr(args, "limit", None)
     dry_run = getattr(args, "dry_run", False)
 
+    on_progress = None
+    if not getattr(args, "json", False):
+        def on_progress(batch_num: int, total_batches: int, stats: Dict[str, Any]) -> None:
+            if total_batches > 1:
+                print(f"  • Pushing batch {batch_num}/{total_batches} ({stats.get('sessions', 0)} sessions, {stats.get('steps', 0)} steps)...")
+
     from harness.telemetry.sync import sync_telemetry
     try:
         res = sync_telemetry(
             direction=direction,
             interactive=interactive,
             endpoint=endpoint,
+            db_path=db_path,
             limit=limit,
             dry_run=dry_run,
+            on_progress=on_progress,
         )
     except Exception as exc:
         sys.stderr.write(f"Sync error: {exc}\n")
@@ -1006,7 +1042,8 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_install(args: argparse.Namespace) -> int:
     """Installs the PSL harness globally as a Google Antigravity plugin."""
     mode = DeliveryMode.COPY if getattr(args, "copy", False) else DeliveryMode.SYMLINK
-    installer = PluginInstaller()
+    bin_dir = Path(args.bin_dir) if getattr(args, "bin_dir", None) else None
+    installer = PluginInstaller(bin_dir=bin_dir)
     target_dir = Path(args.target) if getattr(args, "target", None) else None
     result = installer.install(mode=mode, dry_run=getattr(args, "dry_run", False), target_dir=target_dir)
 
@@ -1031,7 +1068,8 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
     """Uninstalls the PSL harness global plugin."""
-    installer = PluginInstaller()
+    bin_dir = Path(args.bin_dir) if getattr(args, "bin_dir", None) else None
+    installer = PluginInstaller(bin_dir=bin_dir)
     target_dir = Path(args.target) if getattr(args, "target", None) else None
     result = installer.uninstall(dry_run=getattr(args, "dry_run", False), target_dir=target_dir)
 
@@ -1214,6 +1252,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_auth_login = auth_subs.add_parser("login", help="Authenticate with GitHub Personal Access Token")
     p_auth_login.add_argument("--token", "-t", type=str, default=None, help="GitHub Personal Access Token")
+    p_auth_login.add_argument("--gh", action="store_true", help="Lift token directly from GitHub CLI ('gh auth token')")
+    p_auth_login.add_argument("--workspace", "-w", dest="workspace_scope", action="store_true", help="Store endpoint in workspace config (.psl/config.json)")
     p_auth_login.add_argument("--endpoint", "-e", type=str, default=None, help="Central telemetry hub endpoint URL")
     p_auth_login.add_argument("--json", action="store_true", help="Output result in JSON format")
 
@@ -1228,6 +1268,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync.add_argument("--push", action="store_true", help="Push local unsynced telemetry to remote hub")
     p_sync.add_argument("--pull", action="store_true", help="Pull remote telemetry deltas into local database")
     p_sync.add_argument("--remote", "-r", type=str, default=None, help="Central telemetry hub endpoint URL")
+    p_sync.add_argument("--db", type=str, default=None, help="Path to SQLite telemetry database")
     p_sync.add_argument("--interactive", "-i", action="store_true", help="Interactively confirm batch push")
     p_sync.add_argument("--limit", "-l", type=int, default=None, help="Maximum number of sessions to push")
     p_sync.add_argument("--dry-run", action="store_true", help="Simulate synchronization without modifications")
@@ -1238,6 +1279,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_install = subparsers.add_parser(
         "install", help="Install PSL harness globally as Google Antigravity plugin"
     )
+    p_install.add_argument("--global", "-g", dest="global_install", action="store_true", help="Install standalone psl CLI into user bin path (~/.local/bin)")
+    p_install.add_argument("--bin-dir", type=Path, default=None, help="Custom binary directory for standalone CLI executable")
     p_install.add_argument("--copy", action="store_true", help="Install via copy mode")
     p_install.add_argument("--symlink", action="store_true", help="Install via symlink mode (default)")
     p_install.add_argument("--dry-run", action="store_true", help="Simulate installation without writing to disk")
@@ -1248,6 +1291,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_uninstall = subparsers.add_parser(
         "uninstall", help="Uninstall PSL harness global plugin"
     )
+    p_uninstall.add_argument("--bin-dir", type=Path, default=None, help="Custom binary directory for standalone CLI executable")
     p_uninstall.add_argument("--dry-run", action="store_true", help="Simulate uninstallation without removing files")
     p_uninstall.add_argument("--target", type=Path, default=None, help="Custom target installation directory")
     p_uninstall.add_argument("--json", action="store_true", help="Output result in JSON format")

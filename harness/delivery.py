@@ -75,6 +75,7 @@ class PluginInstaller:
         self,
         source_dir: Optional[Path] = None,
         default_target_dir: Optional[Path] = None,
+        bin_dir: Optional[Path] = None,
     ) -> None:
         self.source_dir = Path(source_dir).resolve() if source_dir else REPO_ROOT.resolve()
         if default_target_dir is not None:
@@ -84,8 +85,48 @@ class PluginInstaller:
         else:
             self.default_target_dir = Path.home() / ".gemini" / "config" / "plugins" / "psl-agy-harness"
 
+        if bin_dir is not None:
+            self.bin_dir = Path(bin_dir).resolve()
+        elif "PSL_BIN_DIR" in os.environ:
+            self.bin_dir = Path(os.environ["PSL_BIN_DIR"]).expanduser().resolve()
+        else:
+            self.bin_dir = (Path.home() / ".local" / "bin").resolve()
+
         # Verify safety guard on default target directory
         self._verify_path_safety(self.default_target_dir)
+
+    def _install_bin(self, target: Path) -> Path:
+        """Installs standalone CLI executable launcher into self.bin_dir with mode 0o755."""
+        self.bin_dir.mkdir(parents=True, exist_ok=True)
+        psl_bin = self.bin_dir / "psl"
+        if psl_bin.is_symlink() or psl_bin.exists():
+            try:
+                psl_bin.unlink()
+            except OSError:
+                pass
+
+        target_resolved = str(target.resolve()) if target.exists() else str(target)
+        source_resolved = str(self.source_dir.resolve())
+        launcher_content = (
+            "#!/usr/bin/env python3\n"
+            "import sys\n"
+            "from pathlib import Path\n\n"
+            f"target_dir = Path({target_resolved!r})\n"
+            "if target_dir.exists() and str(target_dir) not in sys.path:\n"
+            "    sys.path.insert(0, str(target_dir))\n\n"
+            "plugin_default = Path.home() / '.gemini' / 'config' / 'plugins' / 'psl-agy-harness'\n"
+            "if plugin_default.exists() and str(plugin_default) not in sys.path:\n"
+            "    sys.path.insert(0, str(plugin_default))\n\n"
+            f"source_dir = Path({source_resolved!r})\n"
+            "if source_dir.exists() and str(source_dir) not in sys.path:\n"
+            "    sys.path.insert(0, str(source_dir))\n\n"
+            "from harness.cli import main\n\n"
+            "if __name__ == '__main__':\n"
+            "    sys.exit(main())\n"
+        )
+        psl_bin.write_text(launcher_content, encoding="utf-8")
+        psl_bin.chmod(0o755)
+        return psl_bin
 
     def _verify_path_safety(self, target_dir: Path) -> None:
         """
@@ -155,6 +196,7 @@ class PluginInstaller:
             if target.is_symlink():
                 try:
                     if target.resolve() == self.source_dir.resolve():
+                        self._install_bin(target)
                         return DeliveryResult(
                             success=True,
                             mode=DeliveryMode.SYMLINK.value,
@@ -174,6 +216,7 @@ class PluginInstaller:
 
             target.parent.mkdir(parents=True, exist_ok=True)
             target.symlink_to(self.source_dir.resolve())
+            self._install_bin(target)
 
             return DeliveryResult(
                 success=True,
@@ -224,6 +267,8 @@ class PluginInstaller:
                 shutil.copy2(hooks_src, target / "hooks.json")
                 installed_items.append("hooks.json")
 
+            self._install_bin(target)
+
             return DeliveryResult(
                 success=True,
                 mode=DeliveryMode.COPY.value,
@@ -241,13 +286,21 @@ class PluginInstaller:
         target_dir: Optional[Path] = None,
     ) -> DeliveryResult:
         """
-        Uninstalls the plugin from the target directory.
+        Uninstalls the plugin from the target directory and unlinks bin_dir / psl.
 
         Safety invariant: if target is a symlink, unlinks ONLY the symlink
         without touching the resolved source path.
         """
         target = Path(target_dir) if target_dir is not None else self.default_target_dir
         self._verify_path_safety(target)
+
+        if not dry_run:
+            psl_bin = self.bin_dir / "psl"
+            if psl_bin.is_symlink() or psl_bin.exists():
+                try:
+                    psl_bin.unlink()
+                except OSError:
+                    pass
 
         if not target.exists() and not target.is_symlink():
             return DeliveryResult(

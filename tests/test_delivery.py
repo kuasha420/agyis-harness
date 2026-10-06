@@ -42,8 +42,15 @@ class TestPluginDelivery(unittest.TestCase):
         self.isolated_base = Path(self.temp_dir.name)
         # Always install strictly to a subfolder inside temp
         self.target_dir = self.isolated_base / "installed_plugin"
+        self.bin_dir = self.isolated_base / "bin"
+        self.orig_bin_dir = os.environ.get("PSL_BIN_DIR")
+        os.environ["PSL_BIN_DIR"] = str(self.bin_dir)
 
     def tearDown(self) -> None:
+        if self.orig_bin_dir is not None:
+            os.environ["PSL_BIN_DIR"] = self.orig_bin_dir
+        else:
+            os.environ.pop("PSL_BIN_DIR", None)
         self.temp_dir.cleanup()
 
     def test_symlink_installation_and_validation(self) -> None:
@@ -280,6 +287,57 @@ class TestPluginDelivery(unittest.TestCase):
             data = json.loads(mock_out.getvalue().strip())
             self.assertTrue(data["success"])
             self.assertFalse(self.target_dir.exists())
+
+    def test_install_creates_global_bin(self) -> None:
+        """Plugin installation creates executable psl launcher in bin_dir, removed on uninstall."""
+        import stat
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            bin_dir=self.bin_dir,
+        )
+
+        res = installer.install(mode=DeliveryMode.SYMLINK)
+        self.assertTrue(res.success)
+        psl_bin = self.bin_dir / "psl"
+        self.assertTrue(psl_bin.is_file())
+        file_mode = stat.S_IMODE(psl_bin.stat().st_mode)
+        self.assertEqual(file_mode & 0o755, 0o755)
+
+        content = psl_bin.read_text(encoding="utf-8")
+        self.assertIn("from harness.cli import main", content)
+
+        # Uninstall removes psl launcher
+        res_un = installer.uninstall()
+        self.assertTrue(res_un.success)
+        self.assertFalse(psl_bin.exists())
+
+    def test_install_cli_global_flag(self) -> None:
+        """CLI `psl install --global` installs into bin_dir."""
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main([
+                "install",
+                "--target", str(self.target_dir),
+                "--bin-dir", str(self.bin_dir),
+                "--global",
+                "--json",
+            ])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertTrue(data["success"])
+            psl_bin = self.bin_dir / "psl"
+            self.assertTrue(psl_bin.is_file())
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main([
+                "uninstall",
+                "--target", str(self.target_dir),
+                "--bin-dir", str(self.bin_dir),
+                "--json",
+            ])
+            self.assertEqual(code, 0)
+            psl_bin = self.bin_dir / "psl"
+            self.assertFalse(psl_bin.exists())
 
 
 if __name__ == "__main__":

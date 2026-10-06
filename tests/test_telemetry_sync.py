@@ -269,6 +269,89 @@ class TestConfigManagement(unittest.TestCase):
         self.assertFalse(config.remove_from_denylist(""))
         self.assertFalse(config.remove_from_denylist("   "))
 
+    def test_resolve_db_path_hierarchy_and_no_pwd_probing(self):
+        """Verifies resolve_db_path hierarchy and guarantees PWD is never probed."""
+        custom_db = Path(self.tmpdir.name) / "custom.db"
+        custom_db.touch()
+
+        # 1. Explicit db_path flag
+        self.assertEqual(config.resolve_db_path(custom_db), custom_db.resolve())
+
+        # 2. PSL_TELEMETRY_DB env override
+        with patch.dict(os.environ, {"PSL_TELEMETRY_DB": str(custom_db)}):
+            self.assertEqual(config.resolve_db_path(), custom_db.resolve())
+
+        # 3. must_exist=True raises FileNotFoundError when target absent
+        missing_db = Path(self.tmpdir.name) / "does_not_exist.db"
+        with self.assertRaises(FileNotFoundError):
+            config.resolve_db_path(missing_db, must_exist=True)
+
+        # 4. Strict invariant: never probe PWD/data/telemetry.db
+        fake_pwd_dir = Path(self.tmpdir.name) / "alien_cwd"
+        fake_pwd_data = fake_pwd_dir / "data"
+        fake_pwd_data.mkdir(parents=True)
+        fake_pwd_db = fake_pwd_data / "telemetry.db"
+        fake_pwd_db.touch()
+
+        with patch("pathlib.Path.cwd", return_value=fake_pwd_dir), \
+             patch("os.getcwd", return_value=str(fake_pwd_dir)):
+            # With repo data/telemetry.db mocked as non-existent
+            with patch.object(Path, "is_file", autospec=True) as mock_is_file:
+                # Let only fake_pwd_db exist if checked by mistake
+                def fake_is_file(p):
+                    return str(p) == str(fake_pwd_db.resolve())
+                mock_is_file.side_effect = fake_is_file
+                resolved = config.resolve_db_path()
+                self.assertNotEqual(resolved, fake_pwd_db.resolve())
+
+    def test_workspace_endpoint_precedence(self):
+        """Verifies endpoint precedence: CLI > ENV > workspace > global > default."""
+        ws_dir = Path(self.tmpdir.name) / "my_workspace"
+        ws_dir.mkdir()
+        (ws_dir / ".psl").mkdir()
+
+        # Global config
+        config.save_config({"endpoint": "https://global.telemetry.org"}, scope="global")
+        # Workspace config
+        config.save_config({"endpoint": "https://workspace.telemetry.org"}, scope="workspace", workspace_root=ws_dir)
+
+        # 1. Global config resolved when no workspace
+        self.assertEqual(config.get_sync_endpoint(), "https://global.telemetry.org")
+
+        # 2. Workspace config overrides global
+        self.assertEqual(config.get_sync_endpoint(workspace_root=ws_dir), "https://workspace.telemetry.org")
+
+        # 3. PSL_SYNC_ENDPOINT overrides workspace
+        with patch.dict(os.environ, {"PSL_SYNC_ENDPOINT": "https://env.telemetry.org"}):
+            self.assertEqual(config.get_sync_endpoint(workspace_root=ws_dir), "https://env.telemetry.org")
+
+        # 4. Explicit CLI argument overrides all
+        self.assertEqual(config.get_sync_endpoint("https://cli.telemetry.org", workspace_root=ws_dir), "https://cli.telemetry.org")
+
+    def test_get_gh_cli_token_lifting(self):
+        """Verifies get_gh_cli_token extracts token or returns None safely."""
+        # 1. Successful gh execution
+        mock_proc_ok = MagicMock(returncode=0, stdout=" gho_supersecret_token123 \n")
+        with patch("subprocess.run", return_value=mock_proc_ok) as mock_sub:
+            token = config.get_gh_cli_token()
+            self.assertEqual(token, "gho_supersecret_token123")
+            mock_sub.assert_called_once_with(
+                ["gh", "auth", "token"],
+                timeout=5.0,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        # 2. Failed gh execution (e.g. not logged in, returncode != 0)
+        mock_proc_err = MagicMock(returncode=1, stdout="")
+        with patch("subprocess.run", return_value=mock_proc_err):
+            self.assertIsNone(config.get_gh_cli_token())
+
+        # 3. gh binary not found on system (FileNotFoundError)
+        with patch("subprocess.run", side_effect=FileNotFoundError("gh not found")):
+            self.assertIsNone(config.get_gh_cli_token())
+
 
 class TestSyncPush(unittest.TestCase):
     """Verifies push_local_sessions filtering, redaction, SQLite state update, and dry_run."""
@@ -471,7 +554,7 @@ class TestSyncPush(unittest.TestCase):
         try:
             with patch("urllib.request.urlopen", side_effect=err):
                 with self.assertRaises(urllib.error.HTTPError):
-                    sync.push_local_sessions(db_path=self.db_path)
+                    sync.push_local_sessions(db_path=self.db_path, retry_backoff=0.0)
         finally:
             err.close()
 
@@ -515,6 +598,189 @@ class TestSyncPush(unittest.TestCase):
                 self.assertEqual(req2.get_full_url(), "https://api.telemetry.test/api/v1/telemetry/batch")
         finally:
             err_404.close()
+
+    def test_push_local_sessions_chunking(self):
+        """Verifies session chunking by session limit and step limit with progress updates."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        # Clean previous test sessions to isolate chunking test
+        cur.execute("DELETE FROM sessions")
+        cur.execute("DELETE FROM steps")
+        for i in range(15):
+            cur.execute("""
+                INSERT INTO sessions (session_id, start_time, duration_seconds, total_steps, origin_developer, remote_synced_at)
+                VALUES (?, '2026-03-01T10:00:00Z', 10.0, 5, 'local', NULL)
+            """, (f"sess-chunk-{i:02d}",))
+            cur.execute("""
+                INSERT INTO steps (session_id, step_index, step_type, source, status, created_at)
+                VALUES (?, 0, 'AGENT_OUTPUT', 'MODEL', 'DONE', '2026-03-01T10:01:00Z')
+            """, (f"sess-chunk-{i:02d}",))
+        conn.commit()
+        conn.close()
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"status": "accepted"}'
+        mock_resp.__enter__.return_value = mock_resp
+
+        progress_log = []
+        def on_prog(batch_idx, total_batches, stats):
+            progress_log.append((batch_idx, total_batches, stats["sessions"]))
+
+        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            res = sync.push_local_sessions(
+                db_path=self.db_path,
+                on_progress=on_prog,
+                retry_backoff=0.0,
+            )
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["sessions_pushed"], 15)
+            self.assertEqual(res["batches_count"], 2)
+            self.assertEqual(mock_urlopen.call_count, 2)
+
+            # Check batch sizes in requests
+            req1 = mock_urlopen.call_args_list[0][0][0]
+            req2 = mock_urlopen.call_args_list[1][0][0]
+            payload1 = json.loads(req1.data.decode("utf-8"))
+            payload2 = json.loads(req2.data.decode("utf-8"))
+            self.assertEqual(len(payload1["sessions"]), 10)
+            self.assertEqual(len(payload2["sessions"]), 5)
+
+            # Check progress callback invocation
+            self.assertEqual(progress_log, [(1, 2, 10), (2, 2, 5)])
+
+    def test_push_batch_step_limit_threshold(self):
+        """Verifies a single session exceeding DEFAULT_BATCH_STEP_LIMIT occupies its own batch."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM sessions")
+        cur.execute("""
+            INSERT INTO sessions (session_id, start_time, duration_seconds, total_steps, origin_developer, remote_synced_at)
+            VALUES ('sess-huge-steps', '2026-03-01T10:00:00Z', 100.0, 2600, 'local', NULL)
+        """)
+        cur.execute("""
+            INSERT INTO sessions (session_id, start_time, duration_seconds, total_steps, origin_developer, remote_synced_at)
+            VALUES ('sess-small-steps', '2026-03-01T10:01:00Z', 10.0, 5, 'local', NULL)
+        """)
+        conn.commit()
+        conn.close()
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"status": "accepted"}'
+        mock_resp.__enter__.return_value = mock_resp
+
+        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            res = sync.push_local_sessions(
+                db_path=self.db_path,
+                retry_backoff=0.0,
+            )
+            self.assertEqual(res["batches_count"], 2)
+            self.assertEqual(mock_urlopen.call_count, 2)
+            req1 = mock_urlopen.call_args_list[0][0][0]
+            req2 = mock_urlopen.call_args_list[1][0][0]
+            p1 = json.loads(req1.data.decode("utf-8"))
+            p2 = json.loads(req2.data.decode("utf-8"))
+            self.assertEqual(len(p1["sessions"]), 1)
+            self.assertEqual(p1["sessions"][0]["session_id"], "sess-huge-steps")
+            self.assertEqual(len(p2["sessions"]), 1)
+            self.assertEqual(p2["sessions"][0]["session_id"], "sess-small-steps")
+
+    def test_batch_transactional_atomic_commit(self):
+        """Verifies transactional atomicity: batch 1 remains committed when batch 2 fails."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM sessions")
+        for i in range(12):
+            cur.execute("""
+                INSERT INTO sessions (session_id, start_time, duration_seconds, total_steps, origin_developer, remote_synced_at)
+                VALUES (?, '2026-03-01T10:00:00Z', 10.0, 5, 'local', NULL)
+            """, (f"sess-tx-{i:02d}",))
+        conn.commit()
+        conn.close()
+
+        mock_resp_1 = MagicMock()
+        mock_resp_1.read.return_value = b'{"status": "accepted"}'
+        mock_resp_1.__enter__.return_value = mock_resp_1
+
+        err_batch_2 = urllib.error.HTTPError(
+            url="https://api.telemetry.test/api/v1/sync/push",
+            code=500,
+            msg="Internal Server Error",
+            hdrs=MagicMock(),
+            fp=io.BytesIO(b"Internal Server Error"),
+        )
+
+        try:
+            with patch("urllib.request.urlopen", side_effect=[mock_resp_1, err_batch_2]):
+                with self.assertRaises(urllib.error.HTTPError):
+                    sync.push_local_sessions(
+                        db_path=self.db_path,
+                        retry_backoff=0.0,
+                    )
+        finally:
+            err_batch_2.close()
+
+        # Verify SQLite state: batch 1 sessions are synced, batch 2 sessions are still unsynced
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM sessions WHERE remote_synced_at IS NOT NULL")
+        synced_count = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM sessions WHERE remote_synced_at IS NULL")
+        unsynced_count = cur.fetchone()[0]
+        conn.close()
+
+        self.assertEqual(synced_count, 10, "Batch 1 must remain committed in SQLite")
+        self.assertEqual(unsynced_count, 2, "Batch 2 must remain unsynced in SQLite")
+
+    def test_transient_retry_and_fast_failure(self):
+        """Verifies transient 503 retry succeeds and 403 fails fast without retry."""
+        mock_resp_ok = MagicMock()
+        mock_resp_ok.read.return_value = b'{"status": "accepted"}'
+        mock_resp_ok.__enter__.return_value = mock_resp_ok
+
+        err_503 = urllib.error.HTTPError(
+            url="https://api.telemetry.test/api/v1/sync/push",
+            code=503,
+            msg="Service Unavailable",
+            hdrs=MagicMock(),
+            fp=io.BytesIO(b"Service Unavailable"),
+        )
+
+        # 1. Transient 503: retry succeeds on second attempt
+        try:
+            with patch("urllib.request.urlopen", side_effect=[err_503, mock_resp_ok]) as mock_call:
+                res = sync.push_local_sessions(
+                    db_path=self.db_path,
+                    retry_backoff=0.0,
+                )
+                self.assertEqual(res["status"], "success")
+                self.assertEqual(mock_call.call_count, 2)
+        finally:
+            err_503.close()
+
+        # 2. Fast failure on 403: zero retries
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("UPDATE sessions SET remote_synced_at = NULL")
+        conn.commit()
+        conn.close()
+
+        err_403 = urllib.error.HTTPError(
+            url="https://api.telemetry.test/api/v1/sync/push",
+            code=403,
+            msg="Forbidden",
+            hdrs=MagicMock(),
+            fp=io.BytesIO(b"Forbidden"),
+        )
+        try:
+            with patch("urllib.request.urlopen", side_effect=err_403) as mock_call:
+                with self.assertRaises(urllib.error.HTTPError):
+                    sync.push_local_sessions(
+                        db_path=self.db_path,
+                        retry_backoff=0.0,
+                    )
+                self.assertEqual(mock_call.call_count, 1, "403 must fail immediately with zero retries")
+        finally:
+            err_403.close()
 
 
 class TestSyncPull(unittest.TestCase):
