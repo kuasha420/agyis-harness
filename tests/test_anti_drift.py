@@ -510,7 +510,7 @@ class TestAntiDriftHook(unittest.TestCase):
 
     def test_custodian_write_block(self):
         """Custodian role is blocked from mutating files with custodian invariant reason."""
-        for role in ("custodian", "git_custodian", "commit_gate", "subagent_x_custodian"):
+        for role in ("custodian", "harness_custodian", "git_custodian", "commit_gate", "subagent_x_custodian"):
             payload = {
                 "role": role,
                 "toolCall": {

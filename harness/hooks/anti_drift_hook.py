@@ -366,7 +366,7 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
         or "reviewer" in r_lower
     )
     is_custodian = (
-        r_lower in ("custodian", "git_custodian", "commit_gate")
+        r_lower in ("custodian", "harness_custodian", "git_custodian", "commit_gate")
         or "custodian" in r_lower
     )
     is_main = (

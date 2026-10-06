@@ -157,8 +157,9 @@ class TestSpecialistSubagents(unittest.TestCase):
 
     def test_custodian_toolgroup_permissions(self) -> None:
         """Custodian (Git Commit Gate) must have exec tools to run git, but zero write tools."""
-        custodian = get_agent_spec("custodian")
+        custodian = get_agent_spec("harness_custodian")
         self.assertIsNotNone(custodian)
+        self.assertIsNotNone(get_agent_spec("custodian"))
         self.assertEqual(custodian.archetype, AgentArchetype.CUSTODIAN)
         self.assertFalse(custodian.can_write, "Custodian must not have write permission")
         self.assertTrue(custodian.can_execute, "Custodian must have exec permission")
@@ -267,6 +268,9 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIsNotNone(get_agent_spec("coordinator"))
         self.assertIsNotNone(get_agent_spec("orchestrator"))
 
+        self.assertIsNotNone(get_agent_spec("harness_custodian"))
+        self.assertIsNotNone(get_agent_spec("custodian"))
+
         self.assertIsNone(get_agent_spec("unknown_agent_spec"))
 
     def test_archetype_from_string(self) -> None:
@@ -294,6 +298,7 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertEqual(AgentArchetype.from_string("coordinator"), AgentArchetype.COORDINATOR)
         self.assertEqual(AgentArchetype.from_string("orchestrator"), AgentArchetype.COORDINATOR)
         self.assertEqual(AgentArchetype.from_string("custodian"), AgentArchetype.CUSTODIAN)
+        self.assertEqual(AgentArchetype.from_string("harness_custodian"), AgentArchetype.CUSTODIAN)
         self.assertEqual(AgentArchetype.from_string("git_custodian"), AgentArchetype.CUSTODIAN)
         self.assertEqual(AgentArchetype.from_string("commit_gate"), AgentArchetype.CUSTODIAN)
         self.assertEqual(AgentArchetype.from_string("subagent_x_custodian"), AgentArchetype.CUSTODIAN)
@@ -314,7 +319,7 @@ class TestSpecialistSubagents(unittest.TestCase):
             "planner.md",
             "coordinator.md",
             "psl_main.md",
-            "custodian.md",
+            "harness_custodian.md",
         ]:
             dest = target / expected_file
             self.assertTrue(dest.exists(), f"Expected synced file {dest} not found")

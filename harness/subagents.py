@@ -57,7 +57,7 @@ class AgentArchetype(str, Enum):
             return cls.PLANNER
         elif norm in ("coordinator", "orchestrator", "swarm_lead"):
             return cls.COORDINATOR
-        elif norm in ("custodian", "git_custodian", "commit_gate", "subagent_x_custodian"):
+        elif norm in ("custodian", "harness_custodian", "git_custodian", "commit_gate", "subagent_x_custodian"):
             return cls.CUSTODIAN
         raise ValueError(f"Unknown AgentArchetype: {val}")
 
