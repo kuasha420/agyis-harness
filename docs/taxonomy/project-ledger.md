@@ -301,3 +301,26 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Modular Skill Definitions: [harness/skills/agent-builder/SKILL.md](harness/skills/agent-builder/SKILL.md), [.agents/skills/agent-builder/SKILL.md](.agents/skills/agent-builder/SKILL.md)
   - Telemetry Ingestion Classifier: [pipeline/extract_transcripts.py](pipeline/extract_transcripts.py)
   - Test Suites: [tests/test_anti_drift.py](tests/test_anti_drift.py), [tests/test_agent_scaffold.py](tests/test_agent_scaffold.py)
+
+
+---
+
+## [Phase 9] Production Hardening: Chunked Telemetry Push, Zero-PWD DB Resolution, Global Bin Delivery & GH Auth (ADR-030 Closure)
+* **Status**: Completed | **Compaction Date**: 2026-10-06
+* **Key Architectural Decisions & Operational Refinements**:
+  - **Zero-PWD Database Path Resolution (Issue #8)**: Strictly banned probing `$PWD/data/telemetry.db`. Resolution hierarchy enforces explicit `--db` > `PSL_TELEMETRY_DB` > Repository Root (`REPO_ROOT/data/telemetry.db`) > XDG state dir (`~/.local/share/psl/telemetry.db`). `push_local_sessions` strictly enforces `must_exist=True` raising `FileNotFoundError` to eliminate phantom 0-session database creation.
+  - **Chunked Batch Push & HTTP 413 Mitigation (Issue #7)**: Partitioned large telemetry corpora into client-side chunks (`DEFAULT_BATCH_SESSION_LIMIT = 10`, `DEFAULT_BATCH_STEP_LIMIT = 2500`). Sequential transmission commits SQLite `remote_synced_at` per batch, preventing multi-batch failure rollbacks. Added bounded transient retry (up to 2 attempts on 502/503/504 and network disconnects) with fast-fail on 4xx client errors.
+  - **Global Executable Delivery (Issue #6 & Operator Directives)**: `PluginInstaller` installs standalone `psl` launcher into `~/.local/bin/psl` (`0o755`) in addition to plugin directory, providing globally available CLI in user `$PATH`. Supported `--global` / `-g` and `--bin-dir`.
+  - **GitHub CLI Credential Lifting**: `psl auth login --gh` lifts tokens via `gh auth token` stdlib subprocess execution, bypassing manual token copy-paste.
+  - **Multi-Tiered Endpoint Configuration**: 5-tier resolution hierarchy (CLI `--endpoint` > `PSL_SYNC_ENDPOINT` > Workspace `<workspace>/.psl/config.json` > Global `~/.config/psl/config.json` > default) with `--workspace` and `--global` scoping support in `psl auth login`.
+* **Empirical Baselines Established & Verified**:
+  - Full test suite expanded to **272 hermetic unit and integration tests passing in 1.492s–1.527s** (13 new unit/integration tests).
+  - 100% test pass rate across independent standard unittest runner and harness runner.
+  - Toolchain doctor verified 100% operational (9 OK, 1 pyenv shim warning, 0 missing).
+  - Clean working tree verified on commit `23fe402`.
+* **Reference Assets Committed**:
+  - Configuration & Path Subsystem: [harness/telemetry/config.py](harness/telemetry/config.py)
+  - Chunked Sync Transport: [harness/telemetry/sync.py](harness/telemetry/sync.py)
+  - Global Plugin & Executable Delivery: [harness/delivery.py](harness/delivery.py)
+  - CLI Integration: [harness/cli.py](harness/cli.py)
+  - Test Suites: [tests/test_telemetry_sync.py](tests/test_telemetry_sync.py), [tests/test_delivery.py](tests/test_delivery.py), [tests/test_cli.py](tests/test_cli.py)
