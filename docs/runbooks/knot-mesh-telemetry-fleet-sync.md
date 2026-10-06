@@ -1,7 +1,7 @@
 ---
 title: Knot Mesh Fleet Update & Telemetry Sync Runbook
 description: Comprehensive operational runbook for Developers, AI Subagents, and Knot Mesh Strands to update psl-agy-harness, deploy global binaries, authenticate via GitHub CLI, and execute chunked telemetry synchronization.
-version: 1.0.0
+version: 1.0.1
 last_updated: 2026-10-06
 target_audience: [developer, ai_agent, knot_mesh]
 related_adrs: [ADR-014, ADR-015, ADR-027, ADR-030]
@@ -9,7 +9,7 @@ related_adrs: [ADR-014, ADR-015, ADR-027, ADR-030]
 
 # 🌐 Knot Mesh Fleet Update & Telemetry Sync Runbook
 
-This runbook defines the canonical standard operating procedure (SOP) for updating the `psl-agy-harness` toolchain, deploying global standalone executables, authenticating organization credentials, and performing resilient telemetry synchronization across the physical Knot mesh fleet (`@desktop`, `@laptop`, `@steamdeck`) and remote cloud staging endpoints.
+This runbook defines the canonical standard operating procedure (SOP) for updating the `psl-agy-harness` toolchain, deploying global standalone executables, authenticating organization credentials, and performing resilient telemetry synchronization across the physical Knot mesh fleet (`@desktop`, `@laptop`, `@steamdeck`) and the internal development gateway (`psl-harness.infra.purrfecthq.com`).
 
 ---
 
@@ -30,8 +30,9 @@ This runbook defines the canonical standard operating procedure (SOP) for updati
 │ `@steamdeck`    │ Handheld Controller        │ Portable field node, low-power testbed, │
 │                 │ (Zen2 / RDNA2 APU)         │ local session telemetry extraction      │
 ├─────────────────┼────────────────────────────┼─────────────────────────────────────────┤
-│ Cloud Gateway   │ Central Telemetry Hub      │ Starlette ASGI, CloudPanel Nginx proxy, │
-│ (`bd.purr...`)  │ (Federation Sink)          │ GitHub Org auth caching (300s TTL)      │
+│ Internal Hub    │ Telemetry Gateway          │ Starlette ASGI, CloudPanel Nginx proxy, │
+│ (`psl-harness`) │ (Federation Sink)          │ GitHub Org auth caching (300s TTL)      │
+│                 │                            │ `psl-harness.infra.purrfecthq.com`      │
 └─────────────────┴────────────────────────────┴─────────────────────────────────────────┘
 ```
 
@@ -69,11 +70,11 @@ git pull origin main
   ```
 
 ### Step 3: Zero-Friction GitHub Authentication
-Authenticate against the central telemetry gateway using your GitHub organization credentials:
+Authenticate against the internal development gateway using your GitHub organization credentials:
 
 ```bash
-# Connect to production gateway via GitHub CLI token
-psl auth login --gh --endpoint https://bd.purrfectsoft.co.uk
+# Connect to internal development gateway via GitHub CLI token
+psl auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
 ```
 
 - **Verify status**:
@@ -138,7 +139,7 @@ psl sync --db /home/kuasha/Dev/psl-agy-harness/data/telemetry.db --json
 psl auth status --json
 
 # 5. Non-interactive auth login with explicit token
-echo "$GITHUB_TOKEN" | psl auth login --endpoint https://bd.purrfectsoft.co.uk --json
+echo "$GITHUB_TOKEN" | psl auth login --endpoint https://psl-harness.infra.purrfecthq.com --json
 ```
 
 ### JSON Schema Verification Reference:
@@ -180,7 +181,7 @@ knot exec laptop '
   cd ~/Dev/psl-agy-harness
   git checkout main && git pull origin main
   ./psl install --global
-  psl auth login --gh --endpoint https://bd.purrfectsoft.co.uk
+  psl auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
   psl audit extract
   psl sync
   psl status
@@ -192,7 +193,7 @@ knot exec steamdeck '
   cd ~/Dev/psl-agy-harness
   git checkout main && git pull origin main
   ./psl install --global
-  psl auth login --gh --endpoint https://bd.purrfectsoft.co.uk
+  psl auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
   psl audit extract
   psl sync
   psl status
@@ -240,7 +241,7 @@ The harness evaluates configuration in a strict 5-tier hierarchy.
 
 | Variable / Flag | Default Value | Description |
 |---|---|---|
-| `PSL_SYNC_ENDPOINT` | `http://localhost:8000` | Remote gateway endpoint URL |
+| `PSL_SYNC_ENDPOINT` | `https://psl-harness.infra.purrfecthq.com` (prod) / `http://localhost:8000` (local) | Remote gateway endpoint URL |
 | `PSL_TELEMETRY_DB` | `REPO_ROOT/data/telemetry.db` | Explicit SQLite database path override |
 | `PSL_DATA_DIR` | `~/.local/share/psl` | XDG data directory for databases |
 | `PSL_CONFIG_DIR` | `~/.config/psl` | XDG configuration directory |
