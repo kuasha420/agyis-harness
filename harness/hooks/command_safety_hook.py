@@ -46,7 +46,7 @@ INTERACTIVE_COMMANDS = [
 ]
 
 USER_TOOLCHAINS = (
-    "psl", "uv", "pnpm", "npm", "npx", "cargo", "rustc",
+    "psl", "knot", "uv", "pnpm", "npm", "npx", "cargo", "rustc",
     "pytest", "ruff", "black", "mypy", "flake8", "tsc",
 )
 
@@ -80,7 +80,7 @@ SSH_OPTION_FLAGS_WITH_ARG = {
 }
 
 SSH_PATTERN = re.compile(
-    r"(^|[;&|]\s*|(?:sudo|nohup|timeout\s+\S+)\s+)((?:\S+/)?ssh)(\s+|$)"
+    r"(^|[;&|]\s*|(?:sudo|nohup|timeout\s+\S+)\s+)((?:\S+/)?(?:ssh|knot\s+exec|psl\s+remote\s+exec))(\s+|$)"
 )
 
 
@@ -161,13 +161,17 @@ def inject_ssh_timeouts(cmd: str) -> Tuple[str, bool]:
     if not m:
         return cmd, False
 
-    ensure_ssh_socket_dir()
-
     prefix = m.group(1)
     ssh_bin = m.group(2)
     sep = m.group(3) or " "
     span_start = m.start()
     span_end = m.end()
+
+    # OpenSSH options only apply directly to the ssh client binary
+    if not (ssh_bin == "ssh" or ssh_bin.endswith("/ssh")):
+        return cmd, False
+
+    ensure_ssh_socket_dir()
 
     injected = f"{prefix}{ssh_bin} {SSH_TIMEOUT_OPTIONS}{sep}"
     res = (cmd[:span_start] + injected + cmd[span_end:]).strip()
@@ -240,11 +244,14 @@ def sanitize_ssh_remote_payload(cmd: str) -> Tuple[str, bool, List[str]]:
     except ValueError:
         return cmd, False, []
 
-    if len(tokens) < 2:
+    runner_match = m.group(2).strip()
+    runner_words = runner_match.split()
+    runner_word_count = len(runner_words)
+    if len(tokens) <= runner_word_count:
         return cmd, False, []
 
-    ssh_bin = tokens[0]
-    idx = 1
+    ssh_bin = " ".join(tokens[:runner_word_count])
+    idx = runner_word_count
     ssh_opts: List[str] = []
     target: Optional[str] = None
     remote_tokens: List[str] = []
@@ -271,7 +278,7 @@ def sanitize_ssh_remote_payload(cmd: str) -> Tuple[str, bool, List[str]]:
     if not target or not remote_tokens:
         return cmd, False, []
 
-    target_pos = ssh_part.find(target)
+    target_pos = ssh_part.find(target, len(ssh_bin))
     after_target = ssh_part[target_pos + len(target):].strip()
     quote_style = None
     if after_target.startswith("'") and after_target.endswith("'") and len(after_target) >= 2:

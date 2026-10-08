@@ -34,6 +34,7 @@ from harness.hooks.output_compactor_hook import (
     HEAD_CHARS,
     TAIL_CHARS,
 )
+from harness.hooks.exec_wrap import run_with_compaction
 
 
 class TestOutputCompactor(unittest.TestCase):
@@ -350,6 +351,55 @@ class TestOutputCompactor(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(proc.stdout.strip(), "{}")
+
+    # -------------------------------------------------------------------------
+    # 6. In-Band Execution Wrapper (exec_wrap.py) Compaction Tests
+    # -------------------------------------------------------------------------
+    def test_exec_wrap_short_output_verbatim(self) -> None:
+        """run_with_compaction emits short output verbatim with exit code 0."""
+        cmd = [sys.executable, "-c", "print('hello from in-band execution')"]
+        code, out = run_with_compaction(cmd, shell=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "hello from in-band execution")
+
+    def test_exec_wrap_large_output_compacted_on_success(self) -> None:
+        """run_with_compaction compacts large output on exit code 0."""
+        # Generate ~6KB output
+        code_script = "print('HEAD_START_' + 'A'*485 + '_HEAD_END'); print('NOISE_'*600); print('TAIL_START_' + 'Z'*985 + '_TAIL_END')"
+        cmd = [sys.executable, "-c", code_script]
+        code, out = run_with_compaction(cmd, shell=False)
+        self.assertEqual(code, 0)
+        self.assertLess(len(out), 2048)
+        self.assertTrue(out.startswith("HEAD_START_"))
+        self.assertTrue(out.endswith("_TAIL_END\n") or out.endswith("_TAIL_END"))
+        self.assertIn("[... PSL Compactor:", out)
+
+    def test_exec_wrap_nonzero_exit_preserves_full_output(self) -> None:
+        """run_with_compaction preserves full output when exit code != 0."""
+        code_script = "import sys; print('CRITICAL_FAILURE_' * 500); sys.exit(7)"
+        cmd = [sys.executable, "-c", code_script]
+        code, out = run_with_compaction(cmd, shell=False)
+        self.assertEqual(code, 7)
+        self.assertGreater(len(out), 8000)
+        self.assertNotIn("[... PSL Compactor:", out)
+
+    def test_exec_wrap_cli_helper(self) -> None:
+        """CLI helper executes command and prints compacted output."""
+        exec_script = PROJECT_ROOT / "harness" / "hooks" / "exec_wrap.py"
+        proc = subprocess.run(
+            [sys.executable, str(exec_script), "-c", f"{sys.executable} -c \"print('cli-wrapper-test')\""],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout.strip(), "cli-wrapper-test")
+
+    def test_exec_wrap_sequence_shell_true_escapes_spaces(self) -> None:
+        """run_with_compaction uses shlex.join for sequence arguments with shell=True (DEFECT-L3-03)."""
+        cmd = [sys.executable, "-c", "import sys; print(sys.argv[1])", "argument with spaces"]
+        code, out = run_with_compaction(cmd, shell=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "argument with spaces")
 
 
 if __name__ == "__main__":

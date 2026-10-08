@@ -17,9 +17,11 @@ from unittest.mock import patch
 
 from harness.hooks import completion_fence_hook
 from harness.hooks.completion_fence_hook import (
+    check_command_verification,
     evaluate_stop,
     get_state_file,
     is_code_file,
+    is_test_command,
     load_state,
     record_edit,
     record_verification,
@@ -353,6 +355,159 @@ class TestCompletionFenceHook(unittest.TestCase):
             1.0,
             f"Expected 20 state cycles to complete in <1.0s, took {duration:.4f}s",
         )
+
+    def test_universal_test_runner_detection(self):
+        """Verifies universal test runner commands across Python, Node, Rust, Go, C/C++ are recognized."""
+        recognized_cmds = [
+            "pytest",
+            "pytest tests/",
+            "python3 -m unittest",
+            "python -m unittest discover",
+            "python3 -m pytest tests/",
+            "python3 -m harness.cli test",
+            "psl test",
+            "./psl test",
+            "pnpm test",
+            "pnpm run test",
+            "npm test",
+            "npm run test",
+            "yarn test",
+            "bun test",
+            "vitest run",
+            "jest",
+            "turbo run test",
+            "cargo test",
+            "cargo test --lib",
+            "go test ./...",
+            "go test -v",
+            "ctest",
+        ]
+        for cmd in recognized_cmds:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(is_test_command(cmd), f"Expected '{cmd}' to be recognized as test runner")
+
+        unrecognized_cmds = [
+            "ls -la",
+            "echo 'running tests'",
+            "cat test.py",
+            "git commit -m 'add test'",
+            "python script.py",
+            "node index.js",
+        ]
+        for cmd in unrecognized_cmds:
+            with self.subTest(cmd=cmd):
+                self.assertFalse(is_test_command(cmd), f"Expected '{cmd}' NOT to be recognized as test runner")
+
+    def test_command_verification_auto_clears_code_dirty_on_exit_zero(self):
+        """Exit code 0 on universal test runners auto-clears code_dirty and allows stopping."""
+        conv_id = "test-cmd-verify-clean"
+        for runner_cmd in ("pytest", "pnpm test", "cargo test", "go test"):
+            with self.subTest(runner_cmd=runner_cmd):
+                # Dirty state with edit
+                record_edit("src/core.py", conv_id=conv_id, state_dir=self.state_dir)
+                state_before = load_state(conv_id=conv_id, state_dir=self.state_dir)
+                self.assertTrue(state_before["code_dirty"])
+
+                # Run test runner with exit code 0
+                matched = check_command_verification(runner_cmd, exit_code=0, conv_id=conv_id, state_dir=self.state_dir)
+                self.assertTrue(matched)
+
+                # State must now be clean
+                state_after = load_state(conv_id=conv_id, state_dir=self.state_dir)
+                self.assertFalse(state_after["code_dirty"])
+                self.assertEqual(state_after["last_modified_files"], [])
+                self.assertIsNotNone(state_after["last_verified_at"])
+
+                # Stop evaluation allows
+                res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)
+                self.assertEqual(res["decision"], "allow")
+
+    def test_command_verification_preserves_dirty_on_nonzero_exit(self):
+        """Exit code != 0 on test runners leaves code_dirty True and blocks stopping."""
+        conv_id = "test-cmd-verify-fail"
+        record_edit("src/core.py", conv_id=conv_id, state_dir=self.state_dir)
+
+        matched = check_command_verification("cargo test", exit_code=101, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(matched)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(state["code_dirty"])
+        self.assertIn("src/core.py", state["last_modified_files"])
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res["decision"], "continue")
+
+    def test_non_test_command_does_not_clear_dirty(self):
+        """Non-test command returns False and does not clear code_dirty."""
+        conv_id = "test-cmd-non-test"
+        record_edit("src/core.py", conv_id=conv_id, state_dir=self.state_dir)
+
+        matched = check_command_verification("git status", exit_code=0, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(matched)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(state["code_dirty"])
+
+    def test_cli_hook_command_verification_payloads(self):
+        """Contract test: main() processes command verification action and toolCall run_command."""
+        conv_id = "test-cli-cmd-verify"
+
+        # 1. Edit code
+        record_edit("src/feature.ts", conv_id=conv_id, state_dir=self.state_dir)
+
+        # 2. Process check_command_verification via action
+        payload1 = {
+            "conversationId": conv_id,
+            "action": "check_command_verification",
+            "command": "pnpm test",
+            "exit_code": 0,
+        }
+        buf1 = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload1))), patch("sys.stdout", buf1):
+            completion_fence_hook.main()
+
+        out1 = json.loads(buf1.getvalue().strip())
+        self.assertEqual(out1["status"], "ok")
+        self.assertTrue(out1["matched"])
+        self.assertFalse(out1["state"]["code_dirty"])
+
+        # 3. Edit code again
+        record_edit("src/feature.ts", conv_id=conv_id, state_dir=self.state_dir)
+
+        # PreToolUse event (no exitCode) should NOT mark command as verified
+        payload_pre = {
+            "conversationId": conv_id,
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "pytest tests/"},
+            },
+        }
+        buf_pre = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload_pre))), patch("sys.stdout", buf_pre):
+            completion_fence_hook.main()
+
+        out_pre = json.loads(buf_pre.getvalue().strip())
+        self.assertEqual(out_pre["decision"], "allow")
+        state_pre = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(state_pre["code_dirty"])
+
+        # 4. Process toolCall run_command with exitCode 0
+        payload2 = {
+            "conversationId": conv_id,
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "pytest tests/"},
+            },
+            "exitCode": 0,
+        }
+        buf2 = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload2))), patch("sys.stdout", buf2):
+            completion_fence_hook.main()
+
+        out2 = json.loads(buf2.getvalue().strip())
+        self.assertEqual(out2["decision"], "allow")
+        state2 = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state2["code_dirty"])
 
 
 if __name__ == "__main__":

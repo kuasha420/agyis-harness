@@ -5,6 +5,7 @@ Unit and integration contract tests for harness/hooks/anti_drift_hook.py (ADR-02
 
 from __future__ import annotations
 
+import io
 import json
 import os
 from pathlib import Path
@@ -17,10 +18,14 @@ from unittest.mock import MagicMock, patch
 from harness.hooks.anti_drift_hook import (
     check_auditor_write_block,
     check_drift,
+    check_ledger_cluster_tables,
     check_plan_mode_lock,
     find_active_plan,
+    has_cluster_status_table,
+    has_telemetry_proof,
     is_exempt_file,
     parse_plan_files,
+    record_telemetry_proof,
 )
 
 
@@ -577,6 +582,153 @@ class TestAntiDriftHook(unittest.TestCase):
             },
         }
         self.assertIsNone(check_plan_mode_lock(payload))
+
+    def test_has_cluster_status_table_detection(self):
+        """Verifies cluster table detection matches node/metric tables and ignores unrelated text."""
+        cluster_table_content = """
+## 🗺️ Active Tasks & Strand Allocation Matrix
+
+| Node | Hardware Role | Assigned Task | Branch | Elapsed | Telemetry Cadence |
+| :--- | :--- | :--- | :--- | :---: | :---: |
+| `@desktop` | Anchor / Coordinator | Orchestrating Campaign | `main` | 4h 12m | 120s |
+| `@laptop` | CUDA Inference | Task #3 | `feat/cuda` | 1h 45m | Quarantined |
+"""
+        self.assertTrue(has_cluster_status_table(cluster_table_content))
+
+        quota_table_content = """
+## 🔋 Fleet Token Quota Snapshot
+
+| Node | Active Profile | 5-Hour Quota Remaining | Weekly Quota Remaining | Keyring State |
+| :--- | :--- | :---: | :---: | :---: |
+| `@desktop` | `primary` | 82% | 91% | Unlocked |
+"""
+        self.assertTrue(has_cluster_status_table(quota_table_content))
+
+        unrelated_table = """
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| timeout | int | Seconds to wait |
+"""
+        self.assertFalse(has_cluster_status_table(unrelated_table))
+
+        no_table_content = """
+## 📈 Milestones & PR Lifecycle Tracker
+- [x] Milestone 1 complete
+- [ ] Milestone 2 in progress
+"""
+        self.assertFalse(has_cluster_status_table(no_table_content))
+
+    def test_operator_ledger_unverified_cluster_table_denied(self):
+        """Writing cluster tables to operator_ledger.md without live telemetry proof is denied."""
+        cluster_content = """
+| Node | Hardware Role | Status |
+| :--- | :--- | :--- |
+| @desktop | Anchor | ACTIVE |
+"""
+        res = check_ledger_cluster_tables(
+            "operator_ledger.md",
+            cluster_content,
+            conv_id="test-ledger-deny",
+            state_dir=self.workspace,
+        )
+        self.assertIsNotNone(res)
+        self.assertEqual(res["decision"], "deny")
+        self.assertIn("PSL Anti-Drift Gate", res["reason"])
+        self.assertIn("knot ledger generate --json", res["reason"])
+
+    def test_operator_ledger_with_telemetry_proof_allowed(self):
+        """Writing cluster tables to operator_ledger.md with live telemetry proof is allowed."""
+        conv_id = "test-ledger-allow"
+        cluster_content = """
+| Node | Hardware Role | Status |
+| :--- | :--- | :--- |
+| @desktop | Anchor | ACTIVE |
+"""
+        # Record proof
+        ok = record_telemetry_proof("knot status --json", conv_id=conv_id, state_dir=self.workspace)
+        self.assertTrue(ok)
+        self.assertTrue(has_telemetry_proof(conv_id=conv_id, state_dir=self.workspace))
+
+        res = check_ledger_cluster_tables(
+            "operator_ledger.md",
+            cluster_content,
+            conv_id=conv_id,
+            state_dir=self.workspace,
+        )
+    def test_record_telemetry_proof_oserror_handling(self):
+        """record_telemetry_proof returns False and logs to stderr on OSError (DEFECT-L3-02)."""
+        conv_id = "test-oserror-handling"
+        stderr_buf = io.StringIO()
+        with patch("pathlib.Path.write_text", side_effect=OSError("Disk full")), patch("sys.stderr", stderr_buf):
+            ok = record_telemetry_proof("knot status --json", conv_id=conv_id, state_dir=self.workspace)
+        self.assertFalse(ok)
+        self.assertIn("PSL Anti-Drift: Failed to record telemetry proof: Disk full", stderr_buf.getvalue())
+
+    def test_operator_ledger_without_cluster_tables_allowed(self):
+        """Updating operator_ledger.md with notes/milestones (no cluster tables) is allowed without proof."""
+        notes_content = """
+# Operator Ledger
+## Milestones
+- [x] Step 1 finished
+"""
+        res = check_ledger_cluster_tables(
+            "operator_ledger.md",
+            notes_content,
+            conv_id="test-ledger-notes",
+            state_dir=self.workspace,
+        )
+        self.assertIsNone(res)
+
+    def test_cli_hook_operator_ledger_contract(self):
+        """Contract test: main() blocks unverified cluster table writes on operator_ledger.md."""
+        import io
+        from harness.hooks import anti_drift_hook
+
+        cluster_content = """
+| Node | Status | Quota |
+| :--- | :--- | :--- |
+| @laptop | ONLINE | 80% |
+"""
+        payload = {
+            "conversationId": "cli-ledger-conv",
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {
+                    "TargetFile": "/path/to/operator_ledger.md",
+                    "CodeContent": cluster_content,
+                },
+            },
+        }
+
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.workspace)}):
+            # 1. Unverified attempt is denied
+            buf1 = io.StringIO()
+            with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf1):
+                anti_drift_hook.main()
+
+            res1 = json.loads(buf1.getvalue().strip())
+            self.assertEqual(res1["decision"], "deny")
+            self.assertIn("PSL Anti-Drift Gate", res1["reason"])
+
+            # 2. Record proof via run_command toolCall
+            proof_payload = {
+                "conversationId": "cli-ledger-conv",
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "knot ledger generate --json"},
+                },
+            }
+            buf2 = io.StringIO()
+            with patch("sys.stdin", io.StringIO(json.dumps(proof_payload))), patch("sys.stdout", buf2):
+                anti_drift_hook.main()
+
+            # 3. Now write is allowed
+            buf3 = io.StringIO()
+            with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf3):
+                anti_drift_hook.main()
+
+            res3 = json.loads(buf3.getvalue().strip())
+            self.assertEqual(res3["decision"], "allow")
 
 
 if __name__ == "__main__":

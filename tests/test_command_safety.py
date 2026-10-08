@@ -12,11 +12,13 @@ import unittest
 from unittest.mock import patch
 
 from harness.hooks.command_safety_hook import (
+    SSH_PATTERN,
     get_user_path_shims,
     inject_path_shims,
     inject_ssh_timeouts,
     is_inline_python_command,
     sanitize_command,
+    sanitize_ssh_remote_payload,
     should_sanitize_grep_or_diff,
 )
 
@@ -281,6 +283,65 @@ class TestCommandSafety(unittest.TestCase):
                 proc.returncode, 0,
                 f"Historical failing script failed under sanitized command: {proc.stderr}"
             )
+
+    def test_knot_exec_and_psl_remote_exec_ssh_pattern_matching(self):
+        """Verifies SSH_PATTERN regex matches knot exec and psl remote exec."""
+        # Simple commands
+        m_knot = SSH_PATTERN.search("knot exec laptop 'uptime'")
+        self.assertIsNotNone(m_knot)
+        self.assertEqual(m_knot.group(2), "knot exec")
+
+        m_psl = SSH_PATTERN.search("psl remote exec user@host 'uname -a'")
+        self.assertIsNotNone(m_psl)
+        self.assertEqual(m_psl.group(2), "psl remote exec")
+
+        # Prefixed with sudo or nohup
+        m_sudo_knot = SSH_PATTERN.search("sudo knot exec steamdeck 'whoami'")
+        self.assertIsNotNone(m_sudo_knot)
+        self.assertEqual(m_sudo_knot.group(2), "knot exec")
+
+        m_nohup_psl = SSH_PATTERN.search("nohup psl remote exec worker 'sleep 10' &")
+        self.assertIsNotNone(m_nohup_psl)
+        self.assertEqual(m_nohup_psl.group(2), "psl remote exec")
+
+        # Standard ssh still matches
+        m_ssh = SSH_PATTERN.search("ssh user@target 'ls'")
+        self.assertIsNotNone(m_ssh)
+        self.assertEqual(m_ssh.group(2), "ssh")
+
+    def test_knot_exec_and_psl_remote_exec_path_shims(self):
+        """Verifies toolchain PATH shims apply cleanly to knot exec and psl remote exec."""
+        mod_knot, changed_knot = inject_path_shims("knot exec laptop 'uptime'")
+        self.assertTrue(changed_knot)
+        self.assertIn('export PATH="', mod_knot)
+        self.assertIn(':$PATH"; knot exec laptop \'uptime\'', mod_knot)
+
+        mod_psl, changed_psl = inject_path_shims("psl remote exec worker 'uptime'")
+        self.assertTrue(changed_psl)
+        self.assertIn('export PATH="', mod_psl)
+        self.assertIn(':$PATH"; psl remote exec worker \'uptime\'', mod_psl)
+
+    def test_knot_exec_does_not_inject_openssh_options(self):
+        """Knot exec and psl remote exec do not receive OpenSSH -o multiplex options directly."""
+        mod_knot, changed_knot = inject_ssh_timeouts("knot exec laptop 'uptime'")
+        self.assertFalse(changed_knot)
+        self.assertEqual(mod_knot, "knot exec laptop 'uptime'")
+
+        mod_psl, changed_psl = inject_ssh_timeouts("psl remote exec worker 'uptime'")
+        self.assertFalse(changed_psl)
+        self.assertEqual(mod_psl, "psl remote exec worker 'uptime'")
+
+    def test_knot_exec_remote_sanitization(self):
+        """Verifies knot exec and psl remote exec sanitize remote grep pattern probes and toolchains."""
+        # Grep probe in knot exec
+        mod1, changed1, reasons1 = sanitize_ssh_remote_payload("knot exec laptop 'grep -rn needle src/'")
+        self.assertTrue(changed1)
+        self.assertIn("|| [ $? -eq 1 ]", mod1)
+
+        # Remote toolchain in psl remote exec
+        mod2, changed2, reasons2 = sanitize_ssh_remote_payload("psl remote exec user@node 'pm2 restart all'")
+        self.assertTrue(changed2)
+        self.assertIn("bash -l -c 'pm2 restart all'", mod2)
 
 
 if __name__ == "__main__":

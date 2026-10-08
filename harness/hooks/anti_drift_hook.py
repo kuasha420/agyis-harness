@@ -9,6 +9,7 @@ in the active implementation plan (e.g. implementation_plan.md).
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -514,6 +515,149 @@ def find_active_plan(
     return None
 
 
+CLUSTER_TABLE_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"\|\s*(?:Node|Host|Strand|Cluster|Device)\s*\|.*(?:Status|State|Role|Metrics|Quota|IP|Ping)\b", re.I),
+    re.compile(r"\|\s*(?:Status|State|Role|Metrics|Quota)\s*\|.*(?:Node|Host|Strand|Cluster|Device)\b", re.I),
+    re.compile(r"##+.*(?:Cluster\s+Status|Node\s+Metrics|Strand\s+Allocation|Fleet.*Quota|Node\s+Status|Cluster\s+Table)", re.I),
+    re.compile(r"\b(?:5-Hour Quota|Weekly Quota|Hardware Role|Keyring State)\b", re.I),
+)
+
+
+def get_state_dir() -> Path:
+    """Returns the harness state directory from environment or default."""
+    return Path(os.environ.get("PSL_HARNESS_STATE_DIR", "/tmp/psl_agy_harness_state"))
+
+
+def get_proof_file(conv_id: str = "default", state_dir: Path | None = None) -> Path:
+    """Returns path to the telemetry proof record file for conversation."""
+    target_dir = state_dir or get_state_dir()
+    return target_dir / f"telemetry_proof_{conv_id}.json"
+
+
+def record_telemetry_proof(
+    command: str,
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+) -> bool:
+    """
+    Records live CLI telemetry proof if command matches 'knot ledger generate --json'
+    or 'knot status --json' (or knot status/ledger commands).
+    """
+    if not command:
+        return False
+    clean = command.strip()
+    if not re.search(r"\bknot\s+(?:ledger\s+generate|status)\b", clean):
+        return False
+
+    target_dir = state_dir or get_state_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    proof_file = get_proof_file(conv_id, target_dir)
+    data = {
+        "conversation_id": conv_id,
+        "command": clean,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "verified": True,
+    }
+    try:
+        proof_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return True
+    except OSError as exc:
+        sys.stderr.write(f"PSL Anti-Drift: Failed to record telemetry proof: {exc}\n")
+        return False
+
+
+def has_telemetry_proof(
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+    payload: dict | None = None,
+) -> bool:
+    """
+    Checks whether live CLI telemetry proof has been established for this session:
+    1. Explicit proof in payload ('telemetry_proof', 'live_telemetry_proof').
+    2. Dedicated proof file 'telemetry_proof_{conv_id}.json'.
+    3. Tool execution history in 'history_{conv_id}.json' with matching knot command.
+    """
+    if payload:
+        if payload.get("telemetry_proof") or payload.get("live_telemetry_proof"):
+            return True
+
+    target_dir = state_dir or get_state_dir()
+    proof_file = get_proof_file(conv_id, target_dir)
+    if proof_file.exists():
+        try:
+            data = json.loads(proof_file.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("verified"):
+                return True
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    history_file = target_dir / f"history_{conv_id}.json"
+    if history_file.exists():
+        try:
+            history = json.loads(history_file.read_text(encoding="utf-8"))
+            if isinstance(history, list):
+                for item in history:
+                    args = item.get("args") or {}
+                    cmd = args.get("CommandLine") or args.get("command") or ""
+                    if re.search(r"\bknot\s+(?:ledger\s+generate|status)\b", cmd):
+                        return True
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return False
+
+
+def has_cluster_status_table(content: str) -> bool:
+    """
+    Detects whether Markdown content contains cluster status or node metrics tables.
+    Requires Markdown table pipe ('|') syntax plus cluster/node telemetry headers.
+    """
+    if not content or "|" not in content:
+        return False
+    return any(pat.search(content) is not None for pat in CLUSTER_TABLE_PATTERNS)
+
+
+def check_ledger_cluster_tables(
+    target_file: str,
+    content: str,
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+    payload: dict | None = None,
+) -> Optional[dict]:
+    """
+    Intercepts modifications targeting operator_ledger.md containing cluster status or
+    node metrics tables, verifying that live CLI telemetry proof was recorded.
+    """
+    if not target_file:
+        return None
+
+    target_name = Path(target_file).name.lower()
+    is_ledger = (
+        target_name == "operator_ledger.md"
+        or target_file.endswith("operator_ledger.md")
+        or bool(re.search(r"operator_ledger(?:\.md)?$", target_file, re.I))
+        or (target_name.endswith(".md") and "ledger" in target_name)
+    )
+    if not is_ledger:
+        return None
+
+    if not has_cluster_status_table(content):
+        return None
+
+    if not has_telemetry_proof(conv_id=conv_id, state_dir=state_dir, payload=payload):
+        return {
+            "decision": "deny",
+            "reason": (
+                f"PSL Anti-Drift Gate: Modification to '{target_name}' contains cluster status "
+                "or node metrics tables without live CLI telemetry proof. "
+                "Execute 'knot ledger generate --json' or 'knot status --json' to verify "
+                "live cluster metrics before updating ledger."
+            ),
+        }
+
+    return None
+
+
 def main() -> None:
     """PreToolUse anti-drift entry point consuming protojson from stdin."""
     try:
@@ -542,6 +686,24 @@ def main() -> None:
         result = check_drift(target, plan_files, strict=strict)
         print(json.dumps(result))
         return
+    if action == "record_telemetry_proof":
+        command = payload.get("command") or payload.get("CommandLine") or ""
+        conv_id = str(payload.get("conversationId") or payload.get("conversation_id") or "default")
+        ok = record_telemetry_proof(command, conv_id=conv_id)
+        print(json.dumps({"status": "ok", "recorded": ok}))
+        return
+    if action == "has_telemetry_proof":
+        conv_id = str(payload.get("conversationId") or payload.get("conversation_id") or "default")
+        has_proof = has_telemetry_proof(conv_id=conv_id, payload=payload)
+        print(json.dumps({"status": "ok", "verified": has_proof}))
+        return
+    if action in ("check_ledger", "check_ledger_cluster_tables"):
+        target = payload.get("target_file", "")
+        content = payload.get("content", "")
+        conv_id = str(payload.get("conversationId") or payload.get("conversation_id") or "default")
+        result = check_ledger_cluster_tables(target, content, conv_id=conv_id, payload=payload)
+        print(json.dumps(result or {"decision": "allow"}))
+        return
 
     # Intercept plan-mode write attempts (ADR-031)
     plan_block = check_plan_mode_lock(payload)
@@ -564,10 +726,36 @@ def main() -> None:
     tool_name = tool_call.get("name", "")
     tool_args = tool_call.get("args", {})
 
+    # Auto-record telemetry proof if run_command is executed with knot status / knot ledger
+    if tool_name in ("run_command", "execute_command", "bash"):
+        cmd = tool_args.get("CommandLine") or tool_args.get("command") or ""
+        if cmd:
+            record_telemetry_proof(cmd, conv_id=str(conv_id or "default"))
+
     target_file = _extract_target_file(payload)
 
     if not target_file:
         print(json.dumps({"decision": "allow"}))
+        return
+
+    # Intercept unverified cluster status tables targeting operator_ledger.md
+    content = (
+        tool_args.get("CodeContent")
+        or tool_args.get("ReplacementContent")
+        or tool_args.get("content")
+        or payload.get("CodeContent")
+        or payload.get("ReplacementContent")
+        or payload.get("content")
+        or ""
+    )
+    ledger_block = check_ledger_cluster_tables(
+        target_file,
+        content,
+        conv_id=str(conv_id or "default"),
+        payload=payload,
+    )
+    if ledger_block:
+        print(json.dumps(ledger_block))
         return
 
     plan_path = find_active_plan(conv_id=conv_id, workspace_root=workspace_root, brain_dir=artifact_dir)

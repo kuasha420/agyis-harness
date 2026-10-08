@@ -18,6 +18,17 @@ def get_state_dir() -> Path:
 
 
 MAX_REPEATS = 3
+HISTORY_WINDOW = 30
+FREQUENCY_WINDOW = 15
+MAX_FREQUENCY_REPEATS = 4
+CYCLE_PERIODS = (2, 3, 4, 5)
+
+
+def _signatures_match(sig1: dict, sig2: dict) -> bool:
+    """Helper to check if two tool call signatures are identical."""
+    if sig1.get("name") != sig2.get("name"):
+        return False
+    return sig1.get("args") == sig2.get("args")
 
 
 def check_anti_loop(
@@ -28,7 +39,10 @@ def check_anti_loop(
     max_repeats: int = MAX_REPEATS,
 ) -> dict:
     """
-    Evaluates a tool call against recent history for the given conversation ID.
+    Evaluates a tool call against recent history for the given conversation ID:
+    1. Consecutive repeat check (denies on >= max_repeats consecutive identical calls).
+    2. Rolling frequency-window check (denies if identical signature appears >= 4 times within sliding window of 15 calls).
+    3. N-gram cyclic pattern check (denies if repeating sequences of length P in [2, 5] repeat >= 2 consecutive cycles).
 
     Returns:
         {"decision": "allow"} or {"decision": "deny", "reason": ...}
@@ -41,22 +55,23 @@ def check_anti_loop(
     if history_file.exists():
         try:
             history = json.loads(history_file.read_text(encoding="utf-8"))
-        except Exception:
+            if not isinstance(history, list):
+                history = []
+        except (json.JSONDecodeError, OSError):
             history = []
 
     # Current signature
     sig = {"name": tool_name, "args": tool_args}
 
-    # Count consecutive matching signatures from end
+    # 1. Consecutive matching signatures from end
     repeats = 0
     for prev in reversed(history):
-        if prev.get("name") == sig["name"] and prev.get("args") == sig["args"]:
+        if _signatures_match(prev, sig):
             repeats += 1
         else:
             break
 
     if repeats >= max_repeats:
-        # Deny repetitive execution to force reasoning shift
         return {
             "decision": "deny",
             "reason": (
@@ -65,12 +80,42 @@ def check_anti_loop(
             ),
         }
 
-    # Record into history (keep last 10)
+    # 2. Rolling frequency-window check (sliding window of 15 calls including proposed call)
+    window_seq = (history + [sig])[-FREQUENCY_WINDOW:]
+    freq_count = sum(1 for item in window_seq if _signatures_match(item, sig))
+    if freq_count >= MAX_FREQUENCY_REPEATS:
+        return {
+            "decision": "deny",
+            "reason": (
+                f"PSL Anti-Loop Guard: Tool signature '{tool_name}' appeared {freq_count} times "
+                f"within a sliding window of {len(window_seq)} calls (threshold is {MAX_FREQUENCY_REPEATS}). "
+                "Denying execution to prevent thrashing loop. Refine arguments or pursue an alternative strategy."
+            ),
+        }
+
+    # 3. N-gram cyclic pattern detection (periods P in 2..5)
+    full_seq = history + [sig]
+    for p in CYCLE_PERIODS:
+        if len(full_seq) >= 2 * p:
+            cycle1 = full_seq[-2 * p : -p]
+            cycle2 = full_seq[-p :]
+            if all(_signatures_match(cycle1[i], cycle2[i]) for i in range(p)):
+                cycle_names = " -> ".join(item.get("name", "unknown") for item in cycle2)
+                return {
+                    "decision": "deny",
+                    "reason": (
+                        f"PSL Anti-Loop Guard: Intercepted cyclic tool execution pattern of period {p} "
+                        f"({cycle_names}) repeating >= 2 consecutive cycles. "
+                        "Break the cycle by altering parameters, inspecting past outputs, or changing approach."
+                    ),
+                }
+
+    # Record into history (keep last 30)
     history.append(sig)
-    history = history[-10:]
+    history = history[-HISTORY_WINDOW:]
     try:
         history_file.write_text(json.dumps(history), encoding="utf-8")
-    except Exception:
+    except OSError:
         pass
 
     return {"decision": "allow"}

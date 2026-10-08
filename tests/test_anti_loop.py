@@ -138,6 +138,92 @@ class TestAntiLoopHook(unittest.TestCase):
         out = json.loads(proc.stdout.strip())
         self.assertEqual(out["decision"], "allow")
 
+    def test_rolling_frequency_window_detection(self):
+        """Tool signature appearing >= 4 times within 15 calls is denied by frequency breaker."""
+        conv_id = "test-freq-conv"
+        tool_a = ("grep_search", {"Query": "pattern", "SearchPath": "/workspace"})
+
+        # Call A 3 times interleaved with unique calls so consecutive repeat is not tripped
+        res1 = check_anti_loop(tool_a[0], tool_a[1], conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res1["decision"], "allow")
+
+        res_b1 = check_anti_loop("view_file", {"AbsolutePath": "/a.txt"}, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res_b1["decision"], "allow")
+
+        res2 = check_anti_loop(tool_a[0], tool_a[1], conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res2["decision"], "allow")
+
+        res_b2 = check_anti_loop("view_file", {"AbsolutePath": "/b.txt"}, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res_b2["decision"], "allow")
+
+        res3 = check_anti_loop(tool_a[0], tool_a[1], conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res3["decision"], "allow")
+
+        res_b3 = check_anti_loop("view_file", {"AbsolutePath": "/c.txt"}, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res_b3["decision"], "allow")
+
+        # 4th occurrence of tool_a within 7 calls trips rolling frequency window!
+        res4 = check_anti_loop(tool_a[0], tool_a[1], conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res4["decision"], "deny")
+        self.assertIn("PSL Anti-Loop Guard", res4["reason"])
+        self.assertIn("sliding window", res4["reason"])
+        self.assertIn("grep_search", res4["reason"])
+
+    def test_ngram_cyclic_detection_period_2(self):
+        """A -> B -> A -> B repeating sequence (period 2) is detected and denied on second B."""
+        conv_id = "test-ngram-p2"
+        tool_a = ("run_command", {"CommandLine": "git status"})
+        tool_b = ("view_file", {"AbsolutePath": "/workspace/log.txt"})
+
+        # 1. A
+        res1 = check_anti_loop(tool_a[0], tool_a[1], conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res1["decision"], "allow")
+        # 2. B
+        res2 = check_anti_loop(tool_b[0], tool_b[1], conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res2["decision"], "allow")
+        # 3. A
+        res3 = check_anti_loop(tool_a[0], tool_a[1], conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res3["decision"], "allow")
+        # 4. B completes 2nd cycle of [A, B] -> trips cyclic detector!
+        res4 = check_anti_loop(tool_b[0], tool_b[1], conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res4["decision"], "deny")
+        self.assertIn("PSL Anti-Loop Guard", res4["reason"])
+        self.assertIn("cyclic tool execution pattern of period 2", res4["reason"])
+        self.assertIn("run_command -> view_file", res4["reason"])
+
+    def test_ngram_cyclic_detection_period_3(self):
+        """A -> B -> C -> A -> B -> C repeating sequence (period 3) is detected and denied on second C."""
+        conv_id = "test-ngram-p3"
+        tool_a = ("grep_search", {"Query": "target"})
+        tool_b = ("view_file", {"AbsolutePath": "/src/main.py"})
+        tool_c = ("run_command", {"CommandLine": "python3 -m unittest"})
+
+        # Cycle 1: A -> B -> C
+        self.assertEqual(check_anti_loop(tool_a[0], tool_a[1], conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        self.assertEqual(check_anti_loop(tool_b[0], tool_b[1], conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        self.assertEqual(check_anti_loop(tool_c[0], tool_c[1], conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+
+        # Cycle 2: A -> B -> C (trips on C)
+        self.assertEqual(check_anti_loop(tool_a[0], tool_a[1], conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        self.assertEqual(check_anti_loop(tool_b[0], tool_b[1], conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        res_c2 = check_anti_loop(tool_c[0], tool_c[1], conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res_c2["decision"], "deny")
+        self.assertIn("PSL Anti-Loop Guard", res_c2["reason"])
+        self.assertIn("cyclic tool execution pattern of period 3", res_c2["reason"])
+        self.assertIn("grep_search -> view_file -> run_command", res_c2["reason"])
+
+    def test_history_window_expands_to_30(self):
+        """Verifies history window holds up to 30 items."""
+        conv_id = "test-history-30"
+        for i in range(35):
+            check_anti_loop("run_command", {"CommandLine": f"echo {i}"}, conv_id=conv_id, state_dir=self.state_dir)
+
+        history_file = self.state_dir / f"history_{conv_id}.json"
+        history = json.loads(history_file.read_text(encoding="utf-8"))
+        self.assertEqual(len(history), 30)
+        self.assertEqual(history[0]["args"]["CommandLine"], "echo 5")
+        self.assertEqual(history[-1]["args"]["CommandLine"], "echo 34")
+
 
 if __name__ == "__main__":
     unittest.main()

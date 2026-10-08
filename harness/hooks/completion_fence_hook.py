@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 
@@ -243,6 +244,48 @@ def evaluate_stop(
         }
 
 
+UNIVERSAL_TEST_RUNNER_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:pytest(?:\s|$)|python3?\s+-m\s+(?:unittest|pytest|harness(?:\.cli)?\s+test)\b)"),
+    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:pnpm|npm|yarn|bun)\s+(?:run\s+)?test\b|\bvitest\b|\bjest\b|\bturbo\s+run\s+test\b)"),
+    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*cargo\s+test\b"),
+    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*go\s+test\b"),
+    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*ctest\b"),
+    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:psl|\./psl)\s+test\b"),
+)
+
+
+def is_test_command(command: str) -> bool:
+    """
+    Checks whether a command line executes a recognized universal test runner
+    across Python, Node/TypeScript, Rust, Go, or C/C++ ecosystems.
+    """
+    if not command or not command.strip():
+        return False
+    cmd_clean = command.strip()
+    return any(pat.search(cmd_clean) is not None for pat in UNIVERSAL_TEST_RUNNER_PATTERNS)
+
+
+def check_command_verification(
+    command: str,
+    exit_code: int = 0,
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+) -> bool:
+    """
+    Evaluates whether a command invocation represents test verification.
+    If the command matches a recognized universal test runner:
+      - If exit_code == 0: auto-clears code dirty state via record_verification(success=True).
+      - If exit_code != 0: records record_verification(success=False).
+    Returns True if the command was recognized as a test runner, False otherwise.
+    """
+    if not is_test_command(command):
+        return False
+
+    success = (exit_code == 0)
+    record_verification(success=success, conv_id=conv_id, state_dir=state_dir)
+    return True
+
+
 def main() -> None:
     """CLI / hook entry point consuming protojson from stdin and writing to stdout."""
     try:
@@ -271,6 +314,12 @@ def main() -> None:
         success = bool(payload.get("success", True))
         state = record_verification(success=success, conv_id=conv_id)
         print(json.dumps({"status": "ok", "state": state}))
+    elif action == "check_command_verification":
+        command = payload.get("command") or payload.get("CommandLine") or ""
+        exit_code = int(payload.get("exit_code", payload.get("exitCode", 0)))
+        matched = check_command_verification(command, exit_code=exit_code, conv_id=conv_id)
+        state = load_state(conv_id=conv_id)
+        print(json.dumps({"status": "ok", "matched": matched, "state": state}))
     elif action == "reset":
         state = reset_state(conv_id=conv_id)
         print(json.dumps({"status": "ok", "state": state}))
@@ -278,7 +327,7 @@ def main() -> None:
         result = evaluate_stop(conv_id=conv_id)
         print(json.dumps(result))
     elif "toolCall" in payload:
-        # PreToolUse event: intercept file modifications
+        # PreToolUse / PostToolUse event: intercept file modifications and test runner commands
         tool_call = payload.get("toolCall") or {}
         tool_name = tool_call.get("name", "")
         tool_args = tool_call.get("args") or {}
@@ -292,7 +341,19 @@ def main() -> None:
             )
             if target_file:
                 record_edit(target_file, conv_id=conv_id)
+        elif tool_name in ("run_command", "execute_command", "bash"):
+            cmd = tool_args.get("CommandLine") or tool_args.get("command") or ""
+            raw_exit = payload.get("exitCode") if payload.get("exitCode") is not None else payload.get("exit_code")
+            if raw_exit is not None and cmd:
+                exit_code = int(raw_exit)
+                check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id)
         print(json.dumps({"decision": "allow"}))
+    elif "command" in payload or "CommandLine" in payload:
+        cmd = payload.get("command") or payload.get("CommandLine") or ""
+        exit_code = int(payload.get("exitCode", payload.get("exit_code", 0)))
+        matched = check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id)
+        state = load_state(conv_id=conv_id)
+        print(json.dumps({"status": "ok", "matched": matched, "state": state, "decision": "allow"}))
     else:
         # Default behavior: Stop hook evaluation
         result = evaluate_stop(conv_id=conv_id)
