@@ -46,7 +46,7 @@ INTERACTIVE_COMMANDS = [
 ]
 
 USER_TOOLCHAINS = (
-    "uv", "pnpm", "npm", "npx", "cargo", "rustc",
+    "psl", "uv", "pnpm", "npm", "npx", "cargo", "rustc",
     "pytest", "ruff", "black", "mypy", "flake8", "tsc",
 )
 
