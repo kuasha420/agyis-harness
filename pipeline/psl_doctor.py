@@ -15,15 +15,19 @@ zero-sudo auto-healing via `--heal`.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 from pathlib import Path
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def parse_version(v_str: str) -> Tuple[int, ...]:
@@ -391,10 +395,158 @@ def check_node_script_hygiene(workspace_root: Optional[Path] = None) -> Dict[str
     }
 
 
+def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
+    """
+    Audits hooks.json (canonical in repo or workspace), verifies every registered
+    hook module can be dynamically loaded and provides a callable main().
+    (Issue #31 / ADR-016)
+    """
+    target_path: Optional[Path] = None
+    if hooks_path is not None:
+        target_path = Path(hooks_path)
+    else:
+        for cand in (
+            Path.cwd() / "hooks.json",
+            REPO_ROOT / "hooks.json",
+            REPO_ROOT / "harness/hooks/hooks.json",
+        ):
+            if cand.is_file():
+                target_path = cand
+                break
+
+    if target_path is None or not target_path.exists():
+        missing_path = str(target_path) if target_path else str(REPO_ROOT / "hooks.json")
+        return {
+            "status": "WARNING",
+            "hooks_path": missing_path,
+            "checked_hooks": [],
+            "failures": [f"hooks.json not found at {missing_path}."],
+            "remediation": "Create hooks.json at workspace root or restore harness/hooks/hooks.json.",
+        }
+
+    try:
+        data = json.loads(target_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {
+            "status": "WARNING",
+            "hooks_path": str(target_path),
+            "checked_hooks": [],
+            "failures": [f"Malformed hooks.json: {e}"],
+            "remediation": f"Ensure {target_path} contains valid JSON syntax.",
+        }
+
+    hook_commands: List[str] = []
+
+    def _extract_commands(node: Any) -> None:
+        if isinstance(node, dict):
+            if "command" in node and isinstance(node["command"], str):
+                hook_commands.append(node["command"])
+            for val in node.values():
+                _extract_commands(val)
+        elif isinstance(node, list):
+            for elem in node:
+                _extract_commands(elem)
+
+    _extract_commands(data)
+
+    if not hook_commands:
+        return {
+            "status": "WARNING",
+            "hooks_path": str(target_path),
+            "checked_hooks": [],
+            "failures": ["No hook commands found in hooks.json."],
+            "remediation": "Configure at least one lifecycle hook in hooks.json.",
+        }
+
+    try:
+        from harness.hooks.runner import resolve_hook_module, HOOK_MODULES
+    except ImportError:
+        HOOK_MODULES = {
+            "anti-drift": "harness.hooks.anti_drift_hook",
+            "anti-loop": "harness.hooks.anti_loop_hook",
+            "command-safety": "harness.hooks.command_safety_hook",
+            "compactor": "harness.hooks.output_compactor_hook",
+            "verification-fence": "harness.hooks.completion_fence_hook",
+        }
+
+        def resolve_hook_module(name: str) -> str:
+            clean = (name or "").strip().lower().replace("_", "-")
+            if clean in HOOK_MODULES:
+                return HOOK_MODULES[clean]
+            raise ValueError(f"Unknown hook '{name}'. Supported hooks: {', '.join(sorted(HOOK_MODULES.keys()))}")
+
+    failures: List[str] = []
+    hooks_to_verify: Dict[str, str] = {}
+
+    for cmd in hook_commands:
+        tokens = shlex.split(cmd.strip())
+        if not tokens:
+            continue
+
+        hook_name: Optional[str] = None
+        module_to_load: Optional[str] = None
+
+        # Format A: python3 -m harness.hooks.runner <hook_name>
+        for i, tok in enumerate(tokens):
+            if tok in ("harness.hooks.runner", "runner") and i + 1 < len(tokens):
+                hook_name = tokens[i + 1]
+                break
+            if tok == "hook" and i > 0 and "cli" in tokens[i - 1] and i + 1 < len(tokens):
+                hook_name = tokens[i + 1]
+                break
+
+        if hook_name:
+            try:
+                module_to_load = resolve_hook_module(hook_name)
+            except ValueError as ve:
+                failures.append(str(ve))
+                continue
+        else:
+            # Format B: python3 -m <direct_module>
+            for i, tok in enumerate(tokens):
+                if tok == "-m" and i + 1 < len(tokens):
+                    module_to_load = tokens[i + 1]
+                    hook_name = module_to_load
+                    break
+
+        if not module_to_load or not hook_name:
+            failures.append(f"Could not resolve hook module from command: '{cmd}'")
+            continue
+
+        hooks_to_verify[hook_name] = module_to_load
+
+    checked_hooks: List[str] = []
+    for hook_name, module_path in sorted(hooks_to_verify.items()):
+        try:
+            mod = importlib.import_module(module_path)
+            if not hasattr(mod, "main") or not callable(getattr(mod, "main")):
+                failures.append(f"Hook module '{module_path}' for '{hook_name}' does not expose callable main()")
+            else:
+                checked_hooks.append(hook_name)
+        except Exception as exc:
+            failures.append(f"Failed to load hook module '{module_path}' for '{hook_name}': {exc}")
+        except SystemExit as se:
+            failures.append(f"Hook module '{module_path}' exited on load with status: {se}")
+
+    status = "OK" if not failures else "WARNING"
+    remediation = None
+    if failures:
+        remediation = "Fix hook module entrypoints or definitions in hooks.json:\n  - " + "\n  - ".join(failures)
+
+    return {
+        "status": status,
+        "hooks_path": str(target_path),
+        "checked_hooks": sorted(list(set(checked_hooks))),
+        "failures": failures,
+        "remediation": remediation,
+    }
+
+
 def run_doctor(
     matrix_path: Path,
     workspace_root: Optional[Path] = None,
     config_dir: Optional[Path] = None,
+    hooks_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Perform complete workstation runtime audit."""
     if not matrix_path.exists():
@@ -408,6 +560,7 @@ def run_doctor(
     psl_collision = check_psl_collision()
     duplicate_agents = check_duplicate_agents(config_dir=config_dir)
     node_script_hygiene = check_node_script_hygiene(workspace_root=workspace_root)
+    hooks_health = check_hooks_health(hooks_path=hooks_path)
 
     results: Dict[str, Any] = {
         "os_family": os_family,
@@ -416,6 +569,7 @@ def run_doctor(
         "psl_collision": psl_collision,
         "duplicate_agents": duplicate_agents,
         "node_script_hygiene": node_script_hygiene,
+        "hooks_health": hooks_health,
         "tiers": {},
         "summary": {
             "total_tools": 0,
@@ -432,6 +586,8 @@ def run_doctor(
     if duplicate_agents.get("status") == "WARNING":
         results["summary"]["warning"] += 1
     if node_script_hygiene.get("status") == "WARNING":
+        results["summary"]["warning"] += 1
+    if hooks_health.get("status") != "OK":
         results["summary"]["warning"] += 1
 
     for tier_key, tier_data in matrix.get("tiers", {}).items():
@@ -534,6 +690,12 @@ def heal_environment(audit: Dict[str, Any], matrix_path: Path) -> List[str]:
             f"Node Script Hygiene Remediation:\n    {node_hyg['remediation']}"
         )
 
+    hooks_h = audit.get("hooks_health", {})
+    if hooks_h.get("status") == "WARNING" and hooks_h.get("remediation"):
+        actions_taken.append(
+            f"Hooks Health Remediation:\n    {hooks_h['remediation']}"
+        )
+
     return actions_taken
 
 
@@ -581,6 +743,20 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
             print(f" Node Script Hygiene: [\033[32mPASS\033[0m] -> {node_hyg.get('details')}")
         else:
             print(f" Node Script Hygiene: [\033[34mINFO\033[0m] -> {node_hyg.get('details')}")
+
+    hooks_h = audit.get("hooks_health")
+    if hooks_h:
+        if hooks_h.get("status") == "WARNING":
+            print(f" Lifecycle Hooks:     [\033[33mWARN\033[0m] -> {len(hooks_h.get('failures', []))} failure(s) in {hooks_h.get('hooks_path')}")
+            for fail in hooks_h.get("failures", []):
+                print(f"    ⚠️  {fail}")
+            if hooks_h.get("remediation"):
+                print(f"    Remediation:\n      {hooks_h['remediation']}")
+        elif hooks_h.get("status") == "OK":
+            hook_count = len(hooks_h.get("checked_hooks", []))
+            print(f" Lifecycle Hooks:     [\033[32mPASS\033[0m] -> {hook_count} hooks verified ({hooks_h.get('hooks_path')})")
+        else:
+            print(f" Lifecycle Hooks:     [\033[34mINFO\033[0m] -> {hooks_h.get('status')}")
     print("-" * 70)
 
     symbols = {

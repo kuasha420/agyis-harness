@@ -21,7 +21,7 @@ from typing import List, Optional
 
 import harness
 from harness.delivery import DeliveryMode, PluginInstaller
-from harness.hooks import anti_drift_hook, anti_loop_hook, command_safety_hook, completion_fence_hook, output_compactor_hook
+from harness.hooks import anti_drift_hook, anti_loop_hook, command_safety_hook, completion_fence_hook, output_compactor_hook, runner
 from pipeline import psl_doctor
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -62,30 +62,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_hook(args: argparse.Namespace) -> int:
-    """Dispatches lifecycle hook execution from stdin to stdout."""
-    hook_name = args.hook_name.lower().replace("_", "-")
-
-    if hook_name in ("safety", "command-safety", "command_safety"):
-        command_safety_hook.main()
-        return 0
-    elif hook_name in ("anti-loop", "anti_loop", "loop"):
-        anti_loop_hook.main()
-        return 0
-    elif hook_name in ("compactor", "output-compactor", "output_compactor"):
-        output_compactor_hook.main()
-        return 0
-    elif hook_name in ("verification-fence", "fence", "stop-fence", "stop", "completion-fence"):
-        completion_fence_hook.main()
-        return 0
-    elif hook_name in ("anti-drift", "anti_drift", "drift"):
-        anti_drift_hook.main()
-        return 0
-    else:
-        sys.stderr.write(
-            f"Error: Unknown hook '{args.hook_name}'. "
-            "Supported hooks: command-safety, anti-loop, output-compactor, verification-fence, anti-drift\n"
-        )
-        return 1
+    """Dispatches lifecycle hook execution from stdin to stdout via fail-safe runner."""
+    return runner.run_hook(args.hook_name)
 
 
 def cmd_test(args: argparse.Namespace) -> int:

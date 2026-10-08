@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m harness.cli hook anti-drift",
+            "command": "python3 -m harness.hooks.runner anti-drift",
             "timeout": 5
           }
         ]
@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m harness.cli hook anti-loop",
+            "command": "python3 -m harness.hooks.runner anti-loop",
             "timeout": 5
           }
         ]
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m harness.cli hook command-safety",
+            "command": "python3 -m harness.hooks.runner command-safety",
             "timeout": 5
           }
         ]
@@ -48,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m harness.cli hook compactor",
+            "command": "python3 -m harness.hooks.runner compactor",
             "timeout": 5
           }
         ]
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m harness.cli hook verification-fence",
+            "command": "python3 -m harness.hooks.runner verification-fence",
             "timeout": 5
           }
         ]
@@ -71,7 +71,7 @@
     "Stop": [
       {
         "type": "command",
-        "command": "python3 -m harness.cli hook verification-fence",
+        "command": "python3 -m harness.hooks.runner verification-fence",
         "timeout": 5
       }
     ]

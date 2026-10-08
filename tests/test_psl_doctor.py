@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from pipeline.psl_doctor import (
     check_duplicate_agents,
+    check_hooks_health,
     check_node_script_hygiene,
     check_psl_collision,
     check_tool,
@@ -245,6 +246,118 @@ class TestPslDoctor(unittest.TestCase):
             self.assertEqual(len(res["violations"]), 1)
             self.assertIn("broken.js", res["violations"][0]["file"])
             self.assertIsNotNone(res["remediation"])
+
+    def test_check_hooks_health_canonical(self):
+        """Canonical repo hooks.json passes health audit with status OK and all 5 hooks verified."""
+        res = check_hooks_health()
+        self.assertEqual(res["status"], "OK")
+        self.assertEqual(res["failures"], [])
+        self.assertIsNone(res["remediation"])
+        expected_hooks = {"anti-drift", "anti-loop", "command-safety", "compactor", "verification-fence"}
+        self.assertTrue(expected_hooks.issubset(set(res["checked_hooks"])))
+
+    def test_check_hooks_health_missing_file(self):
+        """Missing hooks.json yields WARNING with diagnostic failures and remediation."""
+        missing = Path("/nonexistent/hooks/path/hooks.json")
+        res = check_hooks_health(hooks_path=missing)
+        self.assertEqual(res["status"], "WARNING")
+        self.assertEqual(res["checked_hooks"], [])
+        self.assertGreater(len(res["failures"]), 0)
+        self.assertIsNotNone(res["remediation"])
+        self.assertIn("not found", res["failures"][0])
+
+    def test_check_hooks_health_malformed_json(self):
+        """Malformed JSON in hooks.json yields WARNING with parsing failure."""
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+            tf.write("{bad json content:")
+            tf.flush()
+            temp_path = Path(tf.name)
+
+        try:
+            res = check_hooks_health(hooks_path=temp_path)
+            self.assertEqual(res["status"], "WARNING")
+            self.assertEqual(res["checked_hooks"], [])
+            self.assertGreater(len(res["failures"]), 0)
+            self.assertIn("Malformed hooks.json", res["failures"][0])
+            self.assertIsNotNone(res["remediation"])
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def test_check_hooks_health_empty_hooks(self):
+        """hooks.json with no hook commands yields WARNING."""
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+            tf.write("{}")
+            tf.flush()
+            temp_path = Path(tf.name)
+
+        try:
+            res = check_hooks_health(hooks_path=temp_path)
+            self.assertEqual(res["status"], "WARNING")
+            self.assertEqual(res["checked_hooks"], [])
+            self.assertIn("No hook commands found", res["failures"][0])
+            self.assertIsNotNone(res["remediation"])
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def test_check_hooks_health_unknown_hook(self):
+        """hooks.json referencing unknown hook runner argument yields WARNING."""
+        content = json.dumps({
+            "test-guard": {
+                "PreToolUse": [{
+                    "hooks": [{"command": "python3 -m harness.hooks.runner totally-unknown-hook-name"}]
+                }]
+            }
+        })
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+            tf.write(content)
+            tf.flush()
+            temp_path = Path(tf.name)
+
+        try:
+            res = check_hooks_health(hooks_path=temp_path)
+            self.assertEqual(res["status"], "WARNING")
+            self.assertIn("totally-unknown-hook-name", res["failures"][0])
+            self.assertIsNotNone(res["remediation"])
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def test_check_hooks_health_import_failure(self):
+        """hooks.json referencing unimportable module yields WARNING."""
+        content = json.dumps({
+            "test-guard": {
+                "PreToolUse": [{
+                    "hooks": [{"command": "python3 -m completely_nonexistent_hook_module_xyz"}]
+                }]
+            }
+        })
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+            tf.write(content)
+            tf.flush()
+            temp_path = Path(tf.name)
+
+        try:
+            res = check_hooks_health(hooks_path=temp_path)
+            self.assertEqual(res["status"], "WARNING")
+            self.assertIn("Failed to load hook module", res["failures"][0])
+            self.assertIsNotNone(res["remediation"])
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def test_run_doctor_with_hooks_health(self):
+        """run_doctor includes hooks_health and reflects warnings in summary."""
+        matrix_path = Path(__file__).parent.parent / "harness/runtime/matrix.json"
+
+        def mock_run(cmd, *args, **kwargs):
+            proc = unittest.mock.MagicMock()
+            proc.returncode = 0
+            proc.stderr = ""
+            proc.stdout = "1.0.0"
+            return proc
+
+        with patch("subprocess.run", side_effect=mock_run):
+            audit = run_doctor(matrix_path)
+            self.assertIn("hooks_health", audit)
+            self.assertIn(audit["hooks_health"]["status"], ("OK", "WARNING"))
 
 
 if __name__ == "__main__":
