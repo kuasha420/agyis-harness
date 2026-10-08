@@ -11,9 +11,11 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
+import sys
 import time
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, TextIO, Union
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -101,6 +103,78 @@ def verify_auth_token(
         return json.loads(body)
 
 
+def interactive_select_sessions(
+    sessions: List[Dict[str, Any]],
+    input_stream: Optional[Any] = None,
+    output_stream: Optional[Any] = None,
+) -> List[Dict[str, Any]]:
+    """Interactively prompts the user to select which sessions to push.
+
+    Shows candidate sessions (ID, duration, steps, tools, workspace).
+    Supports:
+      - 'all', empty string, or '*' to accept all candidates.
+      - 'none', 'q', 'quit', 'abort', or '0' to reject all and abort.
+      - Comma-separated or space-separated numbers (e.g. '1,2', '1 3') to select specific sessions.
+    Zero external dependencies (pure stdlib).
+    """
+    if not sessions:
+        if output_stream is not None:
+            output_stream.write("No candidate sessions available for selection.\n")
+            output_stream.flush()
+        return []
+
+    out = output_stream if output_stream is not None else sys.stdout
+    inp = input_stream if input_stream is not None else sys.stdin
+
+    out.write(f"\nCandidate Sessions Pending Push ({len(sessions)} available):\n")
+    out.write("=" * 80 + "\n")
+    for idx, s in enumerate(sessions, 1):
+        s_id = str(s.get("session_id", "unknown"))
+        dur = s.get("duration_seconds")
+        dur_str = f"{dur:.1f}s" if dur is not None else "N/A"
+        steps = s.get("total_steps") or 0
+        tools = s.get("tool_call_count") or 0
+        ws = s.get("workspace_path") or "default"
+        ws_short = Path(ws).name if ws and ws != "default" else ws
+        out.write(
+            f"  [{idx:2d}] ID: {s_id[:16]}... | Duration: {dur_str:>7} | Steps: {steps:>4} | "
+            f"Tools: {tools:>3} | Workspace: {ws_short}\n"
+        )
+    out.write("=" * 80 + "\n")
+    out.write("Select sessions to push (comma-separated indices e.g. '1,2', 'all' [default], 'none'/'q' to cancel): ")
+    out.flush()
+
+    raw_input = inp.readline()
+    if raw_input is None:
+        return []
+    ans = raw_input.strip()
+
+    if not ans or ans.lower() in ("all", "a", "*"):
+        return list(sessions)
+
+    if ans.lower() in ("none", "n", "q", "quit", "abort", "0"):
+        return []
+
+    # Parse 1-based indices
+    parts = re.split(r"[,;\s]+", ans)
+    selected_indices: List[int] = []
+    for p in parts:
+        if not p:
+            continue
+        try:
+            val = int(p)
+            if 1 <= val <= len(sessions):
+                if val not in selected_indices:
+                    selected_indices.append(val)
+            else:
+                out.write(f"Warning: Index {val} out of range (1..{len(sessions)}), ignored.\n")
+        except ValueError:
+            out.write(f"Warning: Invalid token '{p}' ignored.\n")
+    out.flush()
+
+    return [sessions[i - 1] for i in selected_indices]
+
+
 def push_local_sessions(
     endpoint: Optional[str] = None,
     token: Optional[str] = None,
@@ -110,6 +184,10 @@ def push_local_sessions(
     dry_run: bool = False,
     on_progress: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
     retry_backoff: Optional[float] = None,
+    interactive: bool = False,
+    review: bool = False,
+    input_stream: Optional[Any] = None,
+    output_stream: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Pushes unsynced local sessions to the remote telemetry service in bounded batches.
 
@@ -153,6 +231,23 @@ def push_local_sessions(
 
         if limit is not None and limit >= 0:
             eligible_sessions = eligible_sessions[:limit]
+
+        if (review or interactive) and not dry_run and eligible_sessions:
+            eligible_sessions = interactive_select_sessions(
+                eligible_sessions, input_stream=input_stream, output_stream=output_stream
+            )
+            if not eligible_sessions:
+                return {
+                    "status": "aborted",
+                    "reason": "no_sessions_selected",
+                    "sessions_pushed": 0,
+                    "steps_pushed": 0,
+                    "tool_calls_pushed": 0,
+                    "user_interventions_pushed": 0,
+                    "synced_at": None,
+                    "dry_run": False,
+                    "batches_count": 0,
+                }
 
         # Partition into batches (max 10 sessions or max 2,500 steps per batch; single sessions exceeding 2,500 steps occupy a single batch)
         batches: List[List[Dict[str, Any]]] = []
@@ -595,6 +690,7 @@ def pull_remote_sessions(
 def sync_telemetry(
     direction: str = "both",
     interactive: bool = False,
+    review: bool = False,
     endpoint: Optional[str] = None,
     token: Optional[str] = None,
     db_path: Optional[Union[str, Path]] = None,
@@ -602,12 +698,15 @@ def sync_telemetry(
     limit: Optional[int] = None,
     dry_run: bool = False,
     on_progress: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
+    input_stream: Optional[Any] = None,
+    output_stream: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Coordinates bi-directional sync (push then pull), push-only, or pull-only.
 
     Parameters:
         direction: 'both', 'push', or 'pull'
         interactive: If True and direction includes push, prompts for user confirmation before pushing.
+        review: If True, prompts for interactive selection of sessions to push.
         endpoint: Telemetry hub URL (default from config/env)
         token: Authentication bearer token (default from credentials/env)
         db_path: Path to local SQLite telemetry database
@@ -615,6 +714,8 @@ def sync_telemetry(
         limit: Max sessions to push
         dry_run: If True, simulates push without sending or updating DB
         on_progress: Optional progress callback for batch push progress
+        input_stream: Optional input stream for interactive review
+        output_stream: Optional output stream for interactive review
     """
     if direction not in ("both", "push", "pull"):
         raise ValueError(f"Invalid sync direction: '{direction}'. Must be 'both', 'push', or 'pull'.")
@@ -661,7 +762,19 @@ def sync_telemetry(
             limit=limit,
             dry_run=dry_run,
             on_progress=on_progress,
+            review=review,
+            input_stream=input_stream,
+            output_stream=output_stream,
         )
+
+        if push_result and push_result.get("status") == "aborted":
+            return {
+                "status": "aborted",
+                "direction": direction,
+                "reason": push_result.get("reason", "user_cancelled"),
+                "push": push_result,
+                "pull": None,
+            }
 
     if direction in ("both", "pull"):
         if dry_run:
@@ -684,5 +797,115 @@ def sync_telemetry(
         "direction": direction,
         "push": push_result,
         "pull": pull_result,
+    }
+
+
+def generate_systemd_service(
+    python_bin: Optional[str] = None,
+    interval_sec: float = 5.0,
+    working_dir: Optional[Union[str, Path]] = None,
+) -> str:
+    """Generates the systemd user service unit definition for psl-sync-watch."""
+    py_path = python_bin or sys.executable or "/usr/bin/python3"
+    work_dir = str(working_dir) if working_dir else str(Path.home())
+    return f"""[Unit]
+Description=PSL Telemetry Background Sync Watcher
+Documentation=https://github.com/kuasha420/psl-agy-harness
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory={work_dir}
+ExecStart={py_path} -m harness.cli sync --watch --interval {interval_sec}
+Restart=on-failure
+RestartSec=10s
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
+"""
+
+
+def watch_and_sync(
+    interval_sec: float = 5.0,
+    db_path: Optional[Union[str, Path]] = None,
+    run_once: bool = False,
+    max_iterations: Optional[int] = None,
+    stop_event: Optional[Any] = None,
+    endpoint: Optional[str] = None,
+    token: Optional[str] = None,
+    workspace_root: Optional[Union[str, Path]] = None,
+    on_iteration: Optional[Callable[[int, Dict[str, Any]], None]] = None,
+) -> Dict[str, Any]:
+    """Runs continuous background watching and pushing of unsynced telemetry.
+
+    Parameters:
+        interval_sec: Poll interval in seconds (default 5.0).
+        db_path: Optional SQLite telemetry database path.
+        run_once: If True, executes exactly one push attempt and returns.
+        max_iterations: Optional upper bound on iteration count.
+        stop_event: Optional threading.Event or object with is_set() and wait().
+        endpoint: Telemetry hub endpoint.
+        token: Authentication token.
+        workspace_root: Workspace root for path anonymization.
+        on_iteration: Optional callback(iteration_idx, push_result).
+    """
+    iterations = 0
+    total_sessions_pushed = 0
+    total_steps_pushed = 0
+    last_synced_at = None
+    errors: List[str] = []
+
+    try:
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                break
+            if max_iterations is not None and iterations >= max_iterations:
+                break
+
+            iterations += 1
+            push_res = None
+            try:
+                push_res = push_local_sessions(
+                    endpoint=endpoint,
+                    token=token,
+                    db_path=db_path,
+                    workspace_root=workspace_root,
+                    dry_run=False,
+                )
+                pushed = push_res.get("sessions_pushed", 0)
+                total_sessions_pushed += pushed
+                total_steps_pushed += push_res.get("steps_pushed", 0)
+                if push_res.get("synced_at"):
+                    last_synced_at = push_res["synced_at"]
+                if on_iteration:
+                    on_iteration(iterations, push_res)
+            except Exception as exc:
+                errors.append(f"Iteration {iterations} error: {exc}")
+                if run_once:
+                    raise
+
+            if run_once:
+                break
+
+            # Sleep / wait for next iteration
+            if stop_event is not None and hasattr(stop_event, "wait"):
+                stopped = stop_event.wait(timeout=interval_sec)
+                if stopped:
+                    break
+            else:
+                time.sleep(interval_sec)
+
+    except KeyboardInterrupt:
+        pass
+
+    return {
+        "status": "completed",
+        "iterations": iterations,
+        "total_sessions_pushed": total_sessions_pushed,
+        "total_steps_pushed": total_steps_pushed,
+        "last_synced_at": last_synced_at,
+        "errors": errors,
     }
 

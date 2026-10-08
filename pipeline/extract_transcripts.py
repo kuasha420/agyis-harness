@@ -481,6 +481,105 @@ def extract_session(transcript_path: Path) -> Optional[Tuple[Dict[str, Any], Lis
     return session_row, step_rows, tool_calls_extracted, interventions_extracted
 
 
+def extract_and_store(paths: List[Path], db_path: Path) -> int:
+    """Ingests transcript JSONLs and conversation SQLite DBs into db_path."""
+    from pipeline.harvest_conversations import harvest_conversation_db
+
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.executescript(SCHEMA_SQL)
+    ensure_volume_columns(conn)
+    ensure_sync_columns(conn)
+    conn.commit()
+    conn.close()
+
+    stored = 0
+    for p in paths:
+        if p.suffix == ".db":
+            res = harvest_conversation_db(p, db_path)
+            if res.get("status") == "harvested":
+                stored += 1
+        elif p.suffix == ".jsonl":
+            res = extract_session(p)
+            if not res:
+                continue
+            session_row, step_rows, tool_rows, interv_rows = res
+            s_id = session_row["session_id"]
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("DELETE FROM steps WHERE session_id = ?", (s_id,))
+            cur.execute("DELETE FROM tool_calls WHERE session_id = ?", (s_id,))
+            cur.execute("DELETE FROM user_interventions WHERE session_id = ?", (s_id,))
+            cur.execute("""
+                INSERT OR REPLACE INTO sessions (
+                    session_id, start_time, end_time, duration_seconds, total_steps,
+                    model, workspace_path, transcript_path, file_size_bytes, has_errors,
+                    tool_call_count, tool_error_count, intervention_count,
+                    origin_developer, remote_synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                session_row["session_id"], session_row["start_time"], session_row["end_time"],
+                session_row["duration_seconds"], session_row["total_steps"], session_row["model"],
+                session_row["workspace_path"], session_row["transcript_path"], session_row["file_size_bytes"],
+                session_row["has_errors"], session_row["tool_call_count"], session_row["tool_error_count"],
+                session_row["intervention_count"],
+                session_row.get("origin_developer", "local"),
+                session_row.get("remote_synced_at", None)
+            ))
+            if step_rows:
+                cur.executemany("""
+                    INSERT INTO steps (
+                        session_id, step_index, step_type, source, status, created_at,
+                        content_length, content_snippet, has_thinking, thinking_length, tool_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, [
+                    (
+                        s["session_id"], s["step_index"], s["step_type"], s["source"], s["status"],
+                        s["created_at"], s["content_length"], s["content_snippet"], s["has_thinking"],
+                        s["thinking_length"], s["tool_count"]
+                    )
+                    for s in step_rows
+                ])
+            if tool_rows:
+                cur.executemany("""
+                    INSERT INTO tool_calls (
+                        session_id, step_index, result_step_index, tool_name, arguments_json,
+                        arguments_snippet, target_path, command_line, started_at, completed_at,
+                        duration_seconds, status, exit_code, error_snippet, is_loop_candidate,
+                        output_length_chars, output_lines, arguments_length_chars, command_category, is_truncated
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, [
+                    (
+                        t["session_id"], t["step_index"], t["result_step_index"], t["tool_name"],
+                        t["arguments_json"], t["arguments_snippet"], t["target_path"], t["command_line"],
+                        t["started_at"], t["completed_at"], t["duration_seconds"], t["status"],
+                        t["exit_code"], t["error_snippet"], t["is_loop_candidate"],
+                        t.get("output_length_chars", 0), t.get("output_lines", 0),
+                        t.get("arguments_length_chars", 0), t.get("command_category"),
+                        t.get("is_truncated", 0)
+                    )
+                    for t in tool_rows
+                ])
+            if interv_rows:
+                cur.executemany("""
+                    INSERT INTO user_interventions (
+                        session_id, step_index, created_at, prompt_text, prompt_length,
+                        preceding_tool_failed, preceding_tool_name, preceding_error_snippet, intervention_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, [
+                    (
+                        u["session_id"], u["step_index"], u["created_at"], u["prompt_text"],
+                        u["prompt_length"], u["preceding_tool_failed"], u["preceding_tool_name"],
+                        u["preceding_error_snippet"], u["intervention_type"]
+                    )
+                    for u in interv_rows
+                ])
+            conn.commit()
+            conn.close()
+            stored += 1
+    return stored
+
+
 def backfill_tool_volumes(db_path: Path, verbose: bool = True) -> Dict[str, int]:
     """Backfills output_length_chars, output_lines, arguments_length_chars, command_category,
     and is_truncated for all existing rows in tool_calls that lack volume data.
@@ -578,6 +677,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--limit", type=int, default=None, help="Limit number of sessions processed")
     parser.add_argument("--reset", action="store_true", help="Reset/rebuild database tables")
     parser.add_argument("--backfill-volumes", action="store_true", help="Backfill character volume metrics on existing database")
+    parser.add_argument(
+        "--conv-dir",
+        default=str(Path.home() / ".gemini" / "antigravity" / "conversations"),
+        help="Path to conversations directory containing .db files",
+    )
     args = parser.parse_args(argv)
 
     db_path = Path(args.db)
@@ -707,6 +811,15 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     conn.commit()
     conn.close()
+
+    # Discover and harvest native conversation databases
+    conv_dir = Path(args.conv_dir) if getattr(args, "conv_dir", None) else (Path.home() / ".gemini" / "antigravity" / "conversations")
+    conv_cnt = 0
+    if conv_dir.exists() and conv_dir.is_dir():
+        from pipeline.harvest_conversations import harvest_all_conversations
+        print(f"[*] Harvesting conversation DBs from {conv_dir}...")
+        conv_cnt = harvest_all_conversations(conv_dir, db_path)
+        print(f"[✓] Harvested {conv_cnt} conversation databases into {db_path}")
 
     dt = time.time() - t0
     print("=" * 70)

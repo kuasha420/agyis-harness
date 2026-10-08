@@ -1163,6 +1163,136 @@ class TestSyncTelemetry(unittest.TestCase):
             mock_push.assert_not_called()
 
 
+class TestInteractiveSelectSessions(unittest.TestCase):
+    """Verifies interactive_select_sessions checklist and multi-selection (Issue #2)."""
+
+    def setUp(self):
+        self.sessions = [
+            {"session_id": "sess-111", "duration_seconds": 12.5, "total_steps": 10, "tool_call_count": 4, "workspace_path": "/home/user/Dev/proj-a"},
+            {"session_id": "sess-222", "duration_seconds": 45.0, "total_steps": 25, "tool_call_count": 8, "workspace_path": "/home/user/Dev/proj-b"},
+            {"session_id": "sess-333", "duration_seconds": 5.2, "total_steps": 4, "tool_call_count": 1, "workspace_path": "/home/user/Dev/proj-c"},
+        ]
+
+    def test_empty_sessions_returns_empty(self):
+        out = io.StringIO()
+        res = sync.interactive_select_sessions([], output_stream=out)
+        self.assertEqual(res, [])
+        self.assertIn("No candidate sessions", out.getvalue())
+
+    def test_default_all_on_empty_input(self):
+        inp = io.StringIO("\n")
+        out = io.StringIO()
+        res = sync.interactive_select_sessions(self.sessions, input_stream=inp, output_stream=out)
+        self.assertEqual(len(res), 3)
+        self.assertEqual(res[0]["session_id"], "sess-111")
+        self.assertEqual(res[2]["session_id"], "sess-333")
+
+    def test_explicit_all_keyword(self):
+        inp = io.StringIO("all\n")
+        out = io.StringIO()
+        res = sync.interactive_select_sessions(self.sessions, input_stream=inp, output_stream=out)
+        self.assertEqual(len(res), 3)
+
+    def test_cancel_or_none(self):
+        for cancel_cmd in ["none\n", "q\n", "quit\n", "0\n"]:
+            inp = io.StringIO(cancel_cmd)
+            out = io.StringIO()
+            res = sync.interactive_select_sessions(self.sessions, input_stream=inp, output_stream=out)
+            self.assertEqual(res, [])
+
+    def test_select_specific_indices(self):
+        inp = io.StringIO("1, 3\n")
+        out = io.StringIO()
+        res = sync.interactive_select_sessions(self.sessions, input_stream=inp, output_stream=out)
+        self.assertEqual(len(res), 2)
+        self.assertEqual(res[0]["session_id"], "sess-111")
+        self.assertEqual(res[1]["session_id"], "sess-333")
+
+    def test_out_of_range_and_invalid_tokens_ignored(self):
+        inp = io.StringIO("2, 99, foo\n")
+        out = io.StringIO()
+        res = sync.interactive_select_sessions(self.sessions, input_stream=inp, output_stream=out)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["session_id"], "sess-222")
+        self.assertIn("Warning", out.getvalue())
+
+
+class TestWatchAndSync(unittest.TestCase):
+    """Verifies continuous background watch and sync daemon (Issue #1)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.tmpdir.name) / "watch_telemetry.db"
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.executescript(extract_transcripts.SCHEMA_SQL)
+        sync.ensure_sync_columns(conn)
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_watch_and_sync_run_once(self):
+        with patch("harness.telemetry.sync.push_local_sessions", return_value={"sessions_pushed": 2, "steps_pushed": 10}) as mock_push:
+            res = sync.watch_and_sync(
+                interval_sec=0.01,
+                db_path=self.db_path,
+                run_once=True,
+                endpoint="http://mock-hub",
+                token="test-token",
+            )
+            self.assertEqual(res["status"], "completed")
+            self.assertEqual(res["iterations"], 1)
+            self.assertEqual(res["total_sessions_pushed"], 2)
+            mock_push.assert_called_once()
+
+    def test_watch_and_sync_max_iterations(self):
+        with patch("harness.telemetry.sync.push_local_sessions", return_value={"sessions_pushed": 1, "steps_pushed": 5}) as mock_push:
+            res = sync.watch_and_sync(
+                interval_sec=0.001,
+                db_path=self.db_path,
+                max_iterations=3,
+                endpoint="http://mock-hub",
+                token="test-token",
+            )
+            self.assertEqual(res["iterations"], 3)
+            self.assertEqual(res["total_sessions_pushed"], 3)
+            self.assertEqual(mock_push.call_count, 3)
+
+    def test_watch_and_sync_stop_event(self):
+        import threading
+        stop_ev = threading.Event()
+
+        def on_iter(idx, push_res):
+            if idx >= 2:
+                stop_ev.set()
+
+        with patch("harness.telemetry.sync.push_local_sessions", return_value={"sessions_pushed": 1, "steps_pushed": 2}):
+            res = sync.watch_and_sync(
+                interval_sec=0.001,
+                db_path=self.db_path,
+                stop_event=stop_ev,
+                on_iteration=on_iter,
+                endpoint="http://mock-hub",
+                token="test-token",
+            )
+            self.assertEqual(res["iterations"], 2)
+
+
+class TestSystemdServiceGenerator(unittest.TestCase):
+    """Verifies systemd unit definition generator (Issue #1)."""
+
+    def test_generate_systemd_service_content(self):
+        unit = sync.generate_systemd_service(python_bin="/usr/bin/python3", interval_sec=10.0, working_dir="/opt/work")
+        self.assertIn("[Unit]", unit)
+        self.assertIn("[Service]", unit)
+        self.assertIn("[Install]", unit)
+        self.assertIn("ExecStart=/usr/bin/python3 -m harness.cli sync --watch --interval 10.0", unit)
+        self.assertIn("WorkingDirectory=/opt/work", unit)
+        self.assertIn("Restart=on-failure", unit)
+
+
 class TestProductProjectSeparation(unittest.TestCase):
     """Verifies ADR-014 product-to-project boundary invariants."""
 

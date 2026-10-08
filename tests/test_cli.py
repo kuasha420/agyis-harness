@@ -246,6 +246,13 @@ class TestPslCli(unittest.TestCase):
             data = json.loads(mock_out.getvalue())
             self.assertEqual(data["session_id"], "test-session-1234")
 
+    def test_cli_audit_benchmark(self):
+        """Verifies `psl audit benchmark` dispatches to benchmark_reasoning_tiers.main."""
+        with patch("pipeline.benchmark_reasoning_tiers.main") as mock_bench:
+            code = main(["audit", "benchmark"])
+            self.assertEqual(code, 0)
+            mock_bench.assert_called_once_with([])
+
     def test_cli_audit_session_with_db_flag(self):
         """Verifies `psl audit session --save-db --db <path>` saves into specified database."""
         sess_dir = Path(self.temp_dir.name) / "sess_dir"
@@ -424,6 +431,33 @@ class TestPslCli(unittest.TestCase):
             self.assertEqual(code, 0)
             mock_find.assert_called_once_with("test-sess-123")
             mock_sync.assert_called_once()
+
+    def test_cli_sync_systemd(self):
+        """Verifies `psl sync --systemd` prints the systemd service file."""
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["sync", "--systemd"])
+            self.assertEqual(code, 0)
+            out = mock_out.getvalue()
+            self.assertIn("[Unit]", out)
+            self.assertIn("ExecStart=", out)
+
+    def test_cli_sync_review_flag(self):
+        """Verifies `psl sync --review` passes review=True to sync_telemetry."""
+        mock_res = {"status": "success", "direction": "both", "push": None, "pull": None}
+        with patch("harness.telemetry.sync.sync_telemetry", return_value=mock_res) as mock_sync, \
+             patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["sync", "--review"])
+            self.assertEqual(code, 0)
+            mock_sync.assert_called_once_with(
+                direction="both",
+                interactive=False,
+                endpoint=None,
+                db_path=None,
+                limit=None,
+                dry_run=False,
+                on_progress=unittest.mock.ANY,
+                review=True,
+            )
 
     def test_cli_subagents_subcommand(self):
         """Verifies `psl subagents` renders ASCII table and handles empty directories."""

@@ -122,7 +122,20 @@ def cmd_audit(args: argparse.Namespace) -> int:
             extra.extend(["--db", args.db])
         if getattr(args, "backfill", False):
             extra.append("--backfill-volumes")
+        if getattr(args, "conv_dir", None):
+            extra.extend(["--conv-dir", args.conv_dir])
         extract_transcripts.main(extra)
+    elif sub == "benchmark":
+        from pipeline import benchmark_reasoning_tiers
+        extra = []
+        if getattr(args, "db", None):
+            extra.extend(["--db", args.db])
+        if getattr(args, "output_json", None):
+            extra.extend(["--output-json", str(args.output_json)])
+        if getattr(args, "output_report", None):
+            extra.extend(["--output-report", str(args.output_report)])
+        benchmark_reasoning_tiers.main(extra)
+        return 0
     elif sub == "classify":
         from pipeline import classify_failures
         classify_failures.main()
@@ -395,6 +408,25 @@ def cmd_sync(args: argparse.Namespace) -> int:
     """Synchronizes telemetry with the central hub (push, pull, or bi-directional)."""
     db_path = getattr(args, "db", None)
 
+    if getattr(args, "systemd", False):
+        from harness.telemetry.sync import generate_systemd_service
+        interval = getattr(args, "interval", 5.0) or 5.0
+        unit = generate_systemd_service(interval_sec=interval)
+        print(unit)
+        return 0
+
+    if getattr(args, "watch", False):
+        from harness.telemetry.sync import watch_and_sync
+        interval = getattr(args, "interval", 5.0) or 5.0
+        endpoint = getattr(args, "remote", None)
+        print(f"[*] Starting background telemetry watch & sync daemon (interval={interval}s)...")
+        res = watch_and_sync(interval_sec=interval, db_path=db_path, endpoint=endpoint)
+        if getattr(args, "json", False):
+            print(json.dumps(res, indent=2))
+        else:
+            print(f"[✓] Watch daemon stopped: {res.get('iterations', 0)} iterations, {res.get('total_sessions_pushed', 0)} sessions pushed.")
+        return 0
+
     if getattr(args, "session_id", None):
         try:
             from pipeline import analyze_live_session
@@ -420,6 +452,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
     endpoint = getattr(args, "remote", None)
     interactive = getattr(args, "interactive", False)
+    review = getattr(args, "review", False)
     limit = getattr(args, "limit", None)
     dry_run = getattr(args, "dry_run", False)
 
@@ -430,16 +463,20 @@ def cmd_sync(args: argparse.Namespace) -> int:
                 print(f"  • Pushing batch {batch_num}/{total_batches} ({stats.get('sessions', 0)} sessions, {stats.get('steps', 0)} steps)...")
 
     from harness.telemetry.sync import sync_telemetry
+    sync_kwargs: Dict[str, Any] = {
+        "direction": direction,
+        "interactive": interactive,
+        "endpoint": endpoint,
+        "db_path": db_path,
+        "limit": limit,
+        "dry_run": dry_run,
+        "on_progress": on_progress,
+    }
+    if review:
+        sync_kwargs["review"] = review
+
     try:
-        res = sync_telemetry(
-            direction=direction,
-            interactive=interactive,
-            endpoint=endpoint,
-            db_path=db_path,
-            limit=limit,
-            dry_run=dry_run,
-            on_progress=on_progress,
-        )
+        res = sync_telemetry(**sync_kwargs)
     except Exception as exc:
         sys.stderr.write(f"Sync error: {exc}\n")
         return 1
@@ -1211,10 +1248,11 @@ def build_parser() -> argparse.ArgumentParser:
         "stage",
         nargs="?",
         default="all",
-        choices=["all", "extract", "classify", "inventory", "dynamics", "traces", "interventions", "volume", "deep", "session", "live"],
+        choices=["all", "extract", "benchmark", "classify", "inventory", "dynamics", "traces", "interventions", "volume", "deep", "session", "live"],
         help="Audit pipeline stage to run (default: all)",
     )
     p_audit.add_argument("--db", type=str, default=None, help="Path to SQLite database")
+    p_audit.add_argument("--conv-dir", type=str, default=None, help="Path to conversations directory containing .db files")
     p_audit.add_argument("--backfill", action="store_true", help="Force volume backfill from transcripts")
     p_audit.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID for session audit")
     p_audit.add_argument("--save-db", action="store_true", help="Sync audited session into data/telemetry.db")
@@ -1364,6 +1402,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync.add_argument("--remote", "-r", type=str, default=None, help="Central telemetry hub endpoint URL")
     p_sync.add_argument("--db", type=str, default=None, help="Path to SQLite telemetry database")
     p_sync.add_argument("--interactive", "-i", action="store_true", help="Interactively confirm batch push")
+    p_sync.add_argument("--review", action="store_true", help="Interactively review and select candidate sessions to push")
+    p_sync.add_argument("--watch", action="store_true", help="Continuously watch and sync telemetry in the background")
+    p_sync.add_argument("--interval", type=float, default=5.0, help="Poll interval in seconds for watch mode (default: 5.0)")
+    p_sync.add_argument("--systemd", action="store_true", help="Output systemd user service unit definition")
     p_sync.add_argument("--limit", "-l", type=int, default=None, help="Maximum number of sessions to push")
     p_sync.add_argument("--dry-run", action="store_true", help="Simulate synchronization without modifications")
     p_sync.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID to ingest before syncing")
