@@ -70,13 +70,9 @@
     ],
     "Stop": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 -m harness.cli hook verification-fence",
-            "timeout": 5
-          }
-        ]
+        "type": "command",
+        "command": "python3 -m harness.cli hook verification-fence",
+        "timeout": 5
       }
     ]
   }
