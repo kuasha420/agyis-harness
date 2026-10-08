@@ -76,7 +76,38 @@ class TestPslDoctor(unittest.TestCase):
     def test_run_doctor_with_canonical_matrix(self):
         matrix_path = Path(__file__).parent.parent / "harness/runtime/matrix.json"
         self.assertTrue(matrix_path.exists())
-        audit = run_doctor(matrix_path)
+
+        def mock_run(cmd, *args, **kwargs):
+            proc = unittest.mock.MagicMock()
+            proc.returncode = 0
+            proc.stderr = ""
+            cmd_str = str(cmd)
+            if "python" in cmd_str:
+                proc.stdout = "Python 3.12.8"
+            elif "uv" in cmd_str:
+                proc.stdout = "uv 0.5.2"
+            elif "node" in cmd_str:
+                proc.stdout = "v22.0.0"
+            elif "pnpm" in cmd_str:
+                proc.stdout = "9.15.0"
+            elif "git" in cmd_str:
+                proc.stdout = "git version 2.45.0"
+            elif "gh" in cmd_str:
+                proc.stdout = "gh version 2.50.0"
+            elif "rg" in cmd_str:
+                proc.stdout = "ripgrep 14.1.0"
+            elif "fd" in cmd_str:
+                proc.stdout = "fd 9.0.0"
+            elif "ssh" in cmd_str:
+                proc.stdout = "OpenSSH_9.5"
+            elif "knot" in cmd_str:
+                proc.stdout = "knot 1.0.0"
+            else:
+                proc.stdout = "99.0.0"
+            return proc
+
+        with patch("subprocess.run", side_effect=mock_run):
+            audit = run_doctor(matrix_path)
 
         self.assertIn("os_family", audit)
         self.assertIn("tiers", audit)
