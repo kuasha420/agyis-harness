@@ -69,5 +69,11 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
-*.swo
 .agents/artifacts
+
+# Top-level plugin delivery symlinks
+/skills
+/agents
+/rules
+/hooks.json
+/matrix.json

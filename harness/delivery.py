@@ -30,6 +30,9 @@ DISTRIBUTABLE_ITEMS: frozenset[str] = frozenset({
     "harness",
     "matrix.json",
     "hooks.json",
+    "skills",
+    "agents",
+    "rules",
 })
 
 EXCLUDED_PACKAGING_NAMES: frozenset[str] = frozenset({
@@ -164,7 +167,59 @@ class PluginInstaller:
             if runtime_hooks.exists():
                 return runtime_hooks
 
+        if item_name == "skills":
+            skills_dir = self.source_dir / "harness" / "skills"
+            if skills_dir.exists():
+                return skills_dir
+
+        if item_name == "agents":
+            agents_dir = self.source_dir / "harness" / "agents"
+            if agents_dir.exists():
+                return agents_dir
+
+        if item_name == "rules":
+            rules_dir = self.source_dir / "harness" / "rules"
+            if rules_dir.exists():
+                return rules_dir
+
         return None
+
+    def _ensure_source_root_plugin_symlinks(self) -> None:
+        """
+        Ensures standard top-level plugin symlinks exist at source repository root:
+        skills -> harness/skills, agents -> harness/agents, rules -> harness/rules,
+        hooks.json -> harness/hooks/hooks.json, matrix.json -> harness/runtime/matrix.json.
+        """
+        links = {
+            "skills": Path("harness/skills"),
+            "agents": Path("harness/agents"),
+            "rules": Path("harness/rules"),
+            "hooks.json": Path("harness/hooks/hooks.json"),
+            "matrix.json": Path("harness/runtime/matrix.json"),
+        }
+        for name, rel_target in links.items():
+            link_path = self.source_dir / name
+            src_target = self.source_dir / rel_target
+            if not link_path.exists() and src_target.exists():
+                try:
+                    link_path.symlink_to(rel_target)
+                except OSError:
+                    pass
+
+    def _enable_in_config(self, plugin_name: str = "psl-agy-harness") -> None:
+        """Ensures plugin is marked enabled in global ~/.gemini/config/config.json."""
+        config_path = Path.home() / ".gemini" / "config" / "config.json"
+        try:
+            data: Dict[str, Any] = {}
+            if config_path.is_file():
+                data = json.loads(config_path.read_text(encoding="utf-8"))
+            if "plugins" not in data or not isinstance(data["plugins"], dict):
+                data["plugins"] = {}
+            data["plugins"][plugin_name] = {"enabled": True}
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        except (OSError, json.JSONDecodeError):
+            pass
 
     def install(
         self,
@@ -197,10 +252,12 @@ class PluginInstaller:
             )
 
         if mode == DeliveryMode.SYMLINK:
+            self._ensure_source_root_plugin_symlinks()
             if target.is_symlink():
                 try:
                     if target.resolve() == self.source_dir.resolve():
                         self._install_bin(target)
+                        self._enable_in_config(target.name)
                         return DeliveryResult(
                             success=True,
                             mode=DeliveryMode.SYMLINK.value,
@@ -221,6 +278,7 @@ class PluginInstaller:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.symlink_to(self.source_dir.resolve())
             self._install_bin(target)
+            self._enable_in_config(target.name)
 
             return DeliveryResult(
                 success=True,
@@ -271,7 +329,47 @@ class PluginInstaller:
                 shutil.copy2(hooks_src, target / "hooks.json")
                 installed_items.append("hooks.json")
 
+            # 5. skills/
+            skills_src = self._find_distributable_item("skills")
+            if skills_src and skills_src.is_dir():
+                skills_dst = target / "skills"
+                if skills_dst.exists():
+                    shutil.rmtree(skills_dst)
+                shutil.copytree(
+                    skills_src,
+                    skills_dst,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                )
+                installed_items.append("skills")
+
+            # 6. agents/
+            agents_src = self._find_distributable_item("agents")
+            if agents_src and agents_src.is_dir():
+                agents_dst = target / "agents"
+                if agents_dst.exists():
+                    shutil.rmtree(agents_dst)
+                shutil.copytree(
+                    agents_src,
+                    agents_dst,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                )
+                installed_items.append("agents")
+
+            # 7. rules/
+            rules_src = self._find_distributable_item("rules")
+            if rules_src and rules_src.is_dir():
+                rules_dst = target / "rules"
+                if rules_dst.exists():
+                    shutil.rmtree(rules_dst)
+                shutil.copytree(
+                    rules_src,
+                    rules_dst,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                )
+                installed_items.append("rules")
+
             self._install_bin(target)
+            self._enable_in_config(target.name)
 
             return DeliveryResult(
                 success=True,

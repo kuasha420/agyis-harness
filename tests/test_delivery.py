@@ -85,6 +85,9 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertTrue((self.target_dir / "harness").is_dir())
         self.assertTrue((self.target_dir / "matrix.json").is_file())
         self.assertTrue((self.target_dir / "hooks.json").is_file())
+        self.assertTrue((self.target_dir / "skills").is_dir())
+        self.assertTrue((self.target_dir / "agents").is_dir())
+        self.assertTrue((self.target_dir / "rules").is_dir())
 
         self.assertTrue(installer.is_installed(self.target_dir))
         info = installer.get_install_info(self.target_dir)
