@@ -118,6 +118,25 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         self.assertIn("AGENTS.md", ctx["detected_files"])
         self.assertIn("matrix.json", ctx["detected_files"])
 
+    def test_inspect_workspace_context_esm(self) -> None:
+        """inspect_workspace_context detects is_esm and module_format when type is module."""
+        (self.workspace / "package.json").write_text(
+            json.dumps({"name": "esm-pkg", "type": "module"}),
+            encoding="utf-8",
+        )
+        ctx = inspect_workspace_context(self.workspace)
+        self.assertTrue(ctx["is_esm"])
+        self.assertEqual(ctx["module_format"], "module")
+
+        # When package.json does not specify type module
+        (self.workspace / "package.json").write_text(
+            json.dumps({"name": "cjs-pkg"}),
+            encoding="utf-8",
+        )
+        ctx_cjs = inspect_workspace_context(self.workspace)
+        self.assertFalse(ctx_cjs["is_esm"])
+        self.assertEqual(ctx_cjs["module_format"], "commonjs")
+
     def test_scaffold_agent_markdown_structure(self) -> None:
         """scaffold_agent_markdown generates valid YAML frontmatter and hybrid prompt."""
         ws_ctx = {

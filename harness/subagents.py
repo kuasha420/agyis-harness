@@ -355,6 +355,8 @@ def inspect_workspace_context(repo_root: Optional[Path] = None) -> Dict[str, Any
     commands: List[str] = []
     rules: List[str] = []
     detected_files: List[str] = []
+    is_esm: bool = False
+    module_format: str = "commonjs"
 
     # 1. pyproject.toml
     pyproject = root / "pyproject.toml"
@@ -384,6 +386,11 @@ def inspect_workspace_context(repo_root: Optional[Path] = None) -> Dict[str, Any
         try:
             data = json.loads(pkg_json.read_text(encoding="utf-8", errors="replace"))
             if isinstance(data, dict):
+                if data.get("type") == "module":
+                    is_esm = True
+                    module_format = "module"
+                elif data.get("type"):
+                    module_format = str(data.get("type"))
                 if data.get("name") and (project_name == root.name or not project_name):
                     project_name = str(data["name"])
                 deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
@@ -475,6 +482,8 @@ def inspect_workspace_context(repo_root: Optional[Path] = None) -> Dict[str, Any
         "commands": commands,
         "rules": rules,
         "detected_files": detected_files,
+        "is_esm": is_esm,
+        "module_format": module_format,
     }
 
 

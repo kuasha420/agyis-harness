@@ -26,11 +26,16 @@ from unittest.mock import patch
 
 from harness.cli import main
 from harness.delivery import (
+    GIT_EXCLUDE_PATTERNS,
     REPO_ROOT,
+    SYNC_SURFACE_ITEMS,
     CoexistenceEngine,
     DeliveryMode,
     DeliveryResult,
     PluginInstaller,
+    configure_git_exclude,
+    find_workspace_root,
+    sync_surfaces,
 )
 
 
@@ -384,6 +389,140 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertFalse(primary_psl.exists())
         self.assertFalse(aux_psl_1.exists())
         self.assertFalse(aux_psl_2.exists())
+
+    def test_sync_surfaces_clean_and_idempotent(self) -> None:
+        """sync_surfaces idempotently links surface items to canonical config."""
+        fake_cfg = self.isolated_base / "fake_config"
+        surf_1 = self.isolated_base / "surface_1"
+        surf_2 = self.isolated_base / "surface_2"
+
+        # Pre-populate surface_1 / agents with a custom file to test migration
+        (surf_1 / "agents").mkdir(parents=True)
+        (surf_1 / "agents" / "migrated.md").write_text("# Migrated\n", encoding="utf-8")
+
+        # First pass
+        results = sync_surfaces(surfaces=[surf_1, surf_2], config_dir=fake_cfg)
+        self.assertTrue(len(results) > 0)
+
+        # File was migrated to canonical config
+        self.assertTrue((fake_cfg / "agents" / "migrated.md").is_file())
+
+        for surface in (surf_1, surf_2):
+            for item in SYNC_SURFACE_ITEMS:
+                item_link = surface / item
+                self.assertTrue(item_link.is_symlink())
+                self.assertEqual(item_link.resolve(), (fake_cfg / item).resolve())
+
+        # Second pass (idempotent)
+        second_results = sync_surfaces(surfaces=[surf_1, surf_2], config_dir=fake_cfg)
+        for r in second_results:
+            self.assertEqual(r["status"], "already_linked")
+
+    def test_find_workspace_root_standard_and_worktree(self) -> None:
+        """find_workspace_root discovers root for standard git and worktree pointer files."""
+        # 1. Standard git directory
+        repo_dir = self.isolated_base / "std_repo"
+        (repo_dir / ".git").mkdir(parents=True)
+        sub_dir = repo_dir / "pkg" / "src"
+        sub_dir.mkdir(parents=True)
+
+        found = find_workspace_root(sub_dir)
+        self.assertEqual(found, repo_dir)
+
+        # 2. Worktree pointer file
+        main_repo = self.isolated_base / "main_repo"
+        (main_repo / ".git" / "worktrees" / "wt1").mkdir(parents=True)
+
+        wt_dir = self.isolated_base / "wt_worktree"
+        wt_dir.mkdir(parents=True)
+        (wt_dir / ".git").write_text(f"gitdir: {main_repo}/.git/worktrees/wt1\n", encoding="utf-8")
+        wt_sub = wt_dir / "nested" / "module"
+        wt_sub.mkdir(parents=True)
+
+        found_wt = find_workspace_root(wt_sub)
+        self.assertEqual(found_wt, wt_dir)
+
+    def test_configure_git_exclude_standard_and_worktree(self) -> None:
+        """configure_git_exclude appends required patterns to .git/info/exclude idempotently."""
+        # 1. Standard repo
+        std_repo = self.isolated_base / "exclude_std"
+        (std_repo / ".git").mkdir(parents=True)
+
+        exclude_file = configure_git_exclude(std_repo)
+        self.assertTrue(exclude_file.is_file())
+        content = exclude_file.read_text(encoding="utf-8")
+        for pat in GIT_EXCLUDE_PATTERNS:
+            self.assertIn(pat, content)
+
+        # Calling again does not duplicate patterns
+        configure_git_exclude(std_repo)
+        lines = [line.strip() for line in exclude_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+        for pat in GIT_EXCLUDE_PATTERNS:
+            self.assertEqual(lines.count(pat), 1)
+
+        # 2. Worktree layout
+        main_git = self.isolated_base / "wt_exclude_main" / ".git"
+        (main_git / "worktrees" / "wt_branch").mkdir(parents=True)
+        wt_root = self.isolated_base / "wt_exclude_child"
+        wt_root.mkdir(parents=True)
+        (wt_root / ".git").write_text(f"gitdir: {main_git}/worktrees/wt_branch\n", encoding="utf-8")
+
+        wt_exclude_file = configure_git_exclude(wt_root)
+        self.assertEqual(wt_exclude_file, main_git / "info" / "exclude")
+        wt_content = wt_exclude_file.read_text(encoding="utf-8")
+        for pat in GIT_EXCLUDE_PATTERNS:
+            self.assertIn(pat, wt_content)
+
+    def test_single_source_agent_delivery(self) -> None:
+        """Plugin installation purges duplicate standalone agents in ~/.gemini/config/agents/."""
+        fake_cfg = self.isolated_base / "cfg_single_source"
+        fake_agents = fake_cfg / "agents"
+        fake_agents.mkdir(parents=True)
+
+        # Standalone agent duplicate
+        dup_agent = fake_agents / "harness_builder.md"
+        dup_agent.write_text("# Duplicate Standalone Agent\n", encoding="utf-8")
+
+        # Independent custom agent
+        user_agent = fake_agents / "custom-operator.md"
+        user_agent.write_text("# User Custom Agent\n", encoding="utf-8")
+
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            config_dir=fake_cfg,
+        )
+
+        res = installer.install(mode=DeliveryMode.COPY)
+        self.assertTrue(res.success)
+        # Duplicate removed
+        self.assertIn(str(dup_agent), res.duplicates_removed)
+        self.assertFalse(dup_agent.exists())
+        # Non-colliding user agent remains intact
+        self.assertTrue(user_agent.exists())
+        # Single source exists inside plugin directory
+        self.assertTrue((self.target_dir / "agents" / "harness_builder.md").exists())
+
+    def test_uninstall_clean_surfaces(self) -> None:
+        """Uninstall with clean_surfaces=True unlinks surface symlinks without touching config."""
+        fake_cfg = self.isolated_base / "uninstall_cfg"
+        surf = self.isolated_base / "uninstall_surf"
+
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            config_dir=fake_cfg,
+            surfaces=[surf],
+        )
+
+        installer.install(mode=DeliveryMode.SYMLINK, all_surfaces=True)
+        self.assertTrue((surf / "agents").is_symlink())
+
+        installer.uninstall(clean_surfaces=True)
+        self.assertFalse((surf / "agents").exists())
+        self.assertFalse((surf / "agents").is_symlink())
+        # Canonical config remains intact
+        self.assertTrue((fake_cfg / "agents").is_dir())
 
 
 if __name__ == "__main__":

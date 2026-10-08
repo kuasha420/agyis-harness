@@ -615,7 +615,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
 
         scope = getattr(args, "scope", "project") or "project"
         if scope == "global":
-            target_dir = Path.home() / ".gemini" / "antigravity" / "agents"
+            target_dir = Path.home() / ".gemini" / "config" / "agents"
         else:
             target_dir = REPO_ROOT / ".agents" / "agents"
 
@@ -1045,7 +1045,13 @@ def cmd_install(args: argparse.Namespace) -> int:
     bin_dir = Path(args.bin_dir) if getattr(args, "bin_dir", None) else None
     installer = PluginInstaller(bin_dir=bin_dir)
     target_dir = Path(args.target) if getattr(args, "target", None) else None
-    result = installer.install(mode=mode, dry_run=getattr(args, "dry_run", False), target_dir=target_dir)
+    all_surfaces = getattr(args, "all_surfaces", False)
+    result = installer.install(
+        mode=mode,
+        dry_run=getattr(args, "dry_run", False),
+        target_dir=target_dir,
+        all_surfaces=all_surfaces,
+    )
 
     if getattr(args, "json", False):
         print(json.dumps({
@@ -1284,6 +1290,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("--copy", action="store_true", help="Install via copy mode")
     p_install.add_argument("--symlink", action="store_true", help="Install via symlink mode (default)")
     p_install.add_argument("--dry-run", action="store_true", help="Simulate installation without writing to disk")
+    p_install.add_argument("--all-surfaces", action="store_true", help="Sync all Antigravity surfaces to canonical config")
     p_install.add_argument("--target", type=Path, default=None, help="Custom target installation directory")
     p_install.add_argument("--json", action="store_true", help="Output result in JSON format")
 

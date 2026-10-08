@@ -75,10 +75,27 @@ export type UserRegistrationDTO = z.infer<typeof UserRegistrationSchema>;
 
 ---
 
-## 3. Verification & Compliance Checklist
+## 3. Node Script Module Hygiene (ESM vs CommonJS)
+
+### 3.1 Strict Extension Discipline in ESM Packages
+When a repository is configured with `"type": "module"` in `package.json`:
+- All standard `.js` and `.ts` files are treated as ECMAScript Modules (ESM).
+- CommonJS module patterns (`require()`, `module.exports`, `exports.`) are syntax errors or runtime failures when executed in standard Node `.js` contexts under ESM.
+- Any legacy, migration, or utility scripts that require CommonJS semantics MUST use the explicit `.cjs` file extension.
+- Never mix CommonJS globals (`__dirname`, `__filename`, `require`) inside `.js` or `.mjs` files in `"type": "module"` projects without standard ESM equivalents (`import.meta.url`).
+
+### 3.2 Dual Module Strategy & Migration
+- Production scripts and packages should prefer standard ESM syntax (`import`, `export`).
+- When authoring standalone CLI scripts or build tools that must use synchronous module resolution, name them explicitly with `.cjs`.
+- Automated diagnostics (`psl doctor`) enforce this invariant by auditing `.js` files for CommonJS patterns when `"type": "module"` is declared.
+
+---
+
+## 4. Verification & Compliance Checklist
 
 1. [ ] Zero occurrences of `: any` or `as any` in changed files.
 2. [ ] All boundary inputs validated with Zod schemas (`safeParse` or `parse`).
 3. [ ] Types derived from Zod schemas via `z.infer` rather than duplicate manual interfaces.
 4. [ ] No internal database entities exposed across domain boundaries.
 5. [ ] Strict null/undefined normalization applied at IO edges.
+6. [ ] Node scripts in `"type": "module"` packages use ESM syntax or explicit `.cjs` extension.

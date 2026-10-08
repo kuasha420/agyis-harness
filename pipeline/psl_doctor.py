@@ -240,7 +240,162 @@ def check_psl_collision() -> Dict[str, Any]:
     }
 
 
-def run_doctor(matrix_path: Path) -> Dict[str, Any]:
+def check_duplicate_agents(config_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Audit ~/.gemini/config/agents/*.md and ~/.gemini/config/plugins/*/agents/*.md for duplicates (Issue #30)."""
+    cfg = Path(config_dir).resolve() if config_dir is not None else Path.home() / ".gemini" / "config"
+    agents_dir = cfg / "agents"
+    plugins_dir = cfg / "plugins"
+
+    standalone_agents: Dict[str, Path] = {}
+    if agents_dir.is_dir():
+        for f in sorted(agents_dir.glob("*.md")):
+            if f.is_file() or f.is_symlink():
+                standalone_agents[f.name] = f
+
+    plugin_agents: Dict[str, List[Path]] = {}
+    if plugins_dir.is_dir():
+        for f in sorted(plugins_dir.glob("*/agents/*.md")):
+            if f.is_file() or f.is_symlink():
+                plugin_agents.setdefault(f.name, []).append(f)
+
+    duplicate_names = sorted(set(standalone_agents.keys()) & set(plugin_agents.keys()))
+
+    if duplicate_names:
+        dups_info = []
+        for name in duplicate_names:
+            plugin_paths = [str(p) for p in plugin_agents[name]]
+            dups_info.append({
+                "agent": name,
+                "standalone": str(standalone_agents[name]),
+                "plugin_sources": plugin_paths,
+            })
+        return {
+            "status": "WARNING",
+            "duplicates": duplicate_names,
+            "details": f"Duplicate agent definitions detected across standalone config and plugins: {', '.join(duplicate_names)}",
+            "duplicate_items": dups_info,
+            "remediation": (
+                "Remove duplicate standalone agent files in ~/.gemini/config/agents/ "
+                "or run 'python3 -m harness.cli install' to enforce single-source plugin delivery."
+            ),
+        }
+
+    return {
+        "status": "OK",
+        "duplicates": [],
+        "details": "No duplicate agent definitions detected between standalone config and plugins.",
+        "duplicate_items": [],
+        "remediation": None,
+    }
+
+
+def check_node_script_hygiene(workspace_root: Optional[Path] = None) -> Dict[str, Any]:
+    """
+    In packages with 'type': 'module', check .js files for CommonJS syntax (Issue #17).
+
+    Audits .js files for require(, module.exports, or exports., recommending .cjs or ESM syntax.
+    """
+    ws = Path(workspace_root).resolve() if workspace_root is not None else Path.cwd().resolve()
+    pkg_json = ws / "package.json"
+
+    if not pkg_json.is_file():
+        return {
+            "status": "OK",
+            "is_esm": False,
+            "violations": [],
+            "details": "No package.json found at workspace root.",
+            "remediation": None,
+        }
+
+    try:
+        data = json.loads(pkg_json.read_text(encoding="utf-8", errors="replace"))
+    except (json.JSONDecodeError, OSError):
+        return {
+            "status": "OK",
+            "is_esm": False,
+            "violations": [],
+            "details": "Malformed or unreadable package.json.",
+            "remediation": None,
+        }
+
+    if not isinstance(data, dict) or data.get("type") != "module":
+        return {
+            "status": "OK",
+            "is_esm": False,
+            "violations": [],
+            "details": "Package does not specify 'type': 'module' (CommonJS default).",
+            "remediation": None,
+        }
+
+    ignored_dir_names = {
+        "node_modules", ".git", ".venv", "venv", "dist", "build",
+        ".cache", ".next", "__pycache__", ".agents", ".psl", "scratch",
+    }
+
+    cjs_patterns = [
+        (re.compile(r"\brequire\s*\("), "require("),
+        (re.compile(r"\bmodule\.exports\b"), "module.exports"),
+        (re.compile(r"\bexports\.[a-zA-Z0-9_$]+"), "exports."),
+    ]
+
+    violations: List[Dict[str, Any]] = []
+
+    for root_dir, dirs, files in os.walk(ws):
+        dirs[:] = [d for d in dirs if d not in ignored_dir_names]
+
+        for fname in files:
+            if fname.endswith(".js"):
+                fpath = Path(root_dir) / fname
+                try:
+                    content = fpath.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+
+                matched_patterns = []
+                for regex, pat_label in cjs_patterns:
+                    if regex.search(content):
+                        matched_patterns.append(pat_label)
+
+                if matched_patterns:
+                    try:
+                        rel = str(fpath.relative_to(ws))
+                    except ValueError:
+                        rel = str(fpath)
+                    violations.append({
+                        "file": rel,
+                        "patterns": matched_patterns,
+                    })
+
+    if violations:
+        violation_files = [v["file"] for v in violations]
+        return {
+            "status": "WARNING",
+            "is_esm": True,
+            "violations": violations,
+            "details": (
+                f"CommonJS syntax detected in {len(violations)} .js file(s) under 'type': 'module' package: "
+                f"{', '.join(violation_files[:5])}{'...' if len(violation_files) > 5 else ''}"
+            ),
+            "remediation": (
+                "Rename CommonJS scripts from '.js' to '.cjs' or convert to ES module "
+                "syntax ('import' / 'export'). Under 'type': 'module', Node rejects CommonJS in '.js' files."
+            ),
+        }
+
+    return {
+        "status": "OK",
+        "is_esm": True,
+        "violations": [],
+        "details": "Node script module hygiene verified: all .js files adhere to ESM syntax.",
+        "remediation": None,
+    }
+
+
+def run_doctor(
+    matrix_path: Path,
+    workspace_root: Optional[Path] = None,
+    config_dir: Optional[Path] = None,
+) -> Dict[str, Any]:
     """Perform complete workstation runtime audit."""
     if not matrix_path.exists():
         raise FileNotFoundError(f"Matrix file not found: {matrix_path}")
@@ -251,12 +406,16 @@ def run_doctor(matrix_path: Path) -> Dict[str, Any]:
     os_family = detect_os_family()
     hermetic_python = find_hermetic_uv_python()
     psl_collision = check_psl_collision()
+    duplicate_agents = check_duplicate_agents(config_dir=config_dir)
+    node_script_hygiene = check_node_script_hygiene(workspace_root=workspace_root)
 
     results: Dict[str, Any] = {
         "os_family": os_family,
         "hermetic_python_available": str(hermetic_python) if hermetic_python else None,
         "path_environment": os.environ.get("PATH", ""),
         "psl_collision": psl_collision,
+        "duplicate_agents": duplicate_agents,
+        "node_script_hygiene": node_script_hygiene,
         "tiers": {},
         "summary": {
             "total_tools": 0,
@@ -269,6 +428,10 @@ def run_doctor(matrix_path: Path) -> Dict[str, Any]:
     }
 
     if psl_collision.get("collision") or psl_collision.get("status") == "WARNING":
+        results["summary"]["warning"] += 1
+    if duplicate_agents.get("status") == "WARNING":
+        results["summary"]["warning"] += 1
+    if node_script_hygiene.get("status") == "WARNING":
         results["summary"]["warning"] += 1
 
     for tier_key, tier_data in matrix.get("tiers", {}).items():
@@ -359,6 +522,18 @@ def heal_environment(audit: Dict[str, Any], matrix_path: Path) -> List[str]:
             f"PSL Collision Remediation:\n    {psl_collision['remediation']}"
         )
 
+    dup_agents = audit.get("duplicate_agents", {})
+    if dup_agents.get("status") == "WARNING" and dup_agents.get("remediation"):
+        actions_taken.append(
+            f"Duplicate Agents Remediation:\n    {dup_agents['remediation']}"
+        )
+
+    node_hyg = audit.get("node_script_hygiene", {})
+    if node_hyg.get("status") == "WARNING" and node_hyg.get("remediation"):
+        actions_taken.append(
+            f"Node Script Hygiene Remediation:\n    {node_hyg['remediation']}"
+        )
+
     return actions_taken
 
 
@@ -384,6 +559,28 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
             print(f" PSL Launcher: [\033[32mPASS\033[0m] -> {psl_col.get('path')}")
         else:
             print(f" PSL Launcher: [\033[34mINFO\033[0m] -> {psl_col.get('details')}")
+
+    dup_agents = audit.get("duplicate_agents")
+    if dup_agents:
+        if dup_agents.get("status") == "WARNING":
+            print(f" Duplicate Agents: [\033[33mWARN\033[0m] -> {dup_agents.get('details')}")
+            if dup_agents.get("remediation"):
+                print(f"    Remediation:\n      {dup_agents.get('remediation')}")
+        elif dup_agents.get("status") == "OK":
+            print(f" Duplicate Agents: [\033[32mPASS\033[0m] -> {dup_agents.get('details')}")
+        else:
+            print(f" Duplicate Agents: [\033[34mINFO\033[0m] -> {dup_agents.get('details')}")
+
+    node_hyg = audit.get("node_script_hygiene")
+    if node_hyg:
+        if node_hyg.get("status") == "WARNING":
+            print(f" Node Script Hygiene: [\033[33mWARN\033[0m] -> {node_hyg.get('details')}")
+            if node_hyg.get("remediation"):
+                print(f"    Remediation:\n      {node_hyg.get('remediation')}")
+        elif node_hyg.get("status") == "OK":
+            print(f" Node Script Hygiene: [\033[32mPASS\033[0m] -> {node_hyg.get('details')}")
+        else:
+            print(f" Node Script Hygiene: [\033[34mINFO\033[0m] -> {node_hyg.get('details')}")
     print("-" * 70)
 
     symbols = {

@@ -10,6 +10,8 @@ import unittest
 from unittest.mock import patch
 
 from pipeline.psl_doctor import (
+    check_duplicate_agents,
+    check_node_script_hygiene,
     check_psl_collision,
     check_tool,
     detect_os_family,
@@ -173,6 +175,76 @@ class TestPslDoctor(unittest.TestCase):
                 self.assertEqual(res["status"], "OK")
                 self.assertFalse(res["collision"])
                 self.assertIsNone(res["remediation"])
+
+    def test_check_duplicate_agents_none(self):
+        """Passes when no duplicate agent definitions exist between standalone config and plugins."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cfg = Path(tmp_dir)
+            (cfg / "agents").mkdir(parents=True)
+            (cfg / "plugins" / "my-plugin" / "agents").mkdir(parents=True)
+
+            (cfg / "agents" / "agent-a.md").write_text("# Agent A\n")
+            (cfg / "plugins" / "my-plugin" / "agents" / "agent-b.md").write_text("# Agent B\n")
+
+            res = check_duplicate_agents(config_dir=cfg)
+            self.assertEqual(res["status"], "OK")
+            self.assertEqual(res["duplicates"], [])
+            self.assertIsNone(res["remediation"])
+
+    def test_check_duplicate_agents_found(self):
+        """Detects duplicate agent definitions between standalone config and plugins."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cfg = Path(tmp_dir)
+            (cfg / "agents").mkdir(parents=True)
+            (cfg / "plugins" / "my-plugin" / "agents").mkdir(parents=True)
+
+            (cfg / "agents" / "shared-agent.md").write_text("# Standalone Agent\n")
+            (cfg / "plugins" / "my-plugin" / "agents" / "shared-agent.md").write_text("# Plugin Agent\n")
+
+            res = check_duplicate_agents(config_dir=cfg)
+            self.assertEqual(res["status"], "WARNING")
+            self.assertIn("shared-agent.md", res["duplicates"])
+            self.assertIsNotNone(res["remediation"])
+            self.assertEqual(len(res["duplicate_items"]), 1)
+
+    def test_check_node_script_hygiene_non_esm(self):
+        """Non-ESM package (no 'type': 'module') passes node script hygiene with status OK."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ws = Path(tmp_dir)
+            (ws / "package.json").write_text(json.dumps({"name": "cjs-pkg"}), encoding="utf-8")
+            (ws / "index.js").write_text("const x = require('x');\nmodule.exports = x;\n", encoding="utf-8")
+
+            res = check_node_script_hygiene(workspace_root=ws)
+            self.assertEqual(res["status"], "OK")
+            self.assertFalse(res["is_esm"])
+            self.assertEqual(res["violations"], [])
+
+    def test_check_node_script_hygiene_esm_clean(self):
+        """ESM package ('type': 'module') with pure ESM scripts and .cjs files passes with status OK."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ws = Path(tmp_dir)
+            (ws / "package.json").write_text(json.dumps({"name": "esm-pkg", "type": "module"}), encoding="utf-8")
+            (ws / "index.js").write_text("import x from 'x';\nexport default x;\n", encoding="utf-8")
+            (ws / "helper.cjs").write_text("const x = require('x');\nmodule.exports = x;\n", encoding="utf-8")
+
+            res = check_node_script_hygiene(workspace_root=ws)
+            self.assertEqual(res["status"], "OK")
+            self.assertTrue(res["is_esm"])
+            self.assertEqual(res["violations"], [])
+
+    def test_check_node_script_hygiene_esm_violations(self):
+        """ESM package ('type': 'module') flags .js files containing CommonJS syntax with status WARNING."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ws = Path(tmp_dir)
+            (ws / "package.json").write_text(json.dumps({"name": "esm-pkg", "type": "module"}), encoding="utf-8")
+            (ws / "broken.js").write_text("const path = require('path');\nmodule.exports = {};\n", encoding="utf-8")
+
+            res = check_node_script_hygiene(workspace_root=ws)
+            self.assertEqual(res["status"], "WARNING")
+            self.assertTrue(res["is_esm"])
+            self.assertEqual(len(res["violations"]), 1)
+            self.assertIn("broken.js", res["violations"][0]["file"])
+            self.assertIsNotNone(res["remediation"])
 
 
 if __name__ == "__main__":

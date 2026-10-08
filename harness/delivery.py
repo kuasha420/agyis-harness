@@ -13,6 +13,7 @@ from enum import Enum
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from typing import Any, Dict, List, Optional, Set
@@ -23,6 +24,28 @@ DEFAULT_PLUGIN_DIR = (
     Path(os.environ["PSL_PLUGINS_DIR"])
     if "PSL_PLUGINS_DIR" in os.environ
     else Path.home() / ".gemini" / "config" / "plugins" / "psl-agy-harness"
+)
+
+DEFAULT_SURFACE_NAMES: tuple[str, ...] = (
+    "antigravity",
+    "antigravity-cli",
+    "antigravity-ide",
+)
+
+SYNC_SURFACE_ITEMS: tuple[str, ...] = (
+    "agents",
+    "skills",
+    "plugins",
+    "rules",
+    "hooks.json",
+    "AGENTS.md",
+)
+
+GIT_EXCLUDE_PATTERNS: tuple[str, ...] = (
+    ".agents/",
+    ".psl/",
+    ".cache/",
+    "scratch/",
 )
 
 DISTRIBUTABLE_ITEMS: frozenset[str] = frozenset({
@@ -63,6 +86,8 @@ class DeliveryResult:
     target_dir: Path
     source_dir: Path
     items_installed: List[str] = field(default_factory=list)
+    duplicates_removed: List[str] = field(default_factory=list)
+    surfaces_synced: List[Dict[str, Any]] = field(default_factory=list)
     message: str = ""
 
 
@@ -80,6 +105,8 @@ class PluginInstaller:
         default_target_dir: Optional[Path] = None,
         bin_dir: Optional[Path] = None,
         aux_bin_dirs: Optional[List[Path]] = None,
+        config_dir: Optional[Path] = None,
+        surfaces: Optional[List[Path]] = None,
     ) -> None:
         self.source_dir = Path(source_dir).resolve() if source_dir else REPO_ROOT.resolve()
         if default_target_dir is not None:
@@ -88,6 +115,22 @@ class PluginInstaller:
             self.default_target_dir = Path(os.environ["PSL_PLUGINS_DIR"])
         else:
             self.default_target_dir = Path.home() / ".gemini" / "config" / "plugins" / "psl-agy-harness"
+
+        if config_dir is not None:
+            self.config_dir = Path(config_dir).resolve()
+        elif self.default_target_dir.parent.name == "plugins":
+            self.config_dir = self.default_target_dir.parent.parent.resolve()
+        else:
+            self.config_dir = (Path.home() / ".gemini" / "config").resolve()
+
+        if surfaces is not None:
+            self.surfaces = [Path(s).resolve() for s in surfaces]
+        else:
+            base_gemini = self.config_dir.parent
+            self.surfaces = [
+                (base_gemini / name).resolve()
+                for name in DEFAULT_SURFACE_NAMES
+            ]
 
         if bin_dir is not None:
             self.bin_dir = Path(bin_dir).resolve()
@@ -265,11 +308,152 @@ class PluginInstaller:
         except (OSError, json.JSONDecodeError):
             pass
 
+    def _enforce_single_source_agents(
+        self, target: Path, dry_run: bool = False
+    ) -> List[str]:
+        """
+        Enforces single-source agent delivery (Issue #30).
+        Removes standalone duplicate agent markdown files from candidate
+        global config/agents directories so the plugin bundle is the single source.
+        """
+        plugin_agents_dir = self._find_distributable_item("agents")
+        if not plugin_agents_dir or not plugin_agents_dir.is_dir():
+            return []
+
+        plugin_agent_names = {
+            f.name for f in plugin_agents_dir.glob("*.md")
+        }
+        if not plugin_agent_names:
+            return []
+
+        candidate_dirs = [self.config_dir / "agents"]
+        if target.parent.name == "plugins":
+            candidate_dirs.append(target.parent.parent / "agents")
+
+        removed: List[str] = []
+        seen_dirs: Set[Path] = set()
+
+        for cand_dir in candidate_dirs:
+            resolved_cand = cand_dir.resolve()
+            if resolved_cand in seen_dirs:
+                continue
+            seen_dirs.add(resolved_cand)
+
+            if not cand_dir.exists() or not cand_dir.is_dir():
+                continue
+
+            # Safety guard: never touch inside source_dir
+            try:
+                if resolved_cand.is_relative_to(self.source_dir.resolve()):
+                    continue
+            except (ValueError, OSError):
+                pass
+
+            for fname in plugin_agent_names:
+                dup_file = cand_dir / fname
+                if dup_file.is_file() or dup_file.is_symlink():
+                    if not dry_run:
+                        try:
+                            dup_file.unlink()
+                        except OSError:
+                            continue
+                    removed.append(str(dup_file))
+
+        return removed
+
+    def sync_surfaces(
+        self,
+        surfaces: Optional[List[Path]] = None,
+        config_dir: Optional[Path] = None,
+        dry_run: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """
+        Synchronizes all Antigravity surfaces (~/.gemini/antigravity,
+        ~/.gemini/antigravity-cli, ~/.gemini/antigravity-ide) to link
+        agents, skills, plugins, rules, hooks.json, AGENTS.md to canonical config.
+        """
+        target_surfaces = (
+            [Path(s).resolve() for s in surfaces]
+            if surfaces is not None
+            else self.surfaces
+        )
+        cfg_root = Path(config_dir).resolve() if config_dir is not None else self.config_dir
+        if not dry_run:
+            cfg_root.mkdir(parents=True, exist_ok=True)
+
+        # Ensure canonical config directories exist
+        for dname in ("agents", "skills", "plugins", "rules"):
+            if not dry_run:
+                (cfg_root / dname).mkdir(parents=True, exist_ok=True)
+
+        # Ensure canonical hooks.json and AGENTS.md exist if not present
+        canonical_hooks = cfg_root / "hooks.json"
+        if not canonical_hooks.exists() and not dry_run:
+            canonical_hooks.write_text("{\n  \"hooks\": []\n}\n", encoding="utf-8")
+
+        canonical_agents_md = cfg_root / "AGENTS.md"
+        if not canonical_agents_md.exists() and not dry_run:
+            canonical_agents_md.write_text("# Global Agent Rules\n", encoding="utf-8")
+
+        results: List[Dict[str, Any]] = []
+
+        for surface in target_surfaces:
+            if not dry_run:
+                surface.mkdir(parents=True, exist_ok=True)
+
+            for item in SYNC_SURFACE_ITEMS:
+                canonical_item = cfg_root / item
+                surface_link = surface / item
+
+                # Avoid self-referencing if surface IS the config root
+                if surface == cfg_root:
+                    continue
+
+                if surface_link.is_symlink():
+                    try:
+                        if surface_link.resolve() == canonical_item.resolve():
+                            results.append({
+                                "surface": str(surface),
+                                "item": item,
+                                "status": "already_linked",
+                                "target": str(canonical_item),
+                            })
+                            continue
+                    except OSError:
+                        pass
+                    if not dry_run:
+                        surface_link.unlink()
+                elif surface_link.exists():
+                    if surface_link.is_dir():
+                        # Migrate files from surface dir to canonical before linking
+                        if not dry_run:
+                            for child in surface_link.iterdir():
+                                dest = canonical_item / child.name
+                                if not dest.exists():
+                                    shutil.move(str(child), str(dest))
+                            shutil.rmtree(surface_link)
+                    else:
+                        if not dry_run:
+                            surface_link.unlink()
+
+                if not dry_run:
+                    surface_link.symlink_to(canonical_item)
+
+                results.append({
+                    "surface": str(surface),
+                    "item": item,
+                    "status": "linked",
+                    "target": str(canonical_item),
+                })
+
+        return results
+
     def install(
         self,
         mode: DeliveryMode = DeliveryMode.SYMLINK,
         dry_run: bool = False,
         target_dir: Optional[Path] = None,
+        all_surfaces: bool = False,
     ) -> DeliveryResult:
         """
         Installs psl-agy-harness into the target plugin directory.
@@ -278,6 +462,14 @@ class PluginInstaller:
         """
         target = Path(target_dir) if target_dir is not None else self.default_target_dir
         self._verify_path_safety(target)
+
+        # Enforce single-source agent delivery (Issue #30)
+        duplicates_removed = self._enforce_single_source_agents(target, dry_run=dry_run)
+
+        # Multi-surface sync if requested (Issues #29 & #23)
+        surfaces_synced: List[Dict[str, Any]] = []
+        if all_surfaces:
+            surfaces_synced = self.sync_surfaces(dry_run=dry_run)
 
         # Distributables discovery
         distributables: List[str] = []
@@ -292,6 +484,8 @@ class PluginInstaller:
                 target_dir=target,
                 source_dir=self.source_dir,
                 items_installed=distributables,
+                duplicates_removed=duplicates_removed,
+                surfaces_synced=surfaces_synced,
                 message=f"Dry-run: simulate {mode.value} installation to {target}",
             )
 
@@ -308,6 +502,8 @@ class PluginInstaller:
                             target_dir=target,
                             source_dir=self.source_dir,
                             items_installed=distributables,
+                            duplicates_removed=duplicates_removed,
+                            surfaces_synced=surfaces_synced,
                             message=f"Symlink already points to source at {target}",
                         )
                 except OSError:
@@ -330,6 +526,8 @@ class PluginInstaller:
                 target_dir=target,
                 source_dir=self.source_dir,
                 items_installed=distributables,
+                duplicates_removed=duplicates_removed,
+                surfaces_synced=surfaces_synced,
                 message=f"Successfully symlinked plugin {target} -> {self.source_dir}",
             )
 
@@ -421,6 +619,8 @@ class PluginInstaller:
                 target_dir=target,
                 source_dir=self.source_dir,
                 items_installed=installed_items,
+                duplicates_removed=duplicates_removed,
+                surfaces_synced=surfaces_synced,
                 message=f"Successfully packaged and copied plugin to {target}",
             )
 
@@ -430,6 +630,7 @@ class PluginInstaller:
         self,
         dry_run: bool = False,
         target_dir: Optional[Path] = None,
+        clean_surfaces: bool = True,
     ) -> DeliveryResult:
         """
         Uninstalls the plugin from the target directory and unlinks bin_dir / psl.
@@ -448,6 +649,39 @@ class PluginInstaller:
                         psl_bin.unlink()
                     except (PermissionError, OSError):
                         pass
+
+        # Clean up surface symlinks (Issues #29 & #23)
+        if clean_surfaces:
+            for surface in self.surfaces:
+                if not surface.exists():
+                    continue
+                for item in SYNC_SURFACE_ITEMS:
+                    surface_item = surface / item
+                    if surface_item.is_symlink():
+                        should_unlink = False
+                        canon = (self.config_dir / item).resolve()
+                        try:
+                            if surface_item.resolve() == canon:
+                                should_unlink = True
+                        except (OSError, ValueError):
+                            pass
+                        if not should_unlink:
+                            try:
+                                raw_target = os.readlink(surface_item)
+                                raw_resolved = (
+                                    (surface / raw_target).resolve()
+                                    if not Path(raw_target).is_absolute()
+                                    else Path(raw_target).resolve()
+                                )
+                                if raw_resolved == canon or str(self.config_dir) in raw_target:
+                                    should_unlink = True
+                            except OSError:
+                                pass
+                        if should_unlink and not dry_run:
+                            try:
+                                surface_item.unlink()
+                            except OSError:
+                                pass
 
         if not target.exists() and not target.is_symlink():
             return DeliveryResult(
@@ -809,3 +1043,93 @@ class CoexistenceEngine:
                     pass
 
         return sorted(list(set(polluting_files)))
+
+
+def sync_surfaces(
+    surfaces: Optional[List[Path]] = None,
+    config_dir: Optional[Path] = None,
+    dry_run: bool = False,
+) -> List[Dict[str, Any]]:
+    """Standalone helper for multi-surface synchronization across Antigravity paths."""
+    installer = PluginInstaller(config_dir=config_dir, surfaces=surfaces)
+    return installer.sync_surfaces(surfaces=surfaces, config_dir=config_dir, dry_run=dry_run)
+
+
+def find_workspace_root(start_dir: Optional[Path] = None) -> Path:
+    """
+    Finds the root of the workspace repository.
+
+    Traverses parent directories from start_dir (or current working directory)
+    until a directory containing .git (as a directory or worktree pointer file) is found.
+    """
+    curr = Path(start_dir).resolve() if start_dir is not None else Path.cwd().resolve()
+    for candidate in [curr] + list(curr.parents):
+        git_target = candidate / ".git"
+        if git_target.exists():
+            return candidate
+    return curr
+
+
+def configure_git_exclude(workspace_root: Path) -> Path:
+    """
+    Ensures .agents/, .psl/, .cache/, and scratch/ are excluded from git.
+
+    Correctly recognizes worktrees where .git is a file containing:
+        gitdir: <common_gitdir>/worktrees/<name>
+    resolves the common gitdir, and appends required ignore patterns to .git/info/exclude.
+    """
+    ws = Path(workspace_root).resolve()
+    git_entry = ws / ".git"
+    if not git_entry.exists():
+        raise FileNotFoundError(f"No .git entry found at workspace root {ws}")
+
+    if git_entry.is_file():
+        # Git worktree pointer file
+        content = git_entry.read_text(encoding="utf-8").strip()
+        m = re.match(r"^gitdir:\s*(.+)$", content, re.MULTILINE)
+        if not m:
+            raise ValueError(f"Malformed .git worktree pointer at {git_entry}: {content}")
+        raw_gitdir = m.group(1).strip()
+        gitdir_path = Path(raw_gitdir)
+        if not gitdir_path.is_absolute():
+            gitdir_path = (ws / gitdir_path).resolve()
+        else:
+            gitdir_path = gitdir_path.resolve()
+
+        commondir_file = gitdir_path / "commondir"
+        if commondir_file.is_file():
+            cd_content = commondir_file.read_text(encoding="utf-8").strip()
+            cd_path = Path(cd_content)
+            if not cd_path.is_absolute():
+                common_gitdir = (gitdir_path / cd_path).resolve()
+            else:
+                common_gitdir = cd_path.resolve()
+        elif "worktrees" in gitdir_path.parts:
+            common_gitdir = gitdir_path.parent.parent
+        else:
+            common_gitdir = gitdir_path
+    elif git_entry.is_dir():
+        common_gitdir = git_entry
+    else:
+        raise ValueError(f"Unsupported .git entry at {git_entry}")
+
+    exclude_file = common_gitdir / "info" / "exclude"
+    exclude_file.parent.mkdir(parents=True, exist_ok=True)
+
+    existing_lines: List[str] = []
+    if exclude_file.exists():
+        existing_lines = [
+            line.strip()
+            for line in exclude_file.read_text(encoding="utf-8", errors="replace").splitlines()
+        ]
+
+    lines_to_add = [pat for pat in GIT_EXCLUDE_PATTERNS if pat not in existing_lines]
+    if lines_to_add:
+        with open(exclude_file, "a", encoding="utf-8") as f:
+            if existing_lines and existing_lines[-1] != "":
+                f.write("\n")
+            f.write("# PSL Harness Ignored Directories\n")
+            for pat in lines_to_add:
+                f.write(f"{pat}\n")
+
+    return exclude_file
