@@ -23,13 +23,18 @@ import warnings
 warnings.filterwarnings("ignore", message=".*httpx.*")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-from starlette.testclient import TestClient
+try:
+    from starlette.testclient import TestClient
 
-from server import auth
-from server.app import create_app
-from server.storage import Storage
+    from server import auth
+    from server.app import create_app
+    from server.storage import Storage
+    HAS_SERVER_DEPS = True
+except ImportError:
+    HAS_SERVER_DEPS = False
 
 
+@unittest.skipUnless(HAS_SERVER_DEPS, "Starlette or server dependencies not installed")
 class TestServerApi(unittest.TestCase):
     """Hermetic tests for the Starlette telemetry gateway."""
 

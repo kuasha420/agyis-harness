@@ -43,14 +43,24 @@ class TestPluginDelivery(unittest.TestCase):
         # Always install strictly to a subfolder inside temp
         self.target_dir = self.isolated_base / "installed_plugin"
         self.bin_dir = self.isolated_base / "bin"
+        self.aux_bin_1 = self.isolated_base / "gemini" / "antigravity" / "bin"
+        self.aux_bin_2 = self.isolated_base / "gemini" / "antigravity-cli" / "bin"
         self.orig_bin_dir = os.environ.get("PSL_BIN_DIR")
         os.environ["PSL_BIN_DIR"] = str(self.bin_dir)
+        self.orig_aux_bin_dirs = os.environ.get("PSL_AUX_BIN_DIRS")
+        os.environ["PSL_AUX_BIN_DIRS"] = f"{self.aux_bin_1}:{self.aux_bin_2}"
 
     def tearDown(self) -> None:
         if self.orig_bin_dir is not None:
             os.environ["PSL_BIN_DIR"] = self.orig_bin_dir
         else:
             os.environ.pop("PSL_BIN_DIR", None)
+
+        if self.orig_aux_bin_dirs is not None:
+            os.environ["PSL_AUX_BIN_DIRS"] = self.orig_aux_bin_dirs
+        else:
+            os.environ.pop("PSL_AUX_BIN_DIRS", None)
+
         self.temp_dir.cleanup()
 
     def test_symlink_installation_and_validation(self) -> None:
@@ -341,6 +351,39 @@ class TestPluginDelivery(unittest.TestCase):
             self.assertEqual(code, 0)
             psl_bin = self.bin_dir / "psl"
             self.assertFalse(psl_bin.exists())
+
+    def test_install_and_uninstall_auxiliary_launchers(self) -> None:
+        """Verifies _install_bin deploys auxiliary launchers in test environment and uninstall cleans them up."""
+        import stat
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            bin_dir=self.bin_dir,
+            aux_bin_dirs=[self.aux_bin_1, self.aux_bin_2],
+        )
+
+        res = installer.install(mode=DeliveryMode.SYMLINK)
+        self.assertTrue(res.success)
+
+        primary_psl = self.bin_dir / "psl"
+        self.assertTrue(primary_psl.is_file())
+
+        aux_psl_1 = self.aux_bin_1 / "psl"
+        aux_psl_2 = self.aux_bin_2 / "psl"
+        self.assertTrue(aux_psl_1.is_file())
+        self.assertTrue(aux_psl_2.is_file())
+
+        self.assertEqual(stat.S_IMODE(aux_psl_1.stat().st_mode) & 0o755, 0o755)
+        self.assertEqual(stat.S_IMODE(aux_psl_2.stat().st_mode) & 0o755, 0o755)
+
+        content = aux_psl_1.read_text(encoding="utf-8")
+        self.assertIn("from harness.cli import main", content)
+
+        res_un = installer.uninstall()
+        self.assertTrue(res_un.success)
+        self.assertFalse(primary_psl.exists())
+        self.assertFalse(aux_psl_1.exists())
+        self.assertFalse(aux_psl_2.exists())
 
 
 if __name__ == "__main__":

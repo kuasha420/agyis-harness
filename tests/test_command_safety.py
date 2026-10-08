@@ -157,6 +157,19 @@ class TestCommandSafety(unittest.TestCase):
         self.assertFalse(changed)
         self.assertEqual(mod, with_candidate)
 
+    def test_psl_subcommands_trigger_path_shims(self):
+        """Asserts that invoking `psl test` or `psl doctor` triggers inject_path_shims (USER_TOOLCHAINS)."""
+        for cmd in ("psl test", "psl doctor"):
+            mod, changed = inject_path_shims(cmd)
+            self.assertTrue(changed, f"Expected injection for: {cmd}")
+            self.assertTrue(mod.startswith('export PATH="'), f"Expected PATH export for: {cmd}")
+            self.assertIn(f':$PATH"; {cmd}', mod)
+
+            decision, mod_cmd, reason = sanitize_command(cmd)
+            self.assertEqual(decision, "allow")
+            self.assertIsNotNone(mod_cmd)
+            self.assertIn("injected user-space toolchain PATH shims", reason)
+
     def test_ssh_timeout_injection(self):
         # Simple SSH invocation
         mod, changed = inject_ssh_timeouts("ssh knot-desktop")

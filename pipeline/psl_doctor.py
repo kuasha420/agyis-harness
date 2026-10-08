@@ -68,6 +68,13 @@ def check_tool(
         if resolved_path:
             binary = fallback
 
+    # For "uv", probe candidate user paths (~/.local/bin/uv, ~/.cargo/bin/uv) if not found on PATH
+    if not resolved_path and (name == "uv" or binary == "uv"):
+        for cand in (Path.home() / ".local/bin/uv", Path.home() / ".cargo/bin/uv"):
+            if cand.exists() and os.access(cand, os.X_OK):
+                resolved_path = str(cand)
+                break
+
     # Check for pyenv/conda shim hijacking
     is_shim = False
     shim_details = None
@@ -80,6 +87,21 @@ def check_tool(
             is_shim = True
             shim_details = "conda environment active in PATH"
 
+    # Check for libpsl / non-harness collision if auditing psl
+    is_collision = False
+    collision_details = None
+    if (name == "psl" or binary == "psl") and resolved_path:
+        is_harness = False
+        try:
+            with open(resolved_path, "r", encoding="utf-8", errors="ignore") as f:
+                if "harness" in f.read(2048):
+                    is_harness = True
+        except OSError:
+            pass
+        if resolved_path in ("/usr/bin/psl", "/bin/psl") or not is_harness:
+            is_collision = True
+            collision_details = f"Collision detected: 'psl' resolves to non-harness binary ({resolved_path})"
+
     if not resolved_path:
         return {
             "name": name,
@@ -90,12 +112,19 @@ def check_tool(
             "min_version": min_version_str,
             "is_shim": False,
             "shim_details": None,
+            "is_collision": False,
+            "collision_details": None,
             "spec": spec,
         }
 
     # 2. Extract version
     version_str = None
     cmd = spec.get("version_command", f"{binary} --version")
+    if resolved_path:
+        if cmd.startswith(f"{binary} "):
+            cmd = f'"{resolved_path}" ' + cmd[len(binary) + 1:]
+        elif cmd == binary:
+            cmd = f'"{resolved_path}"'
     regex = spec.get("version_regex", r"([0-9]+\.[0-9]+(?:\.[0-9]+)?)")
     try:
         proc = subprocess.run(
@@ -121,10 +150,12 @@ def check_tool(
         required_v = parse_version(min_version_str)
         if current_v < required_v:
             status = "OUTDATED"
-        elif is_shim:
+        elif is_shim or is_collision:
             status = "WARNING"
         else:
             status = "OK"
+    elif is_shim or is_collision:
+        status = "WARNING"
 
     return {
         "name": name,
@@ -135,6 +166,8 @@ def check_tool(
         "min_version": min_version_str,
         "is_shim": is_shim,
         "shim_details": shim_details,
+        "is_collision": is_collision,
+        "collision_details": collision_details,
         "spec": spec,
     }
 
@@ -151,6 +184,62 @@ def find_hermetic_uv_python() -> Optional[Path]:
     return None
 
 
+def check_psl_collision() -> Dict[str, Any]:
+    """Audit host 'psl' binary to detect collisions with system libpsl or non-harness binaries."""
+    psl_path = shutil.which("psl")
+    if not psl_path:
+        return {
+            "status": "NOT_FOUND",
+            "path": None,
+            "collision": False,
+            "details": "psl binary not found on PATH.",
+            "remediation": "Deploy the PSL launcher via 'python3 -m harness.cli install' or ensure ~/.local/bin is on PATH.",
+        }
+
+    is_harness = False
+    try:
+        with open(psl_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read(2048)
+            if "harness" in content:
+                is_harness = True
+    except OSError:
+        pass
+
+    if psl_path in ("/usr/bin/psl", "/bin/psl"):
+        return {
+            "status": "WARNING",
+            "path": psl_path,
+            "collision": True,
+            "details": f"Collision detected: 'psl' resolves to system libpsl ({psl_path}).",
+            "remediation": (
+                "Prepend user bin directory (~/.local/bin) to PATH before /usr/bin:\n"
+                "    export PATH=\"$HOME/.local/bin:$PATH\"\n"
+                "And ensure the launcher is installed via: python3 -m harness.cli install"
+            ),
+        }
+
+    if not is_harness:
+        return {
+            "status": "WARNING",
+            "path": psl_path,
+            "collision": True,
+            "details": f"Collision detected: 'psl' resolves to non-harness binary ({psl_path}).",
+            "remediation": (
+                "Ensure PSL harness bin directory is prioritized in PATH:\n"
+                "    export PATH=\"$HOME/.local/bin:$PATH\"\n"
+                "And ensure the launcher is installed via: python3 -m harness.cli install"
+            ),
+        }
+
+    return {
+        "status": "OK",
+        "path": psl_path,
+        "collision": False,
+        "details": f"psl binary correctly resolves to PSL Harness launcher ({psl_path}).",
+        "remediation": None,
+    }
+
+
 def run_doctor(matrix_path: Path) -> Dict[str, Any]:
     """Perform complete workstation runtime audit."""
     if not matrix_path.exists():
@@ -161,11 +250,13 @@ def run_doctor(matrix_path: Path) -> Dict[str, Any]:
 
     os_family = detect_os_family()
     hermetic_python = find_hermetic_uv_python()
+    psl_collision = check_psl_collision()
 
     results: Dict[str, Any] = {
         "os_family": os_family,
         "hermetic_python_available": str(hermetic_python) if hermetic_python else None,
         "path_environment": os.environ.get("PATH", ""),
+        "psl_collision": psl_collision,
         "tiers": {},
         "summary": {
             "total_tools": 0,
@@ -176,6 +267,9 @@ def run_doctor(matrix_path: Path) -> Dict[str, Any]:
             "optional_missing": 0,
         }
     }
+
+    if psl_collision.get("collision") or psl_collision.get("status") == "WARNING":
+        results["summary"]["warning"] += 1
 
     for tier_key, tier_data in matrix.get("tiers", {}).items():
         tier_results = []
@@ -259,6 +353,12 @@ def heal_environment(audit: Dict[str, Any], matrix_path: Path) -> List[str]:
             cmd = f"# Install: {' '.join(missing_distro_pkgs)}"
         actions_taken.append(f"Distro package install required:\n    {cmd}")
 
+    psl_collision = audit.get("psl_collision", {})
+    if psl_collision.get("collision") and psl_collision.get("remediation"):
+        actions_taken.append(
+            f"PSL Collision Remediation:\n    {psl_collision['remediation']}"
+        )
+
     return actions_taken
 
 
@@ -273,6 +373,17 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
         print(f" Hermetic uv Python: {herm_py} (CPython >= 3.12 Ready)")
     else:
         print(" Hermetic uv Python: Not found in ~/.local/share/uv/python")
+
+    psl_col = audit.get("psl_collision")
+    if psl_col:
+        if psl_col.get("collision"):
+            print(f" PSL Launcher: [\033[33mWARN\033[0m] -> {psl_col.get('details')}")
+            if psl_col.get("remediation"):
+                print(f"    Remediation:\n      {psl_col.get('remediation')}")
+        elif psl_col.get("status") == "OK":
+            print(f" PSL Launcher: [\033[32mPASS\033[0m] -> {psl_col.get('path')}")
+        else:
+            print(f" PSL Launcher: [\033[34mINFO\033[0m] -> {psl_col.get('details')}")
     print("-" * 70)
 
     symbols = {

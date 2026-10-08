@@ -7,8 +7,10 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from pipeline.psl_doctor import (
+    check_psl_collision,
     check_tool,
     detect_os_family,
     find_hermetic_uv_python,
@@ -83,6 +85,63 @@ class TestPslDoctor(unittest.TestCase):
         self.assertIn("tier_2_swe_cli", audit["tiers"])
         self.assertIn("tier_3_mesh_host", audit["tiers"])
         self.assertGreater(audit["summary"]["total_tools"], 5)
+
+    def test_check_tool_uv_candidate_paths(self):
+        """Candidate user paths ~/.local/bin/uv and ~/.cargo/bin/uv are probed when uv is not in PATH."""
+        spec = {
+            "binary": "uv",
+            "min_version": "0.4.0",
+            "version_command": "uv --version",
+            "version_regex": r"uv\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)",
+        }
+        with tempfile.TemporaryDirectory() as tmp_home:
+            fake_home = Path(tmp_home)
+            fake_uv = fake_home / ".local/bin/uv"
+            fake_uv.parent.mkdir(parents=True)
+            fake_uv.write_text("#!/bin/sh\n")
+            fake_uv.chmod(0o755)
+
+            mock_proc = unittest.mock.MagicMock()
+            mock_proc.stdout = "uv 0.5.2"
+            mock_proc.stderr = ""
+            with patch("shutil.which", return_value=None), \
+                 patch("pathlib.Path.home", return_value=fake_home), \
+                 patch("subprocess.run", return_value=mock_proc):
+                res = check_tool("uv", spec)
+                self.assertEqual(res["status"], "OK")
+                self.assertEqual(res["path"], str(fake_uv))
+                self.assertEqual(res["version"], "0.5.2")
+
+    def test_check_psl_collision_system_libpsl(self):
+        """Detects collision when psl resolves to /usr/bin/psl."""
+        with patch("shutil.which", return_value="/usr/bin/psl"):
+            res = check_psl_collision()
+            self.assertEqual(res["status"], "WARNING")
+            self.assertTrue(res["collision"])
+            self.assertIn("system libpsl", res["details"])
+            self.assertIsNotNone(res["remediation"])
+
+    def test_check_psl_collision_foreign_binary(self):
+        """Detects collision when psl resolves to foreign non-harness script."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            foreign_bin = Path(tmp_dir) / "psl"
+            foreign_bin.write_text("#!/bin/sh\necho 'other tool'\n")
+            with patch("shutil.which", return_value=str(foreign_bin)):
+                res = check_psl_collision()
+                self.assertEqual(res["status"], "WARNING")
+                self.assertTrue(res["collision"])
+                self.assertIn("non-harness binary", res["details"])
+
+    def test_check_psl_collision_harness_binary(self):
+        """Passes when psl resolves to PSL harness launcher."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            harness_bin = Path(tmp_dir) / "psl"
+            harness_bin.write_text("#!/usr/bin/env python3\nfrom harness.cli import main\nmain()\n")
+            with patch("shutil.which", return_value=str(harness_bin)):
+                res = check_psl_collision()
+                self.assertEqual(res["status"], "OK")
+                self.assertFalse(res["collision"])
+                self.assertIsNone(res["remediation"])
 
 
 if __name__ == "__main__":

@@ -79,6 +79,7 @@ class PluginInstaller:
         source_dir: Optional[Path] = None,
         default_target_dir: Optional[Path] = None,
         bin_dir: Optional[Path] = None,
+        aux_bin_dirs: Optional[List[Path]] = None,
     ) -> None:
         self.source_dir = Path(source_dir).resolve() if source_dir else REPO_ROOT.resolve()
         if default_target_dir is not None:
@@ -95,11 +96,26 @@ class PluginInstaller:
         else:
             self.bin_dir = (Path.home() / ".local" / "bin").resolve()
 
+        if aux_bin_dirs is not None:
+            self.aux_bin_dirs = [Path(d).resolve() for d in aux_bin_dirs]
+        elif "PSL_AUX_BIN_DIRS" in os.environ:
+            self.aux_bin_dirs = [
+                Path(p).expanduser().resolve()
+                for p in os.environ["PSL_AUX_BIN_DIRS"].split(":")
+                if p.strip()
+            ]
+        else:
+            self.aux_bin_dirs = [
+                (Path.home() / ".gemini" / "antigravity" / "bin").resolve(),
+                (Path.home() / ".gemini" / "antigravity-cli" / "bin").resolve(),
+                Path("/usr/local/bin").resolve(),
+            ]
+
         # Verify safety guard on default target directory
         self._verify_path_safety(self.default_target_dir)
 
     def _install_bin(self, target: Path) -> Path:
-        """Installs standalone CLI executable launcher into self.bin_dir with mode 0o755."""
+        """Installs standalone CLI executable launcher into self.bin_dir and auxiliary bin paths with mode 0o755."""
         self.bin_dir.mkdir(parents=True, exist_ok=True)
         psl_bin = self.bin_dir / "psl"
         if psl_bin.is_symlink() or psl_bin.exists():
@@ -133,6 +149,34 @@ class PluginInstaller:
         )
         psl_bin.write_text(launcher_content, encoding="utf-8")
         psl_bin.chmod(0o755)
+
+        # Deploy launcher to auxiliary bin directories
+        for aux_dir in self.aux_bin_dirs:
+            if aux_dir == self.bin_dir:
+                continue
+            aux_bin = aux_dir / "psl"
+            # For system directory /usr/local/bin, only attempt if writable
+            if str(aux_dir).startswith("/usr/local/bin") or aux_dir == Path("/usr/local/bin"):
+                try:
+                    if not aux_dir.exists() or not os.access(aux_dir, os.W_OK):
+                        continue
+                    if aux_bin.exists() and not os.access(aux_bin, os.W_OK):
+                        continue
+                except OSError:
+                    continue
+            try:
+                aux_dir.mkdir(parents=True, exist_ok=True)
+                if aux_bin.is_symlink() or aux_bin.exists():
+                    try:
+                        aux_bin.unlink()
+                    except OSError:
+                        pass
+                aux_bin.write_text(launcher_content, encoding="utf-8")
+                aux_bin.chmod(0o755)
+            except (PermissionError, OSError):
+                # Safely skip without error if permission denied
+                pass
+
         return psl_bin
 
     def _verify_path_safety(self, target_dir: Path) -> None:
@@ -397,12 +441,13 @@ class PluginInstaller:
         self._verify_path_safety(target)
 
         if not dry_run:
-            psl_bin = self.bin_dir / "psl"
-            if psl_bin.is_symlink() or psl_bin.exists():
-                try:
-                    psl_bin.unlink()
-                except OSError:
-                    pass
+            targets_to_unlink = [self.bin_dir / "psl"] + [d / "psl" for d in self.aux_bin_dirs]
+            for psl_bin in targets_to_unlink:
+                if psl_bin.is_symlink() or psl_bin.exists():
+                    try:
+                        psl_bin.unlink()
+                    except (PermissionError, OSError):
+                        pass
 
         if not target.exists() and not target.is_symlink():
             return DeliveryResult(
