@@ -1,0 +1,189 @@
+---
+name: subagent-ladder
+description: >-
+  Strictly user-invoked SWE ladder protocol (/subagent-ladder). Coordinates multi-agent
+  execution pipelines (Executioner -> Hammer -> Custodian -> Auditor) for multi-phase engineering tasks,
+  with support for multi-node swarm PR ingestion. Activate ONLY when explicitly commanded by the user.
+---
+
+# Subagent Ladder: Multi-Agent SWE Execution Protocol 🪜🤖
+
+The **Subagent Ladder** formalizes an autonomous, multi-agent pair-programming protocol for complex software engineering tasks, large-scale refactorings, and multi-phase milestones across the Knot mesh.
+
+> [!IMPORTANT]
+> **Strictly User-Invoked Activation Contract**:
+> Autonomous agents must **NEVER** activate or auto-trigger this skill autonomously. It is engaged **strictly upon explicit operator command** (e.g. `/subagent-ladder`, *"use subagent ladder"*, *"run the ladder flow"*). Single-turn or minor edits must use standard direct execution.
+
+---
+
+## 1. Architectural Rationale & Cognitive Benefits
+
+Complex engineering initiatives easily cause **conversational context collapse** when executed in a single monolithic context window. Accumulated tool outputs, compile logs, and search results bloat context, degrade instruction following, and incur exponential token costs.
+
+The Subagent Ladder partitions execution across specialized subagent roles:
+1. **Zero Context Carryover**: Subagents operate in lean, task-focused contexts, preserving high reasoning capability and deterministic instruction following.
+2. **Cognitive Role Isolation**: Separates the builder from the reviewer. An agent that writes code never reviews or audits its own diffs.
+3. **Hermetic State Preservation**: High-level milestone state, plan artifacts, and empirical test logs are preserved in persistent markdown documents, resilient to conversational compaction or session resets.
+
+---
+
+## 2. The Phase Lifecycle Ladder (6-Stage Pipeline)
+
+Every milestone progresses through a strict 6-stage pipeline:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STAGE 1: PLANNING & OPERATOR LOCK-IN (`coordinator`)                    │
+│ - Coordinator drafts `phase_X_plan.md` & updates `implementation_plan.md`│
+│ - Operator reviews, grills, refines, and formally locks in the plan.    │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │ (Approved)
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STAGE 2: EXECUTION (`subagent-X-executioner`)                           │◄────────────────────────┐
+│ - Executes file creations, edits, code sanitizations, and commands.     │                         │
+│ - Produces raw execution outputs, diffs, and self-checks.                │                         │
+└────────────────────────────────────┬────────────────────────────────────┘                         │
+                                     │ (Execution Complete OR Remedy Complete)                      │
+                                     ▼                                                              │
+┌─────────────────────────────────────────────────────────────────────────┐                         │
+│ STAGE 3: CODE & PSL REVIEW (`subagent-X-hammer`)                        │                         │
+│ - Ruthlessly audits all changes against the 5 Ground Rules in AGENTS.md:│                         │
+│   • Rule 1: Zero error swallowing & strict failure transparency.        │                         │
+│   • Rule 2: Do not do the product's homework in tests.                  │                         │
+│   • Rule 3: Complete package deliveries (code + types + tests + docs).  │                         │
+│   • Rule 4: Zero homework in verification (automated proof).            │                         │
+│   • Rule 5: Stop and inquire before overengineering workarounds.        │                         │
+│ - Verdict: PASS or REJECT with specific line-by-line defect list.       │                         │
+└──────────────────┬───────────────────────────────────▲──────────────────┘                         │
+                   │ (Passed Hammer Review)            │                                            │
+                   ▼                                   │ (Hammer Code Rejection)                    │
+┌──────────────────────────────────────────────────┐   │                                            │
+│ STAGE 4: GIT COMMIT GATE & WORKSPACE CUSTODY     │   │                                            │
+│ (`subagent-X-custodian`)                         │   │                                            │
+│ - Audits git status & porcelain tree state.      │   │                                            │
+│ - DRY & Code Deduplication Audit across codebase.│   │                                            │
+│ - Stages strictly intended deliverables.         │   │                                            │
+│ - Validates atomic commit message matches phase. │   │                                            │
+│ - Verdict: COMMITTED or REJECT with defect report│   │                                            │
+└──────────────────┬───────────────────────────────┘   │                                            │
+                   │ (Clean Commit Verified)           │ (Custodian Staging Rejection)              │
+                   ▼                                   │                                            │
+┌──────────────────────────────────────────────────┐   │                                            │
+│ STAGE 5: QA & BENCHMARK AUDIT                    │   │                                            │
+│ (`subagent-X-auditor`)                           │   │                                            │
+│ - Audits the COMMITTED git revision on HEAD.     │   │                                            │
+│ - Executes automated test suites (<1.0s).        │   │                                            │
+│ - Probes remote nodes via SSH.                   │   │                                            │
+│ - Verifies environment state and exit codes.     │   │                                            │
+│ - Verdict: PASS or FAIL with raw diagnostics.    │   │                                            │
+└──────────────────┬───────────────────────────────┘   │                                            │
+                   │                                   │                                            │
+         ┌─────────┴─────────┐                         │                                            │
+         │ (Passed QA Audit) │ (QA/Audit Failed)       └────────────────────────────────────────────┤
+         │                   └──────────────────────────────────────────────────────────────────────┘
+         ▼                                                     (MANDATORY: Return to Executioner,
+┌─────────────────────────────────────────────────────────────────────────┐   THEN through Hammer!)
+│ STAGE 6: PHASE ARCHIVAL & PROMOTION (`coordinator`)                     │
+│ - Coordinator archives `phase_X_plan.md` -> `phase_X_delivery_final.md`. │
+│ - Coordinator records Phase X completion in `master_plan.md`.           │
+│ - Phase X subagents are formally retired.                               │
+│ - Coordinator presents Phase X+1 Detailed Implementation Plan to user.  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Strict State Machine Invariants
+
+### 3.1 Anti-Bypass Invariant (Zero Shortcuts)
+> [!CAUTION]
+> If `subagent-X-auditor` detects a failure and `subagent-X-executioner` produces a patch:
+> $$\text{Auditor FAIL} \longrightarrow \text{Executioner (Remedy)} \longrightarrow \mathbf{Hammer\ (Mandatory\ Re\text{-}Review)} \longrightarrow \mathbf{Custodian\ (Commit\ Gate)} \longrightarrow \text{Auditor (QA)}$$
+> **Under NO circumstances may an Executioner remedy bypass Hammer review or Custodian commit gate.** An executioner fixing an edge case under test failure pressure is prone to introducing error-swallowing constructs (`2>/dev/null`) or artificial mocks. Auditor must audit strictly the clean, committed revision.
+
+### 3.2 Zero Coordinator Remediation Invariant
+> [!CRITICAL]
+> The Coordinator is **strictly forbidden from modifying product code, patching files directly, or self-resolving review defects**.
+> - The Coordinator orchestrates the ladder, manages persistent artifacts, and routes diagnostics.
+> - Defect reports must be routed back to the designated `subagent-X-executioner`.
+
+### 3.3 Git Commit Gate & Custodian Mandate
+> [!IMPORTANT]
+> The Custodian (`subagent-X-custodian`) is the sole entity authorized to stage and commit milestone deliverables.
+> - **DRY & Code Deduplication Audit**: Before approving any commit gate, Custodian actively executes targeted sweeps (`grep_search`, `find_by_name`) to verify newly introduced helpers, utilities, constants, and test fixtures do NOT duplicate existing logic elsewhere in the repository. If duplicates are found, reject with a DRY defect report instructing Executioner to reuse existing modules.
+> - **Macro Architectural Review**: Evaluates repository-wide architectural integrity beyond Hammer's micro-diff: verifies cross-module boundary compliance (e.g. ADR-014 Product vs. Project bifurcation: `harness/` must never import `pipeline/`), detects orphan files, dead code, leftover temporary scripts, and uncommitted working-tree residue.
+> - **Clean Revision Invariant**: The Auditor must certify a **committed git revision**, never a volatile, dirty working tree.
+> - **Elimination of Tested-vs-Uncommitted Desync**: Committing before Auditor QA guarantees that everything passing tests is already recorded in version control.
+> - **Atomic Staging**: Deliberately stage only files specified in the approved implementation plan. Blind `git add .` or `git add -A` is strictly prohibited.
+> - **Zero Scratch Debris**: Telemetry databases, temporary logs, and scratch artifacts must never be staged into version control.
+> - **Zero Direct Code Mutation**: The Custodian cannot modify product or test code (`write: false`). If dirty state or missing files are found, the commit gate is rejected and routed back to `subagent-X-executioner`.
+> - **Targeted Macro & Deduplication Sweep Invariant**: Blind wandering without a query is prohibited, but targeted repository sweeps (`grep_search`, `find_by_name`, `list_dir`) for symbol discovery, deduplication checks, and macro consistency are explicitly mandated and prescribed for Custodian.
+
+---
+
+## 4. Multi-Node Swarm PR Ingestion Protocol
+
+When coordinating distributed campaigns across the Knot mesh (Desktop Anchor, Laptop CUDA Worker, Steam Deck):
+
+### 4.1 Distributed PR & Branch Discovery
+Strand workers push branches or open Pull Requests asynchronously. The Ladder coordinator discovers and ingests remote PRs using GitHub CLI (`gh`):
+```bash
+# Ingest open PRs across fleet
+gh pr list --state open --json number,title,headRefName,author,updatedAt
+
+# Inspect specific strand PR diff
+gh pr diff <pr_number>
+```
+
+### 4.2 Swarm Ingestion Lifecycle
+1. **Branch Fetch & Isolation**: Coordinator fetches strand worktrees into dedicated tracking branches (`git fetch origin pull/<id>/head:pr-<id>`).
+2. **Phase Partitioning**: Coordinator maps ingested PR branches to Ladder milestones in `implementation_plan.md`.
+3. **Ladder Verification Sweep**:
+   - `subagent-X-executioner`: Integrates or rebases strand changes cleanly against upstream HEAD.
+   - `subagent-X-hammer`: Audits multi-node diffs against PSL invariants.
+   - `subagent-X-custodian`: Re-verifies clean staging and executes DRY deduplication check across merged strand modules.
+   - `subagent-X-auditor`: Executes local hermetic tests (`python3 -m harness.cli test`) and dispatches SSH probes across physical nodes.
+4. **Automated Review Approval**: On Auditor PASS, Coordinator approves or merges the PR via `gh pr merge --squash` or `gh pr review --approve`.
+
+---
+
+## 5. Subagent Roles & Responsibilities
+
+| Role | Name Pattern | Mandate | Permitted Tools |
+| :--- | :--- | :--- | :--- |
+| **Builder** | `subagent-X-executioner` | Implements exact tasks from approved phase plan. Strictly enforces `set -euo pipefail`. Zero scope creep. Delivers exact diffs and outputs. | Read & write tools, bash commands (`view_file`, `write_to_file`, `replace_file_content`, `run_command`). |
+| **Reviewer** | `subagent-X-hammer` | Assumes shortcuts were taken until proven otherwise. Ruthlessly scans modified files for forbidden patterns, missing type safety, or mock cheating. Issues formal PASS/REJECT report. | Read-only inspection tools (`view_file`, `grep_search`, `list_dir`). **No write or execution tools.** |
+| **Verifier** | `subagent-X-auditor` | Runs automated test suites, probes remote nodes via SSH, checks process states and exit codes, conducts leak detection. Issues formal PASS/FAIL report. | Read tools, test runner commands (`view_file`, `grep_search`, `run_command`). **No file modification tools.** |
+| **Custodian** | `subagent-X-custodian` | Macro architectural review, DRY deduplication audit, workspace hygiene, and atomic git commit gate. | Read tools, git/task commands (`view_file`, `grep_search`, `list_dir`, `find_by_name`, `run_command`, `manage_task`). **No direct code file mutation.** |
+
+---
+
+## 6. Workspace Artifact Bridge (`.agents/artifacts/`)
+
+To prevent subagents from wasting context and tool calls hunting for plan artifacts:
+
+### 6.1 The Standard
+1. **Bridge Symlink**: `.agents/artifacts` in the workspace root points to the active Coordinator brain directory:
+   ```bash
+   python3 runtime/skills/subagent-ladder/scripts/bridge_artifacts.py --setup "<brain_dir>"
+   ```
+2. **Git Hygiene**: `.agents/artifacts` is ignored in `.gitignore`.
+3. **Prompt Standard**: Coordinator prompts strictly reference `.agents/artifacts/<plan_name>.md`.
+4. **Tool Compatibility**: `view_file` resolves the symlink natively on Step 2 (the first tool call) with zero search pollution.
+
+### 6.2 Forbidden Prompt Anti-Patterns
+- ❌ **Bare filenames**: `Read phase_2_plan.md` (subagent wastes turns grepping the workspace).
+- ❌ **`file://` URIs**: `view_file("file:///home/...")` (causes `invalid tool call error: path is not absolute`).
+- ❌ **Raw machine paths**: `Read /home/username/.gemini/...` (leaks usernames, host paths, and session UUIDs into prompt history, violating OSS confidentiality).
+
+---
+
+## 7. Remote Fleet Probing Safeguards
+
+When testing distributed multi-node mesh topologies:
+1. **Mandatory Execution Ceilings**: All remote SSH checks must enforce hard timeouts and TCP keepalives:
+   ```bash
+   timeout 10 ssh -o ConnectTimeout=3 -o ServerAliveInterval=2 -o ServerAliveCountMax=2 <node> "<command>"
+   ```
+2. **Headless Execution Only**: Never invoke interactive graphical binaries (e.g. Electron GUI `/usr/bin/antigravity`) headlessly over SSH; probe daemon sockets, CLI endpoints, or D-Bus services.

@@ -542,6 +542,47 @@ def cmd_agents(args: argparse.Namespace) -> int:
     action_or_name = getattr(args, "name", None)
     target_name = getattr(args, "target_name", None)
 
+    # 0. agents rehydrate [--id <conv_id>] [--recent-hours <N>]
+    if action_or_name == "rehydrate":
+        from harness.subagents import list_active_subagent_statuses, rehydrate_subagent_session
+
+        conv_id = getattr(args, "id", None) or target_name
+        brain_dir = getattr(args, "brain_dir", None)
+
+        if not conv_id:
+            statuses = list_active_subagent_statuses(brain_dir=brain_dir)
+            if not statuses:
+                sys.stderr.write("No active subagent sessions found to rehydrate.\n")
+                return 1
+            conv_id = statuses[0].conversation_id
+
+        try:
+            res = rehydrate_subagent_session(conv_id=conv_id, brain_dir=brain_dir)
+        except FileNotFoundError as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            return 1
+
+        if getattr(args, "json", False):
+            print(json.dumps(res, indent=2))
+            return 0
+
+        print(f"Rehydrated Subagent Session: {res['conversation_id']}")
+        print(f"  Role:            {res['role']}")
+        print(f"  Status:          {res['status']}")
+        print(f"  Step Count:      {res['step_count']}")
+        print(f"  Tool Calls:      {res['tool_calls_count']}")
+        print(f"  Last Step:       {res['last_step_index']}")
+        if res.get("completed_files"):
+            print(f"  Completed Files ({len(res['completed_files'])}):")
+            for cf in res["completed_files"]:
+                print(f"    • {cf}")
+        if res.get("error"):
+            print(f"  Error:           {res['error']}")
+        if res.get("prompt"):
+            prompt_preview = res["prompt"][:150].replace("\n", " ")
+            print(f"  Prompt:          {prompt_preview}...")
+        return 0
+
     # 1. agents create <name>
     if action_or_name == "create":
         name = target_name
@@ -962,6 +1003,36 @@ def cmd_remote(args: argparse.Namespace) -> int:
                 print(f"  ✔ {sock['name']} (Path: {sock['path']})")
             return 0
 
+    elif sub == "screens":
+        from harness.remote.display_bridge import capture_fleet_screens
+
+        raw_data = getattr(args, "data", None)
+        json_data = None
+        if raw_data:
+            p = Path(raw_data)
+            if p.is_file():
+                try:
+                    json_data = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+                except Exception as exc:
+                    sys.stderr.write(f"Error parsing JSON from {p}: {exc}\n")
+                    return 1
+            else:
+                try:
+                    json_data = json.loads(raw_data)
+                except Exception as exc:
+                    sys.stderr.write(f"Error parsing inline JSON: {exc}\n")
+                    return 1
+
+        md_path = capture_fleet_screens(
+            brain_dir=getattr(args, "brain_dir", None),
+            json_data=json_data,
+        )
+        if getattr(args, "json", False):
+            print(json.dumps({"artifact": str(md_path), "status": "ok"}, indent=2))
+        else:
+            print(f"✔ Fleet screens carousel generated at {md_path}")
+        return 0
+
     return 0
 
 
@@ -1160,11 +1231,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_skills.add_argument("--json", action="store_true", help="Output skills in JSON format")
 
     # agents
-    p_agents = subparsers.add_parser("agents", help="List, inspect, create, or validate specialist subagents")
-    p_agents.add_argument("name", nargs="?", default=None, help="Name of specific agent to view, or action (create, validate)")
-    p_agents.add_argument("target_name", nargs="?", default=None, help="Target agent name for create or file/name for validate")
+    p_agents = subparsers.add_parser("agents", help="List, inspect, create, validate, or rehydrate specialist subagents")
+    p_agents.add_argument("name", nargs="?", default=None, help="Name of specific agent to view, or action (create, validate, rehydrate)")
+    p_agents.add_argument("target_name", nargs="?", default=None, help="Target agent name for create or file/name for validate/rehydrate")
     p_agents.add_argument("--sync", action="store_true", help="Sync agent definitions to .agents/agents")
     p_agents.add_argument("--json", action="store_true", help="Output agents in JSON format")
+    p_agents.add_argument("--id", type=str, default=None, help="Conversation ID to rehydrate")
+    p_agents.add_argument("--recent-hours", type=int, default=4, help="Recent hours window for subagent discovery")
+    p_agents.add_argument("--brain-dir", type=Path, default=None, help="Custom brain directory path")
     p_agents.add_argument("--archetype", "-a", type=str, default=None, help="Agent archetype for creation (main, executioner, hammer, auditor, planner, coordinator)")
     p_agents.add_argument("--bundle", "-b", type=str, default=None, help="Capability bundle (read_only, verifier, builder, orchestrator, full)")
     p_agents.add_argument("--scope", type=str, choices=["project", "global"], default="project", help="Target scope (project or global)")
@@ -1250,6 +1324,20 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["cleanup", "status"],
         default="status",
         help="Socket action to perform (default: status)",
+    )
+
+    # remote screens
+    p_rscreens = p_remote_subs.add_parser(
+        "screens", help="Capture and generate fleet screens carousel artifact"
+    )
+    p_rscreens.add_argument(
+        "--brain-dir", type=Path, default=None, help="Custom brain directory path"
+    )
+    p_rscreens.add_argument(
+        "--data", type=str, default=None, help="Path to JSON file or inline JSON with screen captures"
+    )
+    p_rscreens.add_argument(
+        "--json", action="store_true", help="Output result in JSON format"
     )
 
     # auth

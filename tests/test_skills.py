@@ -150,6 +150,42 @@ class TestModularSkills(unittest.TestCase):
                 f"Mirrored skill at {mirrored} is out of sync with source {skill.path}",
             )
 
+    def test_subagent_ladder_skill_contract(self) -> None:
+        """subagent-ladder skill must be discoverable and declare 6-stage lifecycle and swarm invariants."""
+        ladder = get_skill("subagent-ladder")
+        self.assertIsNotNone(ladder, "subagent-ladder skill must be discoverable")
+        self.assertEqual(ladder.name, "subagent-ladder")
+        self.assertGreater(len(ladder.description), 30)
+
+        # Invariants & lifecycle
+        body = ladder.body
+        self.assertIn("6-Stage Pipeline", body)
+        self.assertIn("Anti-Bypass Invariant", body)
+        self.assertIn("Multi-Node Swarm PR Ingestion Protocol", body)
+        self.assertIn("gh pr list", body)
+
+    def test_psl_test_runner_skills_contract(self) -> None:
+        """Modular test runner skills (python, node, cargo, go) must satisfy discovery and instructions."""
+        expected_runners = {
+            "psl-test-python": ("Sub-Second Benchmark Invariant", "pytest"),
+            "psl-test-node": ("vitest", "jest"),
+            "psl-test-cargo": ("cargo test", "clippy"),
+            "psl-test-go": ("go test", "-race"),
+        }
+        for runner_name, keywords in expected_runners.items():
+            with self.subTest(runner=runner_name):
+                spec = get_skill(runner_name)
+                self.assertIsNotNone(spec, f"Test runner skill '{runner_name}' not found")
+                self.assertEqual(spec.name, runner_name)
+                self.assertGreater(len(spec.description), 25)
+                for kw in keywords:
+                    self.assertIn(
+                        kw,
+                        spec.body,
+                        f"Expected keyword '{kw}' in '{runner_name}' body",
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()
+

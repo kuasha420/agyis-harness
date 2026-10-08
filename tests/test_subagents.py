@@ -8,6 +8,7 @@ archetype role mappings, toolgroup permission invariants, and sync operations.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -21,6 +22,7 @@ from harness.subagents import (
     get_agent_spec,
     list_agent_specs,
     load_agent_spec,
+    rehydrate_subagent_session,
     sync_agent_definitions,
 )
 
@@ -369,6 +371,162 @@ class TestSpecialistSubagents(unittest.TestCase):
                     f"Agent {agent.name} prompt must explicitly mention find_by_name",
                 )
 
+    def test_rehydrate_subagent_session_completed(self) -> None:
+        """rehydrate_subagent_session correctly detects completed session and extracts deltas."""
+        conv_dir = self.isolated_path / "conv-completed-123"
+        log_dir = conv_dir / ".system_generated" / "logs"
+        log_dir.mkdir(parents=True)
+        t_file = log_dir / "transcript.jsonl"
+
+        lines = [
+            json.dumps({
+                "step_index": 1,
+                "type": "USER_INPUT",
+                "content": "You are `harness_builder` (executioner).\n<USER_REQUEST>Implement feature X in harness/core.py</USER_REQUEST>",
+            }),
+            json.dumps({
+                "step_index": 2,
+                "type": "MODEL_TURN",
+                "tool_calls": [
+                    {
+                        "name": "replace_file_content",
+                        "args": {
+                            "TargetFile": "/path/to/harness/core.py",
+                            "TargetContent": "old_code()",
+                            "ReplacementContent": "new_code()",
+                        },
+                    }
+                ],
+            }),
+            json.dumps({
+                "step_index": 3,
+                "type": "MODEL_TURN",
+                "content": "Execution complete. All tasks passed.",
+                "tool_calls": [
+                    {
+                        "name": "send_message",
+                        "args": {"Recipient": "parent", "Message": "Done"},
+                    }
+                ],
+                "status": "COMPLETED",
+            }),
+        ]
+        t_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        res = rehydrate_subagent_session("conv-completed-123", brain_dir=self.isolated_path)
+
+        self.assertEqual(res["status"], "REHYDRATED_COMPLETED")
+        self.assertIn("builder", res["role"].lower())
+        self.assertIn("Implement feature X", res["prompt"])
+        self.assertIn("/path/to/harness/core.py", res["completed_files"])
+        self.assertGreater(len(res["diffs"]), 0)
+        self.assertEqual(res["last_step"], 3)
+        self.assertEqual(res["step_count"], 3)
+        self.assertEqual(res["tool_calls_count"], 2)
+        self.assertEqual(res["error"], "")
+
+    def test_rehydrate_subagent_session_interrupted(self) -> None:
+        """rehydrate_subagent_session detects abruptly terminated / interrupted subagents."""
+        conv_dir = self.isolated_path / "conv-interrupted-456"
+        log_dir = conv_dir / ".system_generated" / "logs"
+        log_dir.mkdir(parents=True)
+        t_file = log_dir / "transcript.jsonl"
+
+        lines = [
+            json.dumps({
+                "step_index": 1,
+                "type": "USER_INPUT",
+                "content": "You are `harness_builder`.\n<USER_REQUEST>Refactor worker</USER_REQUEST>",
+            }),
+            json.dumps({
+                "step_index": 2,
+                "type": "MODEL_TURN",
+                "tool_calls": [
+                    {
+                        "name": "run_command",
+                        "args": {"CommandLine": "python3 worker.py"},
+                    }
+                ],
+                "status": "INTERRUPTED",
+            }),
+        ]
+        t_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        res = rehydrate_subagent_session("conv-interrupted-456", brain_dir=self.isolated_path)
+        self.assertEqual(res["status"], "REHYDRATED_INTERRUPTED")
+        self.assertEqual(res["last_step"], 2)
+        self.assertEqual(res["step_count"], 2)
+
+    def test_rehydrate_subagent_session_failed(self) -> None:
+        """rehydrate_subagent_session detects fatal crash / failed subagent session."""
+        conv_dir = self.isolated_path / "conv-failed-789"
+        log_dir = conv_dir / ".system_generated" / "logs"
+        log_dir.mkdir(parents=True)
+        t_file = log_dir / "transcript.jsonl"
+
+        lines = [
+            json.dumps({
+                "step_index": 1,
+                "type": "USER_INPUT",
+                "content": "You are `harness_auditor`.\n<USER_REQUEST>Audit suite</USER_REQUEST>",
+            }),
+            json.dumps({
+                "step_index": 2,
+                "type": "MODEL_TURN",
+                "status": "FAILED",
+                "error": "SyntaxError: invalid syntax",
+                "content": "Traceback (most recent call last):\n  File 'test.py', line 12",
+            }),
+        ]
+        t_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        res = rehydrate_subagent_session("conv-failed-789", brain_dir=self.isolated_path)
+        self.assertEqual(res["status"], "REHYDRATED_FAILED")
+        self.assertIn("SyntaxError", res["error"])
+        self.assertEqual(res["last_step"], 2)
+
+    def test_rehydrate_subagent_not_found(self) -> None:
+        """rehydrate_subagent_session raises FileNotFoundError for missing sessions."""
+        with self.assertRaises(FileNotFoundError):
+            rehydrate_subagent_session("non-existent-session-id", brain_dir=self.isolated_path)
+
+    def test_cli_agents_rehydrate_command(self) -> None:
+        """CLI invocation 'psl agents rehydrate --id <id> --json' executes cleanly."""
+        from unittest.mock import patch
+        import io
+        from harness.cli import main as cli_main
+
+        conv_dir = self.isolated_path / "conv-cli-test"
+        log_dir = conv_dir / ".system_generated" / "logs"
+        log_dir.mkdir(parents=True)
+        t_file = log_dir / "transcript.jsonl"
+        t_file.write_text(
+            json.dumps({
+                "step_index": 1,
+                "type": "USER_INPUT",
+                "content": "You are `harness_builder`.\n<USER_REQUEST>CLI rehydrate test</USER_REQUEST>",
+                "status": "COMPLETED",
+            }) + "\n",
+            encoding="utf-8",
+        )
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cli_main([
+                "agents",
+                "rehydrate",
+                "--id",
+                "conv-cli-test",
+                "--brain-dir",
+                str(self.isolated_path),
+                "--json",
+            ])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue())
+            self.assertEqual(data["conversation_id"], "conv-cli-test")
+            self.assertEqual(data["status"], "REHYDRATED_COMPLETED")
+
 
 if __name__ == "__main__":
     unittest.main()
+
+

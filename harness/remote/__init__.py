@@ -8,6 +8,7 @@ Exports:
 - get_socket_dir: Socket directory resolver.
 """
 
+from harness.remote.display_bridge import capture_fleet_screens
 from harness.remote.runner import RemoteRunner, get_socket_dir
 from harness.remote.scripts import ScriptStreamer
 from harness.remote.triage import RemoteTriage
@@ -17,4 +18,6 @@ __all__ = [
     "ScriptStreamer",
     "RemoteTriage",
     "get_socket_dir",
+    "capture_fleet_screens",
 ]
+
