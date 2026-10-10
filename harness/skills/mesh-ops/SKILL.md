@@ -5,6 +5,8 @@ description: >-
   dynamic node discovery, Tailscale and WireGuard connectivity probes, SSH multiplexing,
   and state synchronization across Desktop, Laptop, and Handheld nodes.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Mesh Operations: Knot Swarm Fleet Coordination & Connectivity Runbook
 

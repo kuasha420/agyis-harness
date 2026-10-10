@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 PSL Telemetry Package - Client-Side Redaction & Sanitization Engine (ADR-030).
 """

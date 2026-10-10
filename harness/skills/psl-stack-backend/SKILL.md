@@ -4,6 +4,8 @@ description: >-
   Backend architectural patterns, multi-tenant isolation, and data layer safety invariants.
   Use when designing backend services, database migrations, API routes, or data access repositories.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Stack Skill: Backend Architecture, Isolation & Data Integrity
 

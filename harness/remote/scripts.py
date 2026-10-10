@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 PSL Harness: Remote Script Streaming & Staging Engine (ADR-027).
 
@@ -164,3 +167,7 @@ class ScriptStreamer:
             port=port,
             timeout=timeout,
         )
+
+
+RemoteScriptStreamer = ScriptStreamer
+

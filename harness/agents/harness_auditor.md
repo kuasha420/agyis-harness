@@ -29,6 +29,8 @@ allowed_tools:
   - run_command
   - manage_task
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # Harness Auditor (QA Verifier)
 

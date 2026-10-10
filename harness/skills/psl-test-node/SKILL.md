@@ -5,6 +5,8 @@ description: >-
   Codifies vitest, jest, and pnpm test contracts, hermetic environment isolation, ESM/CJS compatibility,
   and sub-second execution invariants.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Test Skill: Node.js & TypeScript Test Runner
 

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 PSL Lifecycle Hooks: Standalone Fail-Safe Runner (ADR-016 / Issue #31)
 

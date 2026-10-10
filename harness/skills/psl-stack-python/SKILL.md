@@ -5,6 +5,8 @@ description: >-
   Use when writing, testing, or executing Python scripts, lifecycle hooks, CLI commands,
   or harness components.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Stack Skill: Python Runtime Hygiene & Test Invariants
 

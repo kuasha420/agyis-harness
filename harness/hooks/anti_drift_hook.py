@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 PSL Harness: PreToolUse Anti-Drift Verification Gate (ADR-024)
 
@@ -15,148 +18,56 @@ import os
 from pathlib import Path
 import re
 import sys
-from typing import Optional
+from typing import Callable, List, Optional
 
-COMMON_FILE_EXTENSIONS: frozenset[str] = frozenset({
-    "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "cjs", "json", "md", "markdown",
-    "txt", "rst", "toml", "yaml", "yml", "rs", "go", "c", "cpp", "cc", "cxx",
-    "h", "hpp", "java", "kt", "scala", "rb", "php", "sh", "bash", "zsh", "swift",
-    "cs", "sql", "html", "css", "scss", "sass", "less", "vue", "svelte", "lock",
-    "cfg", "ini"
-})
+from harness.hooks.drift_validators import (
+    CLUSTER_TABLE_PATTERNS,
+    check_ledger_cluster_tables,
+    get_proof_file,
+    has_cluster_status_table,
+    has_telemetry_proof,
+    record_telemetry_proof,
+)
+from harness.utils.plan_parser import (
+    COMMON_FILE_EXTENSIONS,
+    EXCLUDED_WORDS,
+    SPECIAL_FILENAMES,
+    _add_indexed_path,
+    _is_candidate_filepath,
+    extract_plan_files,
+    find_active_plan,
+    parse_plan_files,
+)
+from harness.utils.state import get_state_dir
 
-SPECIAL_FILENAMES: frozenset[str] = frozenset({
-    "dockerfile", "makefile", "license", "procfile", "psl", ".gitignore",
-    ".gitattributes", ".editorconfig", "package.json", "pyproject.toml"
-})
+# Pluggable modular domain validators (ADR-014 / ADR-031)
+DRIFT_VALIDATORS: List[Callable[..., Optional[dict]]] = [
+    check_ledger_cluster_tables,
+]
 
-EXCLUDED_WORDS: frozenset[str] = frozenset({
-    # Common tools & actions
-    "write_to_file", "replace_file_content", "edit_file", "view_file", "grep_search",
-    "run_command", "manage_task", "send_message", "schedule", "read_url_content",
-    "read_browser_page", "pretooluse", "posttooluse", "preinvocation", "postinvocation",
-    "stop", "allow", "deny", "ask", "force_ask",
-    # CLI commands
-    "python", "python3", "bash", "sh", "pytest", "uv", "npm", "pnpm", "cargo", "git",
-    "cd", "ls", "cat", "echo", "grep", "mkdir", "rm", "touch",
-    # Keywords
-    "def", "class", "return", "import", "from", "if", "else", "elif", "for", "while",
-    "try", "except", "finally", "with", "as", "pass", "raise", "yield", "lambda",
-    "true", "false", "null", "none", "true,", "false,",
-})
-
-
-def _is_candidate_filepath(token: str) -> bool:
-    """Checks whether a token represents a plausible relative or absolute file path."""
-    if not token or len(token) < 2:
-        return False
-    if any(ch in token for ch in (" ", "\t", "\n", "\r")):
-        return False
-    if token.startswith(("-", "--", "http://", "https://", "$", ">", "<", "@", "%")):
-        return False
-    if any(op in token for op in ("&&", "||", "|", ";", "(", ")", "{", "}")):
-        return False
-
-    tok_lower = token.lower().rstrip(":,;.")
-    if tok_lower in EXCLUDED_WORDS:
-        return False
-
-    # Check for known special filename
-    base_name = Path(tok_lower).name
-    if base_name in SPECIAL_FILENAMES:
-        return True
-
-    # Check if contains directory slash
-    has_slash = ("/" in token) or ("\\" in token)
-
-    # Check if has an extension
-    if "." in base_name:
-        parts = base_name.rsplit(".", 1)
-        ext = parts[1].lower()
-        # Ensure it's not a version or number (e.g. 1.0, 3.12, 1.0s)
-        if ext in COMMON_FILE_EXTENSIONS:
-            return True
-
-    return has_slash
-
-
-def _add_indexed_path(declared_files: set[str], path_str: str) -> None:
-    """Normalizes and indexes a path, its relative subpaths, and its basename into the set."""
-    clean = path_str.strip().strip("'\"`")
-    clean = re.sub(r"[:;,.]+$", "", clean)
-    if not clean:
-        return
-
-    # Normalize slashes
-    norm = clean.replace("\\", "/")
-    declared_files.add(norm)
-
-    # Strip leading slash if any
-    stripped = norm.lstrip("/")
-    if stripped:
-        declared_files.add(stripped)
-
-    # Add all suffix subpaths (e.g. for a/b/c/file.py -> b/c/file.py, c/file.py, file.py)
-    p = Path(stripped)
-    parts = p.parts
-    for i in range(len(parts)):
-        sub = "/".join(parts[i:])
-        if sub:
-            declared_files.add(sub)
-
-
-def parse_plan_files(content: str) -> set[str]:
-    """
-    Extracts declared file paths and basenames from implementation plan Markdown content.
-    Extracts from:
-    - Markdown file links: [basename](file:///path/to/file) or [basename](path/to/file)
-    - Action headers: #### [MODIFY] [file](...) or #### [NEW] file.py
-    - Backticked file paths: `path/to/file.py`
-    """
-    declared_files: set[str] = set()
-    if not content:
-        return declared_files
-
-    # 1. Action headers: e.g. #### [MODIFY] [path](url) or #### [NEW] path/to/file.py
-    header_pattern = re.compile(
-        r"(?m)^#{1,6}\s*(?:\[?(?:MODIFY|NEW|DELETE|CREATE|UPDATE|EDIT|ADD|REMOVE)\]?\s*)+(.*)$",
-        re.IGNORECASE,
-    )
-    for match in header_pattern.finditer(content):
-        header_rest = match.group(1).strip()
-        plain_tokens = header_rest.split()
-        for tok in plain_tokens:
-            tok_clean = tok.strip("`'\"[]():,)")
-            if _is_candidate_filepath(tok_clean):
-                _add_indexed_path(declared_files, tok_clean)
-
-    # 2. Markdown links: [text](target)
-    link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
-    for match in link_pattern.finditer(content):
-        text = match.group(1).strip().strip("`")
-        target = match.group(2).strip()
-
-        # Clean target: strip file:// or file:///
-        clean_target = re.sub(r"^file:///?", "/", target) if target.startswith("file://") else target
-        clean_target = clean_target.split("#")[0].strip()
-        clean_target = clean_target.split("?")[0].strip()
-
-        if not (clean_target.startswith("http://") or clean_target.startswith("https://") or clean_target.startswith("mailto:")):
-            if clean_target and _is_candidate_filepath(clean_target):
-                _add_indexed_path(declared_files, clean_target)
-
-        if text and _is_candidate_filepath(text):
-            _add_indexed_path(declared_files, text)
-
-    # 3. Backticked tokens: `path/to/file.py`
-    backtick_pattern = re.compile(r"`([^`\n\r]+)`")
-    for match in backtick_pattern.finditer(content):
-        token = match.group(1).strip().strip("'\"")
-        token = re.sub(r"[:;,.]+$", "", token)
-        if _is_candidate_filepath(token):
-            _add_indexed_path(declared_files, token)
-
-    return declared_files
+__all__ = [
+    "COMMON_FILE_EXTENSIONS",
+    "SPECIAL_FILENAMES",
+    "EXCLUDED_WORDS",
+    "_is_candidate_filepath",
+    "_add_indexed_path",
+    "extract_plan_files",
+    "parse_plan_files",
+    "get_state_dir",
+    "CLUSTER_TABLE_PATTERNS",
+    "get_proof_file",
+    "record_telemetry_proof",
+    "has_telemetry_proof",
+    "has_cluster_status_table",
+    "check_ledger_cluster_tables",
+    "DRIFT_VALIDATORS",
+    "is_exempt_file",
+    "check_drift",
+    "check_plan_mode_lock",
+    "check_auditor_write_block",
+    "find_active_plan",
+    "main",
+]
 
 
 def is_exempt_file(path_str: str) -> bool:
@@ -427,235 +338,6 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
     return None
 
 
-def find_active_plan(
-    conv_id: Optional[str] = None,
-    workspace_root: Optional[Path | str] = None,
-    brain_dir: Optional[Path | str] = None,
-) -> Optional[Path]:
-    """
-    Locates the active implementation plan markdown file.
-    Searches in priority order:
-    1. PSL_PLAN_PATH override
-    2. Workspace root (.agents/artifacts/implementation_plan.md, plan.md, etc.)
-    3. Current working directory (when workspace_root is None)
-    4. Antigravity parent worktree discovery (when workspace_root is None)
-    5. Explicit brain_dir or ANTIGRAVITY_BRAIN_DIR
-    6. Conversation brain directory (~/.gemini/antigravity/brain/<conv_id>/)
-    7. Glob match for *plan*.md in workspace_root (or cwd), artifacts, or brain directory
-    """
-    env_plan = os.environ.get("PSL_PLAN_PATH")
-    if env_plan:
-        p = Path(env_plan)
-        if p.is_file():
-            return p
-
-    candidates: list[Path] = []
-
-    # 2. Workspace root or CWD
-    if workspace_root:
-        ws = Path(workspace_root)
-        candidates.append(ws / ".agents" / "artifacts" / "implementation_plan.md")
-        candidates.append(ws / ".agents" / "artifacts" / "plan.md")
-        candidates.append(ws / "implementation_plan.md")
-        candidates.append(ws / "plan.md")
-    else:
-        # 3. Only fall back to Current working directory and parent walking when workspace_root is None
-        cwd = Path.cwd()
-        candidates.append(cwd / ".agents" / "artifacts" / "implementation_plan.md")
-        candidates.append(cwd / ".agents" / "artifacts" / "plan.md")
-        candidates.append(cwd / "implementation_plan.md")
-        candidates.append(cwd / "plan.md")
-
-        # 4. Walk up parent directories if inside an Antigravity worktree
-        for parent in cwd.parents:
-            candidates.append(parent / ".agents" / "artifacts" / "implementation_plan.md")
-            candidates.append(parent / ".agents" / "artifacts" / "plan.md")
-            candidates.append(parent / "implementation_plan.md")
-            candidates.append(parent / "plan.md")
-
-    # 5. Explicit brain_dir or env
-    target_brain = brain_dir or os.environ.get("ANTIGRAVITY_BRAIN_DIR") or os.environ.get("GEMINI_BRAIN_DIR")
-    if target_brain:
-        b_path = Path(target_brain)
-        candidates.append(b_path / "implementation_plan.md")
-        candidates.append(b_path / "plan.md")
-
-    # 6. Conversation brain directory
-    if conv_id and conv_id != "default":
-        conv_brain = Path.home() / ".gemini" / "antigravity" / "brain" / conv_id
-        candidates.append(conv_brain / "implementation_plan.md")
-        candidates.append(conv_brain / "plan.md")
-
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-
-    # 7. Glob fallbacks
-    search_dirs: list[Path] = []
-    if workspace_root:
-        ws = Path(workspace_root)
-        search_dirs.append(ws / ".agents" / "artifacts")
-        search_dirs.append(ws)
-    else:
-        cwd = Path.cwd()
-        search_dirs.append(cwd / ".agents" / "artifacts")
-        search_dirs.append(cwd)
-
-    if target_brain:
-        search_dirs.append(Path(target_brain))
-    if conv_id and conv_id != "default":
-        search_dirs.append(Path.home() / ".gemini" / "antigravity" / "brain" / conv_id)
-
-    for s_dir in search_dirs:
-        if s_dir.is_dir():
-            for f in sorted(s_dir.glob("*plan*.md")):
-                if f.is_file():
-                    return f
-
-    return None
-
-
-CLUSTER_TABLE_PATTERNS: tuple[re.Pattern, ...] = (
-    re.compile(r"\|\s*(?:Node|Host|Strand|Cluster|Device)\s*\|.*(?:Status|State|Role|Metrics|Quota|IP|Ping)\b", re.I),
-    re.compile(r"\|\s*(?:Status|State|Role|Metrics|Quota)\s*\|.*(?:Node|Host|Strand|Cluster|Device)\b", re.I),
-    re.compile(r"##+.*(?:Cluster\s+Status|Node\s+Metrics|Strand\s+Allocation|Fleet.*Quota|Node\s+Status|Cluster\s+Table)", re.I),
-    re.compile(r"\b(?:5-Hour Quota|Weekly Quota|Hardware Role|Keyring State)\b", re.I),
-)
-
-
-def get_state_dir() -> Path:
-    """Returns the harness state directory from environment or default."""
-    return Path(os.environ.get("PSL_HARNESS_STATE_DIR", "/tmp/psl_agy_harness_state"))
-
-
-def get_proof_file(conv_id: str = "default", state_dir: Path | None = None) -> Path:
-    """Returns path to the telemetry proof record file for conversation."""
-    target_dir = state_dir or get_state_dir()
-    return target_dir / f"telemetry_proof_{conv_id}.json"
-
-
-def record_telemetry_proof(
-    command: str,
-    conv_id: str = "default",
-    state_dir: Path | None = None,
-) -> bool:
-    """
-    Records live CLI telemetry proof if command matches 'knot ledger generate --json'
-    or 'knot status --json' (or knot status/ledger commands).
-    """
-    if not command:
-        return False
-    clean = command.strip()
-    if not re.search(r"\bknot\s+(?:ledger\s+generate|status)\b", clean):
-        return False
-
-    target_dir = state_dir or get_state_dir()
-    target_dir.mkdir(parents=True, exist_ok=True)
-    proof_file = get_proof_file(conv_id, target_dir)
-    data = {
-        "conversation_id": conv_id,
-        "command": clean,
-        "recorded_at": datetime.now(timezone.utc).isoformat(),
-        "verified": True,
-    }
-    try:
-        proof_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        return True
-    except OSError as exc:
-        sys.stderr.write(f"PSL Anti-Drift: Failed to record telemetry proof: {exc}\n")
-        return False
-
-
-def has_telemetry_proof(
-    conv_id: str = "default",
-    state_dir: Path | None = None,
-    payload: dict | None = None,
-) -> bool:
-    """
-    Checks whether live CLI telemetry proof has been established for this session:
-    1. Explicit proof in payload ('telemetry_proof', 'live_telemetry_proof').
-    2. Dedicated proof file 'telemetry_proof_{conv_id}.json'.
-    3. Tool execution history in 'history_{conv_id}.json' with matching knot command.
-    """
-    if payload:
-        if payload.get("telemetry_proof") or payload.get("live_telemetry_proof"):
-            return True
-
-    target_dir = state_dir or get_state_dir()
-    proof_file = get_proof_file(conv_id, target_dir)
-    if proof_file.exists():
-        try:
-            data = json.loads(proof_file.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and data.get("verified"):
-                return True
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    history_file = target_dir / f"history_{conv_id}.json"
-    if history_file.exists():
-        try:
-            history = json.loads(history_file.read_text(encoding="utf-8"))
-            if isinstance(history, list):
-                for item in history:
-                    args = item.get("args") or {}
-                    cmd = args.get("CommandLine") or args.get("command") or ""
-                    if re.search(r"\bknot\s+(?:ledger\s+generate|status)\b", cmd):
-                        return True
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    return False
-
-
-def has_cluster_status_table(content: str) -> bool:
-    """
-    Detects whether Markdown content contains cluster status or node metrics tables.
-    Requires Markdown table pipe ('|') syntax plus cluster/node telemetry headers.
-    """
-    if not content or "|" not in content:
-        return False
-    return any(pat.search(content) is not None for pat in CLUSTER_TABLE_PATTERNS)
-
-
-def check_ledger_cluster_tables(
-    target_file: str,
-    content: str,
-    conv_id: str = "default",
-    state_dir: Path | None = None,
-    payload: dict | None = None,
-) -> Optional[dict]:
-    """
-    Intercepts modifications targeting operator_ledger.md containing cluster status or
-    node metrics tables, verifying that live CLI telemetry proof was recorded.
-    """
-    if not target_file:
-        return None
-
-    target_name = Path(target_file).name.lower()
-    is_ledger = (
-        target_name == "operator_ledger.md"
-        or target_file.endswith("operator_ledger.md")
-        or bool(re.search(r"operator_ledger(?:\.md)?$", target_file, re.I))
-        or (target_name.endswith(".md") and "ledger" in target_name)
-    )
-    if not is_ledger:
-        return None
-
-    if not has_cluster_status_table(content):
-        return None
-
-    if not has_telemetry_proof(conv_id=conv_id, state_dir=state_dir, payload=payload):
-        return {
-            "decision": "deny",
-            "reason": (
-                f"PSL Anti-Drift Gate: Modification to '{target_name}' contains cluster status "
-                "or node metrics tables without live CLI telemetry proof. "
-                "Execute 'knot ledger generate --json' or 'knot status --json' to verify "
-                "live cluster metrics before updating ledger."
-            ),
-        }
-
-    return None
 
 
 def main() -> None:
@@ -669,7 +351,8 @@ def main() -> None:
         if not isinstance(payload, dict):
             print(json.dumps({"decision": "allow"}))
             return
-    except (json.JSONDecodeError, OSError):
+    except Exception as exc:
+        print(f"PSL Anti-Drift: Error parsing stdin: {exc}", file=sys.stderr)
         print(json.dumps({"decision": "allow"}))
         return
 
@@ -705,16 +388,16 @@ def main() -> None:
         print(json.dumps(result or {"decision": "allow"}))
         return
 
-    # Intercept plan-mode write attempts (ADR-031)
-    plan_block = check_plan_mode_lock(payload)
-    if plan_block:
-        print(json.dumps(plan_block))
+    # Phase 0: PSL Native Plan-Mode Lock (ADR-031)
+    plan_mode_block = check_plan_mode_lock(payload)
+    if plan_mode_block:
+        print(json.dumps(plan_mode_block))
         return
 
-    # Intercept auditor file mutations before plan check
-    auditor_block = check_auditor_write_block(payload)
-    if auditor_block:
-        print(json.dumps(auditor_block))
+    # Phase 0.5: PSL Subagent Write-Block Guard (ADR-024 / ADR-025)
+    write_block = check_auditor_write_block(payload)
+    if write_block:
+        print(json.dumps(write_block))
         return
 
     conv_id = payload.get("conversationId") or payload.get("conversation_id")
@@ -738,7 +421,6 @@ def main() -> None:
         print(json.dumps({"decision": "allow"}))
         return
 
-    # Intercept unverified cluster status tables targeting operator_ledger.md
     content = (
         tool_args.get("CodeContent")
         or tool_args.get("ReplacementContent")
@@ -748,15 +430,18 @@ def main() -> None:
         or payload.get("content")
         or ""
     )
-    ledger_block = check_ledger_cluster_tables(
-        target_file,
-        content,
-        conv_id=str(conv_id or "default"),
-        payload=payload,
-    )
-    if ledger_block:
-        print(json.dumps(ledger_block))
-        return
+
+    # Pluggable modular domain validators (ADR-014 / ADR-031)
+    for validator in DRIFT_VALIDATORS:
+        block = validator(
+            target_file,
+            content,
+            conv_id=str(conv_id or "default"),
+            payload=payload,
+        )
+        if block:
+            print(json.dumps(block))
+            return
 
     plan_path = find_active_plan(conv_id=conv_id, workspace_root=workspace_root, brain_dir=artifact_dir)
     if not plan_path or not plan_path.is_file():

@@ -5,6 +5,8 @@ description: >-
   safe worktree creation, branch cleanup, orphan worktree pruning, and stash hygiene without index or lock corruption.
   Use when delegating tasks to isolated branches, recovering from locked index files, or managing parallel development trees.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Git Worktree Operations: Isolated Trees & Index Hygiene Runbook
 

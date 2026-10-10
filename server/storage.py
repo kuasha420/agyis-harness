@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Storage Abstraction Layer for PSL Telemetry Hub (ADR-030).
 

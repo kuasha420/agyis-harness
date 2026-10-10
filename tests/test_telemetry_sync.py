@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Hermetic Unit and Contract Tests for PSL Telemetry Sync Engine (ADR-030 Phase 3).
 
@@ -1366,8 +1369,9 @@ class TestProductProjectSeparation(unittest.TestCase):
     def test_harness_imports_cleanly_without_pipeline_in_sys_modules(self):
         """Verifies harness/ has zero imports from pipeline/."""
         import subprocess
+        import sys
         cmd = [
-            "python3",
+            sys.executable,
             "-c",
             (
                 "import sys\n"

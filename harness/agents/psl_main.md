@@ -51,6 +51,8 @@ allowed_tools:
   - search_web
   - ask_question
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Lead Architect & Master Implementer
 

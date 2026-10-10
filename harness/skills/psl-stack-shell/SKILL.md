@@ -5,6 +5,8 @@ description: >-
   Use when writing, debugging, or executing shell scripts, bash pipelines, system automation commands,
   or pattern-probing commands (grep, diff).
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Stack Skill: Shell Scripting & Terminal Command Hygiene
 

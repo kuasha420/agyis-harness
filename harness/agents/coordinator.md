@@ -36,6 +36,8 @@ allowed_tools:
   - manage_task
   - ask_question
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # Swarm Coordinator & Multi-Agent Lead
 

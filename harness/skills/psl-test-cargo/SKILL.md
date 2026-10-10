@@ -5,6 +5,8 @@ description: >-
   execution contracts, isolated build targets, sub-second targeted testing, clippy verification,
   and panic-free test hygiene.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Test Skill: Cargo & Rust Test Runner
 

@@ -7,6 +7,8 @@ description: >-
   vacuuming systemd journal logs, pruning Docker assets, managing Btrfs/Timeshift subvolumes,
   or mounting NTFS drives with in-kernel ntfs3.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Storage Operations: Workstation & Disk Triage Runbook
 

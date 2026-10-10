@@ -6,6 +6,8 @@ description: >-
   PipeWire/WirePlumber user daemons, pairing and managing Bluetooth audio headsets/codecs,
   applying EBU R128 loudnorm audio filters, or fixing VLC and ffmpeg split-package codec mismatches.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Audio Operations: PipeWire, WirePlumber & Audio Transformation Runbook
 

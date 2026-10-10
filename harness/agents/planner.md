@@ -40,6 +40,8 @@ allowed_tools:
   - send_message
   - manage_subagents
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # Software Architect & Solution Planner
 

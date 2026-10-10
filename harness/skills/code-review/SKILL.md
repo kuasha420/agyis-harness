@@ -5,6 +5,8 @@ description: >-
   Use when reviewing code changes, addressing pull request review comments,
   or inspecting git diffs to prevent full-repository re-reading loops.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # Delta-Focused Code Review & Feedback Protocol
 

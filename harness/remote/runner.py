@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 PSL Harness: Remote Execution Engine & OpenSSH Multiplexer (ADR-027).
 
@@ -121,7 +124,7 @@ class RemoteRunner:
         )
         effective_timeout = timeout if timeout is not None else self.default_timeout
 
-        return subprocess.run(
+        proc = subprocess.run(
             cmd,
             input=input,
             timeout=effective_timeout,
@@ -129,6 +132,9 @@ class RemoteRunner:
             text=text,
             check=check,
         )
+        if proc.returncode == 255:
+            self.cleanup_sockets()
+        return proc
 
     def list_sockets(self) -> List[Dict[str, Any]]:
         """
@@ -166,3 +172,6 @@ class RemoteRunner:
                 except OSError:
                     pass
         return removed
+
+
+SSHRunner = RemoteRunner

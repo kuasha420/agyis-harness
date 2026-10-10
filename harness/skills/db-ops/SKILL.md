@@ -5,6 +5,8 @@ description: >-
   Use when diagnosing connection pool saturation, deadlocks, long-running queries, vacuuming and WAL maintenance,
   running hermetic migrations, or executing non-interactive database CLI invocations without terminal hangs.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Database Operations: PostgreSQL, SQLite & Docker Runbook
 
