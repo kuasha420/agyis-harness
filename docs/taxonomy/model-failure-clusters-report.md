@@ -1,6 +1,6 @@
 # Empirical Telemetry Analysis: Cross-Model Failure Clusters & Intervention Hotspots
 
-**Dataset Source**: `data/telemetry.db` (722 Total Sessions, >219k Steps, >100k Tool Calls, 2,738 Interventions)
+**Dataset Source**: `data/telemetry.db` (722 Total Sessions, 219,289 Steps, 100,965 Tool Calls, 2,454 Interventions)
 **Date**: 2026-10-10
 
 ---

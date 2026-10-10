@@ -42,10 +42,13 @@ def _is_task_log_inspection(sig: dict) -> bool:
         return args.get("Action") == "status"
     if name == "view_file":
         path = args.get("AbsolutePath", "")
-        return ".system_generated/tasks" in path or ("/tasks/task-" in path and path.endswith(".log"))
+        return (".system_generated/tasks" in path or "/tasks/task-" in path) and path.endswith(".log")
+    if name == "grep_search":
+        search_path = args.get("SearchPath", "")
+        return (".system_generated/tasks" in search_path or "/tasks/task-" in search_path) and (search_path.endswith(".log") or search_path.endswith("/tasks"))
     if name == "run_command":
         cmd = args.get("CommandLine", "")
-        return ".system_generated/tasks" in cmd or ("/tasks/task-" in cmd and ".log" in cmd)
+        return (".system_generated/tasks" in cmd or "/tasks/task-" in cmd) and ".log" in cmd
     return False
 
 

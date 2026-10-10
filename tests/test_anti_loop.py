@@ -281,18 +281,45 @@ class TestAntiLoopHook(unittest.TestCase):
         self.assertIn("PSL Anti-Loop Guard", res3["reason"])
 
     def test_task_path_source_files_not_misclassified_as_task_logs(self):
-        """Legitimate source files containing /tasks/task- without .log are not treated as background task logs."""
+        """Legitimate source files or commands referencing task directories without .log are not treated as background task logs."""
         conv_id = "test-task-source-files"
-        source_ts = {"AbsolutePath": "/workspace/src/tasks/task-queue.ts"}
-        source_py_cmd = "cat /workspace/app/tasks/task-runner.py"
 
-        # view_file on source file should not be treated as task log inspection
-        res_view = check_anti_loop("view_file", source_ts, conv_id=conv_id, state_dir=self.state_dir)
-        self.assertEqual(res_view["decision"], "allow")
+        # 3 consecutive distinct view_file calls on source files under /tasks/
+        for fname in ["task-queue.ts", "task-worker.ts", "task-runner.ts"]:
+            res = check_anti_loop("view_file", {"AbsolutePath": f"/workspace/src/tasks/{fname}"}, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(res["decision"], "allow", f"Failed to allow source file {fname}")
 
-        # run_command on source file should not be treated as task log inspection
-        res_cmd = check_anti_loop("run_command", {"CommandLine": source_py_cmd}, conv_id=conv_id, state_dir=self.state_dir)
-        self.assertEqual(res_cmd["decision"], "allow")
+        # 3 consecutive distinct commands inspecting source files under /tasks/
+        for fname in ["task-runner.py", "task-worker.py", "task-scheduler.py"]:
+            res = check_anti_loop("run_command", {"CommandLine": f"cat /workspace/app/tasks/{fname}"}, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(res["decision"], "allow", f"Failed to allow source file command {fname}")
+
+        # 3 consecutive commands containing .system_generated/tasks without .log (e.g. database query, directory check)
+        for subcmd in ["COUNT(*)", "DISTINCT session_id", "MIN(step_index)"]:
+            cmd = f"python3 -c \"SELECT {subcmd} FROM logs WHERE path LIKE '%.system_generated/tasks%'\""
+            res = check_anti_loop("run_command", {"CommandLine": cmd}, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(res["decision"], "allow", f"Failed to allow SQL command {cmd}")
+
+    def test_grep_search_task_log_polling_denied(self):
+        """grep_search targeting task log paths or task directory is denied on 3 consecutive inspections."""
+        conv_id = "test-task-grep-deny"
+        args1 = {"SearchPath": "/home/user/.gemini/antigravity/brain/session/.system_generated/tasks/task-531.log", "Query": "server.js"}
+        args2 = {"SearchPath": "/home/user/.gemini/antigravity/brain/session/.system_generated/tasks/task-531.log", "Query": "FAIL"}
+        args3 = {"SearchPath": "/home/user/.gemini/antigravity/brain/session/.system_generated/tasks/task-531.log", "Query": "skip"}
+
+        self.assertEqual(check_anti_loop("grep_search", args1, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        self.assertEqual(check_anti_loop("grep_search", args2, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        res3 = check_anti_loop("grep_search", args3, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res3["decision"], "deny")
+        self.assertIn("PSL Anti-Loop Guard", res3["reason"])
+
+    def test_grep_search_repo_query_not_misclassified(self):
+        """grep_search querying task string in repository source code is not treated as task log polling."""
+        conv_id = "test-task-grep-repo-allow"
+        for q in ["task-", ".system_generated/tasks", "background_task"]:
+            args = {"SearchPath": "/workspace/harness/hooks", "Query": q}
+            res = check_anti_loop("grep_search", args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(res["decision"], "allow")
 
 
 if __name__ == "__main__":

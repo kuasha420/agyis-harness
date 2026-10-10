@@ -237,10 +237,15 @@ def analyze_model_failures_and_interventions(db_path: Path) -> Dict[str, Any]:
 
 
 def generate_markdown_report(data: Dict[str, Any]) -> str:
+    total_sess = sum(m.get("sessions", 0) for m in data.get("model_profiles", []))
+    total_steps = sum(m.get("total_steps", 0) for m in data.get("model_profiles", []))
+    total_tools = sum(m.get("total_tool_calls", 0) for m in data.get("model_profiles", []))
+    total_interv = sum(m.get("total_interventions", 0) for m in data.get("model_profiles", []))
+
     lines = [
         "# Empirical Telemetry Analysis: Cross-Model Failure Clusters & Intervention Hotspots",
         "",
-        "**Dataset Source**: `data/telemetry.db` (722 Total Sessions, >219k Steps, >100k Tool Calls, 2,738 Interventions)",
+        f"**Dataset Source**: `data/telemetry.db` ({total_sess} Total Sessions, {total_steps:,} Steps, {total_tools:,} Tool Calls, {total_interv:,} Interventions)",
         "**Date**: 2026-10-10",
         "",
         "---",

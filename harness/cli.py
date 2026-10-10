@@ -176,11 +176,11 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
         print("\n▶ [3/4] Classifying Failures & Workstation Metrics...")
         from pipeline import classify_failures
-        classify_failures.main()
+        classify_failures.main(extra)
 
         print("\n▶ [4/4] Summarizing Operator Interventions...")
         from pipeline import summarize_interventions
-        summarize_interventions.main()
+        summarize_interventions.main(extra)
     elif sub in ("session", "live"):
         from pipeline import analyze_live_session
         session_id = getattr(args, "session_id", None)
