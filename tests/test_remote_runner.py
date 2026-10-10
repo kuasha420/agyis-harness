@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Hermetic unit and integration tests for harness/remote subsystem (ADR-027).
 Covers RemoteRunner, ScriptStreamer, and RemoteTriage.
@@ -14,7 +17,15 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from harness.remote import RemoteRunner, RemoteTriage, ScriptStreamer, get_socket_dir
+from harness.remote import (
+    RemoteRunner,
+    RemoteScriptStreamer,
+    RemoteTriage,
+    RemoteTriageEngine,
+    ScriptStreamer,
+    SSHRunner,
+    get_socket_dir,
+)
 
 
 class TestRemoteRunner(unittest.TestCase):
@@ -102,6 +113,29 @@ class TestRemoteRunner(unittest.TestCase):
         self.assertFalse(sock1.exists())
         self.assertFalse(sock2.exists())
         self.assertTrue(other.exists())
+
+    def test_ssh_runner_socket_recovery_on_255(self):
+        """
+        Mock SSH exit code 255 and assert automatic stale ControlMaster socket
+        unlinking and recovery per ADR-027.
+        """
+        self.assertIs(SSHRunner, RemoteRunner)
+        runner = SSHRunner()
+        sock = runner.socket_dir / "cm_stale_255_sock"
+        sock.touch()
+        self.assertTrue(sock.exists())
+
+        mock_proc = subprocess.CompletedProcess(
+            args=["ssh"],
+            returncode=255,
+            stdout="",
+            stderr="ssh: connect to host vps port 22: Connection timed out",
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            proc = runner.run("vps", "echo test")
+            self.assertEqual(proc.returncode, 255)
+            # ControlMaster socket must be automatically purged
+            self.assertFalse(sock.exists())
 
 
 class TestScriptStreamer(unittest.TestCase):
@@ -201,6 +235,35 @@ class TestScriptStreamer(unittest.TestCase):
         self.assertIn("chmod +x /tmp/.psl_remote_", cmd_str2)
         self.assertIn("&& /tmp/.psl_remote_", cmd_str2)
 
+    def test_remote_scripts_missing_file_and_shebangs(self):
+        """
+        Asserts RemoteScriptStreamer.stream_script raises FileNotFoundError
+        on non-existent scripts, and verifies shebang parsing for Node and Bash.
+        """
+        runner = RemoteRunner()
+        missing_script = Path(self.temp_dir.name) / "does_not_exist.py"
+        with self.assertRaises(FileNotFoundError):
+            RemoteScriptStreamer.stream_script(runner, "staging", missing_script)
+
+        with self.assertRaises(FileNotFoundError):
+            RemoteScriptStreamer.stage_script(runner, "staging", missing_script)
+
+        # Verify shebang detection
+        node_shebang = "#!/usr/bin/env node\nconsole.log(process.version);"
+        bash_shebang = "#!/bin/sh\necho 'shell test'"
+        py_shebang = "#!/usr/bin/python3\nimport sys"
+
+        temp_node = Path(self.temp_dir.name) / "script_node"
+        temp_node.write_text(node_shebang, encoding="utf-8")
+        temp_bash = Path(self.temp_dir.name) / "script_bash"
+        temp_bash.write_text(bash_shebang, encoding="utf-8")
+
+        self.assertEqual(RemoteScriptStreamer.determine_runtime(temp_node), ["node", "-"])
+        self.assertEqual(RemoteScriptStreamer.determine_runtime(temp_bash), ["bash", "-l", "-s"])
+        self.assertEqual(RemoteScriptStreamer.determine_runtime(Path("x"), node_shebang), ["node", "-"])
+        self.assertEqual(RemoteScriptStreamer.determine_runtime(Path("y"), bash_shebang), ["bash", "-l", "-s"])
+        self.assertEqual(RemoteScriptStreamer.determine_runtime(Path("z"), py_shebang), ["python3", "-s", "-"])
+
 
 class TestRemoteTriage(unittest.TestCase):
     def test_build_triage_probe_profiles(self):
@@ -260,6 +323,42 @@ class TestRemoteTriage(unittest.TestCase):
         byte_len = len(md.encode("utf-8"))
         self.assertLessEqual(byte_len, 1024)
         self.assertIn("bounded to <2KB", md)
+
+    def test_remote_triage_degraded_states(self):
+        """
+        Asserts RemoteTriageEngine generates clean, valid markdown triage reports
+        when ports, Docker containers, and systemd journal logs are completely empty or unavailable.
+        """
+        self.assertIs(RemoteTriageEngine, RemoteTriage)
+        degraded_raw = (
+            "=== HOST ===\n"
+            "offline-edge-node\n"
+            " 00:00:00 up 0 days, 0 users, load average: 0.00, 0.00, 0.00\n"
+            "=== RESOURCES ===\n"
+            "=== PORTS ===\n"
+            "State Recv-Q Send-Q Local Address:Port Peer Address:Port\n"
+            "=== SERVICES ===\n"
+            "=== LOGS ===\n"
+        )
+        md = RemoteTriageEngine.format_triage_markdown(degraded_raw, target="offline-edge-node")
+        self.assertIn("Remote Triage Report: `offline-edge-node`", md)
+        self.assertIn("_No listening ports discovered or permission denied._", md)
+        self.assertIn("_No failed units or active containers detected._", md)
+        self.assertIn("_No log entries captured._", md)
+        self.assertLess(len(md.encode("utf-8")), 2048)
+
+        # Test orchestration with run_triage on degraded target
+        mock_runner = MagicMock()
+        mock_runner.run.return_value = subprocess.CompletedProcess(
+            args=["ssh"],
+            returncode=0,
+            stdout=degraded_raw,
+            stderr="",
+        )
+        res = RemoteTriageEngine.run_triage(mock_runner, target="offline-edge-node")
+        self.assertEqual(res["target"], "offline-edge-node")
+        self.assertEqual(res["exit_code"], 0)
+        self.assertIn("_No listening ports discovered or permission denied._", res["report_markdown"])
 
 
 if __name__ == "__main__":

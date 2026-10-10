@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Unit and contract tests for Telemetry Volume Mining and Character Analysis.
 Verifies command categorization, schema migration, backfill idempotency,

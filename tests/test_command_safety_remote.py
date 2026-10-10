@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Hermetic unit tests for remote SSH inspection and sanitization in command_safety_hook.py (ADR-027).
 """

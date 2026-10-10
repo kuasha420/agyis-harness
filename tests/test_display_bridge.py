@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Hermetic unit tests for PSL Headless Fleet Screen Capture Artifact Bridge.
 
@@ -113,6 +116,57 @@ class TestDisplayBridge(unittest.TestCase):
 
         expected_md = self.isolated_path / "artifacts" / "fleet_screens.md"
         self.assertTrue(expected_md.exists())
+
+    def test_display_bridge_data_uris_and_corruption(self) -> None:
+        """
+        Asserts display_bridge correctly strips data:image/png;base64, prefixes
+        and handles corrupted base64 payloads with graceful warning logging and fallback.
+        """
+        from unittest.mock import patch
+        b64_valid = base64.b64encode(MINIMAL_PNG_BYTES).decode("ascii")
+
+        # 1. Test data URI prefix stripping (both data:image/png;base64, and data:image/jpeg;base64,)
+        data_uri_payload = {
+            "screens": [
+                {
+                    "node": "node-data-uri",
+                    "title": "Data URI Screen",
+                    "image_base64": f"data:image/png;base64,{b64_valid}",
+                }
+            ]
+        }
+        artifact_md = capture_fleet_screens(
+            brain_dir=self.isolated_path,
+            json_data=data_uri_payload,
+        )
+        self.assertTrue(artifact_md.exists())
+        extracted_img = self.isolated_path / "artifacts" / "fleet_screens" / "node-data-uri.png"
+        self.assertTrue(extracted_img.exists())
+        self.assertEqual(extracted_img.read_bytes(), MINIMAL_PNG_BYTES)
+
+        # 2. Test corrupted base64 payload handling with graceful error logging and fallback
+        corrupt_payload = {
+            "screens": [
+                {
+                    "node": "node-corrupted",
+                    "title": "Corrupted Screen",
+                    "image_base64": "!!!INVALID_BASE64_DATA_CORRUPTED???###",
+                }
+            ]
+        }
+        with patch("harness.remote.display_bridge.logger.warning") as mock_warn:
+            artifact_corrupt_md = capture_fleet_screens(
+                brain_dir=self.isolated_path,
+                json_data=corrupt_payload,
+            )
+            self.assertTrue(artifact_corrupt_md.exists())
+            mock_warn.assert_called_once()
+            self.assertIn("Failed to decode base64 screenshot", mock_warn.call_args[0][0])
+            self.assertEqual(mock_warn.call_args[0][1], "node-corrupted")
+
+            corrupt_img = self.isolated_path / "artifacts" / "fleet_screens" / "node-corrupted.png"
+            self.assertTrue(corrupt_img.exists())
+            self.assertEqual(corrupt_img.read_bytes(), MINIMAL_PNG_BYTES)
 
 
 if __name__ == "__main__":

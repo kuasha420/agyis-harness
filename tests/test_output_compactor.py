@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Test Suite for PSL PostToolUse Output Compactor Hook
 
@@ -339,7 +342,7 @@ class TestOutputCompactor(unittest.TestCase):
     # -------------------------------------------------------------------------
     def test_exec_wrap_short_output_verbatim(self) -> None:
         """run_with_compaction emits short output verbatim with exit code 0."""
-        cmd = [sys.executable, "-c", "print('hello from in-band execution')"]
+        cmd = ["echo", "hello from in-band execution"]
         code, out = run_with_compaction(cmd, shell=False)
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "hello from in-band execution")
@@ -368,16 +371,44 @@ class TestOutputCompactor(unittest.TestCase):
     def test_exec_wrap_cli_helper(self) -> None:
         """CLI helper executes command and prints compacted output."""
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
-            code = exec_wrap_main(["-c", f"{sys.executable} -c \"print('cli-wrapper-test')\""])
+            code = exec_wrap_main(["-c", "echo cli-wrapper-test"])
             self.assertEqual(code, 0)
             self.assertEqual(mock_out.getvalue().strip(), "cli-wrapper-test")
 
     def test_exec_wrap_sequence_shell_true_escapes_spaces(self) -> None:
         """run_with_compaction uses shlex.join for sequence arguments with shell=True (DEFECT-L3-03)."""
-        cmd = [sys.executable, "-c", "import sys; print(sys.argv[1])", "argument with spaces"]
+        cmd = ["sh", "-c", 'echo "$@"', "sh", "argument with spaces"]
         code, out = run_with_compaction(cmd, shell=True)
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "argument with spaces")
+
+    def test_exec_wrap_hermetic_sys_path(self) -> None:
+        """
+        Verifies exec_wrap.py dynamically injects repo root into sys.path when
+        invoked out-of-band without PYTHONPATH and from an arbitrary working directory.
+        """
+        clean_env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "PSL_HARNESS_STATE_DIR": str(self.state_dir),
+        }
+        clean_env.pop("PYTHONPATH", None)
+
+        script_path = PROJECT_ROOT / "harness" / "hooks" / "exec_wrap.py"
+        cmd = [sys.executable, str(script_path), "-c", "echo exec_wrap_standalone_ok"]
+        proc = subprocess.run(
+            cmd,
+            cwd=str(self.state_dir),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            proc.returncode,
+            0,
+            f"exec_wrap.py failed when executed without PYTHONPATH:\nStderr: {proc.stderr}\nStdout: {proc.stdout}",
+        )
+        self.assertEqual(proc.stdout.strip(), "exec_wrap_standalone_ok")
+        self.assertNotIn("ModuleNotFoundError", proc.stderr)
 
 
 if __name__ == "__main__":

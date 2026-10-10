@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Hermetic unit tests for PSL Modular Skills (harness/skills).
 
@@ -282,6 +285,89 @@ class TestModularSkills(unittest.TestCase):
                         spec.body.lower(),
                         f"Expected keyword '{kw}' in '{skill_name}' body",
                     )
+
+    def test_harness_skills_direct_api(self) -> None:
+        """
+        Exercises direct function calls on harness/skills/__init__.py:
+        parse_frontmatter, list_skills, get_skill, and sync_skills in an isolated directory.
+        """
+        # 1. Direct parse_frontmatter tests
+        fm_text = "---\nname: custom-tool-skill\ndescription: A specialized skill\ncustom_field: true\n---\n# Title\nBody content."
+        fm, body = parse_frontmatter(fm_text)
+        self.assertEqual(fm["name"], "custom-tool-skill")
+        self.assertEqual(fm["description"], "A specialized skill")
+        self.assertTrue(fm["custom_field"])
+        self.assertEqual(body.strip(), "# Title\nBody content.")
+
+        # Edge cases: no frontmatter, unclosed frontmatter
+        fm_none, body_none = parse_frontmatter("# Pure markdown with no frontmatter")
+        self.assertEqual(fm_none, {})
+        self.assertEqual(body_none, "# Pure markdown with no frontmatter")
+
+        fm_unclosed, body_unclosed = parse_frontmatter("---\nname: unclosed-frontmatter\nno ending delimiter")
+        self.assertEqual(fm_unclosed, {})
+
+        # 2. Setup mock source skills directory
+        src_skills_dir = self.isolated_path / "source_skills"
+        src_skills_dir.mkdir(parents=True, exist_ok=True)
+
+        skill_a_dir = src_skills_dir / "skill-alpha"
+        skill_a_dir.mkdir()
+        (skill_a_dir / "SKILL.md").write_text(
+            "---\nname: skill-alpha\ndescription: Alpha modular capability\n---\n## Alpha Guide\nDo alpha things.",
+            encoding="utf-8",
+        )
+
+        skill_b_dir = src_skills_dir / "skill_beta"
+        skill_b_dir.mkdir()
+        (skill_b_dir / "SKILL.md").write_text(
+            "---\nname: skill-beta\ndescription: Beta modular capability\n---\n## Beta Guide\nDo beta things.",
+            encoding="utf-8",
+        )
+
+        # Directory without SKILL.md should be ignored
+        (src_skills_dir / "empty-dir").mkdir()
+
+        # 3. Direct list_skills call
+        specs = list_skills(skills_dir=src_skills_dir)
+        self.assertEqual(len(specs), 2)
+        spec_names = {s.name for s in specs}
+        self.assertEqual(spec_names, {"skill-alpha", "skill-beta"})
+
+        # Non-existent directory returns empty list
+        self.assertEqual(list_skills(skills_dir=self.isolated_path / "non_existent"), [])
+
+        # 4. Direct get_skill call
+        spec_a = get_skill("skill-alpha", skills_dir=src_skills_dir)
+        self.assertIsNotNone(spec_a)
+        self.assertEqual(spec_a.name, "skill-alpha")
+        self.assertIn("Do alpha things.", spec_a.body)
+
+        # Underscore / hyphen normalization in get_skill lookup
+        spec_b = get_skill("skill_beta", skills_dir=src_skills_dir)
+        self.assertIsNotNone(spec_b)
+        self.assertEqual(spec_b.name, "skill-beta")
+
+        # Lookup by directory name
+        spec_b_dir = get_skill("skill-beta", skills_dir=src_skills_dir)
+        self.assertIsNotNone(spec_b_dir)
+
+        # Missing skill returns None
+        self.assertIsNone(get_skill("nonexistent-skill", skills_dir=src_skills_dir))
+
+        # 5. Direct sync_skills call
+        target_skills_dir = self.isolated_path / "destination_skills"
+        synced_files = sync_skills(target_dir=target_skills_dir, source_dir=src_skills_dir)
+        self.assertEqual(len(synced_files), 2)
+        for sf in synced_files:
+            self.assertTrue(sf.exists())
+            self.assertEqual(sf.name, "SKILL.md")
+
+        synced_alpha = target_skills_dir / "skill-alpha" / "SKILL.md"
+        synced_beta = target_skills_dir / "skill_beta" / "SKILL.md"
+        self.assertTrue(synced_alpha.exists())
+        self.assertTrue(synced_beta.exists())
+        self.assertIn("Alpha modular capability", synced_alpha.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

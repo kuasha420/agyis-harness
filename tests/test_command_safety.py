@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Unit and integration tests for harness/hooks/command_safety_hook.py
 """
@@ -336,10 +339,71 @@ class TestCommandSafety(unittest.TestCase):
         self.assertTrue(changed1)
         self.assertIn("|| [ $? -eq 1 ]", mod1)
 
-        # Remote toolchain in psl remote exec
         mod2, changed2, reasons2 = sanitize_ssh_remote_payload("psl remote exec user@node 'pm2 restart all'")
         self.assertTrue(changed2)
         self.assertIn("bash -l -c 'pm2 restart all'", mod2)
+
+    def test_preflight_tool_availability_guard(self):
+        """
+        Verifies command safety hook behavior on missing CLI binaries (Exit Code 127)
+        and validates package install suggestions per ADR-013 §1.
+        """
+        import io
+        from harness.hooks.command_safety_hook import (
+            check_preflight_tool_availability,
+            extract_command_binary,
+            main as safety_main,
+        )
+
+        # 1. Test binary extraction
+        self.assertEqual(extract_command_binary("pnpm test --filter foo"), "pnpm")
+        self.assertEqual(extract_command_binary("PAGER=cat git log"), "git")
+        self.assertEqual(extract_command_binary("sudo apt update"), "apt")
+        self.assertEqual(extract_command_binary("VAR=1 OTHER=2 ollama serve"), "ollama")
+        self.assertIsNone(extract_command_binary(""))
+
+        # 2. Builtin / shell commands pass without error
+        builtin_res = check_preflight_tool_availability("echo 'hello world'")
+        self.assertTrue(builtin_res["available"])
+        self.assertEqual(builtin_res["binary"], "echo")
+
+        # 3. Simulate missing binaries (Exit 127 prevention)
+        with patch("shutil.which", return_value=None), patch("harness.hooks.command_safety_hook.get_user_path_shims", return_value=[]):
+            # pnpm missing -> returns suggestion
+            pnpm_res = check_preflight_tool_availability("pnpm install")
+            self.assertFalse(pnpm_res["available"])
+            self.assertEqual(pnpm_res["exit_code_risk"], 127)
+            self.assertIn("pnpm", pnpm_res["suggestion"])
+            self.assertIn("PSL Preflight Guard", pnpm_res["warning"])
+
+            # ollama missing -> returns ollama install suggestion
+            ollama_res = check_preflight_tool_availability("ollama run llama3")
+            self.assertFalse(ollama_res["available"])
+            self.assertEqual(ollama_res["exit_code_risk"], 127)
+            self.assertIn("ollama", ollama_res["suggestion"].lower())
+
+            # arbitrary unknown tool -> returns generic suggestion
+            unknown_res = check_preflight_tool_availability("unknown_custom_cli_xyz --flag")
+            self.assertFalse(unknown_res["available"])
+            self.assertEqual(unknown_res["exit_code_risk"], 127)
+            self.assertIn("unknown_custom_cli_xyz", unknown_res["suggestion"])
+
+            # 4. Direct sanitize_command with check_preflight=True
+            decision, mod, reason = sanitize_command("pawthy run", check_preflight=True)
+            self.assertEqual(decision, "deny")
+            self.assertIn("Missing CLI binary 'pawthy'", reason)
+
+            # 5. End-to-end hook main() execution with check_preflight payload
+            payload = {
+                "check_preflight": True,
+                "toolCall": {"name": "run_command", "args": {"CommandLine": "cargo test"}},
+            }
+            with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                safety_main()
+                res = json.loads(mock_out.getvalue().strip())
+                self.assertFalse(res["available"])
+                self.assertEqual(res["binary"], "cargo")
+                self.assertEqual(res["exit_code_risk"], 127)
 
 
 if __name__ == "__main__":

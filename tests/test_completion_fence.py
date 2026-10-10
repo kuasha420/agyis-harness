@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Unit and integration contract tests for harness/hooks/completion_fence_hook.py
 Governing ADRs: ADR-014, ADR-015, ADR-022
@@ -508,6 +511,50 @@ class TestCompletionFenceHook(unittest.TestCase):
         self.assertEqual(out2["decision"], "allow")
         state2 = load_state(conv_id=conv_id, state_dir=self.state_dir)
         self.assertFalse(state2["code_dirty"])
+
+    def test_completion_fence_exemptions(self):
+        """
+        Asserts modifying non-code extensions (.md, .png, .jpg, .svg, uv.lock,
+        package-lock.json, .pnpm-lock.yaml) leaves code_dirty = False and does NOT trip the fence.
+        """
+        conv_id = "test-exemptions-clean"
+        exempt_paths = [
+            "docs/README.md",
+            "assets/architecture.png",
+            "images/screenshot.jpg",
+            "ui/icons/logo.svg",
+            "uv.lock",
+            "package-lock.json",
+            ".pnpm-lock.yaml",
+            "subfolder/pnpm-lock.yaml",
+        ]
+
+        for p in exempt_paths:
+            self.assertFalse(completion_fence_hook.is_code_file(p), f"Expected {p} to be exempt from code verification")
+            state = record_edit(p, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertFalse(state["code_dirty"], f"Editing {p} should not mark code_dirty = True")
+            self.assertEqual(state["last_modified_files"], [], f"Editing {p} should not be tracked in last_modified_files")
+
+        # Evaluate pre-tool-use via main() with write_to_file for an exempt file
+        payload = {
+            "conversationId": conv_id,
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": "/workspace/docs/guide.md"},
+            },
+        }
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+            completion_fence_hook.main()
+        res = json.loads(buf.getvalue().strip())
+        self.assertEqual(res.get("decision"), "allow")
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+
+        # Stop decision must be allow
+        stop_res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(stop_res.get("decision"), "allow")
+        self.assertNotIn("reason", stop_res)
 
 
 if __name__ == "__main__":

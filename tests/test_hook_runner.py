@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Unit tests for harness/hooks/runner.py (ADR-016 / Issue #31)
 Verifies fail-open deadlock prevention, lifecycle hook dispatch, and error telemetry.
