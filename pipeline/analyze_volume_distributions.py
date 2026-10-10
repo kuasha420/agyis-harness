@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 PSL Harness for Google Antigravity™
 Tool & Command Character Volume Distribution Analyzer
@@ -14,7 +17,7 @@ Outputs:
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import math
 import os
@@ -29,9 +32,7 @@ from pipeline.extract_transcripts import (
 )
 
 
-def estimate_tokens(char_len: int) -> int:
-    """Estimates tokens assuming roughly 4 characters per token."""
-    return max(0, char_len // 4) if char_len else 0
+from harness.utils.tokens import estimate_tokens
 
 
 def calculate_percentiles(values: List[int], percentiles: List[float]) -> Dict[str, int]:
@@ -245,7 +246,7 @@ def analyze_volumes(
     conn.close()
 
     return {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
             "total_tool_calls": total_calls,
             "total_output_chars": total_output_chars,
@@ -269,6 +270,9 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     sims = data["compactor_simulations"]
 
     md = []
+    md.append("<!-- SPDX-License-Identifier: Apache-2.0 -->")
+    md.append("<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->")
+    md.append("")
     md.append("# 📊 Empirical Tool & Command Character Volume Distribution Report")
     md.append("**Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  ")
     md.append("**Publisher**: Purrfect Software Limited (PSL)  ")

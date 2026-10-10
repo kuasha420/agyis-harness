@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 PSL Harness for Google Antigravity™
 Taxonomy & Failure Classifier
@@ -205,7 +208,10 @@ def generate_markdown_report(audit: Dict[str, Any], output_path: Path) -> None:
     depth_stats = audit["depth_stats"]
     interventions = audit["interventions"]
 
-    md = f"""# 📊 Workstation Empirical Telemetry & Audit Report
+    md = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
+# 📊 Workstation Empirical Telemetry & Audit Report
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  

@@ -5,6 +5,8 @@ description: >-
   execution pipelines (Executioner -> Hammer -> Custodian -> Auditor) for multi-phase engineering tasks,
   with support for multi-node swarm PR ingestion. Activate ONLY when explicitly commanded by the user.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # Subagent Ladder: Multi-Agent SWE Execution Protocol 🪜🤖
 

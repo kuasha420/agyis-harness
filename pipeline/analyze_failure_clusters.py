@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 PSL Harness for Google Antigravity™
 Cross-Model Failure Cluster & Intervention Hotspot Analyzer.
@@ -243,6 +246,9 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     total_interv = sum(m.get("total_interventions", 0) for m in data.get("model_profiles", []))
 
     lines = [
+        "<!-- SPDX-License-Identifier: Apache-2.0 -->",
+        "<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->",
+        "",
         "# Empirical Telemetry Analysis: Cross-Model Failure Clusters & Intervention Hotspots",
         "",
         f"**Dataset Source**: `data/telemetry.db` ({total_sess} Total Sessions, {total_steps:,} Steps, {total_tools:,} Tool Calls, {total_interv:,} Interventions)",

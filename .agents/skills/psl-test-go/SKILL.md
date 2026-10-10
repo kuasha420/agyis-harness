@@ -5,6 +5,8 @@ description: >-
   execution contracts, race condition detection (-race), hermetic package testing,
   and strict error-checking hygiene.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Test Skill: Go Test Runner & Hermetic Verification
 

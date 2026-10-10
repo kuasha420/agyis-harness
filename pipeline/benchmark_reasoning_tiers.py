@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 PSL Harness for Google Antigravity™
 Reasoning Effort vs. Accuracy Benchmark Matrix (ADR-030 / Issue #3)
@@ -199,7 +202,10 @@ def generate_benchmark_report(results: Dict[str, Any]) -> str:
         )
     table_body = "\n".join(rows_md)
 
-    return f"""# Empirical Reasoning Effort vs. Accuracy Benchmark Matrix
+    return f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
+# Empirical Reasoning Effort vs. Accuracy Benchmark Matrix
 
 **Evaluation Timestamp**: `{results.get('timestamp')}`  
 **Target Telemetry**: `{results.get('database')}`  

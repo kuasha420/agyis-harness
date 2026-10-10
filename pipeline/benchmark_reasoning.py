@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 Empirical benchmark suite for testing model reasoning accuracy, latency, and thinking tokens
 across Gemini 3.8 Flash reasoning effort levels (low, medium, high).

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 # ==============================================================================
 # PSL Telemetry Hub Staging & Deployment Script (ADR-030)
 # Target Host: bd.purrfectsoft.co.uk (CloudPanel Managed VPS)

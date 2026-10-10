@@ -5,6 +5,8 @@ description: >-
   and compact cloud/mesh triage (<2KB). Use when debugging VPS, staging servers, Coolify,
   CloudPanel, PM2 services, or Knot mesh strands over SSH.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Skill: Remote Operations, SSH Multiplexing & Cloud/Mesh Troubleshooting (ADR-027)
 

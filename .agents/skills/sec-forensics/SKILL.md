@@ -7,6 +7,8 @@ description: >-
   isolating host environments with read-only Docker containers, revoking exposed cloud keys (GCP/AWS),
   executing non-invasive remote diagnostic scripts, or compiling forensics markdown reports to PDF.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Security Forensics: Containment, Cloud Revocation & Triage Runbook
 

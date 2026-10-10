@@ -4,6 +4,8 @@ description: >-
   Systems engineering, Linux/Wayland automation, and workstation configuration standards.
   Use when managing system configurations, background services, network probes, or Wayland/desktop automation.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Stack Skill: Systems Engineering, Linux Automation & Configuration
 

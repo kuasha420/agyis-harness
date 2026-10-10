@@ -5,6 +5,8 @@ description: >-
   Use when acquiring video or audio streams, overcoming CDN bot/TLS challenges, performing lossless transforms,
   or flipping and rotating video files.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Media Operations: yt-dlp & ffmpeg Native Runbook
 

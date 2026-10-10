@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Purrfect Software Limited (PSL)
+
 """
 PSL Harness for Google Antigravity™
 Cognitive & Chain-of-Thought (CoT) Trace Harvester (Tier 1 Local Compactor)
@@ -166,7 +169,10 @@ def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
     cats = data["cognitive_pattern_distribution"]
     trajs = data["top_100_trajectories"]
 
-    md = f"""# 🧠 Cognitive & Chain-of-Thought (CoT) Trace Analysis (Tier 1)
+    md = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
+# 🧠 Cognitive & Chain-of-Thought (CoT) Trace Analysis (Tier 1)
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Specification**: Horizon 1 — Two-Tier Cognitive Dynamics  
 **Generated At**: {data['timestamp']}  

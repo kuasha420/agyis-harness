@@ -7,6 +7,8 @@ description: >-
   and resolutions on KDE/Wayland, recovering desktop portal screen sharing without SIGKILL,
   configuring Electron apps for Wayland/PipeWire sharing, or setting Linux capabilities for Sunshine streaming.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # PSL Display Operations: Wayland, kscreen-doctor, Portals & Capture Runbook
 

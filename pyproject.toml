@@ -13,6 +13,25 @@ authors = [
     { name = "Purrfect Software Limited (PSL)" }
 ]
 dependencies = []
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://github.com/kuasha420/psl-agy-harness"
+Documentation = "https://github.com/kuasha420/psl-agy-harness#readme"
+Repository = "https://github.com/kuasha420/psl-agy-harness"
+"Bug Tracker" = "https://github.com/kuasha420/psl-agy-harness/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -25,9 +44,6 @@ dev = [
 [project.scripts]
 psl = "harness.cli:main"
 psl-doctor = "harness.runtime.doctor:main"
-psl-audit = "pipeline.extract_transcripts:main"
-psl-inventory = "pipeline.inventory_customizations:main"
-psl-classify = "pipeline.classify_failures:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["harness"]

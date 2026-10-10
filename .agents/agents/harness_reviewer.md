@@ -24,6 +24,8 @@ allowed_tools:
   - grep_search
   - find_by_name
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # Harness Reviewer (Hammer)
 

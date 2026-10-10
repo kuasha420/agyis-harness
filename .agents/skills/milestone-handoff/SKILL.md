@@ -5,6 +5,8 @@ description: >-
   Use when completing a milestone or phase, updating the project ledger and roadmap,
   verifying test suites, and instructing the operator to reset into a fresh session.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # Milestone Handoff & Retroactive Horizon Compaction Protocol
 
