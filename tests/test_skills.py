@@ -150,6 +150,19 @@ class TestModularSkills(unittest.TestCase):
                 f"Mirrored skill at {mirrored} is out of sync with source {skill.path}",
             )
 
+    def test_agents_rules_mirror_in_sync(self) -> None:
+        """The repository .agents/rules/AGENTS.md mirror must be in sync with harness/rules/AGENTS.md."""
+        repo_root = DEFAULT_SKILLS_DIR.parents[1]
+        harness_rules = repo_root / "harness" / "rules" / "AGENTS.md"
+        agents_rules = repo_root / ".agents" / "rules" / "AGENTS.md"
+        self.assertTrue(harness_rules.exists(), f"Source rules missing at {harness_rules}")
+        self.assertTrue(agents_rules.exists(), f"Mirrored rules missing at {agents_rules}")
+        self.assertEqual(
+            harness_rules.read_text(encoding="utf-8"),
+            agents_rules.read_text(encoding="utf-8"),
+            "Rule drift detected between harness/rules/AGENTS.md and .agents/rules/AGENTS.md",
+        )
+
     def test_subagent_ladder_skill_contract(self) -> None:
         """subagent-ladder skill must be discoverable and declare 6-stage lifecycle and swarm invariants."""
         ladder = get_skill("subagent-ladder")
