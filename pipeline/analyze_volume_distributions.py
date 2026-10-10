@@ -378,8 +378,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     results = analyze_volumes(db_path, auto_backfill=True, verbose=verbose)
 
     # Output paths
-    json_path = Path(getattr(args, "output_json", "data/volume_distributions.json"))
-    report_path = Path(getattr(args, "output_report", "docs/taxonomy/tool-volume-distribution-report.md"))
+    json_path = Path(getattr(args, "output_json", None) or "data/volume_distributions.json")
+    report_path = Path(getattr(args, "output_report", None) or "docs/taxonomy/tool-volume-distribution-report.md")
 
     json_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)

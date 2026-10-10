@@ -280,6 +280,20 @@ class TestAntiLoopHook(unittest.TestCase):
         self.assertEqual(res3["decision"], "deny")
         self.assertIn("PSL Anti-Loop Guard", res3["reason"])
 
+    def test_task_path_source_files_not_misclassified_as_task_logs(self):
+        """Legitimate source files containing /tasks/task- without .log are not treated as background task logs."""
+        conv_id = "test-task-source-files"
+        source_ts = {"AbsolutePath": "/workspace/src/tasks/task-queue.ts"}
+        source_py_cmd = "cat /workspace/app/tasks/task-runner.py"
+
+        # view_file on source file should not be treated as task log inspection
+        res_view = check_anti_loop("view_file", source_ts, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res_view["decision"], "allow")
+
+        # run_command on source file should not be treated as task log inspection
+        res_cmd = check_anti_loop("run_command", {"CommandLine": source_py_cmd}, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res_cmd["decision"], "allow")
+
 
 if __name__ == "__main__":
     unittest.main()

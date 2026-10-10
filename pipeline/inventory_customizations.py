@@ -301,13 +301,13 @@ def scan_rules(gemini_md_path: Path, config_rules_dir: Path) -> list[dict[str, A
     return rules
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Inventory Antigravity customizations.")
     parser.add_argument("--output", "-o", default="data/customization_inventory.json",
                         help="Path to save output JSON (default: data/customization_inventory.json)")
     parser.add_argument("--print-summary", action="store_true", default=True,
                         help="Print a human-readable summary to stdout")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     home = Path.home()
     gemini_dir = home / ".gemini"

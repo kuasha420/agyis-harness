@@ -241,6 +241,30 @@ class TestModularSkills(unittest.TestCase):
                 "vflip",
                 "hflip",
             ),
+            "db-ops": (
+                "psql",
+                "sqlite3",
+                "docker",
+                "vacuum",
+                "pg_stat_activity",
+                "connection",
+            ),
+            "mesh-ops": (
+                "tailscale",
+                "ssh",
+                "knot",
+                "controlmaster",
+                "wireguard",
+                "sync",
+            ),
+            "git-worktree-ops": (
+                "git worktree add",
+                "git worktree prune",
+                "git worktree remove",
+                "git worktree list",
+                "index.lock",
+                "stash",
+            ),
         }
         for skill_name, keywords in expected_skills.items():
             with self.subTest(skill=skill_name):

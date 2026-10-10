@@ -267,12 +267,12 @@ What happens if the harness mechanically truncates or summarizes tool output pay
     print(f"[✓] Generated context dynamics report: {output_path}")
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Analyze context cliff and token dynamics.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
     parser.add_argument("--output", "-o", default="docs/taxonomy/context-cliff-dynamics.md", help="Path to markdown output")
     parser.add_argument("--json-out", default="data/context_dynamics_summary.json", help="Path to JSON output")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     db_path = Path(args.db)
     if not db_path.exists():

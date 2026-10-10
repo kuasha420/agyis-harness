@@ -324,3 +324,25 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Global Plugin & Executable Delivery: [harness/delivery.py](harness/delivery.py)
   - CLI Integration: [harness/cli.py](harness/cli.py)
   - Test Suites: [tests/test_telemetry_sync.py](tests/test_telemetry_sync.py), [tests/test_delivery.py](tests/test_delivery.py), [tests/test_cli.py](tests/test_cli.py)
+
+---
+
+## [Phase 10] Telemetry Consolidation, Modular Skills & Cross-Model Analytical Mining (ADR-032)
+* **Status**: Completed | **Compaction Date**: 2026-10-10
+* **Key Architectural Decisions & Invariants**:
+  - **Tool-Native Primacy Invariant & Anti-Polling Breaker (ADR-032)**: Tightened background task log inspection guard to require `.log` extension, resolving false positives on source files like `src/tasks/task-queue.ts`. Enforces Strict Reactive Wait Invariant.
+  - **8 Modular Operational Runbooks**: Designed, verified, and mirrored 8 modular skills across `harness/skills/`, `.agents/skills/`, and host plugin: `media-ops`, `storage-ops`, `audio-ops`, `display-ops`, `sec-forensics`, plus 3 new empirical skills:
+    - `db-ops`: Standardized non-interactive `psql`/`sqlite3` CLI invocations, connection pool saturation diagnostics, table lock triage, WAL checkpointing, and Docker container database inspection.
+    - `mesh-ops`: Knot hardware mesh coordination, dynamic topology discovery, Tailscale and WireGuard ping probes, SSH multiplexing (ControlMaster), zero-disk stdin script streaming, and cross-strand sync.
+    - `git-worktree-ops`: Multi-branch isolated worktrees, safe creation/removal/pruning, stash hygiene, and `index.lock` recovery.
+  - **Central Telemetry Hub Multi-Developer Synchronization**: Resolved anti-echo blocking, deployed live server gateway (`bd.purrfectsoft.co.uk`), pulled 125 historical sessions (35,767 steps), and successfully pushed all 162 unsynced workstation sessions (27,543 steps, 12,812 tools) to central hub. 100% of dataset is now synchronized.
+  - **Cross-Model Failure Mining**: Mined 722 sessions (>219k steps, >100k tool calls) across 11 model tiers (`data/model_failure_clusters.json`, `docs/taxonomy/model-failure-clusters-report.md`). Added `psl audit clusters` CLI stage.
+* **Verified Baseline Metrics**:
+  - Full test suite expanded to **384 hermetic unit and integration tests passing in 1.354s** (<2.0s benchmark invariant strictly maintained).
+  - 100% bitwise parity verified between `harness/skills/` and `.agents/skills/`, and between `harness/rules/AGENTS.md` and `.agents/rules/AGENTS.md`.
+* **Reference Assets Committed**:
+  - New Skills: [harness/skills/db-ops/SKILL.md](harness/skills/db-ops/SKILL.md), [harness/skills/mesh-ops/SKILL.md](harness/skills/mesh-ops/SKILL.md), [harness/skills/git-worktree-ops/SKILL.md](harness/skills/git-worktree-ops/SKILL.md)
+  - Failure Mining Pipeline: [pipeline/analyze_failure_clusters.py](pipeline/analyze_failure_clusters.py)
+  - Research Taxonomy: [docs/taxonomy/model-failure-clusters-report.md](docs/taxonomy/model-failure-clusters-report.md)
+  - Hook Hardening: [harness/hooks/anti_loop_hook.py](harness/hooks/anti_loop_hook.py)
+

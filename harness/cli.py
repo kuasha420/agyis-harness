@@ -116,25 +116,52 @@ def cmd_audit(args: argparse.Namespace) -> int:
         return 0
     elif sub == "classify":
         from pipeline import classify_failures
-        classify_failures.main()
+        extra = []
+        if getattr(args, "db", None):
+            extra.extend(["--db", args.db])
+        classify_failures.main(extra)
+        return 0
     elif sub == "inventory":
         from pipeline import inventory_customizations
-        inventory_customizations.main()
+        inventory_customizations.main([])
+        return 0
     elif sub == "dynamics":
         from pipeline import analyze_context_dynamics
-        analyze_context_dynamics.main()
+        extra = []
+        if getattr(args, "db", None):
+            extra.extend(["--db", args.db])
+        analyze_context_dynamics.main(extra)
+        return 0
     elif sub == "traces":
         from pipeline import extract_cognitive_traces
-        extract_cognitive_traces.main()
+        extra = []
+        if getattr(args, "db", None):
+            extra.extend(["--db", args.db])
+        extract_cognitive_traces.main(extra)
+        return 0
     elif sub == "interventions":
         from pipeline import summarize_interventions
-        summarize_interventions.main()
+        extra = []
+        if getattr(args, "db", None):
+            extra.extend(["--db", args.db])
+        summarize_interventions.main(extra)
+        return 0
     elif sub == "volume":
         from pipeline import analyze_volume_distributions
         return analyze_volume_distributions.main(args)
     elif sub == "deep":
         from pipeline import analyze_ultra_deep_sessions
         return analyze_ultra_deep_sessions.main(args)
+    elif sub == "clusters":
+        from pipeline import analyze_failure_clusters
+        extra = []
+        if getattr(args, "db", None):
+            extra.extend(["--db", args.db])
+        if getattr(args, "output_json", None):
+            extra.extend(["--output-json", str(args.output_json)])
+        if getattr(args, "output_report", None):
+            extra.extend(["--output-report", str(args.output_report)])
+        return analyze_failure_clusters.main(extra)
     elif sub == "all":
         print("▶ [1/4] Scanning Customization Inventory...")
         from pipeline import inventory_customizations
@@ -1232,7 +1259,7 @@ def build_parser() -> argparse.ArgumentParser:
         "stage",
         nargs="?",
         default="all",
-        choices=["all", "extract", "benchmark", "classify", "inventory", "dynamics", "traces", "interventions", "volume", "deep", "session", "live"],
+        choices=["all", "extract", "benchmark", "classify", "inventory", "dynamics", "traces", "interventions", "volume", "deep", "session", "live", "clusters"],
         help="Audit pipeline stage to run (default: all)",
     )
     p_audit.add_argument("--db", type=str, default=None, help="Path to SQLite database")

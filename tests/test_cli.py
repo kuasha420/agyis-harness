@@ -253,6 +253,13 @@ class TestPslCli(unittest.TestCase):
             self.assertEqual(code, 0)
             mock_bench.assert_called_once_with([])
 
+    def test_cli_audit_clusters(self):
+        """Verifies `psl audit clusters` dispatches to analyze_failure_clusters.main."""
+        with patch("pipeline.analyze_failure_clusters.main", return_value=0) as mock_clusters:
+            code = main(["audit", "clusters"])
+            self.assertEqual(code, 0)
+            mock_clusters.assert_called_once_with([])
+
     def test_cli_audit_session_with_db_flag(self):
         """Verifies `psl audit session --save-db --db <path>` saves into specified database."""
         sess_dir = Path(self.temp_dir.name) / "sess_dir"

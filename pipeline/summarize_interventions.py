@@ -110,11 +110,11 @@ def summarize_interventions(db_path: Path) -> Dict[str, Any]:
     }
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Summarize user interventions and operator guidance.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
     parser.add_argument("--output", "-o", default="data/operator_interventions_summary.json", help="Path to output JSON")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     db_path = Path(args.db)
     if not db_path.exists():
