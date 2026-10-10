@@ -93,8 +93,10 @@ python3 -m harness.cli remote socket cleanup           # Remove active ControlMa
 2. **Anti-Loop Heuristics**:
    - Do NOT repeatedly call `view_file` on the same file within consecutive steps.
    - Evolve search queries; do not repeat identical `grep_search` patterns.
-   - Never poll `manage_task(Action='status')` in a loop; await reactive wakeups.
-3. **Subagent Delegation Protocol**:
+   - **Strict Reactive Wait Invariant**: Never poll `manage_task(Action='status')` NOR repeatedly read background task logs (`tail`, `cat`, `grep`, `view_file` on `.system_generated/tasks/*.log`) to print manual progress updates. After launching a background task, output a single concise notification and stop calling tools. Await reactive wakeup.
+3. **Tool-Native Primacy (The Anti-Premature-Cognition Invariant)**:
+   - When an external CLI or tool fails, exhaust the tool's standard native options, configurations, and flag escalation ladders (e.g., `--impersonate`, `--concurrent-fragments`, retry/timeout flags, native formatting options) before reading internal tool source code, monkeypatching APIs, or constructing custom proxy scripts. Cognitive intervention is a last resort, not a first reflex.
+4. **Subagent Delegation Protocol**:
    - For multi-phase refactoring, test debugging, or massive build sweeps, delegate to subagents in isolated worktrees (`Workspace: "share"` or `"branch"`).
 
 ---

@@ -224,6 +224,62 @@ class TestAntiLoopHook(unittest.TestCase):
         self.assertEqual(history[0]["args"]["CommandLine"], "echo 5")
         self.assertEqual(history[-1]["args"]["CommandLine"], "echo 34")
 
+    def test_task_log_single_inspection_allowed(self):
+        """Single or up to 2 task log inspections are permitted (e.g. for diagnosing failure)."""
+        conv_id = "test-task-inspect-allow"
+        cmd = "cat /home/kuasha/.gemini/antigravity/brain/123/.system_generated/tasks/task-1.log"
+
+        res1 = check_anti_loop("run_command", {"CommandLine": cmd}, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res1["decision"], "allow")
+
+        res2 = check_anti_loop("run_command", {"CommandLine": cmd}, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res2["decision"], "allow")
+
+    def test_consecutive_task_log_polling_denied(self):
+        """3 consecutive task log inspections trip the anti-polling breaker."""
+        conv_id = "test-task-inspect-deny"
+        cmd1 = "cat /workspace/.system_generated/tasks/task-1.log"
+        cmd2 = "tail -n 10 /workspace/.system_generated/tasks/task-1.log"
+        cmd3 = "python3 -c 'open(/workspace/.system_generated/tasks/task-1.log)'"
+
+        self.assertEqual(check_anti_loop("run_command", {"CommandLine": cmd1}, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        self.assertEqual(check_anti_loop("run_command", {"CommandLine": cmd2}, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+
+        res3 = check_anti_loop("run_command", {"CommandLine": cmd3}, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res3["decision"], "deny")
+        self.assertIn("PSL Anti-Loop Guard", res3["reason"])
+        self.assertIn("consecutive background task inspections", res3["reason"])
+
+    def test_rolling_task_log_polling_denied(self):
+        """Interleaved task inspections appearing >= 3 times in 10 calls are denied."""
+        conv_id = "test-task-rolling-deny"
+        log_cmd = "tail -n 5 /workspace/.system_generated/tasks/task-2.log"
+
+        # 1st inspection
+        self.assertEqual(check_anti_loop("run_command", {"CommandLine": log_cmd}, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        # Interleaved generic command
+        self.assertEqual(check_anti_loop("run_command", {"CommandLine": "git status"}, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        # 2nd inspection
+        self.assertEqual(check_anti_loop("run_command", {"CommandLine": log_cmd}, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        # Interleaved generic command
+        self.assertEqual(check_anti_loop("run_command", {"CommandLine": "ls -l"}, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        # 3rd inspection within sliding window of 10
+        res = check_anti_loop("run_command", {"CommandLine": log_cmd}, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res["decision"], "deny")
+        self.assertIn("PSL Anti-Loop Guard", res["reason"])
+        self.assertIn("sliding window", res["reason"])
+
+    def test_view_file_task_log_polling_denied(self):
+        """view_file tool calls targeting task logs are also intercepted."""
+        conv_id = "test-task-view-deny"
+        args = {"AbsolutePath": "/home/user/.gemini/antigravity/brain/session/.system_generated/tasks/task-9.log"}
+
+        self.assertEqual(check_anti_loop("view_file", args, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        self.assertEqual(check_anti_loop("view_file", args, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+        res3 = check_anti_loop("view_file", args, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res3["decision"], "deny")
+        self.assertIn("PSL Anti-Loop Guard", res3["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

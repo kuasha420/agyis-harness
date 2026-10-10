@@ -22,6 +22,9 @@ HISTORY_WINDOW = 30
 FREQUENCY_WINDOW = 15
 MAX_FREQUENCY_REPEATS = 4
 CYCLE_PERIODS = (2, 3, 4, 5)
+MAX_TASK_INSPECTION_CONSECUTIVE = 2
+MAX_TASK_INSPECTION_WINDOW_FREQUENCY = 3
+TASK_INSPECTION_WINDOW = 10
 
 
 def _signatures_match(sig1: dict, sig2: dict) -> bool:
@@ -29,6 +32,21 @@ def _signatures_match(sig1: dict, sig2: dict) -> bool:
     if sig1.get("name") != sig2.get("name"):
         return False
     return sig1.get("args") == sig2.get("args")
+
+
+def _is_task_log_inspection(sig: dict) -> bool:
+    """Helper to detect if a tool call is inspecting background task status/logs."""
+    name = sig.get("name", "")
+    args = sig.get("args", {})
+    if name == "manage_task":
+        return args.get("Action") == "status"
+    if name == "view_file":
+        path = args.get("AbsolutePath", "")
+        return ".system_generated/tasks" in path or "/tasks/task-" in path
+    if name == "run_command":
+        cmd = args.get("CommandLine", "")
+        return ".system_generated/tasks" in cmd or "/tasks/task-" in cmd
+    return False
 
 
 def check_anti_loop(
@@ -62,6 +80,36 @@ def check_anti_loop(
 
     # Current signature
     sig = {"name": tool_name, "args": tool_args}
+
+    # 0. Background task log polling check (prevents manual background task sniffing loops)
+    if _is_task_log_inspection(sig):
+        consecutive_inspections = 0
+        for prev in reversed(history):
+            if _is_task_log_inspection(prev):
+                consecutive_inspections += 1
+            else:
+                break
+        if consecutive_inspections >= MAX_TASK_INSPECTION_CONSECUTIVE:
+            return {
+                "decision": "deny",
+                "reason": (
+                    f"PSL Anti-Loop Guard: Intercepted {consecutive_inspections + 1} consecutive background task inspections. "
+                    "Never poll background task logs ('tail', 'cat', 'view_file' on .system_generated/tasks/ or manage_task 'status') "
+                    "for progress updates. Stop calling tools and await reactive wakeup."
+                ),
+            }
+
+        window_tasks = (history + [sig])[-TASK_INSPECTION_WINDOW:]
+        freq_tasks = sum(1 for item in window_tasks if _is_task_log_inspection(item))
+        if freq_tasks >= MAX_TASK_INSPECTION_WINDOW_FREQUENCY:
+            return {
+                "decision": "deny",
+                "reason": (
+                    f"PSL Anti-Loop Guard: Background task inspection appeared {freq_tasks} times "
+                    f"within sliding window of {len(window_tasks)} calls. "
+                    "Never poll background task logs or status. Stop calling tools and await reactive wakeup."
+                ),
+            }
 
     # 1. Consecutive matching signatures from end
     repeats = 0
