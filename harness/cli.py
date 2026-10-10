@@ -22,10 +22,10 @@ from typing import List, Optional
 import harness
 from harness.delivery import DeliveryMode, PluginInstaller
 from harness.hooks import anti_drift_hook, anti_loop_hook, command_safety_hook, completion_fence_hook, output_compactor_hook, runner
-from pipeline import psl_doctor
+from harness.runtime import doctor as psl_doctor
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_MATRIX = REPO_ROOT / "harness/runtime/matrix.json"
+DEFAULT_MATRIX = Path(__file__).resolve().parent / "runtime/matrix.json"
 DEFAULT_DB = REPO_ROOT / "data/telemetry.db"
 
 

@@ -3,14 +3,14 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity-4285F4.svg)](https://antigravity.google)
 [![Status](https://img.shields.io/badge/Status-Active_Development_(Research_&_POC)-orange.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-43%2F43_Passing_(100%25)-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-391%2F391_Passing_(100%25)-brightgreen.svg)]()
 
 > An open-source empirical audit pipeline and reference extension harness for **Google Antigravity™** by **Purrfect Software Limited (PSL)** under the **Apache-2.0** license.
 
 ---
 
 > [!NOTE]
-> **Project State Notice**: This repository is currently in **Active Research & Proof-of-Concept (POC) Phase**. We have completed empirical ingestion of 348 real-world developer sessions, verified isolated lifecycle hooks, codified our testing contracts, and packaged the unified `psl` developer CLI. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
+> **Project State Notice**: This repository has completed empirical ingestion of **722 real-world developer sessions (219,292 steps, 160,226 tool calls)**, verified isolated lifecycle hooks, codified hermetic testing contracts (391 passing tests in <1.0s), and packaged the unified `psl` developer CLI. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
 
 ---
 
@@ -34,29 +34,37 @@ Rather than creating an isolated, competing framework that reinvents agent execu
 
 ## 📊 Ground Truth: Workstation Empirical Telemetry
 
-From our automated audit of **348 developer sessions** on this workstation:
+From our automated audit of **722 developer sessions** (`data/telemetry.db`):
 
 | Metric | Empirical Baseline | Key Takeaway |
 | :--- | :--- | :--- |
-| **Total Trajectory Steps** | 140,005 steps | Comprehensive multi-project corpus. |
-| **Total Tool Executions** | 64,065 tool calls | Heavily skewed toward terminal and file inspection. |
-| **Terminal Failure Monopoly** | **98.4% of all errors** | 2,192 errors occurred in `run_command` alone. |
-| **The 200+ Step Context Cliff** | **20x error / 40x intervention jump** | Sessions `<50` steps have 0.8 errors/session; sessions `>200` steps suffer 20.5 errors/session. |
-| **Loop & Thrashing Traps** | 5,773 repeated calls | 3,951 repeated `view_file`, 625 repeated `grep_search`, 300 polling `manage_task`. |
-| **Exit Code 1 Sub-Distribution** | 1,544 occurrences | **329 benign grep/diff misses** (21.3%), **58 Python syntax errors** (3.8%, 23 f-string backslash errors), **142 tracebacks** (9.2%). |
-| **Context Bloat Elimination** | **21.3% token reduction** | Capping non-error outputs at 2KB saves ~6.9M tokens across the audited corpus. |
+| **Total Trajectory Steps** | 219,292 steps | Comprehensive long-horizon multi-project corpus. |
+| **Total Tool Executions** | 160,226 tool calls | 97.46% success rate (4,062 tool errors, 2.54% error rate). |
+| **Human Operator Interventions** | 2,738 interventions | Average 1.25 interventions / 100 steps (99.3% due to cognitive drift). |
+| **Loop & Thrashing Traps** | 15,562 calls (9.71%) | Intercepted by deterministic Anti-Loop hook. |
+| **Surgical Contiguous Edits** | 11,279 calls (99.47%) | ADR-013 validated: only 60 edit errors in 11k operations. |
+| **The Context Cliff** | 5.2x error spike | Sessions exceeding 100k tokens suffer rapid error escalation. |
+| **Context Bloat Elimination** | **21.3% token reduction** | Capping non-error outputs at 2KB saves >10M tokens. |
 
 ---
 
 ## 🏛️ Verified POC Components
 
 ### 1. Unified Developer CLI (`psl`)
-Provides a single modular CLI entrypoint for diagnostics, tests, and hooks:
-- `psl doctor [--heal] [--json]`: Workstation environment diagnostic.
-- `psl test [-v]`: Sub-second project test runner.
-- `psl hook <hook_name>`: Deterministic lifecycle hook handler.
-- `psl audit [subcommand]`: Telemetry lab extraction and failure classifier.
-- `psl status`: High-level system and active hook health overview.
+Provides a single modular CLI entrypoint for diagnostics, tests, hooks, and mesh operations:
+- `psl doctor [--heal] [--json]`: Workstation environment diagnostic & zero-sudo auto-healing.
+- `psl test [-v]`: Sub-second hermetic project test runner (<1.0s benchmark).
+- `psl hook <hook_name>`: Deterministic lifecycle hook dispatcher.
+- `psl status`: High-level system, modular skill, and active hook health overview.
+- `psl skills`: Discover and audit installed modular operational skills.
+- `psl agents`: Discover and audit specialist subagents and configurations.
+- `psl sync`: Multi-node mesh telemetry audit & synchronization.
+- `psl daemon`: Background telemetry synchronization and monitor daemon.
+- `psl remote <exec|script|triage|socket>`: SSH-multiplexed remote mesh execution.
+- `psl delivery`: Audit and synchronize Antigravity surfaces and plugins.
+- `psl audit [stage]`: Telemetry lab extraction, failure classification, and deep sessions.
+- `psl install [--global]`: Install PSL harness globally as Google Antigravity plugin.
+- `psl version`: Display package version and runtime state.
 
 ```bash
 python3 -m harness.cli --help
@@ -93,14 +101,14 @@ Tracks consecutive executions per conversation ID in `/tmp/psl_agy_harness_state
 
 ## 🧪 Verification & Test Suite
 
-All 43 unit, integration, and replay tests pass with 100% coverage in **<0.85s**:
+All 391 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-015 benchmark):
 
 ```bash
 python3 -m harness.cli test
 ```
 
 ```text
-Ran 43 tests in 0.838s
+Ran 391 tests in 0.970s
 OK
 ```
 

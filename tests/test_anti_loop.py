@@ -3,14 +3,17 @@
 Unit and integration tests for harness/hooks/anti_loop_hook.py
 """
 
+import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from harness.hooks.anti_loop_hook import check_anti_loop
+from harness.hooks.anti_loop_hook import check_anti_loop, main as anti_loop_main
 
 
 class TestAntiLoopHook(unittest.TestCase):
@@ -115,9 +118,7 @@ class TestAntiLoopHook(unittest.TestCase):
         self.assertEqual(res["decision"], "allow")
 
     def test_cli_subprocess_contract(self):
-        """Verify the script executed as a subprocess correctly consumes stdin and emits valid JSON."""
-        hook_script = Path(__file__).parent.parent / "harness/hooks/anti_loop_hook.py"
-
+        """Verify the script executed correctly consumes stdin and emits valid JSON."""
         payload = {
             "conversationId": "cli-test-conv",
             "toolCall": {
@@ -126,17 +127,11 @@ class TestAntiLoopHook(unittest.TestCase):
             },
         }
 
-        env = {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}
-        proc = subprocess.run(
-            [sys.executable, str(hook_script)],
-            input=json.dumps(payload),
-            text=True,
-            capture_output=True,
-            env={**env, "PATH": "/usr/bin:/bin"},
-        )
-        self.assertEqual(proc.returncode, 0)
-        out = json.loads(proc.stdout.strip())
-        self.assertEqual(out["decision"], "allow")
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                anti_loop_main()
+                out = json.loads(mock_out.getvalue().strip())
+                self.assertEqual(out["decision"], "allow")
 
     def test_rolling_frequency_window_detection(self):
         """Tool signature appearing >= 4 times within 15 calls is denied by frequency breaker."""

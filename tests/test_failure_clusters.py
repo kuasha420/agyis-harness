@@ -12,11 +12,13 @@ Validates:
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from pipeline.analyze_failure_clusters import (
     analyze_model_failures_and_interventions,
@@ -82,7 +84,8 @@ class TestAnalyzeFailureClusters(unittest.TestCase):
 
     def test_missing_database_returns_error(self) -> None:
         missing_db = self.isolated_path / "does_not_exist.db"
-        code = main(["--db", str(missing_db)])
+        with patch("sys.stdout", new_callable=io.StringIO), patch("sys.stderr", new_callable=io.StringIO):
+            code = main(["--db", str(missing_db)])
         self.assertEqual(code, 1)
 
     def test_empty_database_handling(self) -> None:
@@ -170,11 +173,12 @@ class TestAnalyzeFailureClusters(unittest.TestCase):
         json_out = self.isolated_path / "clusters.json"
         report_out = self.isolated_path / "clusters.md"
 
-        code = main([
-            "--db", str(self.db_path),
-            "--output-json", str(json_out),
-            "--output-report", str(report_out),
-        ])
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = main([
+                "--db", str(self.db_path),
+                "--output-json", str(json_out),
+                "--output-report", str(report_out),
+            ])
         self.assertEqual(code, 0)
         self.assertTrue(json_out.exists())
         self.assertTrue(report_out.exists())

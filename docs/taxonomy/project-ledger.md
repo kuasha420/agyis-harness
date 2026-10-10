@@ -82,7 +82,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - `psl doctor` CLI audits 10 core binaries across 3 telemetry tiers with zero-sudo auto-healing.
 * **Reference Assets Committed**:
   - Runtime Matrix: [harness/runtime/matrix.json](harness/runtime/matrix.json)
-  - Workstation Doctor: [pipeline/psl_doctor.py](pipeline/psl_doctor.py)
+  - Workstation Doctor: [harness/runtime/doctor.py](harness/runtime/doctor.py)
   - Command Safety Hook: [harness/hooks/command_safety_hook.py](harness/hooks/command_safety_hook.py)
 
 ---
@@ -252,7 +252,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
 * **Reference Assets Committed**:
   - Plugin Installer & Coexistence Subsystem: [harness/delivery.py](harness/delivery.py)
   - CLI Integration: [harness/cli.py](harness/cli.py) (`psl install`, `psl uninstall`)
-  - Custodian Archetype & Scaffolding: [harness/subagents.py](harness/subagents.py), [harness/agents/custodian.md](harness/agents/custodian.md), [.agents/agents/custodian.md](.agents/agents/custodian.md)
+  - Custodian Archetype & Scaffolding: [harness/subagents.py](harness/subagents.py), [harness/agents/harness_custodian.md](harness/agents/harness_custodian.md), [.agents/agents/harness_custodian.md](.agents/agents/harness_custodian.md)
   - PreToolUse Write-Block Guard: [harness/hooks/anti_drift_hook.py](harness/hooks/anti_drift_hook.py)
   - 6-Stage Subagent Ladder Specification: [runtime/skills/subagent-ladder/SKILL.md](runtime/skills/subagent-ladder/SKILL.md)
   - Test Suite: [tests/test_delivery.py](tests/test_delivery.py)

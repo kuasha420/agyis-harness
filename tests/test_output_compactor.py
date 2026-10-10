@@ -14,6 +14,7 @@ Verifies:
 
 from __future__ import annotations
 
+import io
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 # Ensure harness is on sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -29,12 +31,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from harness.hooks.output_compactor_hook import (
     compact_output,
     extract_output_and_status,
+    main as compactor_main,
     process_payload,
     MAX_OUTPUT_CHARS,
     HEAD_CHARS,
     TAIL_CHARS,
 )
-from harness.hooks.exec_wrap import run_with_compaction
+from harness.hooks.exec_wrap import main as exec_wrap_main, run_with_compaction
 
 
 class TestOutputCompactor(unittest.TestCase):
@@ -305,52 +308,31 @@ class TestOutputCompactor(unittest.TestCase):
             "output": "A" * 15000,
             "exitCode": 0,
         })
-        proc = subprocess.run(
-            [sys.executable, str(self.hook_script)],
-            input=payload,
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PSL_HARNESS_STATE_DIR": str(self.state_dir)},
-        )
-        self.assertEqual(proc.returncode, 0)
-        stdout_clean = proc.stdout.strip()
-        self.assertEqual(stdout_clean, "{}")
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO(payload)), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                compactor_main()
+                self.assertEqual(mock_out.getvalue().strip(), "{}")
 
     def test_cli_post_tool_use_contract_empty_stdin(self) -> None:
         """Empty stdin must gracefully output `{}` with exit code 0."""
-        proc = subprocess.run(
-            [sys.executable, str(self.hook_script)],
-            input="",
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PSL_HARNESS_STATE_DIR": str(self.state_dir)},
-        )
-        self.assertEqual(proc.returncode, 0)
-        self.assertEqual(proc.stdout.strip(), "{}")
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO("")), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                compactor_main()
+                self.assertEqual(mock_out.getvalue().strip(), "{}")
 
     def test_cli_post_tool_use_contract_invalid_json(self) -> None:
         """Malformed JSON on stdin must gracefully output `{}` with exit code 0."""
-        proc = subprocess.run(
-            [sys.executable, str(self.hook_script)],
-            input="<<<MALFORMED_JSON_PAYLOAD>>>{",
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PSL_HARNESS_STATE_DIR": str(self.state_dir)},
-        )
-        self.assertEqual(proc.returncode, 0)
-        self.assertEqual(proc.stdout.strip(), "{}")
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO("<<<MALFORMED_JSON_PAYLOAD>>>{")), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                compactor_main()
+                self.assertEqual(mock_out.getvalue().strip(), "{}")
 
     def test_cli_post_tool_use_contract_non_dict_json(self) -> None:
         """Non-dict JSON (e.g. array or primitive) must output `{}` with exit code 0."""
-        proc = subprocess.run(
-            [sys.executable, str(self.hook_script)],
-            input="[1, 2, 3]",
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PSL_HARNESS_STATE_DIR": str(self.state_dir)},
-        )
-        self.assertEqual(proc.returncode, 0)
-        self.assertEqual(proc.stdout.strip(), "{}")
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO("[1, 2, 3]")), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                compactor_main()
+                self.assertEqual(mock_out.getvalue().strip(), "{}")
 
     # -------------------------------------------------------------------------
     # 6. In-Band Execution Wrapper (exec_wrap.py) Compaction Tests
@@ -385,14 +367,10 @@ class TestOutputCompactor(unittest.TestCase):
 
     def test_exec_wrap_cli_helper(self) -> None:
         """CLI helper executes command and prints compacted output."""
-        exec_script = PROJECT_ROOT / "harness" / "hooks" / "exec_wrap.py"
-        proc = subprocess.run(
-            [sys.executable, str(exec_script), "-c", f"{sys.executable} -c \"print('cli-wrapper-test')\""],
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(proc.returncode, 0)
-        self.assertEqual(proc.stdout.strip(), "cli-wrapper-test")
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = exec_wrap_main(["-c", f"{sys.executable} -c \"print('cli-wrapper-test')\""])
+            self.assertEqual(code, 0)
+            self.assertEqual(mock_out.getvalue().strip(), "cli-wrapper-test")
 
     def test_exec_wrap_sequence_shell_true_escapes_spaces(self) -> None:
         """run_with_compaction uses shlex.join for sequence arguments with shell=True (DEFECT-L3-03)."""

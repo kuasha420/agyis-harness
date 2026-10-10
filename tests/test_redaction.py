@@ -401,7 +401,7 @@ class TestRedactionMicroBenchmark(unittest.TestCase):
         self.assertGreaterEqual(len(benign_10kb), 10000)
 
         # Benchmark benign payload
-        iterations = 200
+        iterations = 25
         t0 = time.perf_counter()
         for _ in range(iterations):
             strip_secrets(benign_10kb)

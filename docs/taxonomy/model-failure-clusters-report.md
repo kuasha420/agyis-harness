@@ -82,8 +82,8 @@ Frequent failures when probing PostgreSQL or Docker services without non-interac
 ### B. Mesh & Remote Operations (`mesh-ops` Justification)
 SSH connection dropouts (Exit Code 255), unverified Tailscale hostnames, and unpinned socket paths:
 
-- **`"ssh -o StrictHostKeyChecking=no root@103.174.51.23 \"cat /home/purrfecthq-staging-purrfectcore/htdocs/staging.purrfectcore.purrfecthq.com/purrfectcore-001/.env | grep GOOGLE\""`** (Exit 1, count=5)
-  *Snippet*: `Created At: 2026-06-07T17:16:31Z Completed At: 2026-06-07T17:16:32Z  				The command failed with exit code: 1 				Output: 				cat: cat: /home/purrfecthq-staging-purrfectcore/htdocs/staging.purrfectcor`
+- **`"ssh -o StrictHostKeyChecking=no root@192.0.2.1 \"cat [REDACTED_STAGING_PATH]/.env | grep GOOGLE\""`** (Exit 1, count=5)
+  *Snippet*: `Created At: 2026-06-07T17:16:31Z Completed At: 2026-06-07T17:16:32Z  				The command failed with exit code: 1 				Output: 				cat: cat: [REDACTED_STAGING_PATH]/.env`
 - **`"ssh purrfecthq-jasper-infra@jasper.infra.purrfecthq.com \"/home/purrfecthq-jasper-infra/htdocs/jasper.infra.purrfecthq.com/yt-dlp --js-runtimes node --extractor-args youtube:player-client=android -f bestaudio -o - \\\"https://www.youtube.com/watch?v=Ly0fz0T_lQE\\\" > /dev/null\""`** (Exit 1, count=5)
   *Snippet*: `Created At: 2026-06-23T19:22:05Z Completed At: 2026-06-23T19:22:08Z  				The command failed with exit code: 1 				Output: 				WARNING: Your yt-dlp version (2026.02.04) is older than 90 days!          `
 - **`"ssh -o StrictHostKeyChecking=no purrfecthq-jasper-infra@jasper.infra.purrfecthq.com \"ps aux | grep yt-dlp | grep -v grep\""`** (Exit 1, count=4)

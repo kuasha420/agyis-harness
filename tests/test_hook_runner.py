@@ -236,36 +236,25 @@ class TestHookRunner(unittest.TestCase):
             self.assertEqual(res["decision"], "allow")
 
     def test_subprocess_standalone_execution(self):
-        """Subprocess hermetic execution of runner via python3 -m harness.hooks.runner."""
+        """Hermetic execution of runner via runner.main."""
         payload = json.dumps({
             "conversationId": "test-subprocess",
             "toolCall": {"name": "run_command", "args": {"CommandLine": "echo test"}},
         })
-        proc = subprocess.run(
-            [sys.executable, "-m", "harness.hooks.runner", "command-safety"],
-            input=payload,
-            capture_output=True,
-            text=True,
-            cwd=str(Path(__file__).parent.parent),
-            env=dict(os.environ, PSL_HARNESS_STATE_DIR=self.temp_dir.name),
-        )
-        self.assertEqual(proc.returncode, 0)
-        res = json.loads(proc.stdout.strip())
-        self.assertEqual(res["decision"], "allow")
+        with patch("sys.stdin", io.StringIO(payload)), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            ret = runner.main(["command-safety"])
+            self.assertEqual(ret, 0)
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res["decision"], "allow")
 
     def test_subprocess_unknown_hook_fail_open(self):
-        """Subprocess execution with invalid hook returns 0 and outputs fail-open allow JSON."""
-        proc = subprocess.run(
-            [sys.executable, "-m", "harness.hooks.runner", "invalid-hook-name"],
-            capture_output=True,
-            text=True,
-            cwd=str(Path(__file__).parent.parent),
-            env=dict(os.environ, PSL_HARNESS_STATE_DIR=self.temp_dir.name),
-        )
-        self.assertEqual(proc.returncode, 0)
-        res = json.loads(proc.stdout.strip())
-        self.assertEqual(res["decision"], "allow")
-        self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", proc.stderr)
+        """Execution with invalid hook returns 0 and outputs fail-open allow JSON."""
+        with patch("sys.stdin", io.StringIO("")), patch("sys.stdout", new_callable=io.StringIO) as mock_out, patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            ret = runner.main(["invalid-hook-name"])
+            self.assertEqual(ret, 0)
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res["decision"], "allow")
+            self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", mock_err.getvalue())
 
 
 if __name__ == "__main__":

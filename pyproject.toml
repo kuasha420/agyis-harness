@@ -7,7 +7,7 @@ name = "psl-agy-harness"
 version = "0.1.0"
 description = "Empirical audit and official extension harness for Google Antigravity"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "Purrfect Software Limited (PSL)" }
@@ -24,10 +24,10 @@ dev = [
 
 [project.scripts]
 psl = "harness.cli:main"
-psl-doctor = "pipeline.psl_doctor:main"
+psl-doctor = "harness.runtime.doctor:main"
 psl-audit = "pipeline.extract_transcripts:main"
 psl-inventory = "pipeline.inventory_customizations:main"
 psl-classify = "pipeline.classify_failures:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["pipeline", "harness"]
+packages = ["harness"]

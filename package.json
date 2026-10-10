@@ -2,7 +2,6 @@
   "name": "psl-agy-harness",
   "version": "0.1.0",
   "description": "Empirical audit and official extension harness for Google Antigravity",
-  "main": "index.js",
   "type": "module",
   "scripts": {
     "psl": "python3 -m harness.cli",
@@ -19,7 +18,7 @@
     "cognitive-audit": "python3 pipeline/extract_cognitive_traces.py",
     "audit:volume": "python3 -m harness.cli audit volume",
     "audit:deep": "python3 -m harness.cli audit deep",
-    "audit": "npm run inventory && npm run extract && npm run classify && npm run rules-audit && npm run context-audit && npm run cognitive-audit && npm run artifacts-audit"
+    "audit": "npm run inventory && npm run extract && npm run classify && npm run rules-audit && npm run context-audit && npm run cognitive-audit"
   },
   "keywords": [
     "antigravity",

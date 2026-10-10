@@ -1,0 +1,14 @@
+PSL Harness for Google Antigravity™ (psl-agy-harness)
+Copyright (c) 2026 Purrfect Software Limited (PSL)
+
+This product includes software developed at Purrfect Software Limited.
+
+Third-Party Software Attributions:
+- psycopg (LGPL-3.0): Used by server/storage.py for PostgreSQL connectivity.
+- starlette (BSD-3-Clause): Used by server/app.py for HTTP API routing.
+- uvicorn (BSD-3-Clause): Used for ASGI server execution.
+- certifi (MPL-2.0): Used for Mozilla CA bundle verification.
+
+Trademark Notice:
+Google Antigravity™ is a trademark of Google LLC. This project is an independent
+open-source software development kit and is not affiliated with or endorsed by Google LLC.

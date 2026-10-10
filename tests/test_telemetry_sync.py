@@ -1371,6 +1371,8 @@ class TestProductProjectSeparation(unittest.TestCase):
             "-c",
             (
                 "import sys\n"
+                "import harness.cli\n"
+                "import harness.runtime.doctor\n"
                 "import harness.telemetry.sync\n"
                 "import harness.telemetry.config\n"
                 "import harness.telemetry.schema\n"
