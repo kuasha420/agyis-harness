@@ -450,6 +450,12 @@ def cmd_sync(args: argparse.Namespace) -> int:
         "dry_run": dry_run,
         "on_progress": on_progress,
     }
+    if getattr(args, "all_developers", False):
+        sync_kwargs["all_developers"] = True
+    if getattr(args, "developer", None):
+        sync_kwargs["developer"] = args.developer
+    if getattr(args, "since", None):
+        sync_kwargs["since"] = args.since
     if review:
         sync_kwargs["review"] = review
 
@@ -1388,6 +1394,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync.add_argument("--dry-run", action="store_true", help="Simulate synchronization without modifications")
     p_sync.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID to ingest before syncing")
     p_sync.add_argument("--json", action="store_true", help="Output sync summary in JSON format")
+    p_sync.add_argument("--all-developers", "--all", action="store_true", dest="all_developers", help="Pull telemetry across all developers and devices (bypasses anti-echo filter)")
+    p_sync.add_argument("--developer", type=str, default=None, help="Filter pulled telemetry by specific developer username (or '*' for all)")
+    p_sync.add_argument("--since", type=str, default=None, help="Pull telemetry deltas since a specific ISO timestamp watermark")
 
     # install
     p_install = subparsers.add_parser(

@@ -138,21 +138,38 @@ async def sync_pull_endpoint(request: Request) -> JSONResponse:
 
     since = request.query_params.get("since", "1970-01-01T00:00:00Z")
     limit_str = request.query_params.get("limit", "100")
+    offset_str = request.query_params.get("offset", "0")
+    all_devs_raw = request.query_params.get("all_developers") or request.query_params.get("include_self") or ""
+    all_developers = all_devs_raw.lower() in ("true", "1", "yes")
+    developer = request.query_params.get("developer")
+
     try:
-        limit = min(max(int(limit_str), 1), 500)
+        limit = min(max(int(limit_str), 1), 1000)
     except ValueError:
         limit = 100
+
+    try:
+        offset = max(int(offset_str), 0)
+    except ValueError:
+        offset = 0
 
     storage: Storage = getattr(request.app.state, "storage", None) or get_storage()
     data = storage.query_delta(
         since=since,
         requesting_user=auth_res.username,
         limit=limit,
+        all_developers=all_developers,
+        developer=developer,
+        offset=offset,
     )
 
     return JSONResponse({
         "status": "success",
         "since": since,
+        "limit": limit,
+        "offset": offset,
+        "total_matching": data.get("total_matching", len(data["sessions"])),
+        "has_more": data.get("has_more", False),
         "sessions": data["sessions"],
         "steps": data["steps"],
         "tool_calls": data["tool_calls"],

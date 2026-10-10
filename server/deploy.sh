@@ -34,6 +34,7 @@ rsync -avz --delete \
   --exclude '__pycache__' \
   --exclude '*.pyc' \
   --exclude '.git' \
+  --exclude '.env' \
   --exclude 'data/*.db' \
   "server/" "${REMOTE_USER}@${TARGET_HOST}:${DEPLOY_DIR}/server/"
 

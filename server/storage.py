@@ -569,19 +569,29 @@ class Storage:
         since: str,
         requesting_user: Optional[str] = None,
         limit: int = 100,
+        all_developers: bool = False,
+        developer: Optional[str] = None,
+        offset: int = 0,
     ) -> Dict[str, Any]:
-        """Queries telemetry delta since watermark, applying anti-echo filter for requesting_user."""
+        """Queries telemetry delta since watermark, applying anti-echo filter for requesting_user unless all_developers is True."""
         with self._lock:
             if self.is_postgres:
-                return self._query_delta_pg(since, requesting_user, limit)
+                return self._query_delta_pg(
+                    since, requesting_user, limit, all_developers, developer, offset
+                )
             else:
-                return self._query_delta_sqlite(since, requesting_user, limit)
+                return self._query_delta_sqlite(
+                    since, requesting_user, limit, all_developers, developer, offset
+                )
 
     def _query_delta_sqlite(
         self,
         since: str,
         requesting_user: Optional[str] = None,
         limit: int = 100,
+        all_developers: bool = False,
+        developer: Optional[str] = None,
+        offset: int = 0,
     ) -> Dict[str, Any]:
         conn = self._get_sqlite_conn()
         try:
@@ -594,12 +604,20 @@ class Storage:
             )
             params: List[Any] = [since, since]
 
-            if requesting_user:
+            if developer:
+                if developer != "*":
+                    query += " AND origin_developer = ?"
+                    params.append(developer)
+            elif not all_developers and requesting_user:
                 query += " AND (origin_developer IS NULL OR origin_developer != ?)"
                 params.append(requesting_user)
 
-            query += " ORDER BY start_time ASC LIMIT ?"
-            params.append(limit)
+            count_query = f"SELECT COUNT(*) FROM ({query})"
+            cur.execute(count_query, params)
+            total_matching = cur.fetchone()[0]
+
+            query += " ORDER BY start_time ASC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
 
             cur.execute(query, params)
             sessions = [dict(r) for r in cur.fetchall()]
@@ -610,6 +628,8 @@ class Storage:
                     "steps": [],
                     "tool_calls": [],
                     "user_interventions": [],
+                    "total_matching": total_matching,
+                    "has_more": False,
                 }
 
             session_ids = [s["session_id"] for s in sessions]
@@ -638,6 +658,8 @@ class Storage:
                 "steps": steps,
                 "tool_calls": tool_calls,
                 "user_interventions": interventions,
+                "total_matching": total_matching,
+                "has_more": (offset + len(sessions)) < total_matching,
             }
         finally:
             if self.sqlite_path != ":memory:":
@@ -648,6 +670,9 @@ class Storage:
         since: str,
         requesting_user: Optional[str] = None,
         limit: int = 100,
+        all_developers: bool = False,
+        developer: Optional[str] = None,
+        offset: int = 0,
     ) -> Dict[str, Any]:
         conn = self._get_pg_conn()
         try:
@@ -659,12 +684,20 @@ class Storage:
                 )
                 params: List[Any] = [since, since]
 
-                if requesting_user:
+                if developer:
+                    if developer != "*":
+                        query += " AND origin_developer = %s"
+                        params.append(developer)
+                elif not all_developers and requesting_user:
                     query += " AND (origin_developer IS NULL OR origin_developer != %s)"
                     params.append(requesting_user)
 
-                query += " ORDER BY start_time ASC LIMIT %s"
-                params.append(limit)
+                count_query = f"SELECT COUNT(*) FROM ({query}) AS matching_sessions"
+                cur.execute(count_query, params)
+                total_matching = cur.fetchone()[0]
+
+                query += " ORDER BY start_time ASC LIMIT %s OFFSET %s"
+                params.extend([limit, offset])
 
                 cur.execute(query, params)
                 columns = [desc[0] for desc in cur.description]
@@ -676,6 +709,8 @@ class Storage:
                         "steps": [],
                         "tool_calls": [],
                         "user_interventions": [],
+                        "total_matching": total_matching,
+                        "has_more": False,
                     }
 
                 session_ids = [s["session_id"] for s in sessions]
@@ -707,6 +742,8 @@ class Storage:
                     "steps": steps,
                     "tool_calls": tool_calls,
                     "user_interventions": interventions,
+                    "total_matching": total_matching,
+                    "has_more": (offset + len(sessions)) < total_matching,
                 }
         finally:
             conn.close()
