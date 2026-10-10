@@ -70,6 +70,8 @@ Thumbs.db
 .vscode/
 *.swp
 .agents/artifacts
+.agents/teamwork/
+ORIGINAL_REQUEST.md
 
 # Top-level plugin delivery symlinks
 /skills
