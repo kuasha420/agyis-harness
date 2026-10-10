@@ -98,6 +98,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
         extra = []
         if getattr(args, "db", None):
             extra.extend(["--db", args.db])
+        else:
+            extra.extend(["--db", str(DEFAULT_DB)])
         if getattr(args, "backfill", False):
             extra.append("--backfill-volumes")
         if getattr(args, "conv_dir", None):
@@ -460,7 +462,6 @@ def cmd_sync(args: argparse.Namespace) -> int:
     review = getattr(args, "review", False)
     limit = getattr(args, "limit", None)
     dry_run = getattr(args, "dry_run", False)
-
     on_progress = None
     if not getattr(args, "json", False):
         def on_progress(batch_num: int, total_batches: int, stats: Dict[str, Any]) -> None:
@@ -1429,7 +1430,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_install = subparsers.add_parser(
         "install", help="Install PSL harness globally as Google Antigravity plugin"
     )
-    p_install.add_argument("--global", "-g", dest="global_install", action="store_true", help="Install standalone psl CLI into user bin path (~/.local/bin)")
+    p_install.add_argument("--global", "-g", dest="global_install", action="store_true", help="Install globally into user plugins directory (default)")
     p_install.add_argument("--bin-dir", type=Path, default=None, help="Custom binary directory for standalone CLI executable")
     p_install.add_argument("--copy", action="store_true", help="Install via copy mode")
     p_install.add_argument("--symlink", action="store_true", help="Install via symlink mode (default)")

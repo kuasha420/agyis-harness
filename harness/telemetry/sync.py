@@ -325,7 +325,6 @@ def push_local_sessions(
         total_tools_pushed = 0
         total_interventions_pushed = 0
         last_synced_at = None
-
         headers = {
             "Authorization": f"Bearer {resolved_token}",
             "Content-Type": "application/json",
