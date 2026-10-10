@@ -1,9 +1,12 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # 🗺️ PSL Harness: Master Product Vision, Contracts & Roadmap
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Repository**: `kuasha420/psl-agy-harness` (Private Development → Public Release)  
-**Last Updated**: 2026-10-05  
+**Last Updated**: 2026-10-10  
 
 ---
 
@@ -152,7 +155,7 @@ Our empirical audit proved that session depth is the single greatest catalyst of
 
 ---
 
-### 🟡 Horizon 1: Product Foundation, Delivery Architecture & Packaging (IN PROGRESS)
+### 🟢 Horizon 1: Product Foundation, Delivery Architecture & Packaging (COMPLETED & COMPACTED)
 * **Goal**: Move from isolated scripts to a unified developer product; codify testing contracts; build the delivery engine; harvest deeper telemetry.
 * **Resolution**: **Medium Resolution (Macro Milestones & Architectural Boundaries)**.
 * **Completed Milestones**:
@@ -238,13 +241,22 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - Extended transcript extraction in `pipeline/extract_transcripts.py` to classify native slash commands (`BOOST_ORCHESTRATION`, `PLAN_INITIATION`).
     - Decoupled custom agent scaffolding (`agent-builder`) to remain solely anchored in ADR-026.
     - Expanded hermetic test suite to **259 passing tests in 1.297s** (with 47 anti-drift & scaffold tests in 0.028s).
-* **Upcoming Milestones**:
-  1. **Standardized Testing Runner Skills**:
-     - Supply standardized testing runner skills (`psl-test-runner`) for Python, Node, Cargo, and Go.
-  2. **In-Band PreToolUse Execution Compactor**:
-     - Evaluate tuning and live wrapper prototypes based on the codified 2KB sweet spot.
-  3. **Empirical Telemetry Laboratory Analysis on Multi-Agent Coordination**:
-     - Mine `data/telemetry.db` for Subagent Ladder runs, Knot-mesh early prototypes, and conversational emergence patterns.
+  - [x] **Production Hardening: Chunked Telemetry Push, Zero-PWD Resolution & Global Delivery (Phase 9 - ADR-030)**:
+    - Enforced zero-PWD DB path resolution hierarchy; client-side chunked telemetry push (10 sessions / 2,500 steps) mitigating HTTP 413.
+    - Delivered standalone global executable `~/.local/bin/psl` (`0o755`) via `PluginInstaller` and GitHub CLI token lifting (`psl auth login --gh`).
+    - Expanded test suite to 272 hermetic tests in ~1.5s with zero regressions.
+  - [x] **Telemetry Consolidation, Modular Skills & Cross-Model Failure Mining (Phase 10 - ADR-032)**:
+    - Delivered 8 modular operational runbooks (`media-ops`, `storage-ops`, `audio-ops`, `display-ops`, `sec-forensics`, `db-ops`, `mesh-ops`, `git-worktree-ops`).
+    - Tightened background task log anti-polling to enforce Strict Reactive Wait Invariant on `.system_generated/tasks/*.log`.
+    - Synchronized 100% of telemetry dataset (722 sessions, 219,292 steps) with central gateway and mined cross-model failure clusters.
+    - Full test suite expanded to **401 hermetic tests passing in <1.0s** (<1.00s benchmark invariant strictly maintained).
+* **Upcoming Milestones (Horizon 2: Fleet Scaling & Knot Mesh)**:
+  1. **Multi-Node Linda Tuplespace Protocol (ADR-028)**:
+     - Coordinate distributed batch fanouts and barrier joins across Knot mesh strands (Desktop, Laptop, Steam Deck).
+  2. **Spatial Terminal Multiplexing & Swarm Council (ADR-029)**:
+     - GPU-accelerated Confluence mode terminal multiplexing in Kitty with out-of-band GitHub Discussion coordination.
+  3. **Decoupled Visual Cockpits**:
+     - Distributed telemetry routing and visual dashboards on remote displays.
 
 ---
 

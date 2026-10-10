@@ -1,16 +1,19 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # Official Specification: Testing Contracts & Verification Architecture
 
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Scope**: Project-Internal Test Standards & Product-Delivered Testing Invariants  
-**Last Updated**: 2026-10-02  
+**Last Updated**: 2026-10-10  
 
 ---
 
 ## 1. Executive Summary
 
-Empirical telemetry across 348 sessions and 140,005 steps demonstrated that **agent testing behavior is the single most decisive factor in determining whether an autonomous session succeeds or drifts**:
+Empirical telemetry across 722 sessions, 219,292 steps, and 160,226 tool calls demonstrated that **agent testing behavior is the single most decisive factor in determining whether an autonomous session succeeds or drifts**:
 
 - Workspaces with explicit, deterministic testing contracts (e.g. `purrmission`, `sunshine-physio-universalapp`) achieved **1.67–1.91 operator interventions/session**.
 - Workspaces with ambiguous, unconfigured, or implicit testing practices experienced **18.2–36.0 interventions/session** (a 10x–20x degradation).
@@ -32,7 +35,7 @@ All unit, integration, and replay tests within the `psl-agy-harness` repository 
 - Test fixtures must use `tempfile.TemporaryDirectory()` and clean up on teardown.
 
 ### B. The Sub-Second Benchmark Invariant
-- The entire test suite must execute in **less than 1.0 second**.
+- The entire test suite must execute in **less than 1.0 second** (currently verified at <0.97s across 401 tests).
 - Slow operations (such as long sleeps, heavy model invocations, or disk-heavy sweeps) are strictly prohibited in unit and integration test paths.
 - Micro-benchmark latency for individual hooks must remain under 1 ms (currently verified at <0.25 ms for the 2KB output compactor).
 
@@ -49,14 +52,36 @@ Every lifecycle hook must be tested against the official Antigravity protojson s
 ### E. Test File Mapping & Suite Execution
 ```text
 tests/
-├── test_anti_loop.py        # 7 tests: repeat thresholds, mutation resets, conversation isolation
-├── test_command_safety.py   # 8 tests: dangerous patterns, TUI block, hermetic python, grep rewrite
-├── test_output_compactor.py # 13 tests: 2KB boundary, failure preservation, JSON contract, transcript fallback
-└── test_psl_doctor.py       # 8 tests: version parsing, matrix auditing, distro detection
+├── test_agent_scaffold.py           # 15 tests: agent scaffolding, workspace discovery, YAML frontmatter
+├── test_anti_drift.py               # 40 tests: plan boundary enforcement, native plan-mode lock, exemptions
+├── test_anti_loop.py                # 18 tests: repeat thresholds, reactive wait invariant, frequency window
+├── test_cli.py                      # 34 tests: 13-command dispatcher, command routing, lazy pipeline loading
+├── test_command_safety.py           # 18 tests: dangerous patterns, TUI blocks, hermetic python, grep rewrite
+├── test_command_safety_remote.py    # 9 tests: remote grep rewrite, ControlMaster multiplexing, SSH timeouts
+├── test_completion_fence.py         # 22 tests: dirty code tracking, exemptions, anti-deadlock safety valve
+├── test_conversation_harvester.py   # 10 tests: transcript ingestion, step extraction, token tracking
+├── test_delivery.py                 # 18 tests: global plugin installer, 3-tier precedence, zero git pollution
+├── test_display_bridge.py           # 4 tests: base64 image decoding, screen capture bridge, corrupt URI handling
+├── test_failure_clusters.py         # 4 tests: cross-model failure mining, exit code clusters, intervention buckets
+├── test_hook_runner.py              # 18 tests: fail-safe dispatcher, fail-open contracts, argument pass-through
+├── test_output_compactor.py         # 19 tests: 2KB boundary, failure preservation, JSON contract, head/tail slicing
+├── test_pipeline_audit_smoke.py     # 1 test: hermetic telemetry pipeline smoke test on temporary database
+├── test_psl_doctor.py               # 24 tests: 3-tier matrix auditing, uv auto-healing, distro detection
+├── test_redaction.py                # 25 tests: private key scrub, API tokens, path anonymization
+├── test_remote_runner.py            # 14 tests: SSH runner, stdin script streaming, compact triage reports
+├── test_server_api.py               # 8 tests: Starlette gateway endpoints, dual-engine storage, push/pull
+├── test_skills.py                   # 12 tests: skill discovery, frontmatter parsing, mirror synchronization
+├── test_subagent_context.py         # 11 tests: microsecond token estimation, health zones (healthy/amber/red)
+├── test_subagents.py                # 19 tests: specialist archetypes, capability bundles, spec validator
+├── test_telemetry_sync.py           # 47 tests: bi-directional sync, chunked push, anti-echo filter, ADR-014
+├── test_ultra_deep_analyzer.py      # 6 tests: titan sessions analysis, survival archetypes
+└── test_volume_mining.py            # 5 tests: tool character volume distributions, compaction simulations
 ```
 
 Run test suite via:
 ```bash
+python3 -m harness.cli test
+# or standard unittest discover:
 python3 -m unittest discover -s tests -v
 ```
 

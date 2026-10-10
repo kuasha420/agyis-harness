@@ -1,7 +1,10 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # 🔬 The Ultra-Deep Horizon Microscope: 1,000+ Step Survival Analysis
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
-**Generated At**: 2026-10-10T12:50:30.276675Z  
+**Generated At**: 2026-10-10T19:30:30.456786+00:00  
 **Data Source**: Deep forensic mining of `data/telemetry.db` across all sessions with `>= 1,000` steps  
 
 ---

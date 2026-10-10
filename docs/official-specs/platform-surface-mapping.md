@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # Antigravity Platform Surface Mapping: Deconstruction & Empirical Gap Analysis
 
 **Document**: Canonical Architecture & Surface Mapping Specification  
@@ -5,7 +8,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Status**: Canonical Reference & Operational Guide  
-**Empirical Baseline**: Mined from 348 Workstation Sessions (140,005 Trajectory Steps, 64,065 Tool Calls, 2,232 Tool Failures, 5,773 Tool Loops)
+**Empirical Baseline**: Mined from 722 Workstation Sessions (219,292 Trajectory Steps, 160,226 Tool Calls, 4,062 Tool Failures, 15,562 Tool Loops)
 
 ---
 
@@ -507,7 +510,7 @@ stdio_server = types.McpStdioServer(
 
 ## 7. Empirical Gap Analysis: Audited Workstation Failures vs Platform Capabilities
 
-Our empirical audit analyzed **348 developer sessions, 140,005 trajectory steps, 64,065 tool calls, and 2,232 tool failures** recorded on this workstation (`docs/taxonomy/workstation-audit-report.md`). 
+Our empirical audit analyzed **722 developer sessions, 219,292 trajectory steps, 160,226 tool calls, and 4,062 tool failures** recorded on this workstation (`docs/taxonomy/workstation-audit-report.md`). 
 
 Below is the definitive gap analysis mapping these breakdowns against Antigravity platform capabilities, categorizing the exact architectural remedy for each failure mode.
 

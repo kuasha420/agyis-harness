@@ -6,6 +6,8 @@ last_updated: 2026-10-06
 target_audience: [developer, onboarding]
 related_adrs: [ADR-014, ADR-015, ADR-030]
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
 # 🚀 PSL Developer Onboarding: Telemetry Setup & History Sync Runbook
 

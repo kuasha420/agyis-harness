@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # 🔭 The Resolution Gradient Architecture: Dynamic Aperture & Retroactive Compaction
 
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  

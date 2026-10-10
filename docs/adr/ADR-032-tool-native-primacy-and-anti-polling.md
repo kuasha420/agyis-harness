@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # ADR-032: Tool-Native Primacy and Task Log Anti-Polling Invariant
 
 * **Status**: Accepted

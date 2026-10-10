@@ -1,8 +1,11 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # 🏛️ Empirical Project Rules & Skills Ecosystem Audit
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
-**Generated At**: 2026-10-02 04:52:22Z  
+**Generated At**: 2026-10-10 19:30:28Z  
 **Data Source**: Cross-analysis of repository configuration files (`AGENTS.md`, `.agents/skills`) vs. session telemetry in `data/telemetry.db`
 
 ---
@@ -19,23 +22,29 @@ When we evaluate the agent's behavior across distinct workspaces on this worksta
 ├──────────────────────────────┬────────────┬───────────┬────────────┬───────────────────┤
 │ Workspace                    │ Sessions   │ Error %   │ Interv/Sess│ Rule Architecture │
 ├──────────────────────────────┼────────────┼───────────┼────────────┼───────────────────┤
-| `sunshine-physio-universalapp` | 99 | 1.98% | 1.91 | 2 files (~6069 tok), 3 skills |
-| `Jasper` | 72 | 3.63% | 3.15 | 7 files (~3635 tok), 26 skills |
-| `purrmission` | 55 | 3.83% | 1.67 | 9 files (~5076 tok), 0 skills |
-| `knot-mesh` | 28 | 3.24% | 5.79 | 5 files (~6786 tok), 7 skills |
-| `mm-website` | 20 | 5.68% | 18.2 | 6 files (~3036 tok), 0 skills |
-| `jimha` | 17 | 2.63% | 1.41 | 0 files (~0 tok), 0 skills |
-| `knot` | 12 | 3.29% | 16.5 | None / Undetected |
-| `purr` | 10 | 4.02% | 22.3 | 1 files (~1208 tok), 3 skills |
-| `react-native-template-ts-plus` | 4 | 7.92% | 3.75 | 2 files (~1560 tok), 1 skills |
-| `psl-website` | 4 | 4.68% | 16.5 | 6 files (~3307 tok), 0 skills |
-| `purrmission-worktrees` | 2 | 2.14% | 11.0 | 3 files (~2162 tok), 0 skills |
-| `purrfectcore-001` | 2 | 6.56% | 0.0 | 6 files (~3021 tok), 0 skills |
-| `purrfectcore-client` | 1 | 0.0% | 0.0 | 6 files (~3139 tok), 2 skills |
-| `purr-aurora` | 1 | 3.37% | 14.0 | None / Undetected |
+| `57b9a748-8fcd-4f69-9d33-400bf25f3345` | 101 | 1.36% | 2.67 | None / Undetected |
+| `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` | 100 | 0.51% | 2.68 | None / Undetected |
+| `4eacf503-ea78-4551-aac9-ac9878ecd20a` | 97 | 1.4% | 1.75 | None / Undetected |
+| `[WORKSPACE_ROOT]` | 81 | 3.76% | 2.1 | None / Undetected |
+| `Jasper` | 68 | 2.75% | 1.68 | None / Undetected |
+| `d3fbdfad-63f8-4578-a39a-6e3b2cd62690` | 55 | 2.01% | 5.04 | None / Undetected |
+| `9f4acf7a-cfa7-48f1-a9b8-eb37422d7818` | 39 | 2.47% | 2.05 | None / Undetected |
+| `0a7e0526-5229-4bad-8f1d-74ac878e0fb0` | 39 | 0.46% | 1.46 | None / Undetected |
+| `cd5ef963-87c7-4164-81d3-1d248a1e802d` | 23 | 0.92% | 5.57 | None / Undetected |
+| `23eb585f-3ea7-470e-864a-ec012616f85d` | 22 | 1.33% | 0.68 | None / Undetected |
+| `purrmission` | 17 | 2.62% | 1.94 | None / Undetected |
+| `2768d860-6228-4b33-9148-eea0adef03ec` | 12 | 0.43% | 17.08 | None / Undetected |
+| `mm-website` | 5 | 6.36% | 44.4 | None / Undetected |
+| `74a18ea8-e7dc-49d9-83e2-d1b22fc9417f` | 4 | 1.07% | 7.0 | None / Undetected |
+| `6eca5e94-d64a-41fe-99b1-beb5e7d61b88` | 4 | 0.88% | 4.25 | None / Undetected |
+| `d3f78cc7-fd7c-47a0-a8ec-2cb266b85f2a` | 2 | 4.51% | 14.5 | None / Undetected |
+| `c77df798-cee6-426f-9b16-1be4b2fd2fb2` | 2 | 6.75% | 7.5 | None / Undetected |
+| `purrfectcore-001` | 2 | 6.56% | 0.0 | None / Undetected |
+| `b6fe4764-b153-4d1d-9523-00dc7d3d5b49` | 1 | 0.68% | 6.0 | None / Undetected |
+| `b68905fe-5210-4dee-a913-328801cb38de` | 1 | 2.56% | 3.0 | None / Undetected |
+| `purrfectcore-client` | 1 | 0.0% | 0.0 | None / Undetected |
+| `psl-website` | 1 | 6.34% | 8.0 | None / Undetected |
 | `p` | 1 | 8.33% | 3.0 | None / Undetected |
-| `kno` | 1 | 6.45% | 9.0 | None / Undetected |
-| `8-Ball-Pool-Guide-Line` | 1 | 4.95% | 36.0 | 0 files (~0 tok), 0 skills |
 └──────────────────────────────┴────────────┴───────────┴────────────┴───────────────────┘
 ```
 

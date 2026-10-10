@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # Empirical Telemetry Analysis: Cross-Model Failure Clusters & Intervention Hotspots
 
 **Dataset Source**: `data/telemetry.db` (722 Total Sessions, 219,289 Steps, 100,965 Tool Calls, 2,454 Interventions)
@@ -68,31 +71,31 @@ Frequent failures when probing PostgreSQL or Docker services without non-interac
 
 - **`"python3 -c '\nimport sqlite3\nconn = sqlite3.connect(\"data/telemetry.db\")\nc = conn.cursor()\nc.execute(\"\"\"\n    SELECT COUNT(*), AVG(total_steps), AVG(tool_call_count)\n    FROM sessions\n    WHERE tool_error_count = 0 AND total_steps > 15\n\"\"\")\nrow = c.fetchone()\nprint(f\"Clean sessions (>15 steps, 0 tool errors): {row[0]}\")\nprint(f\"  Average steps: {row[1]:.1f}, Average tool calls: {row[2]:.1f}\")\n\nc.execute(\"\"\"\n    SELECT session_id, total_steps, tool_call_count, model, SUBSTR(workspace_path, 1, 40)\n    FROM sessions\n    WHERE tool_error_count = 0 AND total_steps > 25\n    ORDER BY total_steps DESC\n    LIMIT 5\n\"\"\")\nprint(\"\\nTop Clean Sessions:\")\nfor r in c.fetchall():\n    print(f\"  {r[0]}: steps={r[1]}, tools={r[2]}, model={r[3]}, ws={r[4]}\")\n'"`** (Exit 1, count=3)
   *Snippet*: `Created At: 2026-10-02T10:36:24+06:00 Completed At: 2026-10-02T10:36:24+06:00  The command exited with code 1. Output: Clean sessions (>15 steps, 0 tool errors): 0 Traceback (most recent call last):`
-- **`"ssh -o StrictHostKeyChecking=no root@sg.purrfectsoft.co.uk \"docker exec -i coolify-db psql -U coolify -d coolify -c 'SELECT id, key, value, \\\"applicationId\\\" FROM environment_variables WHERE \\\"applicationId\\\" = 3;'\""`** (Exit 1, count=3)
+- **`"ssh -o StrictHostKeyChecking=no root@<STAGING_HOST_REDACTED> \"docker exec -i coolify-db psql -U coolify -d coolify -c 'SELECT id, key, value, \\\"applicationId\\\" FROM environment_variables WHERE \\\"applicationId\\\" = 3;'\""`** (Exit 1, count=3)
   *Snippet*: `Created At: 2026-06-07T12:58:32Z Completed At: 2026-06-07T12:58:33Z  				The command failed with exit code: 1 				Output: 				ERROR:  column "applicationId" does not exist LINE 1: SELECT id, key, valu`
-- **`"ssh root@sg.purrfectsoft.co.uk \"docker exec -i coolify-db psql -U coolify -d coolify -c \\\"SELECT id, status, log FROM application_deployments ORDER BY created_at DESC LIMIT 1;\\\"\""`** (Exit 1, count=3)
+- **`"ssh root@<STAGING_HOST_REDACTED> \"docker exec -i coolify-db psql -U coolify -d coolify -c \\\"SELECT id, status, log FROM application_deployments ORDER BY created_at DESC LIMIT 1;\\\"\""`** (Exit 1, count=3)
   *Snippet*: `Created At: 2026-05-29T20:10:56Z Completed At: 2026-05-29T20:10:56Z  				The command failed with exit code: 1 				Output: 				ERROR:  relation "application_deployments" does not exist LINE 1: SELECT i`
-- **`"ssh root@sg.purrfectsoft.co.uk \"docker exec coolify-db psql -U coolify -d coolify -c 'select id, status, application_id, created_at from application_deployments order by id desc limit 5;'\""`** (Exit 1, count=3)
+- **`"ssh root@<STAGING_HOST_REDACTED> \"docker exec coolify-db psql -U coolify -d coolify -c 'select id, status, application_id, created_at from application_deployments order by id desc limit 5;'\""`** (Exit 1, count=3)
   *Snippet*: `Created At: 2026-06-03T18:01:24Z Completed At: 2026-06-03T18:01:25Z  				The command failed with exit code: 1 				Output: 				ERROR:  relation "application_deployments" does not exist LINE 1: ...elect`
-- **`"ssh root@sg.purrfectsoft.co.uk \"docker exec mydz0e5m1hcfizrzpefxqb28-180430508936 netstat -tuln\""`** (Exit 127, count=3)
+- **`"ssh root@<STAGING_HOST_REDACTED> \"docker exec mydz0e5m1hcfizrzpefxqb28-180430508936 netstat -tuln\""`** (Exit 127, count=3)
   *Snippet*: `Created At: 2026-06-03T18:19:28Z Completed At: 2026-06-03T18:19:29Z  				The command failed with exit code: 127 				Output: 				OCI runtime exec failed: exec failed: unable to start container process:`
-- **`"ssh root@sg.purrfectsoft.co.uk \"docker exec qs46t5t8g80xgowhzf0tmuo1 psql -U purrfectcore_prod_user -d purrfectcore_prod -c \\\"SELECT email, roles FROM users WHERE email = 'arafat@purrfecthq.com';\\\"\""`** (Exit 1, count=3)
+- **`"ssh root@<STAGING_HOST_REDACTED> \"docker exec qs46t5t8g80xgowhzf0tmuo1 psql -U purrfectcore_prod_user -d purrfectcore_prod -c \\\"SELECT email, roles FROM users WHERE email = 'user@<STAGING_HOST_REDACTED>';\\\"\""`** (Exit 1, count=3)
   *Snippet*: `Created At: 2026-06-15T17:21:03Z Completed At: 2026-06-15T17:21:04Z  				The command failed with exit code: 1 				Output: 				ERROR:  column "roles" does not exist LINE 1: SELECT email, roles FROM use`
 
 ### B. Mesh & Remote Operations (`mesh-ops` Justification)
 SSH connection dropouts (Exit Code 255), unverified Tailscale hostnames, and unpinned socket paths:
 
-- **`"ssh -o StrictHostKeyChecking=no root@192.0.2.1 \"cat [REDACTED_STAGING_PATH]/.env | grep GOOGLE\""`** (Exit 1, count=5)
-  *Snippet*: `Created At: 2026-06-07T17:16:31Z Completed At: 2026-06-07T17:16:32Z  				The command failed with exit code: 1 				Output: 				cat: cat: [REDACTED_STAGING_PATH]/.env`
-- **`"ssh purrfecthq-jasper-infra@jasper.infra.purrfecthq.com \"/home/purrfecthq-jasper-infra/htdocs/jasper.infra.purrfecthq.com/yt-dlp --js-runtimes node --extractor-args youtube:player-client=android -f bestaudio -o - \\\"https://www.youtube.com/watch?v=Ly0fz0T_lQE\\\" > /dev/null\""`** (Exit 1, count=5)
+- **`"ssh -o StrictHostKeyChecking=no root@<STAGING_IP_REDACTED> \"cat /var/www/staging-app/.env | grep GOOGLE\""`** (Exit 1, count=5)
+  *Snippet*: `Created At: 2026-06-07T17:16:31Z Completed At: 2026-06-07T17:16:32Z  				The command failed with exit code: 1 				Output: 				cat: /var/www/staging-app/.env: No such file or directory`
+- **`"ssh media-worker@<STAGING_HOST_REDACTED> \"/var/www/media-worker/yt-dlp --js-runtimes node --extractor-args youtube:player-client=android -f bestaudio -o - \\\"https://www.youtube.com/watch?v=Ly0fz0T_lQE\\\" > /dev/null\""`** (Exit 1, count=5)
   *Snippet*: `Created At: 2026-06-23T19:22:05Z Completed At: 2026-06-23T19:22:08Z  				The command failed with exit code: 1 				Output: 				WARNING: Your yt-dlp version (2026.02.04) is older than 90 days!          `
-- **`"ssh -o StrictHostKeyChecking=no purrfecthq-jasper-infra@jasper.infra.purrfecthq.com \"ps aux | grep yt-dlp | grep -v grep\""`** (Exit 1, count=4)
+- **`"ssh -o StrictHostKeyChecking=no media-worker@<STAGING_HOST_REDACTED> \"ps aux | grep yt-dlp | grep -v grep\""`** (Exit 1, count=4)
   *Snippet*: `Created At: 2026-06-23T18:37:08Z Completed At: 2026-06-23T18:37:09Z  				The command failed with exit code: 1 			Stdout: 			 			Stderr: 			 `
-- **`"ssh -o BatchMode=yes kuasha@bd.purrfectsoft.co.uk \"sudo -u purrfecthq-jasper-infra pm2 logs --lines 100 --nostream\""`** (Exit 1, count=3)
-  *Snippet*: `Created At: 2026-09-02T00:52:05+06:00 Completed At: 2026-09-02T00:52:06+06:00  The command exited with code 1. Output: sudo: pm2: command not found  `
-- **`"ssh -o StrictHostKeyChecking=no root@sg.purrfectsoft.co.uk \"docker exec -i coolify-db psql -U coolify -d coolify -c 'SELECT id, key, value, \\\"applicationId\\\" FROM environment_variables WHERE \\\"applicationId\\\" = 3;'\""`** (Exit 1, count=3)
+- **`"ssh -o BatchMode=yes operator@<STAGING_HOST_REDACTED> \"sudo -u media-worker pm2 logs --lines 100 --nostream\""`** (Exit 1, count=3)
+  *Snippet*: `Created At: 2026-09-02T00:52:05+06:00 Completed At: 2026-09-02T00:52:06+06:00  The command exited with code 1. Output: sudo: pm2: command not found  `
+- **`"ssh -o StrictHostKeyChecking=no root@<STAGING_HOST_REDACTED> \"docker exec -i coolify-db psql -U coolify -d coolify -c 'SELECT id, key, value, \\\"applicationId\\\" FROM environment_variables WHERE \\\"applicationId\\\" = 3;'\""`** (Exit 1, count=3)
   *Snippet*: `Created At: 2026-06-07T12:58:32Z Completed At: 2026-06-07T12:58:33Z  				The command failed with exit code: 1 				Output: 				ERROR:  column "applicationId" does not exist LINE 1: SELECT id, key, valu`
-- **`"ssh root@sg.purrfectsoft.co.uk \"docker exec -i coolify-db psql -U coolify -d coolify -c \\\"SELECT id, status, log FROM application_deployments ORDER BY created_at DESC LIMIT 1;\\\"\""`** (Exit 1, count=3)
+- **`"ssh root@<STAGING_HOST_REDACTED> \"docker exec -i coolify-db psql -U coolify -d coolify -c \\\"SELECT id, status, log FROM application_deployments ORDER BY created_at DESC LIMIT 1;\\\"\""`** (Exit 1, count=3)
   *Snippet*: `Created At: 2026-05-29T20:10:56Z Completed At: 2026-05-29T20:10:56Z  				The command failed with exit code: 1 				Output: 				ERROR:  relation "application_deployments" does not exist LINE 1: SELECT i`
 
 ### C. Git Worktree & Branching Operations (`git-worktree-ops` Justification)

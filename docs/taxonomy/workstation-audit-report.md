@@ -1,8 +1,11 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # 📊 Workstation Empirical Telemetry & Audit Report
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
-**Generated At**: 2026-10-10 12:53:30Z  
+**Generated At**: 2026-10-10 19:30:28Z  
 **Data Source**: Workstation telemetry mined from `~/.gemini/antigravity/brain/*/transcript.jsonl`
 
 ---

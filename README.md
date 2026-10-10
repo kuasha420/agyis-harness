@@ -1,16 +1,19 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # PSL Harness for Google Antigravity™ (`psl-agy-harness`)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity-4285F4.svg)](https://antigravity.google)
 [![Status](https://img.shields.io/badge/Status-Active_Development_(Research_&_POC)-orange.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-391%2F391_Passing_(100%25)-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-401%2F401_Passing_(100%25)-brightgreen.svg)]()
 
 > An open-source empirical audit pipeline and reference extension harness for **Google Antigravity™** by **Purrfect Software Limited (PSL)** under the **Apache-2.0** license.
 
 ---
 
 > [!NOTE]
-> **Project State Notice**: This repository has completed empirical ingestion of **722 real-world developer sessions (219,292 steps, 160,226 tool calls)**, verified isolated lifecycle hooks, codified hermetic testing contracts (391 passing tests in <1.0s), and packaged the unified `psl` developer CLI. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
+> **Project State Notice**: This repository has completed empirical ingestion of **722 real-world developer sessions (219,292 steps, 160,226 tool calls)**, verified isolated lifecycle hooks, codified hermetic testing contracts (401 passing tests in <1.0s), and packaged the unified 13-command `psl` developer CLI suite. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
 
 ---
 
@@ -51,20 +54,20 @@ From our automated audit of **722 developer sessions** (`data/telemetry.db`):
 ## 🏛️ Verified POC Components
 
 ### 1. Unified Developer CLI (`psl`)
-Provides a single modular CLI entrypoint for diagnostics, tests, hooks, and mesh operations:
-- `psl doctor [--heal] [--json]`: Workstation environment diagnostic & zero-sudo auto-healing.
-- `psl test [-v]`: Sub-second hermetic project test runner (<1.0s benchmark).
-- `psl hook <hook_name>`: Deterministic lifecycle hook dispatcher.
-- `psl status`: High-level system, modular skill, and active hook health overview.
-- `psl skills`: Discover and audit installed modular operational skills.
-- `psl agents`: Discover and audit specialist subagents and configurations.
-- `psl sync`: Multi-node mesh telemetry audit & synchronization.
-- `psl daemon`: Background telemetry synchronization and monitor daemon.
-- `psl remote <exec|script|triage|socket>`: SSH-multiplexed remote mesh execution.
-- `psl delivery`: Audit and synchronize Antigravity surfaces and plugins.
-- `psl audit [stage]`: Telemetry lab extraction, failure classification, and deep sessions.
-- `psl install [--global]`: Install PSL harness globally as Google Antigravity plugin.
-- `psl version`: Display package version and runtime state.
+Provides a single modular CLI entrypoint for diagnostics, tests, hooks, and mesh operations (see [docs/official-specs/cli-palette.md](docs/official-specs/cli-palette.md)):
+- `psl doctor [--matrix <path>] [--heal] [--json]`: Workstation environment diagnostic & zero-sudo auto-healing.
+- `psl hook <hook_name>`: Deterministic lifecycle hook dispatcher via fail-safe runner.
+- `psl test [-v] [-s <dir>]`: Sub-second hermetic project test runner (<1.0s benchmark, 401 tests).
+- `psl audit [stage] [options]`: Empirical telemetry laboratory extraction & analytical pipelines.
+- `psl skills [name] [--sync] [--json]`: Discover, inspect, and synchronize modular product skills.
+- `psl agents [name|action] [options]`: Specialist subagent catalog, scaffolding, validation & rehydration.
+- `psl subagents [--json] [--brain-dir <dir>]`: Live active subagents status table & context health gauges.
+- `psl status`: Unified system health, active hooks, attention horizon, skills & agents overview.
+- `psl remote <exec|script|triage|socket>`: SSH-multiplexed remote mesh execution and triage (ADR-027).
+- `psl auth <login|status|logout>`: GitHub organization credential management for centralized telemetry.
+- `psl sync [options]`: Bi-directional telemetry synchronization with central hub (ADR-030).
+- `psl install [-g|--global] [--symlink|--copy]`: Global plugin and standalone CLI installation.
+- `psl uninstall [--target <path>]`: Clean global plugin uninstallation without collateral damage.
 
 ```bash
 python3 -m harness.cli --help
@@ -101,14 +104,14 @@ Tracks consecutive executions per conversation ID in `/tmp/psl_agy_harness_state
 
 ## 🧪 Verification & Test Suite
 
-All 391 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-015 benchmark):
+All 401 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-015 benchmark):
 
 ```bash
 python3 -m harness.cli test
 ```
 
 ```text
-Ran 391 tests in 0.970s
+Ran 401 tests in 0.963s
 OK
 ```
 
@@ -120,9 +123,9 @@ For our testing standards and verification specifications, read:
 For the complete architectural design, cognitive guardrails, and horizon breakdown, read:
 👉 **[roadmap.md](roadmap.md)**
 
-* **Horizon 0 (Current)**: Empirical Ground Truth & POC Prototyping (Completed & Compacted).
-* **Horizon 1 (Next Session)**: Product Foundation, Rule/Skill Delivery Architecture & In-Band Compactor.
-* **Horizon 2 (Future)**: Knot Hardware Mesh & Multi-Agent Fleet Scaling.
+* **Horizon 0**: Empirical Ground Truth & Telemetry Ingestion (Completed & Compacted).
+* **Horizon 1**: Product Foundation, Modular Subagents & Lifecycle Hooks (Completed & Compacted).
+* **Horizon 2 (Active)**: Knot Hardware Mesh & Multi-Agent Fleet Scaling.
 
 
 Permanent architectural decisions are recorded in the living compact ledger:

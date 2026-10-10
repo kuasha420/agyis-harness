@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # 📜 PSL Harness Project Ledger (Compacted Horizon 0)
 
 This ledger preserves permanent architectural decisions, schema contracts, and verified baseline metrics across completed phases. Detailed operational logs fade into git history and archives.
@@ -17,10 +20,10 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - **Context Cliff**: Trajectories >200 steps suffer a 20x error spike (1.0 -> 20.5) and 40x intervention spike (0.4 -> 16.3).
   - **Rule Calibration**: Explicit command dictionaries (e.g. `purrmission`) yield 1.67 interventions/session; multi-file rule indirection (e.g. `mm-website`) causes 18.2 interventions/session (10x higher).
 * **Reference Harness Assets Committed**:
-  - Manifest: [plugin.json](plugin.json)
-  - Rules: [.agents/rules/AGENTS.md](.agents/rules/AGENTS.md)
-  - Lifecycle Hooks: [harness/hooks/anti_loop_hook.py](harness/hooks/anti_loop_hook.py), [harness/hooks/command_safety_hook.py](harness/hooks/command_safety_hook.py), [harness/hooks/hooks.json](harness/hooks/hooks.json).
-  - Skill: [.agents/skills/psl-audit-toolkit/SKILL.md](.agents/skills/psl-audit-toolkit/SKILL.md)
+  - Manifest: [plugin.json](../../plugin.json)
+  - Rules: [.agents/rules/AGENTS.md](../../.agents/rules/AGENTS.md)
+  - Lifecycle Hooks: [harness/hooks/anti_loop_hook.py](../../harness/hooks/anti_loop_hook.py), [harness/hooks/command_safety_hook.py](../../harness/hooks/command_safety_hook.py), [hooks.json](../../hooks.json).
+  - Skill: [.agents/skills/psl-audit-toolkit/SKILL.md](../../.agents/skills/psl-audit-toolkit/SKILL.md)
 
 ---
 
@@ -35,10 +38,10 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - **Cognitive Traces**: 14,476 thinking traces extracted and analyzed; mapped 5 primary failure modes (Repetition Trap, Exit Code 1 Panic, Hallucinated Environment, Attention Sink Collapse, False Rationalization).
   - **Planning & Drift**: 474 artifacts audited across 155 sessions (94 plan-walkthrough pairs).
 * **Canonical Specifications Committed**:
-  - [docs/taxonomy/context-cliff-dynamics.md](docs/taxonomy/context-cliff-dynamics.md)
-  - [docs/taxonomy/cognitive-traces-report.md](docs/taxonomy/cognitive-traces-report.md)
-  - [docs/taxonomy/cognitive-failure-taxonomy-deepdive.md](docs/taxonomy/cognitive-failure-taxonomy-deepdive.md)
-  - [docs/taxonomy/planning-and-drift-report.md](docs/taxonomy/planning-and-drift-report.md)
+  - [context-cliff-dynamics.md](context-cliff-dynamics.md)
+  - [cognitive-traces-report.md](cognitive-traces-report.md)
+  - [cognitive-failure-taxonomy-deepdive.md](cognitive-failure-taxonomy-deepdive.md)
+  - [planning-and-drift-report.md](planning-and-drift-report.md)
 
 ---
 
@@ -49,7 +52,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - **ADR-005 (Reactive Wakeup Supremacy)**: Prohibited agent polling loops on `manage_task(Action='status')` in favor of Antigravity 2.0 reactive wakeups.
   - **ADR-006 (Argument Rewrite Interception)**: Standardized on `PreToolUse` shallow `overwrite` dictionaries to sanitize benign pattern-matching pipelines (`|| true`), enforce non-interactive pagers (`PAGER=cat`), and inject network timeouts (`-o ConnectTimeout=5`).
 * **Canonical Specifications Committed**:
-  - [docs/official-specs/platform-surface-mapping.md](docs/official-specs/platform-surface-mapping.md): 655-line definitive deconstruction of CLI (`agy`), 2.0 Desktop Platform, Python SDK (`google-antigravity`), Lifecycle Hooks (`hooks.json`), and MCP boundaries mapped against the 348-session audit.
+  - [docs/official-specs/platform-surface-mapping.md](../../docs/official-specs/platform-surface-mapping.md): 655-line definitive deconstruction of CLI (`agy`), 2.0 Desktop Platform, Python SDK (`google-antigravity`), Lifecycle Hooks (`hooks.json`), and MCP boundaries mapped against the 348-session audit.
 
 ---
 
@@ -63,10 +66,10 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Micro-benchmark latency <0.25 ms (241 µs at 50KB; 1.1 µs decision latency for failures).
   - 100% pass rate across 13 automated unit and contract integration tests.
 * **Reference Assets Committed**:
-  - Hook Implementation: [harness/hooks/output_compactor_hook.py](harness/hooks/output_compactor_hook.py)
-  - Test Suite: [tests/test_output_compactor.py](tests/test_output_compactor.py)
-  - Hook Registry: [harness/hooks/hooks.json](harness/hooks/hooks.json)
-  - Benchmark Report: [docs/taxonomy/output-compactor-poc-results.md](docs/taxonomy/output-compactor-poc-results.md)
+  - Hook Implementation: [harness/hooks/output_compactor_hook.py](../../harness/hooks/output_compactor_hook.py)
+  - Test Suite: [tests/test_output_compactor.py](../../tests/test_output_compactor.py)
+  - Hook Registry: [hooks.json](../../hooks.json)
+  - Benchmark Report: [output-compactor-poc-results.md](output-compactor-poc-results.md)
 
 ---
 
@@ -81,9 +84,9 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Exit code 1 forensic de-aggregation: 329 grep misses (21.3%), 58 python syntax errors (3.8%), 142 tracebacks (9.2%).
   - `psl doctor` CLI audits 10 core binaries across 3 telemetry tiers with zero-sudo auto-healing.
 * **Reference Assets Committed**:
-  - Runtime Matrix: [harness/runtime/matrix.json](harness/runtime/matrix.json)
-  - Workstation Doctor: [harness/runtime/doctor.py](harness/runtime/doctor.py)
-  - Command Safety Hook: [harness/hooks/command_safety_hook.py](harness/hooks/command_safety_hook.py)
+  - Runtime Matrix: [harness/runtime/matrix.json](../../harness/runtime/matrix.json)
+  - Workstation Doctor: [harness/runtime/doctor.py](../../harness/runtime/doctor.py)
+  - Command Safety Hook: [harness/hooks/command_safety_hook.py](../../harness/hooks/command_safety_hook.py)
 
 ---
 
@@ -98,9 +101,9 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - 100% test coverage across all 3 lifecycle hooks (`anti_loop_hook`, `command_safety_hook`, `output_compactor_hook`).
   - Unified CLI `psl` operational (`doctor`, `hook`, `test`, `audit`, `status`).
 * **Reference Assets Committed**:
-  - Unified CLI: [harness/cli.py](harness/cli.py)
-  - Testing Contract: [docs/official-specs/testing-contracts.md](docs/official-specs/testing-contracts.md)
-  - Test Suites: [tests/test_anti_loop.py](tests/test_anti_loop.py), [tests/test_cli.py](tests/test_cli.py)
+  - Unified CLI: [harness/cli.py](../../harness/cli.py)
+  - Testing Contract: [docs/official-specs/testing-contracts.md](../../docs/official-specs/testing-contracts.md)
+  - Test Suites: [tests/test_anti_loop.py](../../tests/test_anti_loop.py), [tests/test_cli.py](../../tests/test_cli.py)
 
 ---
 
@@ -115,10 +118,10 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - 8 modular skills cataloged; 3 specialist agent archetypes registered with zero-dep YAML frontmatter parser.
   - Subagent Ladder pipeline executed end-to-end with 100% first-pass Hammer and Auditor approvals.
 * **Reference Assets Committed**:
-  - Skills Engine: [harness/skills/__init__.py](harness/skills/__init__.py), [harness/skills/psl-stack-shell/SKILL.md](harness/skills/psl-stack-shell/SKILL.md), [harness/skills/psl-stack-typescript/SKILL.md](harness/skills/psl-stack-typescript/SKILL.md), [harness/skills/psl-stack-python/SKILL.md](harness/skills/psl-stack-python/SKILL.md), [harness/skills/psl-stack-backend/SKILL.md](harness/skills/psl-stack-backend/SKILL.md), [harness/skills/psl-stack-systems/SKILL.md](harness/skills/psl-stack-systems/SKILL.md)
-  - Subagent Registry: [harness/subagents.py](harness/subagents.py), [harness/agents/harness_builder.md](harness/agents/harness_builder.md), [harness/agents/harness_reviewer.md](harness/agents/harness_reviewer.md), [harness/agents/harness_auditor.md](harness/agents/harness_auditor.md)
-  - CLI Discovery: [harness/cli.py](harness/cli.py) (`psl skills`, `psl agents`)
-  - Test Suites: [tests/test_skills.py](tests/test_skills.py), [tests/test_subagents.py](tests/test_subagents.py)
+  - Skills Engine: [harness/skills/__init__.py](../../harness/skills/__init__.py), [harness/skills/psl-stack-shell/SKILL.md](../../harness/skills/psl-stack-shell/SKILL.md), [harness/skills/psl-stack-typescript/SKILL.md](../../harness/skills/psl-stack-typescript/SKILL.md), [harness/skills/psl-stack-python/SKILL.md](../../harness/skills/psl-stack-python/SKILL.md), [harness/skills/psl-stack-backend/SKILL.md](../../harness/skills/psl-stack-backend/SKILL.md), [harness/skills/psl-stack-systems/SKILL.md](../../harness/skills/psl-stack-systems/SKILL.md)
+  - Subagent Registry: [harness/subagents/](../../harness/subagents/), [harness/agents/harness_builder.md](../../harness/agents/harness_builder.md), [harness/agents/harness_reviewer.md](../../harness/agents/harness_reviewer.md), [harness/agents/harness_auditor.md](../../harness/agents/harness_auditor.md)
+  - CLI Discovery: [harness/cli.py](../../harness/cli.py) (`psl skills`, `psl agents`)
+  - Test Suites: [tests/test_skills.py](../../tests/test_skills.py), [tests/test_subagents.py](../../tests/test_subagents.py)
 
 ---
 
@@ -132,11 +135,11 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - 100,018,724 characters analyzed across 64,065 calls; `view_file` (48.5M chars, 64.7% >2KB) and `run_command` (33.3M chars, 20.3% >2KB) identified as primary volume bloaters.
   - Test runner commands (`test_runner`) and search probes (`grep_search`) identified as highest category bloaters (>30% exceeding 2KB).
 * **Reference Assets Committed**:
-  - Ingestion & Backfill Engine: [pipeline/extract_transcripts.py](pipeline/extract_transcripts.py)
-  - Volume Analyzer: [pipeline/analyze_volume_distributions.py](pipeline/analyze_volume_distributions.py)
-  - CLI Integration: [harness/cli.py](harness/cli.py) (`psl audit volume`)
-  - Canonical Report: [docs/taxonomy/tool-volume-distribution-report.md](docs/taxonomy/tool-volume-distribution-report.md)
-  - Test Suite: [tests/test_volume_mining.py](tests/test_volume_mining.py)
+  - Ingestion & Backfill Engine: [pipeline/extract_transcripts.py](../../pipeline/extract_transcripts.py)
+  - Volume Analyzer: [pipeline/analyze_volume_distributions.py](../../pipeline/analyze_volume_distributions.py)
+  - CLI Integration: [harness/cli.py](../../harness/cli.py) (`psl audit volume`)
+  - Canonical Report: [tool-volume-distribution-report.md](tool-volume-distribution-report.md)
+  - Test Suite: [tests/test_volume_mining.py](../../tests/test_volume_mining.py)
 
 ---
 
@@ -149,10 +152,10 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Automatic dirty-flag clearance across active conversations upon successful `./psl test` execution.
   - Sub-second performance (<1.0s benchmark across 91 unit and contract tests).
 * **Reference Assets Committed**:
-  - Hook Implementation: [harness/hooks/completion_fence_hook.py](harness/hooks/completion_fence_hook.py)
-  - Lifecycle Configuration: [harness/hooks/hooks.json](harness/hooks/hooks.json)
-  - CLI Dispatch & Test Clearance: [harness/cli.py](harness/cli.py)
-  - Test Suite: [tests/test_completion_fence.py](tests/test_completion_fence.py)
+  - Hook Implementation: [harness/hooks/completion_fence_hook.py](../../harness/hooks/completion_fence_hook.py)
+  - Lifecycle Configuration: [hooks.json](../../hooks.json)
+  - CLI Dispatch & Test Clearance: [harness/cli.py](../../harness/cli.py)
+  - Test Suite: [tests/test_completion_fence.py](../../tests/test_completion_fence.py)
 
 ---
 
@@ -166,9 +169,9 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Full pipeline idempotency verified; existing dangerous pattern blocking and hermetic runtime guarantees preserved.
   - 96 tests passing with 100% coverage in <1.0s benchmark (0.74s actual).
 * **Reference Assets Committed**:
-  - Hook Implementation: [harness/hooks/command_safety_hook.py](harness/hooks/command_safety_hook.py)
-  - Test Suite: [tests/test_command_safety.py](tests/test_command_safety.py)
-  - Specification: [docs/official-specs/lifecycle-hooks.md](docs/official-specs/lifecycle-hooks.md)
+  - Hook Implementation: [harness/hooks/command_safety_hook.py](../../harness/hooks/command_safety_hook.py)
+  - Test Suite: [tests/test_command_safety.py](../../tests/test_command_safety.py)
+  - Specification: [docs/official-specs/lifecycle-hooks.md](../../docs/official-specs/lifecycle-hooks.md)
 ---
 
 ## [Phase 3] Plan-to-Execution Anti-Drift & Cognitive Anchors (ADR-024)
@@ -181,10 +184,10 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Cognitive attention horizon indicators integrated into `psl status`.
   - 111 tests passing with 100% coverage in <1.0s benchmark (0.91s actual).
 * **Reference Assets Committed**:
-  - Hook Implementation: [harness/hooks/anti_drift_hook.py](harness/hooks/anti_drift_hook.py)
-  - Registry & Dispatch: [harness/hooks/hooks.json](harness/hooks/hooks.json), [harness/cli.py](harness/cli.py)
-  - Test Suite: [tests/test_anti_drift.py](tests/test_anti_drift.py)
-  - Specification: [docs/official-specs/lifecycle-hooks.md](docs/official-specs/lifecycle-hooks.md)
+  - Hook Implementation: [harness/hooks/anti_drift_hook.py](../../harness/hooks/anti_drift_hook.py)
+  - Registry & Dispatch: [hooks.json](../../hooks.json), [harness/cli.py](../../harness/cli.py)
+  - Test Suite: [tests/test_anti_drift.py](../../tests/test_anti_drift.py)
+  - Specification: [lifecycle-hooks.md](../official-specs/lifecycle-hooks.md)
 
 ---
 
@@ -201,12 +204,12 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - 100% block accuracy on unauthorized auditor file mutations with descriptive invariant reasoning.
   - Sub-second benchmark invariant maintained: 135 unit and integration tests passing in 0.912s (<1.0s benchmark).
 * **Reference Assets Committed**:
-  - Subagent Context & Health Engine: [harness/subagents.py](harness/subagents.py)
-  - PreToolUse Write-Block Guard: [harness/hooks/anti_drift_hook.py](harness/hooks/anti_drift_hook.py)
-  - Specialist Agent Definitions: [harness/agents/harness_auditor.md](harness/agents/harness_auditor.md), [harness/agents/harness_builder.md](harness/agents/harness_builder.md), [harness/agents/harness_reviewer.md](harness/agents/harness_reviewer.md)
-  - CLI Subagent Discovery: [harness/cli.py](harness/cli.py) (`psl subagents`)
-  - Test Suites: [tests/test_subagent_context.py](tests/test_subagent_context.py), [tests/test_anti_drift.py](tests/test_anti_drift.py), [tests/test_subagents.py](tests/test_subagents.py), [tests/test_cli.py](tests/test_cli.py)
-  - Specification: [docs/official-specs/lifecycle-hooks.md](docs/official-specs/lifecycle-hooks.md)
+  - Subagent Context & Health Engine: [harness/subagents/](../../harness/subagents/)
+  - PreToolUse Write-Block Guard: [harness/hooks/anti_drift_hook.py](../../harness/hooks/anti_drift_hook.py)
+  - Specialist Agent Definitions: [harness/agents/harness_auditor.md](../../harness/agents/harness_auditor.md), [harness/agents/harness_builder.md](../../harness/agents/harness_builder.md), [harness/agents/harness_reviewer.md](../../harness/agents/harness_reviewer.md)
+  - CLI Subagent Discovery: [harness/cli.py](../../harness/cli.py) (`psl subagents`)
+  - Test Suites: [tests/test_subagent_context.py](../../tests/test_subagent_context.py), [tests/test_anti_drift.py](../../tests/test_anti_drift.py), [tests/test_subagents.py](../../tests/test_subagents.py), [tests/test_cli.py](../../tests/test_cli.py)
+  - Specification: [docs/official-specs/lifecycle-hooks.md](../../docs/official-specs/lifecycle-hooks.md)
 
 ---
 
@@ -225,12 +228,12 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - 10/10 agent specifications certified valid across product and project directories.
   - Subagent Ladder trajectory offloaded 64.4% of context volume (~201k tokens preserved) with 0 coordinator tool errors.
 * **Reference Assets Committed**:
-  - Research Specification: [docs/official-specs/custom-agents.md](docs/official-specs/custom-agents.md)
-  - Expanded Catalog: [harness/agents/planner.md](harness/agents/planner.md), [harness/agents/coordinator.md](harness/agents/coordinator.md)
-  - Registry, Context Scanner & Scaffolder: [harness/subagents.py](harness/subagents.py)
-  - CLI Subcommands: [harness/cli.py](harness/cli.py) (`agents create`, `agents validate`, `agents --sync`)
-  - Modular Skill: [harness/skills/agent-builder/SKILL.md](harness/skills/agent-builder/SKILL.md)
-  - Unit Test Suite: [tests/test_agent_scaffold.py](tests/test_agent_scaffold.py)
+  - Research Specification: [docs/official-specs/custom-agents.md](../../docs/official-specs/custom-agents.md)
+  - Expanded Catalog: [harness/agents/planner.md](../../harness/agents/planner.md), [harness/agents/coordinator.md](../../harness/agents/coordinator.md)
+  - Registry, Context Scanner & Scaffolder: [harness/subagents/](../../harness/subagents/)
+  - CLI Subcommands: [harness/cli.py](../../harness/cli.py) (`agents create`, `agents validate`, `agents --sync`)
+  - Modular Skill: [harness/skills/agent-builder/SKILL.md](../../harness/skills/agent-builder/SKILL.md)
+  - Unit Test Suite: [tests/test_agent_scaffold.py](../../tests/test_agent_scaffold.py)
 
 
 ---
@@ -250,12 +253,12 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - 7 specialist subagents cataloged and certified valid (`coordinator`, `custodian`, `harness_auditor`, `harness_builder`, `harness_reviewer`, `planner`, `psl_main`).
   - Working tree verified 100% clean on commit `8fb2bde`.
 * **Reference Assets Committed**:
-  - Plugin Installer & Coexistence Subsystem: [harness/delivery.py](harness/delivery.py)
-  - CLI Integration: [harness/cli.py](harness/cli.py) (`psl install`, `psl uninstall`)
-  - Custodian Archetype & Scaffolding: [harness/subagents.py](harness/subagents.py), [harness/agents/harness_custodian.md](harness/agents/harness_custodian.md), [.agents/agents/harness_custodian.md](.agents/agents/harness_custodian.md)
-  - PreToolUse Write-Block Guard: [harness/hooks/anti_drift_hook.py](harness/hooks/anti_drift_hook.py)
-  - 6-Stage Subagent Ladder Specification: [runtime/skills/subagent-ladder/SKILL.md](runtime/skills/subagent-ladder/SKILL.md)
-  - Test Suite: [tests/test_delivery.py](tests/test_delivery.py)
+  - Plugin Installer & Coexistence Subsystem: [harness/delivery/](../../harness/delivery/)
+  - CLI Integration: [harness/cli.py](../../harness/cli.py) (`psl install`, `psl uninstall`)
+  - Custodian Archetype & Scaffolding: [harness/subagents/](../../harness/subagents/), [harness/agents/harness_custodian.md](../../harness/agents/harness_custodian.md), [.agents/agents/harness_custodian.md](../../.agents/agents/harness_custodian.md)
+  - PreToolUse Write-Block Guard: [harness/hooks/anti_drift_hook.py](../../harness/hooks/anti_drift_hook.py)
+  - 6-Stage Subagent Ladder Specification: [harness/skills/subagent-ladder/SKILL.md](../../harness/skills/subagent-ladder/SKILL.md)
+  - Test Suite: [tests/test_delivery.py](../../tests/test_delivery.py)
 
 ---
 
@@ -268,16 +271,16 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
     - **Replication Hygiene & Anti-Echo Filter**: Upserts sessions via `ON CONFLICT DO UPDATE` while isolating `origin_developer != requesting_user` during pull replication to prevent echo loops.
     - **Client Zero-Dependency Transport**: `harness/telemetry/sync.py` uses strictly CPython standard library `urllib.request` (zero third-party imports). Mandatory client-side scrubbing (`redaction.py`) executes before JSON serialization.
     - **CLI Auth & Sync Suite**: `psl auth login|status|logout` (storing credentials in `~/.config/psl/credentials.json` with 0o600 permissions); `psl sync` default bi-directional sync with `--push`, `--pull`, `--interactive`, and legacy `--session-id` support.
-    - **CloudPanel Staging Architecture**: Bound to loopback `127.0.0.1:8000` for CloudPanel NGINX reverse-proxy routing on `bd.purrfectsoft.co.uk`.
+    - **CloudPanel Staging Architecture**: Bound to loopback `127.0.0.1:8000` for CloudPanel NGINX reverse-proxy routing on `<STAGING_HOST_REDACTED>`.
 * **Empirical Baselines Established & Verified**:
   - Full test suite expanded to **256 hermetic unit and integration tests passing in 1.289s**.
   - 100% test pass rate across independent standard unittest runner and harness runner.
   - Zero third-party dependencies in `harness/` asserted and certified.
 * **Reference Assets Committed**:
-  - Central Gateway: [server/app.py](server/app.py), [server/storage.py](server/storage.py), [server/auth.py](server/auth.py)
-  - Containerization & Ops: [server/Dockerfile](server/Dockerfile), [server/docker-compose.yml](server/docker-compose.yml), [server/deploy.sh](server/deploy.sh), [server/psl-telemetry-hub.service](server/psl-telemetry-hub.service)
-  - Client Sync Transport & CLI: [harness/telemetry/sync.py](harness/telemetry/sync.py), [harness/telemetry/config.py](harness/telemetry/config.py), [harness/cli.py](harness/cli.py)
-  - Hermetic Test Suites: [tests/test_server_api.py](tests/test_server_api.py), [tests/test_telemetry_sync.py](tests/test_telemetry_sync.py), [tests/test_cli.py](tests/test_cli.py)
+  - Central Gateway: [server/app.py](../../server/app.py), [server/storage.py](../../server/storage.py), [server/auth.py](../../server/auth.py)
+  - Containerization & Ops: [server/Dockerfile](../../server/Dockerfile), [server/docker-compose.yml](../../server/docker-compose.yml), [server/deploy.sh](../../server/deploy.sh), [server/psl-telemetry-hub.service](../../server/psl-telemetry-hub.service)
+  - Client Sync Transport & CLI: [harness/telemetry/sync/](../../harness/telemetry/sync/), [harness/telemetry/config.py](../../harness/telemetry/config.py), [harness/cli.py](../../harness/cli.py)
+  - Hermetic Test Suites: [tests/test_server_api.py](../../tests/test_server_api.py), [tests/test_telemetry_sync.py](../../tests/test_telemetry_sync.py), [tests/test_cli.py](../../tests/test_cli.py)
 
 ---
 
@@ -295,12 +298,12 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - 7/7 specialist subagent specifications validated and certified compliant.
   - Clean-room verification passed with zero regressions.
 * **Reference Assets Committed**:
-  - Research Specification: [docs/official-specs/antigravity-boost-and-plan.md](docs/official-specs/antigravity-boost-and-plan.md)
-  - Formal Decision Record: [docs/adr/ADR-031-native-orchestration-alignment.md](docs/adr/ADR-031-native-orchestration-alignment.md)
-  - PreToolUse Plan-Mode Lock: [harness/hooks/anti_drift_hook.py](harness/hooks/anti_drift_hook.py)
-  - Subagent Registry & Capability Bundles: [harness/subagents.py](harness/subagents.py)
-  - Telemetry Ingestion Classifier: [pipeline/extract_transcripts.py](pipeline/extract_transcripts.py)
-  - Test Suites: [tests/test_anti_drift.py](tests/test_anti_drift.py), [tests/test_agent_scaffold.py](tests/test_agent_scaffold.py)
+  - Research Specification: [docs/official-specs/antigravity-boost-and-plan.md](../../docs/official-specs/antigravity-boost-and-plan.md)
+  - Formal Decision Record: [docs/adr/ADR-031-native-orchestration-alignment.md](../../docs/adr/ADR-031-native-orchestration-alignment.md)
+  - PreToolUse Plan-Mode Lock: [harness/hooks/anti_drift_hook.py](../../harness/hooks/anti_drift_hook.py)
+  - Subagent Registry & Capability Bundles: [harness/subagents/](../../harness/subagents/)
+  - Telemetry Ingestion Classifier: [pipeline/extract_transcripts.py](../../pipeline/extract_transcripts.py)
+  - Test Suites: [tests/test_anti_drift.py](../../tests/test_anti_drift.py), [tests/test_agent_scaffold.py](../../tests/test_agent_scaffold.py)
 
 
 ---
@@ -319,11 +322,11 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Toolchain doctor verified 100% operational (9 OK, 1 pyenv shim warning, 0 missing).
   - Clean working tree verified on commit `23fe402`.
 * **Reference Assets Committed**:
-  - Configuration & Path Subsystem: [harness/telemetry/config.py](harness/telemetry/config.py)
-  - Chunked Sync Transport: [harness/telemetry/sync.py](harness/telemetry/sync.py)
-  - Global Plugin & Executable Delivery: [harness/delivery.py](harness/delivery.py)
-  - CLI Integration: [harness/cli.py](harness/cli.py)
-  - Test Suites: [tests/test_telemetry_sync.py](tests/test_telemetry_sync.py), [tests/test_delivery.py](tests/test_delivery.py), [tests/test_cli.py](tests/test_cli.py)
+  - Configuration & Path Subsystem: [harness/telemetry/config.py](../../harness/telemetry/config.py)
+  - Chunked Sync Transport: [harness/telemetry/sync/](../../harness/telemetry/sync/)
+  - Global Plugin & Executable Delivery: [harness/delivery/](../../harness/delivery/)
+  - CLI Integration: [harness/cli.py](../../harness/cli.py)
+  - Test Suites: [tests/test_telemetry_sync.py](../../tests/test_telemetry_sync.py), [tests/test_delivery.py](../../tests/test_delivery.py), [tests/test_cli.py](../../tests/test_cli.py)
 
 ---
 
@@ -335,14 +338,14 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
     - `db-ops`: Standardized non-interactive `psql`/`sqlite3` CLI invocations, connection pool saturation diagnostics, table lock triage, WAL checkpointing, and Docker container database inspection.
     - `mesh-ops`: Knot hardware mesh coordination, dynamic topology discovery, Tailscale and WireGuard ping probes, SSH multiplexing (ControlMaster), zero-disk stdin script streaming, and cross-strand sync.
     - `git-worktree-ops`: Multi-branch isolated worktrees, safe creation/removal/pruning, stash hygiene, and `index.lock` recovery.
-  - **Central Telemetry Hub Multi-Developer Synchronization**: Resolved anti-echo blocking, deployed live server gateway (`bd.purrfectsoft.co.uk`), pulled 125 historical sessions (35,767 steps), and successfully pushed all 162 unsynced workstation sessions (27,543 steps, 12,812 tools) to central hub. 100% of dataset is now synchronized.
+  - **Central Telemetry Hub Multi-Developer Synchronization**: Resolved anti-echo blocking, deployed live server gateway, pulled 125 historical sessions (35,767 steps), and successfully pushed all 162 unsynced workstation sessions (27,543 steps, 12,812 tools) to central hub. 100% of dataset is now synchronized.
   - **Cross-Model Failure Mining**: Mined 722 sessions (>219k steps, >100k tool calls) across 11 model tiers (`data/model_failure_clusters.json`, `docs/taxonomy/model-failure-clusters-report.md`). Added `psl audit clusters` CLI stage.
 * **Verified Baseline Metrics**:
-  - Full test suite expanded to **384 hermetic unit and integration tests passing in 1.354s** (<2.0s benchmark invariant strictly maintained).
+  - Full test suite expanded to **401 hermetic unit and integration tests passing in <1.0s** (0.963s actual, 100% pass rate).
   - 100% bitwise parity verified between `harness/skills/` and `.agents/skills/`, and between `harness/rules/AGENTS.md` and `.agents/rules/AGENTS.md`.
 * **Reference Assets Committed**:
-  - New Skills: [harness/skills/db-ops/SKILL.md](harness/skills/db-ops/SKILL.md), [harness/skills/mesh-ops/SKILL.md](harness/skills/mesh-ops/SKILL.md), [harness/skills/git-worktree-ops/SKILL.md](harness/skills/git-worktree-ops/SKILL.md)
-  - Failure Mining Pipeline: [pipeline/analyze_failure_clusters.py](pipeline/analyze_failure_clusters.py)
-  - Research Taxonomy: [docs/taxonomy/model-failure-clusters-report.md](docs/taxonomy/model-failure-clusters-report.md)
-  - Hook Hardening: [harness/hooks/anti_loop_hook.py](harness/hooks/anti_loop_hook.py)
+  - New Skills: [harness/skills/db-ops/SKILL.md](../../harness/skills/db-ops/SKILL.md), [harness/skills/mesh-ops/SKILL.md](../../harness/skills/mesh-ops/SKILL.md), [harness/skills/git-worktree-ops/SKILL.md](../../harness/skills/git-worktree-ops/SKILL.md)
+  - Failure Mining Pipeline: [pipeline/analyze_failure_clusters.py](../../pipeline/analyze_failure_clusters.py)
+  - Research Taxonomy: [model-failure-clusters-report.md](model-failure-clusters-report.md)
+  - Hook Hardening: [harness/hooks/anti_loop_hook.py](../../harness/hooks/anti_loop_hook.py)
 

@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # Comprehensive Technical Specification: Antigravity Native Orchestration Primitives (/boost & /plan) & PSL Harness Alignment
 
 ## Executive Summary

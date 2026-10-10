@@ -1,7 +1,10 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+
 # 📊 Empirical Tool & Command Character Volume Distribution Report
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
-**Generated At**: 2026-10-10T12:51:05.211833Z  
+**Generated At**: 2026-10-10T19:30:29.361711+00:00  
 **Data Source**: Workstation telemetry database (`data/telemetry.db`) across all ingested developer sessions  
 
 ---
