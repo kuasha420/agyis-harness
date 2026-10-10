@@ -35,6 +35,13 @@ python3 -m harness.cli audit inventory         # Catalog plugins, skills, hooks 
 python3 -m harness.cli skills                  # List installed modular skills & triggers
 python3 -m harness.cli agents                  # List registered specialist subagents & tools
 
+# 🛠️ Workstation & Remote Modular Skills
+# storage-ops:    Bounded disk triage (`du -h -d 1`), pacman cache (`paccache -r`), journalctl vacuum, Docker prune, Btrfs, ntfs3
+# audio-ops:      PipeWire/WirePlumber user diagnostics (`wpctl status`), sink recovery, bluetoothctl, loudnorm, VLC split-package
+# display-ops:    Wayland probe (`kscreen-doctor -o`), portal restart (no -9), Electron Ozone/PipeWire flags, Sunshine KMS capture
+# sec-forensics:  Ephemeral RO triage (`docker run --rm -v /:/host:ro`), cloud key revocation, remote script streaming, PDF
+# media-ops:      yt-dlp stream acquisition ladder (`--impersonate chrome`), ffmpeg flips/rotations, hardware acceleration probe
+
 # 🌐 Remote Operations & Cloud/Mesh Triage (ADR-027)
 python3 -m harness.cli remote exec <target> "<cmd>"    # Multiplexed SSH with login-shell promotion
 python3 -m harness.cli remote script <target> <file>   # Stdin script streaming (zero disk footprint)

@@ -185,6 +185,68 @@ class TestModularSkills(unittest.TestCase):
                         f"Expected keyword '{kw}' in '{runner_name}' body",
                     )
 
+    def test_workstation_and_remote_modular_skills_contracts(self) -> None:
+        """Workstation and remote modular skills must satisfy discovery, frontmatter, and empirical runbook contracts."""
+        expected_skills = {
+            "storage-ops": (
+                "Bounded-Depth Disk Triage",
+                "du -h",
+                "pacman",
+                "journalctl",
+                "docker",
+                "btrfs",
+                "timeshift",
+                "ntfs3",
+            ),
+            "audio-ops": (
+                "wpctl",
+                "pipewire",
+                "wireplumber",
+                "bluetoothctl",
+                "loudnorm",
+                "ffmpeg",
+                "vlc",
+            ),
+            "display-ops": (
+                "kscreen-doctor",
+                "xdg-desktop-portal",
+                "Wayland",
+                "PipeWire",
+                "ozone",
+                "sunshine",
+                "cap_sys_admin",
+            ),
+            "sec-forensics": (
+                "docker run --rm",
+                "host:ro",
+                "gcloud iam service-accounts keys delete",
+                "remote script",
+                "pdf",
+            ),
+            "media-ops": (
+                "yt-dlp",
+                "ffmpeg",
+                "vflip",
+                "hflip",
+            ),
+        }
+        for skill_name, keywords in expected_skills.items():
+            with self.subTest(skill=skill_name):
+                spec = get_skill(skill_name)
+                self.assertIsNotNone(spec, f"Modular skill '{skill_name}' not found")
+                self.assertEqual(spec.name, skill_name)
+                self.assertGreater(
+                    len(spec.description),
+                    30,
+                    f"Skill '{skill_name}' description is suspiciously short",
+                )
+                for kw in keywords:
+                    self.assertIn(
+                        kw.lower(),
+                        spec.body.lower(),
+                        f"Expected keyword '{kw}' in '{skill_name}' body",
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()
