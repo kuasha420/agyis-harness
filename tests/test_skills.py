@@ -217,8 +217,7 @@ class TestModularSkills(unittest.TestCase):
                 "cap_sys_admin",
             ),
             "sec-forensics": (
-                "docker run --rm",
-                "host:ro",
+                "docker run --rm -v /:/host:ro",
                 "gcloud iam service-accounts keys delete",
                 "remote script",
                 "pdf",

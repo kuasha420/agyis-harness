@@ -17,7 +17,7 @@ This skill establishes empirical, tool-native runbooks for emergency security co
 ## 1. Ephemeral Read-Only Container Triage (`docker run --rm -v /:/host:ro`)
 
 ### Invariant: Non-Invasive Read-Only Host Mount
-When investigating a potentially compromised host or suspicious binaries, never execute unverified tools directly on the host or mount host root read-write (`:rw`). Always mount root as read-only (`/:host:ro`) inside an ephemeral container (`--rm`) with network isolation (`--network none`) to prevent lateral movement, persistence alteration, or tampering with file timestamps (`atime`/`mtime`).
+When investigating a potentially compromised host or suspicious binaries, never execute unverified tools directly on the host or mount host root read-write (`:rw`). Always mount root as read-only (`/:/host:ro`) inside an ephemeral container (`--rm`) with network isolation (`--network none`) to prevent lateral movement, persistence alteration, or tampering with file timestamps (`atime`/`mtime`).
 
 ### Step 1.1: Launch Ephemeral Read-Only Analysis Shell
 ```bash
@@ -121,9 +121,14 @@ Draft findings following the standard security incident format:
 ### Step 4.2: Compile Markdown to PDF
 Generate an official PDF forensic report using headless rendering tools:
 
-#### Option A: Typst / Pandoc
+#### Option A: Typst / Pandoc (Direct MD to PDF)
 ```bash
 pandoc forensics_report.md -o forensics_report.pdf --pdf-engine=typst
+```
+
+#### Intermediate HTML Generation (for HTML/CSS-based engines)
+```bash
+pandoc forensics_report.md -s --toc -o forensics_report.html
 ```
 
 #### Option B: Weasyprint (HTML/CSS to PDF)

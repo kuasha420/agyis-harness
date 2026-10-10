@@ -68,10 +68,10 @@ systemctl --user restart xdg-desktop-portal-wlr xdg-desktop-portal
 ### Step 2.3: Graceful Fallback Termination (`SIGTERM` Only)
 If systemd user manager is unavailable or non-responsive, terminate with `SIGTERM` and allow D-Bus auto-activation to respawn:
 ```bash
-killall -TERM xdg-desktop-portal-kde xdg-desktop-portal 2>/dev/null || true
+killall -TERM xdg-desktop-portal-kde xdg-desktop-portal 2>/dev/null || [ $? -eq 1 ]
 sleep 1
 # Trigger D-Bus activation
-busctl --user introspect org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop >/dev/null 2>&1 || true
+busctl --user introspect org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop >/dev/null 2>&1 || [ $? -eq 1 ]
 ```
 
 ---
@@ -98,7 +98,7 @@ For strict Wayland execution:
 ### Step 3.2: Verifying Portal Screen Capture Stream
 When screen sharing starts, verify that the application has successfully negotiated a PipeWire video node:
 ```bash
-wpctl status | grep -i portal
+wpctl status | grep -i portal || [ $? -eq 1 ]
 pw-top -b -n 1
 ```
 
@@ -111,7 +111,7 @@ Sunshine provides high-performance self-hosted game and desktop streaming. On Wa
 ### Step 4.1: Grant KMS Capture Capabilities (`cap_sys_admin`)
 To allow Sunshine to capture Wayland displays directly without running as root, set the `cap_sys_admin` capability on the executable:
 ```bash
-sudo setcap cap_sys_admin+ep $(which sunshine)
+sudo setcap cap_sys_admin+ep $(command -v sunshine)
 ```
 
 ### Step 4.2: User DRM / Video Group Membership

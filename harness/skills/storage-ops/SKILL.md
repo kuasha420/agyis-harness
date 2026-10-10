@@ -66,8 +66,13 @@ Inspect and remove orphaned packages (dependencies no longer required):
 # List orphaned packages
 pacman -Qtdq
 
-# Remove orphaned packages with cascade dependencies (run only after verifying list)
-pacman -Qtdq | sudo pacman -Rns -
+# Remove orphaned packages with cascade dependencies (guarded against empty target list)
+orphans=$(pacman -Qtdq)
+if [ -n "$orphans" ]; then
+    sudo pacman -Rns $orphans
+else
+    echo "No orphan packages found."
+fi
 ```
 
 ---
@@ -172,7 +177,7 @@ Modern Linux kernels (5.15+) include the high-performance in-kernel `ntfs3` driv
 ### Step 6.1: Identify Partition & UUID
 ```bash
 lsblk -f
-blkid | grep -i ntfs
+blkid | grep -i ntfs || [ $? -eq 1 ]
 ```
 
 ### Step 6.2: Mount with Modern `ntfs3`
