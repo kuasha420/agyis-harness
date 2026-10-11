@@ -49,6 +49,33 @@ From our automated audit of **722 developer sessions** (`data/telemetry.db`):
 | **The Context Cliff** | 5.2x error spike | Sessions exceeding 100k tokens suffer rapid error escalation. |
 | **Context Bloat Elimination** | **21.3% token reduction** | Capping non-error outputs at 2KB saves >10M tokens. |
 
+## 🚀 Quickstart: Installation
+
+### Option 1: Source / Developer Install (Recommended)
+```bash
+git clone https://github.com/kuasha420/psl-agy-harness.git
+cd psl-agy-harness
+
+# Install plugin into Antigravity surfaces and register 'psl' in ~/.local/bin
+./psl install --all-surfaces
+
+# Verify workstation health, active hooks & runtimes
+psl doctor
+psl status
+```
+
+### Option 2: UV Tool / Pip Install (Zero-clone)
+```bash
+# Install the CLI executable
+uv tool install git+https://github.com/kuasha420/psl-agy-harness.git
+
+# Connect Antigravity plugin surfaces
+psl install --copy --all-surfaces
+
+# Verify
+psl doctor
+```
+
 ---
 
 ## 🏛️ Verified POC Components
