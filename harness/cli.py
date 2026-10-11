@@ -105,9 +105,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_audit.add_argument("--quiet", action="store_true", help="Suppress verbose stdout in pipeline stages")
 
     # skills
-    p_skills = subparsers.add_parser("skills", help="List and inspect modular product skills")
-    p_skills.add_argument("name", nargs="?", default=None, help="Name of specific skill to view")
+    p_skills = subparsers.add_parser("skills", help="List, inspect, and synchronize modular product skills")
+    p_skills.add_argument("name", nargs="?", default=None, help="Name of specific skill to view or sync")
     p_skills.add_argument("--sync", action="store_true", help="Sync skills to .agents/skills")
+    p_skills.add_argument("--group", "-g", type=str, default=None, help="Sync skills by group preset (stack, testing, runners, ops, workstation, workflow, ladder)")
+    p_skills.add_argument("--stack", "-s", type=str, default=None, help="Sync skills tailored for stack preset (python, typescript, rust, go, systems, shell, auto)")
+    p_skills.add_argument("--skills", type=str, default=None, help="Comma-separated skill names to sync")
+    p_skills.add_argument("--override", action="store_true", help="Force overwrite existing skill files")
     p_skills.add_argument("--json", action="store_true", help="Output skills in JSON format")
 
     # agents

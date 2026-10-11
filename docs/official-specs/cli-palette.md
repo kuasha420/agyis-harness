@@ -88,11 +88,15 @@ psl [-h] [-v]
 * **Key Flags**: `--db <path>`, `--conv-dir <path>`, `--backfill`, `-s|--session-id <id>`, `--save-db`, `--out <path>`, `--json`, `--output-json <path>`, `--output-report <path>`, `--quiet`.
 
 ### 5. `skills`
-* **Syntax**: `psl skills [name] [--sync] [--json]`
-* **Purpose**: Discovers, inspects, and synchronizes modular product skills.
-* **Flags**:
-  - `name`: Specific skill identifier to inspect (e.g. `psl-stack-python`, `media-ops`, `subagent-ladder`).
-  - `--sync`: Synchronizes all 23 skills from `harness/skills/` to local workspace `.agents/skills/`.
+* **Syntax**: `psl skills [name] [--sync] [-g|--group <grp>] [-s|--stack <stk>] [--skills <list>] [--override] [--json]`
+* **Purpose**: Discovers, inspects, and synchronizes modular product skills globally or tailored to a project workspace.
+* **Flags & Options**:
+  - `name`: Specific skill identifier to inspect or synchronize (e.g. `psl-stack-python`, `media-ops`, `subagent-ladder`).
+  - `--sync`: Synchronizes skills from `harness/skills/` to target workspace `.agents/skills/`.
+  - `-s`, `--stack <stk>`: Tailors deployment to a specific stack preset (`python`, `typescript`, `rust`, `go`, `systems`, `shell`, `backend`, `auto`). `--stack auto` detects stack from repository manifests (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`).
+  - `-g`, `--group <grp>`: Syncs a functional group preset (`stack`, `testing` / `runners`, `ops` / `workstation`, `workflow` / `ladder`).
+  - `--skills <list>`: Comma-separated list of specific skill names to synchronize.
+  - `--override`: Overwrites existing local skill files even if identical.
   - `--json`: Emits complete skill catalog and metadata in JSON format.
 
 ### 6. `agents`

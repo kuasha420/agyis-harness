@@ -11,6 +11,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from typing import List
 
 
 def cmd_skills(args: argparse.Namespace) -> int:
@@ -21,8 +22,40 @@ def cmd_skills(args: argparse.Namespace) -> int:
     if getattr(args, "sync", False):
         target_dir = getattr(args, "target_dir", None)
         dest = Path(target_dir) if target_dir else find_workspace_root() / ".agents" / "skills"
-        synced = sync_skills(target_dir=dest)
-        print(f"✔ Synchronized {len(synced)} skills to {dest}:")
+
+        names: List[str] = []
+        name_arg = getattr(args, "name", None)
+        if name_arg:
+            names.append(name_arg)
+        skills_arg = getattr(args, "skills", None)
+        if skills_arg:
+            names.extend([s.strip() for s in skills_arg.split(",") if s.strip()])
+
+        group_arg = getattr(args, "group", None)
+        stack_arg = getattr(args, "stack", None)
+        override_arg = getattr(args, "override", False)
+
+        try:
+            synced = sync_skills(
+                target_dir=dest,
+                skill_names=names or None,
+                group=group_arg,
+                stack=stack_arg,
+                override=override_arg,
+            )
+        except ValueError as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            return 1
+
+        label = "all"
+        if names:
+            label = f"skills={','.join(names)}"
+        elif group_arg:
+            label = f"group={group_arg}"
+        elif stack_arg:
+            label = f"stack={stack_arg}"
+
+        print(f"✔ Synchronized {len(synced)} skill(s) ({label}) to {dest}:")
         for p in synced:
             print(f"  • {p.parent.name} -> {p}")
         return 0

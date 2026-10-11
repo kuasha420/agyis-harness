@@ -87,11 +87,24 @@ psl doctor
 When working inside a specific software repository, you can initialize, configure, and isolate project-tailored skills, specialist agents, rules, and runtimes without dirtying global settings or external workspaces.
 
 #### Step 1: Synchronize Modular Skills into the Project
-From inside any project repository:
+From inside any project repository, you can synchronize all skills or selectively deploy only the skills required for your technology stack or workflow:
 ```bash
 cd /path/to/my-project
 
-# Synchronize all modular stack, runner, and ops skills into <my-project>/.agents/skills/
+# 1. Sync tailored to your tech stack (auto-detects package.json, pyproject.toml, Cargo.toml, go.mod)
+psl skills --sync --stack auto
+
+# 2. Or sync by explicit stack preset (python, typescript, rust, go, systems, shell, backend)
+psl skills --sync --stack python
+
+# 3. Or sync by functional group preset (stack, testing/runners, ops/workstation, workflow/ladder)
+psl skills --sync --group ops
+
+# 4. Or sync specific skills by name
+psl skills psl-stack-python --sync
+psl skills --sync --skills "psl-stack-shell, audio-ops, git-worktree-ops"
+
+# 5. Or sync all 23 modular skills
 psl skills --sync
 ```
 *Tip: You can also author custom project-specific skills by placing a `SKILL.md` directly into `.agents/skills/<skill-name>/SKILL.md`.*

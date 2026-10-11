@@ -369,6 +369,39 @@ class TestModularSkills(unittest.TestCase):
         self.assertTrue(synced_beta.exists())
         self.assertIn("Alpha modular capability", synced_alpha.read_text(encoding="utf-8"))
 
+    def test_selective_skills_sync_by_name_group_stack(self) -> None:
+        """Assert selective synchronization by skill_names, group presets, stack presets, and auto-stack."""
+        # 1. Sync by explicit skill names
+        target_name = self.isolated_path / "sync_name"
+        synced_name = sync_skills(target_dir=target_name, skill_names=["psl-stack-python", "storage-ops"])
+        self.assertEqual(len(synced_name), 2)
+        self.assertTrue((target_name / "psl-stack-python" / "SKILL.md").exists())
+        self.assertTrue((target_name / "storage-ops" / "SKILL.md").exists())
+        self.assertFalse((target_name / "audio-ops").exists())
+
+        # 2. Sync by group preset (ops)
+        target_group = self.isolated_path / "sync_group"
+        synced_group = sync_skills(target_dir=target_group, group="ops")
+        self.assertGreaterEqual(len(synced_group), 8)
+        self.assertTrue((target_group / "storage-ops" / "SKILL.md").exists())
+        self.assertTrue((target_group / "mesh-ops" / "SKILL.md").exists())
+        self.assertFalse((target_group / "psl-stack-python").exists())
+
+        # 3. Sync by stack preset (python)
+        target_stack = self.isolated_path / "sync_stack"
+        synced_stack = sync_skills(target_dir=target_stack, stack="python")
+        self.assertEqual(len(synced_stack), 3)
+        self.assertTrue((target_stack / "psl-stack-python" / "SKILL.md").exists())
+        self.assertTrue((target_stack / "psl-test-python" / "SKILL.md").exists())
+        self.assertTrue((target_stack / "psl-stack-backend" / "SKILL.md").exists())
+        self.assertFalse((target_stack / "psl-stack-typescript").exists())
+
+        # 4. Unknown group or stack raises ValueError
+        with self.assertRaises(ValueError):
+            sync_skills(target_dir=self.isolated_path / "err", group="unknown-group-xyz")
+        with self.assertRaises(ValueError):
+            sync_skills(target_dir=self.isolated_path / "err", stack="unknown-stack-xyz")
+
 
 if __name__ == "__main__":
     unittest.main()
