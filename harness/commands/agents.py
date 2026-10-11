@@ -15,7 +15,6 @@ from typing import Optional
 
 from harness.subagents import (
     DEFAULT_AGENTS_DIR,
-    REPO_ROOT,
     AgentArchetype,
     CAPABILITY_BUNDLES,
     get_agent_spec,
@@ -30,10 +29,9 @@ from harness.subagents import (
 def _get_repo_root() -> Path:
     from harness.delivery.surfaces import find_workspace_root
     import harness.cli
-    import harness.subagents
-    override = getattr(harness.cli, "REPO_ROOT", None) or getattr(harness.subagents, "REPO_ROOT", None)
-    if override:
-        return Path(override)
+    test_override = getattr(harness.cli, "_TEST_WORKSPACE_ROOT", None)
+    if test_override:
+        return Path(test_override)
     return find_workspace_root()
 
 

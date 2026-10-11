@@ -43,6 +43,7 @@ from harness.commands import (
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MATRIX = Path(__file__).resolve().parent / "runtime" / "matrix.json"
 DEFAULT_DB = REPO_ROOT / "data" / "telemetry.db"
+_TEST_WORKSPACE_ROOT: Optional[Path] = None
 
 
 def build_parser() -> argparse.ArgumentParser:

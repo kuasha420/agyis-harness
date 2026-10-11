@@ -605,6 +605,33 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertTrue(res4.success)
         self.assertTrue((ws_dir / ".agents" / "agents" / "harness_builder.md").is_file())
 
+    def test_workspace_rust_and_go_stack_instantiation(self) -> None:
+        """Rust (Cargo.toml) and Go (go.mod) workspaces install respective stack and test runner skills."""
+        # Rust workspace
+        ws_rust = self.isolated_base / "workspace_rust"
+        ws_rust.mkdir(parents=True)
+        (ws_rust / "Cargo.toml").write_text("[package]\nname = 'rust-crate'\n", encoding="utf-8")
+
+        res_rust = install_workspace(ws_rust, source_dir=REPO_ROOT)
+        self.assertTrue(res_rust.success)
+        self.assertEqual(res_rust.stack, "rust")
+        self.assertIn("psl-test-cargo", res_rust.skills_installed)
+        self.assertIn("psl-stack-systems", res_rust.skills_installed)
+        self.assertIn("psl-stack-shell", res_rust.skills_installed)
+        self.assertTrue((ws_rust / ".agents" / "skills" / "psl-test-cargo" / "SKILL.md").is_file())
+
+        # Go workspace
+        ws_go = self.isolated_base / "workspace_go"
+        ws_go.mkdir(parents=True)
+        (ws_go / "go.mod").write_text("module example.com/gomod\n\ngo 1.22\n", encoding="utf-8")
+
+        res_go = install_workspace(ws_go, source_dir=REPO_ROOT)
+        self.assertTrue(res_go.success)
+        self.assertEqual(res_go.stack, "go")
+        self.assertIn("psl-test-go", res_go.skills_installed)
+        self.assertIn("psl-stack-backend", res_go.skills_installed)
+        self.assertTrue((ws_go / ".agents" / "skills" / "psl-test-go" / "SKILL.md").is_file())
+
     def test_legacy_setup_detection_notice(self) -> None:
         """Legacy .agent/ directory triggers actionable notice recommending /psl-harmonize."""
         ws_dir = self.isolated_base / "legacy_ws"

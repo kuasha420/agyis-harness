@@ -396,11 +396,54 @@ class TestModularSkills(unittest.TestCase):
         self.assertTrue((target_stack / "psl-stack-backend" / "SKILL.md").exists())
         self.assertFalse((target_stack / "psl-stack-typescript").exists())
 
-        # 4. Unknown group or stack raises ValueError
+        # 4. Sync by auto stack detection in workspace with pyproject.toml
+        auto_ws = self.isolated_path / "auto_workspace"
+        auto_ws.mkdir(parents=True, exist_ok=True)
+        (auto_ws / "pyproject.toml").write_text("[project]\nname = 'auto-app'\n", encoding="utf-8")
+        dest_dir = auto_ws / ".agents" / "skills"
+        synced_auto = sync_skills(target_dir=dest_dir, stack="auto")
+        self.assertEqual(len(synced_auto), 3)
+        self.assertTrue((dest_dir / "psl-stack-python" / "SKILL.md").exists())
+        self.assertTrue((dest_dir / "psl-test-python" / "SKILL.md").exists())
+        self.assertTrue((dest_dir / "psl-stack-backend" / "SKILL.md").exists())
+        self.assertFalse((dest_dir / "psl-stack-typescript").exists())
+
+        # 5. Unknown group or stack raises ValueError
         with self.assertRaises(ValueError):
             sync_skills(target_dir=self.isolated_path / "err", group="unknown-group-xyz")
         with self.assertRaises(ValueError):
             sync_skills(target_dir=self.isolated_path / "err", stack="unknown-stack-xyz")
+
+    def test_sync_skills_preserves_local_modifications_when_override_false(self) -> None:
+        """Locally modified skill files are NOT overwritten when override=False."""
+        src_skills_dir = self.isolated_path / "override_src"
+        src_skills_dir.mkdir(parents=True, exist_ok=True)
+        skill_dir = src_skills_dir / "test-skill"
+        skill_dir.mkdir()
+        src_file = skill_dir / "SKILL.md"
+        src_file.write_text(
+            "---\nname: test-skill\ndescription: Source description\n---\nSource instructions",
+            encoding="utf-8",
+        )
+
+        target_dir = self.isolated_path / "override_dst"
+        dest_file = target_dir / "test-skill" / "SKILL.md"
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        local_content = "---\nname: test-skill\ndescription: Local modified\n---\nLocally edited instructions"
+        dest_file.write_text(local_content, encoding="utf-8")
+
+        # Sync with override=False (default) should preserve local content
+        synced = sync_skills(target_dir=target_dir, source_dir=src_skills_dir, override=False)
+        self.assertEqual(dest_file.read_text(encoding="utf-8"), local_content)
+        self.assertNotIn(dest_file, synced)
+
+        # Sync with override=True should overwrite local content
+        synced_override = sync_skills(target_dir=target_dir, source_dir=src_skills_dir, override=True)
+        self.assertEqual(
+            dest_file.read_text(encoding="utf-8"),
+            "---\nname: test-skill\ndescription: Source description\n---\nSource instructions",
+        )
+        self.assertIn(dest_file, synced_override)
 
 
 if __name__ == "__main__":

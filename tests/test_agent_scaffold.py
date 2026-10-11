@@ -507,7 +507,7 @@ You are `careless_agent`. Explore the whole repository freely!
         agent_name = "test_cli_agent_scaffold"
         created_file = self.workspace / ".agents" / "agents" / f"{agent_name}.md"
 
-        with patch("harness.cli.REPO_ROOT", self.workspace), \
+        with patch("harness.cli._TEST_WORKSPACE_ROOT", self.workspace), \
              patch("harness.subagents.REPO_ROOT", self.workspace):
             try:
                 # 1. Create agent via CLI

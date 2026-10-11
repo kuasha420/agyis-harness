@@ -255,11 +255,25 @@ def sync_skills(
     dst = target_dir or DEFAULT_TARGET_DIR
     dst.mkdir(parents=True, exist_ok=True)
 
+    ws_root = (
+        dst.parent.parent
+        if dst.parent.name == ".agents"
+        else (
+            dst.parent
+            if (
+                (dst.parent / "pyproject.toml").is_file()
+                or (dst.parent / "package.json").is_file()
+                or (dst.parent / "Cargo.toml").is_file()
+                or (dst.parent / "go.mod").is_file()
+            )
+            else None
+        )
+    )
     filter_names = resolve_skills_to_sync(
         skill_names=skill_names,
         group=group,
         stack=stack,
-        workspace_root=dst.parent.parent if dst.parent.name == ".agents" else None,
+        workspace_root=ws_root,
     )
     norm_filter = (
         {s.strip().lower().replace("_", "-") for s in filter_names}
@@ -285,7 +299,7 @@ def sync_skills(
             is_identical = dest_file.read_bytes() == spec.path.read_bytes()
             if dedup and is_identical:
                 synced.append(dest_file)
-                continue
+            continue
 
         dest_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(spec.path, dest_file)

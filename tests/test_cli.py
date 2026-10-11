@@ -105,6 +105,27 @@ class TestPslCli(unittest.TestCase):
             self.assertIsInstance(data, list)
             self.assertEqual(len(data), 7)
 
+    def test_cli_agents_workspace_root_override(self):
+        """Verifies `_get_repo_root()` and `psl agents` respect _TEST_WORKSPACE_ROOT."""
+        import harness.cli
+        from harness.commands.agents import _get_repo_root
+
+        custom_root = Path(self.temp_dir.name) / "custom_ws"
+        custom_root.mkdir(parents=True)
+
+        with patch.object(harness.cli, "_TEST_WORKSPACE_ROOT", custom_root):
+            self.assertEqual(_get_repo_root(), custom_root)
+
+            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                code = main(["agents", "--sync"])
+                self.assertEqual(code, 0)
+                out = mock_out.getvalue()
+                self.assertIn(str(custom_root / ".agents" / "agents"), out)
+                self.assertTrue((custom_root / ".agents" / "agents" / "harness_builder.md").exists())
+
+        self.assertNotEqual(_get_repo_root(), custom_root)
+        self.assertIsNone(harness.cli._TEST_WORKSPACE_ROOT)
+
     def test_cli_hook_dispatch_safety(self):
         """Verifies `psl hook safety` dispatches to command_safety_hook."""
         payload = {

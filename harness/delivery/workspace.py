@@ -17,7 +17,6 @@ from typing import Any, Dict, List, Optional
 from harness.delivery.constants import REPO_ROOT
 from harness.delivery.surfaces import find_workspace_root
 from harness.skills import (
-    GROUP_PRESETS,
     STACK_PRESETS,
     detect_workspace_stack,
 )
@@ -25,22 +24,9 @@ from harness.skills import (
 TAG_START = "<!-- Added by PSL-HARNESS -->"
 TAG_END = "<!-- End PSL-HARNESS -->"
 
-GLOBAL_CORE_SKILLS: frozenset[str] = frozenset({
-    "agent-builder",
-    "code-review",
-    "milestone-handoff",
-    "remote-ops",
-    "psl-harmonize",
-})
-
 STACK_SKILL_PRESETS: Dict[str, List[str]] = {
-    "typescript": ["psl-stack-typescript", "psl-stack-backend"],
-    "javascript": ["psl-stack-typescript", "psl-stack-backend"],
-    "python": ["psl-stack-python", "psl-stack-backend"],
-    "systems": ["psl-stack-systems", "psl-stack-shell"],
-    "shell": ["psl-stack-shell"],
+    **STACK_PRESETS,
     "audit": ["psl-audit-toolkit"],
-    "backend": ["psl-stack-backend"],
     "all": [
         "psl-stack-typescript",
         "psl-stack-python",
