@@ -38,6 +38,7 @@ from harness.delivery import (
     PluginInstaller,
     configure_git_exclude,
     find_workspace_root,
+    install_workspace,
     sync_surfaces,
 )
 
@@ -533,6 +534,143 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertFalse((surf / "agents").is_symlink())
         # Canonical config remains intact
         self.assertTrue((fake_cfg / "agents").is_dir())
+
+    def test_tagged_rules_insertion_and_idempotence(self) -> None:
+        """Workspace AGENTS.md preserves domain rules and manages tagged block idempotently."""
+        ws_dir = self.isolated_base / "workspace_jasper"
+        ws_dir.mkdir(parents=True)
+        rules_file = ws_dir / "AGENTS.md"
+
+        # Pre-existing project rules
+        initial_rules = (
+            "# Jasper Project Rules\n\n"
+            "- Wait 10 minutes before merging PRs to allow CI fences to settle.\n"
+            "- Always target staging branch.\n"
+        )
+        rules_file.write_text(initial_rules, encoding="utf-8")
+
+        # 1. Initial install_workspace
+        res1 = install_workspace(ws_dir, source_dir=REPO_ROOT)
+        self.assertTrue(res1.success)
+        self.assertTrue(res1.rules_updated)
+
+        updated_content = rules_file.read_text(encoding="utf-8")
+        self.assertIn("- Wait 10 minutes before merging PRs", updated_content)
+        self.assertIn("- Always target staging branch.", updated_content)
+        self.assertIn("<!-- Added by PSL-HARNESS -->", updated_content)
+        self.assertIn("<!-- End PSL-HARNESS -->", updated_content)
+
+        # 2. Idempotent re-run
+        res2 = install_workspace(ws_dir, source_dir=REPO_ROOT)
+        self.assertTrue(res2.success)
+        self.assertFalse(res2.rules_updated)
+
+        re_read_content = rules_file.read_text(encoding="utf-8")
+        self.assertEqual(re_read_content, updated_content)
+        self.assertEqual(re_read_content.count("<!-- Added by PSL-HARNESS -->"), 1)
+        self.assertEqual(re_read_content.count("<!-- End PSL-HARNESS -->"), 1)
+
+    def test_workspace_stack_instantiation_and_dedup(self) -> None:
+        """Workspace install auto-detects stack, installs stack skills, and respects dedup."""
+        ws_dir = self.isolated_base / "workspace_ts"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "package.json").write_text(
+            json.dumps({"name": "test-ts-app", "devDependencies": {"typescript": "^5.0.0"}}),
+            encoding="utf-8",
+        )
+
+        # 1. Initial workspace install
+        res1 = install_workspace(ws_dir, source_dir=REPO_ROOT)
+        self.assertTrue(res1.success)
+        self.assertEqual(res1.stack, "typescript")
+        self.assertIn("psl-stack-typescript", res1.skills_installed)
+        self.assertTrue((ws_dir / ".agents" / "skills" / "psl-stack-typescript" / "SKILL.md").is_file())
+
+        # By default zero agent definitions in workspace (Layer 1 global inheritance)
+        self.assertFalse((ws_dir / ".agents" / "agents").exists())
+
+        # 2. Second run with dedup=True skips identical files
+        res2 = install_workspace(ws_dir, source_dir=REPO_ROOT, dedup=True)
+        self.assertTrue(res2.success)
+        self.assertIn("psl-stack-typescript", res2.skills_skipped)
+        self.assertEqual(res2.skills_installed, [])
+
+        # 3. Third run with override=True reinstalls
+        res3 = install_workspace(ws_dir, source_dir=REPO_ROOT, override=True)
+        self.assertTrue(res3.success)
+        self.assertIn("psl-stack-typescript", res3.skills_installed)
+
+        # 4. Opt-in local agents
+        res4 = install_workspace(ws_dir, source_dir=REPO_ROOT, include_agents=True)
+        self.assertTrue(res4.success)
+        self.assertTrue((ws_dir / ".agents" / "agents" / "harness_builder.md").is_file())
+
+    def test_legacy_setup_detection_notice(self) -> None:
+        """Legacy .agent/ directory triggers actionable notice recommending /psl-harmonize."""
+        ws_dir = self.isolated_base / "legacy_ws"
+        (ws_dir / ".agent").mkdir(parents=True)
+
+        res = install_workspace(ws_dir, source_dir=REPO_ROOT)
+        self.assertTrue(res.success)
+        self.assertIsNotNone(res.legacy_notice)
+        self.assertIn(".agent", res.legacy_notice)
+        self.assertIn("/psl-harmonize", res.legacy_notice)
+
+    def test_find_workspace_root(self) -> None:
+        """find_workspace_root walks up directory tree to find marker files."""
+        ws_dir = self.isolated_base / "project_root"
+        nested_dir = ws_dir / "src" / "deep" / "nested"
+        nested_dir.mkdir(parents=True)
+        (ws_dir / ".git").mkdir()
+
+        # From nested directory, finds root
+        root = find_workspace_root(nested_dir)
+        self.assertEqual(root, ws_dir)
+
+        # From root itself
+        self.assertEqual(find_workspace_root(ws_dir), ws_dir)
+
+    def test_cli_init_subcommand(self) -> None:
+        """CLI `psl init` initializes a workspace project."""
+        ws_dir = self.isolated_base / "cli_ws"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "pyproject.toml").write_text("[project]\nname = 'sample-py'\n", encoding="utf-8")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["init", str(ws_dir), "--yes", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertTrue(data["success"])
+            self.assertEqual(data["stack"], "python")
+            self.assertIn("psl-stack-python", data["skills_installed"])
+            self.assertTrue((ws_dir / "AGENTS.md").is_file())
+
+    def test_install_workspace_with_standalone_plugin_layout(self) -> None:
+        """install_workspace resolves skills, agents, and rules when source is a distributed plugin layout."""
+        fake_plugin = self.isolated_base / "dist_plugin"
+        (fake_plugin / "skills" / "psl-harmonize").mkdir(parents=True)
+        (fake_plugin / "skills" / "psl-harmonize" / "SKILL.md").write_text("# Harmonize", encoding="utf-8")
+        (fake_plugin / "agents").mkdir(parents=True)
+        (fake_plugin / "agents" / "hammer.md").write_text("# Hammer", encoding="utf-8")
+        (fake_plugin / "rules").mkdir(parents=True)
+        (fake_plugin / "rules" / "AGENTS.md").write_text("Universal Rules", encoding="utf-8")
+
+        ws_dir = self.isolated_base / "dist_ws"
+        ws_dir.mkdir(parents=True)
+
+        res = install_workspace(
+            ws_dir,
+            skills=["psl-harmonize"],
+            include_agents=True,
+            source_dir=fake_plugin,
+        )
+        self.assertTrue(res.success)
+        self.assertIn("psl-harmonize", res.skills_installed)
+        self.assertTrue((ws_dir / ".agents" / "skills" / "psl-harmonize" / "SKILL.md").is_file())
+        self.assertIn("hammer", res.agents_installed)
+        self.assertTrue((ws_dir / ".agents" / "agents" / "hammer.md").is_file())
+        self.assertTrue((ws_dir / "AGENTS.md").is_file())
+        self.assertIn("Universal Rules", (ws_dir / "AGENTS.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -1,20 +1,20 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
 
-# Official Specification: Consolidated 13-Command CLI Palette
+# Official Specification: Consolidated 14-Command CLI Palette
 
 **Document**: Canonical CLI Subcommand Palette & Reference Guide  
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Binary Entrypoint**: `psl` / `python3 -m harness.cli`  
-**Last Updated**: 2026-10-10  
+**Last Updated**: 2026-10-11  
 
 ---
 
 ## 1. Executive Overview
 
-The unified developer CLI (`psl` or `python3 -m harness.cli`) exposes 13 top-level subcommands implemented cleanly across `harness/commands/`, `harness/delivery/`, `harness/subagents/`, `harness/remote/`, and `harness/telemetry/`. In accordance with ADR-014 (Product vs. Project Bifurcation), all core CLI commands execute hermetically with zero mandatory dependencies on the development analysis pipeline.
+The unified developer CLI (`psl` or `python3 -m harness.cli`) exposes 14 top-level subcommands implemented cleanly across `harness/commands/`, `harness/delivery/`, `harness/subagents/`, `harness/remote/`, and `harness/telemetry/`. In accordance with ADR-014 (Product vs. Project Bifurcation), all core CLI commands execute hermetically with zero mandatory dependencies on the development analysis pipeline.
 
 ```text
 psl [-h] [-v]
@@ -29,6 +29,7 @@ psl [-h] [-v]
   ├── remote        Remote agentic execution, SSH multiplexing & cloud/mesh triage (ADR-027)
   ├── auth          Manage GitHub organization authentication for central hub sync
   ├── sync          Bi-directional telemetry synchronization with central hub (ADR-030)
+  ├── init          Initialize workspace project with stack skills & tagged rules
   ├── install       Install PSL harness globally as Google Antigravity plugin
   └── uninstall     Uninstall PSL harness global plugin cleanly without collateral damage
 ```
@@ -154,17 +155,32 @@ psl [-h] [-v]
   - `--systemd`: Emits systemd user service unit definition.
   - `--interactive`, `--review`, `--dry-run`, `--all-developers`, `--developer <name>`, `--since <timestamp>`.
 
-### 12. `install`
-* **Syntax**: `psl install [-g|--global] [--bin-dir <path>] [--symlink|--copy] [--dry-run] [--all-surfaces]`
-* **Purpose**: Installs `psl-agy-harness` globally into Antigravity extension surfaces (`~/.gemini/config/plugins/psl-agy-harness/`) and deploys standalone executable (`~/.local/bin/psl`).
+### 12. `init`
+* **Syntax**: `psl init [path] [-s|--stack <stk>] [--skills <list>] [--agents [list]] [--override] [--no-dedup] [-y|--yes] [--json]`
+* **Purpose**: Initializes a project workspace with stack-tailored skills, tagged rules (`<!-- Added by PSL-HARNESS -->`), and optional subagents. Preserves existing domain rules in `AGENTS.md` and detects legacy `.agent/` configurations.
+* **Flags & Options**:
+  - `path`: Target workspace directory (defaults to current directory).
+  - `-s`, `--stack <stk>`: Stack preset (`typescript`, `python`, `systems`, `shell`, `audit`). Auto-detects if omitted.
+  - `--skills <list>`: Comma-separated list of modular skills to install to `<ws>/.agents/skills/`.
+  - `--agents [list]`: Installs specialist agent definitions into `<ws>/.agents/agents/`.
+  - `--override`: Force overwrite existing files even if different.
+  - `--no-dedup`: Disables content-hash deduplication.
+  - `-y`, `--yes`: Non-interactive mode, applies defaults.
+  - `--json`: Emits workspace initialization report in JSON.
+
+### 13. `install`
+* **Syntax**: `psl install [-g|--global] [--bin-dir <path>] [--symlink|--copy] [--dry-run] [--all-surfaces] [-w|--workspace [path]]`
+* **Purpose**: Installs `psl-agy-harness` globally into Antigravity extension surfaces (`~/.gemini/config/plugins/psl-agy-harness/`) and deploys standalone executable (`~/.local/bin/psl`), OR initializes a project workspace when `-w`/`--workspace` is provided.
 * **Flags**:
   - `-g`, `--global`: Installs standalone launcher script into user binary path (`~/.local/bin/psl`, `0o755`).
   - `--symlink`: Installs plugin via symlink (default; tracks development changes).
   - `--copy`: Installs plugin via hermetic file copy, enforcing ADR-014 packaging filters.
   - `--dry-run`: Validates path safety guards and prints planned actions without mutating disk.
   - `--all-surfaces`: Synchronizes all auxiliary Antigravity surface configurations.
+  - `-w`, `--workspace [path]`: Routes to workspace initialization (`psl init`), deploying stack skills and tagged rules.
+  - `--stack`, `--skills`, `--agents`, `--override`, `--no-dedup`: Forwarded to workspace initialization engine.
 
-### 13. `uninstall`
+### 14. `uninstall`
 * **Syntax**: `psl uninstall [--bin-dir <path>] [--dry-run] [--target <path>] [--json]`
 * **Purpose**: Unlinks or removes installed plugin and standalone launcher script cleanly, enforcing path safety guards to guarantee `REPO_ROOT` is never touched.
 

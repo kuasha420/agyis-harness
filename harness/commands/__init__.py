@@ -18,7 +18,7 @@ from harness.commands.agents import cmd_agents
 from harness.commands.subagents import cmd_subagents
 from harness.commands.remote import cmd_remote
 from harness.commands.status import cmd_status
-from harness.commands.install import cmd_install, cmd_uninstall
+from harness.commands.install import cmd_init, cmd_install, cmd_uninstall
 
 __all__ = [
     "cmd_doctor",
@@ -32,6 +32,7 @@ __all__ = [
     "cmd_subagents",
     "cmd_remote",
     "cmd_status",
+    "cmd_init",
     "cmd_install",
     "cmd_uninstall",
 ]

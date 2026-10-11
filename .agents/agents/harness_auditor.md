@@ -21,6 +21,7 @@ tools:
   - find_by_name
   - run_command
   - manage_task
+  - schedule
 allowed_tools:
   - view_file
   - list_dir
@@ -28,6 +29,7 @@ allowed_tools:
   - find_by_name
   - run_command
   - manage_task
+  - schedule
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
@@ -50,3 +52,5 @@ You are `harness_auditor`, the dedicated QA Verifier and Benchmark Auditor in th
    - Surface missing runtimes, outdated matrix components, or corrupted state.
 5. **Zero-Exploration Invariant**:
    - Prohibit blind `list_dir` / `find_by_name` sweeps across the repository. Open target files directly based on coordinator instructions, or communicate back to the coordinator and halt immediately.
+6. **Review Delay Fence (Anti-Thrasher Invariant)**:
+   - When handling PR review fences or delay windows, NEVER run polling loops (`while sleep`) or background sleep commands. Use the native `schedule` tool (`DurationSeconds=600`, `TimerCondition="never"`, `Prompt="Review fence complete: verify PR diff and merge"`) to await reactive wakeup.

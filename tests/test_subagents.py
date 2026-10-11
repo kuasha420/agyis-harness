@@ -374,6 +374,23 @@ class TestSpecialistSubagents(unittest.TestCase):
                     f"Agent {agent.name} prompt must explicitly mention find_by_name",
                 )
 
+    def test_sync_agent_definitions_with_filter_and_dedup(self) -> None:
+        """sync_agent_definitions supports agent_names filtering, dedup, and override."""
+        target = self.isolated_path / "filtered_agents"
+
+        # 1. Sync specific agent
+        synced = sync_agent_definitions(target_dir=target, agent_names=["executioner"])
+        self.assertEqual(len(synced), 1)
+        self.assertEqual(synced[0].name, "harness_builder.md")
+
+        # 2. Dedup skips identical file
+        synced_dedup = sync_agent_definitions(target_dir=target, agent_names=["executioner"], dedup=True)
+        self.assertEqual(len(synced_dedup), 0)
+
+        # 3. Override reinstalls file
+        synced_override = sync_agent_definitions(target_dir=target, agent_names=["executioner"], override=True)
+        self.assertEqual(len(synced_override), 1)
+
     def test_rehydrate_subagent_session_completed(self) -> None:
         """rehydrate_subagent_session correctly detects completed session and extracts deltas."""
         conv_dir = self.isolated_path / "conv-completed-123"

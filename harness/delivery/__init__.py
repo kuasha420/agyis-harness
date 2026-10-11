@@ -28,6 +28,14 @@ from harness.delivery.surfaces import (
 )
 from harness.delivery.installer import PluginInstaller
 from harness.delivery.coexistence import CoexistenceEngine
+from harness.delivery.workspace import (
+    GLOBAL_CORE_SKILLS,
+    STACK_SKILL_PRESETS,
+    TAG_END,
+    TAG_START,
+    WorkspaceInstallResult,
+    install_workspace,
+)
 
 __all__ = [
     "DEFAULT_PLUGIN_DIR",
@@ -45,4 +53,10 @@ __all__ = [
     "verify_zero_git_pollution",
     "sync_surfaces",
     "find_workspace_root",
+    "GLOBAL_CORE_SKILLS",
+    "STACK_SKILL_PRESETS",
+    "TAG_END",
+    "TAG_START",
+    "WorkspaceInstallResult",
+    "install_workspace",
 ]

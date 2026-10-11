@@ -30,6 +30,8 @@ This skill provides deterministic standard operating procedures (SOP) for execut
    - No temporary script files or lingering artifacts remain on remote servers.
 5. **Bounded Triage Output (<2KB Markdown)**:
    - Diagnostic probes are compacted into structured tables bounded under 2KB, preventing context flooding and attention saturation.
+6. **Physical Knot Mesh Interoperability**:
+   - For targets within the physical Knot Mesh cluster (`desktop`, `laptop`, `steamdeck`, `rog-ally`), use `knot exec <target> "<cmd>"` as the preferred transport whenever the `knot` CLI is available, providing native LAN mDNS, WireGuard fallback, and zero-token cockpit forwarding.
 
 ---
 

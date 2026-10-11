@@ -322,18 +322,58 @@ def get_agent_spec(
 
 
 def sync_agent_definitions(
-    target_dir: Optional[Path] = None, source_dir: Optional[Path] = None
+    target_dir: Optional[Path] = None,
+    source_dir: Optional[Path] = None,
+    agent_names: Optional[List[str]] = None,
+    dedup: bool = True,
+    override: bool = False,
 ) -> List[Path]:
     """Synchronize agent definitions from harness/agents to .agents/agents."""
+    from harness.delivery import find_workspace_root
+
     src = source_dir or DEFAULT_AGENTS_DIR
-    dst = target_dir or DEFAULT_TARGET_DIR
+    if target_dir is not None:
+        dst = Path(target_dir)
+    else:
+        ws_root = find_workspace_root()
+        if ws_root.resolve() == REPO_ROOT.resolve():
+            dst = DEFAULT_TARGET_DIR
+        else:
+            dst = ws_root / ".agents" / "agents"
     dst.mkdir(parents=True, exist_ok=True)
 
     synced: List[Path] = []
+    norm_filter = (
+        {a.strip().lower().replace("_", "-") for a in agent_names}
+        if agent_names is not None
+        else None
+    )
+
     for spec in list_agent_specs(src):
-        if spec.source_file and spec.source_file.exists():
-            dest_file = dst / spec.source_file.name
-            shutil.copy2(spec.source_file, dest_file)
-            synced.append(dest_file)
+        if not (spec.source_file and spec.source_file.exists()):
+            continue
+
+        name_norm = spec.name.lower().replace("_", "-")
+        stem_norm = spec.source_file.stem.lower().replace("_", "-")
+        arch_norm = spec.archetype.value.lower().replace("_", "-")
+        if (
+            norm_filter is not None
+            and name_norm not in norm_filter
+            and stem_norm not in norm_filter
+            and arch_norm not in norm_filter
+        ):
+            continue
+
+        dest_file = dst / spec.source_file.name
+
+        if dest_file.exists() and not override:
+            is_identical = dest_file.read_bytes() == spec.source_file.read_bytes()
+            if dedup and is_identical:
+                continue
+            continue
+
+        shutil.copy2(spec.source_file, dest_file)
+        synced.append(dest_file)
 
     return synced
+

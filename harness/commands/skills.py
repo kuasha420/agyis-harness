@@ -21,7 +21,13 @@ def cmd_skills(args: argparse.Namespace) -> int:
 
     if getattr(args, "sync", False):
         target_dir = getattr(args, "target_dir", None)
-        dest = Path(target_dir) if target_dir else find_workspace_root() / ".agents" / "skills"
+        ws_arg = getattr(args, "workspace", None)
+        if target_dir:
+            dest = Path(target_dir)
+        elif ws_arg and ws_arg is not True:
+            dest = Path(ws_arg) / ".agents" / "skills"
+        else:
+            dest = find_workspace_root() / ".agents" / "skills"
 
         names: List[str] = []
         name_arg = getattr(args, "name", None)
@@ -34,6 +40,7 @@ def cmd_skills(args: argparse.Namespace) -> int:
         group_arg = getattr(args, "group", None)
         stack_arg = getattr(args, "stack", None)
         override_arg = getattr(args, "override", False)
+        dedup_arg = not getattr(args, "no_dedup", False)
 
         try:
             synced = sync_skills(
@@ -41,6 +48,7 @@ def cmd_skills(args: argparse.Namespace) -> int:
                 skill_names=names or None,
                 group=group_arg,
                 stack=stack_arg,
+                dedup=dedup_arg,
                 override=override_arg,
             )
         except ValueError as exc:

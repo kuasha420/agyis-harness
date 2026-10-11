@@ -29,6 +29,7 @@ from harness.commands import (
     cmd_auth,
     cmd_doctor,
     cmd_hook,
+    cmd_init,
     cmd_install,
     cmd_remote,
     cmd_skills,
@@ -112,6 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_skills.add_argument("--stack", "-s", type=str, default=None, help="Sync skills tailored for stack preset (python, typescript, rust, go, systems, shell, auto)")
     p_skills.add_argument("--skills", type=str, default=None, help="Comma-separated skill names to sync")
     p_skills.add_argument("--override", action="store_true", help="Force overwrite existing skill files")
+    p_skills.add_argument("--workspace", "-w", nargs="?", const=True, default=None, help="Sync to workspace (.agents/skills) instead of global/repo")
+    p_skills.add_argument("--no-dedup", action="store_true", help="Disable deduplication when syncing skills")
     p_skills.add_argument("--json", action="store_true", help="Output skills in JSON format")
 
     # agents
@@ -119,6 +122,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_agents.add_argument("name", nargs="?", default=None, help="Name of specific agent to view, or action (create, validate, rehydrate)")
     p_agents.add_argument("target_name", nargs="?", default=None, help="Target agent name for create or file/name for validate/rehydrate")
     p_agents.add_argument("--sync", action="store_true", help="Sync agent definitions to .agents/agents")
+    p_agents.add_argument("--workspace", "-w", nargs="?", const=True, default=None, help="Sync to workspace (.agents/agents) instead of global/repo")
+    p_agents.add_argument("--agents", type=str, default=None, help="Comma-separated list of agent names to sync")
+    p_agents.add_argument("--override", action="store_true", help="Force overwrite existing agents")
+    p_agents.add_argument("--no-dedup", action="store_true", help="Disable deduplication when syncing agents")
     p_agents.add_argument("--json", action="store_true", help="Output agents in JSON format")
     p_agents.add_argument("--id", type=str, default=None, help="Conversation ID to rehydrate")
     p_agents.add_argument("--recent-hours", type=int, default=4, help="Recent hours window for subagent discovery")
@@ -260,9 +267,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync.add_argument("--developer", type=str, default=None, help="Filter pulled telemetry by specific developer username (or '*' for all)")
     p_sync.add_argument("--since", type=str, default=None, help="Pull telemetry deltas since a specific ISO timestamp watermark")
 
+    # init
+    p_init = subparsers.add_parser(
+        "init", help="Initialize workspace with stack-tailored skills and tagged rules"
+    )
+    p_init.add_argument("path", nargs="?", default=None, help="Target workspace path (defaults to current directory)")
+    p_init.add_argument("--stack", "-s", type=str, default=None, help="Stack preset (typescript, python, systems, shell, audit)")
+    p_init.add_argument("--skills", type=str, default=None, help="Comma-separated list of skills to install")
+    p_init.add_argument("--agents", type=str, nargs="?", const=True, default=None, help="Install agent definitions locally into workspace (.agents/agents)")
+    p_init.add_argument("--override", action="store_true", help="Force overwrite existing files")
+    p_init.add_argument("--no-dedup", action="store_true", help="Disable content-hash deduplication")
+    p_init.add_argument("--yes", "-y", action="store_true", help="Non-interactive mode, apply defaults")
+    p_init.add_argument("--json", action="store_true", help="Output result in JSON format")
+
     # install
     p_install = subparsers.add_parser(
-        "install", help="Install PSL harness globally as Google Antigravity plugin"
+        "install", help="Install PSL harness globally as Google Antigravity plugin or initialize workspace"
     )
     p_install.add_argument("--global", "-g", dest="global_install", action="store_true", help="Install globally into user plugins directory (default)")
     p_install.add_argument("--bin-dir", type=Path, default=None, help="Custom binary directory for standalone CLI executable")
@@ -271,6 +291,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("--dry-run", action="store_true", help="Simulate installation without writing to disk")
     p_install.add_argument("--all-surfaces", action="store_true", help="Sync all Antigravity surfaces to canonical config")
     p_install.add_argument("--target", type=Path, default=None, help="Custom target installation directory")
+    p_install.add_argument("--workspace", "-w", nargs="?", const=True, default=None, help="Initialize workspace project instead of global plugin")
+    p_install.add_argument("--stack", "-s", type=str, default=None, help="Stack preset for workspace (typescript, python, systems, shell, audit)")
+    p_install.add_argument("--skills", type=str, default=None, help="Comma-separated list of skills for workspace")
+    p_install.add_argument("--agents", type=str, nargs="?", const=True, default=None, help="Include agent definitions in workspace (.agents/agents)")
+    p_install.add_argument("--override", action="store_true", help="Force overwrite existing workspace files")
+    p_install.add_argument("--no-dedup", action="store_true", help="Disable content deduplication for workspace")
     p_install.add_argument("--json", action="store_true", help="Output result in JSON format")
 
     # uninstall
@@ -306,6 +332,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "subagents": cmd_subagents,
         "remote": cmd_remote,
         "status": cmd_status,
+        "init": cmd_init,
         "install": cmd_install,
         "uninstall": cmd_uninstall,
     }

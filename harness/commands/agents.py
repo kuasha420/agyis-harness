@@ -225,8 +225,26 @@ def cmd_agents(args: argparse.Namespace) -> int:
     # 3. agents --sync
     if getattr(args, "sync", False):
         custom_target = getattr(args, "target_dir", None)
-        target_dir = Path(custom_target) if custom_target else _get_repo_root() / ".agents" / "agents"
-        synced = sync_agent_definitions(target_dir=target_dir)
+        ws_arg = getattr(args, "workspace", None)
+        if custom_target:
+            target_dir = Path(custom_target)
+        elif ws_arg and ws_arg is not True:
+            target_dir = Path(ws_arg) / ".agents" / "agents"
+        else:
+            target_dir = _get_repo_root() / ".agents" / "agents"
+
+        names = None
+        if getattr(args, "agents", None):
+            names = [a.strip() for a in args.agents.split(",") if a.strip()]
+        override = bool(getattr(args, "override", False))
+        dedup = not getattr(args, "no_dedup", False)
+
+        synced = sync_agent_definitions(
+            target_dir=target_dir,
+            agent_names=names,
+            dedup=dedup,
+            override=override,
+        )
         print(f"✔ Synchronized {len(synced)} agent definitions to {target_dir}:")
         for p in synced:
             print(f"  • {p.name} -> {p}")
