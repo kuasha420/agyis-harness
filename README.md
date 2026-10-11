@@ -49,9 +49,13 @@ From our automated audit of **722 developer sessions** (`data/telemetry.db`):
 | **The Context Cliff** | 5.2x error spike | Sessions exceeding 100k tokens suffer rapid error escalation. |
 | **Context Bloat Elimination** | **21.3% token reduction** | Capping non-error outputs at 2KB saves >10M tokens. |
 
-## 🚀 Quickstart: Installation
+## 🚀 Quickstart: Installation & Coexistence
 
-### Option 1: Source / Developer Install (Recommended)
+### 1. Workstation-Wide Setup (Global Plugin & CLI)
+
+The global installation deploys the reference harness plugin into Antigravity surfaces, registers the unified `psl` CLI in `~/.local/bin`, and activates deterministic lifecycle hooks.
+
+#### Option A: Source / Developer Install (Recommended for Development)
 ```bash
 git clone https://github.com/kuasha420/psl-agy-harness.git
 cd psl-agy-harness
@@ -64,17 +68,83 @@ psl doctor
 psl status
 ```
 
-### Option 2: UV Tool / Pip Install (Zero-clone)
+#### Option B: Standalone / Zero-Clone Install (`uv tool`)
 ```bash
-# Install the CLI executable
+# Install the standalone CLI executable into an isolated environment
 uv tool install git+https://github.com/kuasha420/psl-agy-harness.git
 
-# Connect Antigravity plugin surfaces
+# Deploy plugin bundle to Antigravity surfaces
 psl install --copy --all-surfaces
 
-# Verify
+# Verify installation
 psl doctor
 ```
+
+---
+
+### 2. Project-Specific Installation (Workspace Skills & Tooling)
+
+When working inside a specific software repository, you can initialize, configure, and isolate project-tailored skills, specialist agents, rules, and runtimes without dirtying global settings or external workspaces.
+
+#### Step 1: Synchronize Modular Skills into the Project
+From inside any project repository:
+```bash
+cd /path/to/my-project
+
+# Synchronize all modular stack, runner, and ops skills into <my-project>/.agents/skills/
+psl skills --sync
+```
+*Tip: You can also author custom project-specific skills by placing a `SKILL.md` directly into `.agents/skills/<skill-name>/SKILL.md`.*
+
+#### Step 2: Scaffold Project-Tailored Specialist Agents
+Generate specialist agent personas that automatically ground themselves into your repository's detected languages (`pyproject.toml`, `package.json`, `Cargo.toml`), test runners, key commands, and invariants:
+```bash
+# Scaffold a project-specific builder / implementer agent
+psl agents create my-builder --archetype executioner --scope project
+
+# Or synchronize the full specialist roster into <my-project>/.agents/agents/
+psl agents --sync
+```
+
+#### Step 3: Configure Project Tooling & Hermetic Runtimes
+- **Automatic `.venv` Promotion**: When you execute `psl` inside a project containing a local Python virtual environment (`.venv/`), the launcher automatically promotes execution to `.venv/bin/python`.
+- **Project Environment Diagnostics**:
+  ```bash
+  psl doctor                               # Audits project against 3-tier runtime matrix
+  psl doctor --heal                        # Zero-sudo user-space repair if tools missing
+  ```
+- **Hermetic Testing Benchmark**:
+  ```bash
+  psl test                                 # Executes tests in <1.0s and resets completion fences
+  ```
+
+---
+
+### 3. Architecture: Global vs. Local Precedence Hierarchy (ADR-030)
+
+The Antigravity engine and PSL Harness operate on a strict **3-Tier Precedence Hierarchy** (`CoexistenceEngine`). High-precedence layers cleanly override lower-precedence defaults:
+
+```text
+[Layer 3: Workspace Local] (<project-root>/.agents/ or project root) -- HIGHEST PRECEDENCE
+         │ (Overrides user defaults and plugin fallbacks)
+         ▼
+[Layer 2: Workstation User] (~/.gemini/antigravity/, ~/.gemini/config/)
+         │ (Overrides bundled plugin defaults)
+         ▼
+[Layer 1: Global Plugin] (~/.gemini/config/plugins/psl-agy-harness/ or harness/) -- DEFAULT FALLBACK
+```
+
+#### Component Comparison Matrix
+
+| Component | Workstation-Wide (Global) | Workspace / Project-Specific (Local) | Resolution & Override Semantics |
+| :--- | :--- | :--- | :--- |
+| **Modular Skills** | `~/.gemini/config/skills/`<br>or bundled in plugin | `<project>/.agents/skills/<skill>/SKILL.md` | **Layer 3 > 2 > 1**: A local skill in `.agents/skills/` overrides any global skill with the same name. |
+| **Specialist Agents** | `~/.gemini/config/agents/<name>.md`<br>or bundled in plugin | `<project>/.agents/agents/<name>.md` | **Layer 3 > 2 > 1**: Scaffolds automatically ground into local package manifests; local agents take precedence. |
+| **Agent Rules** | `~/.gemini/config/AGENTS.md`<br>`~/.gemini/config/rules/*.md` | `<project>/AGENTS.md`<br>`<project>/.agents/rules/*.md` | **Layer 3 > 2**: Local project rules take precedence, providing repository-specific constraints on top of global standards. |
+| **Developer CLI & Launcher** | `~/.local/bin/psl`<br>`~/.gemini/antigravity/bin/psl` | `./psl` in repo root | Global launcher is universally available in `$PATH`; auto-promotes to project `.venv` when run inside a repo. |
+| **Tooling & Runtimes** | System `$PATH`, `uv` global python | Project `.venv`, `node_modules` | Project virtual environments take priority during task execution; `psl doctor` audits local versions. |
+| **Lifecycle Hooks** | Global `hooks.json` across surfaces | Project `hooks.json` | Deterministic fail-safe runner intercepts tool calls across all sessions. |
+| **Git Hygiene & State** | `~/.local/state/psl/` | `.git/info/exclude` | `psl install` configures `.git/info/exclude` so untracked local state never pollutes git status. |
 
 ---
 

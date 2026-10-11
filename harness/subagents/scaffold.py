@@ -26,7 +26,11 @@ def inspect_workspace_context(repo_root: Optional[Path] = None) -> Dict[str, Any
     Scans root project files (package.json, pyproject.toml, Cargo.toml, AGENTS.md, matrix.json, roadmap.md)
     to extract project name, languages, test runners, commands, and active rules.
     """
-    root = repo_root or REPO_ROOT
+    if repo_root is not None:
+        root = Path(repo_root)
+    else:
+        from harness.delivery.surfaces import find_workspace_root
+        root = find_workspace_root()
     project_name = root.name
     languages: List[str] = []
     test_runners: List[str] = []

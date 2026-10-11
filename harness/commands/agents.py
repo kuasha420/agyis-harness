@@ -28,13 +28,13 @@ from harness.subagents import (
 
 
 def _get_repo_root() -> Path:
+    from harness.delivery.surfaces import find_workspace_root
     import harness.cli
     import harness.subagents
-    return (
-        getattr(harness.cli, "REPO_ROOT", None)
-        or getattr(harness.subagents, "REPO_ROOT", None)
-        or REPO_ROOT
-    )
+    override = getattr(harness.cli, "REPO_ROOT", None) or getattr(harness.subagents, "REPO_ROOT", None)
+    if override:
+        return Path(override)
+    return find_workspace_root()
 
 
 def cmd_agents(args: argparse.Namespace) -> int:
@@ -224,8 +224,10 @@ def cmd_agents(args: argparse.Namespace) -> int:
 
     # 3. agents --sync
     if getattr(args, "sync", False):
-        synced = sync_agent_definitions(target_dir=_get_repo_root() / ".agents" / "agents")
-        print(f"✔ Synchronized {len(synced)} agent definitions to .agents/agents/:")
+        custom_target = getattr(args, "target_dir", None)
+        target_dir = Path(custom_target) if custom_target else _get_repo_root() / ".agents" / "agents"
+        synced = sync_agent_definitions(target_dir=target_dir)
+        print(f"✔ Synchronized {len(synced)} agent definitions to {target_dir}:")
         for p in synced:
             print(f"  • {p.name} -> {p}")
         return 0

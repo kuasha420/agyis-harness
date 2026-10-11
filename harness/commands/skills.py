@@ -9,16 +9,20 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import sys
 
 
 def cmd_skills(args: argparse.Namespace) -> int:
     """Lists, inspects, or synchronizes modular product skills."""
+    from harness.delivery.surfaces import find_workspace_root
     from harness.skills import get_skill, list_skills, sync_skills
 
     if getattr(args, "sync", False):
-        synced = sync_skills()
-        print(f"✔ Synchronized {len(synced)} skills to .agents/skills/:")
+        target_dir = getattr(args, "target_dir", None)
+        dest = Path(target_dir) if target_dir else find_workspace_root() / ".agents" / "skills"
+        synced = sync_skills(target_dir=dest)
+        print(f"✔ Synchronized {len(synced)} skills to {dest}:")
         for p in synced:
             print(f"  • {p.parent.name} -> {p}")
         return 0

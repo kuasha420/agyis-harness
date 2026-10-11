@@ -70,6 +70,31 @@ Following the platform deconstruction, this document conducts an exhaustive **Em
 +-----------------------+              +--------------------------+             +--------------------+
 ```
 
+### 1.1 Workstation-Wide (Global) vs. Local (Workspace/Project) Precedence Hierarchy (ADR-030)
+
+Antigravity resolves skills, agents, rules, and configuration across three distinct filesystem tiers evaluated from highest to lowest precedence:
+
+```text
+[Layer 3: Workspace Local] (<project-root>/.agents/ or project root) -- HIGHEST PRECEDENCE
+         │ (Overrides user preferences and bundled plugin fallbacks)
+         ▼
+[Layer 2: Workstation User] (~/.gemini/antigravity/, ~/.gemini/config/)
+         │ (Overrides bundled plugin defaults)
+         ▼
+[Layer 1: Global Plugin] (~/.gemini/config/plugins/psl-agy-harness/ or harness/) -- DEFAULT FALLBACK
+```
+
+#### Coexistence & Override Matrix
+
+| Component | Workstation-Wide (Global) | Workspace / Project-Specific (Local) | Precedence & Resolution Semantics |
+| :--- | :--- | :--- | :--- |
+| **Modular Skills** | `~/.gemini/config/skills/`<br>or bundled in plugin | `<project>/.agents/skills/<skill>/SKILL.md` | **Layer 3 > 2 > 1**: Local skill in `.agents/skills/` takes full precedence over global skill of same name. |
+| **Specialist Agents** | `~/.gemini/config/agents/<name>.md`<br>or bundled in plugin | `<project>/.agents/agents/<name>.md` | **Layer 3 > 2 > 1**: Local agent definition overrides global persona. Scaffolds ground into local repo context. |
+| **Agent Rules** | `~/.gemini/config/AGENTS.md`<br>`~/.gemini/config/rules/*.md` | `<project>/AGENTS.md`<br>`<project>/.agents/rules/*.md` | **Layer 3 > 2**: Local project rules take precedence, providing repository-specific constraints over global standards. |
+| **Tooling & Runtimes** | System `$PATH`, `uv` user Python | Project `.venv`, `node_modules` | When executed inside a repository containing `.venv`, `psl` launcher auto-promotes to `.venv/bin/python`. |
+| **Lifecycle Hooks** | Global `hooks.json` across surfaces | Project-level `hooks.json` | Deterministic fail-safe runner intercepts tool calls across all sessions. |
+| **Git Hygiene** | Global git configuration | Local `.git/info/exclude` | `psl install` configures `.git/info/exclude` so untracked local telemetry and state never pollute git status. |
+
 ---
 
 ## 2. Surface Deconstruction: Antigravity CLI (`agy`)
