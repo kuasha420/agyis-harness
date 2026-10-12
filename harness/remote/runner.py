@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 PSL Harness: Remote Execution Engine & OpenSSH Multiplexer (ADR-027).
@@ -22,10 +24,10 @@ from typing import Any, Dict, List, Optional, Tuple
 def get_socket_dir() -> Path:
     """
     Returns the user-space socket directory for OpenSSH ControlMaster sockets.
-    Honors PSL_HARNESS_STATE_DIR if configured.
+    Honors AGYIS_HARNESS_STATE_DIR and PSL_HARNESS_STATE_DIR if configured.
     Ensures directory exists with strict 0700 permissions to satisfy SSH security requirements.
     """
-    state_dir = os.environ.get("PSL_HARNESS_STATE_DIR")
+    state_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
     if state_dir:
         sock_dir = Path(state_dir) / "ssh"
     else:

@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Constants and data models for PSL harness delivery (ADR-014, ADR-030).
+Constants and data models for Agyis harness delivery (ADR-014, ADR-030).
 """
 
 from __future__ import annotations
@@ -15,11 +17,19 @@ from typing import Any, Dict, List
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
-DEFAULT_PLUGIN_DIR = (
-    Path(os.environ["PSL_PLUGINS_DIR"])
-    if "PSL_PLUGINS_DIR" in os.environ
-    else Path.home() / ".gemini" / "config" / "plugins" / "psl-agy-harness"
-)
+
+def _resolve_default_plugin_dir() -> Path:
+    env_dir = os.environ.get("AGYIS_PLUGINS_DIR") or os.environ.get("PSL_PLUGINS_DIR")
+    if env_dir and env_dir.strip():
+        return Path(env_dir.strip())
+    target = Path.home() / ".gemini" / "config" / "plugins" / "agyis-harness"
+    legacy = Path.home() / ".gemini" / "config" / "plugins" / "psl-agy-harness"
+    if not target.exists() and legacy.exists():
+        return legacy
+    return target
+
+
+DEFAULT_PLUGIN_DIR = _resolve_default_plugin_dir()
 
 DEFAULT_SURFACE_NAMES: tuple[str, ...] = (
     "antigravity",
@@ -38,6 +48,7 @@ SYNC_SURFACE_ITEMS: tuple[str, ...] = (
 
 GIT_EXCLUDE_PATTERNS: tuple[str, ...] = (
     ".agents/",
+    ".agyis/",
     ".psl/",
     ".cache/",
     "scratch/",

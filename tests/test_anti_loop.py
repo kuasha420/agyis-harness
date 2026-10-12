@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Unit and integration tests for harness/hooks/anti_loop_hook.py
@@ -26,6 +28,22 @@ class TestAntiLoopHook(unittest.TestCase):
 
     def tearDown(self):
         self.temp_dir.cleanup()
+
+    def test_state_dir_resolution_prefers_agyis_over_psl(self):
+        """Verifies get_state_dir prefers AGYIS_HARNESS_STATE_DIR over PSL_HARNESS_STATE_DIR."""
+        from harness.hooks.anti_loop_hook import get_state_dir
+        with tempfile.TemporaryDirectory() as td_agyis, tempfile.TemporaryDirectory() as td_psl:
+            with patch.dict(os.environ, {
+                "AGYIS_HARNESS_STATE_DIR": td_agyis,
+                "PSL_HARNESS_STATE_DIR": td_psl,
+            }):
+                self.assertEqual(get_state_dir(), Path(td_agyis))
+
+            with patch.dict(os.environ, {
+                "PSL_HARNESS_STATE_DIR": td_psl,
+            }, clear=False):
+                os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+                self.assertEqual(get_state_dir(), Path(td_psl))
 
     def test_under_threshold_allowed(self):
         """Calls 1, 2, and 3 with identical arguments must be allowed when max_repeats=3."""

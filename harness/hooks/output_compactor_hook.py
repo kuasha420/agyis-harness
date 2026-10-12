@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 PSL Harness: PostToolUse Output Compactor & Telemetry Analyzer
@@ -33,7 +35,15 @@ HEAD_CHARS = 500
 TAIL_CHARS = 1000
 ERROR_KEYWORDS = ("exit code", "exit_code", "fatal", "error", "failure", "failed")
 
-STATE_DIR = Path(os.environ.get("PSL_HARNESS_STATE_DIR", "/tmp/psl_agy_harness_state"))
+def get_state_dir() -> Path:
+    """Returns the harness state directory respecting AGYIS_HARNESS_STATE_DIR and PSL_HARNESS_STATE_DIR."""
+    env_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
+    if env_dir and env_dir.strip():
+        return Path(env_dir.strip())
+    return Path("/tmp/psl_agy_harness_state")
+
+
+STATE_DIR = get_state_dir()
 
 
 def compact_output(
@@ -189,7 +199,7 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
     """
     Processes the hook payload, executes compaction, caches state, and returns metrics.
     """
-    target_state_dir = state_dir or STATE_DIR
+    target_state_dir = state_dir or get_state_dir()
     conv_id = str(payload.get("conversationId") or "default")
     step_idx = payload.get("stepIdx", payload.get("step_index", 0))
     tool_call = payload.get("toolCall", {})

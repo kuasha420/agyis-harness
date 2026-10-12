@@ -8,7 +8,9 @@ description: >-
   executing non-invasive remote diagnostic scripts, or compiling forensics markdown reports to PDF.
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # PSL Security Forensics: Containment, Cloud Revocation & Triage Runbook
 

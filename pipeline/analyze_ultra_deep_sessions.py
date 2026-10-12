@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 PSL Harness for Google Antigravity™
@@ -276,7 +278,9 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
 
     lines = [
         "<!-- SPDX-License-Identifier: Apache-2.0 -->",
-        "<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->",
+        "<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->",
+        "<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->",
+        "<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->",
         "",
     ]
     lines.append("# 🔬 The Ultra-Deep Horizon Microscope: 1,000+ Step Survival Analysis")

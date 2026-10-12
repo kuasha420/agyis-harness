@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Specialist subagent workspace context inspection and markdown scaffolding (ADR-014).
@@ -231,7 +233,7 @@ def scaffold_agent_markdown(
     # Derive role if not provided
     if not role:
         if arch == AgentArchetype.MAIN:
-            role = "PSL Lead Architect & Master Implementer"
+            role = "Agyis Lead Architect & Master Implementer"
         elif arch == AgentArchetype.EXECUTIONER:
             role = "Executioner (Worker / Implementer)"
         elif arch == AgentArchetype.HAMMER:
@@ -251,9 +253,9 @@ def scaffold_agent_markdown(
     if not description:
         if arch == AgentArchetype.MAIN:
             description = (
-                "PSL lead architect, systems engineer, and master implementer "
-                "with full tool capabilities, complete customization inheritance, "
-                "and verified operational discipline."
+                "Agyis lead architect, systems engineer, master implementer, "
+                "and cross-repo harmonizer with full tool capabilities, complete "
+                "customization inheritance, and verified operational discipline."
             )
         elif arch == AgentArchetype.EXECUTIONER:
             description = "Surgical single-phase task execution following an approved implementation plan."
@@ -344,7 +346,7 @@ def scaffold_agent_markdown(
     body_lines = [
         f"# {role}",
         "",
-        f"You are `{name}`, the dedicated {role} in the PSL Subagent Ladder protocol.",
+        f"You are `{name}`, the dedicated {role} in the Agyis Subagent Ladder protocol.",
         "",
     ]
 
@@ -402,17 +404,17 @@ def scaffold_agent_markdown(
     if arch == AgentArchetype.MAIN:
         body_lines.extend([
             "3. **Explicit Command Dictionary (The Victory Pattern)**:",
-            "   - `python3 -m harness.cli test`: Run complete hermetic test suite (sub-second benchmark invariant).",
-            "   - `python3 -m harness.cli doctor`: Audit host workstation runtimes and auto-heal environment.",
-            "   - `python3 -m harness.cli status`: Display harness health, active hooks, and telemetry gauge.",
-            "   - `./psl sync`: Audit and synchronize active session into telemetry.db.",
+            "   - `agyis test`: Run complete hermetic test suite (sub-second benchmark invariant).",
+            "   - `agyis doctor`: Audit host workstation runtimes and auto-heal environment.",
+            "   - `agyis status`: Display harness health, active hooks, and telemetry gauge.",
+            "   - `agyis sync`: Audit and synchronize active session into telemetry.db.",
             "4. **Architectural Decisions & Standards**:",
             "   - **ADR-012 (Artifact-First Planning)**: Never propose multi-component changes in raw chat. Crystallize into interactive `implementation_plan.md` artifacts before execution.",
             "   - **ADR-013 (Terminal Invariants & Pattern Probing)**: Always use `set -euo pipefail`. Pattern probes (`grep`, `diff`) without conditionals must append `|| [ $? -eq 1 ]`. Pre-flight test tools with `command -v`.",
             "   - **ADR-014 (Product vs. Project Bifurcation)**: Distributable plugin and CLI toolchain live in `harness/`; pipeline scripts, test suites, and telemetry data live in `pipeline/`, `tests/`, and `data/`.",
             "   - **ADR-015 (Clean-Room Testing)**: All verification must be hermetic and execute strictly in <1.0s benchmark runtime.",
             "5. **Subagent Delegation Ladder Protocol**:",
-            "   - Decompose multi-phase tasks and delegate using native `@<subagent>` syntax (e.g., `@harness_builder`, `@harness_reviewer`, `@harness_auditor`, `@planner`, `@coordinator`).",
+            "   - Decompose multi-phase tasks and delegate using native `@<subagent>` syntax (e.g., `@agyis_architect`, `@harness_builder`, `@harness_reviewer`, `@harness_auditor`, `@planner`, `@coordinator`, `@harness_custodian`).",
             "   - Follow the Ladder lifecycle: Plan -> Implement (Builder) -> Review (Reviewer) -> Audit (Auditor).",
             "6. **Toolgroup Capabilities**:",
             f"   - Full capability bundle enabled: {', '.join(tools)}.",

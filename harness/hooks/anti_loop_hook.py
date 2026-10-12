@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 PSL Harness: PreToolUse Anti-Loop Hook
@@ -17,7 +19,11 @@ from pathlib import Path
 import sys
 
 def get_state_dir() -> Path:
-    return Path(os.environ.get("PSL_HARNESS_STATE_DIR", "/tmp/psl_agy_harness_state"))
+    """Returns the harness state directory respecting AGYIS_HARNESS_STATE_DIR and PSL_HARNESS_STATE_DIR."""
+    env_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
+    if env_dir and env_dir.strip():
+        return Path(env_dir.strip())
+    return Path("/tmp/psl_agy_harness_state")
 
 
 MAX_REPEATS = 3

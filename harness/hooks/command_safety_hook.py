@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 PSL Harness: PreToolUse Command Safety & Hermetic Runtime Hook
@@ -50,7 +52,7 @@ INTERACTIVE_COMMANDS = [
 ]
 
 USER_TOOLCHAINS = (
-    "psl", "knot", "uv", "pnpm", "npm", "npx", "cargo", "rustc",
+    "agyis", "psl", "knot", "uv", "pnpm", "npm", "npx", "cargo", "rustc",
     "pytest", "ruff", "black", "mypy", "flake8", "tsc",
 )
 

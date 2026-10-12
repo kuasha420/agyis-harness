@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Plugin installation, uninstallation, and workspace initialization CLI commands (ADR-014, ADR-030).
@@ -34,6 +36,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     dedup = not getattr(args, "no_dedup", False)
     override = bool(getattr(args, "override", False))
+    dry_run = bool(getattr(args, "dry_run", False))
 
     res = install_workspace(
         workspace_dir=target_ws,
@@ -43,6 +46,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         include_agents=include_agents,
         dedup=dedup,
         override=override,
+        dry_run=dry_run,
     )
 
     if getattr(args, "json", False):
@@ -52,11 +56,13 @@ def cmd_init(args: argparse.Namespace) -> int:
                     "success": res.success,
                     "workspace_dir": str(res.workspace_dir),
                     "stack": res.stack,
+                    "dry_run": res.dry_run,
                     "skills_installed": res.skills_installed,
                     "skills_skipped": res.skills_skipped,
                     "agents_installed": res.agents_installed,
                     "agents_skipped": res.agents_skipped,
                     "rules_updated": res.rules_updated,
+                    "command_dictionary": res.command_dictionary,
                     "legacy_notice": res.legacy_notice,
                     "message": res.message,
                 },
@@ -69,15 +75,22 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"✔ {res.message}")
         print(f"  • Stack: {res.stack}")
         if res.skills_installed:
-            print(f"  • Installed skills: {', '.join(res.skills_installed)}")
+            label = "Planned skills" if res.dry_run else "Installed skills"
+            print(f"  • {label}: {', '.join(res.skills_installed)}")
         if res.skills_skipped:
             print(f"  • Skipped skills: {', '.join(res.skills_skipped)}")
         if res.agents_installed:
-            print(f"  • Installed agents: {', '.join(res.agents_installed)}")
+            label = "Planned agents" if res.dry_run else "Installed agents"
+            print(f"  • {label}: {', '.join(res.agents_installed)}")
         if res.rules_updated:
-            print("  • Rules: Updated AGENTS.md with tagged PSL invariants block")
+            action = "Would update" if res.dry_run else "Updated"
+            print(f"  • Rules: {action} AGENTS.md with tagged AGYIS invariants block")
         else:
             print("  • Rules: AGENTS.md tagged block is up-to-date")
+        if res.command_dictionary:
+            print("  • Command Dictionary:")
+            for verb, cmd in res.command_dictionary.items():
+                print(f"    - {verb}: {cmd}")
         if res.legacy_notice:
             print(f"\n💡 Notice: {res.legacy_notice}")
         return 0

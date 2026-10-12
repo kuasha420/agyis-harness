@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-PSL Harness for Google Antigravity™ (Unified Developer CLI).
+Agyis Harness for Google Antigravity™ (Unified Developer CLI).
+Antigravity Immune System (Autonomous Agent Runtime).
 
-Primary console entrypoint for the PSL Harness runtime:
-- psl doctor: Workstation runtime diagnostic & auto-healing
-- psl hook <name>: Deterministic lifecycle hook execution
-- psl test: Test suite discovery & verification
-- psl audit [stage]: Empirical telemetry lab runner
-- psl status: System & customization health overview
-- psl remote: Remote execution, streaming & triage
-- psl subagents: Active subagents & context health gauge
+Primary console entrypoint for the Agyis Harness runtime:
+- agyis doctor: Workstation runtime diagnostic & auto-healing
+- agyis hook <name>: Deterministic lifecycle hook execution
+- agyis test: Test suite discovery & verification
+- agyis audit [stage]: Empirical telemetry lab runner
+- agyis status: System & customization health overview
+- agyis remote: Remote execution, streaming & triage
+- agyis subagents: Active subagents & context health gauge
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from harness.commands import (
     cmd_audit,
     cmd_auth,
     cmd_doctor,
+    cmd_harmonize,
     cmd_hook,
     cmd_init,
     cmd_install,
@@ -45,21 +49,40 @@ DEFAULT_MATRIX = Path(__file__).resolve().parent / "runtime" / "matrix.json"
 DEFAULT_DB = REPO_ROOT / "data" / "telemetry.db"
 _TEST_WORKSPACE_ROOT: Optional[Path] = None
 
+PSL_DEPRECATION_WARNING = (
+    "DeprecationWarning: 'psl' is deprecated and will be removed in 3 months. Use 'agyis' instead.\n"
+)
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the top-level argument parser for the PSL harness CLI."""
+
+def emit_psl_deprecation_warning() -> None:
+    """Emits the active deprecation warning for legacy 'psl' invocations to sys.stderr."""
+    sys.stderr.write(PSL_DEPRECATION_WARNING)
+    sys.stderr.flush()
+
+
+def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
+    """Build the top-level argument parser for the Agyis harness CLI."""
+    if prog == "psl":
+        desc = "PSL Harness for Google Antigravity™ — Unified Developer CLI (Deprecated: Use 'agyis')"
+    else:
+        desc = "Agyis Harness for Google Antigravity™ — Unified Developer CLI (Antigravity Immune System)"
+
     parser = argparse.ArgumentParser(
-        prog="psl",
-        description="PSL Harness for Google Antigravity™ — Unified Developer CLI",
+        prog=prog,
+        description=desc,
     )
     parser.add_argument(
-        "-v", "--version", action="version", version=f"psl-agy-harness {harness.__version__}"
+        "-v", "--version", action="version", version=f"agyis-harness {harness.__version__}"
     )
 
     subparsers = parser.add_subparsers(dest="subcommand", help="Available subcommands")
 
     # doctor
-    p_doc = subparsers.add_parser("doctor", help="Audit host workstation runtimes and auto-heal")
+    p_doc = subparsers.add_parser(
+        "doctor",
+        help="Audit host workstation runtimes and auto-heal",
+        description="Agyis Workstation Diagnostic & Runtime Guarantee (Antigravity Immune System)",
+    )
     p_doc.add_argument("--matrix", type=Path, default=None, help="Path to matrix.json")
     p_doc.add_argument("--heal", action="store_true", help="Execute safe user-space auto-healing")
     p_doc.add_argument("--json", action="store_true", help="Output audit report in JSON format")
@@ -239,7 +262,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_auth_login = auth_subs.add_parser("login", help="Authenticate with GitHub Personal Access Token")
     p_auth_login.add_argument("--token", "-t", type=str, default=None, help="GitHub Personal Access Token")
     p_auth_login.add_argument("--gh", action="store_true", help="Lift token directly from GitHub CLI ('gh auth token')")
-    p_auth_login.add_argument("--workspace", "-w", dest="workspace_scope", action="store_true", help="Store endpoint in workspace config (.psl/config.json)")
+    p_auth_login.add_argument("--workspace", "-w", dest="workspace_scope", action="store_true", help="Store endpoint in workspace config (.agyis/config.json or .psl/config.json)")
     p_auth_login.add_argument("--endpoint", "-e", type=str, default=None, help="Central telemetry hub endpoint URL")
     p_auth_login.add_argument("--json", action="store_true", help="Output result in JSON format")
 
@@ -273,17 +296,26 @@ def build_parser() -> argparse.ArgumentParser:
         "init", help="Initialize workspace with stack-tailored skills and tagged rules"
     )
     p_init.add_argument("path", nargs="?", default=None, help="Target workspace path (defaults to current directory)")
-    p_init.add_argument("--stack", "-s", type=str, default=None, help="Stack preset (typescript, python, systems, shell, audit)")
+    p_init.add_argument("--stack", "-s", type=str, default=None, help="Stack preset (typescript, node, python, rust, go, systems, shell, audit, all)")
     p_init.add_argument("--skills", type=str, default=None, help="Comma-separated list of skills to install")
     p_init.add_argument("--agents", type=str, nargs="?", const=True, default=None, help="Install agent definitions locally into workspace (.agents/agents)")
     p_init.add_argument("--override", action="store_true", help="Force overwrite existing files")
     p_init.add_argument("--no-dedup", action="store_true", help="Disable content-hash deduplication")
+    p_init.add_argument("--dry-run", action="store_true", help="Simulate workspace initialization without modifications")
     p_init.add_argument("--yes", "-y", action="store_true", help="Non-interactive mode, apply defaults")
     p_init.add_argument("--json", action="store_true", help="Output result in JSON format")
 
+    # harmonize
+    p_harm = subparsers.add_parser(
+        "harmonize", help="Harmonize legacy .agent/ directories and PSL-HARNESS rules into modern .agents/ structure"
+    )
+    p_harm.add_argument("path", nargs="?", default=None, help="Target workspace path (defaults to current directory)")
+    p_harm.add_argument("--dry-run", action="store_true", help="Preview harmonization actions without modifying files")
+    p_harm.add_argument("--json", action="store_true", help="Output harmonization report in JSON format")
+
     # install
     p_install = subparsers.add_parser(
-        "install", help="Install PSL harness globally as Google Antigravity plugin or initialize workspace"
+        "install", help="Install Agyis harness globally as Google Antigravity plugin or initialize workspace"
     )
     p_install.add_argument("--global", "-g", dest="global_install", action="store_true", help="Install globally into user plugins directory (default)")
     p_install.add_argument("--bin-dir", type=Path, default=None, help="Custom binary directory for standalone CLI executable")
@@ -302,7 +334,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # uninstall
     p_uninstall = subparsers.add_parser(
-        "uninstall", help="Uninstall PSL harness global plugin"
+        "uninstall", help="Uninstall Agyis harness global plugin"
     )
     p_uninstall.add_argument("--bin-dir", type=Path, default=None, help="Custom binary directory for standalone CLI executable")
     p_uninstall.add_argument("--dry-run", action="store_true", help="Simulate uninstallation without removing files")
@@ -312,9 +344,32 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    """Main CLI dispatch entrypoint."""
-    parser = build_parser()
+def deprecated_psl_main(argv: Optional[List[str]] = None) -> int:
+    """Deprecated CLI entrypoint for legacy 'psl' invocations."""
+    emit_psl_deprecation_warning()
+    return main(argv=argv, prog="psl", _warned=True)
+
+
+def main(
+    argv: Optional[List[str]] = None,
+    prog: Optional[str] = None,
+    _warned: bool = False,
+) -> int:
+    """Main CLI dispatch entrypoint for Agyis harness."""
+    if prog is None:
+        if argv is None and sys.argv and sys.argv[0]:
+            try:
+                invoked_stem = Path(sys.argv[0]).stem.lower()
+                prog = "psl" if invoked_stem == "psl" else "agyis"
+            except Exception:
+                prog = "agyis"
+        else:
+            prog = "agyis"
+
+    if prog == "psl" and not _warned:
+        emit_psl_deprecation_warning()
+
+    parser = build_parser(prog=prog)
     args = parser.parse_args(argv)
 
     if not args.subcommand:
@@ -334,6 +389,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "remote": cmd_remote,
         "status": cmd_status,
         "init": cmd_init,
+        "harmonize": cmd_harmonize,
         "install": cmd_install,
         "uninstall": cmd_uninstall,
     }
@@ -343,6 +399,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         return handler(args)
 
     return 0
+
+
+__all__ = [
+    "DEFAULT_DB",
+    "DEFAULT_MATRIX",
+    "PSL_DEPRECATION_WARNING",
+    "REPO_ROOT",
+    "build_parser",
+    "deprecated_psl_main",
+    "emit_psl_deprecation_warning",
+    "main",
+]
 
 
 if __name__ == "__main__":

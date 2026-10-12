@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Hermetic Smoke Test Suite for PSL Development & Analysis Pipeline.
@@ -204,7 +206,9 @@ class TestPipelineAuditSmoke(unittest.TestCase):
 
         content = report_file.read_text(encoding="utf-8")
         self.assertTrue(content.startswith("<!-- SPDX-License-Identifier: Apache-2.0 -->"))
-        self.assertIn("<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->", content)
+        self.assertIn("<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->", content)
+        self.assertIn("<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->", content)
+        self.assertIn("<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->", content)
 
 
 if __name__ == "__main__":

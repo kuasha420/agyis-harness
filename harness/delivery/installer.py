@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 PSL Harness Delivery & Global Plugin Installer (ADR-030).
@@ -13,8 +15,9 @@ from pathlib import Path
 import shutil
 from typing import Any, Dict, List, Optional
 
-from harness.delivery.bin_launcher import install_psl_launcher
+from harness.delivery.bin_launcher import install_launchers, install_psl_launcher
 from harness.delivery.constants import (
+    DEFAULT_PLUGIN_DIR,
     DEFAULT_SURFACE_NAMES,
     REPO_ROOT,
     SYNC_SURFACE_ITEMS,
@@ -30,7 +33,7 @@ from harness.delivery.surfaces import (
 
 class PluginInstaller:
     """
-    Manages global installation and lifecycle of the psl-agy-harness plugin.
+    Manages global installation and lifecycle of the psl-agy-harness / agyis-harness plugin.
 
     Enforces ADR-014 Product vs. Project Bifurcation and strict path safety
     guards to protect the source repository root.
@@ -48,10 +51,11 @@ class PluginInstaller:
         self.source_dir = Path(source_dir).resolve() if source_dir else REPO_ROOT.resolve()
         if default_target_dir is not None:
             self.default_target_dir = Path(default_target_dir)
-        elif "PSL_PLUGINS_DIR" in os.environ:
-            self.default_target_dir = Path(os.environ["PSL_PLUGINS_DIR"])
+        elif "AGYIS_PLUGINS_DIR" in os.environ or "PSL_PLUGINS_DIR" in os.environ:
+            env_val = os.environ.get("AGYIS_PLUGINS_DIR") or os.environ.get("PSL_PLUGINS_DIR")
+            self.default_target_dir = Path(env_val)
         else:
-            self.default_target_dir = Path.home() / ".gemini" / "config" / "plugins" / "psl-agy-harness"
+            self.default_target_dir = DEFAULT_PLUGIN_DIR
 
         if config_dir is not None:
             self.config_dir = Path(config_dir).resolve()
@@ -71,17 +75,19 @@ class PluginInstaller:
 
         if bin_dir is not None:
             self.bin_dir = Path(bin_dir).resolve()
-        elif "PSL_BIN_DIR" in os.environ:
-            self.bin_dir = Path(os.environ["PSL_BIN_DIR"]).expanduser().resolve()
+        elif "AGYIS_BIN_DIR" in os.environ or "PSL_BIN_DIR" in os.environ:
+            val = os.environ.get("AGYIS_BIN_DIR") or os.environ["PSL_BIN_DIR"]
+            self.bin_dir = Path(val).expanduser().resolve()
         else:
             self.bin_dir = (Path.home() / ".local" / "bin").resolve()
 
         if aux_bin_dirs is not None:
             self.aux_bin_dirs = [Path(d).resolve() for d in aux_bin_dirs]
-        elif "PSL_AUX_BIN_DIRS" in os.environ:
+        elif "AGYIS_AUX_BIN_DIRS" in os.environ or "PSL_AUX_BIN_DIRS" in os.environ:
+            val = os.environ.get("AGYIS_AUX_BIN_DIRS") or os.environ["PSL_AUX_BIN_DIRS"]
             self.aux_bin_dirs = [
                 Path(p).expanduser().resolve()
-                for p in os.environ["PSL_AUX_BIN_DIRS"].split(":")
+                for p in val.split(":")
                 if p.strip()
             ]
         else:
@@ -95,8 +101,9 @@ class PluginInstaller:
         self._verify_path_safety(self.default_target_dir)
 
     def _install_bin(self, target: Path) -> Path:
-        """Installs standalone CLI executable launcher into self.bin_dir and auxiliary bin paths with mode 0o755."""
-        return install_psl_launcher(self.bin_dir, self.aux_bin_dirs, self.source_dir, target)
+        """Installs standalone CLI executable launchers (agyis and psl) into self.bin_dir and auxiliary bin paths with mode 0o755."""
+        agyis_bin, _ = install_launchers(self.bin_dir, self.aux_bin_dirs, self.source_dir, target)
+        return agyis_bin
 
     def _verify_path_safety(self, target_dir: Path) -> None:
         """
@@ -336,11 +343,15 @@ class PluginInstaller:
         self._verify_path_safety(target)
 
         if not dry_run:
-            targets_to_unlink = [self.bin_dir / "psl"] + [d / "psl" for d in self.aux_bin_dirs]
-            for psl_bin in targets_to_unlink:
-                if psl_bin.is_symlink() or psl_bin.exists():
+            targets_to_unlink = (
+                [self.bin_dir / "agyis", self.bin_dir / "psl"]
+                + [d / "agyis" for d in self.aux_bin_dirs]
+                + [d / "psl" for d in self.aux_bin_dirs]
+            )
+            for target_bin in targets_to_unlink:
+                if target_bin.is_symlink() or target_bin.exists():
                     try:
-                        psl_bin.unlink()
+                        target_bin.unlink()
                     except (PermissionError, OSError):
                         pass
 

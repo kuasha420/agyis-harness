@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Hermetic unit tests for PSL Modular Skills (harness/skills).
@@ -18,7 +20,9 @@ import unittest
 from harness.skills import (
     DEFAULT_SKILLS_DIR,
     DEFAULT_TARGET_DIR,
+    STACK_PRESETS,
     SkillSpec,
+    detect_workspace_stack,
     get_skill,
     list_skills,
     parse_frontmatter,
@@ -444,6 +448,45 @@ class TestModularSkills(unittest.TestCase):
             "---\nname: test-skill\ndescription: Source description\n---\nSource instructions",
         )
         self.assertIn(dest_file, synced_override)
+
+    def test_detect_workspace_stack_systems(self) -> None:
+        """detect_workspace_stack recognizes systems build manifests."""
+        manifests = ["Makefile", "CMakeLists.txt", "meson.build", "flake.nix", "PKGBUILD"]
+        for manifest in manifests:
+            with self.subTest(manifest=manifest):
+                ws = self.isolated_path / f"sys_{manifest.replace('.', '_')}"
+                ws.mkdir(parents=True)
+                (ws / manifest).write_text("# Build config", encoding="utf-8")
+                self.assertEqual(detect_workspace_stack(ws), "systems")
+
+    def test_detect_workspace_stack_precedence(self) -> None:
+        """Language-specific manifests take precedence over Makefile systems manifest."""
+        ws_ts = self.isolated_path / "ts_and_make"
+        ws_ts.mkdir(parents=True)
+        (ws_ts / "package.json").write_text("{}", encoding="utf-8")
+        (ws_ts / "Makefile").write_text("all:\n", encoding="utf-8")
+        self.assertEqual(detect_workspace_stack(ws_ts), "typescript")
+
+        ws_py = self.isolated_path / "py_and_make"
+        ws_py.mkdir(parents=True)
+        (ws_py / "pyproject.toml").write_text("", encoding="utf-8")
+        (ws_py / "Makefile").write_text("all:\n", encoding="utf-8")
+        self.assertEqual(detect_workspace_stack(ws_py), "python")
+
+        ws_rs = self.isolated_path / "rs_and_make"
+        ws_rs.mkdir(parents=True)
+        (ws_rs / "Cargo.toml").write_text("", encoding="utf-8")
+        (ws_rs / "Makefile").write_text("all:\n", encoding="utf-8")
+        self.assertEqual(detect_workspace_stack(ws_rs), "rust")
+
+    def test_node_stack_preset_alias(self) -> None:
+        """node preset is a first-class alias for typescript preset."""
+        self.assertIn("node", STACK_PRESETS)
+        self.assertEqual(STACK_PRESETS["node"], STACK_PRESETS["typescript"])
+        self.assertEqual(
+            STACK_PRESETS["node"],
+            ["psl-stack-typescript", "psl-test-node", "psl-stack-backend"],
+        )
 
 
 if __name__ == "__main__":

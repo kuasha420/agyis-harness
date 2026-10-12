@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Hermetic unit tests for PSL Specialist Subagents (harness/subagents.py).
@@ -223,10 +225,11 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIn("manage_subagents", tool_set)
         self.assertIn("ask_question", tool_set)
 
-    def test_psl_main_toolgroup_permissions(self) -> None:
-        """Main agent (psl_main) must have full permissions across read, write, exec, subagent, mcp."""
-        main_spec = get_agent_spec("psl_main")
+    def test_agyis_architect_toolgroup_permissions(self) -> None:
+        """Main agent (agyis_architect) must have full permissions across read, write, exec, subagent, mcp."""
+        main_spec = get_agent_spec("agyis_architect")
         self.assertIsNotNone(main_spec)
+        self.assertEqual(main_spec.name, "agyis_architect")
         self.assertEqual(main_spec.archetype, AgentArchetype.MAIN)
         self.assertTrue(main_spec.can_write, "Main agent must have write permission")
         self.assertTrue(main_spec.can_execute, "Main agent must have exec permission")
@@ -245,8 +248,15 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertNotIn("call_mcp_tool", tool_set, "MCP tools must not be listed statically in allowed_tools")
         self.assertEqual(len(main_spec.allowed_tools), 17)
 
+        # Verify legacy alias also returns identical spec
+        legacy_spec = get_agent_spec("psl_main")
+        self.assertIsNotNone(legacy_spec)
+        self.assertEqual(legacy_spec.name, "agyis_architect")
+
     def test_get_agent_spec_lookups_and_aliases(self) -> None:
         """get_agent_spec must resolve names, stems, and archetype aliases."""
+        self.assertIsNotNone(get_agent_spec("agyis_architect"))
+        self.assertIsNotNone(get_agent_spec("agyis-architect"))
         self.assertIsNotNone(get_agent_spec("psl_main"))
         self.assertIsNotNone(get_agent_spec("psl-main"))
         self.assertIsNotNone(get_agent_spec("main"))
@@ -280,6 +290,9 @@ class TestSpecialistSubagents(unittest.TestCase):
 
     def test_archetype_from_string(self) -> None:
         """AgentArchetype.from_string resolves canonical names and aliases, rejects invalid."""
+        self.assertEqual(AgentArchetype.from_string("agyis_architect"), AgentArchetype.MAIN)
+        self.assertEqual(AgentArchetype.from_string("agyis-architect"), AgentArchetype.MAIN)
+        self.assertEqual(AgentArchetype.from_string("architect"), AgentArchetype.MAIN)
         self.assertEqual(AgentArchetype.from_string("main"), AgentArchetype.MAIN)
         self.assertEqual(AgentArchetype.from_string("psl_main"), AgentArchetype.MAIN)
         self.assertEqual(AgentArchetype.from_string("lead"), AgentArchetype.MAIN)
@@ -299,7 +312,6 @@ class TestSpecialistSubagents(unittest.TestCase):
             AgentArchetype.from_string("qa_verifier"), AgentArchetype.AUDITOR
         )
         self.assertEqual(AgentArchetype.from_string("planner"), AgentArchetype.PLANNER)
-        self.assertEqual(AgentArchetype.from_string("architect"), AgentArchetype.PLANNER)
         self.assertEqual(AgentArchetype.from_string("coordinator"), AgentArchetype.COORDINATOR)
         self.assertEqual(AgentArchetype.from_string("orchestrator"), AgentArchetype.COORDINATOR)
         self.assertEqual(AgentArchetype.from_string("custodian"), AgentArchetype.CUSTODIAN)
@@ -323,7 +335,7 @@ class TestSpecialistSubagents(unittest.TestCase):
             "harness_auditor.md",
             "planner.md",
             "coordinator.md",
-            "psl_main.md",
+            "agyis_architect.md",
             "harness_custodian.md",
         ]:
             dest = target / expected_file

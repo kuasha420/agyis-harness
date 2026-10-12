@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 PSL Harness for Google Antigravity™
@@ -203,7 +205,9 @@ def generate_benchmark_report(results: Dict[str, Any]) -> str:
     table_body = "\n".join(rows_md)
 
     return f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # Empirical Reasoning Effort vs. Accuracy Benchmark Matrix
 

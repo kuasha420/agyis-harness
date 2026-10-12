@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 PSL Modular Skills Registry & Discovery Engine.
@@ -81,6 +83,11 @@ STACK_PRESETS: Dict[str, List[str]] = {
         "psl-stack-backend",
     ],
     "typescript": [
+        "psl-stack-typescript",
+        "psl-test-node",
+        "psl-stack-backend",
+    ],
+    "node": [
         "psl-stack-typescript",
         "psl-test-node",
         "psl-stack-backend",
@@ -191,6 +198,14 @@ def detect_workspace_stack(workspace_root: Optional[Path] = None) -> Optional[st
         return "rust"
     if (root / "go.mod").is_file():
         return "go"
+    if (
+        (root / "Makefile").is_file()
+        or (root / "CMakeLists.txt").is_file()
+        or (root / "meson.build").is_file()
+        or (root / "flake.nix").is_file()
+        or (root / "PKGBUILD").is_file()
+    ):
+        return "systems"
     return None
 
 
@@ -265,6 +280,11 @@ def sync_skills(
                 or (dst.parent / "package.json").is_file()
                 or (dst.parent / "Cargo.toml").is_file()
                 or (dst.parent / "go.mod").is_file()
+                or (dst.parent / "Makefile").is_file()
+                or (dst.parent / "CMakeLists.txt").is_file()
+                or (dst.parent / "meson.build").is_file()
+                or (dst.parent / "flake.nix").is_file()
+                or (dst.parent / "PKGBUILD").is_file()
             )
             else None
         )

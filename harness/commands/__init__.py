@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 PSL CLI command modules (ADR-014).
@@ -19,6 +21,7 @@ from harness.commands.subagents import cmd_subagents
 from harness.commands.remote import cmd_remote
 from harness.commands.status import cmd_status
 from harness.commands.install import cmd_init, cmd_install, cmd_uninstall
+from harness.commands.harmonize import cmd_harmonize
 
 __all__ = [
     "cmd_doctor",
@@ -35,4 +38,5 @@ __all__ = [
     "cmd_init",
     "cmd_install",
     "cmd_uninstall",
+    "cmd_harmonize",
 ]

@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Environment auto-healing implementation for PSL Harness (ADR-014).
+Environment auto-healing implementation for Agyis Harness (ADR-014 / Antigravity Immune System).
 """
 
 from __future__ import annotations
@@ -68,11 +70,17 @@ def heal_environment(audit: Dict[str, Any], matrix_path: Path) -> List[str]:
             cmd = f"# Install: {' '.join(missing_distro_pkgs)}"
         actions_taken.append(f"Distro package install required:\n    {cmd}")
 
-    psl_collision = audit.get("psl_collision", {})
-    if psl_collision.get("collision") and psl_collision.get("remediation"):
+    cli_binary = audit.get("cli_binary", {})
+    if (cli_binary.get("collision") or cli_binary.get("status") == "WARNING") and cli_binary.get("remediation"):
         actions_taken.append(
-            f"PSL Collision Remediation:\n    {psl_collision['remediation']}"
+            f"CLI Binary Remediation:\n    {cli_binary['remediation']}"
         )
+    else:
+        psl_collision = audit.get("psl_collision", {})
+        if psl_collision.get("collision") and psl_collision.get("remediation"):
+            actions_taken.append(
+                f"PSL Collision Remediation:\n    {psl_collision['remediation']}"
+            )
 
     dup_agents = audit.get("duplicate_agents", {})
     if dup_agents.get("status") == "WARNING" and dup_agents.get("remediation"):

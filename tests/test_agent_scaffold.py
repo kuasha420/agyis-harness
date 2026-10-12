@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Hermetic unit and integration tests for PSL Agent Scaffolding & Validation Engine (ADR-026).
@@ -91,7 +93,7 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
     def test_inspect_workspace_context_repo_root(self) -> None:
         """inspect_workspace_context successfully parses current repo project files."""
         ctx = inspect_workspace_context(REPO_ROOT)
-        self.assertEqual(ctx["project_name"], "psl-agy-harness")
+        self.assertEqual(ctx["project_name"], "agyis-harness")
         self.assertIn("Python", ctx["languages"])
         self.assertIn("pytest", ctx["test_runners"])
         self.assertIn("pyproject.toml", ctx["detected_files"])
@@ -204,10 +206,10 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
 
         # Invariants in prompt
         self.assertIn("The 5 Ground Rules", prompt)
-        self.assertIn("python3 -m harness.cli test", prompt)
-        self.assertIn("python3 -m harness.cli doctor", prompt)
-        self.assertIn("python3 -m harness.cli status", prompt)
-        self.assertIn("./psl sync", prompt)
+        self.assertIn("agyis test", prompt)
+        self.assertIn("agyis doctor", prompt)
+        self.assertIn("agyis status", prompt)
+        self.assertIn("agyis sync", prompt)
         self.assertIn("ADR-012", prompt)
         self.assertIn("ADR-013", prompt)
         self.assertIn("ADR-014", prompt)

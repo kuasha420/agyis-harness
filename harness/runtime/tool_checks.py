@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Toolchain and binary version checks for PSL Harness (ADR-014).
+Toolchain and binary version checks for Agyis Harness (ADR-014 / Antigravity Immune System).
 """
 
 from __future__ import annotations
@@ -70,7 +72,7 @@ def check_psl_collision() -> Dict[str, Any]:
     try:
         with open(psl_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read(2048)
-            if "harness" in content:
+            if "harness" in content or "agyis" in content:
                 is_harness = True
     except OSError:
         pass
@@ -107,6 +109,84 @@ def check_psl_collision() -> Dict[str, Any]:
         "collision": False,
         "details": f"psl binary correctly resolves to PSL Harness launcher ({psl_path}).",
         "remediation": None,
+    }
+
+
+def check_cli_binary() -> Dict[str, Any]:
+    """Audit host CLI binaries: probes 'agyis' as primary binary and checks 'psl' availability/collision."""
+    agyis_path = shutil.which("agyis")
+    psl_info = check_psl_collision()
+
+    is_agyis_harness = False
+    if agyis_path:
+        try:
+            with open(agyis_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read(2048)
+                if "harness" in content or "agyis" in content:
+                    is_agyis_harness = True
+        except OSError:
+            pass
+
+    psl_collision_flag = psl_info.get("collision", False)
+
+    if not agyis_path:
+        agyis_status = "WARNING"
+        if psl_info.get("status") == "OK":
+            agyis_details = (
+                f"'agyis' primary binary not found on PATH (legacy 'psl' detected at {psl_info.get('path')})."
+            )
+            remediation = (
+                "Deploy the primary 'agyis' launcher via 'python3 -m harness.cli install' or ensure ~/.local/bin is on PATH."
+            )
+        else:
+            agyis_details = "'agyis' binary not found on PATH."
+            remediation = (
+                "Deploy the Agyis launcher via 'python3 -m harness.cli install' or ensure ~/.local/bin is on PATH."
+            )
+        status = "WARNING"
+        collision = psl_collision_flag
+        details = agyis_details
+    elif not is_agyis_harness:
+        agyis_status = "WARNING"
+        collision = True
+        status = "WARNING"
+        agyis_details = f"Collision detected: 'agyis' resolves to non-harness binary ({agyis_path})."
+        details = agyis_details
+        remediation = (
+            "Ensure Agyis harness bin directory is prioritized in PATH:\n"
+            "    export PATH=\"$HOME/.local/bin:$PATH\"\n"
+            "And ensure the launcher is installed via: python3 -m harness.cli install"
+        )
+    elif psl_collision_flag:
+        agyis_status = "OK"
+        collision = True
+        status = "WARNING"
+        agyis_details = f"'agyis' binary correctly resolves to Agyis Harness launcher ({agyis_path})."
+        details = (
+            f"'agyis' launcher verified ({agyis_path}), but legacy 'psl' collision detected: {psl_info.get('details')}"
+        )
+        remediation = psl_info.get("remediation")
+    else:
+        agyis_status = "OK"
+        collision = False
+        status = "OK"
+        agyis_details = f"'agyis' binary correctly resolves to Agyis Harness launcher ({agyis_path})."
+        details = agyis_details
+        remediation = None
+
+    return {
+        "status": status,
+        "primary_binary": "agyis",
+        "path": agyis_path,
+        "agyis_path": agyis_path,
+        "agyis_status": agyis_status,
+        "agyis_details": agyis_details,
+        "psl_path": psl_info.get("path"),
+        "collision": collision,
+        "details": details,
+        "remediation": remediation,
+        "psl_details": psl_info,
+        "psl_collision": psl_info,
     }
 
 
@@ -147,20 +227,21 @@ def check_tool(
             is_shim = True
             shim_details = "conda environment active in PATH"
 
-    # Check for libpsl / non-harness collision if auditing psl
+    # Check for libpsl / non-harness collision if auditing psl or agyis
     is_collision = False
     collision_details = None
-    if (name == "psl" or binary == "psl") and resolved_path:
+    if (name in ("psl", "agyis") or binary in ("psl", "agyis")) and resolved_path:
         is_harness = False
         try:
             with open(resolved_path, "r", encoding="utf-8", errors="ignore") as f:
-                if "harness" in f.read(2048):
+                content = f.read(2048)
+                if "harness" in content or "agyis" in content:
                     is_harness = True
         except OSError:
             pass
-        if resolved_path in ("/usr/bin/psl", "/bin/psl") or not is_harness:
+        if (binary == "psl" and resolved_path in ("/usr/bin/psl", "/bin/psl")) or not is_harness:
             is_collision = True
-            collision_details = f"Collision detected: 'psl' resolves to non-harness binary ({resolved_path})"
+            collision_details = f"Collision detected: '{binary}' resolves to non-harness binary ({resolved_path})"
 
     if not resolved_path:
         return {

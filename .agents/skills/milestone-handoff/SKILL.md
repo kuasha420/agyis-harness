@@ -6,7 +6,9 @@ description: >-
   verifying test suites, and instructing the operator to reset into a fresh session.
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # Milestone Handoff & Retroactive Horizon Compaction Protocol
 

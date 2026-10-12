@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Specialist subagent data models, archetypes, and spec loader (ADR-014).
@@ -41,7 +43,17 @@ class AgentArchetype(str, Enum):
             if member.value == norm or member.name.lower() == norm:
                 return member
         # Fallback aliases
-        if norm in ("main", "psl_main", "lead", "general", "default"):
+        if norm in (
+            "agyis_architect",
+            "agyis-architect",
+            "architect",
+            "main",
+            "psl_main",
+            "psl-main",
+            "lead",
+            "general",
+            "default",
+        ):
             return cls.MAIN
         elif norm in ("builder", "worker", "implementer", "executioner"):
             return cls.EXECUTIONER
@@ -49,7 +61,7 @@ class AgentArchetype(str, Enum):
             return cls.HAMMER
         elif norm in ("qa", "verifier", "qa_verifier", "auditor"):
             return cls.AUDITOR
-        elif norm in ("planner", "architect", "designer", "researcher"):
+        elif norm in ("planner", "designer", "researcher"):
             return cls.PLANNER
         elif norm in ("coordinator", "orchestrator", "swarm_lead"):
             return cls.COORDINATOR

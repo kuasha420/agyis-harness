@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Remote SSH command inspection, timeout injection, and payload sanitization (ADR-027).
@@ -23,7 +25,7 @@ SSH_TIMEOUT_OPTIONS = (
 )
 
 SSH_PATTERN = re.compile(
-    r"(^|[;&|]\s*|(?:sudo|nohup|timeout\s+\S+)\s+)((?:\S+/)?(?:ssh|knot\s+exec|psl\s+remote\s+exec))(\s+|$)"
+    r"(^|[;&|]\s*|(?:sudo|nohup|timeout\s+\S+)\s+)((?:\S+/)?(?:ssh|knot\s+exec|(?:agyis|psl)\s+remote\s+exec))(\s+|$)"
 )
 
 SSH_OPTION_FLAGS_WITH_ARG = {
@@ -44,9 +46,9 @@ REMOTE_TOOLCHAIN_REGEX = re.compile(
 def ensure_ssh_socket_dir() -> Path:
     """
     Ensures ~/.cache/psl/ssh/ socket directory exists with 0700 permissions.
-    Supports PSL_HARNESS_STATE_DIR if configured.
+    Supports AGYIS_HARNESS_STATE_DIR and PSL_HARNESS_STATE_DIR if configured.
     """
-    state_dir = os.environ.get("PSL_HARNESS_STATE_DIR")
+    state_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
     if state_dir:
         ssh_dir = Path(state_dir) / "ssh"
     else:

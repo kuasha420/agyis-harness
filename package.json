@@ -1,9 +1,10 @@
 {
-  "name": "psl-agy-harness",
+  "name": "agyis-harness",
   "version": "0.1.0",
-  "description": "Empirical audit and official extension harness for Google Antigravity",
+  "description": "Autonomous agent runtime harness and immune system for Google Antigravity™",
   "type": "module",
   "scripts": {
+    "agyis": "python3 -m harness.cli",
     "psl": "python3 -m harness.cli",
     "sync": "python3 -m harness.cli sync",
     "status": "python3 -m harness.cli status",
@@ -23,11 +24,13 @@
   },
   "keywords": [
     "antigravity",
-    "gemini",
+    "agyis",
     "harness",
     "telemetry",
-    "audit"
+    "audit",
+    "immune-system",
+    "gemini"
   ],
-  "author": "Purrfect Software Limited (PSL)",
+  "author": "Arafat Zahan (@kuasha420) & Purrfect Software Limited (PSL)",
   "license": "Apache-2.0"
 }

@@ -1,7 +1,11 @@
-psl-agy-harness
-Copyright (c) 2026 Purrfect Software Limited (PSL)
+agyis-harness
+Copyright (c) 2026 Arafat Zahan (@kuasha420)
+Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
-This product includes software developed at Purrfect Software Limited (PSL).
+This product includes software developed by Arafat Zahan (@kuasha420) with
+corporate stewardship and infrastructure provided by Purrfect Software Limited (PSL)
+under the ICARO-42/b Company-Supported Personal IP Framework.
 
 Third-Party Software Attributions:
 - psycopg (GNU LGPL-3.0): Used by server/ for PostgreSQL database connectivity.

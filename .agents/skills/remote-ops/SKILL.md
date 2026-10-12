@@ -6,7 +6,9 @@ description: >-
   CloudPanel, PM2 services, or Knot mesh strands over SSH.
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # PSL Skill: Remote Operations, SSH Multiplexing & Cloud/Mesh Troubleshooting (ADR-027)
 

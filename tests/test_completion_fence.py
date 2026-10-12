@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Unit and integration contract tests for harness/hooks/completion_fence_hook.py
@@ -360,7 +362,7 @@ class TestCompletionFenceHook(unittest.TestCase):
         )
 
     def test_universal_test_runner_detection(self):
-        """Verifies universal test runner commands across Python, Node, Rust, Go, C/C++ are recognized."""
+        """Verifies universal test runner commands across Python, Node, Rust, Go, C/C++, and Agyis/PSL harnesses are recognized."""
         recognized_cmds = [
             "pytest",
             "pytest tests/",
@@ -368,8 +370,20 @@ class TestCompletionFenceHook(unittest.TestCase):
             "python -m unittest discover",
             "python3 -m pytest tests/",
             "python3 -m harness.cli test",
+            "agyis test",
+            "./agyis test",
+            "agyis test -v",
+            "agyis test --verbose",
+            "sudo agyis test",
+            "time agyis test",
+            "nohup agyis test",
             "psl test",
             "./psl test",
+            "psl test -v",
+            "psl test --verbose",
+            "sudo psl test",
+            "time psl test",
+            "nohup psl test",
             "pnpm test",
             "pnpm run test",
             "npm test",
@@ -396,6 +410,11 @@ class TestCompletionFenceHook(unittest.TestCase):
             "git commit -m 'add test'",
             "python script.py",
             "node index.js",
+            "agyis status",
+            "agyis skills",
+            "psl status",
+            "psl skills",
+            "agyis testing_false",
         ]
         for cmd in unrecognized_cmds:
             with self.subTest(cmd=cmd):
@@ -404,7 +423,16 @@ class TestCompletionFenceHook(unittest.TestCase):
     def test_command_verification_auto_clears_code_dirty_on_exit_zero(self):
         """Exit code 0 on universal test runners auto-clears code_dirty and allows stopping."""
         conv_id = "test-cmd-verify-clean"
-        for runner_cmd in ("pytest", "pnpm test", "cargo test", "go test"):
+        for runner_cmd in (
+            "pytest",
+            "pnpm test",
+            "cargo test",
+            "go test",
+            "agyis test",
+            "./agyis test",
+            "psl test",
+            "./psl test",
+        ):
             with self.subTest(runner_cmd=runner_cmd):
                 # Dirty state with edit
                 record_edit("src/core.py", conv_id=conv_id, state_dir=self.state_dir)
@@ -428,17 +456,19 @@ class TestCompletionFenceHook(unittest.TestCase):
     def test_command_verification_preserves_dirty_on_nonzero_exit(self):
         """Exit code != 0 on test runners leaves code_dirty True and blocks stopping."""
         conv_id = "test-cmd-verify-fail"
-        record_edit("src/core.py", conv_id=conv_id, state_dir=self.state_dir)
+        for runner_cmd, exit_code in (("cargo test", 101), ("agyis test", 1), ("psl test", 2)):
+            with self.subTest(runner_cmd=runner_cmd, exit_code=exit_code):
+                record_edit("src/core.py", conv_id=conv_id, state_dir=self.state_dir)
 
-        matched = check_command_verification("cargo test", exit_code=101, conv_id=conv_id, state_dir=self.state_dir)
-        self.assertTrue(matched)
+                matched = check_command_verification(runner_cmd, exit_code=exit_code, conv_id=conv_id, state_dir=self.state_dir)
+                self.assertTrue(matched)
 
-        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
-        self.assertTrue(state["code_dirty"])
-        self.assertIn("src/core.py", state["last_modified_files"])
+                state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+                self.assertTrue(state["code_dirty"])
+                self.assertIn("src/core.py", state["last_modified_files"])
 
-        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)
-        self.assertEqual(res["decision"], "continue")
+                res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)
+                self.assertEqual(res["decision"], "continue")
 
     def test_non_test_command_does_not_clear_dirty(self):
         """Non-test command returns False and does not clear code_dirty."""
@@ -555,6 +585,70 @@ class TestCompletionFenceHook(unittest.TestCase):
         stop_res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(stop_res.get("decision"), "allow")
         self.assertNotIn("reason", stop_res)
+
+
+class TestCompletionFenceDualRunners(unittest.TestCase):
+    """Hermetic contract test suite validating dual runner triggers ('agyis test' and 'psl test')."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temp_dir.name)
+        self.orig_env = os.environ.get("PSL_HARNESS_STATE_DIR")
+        self.orig_agyis_env = os.environ.get("AGYIS_HARNESS_STATE_DIR")
+        os.environ["PSL_HARNESS_STATE_DIR"] = str(self.state_dir)
+        os.environ["AGYIS_HARNESS_STATE_DIR"] = str(self.state_dir)
+
+    def tearDown(self):
+        if self.orig_env is not None:
+            os.environ["PSL_HARNESS_STATE_DIR"] = self.orig_env
+        else:
+            os.environ.pop("PSL_HARNESS_STATE_DIR", None)
+        if self.orig_agyis_env is not None:
+            os.environ["AGYIS_HARNESS_STATE_DIR"] = self.orig_agyis_env
+        else:
+            os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+        self.temp_dir.cleanup()
+
+    def test_agyis_test_runner_clears_fence_on_success(self):
+        """Dirty code edit followed by successful 'agyis test' clears fence and permits exit."""
+        conv_id = "conv-agyis-clean"
+        record_edit("harness/cli.py", conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(load_state(conv_id=conv_id, state_dir=self.state_dir)["code_dirty"])
+
+        matched = check_command_verification("agyis test", exit_code=0, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(matched)
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+        self.assertEqual(evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+
+    def test_psl_test_runner_clears_fence_on_success(self):
+        """Dirty code edit followed by successful 'psl test' clears fence and permits exit."""
+        conv_id = "conv-psl-clean"
+        record_edit("harness/delivery/workspace.py", conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(load_state(conv_id=conv_id, state_dir=self.state_dir)["code_dirty"])
+
+        matched = check_command_verification("psl test", exit_code=0, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(matched)
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+        self.assertEqual(evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
+
+    def test_agyis_and_psl_failure_blocks_stop(self):
+        """Non-zero exit on 'agyis test' and 'psl test' retains dirty state and blocks stop."""
+        conv_id = "conv-fail-block"
+        record_edit("harness/commands/test.py", conv_id=conv_id, state_dir=self.state_dir)
+
+        # agyis test exit code 1
+        m1 = check_command_verification("agyis test", exit_code=1, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(m1)
+        self.assertTrue(load_state(conv_id=conv_id, state_dir=self.state_dir)["code_dirty"])
+        self.assertEqual(evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)["decision"], "continue")
+
+        # psl test exit code 2
+        m2 = check_command_verification("psl test", exit_code=2, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(m2)
+        self.assertTrue(load_state(conv_id=conv_id, state_dir=self.state_dir)["code_dirty"])
+        self.assertEqual(evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)["decision"], "continue")
 
 
 if __name__ == "__main__":

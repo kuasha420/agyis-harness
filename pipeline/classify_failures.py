@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 PSL Harness for Google Antigravity™
@@ -209,7 +211,9 @@ def generate_markdown_report(audit: Dict[str, Any], output_path: Path) -> None:
     interventions = audit["interventions"]
 
     md = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # 📊 Workstation Empirical Telemetry & Audit Report
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 PSL Harness: Deterministic Stop-Hook Verification Fence (ADR-022)
@@ -23,7 +25,10 @@ import sys
 
 def get_state_dir() -> Path:
     """Returns the harness state directory from environment or default."""
-    return Path(os.environ.get("PSL_HARNESS_STATE_DIR", "/tmp/psl_agy_harness_state"))
+    env_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
+    if env_dir and env_dir.strip():
+        return Path(env_dir.strip())
+    return Path("/tmp/psl_agy_harness_state")
 
 
 def get_state_file(conv_id: str = "default", state_dir: Path | None = None) -> Path:
@@ -238,7 +243,7 @@ def evaluate_stop(
             "decision": "continue",
             "reason": (
                 f"Verification Required: Unverified code edits detected in: {files_str}. "
-                "Execute 'python3 -m harness.cli test' or your project test suite before stopping."
+                "Execute 'agyis test' (or 'python3 -m harness.cli test') or your project test suite before stopping."
             ),
         }
     else:
@@ -254,7 +259,7 @@ UNIVERSAL_TEST_RUNNER_PATTERNS: tuple[re.Pattern, ...] = (
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*cargo\s+test\b"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*go\s+test\b"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*ctest\b"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:psl|\./psl)\s+test\b"),
+    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:agyis|\./agyis|psl|\./psl)\s+test\b)"),
 )
 
 

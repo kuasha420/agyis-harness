@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-PSL Harness for Google Antigravity™
-Workstation Diagnostic & Environment Health Engine (psl doctor)
+Agyis Harness for Google Antigravity™
+Workstation Diagnostic & Environment Health Engine (agyis doctor)
+Antigravity Immune System (Self-Healing Runtime Architecture)
 
 Audits host workstation runtimes against harness/runtime/matrix.json across:
 - Tier 1: Core Languages & Package Managers (Python >= 3.12, Node >= 20, uv, pnpm)
 - Tier 2: Core SWE CLI (git, gh, ripgrep, fd)
 - Tier 3: Mesh/Host (ssh, knot)
 
-Detects pyenv/conda shim hijacking, audits hermetic uv toolchains, and provides
-zero-sudo auto-healing via `--heal`.
+Detects pyenv/conda shim hijacking, audits hermetic uv toolchains, probes agyis/psl
+CLI binaries, and provides zero-sudo auto-healing via `--heal`.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from harness.runtime.hygiene_checks import (
 )
 from harness.runtime.tool_checks import (
     REPO_ROOT,
+    check_cli_binary,
     check_psl_collision,
     check_tool,
     detect_os_family,
@@ -44,11 +48,13 @@ DEFAULT_MATRIX = Path(__file__).resolve().parent / "matrix.json"
 __all__ = [
     "DEFAULT_MATRIX",
     "REPO_ROOT",
+    "check_cli_binary",
     "check_duplicate_agents",
     "check_hooks_health",
     "check_node_script_hygiene",
     "check_psl_collision",
     "check_tool",
+    "deprecated_psl_doctor_main",
     "detect_os_family",
     "find_hermetic_uv_python",
     "heal_environment",
@@ -74,7 +80,8 @@ def run_doctor(
 
     os_family = detect_os_family()
     hermetic_python = find_hermetic_uv_python()
-    psl_collision = check_psl_collision()
+    cli_binary = check_cli_binary()
+    psl_collision = cli_binary.get("psl_details") or cli_binary.get("psl_collision") or check_psl_collision()
     duplicate_agents = check_duplicate_agents(config_dir=config_dir)
     node_script_hygiene = check_node_script_hygiene(workspace_root=workspace_root)
     hooks_health = check_hooks_health(hooks_path=hooks_path)
@@ -83,6 +90,7 @@ def run_doctor(
         "os_family": os_family,
         "hermetic_python_available": str(hermetic_python) if hermetic_python else None,
         "path_environment": os.environ.get("PATH", ""),
+        "cli_binary": cli_binary,
         "psl_collision": psl_collision,
         "duplicate_agents": duplicate_agents,
         "node_script_hygiene": node_script_hygiene,
@@ -98,7 +106,9 @@ def run_doctor(
         },
     }
 
-    if psl_collision.get("collision") or psl_collision.get("status") == "WARNING":
+    if cli_binary.get("collision") or cli_binary.get("status") == "WARNING":
+        results["summary"]["warning"] += 1
+    elif psl_collision.get("collision") or psl_collision.get("status") == "WARNING":
         results["summary"]["warning"] += 1
     if duplicate_agents.get("status") == "WARNING":
         results["summary"]["warning"] += 1
@@ -137,7 +147,8 @@ def run_doctor(
 def print_cli_report(audit: Dict[str, Any]) -> None:
     """Print beautifully styled terminal report."""
     print("\n" + "=" * 70)
-    print(" 🩺  PSL WORKSTATION DOCTOR & RUNTIME GUARANTEE AUDIT")
+    print(" 🩺  AGYIS WORKSTATION DOCTOR & RUNTIME GUARANTEE AUDIT")
+    print("     Antigravity Immune System (Autonomous Agent Runtime)")
     print("=" * 70)
     print(f" OS Family: {audit['os_family'].upper()}")
     herm_py = audit.get("hermetic_python_available")
@@ -146,16 +157,42 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
     else:
         print(" Hermetic uv Python: Not found in ~/.local/share/uv/python")
 
-    psl_col = audit.get("psl_collision")
-    if psl_col:
-        if psl_col.get("collision"):
-            print(f" PSL Launcher: [\033[33mWARN\033[0m] -> {psl_col.get('details')}")
-            if psl_col.get("remediation"):
-                print(f"    Remediation:\n      {psl_col.get('remediation')}")
-        elif psl_col.get("status") == "OK":
-            print(f" PSL Launcher: [\033[32mPASS\033[0m] -> {psl_col.get('path')}")
+    cli_bin = audit.get("cli_binary")
+    if cli_bin:
+        if cli_bin.get("collision"):
+            print(f" Agyis Launcher:     [\033[33mWARN\033[0m] -> {cli_bin.get('details')}")
+            if cli_bin.get("remediation"):
+                print(f"    Remediation:\n      {cli_bin.get('remediation')}")
+        elif cli_bin.get("status") == "OK" or cli_bin.get("agyis_status") == "OK":
+            print(f" Agyis Launcher:     [\033[32mPASS\033[0m] -> {cli_bin.get('agyis_path') or cli_bin.get('path')}")
+        elif cli_bin.get("status") == "WARNING":
+            print(f" Agyis Launcher:     [\033[33mWARN\033[0m] -> {cli_bin.get('details')}")
+            if cli_bin.get("remediation"):
+                print(f"    Remediation:\n      {cli_bin.get('remediation')}")
         else:
-            print(f" PSL Launcher: [\033[34mINFO\033[0m] -> {psl_col.get('details')}")
+            print(f" Agyis Launcher:     [\033[34mINFO\033[0m] -> {cli_bin.get('details')}")
+
+        psl_details = cli_bin.get("psl_details") or cli_bin.get("psl_collision") or audit.get("psl_collision")
+        if psl_details:
+            if psl_details.get("collision"):
+                print(f" PSL Compatibility:  [\033[33mWARN\033[0m] -> {psl_details.get('details')}")
+                if psl_details.get("remediation"):
+                    print(f"    Remediation:\n      {psl_details.get('remediation')}")
+            elif psl_details.get("status") == "OK":
+                print(f" PSL Compatibility:  [\033[32mPASS\033[0m] -> {psl_details.get('path')} (Deprecated shim)")
+            else:
+                print(f" PSL Compatibility:  [\033[34mINFO\033[0m] -> {psl_details.get('details')}")
+    else:
+        psl_col = audit.get("psl_collision")
+        if psl_col:
+            if psl_col.get("collision"):
+                print(f" PSL Launcher:       [\033[33mWARN\033[0m] -> {psl_col.get('details')}")
+                if psl_col.get("remediation"):
+                    print(f"    Remediation:\n      {psl_col.get('remediation')}")
+            elif psl_col.get("status") == "OK":
+                print(f" PSL Launcher:       [\033[32mPASS\033[0m] -> {psl_col.get('path')}")
+            else:
+                print(f" PSL Launcher:       [\033[34mINFO\033[0m] -> {psl_col.get('details')}")
 
     dup_agents = audit.get("duplicate_agents")
     if dup_agents:
@@ -220,7 +257,9 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="PSL Workstation Diagnostic & Runtime Guarantee")
+    parser = argparse.ArgumentParser(
+        description="Agyis Workstation Diagnostic & Runtime Guarantee (Antigravity Immune System)"
+    )
     parser.add_argument(
         "--matrix",
         type=Path,
@@ -250,6 +289,15 @@ def main() -> int:
     if audit["summary"]["missing"] > 0 or audit["summary"]["outdated"] > 0:
         return 1
     return 0
+
+
+def deprecated_psl_doctor_main() -> int:
+    """Deprecated entrypoint for legacy 'psl-doctor'."""
+    sys.stderr.write(
+        "DeprecationWarning: 'psl-doctor' is deprecated and will be removed in 3 months. Use 'agyis doctor' instead.\n"
+    )
+    sys.stderr.flush()
+    return main()
 
 
 if __name__ == "__main__":

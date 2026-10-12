@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Hermetic unit and integration tests for harness/remote subsystem (ADR-027).
@@ -49,6 +51,23 @@ class TestRemoteRunner(unittest.TestCase):
         mode = stat.S_IMODE(sock_dir.stat().st_mode)
         self.assertEqual(mode, 0o700)
         self.assertTrue(str(sock_dir).startswith(self.temp_dir.name))
+
+    def test_socket_dir_resolution_prefers_agyis_over_psl(self):
+        """Verifies get_socket_dir prefers AGYIS_HARNESS_STATE_DIR over PSL_HARNESS_STATE_DIR."""
+        with tempfile.TemporaryDirectory() as td_agyis, tempfile.TemporaryDirectory() as td_psl:
+            with patch.dict(os.environ, {
+                "AGYIS_HARNESS_STATE_DIR": td_agyis,
+                "PSL_HARNESS_STATE_DIR": td_psl,
+            }):
+                sock_dir = get_socket_dir()
+                self.assertTrue(str(sock_dir).startswith(td_agyis))
+
+            with patch.dict(os.environ, {
+                "PSL_HARNESS_STATE_DIR": td_psl,
+            }, clear=False):
+                os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+                sock_dir = get_socket_dir()
+                self.assertTrue(str(sock_dir).startswith(td_psl))
 
     def test_multiplex_options_structure(self):
         """Verifies OpenSSH multiplexing options include ControlMaster and cm_%C."""

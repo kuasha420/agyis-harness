@@ -6,7 +6,9 @@ description: >-
   workflows to modular skills, or aligning AGENTS.md rules with PSL harness blocks.
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Copyright (c) 2026 Purrfect Software Limited (PSL) -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # PSL Workspace Harmonization Protocol (`psl-harmonize`)
 

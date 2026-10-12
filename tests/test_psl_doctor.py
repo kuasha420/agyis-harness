@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Purrfect Software Limited (PSL)
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
 Unit tests for pipeline/psl_doctor.py
@@ -13,6 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from pipeline.psl_doctor import (
+    check_cli_binary,
     check_duplicate_agents,
     check_hooks_health,
     check_node_script_hygiene,
@@ -170,7 +173,7 @@ class TestPslDoctor(unittest.TestCase):
                 self.assertIn("non-harness binary", res["details"])
 
     def test_check_psl_collision_harness_binary(self):
-        """Passes when psl resolves to PSL harness launcher."""
+        """Passes when psl resolves to PSL/Agyis harness launcher."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             harness_bin = Path(tmp_dir) / "psl"
             harness_bin.write_text("#!/usr/bin/env python3\nfrom harness.cli import main\nmain()\n")
@@ -179,6 +182,28 @@ class TestPslDoctor(unittest.TestCase):
                 self.assertEqual(res["status"], "OK")
                 self.assertFalse(res["collision"])
                 self.assertIsNone(res["remediation"])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agyis_shim_bin = Path(tmp_dir) / "psl"
+            agyis_shim_bin.write_text("#!/usr/bin/env python3\n# agyis launcher compat\n")
+            with patch("shutil.which", return_value=str(agyis_shim_bin)):
+                res = check_psl_collision()
+                self.assertEqual(res["status"], "OK")
+                self.assertFalse(res["collision"])
+
+    def test_check_cli_binary_reexported(self):
+        """Verifies check_cli_binary is re-exported from pipeline.psl_doctor and returns required keys."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            fake_agyis = Path(tmp_dir) / "agyis"
+            fake_agyis.write_text("#!/bin/sh\n# harness agyis\n")
+
+            with patch("shutil.which", return_value=str(fake_agyis)):
+                res = check_cli_binary()
+                self.assertIn("status", res)
+                self.assertIn("primary_binary", res)
+                self.assertIn("agyis_path", res)
+                self.assertIn("psl_collision", res)
+                self.assertEqual(res["primary_binary"], "agyis")
 
     def test_check_duplicate_agents_none(self):
         """Passes when no duplicate agent definitions exist between standalone config and plugins."""
