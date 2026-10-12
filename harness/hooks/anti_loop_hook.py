@@ -18,12 +18,8 @@ import os
 from pathlib import Path
 import sys
 
-def get_state_dir() -> Path:
-    """Returns the harness state directory respecting AGYIS_HARNESS_STATE_DIR and PSL_HARNESS_STATE_DIR."""
-    env_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
-    if env_dir and env_dir.strip():
-        return Path(env_dir.strip())
-    return Path("/tmp/psl_agy_harness_state")
+from harness.utils.state import get_state_dir
+
 
 
 MAX_REPEATS = 3

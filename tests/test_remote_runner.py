@@ -140,7 +140,8 @@ class TestRemoteRunner(unittest.TestCase):
         """
         self.assertIs(SSHRunner, RemoteRunner)
         runner = SSHRunner()
-        sock = runner.socket_dir / "cm_stale_255_sock"
+        sock = runner.get_target_socket_path("vps")
+        self.assertIsNotNone(sock)
         sock.touch()
         self.assertTrue(sock.exists())
 
@@ -153,8 +154,56 @@ class TestRemoteRunner(unittest.TestCase):
         with patch("subprocess.run", return_value=mock_proc):
             proc = runner.run("vps", "echo test")
             self.assertEqual(proc.returncode, 255)
-            # ControlMaster socket must be automatically purged
+            # Target ControlMaster socket must be automatically purged
             self.assertFalse(sock.exists())
+
+    def test_ssh_runner_socket_recovery_scoped_target(self):
+        """
+        Asserts exit-255 socket cleanup only purges target socket and leaves other hosts intact.
+        """
+        runner = SSHRunner()
+        sock_vps = runner.get_target_socket_path("vps")
+        self.assertIsNotNone(sock_vps)
+        sock_vps.touch()
+
+        sock_other = runner.get_target_socket_path("other-host")
+        self.assertIsNotNone(sock_other)
+        sock_other.touch()
+
+        mock_proc = subprocess.CompletedProcess(
+            args=["ssh"],
+            returncode=255,
+            stdout="",
+            stderr="ssh: connect to host vps: Connection timed out",
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            proc = runner.run("vps", "uptime")
+            self.assertEqual(proc.returncode, 255)
+            self.assertFalse(sock_vps.exists())
+            self.assertTrue(sock_other.exists())
+
+    def test_cleanup_target_socket_never_purges_unrelated_sockets(self):
+        """
+        Asserts cleanup_target_socket does not purge unrelated sockets,
+        even if the target name is a substring of 'cm_' (e.g. 'c', 'm', '_').
+        """
+        runner = SSHRunner()
+        sock_other = runner.socket_dir / "cm_1234567890abcdef1234567890abcdef12345678"
+        sock_other.touch()
+        self.assertTrue(sock_other.exists())
+
+        removed = runner.cleanup_target_socket("c")
+        self.assertEqual(removed, [])
+        self.assertTrue(sock_other.exists())
+
+        removed = runner.cleanup_target_socket("m")
+        self.assertEqual(removed, [])
+        self.assertTrue(sock_other.exists())
+
+        removed = runner.cleanup_target_socket("_")
+        self.assertEqual(removed, [])
+        self.assertTrue(sock_other.exists())
+
 
 
 class TestScriptStreamer(unittest.TestCase):

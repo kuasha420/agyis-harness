@@ -22,13 +22,8 @@ from pathlib import Path
 import re
 import sys
 
+from harness.utils.state import get_state_dir
 
-def get_state_dir() -> Path:
-    """Returns the harness state directory from environment or default."""
-    env_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
-    if env_dir and env_dir.strip():
-        return Path(env_dir.strip())
-    return Path("/tmp/psl_agy_harness_state")
 
 
 def get_state_file(conv_id: str = "default", state_dir: Path | None = None) -> Path:

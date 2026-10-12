@@ -23,5 +23,8 @@ def get_state_dir(default_name: str = "agyis_harness_state") -> Path:
         path = Path(env_dir.strip())
     else:
         path = Path(f"/tmp/{default_name}")
-    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
     return path

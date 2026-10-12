@@ -144,8 +144,9 @@ async def sync_pull_endpoint(request: Request) -> JSONResponse:
     since = request.query_params.get("since", "1970-01-01T00:00:00Z")
     limit_str = request.query_params.get("limit", "100")
     offset_str = request.query_params.get("offset", "0")
-    all_devs_raw = request.query_params.get("all_developers") or request.query_params.get("include_self") or ""
-    all_developers = all_devs_raw.lower() in ("true", "1", "yes")
+    all_devs_raw = (request.query_params.get("all_developers") or "").strip().lower()
+    include_self_raw = (request.query_params.get("include_self") or "").strip().lower()
+    all_developers = all_devs_raw in ("true", "1", "yes") or include_self_raw in ("true", "1", "yes")
     developer = request.query_params.get("developer")
 
     try:

@@ -28,14 +28,21 @@ class TestHookRunner(unittest.TestCase):
     def setUp(self):
         self.maxDiff = None
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.old_state_dir = os.environ.get("PSL_HARNESS_STATE_DIR")
+        self.old_psl_dir = os.environ.get("PSL_HARNESS_STATE_DIR")
+        self.old_agyis_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR")
         os.environ["PSL_HARNESS_STATE_DIR"] = self.temp_dir.name
+        os.environ["AGYIS_HARNESS_STATE_DIR"] = self.temp_dir.name
 
     def tearDown(self):
-        if self.old_state_dir is not None:
-            os.environ["PSL_HARNESS_STATE_DIR"] = self.old_state_dir
+        if self.old_psl_dir is not None:
+            os.environ["PSL_HARNESS_STATE_DIR"] = self.old_psl_dir
         else:
             os.environ.pop("PSL_HARNESS_STATE_DIR", None)
+
+        if self.old_agyis_dir is not None:
+            os.environ["AGYIS_HARNESS_STATE_DIR"] = self.old_agyis_dir
+        else:
+            os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
         self.temp_dir.cleanup()
 
     def test_resolve_hook_module_canonical(self):
@@ -240,10 +247,10 @@ class TestHookRunner(unittest.TestCase):
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "allow")
 
-    def test_subprocess_standalone_execution(self):
-        """Hermetic execution of runner via runner.main."""
+    def test_inprocess_standalone_execution(self):
+        """Hermetic in-process execution of runner via runner.main."""
         payload = json.dumps({
-            "conversationId": "test-subprocess",
+            "conversationId": "test-inprocess",
             "toolCall": {"name": "run_command", "args": {"CommandLine": "echo test"}},
         })
         with patch("sys.stdin", io.StringIO(payload)), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
@@ -252,14 +259,54 @@ class TestHookRunner(unittest.TestCase):
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "allow")
 
-    def test_subprocess_unknown_hook_fail_open(self):
-        """Execution with invalid hook returns 0 and outputs fail-open allow JSON."""
+    def test_inprocess_unknown_hook_fail_open(self):
+        """In-process execution with invalid hook returns 0 and outputs fail-open allow JSON."""
         with patch("sys.stdin", io.StringIO("")), patch("sys.stdout", new_callable=io.StringIO) as mock_out, patch("sys.stderr", new_callable=io.StringIO) as mock_err:
             ret = runner.main(["invalid-hook-name"])
             self.assertEqual(ret, 0)
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "allow")
             self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", mock_err.getvalue())
+
+    def test_subprocess_smoke_entrypoint(self):
+        """Validates real subprocess invocation (python3 -m harness.hooks.runner <hook>)."""
+        payload = json.dumps({
+            "conversationId": "test-subprocess-smoke",
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "echo test"}},
+        })
+        sub_env = dict(
+            os.environ,
+            PSL_HARNESS_STATE_DIR=self.temp_dir.name,
+            AGYIS_HARNESS_STATE_DIR=self.temp_dir.name,
+        )
+        # 1. Valid hook execution
+        proc = subprocess.run(
+            [sys.executable, "-m", "harness.hooks.runner", "command-safety"],
+            input=payload,
+            capture_output=True,
+            text=True,
+            cwd=str(Path(__file__).parent.parent),
+            env=sub_env,
+            timeout=5,
+        )
+        self.assertEqual(proc.returncode, 0)
+        res = json.loads(proc.stdout.strip())
+        self.assertEqual(res["decision"], "allow")
+
+        # 2. Unknown hook fail-open execution
+        proc_unknown = subprocess.run(
+            [sys.executable, "-m", "harness.hooks.runner", "invalid-hook-name"],
+            capture_output=True,
+            text=True,
+            cwd=str(Path(__file__).parent.parent),
+            env=sub_env,
+            timeout=5,
+        )
+        self.assertEqual(proc_unknown.returncode, 0)
+        res_unknown = json.loads(proc_unknown.stdout.strip())
+        self.assertEqual(res_unknown["decision"], "allow")
+        self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", proc_unknown.stderr)
+
 
 
 if __name__ == "__main__":

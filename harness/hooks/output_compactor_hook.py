@@ -15,7 +15,7 @@ Implements a smart 2KB compaction algorithm for tool execution outputs:
     1. First 500 characters (head context)
     2. Last 1,000 characters (tail/completion status)
     3. All lines in omitted middle containing exit code, fatal, error, or failure keywords.
-- Caches compacted output and compaction metadata in /tmp/psl_agy_harness_state/.
+- Caches compacted output and compaction metadata in /tmp/agyis_harness_state/.
 - Emits valid JSON `{}` on stdout per the official Antigravity PostToolUse contract.
 """
 
@@ -29,18 +29,14 @@ import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
+from harness.utils.state import get_state_dir
+
 # Configuration Constants
 MAX_OUTPUT_CHARS = 2048
 HEAD_CHARS = 500
 TAIL_CHARS = 1000
 ERROR_KEYWORDS = ("exit code", "exit_code", "fatal", "error", "failure", "failed")
 
-def get_state_dir() -> Path:
-    """Returns the harness state directory respecting AGYIS_HARNESS_STATE_DIR and PSL_HARNESS_STATE_DIR."""
-    env_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
-    if env_dir and env_dir.strip():
-        return Path(env_dir.strip())
-    return Path("/tmp/psl_agy_harness_state")
 
 
 STATE_DIR = get_state_dir()

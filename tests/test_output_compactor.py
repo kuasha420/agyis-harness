@@ -70,6 +70,25 @@ class TestOutputCompactor(unittest.TestCase):
                 os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
                 self.assertEqual(get_state_dir(), Path(td_psl))
 
+    def test_state_dir_fallback_alignment_across_hooks(self):
+        """Verifies that when env vars are unset, all hooks resolve to identical fallback directory."""
+        from harness.hooks.output_compactor_hook import get_state_dir as compactor_state_dir
+        from harness.hooks.anti_loop_hook import get_state_dir as anti_loop_state_dir
+        from harness.hooks.completion_fence_hook import get_state_dir as fence_state_dir
+        from harness.utils.state import get_state_dir as canonical_state_dir
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+            os.environ.pop("PSL_HARNESS_STATE_DIR", None)
+            d1 = compactor_state_dir()
+            d2 = anti_loop_state_dir()
+            d3 = fence_state_dir()
+            d4 = canonical_state_dir()
+            self.assertEqual(d1, d4)
+            self.assertEqual(d2, d4)
+            self.assertEqual(d3, d4)
+
+
     # -------------------------------------------------------------------------
     # 1. Small Output (<2KB) -> Unmodified
     # -------------------------------------------------------------------------

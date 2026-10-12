@@ -135,8 +135,92 @@ class RemoteRunner:
             check=check,
         )
         if proc.returncode == 255:
-            self.cleanup_sockets()
+            self.cleanup_target_socket(target=target, port=port, extra_options=extra_options)
         return proc
+
+    def get_target_socket_path(
+        self,
+        target: str,
+        port: Optional[int] = None,
+        extra_options: Optional[List[str]] = None,
+    ) -> Optional[Path]:
+        """
+        Determines the ControlMaster socket path for a given target.
+        Attempts to calculate the OpenSSH %C SHA-1 hash or probe OpenSSH configuration.
+        """
+        computed_path: Optional[Path] = None
+        try:
+            import hashlib
+            import socket
+
+            hostname = socket.gethostname()
+            remote_user = os.environ.get("USER", "")
+            remote_host = target
+            remote_port = str(port) if port is not None else "22"
+            if "@" in target:
+                remote_user, remote_host = target.split("@", 1)
+
+            ident = f"{hostname}{remote_host}{remote_port}{remote_user}"
+            digest = hashlib.sha1(ident.encode("utf-8")).hexdigest()
+            computed_path = self.socket_dir / f"cm_{digest}"
+            if computed_path.exists():
+                return computed_path
+        except Exception:
+            pass
+
+        try:
+            cmd = ["ssh", "-G"]
+            cmd.extend(self.get_multiplex_options())
+            if port is not None:
+                cmd.extend(["-p", str(port)])
+            if extra_options:
+                cmd.extend(extra_options)
+            cmd.append(target)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+            if proc.returncode == 0:
+                for line in proc.stdout.splitlines():
+                    if line.startswith("controlpath "):
+                        cp = line.split(" ", 1)[1].strip()
+                        if cp and cp != "none":
+                            return Path(cp)
+        except (subprocess.SubprocessError, OSError):
+            pass
+
+        return computed_path
+
+    def cleanup_target_socket(
+        self,
+        target: str,
+        port: Optional[int] = None,
+        extra_options: Optional[List[str]] = None,
+    ) -> List[Path]:
+        """
+        Cleans up ControlMaster socket specifically scoped to the failing target.
+        Attempts graceful shutdown via 'ssh -O exit' and removes any stale target socket.
+        Does not affect ControlMaster sockets for other active hosts.
+        """
+        cmd = ["ssh", "-O", "exit"]
+        cmd.extend(self.get_multiplex_options())
+        if port is not None:
+            cmd.extend(["-p", str(port)])
+        if extra_options:
+            cmd.extend(extra_options)
+        cmd.append(target)
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=5)
+        except (subprocess.SubprocessError, OSError):
+            pass
+
+        removed: List[Path] = []
+        target_sock = self.get_target_socket_path(target, port=port, extra_options=extra_options)
+        if target_sock and target_sock.exists():
+            try:
+                target_sock.unlink()
+                removed.append(target_sock)
+            except OSError:
+                pass
+        return removed
+
 
     def list_sockets(self) -> List[Dict[str, Any]]:
         """

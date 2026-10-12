@@ -318,6 +318,22 @@ class TestServerApi(unittest.TestCase):
         self.assertEqual(resp_self.status_code, 200)
         self.assertEqual(len(resp_self.json()["sessions"]), 1)
 
+        # 3. all_developers=false combined with include_self=true correctly bypasses anti-echo filter
+        resp_combo = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&all_developers=false&include_self=true",
+            headers={"Authorization": "Bearer test-token-alice"},
+        )
+        self.assertEqual(resp_combo.status_code, 200)
+        self.assertEqual(len(resp_combo.json()["sessions"]), 1)
+
+        # 4. all_developers=false combined with include_self=false preserves anti-echo filter
+        resp_both_false = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&all_developers=false&include_self=false",
+            headers={"Authorization": "Bearer test-token-alice"},
+        )
+        self.assertEqual(resp_both_false.status_code, 200)
+        self.assertEqual(len(resp_both_false.json()["sessions"]), 0)
+
     def test_sync_pull_specific_developer_filter(self):
         """Verifies developer parameter strictly filters sessions by origin_developer."""
         self.client.post(
