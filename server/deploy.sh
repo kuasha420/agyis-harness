@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 # ==============================================================================
 # PSL Telemetry Hub Staging & Deployment Script (ADR-030)
 # Target Host: bd.purrfectsoft.co.uk (CloudPanel Managed VPS)
@@ -34,6 +39,7 @@ rsync -avz --delete \
   --exclude '__pycache__' \
   --exclude '*.pyc' \
   --exclude '.git' \
+  --exclude '.env' \
   --exclude 'data/*.db' \
   "server/" "${REMOTE_USER}@${TARGET_HOST}:${DEPLOY_DIR}/server/"
 

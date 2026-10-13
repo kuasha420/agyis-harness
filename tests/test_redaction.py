@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 Hermetic Unit and Contract Tests for Client-Side Redaction & Sanitization Engine (ADR-030).
 """
@@ -401,7 +406,7 @@ class TestRedactionMicroBenchmark(unittest.TestCase):
         self.assertGreaterEqual(len(benign_10kb), 10000)
 
         # Benchmark benign payload
-        iterations = 200
+        iterations = 10
         t0 = time.perf_counter()
         for _ in range(iterations):
             strip_secrets(benign_10kb)

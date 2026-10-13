@@ -1,5 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
-Configuration and Credential Store for PSL Telemetry Client (ADR-030).
+Configuration and Credential Store for Agyis Telemetry Client (ADR-030).
 
 Provides atomic, secure management of telemetry endpoint configuration,
 workspace denylists, and authentication credentials.
@@ -32,25 +37,52 @@ DEFAULT_CREDENTIALS: Dict[str, Any] = {
 def get_data_dir() -> Path:
     """Returns the data directory path.
 
-    Supports PSL_DATA_DIR or PSL_HARNESS_STATE_DIR environment variables,
-    falling back to ~/.local/share/psl.
+    Supports AGYIS_DATA_DIR, PSL_DATA_DIR, AGYIS_HARNESS_STATE_DIR, or PSL_HARNESS_STATE_DIR,
+    falling back to ~/.local/share/agyis (or legacy ~/.local/share/psl if present).
     """
-    custom = os.environ.get("PSL_DATA_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
-    if custom:
-        return Path(custom).expanduser().resolve()
-    return (Path.home() / ".local" / "share" / "psl").resolve()
+    custom = (
+        os.environ.get("AGYIS_DATA_DIR")
+        or os.environ.get("PSL_DATA_DIR")
+        or os.environ.get("AGYIS_HARNESS_STATE_DIR")
+        or os.environ.get("PSL_HARNESS_STATE_DIR")
+    )
+    if custom and custom.strip():
+        return Path(custom.strip()).expanduser().resolve()
+    agyis_dir = Path.home() / ".local" / "share" / "agyis"
+    psl_dir = Path.home() / ".local" / "share" / "psl"
+    if not agyis_dir.exists() and psl_dir.exists():
+        return psl_dir.resolve()
+    return agyis_dir.resolve()
 
 
-def get_config_dir() -> Path:
+def get_config_dir(ws: Optional[Union[str, Path]] = None) -> Path:
     """Returns the configuration directory path.
 
-    Supports PSL_CONFIG_DIR or PSL_HARNESS_STATE_DIR environment variables,
-    falling back to ~/.config/psl.
+    If ws is provided, returns <ws>/.agyis (or legacy <ws>/.psl if present).
+    Otherwise, evaluates AGYIS_CONFIG_DIR, PSL_CONFIG_DIR, AGYIS_HARNESS_STATE_DIR,
+    or PSL_HARNESS_STATE_DIR, falling back to ~/.config/agyis (or legacy ~/.config/psl if present).
     """
-    custom = os.environ.get("PSL_CONFIG_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
-    if custom:
-        return Path(custom).expanduser().resolve()
-    return (Path.home() / ".config" / "psl").resolve()
+    if ws is not None:
+        ws_path = Path(ws).resolve()
+        agyis_ws = ws_path / ".agyis"
+        psl_ws = ws_path / ".psl"
+        if not agyis_ws.exists() and psl_ws.exists():
+            return psl_ws
+        return agyis_ws
+
+    custom = (
+        os.environ.get("AGYIS_CONFIG_DIR")
+        or os.environ.get("PSL_CONFIG_DIR")
+        or os.environ.get("AGYIS_HARNESS_STATE_DIR")
+        or os.environ.get("PSL_HARNESS_STATE_DIR")
+    )
+    if custom and custom.strip():
+        return Path(custom.strip()).expanduser().resolve()
+    agyis_dir = Path.home() / ".config" / "agyis"
+    psl_dir = Path.home() / ".config" / "psl"
+    if not agyis_dir.exists() and psl_dir.exists():
+        return psl_dir.resolve()
+    return agyis_dir.resolve()
 
 
 def get_config_path() -> Path:
@@ -59,10 +91,15 @@ def get_config_path() -> Path:
 
 
 def find_workspace_root(start_dir: Optional[Union[str, Path]] = None) -> Optional[Path]:
-    """Searches upward from start_dir (default cwd) for .psl, .agents, or .git."""
+    """Searches upward from start_dir (default cwd) for .agyis, .psl, .agents, or .git."""
     curr = Path(start_dir).resolve() if start_dir else Path.cwd().resolve()
     while True:
-        if (curr / ".psl").exists() or (curr / ".agents").exists() or (curr / ".git").exists():
+        if (
+            (curr / ".agyis").exists()
+            or (curr / ".psl").exists()
+            or (curr / ".agents").exists()
+            or (curr / ".git").exists()
+        ):
             return curr
         parent = curr.parent
         if parent == curr:
@@ -74,11 +111,17 @@ def find_workspace_root(start_dir: Optional[Union[str, Path]] = None) -> Optiona
 def get_workspace_config_path(
     workspace_root: Optional[Union[str, Path]] = None,
 ) -> Optional[Path]:
-    """Returns <workspace_root>/.psl/config.json if workspace root exists, else None."""
+    """Returns <workspace_root>/.agyis/config.json or .psl/config.json if workspace root exists, else None."""
     ws = Path(workspace_root).resolve() if workspace_root else find_workspace_root()
     if ws is None:
         return None
-    return ws / ".psl" / "config.json"
+    agyis_cfg = ws / ".agyis" / "config.json"
+    psl_cfg = ws / ".psl" / "config.json"
+    if agyis_cfg.is_file():
+        return agyis_cfg
+    if psl_cfg.is_file():
+        return psl_cfg
+    return agyis_cfg
 
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -133,7 +176,10 @@ def save_config(
         ws = Path(workspace_root).resolve() if workspace_root else find_workspace_root()
         if ws is None:
             raise ValueError("Cannot save workspace config: workspace root not found.")
-        p = ws / ".psl" / "config.json"
+        if (ws / ".psl").is_dir() and not (ws / ".agyis").exists():
+            p = ws / ".psl" / "config.json"
+        else:
+            p = ws / ".agyis" / "config.json"
     elif scope == "global":
         p = get_config_path()
     else:
@@ -190,9 +236,12 @@ def clear_credentials() -> Path:
 
 
 def get_auth_token() -> Optional[str]:
-    """Retrieves auth token from environment or stored credentials."""
-    env_token = os.environ.get("PSL_AUTH_TOKEN")
-    if env_token:
+    """Retrieves auth token from environment or stored credentials.
+
+    Prioritizes AGYIS_AUTH_TOKEN, falling back to PSL_AUTH_TOKEN, then stored credentials.
+    """
+    env_token = os.environ.get("AGYIS_AUTH_TOKEN") or os.environ.get("PSL_AUTH_TOKEN")
+    if env_token and env_token.strip():
         return env_token.strip()
     creds = load_credentials()
     return creds.get("token")
@@ -206,9 +255,9 @@ def get_sync_endpoint(
 
     Precedence:
     1. Explicit endpoint argument.
-    2. Environment variable PSL_SYNC_ENDPOINT.
-    3. Workspace configuration (<workspace_root>/.psl/config.json).
-    4. Global configuration (~/.config/psl/config.json).
+    2. Environment variable AGYIS_SYNC_ENDPOINT or PSL_SYNC_ENDPOINT.
+    3. Workspace configuration (<workspace_root>/.agyis/config.json or .psl/config.json).
+    4. Global configuration (~/.config/agyis/config.json or ~/.config/psl/config.json).
     5. Default: http://localhost:8000.
     """
     if isinstance(endpoint, Path):
@@ -223,7 +272,7 @@ def get_sync_endpoint(
     if endpoint and isinstance(endpoint, str) and endpoint.strip():
         return endpoint.strip()
 
-    env_endpoint = os.environ.get("PSL_SYNC_ENDPOINT")
+    env_endpoint = os.environ.get("AGYIS_SYNC_ENDPOINT") or os.environ.get("PSL_SYNC_ENDPOINT")
     if env_endpoint and env_endpoint.strip():
         return env_endpoint.strip()
 
@@ -258,10 +307,11 @@ def resolve_db_path(
 
     Resolution order:
     1. Explicit db_path if provided.
-    2. Environment variable PSL_TELEMETRY_DB.
+    2. Environment variable AGYIS_TELEMETRY_DB or PSL_TELEMETRY_DB.
     3. Repository root REPO_ROOT / 'data/telemetry.db' if it exists.
     4. XDG data directory get_data_dir() / 'telemetry.db' if it exists.
-    5. Default fallback: REPO_ROOT / 'data/telemetry.db' if inside repo checkout, else XDG path.
+    5. Legacy XDG data directory fallback if it exists.
+    6. Default fallback: REPO_ROOT / 'data/telemetry.db' if inside repo checkout, else XDG path.
 
     Raises FileNotFoundError if must_exist is True and the target database does not exist.
     """
@@ -270,16 +320,21 @@ def resolve_db_path(
     # 1. Explicit db_path
     if db_path is not None and str(db_path).strip():
         resolved = Path(db_path).expanduser().resolve()
-    # 2. Environment variable PSL_TELEMETRY_DB
-    elif os.environ.get("PSL_TELEMETRY_DB"):
-        resolved = Path(os.environ["PSL_TELEMETRY_DB"]).expanduser().resolve()
+    # 2. Environment variable AGYIS_TELEMETRY_DB or PSL_TELEMETRY_DB
+    elif os.environ.get("AGYIS_TELEMETRY_DB") and os.environ["AGYIS_TELEMETRY_DB"].strip():
+        resolved = Path(os.environ["AGYIS_TELEMETRY_DB"].strip()).expanduser().resolve()
+    elif os.environ.get("PSL_TELEMETRY_DB") and os.environ["PSL_TELEMETRY_DB"].strip():
+        resolved = Path(os.environ["PSL_TELEMETRY_DB"].strip()).expanduser().resolve()
     # 3. Repository root REPO_ROOT / "data/telemetry.db" if it exists
     elif (REPO_ROOT / "data" / "telemetry.db").is_file():
         resolved = (REPO_ROOT / "data" / "telemetry.db").resolve()
     # 4. XDG data directory get_data_dir() / "telemetry.db" if it exists
     elif (get_data_dir() / "telemetry.db").is_file():
         resolved = (get_data_dir() / "telemetry.db").resolve()
-    # 5. Default fallback: REPO_ROOT / "data/telemetry.db" if inside repo checkout, else XDG path
+    # 5. Legacy XDG data directory fallback if it exists
+    elif (Path.home() / ".local" / "share" / "psl" / "telemetry.db").is_file():
+        resolved = (Path.home() / ".local" / "share" / "psl" / "telemetry.db").resolve()
+    # 6. Default fallback: REPO_ROOT / "data/telemetry.db" if inside repo checkout, else XDG path
     else:
         is_repo = (REPO_ROOT / ".git").exists() or (REPO_ROOT / "pipeline").is_dir()
         if is_repo:
@@ -290,7 +345,7 @@ def resolve_db_path(
     if must_exist and not resolved.is_file():
         raise FileNotFoundError(
             f"Telemetry database not found at {resolved}. "
-            "Provide --db <path> or run 'psl audit extract'"
+            "Provide --db <path> or run 'agyis audit extract'"
         )
 
     return resolved

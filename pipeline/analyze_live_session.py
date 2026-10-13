@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness for Google Antigravity™
 Live Session Telemetry & Topology Analyzer
@@ -30,8 +35,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-def estimate_tokens(char_count: int) -> int:
-    return max(1, char_count // 4) if char_count else 0
+from harness.utils.tokens import estimate_tokens
 
 
 def find_latest_session_dir() -> Optional[Path]:

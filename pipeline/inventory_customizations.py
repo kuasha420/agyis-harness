@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness for Google Antigravity™
 Customization Inventory Scanner
@@ -25,29 +30,8 @@ import re
 from typing import Any, Dict, List, Optional
 
 
-def estimate_tokens(text: str) -> int:
-    """Rough estimation of token count (~4 characters per token)."""
-    return max(1, len(text) // 4) if text else 0
-
-
-def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
-    """Parse YAML-like frontmatter from Markdown files."""
-    frontmatter = {}
-    body = content
-    if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            raw_fm = parts[1]
-            body = parts[2]
-            for line in raw_fm.strip().splitlines():
-                if ":" in line:
-                    key, val = line.split(":", 1)
-                    key = key.strip()
-                    val = val.strip().strip("'\"")
-                    if val.startswith(">-"):
-                        val = ""
-                    frontmatter[key] = val
-    return frontmatter, body
+from harness.utils.frontmatter import parse_frontmatter
+from harness.utils.tokens import estimate_tokens
 
 
 def scan_skills_directory(skills_dir: Path, scope: str) -> list[dict[str, Any]]:
@@ -136,13 +120,16 @@ def scan_plugins(plugins_dir: Path) -> list[dict[str, Any]]:
         rules_dir = plugin_root / "rules"
         if rules_dir.exists():
             for rf in rules_dir.glob("*.md"):
-                content = rf.read_text(encoding="utf-8", errors="replace")
-                bundled_rules.append({
-                    "name": rf.name,
-                    "path": str(rf),
-                    "size_bytes": rf.stat().st_size,
-                    "estimated_tokens": estimate_tokens(content)
-                })
+                try:
+                    content = rf.read_text(encoding="utf-8", errors="replace")
+                    bundled_rules.append({
+                        "name": rf.name,
+                        "path": str(rf),
+                        "size_bytes": rf.stat().st_size,
+                        "estimated_tokens": estimate_tokens(content)
+                    })
+                except OSError:
+                    continue
 
         # Check for bundled hooks
         hooks_file = plugin_root / "hooks.json"
@@ -301,13 +288,13 @@ def scan_rules(gemini_md_path: Path, config_rules_dir: Path) -> list[dict[str, A
     return rules
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Inventory Antigravity customizations.")
     parser.add_argument("--output", "-o", default="data/customization_inventory.json",
                         help="Path to save output JSON (default: data/customization_inventory.json)")
     parser.add_argument("--print-summary", action="store_true", default=True,
                         help="Print a human-readable summary to stdout")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     home = Path.home()
     gemini_dir = home / ".gemini"

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness for Google Antigravity™
 Artifact Lifecycle & Plan-Drift Auditor
@@ -167,7 +172,12 @@ def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
     p_stats = data["planning_stats"]
     drift_samples = data["drift_samples"]
 
-    md = f"""# 📑 Artifact Lifecycle & Plan-Drift Empirical Report
+    md = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
+# 📑 Artifact Lifecycle & Plan-Drift Empirical Report
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Specification**: Horizon 1 — Artifact Planning & Execution Fidelity  
 **Generated At**: {data['timestamp']}  

@@ -1,18 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "psl-agy-harness"
+name = "agyis-harness"
 version = "0.1.0"
-description = "Empirical audit and official extension harness for Google Antigravity"
+description = "Autonomous agent runtime harness and immune system for Google Antigravity™"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [
-    { name = "Purrfect Software Limited (PSL)" }
+    { name = "Arafat Zahan (@kuasha420)" },
+    { name = "Purrfect Software Limited (PSL)" },
 ]
 dependencies = []
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://github.com/kuasha420/psl-agy-harness"
+Documentation = "https://github.com/kuasha420/psl-agy-harness#readme"
+Repository = "https://github.com/kuasha420/psl-agy-harness"
+"Bug Tracker" = "https://github.com/kuasha420/psl-agy-harness/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -23,11 +48,10 @@ dev = [
 ]
 
 [project.scripts]
-psl = "harness.cli:main"
-psl-doctor = "pipeline.psl_doctor:main"
-psl-audit = "pipeline.extract_transcripts:main"
-psl-inventory = "pipeline.inventory_customizations:main"
-psl-classify = "pipeline.classify_failures:main"
+agyis = "harness.cli:main"
+psl = "harness.cli:deprecated_psl_main"
+agyis-doctor = "harness.runtime.doctor:main"
+psl-doctor = "harness.runtime.doctor:deprecated_psl_doctor_main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["pipeline", "harness"]
+packages = ["harness"]

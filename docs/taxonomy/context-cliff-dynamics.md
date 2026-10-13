@@ -1,14 +1,19 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
 # 📉 Context Cliff & Token Dynamics Empirical Report
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Specification**: Horizon 1 — Context Dynamics Analysis  
-**Generated At**: 2026-10-02 05:06:50Z  
+**Generated At**: 2026-10-10 19:30:28Z  
 **Data Source**: Telemetry database `data/telemetry.db` (140,005 steps across 348 sessions)
 
 ---
 
 ## 1. Executive Summary: The Token Saturation Cliff
 
-Our empirical analysis maps context size directly against agent error rates and operator intervention frequency. Across **348 real developer sessions**, total mined token volume reached **~32,419,638 tokens**.
+Our empirical analysis maps context size directly against agent error rates and operator intervention frequency. Across **348 real developer sessions**, total mined token volume reached **~16,029,600 tokens**.
 
 ### The Context Saturation Curve
 ```text
@@ -17,11 +22,11 @@ Our empirical analysis maps context size directly against agent error rates and 
 ├────────────────────┬──────────┬───────────┬─────────────┬─────────────┬───────────────┤
 │ Token Load Bucket  │ Sessions │ Avg Steps │ Avg Errors  │ Avg Interv  │ Avg Tokens    │
 ├────────────────────┼──────────┼───────────┼─────────────┼─────────────┼───────────────┤
-| < 20k tokens       |      142 |      52.3 |        0.71 |        0.14 | 11,144 |
-| 20k - 50k tokens   |      108 |     133.1 |        1.05 |        0.63 | 32,882 |
-| 50k - 100k tokens  |       35 |     303.3 |        4.74 |        4.34 | 71,999 |
-| 100k - 200k tokens |       27 |     641.9 |       10.93 |        7.19 | 145,128 |
-| 200k+ tokens       |       36 |    2507.0 |       43.25 |       34.89 | 579,095 |
+| < 20k tokens       |      612 |     168.2 |        1.15 |        1.76 | 4,929 |
+| 20k - 50k tokens   |       71 |     843.3 |        4.39 |         7.3 | 31,782 |
+| 50k - 100k tokens  |       18 |     843.6 |        7.67 |       13.06 | 67,654 |
+| 100k - 200k tokens |        9 |     799.7 |       21.78 |       15.44 | 150,358 |
+| 200k+ tokens       |       10 |    3407.2 |        74.8 |        48.7 | 818,534 |
 └────────────────────┴──────────┴───────────┴─────────────┴─────────────┴───────────────┘
 ```
 
@@ -38,17 +43,17 @@ Our empirical analysis maps context size directly against agent error rates and 
 
 | Step Type | Total Steps | Total Volume (Chars) | Estimated Tokens | % of Total Footprint |
 | :--- | :--- | :--- | :--- | :--- |
-| `GENERIC` | 49,423 | 78,174,451 | 19,543,612 | 60.3% |
-| `VIEW_FILE` | 3,716 | 10,388,424 | 2,597,106 | 8.0% |
-| `RUN_COMMAND` | 6,264 | 7,821,201 | 1,955,300 | 6.0% |
-| `SYSTEM_MESSAGE` | 3,650 | 6,142,495 | 1,535,623 | 4.7% |
-| `EPHEMERAL_MESSAGE` | 2,179 | 5,840,597 | 1,460,149 | 4.5% |
-| `PLANNER_RESPONSE` | 67,670 | 14,750,310 | 3,687,577 | 11.4% |
-| `CODE_ACTION` | 2,254 | 2,095,339 | 523,834 | 1.6% |
+| `GENERIC` | 14,069 | 19,212,252 | 4,803,063 | 30.0% |
+| `AGENT_OUTPUT` | 79,114 | 11,989,439 | 2,997,359 | 18.7% |
+| `VIEW_FILE` | 3,097 | 8,634,319 | 2,158,579 | 13.5% |
+| `RUN_COMMAND` | 5,319 | 6,377,436 | 1,594,359 | 9.9% |
+| `EPHEMERAL_MESSAGE` | 1,811 | 4,610,806 | 1,152,701 | 7.2% |
+| `PLANNER_RESPONSE` | 27,322 | 6,755,243 | 1,688,810 | 10.5% |
+| `SYSTEM_MESSAGE` | 1,298 | 1,684,392 | 421,098 | 2.6% |
 
 ### Key Findings:
 1. **Tool Outputs (`RUN_COMMAND` / `VIEW_FILE` / `GENERIC`) dominate context**: They account for the overwhelming majority of raw text entering the model's history.
-2. **Thinking Traces (`thinking`)**: Contributed **9,952,487 characters** (~2,488,121 tokens) of internal Chain-of-Thought across 14,476 steps.
+2. **Thinking Traces (`thinking`)**: Contributed **4,688,220 characters** (~1,172,055 tokens) of internal Chain-of-Thought across 14,476 steps.
 
 ---
 
@@ -58,14 +63,14 @@ What happens if the harness mechanically truncates or summarizes tool output pay
 
 | Simulation Metric | Empirical Value |
 | :--- | :--- |
-| **Tool Execution Steps Exceeding 2KB** | **19,452 steps** |
-| **Raw Volume in Oversized Outputs** | **67,446,837 characters** |
-| **Characters Saved by 2KB Cap** | **27,609,141 characters** |
-| **Estimated Tokens Saved** | **~6,902,285 tokens** |
-| **Total Context Reduction Potential** | **21.29% of entire workstation context** |
+| **Tool Execution Steps Exceeding 2KB** | **6,808 steps** |
+| **Raw Volume in Oversized Outputs** | **23,784,154 characters** |
+| **Characters Saved by 2KB Cap** | **9,841,370 characters** |
+| **Estimated Tokens Saved** | **~2,460,342 tokens** |
+| **Total Context Reduction Potential** | **15.35% of entire workstation context** |
 
 > [!TIP]
-> A simple, deterministic `PostToolUse` output compactor that limits tool stdout to 2KB (retaining the first 500 chars, the last 1,000 chars, and explicit exit code/error lines) would **eliminate nearly 21.29% of all token bloat**, keeping 90% of sessions safely below the 100k token cliff!
+> A simple, deterministic `PostToolUse` output compactor that limits tool stdout to 2KB (retaining the first 500 chars, the last 1,000 chars, and explicit exit code/error lines) would **eliminate nearly 15.35% of all token bloat**, keeping 90% of sessions safely below the 100k token cliff!
 
 ---
 
@@ -73,16 +78,16 @@ What happens if the harness mechanically truncates or summarizes tool output pay
 
 | Session ID | Step | Tool Name | Target / Command | Output Chars |
 | :--- | :--- | :--- | :--- | :--- |
-| `7a2a32af...` | 900 | `run_command` | `"./node_modules/.bin/turbo run typecheck && p` | 800 |
-| `7a2a32af...` | 1488 | `run_command` | `"ssh rog-ally \"echo WAYLAND: \\$WAYLAND_DISP` | 800 |
-| `7a2a32af...` | 1724 | `run_command` | `"ssh laptop \"echo WAYLAND: \\$WAYLAND_DISPLA` | 800 |
-| `7a2a32af...` | 2128 | `run_command` | `"git rebase --skip\n"` | 800 |
-| `7a2a32af...` | 2140 | `run_command` | `"pnpm --filter @jasper/types build\npnpm turb` | 800 |
-| `7a2a32af...` | 2147 | `run_command` | `"CI=true pnpm test\n"` | 800 |
-| `7a2a32af...` | 2163 | `run_command` | `"CI=true pnpm test\n"` | 800 |
-| `7a2a32af...` | 2401 | `run_command` | `"pnpm turbo run typecheck"` | 800 |
-| `7a2a32af...` | 2492 | `run_command` | `"pnpm turbo run typecheck"` | 800 |
-| `7a2a32af...` | 2500 | `run_command` | `"git commit -am \"fix(plugins): remove unused` | 800 |
+| `22fa3d25...` | 367 | `run_command` | `"find [USER_HOME] -name \".git\" -type d 2>/d` | 832 |
+| `4185ee65...` | 4400 | `run_command` | `"diff -qr [USER_HOME]/knot [USER_HOME]/knot-m` | 830 |
+| `4185ee65...` | 5362 | `run_command` | `"diff -rq --exclude=\".git\" --exclude=\"node` | 830 |
+| `4185ee65...` | 5369 | `run_command` | `"diff -rq [USER_HOME]/knot [USER_HOME]/knot-m` | 830 |
+| `e2647072...` | 48 | `run_command` | `"which podman podman-compose || find / -name ` | 820 |
+| `e8aadb54...` | 201 | `run_command` | `"which wpa_supplicant wpa_passphrase dhcpcd d` | 818 |
+| `e8aadb54...` | 5689 | `run_command` | `"which kdotool wmctrl xdotool ydotool 2>&1"` | 818 |
+| `f6c90459...` | 2306 | `run_command` | `"which zipalign apksigner keytool"` | 818 |
+| `e8aadb54...` | 2806 | `run_command` | `"echo \"Desktop: $XDG_CURRENT_DESKTOP, Sessio` | 816 |
+| `13fada49...` | 1126 | `run_command` | `"ssh psl@192.168.68.142 \"bash -x [USER_HOME]` | 814 |
 
 ---
 

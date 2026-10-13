@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness: In-Band Command Execution Compactor Wrapper (ADR-011 / ADR-014)
 
@@ -19,6 +24,10 @@ import shlex
 import subprocess
 import sys
 from typing import Mapping, Sequence, Tuple, Union
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from harness.hooks.output_compactor_hook import (
     HEAD_CHARS,

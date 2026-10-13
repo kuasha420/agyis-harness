@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness for Google Antigravity™
 Tool & Command Character Volume Distribution Analyzer
@@ -14,7 +19,7 @@ Outputs:
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import math
 import os
@@ -29,9 +34,7 @@ from pipeline.extract_transcripts import (
 )
 
 
-def estimate_tokens(char_len: int) -> int:
-    """Estimates tokens assuming roughly 4 characters per token."""
-    return max(0, char_len // 4) if char_len else 0
+from harness.utils.tokens import estimate_tokens
 
 
 def calculate_percentiles(values: List[int], percentiles: List[float]) -> Dict[str, int]:
@@ -245,7 +248,7 @@ def analyze_volumes(
     conn.close()
 
     return {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
             "total_tool_calls": total_calls,
             "total_output_chars": total_output_chars,
@@ -269,6 +272,11 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     sims = data["compactor_simulations"]
 
     md = []
+    md.append("<!-- SPDX-License-Identifier: Apache-2.0 -->")
+    md.append("<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->")
+    md.append("<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->")
+    md.append("<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->")
+    md.append("")
     md.append("# 📊 Empirical Tool & Command Character Volume Distribution Report")
     md.append("**Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  ")
     md.append("**Publisher**: Purrfect Software Limited (PSL)  ")
@@ -378,8 +386,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     results = analyze_volumes(db_path, auto_backfill=True, verbose=verbose)
 
     # Output paths
-    json_path = Path(getattr(args, "output_json", "data/volume_distributions.json"))
-    report_path = Path(getattr(args, "output_report", "docs/taxonomy/tool-volume-distribution-report.md"))
+    json_path = Path(getattr(args, "output_json", None) or "data/volume_distributions.json")
+    report_path = Path(getattr(args, "output_report", None) or "docs/taxonomy/tool-volume-distribution-report.md")
 
     json_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)

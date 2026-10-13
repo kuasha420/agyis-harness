@@ -1,6 +1,11 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
 # Empirical Reasoning Effort vs. Accuracy Benchmark Matrix
 
-**Evaluation Timestamp**: `2026-10-08T16:12:57.177863+00:00`  
+**Evaluation Timestamp**: `2026-10-10T19:30:30.168634+00:00`  
 **Target Telemetry**: `data/telemetry.db`  
 **Canonical Spec**: ADR-030 (Client-to-Hub Federation & Benchmark Matrix)
 
@@ -19,9 +24,9 @@ This benchmark matrix evaluates performance trade-offs across three standardized
 
 | Tier Name | Canonical Model | Accuracy | Avg Steps | Avg Thinking Tokens | Wall Latency | Session Sample |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Gemini 3.8 Flash (Low Effort)** | `gemini-3.8-flash-low` | **78.5%** | 11.8 | 280 | 7.4s | 0 |
-| **Gemini 3.8 Flash (High Effort)** | `gemini-3.8-flash-high` | **31.2%** | 531.0 | 9,968 | 35744.75s | 16 |
-| **Gemini 3.1 Pro (Frontier Reasoning)** | `gemini-3.1-pro` | **66.7%** | 34.3 | 382 | 199.0s | 3 |
+| **Gemini 3.8 Flash (Low Effort)** | `gemini-3.8-flash-low` | **44.7%** | 126.2 | 0 | 770.54s | 103 |
+| **Gemini 3.8 Flash (High Effort)** | `gemini-3.8-flash-high` | **51.0%** | 378.9 | 2,065 | 53371.0s | 522 |
+| **Gemini 3.1 Pro (Frontier Reasoning)** | `gemini-3.1-pro` | **59.8%** | 87.8 | 970 | 608.69s | 97 |
 
 ---
 

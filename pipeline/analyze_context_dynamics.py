@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness for Google Antigravity™
 Context Cliff & Token Dynamics Analyzer
@@ -12,15 +17,14 @@ Outputs docs/taxonomy/context-cliff-dynamics.md and data/context_dynamics_summar
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
 from typing import Any, Dict, List, Tuple
 
 
-def estimate_tokens(char_len: int) -> int:
-    return max(1, char_len // 4) if char_len else 0
+from harness.utils.tokens import estimate_tokens
 
 
 def analyze_context_dynamics(db_path: Path) -> Dict[str, Any]:
@@ -149,7 +153,7 @@ def analyze_context_dynamics(db_path: Path) -> Dict[str, Any]:
     conn.close()
 
     return {
-        "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ"),
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
         "total_estimated_tokens": total_tokens_all,
         "step_volumes": step_type_volumes,
         "token_saturation_buckets": bucket_results,
@@ -170,7 +174,12 @@ def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
     sim = data["compaction_simulation"]
     bloaters = data["top_bloaters"]
 
-    md = f"""# 📉 Context Cliff & Token Dynamics Empirical Report
+    md = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
+# 📉 Context Cliff & Token Dynamics Empirical Report
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Specification**: Horizon 1 — Context Dynamics Analysis  
 **Generated At**: {data['timestamp']}  
@@ -267,12 +276,12 @@ What happens if the harness mechanically truncates or summarizes tool output pay
     print(f"[✓] Generated context dynamics report: {output_path}")
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Analyze context cliff and token dynamics.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
     parser.add_argument("--output", "-o", default="docs/taxonomy/context-cliff-dynamics.md", help="Path to markdown output")
     parser.add_argument("--json-out", default="data/context_dynamics_summary.json", help="Path to JSON output")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     db_path = Path(args.db)
     if not db_path.exists():

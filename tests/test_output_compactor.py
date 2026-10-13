@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 Test Suite for PSL PostToolUse Output Compactor Hook
 
@@ -14,6 +19,7 @@ Verifies:
 
 from __future__ import annotations
 
+import io
 import json
 import os
 from pathlib import Path
@@ -21,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 # Ensure harness is on sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -29,12 +36,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from harness.hooks.output_compactor_hook import (
     compact_output,
     extract_output_and_status,
+    main as compactor_main,
     process_payload,
     MAX_OUTPUT_CHARS,
     HEAD_CHARS,
     TAIL_CHARS,
 )
-from harness.hooks.exec_wrap import run_with_compaction
+from harness.hooks.exec_wrap import main as exec_wrap_main, run_with_compaction
 
 
 class TestOutputCompactor(unittest.TestCase):
@@ -45,6 +53,41 @@ class TestOutputCompactor(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
+
+    def test_state_dir_resolution_prefers_agyis_over_psl(self):
+        """Verifies get_state_dir prefers AGYIS_HARNESS_STATE_DIR over PSL_HARNESS_STATE_DIR."""
+        from harness.hooks.output_compactor_hook import get_state_dir
+        with tempfile.TemporaryDirectory() as td_agyis, tempfile.TemporaryDirectory() as td_psl:
+            with patch.dict(os.environ, {
+                "AGYIS_HARNESS_STATE_DIR": td_agyis,
+                "PSL_HARNESS_STATE_DIR": td_psl,
+            }):
+                self.assertEqual(get_state_dir(), Path(td_agyis))
+
+            with patch.dict(os.environ, {
+                "PSL_HARNESS_STATE_DIR": td_psl,
+            }, clear=False):
+                os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+                self.assertEqual(get_state_dir(), Path(td_psl))
+
+    def test_state_dir_fallback_alignment_across_hooks(self):
+        """Verifies that when env vars are unset, all hooks resolve to identical fallback directory."""
+        from harness.hooks.output_compactor_hook import get_state_dir as compactor_state_dir
+        from harness.hooks.anti_loop_hook import get_state_dir as anti_loop_state_dir
+        from harness.hooks.completion_fence_hook import get_state_dir as fence_state_dir
+        from harness.utils.state import get_state_dir as canonical_state_dir
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+            os.environ.pop("PSL_HARNESS_STATE_DIR", None)
+            d1 = compactor_state_dir()
+            d2 = anti_loop_state_dir()
+            d3 = fence_state_dir()
+            d4 = canonical_state_dir()
+            self.assertEqual(d1, d4)
+            self.assertEqual(d2, d4)
+            self.assertEqual(d3, d4)
+
 
     # -------------------------------------------------------------------------
     # 1. Small Output (<2KB) -> Unmodified
@@ -305,59 +348,38 @@ class TestOutputCompactor(unittest.TestCase):
             "output": "A" * 15000,
             "exitCode": 0,
         })
-        proc = subprocess.run(
-            [sys.executable, str(self.hook_script)],
-            input=payload,
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PSL_HARNESS_STATE_DIR": str(self.state_dir)},
-        )
-        self.assertEqual(proc.returncode, 0)
-        stdout_clean = proc.stdout.strip()
-        self.assertEqual(stdout_clean, "{}")
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO(payload)), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                compactor_main()
+                self.assertEqual(mock_out.getvalue().strip(), "{}")
 
     def test_cli_post_tool_use_contract_empty_stdin(self) -> None:
         """Empty stdin must gracefully output `{}` with exit code 0."""
-        proc = subprocess.run(
-            [sys.executable, str(self.hook_script)],
-            input="",
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PSL_HARNESS_STATE_DIR": str(self.state_dir)},
-        )
-        self.assertEqual(proc.returncode, 0)
-        self.assertEqual(proc.stdout.strip(), "{}")
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO("")), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                compactor_main()
+                self.assertEqual(mock_out.getvalue().strip(), "{}")
 
     def test_cli_post_tool_use_contract_invalid_json(self) -> None:
         """Malformed JSON on stdin must gracefully output `{}` with exit code 0."""
-        proc = subprocess.run(
-            [sys.executable, str(self.hook_script)],
-            input="<<<MALFORMED_JSON_PAYLOAD>>>{",
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PSL_HARNESS_STATE_DIR": str(self.state_dir)},
-        )
-        self.assertEqual(proc.returncode, 0)
-        self.assertEqual(proc.stdout.strip(), "{}")
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO("<<<MALFORMED_JSON_PAYLOAD>>>{")), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                compactor_main()
+                self.assertEqual(mock_out.getvalue().strip(), "{}")
 
     def test_cli_post_tool_use_contract_non_dict_json(self) -> None:
         """Non-dict JSON (e.g. array or primitive) must output `{}` with exit code 0."""
-        proc = subprocess.run(
-            [sys.executable, str(self.hook_script)],
-            input="[1, 2, 3]",
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PSL_HARNESS_STATE_DIR": str(self.state_dir)},
-        )
-        self.assertEqual(proc.returncode, 0)
-        self.assertEqual(proc.stdout.strip(), "{}")
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO("[1, 2, 3]")), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                compactor_main()
+                self.assertEqual(mock_out.getvalue().strip(), "{}")
 
     # -------------------------------------------------------------------------
     # 6. In-Band Execution Wrapper (exec_wrap.py) Compaction Tests
     # -------------------------------------------------------------------------
     def test_exec_wrap_short_output_verbatim(self) -> None:
         """run_with_compaction emits short output verbatim with exit code 0."""
-        cmd = [sys.executable, "-c", "print('hello from in-band execution')"]
+        cmd = ["echo", "hello from in-band execution"]
         code, out = run_with_compaction(cmd, shell=False)
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "hello from in-band execution")
@@ -385,21 +407,45 @@ class TestOutputCompactor(unittest.TestCase):
 
     def test_exec_wrap_cli_helper(self) -> None:
         """CLI helper executes command and prints compacted output."""
-        exec_script = PROJECT_ROOT / "harness" / "hooks" / "exec_wrap.py"
-        proc = subprocess.run(
-            [sys.executable, str(exec_script), "-c", f"{sys.executable} -c \"print('cli-wrapper-test')\""],
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(proc.returncode, 0)
-        self.assertEqual(proc.stdout.strip(), "cli-wrapper-test")
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = exec_wrap_main(["-c", "echo cli-wrapper-test"])
+            self.assertEqual(code, 0)
+            self.assertEqual(mock_out.getvalue().strip(), "cli-wrapper-test")
 
     def test_exec_wrap_sequence_shell_true_escapes_spaces(self) -> None:
         """run_with_compaction uses shlex.join for sequence arguments with shell=True (DEFECT-L3-03)."""
-        cmd = [sys.executable, "-c", "import sys; print(sys.argv[1])", "argument with spaces"]
+        cmd = ["sh", "-c", 'echo "$@"', "sh", "argument with spaces"]
         code, out = run_with_compaction(cmd, shell=True)
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "argument with spaces")
+
+    def test_exec_wrap_hermetic_sys_path(self) -> None:
+        """
+        Verifies exec_wrap.py dynamically injects repo root into sys.path when
+        invoked out-of-band without PYTHONPATH and from an arbitrary working directory.
+        """
+        clean_env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "PSL_HARNESS_STATE_DIR": str(self.state_dir),
+        }
+        clean_env.pop("PYTHONPATH", None)
+
+        script_path = PROJECT_ROOT / "harness" / "hooks" / "exec_wrap.py"
+        cmd = [sys.executable, str(script_path), "-c", "echo exec_wrap_standalone_ok"]
+        proc = subprocess.run(
+            cmd,
+            cwd=str(self.state_dir),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            proc.returncode,
+            0,
+            f"exec_wrap.py failed when executed without PYTHONPATH:\nStderr: {proc.stderr}\nStdout: {proc.stdout}",
+        )
+        self.assertEqual(proc.stdout.strip(), "exec_wrap_standalone_ok")
+        self.assertNotIn("ModuleNotFoundError", proc.stderr)
 
 
 if __name__ == "__main__":

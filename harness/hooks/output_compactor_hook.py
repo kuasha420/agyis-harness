@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness: PostToolUse Output Compactor & Telemetry Analyzer
 
@@ -10,7 +15,7 @@ Implements a smart 2KB compaction algorithm for tool execution outputs:
     1. First 500 characters (head context)
     2. Last 1,000 characters (tail/completion status)
     3. All lines in omitted middle containing exit code, fatal, error, or failure keywords.
-- Caches compacted output and compaction metadata in /tmp/psl_agy_harness_state/.
+- Caches compacted output and compaction metadata in /tmp/agyis_harness_state/.
 - Emits valid JSON `{}` on stdout per the official Antigravity PostToolUse contract.
 """
 
@@ -24,13 +29,17 @@ import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
+from harness.utils.state import get_state_dir
+
 # Configuration Constants
 MAX_OUTPUT_CHARS = 2048
 HEAD_CHARS = 500
 TAIL_CHARS = 1000
 ERROR_KEYWORDS = ("exit code", "exit_code", "fatal", "error", "failure", "failed")
 
-STATE_DIR = Path(os.environ.get("PSL_HARNESS_STATE_DIR", "/tmp/psl_agy_harness_state"))
+
+
+STATE_DIR = get_state_dir()
 
 
 def compact_output(
@@ -186,7 +195,7 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
     """
     Processes the hook payload, executes compaction, caches state, and returns metrics.
     """
-    target_state_dir = state_dir or STATE_DIR
+    target_state_dir = state_dir or get_state_dir()
     conv_id = str(payload.get("conversationId") or "default")
     step_idx = payload.get("stepIdx", payload.get("step_index", 0))
     tool_call = payload.get("toolCall", {})

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness for Google Antigravity™
 Cognitive & Chain-of-Thought (CoT) Trace Harvester (Tier 1 Local Compactor)
@@ -166,7 +171,12 @@ def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
     cats = data["cognitive_pattern_distribution"]
     trajs = data["top_100_trajectories"]
 
-    md = f"""# 🧠 Cognitive & Chain-of-Thought (CoT) Trace Analysis (Tier 1)
+    md = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
+# 🧠 Cognitive & Chain-of-Thought (CoT) Trace Analysis (Tier 1)
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Specification**: Horizon 1 — Two-Tier Cognitive Dynamics  
 **Generated At**: {data['timestamp']}  
@@ -226,12 +236,12 @@ This compact JSON contains the exact pre-failure thinking snippets, tool calls, 
     print(f"[✓] Generated cognitive traces report: {output_path}")
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Extract cognitive traces from telemetry.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
     parser.add_argument("--output", "-o", default="docs/taxonomy/cognitive-traces-report.md", help="Path to markdown output")
     parser.add_argument("--json-out", default="data/top_100_cognitive_trajectories.json", help="Path to JSON output")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     db_path = Path(args.db)
     if not db_path.exists():

@@ -1,0 +1,19 @@
+agyis-harness
+Copyright (c) 2026 Arafat Zahan (@kuasha420)
+Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
+This product includes software developed by Arafat Zahan (@kuasha420) with
+corporate stewardship and infrastructure provided by Purrfect Software Limited (PSL)
+under the ICARO-42/b Company-Supported Personal IP Framework.
+
+Third-Party Software Attributions:
+- psycopg (GNU LGPL-3.0): Used by server/ for PostgreSQL database connectivity.
+- starlette (BSD 3-Clause): Used by server/ for HTTP API routing and ASGI components.
+- certifi (Mozilla Public License 2.0): Used for Mozilla CA bundle certificate verification.
+- pytest (MIT License): Used for test execution framework.
+- rich (MIT License): Used for terminal rendering and formatted console output.
+- httpx (MIT License): Used for HTTP client testing and telemetry sync.
+
+Trademark Notice:
+Google Antigravity™ is a trademark of Google LLC. This project is an independent open-source harness and is not endorsed by or affiliated with Google LLC.

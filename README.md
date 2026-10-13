@@ -1,16 +1,21 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
 # PSL Harness for Google Antigravity™ (`psl-agy-harness`)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity-4285F4.svg)](https://antigravity.google)
 [![Status](https://img.shields.io/badge/Status-Active_Development_(Research_&_POC)-orange.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-43%2F43_Passing_(100%25)-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-401%2F401_Passing_(100%25)-brightgreen.svg)]()
 
 > An open-source empirical audit pipeline and reference extension harness for **Google Antigravity™** by **Purrfect Software Limited (PSL)** under the **Apache-2.0** license.
 
 ---
 
 > [!NOTE]
-> **Project State Notice**: This repository is currently in **Active Research & Proof-of-Concept (POC) Phase**. We have completed empirical ingestion of 348 real-world developer sessions, verified isolated lifecycle hooks, codified our testing contracts, and packaged the unified `psl` developer CLI. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
+> **Project State Notice**: This repository has completed empirical ingestion of **722 real-world developer sessions (219,292 steps, 160,226 tool calls)**, verified isolated lifecycle hooks, codified hermetic testing contracts (401 passing tests in <1.0s), and packaged the unified 13-command `psl` developer CLI suite. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
 
 ---
 
@@ -34,29 +39,147 @@ Rather than creating an isolated, competing framework that reinvents agent execu
 
 ## 📊 Ground Truth: Workstation Empirical Telemetry
 
-From our automated audit of **348 developer sessions** on this workstation:
+From our automated audit of **722 developer sessions** (`data/telemetry.db`):
 
 | Metric | Empirical Baseline | Key Takeaway |
 | :--- | :--- | :--- |
-| **Total Trajectory Steps** | 140,005 steps | Comprehensive multi-project corpus. |
-| **Total Tool Executions** | 64,065 tool calls | Heavily skewed toward terminal and file inspection. |
-| **Terminal Failure Monopoly** | **98.4% of all errors** | 2,192 errors occurred in `run_command` alone. |
-| **The 200+ Step Context Cliff** | **20x error / 40x intervention jump** | Sessions `<50` steps have 0.8 errors/session; sessions `>200` steps suffer 20.5 errors/session. |
-| **Loop & Thrashing Traps** | 5,773 repeated calls | 3,951 repeated `view_file`, 625 repeated `grep_search`, 300 polling `manage_task`. |
-| **Exit Code 1 Sub-Distribution** | 1,544 occurrences | **329 benign grep/diff misses** (21.3%), **58 Python syntax errors** (3.8%, 23 f-string backslash errors), **142 tracebacks** (9.2%). |
-| **Context Bloat Elimination** | **21.3% token reduction** | Capping non-error outputs at 2KB saves ~6.9M tokens across the audited corpus. |
+| **Total Trajectory Steps** | 219,292 steps | Comprehensive long-horizon multi-project corpus. |
+| **Total Tool Executions** | 160,226 tool calls | 97.46% success rate (4,062 tool errors, 2.54% error rate). |
+| **Human Operator Interventions** | 2,738 interventions | Average 1.25 interventions / 100 steps (99.3% due to cognitive drift). |
+| **Loop & Thrashing Traps** | 15,562 calls (9.71%) | Intercepted by deterministic Anti-Loop hook. |
+| **Surgical Contiguous Edits** | 11,279 calls (99.47%) | ADR-013 validated: only 60 edit errors in 11k operations. |
+| **The Context Cliff** | 5.2x error spike | Sessions exceeding 100k tokens suffer rapid error escalation. |
+| **Context Bloat Elimination** | **21.3% token reduction** | Capping non-error outputs at 2KB saves >10M tokens. |
+
+## 🚀 Quickstart: Installation & Coexistence
+
+### 1. Workstation-Wide Setup (Global Plugin & CLI)
+
+The global installation deploys the reference harness plugin into Antigravity surfaces, registers the unified `psl` CLI in `~/.local/bin`, and activates deterministic lifecycle hooks.
+
+#### Option A: Source / Developer Install (Recommended for Development)
+```bash
+git clone https://github.com/kuasha420/psl-agy-harness.git
+cd psl-agy-harness
+
+# Install plugin into Antigravity surfaces and register 'psl' in ~/.local/bin
+./psl install --all-surfaces
+
+# Verify workstation health, active hooks & runtimes
+psl doctor
+psl status
+```
+
+#### Option B: Standalone / Zero-Clone Install (`uv tool`)
+```bash
+# Install the standalone CLI executable into an isolated environment
+uv tool install git+https://github.com/kuasha420/psl-agy-harness.git
+
+# Deploy plugin bundle to Antigravity surfaces
+psl install --copy --all-surfaces
+
+# Verify installation
+psl doctor
+```
+
+---
+
+### 2. Project-Specific Installation (Workspace Skills & Tooling)
+
+When working inside a specific software repository, you can initialize, configure, and isolate project-tailored skills, specialist agents, rules, and runtimes without dirtying global settings or external workspaces.
+
+#### Step 1: Synchronize Modular Skills into the Project
+From inside any project repository, you can synchronize all skills or selectively deploy only the skills required for your technology stack or workflow:
+```bash
+cd /path/to/my-project
+
+# 1. Sync tailored to your tech stack (auto-detects package.json, pyproject.toml, Cargo.toml, go.mod)
+psl skills --sync --stack auto
+
+# 2. Or sync by explicit stack preset (python, typescript, rust, go, systems, shell, backend)
+psl skills --sync --stack python
+
+# 3. Or sync by functional group preset (stack, testing/runners, ops/workstation, workflow/ladder)
+psl skills --sync --group ops
+
+# 4. Or sync specific skills by name
+psl skills psl-stack-python --sync
+psl skills --sync --skills "psl-stack-shell, audio-ops, git-worktree-ops"
+
+# 5. Or sync all 23 modular skills
+psl skills --sync
+```
+*Tip: You can also author custom project-specific skills by placing a `SKILL.md` directly into `.agents/skills/<skill-name>/SKILL.md`.*
+
+#### Step 2: Scaffold Project-Tailored Specialist Agents
+Generate specialist agent personas that automatically ground themselves into your repository's detected languages (`pyproject.toml`, `package.json`, `Cargo.toml`), test runners, key commands, and invariants:
+```bash
+# Scaffold a project-specific builder / implementer agent
+psl agents create my-builder --archetype executioner --scope project
+
+# Or synchronize the full specialist roster into <my-project>/.agents/agents/
+psl agents --sync
+```
+
+#### Step 3: Configure Project Tooling & Hermetic Runtimes
+- **Automatic `.venv` Promotion**: When you execute `psl` inside a project containing a local Python virtual environment (`.venv/`), the launcher automatically promotes execution to `.venv/bin/python`.
+- **Project Environment Diagnostics**:
+  ```bash
+  psl doctor                               # Audits project against 3-tier runtime matrix
+  psl doctor --heal                        # Zero-sudo user-space repair if tools missing
+  ```
+- **Hermetic Testing Benchmark**:
+  ```bash
+  psl test                                 # Executes tests in <1.0s and resets completion fences
+  ```
+
+---
+
+### 3. Architecture: Global vs. Local Precedence Hierarchy (ADR-030)
+
+The Antigravity engine and PSL Harness operate on a strict **3-Tier Precedence Hierarchy** (`CoexistenceEngine`). High-precedence layers cleanly override lower-precedence defaults:
+
+```text
+[Layer 3: Workspace Local] (<project-root>/.agents/ or project root) -- HIGHEST PRECEDENCE
+         │ (Overrides user defaults and plugin fallbacks)
+         ▼
+[Layer 2: Workstation User] (~/.gemini/antigravity/, ~/.gemini/config/)
+         │ (Overrides bundled plugin defaults)
+         ▼
+[Layer 1: Global Plugin] (~/.gemini/config/plugins/psl-agy-harness/ or harness/) -- DEFAULT FALLBACK
+```
+
+#### Component Comparison Matrix
+
+| Component | Workstation-Wide (Global) | Workspace / Project-Specific (Local) | Resolution & Override Semantics |
+| :--- | :--- | :--- | :--- |
+| **Modular Skills** | `~/.gemini/config/skills/`<br>or bundled in plugin | `<project>/.agents/skills/<skill>/SKILL.md` | **Layer 3 > 2 > 1**: A local skill in `.agents/skills/` overrides any global skill with the same name. |
+| **Specialist Agents** | `~/.gemini/config/agents/<name>.md`<br>or bundled in plugin | `<project>/.agents/agents/<name>.md` | **Layer 3 > 2 > 1**: Scaffolds automatically ground into local package manifests; local agents take precedence. |
+| **Agent Rules** | `~/.gemini/config/AGENTS.md`<br>`~/.gemini/config/rules/*.md` | `<project>/AGENTS.md`<br>`<project>/.agents/rules/*.md` | **Layer 3 > 2**: Local project rules take precedence, providing repository-specific constraints on top of global standards. |
+| **Developer CLI & Launcher** | `~/.local/bin/psl`<br>`~/.gemini/antigravity/bin/psl` | `./psl` in repo root | Global launcher is universally available in `$PATH`; auto-promotes to project `.venv` when run inside a repo. |
+| **Tooling & Runtimes** | System `$PATH`, `uv` global python | Project `.venv`, `node_modules` | Project virtual environments take priority during task execution; `psl doctor` audits local versions. |
+| **Lifecycle Hooks** | Global `hooks.json` across surfaces | Project `hooks.json` | Deterministic fail-safe runner intercepts tool calls across all sessions. |
+| **Git Hygiene & State** | `~/.local/state/psl/` | `.git/info/exclude` | `psl install` configures `.git/info/exclude` so untracked local state never pollutes git status. |
 
 ---
 
 ## 🏛️ Verified POC Components
 
 ### 1. Unified Developer CLI (`psl`)
-Provides a single modular CLI entrypoint for diagnostics, tests, and hooks:
-- `psl doctor [--heal] [--json]`: Workstation environment diagnostic.
-- `psl test [-v]`: Sub-second project test runner.
-- `psl hook <hook_name>`: Deterministic lifecycle hook handler.
-- `psl audit [subcommand]`: Telemetry lab extraction and failure classifier.
-- `psl status`: High-level system and active hook health overview.
+Provides a single modular CLI entrypoint for diagnostics, tests, hooks, and mesh operations (see [docs/official-specs/cli-palette.md](docs/official-specs/cli-palette.md)):
+- `psl doctor [--matrix <path>] [--heal] [--json]`: Workstation environment diagnostic & zero-sudo auto-healing.
+- `psl hook <hook_name>`: Deterministic lifecycle hook dispatcher via fail-safe runner.
+- `psl test [-v] [-s <dir>]`: Sub-second hermetic project test runner (<1.0s benchmark, 401 tests).
+- `psl audit [stage] [options]`: Empirical telemetry laboratory extraction & analytical pipelines.
+- `psl skills [name] [--sync] [--json]`: Discover, inspect, and synchronize modular product skills.
+- `psl agents [name|action] [options]`: Specialist subagent catalog, scaffolding, validation & rehydration.
+- `psl subagents [--json] [--brain-dir <dir>]`: Live active subagents status table & context health gauges.
+- `psl status`: Unified system health, active hooks, attention horizon, skills & agents overview.
+- `psl remote <exec|script|triage|socket>`: SSH-multiplexed remote mesh execution and triage (ADR-027).
+- `psl auth <login|status|logout>`: GitHub organization credential management for centralized telemetry.
+- `psl sync [options]`: Bi-directional telemetry synchronization with central hub (ADR-030).
+- `psl install [-g|--global] [--symlink|--copy]`: Global plugin and standalone CLI installation.
+- `psl uninstall [--target <path>]`: Clean global plugin uninstallation without collateral damage.
 
 ```bash
 python3 -m harness.cli --help
@@ -93,14 +216,14 @@ Tracks consecutive executions per conversation ID in `/tmp/psl_agy_harness_state
 
 ## 🧪 Verification & Test Suite
 
-All 43 unit, integration, and replay tests pass with 100% coverage in **<0.85s**:
+All 401 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-015 benchmark):
 
 ```bash
 python3 -m harness.cli test
 ```
 
 ```text
-Ran 43 tests in 0.838s
+Ran 401 tests in 0.963s
 OK
 ```
 
@@ -112,9 +235,9 @@ For our testing standards and verification specifications, read:
 For the complete architectural design, cognitive guardrails, and horizon breakdown, read:
 👉 **[roadmap.md](roadmap.md)**
 
-* **Horizon 0 (Current)**: Empirical Ground Truth & POC Prototyping (Completed & Compacted).
-* **Horizon 1 (Next Session)**: Product Foundation, Rule/Skill Delivery Architecture & In-Band Compactor.
-* **Horizon 2 (Future)**: Knot Hardware Mesh & Multi-Agent Fleet Scaling.
+* **Horizon 0**: Empirical Ground Truth & Telemetry Ingestion (Completed & Compacted).
+* **Horizon 1**: Product Foundation, Modular Subagents & Lifecycle Hooks (Completed & Compacted).
+* **Horizon 2 (Active)**: Knot Hardware Mesh & Multi-Agent Fleet Scaling.
 
 
 Permanent architectural decisions are recorded in the living compact ledger:
@@ -124,5 +247,7 @@ Permanent architectural decisions are recorded in the living compact ledger:
 
 ## 📜 License & Governance
 
-Licensed under the **Apache License, Version 2.0** ([LICENSE](LICENSE)).  
-Copyright © 2026 Purrfect Software Limited (PSL).
+Licensed under the **Apache License, Version 2.0** ([LICENSE](LICENSE)) under the **CSP-IP Framework**.  
+Copyright © 2026 Arafat Zahan (@kuasha420)  
+Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)  
+Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)

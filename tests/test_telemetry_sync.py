@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 Hermetic Unit and Contract Tests for PSL Telemetry Sync Engine (ADR-030 Phase 3).
 
@@ -1074,6 +1079,73 @@ class TestSyncPull(unittest.TestCase):
         finally:
             err_404.close()
 
+    def test_pull_with_all_developers_and_developer_filter(self):
+        """Verifies pull_remote_sessions passes all_developers and developer query parameters."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"sessions": [], "steps": [], "tool_calls": [], "user_interventions": []}'
+        mock_resp.__enter__.return_value = mock_resp
+
+        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            # 1. all_developers=True
+            res_all = sync.pull_remote_sessions(db_path=self.db_path, all_developers=True)
+            self.assertEqual(res_all["status"], "success")
+            req_all = mock_urlopen.call_args_list[0][0][0]
+            self.assertIn("all_developers=true", req_all.get_full_url())
+
+            # 2. developer='developer_x'
+            res_dev = sync.pull_remote_sessions(db_path=self.db_path, developer="developer_x")
+            self.assertEqual(res_dev["status"], "success")
+            req_dev = mock_urlopen.call_args_list[1][0][0]
+            self.assertIn("developer=developer_x", req_dev.get_full_url())
+
+    def test_pull_pagination_multiple_pages(self):
+        """Verifies pull_remote_sessions loops through multiple pages until has_more is False."""
+        page1 = {
+            "has_more": True,
+            "sessions": [{
+                "session_id": "page1-sess",
+                "start_time": "2026-03-01T10:00:00Z",
+                "origin_developer": "dev1",
+                "remote_synced_at": "2026-03-01T10:05:00Z",
+            }],
+            "steps": [],
+            "tool_calls": [],
+            "user_interventions": [],
+        }
+        page2 = {
+            "has_more": False,
+            "sessions": [{
+                "session_id": "page2-sess",
+                "start_time": "2026-03-01T11:00:00Z",
+                "origin_developer": "dev2",
+                "remote_synced_at": "2026-03-01T11:05:00Z",
+            }],
+            "steps": [],
+            "tool_calls": [],
+            "user_interventions": [],
+        }
+
+        mock_resp1 = MagicMock()
+        mock_resp1.read.return_value = json.dumps(page1).encode("utf-8")
+        mock_resp1.__enter__.return_value = mock_resp1
+
+        mock_resp2 = MagicMock()
+        mock_resp2.read.return_value = json.dumps(page2).encode("utf-8")
+        mock_resp2.__enter__.return_value = mock_resp2
+
+        with patch("urllib.request.urlopen", side_effect=[mock_resp1, mock_resp2]) as mock_urlopen:
+            res = sync.pull_remote_sessions(db_path=self.db_path, batch_limit=1)
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["sessions_pulled"], 2)
+            self.assertEqual(res["sessions_inserted"], 2)
+            self.assertEqual(mock_urlopen.call_count, 2)
+
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM sessions WHERE session_id IN ('page1-sess', 'page2-sess')")
+            self.assertEqual(cur.fetchone()[0], 2)
+            conn.close()
+
 
 class TestVerifyAuthToken(unittest.TestCase):
     """Verifies verify_auth_token behavior."""
@@ -1299,11 +1371,14 @@ class TestProductProjectSeparation(unittest.TestCase):
     def test_harness_imports_cleanly_without_pipeline_in_sys_modules(self):
         """Verifies harness/ has zero imports from pipeline/."""
         import subprocess
+        import sys
         cmd = [
-            "python3",
+            sys.executable,
             "-c",
             (
                 "import sys\n"
+                "import harness.cli\n"
+                "import harness.runtime.doctor\n"
                 "import harness.telemetry.sync\n"
                 "import harness.telemetry.config\n"
                 "import harness.telemetry.schema\n"

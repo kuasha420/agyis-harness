@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 Empirical benchmark suite for testing model reasoning accuracy, latency, and thinking tokens
 across Gemini 3.8 Flash reasoning effort levels (low, medium, high).

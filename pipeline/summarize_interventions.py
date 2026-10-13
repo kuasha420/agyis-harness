@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness for Google Antigravity™
 Operator Interventions & Trajectory Shift Summarizer
@@ -110,11 +115,11 @@ def summarize_interventions(db_path: Path) -> Dict[str, Any]:
     }
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Summarize user interventions and operator guidance.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
     parser.add_argument("--output", "-o", default="data/operator_interventions_summary.json", help="Path to output JSON")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     db_path = Path(args.db)
     if not db_path.exists():

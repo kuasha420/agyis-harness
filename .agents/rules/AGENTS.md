@@ -1,3 +1,8 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
 # Empirical Agent Rules: PSL Harness Guidelines
 
 These operational rules govern cognitive behavior and human-in-the-loop alignment for **psl-agy-harness**. All deterministic environment guarantees (CPython >= 3.12 runtime injection, pager normalization, surgical grep exit sanitization, output compaction) are enforced transparently by harness hooks.
@@ -34,6 +39,16 @@ python3 -m harness.cli audit inventory         # Catalog plugins, skills, hooks 
 # 🧩 Skills & Subagents Discovery
 python3 -m harness.cli skills                  # List installed modular skills & triggers
 python3 -m harness.cli agents                  # List registered specialist subagents & tools
+
+# 🛠️ Workstation & Remote Modular Skills
+# storage-ops:      Bounded disk triage (`du -h -d 1`), pacman cache (`paccache -r`), journalctl vacuum, Docker prune, Btrfs, ntfs3
+# audio-ops:        PipeWire/WirePlumber user diagnostics (`wpctl status`), sink recovery, bluetoothctl, loudnorm, VLC split-package
+# display-ops:      Wayland probe (`kscreen-doctor -o`), portal restart (no -9), Electron Ozone/PipeWire flags, Sunshine KMS capture
+# sec-forensics:    Ephemeral RO triage (`docker run --rm -v /:/host:ro`), cloud key revocation, remote script streaming, PDF
+# media-ops:        yt-dlp stream acquisition ladder (`--impersonate chrome`), ffmpeg flips/rotations, hardware acceleration probe
+# db-ops:           Non-interactive psql/sqlite3 CLI, connection pool saturation, locks, WAL checkpoints, Docker DB triage
+# mesh-ops:         Knot hardware mesh coordination, Tailscale/WireGuard ping, ControlMaster sockets, state sync, KDE Connect
+# git-worktree-ops: Isolated worktree lifecycle, branch cleanup, orphan prune, stash hygiene, index.lock recovery
 
 # 🌐 Remote Operations & Cloud/Mesh Triage (ADR-027)
 python3 -m harness.cli remote exec <target> "<cmd>"    # Multiplexed SSH with login-shell promotion
@@ -93,8 +108,10 @@ python3 -m harness.cli remote socket cleanup           # Remove active ControlMa
 2. **Anti-Loop Heuristics**:
    - Do NOT repeatedly call `view_file` on the same file within consecutive steps.
    - Evolve search queries; do not repeat identical `grep_search` patterns.
-   - Never poll `manage_task(Action='status')` in a loop; await reactive wakeups.
-3. **Subagent Delegation Protocol**:
+   - **Strict Reactive Wait Invariant**: Never poll `manage_task(Action='status')` NOR repeatedly read background task logs (`tail`, `cat`, `grep`, `view_file` on `.system_generated/tasks/*.log`) to print manual progress updates. After launching a background task, output a single concise notification and stop calling tools. Await reactive wakeup.
+3. **Tool-Native Primacy (The Anti-Premature-Cognition Invariant)**:
+   - When an external CLI or tool fails, exhaust the tool's standard native options, configurations, and flag escalation ladders (e.g., `--impersonate`, `--concurrent-fragments`, retry/timeout flags, native formatting options) before reading internal tool source code, monkeypatching APIs, or constructing custom proxy scripts. Cognitive intervention is a last resort, not a first reflex.
+4. **Subagent Delegation Protocol**:
    - For multi-phase refactoring, test debugging, or massive build sweeps, delegate to subagents in isolated worktrees (`Workspace: "share"` or `"branch"`).
 
 ---

@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 Hermetic SQLite Database Schema Definition for PSL Telemetry (ADR-014 / ADR-030).
 
@@ -100,4 +105,29 @@ def init_db(conn: sqlite3.Connection) -> None:
     """Initializes tables and indexes on a connection."""
     cur = conn.cursor()
     cur.executescript(SCHEMA_SQL)
+    conn.commit()
+
+
+def ensure_sync_columns(conn: sqlite3.Connection) -> None:
+    """Non-destructively ensures sync & federation columns exist on sessions table."""
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sessions'")
+    if not cur.fetchone():
+        cur.executescript(SCHEMA_SQL)
+        conn.commit()
+        return
+
+    cur.execute("PRAGMA table_info(sessions)")
+    existing_cols = {row[1] for row in cur.fetchall()}
+
+    new_cols = [
+        ("origin_developer", "TEXT DEFAULT 'local'"),
+        ("remote_synced_at", "TEXT DEFAULT NULL"),
+    ]
+    for col_name, col_type in new_cols:
+        if col_name not in existing_cols:
+            cur.execute(f"ALTER TABLE sessions ADD COLUMN {col_name} {col_type}")
+
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_origin ON sessions(origin_developer)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_synced ON sessions(remote_synced_at)")
     conn.commit()

@@ -5,6 +5,10 @@ description: >-
   pytest, unittest discovery, clean-room temporary directory isolation, sub-second benchmark invariants,
   and zero error-swallowing execution standards.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # PSL Test Skill: Python Test Runner & Hermetic Verification
 

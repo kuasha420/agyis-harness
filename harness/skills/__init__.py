@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Modular Skills Registry & Discovery Engine.
 
@@ -17,128 +22,7 @@ DEFAULT_SKILLS_DIR = Path(__file__).resolve().parent
 DEFAULT_TARGET_DIR = REPO_ROOT / ".agents" / "skills"
 
 
-def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
-    """Parse YAML frontmatter and markdown body from skill/rule files."""
-    if not content.startswith("---"):
-        return {}, content
-
-    parts = content.split("---", 2)
-    if len(parts) < 3:
-        return {}, content
-
-    raw_fm = parts[1]
-    body = parts[2].lstrip()
-    result: Dict[str, Any] = {}
-    lines = raw_fm.strip().splitlines()
-    i = 0
-
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            i += 1
-            continue
-
-        if ":" in line and not line.startswith(" ") and not line.startswith("\t"):
-            key, val = line.split(":", 1)
-            key = key.strip()
-            val = val.strip()
-
-            if val in (">-", ">", "|", "|-"):
-                buf: List[str] = []
-                i += 1
-                while i < len(lines) and (
-                    lines[i].startswith("  ")
-                    or lines[i].startswith("\t")
-                    or not lines[i].strip()
-                ):
-                    if lines[i].strip():
-                        buf.append(lines[i].strip())
-                    i += 1
-                joiner = " " if val in (">-", ">") else "\n"
-                result[key] = joiner.join(buf)
-                continue
-            elif val == "":
-                i += 1
-                child_list: List[str] = []
-                child_dict: Dict[str, Any] = {}
-                is_list = False
-                is_dict = False
-                while i < len(lines) and (
-                    lines[i].startswith("  ")
-                    or lines[i].startswith("\t")
-                    or not lines[i].strip()
-                ):
-                    cline = lines[i].strip()
-                    if not cline:
-                        i += 1
-                        continue
-                    if cline.startswith("- "):
-                        is_list = True
-                        child_list.append(cline[2:].strip())
-                    elif ":" in cline:
-                        is_dict = True
-                        ck, cv = cline.split(":", 1)
-                        ck = ck.strip()
-                        cv = cv.strip()
-                        if cv.lower() == "true":
-                            child_dict[ck] = True
-                        elif cv.lower() == "false":
-                            child_dict[ck] = False
-                        else:
-                            child_dict[ck] = cv
-                    i += 1
-                if is_list:
-                    result[key] = child_list
-                elif is_dict:
-                    result[key] = child_dict
-                else:
-                    result[key] = ""
-                continue
-            else:
-                if val.lower() == "true":
-                    result[key] = True
-                elif val.lower() == "false":
-                    result[key] = False
-                elif (
-                    val.startswith(('"', "'"))
-                    and val.endswith(('"', "'"))
-                    and len(val) >= 2
-                ):
-                    result[key] = val[1:-1]
-                elif val.startswith("[") and val.endswith("]"):
-                    inner = val[1:-1].strip()
-                    if not inner:
-                        result[key] = []
-                    else:
-                        result[key] = [
-                            item.strip().strip("'\"")
-                            for item in inner.split(",")
-                            if item.strip()
-                        ]
-                elif val.startswith("{") and val.endswith("}"):
-                    inner = val[1:-1].strip()
-                    c_dict: Dict[str, Any] = {}
-                    if inner:
-                        for pair in inner.split(","):
-                            if ":" in pair:
-                                pk, pv = pair.split(":", 1)
-                                pk = pk.strip().strip("'\"")
-                                pv = pv.strip().strip("'\"")
-                                if pv.lower() == "true":
-                                    c_dict[pk] = True
-                                elif pv.lower() == "false":
-                                    c_dict[pk] = False
-                                elif pv.isdigit():
-                                    c_dict[pk] = int(pv)
-                                else:
-                                    c_dict[pk] = pv
-                    result[key] = c_dict
-                else:
-                    result[key] = val
-        i += 1
-
-    return result, body
+from harness.utils.frontmatter import parse_frontmatter
 
 
 @dataclass(frozen=True)
@@ -192,20 +76,257 @@ def get_skill(name: str, skills_dir: Optional[Path] = None) -> Optional[SkillSpe
     return None
 
 
+STACK_PRESETS: Dict[str, List[str]] = {
+    "python": [
+        "psl-stack-python",
+        "psl-test-python",
+        "psl-stack-backend",
+    ],
+    "typescript": [
+        "psl-stack-typescript",
+        "psl-test-node",
+        "psl-stack-backend",
+    ],
+    "node": [
+        "psl-stack-typescript",
+        "psl-test-node",
+        "psl-stack-backend",
+    ],
+    "javascript": [
+        "psl-stack-typescript",
+        "psl-test-node",
+        "psl-stack-backend",
+    ],
+    "rust": [
+        "psl-test-cargo",
+        "psl-stack-systems",
+        "psl-stack-shell",
+    ],
+    "cargo": [
+        "psl-test-cargo",
+        "psl-stack-systems",
+        "psl-stack-shell",
+    ],
+    "go": [
+        "psl-test-go",
+        "psl-stack-backend",
+    ],
+    "systems": [
+        "psl-stack-systems",
+        "psl-stack-shell",
+    ],
+    "shell": [
+        "psl-stack-shell",
+    ],
+    "backend": [
+        "psl-stack-backend",
+        "db-ops",
+    ],
+}
+
+GROUP_PRESETS: Dict[str, List[str]] = {
+    "stack": [
+        "psl-stack-python",
+        "psl-stack-typescript",
+        "psl-stack-shell",
+        "psl-stack-systems",
+        "psl-stack-backend",
+    ],
+    "testing": [
+        "psl-test-python",
+        "psl-test-node",
+        "psl-test-cargo",
+        "psl-test-go",
+    ],
+    "runners": [
+        "psl-test-python",
+        "psl-test-node",
+        "psl-test-cargo",
+        "psl-test-go",
+    ],
+    "ops": [
+        "storage-ops",
+        "audio-ops",
+        "display-ops",
+        "sec-forensics",
+        "media-ops",
+        "db-ops",
+        "mesh-ops",
+        "git-worktree-ops",
+        "remote-ops",
+    ],
+    "workstation": [
+        "storage-ops",
+        "audio-ops",
+        "display-ops",
+        "sec-forensics",
+        "media-ops",
+        "db-ops",
+        "mesh-ops",
+        "git-worktree-ops",
+    ],
+    "workflow": [
+        "agent-builder",
+        "subagent-ladder",
+        "milestone-handoff",
+        "code-review",
+        "psl-audit-toolkit",
+    ],
+    "ladder": [
+        "agent-builder",
+        "subagent-ladder",
+        "milestone-handoff",
+        "code-review",
+    ],
+}
+
+
+def detect_workspace_stack(workspace_root: Optional[Path] = None) -> Optional[str]:
+    """Detect workspace language stack from project files."""
+    from harness.delivery.surfaces import find_workspace_root
+
+    root = Path(workspace_root) if workspace_root else find_workspace_root()
+    if (root / "tsconfig.json").is_file() or (root / "package.json").is_file():
+        return "typescript"
+    if (
+        (root / "pyproject.toml").is_file()
+        or (root / "requirements.txt").is_file()
+        or (root / "setup.py").is_file()
+    ):
+        return "python"
+    if (root / "Cargo.toml").is_file():
+        return "rust"
+    if (root / "go.mod").is_file():
+        return "go"
+    if (
+        (root / "Makefile").is_file()
+        or (root / "CMakeLists.txt").is_file()
+        or (root / "meson.build").is_file()
+        or (root / "flake.nix").is_file()
+        or (root / "PKGBUILD").is_file()
+    ):
+        return "systems"
+    return None
+
+
+def resolve_skills_to_sync(
+    skill_names: Optional[List[str]] = None,
+    group: Optional[str] = None,
+    stack: Optional[str] = None,
+    workspace_root: Optional[Path] = None,
+) -> Optional[List[str]]:
+    """Resolve list of skill names to sync based on explicit names, group, or stack."""
+    resolved: List[str] = []
+
+    if skill_names:
+        resolved.extend(skill_names)
+
+    if group:
+        grp_norm = group.strip().lower()
+        if grp_norm in GROUP_PRESETS:
+            resolved.extend(GROUP_PRESETS[grp_norm])
+        else:
+            raise ValueError(
+                f"Unknown skill group '{group}'. Choose from: {', '.join(sorted(GROUP_PRESETS.keys()))}"
+            )
+
+    if stack:
+        stk_norm = stack.strip().lower()
+        if stk_norm == "auto":
+            detected = detect_workspace_stack(workspace_root)
+            if detected and detected in STACK_PRESETS:
+                resolved.extend(STACK_PRESETS[detected])
+        elif stk_norm in STACK_PRESETS:
+            resolved.extend(STACK_PRESETS[stk_norm])
+        else:
+            raise ValueError(
+                f"Unknown stack preset '{stack}'. Choose from: {', '.join(sorted(STACK_PRESETS.keys()))}, auto"
+            )
+
+    if not skill_names and not group and not stack:
+        return None
+
+    seen: set[str] = set()
+    result: List[str] = []
+    for s in resolved:
+        norm = s.strip().lower().replace("_", "-")
+        if norm not in seen:
+            seen.add(norm)
+            result.append(s)
+    return result
+
+
 def sync_skills(
-    target_dir: Optional[Path] = None, source_dir: Optional[Path] = None
+    target_dir: Optional[Path] = None,
+    source_dir: Optional[Path] = None,
+    skill_names: Optional[List[str]] = None,
+    group: Optional[str] = None,
+    stack: Optional[str] = None,
+    dedup: bool = True,
+    override: bool = False,
 ) -> List[Path]:
     """Synchronize skill definitions from harness/skills to .agents/skills."""
     src = source_dir or DEFAULT_SKILLS_DIR
     dst = target_dir or DEFAULT_TARGET_DIR
     dst.mkdir(parents=True, exist_ok=True)
 
+    ws_root = (
+        dst.parent.parent
+        if dst.parent.name == ".agents"
+        else (
+            dst.parent
+            if (
+                (dst.parent / "pyproject.toml").is_file()
+                or (dst.parent / "package.json").is_file()
+                or (dst.parent / "Cargo.toml").is_file()
+                or (dst.parent / "go.mod").is_file()
+                or (dst.parent / "Makefile").is_file()
+                or (dst.parent / "CMakeLists.txt").is_file()
+                or (dst.parent / "meson.build").is_file()
+                or (dst.parent / "flake.nix").is_file()
+                or (dst.parent / "PKGBUILD").is_file()
+            )
+            else None
+        )
+    )
+    filter_names = resolve_skills_to_sync(
+        skill_names=skill_names,
+        group=group,
+        stack=stack,
+        workspace_root=ws_root,
+    )
+    norm_filter = (
+        {s.strip().lower().replace("_", "-") for s in filter_names}
+        if filter_names is not None
+        else None
+    )
+
     synced: List[Path] = []
     for spec in list_skills(src):
+        name_norm = spec.name.lower().replace("_", "-")
+        dir_norm = spec.path.parent.name.lower().replace("_", "-")
+        if (
+            norm_filter is not None
+            and name_norm not in norm_filter
+            and dir_norm not in norm_filter
+        ):
+            continue
+
         dest_dir = dst / spec.path.parent.name
-        dest_dir.mkdir(parents=True, exist_ok=True)
         dest_file = dest_dir / "SKILL.md"
+
+        if dest_file.exists() and not override:
+            is_identical = dest_file.read_bytes() == spec.path.read_bytes()
+            if dedup and is_identical:
+                synced.append(dest_file)
+            continue
+
+        dest_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(spec.path, dest_file)
+        for child in spec.path.parent.iterdir():
+            if child.is_file() and child.name != "SKILL.md":
+                shutil.copy2(child, dest_dir / child.name)
+
         synced.append(dest_file)
 
     return synced

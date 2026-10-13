@@ -5,6 +5,10 @@ description: >-
   Use when designing new specialist subagents, scoping tool permissions, preventing the platform hanging bug,
   or configuring project-level and global-level agents in Google Antigravity.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # Agent Builder & Custom Specialist Scaffolding Protocol
 

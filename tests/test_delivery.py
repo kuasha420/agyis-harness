@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 Hermetic unit and integration tests for PSL Harness Delivery & Plugin Installer (ADR-030).
 
@@ -35,6 +40,7 @@ from harness.delivery import (
     PluginInstaller,
     configure_git_exclude,
     find_workspace_root,
+    install_workspace,
     sync_surfaces,
 )
 
@@ -289,6 +295,13 @@ class TestPluginDelivery(unittest.TestCase):
             self.assertEqual(data["mode"], "symlink")
             self.assertFalse(self.target_dir.exists())
 
+        # 1b. CLI --global flag works cleanly
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["install", "--global", "--target", str(self.target_dir), "--dry-run", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertTrue(data["success"])
+
         # 2. CLI copy install
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             code = main(["install", "--target", str(self.target_dir), "--copy", "--json"])
@@ -307,7 +320,7 @@ class TestPluginDelivery(unittest.TestCase):
             self.assertFalse(self.target_dir.exists())
 
     def test_install_creates_global_bin(self) -> None:
-        """Plugin installation creates executable psl launcher in bin_dir, removed on uninstall."""
+        """Plugin installation creates executable agyis and psl launchers in bin_dir, removed on uninstall."""
         import stat
         installer = PluginInstaller(
             source_dir=REPO_ROOT,
@@ -317,17 +330,27 @@ class TestPluginDelivery(unittest.TestCase):
 
         res = installer.install(mode=DeliveryMode.SYMLINK)
         self.assertTrue(res.success)
+        agyis_bin = self.bin_dir / "agyis"
         psl_bin = self.bin_dir / "psl"
+        self.assertTrue(agyis_bin.is_file())
         self.assertTrue(psl_bin.is_file())
-        file_mode = stat.S_IMODE(psl_bin.stat().st_mode)
-        self.assertEqual(file_mode & 0o755, 0o755)
+        file_mode_agyis = stat.S_IMODE(agyis_bin.stat().st_mode)
+        file_mode_psl = stat.S_IMODE(psl_bin.stat().st_mode)
+        self.assertEqual(file_mode_agyis & 0o755, 0o755)
+        self.assertEqual(file_mode_psl & 0o755, 0o755)
 
-        content = psl_bin.read_text(encoding="utf-8")
-        self.assertIn("from harness.cli import main", content)
+        agyis_content = agyis_bin.read_text(encoding="utf-8")
+        self.assertIn("from harness.cli import main", agyis_content)
+        self.assertIn("sys.exit(main())", agyis_content)
 
-        # Uninstall removes psl launcher
+        psl_content = psl_bin.read_text(encoding="utf-8")
+        self.assertIn("from harness.cli import main, deprecated_psl_main", psl_content)
+        self.assertIn("sys.exit(deprecated_psl_main())", psl_content)
+
+        # Uninstall removes both launchers
         res_un = installer.uninstall()
         self.assertTrue(res_un.success)
+        self.assertFalse(agyis_bin.exists())
         self.assertFalse(psl_bin.exists())
 
     def test_install_cli_global_flag(self) -> None:
@@ -343,7 +366,9 @@ class TestPluginDelivery(unittest.TestCase):
             self.assertEqual(code, 0)
             data = json.loads(mock_out.getvalue().strip())
             self.assertTrue(data["success"])
+            agyis_bin = self.bin_dir / "agyis"
             psl_bin = self.bin_dir / "psl"
+            self.assertTrue(agyis_bin.is_file())
             self.assertTrue(psl_bin.is_file())
 
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
@@ -354,7 +379,7 @@ class TestPluginDelivery(unittest.TestCase):
                 "--json",
             ])
             self.assertEqual(code, 0)
-            psl_bin = self.bin_dir / "psl"
+            self.assertFalse(agyis_bin.exists())
             self.assertFalse(psl_bin.exists())
 
     def test_install_and_uninstall_auxiliary_launchers(self) -> None:
@@ -370,24 +395,36 @@ class TestPluginDelivery(unittest.TestCase):
         res = installer.install(mode=DeliveryMode.SYMLINK)
         self.assertTrue(res.success)
 
+        primary_agyis = self.bin_dir / "agyis"
         primary_psl = self.bin_dir / "psl"
+        self.assertTrue(primary_agyis.is_file())
         self.assertTrue(primary_psl.is_file())
 
+        aux_agyis_1 = self.aux_bin_1 / "agyis"
         aux_psl_1 = self.aux_bin_1 / "psl"
+        aux_agyis_2 = self.aux_bin_2 / "agyis"
         aux_psl_2 = self.aux_bin_2 / "psl"
+        self.assertTrue(aux_agyis_1.is_file())
         self.assertTrue(aux_psl_1.is_file())
+        self.assertTrue(aux_agyis_2.is_file())
         self.assertTrue(aux_psl_2.is_file())
 
+        self.assertEqual(stat.S_IMODE(aux_agyis_1.stat().st_mode) & 0o755, 0o755)
         self.assertEqual(stat.S_IMODE(aux_psl_1.stat().st_mode) & 0o755, 0o755)
+        self.assertEqual(stat.S_IMODE(aux_agyis_2.stat().st_mode) & 0o755, 0o755)
         self.assertEqual(stat.S_IMODE(aux_psl_2.stat().st_mode) & 0o755, 0o755)
 
         content = aux_psl_1.read_text(encoding="utf-8")
         self.assertIn("from harness.cli import main", content)
+        self.assertIn("sys.exit(deprecated_psl_main())", content)
 
         res_un = installer.uninstall()
         self.assertTrue(res_un.success)
+        self.assertFalse(primary_agyis.exists())
         self.assertFalse(primary_psl.exists())
+        self.assertFalse(aux_agyis_1.exists())
         self.assertFalse(aux_psl_1.exists())
+        self.assertFalse(aux_agyis_2.exists())
         self.assertFalse(aux_psl_2.exists())
 
     def test_sync_surfaces_clean_and_idempotent(self) -> None:
@@ -523,6 +560,354 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertFalse((surf / "agents").is_symlink())
         # Canonical config remains intact
         self.assertTrue((fake_cfg / "agents").is_dir())
+
+    def test_tagged_rules_insertion_and_idempotence(self) -> None:
+        """Workspace AGENTS.md preserves domain rules and manages tagged block idempotently."""
+        ws_dir = self.isolated_base / "workspace_jasper"
+        ws_dir.mkdir(parents=True)
+        rules_file = ws_dir / "AGENTS.md"
+
+        # Pre-existing project rules
+        initial_rules = (
+            "# Jasper Project Rules\n\n"
+            "- Wait 10 minutes before merging PRs to allow CI fences to settle.\n"
+            "- Always target staging branch.\n"
+        )
+        rules_file.write_text(initial_rules, encoding="utf-8")
+
+        # 1. Initial install_workspace
+        res1 = install_workspace(ws_dir, source_dir=REPO_ROOT)
+        self.assertTrue(res1.success)
+        self.assertTrue(res1.rules_updated)
+
+        updated_content = rules_file.read_text(encoding="utf-8")
+        self.assertIn("- Wait 10 minutes before merging PRs", updated_content)
+        self.assertIn("- Always target staging branch.", updated_content)
+        self.assertIn("<!-- Added by AGYIS-HARNESS -->", updated_content)
+        self.assertIn("<!-- End AGYIS-HARNESS -->", updated_content)
+        self.assertNotIn("<!-- Added by PSL-HARNESS -->", updated_content)
+        self.assertNotIn("<!-- End PSL-HARNESS -->", updated_content)
+
+        # 2. Idempotent re-run
+        res2 = install_workspace(ws_dir, source_dir=REPO_ROOT)
+        self.assertTrue(res2.success)
+        self.assertFalse(res2.rules_updated)
+
+        re_read_content = rules_file.read_text(encoding="utf-8")
+        self.assertEqual(re_read_content, updated_content)
+        self.assertEqual(re_read_content.count("<!-- Added by AGYIS-HARNESS -->"), 1)
+        self.assertEqual(re_read_content.count("<!-- End AGYIS-HARNESS -->"), 1)
+        self.assertEqual(re_read_content.count("<!-- Added by PSL-HARNESS -->"), 0)
+        self.assertEqual(re_read_content.count("<!-- End PSL-HARNESS -->"), 0)
+
+    def test_workspace_stack_instantiation_and_dedup(self) -> None:
+        """Workspace install auto-detects stack, installs stack skills, and respects dedup."""
+        ws_dir = self.isolated_base / "workspace_ts"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "package.json").write_text(
+            json.dumps({"name": "test-ts-app", "devDependencies": {"typescript": "^5.0.0"}}),
+            encoding="utf-8",
+        )
+
+        # 1. Initial workspace install
+        res1 = install_workspace(ws_dir, source_dir=REPO_ROOT)
+        self.assertTrue(res1.success)
+        self.assertEqual(res1.stack, "typescript")
+        self.assertIn("psl-stack-typescript", res1.skills_installed)
+        self.assertTrue((ws_dir / ".agents" / "skills" / "psl-stack-typescript" / "SKILL.md").is_file())
+
+        # By default zero agent definitions in workspace (Layer 1 global inheritance)
+        self.assertFalse((ws_dir / ".agents" / "agents").exists())
+
+        # 2. Second run with dedup=True skips identical files
+        res2 = install_workspace(ws_dir, source_dir=REPO_ROOT, dedup=True)
+        self.assertTrue(res2.success)
+        self.assertIn("psl-stack-typescript", res2.skills_skipped)
+        self.assertEqual(res2.skills_installed, [])
+
+        # 3. Third run with override=True reinstalls
+        res3 = install_workspace(ws_dir, source_dir=REPO_ROOT, override=True)
+        self.assertTrue(res3.success)
+        self.assertIn("psl-stack-typescript", res3.skills_installed)
+
+        # 4. Opt-in local agents
+        res4 = install_workspace(ws_dir, source_dir=REPO_ROOT, include_agents=True)
+        self.assertTrue(res4.success)
+        self.assertTrue((ws_dir / ".agents" / "agents" / "harness_builder.md").is_file())
+
+    def test_workspace_rust_and_go_stack_instantiation(self) -> None:
+        """Rust (Cargo.toml) and Go (go.mod) workspaces install respective stack and test runner skills."""
+        # Rust workspace
+        ws_rust = self.isolated_base / "workspace_rust"
+        ws_rust.mkdir(parents=True)
+        (ws_rust / "Cargo.toml").write_text("[package]\nname = 'rust-crate'\n", encoding="utf-8")
+
+        res_rust = install_workspace(ws_rust, source_dir=REPO_ROOT)
+        self.assertTrue(res_rust.success)
+        self.assertEqual(res_rust.stack, "rust")
+        self.assertIn("psl-test-cargo", res_rust.skills_installed)
+        self.assertIn("psl-stack-systems", res_rust.skills_installed)
+        self.assertIn("psl-stack-shell", res_rust.skills_installed)
+        self.assertTrue((ws_rust / ".agents" / "skills" / "psl-test-cargo" / "SKILL.md").is_file())
+
+        # Go workspace
+        ws_go = self.isolated_base / "workspace_go"
+        ws_go.mkdir(parents=True)
+        (ws_go / "go.mod").write_text("module example.com/gomod\n\ngo 1.22\n", encoding="utf-8")
+
+        res_go = install_workspace(ws_go, source_dir=REPO_ROOT)
+        self.assertTrue(res_go.success)
+        self.assertEqual(res_go.stack, "go")
+        self.assertIn("psl-test-go", res_go.skills_installed)
+        self.assertIn("psl-stack-backend", res_go.skills_installed)
+        self.assertTrue((ws_go / ".agents" / "skills" / "psl-test-go" / "SKILL.md").is_file())
+
+    def test_legacy_setup_detection_notice(self) -> None:
+        """Legacy .agent/ directory triggers actionable notice recommending /psl-harmonize."""
+        ws_dir = self.isolated_base / "legacy_ws"
+        (ws_dir / ".agent").mkdir(parents=True)
+
+        res = install_workspace(ws_dir, source_dir=REPO_ROOT)
+        self.assertTrue(res.success)
+        self.assertIsNotNone(res.legacy_notice)
+        self.assertIn(".agent", res.legacy_notice)
+        self.assertIn("/psl-harmonize", res.legacy_notice)
+
+    def test_find_workspace_root(self) -> None:
+        """find_workspace_root walks up directory tree to find marker files."""
+        ws_dir = self.isolated_base / "project_root"
+        nested_dir = ws_dir / "src" / "deep" / "nested"
+        nested_dir.mkdir(parents=True)
+        (ws_dir / ".git").mkdir()
+
+        # From nested directory, finds root
+        root = find_workspace_root(nested_dir)
+        self.assertEqual(root, ws_dir)
+
+        # From root itself
+        self.assertEqual(find_workspace_root(ws_dir), ws_dir)
+
+    def test_cli_init_subcommand(self) -> None:
+        """CLI `psl init` initializes a workspace project."""
+        ws_dir = self.isolated_base / "cli_ws"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "pyproject.toml").write_text("[project]\nname = 'sample-py'\n", encoding="utf-8")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["init", str(ws_dir), "--yes", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertTrue(data["success"])
+            self.assertEqual(data["stack"], "python")
+            self.assertIn("psl-stack-python", data["skills_installed"])
+            self.assertTrue((ws_dir / "AGENTS.md").is_file())
+
+    def test_install_workspace_with_standalone_plugin_layout(self) -> None:
+        """install_workspace resolves skills, agents, and rules when source is a distributed plugin layout."""
+        fake_plugin = self.isolated_base / "dist_plugin"
+        (fake_plugin / "skills" / "psl-harmonize").mkdir(parents=True)
+        (fake_plugin / "skills" / "psl-harmonize" / "SKILL.md").write_text("# Harmonize", encoding="utf-8")
+        (fake_plugin / "agents").mkdir(parents=True)
+        (fake_plugin / "agents" / "hammer.md").write_text("# Hammer", encoding="utf-8")
+        (fake_plugin / "rules").mkdir(parents=True)
+        (fake_plugin / "rules" / "AGENTS.md").write_text("Universal Rules", encoding="utf-8")
+
+        ws_dir = self.isolated_base / "dist_ws"
+        ws_dir.mkdir(parents=True)
+
+        res = install_workspace(
+            ws_dir,
+            skills=["psl-harmonize"],
+            include_agents=True,
+            source_dir=fake_plugin,
+        )
+        self.assertTrue(res.success)
+        self.assertIn("psl-harmonize", res.skills_installed)
+        self.assertTrue((ws_dir / ".agents" / "skills" / "psl-harmonize" / "SKILL.md").is_file())
+        self.assertIn("hammer", res.agents_installed)
+        self.assertTrue((ws_dir / ".agents" / "agents" / "hammer.md").is_file())
+        self.assertTrue((ws_dir / "AGENTS.md").is_file())
+        self.assertIn("Universal Rules", (ws_dir / "AGENTS.md").read_text(encoding="utf-8"))
+
+    def test_tagged_rules_migration_from_legacy_psl_harness(self) -> None:
+        """Workspace AGENTS.md converts legacy PSL-HARNESS blocks to AGYIS-HARNESS in place."""
+        ws_dir = self.isolated_base / "workspace_legacy_migration"
+        ws_dir.mkdir(parents=True)
+        rules_file = ws_dir / "AGENTS.md"
+
+        legacy_rules = (
+            "# Existing Domain Rules\n\n"
+            "- Wait 10 minutes before merging PRs to allow CI fences to settle.\n"
+            "- Always target staging branch.\n\n"
+            "<!-- Added by PSL-HARNESS -->\n"
+            "# Universal Empirical Agent Rules: PSL Harness Guidelines\n"
+            "- Pre-flight tool availability\n"
+            "<!-- End PSL-HARNESS -->\n\n"
+            "# Custom Footer Rules\n"
+            "- Enforce clean code hygiene.\n"
+        )
+        rules_file.write_text(legacy_rules, encoding="utf-8")
+
+        # 1. Initial install_workspace converts legacy block in-place
+        res1 = install_workspace(ws_dir, source_dir=REPO_ROOT)
+        self.assertTrue(res1.success)
+        self.assertTrue(res1.rules_updated)
+
+        updated_content = rules_file.read_text(encoding="utf-8")
+        # Domain rules before and after the block are preserved
+        self.assertIn("# Existing Domain Rules", updated_content)
+        self.assertIn("- Wait 10 minutes before merging PRs", updated_content)
+        self.assertIn("- Always target staging branch.", updated_content)
+        self.assertIn("# Custom Footer Rules", updated_content)
+        self.assertIn("- Enforce clean code hygiene.", updated_content)
+
+        # Legacy tags are replaced by modern AGYIS-HARNESS tags
+        self.assertNotIn("<!-- Added by PSL-HARNESS -->", updated_content)
+        self.assertNotIn("<!-- End PSL-HARNESS -->", updated_content)
+        self.assertIn("<!-- Added by AGYIS-HARNESS -->", updated_content)
+        self.assertIn("<!-- End AGYIS-HARNESS -->", updated_content)
+        self.assertEqual(updated_content.count("<!-- Added by AGYIS-HARNESS -->"), 1)
+        self.assertEqual(updated_content.count("<!-- End AGYIS-HARNESS -->"), 1)
+
+        # 2. Idempotent re-run
+        res2 = install_workspace(ws_dir, source_dir=REPO_ROOT)
+        self.assertTrue(res2.success)
+        self.assertFalse(res2.rules_updated)
+
+        re_read_content = rules_file.read_text(encoding="utf-8")
+        self.assertEqual(re_read_content, updated_content)
+        self.assertEqual(re_read_content.count("<!-- Added by AGYIS-HARNESS -->"), 1)
+        self.assertEqual(re_read_content.count("<!-- End AGYIS-HARNESS -->"), 1)
+        self.assertEqual(re_read_content.count("<!-- Added by PSL-HARNESS -->"), 0)
+        self.assertEqual(re_read_content.count("<!-- End PSL-HARNESS -->"), 0)
+
+    def test_tagged_rules_constants_and_pattern_exports(self) -> None:
+        """TAG_START, TAG_END, LEGACY_TAG_START, LEGACY_TAG_END, and TAGGED_BLOCK_PATTERN are exported."""
+        from harness.delivery import (
+            LEGACY_TAG_END,
+            LEGACY_TAG_START,
+            TAG_END,
+            TAG_START,
+            TAGGED_BLOCK_PATTERN,
+        )
+
+        self.assertEqual(TAG_START, "<!-- Added by AGYIS-HARNESS -->")
+        self.assertEqual(TAG_END, "<!-- End AGYIS-HARNESS -->")
+        self.assertEqual(LEGACY_TAG_START, "<!-- Added by PSL-HARNESS -->")
+        self.assertEqual(LEGACY_TAG_END, "<!-- End PSL-HARNESS -->")
+
+        # Pattern matches modern and legacy fences
+        self.assertTrue(bool(TAGGED_BLOCK_PATTERN.search(f"{TAG_START}\nRules\n{TAG_END}")))
+        self.assertTrue(bool(TAGGED_BLOCK_PATTERN.search(f"{LEGACY_TAG_START}\nRules\n{LEGACY_TAG_END}")))
+        self.assertTrue(bool(TAGGED_BLOCK_PATTERN.search(f"{LEGACY_TAG_START}\nRules\n{TAG_END}")))
+        self.assertFalse(bool(TAGGED_BLOCK_PATTERN.search("# Plain rules without demarcations")))
+
+    def test_extract_command_dictionary_node(self) -> None:
+        """Extracts command dictionary from package.json with pnpm, yarn, bun, and npm."""
+        from harness.delivery import extract_command_dictionary
+
+        ws = self.isolated_base / "node_cmd_ws"
+        ws.mkdir(parents=True)
+        (ws / "package.json").write_text(
+            json.dumps({"scripts": {"test": "vitest", "build": "tsc", "lint": "eslint ."}}),
+            encoding="utf-8",
+        )
+        (ws / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+
+        cmds = extract_command_dictionary(ws)
+        self.assertEqual(cmds.get("test"), "pnpm test")
+        self.assertEqual(cmds.get("build"), "pnpm build")
+        self.assertEqual(cmds.get("lint"), "pnpm lint")
+
+    def test_extract_command_dictionary_python(self) -> None:
+        """Extracts command dictionary from pyproject.toml with pytest and ruff."""
+        from harness.delivery import extract_command_dictionary
+
+        ws = self.isolated_base / "py_cmd_ws"
+        ws.mkdir(parents=True)
+        (ws / "pyproject.toml").write_text(
+            '[tool.pytest.ini_options]\naddopts = "-q"\n[tool.ruff]\nline-length = 88\n',
+            encoding="utf-8",
+        )
+
+        cmds = extract_command_dictionary(ws)
+        self.assertEqual(cmds.get("test"), "pytest")
+        self.assertEqual(cmds.get("lint"), "ruff check .")
+        self.assertEqual(cmds.get("format"), "ruff format .")
+
+    def test_extract_command_dictionary_makefile(self) -> None:
+        """Extracts command dictionary from Makefile."""
+        from harness.delivery import extract_command_dictionary
+
+        ws = self.isolated_base / "make_cmd_ws"
+        ws.mkdir(parents=True)
+        (ws / "Makefile").write_text(
+            "all:\n\tgcc main.c\n\ntest:\n\t./test.sh\n\nclean:\n\trm -rf *.o\n",
+            encoding="utf-8",
+        )
+
+        cmds = extract_command_dictionary(ws)
+        self.assertEqual(cmds.get("all"), "make all")
+        self.assertEqual(cmds.get("test"), "make test")
+        self.assertEqual(cmds.get("clean"), "make clean")
+
+    def test_extract_command_dictionary_rust_and_go(self) -> None:
+        """Extracts command dictionary from Cargo.toml and go.mod."""
+        from harness.delivery import extract_command_dictionary
+
+        ws_rust = self.isolated_base / "rust_cmd_ws"
+        ws_rust.mkdir(parents=True)
+        (ws_rust / "Cargo.toml").write_text('[package]\nname = "foo"\n', encoding="utf-8")
+        rust_cmds = extract_command_dictionary(ws_rust)
+        self.assertEqual(rust_cmds.get("test"), "cargo test")
+        self.assertEqual(rust_cmds.get("build"), "cargo build")
+        self.assertEqual(rust_cmds.get("lint"), "cargo clippy")
+
+        ws_go = self.isolated_base / "go_cmd_ws"
+        ws_go.mkdir(parents=True)
+        (ws_go / "go.mod").write_text("module example.com/foo\n", encoding="utf-8")
+        go_cmds = extract_command_dictionary(ws_go)
+        self.assertEqual(go_cmds.get("test"), "go test ./...")
+        self.assertEqual(go_cmds.get("build"), "go build ./...")
+
+    def test_install_workspace_dry_run_zero_mutations(self) -> None:
+        """install_workspace with dry_run=True performs zero filesystem modifications."""
+        ws = self.isolated_base / "dry_run_ws"
+        ws.mkdir(parents=True)
+        (ws / "package.json").write_text(
+            json.dumps({"scripts": {"test": "jest"}}),
+            encoding="utf-8",
+        )
+
+        res = install_workspace(ws, dry_run=True, source_dir=REPO_ROOT)
+        self.assertTrue(res.success)
+        self.assertTrue(res.dry_run)
+        self.assertEqual(res.stack, "typescript")
+        self.assertIn("psl-stack-typescript", res.skills_installed)
+        self.assertEqual(res.command_dictionary.get("test"), "npm test")
+
+        # Zero disk mutations
+        self.assertFalse((ws / ".agents").exists())
+        self.assertFalse((ws / "AGENTS.md").exists())
+
+    def test_install_workspace_injects_command_dictionary(self) -> None:
+        """install_workspace embeds extracted command dictionary into AGENTS.md."""
+        ws = self.isolated_base / "inject_cmd_ws"
+        ws.mkdir(parents=True)
+        (ws / "package.json").write_text(
+            json.dumps({"scripts": {"test": "jest", "build": "tsc"}}),
+            encoding="utf-8",
+        )
+
+        res = install_workspace(ws, dry_run=False, source_dir=REPO_ROOT)
+        self.assertTrue(res.success)
+        self.assertFalse(res.dry_run)
+        self.assertTrue((ws / "AGENTS.md").is_file())
+
+        content = (ws / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("# 🧪 Project Verification & Native Toolchain", content)
+        self.assertIn("npm test", content)
+        self.assertIn("<!-- Added by AGYIS-HARNESS -->", content)
 
 
 if __name__ == "__main__":

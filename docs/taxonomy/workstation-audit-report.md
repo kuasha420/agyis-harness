@@ -1,8 +1,13 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
 # 📊 Workstation Empirical Telemetry & Audit Report
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
-**Generated At**: 2026-10-02 05:50:44Z  
+**Generated At**: 2026-10-10 19:30:28Z  
 **Data Source**: Workstation telemetry mined from `~/.gemini/antigravity/brain/*/transcript.jsonl`
 
 ---
@@ -13,12 +18,12 @@ An exhaustive empirical audit of all developer sessions recorded on this primary
 
 | Metric | Empirical Value | Significance |
 | :--- | :--- | :--- |
-| **Total Sessions Audited** | **348** | Broad empirical baseline spanning multiple major engineering initiatives. |
-| **Total Trajectory Steps** | **140,005** | Deep step-by-step telemetry covering planning, coding, and debugging. |
-| **Total Tool Executions** | **64,065** | High volume of tool interactions across file systems, terminals, and MCP. |
-| **Tool Failures Encountered** | **2,232** (3.48%) | Concrete failure states requiring either recovery or operator rescue. |
-| **Human Operator Interventions** | **1,690** (4.86 / session) | Direct steering, confirmations, corrections, or rescue prompts. |
-| **Repeated Tool Loop Calls** | **5,773** | Redundant tool thrashing consuming context and latency. |
+| **Total Sessions Audited** | **722** | Broad empirical baseline spanning multiple major engineering initiatives. |
+| **Total Trajectory Steps** | **219,289** | Deep step-by-step telemetry covering planning, coding, and debugging. |
+| **Total Tool Executions** | **100,965** | High volume of tool interactions across file systems, terminals, and MCP. |
+| **Tool Failures Encountered** | **2,098** (2.08%) | Concrete failure states requiring either recovery or operator rescue. |
+| **Human Operator Interventions** | **2,454** (3.4 / session) | Direct steering, confirmations, corrections, or rescue prompts. |
+| **Repeated Tool Loop Calls** | **15,562** | Redundant tool thrashing consuming context and latency. |
 
 ---
 
@@ -40,34 +45,34 @@ An exhaustive empirical audit of all developer sessions recorded on this primary
 #### Top Failing Tools Breakdown
 | Tool Name | Total Calls | Failures | Failure Rate (%) | Primary Failure Mode |
 | :--- | :--- | :--- | :--- | :--- |
-| `run_command` | 28,348 | 2,196 | 7.75% | Exit code != 0, command not found, SSH timeout |
-| `grep_search` | 3,375 | 14 | 0.41% | Syntax / pattern mismatch |
-| `manage_task` | 2,703 | 5 | 0.18% | Task ID invalid or expired |
-| `list_dir` | 1,108 | 4 | 0.36% | Schema / target error |
-| `replace_file_content` | 4,650 | 4 | 0.09% | Schema / target error |
-| `view_file` | 18,096 | 4 | 0.02% | Schema / target error |
-| `call_mcp_tool` | 147 | 2 | 1.36% | Schema / target error |
-| `define_subagent` | 12 | 1 | 8.33% | Schema / target error |
+| `run_command` | 72,127 | 3,369 | 4.67% | Exit code != 0, command not found, SSH timeout |
+| `view_file` | 45,991 | 265 | 0.58% | Schema / target error |
+| `write_to_file` | 5,511 | 131 | 2.38% | Schema / target error |
+| `grep_search` | 8,379 | 60 | 0.72% | Syntax / pattern mismatch |
+| `replace_file_content` | 11,279 | 60 | 0.53% | Schema / target error |
+| `manage_task` | 6,479 | 59 | 0.91% | Task ID invalid or expired |
+| `call_mcp_tool` | 212 | 21 | 9.91% | Schema / target error |
+| `schedule` | 1,710 | 16 | 0.94% | Schema / target error |
 
 #### Exit Code Distribution for `run_command` (2,192 Total Failures)
 The terminal tool (`run_command`) is responsible for **98.4% of all tool failures** across the workstation.
-- **Exit Code 1** (1,544 occurrences): General error (test failure, git diff grep non-zero, process failure)
-- **Exit Code 2** (245 occurrences): Misuse of shell built-ins or CLI syntax
-- **Exit Code 127** (143 occurrences): Command not found (`PATH` issues, uninstalled binary)
-- **Exit Code 255** (72 occurrences): SSH / remote node connection failure or remote host unreachable
-- **Exit Code 128** (52 occurrences): Invalid git argument / fatal repository error
-- **Exit Code 3** (31 occurrences): Process exit code 3
-- **Exit Code 8** (16 occurrences): Process exit code 8
+- **Exit Code 1** (2,360 occurrences): General error (test failure, git diff grep non-zero, process failure)
+- **Exit Code 2** (384 occurrences): Misuse of shell built-ins or CLI syntax
+- **Exit Code 127** (186 occurrences): Command not found (`PATH` issues, uninstalled binary)
+- **Exit Code 255** (91 occurrences): SSH / remote node connection failure or remote host unreachable
+- **Exit Code 0** (69 occurrences): Process exit code 0
+- **Exit Code 128** (66 occurrences): Invalid git argument / fatal repository error
+- **Exit Code 3** (64 occurrences): Process exit code 3
 
-##### Forensic Sub-Distribution of Exit Code 1 (1,544 Total Occurrences)
+##### Forensic Sub-Distribution of Exit Code 1 (2,360 Total Occurrences)
 | Failure Sub-Category | Occurrences | % of Exit Code 1 | Root Cause & Mitigation |
 | :--- | :--- | :--- | :--- |
-| **Grep / Diff Pattern No-Match** | 329 | 21.31% | Benign zero-match exits; mitigated by PreToolUse surgical `|| [ $? -eq 1 ]` sanitization |
-| **Python Syntax Errors** | 58 | 3.76% | Parsing failures in `python3 -c` (includes 23 f-string backslash errors); mitigated by Hermetic Python >= 3.12 injection |
-| **Python Runtime Tracebacks** | 142 | 9.2% | Unhandled exceptions and missing library imports in inline scripts |
-| **Other CLI / Build Failures** | 1,015 | 65.74% | Test suite failures, compile errors, linter violations |
+| **Grep / Diff Pattern No-Match** | 532 | 22.54% | Benign zero-match exits; mitigated by PreToolUse surgical `|| [ $? -eq 1 ]` sanitization |
+| **Python Syntax Errors** | 83 | 3.52% | Parsing failures in `python3 -c` (includes 26 f-string backslash errors); mitigated by Hermetic Python >= 3.12 injection |
+| **Python Runtime Tracebacks** | 289 | 12.25% | Unhandled exceptions and missing library imports in inline scripts |
+| **Other CLI / Build Failures** | 1,456 | 61.69% | Test suite failures, compile errors, linter violations |
 
-#### Tool Thrashing & Loop Traps (5,773 Occurrences)
+#### Tool Thrashing & Loop Traps (15,562 Occurrences)
 Redundant consecutive tool calls on identical arguments:
 - **`view_file`**: **3,951 repeated calls**. Agents re-reading files without state caching or paging awareness.
 - **`grep_search`**: **625 repeated calls**. Repeated pattern search attempts without broadening or altering queries.
@@ -75,10 +80,10 @@ Redundant consecutive tool calls on identical arguments:
 - **`run_command`**: **360 repeated calls**. Repeatedly re-running the same failing command.
 
 #### The Context Cliff: Trajectory Length vs Error Escalation
-- **1-10 steps** (4 sessions): Avg Errors = **0.25**, Avg Operator Interventions = **0.25**
-- **11-50 steps** (69 sessions): Avg Errors = **0.35**, Avg Operator Interventions = **0.04**
-- **51-200 steps** (176 sessions): Avg Errors = **0.99**, Avg Operator Interventions = **0.4**
-- **200+ steps** (99 sessions): Avg Errors = **20.54**, Avg Operator Interventions = **16.32**
+- **200+ steps** (210 sessions): Avg Errors = **8.22**, Avg Operator Interventions = **9.75**
+- **1-10 steps** (16 sessions): Avg Errors = **0.0**, Avg Operator Interventions = **0.75**
+- **11-50 steps** (163 sessions): Avg Errors = **0.25**, Avg Operator Interventions = **0.61**
+- **51-200 steps** (333 sessions): Avg Errors = **0.99**, Avg Operator Interventions = **0.89**
 
 > [!CAUTION]
 > **The 200+ Step Cliff**: When session trajectories exceed 200 steps, the average tool error rate jumps **20x** (from 1.0 to 20.5), and human operator interventions jump **40x** (from 0.4 to 16.3). Unpruned tool outputs and compounding errors cause severe context degradation.
@@ -88,12 +93,14 @@ Redundant consecutive tool calls on identical arguments:
 ### 🟡 3. OPERATOR GUIDANCE (Human-in-the-Loop Interventions)
 
 Across 348 sessions, human operators stepped in **1,690 times**:
-- **`OPERATOR_GUIDANCE`**: **1,054** occurrences (62.4%)
-- **`CONFIRMATION`**: **261** occurrences (15.4%)
-- **`CONTINUATION`**: **128** occurrences (7.6%)
-- **`STEERING`**: **127** occurrences (7.5%)
-- **`CREDENTIALS`**: **98** occurrences (5.8%)
-- **`ERROR_RECOVERY`**: **22** occurrences (1.3%)
+- **`OPERATOR_GUIDANCE`**: **1,665** occurrences (67.8%)
+- **`CONFIRMATION`**: **435** occurrences (17.7%)
+- **`STEERING`**: **239** occurrences (9.7%)
+- **`CONTINUATION`**: **205** occurrences (8.4%)
+- **`CREDENTIALS`**: **154** occurrences (6.3%)
+- **`ERROR_RECOVERY`**: **18** occurrences (0.7%)
+- **`BOOST_ORCHESTRATION`**: **16** occurrences (0.7%)
+- **`AGENT_BUILDER_INVOCATION`**: **6** occurrences (0.2%)
 
 #### Core Steering Triggers Observed
 1. **Stop & Hold Fences (69 occurrences)**: Operator explicitly commanding agent to halt runaway execution or pause before making risky destructive mutations.

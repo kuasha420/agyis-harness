@@ -5,6 +5,10 @@ description: >-
   Use when the user requests an audit of session performance, failure mode classification,
   loop detection, tool error metrics, or optimization of agent harnesses.
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # PSL Audit Toolkit for Google Antigravity™
 

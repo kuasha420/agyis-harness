@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness for Google Antigravity™
 Project Rules & Skills Ecosystem Auditor
@@ -26,8 +31,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional
 
 
-def estimate_tokens(text: str) -> int:
-    return max(1, len(text) // 4) if text else 0
+from harness.utils.tokens import estimate_tokens
 
 
 def audit_workspace_config(ws_path_str: str) -> Dict[str, Any]:
@@ -194,7 +198,12 @@ def analyze_all_workspaces(db_path: Path) -> Dict[str, Any]:
 def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
     workspaces = data["workspaces"]
 
-    md = f"""# 🏛️ Empirical Project Rules & Skills Ecosystem Audit
+    md = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
+# 🏛️ Empirical Project Rules & Skills Ecosystem Audit
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  

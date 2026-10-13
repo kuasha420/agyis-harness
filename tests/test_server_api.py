@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 Hermetic Unit and Integration Tests for Centralized Telemetry Hub API (ADR-030).
 
@@ -273,6 +278,145 @@ class TestServerApi(unittest.TestCase):
         )
         self.assertEqual(pull_alias.status_code, 200)
         self.assertEqual(len(pull_alias.json()["sessions"]), 1)
+
+    def test_sync_pull_all_developers_bypass_anti_echo(self):
+        """Verifies all_developers=true and include_self=true allow developers to pull their own sessions."""
+        # Alice pushes a session
+        payload_alice = {
+            "sessions": [{
+                "session_id": "sess-alice-bypass",
+                "start_time": "2026-03-01T12:00:00Z",
+                "duration_seconds": 60.0,
+                "total_steps": 1,
+                "origin_developer": "alice",
+            }],
+            "steps": [],
+            "tool_calls": [],
+            "user_interventions": [],
+        }
+        self.client.post(
+            "/api/v1/sync/push",
+            headers={"Authorization": "Bearer test-token-alice"},
+            json=payload_alice,
+        )
+
+        # 1. all_developers=true bypasses anti-echo filter
+        resp_all = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&all_developers=true",
+            headers={"Authorization": "Bearer test-token-alice"},
+        )
+        self.assertEqual(resp_all.status_code, 200)
+        data = resp_all.json()
+        self.assertEqual(len(data["sessions"]), 1)
+        self.assertEqual(data["sessions"][0]["session_id"], "sess-alice-bypass")
+
+        # 2. include_self=true also bypasses anti-echo filter
+        resp_self = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&include_self=true",
+            headers={"Authorization": "Bearer test-token-alice"},
+        )
+        self.assertEqual(resp_self.status_code, 200)
+        self.assertEqual(len(resp_self.json()["sessions"]), 1)
+
+        # 3. all_developers=false combined with include_self=true correctly bypasses anti-echo filter
+        resp_combo = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&all_developers=false&include_self=true",
+            headers={"Authorization": "Bearer test-token-alice"},
+        )
+        self.assertEqual(resp_combo.status_code, 200)
+        self.assertEqual(len(resp_combo.json()["sessions"]), 1)
+
+        # 4. all_developers=false combined with include_self=false preserves anti-echo filter
+        resp_both_false = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&all_developers=false&include_self=false",
+            headers={"Authorization": "Bearer test-token-alice"},
+        )
+        self.assertEqual(resp_both_false.status_code, 200)
+        self.assertEqual(len(resp_both_false.json()["sessions"]), 0)
+
+    def test_sync_pull_specific_developer_filter(self):
+        """Verifies developer parameter strictly filters sessions by origin_developer."""
+        self.client.post(
+            "/api/v1/sync/push",
+            headers={"Authorization": "Bearer test-token-alice"},
+            json={
+                "sessions": [{
+                    "session_id": "sess-alice-dev",
+                    "start_time": "2026-03-01T13:00:00Z",
+                    "origin_developer": "alice",
+                }],
+                "steps": [],
+                "tool_calls": [],
+                "user_interventions": [],
+            },
+        )
+        self.client.post(
+            "/api/v1/sync/push",
+            headers={"Authorization": "Bearer test-token-bob"},
+            json={
+                "sessions": [{
+                    "session_id": "sess-bob-dev",
+                    "start_time": "2026-03-01T14:00:00Z",
+                    "origin_developer": "bob",
+                }],
+                "steps": [],
+                "tool_calls": [],
+                "user_interventions": [],
+            },
+        )
+
+        # Pull specifically for bob
+        resp = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&developer=bob",
+            headers={"Authorization": "Bearer test-token-charlie"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        sessions = resp.json()["sessions"]
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]["session_id"], "sess-bob-dev")
+
+    def test_sync_pull_pagination_with_offset(self):
+        """Verifies offset-based pagination and metadata (has_more, total_matching)."""
+        for i in range(5):
+            self.client.post(
+                "/api/v1/sync/push",
+                headers={"Authorization": "Bearer test-token-producer"},
+                json={
+                    "sessions": [{
+                        "session_id": f"sess-page-{i}",
+                        "start_time": f"2026-03-01T15:0{i}:00Z",
+                        "origin_developer": "producer",
+                    }],
+                    "steps": [],
+                    "tool_calls": [],
+                    "user_interventions": [],
+                },
+            )
+
+        # Page 1: limit 2, offset 0
+        p1 = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&limit=2&offset=0",
+            headers={"Authorization": "Bearer test-token-consumer"},
+        ).json()
+        self.assertEqual(len(p1["sessions"]), 2)
+        self.assertEqual(p1["total_matching"], 5)
+        self.assertTrue(p1["has_more"])
+
+        # Page 2: limit 2, offset 2
+        p2 = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&limit=2&offset=2",
+            headers={"Authorization": "Bearer test-token-consumer"},
+        ).json()
+        self.assertEqual(len(p2["sessions"]), 2)
+        self.assertTrue(p2["has_more"])
+
+        # Page 3: limit 2, offset 4
+        p3 = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&limit=2&offset=4",
+            headers={"Authorization": "Bearer test-token-consumer"},
+        ).json()
+        self.assertEqual(len(p3["sessions"]), 1)
+        self.assertFalse(p3["has_more"])
 
 
 if __name__ == "__main__":

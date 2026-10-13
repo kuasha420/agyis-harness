@@ -1,3 +1,8 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
 # Official Lifecycle Hooks Specification (`hooks.json`)
 
 ## Overview
@@ -55,10 +60,11 @@ Antigravity lifecycle hooks allow execution of external shell commands or script
 ## 3. Reference Implementation: `psl-agy-harness` Hooks
 
 In `harness/hooks/`, we provide reference hooks:
-1. `anti_loop_hook.py`: Intercepts repetitive consecutive calls to identical files/queries in `PreToolUse`.
-2. `output_truncator_hook.py`: Monitors tool output size in `PostToolUse` to prevent context explosion.
-3. `completion_fence_hook.py`: Validates test/verification state in `Stop` before allowing the agent to claim victory.
+1. `anti_loop_hook.py`: Intercepts repetitive consecutive calls to identical files/queries in `PreToolUse` and enforces the Strict Reactive Wait Invariant.
+2. `output_compactor_hook.py`: PostToolUse deterministic 2KB output compactor preserving head, tail, and error lines (ADR-007, ADR-008).
+3. `completion_fence_hook.py`: Validates test/verification state in `Stop` before allowing the agent to claim victory (ADR-022).
 4. `command_safety_hook.py`: Audits `PreToolUse` shell execution, injects user toolchain PATH shims, enforces non-blocking network probe timeouts, and guarantees hermetic runtime safety (ADR-011, ADR-013, ADR-023).
+5. `anti_drift_hook.py`: Intercepts file modifications in `PreToolUse` against declared implementation plan boundaries, enforces Native Plan-Mode Locks, and applies Auditor Write-Block Guards (ADR-024, ADR-025, ADR-031).
 
 ### 3.1 The `psl-stop-verification-fence` Contract (ADR-022)
 
@@ -74,7 +80,7 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m harness.cli hook verification-fence",
+            "command": "python3 -m harness.hooks.runner verification-fence",
             "timeout": 5
           }
         ]
@@ -85,7 +91,7 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m harness.cli hook verification-fence",
+            "command": "python3 -m harness.hooks.runner verification-fence",
             "timeout": 5
           }
         ]
@@ -170,7 +176,7 @@ The `anti_drift_hook.py` hook (`psl-anti-drift-guard`) intercepts file modificat
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m harness.cli hook anti-drift",
+            "command": "python3 -m harness.hooks.runner anti-drift",
             "timeout": 5
           }
         ]

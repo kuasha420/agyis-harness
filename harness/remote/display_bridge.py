@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Remote Subsystem: Headless Fleet Screen Capture Artifact Bridge.
 
@@ -10,10 +15,13 @@ from __future__ import annotations
 import base64
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # Minimal valid 1x1 PNG bytes for dummy / placeholder screen frames
 MINIMAL_PNG_BYTES: bytes = (
@@ -99,7 +107,8 @@ def _normalize_screens_data(raw_data: Optional[Dict[str, Any] | List[Any]]) -> L
                 raw_b64 = raw_b64.split(",", 1)[1]
             try:
                 img_bytes = base64.b64decode(raw_b64)
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to decode base64 screenshot for node '%s': %s", node, e)
                 img_bytes = MINIMAL_PNG_BYTES
         elif "image_path" in item and item["image_path"]:
             p = Path(item["image_path"])

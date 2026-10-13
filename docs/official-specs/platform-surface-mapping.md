@@ -1,3 +1,8 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
 # Antigravity Platform Surface Mapping: Deconstruction & Empirical Gap Analysis
 
 **Document**: Canonical Architecture & Surface Mapping Specification  
@@ -5,7 +10,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Status**: Canonical Reference & Operational Guide  
-**Empirical Baseline**: Mined from 348 Workstation Sessions (140,005 Trajectory Steps, 64,065 Tool Calls, 2,232 Tool Failures, 5,773 Tool Loops)
+**Empirical Baseline**: Mined from 722 Workstation Sessions (219,292 Trajectory Steps, 160,226 Tool Calls, 4,062 Tool Failures, 15,562 Tool Loops)
 
 ---
 
@@ -66,6 +71,31 @@ Following the platform deconstruction, this document conducts an exhaustive **Em
 |  * manage_task        |              |  * Tool Filtering Filter |             |  * Sidecar Daemons |
 +-----------------------+              +--------------------------+             +--------------------+
 ```
+
+### 1.1 Workstation-Wide (Global) vs. Local (Workspace/Project) Precedence Hierarchy (ADR-030)
+
+Antigravity resolves skills, agents, rules, and configuration across three distinct filesystem tiers evaluated from highest to lowest precedence:
+
+```text
+[Layer 3: Workspace Local] (<project-root>/.agents/ or project root) -- HIGHEST PRECEDENCE
+         │ (Overrides user preferences and bundled plugin fallbacks)
+         ▼
+[Layer 2: Workstation User] (~/.gemini/antigravity/, ~/.gemini/config/)
+         │ (Overrides bundled plugin defaults)
+         ▼
+[Layer 1: Global Plugin] (~/.gemini/config/plugins/psl-agy-harness/ or harness/) -- DEFAULT FALLBACK
+```
+
+#### Coexistence & Override Matrix
+
+| Component | Workstation-Wide (Global) | Workspace / Project-Specific (Local) | Precedence & Resolution Semantics |
+| :--- | :--- | :--- | :--- |
+| **Modular Skills** | `~/.gemini/config/skills/`<br>or bundled in plugin | `<project>/.agents/skills/<skill>/SKILL.md` | **Layer 3 > 2 > 1**: Local skill in `.agents/skills/` takes full precedence over global skill of same name. |
+| **Specialist Agents** | `~/.gemini/config/agents/<name>.md`<br>or bundled in plugin | `<project>/.agents/agents/<name>.md` | **Layer 3 > 2 > 1**: Local agent definition overrides global persona. Scaffolds ground into local repo context. |
+| **Agent Rules** | `~/.gemini/config/AGENTS.md`<br>`~/.gemini/config/rules/*.md` | `<project>/AGENTS.md`<br>`<project>/.agents/rules/*.md` | **Layer 3 > 2**: Local project rules take precedence, providing repository-specific constraints over global standards. |
+| **Tooling & Runtimes** | System `$PATH`, `uv` user Python | Project `.venv`, `node_modules` | When executed inside a repository containing `.venv`, `psl` launcher auto-promotes to `.venv/bin/python`. |
+| **Lifecycle Hooks** | Global `hooks.json` across surfaces | Project-level `hooks.json` | Deterministic fail-safe runner intercepts tool calls across all sessions. |
+| **Git Hygiene** | Global git configuration | Local `.git/info/exclude` | `psl install` configures `.git/info/exclude` so untracked local telemetry and state never pollute git status. |
 
 ---
 
@@ -507,7 +537,7 @@ stdio_server = types.McpStdioServer(
 
 ## 7. Empirical Gap Analysis: Audited Workstation Failures vs Platform Capabilities
 
-Our empirical audit analyzed **348 developer sessions, 140,005 trajectory steps, 64,065 tool calls, and 2,232 tool failures** recorded on this workstation (`docs/taxonomy/workstation-audit-report.md`). 
+Our empirical audit analyzed **722 developer sessions, 219,292 trajectory steps, 160,226 tool calls, and 4,062 tool failures** recorded on this workstation (`docs/taxonomy/workstation-audit-report.md`). 
 
 Below is the definitive gap analysis mapping these breakdowns against Antigravity platform capabilities, categorizing the exact architectural remedy for each failure mode.
 

@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness: Remote Diagnostic & Cloud/Mesh Triage Engine (ADR-027).
 
@@ -172,7 +177,7 @@ class RemoteTriage:
             lines_out.append("")
 
         # Logs
-        if "LOGS" in sections and sections["LOGS"]:
+        if "LOGS" in sections:
             lines_out.append("#### 📜 Diagnostic Logs")
             log_lines = [l.strip() for l in sections["LOGS"] if l.strip()]
             if log_lines:
@@ -234,3 +239,7 @@ class RemoteTriage:
             "report_markdown": report_md,
             "raw_output": result.stdout,
         }
+
+
+RemoteTriageEngine = RemoteTriage
+

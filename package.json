@@ -1,10 +1,10 @@
 {
-  "name": "psl-agy-harness",
+  "name": "agyis-harness",
   "version": "0.1.0",
-  "description": "Empirical audit and official extension harness for Google Antigravity",
-  "main": "index.js",
+  "description": "Autonomous agent runtime harness and immune system for Google Antigravity™",
   "type": "module",
   "scripts": {
+    "agyis": "python3 -m harness.cli",
     "psl": "python3 -m harness.cli",
     "sync": "python3 -m harness.cli sync",
     "status": "python3 -m harness.cli status",
@@ -17,17 +17,20 @@
     "rules-audit": "python3 pipeline/audit_project_configs.py",
     "context-audit": "python3 pipeline/analyze_context_dynamics.py",
     "cognitive-audit": "python3 pipeline/extract_cognitive_traces.py",
+    "artifacts-audit": "python3 pipeline/audit_artifacts.py",
     "audit:volume": "python3 -m harness.cli audit volume",
     "audit:deep": "python3 -m harness.cli audit deep",
     "audit": "npm run inventory && npm run extract && npm run classify && npm run rules-audit && npm run context-audit && npm run cognitive-audit && npm run artifacts-audit"
   },
   "keywords": [
     "antigravity",
-    "gemini",
+    "agyis",
     "harness",
     "telemetry",
-    "audit"
+    "audit",
+    "immune-system",
+    "gemini"
   ],
-  "author": "Purrfect Software Limited (PSL)",
+  "author": "Arafat Zahan (@kuasha420) & Purrfect Software Limited (PSL)",
   "license": "Apache-2.0"
 }

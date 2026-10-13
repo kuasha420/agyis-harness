@@ -6,6 +6,10 @@ last_updated: 2026-10-06
 target_audience: [developer, ai_agent, knot_mesh]
 related_adrs: [ADR-014, ADR-015, ADR-027, ADR-030]
 ---
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # 🌐 Knot Mesh Fleet Update & Telemetry Sync Runbook
 

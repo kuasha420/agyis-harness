@@ -1,22 +1,27 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
 # 📑 Artifact Lifecycle & Plan-Drift Empirical Report
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Specification**: Horizon 1 — Artifact Planning & Execution Fidelity  
-**Generated At**: 2026-10-02 05:08:17Z  
+**Generated At**: 2026-10-10 19:34:05Z  
 **Data Source**: Audit of all artifacts in `~/.gemini/antigravity/brain/*/*.md`
 
 ---
 
 ## 1. Executive Summary
 
-Artifacts serve as the durable state boundary between autonomous execution and human operator alignment. Across all audited sessions on this workstation, **474 markdown artifacts** were generated across **155 sessions**.
+Artifacts serve as the durable state boundary between autonomous execution and human operator alignment. Across all audited sessions on this workstation, **297 markdown artifacts** were generated across **100 sessions**.
 
 | Metric | Empirical Value | Operational Significance |
 | :--- | :--- | :--- |
-| **Total Markdown Artifacts** | **474** | Large corpus of persistent architectural decisions and delivery proofs. |
-| **Implementation Plans** | **130** | Standard planning documents gating multi-step code execution. |
+| **Total Markdown Artifacts** | **297** | Large corpus of persistent architectural decisions and delivery proofs. |
+| **Implementation Plans** | **78** | Standard planning documents gating multi-step code execution. |
 | **Plans with Feedback Requested** | **0** (0.0%) | Operator confirmation gates explicitly requested. |
-| **Walkthrough Deliveries** | **118** | Formal post-execution verification guides and outcome summaries. |
-| **Plan-to-Execution Fidelity** | **51.4%** | High correlation between proposed architectural changes and delivered work. |
+| **Walkthrough Deliveries** | **65** | Formal post-execution verification guides and outcome summaries. |
+| **Plan-to-Execution Fidelity** | **49.2%** | High correlation between proposed architectural changes and delivered work. |
 
 ---
 
@@ -24,24 +29,24 @@ Artifacts serve as the durable state boundary between autonomous execution and h
 
 | Artifact Filename | Count | Function in Harness |
 | :--- | :--- | :--- |
-| `implementation_plan.md` | **130** | Pre-execution implementation proposal |
-| `walkthrough.md` | **118** | Post-execution verification walkthrough |
-| `task.md` | **81** | Task tracker and subtask checklist |
-| `learning_proposal.md` | **11** | Operator learning proposal |
-| `phase_1_plan.md` | **7** | Phase-specific milestone deliverable |
-| `phase_1_delivery_final.md` | **7** | Phase-specific milestone deliverable |
-| `prompt_draft.md` | **6** | Phase-specific milestone deliverable |
-| `phase_2_plan.md` | **6** | Phase-specific milestone deliverable |
-| `phase_2_delivery_final.md` | **6** | Phase-specific milestone deliverable |
-| `phase_3_plan.md` | **5** | Phase-specific milestone deliverable |
+| `implementation_plan.md` | **78** | Pre-execution implementation proposal |
+| `walkthrough.md` | **65** | Post-execution verification walkthrough |
+| `learning_proposal.md` | **9** | Operator learning proposal |
+| `phase_1_plan.md` | **9** | Phase-specific milestone deliverable |
+| `phase_1_delivery_final.md` | **9** | Phase-specific milestone deliverable |
+| `phase_2_plan.md` | **7** | Phase-specific milestone deliverable |
+| `phase_2_delivery_final.md` | **7** | Phase-specific milestone deliverable |
+| `phase_3_plan.md` | **7** | Phase-specific milestone deliverable |
+| `phase_3_delivery_final.md` | **7** | Phase-specific milestone deliverable |
+| `phase_4_plan.md` | **6** | Phase-specific milestone deliverable |
 
 ---
 
 ## 3. Plan-Drift Analysis: Proposed vs. Delivered
 
-We paired **94 sessions** that generated both an `implementation_plan.md` and a `walkthrough.md`.
+We paired **54 sessions** that generated both an `implementation_plan.md` and a `walkthrough.md`.
 
-* **Average Architectural Fidelity**: **51.4%**
+* **Average Architectural Fidelity**: **49.2%**
 * **Root Causes of Plan Drift Observed**:
   1. **Discovered Package Dependencies**: Agent discovers mid-flight that a shared DTO in `packages/shared` or an unstated peer dependency must be touched, expanding the file scope beyond the plan.
   2. **Test File Expansion**: High-integrity repos (`sunshine-physio`) enforce Rule 3, forcing the agent to add 2–4 test files that were omitted in the initial plan summary.
@@ -50,16 +55,16 @@ We paired **94 sessions** that generated both an `implementation_plan.md` and a 
 ### Sample Paired Plan vs Walkthrough Sessions
 | Session ID | Planned Files | Delivered Files | Common Files | Fidelity % |
 | :--- | :--- | :--- | :--- | :--- |
-| `783bc84d...` | 5 | 7 | 5 | **100.0%** |
-| `d877c7c4...` | 1 | 2 | 1 | **100.0%** |
-| `65d2b822...` | 5 | 5 | 5 | **100.0%** |
-| `0b0f7dbc...` | 2 | 2 | 2 | **100.0%** |
-| `e182b0f1...` | 4 | 4 | 4 | **100.0%** |
-| `3e2da5dc...` | 3 | 3 | 3 | **100.0%** |
-| `14f34a67...` | 2 | 2 | 2 | **100.0%** |
-| `699dcde8...` | 2 | 4 | 2 | **100.0%** |
-| `0fab1b1c...` | 4 | 6 | 4 | **100.0%** |
-| `d5c789b4...` | 2 | 7 | 2 | **100.0%** |
+| `85713a87...` | 3 | 18 | 3 | **100.0%** |
+| `39a982aa...` | 1 | 9 | 1 | **100.0%** |
+| `f92e3806...` | 9 | 13 | 9 | **100.0%** |
+| `df31c415...` | 8 | 10 | 8 | **100.0%** |
+| `b632242b...` | 11 | 11 | 10 | **90.9%** |
+| `446e5e0e...` | 8 | 14 | 7 | **87.5%** |
+| `a4b10c2a...` | 7 | 7 | 6 | **85.7%** |
+| `4ecaf914...` | 7 | 7 | 6 | **85.7%** |
+| `ed1ec4a5...` | 7 | 12 | 6 | **85.7%** |
+| `67a31463...` | 6 | 9 | 5 | **83.3%** |
 
 ---
 

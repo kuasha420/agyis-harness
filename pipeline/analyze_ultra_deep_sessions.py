@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 PSL Harness for Google Antigravity™
 Ultra-Deep Horizon Telemetry Microscope (1,000+ Step Survival Analysis)
@@ -15,7 +20,7 @@ Outputs:
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
@@ -24,8 +29,7 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 
-def estimate_tokens(chars: int) -> int:
-    return max(0, chars // 4) if chars else 0
+from harness.utils.tokens import estimate_tokens
 
 
 def classify_survival_archetype(
@@ -249,7 +253,7 @@ def analyze_ultra_deep_sessions(db_path: Path) -> Dict[str, Any]:
     conn.close()
 
     return {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "macro_summary": {
             "total_titan_sessions": total_deep_sessions,
             "total_titan_steps": total_deep_steps,
@@ -272,7 +276,13 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     sessions = data["sessions"]
     knot = data["knot_inception_autopsy"]
 
-    lines = []
+    lines = [
+        "<!-- SPDX-License-Identifier: Apache-2.0 -->",
+        "<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->",
+        "<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->",
+        "<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->",
+        "",
+    ]
     lines.append("# 🔬 The Ultra-Deep Horizon Microscope: 1,000+ Step Survival Analysis")
     lines.append("**Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  ")
     lines.append("**Publisher**: Purrfect Software Limited (PSL)  ")

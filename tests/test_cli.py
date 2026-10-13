@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 Unit and integration tests for harness/cli.py
 """
@@ -14,35 +19,68 @@ from unittest.mock import MagicMock, patch
 
 from harness.cli import main
 
+DYNAMIC_TEST_MODULES = (
+    "test_sample",
+    "test_clear_state_sample",
+    "test_dual_cli_sample",
+)
+
 
 class TestPslCli(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.orig_state_dir = os.environ.get("PSL_HARNESS_STATE_DIR")
+        self.orig_agyis_state_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR")
+        self.orig_brain_dir = os.environ.get("ANTIGRAVITY_BRAIN_DIR")
+        self.orig_gemini_brain_dir = os.environ.get("GEMINI_BRAIN_DIR")
         os.environ["PSL_HARNESS_STATE_DIR"] = self.temp_dir.name
+        os.environ["AGYIS_HARNESS_STATE_DIR"] = self.temp_dir.name
+        default_brain = Path(self.temp_dir.name) / "default_brain"
+        default_brain.mkdir(parents=True, exist_ok=True)
+        os.environ["ANTIGRAVITY_BRAIN_DIR"] = str(default_brain)
+        os.environ["GEMINI_BRAIN_DIR"] = str(default_brain)
 
     def tearDown(self):
+        for mod in DYNAMIC_TEST_MODULES:
+            sys.modules.pop(mod, None)
         if self.orig_state_dir is not None:
             os.environ["PSL_HARNESS_STATE_DIR"] = self.orig_state_dir
         else:
             os.environ.pop("PSL_HARNESS_STATE_DIR", None)
+        if self.orig_agyis_state_dir is not None:
+            os.environ["AGYIS_HARNESS_STATE_DIR"] = self.orig_agyis_state_dir
+        else:
+            os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+        if self.orig_brain_dir is not None:
+            os.environ["ANTIGRAVITY_BRAIN_DIR"] = self.orig_brain_dir
+        else:
+            os.environ.pop("ANTIGRAVITY_BRAIN_DIR", None)
+        if self.orig_gemini_brain_dir is not None:
+            os.environ["GEMINI_BRAIN_DIR"] = self.orig_gemini_brain_dir
+        else:
+            os.environ.pop("GEMINI_BRAIN_DIR", None)
         self.temp_dir.cleanup()
 
     def test_cli_help(self):
-        """Verifies --help outputs usage and exits cleanly with 0."""
-        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+        """Verifies --help outputs usage and exits cleanly with 0 and clean stderr."""
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
             with self.assertRaises(SystemExit) as cm:
-                main(["--help"])
+                main(["--help"], prog="agyis")
             self.assertEqual(cm.exception.code, 0)
-            self.assertIn("PSL Harness for Google Antigravity", mock_out.getvalue())
+            self.assertEqual(mock_err.getvalue(), "")
+            self.assertIn("Agyis Harness for Google Antigravity", mock_out.getvalue())
+            self.assertIn("usage: agyis", mock_out.getvalue())
 
     def test_cli_version(self):
-        """Verifies --version prints package version."""
-        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+        """Verifies --version prints package version with clean stderr on agyis."""
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
             with self.assertRaises(SystemExit) as cm:
-                main(["--version"])
+                main(["--version"], prog="agyis")
             self.assertEqual(cm.exception.code, 0)
-            self.assertIn("psl-agy-harness 0.1.0", mock_out.getvalue())
+            self.assertEqual(mock_err.getvalue(), "")
+            self.assertIn("agyis-harness 0.1.0", mock_out.getvalue())
 
     def test_cli_status(self):
         """Verifies `psl status` prints repository, skills, agents, and hook status."""
@@ -101,6 +139,27 @@ class TestPslCli(unittest.TestCase):
             data = json.loads(mock_out.getvalue().strip())
             self.assertIsInstance(data, list)
             self.assertEqual(len(data), 7)
+
+    def test_cli_agents_workspace_root_override(self):
+        """Verifies `_get_repo_root()` and `psl agents` respect _TEST_WORKSPACE_ROOT."""
+        import harness.cli
+        from harness.commands.agents import _get_repo_root
+
+        custom_root = Path(self.temp_dir.name) / "custom_ws"
+        custom_root.mkdir(parents=True)
+
+        with patch.object(harness.cli, "_TEST_WORKSPACE_ROOT", custom_root):
+            self.assertEqual(_get_repo_root(), custom_root)
+
+            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                code = main(["agents", "--sync"])
+                self.assertEqual(code, 0)
+                out = mock_out.getvalue()
+                self.assertIn(str(custom_root / ".agents" / "agents"), out)
+                self.assertTrue((custom_root / ".agents" / "agents" / "harness_builder.md").exists())
+
+        self.assertNotEqual(_get_repo_root(), custom_root)
+        self.assertIsNone(harness.cli._TEST_WORKSPACE_ROOT)
 
     def test_cli_hook_dispatch_safety(self):
         """Verifies `psl hook safety` dispatches to command_safety_hook."""
@@ -253,6 +312,24 @@ class TestPslCli(unittest.TestCase):
             self.assertEqual(code, 0)
             mock_bench.assert_called_once_with([])
 
+    def test_cli_audit_clusters(self):
+        """Verifies `psl audit clusters` dispatches to analyze_failure_clusters.main."""
+        with patch("pipeline.analyze_failure_clusters.main", return_value=0) as mock_clusters:
+            code = main(["audit", "clusters"])
+            self.assertEqual(code, 0)
+            mock_clusters.assert_called_once_with([])
+
+    def test_cli_audit_clusters_with_custom_flags(self):
+        """Verifies `psl audit clusters --db ...` forwards custom flags cleanly."""
+        with patch("pipeline.analyze_failure_clusters.main", return_value=0) as mock_clusters:
+            code = main(["audit", "clusters", "--db", "custom.db", "--output-json", "out.json", "--output-report", "out.md"])
+            self.assertEqual(code, 0)
+            mock_clusters.assert_called_once_with([
+                "--db", "custom.db",
+                "--output-json", "out.json",
+                "--output-report", "out.md",
+            ])
+
     def test_cli_audit_session_with_db_flag(self):
         """Verifies `psl audit session --save-db --db <path>` saves into specified database."""
         sess_dir = Path(self.temp_dir.name) / "sess_dir"
@@ -323,10 +400,23 @@ class TestPslCli(unittest.TestCase):
             code = main(["auth", "login", "--token", "tok-123", "--endpoint", "https://ws.example.com", "--workspace"])
             self.assertEqual(code, 0)
 
-        ws_cfg_path = ws_root / ".psl" / "config.json"
+        ws_cfg_path = (ws_root / ".agyis" / "config.json") if (ws_root / ".agyis" / "config.json").exists() else (ws_root / ".psl" / "config.json")
         self.assertTrue(ws_cfg_path.exists())
         ws_data = json.loads(ws_cfg_path.read_text())
         self.assertEqual(ws_data["endpoint"], "https://ws.example.com")
+
+        # Also test legacy workspace with pre-existing .psl directory
+        legacy_ws = Path(self.temp_dir.name) / "legacy_workspace"
+        (legacy_ws / ".psl").mkdir(parents=True)
+        (legacy_ws / ".git").mkdir(parents=True)
+        with patch("harness.telemetry.config.find_workspace_root", return_value=legacy_ws), \
+             patch("harness.telemetry.sync.verify_auth_token", return_value={"status": "ok", "authenticated": True, "username": "ws-alice"}), \
+             patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["auth", "login", "--token", "tok-123", "--endpoint", "https://legacy.example.com", "--workspace"])
+            self.assertEqual(code, 0)
+        self.assertTrue((legacy_ws / ".psl" / "config.json").exists())
+        legacy_data = json.loads((legacy_ws / ".psl" / "config.json").read_text())
+        self.assertEqual(legacy_data["endpoint"], "https://legacy.example.com")
 
     def test_cli_auth_status_and_logout(self):
         """Verifies `psl auth status` and `psl auth logout`."""
@@ -614,6 +704,407 @@ class TestPslCli(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("Cleaned up 1 active ControlMaster socket(s)", mock_out.getvalue())
             self.assertFalse(sock.exists())
+
+    def test_cli_deprecated_psl_help(self):
+        """Verifies deprecated `psl --help` outputs deprecation warning to stderr and psl usage to stdout."""
+        from harness.cli import deprecated_psl_main, PSL_DEPRECATION_WARNING
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            with self.assertRaises(SystemExit) as cm:
+                deprecated_psl_main(["--help"])
+            self.assertEqual(cm.exception.code, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), mock_err.getvalue())
+            self.assertIn("usage: psl", mock_out.getvalue())
+
+    def test_cli_deprecated_psl_subcommand(self):
+        """Verifies deprecated `psl status` emits deprecation warning to stderr while executing normally."""
+        from harness.cli import deprecated_psl_main, PSL_DEPRECATION_WARNING
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code = deprecated_psl_main(["status"])
+            self.assertEqual(code, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), mock_err.getvalue())
+            self.assertIn("Active Lifecycle Hooks", mock_out.getvalue())
+
+    def test_cli_deprecated_psl_json_clean_stdout(self):
+        """Verifies deprecated `psl skills --json` emits warning to stderr while keeping stdout 100% clean JSON."""
+        from harness.cli import deprecated_psl_main, PSL_DEPRECATION_WARNING
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code = deprecated_psl_main(["skills", "--json"])
+            self.assertEqual(code, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), mock_err.getvalue())
+            # Assert stdout is pure JSON without any warning prefix
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertIsInstance(data, list)
+            self.assertGreaterEqual(len(data), 8)
+
+    def test_cli_prog_detection_from_argv0(self):
+        """Verifies main() detects invocation name from sys.argv[0]."""
+        from harness.cli import PSL_DEPRECATION_WARNING
+        # Invocation as psl binary
+        with patch("sys.argv", ["/usr/local/bin/psl", "status"]), \
+             patch("sys.stdout", new_callable=io.StringIO), \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code = main()
+            self.assertEqual(code, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), mock_err.getvalue())
+
+        # Invocation as agyis binary
+        with patch("sys.argv", ["/usr/local/bin/agyis", "status"]), \
+             patch("sys.stdout", new_callable=io.StringIO), \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code = main()
+            self.assertEqual(code, 0)
+            self.assertEqual(mock_err.getvalue(), "")
+
+
+class TestAgyisPathAndConfigHierarchy(unittest.TestCase):
+    """Hermetic unit tests for AGYIS_* and PSL_* path and config fallback hierarchies."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_config_and_data_dir_hierarchy(self) -> None:
+        from harness.telemetry.config import get_config_dir, get_data_dir
+        agyis_cfg = self.base / "agyis_cfg"
+        psl_cfg = self.base / "psl_cfg"
+
+        # AGYIS_CONFIG_DIR takes precedence
+        with patch.dict(os.environ, {"AGYIS_CONFIG_DIR": str(agyis_cfg), "PSL_CONFIG_DIR": str(psl_cfg)}, clear=False):
+            self.assertEqual(get_config_dir(), agyis_cfg.resolve())
+
+        # PSL_CONFIG_DIR honored when AGYIS_CONFIG_DIR is unset
+        with patch.dict(os.environ, {"PSL_CONFIG_DIR": str(psl_cfg)}, clear=False):
+            os.environ.pop("AGYIS_CONFIG_DIR", None)
+            os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+            os.environ.pop("PSL_HARNESS_STATE_DIR", None)
+            self.assertEqual(get_config_dir(), psl_cfg.resolve())
+
+        # Data dir precedence
+        agyis_data = self.base / "agyis_data"
+        psl_data = self.base / "psl_data"
+        with patch.dict(os.environ, {"AGYIS_DATA_DIR": str(agyis_data), "PSL_DATA_DIR": str(psl_data)}, clear=False):
+            self.assertEqual(get_data_dir(), agyis_data.resolve())
+
+        with patch.dict(os.environ, {"PSL_DATA_DIR": str(psl_data)}, clear=False):
+            os.environ.pop("AGYIS_DATA_DIR", None)
+            os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+            os.environ.pop("PSL_HARNESS_STATE_DIR", None)
+            self.assertEqual(get_data_dir(), psl_data.resolve())
+
+    def test_state_dir_hierarchy(self) -> None:
+        from harness.utils.state import get_state_dir
+        agyis_state = self.base / "agyis_state"
+        psl_state = self.base / "psl_state"
+
+        with patch.dict(os.environ, {"AGYIS_HARNESS_STATE_DIR": str(agyis_state), "PSL_HARNESS_STATE_DIR": str(psl_state)}, clear=False):
+            self.assertEqual(get_state_dir(), agyis_state)
+
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(psl_state)}, clear=False):
+            os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+            self.assertEqual(get_state_dir(), psl_state)
+
+    def test_auth_token_and_sync_endpoint_hierarchy(self) -> None:
+        from harness.telemetry.config import get_auth_token, get_sync_endpoint
+
+        with patch.dict(os.environ, {"AGYIS_AUTH_TOKEN": "agyis-tok", "PSL_AUTH_TOKEN": "psl-tok"}, clear=False):
+            self.assertEqual(get_auth_token(), "agyis-tok")
+
+        with patch.dict(os.environ, {"PSL_AUTH_TOKEN": "psl-tok"}, clear=False):
+            os.environ.pop("AGYIS_AUTH_TOKEN", None)
+            self.assertEqual(get_auth_token(), "psl-tok")
+
+        with patch.dict(os.environ, {"AGYIS_SYNC_ENDPOINT": "https://agyis.hub", "PSL_SYNC_ENDPOINT": "https://psl.hub"}, clear=False):
+            self.assertEqual(get_sync_endpoint(), "https://agyis.hub")
+
+        with patch.dict(os.environ, {"PSL_SYNC_ENDPOINT": "https://psl.hub"}, clear=False):
+            os.environ.pop("AGYIS_SYNC_ENDPOINT", None)
+            self.assertEqual(get_sync_endpoint(), "https://psl.hub")
+
+    def test_db_path_and_git_exclude_hierarchy(self) -> None:
+        from harness.telemetry.config import resolve_db_path
+        from harness.delivery.constants import GIT_EXCLUDE_PATTERNS
+        agyis_db = self.base / "agyis_telemetry.db"
+        psl_db = self.base / "psl_telemetry.db"
+
+        with patch.dict(os.environ, {"AGYIS_TELEMETRY_DB": str(agyis_db), "PSL_TELEMETRY_DB": str(psl_db)}, clear=False):
+            self.assertEqual(resolve_db_path(), agyis_db.resolve())
+
+        with patch.dict(os.environ, {"PSL_TELEMETRY_DB": str(psl_db)}, clear=False):
+            os.environ.pop("AGYIS_TELEMETRY_DB", None)
+            self.assertEqual(resolve_db_path(), psl_db.resolve())
+
+        self.assertIn(".agyis/", GIT_EXCLUDE_PATTERNS)
+        self.assertIn(".psl/", GIT_EXCLUDE_PATTERNS)
+
+
+class TestCliDualExecutionMatrix(unittest.TestCase):
+    """
+    Exhaustive dual assertion suite verifying that primary 'agyis' commands
+    execute with clean stderr, while legacy 'psl' commands emit the active
+    deprecation warning on stderr without corrupting stdout or JSON streams.
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.orig_state_dir = os.environ.get("PSL_HARNESS_STATE_DIR")
+        self.orig_agyis_state_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR")
+        self.orig_brain_dir = os.environ.get("ANTIGRAVITY_BRAIN_DIR")
+        self.orig_gemini_brain_dir = os.environ.get("GEMINI_BRAIN_DIR")
+        os.environ["PSL_HARNESS_STATE_DIR"] = self.temp_dir.name
+        os.environ["AGYIS_HARNESS_STATE_DIR"] = self.temp_dir.name
+        default_brain = Path(self.temp_dir.name) / "default_brain"
+        default_brain.mkdir(parents=True, exist_ok=True)
+        os.environ["ANTIGRAVITY_BRAIN_DIR"] = str(default_brain)
+        os.environ["GEMINI_BRAIN_DIR"] = str(default_brain)
+
+    def tearDown(self):
+        for mod in DYNAMIC_TEST_MODULES:
+            sys.modules.pop(mod, None)
+        if self.orig_state_dir is not None:
+            os.environ["PSL_HARNESS_STATE_DIR"] = self.orig_state_dir
+        else:
+            os.environ.pop("PSL_HARNESS_STATE_DIR", None)
+        if self.orig_agyis_state_dir is not None:
+            os.environ["AGYIS_HARNESS_STATE_DIR"] = self.orig_agyis_state_dir
+        else:
+            os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+        if self.orig_brain_dir is not None:
+            os.environ["ANTIGRAVITY_BRAIN_DIR"] = self.orig_brain_dir
+        else:
+            os.environ.pop("ANTIGRAVITY_BRAIN_DIR", None)
+        if self.orig_gemini_brain_dir is not None:
+            os.environ["GEMINI_BRAIN_DIR"] = self.orig_gemini_brain_dir
+        else:
+            os.environ.pop("GEMINI_BRAIN_DIR", None)
+        self.temp_dir.cleanup()
+
+    def test_dual_version_invocations(self):
+        """Verifies agyis --version is clean, while psl --version emits deprecation warning."""
+        from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
+
+        # agyis --version
+        with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as agyis_err:
+            with self.assertRaises(SystemExit) as cm1:
+                main(["--version"], prog="agyis")
+            self.assertEqual(cm1.exception.code, 0)
+            self.assertEqual(agyis_err.getvalue(), "")
+            self.assertIn("agyis-harness 0.1.0", agyis_out.getvalue())
+
+        # psl --version
+        with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as psl_err:
+            with self.assertRaises(SystemExit) as cm2:
+                deprecated_psl_main(["--version"])
+            self.assertEqual(cm2.exception.code, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
+            self.assertIn("agyis-harness 0.1.0", psl_out.getvalue())
+
+    def test_dual_bare_cli_help(self):
+        """Verifies bare 'agyis' and 'psl' with no arguments print help with proper stderr isolation."""
+        from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
+
+        # agyis (no args)
+        with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as agyis_err:
+            code1 = main([], prog="agyis")
+            self.assertEqual(code1, 0)
+            self.assertEqual(agyis_err.getvalue(), "")
+            self.assertIn("usage: agyis", agyis_out.getvalue())
+
+        # psl (no args)
+        with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as psl_err:
+            code2 = deprecated_psl_main([])
+            self.assertEqual(code2, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
+            self.assertIn("usage: psl", psl_out.getvalue())
+
+    def test_dual_status_invocations(self):
+        """Verifies status subcommand outputs cleanly on agyis and emits deprecation warning on psl."""
+        from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
+
+        with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as agyis_err:
+            code1 = main(["status"], prog="agyis")
+            self.assertEqual(code1, 0)
+            self.assertEqual(agyis_err.getvalue(), "")
+            self.assertIn("Active Lifecycle Hooks", agyis_out.getvalue())
+
+        with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as psl_err:
+            code2 = deprecated_psl_main(["status"])
+            self.assertEqual(code2, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
+            self.assertIn("Active Lifecycle Hooks", psl_out.getvalue())
+
+    def test_dual_skills_json_purity(self):
+        """Verifies agyis skills --json and psl skills --json produce identical JSON stdout without contamination."""
+        from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
+
+        with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as agyis_err:
+            code1 = main(["skills", "--json"], prog="agyis")
+            self.assertEqual(code1, 0)
+            self.assertEqual(agyis_err.getvalue(), "")
+            data_agyis = json.loads(agyis_out.getvalue().strip())
+
+        with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as psl_err:
+            code2 = deprecated_psl_main(["skills", "--json"])
+            self.assertEqual(code2, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
+            data_psl = json.loads(psl_out.getvalue().strip())
+
+        self.assertEqual(data_agyis, data_psl)
+        self.assertGreaterEqual(len(data_agyis), 8)
+
+    def test_dual_agents_json_purity(self):
+        """Verifies agyis agents --json and psl agents --json produce identical JSON stdout."""
+        from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
+
+        with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as agyis_err:
+            code1 = main(["agents", "--json"], prog="agyis")
+            self.assertEqual(code1, 0)
+            self.assertEqual(agyis_err.getvalue(), "")
+            data_agyis = json.loads(agyis_out.getvalue().strip())
+
+        with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as psl_err:
+            code2 = deprecated_psl_main(["agents", "--json"])
+            self.assertEqual(code2, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
+            data_psl = json.loads(psl_out.getvalue().strip())
+
+        self.assertEqual(data_agyis, data_psl)
+        self.assertGreaterEqual(len(data_agyis), 6)
+
+    def test_dual_subagents_json_purity(self):
+        """Verifies agyis subagents --json and psl subagents --json produce identical JSON stdout."""
+        from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
+
+        with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as agyis_err:
+            code1 = main(["subagents", "--json"], prog="agyis")
+            self.assertEqual(code1, 0)
+            self.assertEqual(agyis_err.getvalue(), "")
+            data_agyis = json.loads(agyis_out.getvalue().strip())
+
+        with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as psl_err:
+            code2 = deprecated_psl_main(["subagents", "--json"])
+            self.assertEqual(code2, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
+            data_psl = json.loads(psl_out.getvalue().strip())
+
+        self.assertEqual(data_agyis, data_psl)
+
+    def test_dual_test_runner_invocations(self):
+        """Verifies test runner executes with clean stderr on agyis, warning on psl."""
+        from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
+
+        sample_test = "import unittest\nclass S(unittest.TestCase):\n    def test_p(self): self.assertTrue(True)\n"
+        sample_file = Path(self.temp_dir.name) / "test_dual_cli_sample.py"
+        sample_file.write_text(sample_test, encoding="utf-8")
+
+        with patch("sys.stdout", new_callable=io.StringIO), \
+             patch("sys.stderr", new_callable=io.StringIO) as agyis_err:
+            code1 = main(["test", "-s", self.temp_dir.name], prog="agyis")
+            self.assertEqual(code1, 0)
+            self.assertNotIn(PSL_DEPRECATION_WARNING.strip(), agyis_err.getvalue())
+
+        with patch("sys.stdout", new_callable=io.StringIO), \
+             patch("sys.stderr", new_callable=io.StringIO) as psl_err:
+            code2 = deprecated_psl_main(["test", "-s", self.temp_dir.name])
+            self.assertEqual(code2, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
+
+    def test_dual_init_dry_run(self):
+        """Verifies init --dry-run executes with clean stderr on agyis, warning on psl."""
+        from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
+        ws = Path(self.temp_dir.name) / "ws_init"
+        ws.mkdir(parents=True)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as agyis_err:
+            code1 = main(["init", str(ws), "--dry-run"], prog="agyis")
+            self.assertEqual(code1, 0)
+            self.assertEqual(agyis_err.getvalue(), "")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as psl_err:
+            code2 = deprecated_psl_main(["init", str(ws), "--dry-run"])
+            self.assertEqual(code2, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
+
+    def test_dual_harmonize_dry_run_json(self):
+        """Verifies harmonize --dry-run --json runs cleanly on agyis and emits warning on psl."""
+        from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
+        ws = Path(self.temp_dir.name) / "ws_harm"
+        ws.mkdir(parents=True)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as agyis_err:
+            code1 = main(["harmonize", str(ws), "--dry-run", "--json"], prog="agyis")
+            self.assertEqual(code1, 0)
+            self.assertEqual(agyis_err.getvalue(), "")
+            res1 = json.loads(agyis_out.getvalue().strip())
+            self.assertTrue(res1["dry_run"])
+
+        with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as psl_err:
+            code2 = deprecated_psl_main(["harmonize", str(ws), "--dry-run", "--json"])
+            self.assertEqual(code2, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
+            res2 = json.loads(psl_out.getvalue().strip())
+            self.assertTrue(res2["dry_run"])
+
+        self.assertEqual(res1["workspace_dir"], res2["workspace_dir"])
+
+    def test_dual_doctor_subcommand(self):
+        """Verifies doctor runs with clean stderr on agyis, warning on psl."""
+        from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
+
+        mock_audit = {
+            "summary": {"total": 5, "available": 5, "missing": 0, "outdated": 0},
+            "tiers": {},
+        }
+        with patch("harness.runtime.doctor.run_doctor", return_value=mock_audit), \
+             patch("harness.runtime.doctor.print_cli_report"):
+            with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
+                 patch("sys.stderr", new_callable=io.StringIO) as agyis_err:
+                code1 = main(["doctor"], prog="agyis")
+                self.assertEqual(code1, 0)
+                self.assertEqual(agyis_err.getvalue(), "")
+
+            with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
+                 patch("sys.stderr", new_callable=io.StringIO) as psl_err:
+                code2 = deprecated_psl_main(["doctor"])
+                self.assertEqual(code2, 0)
+                self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
+
+    def test_dual_remote_socket_status(self):
+        """Verifies remote socket status runs with clean stderr on agyis, warning on psl."""
+        from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
+
+        with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as agyis_err:
+            code1 = main(["remote", "socket", "status"], prog="agyis")
+            self.assertEqual(code1, 0)
+            self.assertEqual(agyis_err.getvalue(), "")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as psl_err:
+            code2 = deprecated_psl_main(["remote", "socket", "status"])
+            self.assertEqual(code2, 0)
+            self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
 
 
 if __name__ == "__main__":

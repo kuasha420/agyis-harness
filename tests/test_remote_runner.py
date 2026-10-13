@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 Hermetic unit and integration tests for harness/remote subsystem (ADR-027).
 Covers RemoteRunner, ScriptStreamer, and RemoteTriage.
@@ -14,7 +19,15 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from harness.remote import RemoteRunner, RemoteTriage, ScriptStreamer, get_socket_dir
+from harness.remote import (
+    RemoteRunner,
+    RemoteScriptStreamer,
+    RemoteTriage,
+    RemoteTriageEngine,
+    ScriptStreamer,
+    SSHRunner,
+    get_socket_dir,
+)
 
 
 class TestRemoteRunner(unittest.TestCase):
@@ -38,6 +51,23 @@ class TestRemoteRunner(unittest.TestCase):
         mode = stat.S_IMODE(sock_dir.stat().st_mode)
         self.assertEqual(mode, 0o700)
         self.assertTrue(str(sock_dir).startswith(self.temp_dir.name))
+
+    def test_socket_dir_resolution_prefers_agyis_over_psl(self):
+        """Verifies get_socket_dir prefers AGYIS_HARNESS_STATE_DIR over PSL_HARNESS_STATE_DIR."""
+        with tempfile.TemporaryDirectory() as td_agyis, tempfile.TemporaryDirectory() as td_psl:
+            with patch.dict(os.environ, {
+                "AGYIS_HARNESS_STATE_DIR": td_agyis,
+                "PSL_HARNESS_STATE_DIR": td_psl,
+            }):
+                sock_dir = get_socket_dir()
+                self.assertTrue(str(sock_dir).startswith(td_agyis))
+
+            with patch.dict(os.environ, {
+                "PSL_HARNESS_STATE_DIR": td_psl,
+            }, clear=False):
+                os.environ.pop("AGYIS_HARNESS_STATE_DIR", None)
+                sock_dir = get_socket_dir()
+                self.assertTrue(str(sock_dir).startswith(td_psl))
 
     def test_multiplex_options_structure(self):
         """Verifies OpenSSH multiplexing options include ControlMaster and cm_%C."""
@@ -102,6 +132,78 @@ class TestRemoteRunner(unittest.TestCase):
         self.assertFalse(sock1.exists())
         self.assertFalse(sock2.exists())
         self.assertTrue(other.exists())
+
+    def test_ssh_runner_socket_recovery_on_255(self):
+        """
+        Mock SSH exit code 255 and assert automatic stale ControlMaster socket
+        unlinking and recovery per ADR-027.
+        """
+        self.assertIs(SSHRunner, RemoteRunner)
+        runner = SSHRunner()
+        sock = runner.get_target_socket_path("vps")
+        self.assertIsNotNone(sock)
+        sock.touch()
+        self.assertTrue(sock.exists())
+
+        mock_proc = subprocess.CompletedProcess(
+            args=["ssh"],
+            returncode=255,
+            stdout="",
+            stderr="ssh: connect to host vps port 22: Connection timed out",
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            proc = runner.run("vps", "echo test")
+            self.assertEqual(proc.returncode, 255)
+            # Target ControlMaster socket must be automatically purged
+            self.assertFalse(sock.exists())
+
+    def test_ssh_runner_socket_recovery_scoped_target(self):
+        """
+        Asserts exit-255 socket cleanup only purges target socket and leaves other hosts intact.
+        """
+        runner = SSHRunner()
+        sock_vps = runner.get_target_socket_path("vps")
+        self.assertIsNotNone(sock_vps)
+        sock_vps.touch()
+
+        sock_other = runner.get_target_socket_path("other-host")
+        self.assertIsNotNone(sock_other)
+        sock_other.touch()
+
+        mock_proc = subprocess.CompletedProcess(
+            args=["ssh"],
+            returncode=255,
+            stdout="",
+            stderr="ssh: connect to host vps: Connection timed out",
+        )
+        with patch("subprocess.run", return_value=mock_proc):
+            proc = runner.run("vps", "uptime")
+            self.assertEqual(proc.returncode, 255)
+            self.assertFalse(sock_vps.exists())
+            self.assertTrue(sock_other.exists())
+
+    def test_cleanup_target_socket_never_purges_unrelated_sockets(self):
+        """
+        Asserts cleanup_target_socket does not purge unrelated sockets,
+        even if the target name is a substring of 'cm_' (e.g. 'c', 'm', '_').
+        """
+        runner = SSHRunner()
+        sock_other = runner.socket_dir / "cm_1234567890abcdef1234567890abcdef12345678"
+        sock_other.touch()
+        self.assertTrue(sock_other.exists())
+
+        removed = runner.cleanup_target_socket("c")
+        self.assertEqual(removed, [])
+        self.assertTrue(sock_other.exists())
+
+        removed = runner.cleanup_target_socket("m")
+        self.assertEqual(removed, [])
+        self.assertTrue(sock_other.exists())
+
+        removed = runner.cleanup_target_socket("_")
+        self.assertEqual(removed, [])
+        self.assertTrue(sock_other.exists())
+
 
 
 class TestScriptStreamer(unittest.TestCase):
@@ -201,6 +303,35 @@ class TestScriptStreamer(unittest.TestCase):
         self.assertIn("chmod +x /tmp/.psl_remote_", cmd_str2)
         self.assertIn("&& /tmp/.psl_remote_", cmd_str2)
 
+    def test_remote_scripts_missing_file_and_shebangs(self):
+        """
+        Asserts RemoteScriptStreamer.stream_script raises FileNotFoundError
+        on non-existent scripts, and verifies shebang parsing for Node and Bash.
+        """
+        runner = RemoteRunner()
+        missing_script = Path(self.temp_dir.name) / "does_not_exist.py"
+        with self.assertRaises(FileNotFoundError):
+            RemoteScriptStreamer.stream_script(runner, "staging", missing_script)
+
+        with self.assertRaises(FileNotFoundError):
+            RemoteScriptStreamer.stage_script(runner, "staging", missing_script)
+
+        # Verify shebang detection
+        node_shebang = "#!/usr/bin/env node\nconsole.log(process.version);"
+        bash_shebang = "#!/bin/sh\necho 'shell test'"
+        py_shebang = "#!/usr/bin/python3\nimport sys"
+
+        temp_node = Path(self.temp_dir.name) / "script_node"
+        temp_node.write_text(node_shebang, encoding="utf-8")
+        temp_bash = Path(self.temp_dir.name) / "script_bash"
+        temp_bash.write_text(bash_shebang, encoding="utf-8")
+
+        self.assertEqual(RemoteScriptStreamer.determine_runtime(temp_node), ["node", "-"])
+        self.assertEqual(RemoteScriptStreamer.determine_runtime(temp_bash), ["bash", "-l", "-s"])
+        self.assertEqual(RemoteScriptStreamer.determine_runtime(Path("x"), node_shebang), ["node", "-"])
+        self.assertEqual(RemoteScriptStreamer.determine_runtime(Path("y"), bash_shebang), ["bash", "-l", "-s"])
+        self.assertEqual(RemoteScriptStreamer.determine_runtime(Path("z"), py_shebang), ["python3", "-s", "-"])
+
 
 class TestRemoteTriage(unittest.TestCase):
     def test_build_triage_probe_profiles(self):
@@ -260,6 +391,42 @@ class TestRemoteTriage(unittest.TestCase):
         byte_len = len(md.encode("utf-8"))
         self.assertLessEqual(byte_len, 1024)
         self.assertIn("bounded to <2KB", md)
+
+    def test_remote_triage_degraded_states(self):
+        """
+        Asserts RemoteTriageEngine generates clean, valid markdown triage reports
+        when ports, Docker containers, and systemd journal logs are completely empty or unavailable.
+        """
+        self.assertIs(RemoteTriageEngine, RemoteTriage)
+        degraded_raw = (
+            "=== HOST ===\n"
+            "offline-edge-node\n"
+            " 00:00:00 up 0 days, 0 users, load average: 0.00, 0.00, 0.00\n"
+            "=== RESOURCES ===\n"
+            "=== PORTS ===\n"
+            "State Recv-Q Send-Q Local Address:Port Peer Address:Port\n"
+            "=== SERVICES ===\n"
+            "=== LOGS ===\n"
+        )
+        md = RemoteTriageEngine.format_triage_markdown(degraded_raw, target="offline-edge-node")
+        self.assertIn("Remote Triage Report: `offline-edge-node`", md)
+        self.assertIn("_No listening ports discovered or permission denied._", md)
+        self.assertIn("_No failed units or active containers detected._", md)
+        self.assertIn("_No log entries captured._", md)
+        self.assertLess(len(md.encode("utf-8")), 2048)
+
+        # Test orchestration with run_triage on degraded target
+        mock_runner = MagicMock()
+        mock_runner.run.return_value = subprocess.CompletedProcess(
+            args=["ssh"],
+            returncode=0,
+            stdout=degraded_raw,
+            stderr="",
+        )
+        res = RemoteTriageEngine.run_triage(mock_runner, target="offline-edge-node")
+        self.assertEqual(res["target"], "offline-edge-node")
+        self.assertEqual(res["exit_code"], 0)
+        self.assertIn("_No listening ports discovered or permission denied._", res["report_markdown"])
 
 
 if __name__ == "__main__":

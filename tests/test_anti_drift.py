@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
 """
 Unit and integration contract tests for harness/hooks/anti_drift_hook.py (ADR-024).
 """
@@ -443,6 +448,50 @@ class TestAntiDriftHook(unittest.TestCase):
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "deny")
             self.assertIn("PSL Auditor Invariant", res["reason"])
+
+    def test_anti_drift_auditor_block(self):
+        """
+        Asserts that harness_auditor write attempts (across write_to_file,
+        replace_file_content, edit_file) are rejected programmatically with
+        zero interactive operator prompts.
+        """
+        from harness.hooks.anti_drift_hook import main
+
+        write_tools = [
+            ("write_to_file", {"TargetFile": "src/module.py", "CodeContent": "evil"}),
+            ("replace_file_content", {"TargetFile": "src/module.py", "TargetContent": "a", "ReplacementContent": "b"}),
+            ("edit_file", {"FilePath": "src/module.py", "content": "mutated"}),
+        ]
+
+        for tool_name, args in write_tools:
+            # 1. Direct function check
+            payload = {
+                "role": "harness_auditor",
+                "toolCall": {"name": tool_name, "args": args},
+            }
+            res = check_auditor_write_block(payload)
+            self.assertIsNotNone(res)
+            self.assertEqual(res["decision"], "deny")
+            self.assertIn("PSL Auditor Invariant", res["reason"])
+
+            # 2. End-to-end hook main() execution (programmatic, zero prompt)
+            with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                main()
+                stdout_val = mock_out.getvalue().strip()
+                res_main = json.loads(stdout_val)
+                self.assertEqual(res_main["decision"], "deny")
+                self.assertIn("PSL Auditor Invariant", res_main["reason"])
+
+            # 3. Environment variable fallback (PSL_SUBAGENT_ROLE)
+            payload_env = {
+                "toolCall": {"name": tool_name, "args": args},
+            }
+            with patch.dict(os.environ, {"PSL_SUBAGENT_ROLE": "harness_auditor"}):
+                with patch("sys.stdin", io.StringIO(json.dumps(payload_env))), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    main()
+                    res_env = json.loads(mock_out.getvalue().strip())
+                    self.assertEqual(res_env["decision"], "deny")
+                    self.assertIn("PSL Auditor Invariant", res_env["reason"])
 
     def test_planner_and_coordinator_write_block(self):
         """Planner and coordinator subagents are blocked from mutating files."""
