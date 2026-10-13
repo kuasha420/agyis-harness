@@ -1,55 +1,62 @@
-# Project: Agyis Fleet Onboarding (2026 Active Projects)
+# Project: Agyis Harness Fleet Onboarding & Wave 1 Reconciliation (v1.0.0-rc2)
 
 ## Architecture
-Cross-fleet orchestration onboarding 2026 active projects across `purrfectsoft`, `kuasha420`, and `sakibtamim` in `/home/kuasha/Dev` to PSL open-source standards and Agyis harness `v1.0.0-rc1`.
+Agyis Harness (`v1.0.0-rc2`) provides autonomous agent workspace harmonization, preset decoupling, deterministic legacy `.agent/` migration/pruning, and multi-tier environment diagnostics.
+This project coordinates fleet-wide reconciliation of 17 open Wave 1 pull requests and onboarding of 4 Tier 1 local repositories in `/home/kuasha/Dev` under strict WIP safeguarding and decoupled architectural roles.
 
-### Scoped Repositories & Stack Matrix (100% Certified)
-| # | Repository | Namespace | Stack | Test Runner | Status / PR |
-|---|------------|-----------|-------|-------------|-------------|
-| 1 | `purrfectcore-001` | `purrfectsoft` | TypeScript / NestJS | `pnpm test:unit` (Jest) | ONBOARDED: https://github.com/purrfectsoft/purrfectcore-001/pull/611 |
-| 2 | `purrfectcore-client` | `purrfectsoft` | TypeScript / Vite / React | `pnpm build` / lint | ONBOARDED: https://github.com/purrfectsoft/purrfectcore-client/pull/543 |
-| 3 | `psl-boilerplate` | `purrfectsoft` | TypeScript / Vite / React | `pnpm typecheck` / lint | ONBOARDED: https://github.com/purrfectsoft/psl-boilerplate/pull/1 |
-| 4 | `psl-scaffold` | `purrfectsoft` | TypeScript / Node CLI | `npm test` | ONBOARDED: https://github.com/purrfectsoft/psl-scaffold/pull/11 |
-| 5 | `psl-website` | `purrfectsoft` | TypeScript / Next.js | `pnpm build` / lint | ONBOARDED: https://github.com/purrfectsoft/psl-website/pull/74 |
-| 6 | `mm-website` | `purrfectsoft` | TypeScript / Next.js | `pnpm typecheck` / lint | ONBOARDED: https://github.com/purrfectsoft/mm-website/pull/411 |
-| 7 | `Jasper` | `sakibtamim` | TypeScript / Turbo | `pnpm test` (Vitest) | ONBOARDED: https://github.com/sakibtamim/Jasper/pull/172 |
-| 8 | `purrfect-download-manager` | `sakibtamim` | TypeScript / Electron | `pnpm typecheck` / lint | ONBOARDED: https://github.com/sakibtamim/purrfect-download-manager/pull/23 |
-| 9 | `purrmission` (canonical) | `kuasha420` | TypeScript / Node | `pnpm test` (node --test) | ONBOARDED: https://github.com/kuasha420/purrmission/pull/161 |
-| 10 | `purrmission` (fork) | `purrfectsoft` | TypeScript / Node | `pnpm test` (node --test) | ONBOARDED: https://github.com/purrfectsoft/purrmission/pull/4 |
-| 11 | `sunshine-physio-universalapp` | `purrfectsoft` | TypeScript / React Native | `pnpm test` (Vitest) | ONBOARDED: https://github.com/purrfectsoft/sunshine-physio-webapp/pull/52 |
-| 12 | `chronicle-time-keeper` | `purrfectsoft` | TypeScript / Next.js | `pnpm test` (Jest) | ONBOARDED: https://github.com/purrfectsoft/chronicle-time-keeper/pull/16 |
-| 13 | `jasper-hosted` | `purrfectsoft` | TypeScript / Node | `pnpm test` (Vitest) | ONBOARDED: https://github.com/purrfectsoft/jasper-hosted/pull/42 |
-| 14 | `jimha` | `kuasha420` | Python / PyQt | `python3 -m unittest` | ONBOARDED: https://github.com/kuasha420/jimha/pull/1 |
-| 15 | `knot-mesh` | `kuasha420` | Systems / Python / Shell | `pytest` + bash integrity | ONBOARDED: https://github.com/kuasha420/knot-mesh/pull/80 |
-| 16 | `purr` | `kuasha420` | Systems / Python / Shell | `make test` (audit) | ONBOARDED: https://github.com/kuasha420/purr/pull/14 |
-| 17 | `react-native-template-ts-plus` | `kuasha420` | React Native / TS | `npm test` (Jest) | ONBOARDED: https://github.com/kuasha420/react-native-template-ts-plus/pull/19 |
-| 18 | `psl-agy-harness` | `kuasha420` | Python / Antigravity | `./agyis test` (unittest) | CERTIFIED: v1.0.0-rc1, 576/576 hermetic tests pass |
-
-## Feature Inventory (100% Complete)
-| # | Feature | Description | Milestone | Status | Source |
-|---|---------|-------------|-----------|--------|--------|
-| 1 | Uncommitted Work Safeguarding | Safely commit/stash 14 modified files in `purrfectcore-001`, fast-forward develop from origin, and triage untracked files in `Jasper` | M1 | DONE | ORIGINAL_REQUEST §R1 |
-| 2 | Working Tree Hygiene Verification | Ensure onboarding base branch for all scoped repos is clean, up-to-date with remote origin | M1 | DONE | ORIGINAL_REQUEST §R1 |
-| 3 | Legacy Agent Structure Harmonization | Convert legacy `.agent/` directories to modern `.agents/` via `agyis harmonize` | M2, M3, M4, M5 | DONE | ORIGINAL_REQUEST §R2 |
-| 4 | Stack Skill Provisioning | Install tailored `psl-stack-*` and `psl-test-*` modular skills into `.agents/skills/` | M2, M3, M4, M5 | DONE | ORIGINAL_REQUEST §R2 |
-| 5 | Tagged Rule Invariant Injection | Inject `<!-- Added by AGYIS-HARNESS -->` block in `AGENTS.md` while preserving 100% of user custom rules | M2, M3, M4, M5 | DONE | ORIGINAL_REQUEST §R2 |
-| 6 | Hermetic Test Execution | Run project native test suites and lint/typecheck hermetically | M2, M3, M4, M5 | DONE | ORIGINAL_REQUEST §R3 |
-| 7 | Dedicated Feature Branch Creation | Create `chore/agyis-harness-onboarding` in each repository | M2, M3, M4, M5 | DONE | ORIGINAL_REQUEST §R3 |
-| 8 | Remote Push & PR Lifecycle | Push feature branch to origin and open PR via `gh pr create` with release notes against active branch | M2, M3, M4, M5 | DONE | ORIGINAL_REQUEST §R3 |
-| 9 | Consolidated Fleet Victory Audit | Compile victory audit report covering all repositories, skills, PR URLs, and verification results | M6 | DONE | ORIGINAL_REQUEST §R4 |
+## Feature Inventory
+| # | Feature | Description | Milestone | Source |
+|---|---------|-------------|-----------|--------|
+| 1 | Wave 1 PR Inventory & Checkout Verification | Map 17 open PRs to local checkouts on branch `chore/agyis-harness-onboarding` | M1 | ORIGINAL_REQUEST §R1 |
+| 2 | Preset Decoupling (Frontend & Mobile) | Ensure `sunshine-physio-webapp`, `mm-website`, `react-native-template-ts-plus`, and `purrfectcore-client` contain only relevant stack skills and strictly omit `psl-stack-backend` and `db-ops` | M1 | ORIGINAL_REQUEST §R1 |
+| 3 | Legacy Debris Pruning | Ensure zero legacy `.agent/` directories or `.agent/workflows` remain in any Wave 1 or Tier 1 repository | M1, M2 | ORIGINAL_REQUEST §R1, §R2 |
+| 4 | Invariant Rules Fencing | Ensure `AGENTS.md` rule fences (`<!-- Added by AGYIS-HARNESS -->` / `<!-- End AGYIS-HARNESS -->`) are present and intact | M1, M2 | ORIGINAL_REQUEST §R1 |
+| 5 | WIP Safeguarding (bookcover-craft) | Create dual-shield backup: isolated patch file `wip-safety-pre-onboarding.patch` and backup branch `backup/wip-pre-onboarding-staging` before any modification | M2 | ORIGINAL_REQUEST §R3 |
+| 6 | WIP Safeguarding (bookcover-craft-api) | Create dual-shield backup: isolated patch file `wip-safety-pre-onboarding.patch` and backup branch `backup/wip-pre-onboarding-dev` before any modification | M2 | ORIGINAL_REQUEST §R3 |
+| 7 | Tier 1 Clean Reset | Reset `bookcover-craft` to clean `origin/staging` and `bookcover-craft-api` to clean `origin/dev` after backup | M2 | ORIGINAL_REQUEST §R3 |
+| 8 | Tier 1 Onboarding Branches & PRs | Run `agyis onboard` with explicit decoupled roles and tracking branches for `arbiter`, `bookcover-craft`, `bookcover-craft-api`, and `chakra-ui-icons-compat` | M2 | ORIGINAL_REQUEST §R2 |
+| 9 | Native Test Suite Verification | Execute native test suites / typecheck / build commands across targeted repositories | M3 | ORIGINAL_REQUEST §R4 |
+| 10 | Agyis Doctor Diagnostics | Verify `agyis doctor` passes with exit code 0 across all target repositories | M3 | ORIGINAL_REQUEST §R4 |
+| 11 | Push Updated Branches to Origin | Push updated `chore/agyis-harness-onboarding` branches to remote origin / fork targets without merging PRs | M3 | ORIGINAL_REQUEST §R4 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Critical Triage & Safeguarding | `purrfectcore-001` (14 modified files, 71 commit lag) and `Jasper` (untracked files) | none | DONE |
-| M2 | Core Platform & Systems (`kuasha420`) | `psl-agy-harness`, `jimha`, `knot-mesh`, `purr`, `react-native-template-ts-plus` | none | DONE |
-| M3 | Sakibtamim Workspace (`sakibtamim`) | `Jasper`, `purrfect-download-manager` | M1 | DONE |
-| M4 | PurrfectSoft Web Suite (`purrfectsoft` A) | `purrmission` (canonical & fork), `sunshine-physio-universalapp`, `chronicle-time-keeper`, `jasper-hosted` | none | DONE |
-| M5 | PurrfectSoft Core & Infra (`purrfectsoft` B) | `purrfectcore-001`, `purrfectcore-client`, `psl-boilerplate`, `psl-scaffold`, `psl-website`, `mm-website` | M1 | DONE |
-| M6 | Fleet Victory Audit & Synthesis | Comprehensive validation across all repositories and report compilation | M2, M3, M4, M5 | DONE |
+| M1 | Wave 1 PR Reconciliation | Reconcile all 17 Wave 1 repositories to v1.0.0-rc2 with decoupled presets in frontend/mobile repos and intact rules fences | none | DONE |
+| M2 | Tier 1 Repositories Safeguarding & Onboarding | Safeguard in-flight WIP in bookcover-craft and bookcover-craft-api via dual-shield patches and backup branches; onboard arbiter, bookcover-craft, bookcover-craft-api, chakra-ui-icons-compat with clean branches and PRs | none | DONE |
+| M3 | Fleet Verification Gate & Remote Push | Automated verification gate (agyis doctor, preset audit, legacy audit, test suites) across all 21 repos and push to origin/fork remotes | M1, M2 | DONE |
 
-## Gate Certified
-- Reviewer: **APPROVE**
-- Challenger: **APPROVE**
-- Forensic Auditor: **CLEAN**
-- All 18 repositories onboarded with zero work loss and zero integrity violations.
+## Code Layout
+- Target Workspaces:
+  - `/home/kuasha/Dev/psl-agy-harness` (Harness host toolchain)
+  - Wave 1 Repos (17 checkouts in `/home/kuasha/Dev/`):
+    - `jasper-hosted`
+    - `chronicle-time-keeper`
+    - `sunshine-physio-universalapp` (upstream `sunshine-physio-webapp`)
+    - `purrmission`
+    - `mm-website`
+    - `psl-website`
+    - `purrfect-download-manager`
+    - `psl-scaffold`
+    - `psl-boilerplate`
+    - `Jasper`
+    - `purrfectcore-client`
+    - `purrfectcore-001`
+    - `react-native-template-ts-plus`
+    - `purr`
+    - `knot-mesh`
+    - `jimha`
+  - Tier 1 Repos (4 local checkouts in `/home/kuasha/Dev/`):
+    - `arbiter` (base: `develop`)
+    - `bookcover-craft` (base: `staging`, role: `frontend`)
+    - `bookcover-craft-api` (base: `dev`, role: `backend`)
+    - `chakra-ui-icons-compat` (base: `develop`, role: `frontend`)
+
+## Interface Contracts
+### Agyis Onboard Invariants
+- `agyis onboard <path> --base-branch <branch> [--role <role>] [--prune-legacy] [--pr]`
+- Fences: `<!-- Added by AGYIS-HARNESS -->` and `<!-- End AGYIS-HARNESS -->`
+- Decoupled roles:
+  - `frontend`: `modern-web-guidance`, `psl-stack-typescript`, `psl-test-node` (NO `psl-stack-backend`, NO `db-ops`)
+  - `mobile`: `android-cli`, `psl-stack-typescript`, `psl-test-node` (NO `psl-stack-backend`, NO `db-ops`)
+  - `backend`: `psl-stack-backend`, `db-ops`, plus runtime skills

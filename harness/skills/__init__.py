@@ -644,9 +644,10 @@ def resolve_skills_to_sync(
                 for l in mono_langs:
                     if l in LANGUAGE_RUNTIME_PRESETS:
                         resolved.extend(LANGUAGE_RUNTIME_PRESETS[l])
-                for r in mono_roles:
-                    if r in ARCHITECTURAL_ROLE_PRESETS:
-                        resolved.extend(ARCHITECTURAL_ROLE_PRESETS[r])
+                if role is None:
+                    for r in mono_roles:
+                        if r in ARCHITECTURAL_ROLE_PRESETS:
+                            resolved.extend(ARCHITECTURAL_ROLE_PRESETS[r])
             else:
                 detected = detect_workspace_stack(target_ws)
                 if detected and detected in LANGUAGE_RUNTIME_PRESETS:
