@@ -18,7 +18,7 @@ Outputs docs/taxonomy/cognitive-traces-report.md and data/top_100_cognitive_traj
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -156,7 +156,7 @@ def extract_cognitive_traces(db_path: Path) -> Dict[str, Any]:
             })
 
     return {
-        "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ"),
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
         "total_thinking_steps": total_thinking_steps,
         "total_thinking_chars": total_chars,
         "avg_thinking_chars": round(avg_chars, 1) if avg_chars else 0,

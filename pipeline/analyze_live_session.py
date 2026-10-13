@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 import glob
 import json
 import os
@@ -247,7 +247,7 @@ def analyze_session(session_dir: Path) -> Dict[str, Any]:
 
     return {
         "session_id": session_id,
-        "analyzed_at": datetime.utcnow().isoformat() + "Z",
+        "analyzed_at": datetime.now(timezone.utc).isoformat(),
         "coordinator": {
             "compacted_transcript": coord_summary,
             "full_transcript": full_summary,
