@@ -59,6 +59,7 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
           TAG="${{ github.ref_name }}"
           if [[ "$TAG" == "main" || "$TAG" == "master" ]]; then
             TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0-rc0")
