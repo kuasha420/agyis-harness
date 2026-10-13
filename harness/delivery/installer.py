@@ -4,7 +4,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-PSL Harness Delivery & Global Plugin Installer (ADR-030).
+Agyis Harness Delivery & Global Plugin Installer (ADR-030).
 """
 
 from __future__ import annotations

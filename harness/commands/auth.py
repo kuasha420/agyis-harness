@@ -132,7 +132,7 @@ def cmd_auth(args: argparse.Namespace) -> int:
             return 0 if is_auth else 1
 
         print("=" * 60)
-        print(" PSL Telemetry Authentication Status")
+        print(" Agyis Telemetry Authentication Status")
         print("=" * 60)
         print(f"  Authenticated: {'Yes' if is_auth else 'No'}")
         print(f"  Username:      {username or 'Not logged in'}")

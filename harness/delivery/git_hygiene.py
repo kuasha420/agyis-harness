@@ -82,7 +82,7 @@ def configure_git_exclude(workspace_root: Path) -> Path:
         with open(exclude_file, "a", encoding="utf-8") as f:
             if existing_lines and existing_lines[-1] != "":
                 f.write("\n")
-            f.write("# Agyis Harness Ignored Directories & Patterns\n")
+            f.write("# Agyis Harness Ignored Directories\n")
             for pat in lines_to_add:
                 f.write(f"{pat}\n")
 

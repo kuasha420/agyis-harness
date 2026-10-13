@@ -4,7 +4,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-PSL Harness for Google Antigravity™
+Agyis Harness for Google Antigravity™
 """
 
 __version__ = "1.0.0-rc1"

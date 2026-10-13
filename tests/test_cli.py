@@ -88,7 +88,10 @@ class TestPslCli(unittest.TestCase):
             code = main(["status"])
             self.assertEqual(code, 0)
             out = mock_out.getvalue()
-            self.assertIn("PSL Harness for Google Antigravity", out)
+            self.assertTrue(
+                "Agyis Harness for Google Antigravity" in out
+                or "PSL Harness for Google Antigravity" in out
+            )
             self.assertIn("Active Lifecycle Hooks", out)
             self.assertIn("anti-drift", out)
             self.assertIn("Cognitive Attention Horizon Gauge", out)
@@ -101,7 +104,7 @@ class TestPslCli(unittest.TestCase):
             code = main(["skills"])
             self.assertEqual(code, 0)
             out = mock_out.getvalue()
-            self.assertIn("PSL Modular Skills", out)
+            self.assertTrue("Agyis Modular Skills" in out or "PSL Modular Skills" in out)
             self.assertIn("psl-stack-shell", out)
 
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
@@ -123,7 +126,7 @@ class TestPslCli(unittest.TestCase):
             code = main(["agents"])
             self.assertEqual(code, 0)
             out = mock_out.getvalue()
-            self.assertIn("PSL Specialist Subagents", out)
+            self.assertTrue("Agyis Specialist Subagents" in out or "PSL Specialist Subagents" in out)
             self.assertIn("harness_builder", out)
 
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
@@ -571,7 +574,7 @@ class TestPslCli(unittest.TestCase):
             code = main(["subagents", "--brain-dir", str(mock_brain)])
             self.assertEqual(code, 0)
             out = mock_out.getvalue()
-            self.assertIn("PSL Active Subagents", out)
+            self.assertTrue("Agyis Active Subagents" in out or "PSL Active Subagents" in out)
             self.assertIn("Conversation ID", out)
             self.assertIn("harness_builder", out)
 

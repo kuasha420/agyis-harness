@@ -29,7 +29,7 @@ Trigger this protocol immediately upon:
 ### Step 1: Clean-Room Automated Verification
 Before modifying documentation or claiming completion, execute the project test suite and verify clean exit code 0:
 ```bash
-python3 -m harness.cli test
+agyis test
 ```
 *Rule*: If any test fails, STOP. Do not proceed to handoff until all tests pass.
 

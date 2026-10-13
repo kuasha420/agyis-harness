@@ -52,12 +52,9 @@ Every milestone progresses through a strict 6-stage pipeline:
                                      ▼                                                              │
 ┌─────────────────────────────────────────────────────────────────────────┐                         │
 │ STAGE 3: CODE & PSL REVIEW (`subagent-X-hammer`)                        │                         │
-│ - Ruthlessly audits all changes against the 5 Ground Rules in AGENTS.md:│                         │
-│   • Rule 1: Zero error swallowing & strict failure transparency.        │                         │
-│   • Rule 2: Do not do the product's homework in tests.                  │                         │
-│   • Rule 3: Complete package deliveries (code + types + tests + docs).  │                         │
-│   • Rule 4: Zero homework in verification (automated proof).            │                         │
-│   • Rule 5: Stop and inquire before overengineering workarounds.        │                         │
+│ - Ruthlessly audits all changes against the 8 Empirical Rules in        │                         │
+│   AGENTS.md (zero error swallowing, no product homework in tests,       │                         │
+│   complete packages, automated verification, stop & inquire, etc.).     │                         │
 │ - Verdict: PASS or REJECT with specific line-by-line defect list.       │                         │
 └──────────────────┬───────────────────────────────────▲──────────────────┘                         │
                    │ (Passed Hammer Review)            │                                            │
@@ -147,7 +144,7 @@ gh pr diff <pr_number>
    - `subagent-X-executioner`: Integrates or rebases strand changes cleanly against upstream HEAD.
    - `subagent-X-hammer`: Audits multi-node diffs against PSL invariants.
    - `subagent-X-custodian`: Re-verifies clean staging and executes DRY deduplication check across merged strand modules.
-   - `subagent-X-auditor`: Executes local hermetic tests (`python3 -m harness.cli test`) and dispatches SSH probes across physical nodes.
+   - `subagent-X-auditor`: Executes local hermetic tests (`agyis test`) and dispatches SSH probes across physical nodes.
 4. **Automated Review Approval**: On Auditor PASS, Coordinator approves or merges the PR via `gh pr merge --squash` or `gh pr review --approve`.
 
 ---

@@ -54,11 +54,11 @@ ssh -o BatchMode=yes -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new <ta
 ### Invariant: Zero Exit Code 255 (Unclean SSH Terminations)
 Prevent SSH dropouts and connection exhaustion using persistent ControlMaster sockets:
 
-### 2.1 ControlMaster Inspection via PSL CLI
+### 2.1 ControlMaster Inspection via Agyis CLI
 Check and inspect active OpenSSH ControlMaster connection sockets:
 ```bash
 # List active ControlMaster sockets
-python3 -m harness.cli remote socket status
+agyis remote socket status
 
 # Test target node reachability through active socket
 ssh -O check <target_node> 2>/dev/null && echo "Socket active" || echo "No active socket"
@@ -71,7 +71,7 @@ Prune dead or hung connection sockets across `/tmp` or `~/.ssh/sockets/`:
 ssh -O exit <target_node> 2>/dev/null || true
 
 # Harness CLI socket cleanup
-python3 -m harness.cli remote socket cleanup
+agyis remote socket cleanup
 ```
 
 ---
@@ -82,19 +82,19 @@ python3 -m harness.cli remote socket cleanup
 Avoid writing temporary script files to the remote node's filesystem:
 ```bash
 # Execute local script on remote target via stdin streaming (zero remote disk footprint)
-python3 -m harness.cli remote script <target_node> <local_script_path>
+agyis remote script <target_node> <local_script_path>
 ```
 
 ### 3.2 Staged Execution with Trap Cleanup
 For multi-command tasks requiring remote temporary files, stage execution with automatic signal trap cleanup:
 ```bash
-python3 -m harness.cli remote script <target_node> <local_script_path> --stage
+agyis remote script <target_node> <local_script_path> --stage
 ```
 
 ### 3.3 Compact Fleet Triage (<2KB Report)
 Run multi-component health diagnostics with output compaction:
 ```bash
-python3 -m harness.cli remote triage <target_node>
+agyis remote triage <target_node>
 ```
 
 ---

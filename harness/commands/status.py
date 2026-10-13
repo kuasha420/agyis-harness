@@ -22,9 +22,9 @@ DEFAULT_DB = REPO_ROOT / "data" / "telemetry.db"
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    """Prints a high-level status summary of the PSL Harness."""
+    """Prints a high-level status summary of the Agyis Harness."""
     print("=" * 70)
-    print(f" 🐾 PSL Harness for Google Antigravity™ (v{harness.__version__})")
+    print(f" 🛡️ Agyis Harness for Google Antigravity™ (v{harness.__version__})")
     print("=" * 70)
     print(f" Repository Root: {REPO_ROOT}")
     print(f" Platform:        {sys.platform} (Python {sys.version.split()[0]})")

@@ -52,51 +52,51 @@ flowchart TD
 ### Phase 1: Pre-Flight Probe & Connection Verification
 Verify remote reachability and establish the OpenSSH multiplexing master socket:
 ```bash
-python3 -m harness.cli remote exec <target> "uname -a && uptime"
+agyis remote exec <target> "uname -a && uptime"
 ```
 - Inspect socket status:
   ```bash
-  python3 -m harness.cli remote socket status
+  agyis remote socket status
   ```
 
 ### Phase 2: Environment & Toolchain Audit
 Confirm toolchain presence without relying on host-inherited assumptions:
 ```bash
-python3 -m harness.cli remote exec <target> "node -v || command -v pm2 || which uv"
+agyis remote exec <target> "node -v || command -v pm2 || which uv"
 ```
-- Notice: `psl remote exec` automatically injects `bash -l -c` for toolchain binaries.
+- Notice: `agyis remote exec` automatically injects `bash -l -c` for toolchain binaries.
 
 ### Phase 3: Bounded Diagnostic Triage (<2KB)
 Gather system overview, listening ports, service statuses, and logs in a single bounded request:
 ```bash
 # Full composite audit (<2KB Markdown)
-python3 -m harness.cli remote triage <target>
+agyis remote triage <target>
 
 # Focused profile queries
-python3 -m harness.cli remote triage <target> --profile ports
-python3 -m harness.cli remote triage <target> --profile services
-python3 -m harness.cli remote triage <target> --profile resources
-python3 -m harness.cli remote triage <target> --profile logs --service <service_name> --lines 50
+agyis remote triage <target> --profile ports
+agyis remote triage <target> --profile services
+agyis remote triage <target> --profile resources
+agyis remote triage <target> --profile logs --service <service_name> --lines 50
 ```
 
 ### Phase 4: Stdin Script Streaming (Zero Remote Disk Footprint)
 Execute diagnostic or repair scripts by streaming directly to the remote interpreter without leaving files on the remote disk:
 ```bash
 # Execute local Python script remotely via stdin
-python3 -m harness.cli remote script <target> ./scripts/check_health.py -- arg1 arg2
+agyis remote script <target> ./scripts/check_health.py -- arg1 arg2
 
 # Execute local shell script remotely
-python3 -m harness.cli remote script <target> ./scripts/restart_service.sh
+agyis remote script <target> ./scripts/restart_service.sh
 
 # Fallback staging mode (for scripts requiring local files/paths) with automatic trap cleanup
-python3 -m harness.cli remote script <target> ./scripts/build_step.sh --stage
+agyis remote script <target> ./scripts/build_step.sh --stage
 ```
 
 ### Phase 5: Local Git Reconciliation & Clean Socket Closure
 1. Reconcile any remote config changes back into local git repositories.
 2. Clean up stale ControlMaster sockets:
 ```bash
-python3 -m harness.cli remote socket cleanup
+agyis remote socket cleanup
 ```
 
 ---
@@ -105,13 +105,13 @@ python3 -m harness.cli remote socket cleanup
 
 | Command | Purpose |
 |---|---|
-| `python3 -m harness.cli remote exec <target> "<cmd>"` | Execute command over multiplexed SSH with auto login-shell |
-| `python3 -m harness.cli remote script <target> <file>` | Stream local script to remote target via stdin (zero disk footprint) |
-| `python3 -m harness.cli remote script <target> <file> --stage` | Stage file in `/tmp/.psl_remote_*` with automatic `trap` cleanup |
-| `python3 -m harness.cli remote triage <target>` | Generate compact (<2KB) multi-component triage Markdown report |
-| `python3 -m harness.cli remote triage <target> --profile <p>` | Filter triage by profile (`ports`, `services`, `resources`, `logs`) |
-| `python3 -m harness.cli remote socket status` | List active OpenSSH ControlMaster sockets |
-| `python3 -m harness.cli remote socket cleanup` | Remove all cached ControlMaster sockets |
+| `agyis remote exec <target> "<cmd>"` | Execute command over multiplexed SSH with auto login-shell |
+| `agyis remote script <target> <file>` | Stream local script to remote target via stdin (zero disk footprint) |
+| `agyis remote script <target> <file> --stage` | Stage file in `/tmp/.psl_remote_*` with automatic `trap` cleanup |
+| `agyis remote triage <target>` | Generate compact (<2KB) multi-component triage Markdown report |
+| `agyis remote triage <target> --profile <p>` | Filter triage by profile (`ports`, `services`, `resources`, `logs`) |
+| `agyis remote socket status` | List active OpenSSH ControlMaster sockets |
+| `agyis remote socket cleanup` | Remove all cached ControlMaster sockets |
 
 ---
 

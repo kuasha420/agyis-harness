@@ -4,7 +4,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-PSL CLI command modules (ADR-014).
+Agyis CLI command modules (ADR-014).
 """
 
 from __future__ import annotations

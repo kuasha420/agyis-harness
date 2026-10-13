@@ -311,7 +311,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
         )
         return 0
 
-    print(f"PSL Specialist Subagents ({len(agents)} registered):")
+    print(f"Agyis Specialist Subagents ({len(agents)} registered):")
     print("-" * 60)
     for a in agents:
         caps = []

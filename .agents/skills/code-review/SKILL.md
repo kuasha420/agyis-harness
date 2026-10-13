@@ -26,7 +26,7 @@ This skill codifies the delta-focused review workflow derived from high-performi
 3. **Surgical Contiguous Corrections**:
    - Use `replace_file_content` to apply focused contiguous edits addressing specific feedback items.
 4. **Mandatory Post-Fix Verification**:
-   - After addressing review comments, immediately run the project test suite (`python3 -m harness.cli test`) to prove the fix introduces zero regressions.
+   - After addressing review comments, immediately run the project test suite (`agyis test`) to prove the fix introduces zero regressions.
 
 ---
 
@@ -48,5 +48,5 @@ git diff --cached -U3
 1. Identify exact line numbers and variables referenced in the review comment.
 2. View targeted line slice using `view_file(StartLine=X, EndLine=Y)`.
 3. Apply surgical replacement via `replace_file_content`.
-4. Run project test suite: `python3 -m harness.cli test`.
+4. Run project test suite: `agyis test`.
 5. Stage and commit specifically with: `fix(<component>): resolve review feedback on <target>`.

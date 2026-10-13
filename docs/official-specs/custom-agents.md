@@ -11,7 +11,7 @@ During our empirical telemetry research and subagent proof-of-concept (POC) expl
 
 ![Antigravity New Conversation Agent Selector](../assets/antigravity_agent_menu.png)
 
-This dual-mode behavior (subagent + standalone entrypoint agent) unlocks a major strategic capability for **`psl-agy-harness`**: we can empower harness users to author, scaffold, and operate custom, workspace-aware agent personas (such as **Coordinator**, **Planner**, **Refactorer**, **Optimizer**, and **Security Auditor**) with scoped tool permissions, dedicated models, and deterministic hook guardrails.
+This dual-mode behavior (subagent + standalone entrypoint agent) unlocks a major strategic capability for **`agyis-harness`**: we can empower harness users to author, scaffold, and operate custom, workspace-aware agent personas (such as **Agyis Architect**, **Coordinator**, **Planner**, **Refactorer**, **Optimizer**, and **Security Auditor**) with scoped tool permissions, dedicated models, and deterministic hook guardrails.
 
 ---
 
@@ -183,7 +183,7 @@ async with Agent(config) as agent:
         print(f"[Tool Executed] {tool_call.name}({tool_call.args})")
 ```
 
-**SDK Benefits for `psl-agy-harness`:**
+**SDK Benefits for `agyis-harness`:**
 1. **Headless Benchmarking & CI/CD**: Run regression test suites where agents autonomously execute tickets and verify with `python3 -m harness.cli test`.
 2. **Automated Subagent Evaluation**: Stress-test custom agent personas against failure taxonomies without requiring manual GUI interactions.
 3. **Programmatic Orchestration**: Spin up transient agent fleets on Knot hardware nodes (Desktop Anchor, Laptop CUDA worker) using native Python bindings.
@@ -229,6 +229,7 @@ To deliver immediate value to harness users, we can package an extensible librar
 
 ```
 harness/agents/templates/
+├── agyis_architect.md   # Lead system architect & full-capability conductor
 ├── coordinator.md       # High-level orchestrator & multi-stage project manager
 ├── planner.md           # Architecture researcher & ADR / implementation plan author
 ├── refactorer.md        # AST-aware code transformation & cleanup specialist
@@ -275,7 +276,7 @@ harness/agents/templates/
 
 ## 5. Harness Product Integration & Scaffolding Engine
 
-To make this seamless for users, `psl-agy-harness` should provide a comprehensive agent authoring and lifecycle toolchain in `harness.cli`:
+To make this seamless for users, `agyis-harness` should provide a comprehensive agent authoring and lifecycle toolchain in `harness.cli`:
 
 ### Proposed CLI Palette
 
@@ -309,7 +310,7 @@ When a user creates an agent using our harness CLI, the tool can automatically i
 
 The biggest risk with custom agents in raw LLM setups is **policy drift** (e.g., a "read-only" reviewer hallucinating an edit command or an "auditor" rewriting tests).
 
-Because `psl-agy-harness` features a built-in lifecycle hook dispatcher (`harness/hooks/`), we enforce mathematical safety fences at the runtime level regardless of what the model attempts:
+Because `agyis-harness` features a built-in lifecycle hook dispatcher (`harness/hooks/`), we enforce mathematical safety fences at the runtime level regardless of what the model attempts:
 
 ```mermaid
 sequenceDiagram

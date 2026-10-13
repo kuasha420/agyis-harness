@@ -10,7 +10,7 @@ description: >-
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# PSL Git Worktree Operations: Isolated Trees & Index Hygiene Runbook
+# Agyis Git Worktree Operations: Isolated Trees & Index Hygiene Runbook
 
 This skill establishes empirical runbooks for Git worktree isolation, multi-branch task delegation, stale worktree pruning, and index lock recovery within Google Antigravity environments.
 

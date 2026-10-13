@@ -21,7 +21,7 @@ from harness.commands.init import cmd_init
 
 
 def cmd_install(args: argparse.Namespace) -> int:
-    """Installs the PSL harness globally as a Google Antigravity plugin or initializes workspace."""
+    """Installs the Agyis harness globally as a Google Antigravity plugin or initializes workspace."""
     if getattr(args, "workspace", None) is not None and args.workspace is not False:
         setattr(args, "path", args.workspace if args.workspace is not True else None)
         return cmd_init(args)
@@ -63,7 +63,7 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
-    """Uninstalls the PSL harness global plugin."""
+    """Uninstalls the Agyis harness global plugin."""
     bin_dir = Path(args.bin_dir) if getattr(args, "bin_dir", None) else None
     installer = PluginInstaller(bin_dir=bin_dir)
     target_dir = Path(args.target) if getattr(args, "target", None) else None

@@ -100,7 +100,7 @@ def cmd_subagents(args: argparse.Namespace) -> int:
         print("No active subagents found in brain directory.")
         return 0
 
-    print(f"PSL Active Subagents ({len(statuses)} active):")
+    print(f"Agyis Active Subagents ({len(statuses)} active):")
     print(format_subagents_table(statuses))
     print()
     return 0

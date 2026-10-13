@@ -34,25 +34,25 @@ for Antigravity developer sessions across workstations and the Knot mesh.
 
 ### Run the Full Audit Pipeline via Unified CLI
 ```bash
-python3 -m harness.cli audit all
+agyis audit all
 ```
 
 ### Run Specific Audit Stages
 ```bash
 # Ingest local developer sessions into data/telemetry.db
-python3 -m harness.cli audit extract
+agyis audit extract
 
 # Classify failure taxonomy and generate metrics
-python3 -m harness.cli audit classify
+agyis audit classify
 
 # Scan active plugins, skills, MCP servers, and hooks
-python3 -m harness.cli audit inventory
+agyis audit inventory
 
 # Analyze token cliff and context dynamics
-python3 -m harness.cli audit dynamics
+agyis audit dynamics
 
 # Summarize operator interventions and drift halts
-python3 -m harness.cli audit interventions
+agyis audit interventions
 ```
 
 ### Inspect Specific Session Telemetry

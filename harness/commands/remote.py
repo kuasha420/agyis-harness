@@ -19,7 +19,7 @@ def cmd_remote(args: argparse.Namespace) -> int:
     """Dispatches remote execution, script streaming, and triage subcommands."""
     sub = getattr(args, "remote_cmd", None)
     if not sub:
-        sys.stderr.write("Usage: psl remote <exec|script|triage|socket> ...\n")
+        sys.stderr.write("Usage: agyis remote <exec|script|triage|socket> ...\n")
         return 1
 
     from harness.remote import RemoteRunner, ScriptStreamer, RemoteTriage

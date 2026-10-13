@@ -4,7 +4,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Packaging and copy installation engine for PSL harness (ADR-014, ADR-030).
+Packaging and copy installation engine for Agyis harness (ADR-014, ADR-030).
 """
 
 from __future__ import annotations

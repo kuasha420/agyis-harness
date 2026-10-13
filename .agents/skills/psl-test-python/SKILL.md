@@ -22,7 +22,7 @@ This skill establishes standardized execution contracts and hermetic benchmarkin
 - Always invoke the test suite via the unified CLI or standard hermetic module runners:
   ```bash
   # Primary test suite runner
-  python3 -m harness.cli test
+  agyis test
 
   # Standard unittest discovery
   python3 -m unittest discover -s tests -p "test_*.py"

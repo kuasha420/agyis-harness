@@ -64,24 +64,24 @@ To prevent session freezes and maintain strict toolgroup scoping, custom agents 
 ### Scaffold a New Agent
 ```bash
 # Interactive creation
-python3 -m harness.cli agents create <agent_name>
+agyis agents create <agent_name>
 
 # Create lead architect / main agent with full capability bundle
-python3 -m harness.cli agents create psl_main --archetype main --bundle full --scope project
+agyis agents create agyis_architect --archetype main --bundle full --scope project
 
 # Non-interactive / scripted creation with bundle and archetype
-python3 -m harness.cli agents create security_auditor --archetype auditor --bundle verifier --scope project
+agyis agents create security_auditor --archetype auditor --bundle verifier --scope project
 
-# Global agent creation (written to ~/.gemini/antigravity/agents/)
-python3 -m harness.cli agents create global_planner --archetype planner --bundle read_only --scope global
+# Global agent creation (written to ~/.gemini/config/agents/)
+agyis agents create global_planner --archetype planner --bundle read_only --scope global
 ```
 
 ### Validate Agent Definition
 Every generated or manually edited agent specification must pass the automated validation gate:
 ```bash
 # Validate by name or relative path
-python3 -m harness.cli agents validate security_auditor
-python3 -m harness.cli agents validate .agents/agents/security_auditor.md
+agyis agents validate security_auditor
+agyis agents validate .agents/agents/security_auditor.md
 ```
 
 The validation gate verifies:
@@ -93,7 +93,7 @@ The validation gate verifies:
 
 ### Synchronize Agent Definitions
 ```bash
-python3 -m harness.cli agents --sync
+agyis agents --sync
 ```
 
 ---
@@ -101,7 +101,7 @@ python3 -m harness.cli agents --sync
 ## 5. UI Activation & Platform Behaviors
 
 1. **Native `@<subagent>` Prompt Syntax (Antigravity v1.2.9+)**:
-   - Subagents can be invoked directly inside any prompt turn using native `@<agent_name>` inline syntax (e.g. `@harness_builder`, `@harness_reviewer`, `@psl_main`).
+   - Subagents can be invoked directly inside any prompt turn using native `@<agent_name>` inline syntax (e.g. `@harness_builder`, `@harness_reviewer`, `@agyis_architect`).
    - Seamlessly hand off context across stages in the Subagent Ladder protocol without manual session reconstruction.
 2. **Tool Prerequisite Pruning in `/` Menu (Antigravity v1.2.16+)**:
    - In Antigravity v1.2.16+, when invoking commands or subagents from the `/` menu, tools lacking declared prerequisite capabilities or masked by restrictive permissions are pruned from the execution environment.
@@ -109,7 +109,7 @@ python3 -m harness.cli agents --sync
 3. **Project Scope (`.agents/agents/<name>.md`)**:
    - Files in `.agents/agents/` are automatically discovered by Antigravity for the active workspace.
    - Invoke in chat by typing `@<agent_name>` or selecting the agent from the subagent dispatch dropdown.
-4. **Global Scope (`~/.gemini/antigravity/agents/<name>.md`)**:
-   - Files in `~/.gemini/antigravity/agents/` are globally available across all repositories and workspaces.
+4. **Global Scope (`~/.gemini/config/agents/<name>.md`)**:
+   - Files in `~/.gemini/config/agents/` are globally available across all repositories and workspaces.
 5. **PreToolUse Interception**:
    - All subagents are governed by the `anti_drift_hook.py` PreToolUse hook. Any unauthorized file mutations by read-only archetypes (`auditor`, `planner`, `coordinator`, `hammer`) are deterministically blocked at runtime.

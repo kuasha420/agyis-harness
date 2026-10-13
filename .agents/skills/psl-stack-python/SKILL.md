@@ -67,7 +67,7 @@ This skill codifies empirical Python development standards, hermetic execution r
   ```
 
 ### 2.2 Sub-Second Test Invariant (ADR-015)
-- The entire automated test suite (`python3 -m harness.cli test`) must execute in strictly **under 1.0 second**.
+- The entire automated test suite (`agyis test`) must execute in strictly **under 1.0 second**.
 - Unit tests must be hermetic and in-memory:
   - Do not make external network requests.
   - Do not introduce `time.sleep()` delays; mock time or use deterministic event loops.
@@ -84,5 +84,5 @@ This skill codifies empirical Python development standards, hermetic execution r
 1. [ ] Code targets CPython >= 3.12.
 2. [ ] Zero bare `except:` or `except Exception: pass` blocks.
 3. [ ] All test state isolated in `tempfile.TemporaryDirectory()` or in-memory fixtures.
-4. [ ] `python3 -m harness.cli test` completes in <1.0s.
+4. [ ] `agyis test` completes in <1.0s.
 5. [ ] Explicit error logging and non-zero exit status on fatal paths.

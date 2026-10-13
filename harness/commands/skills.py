@@ -112,7 +112,7 @@ def cmd_skills(args: argparse.Namespace) -> int:
         )
         return 0
 
-    print(f"PSL Modular Skills ({len(skills)} available):")
+    print(f"Agyis Modular Skills ({len(skills)} available):")
     print("-" * 60)
     for s in skills:
         print(f"  • {s.name:<24} {s.description}")

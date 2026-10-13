@@ -12,7 +12,7 @@ description: >-
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# PSL Storage Operations: Workstation & Disk Triage Runbook
+# Agyis Storage Operations: Workstation & Disk Triage Runbook
 
 This skill establishes empirical, tool-native runbooks for storage triage, cache hygiene, and file system maintenance within Arch Linux and Linux workstation environments.
 

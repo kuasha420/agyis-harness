@@ -96,19 +96,19 @@ Never copy diagnostic scripts to remote target disks during live triage. Use `ha
 ### Step 3.1: Stream Non-Invasive Diagnostic Script
 Stream local forensic triage script directly into the remote target without writing to remote storage:
 ```bash
-python3 -m harness.cli remote script <target> ./triage_probe.py
+agyis remote script <target> ./triage_probe.py
 ```
 
 ### Step 3.2: Staged Execution with Automatic Trap Cleanup
 When executing multi-command probes that require staging, use `--stage` to guarantee temporary file removal upon termination:
 ```bash
-python3 -m harness.cli remote script <target> ./triage_probe.py --stage
+agyis remote script <target> ./triage_probe.py --stage
 ```
 
 ### Step 3.3: Bounded Compact Health Triage
 Run compact (<2KB) multi-component remote health triage:
 ```bash
-python3 -m harness.cli remote triage <target>
+agyis remote triage <target>
 ```
 
 ---
