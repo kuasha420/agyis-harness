@@ -291,12 +291,47 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_sync.add_argument("--developer", type=str, default=None, help="Filter pulled telemetry by specific developer username (or '*' for all)")
     p_sync.add_argument("--since", type=str, default=None, help="Pull telemetry deltas since a specific ISO timestamp watermark")
 
+    ROLE_CHOICES = [
+        "backend",
+        "frontend",
+        "fullstack",
+        "cli",
+        "library",
+        "mobile",
+        "desktop_gui",
+        "media",
+        "audio",
+        "infra",
+    ]
+
     # init
     p_init = subparsers.add_parser(
         "init", help="Initialize workspace with stack-tailored skills and tagged rules"
     )
     p_init.add_argument("path", nargs="?", default=None, help="Target workspace path (defaults to current directory)")
-    p_init.add_argument("--stack", "-s", type=str, default=None, help="Stack preset (typescript, node, python, rust, go, systems, shell, audit, all)")
+    p_init.add_argument(
+        "--stack",
+        "--lang",
+        "-s",
+        dest="stack",
+        type=str,
+        default=None,
+        help="Language runtime preset (typescript, node, javascript, python, rust, go, systems, shell, audit, all)",
+    )
+    p_init.add_argument(
+        "--role",
+        "-r",
+        type=str,
+        choices=ROLE_CHOICES,
+        default=None,
+        help="Architectural role preset (backend, frontend, fullstack, cli, library, mobile, desktop_gui, media, audio, infra)",
+    )
+    p_init.add_argument(
+        "--subproject",
+        type=str,
+        default=None,
+        help="Relative path to subproject within workspace for targeted detection",
+    )
     p_init.add_argument("--skills", type=str, default=None, help="Comma-separated list of skills to install")
     p_init.add_argument("--agents", type=str, nargs="?", const=True, default=None, help="Install agent definitions locally into workspace (.agents/agents)")
     p_init.add_argument("--override", action="store_true", help="Force overwrite existing files")
@@ -317,7 +352,9 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_harm.add_argument("--backup", action="store_true", default=True, help="Create compressed archive of legacy .agent/ before pruning (default: true)")
     p_harm.add_argument("--no-backup", action="store_true", help="Disable archival before pruning")
     p_harm.add_argument("--backup-dir", "--archive-dir", dest="backup_dir", type=Path, default=None, help="Destination directory for backup archive (default: <workspace>/.agents/archive/)")
-    p_harm.add_argument("--stack", type=str, default=None, help="Provision stack skills immediately following harmonization")
+    p_harm.add_argument("--stack", "--lang", dest="stack", type=str, default=None, help="Provision stack skills immediately following harmonization")
+    p_harm.add_argument("--role", "-r", type=str, choices=ROLE_CHOICES, default=None, help="Architectural role preset for provisioned skills")
+    p_harm.add_argument("--subproject", type=str, default=None, help="Target specific subproject within monorepo")
     p_harm.add_argument("--skills", type=str, default=None, help="Comma-separated list of explicit modular skills to install")
 
     # install
@@ -332,7 +369,29 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_install.add_argument("--all-surfaces", action="store_true", help="Sync all Antigravity surfaces to canonical config")
     p_install.add_argument("--target", type=Path, default=None, help="Custom target installation directory")
     p_install.add_argument("--workspace", "-w", nargs="?", const=True, default=None, help="Initialize workspace project instead of global plugin")
-    p_install.add_argument("--stack", "-s", type=str, default=None, help="Stack preset for workspace (typescript, python, systems, shell, audit)")
+    p_install.add_argument(
+        "--stack",
+        "--lang",
+        "-s",
+        dest="stack",
+        type=str,
+        default=None,
+        help="Language runtime preset for workspace (typescript, node, javascript, python, rust, go, systems, shell, audit, all)",
+    )
+    p_install.add_argument(
+        "--role",
+        "-r",
+        type=str,
+        choices=ROLE_CHOICES,
+        default=None,
+        help="Architectural role preset for workspace (backend, frontend, fullstack, cli, library, mobile, desktop_gui, media, audio, infra)",
+    )
+    p_install.add_argument(
+        "--subproject",
+        type=str,
+        default=None,
+        help="Relative path to subproject within workspace for targeted detection",
+    )
     p_install.add_argument("--skills", type=str, default=None, help="Comma-separated list of skills for workspace")
     p_install.add_argument("--agents", type=str, nargs="?", const=True, default=None, help="Include agent definitions in workspace (.agents/agents)")
     p_install.add_argument("--override", action="store_true", help="Force overwrite existing workspace files")

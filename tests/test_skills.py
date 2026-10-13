@@ -18,14 +18,20 @@ import tempfile
 import unittest
 
 from harness.skills import (
+    ARCHITECTURAL_ROLE_PRESETS,
     DEFAULT_SKILLS_DIR,
     DEFAULT_TARGET_DIR,
+    LANGUAGE_RUNTIME_PRESETS,
     STACK_PRESETS,
     SkillSpec,
+    detect_monorepo_stack,
+    detect_workspace_role,
     detect_workspace_stack,
     get_skill,
+    is_monorepo,
     list_skills,
     parse_frontmatter,
+    resolve_skills_to_sync,
     sync_skills,
 )
 
@@ -394,10 +400,10 @@ class TestModularSkills(unittest.TestCase):
         # 3. Sync by stack preset (python)
         target_stack = self.isolated_path / "sync_stack"
         synced_stack = sync_skills(target_dir=target_stack, stack="python")
-        self.assertEqual(len(synced_stack), 3)
+        self.assertEqual(len(synced_stack), 2)
         self.assertTrue((target_stack / "psl-stack-python" / "SKILL.md").exists())
         self.assertTrue((target_stack / "psl-test-python" / "SKILL.md").exists())
-        self.assertTrue((target_stack / "psl-stack-backend" / "SKILL.md").exists())
+        self.assertFalse((target_stack / "psl-stack-backend").exists())
         self.assertFalse((target_stack / "psl-stack-typescript").exists())
 
         # 4. Sync by auto stack detection in workspace with pyproject.toml
@@ -406,10 +412,10 @@ class TestModularSkills(unittest.TestCase):
         (auto_ws / "pyproject.toml").write_text("[project]\nname = 'auto-app'\n", encoding="utf-8")
         dest_dir = auto_ws / ".agents" / "skills"
         synced_auto = sync_skills(target_dir=dest_dir, stack="auto")
-        self.assertEqual(len(synced_auto), 3)
+        self.assertEqual(len(synced_auto), 2)
         self.assertTrue((dest_dir / "psl-stack-python" / "SKILL.md").exists())
         self.assertTrue((dest_dir / "psl-test-python" / "SKILL.md").exists())
-        self.assertTrue((dest_dir / "psl-stack-backend" / "SKILL.md").exists())
+        self.assertFalse((dest_dir / "psl-stack-backend").exists())
         self.assertFalse((dest_dir / "psl-stack-typescript").exists())
 
         # 5. Unknown group or stack raises ValueError
@@ -485,8 +491,289 @@ class TestModularSkills(unittest.TestCase):
         self.assertEqual(STACK_PRESETS["node"], STACK_PRESETS["typescript"])
         self.assertEqual(
             STACK_PRESETS["node"],
-            ["psl-stack-typescript", "psl-test-node", "psl-stack-backend"],
+            ["psl-stack-typescript", "psl-test-node"],
         )
+
+    def test_language_runtime_presets_contract(self) -> None:
+        """LANGUAGE_RUNTIME_PRESETS contains decoupled runtimes with zero psl-stack-backend."""
+        expected_keys = {
+            "typescript",
+            "node",
+            "javascript",
+            "python",
+            "rust",
+            "cargo",
+            "go",
+            "systems",
+            "shell",
+        }
+        self.assertEqual(set(LANGUAGE_RUNTIME_PRESETS.keys()), expected_keys)
+        for lang, skills in LANGUAGE_RUNTIME_PRESETS.items():
+            self.assertNotIn(
+                "psl-stack-backend",
+                skills,
+                f"psl-stack-backend must not be in default language preset for {lang}",
+            )
+        self.assertEqual(
+            LANGUAGE_RUNTIME_PRESETS["typescript"],
+            ["psl-stack-typescript", "psl-test-node"],
+        )
+        self.assertEqual(
+            LANGUAGE_RUNTIME_PRESETS["node"],
+            ["psl-stack-typescript", "psl-test-node"],
+        )
+        self.assertEqual(
+            LANGUAGE_RUNTIME_PRESETS["javascript"],
+            ["psl-stack-typescript", "psl-test-node"],
+        )
+        self.assertEqual(
+            LANGUAGE_RUNTIME_PRESETS["python"],
+            ["psl-stack-python", "psl-test-python"],
+        )
+        self.assertEqual(
+            LANGUAGE_RUNTIME_PRESETS["go"],
+            ["psl-test-go"],
+        )
+        self.assertEqual(
+            LANGUAGE_RUNTIME_PRESETS["rust"],
+            ["psl-test-cargo", "psl-stack-systems", "psl-stack-shell"],
+        )
+        self.assertEqual(
+            LANGUAGE_RUNTIME_PRESETS["shell"],
+            ["psl-stack-shell"],
+        )
+
+    def test_architectural_role_presets_contract(self) -> None:
+        """ARCHITECTURAL_ROLE_PRESETS defines valid roles including boundary and composite roles."""
+        expected_roles = {
+            "backend",
+            "frontend",
+            "fullstack",
+            "cli",
+            "library",
+            "mobile",
+            "desktop_gui",
+            "media",
+            "audio",
+            "infra",
+        }
+        self.assertEqual(set(ARCHITECTURAL_ROLE_PRESETS.keys()), expected_roles)
+        # Boundary roles are empty lists
+        self.assertEqual(ARCHITECTURAL_ROLE_PRESETS["cli"], [])
+        self.assertEqual(ARCHITECTURAL_ROLE_PRESETS["library"], [])
+        # Composite role synthesizes frontend guidance, backend persistence, and db ops
+        self.assertEqual(
+            ARCHITECTURAL_ROLE_PRESETS["fullstack"],
+            ["modern-web-guidance", "psl-stack-backend", "db-ops"],
+        )
+        # Backend role
+        self.assertEqual(
+            ARCHITECTURAL_ROLE_PRESETS["backend"],
+            ["psl-stack-backend", "db-ops"],
+        )
+        # Frontend role
+        self.assertEqual(
+            ARCHITECTURAL_ROLE_PRESETS["frontend"],
+            ["modern-web-guidance"],
+        )
+        # Mobile role
+        self.assertEqual(
+            ARCHITECTURAL_ROLE_PRESETS["mobile"],
+            ["android-cli"],
+        )
+        # Desktop GUI role
+        self.assertEqual(
+            ARCHITECTURAL_ROLE_PRESETS["desktop_gui"],
+            ["display-ops"],
+        )
+        # Media and Audio roles
+        self.assertEqual(ARCHITECTURAL_ROLE_PRESETS["media"], ["media-ops"])
+        self.assertEqual(ARCHITECTURAL_ROLE_PRESETS["audio"], ["audio-ops"])
+        # Infra role
+        self.assertEqual(
+            ARCHITECTURAL_ROLE_PRESETS["infra"],
+            ["mesh-ops", "remote-ops", "sec-forensics", "storage-ops"],
+        )
+
+    def test_boundary_roles_cli_and_library_safety(self) -> None:
+        """Boundary roles 'cli' and 'library' do not raise KeyError and install zero extra skills."""
+        for role in ("cli", "library"):
+            with self.subTest(role=role):
+                dest = self.isolated_path / f"role_{role}"
+                synced = sync_skills(target_dir=dest, stack="python", role=role)
+                self.assertEqual(len(synced), 2)
+                self.assertTrue((dest / "psl-stack-python" / "SKILL.md").exists())
+                self.assertTrue((dest / "psl-test-python" / "SKILL.md").exists())
+                self.assertFalse((dest / "psl-stack-backend").exists())
+
+    def test_composite_role_fullstack_provisioning(self) -> None:
+        """Composite role 'fullstack' provisions frontend, backend, and db-ops skills."""
+        resolved = resolve_skills_to_sync(stack="typescript", role="fullstack")
+        self.assertEqual(
+            resolved,
+            [
+                "psl-stack-typescript",
+                "psl-test-node",
+                "modern-web-guidance",
+                "psl-stack-backend",
+                "db-ops",
+            ],
+        )
+        dest = self.isolated_path / "role_fullstack"
+        synced = sync_skills(target_dir=dest, stack="typescript", role="fullstack")
+        # In-tree skills available in harness/skills/ are synced to workspace
+        self.assertEqual(len(synced), 4)
+        self.assertTrue((dest / "psl-stack-typescript" / "SKILL.md").exists())
+        self.assertTrue((dest / "psl-test-node" / "SKILL.md").exists())
+        self.assertTrue((dest / "psl-stack-backend" / "SKILL.md").exists())
+        self.assertTrue((dest / "db-ops" / "SKILL.md").exists())
+
+    def test_detect_workspace_role_heuristics(self) -> None:
+        """detect_workspace_role accurately identifies architectural roles across manifests."""
+        # Backend via FastAPI in pyproject.toml
+        ws_be_py = self.isolated_path / "role_be_py"
+        ws_be_py.mkdir(parents=True)
+        (ws_be_py / "pyproject.toml").write_text("[project]\ndependencies = ['fastapi', 'sqlalchemy']\n", encoding="utf-8")
+        self.assertEqual(detect_workspace_role(ws_be_py), "backend")
+
+        # Frontend via React in package.json
+        ws_fe = self.isolated_path / "role_fe"
+        ws_fe.mkdir(parents=True)
+        (ws_fe / "package.json").write_text('{"dependencies": {"react": "^19.0.0", "vite": "^6.0.0"}}', encoding="utf-8")
+        self.assertEqual(detect_workspace_role(ws_fe), "frontend")
+
+        # Fullstack via Next.js in package.json
+        ws_fs = self.isolated_path / "role_fs"
+        ws_fs.mkdir(parents=True)
+        (ws_fs / "package.json").write_text('{"dependencies": {"next": "^15.0.0", "react": "^19.0.0"}}', encoding="utf-8")
+        self.assertEqual(detect_workspace_role(ws_fs), "fullstack")
+
+        # Mobile via React Native
+        ws_mob = self.isolated_path / "role_mob"
+        ws_mob.mkdir(parents=True)
+        (ws_mob / "package.json").write_text('{"dependencies": {"react-native": "^0.76.0"}}', encoding="utf-8")
+        self.assertEqual(detect_workspace_role(ws_mob), "mobile")
+
+        # Desktop GUI via Electron
+        ws_el = self.isolated_path / "role_el"
+        ws_el.mkdir(parents=True)
+        (ws_el / "package.json").write_text('{"devDependencies": {"electron": "^33.0.0"}}', encoding="utf-8")
+        self.assertEqual(detect_workspace_role(ws_el), "desktop_gui")
+
+        # Desktop GUI via PyQt in requirements.txt
+        ws_pyqt = self.isolated_path / "role_pyqt"
+        ws_pyqt.mkdir(parents=True)
+        (ws_pyqt / "requirements.txt").write_text("PyQt6>=6.5.0\n", encoding="utf-8")
+        self.assertEqual(detect_workspace_role(ws_pyqt), "desktop_gui")
+
+        # None for plain CLI or library without web/backend deps
+        ws_plain = self.isolated_path / "role_plain"
+        ws_plain.mkdir(parents=True)
+        (ws_plain / "pyproject.toml").write_text("[project]\nname = 'simple-cli'\n", encoding="utf-8")
+        self.assertIsNone(detect_workspace_role(ws_plain))
+
+    def test_monorepo_bounded_depth_scanning(self) -> None:
+        """detect_monorepo_stack sweeps depth 2 across standard directories and aggregates polyglot stacks."""
+        import time
+
+        ws_mono = self.isolated_path / "monorepo_root"
+        ws_mono.mkdir(parents=True)
+        (ws_mono / "pnpm-workspace.yaml").write_text("packages:\n  - 'apps/*'\n  - 'services/*'\n", encoding="utf-8")
+
+        # apps/web -> Next.js frontend (typescript, fullstack)
+        app_web = ws_mono / "apps" / "web"
+        app_web.mkdir(parents=True)
+        (app_web / "package.json").write_text('{"dependencies": {"next": "^15.0.0"}}', encoding="utf-8")
+        (app_web / "tsconfig.json").write_text("{}", encoding="utf-8")
+
+        # services/api -> Python FastAPI (python, backend)
+        svc_api = ws_mono / "services" / "api"
+        svc_api.mkdir(parents=True)
+        (svc_api / "pyproject.toml").write_text("[project]\ndependencies = ['fastapi', 'sqlalchemy']\n", encoding="utf-8")
+
+        # services/worker -> Go worker (go)
+        svc_worker = ws_mono / "services" / "worker"
+        svc_worker.mkdir(parents=True)
+        (svc_worker / "go.mod").write_text("module example.com/worker\ngo 1.22\n", encoding="utf-8")
+
+        # packages/core -> Rust shared core (rust)
+        pkg_core = ws_mono / "packages" / "core"
+        pkg_core.mkdir(parents=True)
+        (pkg_core / "Cargo.toml").write_text('[package]\nname = "core"\n', encoding="utf-8")
+
+        self.assertTrue(is_monorepo(ws_mono))
+
+        start = time.perf_counter()
+        langs, roles = detect_monorepo_stack(ws_mono)
+        duration = time.perf_counter() - start
+
+        # Benchmark: must be well under 0.05s
+        self.assertLess(duration, 0.05, f"Monorepo scanning took {duration:.4f}s; expected < 0.05s")
+
+        self.assertIn("typescript", langs)
+        self.assertIn("python", langs)
+        self.assertIn("go", langs)
+        self.assertIn("rust", langs)
+        self.assertIn("fullstack", roles)
+        self.assertIn("backend", roles)
+
+    def test_detect_workspace_stack_with_subproject(self) -> None:
+        """detect_workspace_stack targets subproject when specified."""
+        ws = self.isolated_path / "subproject_ws"
+        ws.mkdir(parents=True)
+
+        backend_dir = ws / "services" / "api"
+        backend_dir.mkdir(parents=True)
+        (backend_dir / "pyproject.toml").write_text("[project]\nname = 'api'\n", encoding="utf-8")
+
+        frontend_dir = ws / "apps" / "web"
+        frontend_dir.mkdir(parents=True)
+        (frontend_dir / "tsconfig.json").write_text("{}", encoding="utf-8")
+
+        self.assertEqual(detect_workspace_stack(ws, subproject="services/api"), "python")
+        self.assertEqual(detect_workspace_stack(ws, subproject="apps/web"), "typescript")
+        self.assertIsNone(detect_workspace_stack(ws, subproject="nonexistent"))
+
+    def test_detect_workspace_stack_js_vs_ts(self) -> None:
+        """detect_workspace_stack distinguishes TypeScript from JavaScript."""
+        # TS with tsconfig
+        ws_ts = self.isolated_path / "ws_ts"
+        ws_ts.mkdir(parents=True)
+        (ws_ts / "tsconfig.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(detect_workspace_stack(ws_ts), "typescript")
+
+        # TS with package.json and .ts file
+        ws_ts_files = self.isolated_path / "ws_ts_files"
+        ws_ts_files.mkdir(parents=True)
+        (ws_ts_files / "package.json").write_text('{"name": "ts-app"}', encoding="utf-8")
+        (ws_ts_files / "index.ts").write_text("const x: number = 1;", encoding="utf-8")
+        self.assertEqual(detect_workspace_stack(ws_ts_files), "typescript")
+
+        # JS with jsconfig.json
+        ws_js = self.isolated_path / "ws_js"
+        ws_js.mkdir(parents=True)
+        (ws_js / "jsconfig.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(detect_workspace_stack(ws_js), "javascript")
+
+        # JS with package.json and .js file (no TS)
+        ws_js_files = self.isolated_path / "ws_js_files"
+        ws_js_files.mkdir(parents=True)
+        (ws_js_files / "package.json").write_text('{"name": "js-app"}', encoding="utf-8")
+        (ws_js_files / "index.js").write_text("console.log('hello');", encoding="utf-8")
+        self.assertEqual(detect_workspace_stack(ws_js_files), "javascript")
+
+    def test_detect_workspace_stack_shell(self) -> None:
+        """detect_workspace_stack identifies shell repositories."""
+        ws_sh = self.isolated_path / "ws_shell"
+        ws_sh.mkdir(parents=True)
+        (ws_sh / "install.sh").write_text("#!/bin/bash\necho install\n", encoding="utf-8")
+        self.assertEqual(detect_workspace_stack(ws_sh), "shell")
+
+        ws_sh_scripts = self.isolated_path / "ws_shell_scripts"
+        ws_sh_scripts.mkdir(parents=True)
+        (ws_sh_scripts / "scripts").mkdir()
+        (ws_sh_scripts / "scripts" / "run.sh").write_text("#!/bin/bash\necho run\n", encoding="utf-8")
+        self.assertEqual(detect_workspace_stack(ws_sh_scripts), "shell")
 
 
 if __name__ == "__main__":

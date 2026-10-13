@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import shutil
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_SKILLS_DIR = Path(__file__).resolve().parent
@@ -76,26 +76,22 @@ def get_skill(name: str, skills_dir: Optional[Path] = None) -> Optional[SkillSpe
     return None
 
 
-STACK_PRESETS: Dict[str, List[str]] = {
-    "python": [
-        "psl-stack-python",
-        "psl-test-python",
-        "psl-stack-backend",
-    ],
+LANGUAGE_RUNTIME_PRESETS: Dict[str, List[str]] = {
     "typescript": [
         "psl-stack-typescript",
         "psl-test-node",
-        "psl-stack-backend",
     ],
     "node": [
         "psl-stack-typescript",
         "psl-test-node",
-        "psl-stack-backend",
     ],
     "javascript": [
         "psl-stack-typescript",
         "psl-test-node",
-        "psl-stack-backend",
+    ],
+    "python": [
+        "psl-stack-python",
+        "psl-test-python",
     ],
     "rust": [
         "psl-test-cargo",
@@ -109,7 +105,6 @@ STACK_PRESETS: Dict[str, List[str]] = {
     ],
     "go": [
         "psl-test-go",
-        "psl-stack-backend",
     ],
     "systems": [
         "psl-stack-systems",
@@ -118,6 +113,46 @@ STACK_PRESETS: Dict[str, List[str]] = {
     "shell": [
         "psl-stack-shell",
     ],
+}
+
+ARCHITECTURAL_ROLE_PRESETS: Dict[str, List[str]] = {
+    "backend": [
+        "psl-stack-backend",
+        "db-ops",
+    ],
+    "frontend": [
+        "modern-web-guidance",
+    ],
+    "fullstack": [
+        "modern-web-guidance",
+        "psl-stack-backend",
+        "db-ops",
+    ],
+    "mobile": [
+        "android-cli",
+    ],
+    "desktop_gui": [
+        "display-ops",
+    ],
+    "cli": [],
+    "library": [],
+    "media": [
+        "media-ops",
+    ],
+    "audio": [
+        "audio-ops",
+    ],
+    "infra": [
+        "mesh-ops",
+        "remote-ops",
+        "sec-forensics",
+        "storage-ops",
+    ],
+}
+
+# Backward compatibility mapping for STACK_PRESETS
+STACK_PRESETS: Dict[str, List[str]] = {
+    **LANGUAGE_RUNTIME_PRESETS,
     "backend": [
         "psl-stack-backend",
         "db-ops",
@@ -181,13 +216,87 @@ GROUP_PRESETS: Dict[str, List[str]] = {
 }
 
 
-def detect_workspace_stack(workspace_root: Optional[Path] = None) -> Optional[str]:
-    """Detect workspace language stack from project files."""
+def detect_workspace_stack(
+    workspace_root: Optional[Path] = None,
+    subproject: Optional[Union[Path, str]] = None,
+) -> Optional[str]:
+    """Detect workspace language stack from project files, with subproject and shell support."""
     from harness.delivery.surfaces import find_workspace_root
 
     root = Path(workspace_root) if workspace_root else find_workspace_root()
-    if (root / "tsconfig.json").is_file() or (root / "package.json").is_file():
+    if subproject:
+        root = (root / subproject).resolve()
+
+    if not root.is_dir():
+        return None
+
+    # Multi-factor TS vs JS separation
+    has_tsconfig = (root / "tsconfig.json").is_file()
+    has_jsconfig = (root / "jsconfig.json").is_file()
+    has_package_json = (root / "package.json").is_file()
+
+    if has_tsconfig:
         return "typescript"
+
+    if has_jsconfig:
+        return "javascript"
+
+    if has_package_json:
+        # Inspect package.json dependencies and source files to differentiate TS vs JS
+        is_ts = False
+        try:
+            import json
+
+            pkg_data = json.loads((root / "package.json").read_text(encoding="utf-8"))
+            deps = {
+                **pkg_data.get("dependencies", {}),
+                **pkg_data.get("devDependencies", {}),
+            }
+            if "typescript" in deps:
+                is_ts = True
+        except Exception:
+            pass
+
+        if not is_ts:
+            try:
+                # Check for any .ts or .tsx files in root or root/src
+                ts_files = any(
+                    p.is_file() and p.suffix in (".ts", ".tsx") for p in root.iterdir()
+                )
+                src_dir = root / "src"
+                if not ts_files and src_dir.is_dir():
+                    ts_files = any(
+                        p.is_file() and p.suffix in (".ts", ".tsx")
+                        for p in src_dir.iterdir()
+                    )
+                if ts_files:
+                    is_ts = True
+            except OSError:
+                pass
+
+        if is_ts:
+            return "typescript"
+
+        # Check if there are JS files (.js, .jsx, .mjs, .cjs)
+        try:
+            js_files = any(
+                p.is_file() and p.suffix in (".js", ".jsx", ".mjs", ".cjs")
+                for p in root.iterdir()
+            )
+            src_dir = root / "src"
+            if not js_files and src_dir.is_dir():
+                js_files = any(
+                    p.is_file() and p.suffix in (".js", ".jsx", ".mjs", ".cjs")
+                    for p in src_dir.iterdir()
+                )
+            if js_files:
+                return "javascript"
+        except OSError:
+            pass
+
+        # Default fallback for package.json without explicit indicators
+        return "typescript"
+
     if (
         (root / "pyproject.toml").is_file()
         or (root / "requirements.txt").is_file()
@@ -206,16 +315,309 @@ def detect_workspace_stack(workspace_root: Optional[Path] = None) -> Optional[st
         or (root / "PKGBUILD").is_file()
     ):
         return "systems"
+
+    # Shell script detection: *.sh files in root or scripts/ or bin/
+    try:
+        if any(p.is_file() and p.name.endswith(".sh") for p in root.iterdir()):
+            return "shell"
+        for sub in ("bin", "scripts"):
+            sub_p = root / sub
+            if sub_p.is_dir() and any(
+                p.is_file() and p.name.endswith(".sh") for p in sub_p.iterdir()
+            ):
+                return "shell"
+    except OSError:
+        pass
+
     return None
+
+
+def detect_workspace_role(
+    workspace_root: Optional[Path] = None,
+    subproject: Optional[Union[Path, str]] = None,
+) -> Optional[str]:
+    """
+    Detects architectural role from manifests and dependencies.
+    Returns: 'backend', 'frontend', 'fullstack', 'mobile', 'desktop_gui', or None.
+    """
+    from harness.delivery.surfaces import find_workspace_root
+
+    root = Path(workspace_root) if workspace_root else find_workspace_root()
+    if subproject:
+        root = (root / subproject).resolve()
+
+    if not root.is_dir():
+        return None
+
+    has_frontend = False
+    has_backend = False
+
+    # 1. Inspect package.json
+    pkg_json = root / "package.json"
+    if pkg_json.is_file():
+        try:
+            import json
+
+            data = json.loads(pkg_json.read_text(encoding="utf-8"))
+            deps = {
+                **data.get("dependencies", {}),
+                **data.get("devDependencies", {}),
+            }
+            deps_lower = {k.lower(): v for k, v in deps.items()}
+
+            # Mobile check
+            if (
+                "react-native" in deps_lower
+                or "expo" in deps_lower
+                or (root / "android").is_dir()
+                or (root / "ios").is_dir()
+            ):
+                return "mobile"
+
+            # Desktop GUI check
+            if "electron" in deps_lower or "@tauri-apps/api" in deps_lower:
+                return "desktop_gui"
+
+            # Fullstack frameworks
+            if any(
+                f in deps_lower
+                for f in (
+                    "next",
+                    "remix",
+                    "@remix-run/node",
+                    "nuxt",
+                    "@sveltejs/kit",
+                    "astro",
+                )
+            ):
+                has_frontend = True
+                has_backend = True
+
+            # Frontend libraries
+            if any(
+                f in deps_lower
+                for f in (
+                    "react",
+                    "vue",
+                    "svelte",
+                    "vite",
+                    "tailwindcss",
+                    "@angular/core",
+                    "solid-js",
+                    "preact",
+                )
+            ):
+                has_frontend = True
+
+            # Backend libraries
+            if any(
+                b in deps_lower
+                for b in (
+                    "express",
+                    "fastify",
+                    "@nestjs/core",
+                    "koa",
+                    "@prisma/client",
+                    "prisma",
+                    "typeorm",
+                    "sequelize",
+                    "mongoose",
+                    "pg",
+                    "mysql2",
+                    "knex",
+                    "sqlite3",
+                )
+            ):
+                has_backend = True
+        except Exception:
+            pass
+
+    # 2. Inspect Python manifests
+    pyproj = root / "pyproject.toml"
+    reqs = root / "requirements.txt"
+    setup_py = root / "setup.py"
+    py_text = ""
+    for pf in (pyproj, reqs, setup_py):
+        if pf.is_file():
+            try:
+                py_text += (
+                    pf.read_text(encoding="utf-8", errors="replace").lower() + "\n"
+                )
+            except Exception:
+                pass
+
+    if py_text:
+        # Desktop GUI
+        if any(
+            gui in py_text
+            for gui in ("pyqt5", "pyqt6", "pyside2", "pyside6", "kivy", "wxpython")
+        ):
+            return "desktop_gui"
+        # Backend / Database
+        if any(
+            be in py_text
+            for be in (
+                "fastapi",
+                "django",
+                "flask",
+                "sqlalchemy",
+                "alembic",
+                "tortoise-orm",
+                "psycopg",
+                "databases",
+                "sqlmodel",
+                "peewee",
+            )
+        ):
+            has_backend = True
+
+    # 3. Inspect Go manifests
+    go_mod = root / "go.mod"
+    if go_mod.is_file():
+        try:
+            go_text = go_mod.read_text(encoding="utf-8", errors="replace").lower()
+            if any(
+                be in go_text
+                for be in (
+                    "gorm.io",
+                    "github.com/gin-gonic/gin",
+                    "github.com/jackc/pgx",
+                    "github.com/jmoiron/sqlx",
+                    "github.com/labstack/echo",
+                    "github.com/go-chi/chi",
+                    "github.com/lib/pq",
+                )
+            ):
+                has_backend = True
+        except Exception:
+            pass
+
+    # 4. Inspect Rust manifests
+    cargo = root / "Cargo.toml"
+    if cargo.is_file():
+        try:
+            cargo_text = cargo.read_text(encoding="utf-8", errors="replace").lower()
+            if any(gui in cargo_text for gui in ("tauri", "egui", "iced", "slint")):
+                return "desktop_gui"
+            if any(
+                be in cargo_text
+                for be in ("actix-web", "axum", "rocket", "diesel", "sqlx", "sea-orm")
+            ):
+                has_backend = True
+        except Exception:
+            pass
+
+    # 5. Infrastructure indicators
+    for compose_name in ("docker-compose.yml", "compose.yaml", "docker-compose.yaml"):
+        dc_file = root / compose_name
+        if dc_file.is_file():
+            try:
+                dc_text = dc_file.read_text(
+                    encoding="utf-8", errors="replace"
+                ).lower()
+                if any(
+                    db in dc_text
+                    for db in ("postgres", "mysql", "mariadb", "mongo", "redis")
+                ):
+                    has_backend = True
+            except Exception:
+                pass
+            break
+
+    if has_frontend and has_backend:
+        return "fullstack"
+    if has_backend:
+        return "backend"
+    if has_frontend:
+        return "frontend"
+    return None
+
+
+def is_monorepo(workspace_root: Path) -> bool:
+    """Evaluates whether workspace root exhibits monorepo orchestrator characteristics."""
+    root = Path(workspace_root)
+    if (
+        (root / "pnpm-workspace.yaml").is_file()
+        or (root / "turbo.json").is_file()
+        or (root / "lerna.json").is_file()
+        or (root / "nx.json").is_file()
+    ):
+        return True
+
+    pkg_json = root / "package.json"
+    if pkg_json.is_file():
+        try:
+            import json
+
+            data = json.loads(pkg_json.read_text(encoding="utf-8"))
+            if "workspaces" in data:
+                return True
+        except Exception:
+            pass
+
+    for parent in ("apps", "services", "packages", "modules"):
+        p = root / parent
+        if p.is_dir():
+            try:
+                if any(c.is_dir() and not c.name.startswith(".") for c in p.iterdir()):
+                    return True
+            except OSError:
+                pass
+    return False
+
+
+def detect_monorepo_stack(workspace_root: Path) -> Tuple[Set[str], Set[str]]:
+    """
+    Sweeps child directories at bounded depth 2 across standard monorepo directories:
+    apps/, services/, packages/, modules/.
+
+    Returns (detected_languages, detected_roles).
+    Preserves sub-second execution benchmark by strictly avoiding recursive walks.
+    """
+    root = Path(workspace_root)
+    detected_languages: Set[str] = set()
+    detected_roles: Set[str] = set()
+
+    # Root manifest check
+    root_lang = detect_workspace_stack(root)
+    if root_lang:
+        detected_languages.add(root_lang)
+    root_role = detect_workspace_role(root)
+    if root_role:
+        detected_roles.add(root_role)
+
+    for parent_name in ("apps", "services", "packages", "modules"):
+        parent_dir = root / parent_name
+        if not parent_dir.is_dir():
+            continue
+
+        try:
+            for child in parent_dir.iterdir():
+                if not child.is_dir() or child.name.startswith("."):
+                    continue
+
+                lang = detect_workspace_stack(child)
+                if lang:
+                    detected_languages.add(lang)
+
+                role = detect_workspace_role(child)
+                if role:
+                    detected_roles.add(role)
+        except OSError:
+            continue
+
+    return detected_languages, detected_roles
 
 
 def resolve_skills_to_sync(
     skill_names: Optional[List[str]] = None,
     group: Optional[str] = None,
     stack: Optional[str] = None,
+    role: Optional[str] = None,
     workspace_root: Optional[Path] = None,
+    subproject: Optional[Union[Path, str]] = None,
 ) -> Optional[List[str]]:
-    """Resolve list of skill names to sync based on explicit names, group, or stack."""
+    """Resolve list of skill names to sync based on explicit names, group, stack, or role."""
     resolved: List[str] = []
 
     if skill_names:
@@ -233,9 +635,26 @@ def resolve_skills_to_sync(
     if stack:
         stk_norm = stack.strip().lower()
         if stk_norm == "auto":
-            detected = detect_workspace_stack(workspace_root)
-            if detected and detected in STACK_PRESETS:
-                resolved.extend(STACK_PRESETS[detected])
+            target_ws = Path(workspace_root) if workspace_root else None
+            if target_ws and subproject:
+                target_ws = (target_ws / subproject).resolve()
+
+            if target_ws and is_monorepo(target_ws) and not subproject:
+                mono_langs, mono_roles = detect_monorepo_stack(target_ws)
+                for l in mono_langs:
+                    if l in LANGUAGE_RUNTIME_PRESETS:
+                        resolved.extend(LANGUAGE_RUNTIME_PRESETS[l])
+                for r in mono_roles:
+                    if r in ARCHITECTURAL_ROLE_PRESETS:
+                        resolved.extend(ARCHITECTURAL_ROLE_PRESETS[r])
+            else:
+                detected = detect_workspace_stack(target_ws)
+                if detected and detected in LANGUAGE_RUNTIME_PRESETS:
+                    resolved.extend(LANGUAGE_RUNTIME_PRESETS[detected])
+                if role is None and target_ws:
+                    detected_r = detect_workspace_role(target_ws)
+                    if detected_r and detected_r in ARCHITECTURAL_ROLE_PRESETS:
+                        resolved.extend(ARCHITECTURAL_ROLE_PRESETS[detected_r])
         elif stk_norm in STACK_PRESETS:
             resolved.extend(STACK_PRESETS[stk_norm])
         else:
@@ -243,7 +662,16 @@ def resolve_skills_to_sync(
                 f"Unknown stack preset '{stack}'. Choose from: {', '.join(sorted(STACK_PRESETS.keys()))}, auto"
             )
 
-    if not skill_names and not group and not stack:
+    if role:
+        role_norm = role.strip().lower()
+        if role_norm in ARCHITECTURAL_ROLE_PRESETS:
+            resolved.extend(ARCHITECTURAL_ROLE_PRESETS[role_norm])
+        else:
+            raise ValueError(
+                f"Unknown architectural role '{role}'. Choose from: {', '.join(sorted(ARCHITECTURAL_ROLE_PRESETS.keys()))}"
+            )
+
+    if not skill_names and not group and not stack and not role:
         return None
 
     seen: set[str] = set()
@@ -262,6 +690,8 @@ def sync_skills(
     skill_names: Optional[List[str]] = None,
     group: Optional[str] = None,
     stack: Optional[str] = None,
+    role: Optional[str] = None,
+    subproject: Optional[Union[Path, str]] = None,
     dedup: bool = True,
     override: bool = False,
 ) -> List[Path]:
@@ -293,7 +723,9 @@ def sync_skills(
         skill_names=skill_names,
         group=group,
         stack=stack,
+        role=role,
         workspace_root=ws_root,
+        subproject=subproject,
     )
     norm_filter = (
         {s.strip().lower().replace("_", "-") for s in filter_names}
@@ -330,3 +762,23 @@ def sync_skills(
         synced.append(dest_file)
 
     return synced
+
+
+__all__ = [
+    "ARCHITECTURAL_ROLE_PRESETS",
+    "DEFAULT_SKILLS_DIR",
+    "DEFAULT_TARGET_DIR",
+    "GROUP_PRESETS",
+    "LANGUAGE_RUNTIME_PRESETS",
+    "STACK_PRESETS",
+    "SkillSpec",
+    "detect_monorepo_stack",
+    "detect_workspace_role",
+    "detect_workspace_stack",
+    "get_skill",
+    "is_monorepo",
+    "list_skills",
+    "parse_frontmatter",
+    "resolve_skills_to_sync",
+    "sync_skills",
+]

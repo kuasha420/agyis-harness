@@ -29,7 +29,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import argparse
 from harness.cli import main
+from harness.commands.init import cmd_init
 from harness.delivery import (
     GIT_EXCLUDE_PATTERNS,
     REPO_ROOT,
@@ -686,7 +688,7 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertTrue(res_go.success)
         self.assertEqual(res_go.stack, "go")
         self.assertIn("psl-test-go", res_go.skills_installed)
-        self.assertIn("psl-stack-backend", res_go.skills_installed)
+        self.assertNotIn("psl-stack-backend", res_go.skills_installed)
         self.assertTrue((ws_go / ".agents" / "skills" / "psl-test-go" / "SKILL.md").is_file())
 
     def test_legacy_setup_detection_notice(self) -> None:
@@ -935,6 +937,116 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertIn("# 🧪 Project Verification & Native Toolchain", content)
         self.assertIn("npm test", content)
         self.assertIn("<!-- Added by AGYIS-HARNESS -->", content)
+
+    def test_cmd_init_with_role_and_subproject(self) -> None:
+        """cmd_init targets subproject and provisions decoupled role skills."""
+        ws = self.isolated_base / "monorepo_init_subproject"
+        ws.mkdir(parents=True)
+        (ws / "pnpm-workspace.yaml").write_text("packages:\n  - 'services/*'\n", encoding="utf-8")
+
+        svc_api = ws / "services" / "api"
+        svc_api.mkdir(parents=True)
+        (svc_api / "pyproject.toml").write_text("[project]\nname = 'api'\n", encoding="utf-8")
+
+        # Invoke cmd_init with subproject and explicit role
+        args = argparse.Namespace(
+            path=str(ws),
+            subproject="services/api",
+            stack=None,
+            role="backend",
+            skills=None,
+            agents=None,
+            override=False,
+            no_dedup=False,
+            dry_run=False,
+            json=True,
+        )
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            exit_code = cmd_init(args)
+            self.assertEqual(exit_code, 0)
+            data = json.loads(mock_stdout.getvalue())
+            self.assertTrue(data["success"])
+            self.assertEqual(data["role"], "backend")
+            self.assertEqual(data["subproject"], "services/api")
+            self.assertIn("psl-stack-python", data["skills_installed"])
+            self.assertIn("psl-test-python", data["skills_installed"])
+            self.assertIn("psl-stack-backend", data["skills_installed"])
+            self.assertIn("db-ops", data["skills_installed"])
+
+        # Verify files on disk in subproject
+        self.assertTrue((svc_api / ".agents" / "skills" / "psl-stack-backend" / "SKILL.md").is_file())
+        self.assertTrue((svc_api / ".agents" / "skills" / "db-ops" / "SKILL.md").is_file())
+        self.assertTrue((svc_api / "AGENTS.md").is_file())
+
+    def test_cmd_init_monorepo_auto_discovery(self) -> None:
+        """cmd_init at monorepo root auto-detects polyglot child services at depth 2."""
+        ws = self.isolated_base / "monorepo_root_init"
+        ws.mkdir(parents=True)
+        (ws / "turbo.json").write_text("{}", encoding="utf-8")
+
+        app_web = ws / "apps" / "web"
+        app_web.mkdir(parents=True)
+        (app_web / "tsconfig.json").write_text("{}", encoding="utf-8")
+
+        svc_api = ws / "services" / "api"
+        svc_api.mkdir(parents=True)
+        (svc_api / "pyproject.toml").write_text("[project]\nname = 'api'\n", encoding="utf-8")
+
+        args = argparse.Namespace(
+            path=str(ws),
+            subproject=None,
+            stack=None,
+            role=None,
+            skills=None,
+            agents=None,
+            override=False,
+            no_dedup=False,
+            dry_run=False,
+            json=True,
+        )
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            exit_code = cmd_init(args)
+            self.assertEqual(exit_code, 0)
+            data = json.loads(mock_stdout.getvalue())
+            self.assertTrue(data["success"])
+            # Discovered skills from both apps/web (typescript) and services/api (python)
+            self.assertIn("psl-stack-typescript", data["skills_installed"])
+            self.assertIn("psl-test-node", data["skills_installed"])
+            self.assertIn("psl-stack-python", data["skills_installed"])
+            self.assertIn("psl-test-python", data["skills_installed"])
+            # Zero backend skills since neither has backend manifests
+            self.assertNotIn("psl-stack-backend", data["skills_installed"])
+
+    def test_cmd_init_boundary_role_cli(self) -> None:
+        """cmd_init with role='cli' installs zero extraneous backend skills."""
+        ws = self.isolated_base / "cli_tool_ws"
+        ws.mkdir(parents=True)
+        (ws / "pyproject.toml").write_text("[project]\nname = 'cli-tool'\n", encoding="utf-8")
+
+        args = argparse.Namespace(
+            path=str(ws),
+            subproject=None,
+            stack="python",
+            role="cli",
+            skills=None,
+            agents=None,
+            override=False,
+            no_dedup=False,
+            dry_run=False,
+            json=True,
+        )
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            exit_code = cmd_init(args)
+            self.assertEqual(exit_code, 0)
+            data = json.loads(mock_stdout.getvalue())
+            self.assertTrue(data["success"])
+            self.assertIn("psl-stack-python", data["skills_installed"])
+            self.assertIn("psl-test-python", data["skills_installed"])
+            self.assertNotIn("psl-stack-backend", data["skills_installed"])
+            self.assertNotIn("db-ops", data["skills_installed"])
 
 
 if __name__ == "__main__":
