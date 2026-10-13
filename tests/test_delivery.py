@@ -427,6 +427,33 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertFalse(aux_agyis_2.exists())
         self.assertFalse(aux_psl_2.exists())
 
+    def test_install_cleans_legacy_psl_agy_harness_dir(self) -> None:
+        """Installing agyis-harness cleans up legacy psl-agy-harness directory to prevent duplicate hooks."""
+        plugins_dir = self.isolated_base / "plugins"
+        legacy_dir = plugins_dir / "psl-agy-harness"
+        legacy_dir.mkdir(parents=True, exist_ok=True)
+        (legacy_dir / "plugin.json").write_text('{"name": "psl-agy-harness"}', encoding="utf-8")
+
+        new_target = plugins_dir / "agyis-harness"
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=new_target,
+            bin_dir=self.bin_dir,
+        )
+
+        res = installer.install(mode=DeliveryMode.SYMLINK)
+        self.assertTrue(res.success)
+        self.assertTrue(new_target.exists())
+        self.assertFalse(legacy_dir.exists())
+        self.assertIn(str(legacy_dir), res.duplicates_removed)
+
+        # Test uninstall also handles legacy dir if it reappears
+        legacy_dir.mkdir(parents=True, exist_ok=True)
+        (legacy_dir / "plugin.json").write_text('{"name": "psl-agy-harness"}', encoding="utf-8")
+        res_un = installer.uninstall()
+        self.assertTrue(res_un.success)
+        self.assertFalse(legacy_dir.exists())
+
     def test_sync_surfaces_clean_and_idempotent(self) -> None:
         """sync_surfaces idempotently links surface items to canonical config."""
         fake_cfg = self.isolated_base / "fake_config"

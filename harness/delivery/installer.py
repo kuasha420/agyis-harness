@@ -242,6 +242,20 @@ class PluginInstaller:
         if all_surfaces:
             surfaces_synced = self.sync_surfaces(dry_run=dry_run)
 
+        # Clean up legacy plugin directory if migrating to agyis-harness
+        if target.name == "agyis-harness":
+            legacy_dir = target.parent / "psl-agy-harness"
+            if legacy_dir.is_symlink() or legacy_dir.exists():
+                if not dry_run:
+                    try:
+                        if legacy_dir.is_symlink():
+                            legacy_dir.unlink()
+                        elif legacy_dir.is_dir():
+                            shutil.rmtree(legacy_dir)
+                    except OSError:
+                        pass
+                duplicates_removed.append(str(legacy_dir))
+
         # Distributables discovery
         distributables: List[str] = []
         for item in ("plugin.json", "harness", "matrix.json", "hooks.json"):
@@ -352,6 +366,18 @@ class PluginInstaller:
                 if target_bin.is_symlink() or target_bin.exists():
                     try:
                         target_bin.unlink()
+                    except (PermissionError, OSError):
+                        pass
+
+            # Also clean up legacy plugin directory if present
+            if target.name == "agyis-harness":
+                legacy_dir = target.parent / "psl-agy-harness"
+                if legacy_dir.is_symlink() or legacy_dir.exists():
+                    try:
+                        if legacy_dir.is_symlink():
+                            legacy_dir.unlink()
+                        elif legacy_dir.is_dir():
+                            shutil.rmtree(legacy_dir)
                     except (PermissionError, OSError):
                         pass
 
