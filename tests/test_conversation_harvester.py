@@ -336,6 +336,38 @@ class TestHarvestConversationDb(unittest.TestCase):
         self.assertEqual(cur.fetchone()[0], 2)
         conn.close()
 
+    def test_harvest_preserves_remote_synced_at(self):
+        src_db = self.conv_dir / "sess_synced.db"
+        t = TestExtractConversationDb()
+        t.tmpdir = self.tmpdir
+        t.db_path = src_db
+        t._create_mock_conversation_db()
+
+        # Ingest initially
+        harvest_conversation_db(src_db, self.target_db)
+
+        # Mark as remote synced
+        conn = sqlite3.connect(self.target_db)
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE sessions SET remote_synced_at = '2026-10-06T12:00:00Z', origin_developer = 'remote' WHERE session_id = 'cascade-uuid-1'"
+        )
+        conn.commit()
+        conn.close()
+
+        # Re-harvest
+        harvest_conversation_db(src_db, self.target_db)
+
+        # Verify remote_synced_at and origin_developer are preserved
+        conn = sqlite3.connect(self.target_db)
+        cur = conn.cursor()
+        cur.execute("SELECT remote_synced_at, origin_developer FROM sessions WHERE session_id = 'cascade-uuid-1'")
+        row = cur.fetchone()
+        conn.close()
+        self.assertEqual(row[0], "2026-10-06T12:00:00Z")
+        self.assertEqual(row[1], "remote")
+
+
     def test_harvest_all_conversations(self):
         # Create two conversation DBs
         for name in ["sess_a.db", "sess_b.db"]:
