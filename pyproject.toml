@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agyis-harness"
-version = "0.1.0"
+version = "1.0.0-rc0"
 description = "Autonomous agent runtime harness and immune system for Google Antigravity™"
 readme = "README.md"
 requires-python = ">=3.12"
