@@ -764,6 +764,39 @@ class TestHarmonizeDeprecationLifecycle(unittest.TestCase):
         self.assertIsNotNone(res.backup_archive)
         self.assertIsNotNone(res.backup_manifest)
 
+    def test_dry_run_git_repo_preserves_git_exclude(self) -> None:
+        """In a Git repo, harmonize with dry_run=True leaves .git/info/exclude untouched."""
+        self._init_git_repo(self.ws)
+        agent_dir = self.ws / ".agent"
+        (agent_dir / "rules").mkdir(parents=True)
+        (agent_dir / "rules" / "r.md").write_text("# Rule\n", encoding="utf-8")
+
+        exclude_file = self.ws / ".git" / "info" / "exclude"
+        initial_exclude = exclude_file.read_bytes() if exclude_file.exists() else None
+
+        res = harmonize_workspace(self.ws, dry_run=True, prune_legacy=True, backup=True)
+        self.assertTrue(res.success)
+        self.assertTrue(res.dry_run)
+        self.assertTrue(res.pruned_legacy)
+
+        after_exclude = exclude_file.read_bytes() if exclude_file.exists() else None
+        self.assertEqual(initial_exclude, after_exclude)
+        if exclude_file.exists():
+            self.assertNotIn(b"Agyis Harness Ignored", exclude_file.read_bytes())
+
+    def test_zero_byte_legacy_markdown_rule_migrates_cleanly(self) -> None:
+        """A 0-byte legacy markdown rule in .agent/rules/ migrates cleanly without false integrity failure."""
+        agent_dir = self.ws / ".agent"
+        (agent_dir / "rules").mkdir(parents=True)
+        empty_rule = agent_dir / "rules" / "empty.md"
+        empty_rule.write_text("", encoding="utf-8")
+
+        res = harmonize_workspace(self.ws, prune_legacy=True, backup=True)
+        self.assertTrue(res.success)
+        dst_rule = self.ws / ".agents" / "rules" / "empty.md"
+        self.assertTrue(dst_rule.is_file())
+        self.assertEqual(dst_rule.stat().st_size, 0)
+
     def test_custom_archive_dir(self) -> None:
         """Specifying archive_dir places tarball in requested directory."""
         (self.ws / ".agent" / "rules").mkdir(parents=True)

@@ -308,7 +308,7 @@ def harmonize_workspace(
                             rule_text = item.read_text(encoding="utf-8", errors="replace")
                             rewritten = _rewrite_legacy_agent_references(rule_text)
                             dst_file.write_text(rewritten, encoding="utf-8")
-                            if not dst_file.is_file() or dst_file.stat().st_size == 0:
+                            if not dst_file.is_file() or (dst_file.stat().st_size == 0 and item.stat().st_size > 0):
                                 return HarmonizeResult(
                                     success=False,
                                     workspace_dir=ws,
@@ -447,7 +447,7 @@ def harmonize_workspace(
         manifest_path = target_archive_dir / f"legacy-agent-backup-{timestamp}-manifest.json"
 
         # Ensure git exclusion for .agents/archive/ if in a git repo
-        if (ws / ".git").exists():
+        if not dry_run and (ws / ".git").exists():
             try:
                 configure_git_exclude(ws)
             except Exception:
