@@ -20,7 +20,7 @@ Generates docs/taxonomy/workstation-audit-report.md.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -219,7 +219,7 @@ def generate_markdown_report(audit: Dict[str, Any], output_path: Path) -> None:
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
-**Generated At**: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%SZ')}  
+**Generated At**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')}  
 **Data Source**: Workstation telemetry mined from `~/.gemini/antigravity/brain/*/transcript.jsonl`
 
 ---

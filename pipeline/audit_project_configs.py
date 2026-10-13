@@ -22,7 +22,7 @@ Outputs docs/taxonomy/project-rules-skills-audit.md and data/project_configs_aud
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -189,7 +189,7 @@ def analyze_all_workspaces(db_path: Path) -> Dict[str, Any]:
         })
 
     return {
-        "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ"),
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
         "total_workspaces": len(workspace_analyses),
         "workspaces": workspace_analyses
     }

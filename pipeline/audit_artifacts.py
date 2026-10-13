@@ -18,7 +18,7 @@ Outputs docs/taxonomy/planning-and-drift-report.md and data/artifacts_audit_summ
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import glob
 import json
 import os
@@ -152,7 +152,7 @@ def audit_artifacts() -> Dict[str, Any]:
     )
 
     return {
-        "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ"),
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
         "total_markdown_artifacts": len(artifact_files),
         "total_sessions_with_artifacts": len(session_artifacts),
         "artifacts_by_type": dict(sorted(artifacts_by_type.items(), key=lambda x: x[1], reverse=True)),
