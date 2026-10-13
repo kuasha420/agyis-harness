@@ -62,7 +62,7 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           if [[ "$TAG" == "main" || "$TAG" == "master" ]]; then
-            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0-rc0")
+            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0-rc1")
           fi
           echo "Target release tag: $TAG"
           PRERELEASE_FLAG=""

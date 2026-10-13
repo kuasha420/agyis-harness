@@ -7,4 +7,4 @@
 PSL Harness for Google Antigravity™
 """
 
-__version__ = "1.0.0-rc0"
+__version__ = "1.0.0-rc1"
