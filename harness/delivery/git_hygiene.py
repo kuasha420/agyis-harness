@@ -16,6 +16,12 @@ import subprocess
 from typing import List
 
 from harness.delivery.constants import GIT_EXCLUDE_PATTERNS
+from harness.delivery.git_topology import (
+    GitTopology,
+    GitTopologyProbe,
+    RemoteInfo,
+    create_pull_request,
+)
 
 
 def configure_git_exclude(workspace_root: Path) -> Path:
@@ -151,3 +157,13 @@ def verify_zero_git_pollution(workspace_root: Path) -> List[str]:
                 pass
 
     return sorted(list(set(polluting_files)))
+
+
+__all__ = [
+    "GitTopology",
+    "GitTopologyProbe",
+    "RemoteInfo",
+    "configure_git_exclude",
+    "create_pull_request",
+    "verify_zero_git_pollution",
+]

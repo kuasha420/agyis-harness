@@ -35,6 +35,7 @@ from harness.commands import (
     cmd_hook,
     cmd_init,
     cmd_install,
+    cmd_onboard,
     cmd_remote,
     cmd_skills,
     cmd_status,
@@ -357,6 +358,70 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_harm.add_argument("--subproject", type=str, default=None, help="Target specific subproject within monorepo")
     p_harm.add_argument("--skills", type=str, default=None, help="Comma-separated list of explicit modular skills to install")
 
+    # onboard
+    p_onboard = subparsers.add_parser(
+        "onboard", help="Unified workspace onboarding with topology probing, harmonization, skills, and PR delivery"
+    )
+    p_onboard.add_argument("path", nargs="?", default=None, help="Target workspace path (defaults to current directory)")
+    p_onboard.add_argument(
+        "--lang",
+        "--stack",
+        "-s",
+        dest="lang",
+        type=str,
+        default=None,
+        help="Language runtime preset (typescript, node, javascript, python, rust, go, systems, shell, auto)",
+    )
+    p_onboard.add_argument(
+        "--role",
+        "-r",
+        type=str,
+        choices=ROLE_CHOICES,
+        default=None,
+        help="Architectural role preset (backend, frontend, fullstack, cli, library, mobile, desktop_gui, media, audio, infra)",
+    )
+    p_onboard.add_argument(
+        "--subproject",
+        type=str,
+        default=None,
+        help="Subproject path for localized monorepo onboarding",
+    )
+    p_onboard.add_argument(
+        "--upstream-remote",
+        type=str,
+        default=None,
+        help="Explicit upstream canonical remote name (e.g. upstream, canonical, purrfectsoft)",
+    )
+    p_onboard.add_argument(
+        "--base-branch",
+        type=str,
+        default=None,
+        help="Explicit base branch to target (default: auto-detected default/active branch)",
+    )
+    p_onboard.add_argument(
+        "--prune-legacy",
+        action="store_true",
+        help="Prune legacy .agent/ directory after harmonization",
+    )
+    p_onboard.add_argument(
+        "--pr",
+        "--open-pr",
+        "--create-pr",
+        dest="pr",
+        action="store_true",
+        help="Open GitHub Pull Request using 'gh pr create' upon verification",
+    )
+    p_onboard.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview all onboarding actions without filesystem or remote mutation",
+    )
+    p_onboard.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON summary",
+    )
+
     # install
     p_install = subparsers.add_parser(
         "install", help="Install Agyis harness globally as Google Antigravity plugin or initialize workspace"
@@ -456,6 +521,7 @@ def main(
         "status": cmd_status,
         "init": cmd_init,
         "harmonize": cmd_harmonize,
+        "onboard": cmd_onboard,
         "install": cmd_install,
         "uninstall": cmd_uninstall,
     }

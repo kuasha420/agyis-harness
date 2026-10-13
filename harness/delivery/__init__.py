@@ -21,7 +21,11 @@ from harness.delivery.constants import (
     DeliveryResult,
 )
 from harness.delivery.git_hygiene import (
+    GitTopology,
+    GitTopologyProbe,
+    RemoteInfo,
     configure_git_exclude,
+    create_pull_request,
     verify_zero_git_pollution,
 )
 from harness.delivery.surfaces import (
@@ -59,7 +63,11 @@ __all__ = [
     "DeliveryResult",
     "PluginInstaller",
     "CoexistenceEngine",
+    "GitTopology",
+    "GitTopologyProbe",
+    "RemoteInfo",
     "configure_git_exclude",
+    "create_pull_request",
     "verify_zero_git_pollution",
     "sync_surfaces",
     "find_workspace_root",
