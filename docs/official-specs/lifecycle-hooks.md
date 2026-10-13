@@ -57,7 +57,7 @@ Antigravity lifecycle hooks allow execution of external shell commands or script
 
 ---
 
-## 3. Reference Implementation: `psl-agy-harness` Hooks
+## 3. Reference Implementation: `agyis-harness` Hooks
 
 In `harness/hooks/`, we provide reference hooks:
 1. `anti_loop_hook.py`: Intercepts repetitive consecutive calls to identical files/queries in `PreToolUse` and enforces the Strict Reactive Wait Invariant.
@@ -130,7 +130,7 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
        ```
 
 3. **Verification Clearance via Test Runner**:
-   - Running `./psl test` or `python3 -m harness.cli test` executes the test suite.
+   - Running `./agyis test` (or `./psl test`) or `python3 -m harness.cli test` executes the test suite.
    - Upon successful completion (`success == True`), clears `code_dirty = False`, resets `block_count = 0`, and sweeps all active session state files in `$PSL_HARNESS_STATE_DIR/verification_state_*.json`.
 
 
@@ -259,6 +259,6 @@ All specialist subagent archetypes (`harness_builder`, `harness_reviewer`, `harn
 - Subagents open target files directly from the plan or prompt instructions, or communicate back to the coordinator and halt immediately.
 
 #### D. Developer CLI Integration
-- `psl subagents [--json] [--brain-dir <path>]`: Renders formatted ASCII table of live active subagents.
-- `psl status`: Automatically embeds live active subagents health table when subagents are active.
+- `agyis subagents [--json] [--brain-dir <path>]`: Renders formatted ASCII table of live active subagents.
+- `agyis status`: Automatically embeds live active subagents health table when subagents are active.
 

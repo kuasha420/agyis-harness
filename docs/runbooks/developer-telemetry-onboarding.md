@@ -1,6 +1,6 @@
 ---
 title: PSL Developer Onboarding & Telemetry Sync Runbook
-description: Step-by-step operational runbook for new PSL team members to install psl-agy-harness, authenticate with GitHub, harvest existing Antigravity transcripts, and synchronize full history to the telemetry hub.
+description: Step-by-step operational runbook for new PSL team members to install agyis-harness, authenticate with GitHub, harvest existing Antigravity transcripts, and synchronize full history to the telemetry hub.
 version: 1.0.1
 last_updated: 2026-10-06
 target_audience: [developer, onboarding]
@@ -13,7 +13,7 @@ related_adrs: [ADR-014, ADR-015, ADR-030]
 
 # 🚀 PSL Developer Onboarding: Telemetry Setup & History Sync Runbook
 
-This guide walks new members of **Purrfect Software Laboratories (PSL)** through setting up `psl-agy-harness`, registering the global Antigravity toolchain, ingesting local historical agent sessions, and synchronizing telemetry to the centralized fleet hub at **`https://psl-harness.infra.purrfecthq.com`**.
+This guide walks new members of **Purrfect Software Laboratories (PSL)** through setting up `agyis-harness`, registering the global Antigravity toolchain, ingesting local historical agent sessions, and synchronizing telemetry to the centralized fleet hub at **`https://psl-harness.infra.purrfecthq.com`**.
 
 ---
 

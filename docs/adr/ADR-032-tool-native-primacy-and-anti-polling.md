@@ -89,4 +89,4 @@ To anchor the Tool-Native Primacy Invariant in discoverable, repeatable protocol
   - `tests/test_skills.py`: Validates contract schemas, discoverability, command listings, and frontmatter across all 5 modular skills.
   - `test_agents_rules_mirror_in_sync`: Enforces 100% bitwise parity between `harness/rules/AGENTS.md` and `.agents/rules/AGENTS.md`.
 - **Benchmark Performance**: All 377 test cases execute in **1.57 seconds**, maintaining the PSL sub-2.0s execution invariant.
-- **Telemetry Verification**: Verified central hub synchronization (`psl sync --push` and `psl sync --pull`) against `https://psl-harness.infra.purrfecthq.com`, confirming anti-echo filtering across multi-developer environments.
+- **Telemetry Verification**: Verified central hub synchronization (`agyis sync --push` and `agyis sync --pull`) against `https://psl-harness.infra.purrfecthq.com`, confirming anti-echo filtering across multi-developer environments.

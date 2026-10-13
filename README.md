@@ -32,7 +32,7 @@ Google's Gemini models—with **Gemini 3.8 Flash** as our primary high-throughpu
 4. **Environment Version Mismatch**: Models trained on modern syntax (e.g. Python >= 3.12 PEP 701 f-strings) crash when host workstations run outdated pyenv shims (Python 3.10), wasting context on syntax retries.
 
 ### Our Strategy: Build On, Not Against, Official Interfaces
-Rather than creating an isolated, competing framework that reinvents agent execution, `psl-agy-harness`:
+Rather than creating an isolated, competing framework that reinvents agent execution, `agyis-harness`:
 - **Audits Reality**: Ingests hundreds of local developer sessions (`~/.gemini/antigravity/brain/*/transcript.jsonl`) to construct an empirical taxonomy of real failure modes, loop states, and human operator interventions.
 - **Dissects Official Surfaces**: Deeply analyzes the official `google-antigravity` Python SDK, `agy` CLI, plugin manifests, lifecycle hooks (`PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop`), and MCP servers.
 - **Solves Friction in Code, Not Prompts**: Transparently guarantees certified runtimes and sanitized shell execution in deterministic lifecycle hooks, freeing prompt tokens for actual task reasoning.

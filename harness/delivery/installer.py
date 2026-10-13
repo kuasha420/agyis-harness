@@ -33,7 +33,7 @@ from harness.delivery.surfaces import (
 
 class PluginInstaller:
     """
-    Manages global installation and lifecycle of the psl-agy-harness / agyis-harness plugin.
+    Manages global installation and lifecycle of the agyis-harness plugin.
 
     Enforces ADR-014 Product vs. Project Bifurcation and strict path safety
     guards to protect the source repository root.
@@ -176,7 +176,7 @@ class PluginInstaller:
                 except OSError:
                     pass
 
-    def _enable_in_config(self, plugin_name: str = "psl-agy-harness") -> None:
+    def _enable_in_config(self, plugin_name: str = "agyis-harness") -> None:
         """Ensures plugin is marked enabled in global ~/.gemini/config/config.json."""
         config_path = Path.home() / ".gemini" / "config" / "config.json"
         try:
@@ -227,7 +227,7 @@ class PluginInstaller:
         all_surfaces: bool = False,
     ) -> DeliveryResult:
         """
-        Installs psl-agy-harness into the target plugin directory.
+        Installs agyis-harness into the target plugin directory.
 
         Supports SYMLINK mode (live link) and COPY mode (isolated packaged release).
         """

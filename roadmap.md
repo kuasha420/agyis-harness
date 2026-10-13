@@ -4,7 +4,7 @@
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # 🗺️ PSL Harness: Master Product Vision, Contracts & Roadmap
-**Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
+**Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Repository**: `kuasha420/agyis-harness` (Private Development → Public Release)  
@@ -22,7 +22,7 @@ We rely heavily on Google's modern Gemini models—with **Gemini 3.8 Flash** as 
 - **Rigid Single-Threaded Loops**: Lack of hardware mesh and fleet awareness.
 
 ### The Product Definition
-Rather than creating an isolated competing framework that reinvents agent execution from scratch, **`psl-agy-harness` is a dual-purpose system**:
+Rather than creating an isolated competing framework that reinvents agent execution from scratch, **`agyis-harness` is a dual-purpose system**:
 1. **The Empirical Laboratory**: Automated telemetry mining tools that extract mathematical ground truth from thousands of real developer trajectories, loop patterns, and failure modes.
 2. **The Reference Extension Harness**: A high-performance, deterministic extension harness built *strictly on official Google Antigravity surfaces* (`plugin.json`, lifecycle hooks, MCP, rules) that solves environment and context bottlenecks deterministically in code, ensuring high autonomy and reliability for local and distributed agent execution.
 
@@ -49,7 +49,7 @@ The mission of PAH is not merely defensive error mitigation; it is **actively co
 
 ### A. The Separation Invariant: "Code Enforces, Prompts Guide Cognition"
 * **Deterministic problems belong in software hooks, NOT prompt rules**:
-  - Runtime environment selection (`PATH` injection, Python 3.12 PEP 701 support) is handled by `PreToolUse` hooks and `psl doctor`.
+  - Runtime environment selection (`PATH` injection, Python 3.12 PEP 701 support) is handled by `PreToolUse` hooks and `agyis doctor`.
   - Terminal exit-code sanitization (surgical `|| [ $? -eq 1 ]`) is handled by `command_safety_hook.py`.
   - Non-interactive pager enforcement (`PAGER=cat`) is injected automatically.
   - Context volume suppression is handled by output compaction hooks.
@@ -86,11 +86,11 @@ The mission of PAH is not merely defensive error mitigation; it is **actively co
 ### C. The Product vs. Project Bifurcation (ADR-014)
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                   THE PRODUCT (psl-agy-harness runtime)                │
+│                   THE PRODUCT (agyis-harness runtime)                  │
 │ Distributable Antigravity plugin and developer CLI toolchain:           │
 │ - Runtime Matrix (matrix.json) & Auto-Healing Doctor                   │
 │ - Deterministic Lifecycle Hooks (hooks.json, command safety, anti-loop) │
-│ - Unified CLI Entrypoint (`psl doctor`, `psl hook`, `psl audit`)        │
+│ - Unified CLI Entrypoint (`agyis doctor`, `agyis hook`, `agyis audit`)  │
 │ - Product-Level Rules & Skills (AGENTS.md, testing contracts, toolkit) │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ engineered & audited by

@@ -1,6 +1,6 @@
 ---
 title: Knot Mesh Fleet Update & Telemetry Sync Runbook
-description: Comprehensive operational runbook for Developers, AI Subagents, and Knot Mesh Strands to update psl-agy-harness, deploy global binaries, authenticate via GitHub CLI, and execute chunked telemetry synchronization.
+description: Comprehensive operational runbook for Developers, AI Subagents, and Knot Mesh Strands to update agyis-harness, deploy global binaries, authenticate via GitHub CLI, and execute chunked telemetry synchronization.
 version: 1.0.1
 last_updated: 2026-10-06
 target_audience: [developer, ai_agent, knot_mesh]
@@ -13,7 +13,7 @@ related_adrs: [ADR-014, ADR-015, ADR-027, ADR-030]
 
 # 🌐 Knot Mesh Fleet Update & Telemetry Sync Runbook
 
-This runbook defines the canonical standard operating procedure (SOP) for updating the `psl-agy-harness` toolchain, deploying global standalone executables, authenticating organization credentials, and performing resilient telemetry synchronization across the physical Knot mesh fleet (`@desktop`, `@laptop`, `@steamdeck`) and the internal development gateway (`psl-harness.infra.purrfecthq.com`).
+This runbook defines the canonical standard operating procedure (SOP) for updating the `agyis-harness` toolchain, deploying global standalone executables, authenticating organization credentials, and performing resilient telemetry synchronization across the physical Knot mesh fleet (`@desktop`, `@laptop`, `@steamdeck`) and the internal development gateway (`psl-harness.infra.purrfecthq.com`).
 
 ---
 
@@ -131,19 +131,19 @@ For autonomous agents, background daemons, or CI/CD pipelines executing without 
 
 ```bash
 # 1. Non-interactive dry-run audit
-psl sync --dry-run --json
+agyis sync --dry-run --json
 
 # 2. Machine-readable synchronization
-psl sync --json
+agyis sync --json
 
 # 3. Targeted database push
-psl sync --db /home/kuasha/Dev/psl-agy-harness/data/telemetry.db --json
+agyis sync --db /home/kuasha/Dev/psl-agy-harness/data/telemetry.db --json
 
 # 4. Auth status check
-psl auth status --json
+agyis auth status --json
 
 # 5. Non-interactive auth login with explicit token
-echo "$GITHUB_TOKEN" | psl auth login --endpoint https://psl-harness.infra.purrfecthq.com --json
+echo "$GITHUB_TOKEN" | agyis auth login --endpoint https://psl-harness.infra.purrfecthq.com --json
 ```
 
 ### JSON Schema Verification Reference:
@@ -249,7 +249,7 @@ The harness evaluates configuration in a strict 5-tier hierarchy.
 | `PSL_TELEMETRY_DB` | `REPO_ROOT/data/telemetry.db` | Explicit SQLite database path override |
 | `PSL_DATA_DIR` | `~/.local/share/psl` | XDG data directory for databases |
 | `PSL_CONFIG_DIR` | `~/.config/psl` | XDG configuration directory |
-| `PSL_BIN_DIR` | `~/.local/bin` | Target directory for global `psl` executable |
+| `PSL_BIN_DIR` | `~/.local/bin` | Target directory for global `agyis` and `psl` executables |
 | `PSL_RETRY_BACKOFF`| `1.0` | Initial backoff seconds for transient 5xx retries |
 | `--workspace` / `-w`| `False` | Scopes config write to `<workspace>/.psl/config.json` |
 | `--global` / `-g` | `True` | Scopes config write to user `~/.config/psl/` |
@@ -263,13 +263,13 @@ The harness evaluates configuration in a strict 5-tier hierarchy.
 - **Cause**: Outdated client sending monolithic payload (>20MB) to Nginx reverse proxy.
 - **Remedy**:
   1. Verify commit `23fe402` or later is checked out: `git log -n 1 --oneline`.
-  2. Pull `main` and execute `psl sync`. The client will automatically chunk into $\le 10$ sessions or $\le 2,500$ steps.
+  2. Pull `main` and execute `agyis sync`. The client will automatically chunk into $\le 10$ sessions or $\le 2,500$ steps.
 
 ### Issue 2: `FileNotFoundError: Telemetry database not found at ...`
-- **Cause**: `psl sync` or `psl sync --push` executed outside repo checkout where no database has been created yet.
+- **Cause**: `agyis sync` or `agyis sync --push` executed outside repo checkout where no database has been created yet.
 - **Remedy**:
-  1. Extract local Antigravity sessions first: `psl audit extract`.
-  2. Or pass explicit path: `psl sync --db /path/to/telemetry.db`.
+  1. Extract local Antigravity sessions first: `agyis audit extract`.
+  2. Or pass explicit path: `agyis sync --db /path/to/telemetry.db`.
 
 ### Issue 3: `Error 403: User is not an authorized member of the organization`
 - **Cause**: The GitHub PAT does not belong to an active member of `purrfectsoft` organization.
@@ -277,7 +277,7 @@ The harness evaluates configuration in a strict 5-tier hierarchy.
   1. Confirm your GitHub user is part of the org: `gh api user/orgs --jq '.[].login'`.
   2. Ensure the PAT has `read:org` scope or is generated with SSO authorization.
 
-### Issue 4: `command not found: psl`
+### Issue 4: `command not found: agyis` (or `psl`)
 - **Cause**: `~/.local/bin` is not present in `$PATH`.
 - **Remedy**:
   Add `~/.local/bin` to your shell profile:
