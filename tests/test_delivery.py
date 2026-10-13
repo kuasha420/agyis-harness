@@ -116,7 +116,7 @@ class TestPluginDelivery(unittest.TestCase):
         info = installer.get_install_info(self.target_dir)
         self.assertTrue(info["installed"])
         self.assertEqual(info["mode"], "copy")
-        self.assertEqual(info["version"], "1.0.0-rc1")
+        self.assertEqual(info["version"], "1.0.0-rc2")
 
     def test_dry_run_mode(self) -> None:
         """Dry-run mode does not mutate disk for install or uninstall."""
