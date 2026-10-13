@@ -79,7 +79,9 @@ class TestCommandSafety(unittest.TestCase):
         self.assertFalse(is_inline_python_command('python script.py'))
         self.assertFalse(is_inline_python_command('python3 -m unittest discover'))
 
-    def test_hermetic_python_injection(self):
+    @patch("harness.hooks.command_safety_hook.find_hermetic_uv_python_bin")
+    def test_hermetic_python_injection(self, mock_find):
+        mock_find.return_value = Path("/home/mock/.local/share/uv/python/cpython-3.12.0-linux-x86_64-gnu/bin")
         decision, mod, reason = sanitize_command('python3 -c "data = {}; print(f\\\"{data.get(\'k\')}\\\")"')
         self.assertEqual(decision, "allow")
         self.assertIsNotNone(mod)

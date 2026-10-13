@@ -204,7 +204,8 @@ class TestDoctorCliCommand(unittest.TestCase):
             proc.stdout = "99.0.0"
             return proc
 
-        with patch("subprocess.run", side_effect=mock_run), \
+        with patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"), \
+             patch("subprocess.run", side_effect=mock_run), \
              patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             code = cmd_doctor(args)
             self.assertEqual(code, 0)
@@ -224,7 +225,8 @@ class TestDoctorCliCommand(unittest.TestCase):
             proc.stdout = "99.0.0"
             return proc
 
-        with patch("subprocess.run", side_effect=mock_run), \
+        with patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"), \
+             patch("subprocess.run", side_effect=mock_run), \
              patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             code = cmd_doctor(args)
             self.assertEqual(code, 0)
@@ -243,7 +245,8 @@ class TestDoctorCliCommand(unittest.TestCase):
             proc.stdout = "99.0.0"
             return proc
 
-        with patch("subprocess.run", side_effect=mock_run), \
+        with patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"), \
+             patch("subprocess.run", side_effect=mock_run), \
              patch("harness.runtime.doctor.heal_environment", return_value=["Fixed mock permission"]) as mock_heal, \
              patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             code = cmd_doctor(args)
@@ -296,7 +299,8 @@ class TestAgyisVsPslDoctorComparison(unittest.TestCase):
             proc.stdout = "99.0.0"
             return proc
 
-        with patch("subprocess.run", side_effect=mock_run), \
+        with patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"), \
+             patch("subprocess.run", side_effect=mock_run), \
              patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
              patch("sys.stderr", new_callable=io.StringIO) as mock_err:
             code = main(["doctor"], prog="agyis")
@@ -313,7 +317,8 @@ class TestAgyisVsPslDoctorComparison(unittest.TestCase):
             proc.stdout = "99.0.0"
             return proc
 
-        with patch("subprocess.run", side_effect=mock_run), \
+        with patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"), \
+             patch("subprocess.run", side_effect=mock_run), \
              patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
              patch("sys.stderr", new_callable=io.StringIO) as mock_err:
             code = deprecated_psl_main(["doctor"])
@@ -330,14 +335,16 @@ class TestAgyisVsPslDoctorComparison(unittest.TestCase):
             proc.stdout = "99.0.0"
             return proc
 
-        with patch("subprocess.run", side_effect=mock_run), \
+        with patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"), \
+             patch("subprocess.run", side_effect=mock_run), \
              patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
              patch("sys.stderr", new_callable=io.StringIO):
             code1 = main(["doctor", "--json"], prog="agyis")
             self.assertEqual(code1, 0)
             data_agyis = json.loads(agyis_out.getvalue().strip())
 
-        with patch("subprocess.run", side_effect=mock_run), \
+        with patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"), \
+             patch("subprocess.run", side_effect=mock_run), \
              patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
              patch("sys.stderr", new_callable=io.StringIO) as psl_err:
             code2 = deprecated_psl_main(["doctor", "--json"])
