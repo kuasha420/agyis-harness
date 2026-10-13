@@ -44,8 +44,8 @@ This runbook defines the canonical standard operating procedure (SOP) for updati
 1. **Zero-CWD Probing Invariant**: Database path resolution strictly ignores `$PWD/data/telemetry.db` to prevent silent database proliferation when commands are invoked from arbitrary directories.
 2. **Chunked Batch Invariant**: Telemetry payloads exceeding 10 sessions or 2,500 steps are partitioned into client-side chunks to guarantee payloads never trigger `HTTP 413 Payload Too Large` through reverse proxies.
 3. **Per-Batch Transactional Commits**: SQLite marks `remote_synced_at` and commits per batch upon HTTP 200, guaranteeing that network interruptions during multi-batch pushes do not rollback previously synced sessions.
-4. **Standalone Executable Delivery**: `psl install --global` deploys both the Antigravity plugin and a standalone user executable `~/.local/bin/psl` (`0o755`), ensuring `psl` is available everywhere in `$PATH`.
-5. **Zero-Input Credential Lifting**: `psl auth login --gh` executes `gh auth token` via CPython stdlib `subprocess` without interactive prompts or copy-pasted tokens.
+4. **Standalone Executable Delivery**: `agyis install --global` deploys both the Antigravity plugin and standalone user executables `~/.local/bin/agyis` and `~/.local/bin/psl` (`0o755`), ensuring `agyis` (and backward-compatible alias `psl`) is available everywhere in `$PATH`.
+5. **Zero-Input Credential Lifting**: `agyis auth login --gh` executes `gh auth token` via CPython stdlib `subprocess` without interactive prompts or copy-pasted tokens.
 
 ---
 
@@ -62,15 +62,15 @@ git pull origin main
 
 ### Step 2: Install Global Plugin & Executable
 ```bash
-./psl install --global
+./agyis install --global
 ```
 - **What this does**:
-  - Symlinks package to `~/.gemini/config/plugins/psl-agy-harness/`.
-  - Installs executable launcher to `~/.local/bin/psl` with `0o755` permissions.
+  - Symlinks package to `~/.gemini/config/plugins/agyis-harness/`.
+  - Installs executable launcher to `~/.local/bin/agyis` and backward-compatible alias `~/.local/bin/psl` with `0o755` permissions.
 - **Verification**:
   ```bash
-  which psl
-  # Expected: /home/<user>/.local/bin/psl
+  which agyis
+  # Expected: /home/<user>/.local/bin/agyis
   ```
 
 ### Step 3: Zero-Friction GitHub Authentication
@@ -78,12 +78,12 @@ Authenticate against the internal development gateway using your GitHub organiza
 
 ```bash
 # Connect to internal development gateway via GitHub CLI token
-psl auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
+agyis auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
 ```
 
 - **Verify status**:
   ```bash
-  psl auth status
+  agyis auth status
   ```
   *(Confirms `Authenticated: Yes`, active organization membership, and gateway endpoint).*
 
@@ -91,29 +91,29 @@ psl auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
 To point a specific project workspace to a local or alternative gateway without modifying your global user configuration:
 ```bash
 cd /path/to/my-project
-psl auth login --endpoint http://127.0.0.1:8000 --workspace
+agyis auth login --endpoint http://127.0.0.1:8000 --workspace
 ```
-*(Writes `<project>/.psl/config.json`, which takes precedence over `~/.config/psl/config.json`).*
+*(Writes `<project>/.agyis/config.json`, which takes precedence over `~/.config/agyis/config.json`).*
 
 ### Step 4: Harvest & Synchronize Telemetry
 ```bash
 # 1. Harvest local transcripts into SQLite
-psl audit extract
+agyis audit extract
 
 # 2. Preview pending sessions (optional dry-run)
-psl sync --dry-run
+agyis sync --dry-run
 
 # 3. Synchronize with chunked batching
-psl sync
+agyis sync
 ```
 
 ### Step 5: Sanity Diagnostics
 ```bash
 # Verify 3-tier runtime matrix
-psl doctor
+agyis doctor
 
 # Confirm active hooks, registered subagents, and database stats
-psl status
+agyis status
 ```
 
 ---
@@ -184,11 +184,11 @@ knot exec laptop '
   set -e
   cd ~/Dev/psl-agy-harness
   git checkout main && git pull origin main
-  ./psl install --global
-  psl auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
-  psl audit extract
-  psl sync
-  psl status
+  ./agyis install --global
+  agyis auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
+  agyis audit extract
+  agyis sync
+  agyis status
 '
 
 # 2. Synchronize the Handheld Testbed (@steamdeck)
@@ -196,18 +196,18 @@ knot exec steamdeck '
   set -e
   cd ~/Dev/psl-agy-harness
   git checkout main && git pull origin main
-  ./psl install --global
-  psl auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
-  psl audit extract
-  psl sync
-  psl status
+  ./agyis install --global
+  agyis auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
+  agyis audit extract
+  agyis sync
+  agyis status
 '
 ```
 
 ### Option B: Parallel Fleet Broadcast
 ```bash
 # Broadcast git reconciliation across all online strands simultaneously
-knot exec --all "cd ~/Dev/psl-agy-harness && git pull origin main && ./psl install --global && psl sync"
+knot exec --all "cd ~/Dev/psl-agy-harness && git pull origin main && ./agyis install --global && agyis sync"
 ```
 
 ### Option C: OpenSSH Multiplexed Harness Execution (ADR-027)
@@ -215,7 +215,7 @@ If invoking via the PSL remote operations subsystem:
 
 ```bash
 # Fast multiplexed SSH check (<100ms via ControlMaster)
-python3 -m harness.cli remote exec laptop "psl status"
+agyis remote exec laptop "agyis status"
 
 # Run remote health triage
 python3 -m harness.cli remote triage laptop

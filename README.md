@@ -3,19 +3,22 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# PSL Harness for Google Antigravity™ (`psl-agy-harness`)
+# Agyis Harness for Google Antigravity™ (agyis-harness)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity-4285F4.svg)](https://antigravity.google)
 [![Status](https://img.shields.io/badge/Status-Active_Development_(Research_&_POC)-orange.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-401%2F401_Passing_(100%25)-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-574%2F574_Passing_(100%25)-brightgreen.svg)]()
 
 > An open-source empirical audit pipeline and reference extension harness for **Google Antigravity™** by **Purrfect Software Limited (PSL)** under the **Apache-2.0** license.
 
 ---
 
 > [!NOTE]
-> **Project State Notice**: This repository has completed empirical ingestion of **722 real-world developer sessions (219,292 steps, 160,226 tool calls)**, verified isolated lifecycle hooks, codified hermetic testing contracts (401 passing tests in <1.0s), and packaged the unified 13-command `psl` developer CLI suite. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
+> **Project State Notice**: This repository has completed empirical ingestion of **722 real-world developer sessions (219,292 steps, 160,226 tool calls)**, verified isolated lifecycle hooks, codified hermetic testing contracts (574 passing tests in <1.0s), and packaged the unified 15-command `agyis` developer CLI suite. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
+
+> [!IMPORTANT]
+> **CLI Nomenclature & Backward-Compatibility Lifecycle**: The primary CLI executable is **`agyis`**. The legacy command **`psl`** is maintained as a backward-compatible alias with an active deprecation lifecycle (emitting `DeprecationWarning: 'psl' is deprecated and will be removed in 3 months. Use 'agyis' instead.` to `stderr`). All scripts, documentation, and workflows should use `agyis`.
 
 ---
 
@@ -55,31 +58,31 @@ From our automated audit of **722 developer sessions** (`data/telemetry.db`):
 
 ### 1. Workstation-Wide Setup (Global Plugin & CLI)
 
-The global installation deploys the reference harness plugin into Antigravity surfaces, registers the unified `psl` CLI in `~/.local/bin`, and activates deterministic lifecycle hooks.
+The global installation deploys the reference harness plugin into Antigravity surfaces, registers the unified `agyis` CLI in `~/.local/bin` (with backward-compatible alias `psl`), and activates deterministic lifecycle hooks.
 
 #### Option A: Source / Developer Install (Recommended for Development)
 ```bash
-git clone https://github.com/kuasha420/psl-agy-harness.git
-cd psl-agy-harness
+git clone https://github.com/kuasha420/agyis-harness.git
+cd agyis-harness
 
-# Install plugin into Antigravity surfaces and register 'psl' in ~/.local/bin
-./psl install --all-surfaces
+# Install plugin into Antigravity surfaces and register 'agyis' in ~/.local/bin
+./agyis install --all-surfaces
 
 # Verify workstation health, active hooks & runtimes
-psl doctor
-psl status
+agyis doctor
+agyis status
 ```
 
 #### Option B: Standalone / Zero-Clone Install (`uv tool`)
 ```bash
 # Install the standalone CLI executable into an isolated environment
-uv tool install git+https://github.com/kuasha420/psl-agy-harness.git
+uv tool install git+https://github.com/kuasha420/agyis-harness.git
 
 # Deploy plugin bundle to Antigravity surfaces
-psl install --copy --all-surfaces
+agyis install --copy --all-surfaces
 
 # Verify installation
-psl doctor
+agyis doctor
 ```
 
 ---
@@ -94,20 +97,20 @@ From inside any project repository, you can synchronize all skills or selectivel
 cd /path/to/my-project
 
 # 1. Sync tailored to your tech stack (auto-detects package.json, pyproject.toml, Cargo.toml, go.mod)
-psl skills --sync --stack auto
+agyis skills --sync --stack auto
 
 # 2. Or sync by explicit stack preset (python, typescript, rust, go, systems, shell, backend)
-psl skills --sync --stack python
+agyis skills --sync --stack python
 
 # 3. Or sync by functional group preset (stack, testing/runners, ops/workstation, workflow/ladder)
-psl skills --sync --group ops
+agyis skills --sync --group ops
 
 # 4. Or sync specific skills by name
-psl skills psl-stack-python --sync
-psl skills --sync --skills "psl-stack-shell, audio-ops, git-worktree-ops"
+agyis skills psl-stack-python --sync
+agyis skills --sync --skills "psl-stack-shell, audio-ops, git-worktree-ops"
 
 # 5. Or sync all 23 modular skills
-psl skills --sync
+agyis skills --sync
 ```
 *Tip: You can also author custom project-specific skills by placing a `SKILL.md` directly into `.agents/skills/<skill-name>/SKILL.md`.*
 
@@ -115,22 +118,32 @@ psl skills --sync
 Generate specialist agent personas that automatically ground themselves into your repository's detected languages (`pyproject.toml`, `package.json`, `Cargo.toml`), test runners, key commands, and invariants:
 ```bash
 # Scaffold a project-specific builder / implementer agent
-psl agents create my-builder --archetype executioner --scope project
+agyis agents create my-builder --archetype executioner --scope project
 
 # Or synchronize the full specialist roster into <my-project>/.agents/agents/
-psl agents --sync
+agyis agents --sync
 ```
 
 #### Step 3: Configure Project Tooling & Hermetic Runtimes
-- **Automatic `.venv` Promotion**: When you execute `psl` inside a project containing a local Python virtual environment (`.venv/`), the launcher automatically promotes execution to `.venv/bin/python`.
+- **Automatic `.venv` Promotion**: When you execute `agyis` inside a project containing a local Python virtual environment (`.venv/`), the launcher automatically promotes execution to `.venv/bin/python`.
 - **Project Environment Diagnostics**:
   ```bash
-  psl doctor                               # Audits project against 3-tier runtime matrix
-  psl doctor --heal                        # Zero-sudo user-space repair if tools missing
+  agyis doctor                               # Audits project against 3-tier runtime matrix
+  agyis doctor --heal                        # Zero-sudo user-space repair if tools missing
   ```
 - **Hermetic Testing Benchmark**:
   ```bash
-  psl test                                 # Executes tests in <1.0s and resets completion fences
+  agyis test                                 # Executes tests in <1.0s and resets completion fences
+  ```
+
+#### Step 4: Workspace Initialization & Rule Harmonization
+- **Project Initialization**:
+  ```bash
+  agyis init                                 # Auto-detects tech stack and scaffolds .agents/ with tagged rules
+  ```
+- **Harmonize Legacy Configurations**:
+  ```bash
+  agyis harmonize                            # Migrates legacy .agent/ to .agents/ and upgrades tagged rules
   ```
 
 ---
@@ -146,7 +159,7 @@ The Antigravity engine and PSL Harness operate on a strict **3-Tier Precedence H
 [Layer 2: Workstation User] (~/.gemini/antigravity/, ~/.gemini/config/)
          │ (Overrides bundled plugin defaults)
          ▼
-[Layer 1: Global Plugin] (~/.gemini/config/plugins/psl-agy-harness/ or harness/) -- DEFAULT FALLBACK
+[Layer 1: Global Plugin] (~/.gemini/config/plugins/agyis-harness/ or harness/) -- DEFAULT FALLBACK
 ```
 
 #### Component Comparison Matrix
@@ -156,36 +169,41 @@ The Antigravity engine and PSL Harness operate on a strict **3-Tier Precedence H
 | **Modular Skills** | `~/.gemini/config/skills/`<br>or bundled in plugin | `<project>/.agents/skills/<skill>/SKILL.md` | **Layer 3 > 2 > 1**: A local skill in `.agents/skills/` overrides any global skill with the same name. |
 | **Specialist Agents** | `~/.gemini/config/agents/<name>.md`<br>or bundled in plugin | `<project>/.agents/agents/<name>.md` | **Layer 3 > 2 > 1**: Scaffolds automatically ground into local package manifests; local agents take precedence. |
 | **Agent Rules** | `~/.gemini/config/AGENTS.md`<br>`~/.gemini/config/rules/*.md` | `<project>/AGENTS.md`<br>`<project>/.agents/rules/*.md` | **Layer 3 > 2**: Local project rules take precedence, providing repository-specific constraints on top of global standards. |
-| **Developer CLI & Launcher** | `~/.local/bin/psl`<br>`~/.gemini/antigravity/bin/psl` | `./psl` in repo root | Global launcher is universally available in `$PATH`; auto-promotes to project `.venv` when run inside a repo. |
-| **Tooling & Runtimes** | System `$PATH`, `uv` global python | Project `.venv`, `node_modules` | Project virtual environments take priority during task execution; `psl doctor` audits local versions. |
+| **Developer CLI & Launcher** | `~/.local/bin/agyis`<br>`~/.gemini/antigravity/bin/agyis` | `./agyis` in repo root | Global launcher is universally available in `$PATH`; auto-promotes to project `.venv` when run inside a repo. |
+| **Tooling & Runtimes** | System `$PATH`, `uv` global python | Project `.venv`, `node_modules` | Project virtual environments take priority during task execution; `agyis doctor` audits local versions. |
 | **Lifecycle Hooks** | Global `hooks.json` across surfaces | Project `hooks.json` | Deterministic fail-safe runner intercepts tool calls across all sessions. |
-| **Git Hygiene & State** | `~/.local/state/psl/` | `.git/info/exclude` | `psl install` configures `.git/info/exclude` so untracked local state never pollutes git status. |
+| **Git Hygiene & State** | `~/.local/state/agyis/` | `.git/info/exclude` | `agyis install` configures `.git/info/exclude` so untracked local state never pollutes git status. |
 
 ---
 
 ## 🏛️ Verified POC Components
 
-### 1. Unified Developer CLI (`psl`)
+### 1. Unified Developer CLI (`agyis`)
 Provides a single modular CLI entrypoint for diagnostics, tests, hooks, and mesh operations (see [docs/official-specs/cli-palette.md](docs/official-specs/cli-palette.md)):
-- `psl doctor [--matrix <path>] [--heal] [--json]`: Workstation environment diagnostic & zero-sudo auto-healing.
-- `psl hook <hook_name>`: Deterministic lifecycle hook dispatcher via fail-safe runner.
-- `psl test [-v] [-s <dir>]`: Sub-second hermetic project test runner (<1.0s benchmark, 401 tests).
-- `psl audit [stage] [options]`: Empirical telemetry laboratory extraction & analytical pipelines.
-- `psl skills [name] [--sync] [--json]`: Discover, inspect, and synchronize modular product skills.
-- `psl agents [name|action] [options]`: Specialist subagent catalog, scaffolding, validation & rehydration.
-- `psl subagents [--json] [--brain-dir <dir>]`: Live active subagents status table & context health gauges.
-- `psl status`: Unified system health, active hooks, attention horizon, skills & agents overview.
-- `psl remote <exec|script|triage|socket>`: SSH-multiplexed remote mesh execution and triage (ADR-027).
-- `psl auth <login|status|logout>`: GitHub organization credential management for centralized telemetry.
-- `psl sync [options]`: Bi-directional telemetry synchronization with central hub (ADR-030).
-- `psl install [-g|--global] [--symlink|--copy]`: Global plugin and standalone CLI installation.
-- `psl uninstall [--target <path>]`: Clean global plugin uninstallation without collateral damage.
+- `agyis doctor [--matrix <path>] [--heal] [--json]`: Workstation environment diagnostic & zero-sudo auto-healing.
+- `agyis hook <hook_name>`: Deterministic lifecycle hook dispatcher via fail-safe runner.
+- `agyis test [-v] [-s <dir>]`: Sub-second hermetic project test runner (<1.0s benchmark, 574 tests).
+- `agyis audit [stage] [options]`: Empirical telemetry laboratory extraction & analytical pipelines.
+- `agyis skills [name] [--sync] [--json]`: Discover, inspect, and synchronize modular product skills.
+- `agyis agents [name|action] [options]`: Specialist subagent catalog, scaffolding, validation & rehydration.
+- `agyis subagents [--json] [--brain-dir <dir>]`: Live active subagents status table & context health gauges.
+- `agyis status`: Unified system health, active hooks, attention horizon, skills & agents overview.
+- `agyis remote <exec|script|triage|socket>`: SSH-multiplexed remote mesh execution and triage (ADR-027).
+- `agyis auth <login|status|logout>`: GitHub organization credential management for centralized telemetry.
+- `agyis sync [options]`: Bi-directional telemetry synchronization with central hub (ADR-030).
+- `agyis init [path] [-s <stack>]`: Initialize workspace project with stack skills & tagged rules.
+- `agyis harmonize [path] [--dry-run]`: Harmonize legacy `.agent/` and PSL-HARNESS rules into `.agents/`.
+- `agyis install [-g|--global] [--symlink|--copy]`: Global plugin and standalone CLI installation.
+- `agyis uninstall [--target <path>]`: Clean global plugin uninstallation without collateral damage.
+
+> *Note: `psl` remains available as a backward-compatible alias with a deprecation notice.*
 
 ```bash
-python3 -m harness.cli --help
+agyis --help
+# or: python3 -m harness.cli --help
 ```
 
-### 2. Workstation Diagnostic Engine (`psl doctor`)
+### 2. Workstation Diagnostic Engine (`agyis doctor`)
 Audits the host environment against the 3-Tier Telemetry-Scaffolded Matrix ([matrix.json](harness/runtime/matrix.json)):
 - **Tier 1 (Languages)**: Python >= 3.12 (PEP 701 f-string support), Node >= 20, `uv`, `pnpm`.
 - **Tier 2 (Core SWE CLI)**: `git >= 2.38`, `gh >= 2.30`, `ripgrep >= 13.0`, `fd >= 8.7`.
@@ -193,7 +211,7 @@ Audits the host environment against the 3-Tier Telemetry-Scaffolded Matrix ([mat
 - **Auto-Healing (`--heal`)**: Provisions user-space runtimes via `uv` with zero sudo and zero host pollution.
 
 ```bash
-python3 -m harness.cli doctor
+agyis doctor
 ```
 
 ### 3. PreToolUse Command Safety & Hermetic Runtime Hook
@@ -204,7 +222,7 @@ Implements deterministic terminal guards before commands reach the subshell:
 - **Interactive Pager Suppression**: Enforces `PAGER=cat` on git and gh commands.
 
 ### 4. PreToolUse Anti-Loop Guard Hook
-Tracks consecutive executions per conversation ID in `/tmp/psl_agy_harness_state/`:
+Tracks consecutive executions per conversation ID in `/tmp/agyis_harness_state/` (or `/tmp/psl_agy_harness_state/`):
 - Intercepts and denies execution after 3 identical consecutive calls.
 - Forces agent reasoning shifts before runaway thrashing occurs.
 
@@ -216,14 +234,15 @@ Tracks consecutive executions per conversation ID in `/tmp/psl_agy_harness_state
 
 ## 🧪 Verification & Test Suite
 
-All 401 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-015 benchmark):
+All 574 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-015 benchmark):
 
 ```bash
-python3 -m harness.cli test
+./agyis test
+# or: python3 -m harness.cli test
 ```
 
 ```text
-Ran 401 tests in 0.963s
+Ran 574 tests in 0.985s
 OK
 ```
 

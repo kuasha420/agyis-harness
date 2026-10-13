@@ -7,7 +7,7 @@
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
-**Repository**: `kuasha420/psl-agy-harness` (Private Development → Public Release)  
+**Repository**: `kuasha420/agyis-harness` (Private Development → Public Release)  
 **Last Updated**: 2026-10-10  
 
 ---
@@ -97,7 +97,7 @@ The mission of PAH is not merely defensive error mitigation; it is **actively co
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                   THE PROJECT (Development & Empirical Lab)            │
-│ Local repository workspace (kuasha420/psl-agy-harness):               │
+│ Local repository workspace (kuasha420/agyis-harness):               │
 │ - Telemetry Database (data/telemetry.db: 348 sessions, 140k steps)     │
 │ - Analysis Pipelines (pipeline/extract_*.py, analyze_*.py)             │
 │ - Project Test Suite (tests/: hermetic unit & contract tests)          │

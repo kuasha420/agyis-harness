@@ -24,7 +24,7 @@ def generate_systemd_service(
     work_dir = str(working_dir) if working_dir else str(Path.home())
     return f"""[Unit]
 Description=PSL Telemetry Background Sync Watcher
-Documentation=https://github.com/kuasha420/psl-agy-harness
+Documentation=https://github.com/kuasha420/agyis-harness
 After=network-online.target
 Wants=network-online.target
 

@@ -44,40 +44,40 @@ Run these sequential steps in your terminal to complete onboarding and synchroni
 ### Step 1: Clone the Repository
 ```bash
 # Clone to your standard Dev directory
-git clone https://github.com/kuasha420/psl-agy-harness.git ~/Dev/psl-agy-harness
-cd ~/Dev/psl-agy-harness
+git clone https://github.com/kuasha420/agyis-harness.git ~/Dev/agyis-harness
+cd ~/Dev/agyis-harness
 ```
 
 ### Step 2: Install Global Toolchain & Plugin
 ```bash
-./psl install --global
+./agyis install --global
 ```
 - **What this does**:
-  1. Registers and symlinks the harness plugin to `~/.gemini/config/plugins/psl-agy-harness/`.
-  2. Installs the standalone executable to `~/.local/bin/psl` (`chmod 0755`), ensuring `psl` is available everywhere in `$PATH`.
-  3. Registers the harness plugin so Google Antigravity discovers all lifecycle hooks, modular skills, and specialist subagents globally. *(To symlink skills directly into a local workspace's `.agents/skills/`, run `psl skills --sync`).*
+  1. Registers and symlinks the harness plugin to `~/.gemini/config/plugins/agyis-harness/`.
+  2. Installs the standalone executable to `~/.local/bin/agyis` and backward-compatible alias `~/.local/bin/psl` (`chmod 0755`), ensuring `agyis` is available everywhere in `$PATH`.
+  3. Registers the harness plugin so Google Antigravity discovers all lifecycle hooks, modular skills, and specialist subagents globally. *(To symlink skills directly into a local workspace's `.agents/skills/`, run `agyis skills --sync`).*
 - **Verification**:
   ```bash
-  which psl
-  # Expected: ~/.local/bin/psl or /home/<user>/.local/bin/psl
+  which agyis
+  # Expected: ~/.local/bin/agyis or /home/<user>/.local/bin/agyis
   ```
-  *(If `command not found: psl`, ensure `~/.local/bin` is in your `$PATH` by adding `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` or `~/.zshrc`).*
+  *(If `command not found: agyis`, ensure `~/.local/bin` is in your `$PATH` by adding `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` or `~/.zshrc`).*
 
 ### Step 3: Authenticate via GitHub CLI
 Authenticate against the centralized telemetry hub with zero interactive copy-pasting:
 ```bash
-psl auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
+agyis auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
 ```
 - **Verification**:
   ```bash
-  psl auth status
+  agyis auth status
   ```
   *(Confirms `Authenticated: Yes`, username, and active organization membership).*
 
 ### Step 4: Harvest Existing Local History
 Ingest all historical Antigravity transcripts stored on your workstation:
 ```bash
-psl audit extract
+agyis audit extract
 ```
 - **What this does**:
   - Automatically crawls `~/.gemini/antigravity/brain/*/` for all session transcripts.
@@ -88,11 +88,11 @@ psl audit extract
 First preview your pending sync payload:
 ```bash
 # Dry-run validation (safe inspection)
-psl sync --dry-run
+agyis sync --dry-run
 ```
 Then execute the live synchronization:
 ```bash
-psl sync
+agyis sync
 ```
 - **What this does**:
   - Partitions sessions into transactional chunks ($\le 10$ sessions or $\le 2,500$ steps per batch) to guarantee payloads pass reverse proxies without `HTTP 413` errors.
@@ -124,11 +124,11 @@ PSL enforces strict, non-negotiable security boundaries built directly into the 
 3. **Interactive & Selective Sync**:
    To inspect sessions before pushing:
    ```bash
-   psl sync --interactive
+   agyis sync --interactive
    ```
    To push without pulling peer sessions:
    ```bash
-   psl sync --push
+   agyis sync --push
    ```
 
 ---
@@ -139,17 +139,17 @@ After completing your initial sync, run harness diagnostics to verify local life
 
 ```bash
 # 1. Run environment and hook sanity diagnostics
-psl doctor
+agyis doctor
 
 # 2. View local harness overview and telemetry count
-psl status
+agyis status
 ```
 
 ---
 
 ## 5. Troubleshooting & FAQ
 
-### Q1: `psl auth login` fails with `Error 403: User is not an authorized member of the organization`
+### Q1: `agyis auth login` fails with `Error 403: User is not an authorized member of the organization`
 - **Cause**: Your GitHub account is not an active member of `purrfectsoft` or SSO authorization is pending.
 - **Solution**:
   1. Check organization membership: `gh api user/orgs --jq '.[].login'`.
@@ -160,19 +160,19 @@ psl status
 - **Solution**: Pass your Personal Access Token directly via stdin or CLI argument:
   ```bash
   # Via prompt:
-  psl auth login --endpoint https://psl-harness.infra.purrfecthq.com
+  agyis auth login --endpoint https://psl-harness.infra.purrfecthq.com
 
   # Via pipe:
-  echo "YOUR_GITHUB_PAT" | psl auth login --endpoint https://psl-harness.infra.purrfecthq.com
+  echo "YOUR_GITHUB_PAT" | agyis auth login --endpoint https://psl-harness.infra.purrfecthq.com
   ```
 
-### Q3: `psl sync` fails with `FileNotFoundError` or reports `0 sessions pushed`
-- **Cause**: Transcripts have not been extracted into SQLite yet. (Under ADR-030 path resolution, if `data/telemetry.db` has not been initialized yet, `psl sync` raises an explicit `FileNotFoundError` to prevent phantom empty database creation; if an empty database exists, it reports `0 sessions pushed`).
+### Q3: `agyis sync` fails with `FileNotFoundError` or reports `0 sessions pushed`
+- **Cause**: Transcripts have not been extracted into SQLite yet. (Under ADR-030 path resolution, if `data/telemetry.db` has not been initialized yet, `agyis sync` raises an explicit `FileNotFoundError` to prevent phantom empty database creation; if an empty database exists, it reports `0 sessions pushed`).
 - **Solution**:
-  Run `psl audit extract` first to parse transcripts into `data/telemetry.db`, then re-run `psl sync`.
+  Run `agyis audit extract` first to parse transcripts into `data/telemetry.db`, then re-run `agyis sync`.
 
 ### Q4: How do I sync only a single specific session?
 - **Solution**:
   ```bash
-  psl sync --session-id <conversation-id>
+  agyis sync --session-id <conversation-id>
   ```

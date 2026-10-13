@@ -14,20 +14,20 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 
 ```bash
 # 🩺 Environment Diagnostics & Auto-Healing
-psl doctor                                     # Audit workstation runtimes & auto-heal
-psl status                                     # Print harness health, active hooks & telemetry
+agyis doctor                                   # Audit workstation runtimes & auto-heal
+agyis status                                   # Print harness health, active hooks & telemetry
 
 # 🧩 Skills & Subagents Discovery
-psl skills                                     # List installed modular skills & triggers
-psl agents                                     # List registered specialist subagents & tools
+agyis skills                                   # List installed modular skills & triggers
+agyis agents                                   # List registered specialist subagents & tools
 
 # 🌐 Remote Operations & Cloud/Mesh Triage (ADR-027)
-psl remote exec <target> "<cmd>"               # Multiplexed SSH with login-shell promotion
-psl remote script <target> <file>              # Stdin script streaming (zero disk footprint)
-psl remote triage <target>                     # Compact (<2KB) multi-component health report
+agyis remote exec <target> "<cmd>"             # Multiplexed SSH with login-shell promotion
+agyis remote script <target> <file>            # Stdin script streaming (zero disk footprint)
+agyis remote triage <target>                   # Compact (<2KB) multi-component health report
 
 # 📊 Empirical Telemetry Laboratory
-psl sync                                       # Audit & synchronize active session telemetry
+agyis sync                                     # Audit & synchronize active session telemetry
 ```
 
 ---

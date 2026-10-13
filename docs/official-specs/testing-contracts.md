@@ -5,11 +5,11 @@
 
 # Official Specification: Testing Contracts & Verification Architecture
 
-**Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
+**Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Scope**: Project-Internal Test Standards & Product-Delivered Testing Invariants  
-**Last Updated**: 2026-10-10  
+**Last Updated**: 2026-10-13  
 
 ---
 
@@ -29,7 +29,7 @@ To eliminate this failure mode, this specification establishes two distinct tier
 
 ## 2. Tier 1: Project-Internal Testing Contract
 
-All unit, integration, and replay tests within the `psl-agy-harness` repository (`tests/`) must strictly adhere to the following 5 invariants:
+All unit, integration, and replay tests within the `agyis-harness` repository (`tests/`) must strictly adhere to the following 5 invariants:
 
 ### A. The Hermetic Isolation Invariant
 - Tests must **never** make network calls, spawn daemon services, or mutate host-global state.
@@ -82,7 +82,8 @@ tests/
 
 Run test suite via:
 ```bash
-python3 -m harness.cli test
+agyis test
+# or: python3 -m harness.cli test
 # or standard unittest discover:
 python3 -m unittest discover -s tests -v
 ```

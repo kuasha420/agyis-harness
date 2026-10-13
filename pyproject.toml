@@ -34,10 +34,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/kuasha420/psl-agy-harness"
-Documentation = "https://github.com/kuasha420/psl-agy-harness#readme"
-Repository = "https://github.com/kuasha420/psl-agy-harness"
-"Bug Tracker" = "https://github.com/kuasha420/psl-agy-harness/issues"
+Homepage = "https://github.com/kuasha420/agyis-harness"
+Documentation = "https://github.com/kuasha420/agyis-harness#readme"
+Repository = "https://github.com/kuasha420/agyis-harness"
+"Bug Tracker" = "https://github.com/kuasha420/agyis-harness/issues"
 
 [project.optional-dependencies]
 dev = [

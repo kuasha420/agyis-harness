@@ -3,9 +3,9 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Empirical Agent Rules: PSL Harness Guidelines
+# Empirical Agent Rules: Agyis Harness Guidelines
 
-These operational rules govern cognitive behavior and human-in-the-loop alignment for **psl-agy-harness**. All deterministic environment guarantees (CPython >= 3.12 runtime injection, pager normalization, surgical grep exit sanitization, output compaction) are enforced transparently by harness hooks.
+These operational rules govern cognitive behavior and human-in-the-loop alignment for **agyis-harness** (formerly `psl-agy-harness`). All deterministic environment guarantees (CPython >= 3.12 runtime injection, pager normalization, surgical grep exit sanitization, output compaction) are enforced transparently by harness hooks.
 
 ---
 
@@ -14,13 +14,14 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 
 ```bash
 # 🧪 Verification & Testing (Hermetic, <1.0s benchmark)
+./agyis test                                   # Run complete project test suite
 python3 -m harness.cli test                    # Run complete project test suite
 python3 -m unittest discover -s tests -v        # Standard unittest runner
 
 # 🩺 Environment Diagnostics & Auto-Healing
-python3 -m harness.cli doctor                  # Audit 3-tier runtime matrix
-python3 -m harness.cli doctor --heal           # Safe zero-sudo user-space repair
-python3 -m harness.cli status                  # Print harness health, active hooks & telemetry
+agyis doctor                                   # Audit 3-tier runtime matrix
+agyis doctor --heal                            # Safe zero-sudo user-space repair
+agyis status                                   # Print harness health, active hooks & telemetry
 
 # 🪝 Lifecycle Hooks Dispatcher
 python3 -m harness.cli hook command-safety     # PreToolUse terminal safety guard
@@ -28,17 +29,17 @@ python3 -m harness.cli hook anti-loop          # PreToolUse redundant call break
 python3 -m harness.cli hook compactor          # PostToolUse 2KB output compactor
 
 # 📊 Empirical Telemetry Laboratory
-./psl sync                                     # Audit & synchronize active session into telemetry.db
-./psl audit deep                               # Dissect 30 titan sessions (>=1k steps) & Knot inception
-./psl audit volume                             # Analyze tool & command volume distributions
+./agyis sync                                   # Audit & synchronize active session into telemetry.db
+./agyis audit deep                             # Dissect 30 titan sessions (>=1k steps) & Knot inception
+./agyis audit volume                           # Analyze tool & command volume distributions
 python3 -m harness.cli audit all               # Run full extraction, classification & summary
 python3 -m harness.cli audit extract           # Ingest ~/.gemini/antigravity transcripts to telemetry.db
 python3 -m harness.cli audit classify          # Categorize trajectories into WHAT_WORKED / WHAT_FAILED
 python3 -m harness.cli audit inventory         # Catalog plugins, skills, hooks & MCP servers
 
 # 🧩 Skills & Subagents Discovery
-python3 -m harness.cli skills                  # List installed modular skills & triggers
-python3 -m harness.cli agents                  # List registered specialist subagents & tools
+agyis skills                                   # List installed modular skills & triggers
+agyis agents                                   # List registered specialist subagents & tools
 
 # 🛠️ Workstation & Remote Modular Skills
 # storage-ops:      Bounded disk triage (`du -h -d 1`), pacman cache (`paccache -r`), journalctl vacuum, Docker prune, Btrfs, ntfs3
@@ -51,12 +52,12 @@ python3 -m harness.cli agents                  # List registered specialist suba
 # git-worktree-ops: Isolated worktree lifecycle, branch cleanup, orphan prune, stash hygiene, index.lock recovery
 
 # 🌐 Remote Operations & Cloud/Mesh Triage (ADR-027)
-python3 -m harness.cli remote exec <target> "<cmd>"    # Multiplexed SSH with login-shell promotion
-python3 -m harness.cli remote script <target> <file>   # Stdin script streaming (zero disk footprint)
-python3 -m harness.cli remote script <target> <file> --stage # Staged execution with trap cleanup
-python3 -m harness.cli remote triage <target>          # Compact (<2KB) multi-component health report
-python3 -m harness.cli remote socket status            # List active OpenSSH ControlMaster sockets
-python3 -m harness.cli remote socket cleanup           # Remove active ControlMaster sockets
+agyis remote exec <target> "<cmd>"             # Multiplexed SSH with login-shell promotion
+agyis remote script <target> <file>            # Stdin script streaming (zero disk footprint)
+agyis remote script <target> <file> --stage    # Staged execution with trap cleanup
+agyis remote triage <target>                   # Compact (<2KB) multi-component health report
+agyis remote socket status                     # List active OpenSSH ControlMaster sockets
+agyis remote socket cleanup                    # Remove active ControlMaster sockets
 ```
 
 ---
