@@ -158,8 +158,6 @@ def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
         if "test" not in commands:
             has_pytest = (
                 "pytest" in tools
-                or (ws / "tests").is_dir()
-                or (ws / "test").is_dir()
                 or (ws / "pytest.ini").is_file()
                 or (ws / "setup.cfg").is_file()
             )
@@ -167,6 +165,8 @@ def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
                 commands["test"] = f"{prefix}pytest"
             elif (ws / "tests").is_dir():
                 commands["test"] = f"{prefix}python3 -m unittest discover -s tests -v"
+            elif (ws / "test").is_dir():
+                commands["test"] = f"{prefix}python3 -m unittest discover -s test -v"
 
         if "lint" not in commands:
             if "ruff" in tools:

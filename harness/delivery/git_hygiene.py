@@ -20,7 +20,7 @@ from harness.delivery.constants import GIT_EXCLUDE_PATTERNS
 
 def configure_git_exclude(workspace_root: Path) -> Path:
     """
-    Ensures .agents/, .psl/, .cache/, and scratch/ are excluded from git.
+    Ensures .agents/artifacts/, .agents/teamwork/, .agents/archive/, *.patch, .agyis/, .psl/, .cache/, and scratch/ are excluded from git.
 
     Correctly recognizes worktrees where .git is a file containing:
         gitdir: <common_gitdir>/worktrees/<name>
@@ -76,7 +76,7 @@ def configure_git_exclude(workspace_root: Path) -> Path:
         with open(exclude_file, "a", encoding="utf-8") as f:
             if existing_lines and existing_lines[-1] != "":
                 f.write("\n")
-            f.write("# PSL Harness Ignored Directories\n")
+            f.write("# Agyis Harness Ignored Directories & Patterns\n")
             for pat in lines_to_add:
                 f.write(f"{pat}\n")
 
@@ -101,6 +101,8 @@ def verify_zero_git_pollution(workspace_root: Path) -> List[str]:
         "__pycache__",
         ".coverage*",
         ".pytest_cache",
+        "*.patch",
+        "*.tar.gz",
     ]
 
     polluting_files: List[str] = []
@@ -129,6 +131,8 @@ def verify_zero_git_pollution(workspace_root: Path) -> List[str]:
                             or "verification_state_" in base_name
                             or base_name.endswith(".pyc")
                             or base_name in ("__pycache__", ".coverage", ".pytest_cache")
+                            or base_name.endswith(".patch")
+                            or "legacy-agent-backup-" in base_name
                         ):
                             polluting_files.append(rel_path)
                 return sorted(polluting_files)

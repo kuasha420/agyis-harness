@@ -312,6 +312,13 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_harm.add_argument("path", nargs="?", default=None, help="Target workspace path (defaults to current directory)")
     p_harm.add_argument("--dry-run", action="store_true", help="Preview harmonization actions without modifying files")
     p_harm.add_argument("--json", action="store_true", help="Output harmonization report in JSON format")
+    p_harm.add_argument("--prune-legacy", action="store_true", help="Safely remove or git-rm legacy .agent/ directory after successful migration")
+    p_harm.add_argument("--clean-agent-dir", action="store_true", help="Alias for --prune-legacy")
+    p_harm.add_argument("--backup", action="store_true", default=True, help="Create compressed archive of legacy .agent/ before pruning (default: true)")
+    p_harm.add_argument("--no-backup", action="store_true", help="Disable archival before pruning")
+    p_harm.add_argument("--backup-dir", "--archive-dir", dest="backup_dir", type=Path, default=None, help="Destination directory for backup archive (default: <workspace>/.agents/archive/)")
+    p_harm.add_argument("--stack", type=str, default=None, help="Provision stack skills immediately following harmonization")
+    p_harm.add_argument("--skills", type=str, default=None, help="Comma-separated list of explicit modular skills to install")
 
     # install
     p_install = subparsers.add_parser(

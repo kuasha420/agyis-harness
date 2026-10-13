@@ -21,10 +21,23 @@ def cmd_harmonize(args: argparse.Namespace) -> int:
     """Harmonizes legacy .agent/ configuration and tagged rules into modern .agents/ structure."""
     target_ws = Path(args.path) if getattr(args, "path", None) else Path.cwd()
     dry_run = bool(getattr(args, "dry_run", False))
+    prune_legacy = bool(getattr(args, "prune_legacy", False) or getattr(args, "clean_agent_dir", False))
+    no_backup = bool(getattr(args, "no_backup", False))
+    backup = bool(getattr(args, "backup", True)) and not no_backup
+    backup_dir_val = getattr(args, "backup_dir", None) or getattr(args, "archive_dir", None)
+    archive_dir = Path(backup_dir_val) if backup_dir_val else None
+    stack = getattr(args, "stack", None)
+    skills_raw = getattr(args, "skills", None)
+    skills = [s.strip() for s in skills_raw.split(",") if s.strip()] if skills_raw else None
 
     res = harmonize_workspace(
         workspace_dir=target_ws,
         dry_run=dry_run,
+        prune_legacy=prune_legacy,
+        backup=backup,
+        archive_dir=archive_dir,
+        stack=stack,
+        skills=skills,
     )
 
     if getattr(args, "json", False):
@@ -57,6 +70,21 @@ def cmd_harmonize(args: argparse.Namespace) -> int:
         "already_up_to_date": "AGENTS.md tagged block is already up-to-date",
     }.get(res.rules_action, res.rules_action)
     print(f"  • Rules: {rules_desc}")
+
+    if res.pruned_legacy:
+        verb = "Would prune" if res.dry_run else "Pruned"
+        print(f"  • Legacy cleanup: {verb} .agent/ directory")
+        if res.backup_archive:
+            verb_arch = "Would archive" if res.dry_run else "Archived"
+            file_count = res.backup_manifest.get("file_count", len(res.backup_manifest.get("files", []))) if res.backup_manifest else 0
+            print(f"  • Backup archive: {verb_arch} to {res.backup_archive} ({file_count} files)")
+        if res.untracked_debris_cleaned:
+            verb_deb = "Would clean" if res.dry_run else "Cleaned"
+            print(f"  • Untracked debris: {verb_deb} {len(res.untracked_debris_cleaned)} files")
+
+    if res.skills_provisioned:
+        verb_sk = "Would provision" if res.dry_run else "Provisioned"
+        print(f"  • Skills: {verb_sk} ({len(res.skills_provisioned)}): {', '.join(res.skills_provisioned)}")
 
     if res.dry_run:
         print("  • Disk status: Zero modifications made (dry-run)")
