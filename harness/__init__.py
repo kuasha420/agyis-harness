@@ -7,4 +7,4 @@
 Agyis Harness for Google Antigravity™
 """
 
-__version__ = "1.0.0-rc2"
+__version__ = "1.0.0-rc3"
