@@ -1,7 +1,7 @@
 ---
 name: psl-test-go
 description: >-
-  Modular Go test runner skill for Google Antigravity harnesses. Codifies go test
+  Modular Go test runner skill for Agyis Harness. Codifies go test
   execution contracts, race condition detection (-race), hermetic package testing,
   and strict error-checking hygiene.
 ---
@@ -12,7 +12,7 @@ description: >-
 
 # PSL Test Skill: Go Test Runner & Hermetic Verification
 
-This skill establishes standardized execution contracts and hermetic testing standards for Go test suites across Google Antigravity harnesses.
+This skill establishes standardized execution contracts and hermetic testing standards for Go test suites across Agyis Harness.
 
 ---
 

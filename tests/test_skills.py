@@ -176,6 +176,29 @@ class TestModularSkills(unittest.TestCase):
             "Rule drift detected between harness/rules/AGENTS.md and .agents/rules/AGENTS.md",
         )
 
+    def test_skills_hygiene_and_forbidden_strings(self) -> None:
+        """Verify skill templates comply with Agyis standards:
+        - No '2>/dev/null || true' (Ground Rule 1 antipattern)
+        - No 'causes hangouts' typo
+        - No 'psl doctor' (must be 'agyis doctor')
+        - No 'Google Antigravity harnesses' (must be 'Agyis Harness')
+        """
+        forbidden_patterns = [
+            ("2>/dev/null || true", "Ground Rule 1 antipattern"),
+            ("causes hangouts", "typo in db-ops"),
+            ("psl doctor", "deprecated command prefix"),
+            ("Google Antigravity harnesses", "legacy branding string"),
+        ]
+        skills = list_skills(DEFAULT_SKILLS_DIR)
+        for skill in skills:
+            content = skill.path.read_text(encoding="utf-8")
+            for pattern, reason in forbidden_patterns:
+                self.assertNotIn(
+                    pattern,
+                    content,
+                    f"Skill '{skill.name}' at {skill.path} contains forbidden pattern '{pattern}' ({reason})",
+                )
+
     def test_subagent_ladder_skill_contract(self) -> None:
         """subagent-ladder skill must be discoverable and declare 6-stage lifecycle and swarm invariants."""
         ladder = get_skill("subagent-ladder")

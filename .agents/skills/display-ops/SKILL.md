@@ -118,6 +118,21 @@ To allow Sunshine to capture Wayland displays directly without running as root, 
 sudo setcap cap_sys_admin+ep $(command -v sunshine)
 ```
 
+> ⚠️ **Security Warning**: Granting `cap_sys_admin+ep` directly on a binary gives root-equivalent privileges to anyone who can execute or modify that binary.
+>
+> **Safer Alternatives**:
+> 1. **Systemd Unit Ambient Capabilities (Recommended)**: Run Sunshine as a user/system systemd service and grant capabilities only at runtime rather than on disk:
+>    ```ini
+>    [Service]
+>    AmbientCapabilities=CAP_SYS_ADMIN
+>    CapabilityBoundingSet=CAP_SYS_ADMIN
+>    ```
+> 2. **Path-Based Ownership & Permission Hardening**: If using `setcap`, restrict executable ownership and permissions so non-root users cannot overwrite the privileged file:
+>    ```bash
+>    sudo chown root:root $(command -v sunshine)
+>    sudo chmod 0755 $(command -v sunshine)
+>    ```
+
 ### Step 4.2: User DRM / Video Group Membership
 Ensure the local user belongs to `video` and `render` groups to access `/dev/dri/card*` and `/dev/dri/renderD*`:
 ```bash

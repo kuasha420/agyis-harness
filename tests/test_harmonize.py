@@ -42,6 +42,7 @@ from harness.delivery.constants import REPO_ROOT
 from harness.delivery.harmonize import (
     HarmonizeResult,
     harmonize_workspace,
+    sanitize_workspace_links,
     synthesize_skill_frontmatter,
 )
 from harness.delivery.workspace import (
@@ -899,6 +900,83 @@ class TestWorkspacePythonCommandExtraction(unittest.TestCase):
 
         cmds = extract_command_dictionary(self.ws)
         self.assertEqual(cmds.get("test"), "pytest")
+
+
+class TestWorkspaceLinkSanitizer(unittest.TestCase):
+    """Hermetic unit tests for recursive link sanitization (.agent/ -> .agents/)."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.ws = Path(self.temp_dir.name) / "workspace"
+        self.ws.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_sanitize_workspace_links_basic(self) -> None:
+        """sanitize_workspace_links rewrites legacy .agent/ references in .agents/ and AGENTS.md."""
+        agents_skill_dir = self.ws / ".agents" / "skills" / "demo"
+        agents_skill_dir.mkdir(parents=True, exist_ok=True)
+        skill_file = agents_skill_dir / "SKILL.md"
+        skill_file.write_text(
+            "---\nname: demo\n---\nSee [.agent/rules/r.md](.agent/rules/r.md) and `cat .agent/workflows/w.md`.\n",
+            encoding="utf-8",
+        )
+
+        root_agents = self.ws / "AGENTS.md"
+        root_agents.write_text(
+            "# Rules\nRefer to `.agent/skills/demo/SKILL.md`.\n",
+            encoding="utf-8",
+        )
+
+        sanitized = sanitize_workspace_links(self.ws)
+        self.assertEqual(len(sanitized), 2)
+
+        # Check content
+        skill_text = skill_file.read_text(encoding="utf-8")
+        self.assertNotIn(".agent/", skill_text)
+        self.assertIn(".agents/rules/r.md", skill_text)
+        self.assertIn(".agents/workflows/w.md", skill_text)
+
+        root_text = root_agents.read_text(encoding="utf-8")
+        self.assertNotIn(".agent/", root_text)
+        self.assertIn(".agents/skills/demo/SKILL.md", root_text)
+
+        # Idempotent re-run
+        sanitized_again = sanitize_workspace_links(self.ws)
+        self.assertEqual(len(sanitized_again), 0)
+
+    def test_harmonize_workspace_integration_sanitizes_links(self) -> None:
+        """harmonize_workspace automatically applies sanitize_workspace_links."""
+        # Existing skill in .agents/ that has un-sanitized .agent/ reference
+        custom_skill = self.ws / ".agents" / "skills" / "custom"
+        custom_skill.mkdir(parents=True, exist_ok=True)
+        (custom_skill / "SKILL.md").write_text(
+            "---\nname: custom\n---\nSee .agent/rules/custom.md\n",
+            encoding="utf-8",
+        )
+
+        legacy_wf = self.ws / ".agent" / "workflows"
+        legacy_wf.mkdir(parents=True, exist_ok=True)
+        (legacy_wf / "deploy.md").write_text(
+            "# Deploy\nRun deployment. See .agent/rules/r.md\n",
+            encoding="utf-8",
+        )
+
+        res = harmonize_workspace(self.ws, prune_legacy=True)
+        self.assertTrue(res.success)
+        self.assertTrue(len(res.sanitized_files) > 0)
+        self.assertIn(".agents/skills/custom/SKILL.md", res.sanitized_files)
+
+        custom_text = (custom_skill / "SKILL.md").read_text(encoding="utf-8")
+        self.assertNotIn(".agent/rules/custom.md", custom_text)
+        self.assertIn(".agents/rules/custom.md", custom_text)
+
+        migrated_skill = self.ws / ".agents" / "skills" / "deploy" / "SKILL.md"
+        self.assertTrue(migrated_skill.is_file())
+        content = migrated_skill.read_text(encoding="utf-8")
+        self.assertNotIn(".agent/rules/r.md", content)
+        self.assertIn(".agents/rules/r.md", content)
 
 
 if __name__ == "__main__":

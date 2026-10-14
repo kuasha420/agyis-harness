@@ -38,6 +38,9 @@ from harness.delivery.workspace import (
     TAG_END,
     TAG_START,
     TAGGED_BLOCK_PATTERN,
+    adapt_spdx_license,
+    detect_repository_license,
+    extract_command_descriptions,
     extract_command_dictionary,
     format_command_dictionary,
 )
@@ -56,13 +59,50 @@ def _compute_sha256(path: Path) -> str:
 def _rewrite_legacy_agent_references(text: str) -> str:
     """
     Rewrites references to legacy .agent/ paths (such as .agent/rules/, .agent/agents/,
-    .agent/workflows/, .agent/skills/) to modern .agents/ paths in markdown text.
+    .agent/workflows/, .agent/skills/, .agent/overlays/, .agent/overview.md) to modern .agents/ paths in markdown text.
+    Handles relative paths (../.agent/), link targets ([...](.agent/...)), and inline mentions.
     """
     return re.sub(
-        r"(?<![a-zA-Z0-9_/])\.agent/(rules|agents|workflows|skills)",
+        r"(?<![a-zA-Z0-9_-])\.agent/(rules|agents|workflows|skills|overlays|overview\.md|[a-zA-Z0-9_.-]+)",
         r".agents/\1",
         text,
     )
+
+
+def sanitize_workspace_links(workspace_dir: Path, dry_run: bool = False) -> List[Path]:
+    """
+    Recursively sweeps all .md files in .agents/ (rules/, overlays/, skills/, overview.md)
+    and root AGENTS.md to rewrite legacy .agent/ references to .agents/.
+    Returns a list of Path objects for all modified files.
+    """
+    ws = Path(workspace_dir).resolve()
+    modified_files: List[Path] = []
+
+    candidates: List[Path] = []
+    agents_dir = ws / ".agents"
+    if agents_dir.is_dir():
+        for p in agents_dir.rglob("*.md"):
+            if p.is_file() and not p.is_symlink():
+                if ".agents/archive" in str(p) or "archive/" in str(p):
+                    continue
+                candidates.append(p)
+
+    root_agents = ws / "AGENTS.md"
+    if root_agents.is_file() and not root_agents.is_symlink():
+        candidates.append(root_agents)
+
+    for md_path in sorted(candidates):
+        try:
+            content = md_path.read_text(encoding="utf-8", errors="replace")
+            rewritten = _rewrite_legacy_agent_references(content)
+            if rewritten != content:
+                modified_files.append(md_path)
+                if not dry_run:
+                    md_path.write_text(rewritten, encoding="utf-8")
+        except OSError:
+            pass
+
+    return modified_files
 
 
 def synthesize_skill_frontmatter(content: str, default_name: str) -> str:
@@ -120,6 +160,7 @@ class HarmonizeResult:
     backup_manifest: Optional[Dict[str, Any]] = None
     untracked_debris_cleaned: List[str] = field(default_factory=list)
     skills_provisioned: List[str] = field(default_factory=list)
+    sanitized_files: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert harmonization result to JSON-serializable dictionary."""
@@ -140,6 +181,7 @@ class HarmonizeResult:
             "backup_manifest": self.backup_manifest,
             "untracked_debris_cleaned": self.untracked_debris_cleaned,
             "skills_provisioned": self.skills_provisioned,
+            "sanitized_files": self.sanitized_files,
         }
 
 
@@ -327,6 +369,9 @@ def harmonize_workspace(
                                     message=f"Checksum verification failed for rule {dst_file}",
                                 )
 
+    # Detect repository license
+    repo_license = detect_repository_license(ws)
+
     # 4. Extract command dictionary
     cmd_dict = extract_command_dictionary(ws)
 
@@ -344,7 +389,10 @@ def harmonize_workspace(
     else:
         universal_text = "# Universal Empirical Agent Rules: Agyis Harness Guidelines"
 
-    formatted_cmds = format_command_dictionary(cmd_dict)
+    if repo_license:
+        universal_text = adapt_spdx_license(universal_text, repo_license)
+
+    formatted_cmds = format_command_dictionary(cmd_dict, workspace_dir=ws)
     if formatted_cmds:
         if "```bash\n" in universal_text:
             universal_text = universal_text.replace("```bash\n", f"```bash\n{formatted_cmds}\n\n", 1)
@@ -357,6 +405,8 @@ def harmonize_workspace(
     if rules_path.is_file():
         existing_rules = rules_path.read_text(encoding="utf-8")
         rewritten_existing = _rewrite_legacy_agent_references(existing_rules)
+        if repo_license:
+            rewritten_existing = adapt_spdx_license(rewritten_existing, repo_license)
         if TAGGED_BLOCK_PATTERN.search(rewritten_existing):
             new_rules = TAGGED_BLOCK_PATTERN.sub(tagged_block, rewritten_existing)
             if new_rules != existing_rules:
@@ -413,12 +463,20 @@ def harmonize_workspace(
                     continue
 
                 dst_sk_dir = target_skills_dir / sk_dir.name
-                dst_skill_file = dst_sk_dir / "SKILL.md"
+                is_symlink = dst_sk_dir.is_symlink()
+                real_dst_dir = dst_sk_dir.resolve() if is_symlink else dst_sk_dir
+
+                dst_skill_file = real_dst_dir / "SKILL.md"
                 src_skill_file = sk_dir / "SKILL.md"
 
                 if dst_skill_file.is_file() and src_skill_file.is_file():
+                    src_bytes = src_skill_file.read_bytes()
+                    if repo_license:
+                        src_bytes = adapt_spdx_license(
+                            src_skill_file.read_text(encoding="utf-8", errors="replace"), repo_license
+                        ).encode("utf-8")
                     try:
-                        if dst_skill_file.read_bytes() == src_skill_file.read_bytes():
+                        if dst_skill_file.read_bytes() == src_bytes:
                             continue
                     except OSError:
                         pass
@@ -426,13 +484,39 @@ def harmonize_workspace(
                 any_modified = True
                 skills_provisioned.append(sk_dir.name)
                 if not dry_run:
-                    dst_sk_dir.mkdir(parents=True, exist_ok=True)
+                    real_dst_dir.mkdir(parents=True, exist_ok=True)
                     for item in sk_dir.rglob("*"):
                         if item.is_file():
                             rel = item.relative_to(sk_dir)
-                            out_f = dst_sk_dir / rel
+                            out_f = real_dst_dir / rel
                             out_f.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(item, out_f)
+                            if repo_license and item.suffix.lower() in (".md", ".txt", ".json", ".yaml", ".yml"):
+                                file_text = item.read_text(encoding="utf-8", errors="replace")
+                                adapted = adapt_spdx_license(file_text, repo_license)
+                                out_f.write_text(adapted, encoding="utf-8")
+                            else:
+                                shutil.copy2(item, out_f)
+
+    # 7. Recursive link sanitizer pass over all .agents/**/*.md and AGENTS.md
+    sanitized_paths = sanitize_workspace_links(ws, dry_run=dry_run)
+    sanitized_files: List[str] = []
+    if sanitized_paths:
+        any_modified = True
+        sanitized_files = [str(p.relative_to(ws)) for p in sanitized_paths]
+
+    # Adapt existing skill licenses if repo_license detected
+    target_skills_dir = ws / ".agents" / "skills"
+    if repo_license and not dry_run and target_skills_dir.exists():
+        for sk_md in target_skills_dir.rglob("*.md"):
+            if sk_md.is_file():
+                try:
+                    txt = sk_md.read_text(encoding="utf-8", errors="replace")
+                    adp = adapt_spdx_license(txt, repo_license)
+                    if adp != txt:
+                        sk_md.write_text(adp, encoding="utf-8")
+                        any_modified = True
+                except OSError:
+                    pass
 
     # ---------------------------------------------------------
     # PHASE 3: ATOMIC SAFETY ARCHIVAL
@@ -553,6 +637,8 @@ def harmonize_workspace(
         action_summary.append(f"rules: {rules_action}")
     if skills_provisioned:
         action_summary.append(f"{len(skills_provisioned)} skills provisioned")
+    if sanitized_files:
+        action_summary.append(f"{len(sanitized_files)} links sanitized")
     if pruned_legacy_done:
         action_summary.append("pruned legacy .agent/")
 
@@ -579,4 +665,5 @@ def harmonize_workspace(
         backup_manifest=backup_manifest,
         untracked_debris_cleaned=untracked_debris_cleaned,
         skills_provisioned=skills_provisioned,
+        sanitized_files=sanitized_files,
     )

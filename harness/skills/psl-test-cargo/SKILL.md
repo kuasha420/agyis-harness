@@ -1,7 +1,7 @@
 ---
 name: psl-test-cargo
 description: >-
-  Modular Rust test runner skill for Google Antigravity harnesses. Codifies cargo test
+  Modular Rust test runner skill for Agyis Harness. Codifies cargo test
   execution contracts, isolated build targets, sub-second targeted testing, clippy verification,
   and panic-free test hygiene.
 ---
@@ -12,7 +12,7 @@ description: >-
 
 # PSL Test Skill: Cargo & Rust Test Runner
 
-This skill establishes standardized execution contracts and hermetic testing standards for Rust and Cargo test suites across Google Antigravity harnesses.
+This skill establishes standardized execution contracts and hermetic testing standards for Rust and Cargo test suites across Agyis Harness.
 
 ---
 

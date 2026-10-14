@@ -239,15 +239,197 @@ def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
     return commands
 
 
-def format_command_dictionary(cmd_dict: Dict[str, str]) -> str:
+def extract_command_descriptions(workspace_dir: Path) -> Dict[str, str]:
+    """
+    Infers context-aware, semantic descriptions for commands based on actual script content.
+    Prevents inaccurate static mappings (e.g. mapping 'clean' to cache cleaning when it terminates processes).
+    """
+    ws = Path(workspace_dir).resolve()
+    if not ws.exists() or not ws.is_dir():
+        return {}
+
+    descriptions: Dict[str, str] = {}
+
+    # 1. Node / TypeScript (package.json scripts inspection)
+    pkg_json = ws / "package.json"
+    if pkg_json.is_file():
+        try:
+            import json
+
+            data = json.loads(pkg_json.read_text(encoding="utf-8"))
+            raw_scripts = data.get("scripts", {})
+            if isinstance(raw_scripts, dict):
+                for verb, script_cmd in raw_scripts.items():
+                    if not isinstance(script_cmd, str):
+                        continue
+                    cmd_lower = script_cmd.lower()
+                    if verb == "clean":
+                        if any(kw in cmd_lower for kw in ["pkill", "killall", "kill", "fuser", "taskkill", "zombie"]):
+                            descriptions["clean"] = "Terminate zombie sidecar/app processes"
+                        elif any(kw in cmd_lower for kw in ["rimraf", "rm -rf", "clean", "cache", "dist", "build"]):
+                            descriptions["clean"] = "Clean build artifacts & caches"
+                    elif verb == "dev":
+                        if any(kw in cmd_lower for kw in ["tauri dev", "electron", "flutter", "react-native"]):
+                            descriptions["dev"] = "Start local desktop/mobile development application"
+                    elif verb == "build":
+                        if "tauri build" in cmd_lower:
+                            descriptions["build"] = "Build application package & native binaries"
+                    elif verb == "install":
+                        if any(kw in cmd_lower for kw in ["/bin", "/usr", "~/.local", "cp "]):
+                            descriptions["install"] = "Install binary into system / user path"
+        except Exception:
+            pass
+
+    # 2. Makefile inspection
+    makefile = ws / "Makefile"
+    if makefile.is_file():
+        try:
+            content = makefile.read_text(encoding="utf-8", errors="replace")
+            target_matches = re.finditer(
+                r"^([a-zA-Z0-9_\.-]+)\s*:(?!=)[^\n]*\n((?:[ \t]+[^\n]*\n?)*)",
+                content,
+                re.MULTILINE,
+            )
+            for m in target_matches:
+                t = m.group(1)
+                recipe = m.group(2).lower()
+                if t == "clean" and "clean" not in descriptions:
+                    if any(kw in recipe for kw in ["pkill", "killall", "kill", "fuser", "zombie"]):
+                        descriptions["clean"] = "Terminate zombie processes & clean artifacts"
+                elif t == "install" and "install" not in descriptions:
+                    if any(kw in recipe for kw in ["/bin", "/usr", "~/.local", "install -m", "cp "]):
+                        descriptions["install"] = "Install binary into system path"
+                elif t == "dev" and "dev" not in descriptions:
+                    if any(kw in recipe for kw in ["cargo run", "go run", "python", "watch"]):
+                        descriptions["dev"] = "Run local development instance"
+        except Exception:
+            pass
+
+    return descriptions
+
+
+def detect_repository_license(workspace_dir: Path) -> Optional[str]:
+    """
+    Detects repository license identifier (e.g. 'MIT', 'Apache-2.0', 'BSD-3-Clause').
+    Inspects in order:
+    1. package.json ("license" field)
+    2. pyproject.toml (project.license or tool.poetry.license)
+    3. Cargo.toml (package.license)
+    4. LICENSE / LICENSE.md / LICENSE.txt / COPYING (SPDX tag or standard header match)
+    """
+    ws = Path(workspace_dir).resolve()
+    if not ws.exists():
+        return None
+
+    # 1. package.json
+    pkg_json = ws / "package.json"
+    if pkg_json.is_file():
+        try:
+            import json
+
+            data = json.loads(pkg_json.read_text(encoding="utf-8"))
+            lic = data.get("license")
+            if isinstance(lic, str) and lic.strip():
+                return lic.strip()
+            if isinstance(lic, dict) and lic.get("type"):
+                return str(lic["type"]).strip()
+        except Exception:
+            pass
+
+    # 2. pyproject.toml
+    pyproj = ws / "pyproject.toml"
+    if pyproj.is_file():
+        try:
+            import tomllib
+
+            data = tomllib.loads(pyproj.read_text(encoding="utf-8"))
+            proj = data.get("project", {})
+            lic = proj.get("license")
+            if isinstance(lic, str) and lic.strip():
+                return lic.strip()
+            if isinstance(lic, dict) and lic.get("text"):
+                return str(lic["text"]).strip()
+            poetry = data.get("tool", {}).get("poetry", {})
+            if poetry.get("license"):
+                return str(poetry["license"]).strip()
+        except Exception:
+            pass
+
+    # 3. Cargo.toml
+    cargo = ws / "Cargo.toml"
+    if cargo.is_file():
+        try:
+            content = cargo.read_text(encoding="utf-8")
+            m = re.search(r'license\s*=\s*"([^"]+)"', content)
+            if m:
+                return m.group(1).strip()
+        except Exception:
+            pass
+
+    # 4. LICENSE / LICENSE.md / LICENSE.txt / COPYING
+    for cand in [ws / "LICENSE", ws / "LICENSE.md", ws / "LICENSE.txt", ws / "COPYING"]:
+        if cand.is_file():
+            try:
+                text = cand.read_text(encoding="utf-8", errors="replace")
+                spdx_match = re.search(r"SPDX-License-Identifier:\s*([A-Za-z0-9\.\-]+)", text, re.IGNORECASE)
+                if spdx_match:
+                    return spdx_match.group(1).strip()
+                if "MIT License" in text or "Permission is hereby granted, free of charge" in text:
+                    return "MIT"
+                if "Apache License" in text and ("Version 2.0" in text or "2.0" in text):
+                    return "Apache-2.0"
+                if "BSD 3-Clause" in text:
+                    return "BSD-3-Clause"
+                if "BSD 2-Clause" in text:
+                    return "BSD-2-Clause"
+                if "Mozilla Public License" in text:
+                    return "MPL-2.0"
+                if "GNU GENERAL PUBLIC LICENSE" in text:
+                    if "Version 3" in text or "v3" in text:
+                        return "GPL-3.0"
+                    return "GPL-2.0"
+                if "ISC License" in text or "permission to use, copy, modify, and/or distribute this software" in text.lower():
+                    return "ISC"
+            except Exception:
+                pass
+
+    return None
+
+
+def adapt_spdx_license(text: str, target_license: str) -> str:
+    """
+    Replaces the SPDX-License-Identifier in text with target_license.
+    Example: '<!-- SPDX-License-Identifier: Apache-2.0 -->' -> '<!-- SPDX-License-Identifier: MIT -->'
+    """
+    if not target_license:
+        return text
+    return re.sub(
+        r"(SPDX-License-Identifier:\s*)[A-Za-z0-9\.\-]+",
+        rf"\g<1>{target_license}",
+        text,
+    )
+
+
+def format_command_dictionary(
+    cmd_dict: Dict[str, str],
+    descriptions: Optional[Dict[str, str]] = None,
+    workspace_dir: Optional[Path] = None,
+) -> str:
     """Formats the command dictionary into shell code block annotations."""
     if not cmd_dict:
         return ""
+    inferred_desc: Dict[str, str] = {}
+    if workspace_dir:
+        inferred_desc = extract_command_descriptions(workspace_dir)
+    if descriptions:
+        inferred_desc.update(descriptions)
+
     lines = ["# 🧪 Project Verification & Native Toolchain"]
     for verb, cmd in cmd_dict.items():
-        desc = STANDARD_VERB_DESCRIPTIONS.get(verb, f"Execute {verb}")
+        desc = inferred_desc.get(verb) or STANDARD_VERB_DESCRIPTIONS.get(verb, f"Execute {verb}")
         lines.append(f"{cmd:<46} # {desc}".rstrip())
     return "\n".join(lines)
+
 
 
 @dataclass
@@ -317,6 +499,9 @@ def install_workspace(
     # Command dictionary extraction
     cmd_dict = extract_command_dictionary(ws)
 
+    # Detect repository license
+    repo_license = detect_repository_license(ws)
+
     # Skills installation
     src_skills = (src / "harness" / "skills") if (src / "harness" / "skills").is_dir() else (src / "skills")
     if skills is not None:
@@ -342,13 +527,21 @@ def install_workspace(
                 continue
 
             dst_sk_dir = target_skills_dir / sk_dir.name
-            dst_skill_file = dst_sk_dir / "SKILL.md"
+            is_symlink = dst_sk_dir.is_symlink()
+            real_dst_dir = dst_sk_dir.resolve() if is_symlink else dst_sk_dir
+
+            dst_skill_file = real_dst_dir / "SKILL.md"
             src_skill_file = sk_dir / "SKILL.md"
 
             if dst_skill_file.exists() and not override:
+                src_bytes = src_skill_file.read_bytes() if src_skill_file.exists() else b""
+                if repo_license and src_skill_file.exists():
+                    src_bytes = adapt_spdx_license(
+                        src_skill_file.read_text(encoding="utf-8", errors="replace"), repo_license
+                    ).encode("utf-8")
                 is_identical = (
-                    src_skill_file.exists()
-                    and dst_skill_file.read_bytes() == src_skill_file.read_bytes()
+                    dst_skill_file.exists()
+                    and dst_skill_file.read_bytes() == src_bytes
                 )
                 if dedup and is_identical:
                     skills_skipped.append(sk_dir.name)
@@ -357,14 +550,31 @@ def install_workspace(
                 continue
 
             if not dry_run:
-                dst_sk_dir.mkdir(parents=True, exist_ok=True)
+                real_dst_dir.mkdir(parents=True, exist_ok=True)
                 for item in sk_dir.rglob("*"):
                     if item.is_file():
                         rel = item.relative_to(sk_dir)
-                        out_f = dst_sk_dir / rel
+                        out_f = real_dst_dir / rel
                         out_f.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(item, out_f)
+                        if repo_license and item.suffix.lower() in (".md", ".txt", ".json", ".yaml", ".yml"):
+                            file_text = item.read_text(encoding="utf-8", errors="replace")
+                            adapted = adapt_spdx_license(file_text, repo_license)
+                            out_f.write_text(adapted, encoding="utf-8")
+                        else:
+                            shutil.copy2(item, out_f)
             skills_installed.append(sk_dir.name)
+
+    # Adapt SPDX licenses of any existing installed skills if repository license is detected
+    if repo_license and not dry_run and target_skills_dir.exists():
+        for sk_md in target_skills_dir.rglob("*.md"):
+            if sk_md.is_file():
+                try:
+                    txt = sk_md.read_text(encoding="utf-8", errors="replace")
+                    adp = adapt_spdx_license(txt, repo_license)
+                    if adp != txt:
+                        sk_md.write_text(adp, encoding="utf-8")
+                except OSError:
+                    pass
 
     # Agents installation
     src_agents = (src / "harness" / "agents") if (src / "harness" / "agents").is_dir() else (src / "agents")
@@ -415,7 +625,9 @@ def install_workspace(
                 break
     if universal_rules_file.is_file():
         universal_text = universal_rules_file.read_text(encoding="utf-8").strip()
-        formatted_cmds = format_command_dictionary(cmd_dict)
+        if repo_license:
+            universal_text = adapt_spdx_license(universal_text, repo_license)
+        formatted_cmds = format_command_dictionary(cmd_dict, workspace_dir=ws)
         if formatted_cmds:
             if "```bash\n" in universal_text:
                 universal_text = universal_text.replace("```bash\n", f"```bash\n{formatted_cmds}\n\n", 1)
@@ -426,6 +638,8 @@ def install_workspace(
 
         if rules_path.exists():
             existing_rules = rules_path.read_text(encoding="utf-8")
+            if repo_license:
+                existing_rules = adapt_spdx_license(existing_rules, repo_license)
             pattern = TAGGED_BLOCK_PATTERN
             if pattern.search(existing_rules):
                 new_rules = pattern.sub(tagged_block, existing_rules)

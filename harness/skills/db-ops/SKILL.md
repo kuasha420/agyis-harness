@@ -149,7 +149,7 @@ sqlite3 -bail -batch /path/to/db.sqlite "PRAGMA busy_timeout = 5000; VACUUM;"
 When databases run inside local or remote Docker containers:
 
 ### 4.1 Non-Interactive Docker CLI Exec Invariant
-Never use `docker exec -it` in automated subagents (the `-t` allocates a pseudo-TTY which breaks pipe buffers and causes hangouts). Always use `docker exec -i` or omit `-t`:
+Never use `docker exec -it` in automated subagents (the `-t` allocates a pseudo-TTY which breaks pipe buffers and causes hangs). Always use `docker exec -i` or omit `-t`:
 ```bash
 # Query PostgreSQL container non-interactively
 docker exec -i <container_name> psql -U <user> -d <dbname> -X -v ON_ERROR_STOP=1 -c "<SQL_QUERY>"

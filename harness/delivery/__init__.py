@@ -42,6 +42,9 @@ from harness.delivery.workspace import (
     TAG_START,
     TAGGED_BLOCK_PATTERN,
     WorkspaceInstallResult,
+    adapt_spdx_license,
+    detect_repository_license,
+    extract_command_descriptions,
     extract_command_dictionary,
     format_command_dictionary,
     install_workspace,
@@ -49,6 +52,7 @@ from harness.delivery.workspace import (
 from harness.delivery.harmonize import (
     HarmonizeResult,
     harmonize_workspace,
+    sanitize_workspace_links,
 )
 
 __all__ = [
@@ -78,9 +82,13 @@ __all__ = [
     "TAG_START",
     "TAGGED_BLOCK_PATTERN",
     "WorkspaceInstallResult",
+    "adapt_spdx_license",
+    "detect_repository_license",
+    "extract_command_descriptions",
     "extract_command_dictionary",
     "format_command_dictionary",
     "install_workspace",
     "HarmonizeResult",
     "harmonize_workspace",
+    "sanitize_workspace_links",
 ]

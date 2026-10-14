@@ -1,7 +1,7 @@
 ---
 name: psl-stack-python
 description: >-
-  Hermetic Python development standards and runtime execution hygiene for Google Antigravity harnesses.
+  Hermetic Python development standards and runtime execution hygiene for Agyis Harness.
   Use when writing, testing, or executing Python scripts, lifecycle hooks, CLI commands,
   or harness components.
 ---
@@ -12,7 +12,7 @@ description: >-
 
 # PSL Stack Skill: Python Runtime Hygiene & Test Invariants
 
-This skill codifies empirical Python development standards, hermetic execution rules, and sub-second testing invariants for Google Antigravity harnesses.
+This skill codifies empirical Python development standards, hermetic execution rules, and sub-second testing invariants for Agyis Harness.
 
 ---
 

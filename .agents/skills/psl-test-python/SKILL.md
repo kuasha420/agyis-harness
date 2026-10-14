@@ -1,7 +1,7 @@
 ---
 name: psl-test-python
 description: >-
-  Modular Python test runner skill for Google Antigravity harnesses. Codifies hermetic
+  Modular Python test runner skill for Agyis Harness. Codifies hermetic
   pytest, unittest discovery, clean-room temporary directory isolation, sub-second benchmark invariants,
   and zero error-swallowing execution standards.
 ---
@@ -12,7 +12,7 @@ description: >-
 
 # PSL Test Skill: Python Test Runner & Hermetic Verification
 
-This skill establishes standardized execution contracts and hermetic benchmarking standards for Python unit and integration testing across Google Antigravity harnesses.
+This skill establishes standardized execution contracts and hermetic benchmarking standards for Python unit and integration testing across Agyis Harness.
 
 ---
 

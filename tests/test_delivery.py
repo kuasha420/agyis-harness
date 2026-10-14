@@ -44,6 +44,9 @@ from harness.delivery import (
     find_workspace_root,
     install_workspace,
     sync_surfaces,
+    adapt_spdx_license,
+    detect_repository_license,
+    extract_command_descriptions,
 )
 
 
@@ -1047,6 +1050,120 @@ class TestPluginDelivery(unittest.TestCase):
             self.assertIn("psl-test-python", data["skills_installed"])
             self.assertNotIn("psl-stack-backend", data["skills_installed"])
             self.assertNotIn("db-ops", data["skills_installed"])
+
+
+class TestDeliveryEngineRemediation(unittest.TestCase):
+    """Hermetic unit tests for Delivery Engine remediation:
+    - Dynamic license matching (MIT vs Apache-2.0)
+    - Context-aware command descriptions
+    - Knot-mesh symlink preservation in .agents/skills/<name>
+    """
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.ws = Path(self.temp_dir.name) / "workspace"
+        self.ws.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_detect_repository_license(self) -> None:
+        """detect_repository_license detects MIT and Apache-2.0 across manifests."""
+        # Non-existent dir
+        self.assertIsNone(detect_repository_license(self.ws / "nonexistent"))
+
+        # package.json
+        (self.ws / "package.json").write_text(json.dumps({"name": "pkg", "license": "MIT"}), encoding="utf-8")
+        self.assertEqual(detect_repository_license(self.ws), "MIT")
+
+        # pyproject.toml override when package.json removed
+        (self.ws / "package.json").unlink()
+        (self.ws / "pyproject.toml").write_text('[project]\nname = "py"\nlicense = "Apache-2.0"\n', encoding="utf-8")
+        self.assertEqual(detect_repository_license(self.ws), "Apache-2.0")
+
+        # Cargo.toml
+        (self.ws / "pyproject.toml").unlink()
+        (self.ws / "Cargo.toml").write_text('[package]\nname = "rs"\nlicense = "MIT OR Apache-2.0"\n', encoding="utf-8")
+        self.assertEqual(detect_repository_license(self.ws), "MIT OR Apache-2.0")
+
+        # LICENSE file fallback
+        (self.ws / "Cargo.toml").unlink()
+        (self.ws / "LICENSE").write_text("MIT License\n\nPermission is hereby granted...", encoding="utf-8")
+        self.assertEqual(detect_repository_license(self.ws), "MIT")
+
+        (self.ws / "LICENSE").write_text("Apache License\nVersion 2.0, January 2004\n...", encoding="utf-8")
+        self.assertEqual(detect_repository_license(self.ws), "Apache-2.0")
+
+    def test_adapt_spdx_license(self) -> None:
+        """adapt_spdx_license replaces SPDX identifiers appropriately."""
+        original = "# SPDX-License-Identifier: Apache-2.0\n# Copyright 2026\n"
+        adapted = adapt_spdx_license(original, "MIT")
+        self.assertIn("SPDX-License-Identifier: MIT", adapted)
+        self.assertNotIn("SPDX-License-Identifier: Apache-2.0", adapted)
+
+        # Retains Apache-2.0 when requested
+        self.assertEqual(adapt_spdx_license(original, "Apache-2.0"), original)
+
+    def test_extract_command_descriptions(self) -> None:
+        """extract_command_descriptions infers context-aware semantic descriptions."""
+        # package.json with clean = pkill, dev = tauri dev, build = tauri build
+        (self.ws / "package.json").write_text(
+            json.dumps({
+                "name": "app",
+                "scripts": {
+                    "clean": "pkill -f myapp || true",
+                    "dev": "tauri dev",
+                    "build": "tauri build",
+                }
+            }),
+            encoding="utf-8",
+        )
+        descs = extract_command_descriptions(self.ws)
+        self.assertEqual(descs.get("clean"), "Terminate zombie sidecar/app processes")
+        self.assertEqual(descs.get("dev"), "Start local desktop/mobile development application")
+        self.assertEqual(descs.get("build"), "Build application package & native binaries")
+
+    def test_symlink_aware_skill_provisioning(self) -> None:
+        """install_workspace preserves existing symlinks under .agents/skills/."""
+        # Create a mock target outside the workspace (simulating knot-mesh or shared skill)
+        shared_dir = self.ws.parent / "shared_skills" / "psl-stack-shell"
+        shared_dir.mkdir(parents=True)
+        shared_skill = shared_dir / "SKILL.md"
+        shared_skill.write_text("---\nname: psl-stack-shell\ndescription: old\n---\nOld content\n", encoding="utf-8")
+
+        # Create workspace with .agents/skills/psl-stack-shell/SKILL.md as a symlink to shared_skill
+        ws_skill_dir = self.ws / ".agents" / "skills" / "psl-stack-shell"
+        ws_skill_dir.mkdir(parents=True)
+        ws_skill = ws_skill_dir / "SKILL.md"
+        ws_skill.symlink_to(shared_skill)
+
+        self.assertTrue(ws_skill.is_symlink())
+
+        # Now install_workspace for psl-stack-shell
+        res = install_workspace(self.ws, skills=["psl-stack-shell"])
+        self.assertTrue(res.success)
+
+        # The symlink should STILL be a symlink!
+        self.assertTrue(ws_skill.is_symlink())
+        self.assertEqual(ws_skill.resolve(), shared_skill.resolve())
+
+        # And the target should have been updated with fresh content
+        content = shared_skill.read_text(encoding="utf-8")
+        self.assertIn("name: psl-stack-shell", content)
+
+    def test_dynamic_license_adaptation_in_install_workspace(self) -> None:
+        """install_workspace adapts license to MIT when repo is MIT."""
+        (self.ws / "package.json").write_text(json.dumps({"name": "mit-app", "license": "MIT"}), encoding="utf-8")
+        res = install_workspace(self.ws, skills=["psl-stack-shell"])
+        self.assertTrue(res.success)
+
+        agents_rule = self.ws / "AGENTS.md"
+        self.assertTrue(agents_rule.is_file())
+        self.assertIn("SPDX-License-Identifier: MIT", agents_rule.read_text(encoding="utf-8"))
+
+        skill_file = self.ws / ".agents" / "skills" / "psl-stack-shell" / "SKILL.md"
+        self.assertTrue(skill_file.is_file())
+        self.assertIn("SPDX-License-Identifier: MIT", skill_file.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

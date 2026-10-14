@@ -27,14 +27,15 @@ Trigger this protocol immediately upon:
 ## 2. Step-by-Step Execution Sequence
 
 ### Step 1: Clean-Room Automated Verification
-Before modifying documentation or claiming completion, execute the project test suite and verify clean exit code 0:
+Before modifying documentation or claiming completion, execute the project native test suite and verify clean exit code 0:
 ```bash
+# Execute native test suite (e.g. agyis test, pnpm test, pytest, cargo test)
 agyis test
 ```
 *Rule*: If any test fails, STOP. Do not proceed to handoff until all tests pass.
 
-### Step 2: Retroactive Horizon Compaction (`docs/taxonomy/project-ledger.md`)
-Record the completed phase in the permanent ledger:
+### Step 2: Retroactive Horizon Compaction (Project Ledger)
+Record the completed phase in the project ledger (e.g. `docs/taxonomy/project-ledger.md` or repository-configured ledger path):
 - Keep the entry **strictly under 50 lines**.
 - Record only:
   - Permanent Architectural Decisions (ADRs) with rationale.
@@ -42,8 +43,8 @@ Record the completed phase in the permanent ledger:
   - List of committed reference assets.
 - Do NOT record transient scratch logs, full error stack traces, or multi-turn transcripts (these fade into git history).
 
-### Step 3: Master Roadmap Update (`roadmap.md`)
-- Update the milestone status in `roadmap.md` (e.g. from `IN PROGRESS` to `COMPLETED`).
+### Step 3: Master Roadmap Update (Roadmap / Milestones)
+- Update the milestone status in `roadmap.md` (or project roadmap/tracking document, e.g. `ROADMAP.md` or `PROJECT.md`).
 - Realign the next upcoming milestones at **Medium Resolution** (macro milestones and architectural boundaries; do not write speculative code).
 
 ### Step 4: Walkthrough Artifact Generation

@@ -91,7 +91,7 @@ When a repository is configured with `"type": "module"` in `package.json`:
 ### 3.2 Dual Module Strategy & Migration
 - Production scripts and packages should prefer standard ESM syntax (`import`, `export`).
 - When authoring standalone CLI scripts or build tools that must use synchronous module resolution, name them explicitly with `.cjs`.
-- Automated diagnostics (`psl doctor`) enforce this invariant by auditing `.js` files for CommonJS patterns when `"type": "module"` is declared.
+- Automated diagnostics (`agyis doctor`) enforce this invariant by auditing `.js` files for CommonJS patterns when `"type": "module"` is declared.
 
 ---
 

@@ -37,7 +37,7 @@ tailscale status --json | jq -r '.Peer[] | "\(.HostName)\t\(.TailscaleIPs[0])\tO
 tailscale ping -c 2 <target_node>
 
 # Fallback: check WireGuard interface status if native wg is configured
-wg show 2>/dev/null || true
+command -v wg >/dev/null && (wg show || [ $? -eq 1 ])
 ```
 
 ### 1.3 Rapid Strand Liveness Check
@@ -61,14 +61,14 @@ Check and inspect active OpenSSH ControlMaster connection sockets:
 agyis remote socket status
 
 # Test target node reachability through active socket
-ssh -O check <target_node> 2>/dev/null && echo "Socket active" || echo "No active socket"
+ssh -O check <target_node> && echo "Socket active" || ( [ $? -eq 255 ] && echo "No active socket" )
 ```
 
 ### 2.2 Socket Cleanup
 Prune dead or hung connection sockets across `/tmp` or `~/.ssh/sockets/`:
 ```bash
 # Graceful socket exit
-ssh -O exit <target_node> 2>/dev/null || true
+ssh -O check <target_node> && ssh -O exit <target_node> || [ $? -eq 255 ]
 
 # Harness CLI socket cleanup
 agyis remote socket cleanup
@@ -117,7 +117,7 @@ rsync -azP --delete \
 In multi-agent swarm missions, coordinate state across nodes using Linda Tuplespace out-of-band directories:
 ```bash
 # Probe Tuplespace barrier state
-ssh -o BatchMode=yes <target_node> "ls -la ~/.knot/tuplespace/ 2>/dev/null || true"
+ssh -o BatchMode=yes <target_node> "[ -d ~/.knot/tuplespace ] && ls -la ~/.knot/tuplespace/"
 ```
 
 ### 4.3 KDE Connect Local Notification Dispatch

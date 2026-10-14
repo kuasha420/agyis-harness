@@ -12,7 +12,7 @@ description: >-
 
 # PSL Stack Skill: Shell Scripting & Terminal Command Hygiene
 
-This skill codifies empirical shell scripting invariants and safe command execution patterns for Google Antigravity harnesses across Linux and POSIX environments.
+This skill codifies empirical shell scripting invariants and safe command execution patterns for Agyis Harness across Linux and POSIX environments.
 
 ---
 
