@@ -1104,6 +1104,40 @@ class TestDeliveryEngineRemediation(unittest.TestCase):
         # Retains Apache-2.0 when requested
         self.assertEqual(adapt_spdx_license(original, "Apache-2.0"), original)
 
+    def test_adapt_spdx_license_compound_expressions(self) -> None:
+        """adapt_spdx_license handles compound expressions, parentheses, and boolean operators without corrupting comment tags."""
+        # Single to compound
+        s1 = "<!-- SPDX-License-Identifier: Apache-2.0 -->"
+        res1 = adapt_spdx_license(s1, "MIT OR Apache-2.0")
+        self.assertEqual(res1, "<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->")
+
+        # Compound to single
+        res2 = adapt_spdx_license(res1, "GPL-3.0")
+        self.assertEqual(res2, "<!-- SPDX-License-Identifier: GPL-3.0 -->")
+
+        # Compound with parentheses and AND operator
+        res3 = adapt_spdx_license(res2, "(MIT AND BSD-3-Clause)")
+        self.assertEqual(res3, "<!-- SPDX-License-Identifier: (MIT AND BSD-3-Clause) -->")
+
+        # C-style block comments
+        s4 = "/* SPDX-License-Identifier: MIT OR Apache-2.0 */"
+        res4 = adapt_spdx_license(s4, "Apache-2.0")
+        self.assertEqual(res4, "/* SPDX-License-Identifier: Apache-2.0 */")
+
+        # Shell / Python hash comments with compound license
+        s5 = "# SPDX-License-Identifier: MIT OR Apache-2.0\n# Next comment line\n"
+        res5 = adapt_spdx_license(s5, "GPL-3.0")
+        self.assertEqual(res5, "# SPDX-License-Identifier: GPL-3.0\n# Next comment line\n")
+
+        # WITH exception expressions
+        s6 = "<!-- SPDX-License-Identifier: GPL-2.0-only WITH Classpath-exception-2.0 -->"
+        res6 = adapt_spdx_license(s6, "MIT")
+        self.assertEqual(res6, "<!-- SPDX-License-Identifier: MIT -->")
+
+        # Empty or None target license returns unchanged
+        self.assertEqual(adapt_spdx_license(s1, ""), s1)
+        self.assertEqual(adapt_spdx_license(s1, None), s1)
+
     def test_extract_command_descriptions(self) -> None:
         """extract_command_descriptions infers context-aware semantic descriptions."""
         # package.json with clean = pkill, dev = tauri dev, build = tauri build
@@ -1131,24 +1165,26 @@ class TestDeliveryEngineRemediation(unittest.TestCase):
         shared_skill = shared_dir / "SKILL.md"
         shared_skill.write_text("---\nname: psl-stack-shell\ndescription: old\n---\nOld content\n", encoding="utf-8")
 
-        # Create workspace with .agents/skills/psl-stack-shell/SKILL.md as a symlink to shared_skill
-        ws_skill_dir = self.ws / ".agents" / "skills" / "psl-stack-shell"
-        ws_skill_dir.mkdir(parents=True)
-        ws_skill = ws_skill_dir / "SKILL.md"
-        ws_skill.symlink_to(shared_skill)
+        # In self.ws / ".agents" / "skills", create directory symlink ws_skill_dir pointing to shared_dir
+        skills_parent = self.ws / ".agents" / "skills"
+        skills_parent.mkdir(parents=True)
+        ws_skill_dir = skills_parent / "psl-stack-shell"
+        ws_skill_dir.symlink_to(shared_dir)
 
-        self.assertTrue(ws_skill.is_symlink())
+        self.assertTrue(ws_skill_dir.is_symlink())
 
-        # Now install_workspace for psl-stack-shell
-        res = install_workspace(self.ws, skills=["psl-stack-shell"])
+        # Now install_workspace for psl-stack-shell with override=True
+        res = install_workspace(self.ws, skills=["psl-stack-shell"], override=True)
         self.assertTrue(res.success)
+        self.assertIn("psl-stack-shell", res.skills_installed)
 
         # The symlink should STILL be a symlink!
-        self.assertTrue(ws_skill.is_symlink())
-        self.assertEqual(ws_skill.resolve(), shared_skill.resolve())
+        self.assertTrue(ws_skill_dir.is_symlink())
+        self.assertEqual(ws_skill_dir.resolve(), shared_dir.resolve())
 
         # And the target should have been updated with fresh content
-        content = shared_skill.read_text(encoding="utf-8")
+        content = (shared_dir / "SKILL.md").read_text(encoding="utf-8")
+        self.assertNotIn("Old content", content)
         self.assertIn("name: psl-stack-shell", content)
 
     def test_dynamic_license_adaptation_in_install_workspace(self) -> None:
@@ -1164,6 +1200,20 @@ class TestDeliveryEngineRemediation(unittest.TestCase):
         skill_file = self.ws / ".agents" / "skills" / "psl-stack-shell" / "SKILL.md"
         self.assertTrue(skill_file.is_file())
         self.assertIn("SPDX-License-Identifier: MIT", skill_file.read_text(encoding="utf-8"))
+
+    def test_dynamic_compound_license_adaptation_in_install_workspace(self) -> None:
+        """install_workspace adapts license to compound expression when repo has compound license."""
+        (self.ws / "Cargo.toml").write_text('[package]\nname = "rs"\nlicense = "MIT OR Apache-2.0"\n', encoding="utf-8")
+        res = install_workspace(self.ws, skills=["psl-stack-shell"])
+        self.assertTrue(res.success)
+
+        agents_rule = self.ws / "AGENTS.md"
+        self.assertTrue(agents_rule.is_file())
+        self.assertIn("SPDX-License-Identifier: MIT OR Apache-2.0", agents_rule.read_text(encoding="utf-8"))
+
+        skill_file = self.ws / ".agents" / "skills" / "psl-stack-shell" / "SKILL.md"
+        self.assertTrue(skill_file.is_file())
+        self.assertIn("SPDX-License-Identifier: MIT OR Apache-2.0", skill_file.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

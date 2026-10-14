@@ -371,7 +371,11 @@ def detect_repository_license(workspace_dir: Path) -> Optional[str]:
         if cand.is_file():
             try:
                 text = cand.read_text(encoding="utf-8", errors="replace")
-                spdx_match = re.search(r"SPDX-License-Identifier:\s*([A-Za-z0-9\.\-]+)", text, re.IGNORECASE)
+                spdx_match = re.search(
+                    r"SPDX-License-Identifier:\s*([^\r\n]+?)(?=\s*(?:-->|\*/|$))",
+                    text,
+                    re.IGNORECASE | re.MULTILINE,
+                )
                 if spdx_match:
                     return spdx_match.group(1).strip()
                 if "MIT License" in text or "Permission is hereby granted, free of charge" in text:
@@ -399,14 +403,16 @@ def detect_repository_license(workspace_dir: Path) -> Optional[str]:
 def adapt_spdx_license(text: str, target_license: str) -> str:
     """
     Replaces the SPDX-License-Identifier in text with target_license.
+    Handles single, compound (e.g. 'MIT OR Apache-2.0'), parenthesized, and exception SPDX expressions.
     Example: '<!-- SPDX-License-Identifier: Apache-2.0 -->' -> '<!-- SPDX-License-Identifier: MIT -->'
     """
     if not target_license:
         return text
     return re.sub(
-        r"(SPDX-License-Identifier:\s*)[A-Za-z0-9\.\-]+",
+        r"(SPDX-License-Identifier:\s*)[^\r\n]+?(?=\s*(?:-->|\*/|$))",
         rf"\g<1>{target_license}",
         text,
+        flags=re.MULTILINE,
     )
 
 
