@@ -87,6 +87,30 @@ def cmd_init(args: argparse.Namespace) -> int:
         dry_run=dry_run,
     )
 
+    exp_rea = bool(getattr(args, "experimental_rea", False))
+    if exp_rea and res.success:
+        if not dry_run:
+            cfg_file = (
+                (target_ws / ".psl" / "config.json")
+                if (target_ws / ".psl").is_dir() and not (target_ws / ".agyis").exists()
+                else (target_ws / ".agyis" / "config.json")
+            )
+            cfg_file.parent.mkdir(parents=True, exist_ok=True)
+            ws_cfg: dict = {}
+            if cfg_file.is_file():
+                try:
+                    ws_cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
+                    if not isinstance(ws_cfg, dict):
+                        ws_cfg = {}
+                except (json.JSONDecodeError, OSError):
+                    ws_cfg = {}
+            ws_cfg["experimental_rea"] = True
+            cfg_file.write_text(json.dumps(ws_cfg, indent=2) + "\n", encoding="utf-8")
+
+            # Scaffold .agents/ledger/
+            ledger_dir = target_ws / ".agents" / "ledger"
+            ledger_dir.mkdir(parents=True, exist_ok=True)
+
     if getattr(args, "json", False):
         data = {
             "success": res.success,
@@ -103,6 +127,7 @@ def cmd_init(args: argparse.Namespace) -> int:
             "command_dictionary": res.command_dictionary,
             "legacy_notice": res.legacy_notice,
             "message": res.message,
+            "experimental_rea": exp_rea,
         }
         print(json.dumps(data, indent=2))
         return 0 if res.success else 1
@@ -110,6 +135,9 @@ def cmd_init(args: argparse.Namespace) -> int:
     if res.success:
         print(f"✔ {res.message}")
         print(f"  • Stack: {res.stack}")
+        if exp_rea:
+            label = "Would scaffold" if res.dry_run else "Enabled"
+            print(f"  • REA: {label} Reverse Engineer Anything opt-in (.agents/ledger/)")
         if effective_role:
             print(f"  • Role: {effective_role}")
         if subproject:

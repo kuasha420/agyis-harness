@@ -76,6 +76,7 @@ def run_doctor(
     hooks_path: Optional[Path] = None,
     mcp_config_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
+    experimental_rea: bool = False,
 ) -> Dict[str, Any]:
     """Perform complete workstation runtime audit."""
     eff_matrix = matrix_path if matrix_path is not None else DEFAULT_MATRIX
@@ -93,7 +94,7 @@ def run_doctor(
     duplicate_agents = check_duplicate_agents(config_dir=config_dir)
     node_script_hygiene = check_node_script_hygiene(workspace_root=effective_workspace)
     hooks_health = check_hooks_health(hooks_path=hooks_path)
-    rea_tooling = check_rea_tooling(mcp_config_path=mcp_config_path)
+    rea_tooling = check_rea_tooling(mcp_config_path=mcp_config_path, experimental_rea=experimental_rea)
 
     results: Dict[str, Any] = {
         "os_family": os_family,
@@ -105,6 +106,7 @@ def run_doctor(
         "node_script_hygiene": node_script_hygiene,
         "hooks_health": hooks_health,
         "rea_tooling": rea_tooling,
+        "experimental_rea": experimental_rea,
         "tiers": {},
         "summary": {
             "total_tools": 0,
@@ -126,10 +128,16 @@ def run_doctor(
         results["summary"]["warning"] += 1
     if hooks_health.get("status") != "OK":
         results["summary"]["warning"] += 1
-    if rea_tooling.get("status") == "warning":
-        results["summary"]["warning"] += 1
-    elif rea_tooling.get("status") == "optional_missing":
-        results["summary"]["optional_missing"] += 1
+
+    if experimental_rea:
+        if rea_tooling.get("status") == "warning":
+            results["summary"]["warning"] += 1
+        elif rea_tooling.get("status") == "optional_missing":
+            results["summary"]["optional_missing"] += 1
+    else:
+        # Fast path (experimental_rea=False): strictly 0 warnings added
+        if rea_tooling.get("status") == "optional_missing":
+            results["summary"]["optional_missing"] += 1
 
     for tier_key, tier_data in matrix.get("tiers", {}).items():
         tier_results = []
@@ -247,22 +255,58 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
     rea_t = audit.get("rea_tooling")
     if rea_t:
         st = rea_t.get("status")
-        if st == "ok":
-            v = rea_t.get("version") or "unknown"
-            bin_path = rea_t.get("binary") or "rea"
-            prov_active = len((rea_t.get("providers") or {}).get("active") or [])
-            mcp_str = "Configured" if rea_t.get("mcp_configured") else "Not configured"
-            print(f" REA Tooling:         [\033[32mPASS\033[0m] -> rea {v} ({bin_path}) | Providers: {prov_active} active | MCP: {mcp_str}")
-        elif st == "optional_missing":
-            print(" REA Tooling:         [\033[34mINFO\033[0m] -> REA not detected (optional reverse engineering toolchain)")
-            if rea_t.get("remediation"):
-                print(f"    Remediation:\n      {rea_t.get('remediation')}")
-        elif st == "warning":
-            print(f" REA Tooling:         [\033[33mWARN\033[0m] -> {rea_t.get('details')}")
-            if rea_t.get("remediation"):
-                print(f"    Remediation:\n      {rea_t.get('remediation')}")
+        fast_path = rea_t.get("fast_path", False)
+        if fast_path:
+            if st == "ok":
+                print(f" REA Tooling:         [\033[32mPASS\033[0m] -> {rea_t.get('details')}")
+            else:
+                print(" REA Tooling:         [\033[34mINFO\033[0m] -> REA not detected (optional reverse engineering toolchain)")
+                if rea_t.get("remediation"):
+                    print(f"    Remediation:\n      {rea_t.get('remediation')}")
         else:
-            print(f" REA Tooling:         [\033[34mINFO\033[0m] -> {rea_t.get('details', '')}")
+            if st == "ok":
+                v = rea_t.get("version") or "unknown"
+                bin_path = rea_t.get("binary") or "rea"
+                prov_active = len((rea_t.get("providers") or {}).get("active") or [])
+                mcp_str = "Configured" if rea_t.get("mcp_configured") else "Not configured"
+                print(f" REA Tooling:         [\033[32mPASS\033[0m] -> rea {v} ({bin_path}) | Providers: {prov_active} active | MCP: {mcp_str}")
+            elif st == "optional_missing":
+                print(" REA Tooling:         [\033[34mINFO\033[0m] -> REA not detected (optional reverse engineering toolchain)")
+                if rea_t.get("remediation"):
+                    print(f"    Remediation:\n      {rea_t.get('remediation')}")
+            elif st == "warning":
+                print(f" REA Tooling:         [\033[33mWARN\033[0m] -> {rea_t.get('details')}")
+                if rea_t.get("remediation"):
+                    print(f"    Remediation:\n      {rea_t.get('remediation')}")
+            else:
+                print(f" REA Tooling:         [\033[34mINFO\033[0m] -> {rea_t.get('details', '')}")
+
+            # Deep REA diagnostics sweep
+            jdk21_val = rea_t.get("jdk21")
+            if jdk21_val:
+                print(f"   • OpenJDK 21+:     [\033[32mPASS\033[0m] -> {jdk21_val}")
+            else:
+                print("   • OpenJDK 21+:     [\033[33mWARN\033[0m] -> Not found across 7 discovery tiers (required for Ghidra)")
+
+            ghidra_val = rea_t.get("ghidra", {})
+            if ghidra_val.get("status") == "ok":
+                print(f"   • Ghidra Headless: [\033[32mPASS\033[0m] -> {ghidra_val.get('install_dir')} (analyzeHeadless ready)")
+            elif ghidra_val.get("status") == "warning":
+                print(f"   • Ghidra Headless: [\033[33mWARN\033[0m] -> {ghidra_val.get('details')}")
+            else:
+                print("   • Ghidra Headless: [\033[34mINFO\033[0m] -> Unconfigured (fallback chain active)")
+
+            hopper_val = rea_t.get("hopper", {})
+            if hopper_val.get("status") == "available":
+                print(f"   • Hopper Contract: [\033[32mPASS\033[0m] -> {hopper_val.get('details')}")
+            else:
+                print("   • Hopper Contract: [\033[34mINFO\033[0m] -> No display socket (graceful fallback to Ghidra/Rizin)")
+
+            ida_val = rea_t.get("ida", {})
+            if ida_val.get("status") == "ok":
+                print(f"   • IDA Supervisor:  [\033[32mPASS\033[0m] -> Headless batch flags (-A, -B, -o) verified ({ida_val.get('path')})")
+            else:
+                print("   • IDA Supervisor:  [\033[34mINFO\033[0m] -> Not installed (optional disassembler)")
     print("-" * 70)
 
     symbols = {
@@ -302,9 +346,14 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="Output raw JSON results")
     parser.add_argument("--heal", action="store_true", help="Execute safe user-space auto-healing")
+    parser.add_argument(
+        "--experimental-rea",
+        action="store_true",
+        help="Enable experimental Reverse Engineer Anything (REA) diagnostics and provider audit",
+    )
     args = parser.parse_args()
 
-    audit = run_doctor(args.matrix)
+    audit = run_doctor(args.matrix, experimental_rea=getattr(args, "experimental_rea", False))
 
     if args.json:
         print(json.dumps(audit, indent=2))
@@ -314,7 +363,7 @@ def main() -> int:
 
     if args.heal:
         print("\n🔧 Executing Auto-Healing...")
-        actions = heal_environment(audit, args.matrix)
+        actions = heal_environment(audit, args.matrix, experimental_rea=getattr(args, "experimental_rea", False))
         for act in actions:
             print(f"  ✔ {act}")
         print()

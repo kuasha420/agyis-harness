@@ -87,6 +87,11 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_doc.add_argument("--matrix", type=Path, default=None, help="Path to matrix.json")
     p_doc.add_argument("--heal", action="store_true", help="Execute safe user-space auto-healing")
     p_doc.add_argument("--json", action="store_true", help="Output audit report in JSON format")
+    p_doc.add_argument(
+        "--experimental-rea",
+        action="store_true",
+        help="Enable experimental Reverse Engineer Anything (REA) diagnostics and provider audit",
+    )
 
     # hook
     p_hook = subparsers.add_parser("hook", help="Run a lifecycle hook handler directly")
@@ -340,6 +345,11 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_init.add_argument("--dry-run", action="store_true", help="Simulate workspace initialization without modifications")
     p_init.add_argument("--yes", "-y", action="store_true", help="Non-interactive mode, apply defaults")
     p_init.add_argument("--json", action="store_true", help="Output result in JSON format")
+    p_init.add_argument(
+        "--experimental-rea",
+        action="store_true",
+        help="Initialize workspace with opt-in Reverse Engineer Anything (REA) support",
+    )
 
     # harmonize
     p_harm = subparsers.add_parser(
@@ -421,6 +431,11 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         action="store_true",
         help="Output structured JSON summary",
     )
+    p_onboard.add_argument(
+        "--experimental-rea",
+        action="store_true",
+        help="Onboard repository with opt-in Reverse Engineer Anything (REA) support",
+    )
 
     # install
     p_install = subparsers.add_parser(
@@ -463,6 +478,11 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_install.add_argument("--override", action="store_true", help="Force overwrite existing workspace files")
     p_install.add_argument("--no-dedup", action="store_true", help="Disable content deduplication for workspace")
     p_install.add_argument("--json", action="store_true", help="Output result in JSON format")
+    p_install.add_argument(
+        "--experimental-rea",
+        action="store_true",
+        help="Install global plugins with opt-in Reverse Engineer Anything (REA) MCP wiring",
+    )
 
     # uninstall
     p_uninstall = subparsers.add_parser(

@@ -524,7 +524,7 @@ class TestReaToolingDiagnostics(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
              patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
              patch("subprocess.run", side_effect=mock_subprocess_run):
-            res = check_rea_tooling()
+            res = check_rea_tooling(experimental_rea=True)
             self.assertEqual(res["status"], "ok")
             self.assertEqual(res["binary"], "/usr/local/bin/rea")
             self.assertEqual(res["version"], "6.5.0")
@@ -549,7 +549,7 @@ class TestReaToolingDiagnostics(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
              patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
              patch("subprocess.run", side_effect=mock_subprocess_run):
-            res = check_rea_tooling()
+            res = check_rea_tooling(experimental_rea=True)
             self.assertEqual(res["status"], "warning")
             self.assertEqual(res["version"], "5.9.1")
             self.assertIn("outdated", res["details"])
@@ -568,7 +568,7 @@ class TestReaToolingDiagnostics(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
              patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
              patch("subprocess.run", side_effect=mock_subprocess_run):
-            res = check_rea_tooling()
+            res = check_rea_tooling(experimental_rea=True)
             self.assertEqual(res["status"], "warning")
             self.assertIsNone(res["version"])
             self.assertIn("could not be determined", res["details"])
@@ -585,7 +585,7 @@ class TestReaToolingDiagnostics(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
              patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
              patch("subprocess.run", side_effect=mock_subprocess_run):
-            res = check_rea_tooling()
+            res = check_rea_tooling(experimental_rea=True)
             self.assertEqual(res["status"], "warning")
             self.assertIsNone(res["version"])
             self.assertIn("could not be determined", res["details"])
@@ -605,7 +605,7 @@ class TestReaToolingDiagnostics(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
              patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=False), \
              patch("subprocess.run", side_effect=mock_subprocess_run):
-            res = check_rea_tooling()
+            res = check_rea_tooling(experimental_rea=True)
             self.assertEqual(res["status"], "warning")
             self.assertFalse(res["mcp_configured"])
             self.assertIn("not registered", res["details"])
@@ -689,9 +689,13 @@ class TestReaToolingDiagnostics(unittest.TestCase):
 
         with patch("subprocess.run", side_effect=mock_run), \
              patch("harness.runtime.doctor.check_rea_tooling", return_value=mock_rea):
-            audit = run_doctor(DEFAULT_MATRIX)
+            audit = run_doctor(DEFAULT_MATRIX, experimental_rea=True)
             self.assertEqual(audit["rea_tooling"]["status"], "warning")
             self.assertGreaterEqual(audit["summary"]["warning"], 1)
+
+            # Conversely, when experimental_rea=False, fast-path adds 0 warnings
+            audit_fast = run_doctor(DEFAULT_MATRIX, experimental_rea=False)
+            self.assertEqual(audit_fast["summary"]["warning"], 0)
 
     def test_print_cli_report_rea_formatting_variants(self):
         """Verifies print_cli_report formats ok, optional_missing, and warning REA statuses correctly."""
@@ -798,7 +802,7 @@ class TestAdversarialReaDoctorProbing(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/bin/rea")), \
              patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
              patch("subprocess.run", side_effect=mock_timeout_version):
-            res = check_rea_tooling(timeout=0.1)
+            res = check_rea_tooling(timeout=0.1, experimental_rea=True)
             self.assertEqual(res["status"], "warning")
             self.assertIsNone(res["version"])
             self.assertIn("could not be determined", res["details"])
@@ -815,7 +819,7 @@ class TestAdversarialReaDoctorProbing(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/bin/rea")), \
              patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
              patch("subprocess.run", side_effect=mock_timeout_providers):
-            res = check_rea_tooling(timeout=0.1)
+            res = check_rea_tooling(timeout=0.1, experimental_rea=True)
             self.assertEqual(res["status"], "ok")
             self.assertEqual(res["version"], "6.1.0")
             self.assertEqual(res["providers"]["active"], [])
@@ -839,7 +843,7 @@ class TestAdversarialReaDoctorProbing(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/bin/rea")), \
              patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
              patch("subprocess.run", side_effect=mock_crash_providers):
-            res = check_rea_tooling()
+            res = check_rea_tooling(experimental_rea=True)
             self.assertEqual(res["status"], "ok")
             self.assertEqual(res["version"], "6.2.0")
             self.assertEqual(res["providers"]["active"], [])
@@ -861,7 +865,7 @@ class TestAdversarialReaDoctorProbing(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/bin/rea")), \
              patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
              patch("subprocess.run", side_effect=mock_binary_garbage):
-            res = check_rea_tooling()
+            res = check_rea_tooling(experimental_rea=True)
             self.assertEqual(res["status"], "ok")
             self.assertEqual(res["version"], "6.3.0")
             self.assertEqual(res["providers"]["active"], [])
@@ -872,7 +876,7 @@ class TestAdversarialReaDoctorProbing(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/bin/rea")), \
              patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
              patch("subprocess.run", side_effect=mock_unicode_decode_err):
-            res = check_rea_tooling()
+            res = check_rea_tooling(experimental_rea=True)
             self.assertEqual(res["status"], "warning")
             self.assertIsNone(res["version"])
 
@@ -899,7 +903,7 @@ class TestAdversarialReaDoctorProbing(unittest.TestCase):
             with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/bin/rea")), \
                  patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
                  patch("subprocess.run", side_effect=mock_ver):
-                res = check_rea_tooling()
+                res = check_rea_tooling(experimental_rea=True)
                 self.assertEqual(res["status"], expected_status, f"Failed for {stdout_val}")
                 self.assertEqual(res["version"], expected_ver, f"Wrong extracted version for {stdout_val}")
 
