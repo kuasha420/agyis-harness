@@ -50,7 +50,7 @@ def detect_project_test_runner(cwd: Union[Path, str, None] = None) -> Optional[s
       * Cargo.toml -> returns 'cargo test'
       * pyproject.toml / pytest.ini / setup.cfg -> returns 'pytest'
       * Makefile -> returns 'make test'
-      * tests/*.sh (shell test files) -> returns 'bash tests/*.sh'
+      * tests/*.sh or test/*.sh (shell test files) -> returns 'bash tests/*.sh' or 'bash test/*.sh'
     Returns None if no recognized test runner configuration is found.
     """
     if cwd is None:
@@ -106,7 +106,7 @@ def detect_project_test_runner(cwd: Union[Path, str, None] = None) -> Optional[s
             if test_dir.is_dir():
                 try:
                     if any(test_dir.glob("*.sh")):
-                        return "bash tests/*.sh"
+                        return f"bash {test_dirname}/*.sh"
                 except OSError:
                     pass
 

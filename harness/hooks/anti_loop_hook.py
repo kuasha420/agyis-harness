@@ -227,11 +227,11 @@ def check_anti_loop(
             break
 
     is_idempotent = _is_idempotent_status_command(sig)
-    effective_max_repeats = (
-        MAX_IDEMPOTENT_FREQUENCY_REPEATS
-        if is_idempotent
-        else max_repeats
-    )
+    if is_idempotent:
+        effective_max_repeats = MAX_IDEMPOTENT_FREQUENCY_REPEATS
+    else:
+        effective_max_repeats = max_repeats
+
     if repeats >= effective_max_repeats:
         return {
             "decision": "deny",
@@ -244,9 +244,19 @@ def check_anti_loop(
     # 2. Rolling frequency-window check (sliding window of 15 calls including proposed call)
     window_seq = (history + [sig])[-FREQUENCY_WINDOW:]
     freq_count = sum(1 for item in window_seq if _signatures_match(item, sig))
-    max_freq = MAX_IDEMPOTENT_FREQUENCY_REPEATS if is_idempotent else MAX_FREQUENCY_REPEATS
 
-    if freq_count > max_freq if is_idempotent else freq_count >= max_freq:
+    # Evaluate frequency limit with explicit branching:
+    # - Idempotent inspection commands: allow up to MAX_IDEMPOTENT_FREQUENCY_REPEATS (8),
+    #   denying strictly when freq_count exceeds threshold on the 9th call (> 8).
+    # - Generic commands: deny when freq_count reaches MAX_FREQUENCY_REPEATS on the 4th call (>= 4).
+    if is_idempotent:
+        max_freq = MAX_IDEMPOTENT_FREQUENCY_REPEATS
+        frequency_exceeded = freq_count > max_freq
+    else:
+        max_freq = MAX_FREQUENCY_REPEATS
+        frequency_exceeded = freq_count >= max_freq
+
+    if frequency_exceeded:
         return {
             "decision": "deny",
             "reason": (

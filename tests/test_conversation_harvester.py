@@ -405,6 +405,23 @@ class TestHarvestConversationDb(unittest.TestCase):
         self.assertIsNone(row[0])
         self.assertGreater(row[1], 5)
 
+    def test_harvest_wal_mode_enabled(self):
+        """Verifies target_db is initialized with WAL journal mode and busy timeout."""
+        src_db = self.conv_dir / "sess_wal.db"
+        t = TestExtractConversationDb()
+        t.tmpdir = self.tmpdir
+        t.db_path = src_db
+        t._create_mock_conversation_db()
+
+        harvest_conversation_db(src_db, self.target_db)
+
+        conn = sqlite3.connect(self.target_db)
+        cur = conn.cursor()
+        cur.execute("PRAGMA journal_mode")
+        mode = cur.fetchone()[0]
+        conn.close()
+
+        self.assertEqual(mode.lower(), "wal")
 
     def test_harvest_all_conversations(self):
         # Create two conversation DBs

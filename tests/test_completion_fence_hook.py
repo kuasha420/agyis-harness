@@ -150,6 +150,23 @@ class TestCompletionFenceHookDRA(unittest.TestCase):
         self.assertNotIn("harness.cli test", reason)
         self.assertIn("Execute your project test suite (bash tests/*.sh) before stopping.", reason)
 
+    def test_client_shell_test_singular_refusal_message(self):
+        """Shell tests project with test/ (singular) receives guidance with (bash test/*.sh)."""
+        test_dir = self.client_dir / "test"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        (test_dir / "test_runner.sh").touch()
+
+        conv_id = "test-client-shell-singular"
+        record_edit("bin/tool.sh", conv_id=conv_id, state_dir=self.state_dir, cwd=self.client_dir)
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.client_dir)
+        self.assertEqual(res.get("decision"), "continue")
+        reason = res.get("reason", "")
+
+        self.assertNotIn("agyis test", reason)
+        self.assertNotIn("harness.cli test", reason)
+        self.assertIn("Execute your project test suite (bash test/*.sh) before stopping.", reason)
+
     def test_client_generic_unrecognized_refusal_message(self):
         """Client workspace without recognized config falls back to generic native runners."""
         conv_id = "test-client-generic"
@@ -198,6 +215,8 @@ class TestCompletionFenceHookDRA(unittest.TestCase):
             ("sh tests/all.sh", "scripts/deploy.sh"),
             ("bash tests/*.sh", "scripts/deploy.sh"),
             ("./tests/run.sh", "scripts/deploy.sh"),
+            ("bash test/suite.sh", "scripts/deploy.sh"),
+            ("bash test/*.sh", "scripts/deploy.sh"),
         ]
 
         for cmd, file_edited in test_cases:

@@ -505,6 +505,9 @@ def harvest_conversation_db(db_path: Path, target_db: Path) -> Dict[str, Any]:
 
     conn = sqlite3.connect(target_db)
     cur = conn.cursor()
+    cur.execute("PRAGMA synchronous = NORMAL")
+    cur.execute("PRAGMA journal_mode = WAL")
+    cur.execute("PRAGMA busy_timeout = 30000")
     cur.executescript(SCHEMA_SQL)
     ensure_volume_columns(conn)
     ensure_sync_columns(conn)

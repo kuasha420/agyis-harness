@@ -166,6 +166,35 @@ class TestWorkspaceDetection(unittest.TestCase):
 
         self.assertEqual(detect_project_test_runner(self.workspace_dir), "bash tests/*.sh")
 
+    def test_detect_shell_test_runner_singular(self):
+        """Shell test scripts in test/*.sh (singular) trigger 'bash test/*.sh'."""
+        test_dir = self.workspace_dir / "test"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        (test_dir / "suite.sh").touch()
+
+        self.assertEqual(detect_project_test_runner(self.workspace_dir), "bash test/*.sh")
+        self.assertEqual(detect_project_test_runner(str(self.workspace_dir)), "bash test/*.sh")
+
+    def test_detect_shell_tests_runner_plural_precedence(self):
+        """When both tests/ and test/ contain .sh scripts, tests/ takes precedence."""
+        tests_dir = self.workspace_dir / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tests_dir / "suite_a.sh").touch()
+
+        test_dir = self.workspace_dir / "test"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        (test_dir / "suite_b.sh").touch()
+
+        self.assertEqual(detect_project_test_runner(self.workspace_dir), "bash tests/*.sh")
+
+    def test_detect_shell_test_runner_no_sh_files(self):
+        """Directories named test or tests without .sh files return None."""
+        test_dir = self.workspace_dir / "test"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        (test_dir / "helper.py").touch()
+
+        self.assertIsNone(detect_project_test_runner(self.workspace_dir))
+
     def test_detect_runner_precedence(self):
         """Project manifest (Cargo.toml, package.json) takes precedence over generic Makefile."""
         (self.workspace_dir / "Makefile").write_text("test:\n\t@echo ok\n", encoding="utf-8")
