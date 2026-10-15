@@ -108,12 +108,11 @@ def _is_peer_heartbeat(tool_name: str, tool_args: dict) -> bool:
     if any(coord_dir in norm_path for coord_dir in COORDINATION_DIRS):
         return True
 
-    lower_path = norm_path.lower()
-    for bn in COORDINATION_BASENAMES:
-        if lower_path.endswith(bn):
-            if re.search(r"(?:^|/)(?:harness|src|crates|tests)/", norm_path):
-                return False
-            return True
+    basename = norm_path.rstrip("/").split("/")[-1].lower()
+    if basename in COORDINATION_BASENAMES:
+        if re.search(r"(?:^|/)(?:harness|src|crates|tests)/", norm_path):
+            return False
+        return True
 
     return False
 

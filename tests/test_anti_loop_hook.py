@@ -522,6 +522,26 @@ class TestCoordinationExemptionIssue41(unittest.TestCase):
                 f"psl-agy-harness/progress.md iteration {i + 1} was incorrectly denied: {res}",
             )
 
+    def test_non_exact_basenames_not_exempted(self):
+        """Files whose basenames merely end with coordination suffixes (e.g., subtask.md) are not exempted."""
+        non_exact_files = [
+            "/workspace/subtask.md",
+            "/workspace/maintask.md",
+            "/workspace/myprogress.md",
+        ]
+        for fpath in non_exact_files:
+            conv_id = f"test-issue41-non-exact-{hash(fpath)}"
+            tool_args = {"AbsolutePath": fpath}
+            for _ in range(3):
+                res = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+                self.assertEqual(res["decision"], "allow")
+            tripped = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(
+                tripped["decision"],
+                "deny",
+                f"Non-exact basename '{fpath}' should not be exempted from anti-loop",
+            )
+
     def test_cli_main_coalesces_none_payload_fields(self):
         """CLI main safely handles None toolCall or None args without raising AttributeError."""
         # toolCall is None
