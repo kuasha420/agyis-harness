@@ -115,8 +115,8 @@ class TestAntiLoopHook(unittest.TestCase):
 
     def test_conversation_isolation(self):
         """Redundant executions in conv_1 do not trigger denials in conv_2."""
-        tool_name = "manage_task"
-        tool_args = {"Action": "status", "TaskId": "task-1"}
+        tool_name = "grep_search"
+        tool_args = {"Query": "iso_query", "SearchPath": "/workspace"}
 
         # Trip conv_1
         for _ in range(3):

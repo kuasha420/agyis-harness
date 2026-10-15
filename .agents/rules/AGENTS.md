@@ -113,7 +113,7 @@ agyis remote socket cleanup                    # Remove active ControlMaster soc
 3. **Tool-Native Primacy (The Anti-Premature-Cognition Invariant)**:
    - When an external CLI or tool fails, exhaust the tool's standard native options, configurations, and flag escalation ladders (e.g., `--impersonate`, `--concurrent-fragments`, retry/timeout flags, native formatting options) before reading internal tool source code, monkeypatching APIs, or constructing custom proxy scripts. Cognitive intervention is a last resort, not a first reflex.
 4. **Subagent Delegation Protocol**:
-   - For multi-phase refactoring, test debugging, or massive build sweeps, delegate to subagents in isolated worktrees (`Workspace: "share"` or `"branch"`).
+   - For multi-phase refactoring, test debugging, or massive build sweeps, delegate to subagents in shared worktrees (`Workspace: "share"`).
 
 ---
 

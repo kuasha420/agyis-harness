@@ -33,7 +33,7 @@ The Subagent Ladder partitions execution across specialized subagent roles:
 
 ## 2. The Phase Lifecycle Ladder (6-Stage Pipeline)
 
-Every milestone progresses through a strict 6-stage pipeline:
+Every milestone progresses through a strict 6-stage pipeline. All sequential stages operate within the shared workspace (`Workspace: "share"`) to preserve changes and artifacts across stages without worktree file loss:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -188,3 +188,32 @@ When testing distributed multi-node mesh topologies:
    timeout 10 ssh -o ConnectTimeout=3 -o ServerAliveInterval=2 -o ServerAliveCountMax=2 <node> "<command>"
    ```
 2. **Headless Execution Only**: Never invoke interactive graphical binaries (e.g. Electron GUI `/usr/bin/antigravity`) headlessly over SSH; probe daemon sockets, CLI endpoints, or D-Bus services.
+
+---
+
+## 8. Multi-Stage Subagent Execution & Cortex Messaging Protocol
+
+### 8.1 Shared Workspace Invariant (`Workspace: "share"`)
+> [!CRITICAL]
+> **Cross-Stage Worktree Preservation Invariant**:
+> Multi-stage sequential pipelines (Executioner -> Hammer -> Custodian -> Auditor) MUST always specify `Workspace: "share"` when dispatched via `invoke_subagent`.
+> - Never use `Workspace: "branch"` across sequential ladder stages: isolated ephemeral worktrees cause later stages to fail with missing-file errors (`"no such file or directory"`).
+> - Stages execute in the shared root workspace so diffs, newly created files, and persistent artifacts remain immediately accessible to subsequent stages.
+
+### 8.2 Cortex `send_message` Schema Conformance (Strict Two-Argument Contract)
+> [!IMPORTANT]
+> **Strict Two-Argument Message Contract**:
+> The Cortex `send_message` API schema strictly accepts only two properties: `Recipient` (string) and `Message` (string).
+> - **DO NOT PASS RECIPIENT NAME FIELDS**: Extraneous recipient name properties are invalid and trigger an immediate tool argument schema rejection (`"additional properties not allowed"`). Only `Recipient` and `Message` are permitted.
+> - Subagents reporting completion, status, or handoffs back to the parent orchestrator must invoke `send_message` strictly as:
+>   ```json
+>   {
+>     "Recipient": "<parent_conversation_id>",
+>     "Message": "<status_or_handoff_markdown>"
+>   }
+>   ```
+
+### 8.3 Session Immutability & Subagent Definition Protocol
+- Cortex enforces session-lifetime immutability on subagent names in `define_subagent`. Re-registering an already-defined agent name triggers `"agent '<name>' already exists"`.
+- Pipelines must either reuse predefined agent types (`@harness_builder`, `@harness_reviewer`, `@harness_auditor`, `@harness_custodian`) or generate phase-unique identifiers (`ladder_exec_phase1`, `ladder_exec_phase2`) if dynamically defining agents.
+

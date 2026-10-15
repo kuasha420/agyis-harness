@@ -84,6 +84,7 @@ class DeliveryMode(str, Enum):
 
     SYMLINK = "symlink"
     COPY = "copy"
+    WHEEL = "wheel"
 
 
 @dataclass

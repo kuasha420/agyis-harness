@@ -114,6 +114,43 @@ def parse_proto_timestamp(data: bytes) -> Optional[str]:
     return None
 
 
+def extract_execution_result(step_payload_bytes: bytes) -> Tuple[int, str]:
+    """
+    Decodes tool execution result and exit code from Antigravity protobuf payload.
+    Supports modern Antigravity format (fn 140 -> sfn 2 -> ssfn 1) with regex extraction
+    of exit codes, while maintaining backward-compatible fallback to legacy fn 28.
+    """
+    if not step_payload_bytes or not isinstance(step_payload_bytes, bytes):
+        return 0, ""
+
+    try:
+        fields = {fn: val for fn, wt, val in parse_protobuf_fields(step_payload_bytes)}
+
+        # Check modern Antigravity payload (fn 140 -> sfn 2 -> ssfn 1)
+        if 140 in fields and isinstance(fields[140], bytes):
+            subfields = {fn: val for fn, wt, val in parse_protobuf_fields(fields[140])}
+            if 2 in subfields and isinstance(subfields[2], bytes):
+                ssubfields = {fn: val for fn, wt, val in parse_protobuf_fields(subfields[2])}
+                if 1 in ssubfields and isinstance(ssubfields[1], bytes):
+                    raw_text = ssubfields[1].decode("utf-8", errors="replace")
+                    # Extract: "The command exited with code <N>."
+                    match = re.search(r"The command exited with code (\d+)", raw_text)
+                    exit_code = int(match.group(1)) if match else 0
+                    return exit_code, raw_text
+
+        # Fallback to legacy Antigravity payload (fn 28)
+        if 28 in fields and isinstance(fields[28], bytes):
+            subfields = {fn: val for fn, wt, val in parse_protobuf_fields(fields[28])}
+            exit_code = subfields.get(6, 0)
+            output_val = subfields.get(21, b"")
+            output = output_val.decode("utf-8", errors="replace") if isinstance(output_val, bytes) else str(output_val)
+            return exit_code, output
+    except Exception:
+        pass
+
+    return 0, ""
+
+
 def extract_conversation_db(
     db_path: Path,
 ) -> Optional[Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]]:
@@ -276,6 +313,7 @@ def extract_conversation_db(
         tool_exit_code = 0
 
         if payload_bytes and isinstance(payload_bytes, bytes):
+            tool_exit_code, tool_output_text = extract_execution_result(payload_bytes)
             p_fields = parse_protobuf_fields(payload_bytes)
             for fn, wt, val in p_fields:
                 if fn == 19 and wt == 2:  # User prompt field
@@ -294,11 +332,7 @@ def extract_conversation_db(
                 elif fn == 28 and wt == 2:  # Tool execution payload (e.g. run_command)
                     sub_fields = parse_protobuf_fields(val)
                     for sfn, swt, sval in sub_fields:
-                        if sfn == 6 and swt == 0:
-                            tool_exit_code = sval
-                        elif sfn == 21 and isinstance(sval, bytes):
-                            tool_output_text = sval.decode("utf-8", errors="replace")
-                        elif sfn == 2 and isinstance(sval, bytes) and not workspace_detected:
+                        if sfn == 2 and isinstance(sval, bytes) and not workspace_detected:
                             cwd_val = sval.decode("utf-8", errors="replace")
                             if "/Dev/" in cwd_val:
                                 workspace_detected = cwd_val
@@ -471,6 +505,9 @@ def harvest_conversation_db(db_path: Path, target_db: Path) -> Dict[str, Any]:
 
     conn = sqlite3.connect(target_db)
     cur = conn.cursor()
+    cur.execute("PRAGMA synchronous = NORMAL")
+    cur.execute("PRAGMA journal_mode = WAL")
+    cur.execute("PRAGMA busy_timeout = 30000")
     cur.executescript(SCHEMA_SQL)
     ensure_volume_columns(conn)
     ensure_sync_columns(conn)

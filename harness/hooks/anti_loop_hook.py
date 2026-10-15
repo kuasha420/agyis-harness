@@ -16,9 +16,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
-from harness.utils.state import get_state_dir
+from harness.utils.state import get_state_dir, load_history, save_history
 
 
 
@@ -26,10 +27,25 @@ MAX_REPEATS = 3
 HISTORY_WINDOW = 30
 FREQUENCY_WINDOW = 15
 MAX_FREQUENCY_REPEATS = 4
+MAX_IDEMPOTENT_FREQUENCY_REPEATS = 8
 CYCLE_PERIODS = (2, 3, 4, 5)
 MAX_TASK_INSPECTION_CONSECUTIVE = 2
 MAX_TASK_INSPECTION_WINDOW_FREQUENCY = 3
 TASK_INSPECTION_WINDOW = 10
+
+CODE_EDIT_TOOLS = frozenset({"write_to_file", "replace_file_content"})
+
+TEST_VERIFICATION_PATTERNS = (
+    r"(?:^|[\s;&|])(?:\./)?agyis\s+test\b",
+    r"(?:^|[\s;&|])python3?\s+-m\s+harness(?:\.cli)?\s+test\b",
+    r"(?:^|[\s;&|])python3?\s+-m\s+unittest\b",
+    r"(?:^|[\s;&|])pytest\b",
+    r"(?:^|[\s;&|])cargo\s+test\b",
+    r"(?:^|[\s;&|])pnpm(?:\s+--filter\s+\S+)?\s+test\b",
+    r"(?:^|[\s;&|])npm\s+test\b",
+    r"(?:^|[\s;&|])yarn\s+test\b",
+    r"(?:^|[\s;&|])go\s+test\b",
+)
 
 
 def _signatures_match(sig1: dict, sig2: dict) -> bool:
@@ -39,12 +55,60 @@ def _signatures_match(sig1: dict, sig2: dict) -> bool:
     return sig1.get("args") == sig2.get("args")
 
 
+def _is_peer_heartbeat(tool_name: str, tool_args: dict) -> bool:
+    """
+    Exempts read-only inspections of peer heartbeat files.
+    If tool_name == 'view_file' and the path ends with 'progress.md' or contains '/.agents/teamwork/',
+    never flag as a loop denial.
+    """
+    if tool_name != "view_file":
+        return False
+    path = str(tool_args.get("AbsolutePath") or tool_args.get("Path") or "")
+    return path.endswith("progress.md") or "/.agents/teamwork/" in path or ".agents/teamwork/" in path
+
+
+def _is_code_edit(sig: dict) -> bool:
+    """Helper to check if a tool call is a code edit mutation."""
+    return sig.get("name") in CODE_EDIT_TOOLS
+
+
+def _is_test_verification_command(sig: dict) -> bool:
+    """Helper to check if a tool call is a test verification runner invocation."""
+    if sig.get("name") != "run_command":
+        return False
+    cmd = sig.get("args", {}).get("CommandLine", "").strip()
+    return any(re.search(pat, cmd) for pat in TEST_VERIFICATION_PATTERNS)
+
+
+def _is_idempotent_status_command(sig: dict) -> bool:
+    """
+    Helper to detect idempotent read-only inspection commands:
+    ('git status', 'git branch', 'stat', 'pwd').
+    """
+    if sig.get("name") != "run_command":
+        return False
+    cmd = sig.get("args", {}).get("CommandLine", "").strip()
+    if cmd.startswith("PAGER=cat "):
+        cmd = cmd[len("PAGER=cat "):].strip()
+    tokens = cmd.split()
+    if not tokens:
+        return False
+    if tokens[0] in ("pwd", "stat"):
+        return True
+    if len(tokens) >= 2 and tokens[0] == "git" and tokens[1] in ("status", "branch"):
+        return True
+    return False
+
+
+def _is_manage_task_status(sig: dict) -> bool:
+    """Helper to detect manage_task(Action='status') background task inspections."""
+    return sig.get("name") == "manage_task" and sig.get("args", {}).get("Action") == "status"
+
+
 def _is_task_log_inspection(sig: dict) -> bool:
-    """Helper to detect if a tool call is inspecting background task status/logs."""
+    """Helper to detect if a tool call is inspecting background task logs."""
     name = sig.get("name", "")
     args = sig.get("args", {})
-    if name == "manage_task":
-        return args.get("Action") == "status"
     if name == "view_file":
         path = args.get("AbsolutePath", "")
         return (".system_generated/tasks" in path or "/tasks/task-" in path) and path.endswith(".log")
@@ -70,24 +134,59 @@ def check_anti_loop(
     2. Rolling frequency-window check (denies if identical signature appears >= 4 times within sliding window of 15 calls).
     3. N-gram cyclic pattern check (denies if repeating sequences of length P in [2, 5] repeat >= 2 consecutive cycles).
 
+    Relaxations (PSL-SPEC-2026-DRA-001 Phase 2):
+    - Peer Heartbeat Exemption: view_file on progress.md or /.agents/teamwork/ is never denied.
+    - Verification Reset Invariant: Code edits clear test runner frequency/repeats counters.
+    - Idempotent Status Command Relaxation: git status, git branch, stat, pwd allow up to at least 8 executions.
+    - Non-Blocking Advisory: manage_task(Action='status') returns non-blocking advisory allow.
+
     Returns:
         {"decision": "allow"} or {"decision": "deny", "reason": ...}
     """
     target_dir = state_dir or get_state_dir()
-    target_dir.mkdir(parents=True, exist_ok=True)
-    history_file = target_dir / f"history_{conv_id}.json"
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
 
-    history = []
-    if history_file.exists():
-        try:
-            history = json.loads(history_file.read_text(encoding="utf-8"))
-            if not isinstance(history, list):
-                history = []
-        except (json.JSONDecodeError, OSError):
-            history = []
+    history = load_history(conv_id, target_dir=target_dir)
 
     # Current signature
     sig = {"name": tool_name, "args": tool_args}
+
+    # -1. Peer Heartbeat Exemption (progress.md or teamwork metadata inspection)
+    if _is_peer_heartbeat(tool_name, tool_args):
+        history.append(sig)
+        history = history[-HISTORY_WINDOW:]
+        try:
+            save_history(conv_id, history, target_dir=target_dir)
+        except OSError:
+            pass
+        return {"decision": "allow"}
+
+    # -2. Non-Blocking Advisory for Background Tasks: manage_task(Action='status')
+    if _is_manage_task_status(sig):
+        history.append(sig)
+        history = history[-HISTORY_WINDOW:]
+        try:
+            save_history(conv_id, history, target_dir=target_dir)
+        except OSError:
+            pass
+        return {
+            "decision": "allow",
+            "reason": "Advisory: Background tasks notify reactively upon exit. Avoid polling status to conserve steps.",
+        }
+
+    # -3. Verification Reset Invariant:
+    # When any code edit tool is called, automatically clear/reset the
+    # sliding-window frequency counters or history for test verification commands.
+    if _is_code_edit(sig):
+        history = [item for item in history if not _is_test_verification_command(item)]
+
+    # If the current call is a test verification command preceded by any code edit,
+    # reset previous test runner history so verification following edits is never blocked as a loop.
+    if _is_test_verification_command(sig) and any(_is_code_edit(item) for item in history):
+        history = [item for item in history if not _is_test_verification_command(item)]
 
     # 0. Background task log polling check (prevents manual background task sniffing loops)
     if _is_task_log_inspection(sig):
@@ -127,7 +226,13 @@ def check_anti_loop(
         else:
             break
 
-    if repeats >= max_repeats:
+    is_idempotent = _is_idempotent_status_command(sig)
+    if is_idempotent:
+        effective_max_repeats = MAX_IDEMPOTENT_FREQUENCY_REPEATS
+    else:
+        effective_max_repeats = max_repeats
+
+    if repeats >= effective_max_repeats:
         return {
             "decision": "deny",
             "reason": (
@@ -139,12 +244,24 @@ def check_anti_loop(
     # 2. Rolling frequency-window check (sliding window of 15 calls including proposed call)
     window_seq = (history + [sig])[-FREQUENCY_WINDOW:]
     freq_count = sum(1 for item in window_seq if _signatures_match(item, sig))
-    if freq_count >= MAX_FREQUENCY_REPEATS:
+
+    # Evaluate frequency limit with explicit branching:
+    # - Idempotent inspection commands: allow up to MAX_IDEMPOTENT_FREQUENCY_REPEATS (8),
+    #   denying strictly when freq_count exceeds threshold on the 9th call (> 8).
+    # - Generic commands: deny when freq_count reaches MAX_FREQUENCY_REPEATS on the 4th call (>= 4).
+    if is_idempotent:
+        max_freq = MAX_IDEMPOTENT_FREQUENCY_REPEATS
+        frequency_exceeded = freq_count > max_freq
+    else:
+        max_freq = MAX_FREQUENCY_REPEATS
+        frequency_exceeded = freq_count >= max_freq
+
+    if frequency_exceeded:
         return {
             "decision": "deny",
             "reason": (
                 f"PSL Anti-Loop Guard: Tool signature '{tool_name}' appeared {freq_count} times "
-                f"within a sliding window of {len(window_seq)} calls (threshold is {MAX_FREQUENCY_REPEATS}). "
+                f"within a sliding window of {len(window_seq)} calls (threshold is {max_freq}). "
                 "Denying execution to prevent thrashing loop. Refine arguments or pursue an alternative strategy."
             ),
         }
@@ -155,6 +272,15 @@ def check_anti_loop(
         if len(full_seq) >= 2 * p:
             cycle1 = full_seq[-2 * p : -p]
             cycle2 = full_seq[-p :]
+
+            # Skip degenerate cycles where all items in cycle2 are identical (handled by consecutive repeat check)
+            if all(_signatures_match(cycle2[0], item) for item in cycle2):
+                continue
+
+            # Skip cycles composed entirely of idempotent status commands
+            if all(_is_idempotent_status_command(item) for item in cycle2):
+                continue
+
             if all(_signatures_match(cycle1[i], cycle2[i]) for i in range(p)):
                 cycle_names = " -> ".join(item.get("name", "unknown") for item in cycle2)
                 return {
@@ -170,7 +296,7 @@ def check_anti_loop(
     history.append(sig)
     history = history[-HISTORY_WINDOW:]
     try:
-        history_file.write_text(json.dumps(history), encoding="utf-8")
+        save_history(conv_id, history, target_dir=target_dir)
     except OSError:
         pass
 

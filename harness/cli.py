@@ -430,6 +430,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_install.add_argument("--bin-dir", type=Path, default=None, help="Custom binary directory for standalone CLI executable")
     p_install.add_argument("--copy", action="store_true", help="Install via copy mode")
     p_install.add_argument("--symlink", action="store_true", help="Install via symlink mode (default)")
+    p_install.add_argument("--wheel", action="store_true", help="Build and install frozen release wheel via uv build")
     p_install.add_argument("--dry-run", action="store_true", help="Simulate installation without writing to disk")
     p_install.add_argument("--all-surfaces", action="store_true", help="Sync all Antigravity surfaces to canonical config")
     p_install.add_argument("--target", type=Path, default=None, help="Custom target installation directory")

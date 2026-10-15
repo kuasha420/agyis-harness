@@ -29,6 +29,7 @@ from pipeline import benchmark_reasoning_tiers
 from pipeline.harvest_conversations import (
     decode_varint,
     extract_conversation_db,
+    extract_execution_result,
     harvest_all_conversations,
     harvest_conversation_db,
     parse_proto_timestamp,
@@ -404,6 +405,23 @@ class TestHarvestConversationDb(unittest.TestCase):
         self.assertIsNone(row[0])
         self.assertGreater(row[1], 5)
 
+    def test_harvest_wal_mode_enabled(self):
+        """Verifies target_db is initialized with WAL journal mode and busy timeout."""
+        src_db = self.conv_dir / "sess_wal.db"
+        t = TestExtractConversationDb()
+        t.tmpdir = self.tmpdir
+        t.db_path = src_db
+        t._create_mock_conversation_db()
+
+        harvest_conversation_db(src_db, self.target_db)
+
+        conn = sqlite3.connect(self.target_db)
+        cur = conn.cursor()
+        cur.execute("PRAGMA journal_mode")
+        mode = cur.fetchone()[0]
+        conn.close()
+
+        self.assertEqual(mode.lower(), "wal")
 
     def test_harvest_all_conversations(self):
         # Create two conversation DBs
@@ -488,5 +506,45 @@ class TestReasoningTierBenchmark(unittest.TestCase):
             self.assertIn("gemini-3.1-pro", report_text)
 
 
+class TestExtractExecutionResult(unittest.TestCase):
+    """Hermetic unit tests validating modern fn 140 exit code parsing and fn 28 legacy fallback."""
+
+    def test_modern_antigravity_exit_codes(self):
+        """Verifies fn 140 -> sfn 2 -> ssfn 1 correctly recovers various exit codes."""
+        test_cases = [
+            (0, "Created At: 2026-10-15T12:00:00Z\n\nThe command exited with code 0.\nOutput:\nSuccess"),
+            (1, "The command exited with code 1.\nOutput:\ngrep: no match found"),
+            (2, "The command exited with code 2.\nOutput:\nsyntax error"),
+            (101, "The command exited with code 101.\nOutput:\npanic: index out of bounds"),
+            (127, "The command exited with code 127.\nOutput:\nsh: command not found"),
+        ]
+        for expected_code, raw_text in test_cases:
+            ssubfield = _encode_field(1, 2, raw_text)
+            subfield = _encode_field(2, 2, ssubfield)
+            payload = _encode_field(140, 2, subfield)
+
+            code, text = extract_execution_result(payload)
+            self.assertEqual(code, expected_code, f"Failed recovering exit code {expected_code}")
+            self.assertEqual(text, raw_text)
+
+    def test_legacy_antigravity_fallback(self):
+        """Verifies fn 28 fallback correctly extracts exit code from sfn 6 and output from sfn 21."""
+        subfields = _encode_field(6, 0, 42) + _encode_field(21, 2, "legacy command output")
+        payload = _encode_field(28, 2, subfields)
+
+        code, text = extract_execution_result(payload)
+        self.assertEqual(code, 42)
+        self.assertEqual(text, "legacy command output")
+
+    def test_missing_or_corrupt_payload_handling(self):
+        """Verifies empty or corrupt payloads safely return (0, '')."""
+        self.assertEqual(extract_execution_result(b""), (0, ""))
+        self.assertEqual(extract_execution_result(b"\xff\xff\xff"), (0, ""))
+        # Unrelated fields
+        unrelated = _encode_field(19, 2, "user prompt")
+        self.assertEqual(extract_execution_result(unrelated), (0, ""))
+
+
 if __name__ == "__main__":
     unittest.main()
+
