@@ -32,6 +32,7 @@ from harness.hooks.completion_fence_hook import (
     check_command_verification,
     evaluate_stop,
     extract_exit_code,
+    is_cleanroom_contract_file,
     is_ephemeral_scratch_path,
     is_test_command,
     load_state,
@@ -544,6 +545,64 @@ class TestCompletionFenceHardeningM2(unittest.TestCase):
         self.assertTrue(state["code_dirty"])
         self.assertIn(inside_file, state["last_modified_files"])
 
+    # --- Issue #45: Cleanroom Spec and Ledger Verification Gates ---
+
+    def test_is_cleanroom_contract_file_unit(self):
+        """is_cleanroom_contract_file matches docs/specs/** and .agents/ledger/** files."""
+        self.assertTrue(is_cleanroom_contract_file("docs/specs/my_spec.md"))
+        self.assertTrue(is_cleanroom_contract_file("docs/specs/v1/api.md"))
+        self.assertTrue(is_cleanroom_contract_file(".agents/ledger/obligations.json"))
+        self.assertTrue(is_cleanroom_contract_file(".agents/ledger/tasks.json"))
+        self.assertTrue(is_cleanroom_contract_file("/home/user/repo/docs/specs/spec.md"))
+        self.assertTrue(is_cleanroom_contract_file("/home/user/repo/.agents/ledger/obligations.json"))
+
+        # Standard docs remain exempt
+        self.assertFalse(is_cleanroom_contract_file("README.md"))
+        self.assertFalse(is_cleanroom_contract_file("PROJECT.md"))
+        self.assertFalse(is_cleanroom_contract_file("docs/architecture.md"))
+        self.assertFalse(is_cleanroom_contract_file("docs/guide.md"))
+        self.assertFalse(is_cleanroom_contract_file("docs/specs.md"))
+
+    def test_cleanroom_spec_edit_dirties_state_and_blocks_stop(self):
+        """Editing docs/specs/*.md marks code_dirty = True and blocks evaluate_stop."""
+        conv_id = "test-spec-contract"
+        record_edit("docs/specs/my_spec.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(state["code_dirty"])
+        self.assertIn("docs/specs/my_spec.md", state["last_modified_files"])
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+        self.assertEqual(res.get("decision"), "continue")
+        reason = res.get("reason", "")
+        self.assertIn("Verification Required: Unverified cleanroom contract edits detected in: docs/specs/my_spec.md", reason)
+        self.assertIn("Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping.", reason)
+
+    def test_cleanroom_ledger_edit_dirties_state_and_blocks_stop(self):
+        """Editing .agents/ledger/*.json marks code_dirty = True and blocks evaluate_stop."""
+        conv_id = "test-ledger-contract"
+        record_edit(".agents/ledger/obligations.json", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(state["code_dirty"])
+        self.assertIn(".agents/ledger/obligations.json", state["last_modified_files"])
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+        self.assertEqual(res.get("decision"), "continue")
+        reason = res.get("reason", "")
+        self.assertIn("Verification Required: Unverified cleanroom contract edits detected in: .agents/ledger/obligations.json", reason)
+
+    def test_mixed_code_and_contract_edits_refusal_message(self):
+        """Mixed code and contract edits emit combined diagnostic refusal guidance."""
+        conv_id = "test-mixed-edits"
+        record_edit("harness/cli.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+        record_edit("docs/specs/my_spec.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+        self.assertEqual(res.get("decision"), "continue")
+        reason = res.get("reason", "")
+        self.assertIn("Verification Required: Unverified code and cleanroom contract edits detected in: harness/cli.py, docs/specs/my_spec.md", reason)
+
     def test_standard_docs_remain_exempt(self):
         """Standard docs (README.md, PROJECT.md, docs/architecture.md, docs/guide.md) remain exempt."""
         conv_id = "test-standard-docs"
@@ -556,6 +615,19 @@ class TestCompletionFenceHardeningM2(unittest.TestCase):
 
         res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
         self.assertEqual(res.get("decision"), "allow")
+
+    def test_cleanroom_contract_cleared_by_test_command(self):
+        """Cleanroom contract dirty state is cleared by successful test verification."""
+        conv_id = "test-cleanroom-verify"
+        record_edit("docs/specs/my_spec.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+        self.assertTrue(load_state(conv_id=conv_id, state_dir=self.state_dir)["code_dirty"])
+
+        matched = check_command_verification("agyis test", exit_code=0, conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+        self.assertTrue(matched)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+        self.assertEqual(evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)["decision"], "allow")
 
     def test_workspace_paths_fallback_and_tool_args_cwd(self):
         """Verifies workspacePaths fallback in payload and lowercase cwd in tool args."""
@@ -788,6 +860,8 @@ class TestCompletionFenceHardeningM2(unittest.TestCase):
             record_edit("/tmp/scratch.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
             # Code edit (marks dirty)
             record_edit("harness/cli.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+            # Contract edit (marks dirty)
+            record_edit("docs/specs/my_spec.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
             evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
             # Clear dirty state
             check_command_verification("agyis test", exit_code=0, conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)

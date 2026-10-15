@@ -32,6 +32,7 @@ __all__ = [
     "CODE_EXTENSIONS",
     "get_state_file",
     "is_code_file",
+    "is_cleanroom_contract_file",
     "is_ephemeral_scratch_path",
     "is_test_command",
     "extract_exit_code",
@@ -141,6 +142,24 @@ def is_code_file(path_str: str) -> bool:
     return suffix in CODE_EXTENSIONS
 
 
+def is_cleanroom_contract_file(path_str: str) -> bool:
+    """
+    Determines if a file path represents a cleanroom contract file
+    (in docs/specs/** or .agents/ledger/**) that requires verification,
+    overriding default .md and .json exemptions.
+    """
+    if not path_str or not isinstance(path_str, str):
+        return False
+    norm = path_str.replace("\\", "/").strip().lower()
+    if norm.startswith("./"):
+        norm = norm[2:]
+
+    if norm.startswith("docs/specs/") or "/docs/specs/" in norm:
+        return True
+    if norm.startswith(".agents/ledger/") or "/.agents/ledger/" in norm:
+        return True
+
+    return False
 
 def is_ephemeral_scratch_path(file_path: str, cwd: Path | str | None = None) -> bool:
     """
@@ -310,9 +329,10 @@ def record_edit(
     cwd: Path | str | None = None,
 ) -> dict:
     """
-    Records a file edit. If the file is a code file, marks code_dirty = True,
-    resets block_count = 0 (re-arming the fence), appends the path to last_modified_files,
-    and records cwd if provided. Ephemeral scratch paths are filtered out without modifying state.
+    Records a file edit. If the file is a code file or cleanroom contract file,
+    marks code_dirty = True, resets block_count = 0 (re-arming the fence),
+    appends the path to last_modified_files, and records cwd if provided.
+    Ephemeral scratch paths are filtered out without modifying state.
     """
     state = load_state(conv_id=conv_id, state_dir=state_dir)
     effective_cwd = cwd if cwd is not None else state.get("cwd")
@@ -320,7 +340,7 @@ def record_edit(
     if is_ephemeral_scratch_path(file_path, cwd=effective_cwd):
         return state
 
-    if is_code_file(file_path):
+    if is_cleanroom_contract_file(file_path) or is_code_file(file_path):
         state["code_dirty"] = True
         state["block_count"] = 0
         modified = state.get("last_modified_files", [])
@@ -391,20 +411,30 @@ def evaluate_stop(
         modified_files = state.get("last_modified_files", [])
         files_str = ", ".join(modified_files) if modified_files else "untracked code files"
 
+        has_contract = any(is_cleanroom_contract_file(f) for f in modified_files)
+        has_code = any(not is_cleanroom_contract_file(f) for f in modified_files)
+
+        if has_contract and has_code:
+            category = "code and cleanroom contract edits"
+        elif has_contract:
+            category = "cleanroom contract edits"
+        else:
+            category = "code edits"
+
         effective_cwd = cwd if cwd is not None else state.get("cwd")
         if effective_cwd is None:
             effective_cwd = Path.cwd()
 
         if is_harness_workspace(effective_cwd):
             reason = (
-                f"Verification Required: Unverified code edits detected in: {files_str}. "
+                f"Verification Required: Unverified {category} detected in: {files_str}. "
                 "Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
             )
         else:
             detected_runner = detect_project_test_runner(effective_cwd)
             runner_str = detected_runner if detected_runner else "e.g. npm test, cargo test, pytest"
             reason = (
-                f"Verification Required: Unverified code edits detected in: {files_str}. "
+                f"Verification Required: Unverified {category} detected in: {files_str}. "
                 f"Execute your project test suite ({runner_str}) before stopping."
             )
 
@@ -542,7 +572,6 @@ def main() -> None:
         tool_args = tool_call.get("args") or {}
         if cwd is None:
             cwd = tool_args.get("Cwd") or tool_args.get("cwd")
-
         event = str(payload.get("hookEvent") or payload.get("hook_event") or payload.get("event") or "").strip().lower()
         if event == "posttooluse":
             is_post_tool_use = True
@@ -569,17 +598,18 @@ def main() -> None:
             )
             if target_file:
                 record_edit(target_file, conv_id=conv_id, cwd=cwd)
+            print(json.dumps({"decision": "allow"}))
         elif tool_name in ("run_command", "execute_command", "bash"):
             cmd = tool_args.get("CommandLine") or tool_args.get("command") or ""
             exit_code = extract_exit_code(payload)
             if exit_code is not None and cmd:
                 check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, cwd=cwd)
 
-        # PostToolUse contract: Antigravity expects exact JSON {}
-        if is_post_tool_use:
-            print(json.dumps({}))
-        else:
-            print(json.dumps({"decision": "allow"}))
+            # PostToolUse contract: Antigravity expects exact JSON {}
+            if is_post_tool_use:
+                print(json.dumps({}))
+            else:
+                print(json.dumps({"decision": "allow"}))
     elif "command" in payload or "CommandLine" in payload:
         cmd = payload.get("command") or payload.get("CommandLine") or ""
         extracted = extract_exit_code(payload)
