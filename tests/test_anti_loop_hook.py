@@ -330,5 +330,239 @@ class TestAntiLoopHookPhase2(unittest.TestCase):
                 self.assertIn("Advisory: Background tasks notify reactively", out.get("reason", ""))
 
 
+class TestCoordinationExemptionIssue41(unittest.TestCase):
+    """
+    Unit tests for Issue #41: Anti-Loop Coordination Exemption.
+    Ensures peer heartbeat and coordination files (.agents/teamwork/, .agents/ledger/,
+    progress.md, dispatch.md, briefing.md, handoff.md, task.md, obligations.json)
+    are exempted from sliding-window and consecutive loop denials.
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_progress_md_10_consecutive_denials_zero(self):
+        """Reading progress.md 10 times consecutively produces 0 denials."""
+        conv_id = "test-issue41-progress-10"
+        tool_args = {"AbsolutePath": "/workspace/progress.md"}
+
+        for i in range(10):
+            res = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(
+                res["decision"],
+                "allow",
+                f"Iteration {i + 1} of progress.md was unexpectedly denied: {res}",
+            )
+
+    def test_ledger_obligations_json_10_consecutive_denials_zero(self):
+        """Reading .agents/ledger/obligations.json 10 times consecutively produces 0 denials."""
+        conv_id = "test-issue41-ledger-obligations-10"
+        tool_args = {"AbsolutePath": "/workspace/.agents/ledger/obligations.json"}
+
+        for i in range(10):
+            res = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(
+                res["decision"],
+                "allow",
+                f"Iteration {i + 1} of obligations.json was unexpectedly denied: {res}",
+            )
+
+    def test_teamwork_paths_10_consecutive_denials_zero(self):
+        """Reading .agents/teamwork/ paths 10 times produces 0 denials."""
+        conv_id = "test-issue41-teamwork-10"
+        tool_args = {"AbsolutePath": "/workspace/.agents/teamwork/worker_1/custom_state.yaml"}
+
+        for i in range(10):
+            res = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(
+                res["decision"],
+                "allow",
+                f"Iteration {i + 1} of teamwork file was unexpectedly denied: {res}",
+            )
+
+    def test_path_format_invariance(self):
+        """Relative, absolute, canonical paths with forward or backslashes work equally."""
+        conv_id = "test-issue41-path-format-invariance"
+        test_paths = [
+            # Relative paths
+            "progress.md",
+            ".agents/teamwork/task.md",
+            ".agents/ledger/obligations.json",
+            # Absolute paths
+            "/home/user/workspace/progress.md",
+            "/home/user/workspace/.agents/teamwork/dispatch.md",
+            "/home/user/workspace/.agents/ledger/obligations.json",
+            # Windows-style backslash paths
+            r".agents\teamwork\task.md",
+            r".agents\ledger\obligations.json",
+            r"C:\workspace\progress.md",
+            r"C:\workspace\.agents\teamwork\dispatch.md",
+            r"C:\workspace\.agents\ledger\obligations.json",
+        ]
+
+        for path_str in test_paths:
+            # Calling 5 times consecutively for each path must never trigger denial
+            for i in range(5):
+                res = check_anti_loop(
+                    "view_file",
+                    {"AbsolutePath": path_str},
+                    conv_id=f"{conv_id}-{hash(path_str)}",
+                    state_dir=self.state_dir,
+                )
+                self.assertEqual(
+                    res["decision"],
+                    "allow",
+                    f"Path '{path_str}' call {i + 1} unexpectedly denied: {res}",
+                )
+
+    def test_alternate_argument_names_recognized(self):
+        """Alternate argument names (TargetFile, file_path, filePath, target_file, path) are recognized."""
+        alt_keys = ("TargetFile", "file_path", "filePath", "target_file", "path")
+
+        for key in alt_keys:
+            conv_id = f"test-issue41-arg-{key}"
+            tool_args = {key: "progress.md"}
+            for i in range(5):
+                res = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+                self.assertEqual(
+                    res["decision"],
+                    "allow",
+                    f"Arg key '{key}' call {i + 1} was unexpectedly denied: {res}",
+                )
+
+        # Fallback when earlier keys are empty strings
+        conv_id = "test-issue41-arg-fallback"
+        tool_args = {"AbsolutePath": "", "Path": "   ", "target_file": ".agents/ledger/obligations.json"}
+        for i in range(5):
+            res = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(res["decision"], "allow")
+
+        # Invalid or non-string argument types should not be exempted
+        conv_id = "test-issue41-arg-invalid"
+        invalid_args = {"AbsolutePath": 12345, "path": None}
+        for _ in range(3):
+            res = check_anti_loop("view_file", invalid_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(res["decision"], "allow")
+        tripped = check_anti_loop("view_file", invalid_args, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(tripped["decision"], "deny")
+
+    def test_case_insensitive_basename_checks(self):
+        """Case-insensitive basename checks (DISPATCH.MD, Briefing.md, OBLIGATIONS.JSON, TASK.MD, Handoff.Md)."""
+        cased_basenames = [
+            "DISPATCH.MD",
+            "Briefing.md",
+            "OBLIGATIONS.JSON",
+            "TASK.MD",
+            "Handoff.Md",
+            "progress.md",
+        ]
+
+        for bn in cased_basenames:
+            conv_id = f"test-issue41-case-{bn}"
+            tool_args = {"AbsolutePath": f"/workspace/{bn}"}
+            for i in range(5):
+                res = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+                self.assertEqual(
+                    res["decision"],
+                    "allow",
+                    f"Basename '{bn}' call {i + 1} was unexpectedly denied: {res}",
+                )
+
+    def test_production_code_not_exempted(self):
+        """Non-coordination source code files (harness/cli.py, /workspace/src/app/main.py) still trigger denials."""
+        # Standard production files
+        non_coord_files = [
+            "harness/cli.py",
+            "/workspace/src/app/main.py",
+        ]
+
+        for fpath in non_coord_files:
+            conv_id = f"test-issue41-prod-{hash(fpath)}"
+            tool_args = {"AbsolutePath": fpath}
+            for _ in range(3):
+                res = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+                self.assertEqual(res["decision"], "allow")
+            tripped = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(tripped["decision"], "deny", f"File '{fpath}' should have tripped anti-loop")
+
+        # Files matching coordination basename but located inside production dirs (harness/, src/, crates/, tests/)
+        prod_coord_names = [
+            "harness/progress.md",
+            "/workspace/src/task.md",
+            "/workspace/crates/core/obligations.json",
+            "tests/dispatch.md",
+        ]
+
+        for fpath in prod_coord_names:
+            conv_id = f"test-issue41-prod-coord-{hash(fpath)}"
+            tool_args = {"AbsolutePath": fpath}
+            for _ in range(3):
+                res = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+                self.assertEqual(res["decision"], "allow")
+            tripped = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(
+                tripped["decision"],
+                "deny",
+                f"Production file with coordination basename '{fpath}' must NOT be exempted",
+            )
+
+        # Ensure repo name 'psl-agy-harness' is NOT matched as 'harness/'
+        conv_id = "test-issue41-repo-name-not-harness"
+        repo_coord_file = "/home/kuasha/Dev/psl-agy-harness/progress.md"
+        tool_args = {"AbsolutePath": repo_coord_file}
+        for i in range(10):
+            res = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(
+                res["decision"],
+                "allow",
+                f"psl-agy-harness/progress.md iteration {i + 1} was incorrectly denied: {res}",
+            )
+
+    def test_cli_main_coalesces_none_payload_fields(self):
+        """CLI main safely handles None toolCall or None args without raising AttributeError."""
+        # toolCall is None
+        payload_none_call = {
+            "conversationId": "cli-none-call",
+            "toolCall": None,
+        }
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO(json.dumps(payload_none_call))), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                anti_loop_main()
+                out = json.loads(mock_out.getvalue().strip())
+                self.assertEqual(out["decision"], "allow")
+
+        # toolCall.args is None
+        payload_none_args = {
+            "conversationId": "cli-none-args",
+            "toolCall": {
+                "name": "view_file",
+                "args": None,
+            },
+        }
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO(json.dumps(payload_none_args))), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                anti_loop_main()
+                out = json.loads(mock_out.getvalue().strip())
+                self.assertEqual(out["decision"], "allow")
+
+        # Coordination file passed via alternate key
+        payload_coord_alt_key = {
+            "conversationId": "cli-coord-alt-key",
+            "toolCall": {
+                "name": "view_file",
+                "args": {"target_file": ".agents/ledger/obligations.json"},
+            },
+        }
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO(json.dumps(payload_coord_alt_key))), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                anti_loop_main()
+                out = json.loads(mock_out.getvalue().strip())
+                self.assertEqual(out["decision"], "allow")
+
+
 if __name__ == "__main__":
     unittest.main()

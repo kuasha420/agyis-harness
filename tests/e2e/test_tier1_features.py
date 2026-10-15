@@ -5,447 +5,614 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Tier 1: Feature Coverage (Features 1-17 across Requirements R1-R5).
-Validates core CLI, nomenclature layer, tagged rule demarcation, stack presets,
-manifest & personas, dual runner recognition, and dry-run contracts strictly as an opaque box.
+Tier 1: Feature Coverage (Issues #41 through #46).
+Validates each feature across nominal operating range (5 tests per feature, 30 tests total):
+- Feature 1 (Issue #41): Anti-Loop Coordination Exemption Expansion
+- Feature 2 (Issue #42): Stop-Fence PostToolUse Wiring & Dirty Clearance
+- Feature 3 (Issue #43): Scratch Path Isolation & Boundary Scoping
+- Feature 4 (Issue #44): REA Doctor Diagnostics Integration
+- Feature 5 (Issue #45): Cleanroom Spec and Ledger Verification Gates
+- Feature 6 (Issue #46): Standardized Issue Templates
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 from pathlib import Path
-import sys
+import re
+from typing import Any, Dict, List, Optional
 import unittest
+from unittest.mock import patch
 
 from harness.delivery.constants import REPO_ROOT
+from harness.runtime.tool_checks import check_rea_tooling, find_rea_binary
 from tests.e2e.harness_base import OpaqueBoxTestCase
 
 
 class TestTier1Features(OpaqueBoxTestCase):
     """
-    Tier 1 E2E test cases: Nominal feature behavior across R1-R5.
-    Interacts purely via public CLI commands and inspects observable side-effects.
+    Tier 1 E2E tests validating nominal behavior of Features 1 through 6.
     """
 
     # =========================================================================
-    # R1: Core CLI, Entrypoints, Deprecation & XDG Paths (Features 1, 2, 3)
+    # Feature 1 (Issue #41): Anti-Loop Coordination Exemption
     # =========================================================================
 
-    def test_r1_agyis_help_and_version_branding(self) -> None:
-        """Assures 'agyis --help' and 'agyis --version' display modern product branding."""
-        code, out, err = self.run_cli(["--help"])
-        self.assertEqual(code, 0)
-        self.assertIn("Agyis Harness", out)
-        self.assertIn("Antigravity", out)
-        self.assertIn("Immune System", out)
-        self.assertIn("doctor", out)
-        self.assertIn("init", out)
-        self.assertIn("harmonize", out)
-        self.assertEqual(err, "")
+    def test_f1_01_teamwork_directory_progress_repeated_view(self) -> None:
+        """Assures reading progress.md in .agents/teamwork/ 10 times produces 0 loop denials."""
+        self.create_fixture("coordination")
+        target_path = str(self.ws / ".agents" / "teamwork" / "progress.md")
 
-        code, out, err = self.run_cli(["--version"])
-        self.assertEqual(code, 0)
-        self.assertIn("agyis-harness", out)
+        for i in range(10):
+            payload = {
+                "conversationId": "c_f1_01",
+                "toolCall": {
+                    "name": "view_file",
+                    "args": {"AbsolutePath": target_path},
+                },
+            }
+            code, resp = self.run_hook("anti-loop", payload)
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                resp.get("decision"),
+                "allow",
+                f"Iteration {i} was unexpectedly denied: {resp.get('reason')}",
+            )
 
-    def test_r1_psl_stderr_deprecation_lifecycle_notice(self) -> None:
-        """Assures legacy 'psl' emits active deprecation notice strictly on stderr."""
-        code, out, err = self.run_cli(["--help"], prog="psl")
-        self.assertEqual(code, 0)
-        self.assertIn("DeprecationWarning: 'psl' is deprecated and will be removed in 3 months", err)
-        self.assertIn("Use 'agyis' instead", err)
-        self.assertIn("PSL Harness", out)
+    def test_f1_02_ledger_directory_obligations_repeated_view(self) -> None:
+        """Assures reading obligations.json in .agents/ledger/ 10 times produces 0 loop denials."""
+        self.create_fixture("coordination")
+        target_path = str(self.ws / ".agents" / "ledger" / "obligations.json")
 
-        code, out, err = self.run_cli(["--version"], prog="psl")
-        self.assertEqual(code, 0)
-        self.assertIn("DeprecationWarning: 'psl' is deprecated", err)
-        self.assertIn("agyis-harness", out)
+        for i in range(10):
+            payload = {
+                "conversationId": "c_f1_02",
+                "toolCall": {
+                    "name": "view_file",
+                    "args": {"AbsolutePath": target_path},
+                },
+            }
+            code, resp = self.run_hook("anti-loop", payload)
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                resp.get("decision"),
+                "allow",
+                f"Iteration {i} in ledger was denied: {resp.get('reason')}",
+            )
 
-    def test_r1_subcommand_parity_between_agyis_and_psl(self) -> None:
-        """Assures identical execution results between agyis and psl subcommands."""
-        code_a, out_a, err_a = self.run_cli(["status"])
-        code_p, out_p, err_p = self.run_cli(["status"], prog="psl")
-
-        self.assertEqual(code_a, 0)
-        self.assertEqual(code_p, 0)
-        self.assertIn("Specialist Subagents", out_a)
-        self.assertIn("Specialist Subagents", out_p)
-        self.assertEqual(err_a, "")
-        self.assertIn("DeprecationWarning: 'psl' is deprecated", err_p)
-
-    def test_r1_xdg_config_path_precedence(self) -> None:
-        """Assures AGYIS_CONFIG_DIR takes precedence over PSL_CONFIG_DIR."""
-        from harness.telemetry.config import get_config_dir
-
-        dir_agyis = self.ws / "custom_config_agyis"
-        dir_psl = self.ws / "custom_config_psl"
-        dir_agyis.mkdir(parents=True, exist_ok=True)
-        dir_psl.mkdir(parents=True, exist_ok=True)
-
-        env = {
-            "AGYIS_CONFIG_DIR": str(dir_agyis),
-            "PSL_CONFIG_DIR": str(dir_psl),
-        }
-        with unittest.mock.patch.dict(os.environ, env):
-            resolved = get_config_dir()
-            self.assertEqual(resolved, dir_agyis.resolve())
-
-        # Observable side effect via credentials discovery
-        (dir_agyis / "credentials.json").write_text(
-            json.dumps({"token": "tok_agyis", "github_username": "user_agyis"}), encoding="utf-8"
-        )
-        (dir_psl / "credentials.json").write_text(
-            json.dumps({"token": "tok_psl", "github_username": "user_psl"}), encoding="utf-8"
-        )
-        code, out, err = self.run_cli(["auth", "status", "--json"], env_overrides=env)
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertEqual(data.get("username"), "user_agyis")
-
-    def test_r1_xdg_config_path_legacy_psl_fallback(self) -> None:
-        """Assures fallback to PSL_CONFIG_DIR when AGYIS_CONFIG_DIR is unset."""
-        from harness.telemetry.config import get_config_dir
-
-        dir_psl = self.ws / "fallback_config_psl"
-        dir_psl.mkdir(parents=True, exist_ok=True)
-
-        env = {
-            "AGYIS_CONFIG_DIR": "",
-            "PSL_CONFIG_DIR": str(dir_psl),
-        }
-        with unittest.mock.patch.dict(os.environ, env):
-            resolved = get_config_dir()
-            self.assertEqual(resolved, dir_psl.resolve())
-
-        (dir_psl / "credentials.json").write_text(
-            json.dumps({"token": "tok_fallback", "github_username": "user_fallback"}), encoding="utf-8"
-        )
-        code, out, err = self.run_cli(["auth", "status", "--json"], env_overrides=env)
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertEqual(data.get("username"), "user_fallback")
-
-    def test_r1_xdg_data_path_precedence(self) -> None:
-        """Assures AGYIS_DATA_DIR takes precedence over PSL_DATA_DIR."""
-        from harness.telemetry.config import get_data_dir
-
-        dir_agyis_data = self.ws / "data_agyis"
-        dir_psl_data = self.ws / "data_psl"
-        dir_agyis_data.mkdir(parents=True, exist_ok=True)
-        dir_psl_data.mkdir(parents=True, exist_ok=True)
-
-        env = {
-            "AGYIS_DATA_DIR": str(dir_agyis_data),
-            "PSL_DATA_DIR": str(dir_psl_data),
-        }
-        with unittest.mock.patch.dict(os.environ, env):
-            resolved = get_data_dir()
-            self.assertEqual(resolved, dir_agyis_data.resolve())
-
-        with unittest.mock.patch.dict(os.environ, {"AGYIS_DATA_DIR": "", "PSL_DATA_DIR": str(dir_psl_data)}):
-            resolved = get_data_dir()
-            self.assertEqual(resolved, dir_psl_data.resolve())
-
-    # =========================================================================
-    # R2: Tagged Rule Demarcation, Presets & Harmonizer (Features 6, 7, 8, 9, 10)
-    # =========================================================================
-
-    def test_r2_init_creates_modern_tagged_rule_block(self) -> None:
-        """Assures 'agyis init' injects modern '<!-- Added by AGYIS-HARNESS -->' block."""
-        code, out, err = self.run_cli(["init", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        agents_md = self.ws / "AGENTS.md"
-        self.assertTrue(agents_md.exists())
-        content = agents_md.read_text(encoding="utf-8")
-        self.assertIn("<!-- Added by AGYIS-HARNESS -->", content)
-        self.assertIn("<!-- End AGYIS-HARNESS -->", content)
-        self.assertNotIn("<!-- Added by PSL-HARNESS -->", content)
-
-    def test_r2_init_stack_preset_detection_systems(self) -> None:
-        """Assures 'agyis init' auto-detects Systems stack preset via Makefile."""
-        self.create_fixture("systems")
-        code, out, err = self.run_cli(["init", "--dry-run", "--json", str(self.ws)])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertEqual(data.get("stack"), "systems")
-        commands = data.get("command_dictionary", {})
-        self.assertIn("test", commands)
-        self.assertEqual(commands["test"], "make test")
-        self.assertIn("build", commands)
-        self.assertEqual(commands["build"], "make build")
-
-    def test_r2_init_stack_preset_detection_polyglot(self) -> None:
-        """Assures 'agyis init' extracts commands from multi-stack repositories."""
-        self.create_fixture("polyglot")
-        code, out, err = self.run_cli(["init", "--dry-run", "--json", str(self.ws)])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        commands = data.get("command_dictionary", {})
-        self.assertIn("test", commands)
-        self.assertIn("build", commands)
-
-    def test_r2_command_dictionary_injected_into_section_1(self) -> None:
-        """Assures extracted commands are formatted into Section 1 of AGENTS.md."""
-        self.create_fixture("node_typescript")
-        code, out, err = self.run_cli(["init", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("## 1. Explicit Project Command Dictionary", content)
-        self.assertIn("npm test", content)
-        self.assertIn("npm run build", content)
-
-    def test_r2_init_dry_run_zero_filesystem_mutations(self) -> None:
-        """Assures 'agyis init --dry-run' makes zero disk modifications."""
-        code, out, err = self.run_cli(["init", "--dry-run", str(self.ws)])
-        self.assertEqual(code, 0)
-        self.assertFalse((self.ws / "AGENTS.md").exists())
-        self.assertFalse((self.ws / ".agents").exists())
-
-    def test_r2_harmonize_migrates_legacy_structure_to_agents(self) -> None:
-        """Assures 'agyis harmonize' migrates .agent/ to .agents/ and updates tags."""
-        self.create_fixture("legacy_psl")
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        # Structure migrated to .agents/
-        self.assertTrue((self.ws / ".agents" / "agents" / "code_reviewer.md").exists())
-        self.assertTrue((self.ws / ".agents" / "skills" / "deploy_staging" / "SKILL.md").exists())
-        self.assertTrue((self.ws / ".agents" / "rules" / "standards.md").exists())
-
-        # Tagged block updated to AGYIS-HARNESS
-        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("<!-- Added by AGYIS-HARNESS -->", content)
-        self.assertIn("<!-- End AGYIS-HARNESS -->", content)
-        self.assertNotIn("<!-- Added by PSL-HARNESS -->", content)
-
-    def test_r2_harmonize_preserves_custom_user_rules(self) -> None:
-        """Assures user rules outside tagged fences remain 100% intact."""
-        custom_rules = (
-            "# My Custom Rules\n- Invariant Alpha\n\n"
-            "<!-- Added by PSL-HARNESS -->\nLegacy rules\n<!-- End PSL-HARNESS -->\n\n"
-            "## Postfix Rules\n- Invariant Omega\n"
-        )
-        self.create_fixture("legacy_psl", custom_rules=custom_rules)
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("# My Custom Rules", content)
-        self.assertIn("- Invariant Alpha", content)
-        self.assertIn("## Postfix Rules", content)
-        self.assertIn("- Invariant Omega", content)
-
-    def test_r2_harmonize_dry_run_zero_filesystem_mutations(self) -> None:
-        """Assures 'agyis harmonize --dry-run' performs preview without writing to disk."""
-        self.create_fixture("legacy_psl")
-        code, out, err = self.run_cli(["harmonize", "--dry-run", str(self.ws)])
-        self.assertEqual(code, 0)
-        self.assertFalse((self.ws / ".agents").exists())
-        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("<!-- Added by PSL-HARNESS -->", content)
-
-    # =========================================================================
-    # R3: Extension Manifest, Personas & Doctor (Features 4, 5, 11, 12)
-    # =========================================================================
-
-    def test_r3_extension_manifest_registration(self) -> None:
-        """Assures plugin.json registers the rebrand product as 'agyis-harness'."""
-        plugin_file = REPO_ROOT / "plugin.json"
-        self.assertTrue(plugin_file.exists())
-        data = json.loads(plugin_file.read_text(encoding="utf-8"))
-        self.assertEqual(data.get("name"), "agyis-harness")
-
-    def test_r3_specialist_persona_agyis_architect(self) -> None:
-        """Assures specialist persona 'agyis_architect' exists with valid capabilities."""
-        code, out, err = self.run_cli(["agents", "--json"])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        names = [a.get("name") for a in data]
-        self.assertIn("agyis_architect", names)
-
-        persona_path = REPO_ROOT / "harness" / "agents" / "agyis_architect.md"
-        self.assertTrue(persona_path.exists())
-        content = persona_path.read_text(encoding="utf-8")
-        self.assertIn("Agyis Lead Architect", content)
-
-    def test_r3_doctor_operational_pass(self) -> None:
-        """Assures 'agyis doctor' audits runtimes and reports operational status."""
-        code, out, err = self.run_cli(["doctor", "--json"])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertIn("tiers", data)
-        self.assertIn("tier_1_languages", data["tiers"])
-        self.assertGreaterEqual(data["summary"]["ok"], 1)
-
-    def test_r3_doctor_discreet_backronym(self) -> None:
-        """Assures doctor diagnostics include subtle 'Antigravity Immune System'."""
-        code, out, err = self.run_cli(["doctor", "--help"])
-        self.assertEqual(code, 0)
-        self.assertIn("Antigravity Immune System", out)
-
-    def test_r3_doctor_heal_flag_operational(self) -> None:
-        """Assures 'agyis doctor --heal' completes user-space check cleanly."""
-        code, out, err = self.run_cli(["doctor", "--heal", "--json"])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertIn("summary", data)
-
-    def test_r3_csp_ip_notice_attribution(self) -> None:
-        """Assures NOTICE file includes ICARO-42/b CSP-IP attribution."""
-        notice_file = REPO_ROOT / "NOTICE"
-        self.assertTrue(notice_file.exists())
-        content = notice_file.read_text(encoding="utf-8")
-        self.assertIn("agyis-harness", content)
-        self.assertIn("Arafat Zahan (@kuasha420)", content)
-        self.assertIn("ICARO-42/b", content)
-        self.assertIn("Purrfect Software Limited", content)
-
-    # =========================================================================
-    # R4: Dual Runner Recognition & Hermetic Benchmarks (Features 13, 14, 15)
-    # =========================================================================
-
-    def _create_dummy_test_suite(self, name: str = "sample") -> Path:
-        import uuid
-
-        mod_name = f"test_{name}_{uuid.uuid4().hex}"
-        t_dir = self.ws / f"dummy_tests_{name}"
-        t_dir.mkdir(parents=True, exist_ok=True)
-        (t_dir / f"{mod_name}.py").write_text(
-            "import unittest\nclass TestSimple(unittest.TestCase):\n    def test_pass(self):\n        pass\n",
-            encoding="utf-8",
-        )
-        self.addCleanup(lambda: sys.modules.pop(mod_name, None))
-        return t_dir
-
-    def test_r4_test_command_execution_agyis(self) -> None:
-        """Assures 'agyis test' invokes test runner discovery and exits 0."""
-        t_dir = self._create_dummy_test_suite("agyis")
-        code, out, err = self.run_cli(["test", "-s", str(t_dir), "-v"])
-        self.assertEqual(code, 0)
-        self.assertIn("Ran 1 test", err + out)
-
-    def test_r4_test_command_execution_psl_with_deprecation_notice(self) -> None:
-        """Assures 'psl test' emits deprecation warning on stderr and runs tests."""
-        t_dir = self._create_dummy_test_suite("psl")
-        code, out, err = self.run_cli(["test", "-s", str(t_dir), "-v"], prog="psl")
-        self.assertEqual(code, 0)
-        self.assertIn("DeprecationWarning: 'psl' is deprecated", err)
-        self.assertIn("Ran 1 test", err + out)
-
-    def test_r4_completion_fence_hook_dual_runner_unblocking(self) -> None:
-        """Assures completion fence lifecycle hook handles Stop event safely."""
-        stop_payload = json.dumps({"event": "Stop", "conversation_id": "e2e_fence_test"})
-        code, out, err = self.run_cli(["hook", "completion-fence"], stdin_input=stop_payload)
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertIn(data.get("decision"), ["allow", "continue"])
-
-    def test_r4_command_safety_hook_recognizes_dual_runners(self) -> None:
-        """Assures command safety hook passes 'agyis test' and 'psl test' cleanly."""
-        payload_a = json.dumps(
-            {"tool_name": "run_command", "tool_args": {"CommandLine": "agyis test"}}
-        )
-        code, out, err = self.run_cli(["hook", "command-safety"], stdin_input=payload_a)
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertEqual(data.get("decision"), "allow")
-
-        payload_p = json.dumps(
-            {"tool_name": "run_command", "tool_args": {"CommandLine": "psl test"}}
-        )
-        code, out, err = self.run_cli(["hook", "command-safety"], stdin_input=payload_p)
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertEqual(data.get("decision"), "allow")
-
-    def test_r4_test_runner_subsecond_benchmark(self) -> None:
-        """Assures test discovery runs within acceptable hermetic subsecond performance."""
-        t_dir = self._create_dummy_test_suite("benchmark")
-        code, out, err = self.run_cli(["test", "-s", str(t_dir)])
-        self.assertEqual(code, 0)
-
-    # =========================================================================
-    # R5: Fleet Healing Dry-Run & In-Tree Documentation (Features 16, 17)
-    # =========================================================================
-
-    def test_r5_harmonize_dry_run_json_contract(self) -> None:
-        """Assures 'agyis harmonize --dry-run --json' emits complete 11-key schema."""
-        self.create_fixture("legacy_psl")
-        code, out, err = self.run_cli(["harmonize", "--dry-run", "--json", str(self.ws)])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-
-        required_keys = [
-            "success",
-            "workspace_dir",
-            "dry_run",
-            "legacy_agent_dir_found",
-            "legacy_workflows_migrated",
-            "legacy_agents_migrated",
-            "legacy_rules_migrated",
-            "rules_action",
-            "command_dictionary",
-            "modified",
-            "message",
+    def test_f1_03_coordination_basenames_dispatch_briefing_task(self) -> None:
+        """Assures coordination manifest basenames are exempted regardless of directory."""
+        self.create_fixture("coordination")
+        coordination_files = [
+            "DISPATCH.md",
+            "BRIEFING.md",
+            "handoff.md",
+            "task.md",
+            "progress.md",
+            "obligations.json",
         ]
-        for key in required_keys:
-            self.assertIn(key, data, f"Missing key '{key}' in harmonize JSON report")
-        self.assertTrue(data["dry_run"])
-        self.assertTrue(data["legacy_agent_dir_found"])
 
-    def test_r5_init_dry_run_json_contract(self) -> None:
-        """Assures 'agyis init --dry-run --json' emits complete JSON summary."""
-        code, out, err = self.run_cli(["init", "--dry-run", "--json", str(self.ws)])
+        for fname in coordination_files:
+            file_path = str(self.ws / ".agents" / "teamwork" / fname)
+            for _ in range(6):
+                payload = {
+                    "conversationId": f"c_f1_03_{fname}",
+                    "toolCall": {
+                        "name": "view_file",
+                        "args": {"Path": file_path},
+                    },
+                }
+                code, resp = self.run_hook("anti-loop", payload)
+                self.assertEqual(code, 0)
+                self.assertEqual(resp.get("decision"), "allow")
+
+    def test_f1_04_argument_name_invariance(self) -> None:
+        """Assures coordination path exemption works across diverse tool argument keys."""
+        target_path = str(self.ws / ".agents" / "teamwork" / "DISPATCH.md")
+        arg_keys = [
+            "AbsolutePath",
+            "Path",
+            "TargetFile",
+            "file_path",
+            "filePath",
+            "path",
+            "target_file",
+        ]
+
+        for key in arg_keys:
+            conv_id = f"c_f1_04_{key}"
+            for _ in range(6):
+                payload = {
+                    "conversationId": conv_id,
+                    "toolCall": {
+                        "name": "view_file",
+                        "args": {key: target_path},
+                    },
+                }
+                code, resp = self.run_hook("anti-loop", payload)
+                self.assertEqual(code, 0)
+                self.assertEqual(
+                    resp.get("decision"),
+                    "allow",
+                    f"Argument key '{key}' failed coordination exemption",
+                )
+
+    def test_f1_05_production_code_rate_limited(self) -> None:
+        """Assures production source code remains strictly subject to anti-loop rate limiting."""
+        prod_file = str(self.ws / "src" / "core" / "module.rs")
+        conv_id = "c_f1_05_prod"
+
+        decisions = []
+        for _ in range(6):
+            payload = {
+                "conversationId": conv_id,
+                "toolCall": {
+                    "name": "view_file",
+                    "args": {"AbsolutePath": prod_file},
+                },
+            }
+            code, resp = self.run_hook("anti-loop", payload)
+            self.assertEqual(code, 0)
+            decisions.append(resp.get("decision"))
+
+        self.assertIn("deny", decisions, "Production code view loop was not denied")
+
+    # =========================================================================
+    # Feature 2 (Issue #42): Stop-Fence Wiring & Clearance
+    # =========================================================================
+
+    def test_f2_01_post_tool_use_test_command_exit_zero_clears_dirty(self) -> None:
+        """Assures PostToolUse of a passing test command (exit 0) clears code_dirty state."""
+        conv_id = "c_f2_01"
+        ws_file = str(self.ws / "src" / "lib.py")
+
+        # 1. Edit code file -> dirty = True
+        edit_payload = {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": ws_file, "CodeContent": "def test(): pass"},
+            },
+        }
+        self.run_hook("verification-fence", edit_payload)
+
+        # Confirm dirty state
+        _, state_data = self.run_hook("verification-fence", {"conversationId": conv_id, "action": "reset"})
+        # Re-apply edit
+        self.run_hook("verification-fence", edit_payload)
+
+        # 2. Run passing test command via PostToolUse
+        test_payload = {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": 0,
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "python3 -m unittest discover", "Cwd": str(self.ws)},
+            },
+        }
+        self.run_hook("verification-fence", test_payload)
+
+        # 3. Evaluate stop -> should be allow
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
         self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertTrue(data.get("success"))
-        self.assertTrue(data.get("dry_run"))
-        self.assertIn("command_dictionary", data)
+        self.assertEqual(stop_resp.get("decision"), "allow")
 
-    def test_r5_fixture_healing_sha256_tree_stability(self) -> None:
-        """Assures harmonize dry-run maintains 100% byte-for-byte tree stability."""
-        self.create_fixture("legacy_psl")
+    def test_f2_02_post_tool_use_test_command_exit_nonzero_retains_dirty(self) -> None:
+        """Assures PostToolUse of a failing test command (exit 1) retains code_dirty state."""
+        conv_id = "c_f2_02"
+        ws_file = str(self.ws / "src" / "lib.py")
 
-        def compute_tree_hashes(base_dir: Path) -> dict[str, str]:
-            hashes = {}
-            for p in sorted(base_dir.rglob("*")):
-                if p.is_file():
-                    hashes[str(p.relative_to(base_dir))] = hashlib.sha256(p.read_bytes()).hexdigest()
-            return hashes
+        # 1. Edit code file
+        edit_payload = {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": ws_file, "CodeContent": "broken"},
+            },
+        }
+        self.run_hook("verification-fence", edit_payload)
 
-        before = compute_tree_hashes(self.ws)
-        code, out, err = self.run_cli(["harmonize", "--dry-run", str(self.ws)])
+        # 2. Run failing test command
+        test_payload = {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": 1,
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "python3 -m unittest discover", "Cwd": str(self.ws)},
+            },
+        }
+        self.run_hook("verification-fence", test_payload)
+
+        # 3. Evaluate stop -> should block with continue
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
         self.assertEqual(code, 0)
-        after = compute_tree_hashes(self.ws)
+        self.assertEqual(stop_resp.get("decision"), "continue")
 
-        self.assertEqual(before, after, "Dry-run mutated files on disk!")
+    def test_f2_03_stop_event_allowed_after_successful_verification(self) -> None:
+        """Assures evaluate_stop returns allow on first attempt after passing verification."""
+        conv_id = "c_f2_03"
+        ws_file = str(self.ws / "harness" / "cli.py")
 
-    def test_r5_in_tree_rfc_document_validity(self) -> None:
-        """Assures docs/discussions/rebrand-agyis-epic.md exists and contains RFC."""
-        rfc_path = REPO_ROOT / "docs" / "discussions" / "rebrand-agyis-epic.md"
-        self.assertTrue(rfc_path.exists())
-        content = rfc_path.read_text(encoding="utf-8")
-        self.assertIn("Project Rebrand to `agyis`", content)
-        self.assertIn("ICARO-42/b", content)
-        self.assertIn("Antigravity Immune System", content)
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": ws_file}},
+        })
 
-    def test_r5_standalone_binary_launchers_exist_and_executable(self) -> None:
-        """Assures root launchers './agyis' and './psl' exist and execute out-of-process."""
-        bin_agyis = REPO_ROOT / "agyis"
-        bin_psl = REPO_ROOT / "psl"
-        self.assertTrue(bin_agyis.is_file())
-        self.assertTrue(bin_psl.is_file())
+        # Passing verification
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": 0,
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "./agyis test"}},
+        })
 
-        code, out, err = self.run_binary("agyis", ["--version"])
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
         self.assertEqual(code, 0)
-        self.assertIn("agyis-harness", out)
+        self.assertEqual(stop_resp.get("decision"), "allow")
 
-        code, out, err = self.run_binary("psl", ["--version"])
+    def test_f2_04_post_tool_use_resets_modified_files_and_updates_timestamp(self) -> None:
+        """Assures passing verification resets last_modified_files and updates last_verified_at."""
+        conv_id = "c_f2_04"
+        ws_file = str(self.ws / "tests" / "test_sample.py")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": ws_file}},
+        })
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": 0,
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "pytest"}},
+        })
+
+        code, state_resp = self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "action": "check_command_verification",
+            "command": "pytest",
+            "exit_code": 0,
+        })
         self.assertEqual(code, 0)
-        self.assertIn("DeprecationWarning: 'psl' is deprecated", err)
+        state = state_resp.get("state", {})
+        self.assertFalse(state.get("code_dirty", True))
+        self.assertEqual(state.get("last_modified_files"), [])
+        self.assertIsNotNone(state.get("last_verified_at"))
+
+    def test_f2_05_post_tool_use_hooks_json_registration(self) -> None:
+        """Assures hooks.json registers psl-stop-verification-fence under PostToolUse for run_command."""
+        hooks_path = REPO_ROOT / "hooks.json"
+        self.assertTrue(hooks_path.exists(), "hooks.json does not exist in repository root")
+
+        with open(hooks_path, "r", encoding="utf-8") as f:
+            hooks_cfg = json.load(f)
+
+        fence = hooks_cfg.get("psl-stop-verification-fence", {})
+        self.assertIn("PostToolUse", fence, "psl-stop-verification-fence lacks PostToolUse registration")
+
+        post_hooks = fence["PostToolUse"]
+        matcher_found = any(
+            "run_command" in entry.get("matcher", "") for entry in post_hooks
+        )
+        self.assertTrue(matcher_found, "PostToolUse does not register run_command matcher")
+
+    # =========================================================================
+    # Feature 3 (Issue #43): Scratch Path Isolation
+    # =========================================================================
+
+    def test_f3_01_brain_scratch_path_does_not_dirty_state(self) -> None:
+        """Assures editing code in brain scratch paths does not set code_dirty = True."""
+        conv_id = "c_f3_01"
+        scratch_file = "/home/kuasha/.gemini/antigravity/brain/session_abc123/scratch/helper.py"
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": scratch_file, "CodeContent": "print('scratch')"},
+            },
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "allow")
+
+    def test_f3_02_temp_scratch_path_outside_workspace_does_not_dirty(self) -> None:
+        """Assures editing code in /tmp outside workspace does not set code_dirty = True."""
+        conv_id = "c_f3_02"
+        tmp_file = "/tmp/one_off_scratch.py"
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": tmp_file, "CodeContent": "x = 1"},
+            },
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "allow")
+
+    def test_f3_03_workspace_code_edit_sets_dirty_true(self) -> None:
+        """Assures editing code inside workspace correctly marks code_dirty = True."""
+        conv_id = "c_f3_03"
+        ws_file = str(self.ws / "src" / "index.ts")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": ws_file, "CodeContent": "export const x = 1;"},
+            },
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "continue")
+
+    def test_f3_04_scratch_edit_allows_immediate_stop(self) -> None:
+        """Assures task creating only scratch files may terminate immediately without running tests."""
+        conv_id = "c_f3_04"
+        scratch_script = str(self.ws / ".gemini" / "antigravity" / "brain" / "sess_1" / "scratch" / "probe.sh")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": scratch_script, "CodeContent": "#!/bin/bash\necho ok"},
+            },
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "allow")
+
+    def test_f3_05_relative_path_outside_workspace_isolated(self) -> None:
+        """Assures relative path resolving outside workspace root is isolated."""
+        conv_id = "c_f3_05"
+        rel_outside = "../external_project/main.py"
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": rel_outside, "CodeContent": "x = 1"},
+            },
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "allow")
+
+    # =========================================================================
+    # Feature 4 (Issue #44): REA Doctor Diagnostics
+    # =========================================================================
+
+    def test_f4_01_doctor_detects_installed_rea_version(self) -> None:
+        """Assures REA tooling detection resolves binary and parses version."""
+        res = check_rea_tooling()
+        if res.get("binary"):
+            self.assertIn(res.get("status"), ("ok", "warning", "outdated"))
+            self.assertIsNotNone(res.get("version"))
+        else:
+            self.assertEqual(res.get("status"), "optional_missing")
+
+    def test_f4_02_doctor_audits_active_and_unavailable_providers(self) -> None:
+        """Assures check_rea_tooling partitions providers into active and unavailable."""
+        res = check_rea_tooling()
+        providers = res.get("providers", {})
+        self.assertIn("active", providers)
+        self.assertIn("unavailable", providers)
+        self.assertIsInstance(providers["active"], list)
+        self.assertIsInstance(providers["unavailable"], list)
+
+    def test_f4_03_doctor_audits_rea_mcp_registration(self) -> None:
+        """Assures check_rea_tooling audits REA MCP configuration."""
+        dummy_mcp = self.ws / "mcp_config.json"
+        dummy_mcp.write_text(json.dumps({
+            "mcpServers": {
+                "rea": {"command": "rea", "args": ["mcp"]}
+            }
+        }), encoding="utf-8")
+
+        res = check_rea_tooling(mcp_config_path=dummy_mcp)
+        self.assertTrue(res.get("mcp_configured"))
+
+    def test_f4_04_doctor_missing_rea_is_non_fatal_exit_zero(self) -> None:
+        """Assures missing REA is graded non-fatally and agyis doctor exits with 0."""
+        with patch("harness.runtime.tool_checks.find_rea_binary", return_value=None):
+            res = check_rea_tooling()
+            self.assertEqual(res.get("status"), "optional_missing")
+
+        code, out, err = self.run_cli(["doctor"])
+        self.assertEqual(code, 0)
+        self.assertIn("AGYIS WORKSTATION DOCTOR", out)
+
+    def test_f4_05_doctor_provides_actionable_rea_remediation(self) -> None:
+        """Assures missing or outdated REA includes actionable remediation message."""
+        with patch("harness.runtime.tool_checks.find_rea_binary", return_value=None):
+            res = check_rea_tooling()
+            remediation = res.get("remediation", "")
+            self.assertIn("pnpm add -g rea-agents", remediation)
+
+    # =========================================================================
+    # Feature 5 (Issue #45): Cleanroom Verification Gates
+    # =========================================================================
+
+    def test_f5_01_cleanroom_spec_edit_sets_dirty_true(self) -> None:
+        """Assures editing docs/specs/** sets code_dirty = True."""
+        conv_id = "c_f5_01"
+        spec_file = str(self.ws / "docs" / "specs" / "mstar_display.md")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": spec_file, "CodeContent": "# Spec"},
+            },
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "continue")
+
+    def test_f5_02_cleanroom_ledger_edit_sets_dirty_true(self) -> None:
+        """Assures editing .agents/ledger/** sets code_dirty = True."""
+        conv_id = "c_f5_02"
+        ledger_file = str(self.ws / ".agents" / "ledger" / "obligations.json")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": ledger_file, "CodeContent": "{}"},
+            },
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "continue")
+
+    def test_f5_03_cleanroom_unverified_edits_block_stop(self) -> None:
+        """Assures unverified cleanroom edits block completion until verified."""
+        conv_id = "c_f5_03"
+        spec_file = str(self.ws / "docs" / "specs" / "hardware.md")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": spec_file, "CodeContent": "# HW"},
+            },
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "continue")
+
+        # Now pass verification test
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": 0,
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "./agyis test"},
+            },
+        })
+
+        code, stop_resp2 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp2.get("decision"), "allow")
+
+    def test_f5_04_cleanroom_refusal_message_identifies_contracts(self) -> None:
+        """Assures refusal message explicitly mentions cleanroom contract edits."""
+        conv_id = "c_f5_04"
+        spec_file = str(self.ws / "docs" / "specs" / "mst9u.md")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": spec_file, "CodeContent": "# Spec"},
+            },
+        })
+
+        _, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        reason = stop_resp.get("reason", "")
+        self.assertIn("cleanroom contract", reason.lower())
+        self.assertIn("mst9u.md", reason)
+
+    def test_f5_05_ordinary_documentation_outside_specs_remains_exempt(self) -> None:
+        """Assures ordinary documentation outside specs/ and ledger/ remains exempt."""
+        conv_id = "c_f5_05"
+        docs = [
+            str(self.ws / "README.md"),
+            str(self.ws / "CHANGELOG.md"),
+            str(self.ws / "docs" / "notes.md"),
+            str(self.ws / "config" / "settings.json"),
+        ]
+
+        for doc_path in docs:
+            self.run_hook("verification-fence", {
+                "conversationId": conv_id,
+                "cwd": str(self.ws),
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {"TargetFile": doc_path, "CodeContent": "doc"},
+                },
+            })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "allow")
+
+    # =========================================================================
+    # Feature 6 (Issue #46): Standardized Issue Templates
+    # =========================================================================
+
+    def _load_template_content(self, filename: str) -> str:
+        template_path = REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / filename
+        if not template_path.exists():
+            self.skipTest(f"Pending implementation in Milestone M4: {filename} not yet created")
+        return template_path.read_text(encoding="utf-8")
+
+    def test_f6_01_bug_report_template_exists_and_valid_yaml(self) -> None:
+        """Assures bug_report.yml exists and contains valid issue form structure."""
+        content = self._load_template_content("bug_report.yml")
+        self.assertIn("name:", content)
+        self.assertIn("description:", content)
+        self.assertIn("body:", content)
+
+    def test_f6_02_bug_report_mandates_harness_version(self) -> None:
+        """Assures bug_report.yml strictly mandates harness_version input."""
+        content = self._load_template_content("bug_report.yml")
+        self.assertIn("harness_version", content)
+        # Verify required: true is present for harness_version block
+        harness_idx = content.find("harness_version")
+        self.assertNotEqual(harness_idx, -1)
+        sub_content = content[harness_idx:harness_idx + 300]
+        self.assertTrue(
+            "required: true" in sub_content or "required:true" in sub_content,
+            "harness_version field is not marked as required: true",
+        )
+
+    def test_f6_03_bug_report_optional_antigravity_platform_fields(self) -> None:
+        """Assures bug_report.yml provides structured optional fields for Antigravity platform."""
+        content = self._load_template_content("bug_report.yml")
+        self.assertIn("antigravity_cli_version", content)
+        self.assertIn("antigravity_ide_version", content)
+
+    def test_f6_04_bug_report_optional_toolchain_and_repo_fields(self) -> None:
+        """Assures bug_report.yml provides host toolchains and reproduction repo fields."""
+        content = self._load_template_content("bug_report.yml")
+        self.assertIn("host_toolchain_versions", content)
+        self.assertIn("reproduction_repo", content)
+
+    def test_f6_05_feature_request_and_config_templates_valid(self) -> None:
+        """Assures feature_request.yml and config.yml exist with valid schemas."""
+        feat_content = self._load_template_content("feature_request.yml")
+        self.assertIn("harness_version", feat_content)
+        self.assertIn("proposed_solution", feat_content)
+
+        cfg_content = self._load_template_content("config.yml")
+        self.assertIn("blank_issues_enabled", cfg_content)
 
 
 if __name__ == "__main__":

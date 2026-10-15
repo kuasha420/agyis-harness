@@ -21,9 +21,30 @@ import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 
 from harness.utils.state import get_state_dir
 from harness.utils.workspace import detect_project_test_runner, is_harness_workspace
+
+__all__ = [
+    "EXEMPT_EXTENSIONS",
+    "EXEMPT_FILENAMES",
+    "CODE_EXTENSIONS",
+    "get_state_file",
+    "is_code_file",
+    "is_cleanroom_contract_file",
+    "is_ephemeral_scratch_path",
+    "is_test_command",
+    "extract_exit_code",
+    "load_state",
+    "save_state",
+    "record_edit",
+    "record_verification",
+    "reset_state",
+    "evaluate_stop",
+    "check_command_verification",
+    "main",
+]
 
 
 
@@ -121,6 +142,142 @@ def is_code_file(path_str: str) -> bool:
     return suffix in CODE_EXTENSIONS
 
 
+def is_cleanroom_contract_file(path_str: str) -> bool:
+    """
+    Determines if a file path represents a cleanroom contract file
+    (in docs/specs/** or .agents/ledger/**) that requires verification,
+    overriding default .md and .json exemptions.
+    """
+    if not path_str or not isinstance(path_str, str):
+        return False
+    norm = path_str.replace("\\", "/").strip().lower()
+    if norm.startswith("./"):
+        norm = norm[2:]
+
+    if norm.startswith("docs/specs/") or "/docs/specs/" in norm:
+        return True
+    if norm.startswith(".agents/ledger/") or "/.agents/ledger/" in norm:
+        return True
+
+    return False
+
+
+def is_ephemeral_scratch_path(file_path: str, cwd: Path | str | None = None) -> bool:
+    """
+    Determines if a file path represents an ephemeral scratch file or is outside
+    the target workspace root. Scratch files do not trigger code dirty state.
+
+    Rules:
+    1. Paths containing .gemini/antigravity/brain/ and /scratch/ return True.
+    2. When cwd is provided: files outside cwd (not target_path.is_relative_to(workspace_root)) return True.
+    3. When cwd is not provided: paths in system temp directories (/tmp/, /var/tmp/) return True.
+    """
+    if not file_path or not isinstance(file_path, str):
+        return False
+
+    norm = file_path.replace("\\", "/").strip()
+
+    # Rule 1: Antigravity ephemeral scratch transcripts/scripts
+    if ".gemini/antigravity/brain" in norm and "/scratch/" in norm:
+        return True
+
+    # Rule 2: When cwd is provided, check if path resolves outside cwd
+    if cwd is not None:
+        try:
+            workspace_root = Path(cwd).resolve()
+            p = Path(file_path)
+            target_path = p.resolve() if p.is_absolute() else (workspace_root / p).resolve()
+            if not target_path.is_relative_to(workspace_root):
+                return True
+        except (ValueError, OSError):
+            pass
+    else:
+        # Rule 3: When cwd is not provided, paths in system temp directories return True
+        if norm.startswith("/tmp/") or norm == "/tmp" or norm.startswith("/var/tmp/") or norm == "/var/tmp":
+            return True
+        try:
+            p = Path(file_path).resolve()
+            for temp_base in (Path("/tmp"), Path("/var/tmp"), Path(tempfile.gettempdir())):
+                if p.is_relative_to(temp_base.resolve()):
+                    return True
+        except (ValueError, OSError):
+            pass
+
+    return False
+
+
+def extract_exit_code(payload: dict) -> int | None:
+    """
+    Robustly extracts exit code from direct payload (exitCode, exit_code)
+    and nested structures (toolResponse, result).
+    Returns integer exit code, or None if no exit code could be determined.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    # 1. Direct fields
+    for key in ("exitCode", "exit_code", "returncode"):
+        val = payload.get(key)
+        if val is not None:
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                pass
+
+    # 2. Check nested structures: toolResponse, result, response, output, toolOutput, content, stdout
+    for key in ("toolResponse", "result", "response", "output", "toolOutput", "content", "stdout"):
+        val = payload.get(key)
+        if isinstance(val, dict):
+            # Direct check in dict
+            for sub_key in ("exitCode", "exit_code", "returncode", "code"):
+                sub_val = val.get(sub_key)
+                if sub_val is not None:
+                    try:
+                        return int(sub_val)
+                    except (ValueError, TypeError):
+                        pass
+            # Check nested sub-dict inside val
+            for sub_dict_key in ("result", "toolResponse", "response", "data"):
+                sub_dict = val.get(sub_dict_key)
+                if isinstance(sub_dict, dict):
+                    for sub_key in ("exitCode", "exit_code", "returncode", "code"):
+                        sub_val = sub_dict.get(sub_key)
+                        if sub_val is not None:
+                            try:
+                                return int(sub_val)
+                            except (ValueError, TypeError):
+                                pass
+            # Check string fields inside dict (e.g., output, content, stdout)
+            for text_key in ("output", "content", "stdout"):
+                text_val = val.get(text_key)
+                if isinstance(text_val, str):
+                    m = re.search(r"(?:failed with exit code|exited with code)\s*[:=]?\s*(\d+)", text_val, re.I)
+                    if m:
+                        try:
+                            return int(m.group(1))
+                        except (ValueError, TypeError):
+                            pass
+        elif isinstance(val, str):
+            # String JSON parsing attempt
+            try:
+                parsed = json.loads(val)
+                if isinstance(parsed, dict):
+                    sub_code = extract_exit_code(parsed)
+                    if sub_code is not None:
+                        return sub_code
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+            # Regex match on string content
+            m = re.search(r"(?:failed with exit code|exited with code)\s*[:=]?\s*(\d+)", val, re.I)
+            if m:
+                try:
+                    return int(m.group(1))
+                except (ValueError, TypeError):
+                    pass
+
+    return None
+
+
 def load_state(conv_id: str = "default", state_dir: Path | None = None) -> dict:
     """Loads state for conversation or returns clean baseline."""
     state_file = get_state_file(conv_id, state_dir)
@@ -171,12 +328,18 @@ def record_edit(
     cwd: Path | str | None = None,
 ) -> dict:
     """
-    Records a file edit. If the file is a code file, marks code_dirty = True,
-    resets block_count = 0 (re-arming the fence), appends the path to last_modified_files,
-    and records cwd if provided.
+    Records a file edit. If the file is a code file or cleanroom contract file,
+    marks code_dirty = True, resets block_count = 0 (re-arming the fence),
+    appends the path to last_modified_files, and records cwd if provided.
+    Ephemeral scratch paths are filtered out without modifying state.
     """
     state = load_state(conv_id=conv_id, state_dir=state_dir)
-    if is_code_file(file_path):
+    effective_cwd = cwd if cwd is not None else state.get("cwd")
+
+    if is_ephemeral_scratch_path(file_path, cwd=effective_cwd):
+        return state
+
+    if is_cleanroom_contract_file(file_path) or is_code_file(file_path):
         state["code_dirty"] = True
         state["block_count"] = 0
         modified = state.get("last_modified_files", [])
@@ -247,20 +410,30 @@ def evaluate_stop(
         modified_files = state.get("last_modified_files", [])
         files_str = ", ".join(modified_files) if modified_files else "untracked code files"
 
+        has_contract = any(is_cleanroom_contract_file(f) for f in modified_files)
+        has_code = any(not is_cleanroom_contract_file(f) for f in modified_files)
+
+        if has_contract and has_code:
+            category = "code and cleanroom contract edits"
+        elif has_contract:
+            category = "cleanroom contract edits"
+        else:
+            category = "code edits"
+
         effective_cwd = cwd if cwd is not None else state.get("cwd")
         if effective_cwd is None:
             effective_cwd = Path.cwd()
 
         if is_harness_workspace(effective_cwd):
             reason = (
-                f"Verification Required: Unverified code edits detected in: {files_str}. "
+                f"Verification Required: Unverified {category} detected in: {files_str}. "
                 "Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
             )
         else:
             detected_runner = detect_project_test_runner(effective_cwd)
             runner_str = detected_runner if detected_runner else "e.g. npm test, cargo test, pytest"
             reason = (
-                f"Verification Required: Unverified code edits detected in: {files_str}. "
+                f"Verification Required: Unverified {category} detected in: {files_str}. "
                 f"Execute your project test suite ({runner_str}) before stopping."
             )
 
@@ -335,6 +508,10 @@ def check_command_verification(
 
     success = (exit_code == 0)
     record_verification(success=success, conv_id=conv_id, state_dir=state_dir)
+    if not success:
+        state = load_state(conv_id=conv_id, state_dir=state_dir)
+        state["block_count"] = 0
+        save_state(state, conv_id=conv_id, state_dir=state_dir)
     return True
 
 
@@ -358,7 +535,13 @@ def main() -> None:
 
     conv_id = str(payload.get("conversationId") or payload.get("conversation_id") or "default")
     action = payload.get("action")
-    cwd = payload.get("cwd") or payload.get("workspace") or payload.get("working_directory")
+    workspace_paths = payload.get("workspacePaths") or []
+    cwd = (
+        payload.get("cwd")
+        or payload.get("workspace")
+        or payload.get("working_directory")
+        or (workspace_paths[0] if workspace_paths else None)
+    )
 
     if action == "record_edit":
         file_path = payload.get("file_path") or payload.get("path") or ""
@@ -370,7 +553,8 @@ def main() -> None:
         print(json.dumps({"status": "ok", "state": state}))
     elif action == "check_command_verification":
         command = payload.get("command") or payload.get("CommandLine") or ""
-        exit_code = int(payload.get("exit_code", payload.get("exitCode", 0)))
+        extracted = extract_exit_code(payload)
+        exit_code = extracted if extracted is not None else 0
         matched = check_command_verification(command, exit_code=exit_code, conv_id=conv_id, cwd=cwd)
         state = load_state(conv_id=conv_id)
         print(json.dumps({"status": "ok", "matched": matched, "state": state}))
@@ -386,7 +570,7 @@ def main() -> None:
         tool_name = tool_call.get("name", "")
         tool_args = tool_call.get("args") or {}
         if cwd is None:
-            cwd = tool_args.get("Cwd")
+            cwd = tool_args.get("Cwd") or tool_args.get("cwd")
 
         if tool_name in ("write_to_file", "replace_file_content", "edit_file"):
             target_file = (
@@ -397,16 +581,20 @@ def main() -> None:
             )
             if target_file:
                 record_edit(target_file, conv_id=conv_id, cwd=cwd)
+            print(json.dumps({"decision": "allow"}))
         elif tool_name in ("run_command", "execute_command", "bash"):
             cmd = tool_args.get("CommandLine") or tool_args.get("command") or ""
-            raw_exit = payload.get("exitCode") if payload.get("exitCode") is not None else payload.get("exit_code")
-            if raw_exit is not None and cmd:
-                exit_code = int(raw_exit)
+            exit_code = extract_exit_code(payload)
+            if exit_code is not None and cmd:
                 check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, cwd=cwd)
-        print(json.dumps({"decision": "allow"}))
+            # PostToolUse contract: Antigravity expects exact JSON {}
+            print(json.dumps({}))
+        else:
+            print(json.dumps({"decision": "allow"}))
     elif "command" in payload or "CommandLine" in payload:
         cmd = payload.get("command") or payload.get("CommandLine") or ""
-        exit_code = int(payload.get("exitCode", payload.get("exit_code", 0)))
+        extracted = extract_exit_code(payload)
+        exit_code = extracted if extracted is not None else 0
         matched = check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, cwd=cwd)
         state = load_state(conv_id=conv_id)
         print(json.dumps({"status": "ok", "matched": matched, "state": state, "decision": "allow"}))

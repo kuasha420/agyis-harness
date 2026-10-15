@@ -70,7 +70,7 @@ In `harness/hooks/`, we provide reference hooks:
 
 The `psl-stop-verification-fence` hook enforces verification discipline by preventing agents from declaring completion when code has been modified without running tests.
 
-#### A. Dual Event Registration in `hooks.json`
+#### A. Triple Event Registration in `hooks.json`
 ```json
 {
   "psl-stop-verification-fence": {
@@ -86,8 +86,9 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
         ]
       }
     ],
-    "Stop": [
+    "PostToolUse": [
       {
+        "matcher": "run_command|execute_command|bash",
         "hooks": [
           {
             "type": "command",
@@ -95,6 +96,13 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
             "timeout": 5
           }
         ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 -m harness.hooks.runner verification-fence",
+        "timeout": 5
       }
     ]
   }
@@ -104,23 +112,50 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
 #### B. Operational State Machine
 1. **`PreToolUse` Interception**:
    - Matching tools: `write_to_file`, `replace_file_content`, `edit_file`.
-   - If target file is recognized as code (`.py`, `.ts`, `.rs`, `.go`, etc.):
-     - Sets `code_dirty = True`.
-     - Appends target file to `last_modified_files`.
-     - Resets `block_count = 0` (re-arming the fence if previously tripped).
-   - Exemptions: Documentation (`.md`, `.txt`, `.rst`), assets (`.png`, `.svg`), lockfiles (`uv.lock`, `package-lock.json`), and git configs (`.gitignore`) do NOT dirty the state.
+   - **Ephemeral Scratch Path Filtering**:
+     - Ephemeral scratch paths (e.g. `.gemini/antigravity/brain/.../scratch/...`, or files outside target workspace `cwd`, or system temp files `/tmp/`, `/var/tmp/` when `cwd` is unspecified) are filtered out and do NOT mark state dirty.
+   - **Cleanroom Contract File Gate**:
+     - Modifications to files within `docs/specs/**` or `.agents/ledger/**` are classified as cleanroom contracts and override default `.md` or `.json` exemptions, immediately setting `code_dirty = True`.
+   - **Standard Code File Interception**:
+     - If target file is recognized as code (`.py`, `.ts`, `.rs`, `.go`, etc.):
+       - Sets `code_dirty = True`.
+       - Appends target file to `last_modified_files`.
+       - Resets `block_count = 0` (re-arming the fence if previously tripped).
+   - Exemptions: Standard documentation (`README.md`, `PROJECT.md`, `docs/architecture.md`, `docs/guide.md`), assets (`.png`, `.svg`), lockfiles (`uv.lock`, `package-lock.json`), and git configs (`.gitignore`) do NOT dirty the state.
    - Always emits `{"decision": "allow"}` so the edit proceeds unhindered.
 
-2. **`Stop` Event Evaluation**:
+2. **`PostToolUse` Interception & Command Verification**:
+   - Matching tools: `run_command`, `execute_command`, `bash`.
+   - Robustly extracts exit codes from payload fields (`exitCode`, `exit_code`, `returncode`) and nested structures (`toolResponse`, `result`).
+   - If the command executed a recognized test runner (e.g. `pytest`, `cargo test`, `pnpm test`, `agyis test`):
+     - Exit code 0 auto-clears `code_dirty = False`, resets `block_count = 0`, and clears `last_modified_files`.
+     - Non-zero exit code preserves `code_dirty = True`.
+
+3. **`Stop` Event Evaluation**:
    - If `code_dirty == False`: Emits `{"decision": "allow"}`.
    - If `code_dirty == True`:
-     - If `block_count < 2`: Increments `block_count` and emits:
-       ```json
-       {
-         "decision": "continue",
-         "reason": "Verification Required: Unverified code edits detected in: <files>. Execute 'python3 -m harness.cli test' or your project test suite before stopping."
-       }
-       ```
+     - If `block_count < 2`: Increments `block_count` and emits contextual diagnostic refusal guidance:
+       - For cleanroom contract edits:
+         ```json
+         {
+           "decision": "continue",
+           "reason": "Verification Required: Unverified cleanroom contract edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
+         }
+         ```
+       - For mixed code and contract edits:
+         ```json
+         {
+           "decision": "continue",
+           "reason": "Verification Required: Unverified code and cleanroom contract edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
+         }
+         ```
+       - For standard code edits:
+         ```json
+         {
+           "decision": "continue",
+           "reason": "Verification Required: Unverified code edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
+         }
+         ```
      - If `block_count >= 2`: Anti-deadlock safety valve trips! Emits:
        ```json
        {
@@ -129,9 +164,9 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
        }
        ```
 
-3. **Verification Clearance via Test Runner**:
+4. **Verification Clearance via Test Runner**:
    - Running `./agyis test` (or `./psl test`) or `python3 -m harness.cli test` executes the test suite.
-   - Upon successful completion (`success == True`), clears `code_dirty = False`, resets `block_count = 0`, and sweeps all active session state files in `$PSL_HARNESS_STATE_DIR/verification_state_*.json`.
+   - Upon successful completion (`success == True`), clears `code_dirty = False`, resets `block_count = 0`, and sweeps active session state files in `$PSL_HARNESS_STATE_DIR/verification_state_*.json`.
 
 
 ### 3.2 Command Safety & Subshell PATH Reliability Contract (ADR-023)

@@ -5,9 +5,9 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Base infrastructure for Opaque-Box E2E Testing Track (Feature 18).
-Provides clean-room workspace sandboxing, CLI invocation wrappers,
-environment variable scrubbing, and output assertion utilities.
+Base infrastructure for Opaque-Box E2E Testing Track (Issues #41-#46).
+Provides clean-room workspace sandboxing, CLI & hook invocation wrappers,
+environment variable scrubbing, and fixture creation utilities.
 """
 
 from __future__ import annotations
@@ -23,14 +23,16 @@ from typing import Any, Dict, List, Optional, Tuple
 import unittest
 from unittest.mock import patch
 
-from harness.cli import main
+from harness.cli import main as cli_main
 from harness.delivery.constants import REPO_ROOT
+from harness.hooks.runner import run_hook as runner_run_hook
 
 
 class OpaqueBoxTestCase(unittest.TestCase):
     """
     Base test case for requirement-driven opaque-box E2E tests.
-    Exercises product strictly through public CLI entrypoints and observable side-effects.
+    Exercises product strictly through public CLI entrypoints, lifecycle hooks,
+    and observable side-effects.
     """
 
     maxDiff = None
@@ -82,7 +84,7 @@ class OpaqueBoxTestCase(unittest.TestCase):
         try:
             with patch("sys.stdin", stdin_buf), patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
                 try:
-                    code = main(args, prog=prog)
+                    code = cli_main(args, prog=prog)
                 except SystemExit as exc:
                     code = exc.code if isinstance(exc.code, int) else 0
         finally:
@@ -90,6 +92,61 @@ class OpaqueBoxTestCase(unittest.TestCase):
             os.environ.update(saved_env)
 
         return code, stdout_buf.getvalue(), stderr_buf.getvalue()
+
+    def run_hook_cli(
+        self,
+        hook_name: str,
+        payload: Dict[str, Any] | str,
+        env_overrides: Optional[Dict[str, str]] = None,
+    ) -> Tuple[int, str, str]:
+        """
+        Executes a lifecycle hook via harness.hooks.runner capturing exit code,
+        stdout, and stderr.
+        """
+        payload_str = json.dumps(payload) if isinstance(payload, dict) else (payload or "")
+        saved_env = os.environ.copy()
+        if env_overrides:
+            os.environ.update(env_overrides)
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        old_stdin = sys.stdin
+
+        try:
+            sys.stdout = stdout_buf
+            sys.stderr = stderr_buf
+            sys.stdin = io.StringIO(payload_str)
+            try:
+                code = runner_run_hook(hook_name, payload_str=payload_str)
+            except SystemExit as exc:
+                code = exc.code if isinstance(exc.code, int) else 0
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            sys.stdin = old_stdin
+            os.environ.clear()
+            os.environ.update(saved_env)
+
+        return code, stdout_buf.getvalue(), stderr_buf.getvalue()
+
+    def run_hook(
+        self,
+        hook_name: str,
+        payload: Dict[str, Any] | str,
+        env_overrides: Optional[Dict[str, str]] = None,
+    ) -> Tuple[int, Dict[str, Any]]:
+        """
+        Convenience wrapper executing a lifecycle hook and returning parsed JSON output.
+        """
+        code, out, _ = self.run_hook_cli(hook_name, payload, env_overrides=env_overrides)
+        try:
+            data = json.loads(out.strip()) if out.strip() else {}
+        except json.JSONDecodeError:
+            data = {"raw_output": out}
+        return code, data
 
     def run_binary(
         self,
@@ -136,9 +193,60 @@ class OpaqueBoxTestCase(unittest.TestCase):
     ) -> Path:
         """
         Creates synthetic workspaces matching realistic engineering patterns.
-        Types: 'legacy_psl', 'node_typescript', 'python', 'systems', 'polyglot', 'empty'.
+        Types: 'coordination', 'cleanroom', 'scratch', 'polyglot', 'legacy_psl', 'empty'.
         """
         if fixture_type == "empty":
+            return self.ws
+
+        if fixture_type == "coordination":
+            teamwork_dir = self.ws / ".agents" / "teamwork"
+            ledger_dir = self.ws / ".agents" / "ledger"
+            teamwork_dir.mkdir(parents=True, exist_ok=True)
+            ledger_dir.mkdir(parents=True, exist_ok=True)
+
+            (teamwork_dir / "progress.md").write_text("# Progress Ledger\n- Task 1: Complete\n", encoding="utf-8")
+            (teamwork_dir / "DISPATCH.md").write_text("# Dispatch Manifest\nTarget: Worker\n", encoding="utf-8")
+            (teamwork_dir / "BRIEFING.md").write_text("# Briefing Manifest\nContext\n", encoding="utf-8")
+            (teamwork_dir / "handoff.md").write_text("# Handoff\nDone\n", encoding="utf-8")
+            (teamwork_dir / "task.md").write_text("# Task\nExecute\n", encoding="utf-8")
+            (ledger_dir / "obligations.json").write_text(
+                json.dumps({"obligations": [{"id": "ob_1", "status": "pending"}]}, indent=2),
+                encoding="utf-8",
+            )
+            return self.ws
+
+        if fixture_type == "cleanroom":
+            specs_dir = self.ws / "docs" / "specs"
+            ledger_dir = self.ws / ".agents" / "ledger"
+            specs_dir.mkdir(parents=True, exist_ok=True)
+            ledger_dir.mkdir(parents=True, exist_ok=True)
+
+            (specs_dir / "hardware.md").write_text(
+                "# Hardware Architecture Spec\nRegister 0x00: Control\n", encoding="utf-8"
+            )
+            (ledger_dir / "obligations.json").write_text(
+                json.dumps({"obligations": [{"id": "req_1", "status": "draft"}]}, indent=2),
+                encoding="utf-8",
+            )
+            return self.ws
+
+        if fixture_type == "scratch":
+            brain_scratch = self.ws / ".gemini" / "antigravity" / "brain" / "session_1" / "scratch"
+            brain_scratch.mkdir(parents=True, exist_ok=True)
+            script_file = brain_scratch / "script.py"
+            script_file.write_text("print('scratch diagnostic')\n", encoding="utf-8")
+            return self.ws
+
+        if fixture_type == "polyglot":
+            (self.ws / "package.json").write_text(
+                json.dumps({"name": "polyglot-node", "scripts": {"test": "vitest run"}}, indent=2),
+                encoding="utf-8",
+            )
+            (self.ws / "pyproject.toml").write_text(
+                "[project]\nname='polyglot-py'\n[tool.pytest.ini_options]\ntestpaths=['tests']\n",
+                encoding="utf-8",
+            )
+            (self.ws / "Makefile").write_text("test:\n\tpytest\n", encoding="utf-8")
             return self.ws
 
         if fixture_type == "legacy_psl":
@@ -163,52 +271,6 @@ class OpaqueBoxTestCase(unittest.TestCase):
                 "<!-- Added by PSL-HARNESS -->\nLegacy Invariants\n<!-- End PSL-HARNESS -->\n"
             )
             (self.ws / "AGENTS.md").write_text(rules_content, encoding="utf-8")
-            return self.ws
-
-        if fixture_type == "node_typescript":
-            (self.ws / "package.json").write_text(
-                json.dumps(
-                    {
-                        "name": "sample-node-app",
-                        "scripts": {
-                            "test": "vitest run",
-                            "build": "tsc",
-                            "lint": "eslint .",
-                        },
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-            (self.ws / "tsconfig.json").write_text("{}", encoding="utf-8")
-            return self.ws
-
-        if fixture_type == "python":
-            (self.ws / "pyproject.toml").write_text(
-                "[project]\nname = 'sample-py-pkg'\nversion = '0.1.0'\n\n"
-                "[tool.pytest.ini_options]\ntestpaths = ['tests']\n",
-                encoding="utf-8",
-            )
-            return self.ws
-
-        if fixture_type == "systems":
-            (self.ws / "Makefile").write_text(
-                ".PHONY: all test clean build\n"
-                "all: build\n"
-                "test:\n\tpytest\n"
-                "build:\n\tcargo build\n"
-                "clean:\n\trm -rf dist\n",
-                encoding="utf-8",
-            )
-            return self.ws
-
-        if fixture_type == "polyglot":
-            # Node + Python + Makefile
-            (self.ws / "package.json").write_text(
-                json.dumps({"scripts": {"test": "pnpm test"}}, indent=2), encoding="utf-8"
-            )
-            (self.ws / "pyproject.toml").write_text("[project]\nname='polyglot'\n", encoding="utf-8")
-            (self.ws / "Makefile").write_text("build:\n\techo build\n", encoding="utf-8")
             return self.ws
 
         raise ValueError(f"Unknown fixture type: {fixture_type}")

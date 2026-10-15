@@ -5,170 +5,298 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Tier 3: Cross-Feature Interactions & Pairwise Combinations.
-Validates integrations between distinct product subsystems:
-- PSL shim deprecation isolation + JSON stdout purity
-- Init then Harmonize lifecycle idempotence
-- Harmonize migration then Doctor health audit
-- Polyglot manifest precedence + Section 1 command extraction
-- XDG config precedence + workspace initialization
-- Lifecycle hook dual-runner alternating recognition
-- Doctor auto-healing + workspace file safety
-- Skills synchronization + agent discovery coexistence
+Tier 3: Cross-Feature Interactions (Issues #41 through #46).
+Validates 8 critical cross-feature interactions and subsystem combinations:
+- Interaction 1: Scratch Path + Cleanroom Spec Interaction
+- Interaction 2: Anti-Loop Exemption + Cleanroom Ledger Verification
+- Interaction 3: Anti-Loop Test Reset + Stop-Fence Clearance
+- Interaction 4: Cleanroom Edit Failed Test + Scratch Edit Passed Test
+- Interaction 5: Doctor Toolchain Audit with REA + Issue Template Correlation
+- Interaction 6: Multi-Agent Teamwork Views + Scratch Script Authoring
+- Interaction 7: Diverse Universal Test Runner Patterns Recognition
+- Interaction 8: Anti-Deadlock Safety Valve Trips on Attempt Three
 """
 
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-import sys
+from typing import Any, Dict, List, Optional
 import unittest
-import uuid
 
+from harness.delivery.constants import REPO_ROOT
+from harness.runtime.doctor import run_doctor
 from tests.e2e.harness_base import OpaqueBoxTestCase
 
 
 class TestTier3Combinations(OpaqueBoxTestCase):
     """
-    Tier 3 E2E test cases: Pairwise cross-feature interactions and integration contracts.
+    Tier 3 E2E tests validating cross-feature and multi-subsystem interactions.
     """
 
-    def _create_dummy_test_suite(self, name: str = "tier3") -> Path:
-        mod_name = f"test_{name}_{uuid.uuid4().hex}"
-        t_dir = self.ws / f"dummy_tests_{name}"
-        t_dir.mkdir(parents=True, exist_ok=True)
-        (t_dir / f"{mod_name}.py").write_text(
-            "import unittest\nclass TestSimple(unittest.TestCase):\n    def test_pass(self):\n        pass\n",
-            encoding="utf-8",
-        )
-        self.addCleanup(lambda: sys.modules.pop(mod_name, None))
-        return t_dir
+    def test_c1_scratch_path_plus_cleanroom_spec_interaction(self) -> None:
+        """Assures scratch edits do not mask cleanroom spec verification gates."""
+        conv_id = "c_c1"
+        scratch_path = "/home/user/.gemini/antigravity/brain/session_1/scratch/calc.py"
+        spec_path = str(self.ws / "docs" / "specs" / "display.md")
 
-    def test_cross_psl_harmonize_json_stderr_isolation(self) -> None:
-        """Assures 'psl harmonize --json' isolates deprecation notice to stderr and keeps stdout pure JSON."""
-        self.create_fixture("legacy_psl")
-        code, out, err = self.run_cli(
-            ["harmonize", "--dry-run", "--json", str(self.ws)], prog="psl"
-        )
-        self.assertEqual(code, 0)
-        # Stderr must contain the deprecation notice
-        self.assertIn("DeprecationWarning: 'psl' is deprecated", err)
-        # Stdout must be strictly valid JSON without deprecation contamination
-        data = self.parse_json_stdout(out)
-        self.assertTrue(data.get("dry_run"))
-        self.assertTrue(data.get("legacy_agent_dir_found"))
+        # 1. Author scratch script -> clean
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": scratch_path}},
+        })
+        _, stop1 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(stop1.get("decision"), "allow")
 
-    def test_cross_init_then_harmonize_idempotence(self) -> None:
-        """Assures running 'agyis init' followed by 'agyis harmonize' preserves workspace stability."""
-        # Step 1: Initialize workspace
-        code_i, out_i, err_i = self.run_cli(["init", str(self.ws)])
-        self.assertEqual(code_i, 0)
-        content_after_init = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
+        # 2. Author cleanroom spec -> dirty
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": spec_path}},
+        })
+        _, stop2 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(stop2.get("decision"), "continue")
 
-        # Step 2: Harmonize the initialized workspace
-        code_h, out_h, err_h = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code_h, 0)
-        content_after_harm = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
+        # 3. Verify with test -> clean
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": 0,
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "./agyis test"}},
+        })
+        _, stop3 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(stop3.get("decision"), "allow")
 
-        # Rules action should report already up to date
-        self.assertIn("<!-- Added by AGYIS-HARNESS -->", content_after_harm)
-        self.assertNotIn("<!-- Added by PSL-HARNESS -->", content_after_harm)
-        self.assertEqual(content_after_init, content_after_harm)
+    def test_c2_anti_loop_exemption_plus_cleanroom_ledger_verification(self) -> None:
+        """Assures viewing ledger is exempt from loop, while editing ledger enforces verification gate."""
+        conv_id = "c_c2"
+        ledger_path = str(self.ws / ".agents" / "ledger" / "obligations.json")
 
-    def test_cross_harmonize_then_doctor_health(self) -> None:
-        """Assures migrating a legacy workspace via 'harmonize' leaves environment in clean health."""
-        self.create_fixture("legacy_psl")
-        code_h, out_h, err_h = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code_h, 0)
-
-        code_d, out_d, err_d = self.run_cli(["doctor", "--json"])
-        self.assertEqual(code_d, 0)
-        data = self.parse_json_stdout(out_d)
-        self.assertGreaterEqual(data["summary"]["ok"], 1)
-
-    def test_cross_polyglot_precedence_and_command_dictionary(self) -> None:
-        """Assures multi-manifest polyglot repository formats unified command dictionary."""
-        self.create_fixture("polyglot")
-        code, out, err = self.run_cli(["init", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("## 1. Explicit Project Command Dictionary", content)
-        # Should format detected npm scripts and make target commands
-        self.assertTrue("pnpm test" in content or "make" in content)
-
-    def test_cross_xdg_path_precedence_and_init(self) -> None:
-        """Assures workspace init executes correctly under explicit AGYIS_CONFIG_DIR precedence."""
-        dir_agyis = self.ws / "xdg_agyis"
-        dir_psl = self.ws / "xdg_psl"
-        dir_agyis.mkdir(parents=True, exist_ok=True)
-        dir_psl.mkdir(parents=True, exist_ok=True)
-
-        env = {
-            "AGYIS_CONFIG_DIR": str(dir_agyis),
-            "PSL_CONFIG_DIR": str(dir_psl),
-        }
-        code, out, err = self.run_cli(["init", "--dry-run", "--json", str(self.ws)], env_overrides=env)
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertTrue(data.get("success"))
-
-    def test_cross_lifecycle_hooks_dual_runner_alternating(self) -> None:
-        """Assures command safety hook permits alternating invocations of agyis and psl runners."""
-        runners = [
-            "agyis test",
-            "psl test",
-            "./agyis test",
-            "./psl test",
-            "python3 -m harness.cli test",
-        ]
-        for cmd in runners:
-            payload = json.dumps({"tool_name": "run_command", "tool_args": {"CommandLine": cmd}})
-            code, out, err = self.run_cli(["hook", "command-safety"], stdin_input=payload)
+        # 1. Repeated inspections pass without loop denial
+        for _ in range(6):
+            code, resp = self.run_hook("anti-loop", {
+                "conversationId": conv_id,
+                "toolCall": {"name": "view_file", "args": {"AbsolutePath": ledger_path}},
+            })
             self.assertEqual(code, 0)
-            data = self.parse_json_stdout(out)
-            self.assertEqual(data.get("decision"), "allow", f"Failed for runner command: {cmd}")
+            self.assertEqual(resp.get("decision"), "allow")
 
-    def test_cross_doctor_heal_preserves_workspace_configs(self) -> None:
-        """Assures 'doctor --heal' does not overwrite or corrupt existing workspace rules."""
-        custom_content = "# Pre-existing Workspace Rules\n- Custom invariant\n"
-        (self.ws / "AGENTS.md").write_text(custom_content, encoding="utf-8")
+        # 2. Edit ledger -> requires verification
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": ledger_path}},
+        })
+        _, stop = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(stop.get("decision"), "continue")
 
-        code, out, err = self.run_cli(["doctor", "--heal", "--json"])
+        # 3. Passing test clears
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": 0,
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "python3 -m unittest discover"}},
+        })
+        _, stop_clean = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(stop_clean.get("decision"), "allow")
+
+    def test_c3_anti_loop_test_reset_plus_stop_fence_clearance(self) -> None:
+        """Assures code edit resets anti-loop test counters and passing test clears stop-fence."""
+        conv_id = "c_c3"
+        code_file = str(self.ws / "src" / "router.py")
+
+        # Edit code
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": code_file}},
+        })
+        self.run_hook("anti-loop", {
+            "conversationId": conv_id,
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": code_file}},
+        })
+
+        # Anti-loop allows repeated test invocations because code edit reset sliding window
+        for _ in range(4):
+            code, loop_resp = self.run_hook("anti-loop", {
+                "conversationId": conv_id,
+                "toolCall": {"name": "run_command", "args": {"CommandLine": "./agyis test"}},
+            })
+            self.assertEqual(code, 0)
+            self.assertEqual(loop_resp.get("decision"), "allow")
+
+        # Stop-fence marks clean on exit 0
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": 0,
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "./agyis test"}},
+        })
+
+        _, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(stop_resp.get("decision"), "allow")
+
+    def test_c4_cleanroom_edit_failed_test_scratch_edit_passed_test(self) -> None:
+        """Assures failed test keeps dirty state, scratch edit does not mask it, passed test clears."""
+        conv_id = "c_c4"
+        spec_path = str(self.ws / "docs" / "specs" / "firmware.md")
+        scratch_path = "/tmp/diagnostic_scratch.py"
+
+        # Edit spec
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": spec_path}},
+        })
+
+        # Test fails (exit 1)
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": 1,
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "cargo test"}},
+        })
+
+        # Scratch edit in /tmp
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": scratch_path}},
+        })
+
+        # Still dirty due to spec edit
+        _, stop1 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(stop1.get("decision"), "continue")
+
+        # Test passes (exit 0)
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": 0,
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "cargo test"}},
+        })
+
+        # Clean
+        _, stop2 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(stop2.get("decision"), "allow")
+
+    def test_c5_doctor_toolchain_audit_with_rea_plus_template_correlation(self) -> None:
+        """Assures doctor audit metrics correspond to host_toolchain_versions in issue template."""
+        code, out, _ = self.run_cli(["doctor", "--json"])
         self.assertEqual(code, 0)
+        report = json.loads(out)
+        self.assertIn("rea_tooling", report)
+        self.assertIn("os_family", report)
+        self.assertIn("summary", report)
 
-        # Workspace AGENTS.md must remain completely untouched
-        self.assertEqual((self.ws / "AGENTS.md").read_text(encoding="utf-8"), custom_content)
+        template_path = REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
+        if template_path.exists():
+            tmpl_content = template_path.read_text(encoding="utf-8")
+            self.assertIn("host_toolchain_versions", tmpl_content)
+            self.assertIn("REA", tmpl_content)
 
-    def test_cross_skills_sync_and_agent_discovery(self) -> None:
-        """Assures syncing modular skills to workspace preserves specialist persona discovery."""
-        code_s, out_s, err_s = self.run_cli(["skills", "--sync", "-w", str(self.ws)])
-        self.assertEqual(code_s, 0)
+    def test_c6_multi_agent_teamwork_views_plus_scratch_authoring(self) -> None:
+        """Assures multi-agent swarm reading teamwork manifests and authoring scratch scripts succeeds."""
+        conv_id = "c_c6_swarm"
+        manifest1 = str(self.ws / ".agents" / "teamwork" / "DISPATCH.md")
+        manifest2 = str(self.ws / ".agents" / "teamwork" / "progress.md")
+        scratch = "/home/user/.gemini/antigravity/brain/sess_99/scratch/analyze.py"
 
-        code_a, out_a, err_a = self.run_cli(["agents", "--json"])
-        self.assertEqual(code_a, 0)
-        data = self.parse_json_stdout(out_a)
-        agent_names = [a.get("name") for a in data]
-        self.assertIn("agyis_architect", agent_names)
+        # Agent 1 reads dispatch
+        for _ in range(5):
+            code, resp = self.run_hook("anti-loop", {
+                "conversationId": conv_id,
+                "toolCall": {"name": "view_file", "args": {"Path": manifest1}},
+            })
+            self.assertEqual(code, 0)
+            self.assertEqual(resp.get("decision"), "allow")
 
-    def test_cross_harmonize_then_test_completion_fence(self) -> None:
-        """Assures harmonizing a workspace followed by test execution unblocks completion fence."""
-        self.create_fixture("legacy_psl")
-        code_h, out_h, err_h = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code_h, 0)
+        # Agent 2 authors scratch
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": scratch}},
+        })
 
-        # Execute tests via test runner
-        t_dir = self._create_dummy_test_suite("fence_sync")
-        code_t, out_t, err_t = self.run_cli(["test", "-s", str(t_dir)])
-        self.assertEqual(code_t, 0)
+        # Agent 1 reads progress
+        for _ in range(5):
+            code, resp = self.run_hook("anti-loop", {
+                "conversationId": conv_id,
+                "toolCall": {"name": "view_file", "args": {"Path": manifest2}},
+            })
+            self.assertEqual(code, 0)
+            self.assertEqual(resp.get("decision"), "allow")
 
-        # Stop event hook should evaluate cleanly
-        stop_payload = json.dumps({"event": "Stop", "conversation_id": "cross_test_conv"})
-        code_f, out_f, err_f = self.run_cli(["hook", "completion-fence"], stdin_input=stop_payload)
-        self.assertEqual(code_f, 0)
-        data = self.parse_json_stdout(out_f)
-        self.assertIn(data.get("decision"), ["allow", "continue"])
+        # Stop allowed without test running
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "allow")
+
+    def test_c7_diverse_test_runner_patterns_recognition(self) -> None:
+        """Assures diverse test runners (Python, Cargo, npm, Make, shell) clear dirty state on exit 0."""
+        runners = [
+            "./agyis test",
+            "python3 -m unittest discover",
+            "pytest tests/",
+            "cargo test",
+            "pnpm test",
+            "npm test",
+            "make test",
+            "sh tests/run.sh",
+            "bash tests/test_all.sh",
+        ]
+
+        for idx, cmd in enumerate(runners):
+            conv_id = f"c_c7_{idx}"
+            code_file = str(self.ws / "src" / f"mod_{idx}.py")
+
+            # Set dirty
+            self.run_hook("verification-fence", {
+                "conversationId": conv_id,
+                "cwd": str(self.ws),
+                "toolCall": {"name": "write_to_file", "args": {"TargetFile": code_file}},
+            })
+
+            # Run test command exit 0
+            self.run_hook("verification-fence", {
+                "conversationId": conv_id,
+                "cwd": str(self.ws),
+                "exitCode": 0,
+                "toolCall": {"name": "run_command", "args": {"CommandLine": cmd}},
+            })
+
+            # Verify clean
+            code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                stop_resp.get("decision"),
+                "allow",
+                f"Runner command '{cmd}' failed to clear code_dirty state",
+            )
+
+    def test_c8_anti_deadlock_valve_trips_on_attempt_three(self) -> None:
+        """Assures anti-deadlock safety valve blocks first 2 attempts, then allows exit on attempt 3."""
+        conv_id = "c_c8"
+        code_file = str(self.ws / "src" / "stuck.py")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": code_file}},
+        })
+
+        # Attempt 1 -> continue
+        _, stop1 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(stop1.get("decision"), "continue")
+
+        # Attempt 2 -> continue
+        _, stop2 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(stop2.get("decision"), "continue")
+
+        # Attempt 3 -> trips anti-deadlock valve -> allow
+        _, stop3 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(stop3.get("decision"), "allow")
 
 
 if __name__ == "__main__":

@@ -68,6 +68,18 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "run_command|execute_command|bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.hooks.runner verification-fence",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "type": "command",

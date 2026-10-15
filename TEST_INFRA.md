@@ -3,25 +3,38 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Agyis Harness E2E Testing Infrastructure Specification (Feature 18)
+# Agyis Harness E2E Testing Infrastructure Specification: Issues #41-#46
 
-This document specifies the requirement-driven, opaque-box End-to-End (E2E) testing track for `agyis-harness`, codifying the 4-tier testing methodology, test suite directory layout, runner contracts, and sign-off verification gates.
+This document specifies the requirement-driven, opaque-box End-to-End (E2E) testing track for `agyis-harness` covering Issues #41 through #46, codifying the 4-tier testing methodology, test suite directory layout, runner contracts, and sign-off verification gates.
 
 ---
 
 ## 1. Executive Summary & Testing Philosophy
 
-The primary objective of the E2E Testing Track is to validate the complete product lifecycle from the perspective of an external operator or autonomous agent. While unit and integration tests under `tests/` inspect individual internal modules, the E2E suite under `tests/e2e/` exercises the software **strictly as a black box** via public CLI binaries (`agyis` and `psl`), testing observable filesystem states, exit codes, process standard streams, and environment contracts.
+The primary objective of the E2E Testing Track is to validate the complete product lifecycle from the perspective of an external operator, autonomous agent swarm, or continuous integration harness for Issues #41 through #46. While unit and integration tests under `tests/` inspect individual internal modules, the E2E suite under `tests/e2e/` exercises the software **strictly as an opaque box** via public CLI binaries (`agyis` and `psl`), lifecycle hook runners (`python3 -m harness.hooks.runner`), observable filesystem states, exit codes, process standard streams, and environment contracts.
 
 ### Core Testing Invariants
-1. **Opaque-Box Boundary**: Test cases invoke only public CLI commands (`agyis`, `psl`, `python3 -m harness.cli`). No private internal classes or non-public methods are imported or monkeypatched.
+1. **Opaque-Box Boundary**: Test cases invoke public CLI commands (`agyis`, `psl`) and lifecycle hook dispatchers (`run_hook`, `run_hook_cli`). No private internal classes or non-public methods are monkeypatched.
 2. **Hermetic Clean-Room Isolation (ADR-015)**: Every test executes in an isolated temporary directory (`tempfile.TemporaryDirectory()`). Zero network access, zero daemon dependencies, and scrubbed XDG paths (`PSL_HARNESS_STATE_DIR`, `AGYIS_CONFIG_DIR`, `AGYIS_DATA_DIR`).
-3. **Sub-Second Execution Target**: Each individual tier executes in <1.5s, with the complete 4-tier E2E suite executing in **<4.5s** total.
-4. **Requirement Traceability**: Every test case traces directly to requirements R1–R5 from `ORIGINAL_REQUEST.md` and Features 1–17 from `PROJECT.md`.
+3. **Sub-Second Execution Target**: Each individual tier executes in <1.0s, with the complete 4-tier E2E suite executing in **<3.5s** total.
+4. **Requirement Traceability**: Every test case traces directly to requirements across Issues #41 through #46.
 
 ---
 
-## 2. 4-Tier Test Suite Architecture
+## 2. Feature Inventory: Issues #41-#46
+
+| Feature ID | Issue ID | Target Area | Description | Implementation Target |
+|:---|:---|:---|:---|:---|
+| **F1** | Issue #41 | Anti-Loop Coordination Exemption | Exempts `.agents/teamwork/`, `.agents/ledger/`, and coordination manifests (`progress.md`, `DISPATCH.md`, `BRIEFING.md`, `handoff.md`, `task.md`, `obligations.json`) across all path argument keys (`AbsolutePath`, `Path`, `TargetFile`, `file_path`, etc.) with slash normalization. | `harness/hooks/anti_loop_hook.py` |
+| **F2** | Issue #42 | Stop-Fence PostToolUse Wiring | Wires `psl-stop-verification-fence` under `PostToolUse` for `run_command` in `hooks.json` so exit code 0 of test commands immediately resets `code_dirty = False`, clears `last_modified_files`, and updates `last_verified_at`. | `hooks.json`, `harness/hooks/completion_fence_hook.py` |
+| **F3** | Issue #43 | Ephemeral Scratch Path Isolation | Scopes code file dirty tracking exclusively to files within the active workspace root (`cwd`), exempting ephemeral scratch paths (`.gemini/antigravity/brain/*/scratch/*`, `/tmp/*` outside workspace) from setting `code_dirty = True`. | `harness/hooks/completion_fence_hook.py` |
+| **F4** | Issue #44 | REA Doctor Diagnostics Integration | Audits REA CLI binary (including pnpm global fallbacks), analysis engine providers (`rea providers --json`), and REA MCP registration (`mcp_config.json`) non-fatally with clear user remediation. | `harness/runtime/tool_checks.py`, `harness/runtime/doctor.py` |
+| **F5** | Issue #45 | Cleanroom Spec & Ledger Gates | Recognizes `docs/specs/**` and `.agents/ledger/**` as critical cleanroom contracts requiring verification, overriding `.md`/`.json` exemptions and gating `evaluate_stop` until verified. | `harness/hooks/completion_fence_hook.py` |
+| **F6** | Issue #46 | Standardized Issue Templates | Establishes GitHub Issue Forms (`.github/ISSUE_TEMPLATE/bug_report.yml`, `feature_request.yml`, `config.yml`) mandating `harness_version` and capturing optional platform/toolchain metadata. | `.github/ISSUE_TEMPLATE/` |
+
+---
+
+## 3. 4-Tier Test Architecture
 
 ```
                     ┌────────────────────────────────────────┐
@@ -31,182 +44,155 @@ The primary objective of the E2E Testing Track is to validate the complete produ
                                         │
                     ┌───────────────────┴────────────────────┐
                     │   Tier 3: Cross-Feature Interactions   │
-                    │    (Pairwise Feature Integrations)     │
+                    │     (8 Multi-Subsystem Combinations)   │
                     └───────────────────▲────────────────────┘
                                         │
                     ┌───────────────────┴────────────────────┐
                     │     Tier 2: Boundary & Corner Cases    │
-                    │ (Malformed, Read-Only, Edge Manifests) │
+                    │    (30 Edge, Malformed, Slash Tests)   │
                     └───────────────────▲────────────────────┘
                                         │
                     ┌───────────────────┴────────────────────┐
                     │       Tier 1: Feature Coverage         │
-                    │      (Features 1-17 across R1-R5)      │
+                    │    (30 Tests: 5 per Feature F1-F6)     │
                     └────────────────────────────────────────┘
 ```
 
-### 2.1 Tier 1: Feature Coverage (`tests/e2e/test_tier1_features.py`)
-Validates that each individual feature behaves strictly according to specification across its nominal operating range (minimum 5 test cases per requirement area):
+### 3.1 Tier 1: Feature Coverage (`tests/e2e/test_tier1_features.py`)
+Validates that each feature behaves strictly according to specification across its nominal operating range (5 tests per feature, 30 tests total):
+- **Feature 1 (Issue #41: Anti-Loop Coordination Exemption)**:
+  - `test_f1_01_teamwork_directory_progress_repeated_view`: 10 consecutive inspections of `.agents/teamwork/progress.md` produce 0 denials.
+  - `test_f1_02_ledger_directory_obligations_repeated_view`: 10 consecutive inspections of `.agents/ledger/obligations.json` produce 0 denials.
+  - `test_f1_03_coordination_basenames_dispatch_briefing_task`: Exempts `DISPATCH.md`, `BRIEFING.md`, `handoff.md`, `task.md`.
+  - `test_f1_04_argument_name_invariance`: Path invariance across `AbsolutePath`, `Path`, `TargetFile`, `file_path`, `filePath`, etc.
+  - `test_f1_05_production_code_rate_limited`: Confirms production code (`src/`, `harness/`) remains strictly subject to loop guard denials.
+- **Feature 2 (Issue #42: Stop-Fence Wiring)**:
+  - `test_f2_01_post_tool_use_test_command_exit_zero_clears_dirty`: Test command with exit 0 clears `code_dirty = False`.
+  - `test_f2_02_post_tool_use_test_command_exit_nonzero_retains_dirty`: Test command with exit 1 retains `code_dirty = True`.
+  - `test_f2_03_stop_event_allowed_after_successful_verification`: `evaluate_stop` returns `allow` on first attempt after verification.
+  - `test_f2_04_post_tool_use_resets_modified_files_and_updates_timestamp`: Passing test resets `last_modified_files` and records timestamp.
+  - `test_f2_05_post_tool_use_hooks_json_registration`: Confirms `PostToolUse` for `run_command` is wired in `hooks.json`.
+- **Feature 3 (Issue #43: Scratch Path Isolation)**:
+  - `test_f3_01_brain_scratch_path_does_not_dirty_state`: Edits in `.gemini/antigravity/brain/*/scratch/*` do not set dirty.
+  - `test_f3_02_temp_scratch_path_outside_workspace_does_not_dirty`: Edits in `/tmp/*` outside workspace do not set dirty.
+  - `test_f3_03_workspace_code_edit_sets_dirty_true`: In-workspace code edits mark dirty.
+  - `test_f3_04_scratch_edit_allows_immediate_stop`: Task authoring only scratch files may terminate immediately.
+  - `test_f3_05_relative_path_outside_workspace_isolated`: Relative paths resolving outside workspace root are isolated.
+- **Feature 4 (Issue #44: REA Doctor Diagnostics)**:
+  - `test_f4_01_doctor_detects_installed_rea_version`: Resolves binary and asserts version >= 6.0.0.
+  - `test_f4_02_doctor_audits_active_and_unavailable_providers`: Partitions providers into active and unavailable.
+  - `test_f4_03_doctor_audits_rea_mcp_registration`: Inspects agent MCP config for active REA registration.
+  - `test_f4_04_doctor_missing_rea_is_non_fatal_exit_zero`: Missing REA graded non-fatally (`optional_missing`) with exit 0.
+  - `test_f4_05_doctor_provides_actionable_rea_remediation`: Emits actionable remediation (`pnpm add -g rea-agents`).
+- **Feature 5 (Issue #45: Cleanroom Gates)**:
+  - `test_f5_01_cleanroom_spec_edit_sets_dirty_true`: Editing `docs/specs/**` sets dirty.
+  - `test_f5_02_cleanroom_ledger_edit_sets_dirty_true`: Editing `.agents/ledger/**` sets dirty.
+  - `test_f5_03_cleanroom_unverified_edits_block_stop`: Unverified spec/ledger edits block stop until test passes.
+  - `test_f5_04_cleanroom_refusal_message_identifies_contracts`: Refusal message cites "cleanroom contract edits" and file path.
+  - `test_f5_05_ordinary_documentation_outside_specs_remains_exempt`: `README.md`, `CHANGELOG.md`, `docs/notes.md` remain exempt.
+- **Feature 6 (Issue #46: Issue Templates)**:
+  - `test_f6_01_bug_report_template_exists_and_valid_yaml`: Validates `bug_report.yml` exists and has valid structure.
+  - `test_f6_02_bug_report_mandates_harness_version`: Asserts `harness_version` is marked `required: true`.
+  - `test_f6_03_bug_report_optional_antigravity_platform_fields`: Checks optional `antigravity_cli_version` and `antigravity_ide_version`.
+  - `test_f6_04_bug_report_optional_toolchain_and_repo_fields`: Checks `host_toolchain_versions` and `reproduction_repo`.
+  - `test_f6_05_feature_request_and_config_templates_valid`: Validates `feature_request.yml` and `config.yml`.
 
-- **R1: Core CLI, Nomenclature & Deprecation (Features 1, 2, 3)**:
-  - `agyis --help`, `agyis --version`, exit code 0.
-  - `psl --help`, `psl --version` emitting 1-month warning / 3-month removal lifecycle notice on `stderr`.
-  - Subcommand execution parity between `agyis` and `psl`.
-  - Config resolution: `AGYIS_CONFIG_DIR` takes precedence over `PSL_CONFIG_DIR`.
-  - State resolution: `AGYIS_DATA_DIR` takes precedence over `PSL_DATA_DIR`.
-- **R2: Tagged Rule Demarcation & Harmonizer (Features 6, 7, 8, 9, 10)**:
-  - Tagged rule injection: `<!-- Added by AGYIS-HARNESS -->` ... `<!-- End AGYIS-HARNESS -->`.
-  - Stack preset auto-detection: TypeScript/Node (`package.json`), Python (`pyproject.toml`), Rust (`Cargo.toml`), Go (`go.mod`), Systems (`Makefile`, `CMakeLists.txt`, `meson.build`, `flake.nix`, `PKGBUILD`).
-  - Command dictionary extraction into Section 1 of `AGENTS.md`.
-  - `agyis init --dry-run` and `agyis init` live workspace scaffolding.
-  - `agyis harmonize [path] [--dry-run] [--json]` migration of `.agent/` to `.agents/`.
-- **R3: Extension Manifest & Personas (Features 4, 5, 11, 12)**:
-  - `plugin.json` extension registration and schema validity.
-  - Specialist persona promotion (`agyis_architect.md`) with 17-tool capability bundle.
-  - `agyis doctor` operational diagnostic pass (0 errors).
-  - Discreet backronym "Antigravity Immune System" in diagnostics and metadata.
-- **R4: Verification & Runner Recognition (Features 13, 14, 15)**:
-  - `agyis test` and `psl test` test runner execution and completion fence signaling.
-  - Sub-second benchmark verification across test suites.
-  - Dual runner pattern recognition in lifecycle hooks.
-- **R5: Fleet Healing Dry-Run & RFC Docs (Features 16, 17)**:
-  - Non-destructive dry-run against sample fixtures with 0 filesystem modifications.
-  - Presence and validity of in-tree RFC document `docs/discussions/rebrand-agyis-epic.md`.
+### 3.2 Tier 2: Boundary & Corner Cases (`tests/e2e/test_tier2_boundaries.py`)
+Probes edge cases, malformed payloads, and boundary conditions (5 tests per domain, 30 tests total):
+- **Domain 1: Anti-Loop Boundaries**: Empty path, Windows backslashes, whitespace padding, case variations, deeply nested paths.
+- **Domain 2: Stop-Fence Boundaries**: Non-test command exit 0, null exit code, negative/signal exit codes, malformed JSON, unknown tools.
+- **Domain 3: Scratch Path Boundaries**: Workspace inside /tmp, brain scratch nested paths, path traversal (`../`), symlinked scratch dir, empty path.
+- **Domain 4: REA Doctor Boundaries**: Timeout resilience, malformed JSON stdout, prerelease version parsing, outdated version warning, missing MCP config.
+- **Domain 5: Cleanroom Boundaries**: Path similarity false positives (`docs/specifications/`), case insensitivity, non-code extensions (`.yaml`, `.toml`), failed/passed test cycles, multiple contract files tracking.
+- **Domain 6: Issue Template Boundaries**: Syntax formatting, required `body` key, non-YAML files ignored, special characters and code blocks in descriptions, validations structure integrity.
 
-### 2.2 Tier 2: Boundary & Corner Cases (`tests/e2e/test_tier2_boundaries.py`)
-Probes edge cases, invalid inputs, and boundary conditions (minimum 5 test cases per domain):
+### 3.3 Tier 3: Cross-Feature Interactions (`tests/e2e/test_tier3_combinations.py`)
+Validates 8 critical cross-feature interactions and subsystem combinations:
+- `test_c1_scratch_path_plus_cleanroom_spec_interaction`: Scratch edit + Cleanroom edit + Passing test.
+- `test_c2_anti_loop_exemption_plus_cleanroom_ledger_verification`: Anti-loop views + Ledger edit + Stop gate.
+- `test_c3_anti_loop_test_reset_plus_stop_fence_clearance`: Code edit counter reset + Test runner clearance.
+- `test_c4_cleanroom_edit_failed_test_scratch_edit_passed_test`: Spec edit + Failed test + Scratch edit + Passed test.
+- `test_c5_doctor_toolchain_audit_with_rea_plus_template_correlation`: Doctor output keys match template fields.
+- `test_c6_multi_agent_teamwork_views_plus_scratch_authoring`: Swarm teamwork views + Scratch script authoring.
+- `test_c7_diverse_test_runner_patterns_recognition`: Python, Cargo, npm, pnpm, Make, shell runner clearance.
+- `test_c8_anti_deadlock_valve_trips_on_attempt_three`: Anti-deadlock valve tripping on attempt 3.
 
-- **Boundary Domain A: Workspaces & Permissions**:
-  - Non-existent target directory handling (`agyis harmonize /nonexistent` -> exit code 1, clean error).
-  - Empty workspace directory (clean creation of `AGENTS.md` and `.agents/`).
-  - Read-only `AGENTS.md` (`chmod 0444`) under `--dry-run` succeeding without `PermissionError`.
-- **Boundary Domain B: Corrupted Manifests**:
-  - Truncated `package.json` (`{"name": "broken`).
-  - Invalid TOML syntax in `pyproject.toml`.
-  - Binary garbage in `Makefile` (`\x00\xff\xfe`).
-  - Graceful fallback to default/generic toolchain commands without crashing.
-- **Boundary Domain C: Rule Fencing Robustness**:
-  - Empty fences (`<!-- Added by PSL-HARNESS -->\n<!-- End PSL-HARNESS -->`).
-  - Mismatched delimiters (`<!-- Added by PSL-HARNESS -->` paired with `<!-- End AGYIS-HARNESS -->`).
-  - Unclosed opening fence (treated safely as user rules, clean block appended).
-  - User rules containing regex backreferences (`\g<1>`, `\1`, `$1`) and Unicode/emojis.
-- **Boundary Domain D: Filesystem Structures**:
-  - Circular symlinks in `.agent/agents/` (skipped via `is_symlink()` guard).
-  - Deeply nested rule directories (`.agent/rules/a/b/c/d/e.md` preserved byte-for-byte).
-  - Workflow files with no text body, or existing frontmatter missing descriptions.
-- **Boundary Domain E: CLI Argument Combinations**:
-  - Combining `--dry-run` and `--json` (`agyis harmonize --dry-run --json`).
-  - Unknown flags returning exit code 2 and usage instructions.
-
-### 2.3 Tier 3: Cross-Feature Combinations (`tests/e2e/test_tier3_combinations.py`)
-Tests pairwise interactions between distinct harness subsystems:
-
-- **Interaction 1: CLI (`psl`) + Harmonizer + JSON Output**:
-  - `psl harmonize --json` writes deprecation warning strictly to `stderr`, while `stdout` remains 100% pure, parseable JSON without corrupting pipeline consumers.
-- **Interaction 2: XDG Path Precedence + Init Scaffolding**:
-  - Setting both `AGYIS_CONFIG_DIR` and legacy `PSL_CONFIG_DIR`; asserting `agyis init` writes state strictly to `AGYIS_CONFIG_DIR`.
-- **Interaction 3: Polyglot Workspace + Precedence + Rule Injection**:
-  - Workspace containing both `package.json` and `Makefile`; verifying TypeScript stack takes precedence, command dictionary formats both npm and make commands, and Section 1 of `AGENTS.md` receives the unified toolchain.
-- **Interaction 4: Harmonize Migration + Doctor Health Check**:
-  - Migrating a legacy `.agent/` workspace via `agyis harmonize`, followed by `agyis doctor` against the harmonized workspace, verifying 0 diagnostic warnings.
-- **Interaction 5: Hook Runner + Dual Test Invocations**:
-  - Executing `agyis test` and `psl test` to verify `completion_fence_hook` records successful verification state for both binary names.
-
-### 2.4 Tier 4: Real-World Application Scenarios (`tests/e2e/test_tier4_scenarios.py`)
+### 3.4 Tier 4: Real-World Scenarios (`tests/e2e/test_tier4_scenarios.py`)
 Executes 5 end-to-end user journeys mirroring production workflows:
-
-- **Scenario 1: Legacy Workspace Modernization Journey**:
-  - An operator migrates a legacy Antigravity 1.0 repository containing custom user rules, `.agent/agents/`, `.agent/workflows/`, and `.agent/rules/`.
-  - Workflow: Operator runs `agyis harmonize --dry-run --json` -> verifies planned diff -> runs `agyis harmonize` -> verifies `.agents/` structure -> verifies synthesized YAML frontmatter -> verifies user rules intact.
-- **Scenario 2: Brownfield Polyglot Ingestion Journey**:
-  - Ingestion of an enterprise monorepo containing Node, Python, and Makefile components.
-  - Workflow: Operator runs `agyis init --dry-run` -> inspects detected stack and extracted commands -> runs `agyis init` -> asserts `.agents/` created and command dictionary placed in Section 1 -> runs second `agyis init` asserting idempotence.
-- **Scenario 3: Legacy Automation Script Compatibility Journey**:
-  - Legacy CI/CD pipeline executing shell scripts that call `psl harmonize`, `psl doctor`, and `psl test`.
-  - Workflow: Scripts execute unchanged; exit codes are 0; `stderr` logs deprecation notice; `stdout` data feeds downstream parsers cleanly.
-- **Scenario 4: Fleet CI Dry-Run Audit Journey**:
-  - An automated CI compliance job scans an array of workspaces using `agyis harmonize --dry-run --json`.
-  - Workflow: Job asserts exit code 0, parses JSON summaries, and verifies git porcelain status remains strictly clean (0 git diff).
-- **Scenario 5: Greenfield Workspace Scaffolding Journey**:
-  - Creating a brand new repository from scratch.
-  - Workflow: Operator runs `agyis init` -> verifies initial `AGENTS.md` with default rules -> inspects subagents (`agyis agents`) -> validates `agyis_architect` capability bundle.
+- `test_s1_multi_agent_swarm_coordination_journey`: Multi-agent swarm reading dispatch, progress, and obligations.
+- `test_s2_diagnostic_scratch_investigation_journey`: Diagnostic triage authoring scratch scripts without dirtying repo.
+- `test_s3_cleanroom_hardware_specification_authoring_journey`: Hardware spec authoring, verification gate, test clearance.
+- `test_s4_workstation_diagnostics_and_rea_health_triage_journey`: Workstation health check integrating REA diagnostics.
+- `test_s5_bug_report_submission_with_doctor_integration_journey`: Automated bug report creation with doctor telemetry.
 
 ---
 
-## 3. Test Suite Directory Layout
+## 4. Test Suite Directory Layout
 
 ```
 tests/e2e/
 ├── __init__.py                     # Package marker
-├── harness_base.py                 # OpaqueBoxTestCase sandboxing & CLI helpers
-├── test_tier1_features.py          # Tier 1: Feature Coverage (R1–R5, Features 1–17)
-├── test_tier2_boundaries.py        # Tier 2: Boundary & Corner Cases
-├── test_tier3_combinations.py      # Tier 3: Cross-Feature Combinations
-└── test_tier4_scenarios.py         # Tier 4: Real-World End-to-End User Journeys
+├── harness_base.py                 # OpaqueBoxTestCase sandboxing, CLI & hook helpers
+├── test_tier1_features.py          # Tier 1: Feature Coverage (30 tests)
+├── test_tier2_boundaries.py        # Tier 2: Boundary & Corner Cases (30 tests)
+├── test_tier3_combinations.py      # Tier 3: Cross-Feature Combinations (8 tests)
+└── test_tier4_scenarios.py         # Tier 4: Real-World Application Scenarios (5 tests)
 ```
 
 ---
 
-## 4. Test Runner Invocations & Benchmark Budgets
+## 5. Runner Invocations & Benchmark Budgets
 
 ### Standard Test Runner Invocations
 ```bash
-# 🧪 Run full E2E test suite (all 4 tiers)
+# 🧪 Run Complete 4-Tier E2E Test Suite
 python3 -m unittest discover -s tests/e2e -v
 
-# 🧪 Run specific tiers
+# 🧪 Run Specific Tiers
 python3 -m unittest tests/e2e/test_tier1_features.py -v
 python3 -m unittest tests/e2e/test_tier2_boundaries.py -v
 python3 -m unittest tests/e2e/test_tier3_combinations.py -v
 python3 -m unittest tests/e2e/test_tier4_scenarios.py -v
 
-# 🧪 Run via project CLI
+# 🧪 Run via Project CLI Test Runner
 python3 -m harness.cli test -s tests/e2e -v
-```
-
-### Proposed CLI Runner Extension
-Extend `harness/cli.py` and `harness/commands/test.py` to support `--e2e`:
-```bash
-agyis test --e2e                    # Executes tests/e2e suite
-psl test --e2e                      # Executes tests/e2e suite with deprecation notice
 ```
 
 ### Benchmark Budgets
 | Test Suite Tier | Target Test Count | Maximum Runtime Budget | Hermeticity Requirement |
-|-----------------|-------------------|------------------------|-------------------------|
-| Tier 1: Features | 20+ tests | < 1.0s | 100% In-Memory / Tempdir |
-| Tier 2: Boundaries | 15+ tests | < 1.0s | 100% In-Memory / Tempdir |
-| Tier 3: Combinations | 8+ tests | < 1.0s | 100% In-Memory / Tempdir |
-| Tier 4: Scenarios | 5+ tests | < 1.5s | 100% In-Memory / Tempdir |
-| **Complete E2E Suite** | **48+ tests** | **< 4.5s** | **Zero Network / External Deps** |
+|:---|:---|:---|:---|
+| **Tier 1: Features** | 30 tests | < 1.0s | 100% In-Memory / Clean-room Tempdir |
+| **Tier 2: Boundaries** | 30 tests | < 1.0s | 100% In-Memory / Clean-room Tempdir |
+| **Tier 3: Combinations** | 8 tests | < 0.8s | 100% In-Memory / Clean-room Tempdir |
+| **Tier 4: Scenarios** | 5 tests | < 0.8s | 100% In-Memory / Clean-room Tempdir |
+| **Complete E2E Suite** | **73 tests** | **< 3.5s** | **Zero Network / External Deps** |
 
 ---
 
-## 5. Requirement Traceability Matrix
+## 6. Requirement Traceability Matrix
 
-| Requirement | Features | E2E Test Suite Class | Key Verifications |
-|-------------|----------|----------------------|-------------------|
-| **R1** | 1, 2, 3 | `TestTier1Features.test_r1_*` | Primary `agyis`, deprecated `psl` warning on stderr, XDG config/data path precedence, env fallbacks |
-| **R2** | 6, 7, 8, 9, 10 | `TestTier1Features.test_r2_*` | `AGYIS-HARNESS` tagged fences, stack auto-detection, command dictionary, `--dry-run`, `harmonize` |
-| **R3** | 4, 5, 11, 12 | `TestTier1Features.test_r3_*` | `plugin.json` manifest, `agyis_architect` persona, doctor diagnostics, discreet backronym |
-| **R4** | 13, 14, 15 | `TestTier1Features.test_r4_*` | Dual runner patterns in hooks, completion fence verification, hermetic test pass in <2.0s |
-| **R5** | 16, 17 | `TestTier1Features.test_r5_*` | Live/fixture dry-run zero git diff, `docs/discussions/rebrand-agyis-epic.md` validity |
-| **Boundaries** | All | `TestTier2Boundaries.test_boundary_*` | Read-only permissions, truncated manifests, corrupted fences, symlinks, missing workspaces |
-| **Interactions** | All | `TestTier3Combinations.test_cross_*` | Pairwise integration: CLI+XDG, PSL+Harmonize+JSON, Multi-stack, Harmonize+Doctor |
-| **Scenarios** | All | `TestTier4Scenarios.test_journey_*` | 5 full realistic workflows: Modernization, Polyglot, Operator compatibility, Fleet audit, Scaffolding |
+| Requirement / Issue | Target Features | Test Class | Key Verifications |
+|:---|:---|:---|:---|
+| **Issue #41** | Anti-Loop Coordination Exemption | `TestTier1Features.test_f1_*`<br>`TestTier2Boundaries.test_b1_*`<br>`TestTier3Combinations.test_c2,c3,c6`<br>`TestTier4Scenarios.test_s1` | Repeated views of `.agents/teamwork/` and `.agents/ledger/`, manifest basenames, argument invariance, Windows backslashes, whitespace trimming |
+| **Issue #42** | Stop-Fence PostToolUse Clearance | `TestTier1Features.test_f2_*`<br>`TestTier2Boundaries.test_b2_*`<br>`TestTier3Combinations.test_c3,c4,c7,c8`<br>`TestTier4Scenarios.test_s3` | PostToolUse exit 0 clearance, exit 1 retention, hooks.json wiring, universal test runner patterns, anti-deadlock valve |
+| **Issue #43** | Ephemeral Scratch Path Isolation | `TestTier1Features.test_f3_*`<br>`TestTier2Boundaries.test_b3_*`<br>`TestTier3Combinations.test_c1,c4,c6`<br>`TestTier4Scenarios.test_s2` | Brain scratch paths, /tmp outside workspace, workspace root inside /tmp, relative traversal scrubbing, immediate stop |
+| **Issue #44** | REA Doctor Diagnostics | `TestTier1Features.test_f4_*`<br>`TestTier2Boundaries.test_b4_*`<br>`TestTier3Combinations.test_c5`<br>`TestTier4Scenarios.test_s4,s5` | REA binary detection, version >= 6.0.0, provider status partitioning, MCP registration, non-fatal exit 0, remediation message |
+| **Issue #45** | Cleanroom Spec & Ledger Gates | `TestTier1Features.test_f5_*`<br>`TestTier2Boundaries.test_b5_*`<br>`TestTier3Combinations.test_c1,c2,c4`<br>`TestTier4Scenarios.test_s3` | `docs/specs/**` and `.agents/ledger/**` gated, refusal diagnostics citing cleanroom contracts, ordinary docs exempt |
+| **Issue #46** | Standardized Issue Templates | `TestTier1Features.test_f6_*`<br>`TestTier2Boundaries.test_b6_*`<br>`TestTier3Combinations.test_c5`<br>`TestTier4Scenarios.test_s5` | YAML form schema validity, mandatory `harness_version`, optional platform/toolchain fields, validations block integrity |
 
 ---
 
-## 6. Publication Protocol for `TEST_READY.md`
+## 7. Publication Protocol for `TEST_READY.md`
 
 When the E2E test suite implementation is complete and verified:
 1. All 4 tiers must be implemented under `tests/e2e/`.
 2. Execution of `python3 -m unittest discover -s tests/e2e -v` must report:
-   - 100% passing tests (0 failures, 0 errors).
-   - Execution time strictly under 4.5s.
+   - Exactly 73 tests registered across all 4 tiers (30 + 30 + 8 + 5).
+   - 0 failures, 0 errors (with graceful milestone skips allowed where components are pending concurrent worker completion).
+   - Execution time strictly under 3.5s.
 3. The file `TEST_READY.md` must be published at the repository root detailing:
    - **Status**: `READY`
-   - **Total Test Count**: Exact count across all 4 tiers.
+   - **Total Test Count**: Exact count across all 4 tiers (73 tests).
    - **Benchmark Metrics**: Exact execution duration.
    - **Runner Commands**: Explicit CLI palettes.
-   - **Operator Sign-Off**: Verification signature.
+   - **Invariants Checklist**: Hermetic cleanroom, zero network, opaque-box boundary.

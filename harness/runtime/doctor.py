@@ -37,9 +37,11 @@ from harness.runtime.tool_checks import (
     REPO_ROOT,
     check_cli_binary,
     check_psl_collision,
+    check_rea_tooling,
     check_tool,
     detect_os_family,
     find_hermetic_uv_python,
+    find_rea_binary,
     parse_version,
 )
 
@@ -53,10 +55,12 @@ __all__ = [
     "check_hooks_health",
     "check_node_script_hygiene",
     "check_psl_collision",
+    "check_rea_tooling",
     "check_tool",
     "deprecated_psl_doctor_main",
     "detect_os_family",
     "find_hermetic_uv_python",
+    "find_rea_binary",
     "heal_environment",
     "main",
     "parse_version",
@@ -66,25 +70,30 @@ __all__ = [
 
 
 def run_doctor(
-    matrix_path: Path,
+    matrix_path: Optional[Path] = None,
     workspace_root: Optional[Path] = None,
     config_dir: Optional[Path] = None,
     hooks_path: Optional[Path] = None,
+    mcp_config_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Perform complete workstation runtime audit."""
-    if not matrix_path.exists():
-        raise FileNotFoundError(f"Matrix file not found: {matrix_path}")
+    eff_matrix = matrix_path if matrix_path is not None else DEFAULT_MATRIX
+    if not eff_matrix.exists():
+        raise FileNotFoundError(f"Matrix file not found: {eff_matrix}")
 
-    with open(matrix_path, "r", encoding="utf-8") as f:
+    with open(eff_matrix, "r", encoding="utf-8") as f:
         matrix = json.load(f)
 
+    effective_workspace = workspace_root or repo_root
     os_family = detect_os_family()
     hermetic_python = find_hermetic_uv_python()
     cli_binary = check_cli_binary()
     psl_collision = cli_binary.get("psl_details") or cli_binary.get("psl_collision") or check_psl_collision()
     duplicate_agents = check_duplicate_agents(config_dir=config_dir)
-    node_script_hygiene = check_node_script_hygiene(workspace_root=workspace_root)
+    node_script_hygiene = check_node_script_hygiene(workspace_root=effective_workspace)
     hooks_health = check_hooks_health(hooks_path=hooks_path)
+    rea_tooling = check_rea_tooling(mcp_config_path=mcp_config_path)
 
     results: Dict[str, Any] = {
         "os_family": os_family,
@@ -95,6 +104,7 @@ def run_doctor(
         "duplicate_agents": duplicate_agents,
         "node_script_hygiene": node_script_hygiene,
         "hooks_health": hooks_health,
+        "rea_tooling": rea_tooling,
         "tiers": {},
         "summary": {
             "total_tools": 0,
@@ -116,6 +126,10 @@ def run_doctor(
         results["summary"]["warning"] += 1
     if hooks_health.get("status") != "OK":
         results["summary"]["warning"] += 1
+    if rea_tooling.get("status") == "warning":
+        results["summary"]["warning"] += 1
+    elif rea_tooling.get("status") == "optional_missing":
+        results["summary"]["optional_missing"] += 1
 
     for tier_key, tier_data in matrix.get("tiers", {}).items():
         tier_results = []
@@ -229,6 +243,26 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
             print(f" Lifecycle Hooks:     [\033[32mPASS\033[0m] -> {hook_count} hooks verified ({hooks_h.get('hooks_path')})")
         else:
             print(f" Lifecycle Hooks:     [\033[34mINFO\033[0m] -> {hooks_h.get('status')}")
+
+    rea_t = audit.get("rea_tooling")
+    if rea_t:
+        st = rea_t.get("status")
+        if st == "ok":
+            v = rea_t.get("version") or "unknown"
+            bin_path = rea_t.get("binary") or "rea"
+            prov_active = len((rea_t.get("providers") or {}).get("active") or [])
+            mcp_str = "Configured" if rea_t.get("mcp_configured") else "Not configured"
+            print(f" REA Tooling:         [\033[32mPASS\033[0m] -> rea {v} ({bin_path}) | Providers: {prov_active} active | MCP: {mcp_str}")
+        elif st == "optional_missing":
+            print(" REA Tooling:         [\033[34mINFO\033[0m] -> REA not detected (optional reverse engineering toolchain)")
+            if rea_t.get("remediation"):
+                print(f"    Remediation:\n      {rea_t.get('remediation')}")
+        elif st == "warning":
+            print(f" REA Tooling:         [\033[33mWARN\033[0m] -> {rea_t.get('details')}")
+            if rea_t.get("remediation"):
+                print(f"    Remediation:\n      {rea_t.get('remediation')}")
+        else:
+            print(f" REA Tooling:         [\033[34mINFO\033[0m] -> {rea_t.get('details', '')}")
     print("-" * 70)
 
     symbols = {
