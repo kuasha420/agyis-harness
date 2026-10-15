@@ -584,5 +584,78 @@ class TestCoordinationExemptionIssue41(unittest.TestCase):
                 self.assertEqual(out["decision"], "allow")
 
 
+class TestAntiLoopReaHarmonization(unittest.TestCase):
+    """Hermetic unit tests validating REA cleanroom anti-loop harmonization (Milestone 4)."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_spec_file_elevated_sliding_window_quota(self):
+        """Cleanroom spec files allow up to 8 calls within a 15-call sliding window."""
+        conv_id = "test-spec-elevated"
+        spec_args = {"AbsolutePath": "/workspace/docs/specs/architecture.md"}
+        other_args = {"AbsolutePath": "/workspace/src/utils.py"}
+
+        # Alternate spec calls with another call to avoid consecutive repeat denial
+        for i in range(8):
+            res_spec = check_anti_loop("view_file", spec_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(res_spec["decision"], "allow", f"Spec call {i+1} was unexpectedly denied")
+            # Interleaving call
+            if i < 7:
+                res_other = check_anti_loop("view_file", {**other_args, "Call": i}, conv_id=conv_id, state_dir=self.state_dir)
+                self.assertEqual(res_other["decision"], "allow")
+
+    def test_spec_file_denies_on_9th_call_in_window(self):
+        """9th inspection of the same cleanroom spec within 15 calls is denied."""
+        conv_id = "test-spec-exceeded"
+        spec_args = {"AbsolutePath": "/workspace/docs/specs/architecture.md"}
+
+        # Interleave 6 other calls so total window (14 history + 1 proposed = 15) contains 9 spec calls
+        for i in range(8):
+            res = check_anti_loop("view_file", spec_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(res["decision"], "allow")
+            if i < 6:
+                check_anti_loop("run_command", {"CommandLine": f"echo {i}"}, conv_id=conv_id, state_dir=self.state_dir)
+
+        # 9th call within the 15-call window must be denied
+        res_9th = check_anti_loop("view_file", spec_args, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res_9th["decision"], "deny")
+        self.assertIn("PSL Anti-Loop Guard", res_9th["reason"])
+        self.assertIn("threshold is 8", res_9th["reason"])
+
+    def test_spec_file_preserves_consecutive_repeat_denial(self):
+        """Cleanroom spec files are NOT given blanket immunity: 4 consecutive calls deny on 4th."""
+        conv_id = "test-spec-consecutive"
+        spec_args = {"AbsolutePath": "/workspace/docs/specs/contract.md"}
+
+        # 3 calls allowed
+        for _ in range(3):
+            res = check_anti_loop("view_file", spec_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(res["decision"], "allow")
+
+        # 4th identical consecutive call is denied
+        res_4th = check_anti_loop("view_file", spec_args, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res_4th["decision"], "deny")
+        self.assertIn("identical consecutive executions", res_4th["reason"])
+
+    def test_rea_cleanroom_verification_commands_reset_counters(self):
+        """Cleanroom verification commands (rea verify, rea verify-reconstruction, agyis verify) reset test counters."""
+        from harness.hooks.anti_loop_hook import _is_test_verification_command
+        commands = [
+            {"name": "run_command", "args": {"CommandLine": "rea verify"}},
+            {"name": "run_command", "args": {"CommandLine": "rea verify-reconstruction"}},
+            {"name": "run_command", "args": {"CommandLine": "rea test"}},
+            {"name": "run_command", "args": {"CommandLine": "agyis verify"}},
+            {"name": "run_command", "args": {"CommandLine": "./agyis verify --spec"}},
+            {"name": "run_command", "args": {"CommandLine": "python3 -m harness.cli verify"}},
+        ]
+        for cmd_sig in commands:
+            self.assertTrue(_is_test_verification_command(cmd_sig), f"Expected verification recognition for: {cmd_sig}")
+
+
 if __name__ == "__main__":
     unittest.main()

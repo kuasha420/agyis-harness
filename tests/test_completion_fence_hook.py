@@ -564,33 +564,42 @@ class TestCompletionFenceHardeningM2(unittest.TestCase):
         self.assertFalse(is_cleanroom_contract_file("docs/specs.md"))
 
     def test_cleanroom_spec_edit_dirties_state_and_blocks_stop(self):
-        """Editing docs/specs/*.md marks code_dirty = True and blocks evaluate_stop."""
+        """Editing docs/specs/*.md marks spec_dirty = True (code_dirty = False) and blocks evaluate_stop with cleanroom message."""
         conv_id = "test-spec-contract"
         record_edit("docs/specs/my_spec.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
 
         state = load_state(conv_id=conv_id, state_dir=self.state_dir)
-        self.assertTrue(state["code_dirty"])
+        self.assertFalse(state["code_dirty"])
+        self.assertTrue(state["spec_dirty"])
         self.assertIn("docs/specs/my_spec.md", state["last_modified_files"])
 
         res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
         self.assertEqual(res.get("decision"), "continue")
         reason = res.get("reason", "")
-        self.assertIn("Verification Required: Unverified cleanroom contract edits detected in: docs/specs/my_spec.md", reason)
-        self.assertIn("Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping.", reason)
+        self.assertEqual(
+            reason,
+            "Cleanroom Verification Required: Unverified cleanroom contract edits detected in: docs/specs/my_spec.md. "
+            "Execute 'rea verify-reconstruction' or 'agyis verify --spec' before stopping."
+        )
 
     def test_cleanroom_ledger_edit_dirties_state_and_blocks_stop(self):
-        """Editing .agents/ledger/*.json marks code_dirty = True and blocks evaluate_stop."""
+        """Editing .agents/ledger/*.json marks spec_dirty = True (code_dirty = False) and blocks evaluate_stop."""
         conv_id = "test-ledger-contract"
         record_edit(".agents/ledger/obligations.json", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
 
         state = load_state(conv_id=conv_id, state_dir=self.state_dir)
-        self.assertTrue(state["code_dirty"])
+        self.assertFalse(state["code_dirty"])
+        self.assertTrue(state["spec_dirty"])
         self.assertIn(".agents/ledger/obligations.json", state["last_modified_files"])
 
         res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
         self.assertEqual(res.get("decision"), "continue")
         reason = res.get("reason", "")
-        self.assertIn("Verification Required: Unverified cleanroom contract edits detected in: .agents/ledger/obligations.json", reason)
+        self.assertEqual(
+            reason,
+            "Cleanroom Verification Required: Unverified cleanroom contract edits detected in: .agents/ledger/obligations.json. "
+            "Execute 'rea verify-reconstruction' or 'agyis verify --spec' before stopping."
+        )
 
     def test_mixed_code_and_contract_edits_refusal_message(self):
         """Mixed code and contract edits emit combined diagnostic refusal guidance."""
@@ -611,6 +620,7 @@ class TestCompletionFenceHardeningM2(unittest.TestCase):
 
         state = load_state(conv_id=conv_id, state_dir=self.state_dir)
         self.assertFalse(state["code_dirty"])
+        self.assertFalse(state["spec_dirty"])
         self.assertEqual(state["last_modified_files"], [])
 
         res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
@@ -620,13 +630,14 @@ class TestCompletionFenceHardeningM2(unittest.TestCase):
         """Cleanroom contract dirty state is cleared by successful test verification."""
         conv_id = "test-cleanroom-verify"
         record_edit("docs/specs/my_spec.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
-        self.assertTrue(load_state(conv_id=conv_id, state_dir=self.state_dir)["code_dirty"])
+        self.assertTrue(load_state(conv_id=conv_id, state_dir=self.state_dir)["spec_dirty"])
 
         matched = check_command_verification("agyis test", exit_code=0, conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
         self.assertTrue(matched)
 
         state = load_state(conv_id=conv_id, state_dir=self.state_dir)
         self.assertFalse(state["code_dirty"])
+        self.assertFalse(state["spec_dirty"])
         self.assertEqual(evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)["decision"], "allow")
 
     def test_workspace_paths_fallback_and_tool_args_cwd(self):
@@ -872,6 +883,150 @@ class TestCompletionFenceHardeningM2(unittest.TestCase):
             1.0,
             f"Expected 30 M2 evaluation cycles to execute in <1.0s, took {duration:.4f}s",
         )
+
+
+class TestCleanroomHarmonizationM4(unittest.TestCase):
+    """Hermetic unit tests validating REA cleanroom completion fence harmonization (Milestone 4)."""
+
+    def setUp(self):
+        self.temp_state_dir = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temp_state_dir.name)
+        self.temp_workspace_dir = tempfile.TemporaryDirectory()
+        self.workspace_dir = Path(self.temp_workspace_dir.name)
+
+    def tearDown(self):
+        self.temp_state_dir.cleanup()
+        self.temp_workspace_dir.cleanup()
+
+    def test_code_in_specs_triggers_code_dirty_def01(self):
+        """Non-declarative code files (.py, .ts, .sh) inside docs/specs/** trigger code_dirty = True (DEF-01)."""
+        conv_id = "test-code-in-specs"
+        record_edit("docs/specs/helper.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(state["code_dirty"], "Code files in docs/specs/ MUST trigger code_dirty")
+        self.assertTrue(state["spec_dirty"], "Code files in docs/specs/ MUST trigger spec_dirty")
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)
+        self.assertEqual(res.get("decision"), "continue")
+        # Must require project test execution, not spec verification
+        self.assertIn("Verification Required: Unverified code and cleanroom contract edits detected in: docs/specs/helper.py", res.get("reason", ""))
+
+    def test_declarative_spec_files_set_only_spec_dirty(self):
+        """Declarative spec extensions (.md, .json, .yaml, .proto) trigger only spec_dirty = True (code_dirty = False)."""
+        conv_id = "test-decl-specs"
+        for spec in ("docs/specs/api.proto", "docs/specs/types.schema", "docs/specs/config.yaml", ".agents/ledger/tasks.json"):
+            record_edit(spec, conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+        self.assertTrue(state["spec_dirty"])
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)
+        self.assertEqual(res.get("decision"), "continue")
+        self.assertIn("Cleanroom Verification Required: Unverified cleanroom contract edits detected in:", res.get("reason", ""))
+        self.assertIn("Execute 'rea verify-reconstruction' or 'agyis verify --spec' before stopping.", res.get("reason", ""))
+
+    def test_mcp_post_tool_use_clearance_def03(self):
+        """Successful verify_reconstruction MCP tool clears spec_dirty state (DEF-03)."""
+        from harness.hooks.completion_fence_hook import handle_post_tool_use
+        conv_id = "test-mcp-clear"
+        record_edit("docs/specs/spec.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)
+        self.assertTrue(load_state(conv_id=conv_id, state_dir=self.state_dir)["spec_dirty"])
+
+        # Call MCP verifier
+        handle_post_tool_use(
+            "call_mcp_tool",
+            {"ToolName": "verify_reconstruction", "Arguments": {}},
+            {"status": "ok", "evidence_verified": True},
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+        )
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["spec_dirty"])
+        self.assertEqual(evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)["decision"], "allow")
+
+    def test_direct_mcp_post_tool_use_clearance_def03(self):
+        """Direct evaluate_reconstruction_coverage tool call clears spec_dirty state."""
+        from harness.hooks.completion_fence_hook import handle_post_tool_use
+        conv_id = "test-direct-clear"
+        record_edit("docs/specs/spec.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)
+
+        handle_post_tool_use(
+            "evaluate_reconstruction_coverage",
+            {},
+            {"status": "ok", "coverage": 1.0},
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+        )
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["spec_dirty"])
+
+    def test_manifest_clearance_valid_def06(self):
+        """Valid .agents/ledger/manifest.json clears spec_dirty and permits stop (DEF-06)."""
+        ledger_dir = self.workspace_dir / ".agents" / "ledger"
+        ledger_dir.mkdir(parents=True, exist_ok=True)
+        manifest_data = {
+            "status": "verified",
+            "evidence_hash": "a" * 64,
+            "target": "binary_target",
+            "verified_at": "2026-10-15T20:00:00Z",
+            "verifier": "rea-agents",
+            "obligations": [
+                {"id": "ob-1", "status": "satisfied", "proof": "ev-001"}
+            ],
+        }
+        (ledger_dir / "manifest.json").write_text(json.dumps(manifest_data), encoding="utf-8")
+
+        conv_id = "test-manifest-valid"
+        record_edit("docs/specs/cleanroom.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)
+
+        # evaluate_stop detects verified manifest and allows exit
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)
+        self.assertEqual(res["decision"], "allow")
+
+    def test_manifest_clearance_invalid_fails(self):
+        """Invalid manifest (unverified status or unsatisfied obligation) does not clear fence."""
+        ledger_dir = self.workspace_dir / ".agents" / "ledger"
+        ledger_dir.mkdir(parents=True, exist_ok=True)
+        manifest_data = {
+            "status": "in_progress",
+            "evidence_hash": "a" * 64,
+            "target": "binary_target",
+            "verified_at": "2026-10-15T20:00:00Z",
+            "verifier": "rea-agents",
+            "obligations": [
+                {"id": "ob-1", "status": "pending", "proof": ""}
+            ],
+        }
+        (ledger_dir / "manifest.json").write_text(json.dumps(manifest_data), encoding="utf-8")
+
+        conv_id = "test-manifest-invalid"
+        record_edit("docs/specs/cleanroom.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)
+        self.assertEqual(res["decision"], "continue")
+        self.assertIn("Cleanroom Verification Required", res["reason"])
+
+    def test_ephemeral_scratch_paths_exempt(self):
+        """Scratch files in .rea/**, decompiled/**, and artifacts/rea/** are exempt from dirty state."""
+        conv_id = "test-rea-scratch"
+        scratch_files = [
+            ".rea/analysis.txt",
+            "decompiled/com/example/App.java",
+            "artifacts/rea/strings.json",
+            "/workspace/.rea/dump.bin",
+        ]
+        for f in scratch_files:
+            record_edit(f, conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+        self.assertFalse(state["spec_dirty"])
+        self.assertEqual(state["last_modified_files"], [])
+        self.assertEqual(evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)["decision"], "allow")
 
 
 if __name__ == "__main__":

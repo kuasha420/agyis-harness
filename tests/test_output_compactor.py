@@ -447,6 +447,99 @@ class TestOutputCompactor(unittest.TestCase):
         self.assertEqual(proc.stdout.strip(), "exec_wrap_standalone_ok")
         self.assertNotIn("ModuleNotFoundError", proc.stderr)
 
+    # -------------------------------------------------------------------------
+    # 7. Milestone 4 Enhancements: Pre-slicing, Diagnostic Bounds, JSON Brackets
+    # -------------------------------------------------------------------------
+    def test_preslice_on_large_middle_segment(self) -> None:
+        """
+        When middle segment exceeds PRESLICE_THRESHOLD (200KB), it must be
+        pre-sliced into head (100KB) and tail (100KB) chunks before line splitting,
+        preserving diagnostic error lines from the boundaries while ignoring deep middle lines.
+        """
+        head = "H" * HEAD_CHARS
+        tail = "T" * TAIL_CHARS
+
+        # Create middle of 300KB
+        early_error = "ERROR: early failure in disassembly pipeline\n"
+        deep_center_error = "FATAL: deep skipped center failure\n"
+        late_error = "FAILURE: late validation failure\n"
+
+        chunk_head = "A" * (100_000 - len(early_error))
+        chunk_center_1 = "B" * 50_000
+        chunk_center_2 = "B" * 50_000
+        chunk_tail = "C" * (100_000 - len(late_error))
+
+        middle = (
+            early_error
+            + chunk_head
+            + chunk_center_1
+            + deep_center_error
+            + chunk_center_2
+            + late_error
+            + chunk_tail
+        )
+        self.assertGreater(len(middle), 200_000)
+
+        output = f"{head}{middle}{tail}"
+        compacted = compact_output(output, exit_code=0)
+
+        # Early and late errors preserved from 100KB slices
+        self.assertIn("ERROR: early failure in disassembly pipeline", compacted)
+        self.assertIn("FAILURE: late validation failure", compacted)
+        # Deep center error was skipped by 200KB pre-slicing
+        self.assertNotIn("FATAL: deep skipped center failure", compacted)
+        self.assertIn("[... PSL Compactor:", compacted)
+
+    def test_bounding_preserved_diagnostic_error_lines_to_max_50(self) -> None:
+        """
+        When middle contains >50 lines with error keywords, only the first
+        MAX_PRESERVED_DIAGNOSTIC_LINES (50) lines must be preserved.
+        """
+        head = "H" * HEAD_CHARS
+        tail = "T" * TAIL_CHARS
+
+        # Generate 80 diagnostic error lines
+        error_lines = [f"ERROR line {i:02d}: critical fault detected" for i in range(80)]
+        middle = "\n".join(error_lines) + "\n" + ("X" * 3000)
+
+        compacted = compact_output(f"{head}\n{middle}\n{tail}", exit_code=0)
+
+        # Compaction banner reports exactly 50 diagnostic lines
+        self.assertIn("50 diagnostic lines preserved", compacted)
+        self.assertIn("ERROR line 00: critical fault detected", compacted)
+        self.assertIn("ERROR line 49: critical fault detected", compacted)
+        self.assertNotIn("ERROR line 50: critical fault detected", compacted)
+        self.assertNotIn("ERROR line 79: critical fault detected", compacted)
+
+    def test_structural_json_bracket_preservation(self) -> None:
+        """
+        When original output has outer JSON object '{ ... }' or array '[ ... ]'
+        brackets, the compacted output must maintain valid outer structural brackets.
+        """
+        # Object format
+        obj_inner = ", ".join(f'"key_{i}": "value_{i}"' for i in range(500))
+        json_obj = "{\n" + obj_inner + "\n}"
+        self.assertGreater(len(json_obj), 2048)
+
+        compacted_obj = compact_output(json_obj, exit_code=0)
+        self.assertTrue(compacted_obj.strip().startswith("{"), "Compacted JSON object must start with '{'")
+        self.assertTrue(compacted_obj.strip().endswith("}"), "Compacted JSON object must end with '}'")
+
+        # Array format
+        arr_inner = ", ".join(f'"item_{i}"' for i in range(500))
+        json_arr = "[\n" + arr_inner + "\n]"
+        self.assertGreater(len(json_arr), 2048)
+
+        compacted_arr = compact_output(json_arr, exit_code=0)
+        self.assertTrue(compacted_arr.strip().startswith("["), "Compacted JSON array must start with '['")
+        self.assertTrue(compacted_arr.strip().endswith("]"), "Compacted JSON array must end with ']'")
+
+        # Test outer bracket restoration when head/tail lack them
+        output_brackets = "  {  " + ("x" * 3000) + "  }  "
+        compacted_brackets = compact_output(output_brackets, exit_code=0, head_chars=2, tail_chars=2)
+        self.assertTrue(compacted_brackets.strip().startswith("{"))
+        self.assertTrue(compacted_brackets.strip().endswith("}"))
+
 
 if __name__ == "__main__":
     unittest.main()
