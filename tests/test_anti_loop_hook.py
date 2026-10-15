@@ -251,6 +251,27 @@ class TestAntiLoopHookPhase2(unittest.TestCase):
             self.assertIn("PSL Anti-Loop Guard", tripped["reason"])
             self.assertIn(f"threshold is {MAX_IDEMPOTENT_FREQUENCY_REPEATS}", tripped["reason"])
 
+    def test_consecutive_idempotent_commands_up_to_8_allowed(self):
+        """Calling check_anti_loop with git status 8 times consecutively returns allow, 9th call returns deny."""
+        conv_id = "test-consecutive-git-status-8"
+        cmd = "git status"
+
+        for i in range(8):
+            res = check_anti_loop("run_command", {"CommandLine": cmd}, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(
+                res["decision"],
+                "allow",
+                f"Consecutive call {i+1} of '{cmd}' was unexpectedly denied: {res}",
+            )
+
+        tripped = check_anti_loop("run_command", {"CommandLine": cmd}, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(
+            tripped["decision"],
+            "deny",
+            f"9th consecutive execution of '{cmd}' should be denied: {tripped}",
+        )
+        self.assertIn("PSL Anti-Loop Guard", tripped["reason"])
+
     def test_non_idempotent_command_trips_at_threshold_4(self):
         """Standard non-idempotent commands still trip rolling frequency threshold at 4 appearances."""
         conv_id = "test-non-idempotent-freq"

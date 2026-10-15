@@ -262,6 +262,15 @@ def check_anti_loop(
         if len(full_seq) >= 2 * p:
             cycle1 = full_seq[-2 * p : -p]
             cycle2 = full_seq[-p :]
+
+            # Skip degenerate cycles where all items in cycle2 are identical (handled by consecutive repeat check)
+            if all(_signatures_match(cycle2[0], item) for item in cycle2):
+                continue
+
+            # Skip cycles composed entirely of idempotent status commands
+            if all(_is_idempotent_status_command(item) for item in cycle2):
+                continue
+
             if all(_signatures_match(cycle1[i], cycle2[i]) for i in range(p)):
                 cycle_names = " -> ".join(item.get("name", "unknown") for item in cycle2)
                 return {
