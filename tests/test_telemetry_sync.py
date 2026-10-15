@@ -110,6 +110,54 @@ class TestSchemaMigration(unittest.TestCase):
             conn.close()
 
 
+class TestTelemetryDbConnection(unittest.TestCase):
+    """Verifies centralized get_db_connection factory and WAL concurrency invariants."""
+
+    def test_get_db_connection_pragmas(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_file = Path(tmpdir) / "test_pragma.db"
+            conn = sync.get_db_connection(db_file, timeout=10.0)
+            try:
+                cur = conn.cursor()
+                cur.execute("PRAGMA journal_mode;")
+                self.assertEqual(cur.fetchone()[0].lower(), "wal")
+                cur.execute("PRAGMA busy_timeout;")
+                self.assertEqual(cur.fetchone()[0], 10000)
+                cur.execute("PRAGMA synchronous;")
+                self.assertEqual(cur.fetchone()[0], 1)
+                cur.execute("PRAGMA foreign_keys;")
+                self.assertEqual(cur.fetchone()[0], 1)
+            finally:
+                conn.close()
+
+    def test_wal_concurrency_no_reader_writer_blocking(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_file = Path(tmpdir) / "test_concurrency.db"
+            conn1 = sync.get_db_connection(db_file)
+            conn2 = sync.get_db_connection(db_file)
+            try:
+                conn1.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+                conn1.execute("INSERT INTO items (name) VALUES ('item1')")
+                conn1.commit()
+
+                # Reader on conn1 reads while writer on conn2 inserts
+                cur1 = conn1.cursor()
+                cur1.execute("SELECT * FROM items")
+                rows1 = cur1.fetchall()
+                self.assertEqual(len(rows1), 1)
+
+                # Writer on conn2 inserts without being blocked by conn1
+                conn2.execute("INSERT INTO items (name) VALUES ('item2')")
+                conn2.commit()
+
+                # conn1 can still read its snapshot or updated state
+                cur1.execute("SELECT COUNT(*) FROM items")
+                self.assertEqual(cur1.fetchone()[0], 2)
+            finally:
+                conn1.close()
+                conn2.close()
+
+
 class TestExtractSessionSyncFields(unittest.TestCase):
     """Verifies extract_session populates origin_developer and remote_synced_at."""
 
@@ -371,6 +419,7 @@ class TestSyncPush(unittest.TestCase):
             "PSL_CONFIG_DIR": str(self.config_dir),
             "PSL_AUTH_TOKEN": "test-bearer-token",
             "PSL_SYNC_ENDPOINT": "https://api.telemetry.test",
+            "PSL_RETRY_BACKOFF": "0.0",
         })
         self.patcher_env.start()
 
@@ -459,14 +508,28 @@ class TestSyncPush(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def test_push_dry_run_mode(self):
-        """Dry run returns summary without sending HTTP request or updating SQLite."""
-        with patch("urllib.request.urlopen") as mock_urlopen:
+        """Dry run authenticates token, returns summary without pushing to /api/v1/sync/push or updating SQLite."""
+        called_urls = []
+        def fake_urlopen(req, timeout=10.0):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            called_urls.append(url)
+            if "/api/v1/auth/verify" in url:
+                mock_resp = MagicMock()
+                mock_resp.read.return_value = json.dumps({"status": "ok", "authenticated": True, "username": "kuasha420"}).encode("utf-8")
+                mock_resp.__enter__.return_value = mock_resp
+                return mock_resp
+            raise AssertionError(f"Unexpected URL call: {url}")
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
             res = sync.push_local_sessions(
                 db_path=self.db_path,
                 workspace_root="/home/kuasha/Dev/project-alpha",
                 dry_run=True,
             )
-            mock_urlopen.assert_not_called()
+            # Verify auth was checked against /api/v1/auth/verify
+            self.assertTrue(any("/api/v1/auth/verify" in u for u in called_urls))
+            # Verify push endpoint was NOT called
+            self.assertFalse(any("/api/v1/sync/push" in u or "/api/v1/telemetry/batch" in u for u in called_urls))
 
             self.assertEqual(res["status"], "dry_run")
             self.assertTrue(res["dry_run"])
@@ -801,6 +864,7 @@ class TestSyncPull(unittest.TestCase):
             "PSL_CONFIG_DIR": str(self.config_dir),
             "PSL_AUTH_TOKEN": "pull-bearer-token",
             "PSL_SYNC_ENDPOINT": "https://api.telemetry.test",
+            "PSL_RETRY_BACKOFF": "0.0",
         })
         self.patcher_env.start()
 
@@ -1146,6 +1210,144 @@ class TestSyncPull(unittest.TestCase):
             self.assertEqual(cur.fetchone()[0], 2)
             conn.close()
 
+    def test_pull_dry_run_mode(self):
+        """Verifies pull dry-run authenticates, queries limit=1, extracts total_matching, and leaves DB unmutated."""
+        called_urls = []
+        def fake_urlopen(req, timeout=30.0):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            called_urls.append(url)
+            if "/api/v1/auth/verify" in url:
+                mock_auth = MagicMock()
+                mock_auth.read.return_value = json.dumps({"status": "ok", "authenticated": True, "username": "kuasha420"}).encode("utf-8")
+                mock_auth.__enter__.return_value = mock_auth
+                return mock_auth
+            if "/api/v1/sync/pull" in url:
+                mock_pull = MagicMock()
+                mock_pull.read.return_value = json.dumps({
+                    "status": "success",
+                    "total_matching": 42,
+                    "sessions": [{"session_id": "remote-preview-sess"}],
+                }).encode("utf-8")
+                mock_pull.__enter__.return_value = mock_pull
+                return mock_pull
+            raise AssertionError(f"Unexpected url: {url}")
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = sync.pull_remote_sessions(
+                db_path=self.db_path,
+                developer="kuasha420",
+                dry_run=True,
+            )
+            self.assertEqual(res["status"], "dry_run")
+            self.assertTrue(res["dry_run"])
+            self.assertEqual(res["sessions_pulled"], 42)
+            self.assertEqual(res["sessions_to_pull"], 42)
+            self.assertEqual(res["sessions_inserted"], 0)
+
+            # Assert auth verify and limit=1 pull were both called
+            self.assertTrue(any("/api/v1/auth/verify" in u for u in called_urls))
+            self.assertTrue(any("/api/v1/sync/pull" in u and "limit=1" in u for u in called_urls))
+
+            # Assert local SQLite DB has zero rows inserted
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM sessions WHERE session_id = 'remote-preview-sess'")
+            self.assertEqual(cur.fetchone()[0], 0)
+            conn.close()
+
+    def test_pull_transient_retry_and_fast_failure(self):
+        """Verifies pull_remote_sessions retries on transient 503 and fails fast on 403."""
+        # 1. Transient 503 retry succeeds on second attempt
+        err_503 = urllib.error.HTTPError(
+            url="https://api.telemetry.test/api/v1/sync/pull",
+            code=503,
+            msg="Service Unavailable",
+            hdrs=MagicMock(),
+            fp=io.BytesIO(b"Service Unavailable"),
+        )
+        mock_success = MagicMock()
+        mock_success.read.return_value = b'{"sessions": [], "has_more": false}'
+        mock_success.__enter__.return_value = mock_success
+
+        try:
+            with patch("urllib.request.urlopen", side_effect=[err_503, mock_success]) as mock_call:
+                res = sync.pull_remote_sessions(db_path=self.db_path, retry_backoff=0.0)
+                self.assertEqual(res["status"], "success")
+                self.assertEqual(mock_call.call_count, 2)
+        finally:
+            err_503.close()
+
+        # 2. Fast failure on 403 (zero retries)
+        err_403 = urllib.error.HTTPError(
+            url="https://api.telemetry.test/api/v1/sync/pull",
+            code=403,
+            msg="Forbidden",
+            hdrs=MagicMock(),
+            fp=io.BytesIO(b"Forbidden"),
+        )
+        try:
+            with patch("urllib.request.urlopen", side_effect=err_403) as mock_call:
+                with self.assertRaises(urllib.error.HTTPError) as cm:
+                    sync.pull_remote_sessions(db_path=self.db_path, retry_backoff=0.0)
+                self.assertEqual(cm.exception.code, 403)
+                self.assertEqual(mock_call.call_count, 1)
+        finally:
+            err_403.close()
+
+    def test_pull_watermark_cross_device_developer_filter(self):
+        """Verifies local pushed session does not mask remote sessions when pulling by developer."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        # Seed local pushed session from today at 15:00
+        cur.execute("""
+            INSERT INTO sessions (session_id, start_time, duration_seconds, total_steps, origin_developer, remote_synced_at)
+            VALUES ('local-pushed-sess', '2026-10-15T14:00:00Z', 60.0, 1, 'local', '2026-10-15T15:00:00Z')
+        """)
+        conn.commit()
+        conn.close()
+
+        captured_requests = []
+        def fake_urlopen(req, timeout=30.0):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            captured_requests.append(url)
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps({
+                "sessions": [{
+                    "session_id": "remote-device-sess",
+                    "start_time": "2026-10-15T10:00:00Z",
+                    "origin_developer": "kuasha420",
+                    "remote_synced_at": "2026-10-15T10:30:00Z",
+                    "duration_seconds": 120.0,
+                    "total_steps": 1,
+                }],
+                "steps": [],
+                "tool_calls": [],
+                "user_interventions": [],
+                "has_more": False,
+            }).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            return mock_resp
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = sync.pull_remote_sessions(
+                db_path=self.db_path,
+                developer="kuasha420",
+            )
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["sessions_inserted"], 1)
+
+            # Assert watermark query did not use local 15:00 timestamp, but defaulted to 1970
+            self.assertTrue(any("since=1970-01-01T00%3A00%3A00Z" in u or "since=1970-01-01T00:00:00Z" in u for u in captured_requests))
+
+            # Verify remote session was inserted into local DB
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT origin_developer FROM sessions WHERE session_id = 'remote-device-sess'")
+            row = cur.fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row[0], "kuasha420")
+            conn.close()
+
 
 class TestVerifyAuthToken(unittest.TestCase):
     """Verifies verify_auth_token behavior."""
@@ -1214,10 +1416,23 @@ class TestSyncTelemetry(unittest.TestCase):
             mock_pull.assert_called_once()
 
     def test_sync_telemetry_dry_run(self):
-        with patch("harness.telemetry.sync.push_local_sessions", return_value={"status": "dry_run", "sessions_pushed": 0}) as mock_push:
+        with patch("harness.telemetry.sync.push_local_sessions", return_value={"status": "dry_run", "sessions_pushed": 0}) as mock_push, \
+             patch("harness.telemetry.sync.pull_remote_sessions", return_value={"status": "dry_run", "sessions_pulled": 0, "sessions_to_pull": 0}) as mock_pull:
             res = sync.sync_telemetry(direction="both", db_path=self.db_path, token="tok", endpoint="http://hub", dry_run=True)
             self.assertEqual(res["status"], "dry_run")
             self.assertEqual(res["pull"]["status"], "dry_run")
+            mock_push.assert_called_once()
+            mock_pull.assert_called_once_with(
+                endpoint="http://hub",
+                token="tok",
+                db_path=self.db_path,
+                since=None,
+                all_developers=False,
+                include_self=False,
+                developer=None,
+                dry_run=True,
+                retry_backoff=None,
+            )
 
     def test_sync_telemetry_interactive_abort(self):
         conn = sqlite3.connect(self.db_path)

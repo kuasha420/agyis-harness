@@ -552,6 +552,138 @@ class TestPslCli(unittest.TestCase):
                 review=True,
             )
 
+    def test_cli_sync_developer_filter(self):
+        """Verifies `agyis sync --pull --developer <user>` passes developer argument."""
+        mock_res = {"status": "success", "direction": "pull", "push": None, "pull": {"sessions_inserted": 2}}
+        with patch("harness.telemetry.sync.sync_telemetry", return_value=mock_res) as mock_sync, \
+             patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["sync", "--pull", "--developer", "kuasha420"])
+            self.assertEqual(code, 0)
+            mock_sync.assert_called_once_with(
+                direction="pull",
+                interactive=False,
+                endpoint=None,
+                db_path=None,
+                limit=None,
+                dry_run=False,
+                on_progress=unittest.mock.ANY,
+                developer="kuasha420",
+            )
+
+    def test_cli_sync_all_developers(self):
+        """Verifies `agyis sync --pull --all` passes all_developers=True."""
+        mock_res = {"status": "success", "direction": "pull", "push": None, "pull": {"sessions_inserted": 5}}
+        with patch("harness.telemetry.sync.sync_telemetry", return_value=mock_res) as mock_sync, \
+             patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["sync", "--pull", "--all"])
+            self.assertEqual(code, 0)
+            mock_sync.assert_called_once_with(
+                direction="pull",
+                interactive=False,
+                endpoint=None,
+                db_path=None,
+                limit=None,
+                dry_run=False,
+                on_progress=unittest.mock.ANY,
+                all_developers=True,
+            )
+
+    def test_cli_sync_since(self):
+        """Verifies `agyis sync --pull --since <timestamp>` passes since argument."""
+        mock_res = {"status": "success", "direction": "pull", "push": None, "pull": {"sessions_inserted": 1}}
+        with patch("harness.telemetry.sync.sync_telemetry", return_value=mock_res) as mock_sync, \
+             patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["sync", "--pull", "--since", "2026-10-01T00:00:00Z"])
+            self.assertEqual(code, 0)
+            mock_sync.assert_called_once_with(
+                direction="pull",
+                interactive=False,
+                endpoint=None,
+                db_path=None,
+                limit=None,
+                dry_run=False,
+                on_progress=unittest.mock.ANY,
+                since="2026-10-01T00:00:00Z",
+            )
+
+    def test_cli_sync_watch_daemon(self):
+        """Verifies `agyis sync --watch --interval 10.0` invokes watch_and_sync daemon."""
+        mock_watch_res = {"iterations": 2, "total_sessions_pushed": 4}
+        with patch("harness.telemetry.sync.watch_and_sync", return_value=mock_watch_res) as mock_watch, \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["sync", "--watch", "--interval", "10.0"])
+            self.assertEqual(code, 0)
+            mock_watch.assert_called_once_with(interval_sec=10.0, db_path=None, endpoint=None)
+            self.assertIn("Watch daemon stopped: 2 iterations, 4 sessions pushed", mock_out.getvalue())
+
+    def test_cli_sync_watch_daemon_json(self):
+        """Verifies `agyis sync --watch --json` outputs formatted json."""
+        mock_watch_res = {"iterations": 1, "total_sessions_pushed": 2}
+        with patch("harness.telemetry.sync.watch_and_sync", return_value=mock_watch_res), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["sync", "--watch", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue())
+            self.assertEqual(data["iterations"], 1)
+            self.assertEqual(data["total_sessions_pushed"], 2)
+
+    def test_cli_sync_dry_run_pull_output(self):
+        """Verifies human-readable formatting of pending pull counts in dry-run mode."""
+        mock_res = {
+            "status": "dry_run",
+            "direction": "pull",
+            "push": None,
+            "pull": {"status": "dry_run", "sessions_to_pull": 1041, "sessions_pulled": 1041},
+        }
+        with patch("harness.telemetry.sync.sync_telemetry", return_value=mock_res), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["sync", "--pull", "--developer", "kuasha420", "--dry-run"])
+            self.assertEqual(code, 0)
+            out = mock_out.getvalue()
+            self.assertIn("Telemetry sync completed successfully (dry run):", out)
+            self.assertIn("Pending to pull: 1041 sessions", out)
+
+    def test_cli_sync_error_auth_failure(self):
+        """Verifies actionable stderr diagnostics on HTTP 401 unauthorized error."""
+        with patch("harness.telemetry.sync.sync_telemetry", side_effect=ValueError("Token verification failed (HTTP 401): Unauthorized")), \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code = main(["sync"])
+            self.assertEqual(code, 1)
+            err = mock_err.getvalue()
+            self.assertIn("Telemetry sync authentication failed (HTTP 401: Unauthorized)", err)
+            self.assertIn("agyis auth login --gh", err)
+
+    def test_cli_sync_error_forbidden(self):
+        """Verifies actionable stderr diagnostics on HTTP 403 forbidden error."""
+        with patch("harness.telemetry.sync.sync_telemetry", side_effect=ValueError("Token verification failed (HTTP 403): Forbidden")), \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code = main(["sync"])
+            self.assertEqual(code, 1)
+            err = mock_err.getvalue()
+            self.assertIn("Telemetry sync authorization failed (HTTP 403: Forbidden)", err)
+            self.assertIn("purrfectsoft", err)
+
+    def test_cli_sync_error_connection(self):
+        """Verifies actionable stderr diagnostics on network connection error."""
+        with patch("harness.telemetry.sync.sync_telemetry", side_effect=ConnectionError("Failed to connect to telemetry hub")), \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code = main(["sync"])
+            self.assertEqual(code, 1)
+            err = mock_err.getvalue()
+            self.assertIn("Failed to connect to telemetry hub", err)
+            self.assertIn("AGYIS_SYNC_ENDPOINT", err)
+
+    def test_cli_sync_error_db_locked(self):
+        """Verifies actionable stderr diagnostics on SQLite database locked error."""
+        import sqlite3
+        with patch("harness.telemetry.sync.sync_telemetry", side_effect=sqlite3.OperationalError("database is locked")), \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code = main(["sync"])
+            self.assertEqual(code, 1)
+            err = mock_err.getvalue()
+            self.assertIn("SQLite database error: database is locked", err)
+            self.assertIn("Wait for active background operations to complete", err)
+
     def test_cli_subagents_subcommand(self):
         """Verifies `psl subagents` renders ASCII table and handles empty directories."""
         empty_brain = Path(self.temp_dir.name) / "empty_brain"

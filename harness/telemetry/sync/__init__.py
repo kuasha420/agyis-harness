@@ -9,6 +9,7 @@ Client Sync Engine for PSL Telemetry (ADR-030).
 
 from __future__ import annotations
 
+from harness.telemetry.db import get_db_connection
 from harness.telemetry.schema import ensure_sync_columns
 from harness.telemetry.sync.constants import (
     DEFAULT_BATCH_SESSION_LIMIT,
@@ -27,6 +28,7 @@ __all__ = [
     "DEFAULT_BATCH_SESSION_LIMIT",
     "DEFAULT_BATCH_STEP_LIMIT",
     "_get_retry_backoff",
+    "get_db_connection",
     "ensure_sync_columns",
     "verify_auth_token",
     "interactive_select_sessions",

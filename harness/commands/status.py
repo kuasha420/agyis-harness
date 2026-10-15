@@ -47,10 +47,11 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     # Quick count of telemetry
     if DEFAULT_DB.exists():
+        from harness.telemetry.db import get_db_connection
         import sqlite3
 
         try:
-            conn = sqlite3.connect(DEFAULT_DB)
+            conn = get_db_connection(DEFAULT_DB)
             c = conn.cursor()
             c.execute("SELECT COUNT(*) FROM sessions")
             sess_cnt = c.fetchone()[0]
