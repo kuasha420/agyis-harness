@@ -213,6 +213,72 @@ class TestModularSkills(unittest.TestCase):
         self.assertIn("Multi-Node Swarm PR Ingestion Protocol", body)
         self.assertIn("gh pr list", body)
 
+    def test_reverse_engineer_anything_skill_contract_and_sync(self) -> None:
+        """reverse-engineer-anything skill must be discoverable, have version '42', 207 tools, and complete references."""
+        skill = get_skill("reverse-engineer-anything")
+        self.assertIsNotNone(skill, "reverse-engineer-anything skill must be discoverable")
+        self.assertEqual(skill.name, "reverse-engineer-anything")
+        self.assertGreater(len(skill.description), 50)
+
+        # Check metadata
+        self.assertEqual(skill.frontmatter.get("metadata", {}).get("version"), "42")
+        self.assertEqual(skill.frontmatter.get("metadata", {}).get("tool_count"), 207)
+
+        # Check all 6 reference guides exist and are non-empty
+        expected_references = [
+            "android-applications.md",
+            "connection-and-recovery.md",
+            "evidence-workflows.md",
+            "javascript-applications.md",
+            "native-and-artifacts.md",
+            "runtime-observation.md",
+        ]
+        repo_root = DEFAULT_SKILLS_DIR.parents[1]
+        locations = [
+            repo_root / "skills" / "reverse-engineer-anything",
+            repo_root / "harness" / "skills" / "reverse-engineer-anything",
+            repo_root / ".agents" / "skills" / "reverse-engineer-anything",
+        ]
+        for loc in locations:
+            self.assertTrue(loc.is_dir(), f"Skill directory missing at {loc}")
+            skill_md = loc / "SKILL.md"
+            self.assertTrue(skill_md.is_file(), f"SKILL.md missing at {skill_md}")
+            ref_dir = loc / "references"
+            self.assertTrue(ref_dir.is_dir(), f"references/ directory missing at {ref_dir}")
+            for ref_name in expected_references:
+                ref_file = ref_dir / ref_name
+                self.assertTrue(ref_file.is_file(), f"Reference file missing at {ref_file}")
+                self.assertGreater(ref_file.stat().st_size, 100, f"Reference file {ref_file} is suspiciously small")
+
+        # Verify all locations are identical in content
+        harness_rea = repo_root / "harness" / "skills" / "reverse-engineer-anything"
+        skills_rea = repo_root / "skills" / "reverse-engineer-anything"
+        agents_rea = repo_root / ".agents" / "skills" / "reverse-engineer-anything"
+
+        self.assertEqual(
+            (harness_rea / "SKILL.md").read_text(encoding="utf-8"),
+            (skills_rea / "SKILL.md").read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            (harness_rea / "SKILL.md").read_text(encoding="utf-8"),
+            (agents_rea / "SKILL.md").read_text(encoding="utf-8"),
+        )
+        for ref_name in expected_references:
+            h_content = (harness_rea / "references" / ref_name).read_text(encoding="utf-8")
+            s_content = (skills_rea / "references" / ref_name).read_text(encoding="utf-8")
+            a_content = (agents_rea / "references" / ref_name).read_text(encoding="utf-8")
+            self.assertEqual(h_content, s_content, f"Content mismatch in skills/ for {ref_name}")
+            self.assertEqual(h_content, a_content, f"Content mismatch in .agents/skills/ for {ref_name}")
+
+        # Verify sync_skills properly syncs references directory to target
+        target = self.isolated_path / "sync_rea_target"
+        synced = sync_skills(target_dir=target, skill_names=["reverse-engineer-anything"])
+        self.assertEqual(len(synced), 1)
+        synced_rea = target / "reverse-engineer-anything"
+        self.assertTrue((synced_rea / "SKILL.md").is_file())
+        for ref_name in expected_references:
+            self.assertTrue((synced_rea / "references" / ref_name).is_file())
+
     def test_psl_test_runner_skills_contract(self) -> None:
         """Modular test runner skills (python, node, cargo, go) must satisfy discovery and instructions."""
         expected_runners = {

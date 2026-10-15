@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CleanroomEvidenceBundle",
+  "version": "1.0.0",
+  "target": "reconstruction_target",
+  "bundle_id": "EV-BUNDLE-001",
+  "created_at": "2026-10-15T00:00:00Z",
+  "records": [
+    {
+      "evidence_id": "EV-AUTH-TOKEN-001",
+      "subject": "session_handshake",
+      "provider": "rea-pcap",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retention": "complete-record",
+      "authority": "captured_pcap_stream",
+      "limitations": [],
+      "unknowns": []
+    }
+  ]
+}

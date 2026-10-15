@@ -759,6 +759,8 @@ def sync_skills(
         for child in spec.path.parent.iterdir():
             if child.is_file() and child.name != "SKILL.md":
                 shutil.copy2(child, dest_dir / child.name)
+            elif child.is_dir() and not child.name.startswith("."):
+                shutil.copytree(child, dest_dir / child.name, dirs_exist_ok=True)
 
         synced.append(dest_file)
 

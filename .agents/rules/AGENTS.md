@@ -58,6 +58,16 @@ agyis remote script <target> <file> --stage    # Staged execution with trap clea
 agyis remote triage <target>                   # Compact (<2KB) multi-component health report
 agyis remote socket status                     # List active OpenSSH ControlMaster sockets
 agyis remote socket cleanup                    # Remove active ControlMaster sockets
+
+# 🔬 REA & Cleanroom Reconstruction Tooling (ADR-028)
+rea --version                                  # Report REA CLI & SDK version (6.5.0 / 2.3.1)
+rea mcp doctor                                 # Audit REA stdio MCP catalog & checksums
+rea providers --json                           # List available disassembler engines (opt-in deep probe)
+rea verify-reconstruction                      # Formally verify typed cleanroom obligations against evidence
+rea evaluate-coverage                          # Calculate reconstruction coverage against obligation ledger
+agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
+agyis doctor --experimental-rea                # Audit REA providers, JDK 21+, Ghidra & MCP registration
+agyis doctor --experimental-rea --heal         # Safe zero-sudo auto-healing & REA skill provisioning
 ```
 
 ---
@@ -134,3 +144,22 @@ agyis remote socket cleanup                    # Remove active ControlMaster soc
 1. **Anti-Drift Commitment**: Anchor all implementation decisions to the agreed plan. If novel obstacles arise, pause and present options.
 2. **Proactive Confirmation Gates**: When encountering destructive operations (file deletion, git branch force-push, node reboots), pause for explicit review.
 3. **Clear Error Reporting**: If a command fails twice, stop thrashing. State the error concisely and propose a concrete path forward.
+
+---
+
+## 9. Cleanroom Reverse Engineering & Reconstruction Invariants (ADR-028)
+1. **Dirty Room vs. Clean Room Separation**:
+   - Maintain a strict boundary between binary inspection and cleanroom specification/implementation authoring.
+   - All disassembler execution, decompiler output inspection, and dynamic tracing (`.rea/**`, `decompiled/**`, `artifacts/rea/**`) occur strictly within the Dirty Room.
+   - Cleanroom specifications (`docs/specs/**`) and reconstructed source code are authored strictly within the Clean Room. Never copy decompiler output, proprietary strings, or raw binary artifacts into clean implementations.
+2. **Typed Obligation Ledgers (`.agents/ledger/**`)**:
+   - Reconstructions must derive from formal specifications backed by typed obligation ledgers (`.agents/ledger/obligations.json`).
+   - Retain immutable evidence records (`evidence_id`, subject, provider, digest) in `.agents/ledger/evidence_bundle.json`.
+   - Formal manifest clearance (`.agents/ledger/manifest.json`) requires a valid JSON schema with `"status": "verified"`, a 64-character SHA-256 `evidence_hash`, and all obligations marked `"satisfied"`.
+3. **Residual Unknowns Lifecycle**:
+   - Unresolved ambiguities, unobserved code paths, and missing specification authorities must be formally tracked using `record_unknown` and `list_unknowns`.
+   - Unknowns may only be transitioned to resolved via `verify_unknown_resolution` citing concrete, observed `evidence_id`s. Guessing, assuming, or silently dropping unknowns is strictly prohibited.
+4. **Formal Verification Before Exit**:
+   - Editing cleanroom specifications (`docs/specs/**`) or obligation ledgers (`.agents/ledger/**`) marks `spec_dirty = True`.
+   - The completion fence blocks termination until verified via `rea verify-reconstruction`, `rea evaluate-coverage`, `agyis verify --spec`, or a verified `manifest.json`.
+

@@ -1,0 +1,15 @@
+[
+  {
+    "obligation_id": "OBLIG-AUTH-TOKEN-001",
+    "family": "protocol_wire_contract",
+    "target": "session_handshake",
+    "required_case_kinds": [
+      "valid_handshake",
+      "expired_token",
+      "tampered_signature"
+    ],
+    "required_fixture_authority": "captured_pcap_stream",
+    "required_verifier_authority": "hermetic_test_oracle",
+    "disposition": "pending"
+  }
+]
