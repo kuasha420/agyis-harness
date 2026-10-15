@@ -30,7 +30,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
         from harness.telemetry.sync import watch_and_sync
         interval = getattr(args, "interval", 5.0) or 5.0
         endpoint = getattr(args, "remote", None)
-        print(f"[*] Starting background telemetry watch & sync daemon (interval={interval}s)...")
+        if not getattr(args, "json", False):
+            print(f"[*] Starting background telemetry watch & sync daemon (interval={interval}s)...")
         res = watch_and_sync(interval_sec=interval, db_path=db_path, endpoint=endpoint)
         if getattr(args, "json", False):
             print(json.dumps(res, indent=2))
@@ -94,7 +95,34 @@ def cmd_sync(args: argparse.Namespace) -> int:
     try:
         res = sync_telemetry(**sync_kwargs)
     except Exception as exc:
-        sys.stderr.write(f"Sync error: {exc}\n")
+        err_msg = str(exc)
+        if "403" in err_msg or "Forbidden" in err_msg:
+            sys.stderr.write(
+                "✘ Telemetry sync authorization failed (HTTP 403: Forbidden).\n"
+                "  • Your GitHub account is not an authorized member of 'purrfectsoft'.\n"
+                "  • Action: Verify organization membership or contact your team administrator.\n"
+            )
+        elif "401" in err_msg or "Unauthorized" in err_msg or "Token verification failed" in err_msg:
+            sys.stderr.write(
+                "✘ Telemetry sync authentication failed (HTTP 401: Unauthorized).\n"
+                "  • The telemetry hub rejected the provided authentication credentials.\n"
+                "  • Action: Run 'agyis auth login --gh' to refresh your GitHub token or verify org membership in purrfectsoft.\n"
+            )
+        elif isinstance(exc, ConnectionError) or "Failed to connect" in err_msg or "urlopen error" in err_msg:
+            resolved_ep = endpoint or "configured endpoint"
+            sys.stderr.write(
+                f"✘ Failed to connect to telemetry hub ({resolved_ep}).\n"
+                "  • Network or DNS resolution failure.\n"
+                "  • Action: Check internet connection or verify AGYIS_SYNC_ENDPOINT.\n"
+            )
+        elif "database is locked" in err_msg or "OperationalError" in err_msg:
+            sys.stderr.write(
+                f"✘ SQLite database error: {exc}\n"
+                "  • The local telemetry database is locked or busy.\n"
+                "  • Action: Wait for active background operations to complete or check database file permissions.\n"
+            )
+        else:
+            sys.stderr.write(f"✘ Telemetry sync error: {exc}\n")
         return 1
 
     if getattr(args, "json", False):
@@ -109,8 +137,15 @@ def cmd_sync(args: argparse.Namespace) -> int:
     print(f"✔ Telemetry sync completed successfully{mode_str}:")
     if res.get("push"):
         p = res["push"]
-        print(f"  • Pushed: {p.get('sessions_pushed', 0)} sessions, {p.get('steps_pushed', 0)} steps, {p.get('tool_calls_pushed', 0)} tools")
+        if dry_run:
+            print(f"  • Pending to push: {p.get('sessions_pushed', 0)} sessions, {p.get('steps_pushed', 0)} steps, {p.get('tool_calls_pushed', 0)} tools")
+        else:
+            print(f"  • Pushed: {p.get('sessions_pushed', 0)} sessions, {p.get('steps_pushed', 0)} steps, {p.get('tool_calls_pushed', 0)} tools")
     if res.get("pull"):
         pl = res["pull"]
-        print(f"  • Pulled: {pl.get('sessions_inserted', pl.get('sessions_pulled', 0))} new sessions, {pl.get('steps_inserted', pl.get('steps_pulled', 0))} steps")
+        if dry_run:
+            to_pull = pl.get("sessions_to_pull", pl.get("sessions_pulled", 0))
+            print(f"  • Pending to pull: {to_pull} sessions")
+        else:
+            print(f"  • Pulled: {pl.get('sessions_inserted', pl.get('sessions_pulled', 0))} new sessions, {pl.get('steps_inserted', pl.get('steps_pulled', 0))} steps")
     return 0

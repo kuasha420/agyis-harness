@@ -367,6 +367,43 @@ class TestHarvestConversationDb(unittest.TestCase):
         self.assertEqual(row[0], "2026-10-06T12:00:00Z")
         self.assertEqual(row[1], "remote")
 
+    def test_harvest_invalidates_remote_synced_at_on_step_growth(self):
+        src_db = self.conv_dir / "sess_growth.db"
+        t = TestExtractConversationDb()
+        t.tmpdir = self.tmpdir
+        t.db_path = src_db
+        t._create_mock_conversation_db()
+
+        # Ingest initially (5 steps)
+        harvest_conversation_db(src_db, self.target_db)
+
+        # Mark as remote synced
+        conn = sqlite3.connect(self.target_db)
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE sessions SET remote_synced_at = '2026-10-06T12:00:00Z' WHERE session_id = 'cascade-uuid-1'"
+        )
+        conn.commit()
+
+        # Add more steps to the source DB
+        sconn = sqlite3.connect(src_db)
+        scur = sconn.cursor()
+        scur.execute("""
+            INSERT INTO steps (idx, step_type, status) VALUES (6, 1, 3)
+        """)
+        sconn.commit()
+        sconn.close()
+
+        # Re-harvest
+        harvest_conversation_db(src_db, self.target_db)
+
+        # Verify remote_synced_at is cleared to None due to step growth
+        cur.execute("SELECT remote_synced_at, total_steps FROM sessions WHERE session_id = 'cascade-uuid-1'")
+        row = cur.fetchone()
+        conn.close()
+        self.assertIsNone(row[0])
+        self.assertGreater(row[1], 5)
+
 
     def test_harvest_all_conversations(self):
         # Create two conversation DBs

@@ -27,6 +27,7 @@ from harness.telemetry.redaction import (
     sanitize_tool_call,
     strip_secrets,
 )
+from harness.telemetry.db import get_db_connection
 from harness.telemetry.sync import (
     ensure_sync_columns,
     pull_remote_sessions,
@@ -34,6 +35,7 @@ from harness.telemetry.sync import (
 )
 
 __all__ = [
+    "get_db_connection",
     "strip_secrets",
     "anonymize_paths",
     "sanitize_intervention",

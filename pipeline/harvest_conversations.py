@@ -481,13 +481,17 @@ def harvest_conversation_db(db_path: Path, target_db: Path) -> Dict[str, Any]:
     cur.execute("DELETE FROM user_interventions WHERE session_id = ?", (s_id,))
 
     # Preserve existing sync status and origin if session was already ingested
-    cur.execute("SELECT remote_synced_at, origin_developer FROM sessions WHERE session_id = ?", (s_id,))
+    cur.execute("SELECT remote_synced_at, origin_developer, total_steps FROM sessions WHERE session_id = ?", (s_id,))
     existing_row = cur.fetchone()
     if existing_row:
-        if existing_row[0] and not session_row.get("remote_synced_at"):
-            session_row["remote_synced_at"] = existing_row[0]
-        if existing_row[1] and existing_row[1] != "local":
-            session_row["origin_developer"] = existing_row[1]
+        existing_synced_at, existing_origin, existing_steps = existing_row[0], existing_row[1], existing_row[2]
+        new_steps = session_row.get("total_steps") or 0
+        if existing_steps is not None and new_steps > existing_steps:
+            session_row["remote_synced_at"] = None
+        elif existing_synced_at and not session_row.get("remote_synced_at"):
+            session_row["remote_synced_at"] = existing_synced_at
+        if existing_origin and existing_origin != "local":
+            session_row["origin_developer"] = existing_origin
 
     cur.execute("""
         INSERT OR REPLACE INTO sessions (

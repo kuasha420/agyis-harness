@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, Optional, Union
 
 from harness.telemetry import config
 from harness.telemetry.config import resolve_db_path
+from harness.telemetry.db import get_db_connection
 from harness.telemetry.schema import ensure_sync_columns
 
 
@@ -35,6 +36,7 @@ def sync_telemetry(
     include_self: bool = False,
     developer: Optional[str] = None,
     since: Optional[str] = None,
+    retry_backoff: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Coordinates bi-directional sync (push then pull), push-only, or pull-only.
 
@@ -55,6 +57,7 @@ def sync_telemetry(
         include_self: Alias for all_developers
         developer: Optional developer username to filter pulled telemetry
         since: Optional ISO timestamp watermark to pull from
+        retry_backoff: Optional sleep duration in seconds between network retries
     """
     if direction not in ("both", "push", "pull"):
         raise ValueError(f"Invalid sync direction: '{direction}'. Must be 'both', 'push', or 'pull'.")
@@ -67,7 +70,7 @@ def sync_telemetry(
             db_file = resolve_db_path(db_path, must_exist=False)
             pending_count = 0
             if db_file.exists():
-                conn = sqlite3.connect(db_file)
+                conn = get_db_connection(db_file)
                 try:
                     ensure_sync_columns(conn)
                     cur = conn.cursor()
@@ -106,6 +109,7 @@ def sync_telemetry(
             review=review,
             input_stream=input_stream,
             output_stream=output_stream,
+            retry_backoff=retry_backoff,
         )
 
         if push_result and push_result.get("status") == "aborted":
@@ -118,26 +122,19 @@ def sync_telemetry(
             }
 
     if direction in ("both", "pull"):
-        if dry_run:
-            pull_result = {
-                "status": "dry_run",
-                "sessions_pulled": 0,
-                "steps_pulled": 0,
-                "tool_calls_pulled": 0,
-                "user_interventions_pulled": 0,
-            }
-        else:
-            import harness.telemetry.sync as sync_mod
+        import harness.telemetry.sync as sync_mod
 
-            pull_result = sync_mod.pull_remote_sessions(
-                endpoint=endpoint,
-                token=token,
-                db_path=db_path,
-                since=since,
-                all_developers=all_developers,
-                include_self=include_self,
-                developer=developer,
-            )
+        pull_result = sync_mod.pull_remote_sessions(
+            endpoint=endpoint,
+            token=token,
+            db_path=db_path,
+            since=since,
+            all_developers=all_developers,
+            include_self=include_self,
+            developer=developer,
+            dry_run=dry_run,
+            retry_backoff=retry_backoff,
+        )
 
     return {
         "status": "success" if not dry_run else "dry_run",

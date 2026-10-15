@@ -134,8 +134,9 @@ def cmd_audit(args: argparse.Namespace) -> int:
             from pipeline import extract_transcripts
             import sqlite3
             from harness.telemetry import config
+            from harness.telemetry.db import get_db_connection
             db_path = config.resolve_db_path(getattr(args, "db", None))
-            conn = sqlite3.connect(db_path)
+            conn = get_db_connection(db_path)
             extract_transcripts.ensure_sync_columns(conn)
             cur = conn.cursor()
             cur.executescript(extract_transcripts.SCHEMA_SQL)
