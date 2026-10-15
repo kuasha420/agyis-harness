@@ -9,7 +9,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Scope**: Complete Architectural Decision Records Index (ADR-001 through ADR-032)  
-**Last Updated**: 2026-10-10  
+**Last Updated**: 2026-10-15  
 
 ---
 
@@ -50,7 +50,7 @@ This catalog preserves the architectural history, design trade-offs, and behavio
 | **ADR-025** | Subagent Ergonomics & Zero-Token Context Gauge | Accepted | 2026-10-03 | [lifecycle-hooks.md](../official-specs/lifecycle-hooks.md) (§5) | Evaluates subagent token consumption in microseconds; enforces Auditor write-block guard and Zero-Exploration Invariant. |
 | **ADR-026** | Custom Codebase & Workspace-Aware Agents | Accepted | 2026-10-03 | [custom-agents.md](../official-specs/custom-agents.md) | Dual-mode discovery (subagent + UI entrypoint); model inheritance; 20-tool catalog validation preventing platform hang. |
 | **ADR-027** | Remote Execution & SSH Multiplexing Harness | Accepted | 2026-10-03 | [roadmap.md](../../roadmap.md) (Phase 7) | Transparent OpenSSH ControlMaster multiplexing; stdin script streaming; `<2KB` remote triage; remote pattern sanitization. |
-| **ADR-028** | [Reserved: Multi-Node Linda Tuplespace Protocol] | Deferred | 2026-10-04 | [roadmap.md](../../roadmap.md) (Horizon 2) | Reserved for Knot mesh Linda Tuplespace batch coordination and barrier synchronization across hardware nodes. |
+| **ADR-0028** | Opt-in REA Tooling and Cleanroom Reconstruction Harmonization | Accepted | 2026-10-15 | [0028-opt-in-rea-cleanroom-harmonization.md](0028-opt-in-rea-cleanroom-harmonization.md) | Opt-in `--experimental-rea` CLI flag, sub-second doctor invariant, non-interference lifecycle hooks, and phase-aware cleanroom completion fence gating. |
 | **ADR-029** | [Reserved: Spatial Terminal Multiplexing] | Deferred | 2026-10-04 | [roadmap.md](../../roadmap.md) (Horizon 2) | Reserved for Confluence mode spatial terminal multiplexing and out-of-band GitHub Discussion coordination. |
 | **ADR-030** | Global Plugin Delivery & Central Telemetry Hub | Accepted | 2026-10-05 | [delivery/](../../harness/delivery/), [server/](../../server/) | Three-tier resource precedence, Starlette telemetry gateway, GitHub Org authentication caching, chunked sync transport. |
 | **ADR-031A** | Native Orchestration Alignment (Boost & Plan) | Accepted | 2026-10-05 | [ADR-031-native-orchestration-alignment.md](ADR-031-native-orchestration-alignment.md) | PreToolUse Native Plan-Mode Lock, dual taxonomy (Boost Swarm vs Subagent Ladder), adversarial verifier capability bundle. |
