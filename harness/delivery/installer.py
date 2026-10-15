@@ -13,7 +13,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
+import tempfile
 from typing import Any, Dict, List, Optional
+import zipfile
 
 from harness.delivery.bin_launcher import install_launchers, install_psl_launcher
 from harness.delivery.constants import (
@@ -104,6 +108,37 @@ class PluginInstaller:
         """Installs standalone CLI executable launchers (agyis and psl) into self.bin_dir and auxiliary bin paths with mode 0o755."""
         agyis_bin, _ = install_launchers(self.bin_dir, self.aux_bin_dirs, self.source_dir, target)
         return agyis_bin
+
+    def _build_frozen_wheel(self, output_dir: Path) -> Path:
+        """Builds a binary wheel distribution using uv build (with pip fallback)."""
+        if shutil.which("uv"):
+            cmd = ["uv", "build", "--wheel", "--out-dir", str(output_dir)]
+        else:
+            cmd = [
+                sys.executable,
+                "-m",
+                "pip",
+                "wheel",
+                "--no-deps",
+                "-w",
+                str(output_dir),
+                str(self.source_dir),
+            ]
+
+        res = subprocess.run(
+            cmd,
+            cwd=str(self.source_dir),
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode != 0:
+            raise RuntimeError(
+                f"Release wheel build failed (exit code {res.returncode}): {res.stderr or res.stdout}"
+            )
+        wheels = list(output_dir.glob("*.whl"))
+        if not wheels:
+            raise RuntimeError(f"No wheel artifact found in build output directory {output_dir}")
+        return wheels[0]
 
     def _verify_path_safety(self, target_dir: Path) -> None:
         """
@@ -263,12 +298,15 @@ class PluginInstaller:
                 distributables.append(item)
 
         if dry_run:
+            items = list(distributables)
+            if mode == DeliveryMode.WHEEL:
+                items.append("wheel")
             return DeliveryResult(
                 success=True,
                 mode=mode.value,
                 target_dir=target,
                 source_dir=self.source_dir,
-                items_installed=distributables,
+                items_installed=items,
                 duplicates_removed=duplicates_removed,
                 surfaces_synced=surfaces_synced,
                 message=f"Dry-run: simulate {mode.value} installation to {target}",
@@ -337,6 +375,61 @@ class PluginInstaller:
                 duplicates_removed=duplicates_removed,
                 surfaces_synced=surfaces_synced,
                 message=f"Successfully packaged and copied plugin to {target}",
+            )
+
+        elif mode == DeliveryMode.WHEEL:
+            if target.is_symlink():
+                target.unlink()
+            elif target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            target.mkdir(parents=True, exist_ok=True)
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_out = Path(tmp_dir)
+                wheel_path = self._build_frozen_wheel(tmp_out)
+                with zipfile.ZipFile(wheel_path, "r") as zf:
+                    zf.extractall(target)
+                target_dist = target / "dist"
+                target_dist.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(wheel_path, target_dist / wheel_path.name)
+
+            installed_items = copy_distributable_tree(
+                self.source_dir,
+                target,
+                self._find_distributable_item,
+                skip_harness_package=True,
+            )
+            installed_items.append("wheel")
+            installed_items.append("harness")
+
+            # Scoped rule isolation: global plugin must only publish GLOBAL_AGENTS.md
+            if (target / "rules" / "AGENTS.md").exists():
+                try:
+                    (target / "rules" / "AGENTS.md").unlink()
+                except OSError:
+                    pass
+            global_rules_src = self.source_dir / "GLOBAL_AGENTS.md"
+            if not global_rules_src.exists():
+                global_rules_src = self.source_dir / "harness" / "rules" / "GLOBAL_AGENTS.md"
+            if global_rules_src.exists():
+                (target / "rules").mkdir(parents=True, exist_ok=True)
+                shutil.copy2(global_rules_src, target / "rules" / "GLOBAL_AGENTS.md")
+
+            self._install_bin(target)
+            self._enable_in_config(target.name)
+
+            return DeliveryResult(
+                success=True,
+                mode=DeliveryMode.WHEEL.value,
+                target_dir=target,
+                source_dir=self.source_dir,
+                items_installed=installed_items,
+                duplicates_removed=duplicates_removed,
+                surfaces_synced=surfaces_synced,
+                message=f"Successfully built and installed frozen release wheel to {target}",
             )
 
         raise ValueError(f"Unsupported delivery mode: {mode}")
@@ -424,7 +517,12 @@ class PluginInstaller:
                 message=f"Target {target} does not exist; nothing to uninstall",
             )
 
-        mode = "symlink" if target.is_symlink() else "copy"
+        if target.is_symlink():
+            mode = DeliveryMode.SYMLINK.value
+        elif (target / "dist").is_dir() or any(target.glob("*.dist-info")):
+            mode = DeliveryMode.WHEEL.value
+        else:
+            mode = DeliveryMode.COPY.value
 
         if dry_run:
             return DeliveryResult(
@@ -447,10 +545,15 @@ class PluginInstaller:
                 message=f"Successfully unlinked plugin symlink {target}",
             )
         elif target.is_dir():
+            target_mode = (
+                DeliveryMode.WHEEL.value
+                if (target / "dist").is_dir() or any(target.glob("*.dist-info"))
+                else DeliveryMode.COPY.value
+            )
             shutil.rmtree(target)
             return DeliveryResult(
                 success=True,
-                mode=DeliveryMode.COPY.value,
+                mode=target_mode,
                 target_dir=target,
                 source_dir=self.source_dir,
                 items_installed=[],
@@ -503,7 +606,11 @@ class PluginInstaller:
         if target.is_symlink():
             mode = "symlink"
         elif target.is_dir() and installed:
-            mode = "copy"
+            mode = (
+                "wheel"
+                if (target / "dist").is_dir() or any(target.glob("*.dist-info"))
+                else "copy"
+            )
 
         version = None
         plugin_file = target / "plugin.json"

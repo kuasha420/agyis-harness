@@ -18,6 +18,7 @@ def copy_distributable_tree(
     source_dir: Path,
     target: Path,
     find_distributable_item: Callable[[str], Optional[Path]],
+    skip_harness_package: bool = False,
 ) -> List[str]:
     """Copies distributable plugin assets from source to target directory."""
     installed_items: List[str] = []
@@ -29,19 +30,20 @@ def copy_distributable_tree(
         installed_items.append("plugin.json")
 
     # 2. harness/ package directory
-    harness_src = source_dir / "harness"
-    if harness_src.is_dir():
-        harness_dst = target / "harness"
-        if harness_dst.exists():
-            shutil.rmtree(harness_dst)
-        shutil.copytree(
-            harness_src,
-            harness_dst,
-            ignore=shutil.ignore_patterns(
-                "__pycache__", "*.pyc", "*.pyo", "*.db*", "telemetry.db"
-            ),
-        )
-        installed_items.append("harness")
+    if not skip_harness_package:
+        harness_src = source_dir / "harness"
+        if harness_src.is_dir():
+            harness_dst = target / "harness"
+            if harness_dst.exists():
+                shutil.rmtree(harness_dst)
+            shutil.copytree(
+                harness_src,
+                harness_dst,
+                ignore=shutil.ignore_patterns(
+                    "__pycache__", "*.pyc", "*.pyo", "*.db*", "telemetry.db"
+                ),
+            )
+            installed_items.append("harness")
 
     # 3. matrix.json
     matrix_src = find_distributable_item("matrix.json")

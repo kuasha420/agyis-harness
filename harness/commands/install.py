@@ -26,7 +26,16 @@ def cmd_install(args: argparse.Namespace) -> int:
         setattr(args, "path", args.workspace if args.workspace is not True else None)
         return cmd_init(args)
 
-    mode = DeliveryMode.COPY if getattr(args, "copy", False) else DeliveryMode.SYMLINK
+    if getattr(args, "wheel", False):
+        mode = DeliveryMode.WHEEL
+    elif getattr(args, "copy", False):
+        mode = DeliveryMode.COPY
+    elif getattr(args, "symlink", False):
+        mode = DeliveryMode.SYMLINK
+    elif getattr(args, "global_install", False):
+        mode = DeliveryMode.WHEEL
+    else:
+        mode = DeliveryMode.SYMLINK
     bin_dir = Path(args.bin_dir) if getattr(args, "bin_dir", None) else None
     installer = PluginInstaller(bin_dir=bin_dir)
     target_dir = Path(args.target) if getattr(args, "target", None) else None
