@@ -193,7 +193,7 @@ class OpaqueBoxTestCase(unittest.TestCase):
     ) -> Path:
         """
         Creates synthetic workspaces matching realistic engineering patterns.
-        Types: 'coordination', 'cleanroom', 'scratch', 'polyglot', 'legacy_psl', 'empty'.
+        Types: 'coordination', 'scratch', 'polyglot', 'legacy_psl', 'empty'.
         """
         if fixture_type == "empty":
             return self.ws
@@ -211,21 +211,6 @@ class OpaqueBoxTestCase(unittest.TestCase):
             (teamwork_dir / "task.md").write_text("# Task\nExecute\n", encoding="utf-8")
             (ledger_dir / "obligations.json").write_text(
                 json.dumps({"obligations": [{"id": "ob_1", "status": "pending"}]}, indent=2),
-                encoding="utf-8",
-            )
-            return self.ws
-
-        if fixture_type == "cleanroom":
-            specs_dir = self.ws / "docs" / "specs"
-            ledger_dir = self.ws / ".agents" / "ledger"
-            specs_dir.mkdir(parents=True, exist_ok=True)
-            ledger_dir.mkdir(parents=True, exist_ok=True)
-
-            (specs_dir / "hardware.md").write_text(
-                "# Hardware Architecture Spec\nRegister 0x00: Control\n", encoding="utf-8"
-            )
-            (ledger_dir / "obligations.json").write_text(
-                json.dumps({"obligations": [{"id": "req_1", "status": "draft"}]}, indent=2),
                 encoding="utf-8",
             )
             return self.ws

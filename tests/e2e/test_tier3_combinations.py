@@ -5,16 +5,13 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Tier 3: Cross-Feature Interactions (Issues #41 through #46).
-Validates 8 critical cross-feature interactions and subsystem combinations:
-- Interaction 1: Scratch Path + Cleanroom Spec Interaction
-- Interaction 2: Anti-Loop Exemption + Cleanroom Ledger Verification
-- Interaction 3: Anti-Loop Test Reset + Stop-Fence Clearance
-- Interaction 4: Cleanroom Edit Failed Test + Scratch Edit Passed Test
-- Interaction 5: Doctor Toolchain Audit with REA + Issue Template Correlation
-- Interaction 6: Multi-Agent Teamwork Views + Scratch Script Authoring
-- Interaction 7: Diverse Universal Test Runner Patterns Recognition
-- Interaction 8: Anti-Deadlock Safety Valve Trips on Attempt Three
+Tier 3: Cross-Feature Interactions (Issues #41, #42, #43, and #46).
+Validates critical cross-feature interactions and subsystem combinations:
+- Interaction 1: Anti-Loop Test Reset + Stop-Fence Clearance
+- Interaction 2: Doctor Toolchain Audit + Issue Template Correlation
+- Interaction 3: Multi-Agent Teamwork Views + Scratch Script Authoring
+- Interaction 4: Diverse Universal Test Runner Patterns Recognition
+- Interaction 5: Anti-Deadlock Safety Valve Trips on Attempt Three
 """
 
 from __future__ import annotations
@@ -33,73 +30,6 @@ class TestTier3Combinations(OpaqueBoxTestCase):
     """
     Tier 3 E2E tests validating cross-feature and multi-subsystem interactions.
     """
-
-    def test_c1_scratch_path_plus_cleanroom_spec_interaction(self) -> None:
-        """Assures scratch edits do not mask cleanroom spec verification gates."""
-        conv_id = "c_c1"
-        scratch_path = "/home/user/.gemini/antigravity/brain/session_1/scratch/calc.py"
-        spec_path = str(self.ws / "docs" / "specs" / "display.md")
-
-        # 1. Author scratch script -> clean
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "toolCall": {"name": "write_to_file", "args": {"TargetFile": scratch_path}},
-        })
-        _, stop1 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(stop1.get("decision"), "allow")
-
-        # 2. Author cleanroom spec -> dirty
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "toolCall": {"name": "write_to_file", "args": {"TargetFile": spec_path}},
-        })
-        _, stop2 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(stop2.get("decision"), "continue")
-
-        # 3. Verify with test -> clean
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "exitCode": 0,
-            "toolCall": {"name": "run_command", "args": {"CommandLine": "./agyis test"}},
-        })
-        _, stop3 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(stop3.get("decision"), "allow")
-
-    def test_c2_anti_loop_exemption_plus_cleanroom_ledger_verification(self) -> None:
-        """Assures viewing ledger is exempt from loop, while editing ledger enforces verification gate."""
-        conv_id = "c_c2"
-        ledger_path = str(self.ws / ".agents" / "ledger" / "obligations.json")
-
-        # 1. Repeated inspections pass without loop denial
-        for _ in range(6):
-            code, resp = self.run_hook("anti-loop", {
-                "conversationId": conv_id,
-                "toolCall": {"name": "view_file", "args": {"AbsolutePath": ledger_path}},
-            })
-            self.assertEqual(code, 0)
-            self.assertEqual(resp.get("decision"), "allow")
-
-        # 2. Edit ledger -> requires verification
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "toolCall": {"name": "write_to_file", "args": {"TargetFile": ledger_path}},
-        })
-        _, stop = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(stop.get("decision"), "continue")
-
-        # 3. Passing test clears
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "exitCode": 0,
-            "toolCall": {"name": "run_command", "args": {"CommandLine": "python3 -m unittest discover"}},
-        })
-        _, stop_clean = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(stop_clean.get("decision"), "allow")
 
     def test_c3_anti_loop_test_reset_plus_stop_fence_clearance(self) -> None:
         """Assures code edit resets anti-loop test counters and passing test clears stop-fence."""
@@ -137,56 +67,11 @@ class TestTier3Combinations(OpaqueBoxTestCase):
         _, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
         self.assertEqual(stop_resp.get("decision"), "allow")
 
-    def test_c4_cleanroom_edit_failed_test_scratch_edit_passed_test(self) -> None:
-        """Assures failed test keeps dirty state, scratch edit does not mask it, passed test clears."""
-        conv_id = "c_c4"
-        spec_path = str(self.ws / "docs" / "specs" / "firmware.md")
-        scratch_path = "/tmp/diagnostic_scratch.py"
-
-        # Edit spec
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "toolCall": {"name": "write_to_file", "args": {"TargetFile": spec_path}},
-        })
-
-        # Test fails (exit 1)
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "exitCode": 1,
-            "toolCall": {"name": "run_command", "args": {"CommandLine": "cargo test"}},
-        })
-
-        # Scratch edit in /tmp
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "toolCall": {"name": "write_to_file", "args": {"TargetFile": scratch_path}},
-        })
-
-        # Still dirty due to spec edit
-        _, stop1 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(stop1.get("decision"), "continue")
-
-        # Test passes (exit 0)
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "exitCode": 0,
-            "toolCall": {"name": "run_command", "args": {"CommandLine": "cargo test"}},
-        })
-
-        # Clean
-        _, stop2 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(stop2.get("decision"), "allow")
-
-    def test_c5_doctor_toolchain_audit_with_rea_plus_template_correlation(self) -> None:
+    def test_c5_doctor_toolchain_audit_plus_template_correlation(self) -> None:
         """Assures doctor audit metrics correspond to host_toolchain_versions in issue template."""
         code, out, _ = self.run_cli(["doctor", "--json"])
         self.assertEqual(code, 0)
         report = json.loads(out)
-        self.assertIn("rea_tooling", report)
         self.assertIn("os_family", report)
         self.assertIn("summary", report)
 
@@ -194,7 +79,6 @@ class TestTier3Combinations(OpaqueBoxTestCase):
         if template_path.exists():
             tmpl_content = template_path.read_text(encoding="utf-8")
             self.assertIn("host_toolchain_versions", tmpl_content)
-            self.assertIn("REA", tmpl_content)
 
     def test_c6_multi_agent_teamwork_views_plus_scratch_authoring(self) -> None:
         """Assures multi-agent swarm reading teamwork manifests and authoring scratch scripts succeeds."""

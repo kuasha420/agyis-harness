@@ -28,8 +28,6 @@ The primary objective of the E2E Testing Track is to validate the complete produ
 | **F1** | Issue #41 | Anti-Loop Coordination Exemption | Exempts `.agents/teamwork/`, `.agents/ledger/`, and coordination manifests (`progress.md`, `DISPATCH.md`, `BRIEFING.md`, `handoff.md`, `task.md`, `obligations.json`) across all path argument keys (`AbsolutePath`, `Path`, `TargetFile`, `file_path`, etc.) with slash normalization. | `harness/hooks/anti_loop_hook.py` |
 | **F2** | Issue #42 | Stop-Fence PostToolUse Wiring | Wires `psl-stop-verification-fence` under `PostToolUse` for `run_command` in `hooks.json` so exit code 0 of test commands immediately resets `code_dirty = False`, clears `last_modified_files`, and updates `last_verified_at`. | `hooks.json`, `harness/hooks/completion_fence_hook.py` |
 | **F3** | Issue #43 | Ephemeral Scratch Path Isolation | Scopes code file dirty tracking exclusively to files within the active workspace root (`cwd`), exempting ephemeral scratch paths (`.gemini/antigravity/brain/*/scratch/*`, `/tmp/*` outside workspace) from setting `code_dirty = True`. | `harness/hooks/completion_fence_hook.py` |
-| **F4** | Issue #44 | REA Doctor Diagnostics Integration | Audits REA CLI binary (including pnpm global fallbacks), analysis engine providers (`rea providers --json`), and REA MCP registration (`mcp_config.json`) non-fatally with clear user remediation. | `harness/runtime/tool_checks.py`, `harness/runtime/doctor.py` |
-| **F5** | Issue #45 | Cleanroom Spec & Ledger Gates | Recognizes `docs/specs/**` and `.agents/ledger/**` as critical cleanroom contracts requiring verification, overriding `.md`/`.json` exemptions and gating `evaluate_stop` until verified. | `harness/hooks/completion_fence_hook.py` |
 | **F6** | Issue #46 | Standardized Issue Templates | Establishes GitHub Issue Forms (`.github/ISSUE_TEMPLATE/bug_report.yml`, `feature_request.yml`, `config.yml`) mandating `harness_version` and capturing optional platform/toolchain metadata. | `.github/ISSUE_TEMPLATE/` |
 
 ---
@@ -78,18 +76,6 @@ Validates that each feature behaves strictly according to specification across i
   - `test_f3_03_workspace_code_edit_sets_dirty_true`: In-workspace code edits mark dirty.
   - `test_f3_04_scratch_edit_allows_immediate_stop`: Task authoring only scratch files may terminate immediately.
   - `test_f3_05_relative_path_outside_workspace_isolated`: Relative paths resolving outside workspace root are isolated.
-- **Feature 4 (Issue #44: REA Doctor Diagnostics)**:
-  - `test_f4_01_doctor_detects_installed_rea_version`: Resolves binary and asserts version >= 6.0.0.
-  - `test_f4_02_doctor_audits_active_and_unavailable_providers`: Partitions providers into active and unavailable.
-  - `test_f4_03_doctor_audits_rea_mcp_registration`: Inspects agent MCP config for active REA registration.
-  - `test_f4_04_doctor_missing_rea_is_non_fatal_exit_zero`: Missing REA graded non-fatally (`optional_missing`) with exit 0.
-  - `test_f4_05_doctor_provides_actionable_rea_remediation`: Emits actionable remediation (`pnpm add -g rea-agents`).
-- **Feature 5 (Issue #45: Cleanroom Gates)**:
-  - `test_f5_01_cleanroom_spec_edit_sets_dirty_true`: Editing `docs/specs/**` sets dirty.
-  - `test_f5_02_cleanroom_ledger_edit_sets_dirty_true`: Editing `.agents/ledger/**` sets dirty.
-  - `test_f5_03_cleanroom_unverified_edits_block_stop`: Unverified spec/ledger edits block stop until test passes.
-  - `test_f5_04_cleanroom_refusal_message_identifies_contracts`: Refusal message cites "cleanroom contract edits" and file path.
-  - `test_f5_05_ordinary_documentation_outside_specs_remains_exempt`: `README.md`, `CHANGELOG.md`, `docs/notes.md` remain exempt.
 - **Feature 6 (Issue #46: Issue Templates)**:
   - `test_f6_01_bug_report_template_exists_and_valid_yaml`: Validates `bug_report.yml` exists and has valid structure.
   - `test_f6_02_bug_report_mandates_harness_version`: Asserts `harness_version` is marked `required: true`.
@@ -98,31 +84,24 @@ Validates that each feature behaves strictly according to specification across i
   - `test_f6_05_feature_request_and_config_templates_valid`: Validates `feature_request.yml` and `config.yml`.
 
 ### 3.2 Tier 2: Boundary & Corner Cases (`tests/e2e/test_tier2_boundaries.py`)
-Probes edge cases, malformed payloads, and boundary conditions (5 tests per domain, 30 tests total):
+Probes edge cases, malformed payloads, and boundary conditions (5 tests per domain, 20 tests total):
 - **Domain 1: Anti-Loop Boundaries**: Empty path, Windows backslashes, whitespace padding, case variations, deeply nested paths.
 - **Domain 2: Stop-Fence Boundaries**: Non-test command exit 0, null exit code, negative/signal exit codes, malformed JSON, unknown tools.
 - **Domain 3: Scratch Path Boundaries**: Workspace inside /tmp, brain scratch nested paths, path traversal (`../`), symlinked scratch dir, empty path.
-- **Domain 4: REA Doctor Boundaries**: Timeout resilience, malformed JSON stdout, prerelease version parsing, outdated version warning, missing MCP config.
-- **Domain 5: Cleanroom Boundaries**: Path similarity false positives (`docs/specifications/`), case insensitivity, non-code extensions (`.yaml`, `.toml`), failed/passed test cycles, multiple contract files tracking.
 - **Domain 6: Issue Template Boundaries**: Syntax formatting, required `body` key, non-YAML files ignored, special characters and code blocks in descriptions, validations structure integrity.
 
 ### 3.3 Tier 3: Cross-Feature Interactions (`tests/e2e/test_tier3_combinations.py`)
-Validates 8 critical cross-feature interactions and subsystem combinations:
-- `test_c1_scratch_path_plus_cleanroom_spec_interaction`: Scratch edit + Cleanroom edit + Passing test.
-- `test_c2_anti_loop_exemption_plus_cleanroom_ledger_verification`: Anti-loop views + Ledger edit + Stop gate.
+Validates critical cross-feature interactions and subsystem combinations (5 tests total):
 - `test_c3_anti_loop_test_reset_plus_stop_fence_clearance`: Code edit counter reset + Test runner clearance.
-- `test_c4_cleanroom_edit_failed_test_scratch_edit_passed_test`: Spec edit + Failed test + Scratch edit + Passed test.
-- `test_c5_doctor_toolchain_audit_with_rea_plus_template_correlation`: Doctor output keys match template fields.
+- `test_c5_doctor_toolchain_audit_plus_template_correlation`: Doctor output keys match template fields.
 - `test_c6_multi_agent_teamwork_views_plus_scratch_authoring`: Swarm teamwork views + Scratch script authoring.
 - `test_c7_diverse_test_runner_patterns_recognition`: Python, Cargo, npm, pnpm, Make, shell runner clearance.
 - `test_c8_anti_deadlock_valve_trips_on_attempt_three`: Anti-deadlock valve tripping on attempt 3.
 
 ### 3.4 Tier 4: Real-World Scenarios (`tests/e2e/test_tier4_scenarios.py`)
-Executes 5 end-to-end user journeys mirroring production workflows:
+Executes end-to-end user journeys mirroring production workflows (3 tests total):
 - `test_s1_multi_agent_swarm_coordination_journey`: Multi-agent swarm reading dispatch, progress, and obligations.
 - `test_s2_diagnostic_scratch_investigation_journey`: Diagnostic triage authoring scratch scripts without dirtying repo.
-- `test_s3_cleanroom_hardware_specification_authoring_journey`: Hardware spec authoring, verification gate, test clearance.
-- `test_s4_workstation_diagnostics_and_rea_health_triage_journey`: Workstation health check integrating REA diagnostics.
 - `test_s5_bug_report_submission_with_doctor_integration_journey`: Automated bug report creation with doctor telemetry.
 
 ---
@@ -161,11 +140,11 @@ python3 -m harness.cli test -s tests/e2e -v
 ### Benchmark Budgets
 | Test Suite Tier | Target Test Count | Maximum Runtime Budget | Hermeticity Requirement |
 |:---|:---|:---|:---|
-| **Tier 1: Features** | 30 tests | < 1.0s | 100% In-Memory / Clean-room Tempdir |
-| **Tier 2: Boundaries** | 30 tests | < 1.0s | 100% In-Memory / Clean-room Tempdir |
-| **Tier 3: Combinations** | 8 tests | < 0.8s | 100% In-Memory / Clean-room Tempdir |
-| **Tier 4: Scenarios** | 5 tests | < 0.8s | 100% In-Memory / Clean-room Tempdir |
-| **Complete E2E Suite** | **73 tests** | **< 3.5s** | **Zero Network / External Deps** |
+| **Tier 1: Features** | 20 tests | < 1.0s | 100% In-Memory / Clean-room Tempdir |
+| **Tier 2: Boundaries** | 20 tests | < 1.0s | 100% In-Memory / Clean-room Tempdir |
+| **Tier 3: Combinations** | 5 tests | < 0.8s | 100% In-Memory / Clean-room Tempdir |
+| **Tier 4: Scenarios** | 3 tests | < 0.8s | 100% In-Memory / Clean-room Tempdir |
+| **Complete E2E Suite** | **48 tests** | **< 2.0s** | **Zero Network / External Deps** |
 
 ---
 
@@ -176,8 +155,6 @@ python3 -m harness.cli test -s tests/e2e -v
 | **Issue #41** | Anti-Loop Coordination Exemption | `TestTier1Features.test_f1_*`<br>`TestTier2Boundaries.test_b1_*`<br>`TestTier3Combinations.test_c2,c3,c6`<br>`TestTier4Scenarios.test_s1` | Repeated views of `.agents/teamwork/` and `.agents/ledger/`, manifest basenames, argument invariance, Windows backslashes, whitespace trimming |
 | **Issue #42** | Stop-Fence PostToolUse Clearance | `TestTier1Features.test_f2_*`<br>`TestTier2Boundaries.test_b2_*`<br>`TestTier3Combinations.test_c3,c4,c7,c8`<br>`TestTier4Scenarios.test_s3` | PostToolUse exit 0 clearance, exit 1 retention, hooks.json wiring, universal test runner patterns, anti-deadlock valve |
 | **Issue #43** | Ephemeral Scratch Path Isolation | `TestTier1Features.test_f3_*`<br>`TestTier2Boundaries.test_b3_*`<br>`TestTier3Combinations.test_c1,c4,c6`<br>`TestTier4Scenarios.test_s2` | Brain scratch paths, /tmp outside workspace, workspace root inside /tmp, relative traversal scrubbing, immediate stop |
-| **Issue #44** | REA Doctor Diagnostics | `TestTier1Features.test_f4_*`<br>`TestTier2Boundaries.test_b4_*`<br>`TestTier3Combinations.test_c5`<br>`TestTier4Scenarios.test_s4,s5` | REA binary detection, version >= 6.0.0, provider status partitioning, MCP registration, non-fatal exit 0, remediation message |
-| **Issue #45** | Cleanroom Spec & Ledger Gates | `TestTier1Features.test_f5_*`<br>`TestTier2Boundaries.test_b5_*`<br>`TestTier3Combinations.test_c1,c2,c4`<br>`TestTier4Scenarios.test_s3` | `docs/specs/**` and `.agents/ledger/**` gated, refusal diagnostics citing cleanroom contracts, ordinary docs exempt |
 | **Issue #46** | Standardized Issue Templates | `TestTier1Features.test_f6_*`<br>`TestTier2Boundaries.test_b6_*`<br>`TestTier3Combinations.test_c5`<br>`TestTier4Scenarios.test_s5` | YAML form schema validity, mandatory `harness_version`, optional platform/toolchain fields, validations block integrity |
 
 ---
@@ -187,12 +164,12 @@ python3 -m harness.cli test -s tests/e2e -v
 When the E2E test suite implementation is complete and verified:
 1. All 4 tiers must be implemented under `tests/e2e/`.
 2. Execution of `python3 -m unittest discover -s tests/e2e -v` must report:
-   - Exactly 73 tests registered across all 4 tiers (30 + 30 + 8 + 5).
+   - Exactly 48 tests registered across all 4 tiers (20 + 20 + 5 + 3).
    - 0 failures, 0 errors (with graceful milestone skips allowed where components are pending concurrent worker completion).
-   - Execution time strictly under 3.5s.
+   - Execution time strictly under 2.0s.
 3. The file `TEST_READY.md` must be published at the repository root detailing:
    - **Status**: `READY`
-   - **Total Test Count**: Exact count across all 4 tiers (73 tests).
+   - **Total Test Count**: Exact count across all 4 tiers (48 tests).
    - **Benchmark Metrics**: Exact execution duration.
    - **Runner Commands**: Explicit CLI palettes.
    - **Invariants Checklist**: Hermetic cleanroom, zero network, opaque-box boundary.

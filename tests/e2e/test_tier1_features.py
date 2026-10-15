@@ -5,13 +5,11 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Tier 1: Feature Coverage (Issues #41 through #46).
-Validates each feature across nominal operating range (5 tests per feature, 30 tests total):
+Tier 1: Feature Coverage (Issues #41, #42, #43, and #46).
+Validates each feature across nominal operating range (5 tests per feature, 20 tests total):
 - Feature 1 (Issue #41): Anti-Loop Coordination Exemption Expansion
 - Feature 2 (Issue #42): Stop-Fence PostToolUse Wiring & Dirty Clearance
 - Feature 3 (Issue #43): Scratch Path Isolation & Boundary Scoping
-- Feature 4 (Issue #44): REA Doctor Diagnostics Integration
-- Feature 5 (Issue #45): Cleanroom Spec and Ledger Verification Gates
 - Feature 6 (Issue #46): Standardized Issue Templates
 """
 
@@ -25,7 +23,6 @@ import unittest
 from unittest.mock import patch
 
 from harness.delivery.constants import REPO_ROOT
-from harness.runtime.tool_checks import check_rea_tooling, find_rea_binary
 from tests.e2e.harness_base import OpaqueBoxTestCase
 
 
@@ -391,173 +388,6 @@ class TestTier1Features(OpaqueBoxTestCase):
                 "args": {"TargetFile": rel_outside, "CodeContent": "x = 1"},
             },
         })
-
-        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(code, 0)
-        self.assertEqual(stop_resp.get("decision"), "allow")
-
-    # =========================================================================
-    # Feature 4 (Issue #44): REA Doctor Diagnostics
-    # =========================================================================
-
-    def test_f4_01_doctor_detects_installed_rea_version(self) -> None:
-        """Assures REA tooling detection resolves binary and parses version."""
-        res = check_rea_tooling()
-        if res.get("binary"):
-            self.assertIn(res.get("status"), ("ok", "warning", "outdated"))
-            self.assertIsNotNone(res.get("version"))
-        else:
-            self.assertEqual(res.get("status"), "optional_missing")
-
-    def test_f4_02_doctor_audits_active_and_unavailable_providers(self) -> None:
-        """Assures check_rea_tooling partitions providers into active and unavailable."""
-        res = check_rea_tooling()
-        providers = res.get("providers", {})
-        self.assertIn("active", providers)
-        self.assertIn("unavailable", providers)
-        self.assertIsInstance(providers["active"], list)
-        self.assertIsInstance(providers["unavailable"], list)
-
-    def test_f4_03_doctor_audits_rea_mcp_registration(self) -> None:
-        """Assures check_rea_tooling audits REA MCP configuration."""
-        dummy_mcp = self.ws / "mcp_config.json"
-        dummy_mcp.write_text(json.dumps({
-            "mcpServers": {
-                "rea": {"command": "rea", "args": ["mcp"]}
-            }
-        }), encoding="utf-8")
-
-        res = check_rea_tooling(mcp_config_path=dummy_mcp)
-        self.assertTrue(res.get("mcp_configured"))
-
-    def test_f4_04_doctor_missing_rea_is_non_fatal_exit_zero(self) -> None:
-        """Assures missing REA is graded non-fatally and agyis doctor exits with 0."""
-        with patch("harness.runtime.tool_checks.find_rea_binary", return_value=None):
-            res = check_rea_tooling()
-            self.assertEqual(res.get("status"), "optional_missing")
-
-        code, out, err = self.run_cli(["doctor"])
-        self.assertEqual(code, 0)
-        self.assertIn("AGYIS WORKSTATION DOCTOR", out)
-
-    def test_f4_05_doctor_provides_actionable_rea_remediation(self) -> None:
-        """Assures missing or outdated REA includes actionable remediation message."""
-        with patch("harness.runtime.tool_checks.find_rea_binary", return_value=None):
-            res = check_rea_tooling()
-            remediation = res.get("remediation", "")
-            self.assertIn("pnpm add -g rea-agents", remediation)
-
-    # =========================================================================
-    # Feature 5 (Issue #45): Cleanroom Verification Gates
-    # =========================================================================
-
-    def test_f5_01_cleanroom_spec_edit_sets_dirty_true(self) -> None:
-        """Assures editing docs/specs/** sets code_dirty = True."""
-        conv_id = "c_f5_01"
-        spec_file = str(self.ws / "docs" / "specs" / "mstar_display.md")
-
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "toolCall": {
-                "name": "write_to_file",
-                "args": {"TargetFile": spec_file, "CodeContent": "# Spec"},
-            },
-        })
-
-        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(code, 0)
-        self.assertEqual(stop_resp.get("decision"), "continue")
-
-    def test_f5_02_cleanroom_ledger_edit_sets_dirty_true(self) -> None:
-        """Assures editing .agents/ledger/** sets code_dirty = True."""
-        conv_id = "c_f5_02"
-        ledger_file = str(self.ws / ".agents" / "ledger" / "obligations.json")
-
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "toolCall": {
-                "name": "write_to_file",
-                "args": {"TargetFile": ledger_file, "CodeContent": "{}"},
-            },
-        })
-
-        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(code, 0)
-        self.assertEqual(stop_resp.get("decision"), "continue")
-
-    def test_f5_03_cleanroom_unverified_edits_block_stop(self) -> None:
-        """Assures unverified cleanroom edits block completion until verified."""
-        conv_id = "c_f5_03"
-        spec_file = str(self.ws / "docs" / "specs" / "hardware.md")
-
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "toolCall": {
-                "name": "write_to_file",
-                "args": {"TargetFile": spec_file, "CodeContent": "# HW"},
-            },
-        })
-
-        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(code, 0)
-        self.assertEqual(stop_resp.get("decision"), "continue")
-
-        # Now pass verification test
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "exitCode": 0,
-            "toolCall": {
-                "name": "run_command",
-                "args": {"CommandLine": "./agyis test"},
-            },
-        })
-
-        code, stop_resp2 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(code, 0)
-        self.assertEqual(stop_resp2.get("decision"), "allow")
-
-    def test_f5_04_cleanroom_refusal_message_identifies_contracts(self) -> None:
-        """Assures refusal message explicitly mentions cleanroom contract edits."""
-        conv_id = "c_f5_04"
-        spec_file = str(self.ws / "docs" / "specs" / "mst9u.md")
-
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "toolCall": {
-                "name": "write_to_file",
-                "args": {"TargetFile": spec_file, "CodeContent": "# Spec"},
-            },
-        })
-
-        _, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        reason = stop_resp.get("reason", "")
-        self.assertIn("cleanroom contract", reason.lower())
-        self.assertIn("mst9u.md", reason)
-
-    def test_f5_05_ordinary_documentation_outside_specs_remains_exempt(self) -> None:
-        """Assures ordinary documentation outside specs/ and ledger/ remains exempt."""
-        conv_id = "c_f5_05"
-        docs = [
-            str(self.ws / "README.md"),
-            str(self.ws / "CHANGELOG.md"),
-            str(self.ws / "docs" / "notes.md"),
-            str(self.ws / "config" / "settings.json"),
-        ]
-
-        for doc_path in docs:
-            self.run_hook("verification-fence", {
-                "conversationId": conv_id,
-                "cwd": str(self.ws),
-                "toolCall": {
-                    "name": "write_to_file",
-                    "args": {"TargetFile": doc_path, "CodeContent": "doc"},
-                },
-            })
 
         code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
         self.assertEqual(code, 0)

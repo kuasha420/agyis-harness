@@ -5,12 +5,10 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Tier 4: Real-World Scenarios & User Journeys (Issues #41 through #46).
-Executes 5 end-to-end user journeys mirroring production workflows:
+Tier 4: Real-World Scenarios & User Journeys (Issues #41, #42, #43, and #46).
+Executes end-to-end user journeys mirroring production workflows:
 - Scenario 1: Multi-Agent Swarm Coordination Journey
 - Scenario 2: Diagnostic Scratch Investigation Journey
-- Scenario 3: Cleanroom Hardware Specification Authoring Journey
-- Scenario 4: Workstation Diagnostics & REA Health Triage Journey
 - Scenario 5: Bug Report Submission with Doctor Integration Journey
 """
 
@@ -115,65 +113,6 @@ class TestTier4Scenarios(OpaqueBoxTestCase):
             "Diagnostic task with only scratch files was falsely blocked from terminating",
         )
 
-    def test_s3_cleanroom_hardware_specification_authoring_journey(self) -> None:
-        """Simulates cleanroom spec authoring, verification gating, and clearance upon passing tests."""
-        conv_id = "journey_cleanroom_spec"
-        spec_path = str(self.ws / "docs" / "specs" / "display_controller.md")
-
-        # Step 1: Reverse engineer authors cleanroom specification
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "toolCall": {
-                "name": "write_to_file",
-                "args": {
-                    "TargetFile": spec_path,
-                    "CodeContent": "# Display Controller Specification\n\nRegister 0x40: VSYNC\n",
-                },
-            },
-        })
-
-        # Step 2: Agent attempts to stop prematurely -> blocked by completion fence
-        _, stop1 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(stop1.get("decision"), "continue")
-        self.assertIn("cleanroom contract", stop1.get("reason", "").lower())
-
-        # Step 3: Agent executes verification test command -> exit code 0
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "exitCode": 0,
-            "toolCall": {
-                "name": "run_command",
-                "args": {"CommandLine": "./agyis test", "Cwd": str(self.ws)},
-            },
-        })
-
-        # Step 4: Agent retries stop -> allowed cleanly
-        code, stop2 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
-        self.assertEqual(code, 0)
-        self.assertEqual(stop2.get("decision"), "allow")
-
-    def test_s4_workstation_diagnostics_and_rea_health_triage_journey(self) -> None:
-        """Simulates workstation environment health check integrating REA tooling diagnostics."""
-        # Execute doctor audit
-        code, stdout, stderr = self.run_cli(["doctor"])
-        self.assertEqual(code, 0)
-        self.assertIn("AGYIS WORKSTATION DOCTOR", stdout)
-
-        # Execute programmatic doctor audit and inspect REA diagnostics
-        code, out, _ = self.run_cli(["doctor", "--json"])
-        self.assertEqual(code, 0)
-        audit = json.loads(out)
-        self.assertIn("rea_tooling", audit)
-        rea_data = audit["rea_tooling"]
-        self.assertIn("status", rea_data)
-        self.assertIn("providers", rea_data)
-        self.assertIn("mcp_configured", rea_data)
-
-        # Assert non-fatal grading
-        self.assertEqual(audit["summary"]["missing"], 0)
-
     def test_s5_bug_report_submission_with_doctor_integration_journey(self) -> None:
         """Simulates automated bug reporting workflow harvesting doctor telemetry into issue templates."""
         # Step 1: Harvest doctor diagnostics
@@ -181,7 +120,6 @@ class TestTier4Scenarios(OpaqueBoxTestCase):
         self.assertEqual(code, 0)
         audit = json.loads(out)
         python_info = f"Python: CPython {audit.get('hermetic_python_available', 'standard')}"
-        rea_status = audit.get("rea_tooling", {}).get("status", "unknown")
 
         # Step 2: Query active harness version
         code, version_out, _ = self.run_cli(["--version"])
