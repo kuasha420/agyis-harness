@@ -598,6 +598,184 @@ class TestCompletionFenceHardeningM2(unittest.TestCase):
         self.assertIn("Execute your project test suite (pnpm test) before stopping.", out_stop.get("reason", ""))
         self.assertNotIn("agyis test", out_stop.get("reason", ""))
 
+    # --- PostToolUse Empty Dict Invariant Across All Tools ---
+
+    def test_post_tool_use_emits_empty_dict_across_all_tools(self):
+        """
+        Validates that all PostToolUse tool completions emit exact JSON {}
+        across all tool types (run_command, write_to_file, replace_file_content,
+        edit_file, view_file, grep_search, manage_task, rea_*, and MCP tools),
+        preventing Antigravity protojson unmarshaling crashes.
+        """
+        tools_to_test = [
+            ("run_command", {"CommandLine": "pytest tests/"}),
+            ("write_to_file", {"TargetFile": "src/app.py", "CodeContent": "print('hello')"}),
+            ("replace_file_content", {"TargetFile": "src/index.ts", "ReplacementContent": "export {}"}),
+            ("edit_file", {"file_path": "src/module.py"}),
+            ("view_file", {"AbsolutePath": "/home/user/repo/src/app.py"}),
+            ("grep_search", {"Query": "TODO", "SearchPath": "/home/user/repo"}),
+            ("manage_task", {"Action": "status", "TaskId": "task-1"}),
+            ("rea_inspect_binary", {"binaryPath": "/bin/ls"}),
+            ("read_resource", {"Uri": "custom://resource"}),
+            ("unknown_custom_tool", {"foo": "bar"}),
+        ]
+
+        conv_id = "test-post-tool-all-tools"
+
+        for tool_name, tool_args in tools_to_test:
+            with self.subTest(tool=tool_name):
+                payload = {
+                    "hookEvent": "PostToolUse",
+                    "conversationId": conv_id,
+                    "toolCall": {
+                        "name": tool_name,
+                        "args": tool_args,
+                    },
+                    "toolResponse": {"status": "success", "exitCode": 0},
+                }
+                buf = io.StringIO()
+                with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+                    completion_fence_hook.main()
+
+                out_str = buf.getvalue().strip()
+                out_json = json.loads(out_str)
+                self.assertEqual(
+                    out_json,
+                    {},
+                    f"PostToolUse for '{tool_name}' must emit exact {{}}, got: {out_str}",
+                )
+
+    def test_post_tool_use_payload_event_variants_emit_empty_dict(self):
+        """
+        Validates that all variations of PostToolUse event signaling
+        (hookEvent, hook_event, event, toolResponse, toolOutput) emit exact JSON {}.
+        """
+        event_payload_variants = [
+            {"hookEvent": "PostToolUse", "toolCall": {"name": "write_to_file", "args": {"TargetFile": "a.py"}}},
+            {"hook_event": "PostToolUse", "toolCall": {"name": "write_to_file", "args": {"TargetFile": "b.py"}}},
+            {"event": "PostToolUse", "toolCall": {"name": "write_to_file", "args": {"TargetFile": "c.py"}}},
+            {"hookEvent": "posttooluse", "toolCall": {"name": "view_file", "args": {"AbsolutePath": "d.py"}}},
+            {"toolCall": {"name": "view_file", "args": {}}, "toolResponse": "some output"},
+            {"toolCall": {"name": "run_command", "args": {"CommandLine": "ls"}}, "toolOutput": "file1\nfile2"},
+            {"toolCall": {"name": "run_command", "args": {"CommandLine": "ls"}}, "exitCode": 0},
+        ]
+
+        for idx, payload in enumerate(event_payload_variants):
+            with self.subTest(variant=idx):
+                buf = io.StringIO()
+                with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+                    completion_fence_hook.main()
+
+                out_json = json.loads(buf.getvalue().strip())
+                self.assertEqual(out_json, {}, f"Variant {idx} must emit {{}}, got {out_json}")
+
+    def test_pre_tool_use_contrast_emits_allow_decision(self):
+        """
+        Contrasts PostToolUse with PreToolUse:
+        PreToolUse for write_to_file MUST emit {"decision": "allow"}.
+        """
+        payload = {
+            "hookEvent": "PreToolUse",
+            "conversationId": "test-pre-tool-contrast",
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": "src/app.py"},
+            },
+        }
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+            completion_fence_hook.main()
+
+        out_json = json.loads(buf.getvalue().strip())
+        self.assertEqual(out_json.get("decision"), "allow")
+
+    # --- Ephemeral Scratch Path Isolation Inside /tmp ---
+
+    def test_is_ephemeral_scratch_path_cwd_in_tmp_rejects_relative_paths(self):
+        """
+        Validates that when the process current working directory is inside /tmp
+        (e.g., CI runners, worktrees, or containerized environments), relative
+        workspace paths (e.g. 'src/app.py') are NOT resolved against process cwd
+        and are NOT falsely marked as scratch paths when cwd is None.
+        """
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir("/tmp")
+
+            relative_paths = [
+                "src/app.py",
+                "harness/cli.py",
+                "components/Button.tsx",
+                "lib/core.rs",
+                "tests/test_hook.py",
+                "./src/main.go",
+                "index.js",
+            ]
+            for rel_path in relative_paths:
+                with self.subTest(rel_path=rel_path):
+                    self.assertFalse(
+                        is_ephemeral_scratch_path(rel_path, cwd=None),
+                        f"Relative path '{rel_path}' must NOT be classified as scratch when running inside /tmp with cwd=None",
+                    )
+        finally:
+            os.chdir(orig_cwd)
+
+    def test_is_ephemeral_scratch_path_cwd_in_tmp_accepts_absolute_temp_paths(self):
+        """
+        Validates that genuine absolute temp files remain classified as ephemeral scratch
+        paths even when process cwd is inside /tmp.
+        """
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir("/tmp")
+
+            absolute_scratch_paths = [
+                "/tmp/scratch.py",
+                "/tmp/test_dir/script.sh",
+                "/var/tmp/temp_runner.py",
+                os.path.join(tempfile.gettempdir(), "test_scratch.py"),
+                "/home/kuasha/.gemini/antigravity/brain/session-123/scratch/tool.py",
+            ]
+            for abs_path in absolute_scratch_paths:
+                with self.subTest(abs_path=abs_path):
+                    self.assertTrue(
+                        is_ephemeral_scratch_path(abs_path, cwd=None),
+                        f"Absolute temp path '{abs_path}' MUST be classified as scratch",
+                    )
+        finally:
+            os.chdir(orig_cwd)
+
+    def test_tmp_worktree_record_edit_arms_completion_fence(self):
+        """
+        Simulates editing a relative production file inside a worktree rooted in /tmp.
+        Asserts that the completion fence is properly armed (code_dirty = True)
+        and evaluate_stop blocks exit.
+        """
+        temp_worktree = tempfile.TemporaryDirectory()
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir(temp_worktree.name)
+            conv_id = "test-tmp-worktree-fence"
+
+            # 1. Edit relative production file without explicit cwd
+            record_edit("src/service.py", conv_id=conv_id, state_dir=self.state_dir, cwd=None)
+
+            # 2. State must be marked dirty
+            state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+            self.assertTrue(
+                state.get("code_dirty"),
+                "Editing relative code file inside /tmp worktree MUST set code_dirty = True",
+            )
+            self.assertIn("src/service.py", state.get("last_modified_files", []))
+
+            # 3. Stop evaluation must be blocked
+            res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=Path(temp_worktree.name))
+            self.assertEqual(res.get("decision"), "continue")
+            self.assertIn("src/service.py", res.get("reason", ""))
+        finally:
+            os.chdir(orig_cwd)
+            temp_worktree.cleanup()
+
     # --- Sub-second Benchmark Invariant ---
 
     def test_hardening_subsecond_benchmark(self):

@@ -59,6 +59,39 @@ def resolve_hook_module(hook_name: str) -> str:
     )
 
 
+def is_post_tool_use_context(hook_name: str, payload_str: Optional[str] = None) -> bool:
+    """
+    Determines whether the execution context represents a PostToolUse event
+    where the protojson contract requires emitting {} instead of {"decision": "allow"}.
+    """
+    normalized = (hook_name or "").strip().lower().replace("_", "-")
+    canonical = ALIASES.get(normalized, normalized)
+    if canonical == "compactor":
+        return True
+
+    if payload_str:
+        try:
+            data = json.loads(payload_str)
+            if isinstance(data, dict):
+                event = str(data.get("hookEvent") or data.get("hook_event") or data.get("event") or "").strip().lower()
+                if event == "posttooluse":
+                    return True
+                if (
+                    "toolResponse" in data
+                    or "tool_response" in data
+                    or "toolOutput" in data
+                    or "tool_output" in data
+                    or "result" in data
+                ):
+                    return True
+                if "toolCall" in data and ("exitCode" in data or "exit_code" in data):
+                    return True
+        except Exception:
+            pass
+
+    return False
+
+
 def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
     """
     Executes a lifecycle hook with fail-open deadlock protection.
@@ -66,7 +99,7 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
     If any SyntaxError, ImportError, or unhandled exception occurs while
     loading or executing the hook:
     - Logs traceback to sys.stderr
-    - Emits {"decision": "allow"} on sys.stdout
+    - Emits {} for PostToolUse events, or {"decision": "allow"} for PreToolUse/Stop
     - Returns 0
     """
     old_stdin = sys.stdin
@@ -76,8 +109,18 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
     try:
         module_name = resolve_hook_module(hook_name)
 
-        if payload_str is not None:
-            sys.stdin = io.StringIO(payload_str)
+        if payload_str is None:
+            try:
+                if hasattr(sys.stdin, "isatty") and not sys.stdin.isatty():
+                    payload_str = sys.stdin.read()
+                elif not hasattr(sys.stdin, "isatty"):
+                    payload_str = sys.stdin.read()
+                else:
+                    payload_str = ""
+            except Exception:
+                payload_str = ""
+
+        sys.stdin = io.StringIO(payload_str)
 
         try:
             sys.stdout = stdout_buf
@@ -97,15 +140,13 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
             raise
         finally:
             sys.stdout = old_stdout
-            if payload_str is not None:
-                sys.stdin = old_stdin
+            sys.stdin = old_stdin
 
         return 0
 
     except (Exception, SystemExit) as exc:
         sys.stdout = old_stdout
-        if payload_str is not None:
-            sys.stdin = old_stdin
+        sys.stdin = old_stdin
 
         if isinstance(exc, SystemExit) and exc.code in (0, None):
             return 0
@@ -116,8 +157,11 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
         traceback.print_exc(file=sys.stderr)
         sys.stderr.flush()
 
-        # Emit fail-open allow decision so Antigravity never locks out tool execution
-        sys.stdout.write(json.dumps({"decision": "allow"}) + "\n")
+        # Emit fail-open response tailored to hook event type
+        if is_post_tool_use_context(hook_name, payload_str):
+            sys.stdout.write(json.dumps({}) + "\n")
+        else:
+            sys.stdout.write(json.dumps({"decision": "allow"}) + "\n")
         sys.stdout.flush()
         return 0
 

@@ -176,10 +176,12 @@ def is_ephemeral_scratch_path(file_path: str, cwd: Path | str | None = None) -> 
         if norm.startswith("/tmp/") or norm == "/tmp" or norm.startswith("/var/tmp/") or norm == "/var/tmp":
             return True
         try:
-            p = Path(file_path).resolve()
-            for temp_base in (Path("/tmp"), Path("/var/tmp"), Path(tempfile.gettempdir())):
-                if p.is_relative_to(temp_base.resolve()):
-                    return True
+            p = Path(file_path)
+            if p.is_absolute():
+                resolved = p.resolve()
+                for temp_base in (Path("/tmp"), Path("/var/tmp"), Path(tempfile.gettempdir())):
+                    if resolved.is_relative_to(temp_base.resolve()):
+                        return True
         except (ValueError, OSError):
             pass
 
@@ -541,6 +543,23 @@ def main() -> None:
         if cwd is None:
             cwd = tool_args.get("Cwd") or tool_args.get("cwd")
 
+        event = str(payload.get("hookEvent") or payload.get("hook_event") or payload.get("event") or "").strip().lower()
+        if event == "posttooluse":
+            is_post_tool_use = True
+        elif event == "pretooluse":
+            is_post_tool_use = False
+        else:
+            is_post_tool_use = bool(
+                "toolResponse" in payload
+                or "tool_response" in payload
+                or "toolOutput" in payload
+                or "tool_output" in payload
+                or "result" in payload
+                or "exitCode" in payload
+                or "exit_code" in payload
+                or tool_name in ("run_command", "execute_command", "bash")
+            )
+
         if tool_name in ("write_to_file", "replace_file_content", "edit_file"):
             target_file = (
                 tool_args.get("TargetFile")
@@ -550,13 +569,14 @@ def main() -> None:
             )
             if target_file:
                 record_edit(target_file, conv_id=conv_id, cwd=cwd)
-            print(json.dumps({"decision": "allow"}))
         elif tool_name in ("run_command", "execute_command", "bash"):
             cmd = tool_args.get("CommandLine") or tool_args.get("command") or ""
             exit_code = extract_exit_code(payload)
             if exit_code is not None and cmd:
                 check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, cwd=cwd)
-            # PostToolUse contract: Antigravity expects exact JSON {}
+
+        # PostToolUse contract: Antigravity expects exact JSON {}
+        if is_post_tool_use:
             print(json.dumps({}))
         else:
             print(json.dumps({"decision": "allow"}))
