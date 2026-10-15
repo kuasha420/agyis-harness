@@ -31,6 +31,7 @@ from unittest.mock import MagicMock, patch
 import urllib.error
 import urllib.request
 
+import harness.telemetry.sync.push
 from harness.telemetry import config, sync
 from pipeline import extract_transcripts
 
@@ -850,6 +851,133 @@ class TestSyncPush(unittest.TestCase):
         finally:
             err_403.close()
 
+    def test_push_bounded_memory_incremental_child_fetching(self):
+        """Verifies child rows are fetched incrementally per batch, preserving bounded memory."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM sessions")
+        cur.execute("DELETE FROM steps")
+        # Seed 15 sessions (10 in batch 1, 5 in batch 2)
+        for i in range(15):
+            cur.execute("""
+                INSERT INTO sessions (session_id, start_time, duration_seconds, total_steps, origin_developer, remote_synced_at)
+                VALUES (?, '2026-03-01T10:00:00Z', 10.0, 5, 'local', NULL)
+            """, (f"sess-bmem-{i:02d}",))
+            cur.execute("""
+                INSERT INTO steps (session_id, step_index, step_type, source, status, created_at)
+                VALUES (?, 0, 'AGENT_OUTPUT', 'MODEL', 'DONE', '2026-03-01T10:01:00Z')
+            """, (f"sess-bmem-{i:02d}",))
+        conn.commit()
+        conn.close()
+
+        events = []
+        original_get_db_connection = harness.telemetry.sync.push.get_db_connection
+
+        def tracked_get_db_connection(db_file, **kwargs):
+            real_conn = original_get_db_connection(db_file, **kwargs)
+            def trace_sql(statement):
+                if "FROM steps WHERE session_id IN" in statement:
+                    events.append(("fetch_child_steps", statement))
+            real_conn.set_trace_callback(trace_sql)
+            return real_conn
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"status": "accepted"}'
+        mock_resp.__enter__.return_value = mock_resp
+
+        def fake_urlopen(req, timeout=30.0):
+            payload = json.loads(req.data.decode("utf-8"))
+            req_sess_ids = [s["session_id"] for s in payload["sessions"]]
+            events.append(("urlopen", req_sess_ids))
+            return mock_resp
+
+        with patch("harness.telemetry.sync.push.get_db_connection", side_effect=tracked_get_db_connection), \
+             patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = sync.push_local_sessions(db_path=self.db_path, retry_backoff=0.0)
+
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["batches_count"], 2)
+
+            # Assert execution order:
+            # Batch 2 child steps must NOT be fetched before Batch 1 HTTP transmission!
+            self.assertEqual(len(events), 4)
+            self.assertEqual(events[0][0], "fetch_child_steps")
+            self.assertEqual(events[1][0], "urlopen")
+            self.assertEqual(len(events[1][1]), 10)
+            self.assertEqual(events[2][0], "fetch_child_steps")
+            self.assertEqual(events[3][0], "urlopen")
+            self.assertEqual(len(events[3][1]), 5)
+
+    def test_push_lock_decoupling_zero_open_connections_during_http(self):
+        """Verifies SQLite connection is closed and no locks are held during HTTP push."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM sessions")
+        cur.execute("DELETE FROM steps")
+        for i in range(5):
+            cur.execute("""
+                INSERT INTO sessions (session_id, start_time, duration_seconds, total_steps, origin_developer, remote_synced_at)
+                VALUES (?, '2026-03-01T10:00:00Z', 10.0, 5, 'local', NULL)
+            """, (f"sess-lock-{i:02d}",))
+            cur.execute("""
+                INSERT INTO steps (session_id, step_index, step_type, source, status, created_at)
+                VALUES (?, 0, 'AGENT_OUTPUT', 'MODEL', 'DONE', '2026-03-01T10:01:00Z')
+            """, (f"sess-lock-{i:02d}",))
+        conn.commit()
+        conn.close()
+
+        created_conns = []
+        original_get_db_connection = harness.telemetry.sync.push.get_db_connection
+
+        def tracked_get_db_connection(db_file, **kwargs):
+            real_conn = original_get_db_connection(db_file, **kwargs)
+            created_conns.append(real_conn)
+            return real_conn
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"status": "accepted"}'
+        mock_resp.__enter__.return_value = mock_resp
+
+        urlopen_invocations = 0
+
+        def checking_urlopen(req, timeout=30.0):
+            nonlocal urlopen_invocations
+            urlopen_invocations += 1
+
+            # 1. Invariant check: all previously opened connections must be closed
+            for c in created_conns:
+                try:
+                    c.execute("SELECT 1")
+                    self.fail("Database connection was left open during HTTP network transmission!")
+                except sqlite3.ProgrammingError:
+                    pass  # Connection is cleanly closed
+
+            # 2. Invariant check: independent connection can acquire an exclusive write transaction
+            probe_conn = sqlite3.connect(self.db_path, timeout=0.1)
+            try:
+                probe_conn.execute("BEGIN EXCLUSIVE TRANSACTION")
+                probe_conn.execute("UPDATE sessions SET duration_seconds = duration_seconds + 0")
+                probe_conn.commit()
+            finally:
+                probe_conn.close()
+
+            return mock_resp
+
+        with patch("harness.telemetry.sync.push.get_db_connection", side_effect=tracked_get_db_connection), \
+             patch("urllib.request.urlopen", side_effect=checking_urlopen):
+            res = sync.push_local_sessions(db_path=self.db_path, retry_backoff=0.0)
+
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(urlopen_invocations, 1)
+
+            # Ensure all created connections are closed at termination
+            for c in created_conns:
+                try:
+                    c.execute("SELECT 1")
+                    self.fail("Database connection leaked at function exit!")
+                except sqlite3.ProgrammingError:
+                    pass
+
 
 class TestSyncPull(unittest.TestCase):
     """Verifies pull_remote_sessions delta querying, idempotent insertion, and error handling."""
@@ -1347,6 +1475,140 @@ class TestSyncPull(unittest.TestCase):
             self.assertIsNotNone(row)
             self.assertEqual(row[0], "kuasha420")
             conn.close()
+
+    def test_pull_orphan_child_records_guarded_without_integrity_error(self):
+        """Verifies remote pull skips orphan steps/tools/interventions without crashing on FK constraints."""
+        remote_data = {
+            "sessions": [{
+                "session_id": "valid-sess-1",
+                "start_time": "2026-03-02T10:00:00Z",
+                "origin_developer": "remote-dev",
+                "remote_synced_at": "2026-03-02T10:05:00Z",
+            }],
+            "steps": [
+                # Valid step with parent in current batch
+                {
+                    "session_id": "valid-sess-1",
+                    "step_index": 0,
+                    "step_type": "AGENT_OUTPUT",
+                },
+                # Orphan step referencing nonexistent parent
+                {
+                    "session_id": "orphan-sess-999",
+                    "step_index": 0,
+                    "step_type": "AGENT_OUTPUT",
+                },
+                # Malformed step with None session_id
+                {
+                    "session_id": None,
+                    "step_index": 1,
+                    "step_type": "AGENT_OUTPUT",
+                },
+            ],
+            "tool_calls": [
+                # Valid tool call with parent in current batch
+                {
+                    "session_id": "valid-sess-1",
+                    "step_index": 0,
+                    "tool_name": "run_command",
+                    "command_line": "ls",
+                },
+                # Orphan tool call
+                {
+                    "session_id": "orphan-sess-888",
+                    "step_index": 0,
+                    "tool_name": "run_command",
+                    "command_line": "cat",
+                },
+            ],
+            "user_interventions": [
+                # Valid intervention with parent in current batch
+                {
+                    "session_id": "valid-sess-1",
+                    "step_index": 0,
+                    "prompt_text": "continue",
+                },
+                # Orphan intervention
+                {
+                    "session_id": "orphan-sess-777",
+                    "step_index": 0,
+                    "prompt_text": "abort",
+                },
+            ],
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(remote_data).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            res = sync.pull_remote_sessions(db_path=self.db_path)
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["sessions_inserted"], 1)
+            self.assertEqual(res["steps_inserted"], 1)
+            self.assertEqual(res["tool_calls_inserted"], 1)
+            self.assertEqual(res["user_interventions_inserted"], 1)
+
+        conn = sync.get_db_connection(self.db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM sessions WHERE session_id = 'valid-sess-1'")
+        self.assertEqual(cur.fetchone()[0], 1)
+        cur.execute("SELECT COUNT(*) FROM steps WHERE session_id = 'valid-sess-1'")
+        self.assertEqual(cur.fetchone()[0], 1)
+        cur.execute("SELECT COUNT(*) FROM tool_calls WHERE session_id = 'valid-sess-1'")
+        self.assertEqual(cur.fetchone()[0], 1)
+        cur.execute("SELECT COUNT(*) FROM user_interventions WHERE session_id = 'valid-sess-1'")
+        self.assertEqual(cur.fetchone()[0], 1)
+
+        # Assert zero orphan records exist in database
+        cur.execute("SELECT COUNT(*) FROM steps WHERE session_id LIKE 'orphan%' OR session_id IS NULL")
+        self.assertEqual(cur.fetchone()[0], 0)
+        cur.execute("SELECT COUNT(*) FROM tool_calls WHERE session_id LIKE 'orphan%' OR session_id IS NULL")
+        self.assertEqual(cur.fetchone()[0], 0)
+        cur.execute("SELECT COUNT(*) FROM user_interventions WHERE session_id LIKE 'orphan%' OR session_id IS NULL")
+        self.assertEqual(cur.fetchone()[0], 0)
+        conn.close()
+
+    def test_pull_child_records_referencing_preexisting_local_session(self):
+        """Verifies child rows are inserted when parent session already exists locally in SQLite."""
+        conn = sync.get_db_connection(self.db_path)
+        cur = conn.cursor()
+        cur.execute("INSERT INTO sessions (session_id, origin_developer, remote_synced_at) VALUES ('preexisting-sess', 'peer', '2026-03-01T00:00:00Z')")
+        conn.commit()
+        conn.close()
+
+        remote_data = {
+            "sessions": [],
+            "steps": [
+                {"session_id": "preexisting-sess", "step_index": 2, "step_type": "MODEL"},
+                {"session_id": "truly-orphan-sess", "step_index": 1, "step_type": "MODEL"},
+            ],
+            "tool_calls": [
+                {"session_id": "preexisting-sess", "step_index": 2, "tool_name": "grep_search"},
+            ],
+            "user_interventions": [
+                {"session_id": "preexisting-sess", "step_index": 2, "prompt_text": "ok"},
+            ],
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(remote_data).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            res = sync.pull_remote_sessions(db_path=self.db_path, since="2026-03-01T00:00:00Z")
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["steps_inserted"], 1)
+            self.assertEqual(res["tool_calls_inserted"], 1)
+            self.assertEqual(res["user_interventions_inserted"], 1)
+
+        conn = sync.get_db_connection(self.db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM steps WHERE session_id = 'preexisting-sess'")
+        self.assertEqual(cur.fetchone()[0], 1)
+        cur.execute("SELECT COUNT(*) FROM steps WHERE session_id = 'truly-orphan-sess'")
+        self.assertEqual(cur.fetchone()[0], 0)
+        conn.close()
 
 
 class TestVerifyAuthToken(unittest.TestCase):

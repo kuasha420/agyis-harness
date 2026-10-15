@@ -95,7 +95,7 @@ systemctl --user status agyis-sync.service
 
 ### 2.2 Network-Lock Decoupling Invariant
 - Database connections are **never held open across remote HTTP network calls** (`urllib.request.urlopen`).
-- Sessions are pre-loaded in memory prior to network transmission.
+- Sessions are read from disk in bounded incremental batches prior to network transmission.
 - Remote delta pages are fetched over HTTP, then ingested in localized sub-millisecond atomic transactions.
 
 ### 2.3 Delta Watermark Invariant (Cross-Device Purity)
@@ -103,7 +103,7 @@ systemctl --user status agyis-sync.service
 - Locally created and pushed sessions never advance or mask remote sync timestamps, ensuring transcripts from other devices are never skipped.
 
 ### 2.4 Transient Retry & Resilience Invariant
-- Both push and pull engines implement exponential retry backoff for transient HTTP errors (502, 503, 504) and network dropouts (`URLError`) up to 3 attempts.
+- Both push and pull engines implement fixed retry delay backoff (default 1.0s, configurable via `PSL_RETRY_BACKOFF` or parameter) for transient HTTP errors (502, 503, 504) and network dropouts (`URLError`) up to 3 attempts.
 - Client authentication and authorization errors (HTTP 401, 403, 400) fail fast without retrying.
 
 ### 2.5 Clean-Room Hermetic Testing (ADR-015)

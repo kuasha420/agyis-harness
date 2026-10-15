@@ -204,7 +204,7 @@ def pull_remote_sessions(
         pulled_tools = data.get("tool_calls", [])
         pulled_interventions = data.get("user_interventions", [])
 
-        if not pulled_sessions:
+        if not pulled_sessions and not pulled_steps and not pulled_tools and not pulled_interventions:
             break
 
         total_sessions_pulled += len(pulled_sessions)
@@ -215,8 +215,11 @@ def pull_remote_sessions(
         conn = get_db_connection(db_file)
         try:
             cur = conn.cursor()
+            valid_session_ids = set()
             for s in pulled_sessions:
                 s_id = s.get("session_id")
+                if not s_id:
+                    continue
                 origin_val = s.get("origin_developer")
                 if not origin_val or origin_val == "local":
                     origin_val = "remote"
@@ -249,77 +252,125 @@ def pull_remote_sessions(
                             "UPDATE sessions SET remote_synced_at = ?, origin_developer = ? WHERE session_id = ?",
                             (remote_sync_time, origin_val, s_id),
                         )
+                valid_session_ids.add(s_id)
+
+            # Guard foreign key constraints: collect parent session IDs referenced
+            # by child rows that are not in the current page's pulled_sessions,
+            # and verify which ones already exist in the local SQLite database.
+            candidate_sids = set()
+            for st in pulled_steps:
+                sid = st.get("session_id")
+                if sid and sid not in valid_session_ids:
+                    candidate_sids.add(sid)
+            for tc in pulled_tools:
+                sid = tc.get("session_id")
+                if sid and sid not in valid_session_ids:
+                    candidate_sids.add(sid)
+            for ui in pulled_interventions:
+                sid = ui.get("session_id")
+                if sid and sid not in valid_session_ids:
+                    candidate_sids.add(sid)
+
+            if candidate_sids:
+                cand_list = list(candidate_sids)
+                chunk_size = 500
+                for i in range(0, len(cand_list), chunk_size):
+                    chunk = cand_list[i:i + chunk_size]
+                    placeholders = ",".join(["?"] * len(chunk))
+                    cur.execute(
+                        f"SELECT session_id FROM sessions WHERE session_id IN ({placeholders})",
+                        chunk,
+                    )
+                    valid_session_ids.update(row[0] for row in cur.fetchall())
 
             for st in pulled_steps:
-                cur.execute("""
-                    INSERT INTO steps (
-                        session_id, step_index, step_type, source, status, created_at,
-                        content_length, content_snippet, has_thinking, thinking_length, tool_count
-                    )
-                    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM steps WHERE session_id = ? AND step_index = ?
-                    )
-                """, (
-                    st.get("session_id"), st.get("step_index"), st.get("step_type"),
-                    st.get("source"), st.get("status"), st.get("created_at"),
-                    st.get("content_length"), st.get("content_snippet"),
-                    st.get("has_thinking"), st.get("thinking_length"), st.get("tool_count"),
-                    st.get("session_id"), st.get("step_index"),
-                ))
-                if cur.rowcount > 0:
-                    steps_inserted += 1
+                sid = st.get("session_id")
+                if not sid or sid not in valid_session_ids:
+                    continue
+                try:
+                    cur.execute("""
+                        INSERT INTO steps (
+                            session_id, step_index, step_type, source, status, created_at,
+                            content_length, content_snippet, has_thinking, thinking_length, tool_count
+                        )
+                        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM steps WHERE session_id = ? AND step_index = ?
+                        )
+                    """, (
+                        sid, st.get("step_index"), st.get("step_type"),
+                        st.get("source"), st.get("status"), st.get("created_at"),
+                        st.get("content_length"), st.get("content_snippet"),
+                        st.get("has_thinking"), st.get("thinking_length"), st.get("tool_count"),
+                        sid, st.get("step_index"),
+                    ))
+                    if cur.rowcount > 0:
+                        steps_inserted += 1
+                except sqlite3.IntegrityError:
+                    continue
 
             for tc in pulled_tools:
-                cur.execute("""
-                    INSERT INTO tool_calls (
-                        session_id, step_index, result_step_index, tool_name, arguments_json,
-                        arguments_snippet, target_path, command_line, started_at, completed_at,
-                        duration_seconds, status, exit_code, error_snippet, is_loop_candidate,
-                        output_length_chars, output_lines, arguments_length_chars, command_category, is_truncated
-                    )
-                    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM tool_calls
-                        WHERE session_id = ?
-                          AND step_index = ?
-                          AND tool_name = ?
-                          AND (started_at = ? OR arguments_snippet = ?)
-                    )
-                """, (
-                    tc.get("session_id"), tc.get("step_index"), tc.get("result_step_index"),
-                    tc.get("tool_name"), tc.get("arguments_json"), tc.get("arguments_snippet"),
-                    tc.get("target_path"), tc.get("command_line"), tc.get("started_at"),
-                    tc.get("completed_at"), tc.get("duration_seconds"), tc.get("status"),
-                    tc.get("exit_code"), tc.get("error_snippet"), tc.get("is_loop_candidate", 0),
-                    tc.get("output_length_chars", 0), tc.get("output_lines", 0),
-                    tc.get("arguments_length_chars", 0), tc.get("command_category"),
-                    tc.get("is_truncated", 0),
-                    tc.get("session_id"), tc.get("step_index"), tc.get("tool_name"),
-                    tc.get("started_at"), tc.get("arguments_snippet"),
-                ))
-                if cur.rowcount > 0:
-                    tools_inserted += 1
+                sid = tc.get("session_id")
+                if not sid or sid not in valid_session_ids:
+                    continue
+                try:
+                    cur.execute("""
+                        INSERT INTO tool_calls (
+                            session_id, step_index, result_step_index, tool_name, arguments_json,
+                            arguments_snippet, target_path, command_line, started_at, completed_at,
+                            duration_seconds, status, exit_code, error_snippet, is_loop_candidate,
+                            output_length_chars, output_lines, arguments_length_chars, command_category, is_truncated
+                        )
+                        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM tool_calls
+                            WHERE session_id = ?
+                              AND step_index = ?
+                              AND tool_name = ?
+                              AND (started_at = ? OR arguments_snippet = ?)
+                        )
+                    """, (
+                        sid, tc.get("step_index"), tc.get("result_step_index"),
+                        tc.get("tool_name"), tc.get("arguments_json"), tc.get("arguments_snippet"),
+                        tc.get("target_path"), tc.get("command_line"), tc.get("started_at"),
+                        tc.get("completed_at"), tc.get("duration_seconds"), tc.get("status"),
+                        tc.get("exit_code"), tc.get("error_snippet"), tc.get("is_loop_candidate", 0),
+                        tc.get("output_length_chars", 0), tc.get("output_lines", 0),
+                        tc.get("arguments_length_chars", 0), tc.get("command_category"),
+                        tc.get("is_truncated", 0),
+                        sid, tc.get("step_index"), tc.get("tool_name"),
+                        tc.get("started_at"), tc.get("arguments_snippet"),
+                    ))
+                    if cur.rowcount > 0:
+                        tools_inserted += 1
+                except sqlite3.IntegrityError:
+                    continue
 
             for ui in pulled_interventions:
-                cur.execute("""
-                    INSERT INTO user_interventions (
-                        session_id, step_index, created_at, prompt_text, prompt_length,
-                        preceding_tool_failed, preceding_tool_name, preceding_error_snippet, intervention_type
-                    )
-                    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM user_interventions WHERE session_id = ? AND step_index = ?
-                    )
-                """, (
-                    ui.get("session_id"), ui.get("step_index"), ui.get("created_at"),
-                    ui.get("prompt_text"), ui.get("prompt_length"),
-                    ui.get("preceding_tool_failed"), ui.get("preceding_tool_name"),
-                    ui.get("preceding_error_snippet"), ui.get("intervention_type"),
-                    ui.get("session_id"), ui.get("step_index"),
-                ))
-                if cur.rowcount > 0:
-                    interventions_inserted += 1
+                sid = ui.get("session_id")
+                if not sid or sid not in valid_session_ids:
+                    continue
+                try:
+                    cur.execute("""
+                        INSERT INTO user_interventions (
+                            session_id, step_index, created_at, prompt_text, prompt_length,
+                            preceding_tool_failed, preceding_tool_name, preceding_error_snippet, intervention_type
+                        )
+                        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM user_interventions WHERE session_id = ? AND step_index = ?
+                        )
+                    """, (
+                        sid, ui.get("step_index"), ui.get("created_at"),
+                        ui.get("prompt_text"), ui.get("prompt_length"),
+                        ui.get("preceding_tool_failed"), ui.get("preceding_tool_name"),
+                        ui.get("preceding_error_snippet"), ui.get("intervention_type"),
+                        sid, ui.get("step_index"),
+                    ))
+                    if cur.rowcount > 0:
+                        interventions_inserted += 1
+                except sqlite3.IntegrityError:
+                    continue
 
             conn.commit()
         finally:

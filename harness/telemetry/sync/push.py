@@ -156,13 +156,19 @@ def push_local_sessions(
 
         if dry_run:
             all_s_ids = [s["session_id"] for s in eligible_sessions]
-            placeholders = ",".join(["?"] * len(all_s_ids))
-            cur.execute(f"SELECT COUNT(*) FROM steps WHERE session_id IN ({placeholders})", all_s_ids)
-            total_steps = cur.fetchone()[0]
-            cur.execute(f"SELECT COUNT(*) FROM tool_calls WHERE session_id IN ({placeholders})", all_s_ids)
-            total_tools = cur.fetchone()[0]
-            cur.execute(f"SELECT COUNT(*) FROM user_interventions WHERE session_id IN ({placeholders})", all_s_ids)
-            total_interventions = cur.fetchone()[0]
+            total_steps = 0
+            total_tools = 0
+            total_interventions = 0
+            chunk_size = 500
+            for i in range(0, len(all_s_ids), chunk_size):
+                chunk = all_s_ids[i:i + chunk_size]
+                placeholders = ",".join(["?"] * len(chunk))
+                cur.execute(f"SELECT COUNT(*) FROM steps WHERE session_id IN ({placeholders})", chunk)
+                total_steps += cur.fetchone()[0]
+                cur.execute(f"SELECT COUNT(*) FROM tool_calls WHERE session_id IN ({placeholders})", chunk)
+                total_tools += cur.fetchone()[0]
+                cur.execute(f"SELECT COUNT(*) FROM user_interventions WHERE session_id IN ({placeholders})", chunk)
+                total_interventions += cur.fetchone()[0]
 
             return {
                 "status": "dry_run",
@@ -174,38 +180,6 @@ def push_local_sessions(
                 "dry_run": True,
                 "batches_count": len(batches),
             }
-
-        # Pre-load all batch records before closing DB connection
-        batch_data: List[Dict[str, Any]] = []
-        for batch_sessions in batches:
-            batch_session_ids = [s["session_id"] for s in batch_sessions]
-            b_placeholders = ",".join(["?"] * len(batch_session_ids))
-
-            cur.execute(
-                f"SELECT * FROM steps WHERE session_id IN ({b_placeholders}) ORDER BY session_id, step_index ASC",
-                batch_session_ids,
-            )
-            raw_steps = [dict(r) for r in cur.fetchall()]
-
-            cur.execute(
-                f"SELECT * FROM tool_calls WHERE session_id IN ({b_placeholders}) ORDER BY session_id, step_index ASC",
-                batch_session_ids,
-            )
-            raw_tools = [dict(r) for r in cur.fetchall()]
-
-            cur.execute(
-                f"SELECT * FROM user_interventions WHERE session_id IN ({b_placeholders}) ORDER BY session_id, step_index ASC",
-                batch_session_ids,
-            )
-            raw_interventions = [dict(r) for r in cur.fetchall()]
-
-            batch_data.append({
-                "sessions": batch_sessions,
-                "session_ids": batch_session_ids,
-                "raw_steps": raw_steps,
-                "raw_tools": raw_tools,
-                "raw_interventions": raw_interventions,
-            })
     finally:
         conn.close()
 
@@ -229,12 +203,33 @@ def push_local_sessions(
         "User-Agent": "psl-harness/1.0.0",
     }
 
-    for batch_idx, item in enumerate(batch_data):
-        batch_sessions = item["sessions"]
-        batch_session_ids = item["session_ids"]
-        raw_steps = item["raw_steps"]
-        raw_tools = item["raw_tools"]
-        raw_interventions = item["raw_interventions"]
+    for batch_idx, batch_sessions in enumerate(batches):
+        batch_session_ids = [s["session_id"] for s in batch_sessions]
+        b_placeholders = ",".join(["?"] * len(batch_session_ids))
+
+        # Fetch child records for ONLY this batch using a short-lived connection
+        fetch_conn = get_db_connection(db_file)
+        try:
+            fetch_cur = fetch_conn.cursor()
+            fetch_cur.execute(
+                f"SELECT * FROM steps WHERE session_id IN ({b_placeholders}) ORDER BY session_id, step_index ASC",
+                batch_session_ids,
+            )
+            raw_steps = [dict(r) for r in fetch_cur.fetchall()]
+
+            fetch_cur.execute(
+                f"SELECT * FROM tool_calls WHERE session_id IN ({b_placeholders}) ORDER BY session_id, step_index ASC",
+                batch_session_ids,
+            )
+            raw_tools = [dict(r) for r in fetch_cur.fetchall()]
+
+            fetch_cur.execute(
+                f"SELECT * FROM user_interventions WHERE session_id IN ({b_placeholders}) ORDER BY session_id, step_index ASC",
+                batch_session_ids,
+            )
+            raw_interventions = [dict(r) for r in fetch_cur.fetchall()]
+        finally:
+            fetch_conn.close()
 
         session_ws_map = {
             s["session_id"]: (workspace_root or s.get("workspace_path"))

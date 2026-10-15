@@ -133,7 +133,7 @@ This guarantees that pushing local sessions on this workstation never advances o
 ### 3.4 Transient Error Resilience
 Both push and pull operations implement transient retries:
 - **Eligible Status Codes**: HTTP 502 (Bad Gateway), HTTP 503 (Service Unavailable), HTTP 504 (Gateway Timeout), and network `URLError`.
-- **Backoff**: Exponential backoff up to 3 attempts.
+- **Backoff**: Fixed retry delay (default 1.0s, configurable via `PSL_RETRY_BACKOFF` or parameter) across up to 3 attempts.
 - **Fast Failure**: Client errors (HTTP 400, 401, 403, 422) fail fast without retrying.
 
 ---
