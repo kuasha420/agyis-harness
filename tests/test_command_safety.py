@@ -104,14 +104,30 @@ class TestCommandSafety(unittest.TestCase):
         self.assertFalse(should_sanitize_grep_or_diff("grep 'foo' file || [ $? -eq 1 ]"))
         self.assertFalse(should_sanitize_grep_or_diff("cat log.txt | grep 'foo' | sort"))
 
-    def test_surgical_grep_tail_rewrite(self):
+    def test_decoupled_grep_tail_rewrite(self):
+        # Grep commands must NOT have || [ $? -eq 1 ] appended automatically
         decision, mod, reason = sanitize_command("grep -rn 'needle' src/")
         self.assertEqual(decision, "allow")
-        self.assertEqual(mod, "grep -rn 'needle' src/ || [ $? -eq 1 ]")
+        self.assertIsNone(mod)
 
+        # Pipeline with git still receives PAGER=cat but no grep tail rewrite
         decision, mod, reason = sanitize_command("git diff | grep 'class '")
         self.assertEqual(decision, "allow")
-        self.assertEqual(mod, "PAGER=cat git diff | grep 'class ' || [ $? -eq 1 ]")
+        self.assertEqual(mod, "PAGER=cat git diff | grep 'class '")
+
+    def test_fstring_and_double_quotes_preserved_without_corruption(self):
+        """Verifies that bash commands containing double quotes inside expressions are not corrupted."""
+        cmds = [
+            'python3 -c "print(\'hello\')"',
+            'python3 -c "import sys; print(f\\\"{sys.version}\\\")"',
+            'python3 -c "data = {\'k\': \'v\'}; print(f\\\"{data.get(\'k\')}\\\")"',
+            'python3 -c "msg = \\\"test\\\"; print(msg)"',
+        ]
+        for raw in cmds:
+            decision, mod, reason = sanitize_command(raw)
+            self.assertEqual(decision, "allow")
+            checked_cmd = mod if mod is not None else raw
+            self.assertIn(raw, checked_cmd)
 
     def test_get_user_path_shims(self):
         shims = get_user_path_shims()

@@ -14,15 +14,12 @@ Audits and optimizes terminal commands before execution:
 4. Hermetic Python Runtime Injection: Transparently prepends certified Python 3.12+ from
    uv's cache to PATH for inline utility scripts (python3 -c / python -c),
    guaranteeing PEP 701 f-string safety without touching host pyenv config.
-5. F-string Escape Sanitization: Neutralizes spurious backslashes before quotes inside
-   f-string expressions in inline python scripts.
-6. Surgical Tail Sanitization: Neutralizes false-positive Exit Code 1 failures on
-   standalone grep/diff pattern probes via `|| [ $? -eq 1 ]`, while preserving
-   genuine Exit Code 2 errors.
-7. User-Space Toolchain PATH Shim Recovery: Discovers existing user bin directories
+5. Decoupled Grep Tail: Automatic CommandLine mutation via `|| [ $? -eq 1 ]` is decoupled
+   to preserve clean process exit codes and prioritize native grep_search.
+6. User-Space Toolchain PATH Shim Recovery: Discovers existing user bin directories
    (~/.local/bin, ~/.cargo/bin, ~/.local/share/pnpm, ~/.pyenv/shims) and prepends
    export PATH="<shims>:$PATH"; <cmd> for non-login subshell reliability (ADR-023).
-8. Network Probe Timeout Injection: Transparently injects non-blocking timeouts and
+7. Network Probe Timeout Injection: Transparently injects non-blocking timeouts and
    BatchMode flags into ssh invocations to prevent hanging background tasks (ADR-023).
 """
 
@@ -224,19 +221,6 @@ def is_inline_python_command(cmd: str) -> bool:
     return bool(re.search(r"\b(?:python3?)\s+-c\b", cmd))
 
 
-def sanitize_fstring_expressions(cmd: str) -> str:
-    """
-    Sanitize spurious backslashes before quotes inside f-string expressions {...}
-    in inline python one-liners (converting e.g. {d.get(\"key\")} to {d.get("key")}).
-    """
-    def repl(m: re.Match) -> str:
-        expr = m.group(0)
-        return expr.replace('\\"', '"')
-
-    # Target expressions inside curly braces
-    return re.sub(r"\{[^{}]*\}", repl, cmd)
-
-
 def split_shell_pipes(cmd: str) -> Tuple[List[str], bool]:
     """
     Splits command line into pipeline segments, respecting single and double quotes.
@@ -390,23 +374,12 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optio
         modified_cmd = mod_path
         reasons.append("injected user-space toolchain PATH shims")
 
-    # 7. Hermetic Python Runtime Injection & f-string expression sanitization
+    # 7. Hermetic Python Runtime Injection
     if is_inline_python_command(modified_cmd):
-        # Sanitize spurious backslashes in f-strings
-        sanitized_py = sanitize_fstring_expressions(modified_cmd)
-        if sanitized_py != modified_cmd:
-            modified_cmd = sanitized_py
-            reasons.append("sanitized f-string expression quotes")
-
         hermetic_bin = find_hermetic_uv_python_bin()
         if hermetic_bin and "PATH=" not in modified_cmd:
             modified_cmd = f'PATH="{hermetic_bin}:$PATH" {modified_cmd}'
             reasons.append("injected hermetic CPython >= 3.12 for PEP 701 f-string safety")
-
-    # 8. Surgical Tail Sanitization for simple grep / diff pattern searches
-    if should_sanitize_grep_or_diff(cmd):
-        modified_cmd = f"{modified_cmd} || [ $? -eq 1 ]"
-        reasons.append("sanitized pattern search against benign Exit Code 1")
 
     if modified_cmd != cmd:
         return ("allow", modified_cmd, "PSL PreToolUse: " + "; ".join(reasons))

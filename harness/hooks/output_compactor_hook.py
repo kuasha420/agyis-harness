@@ -224,6 +224,10 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
     # Cache state and diagnostics safely
     try:
         target_state_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+    try:
         # Write latest compaction metadata
         (target_state_dir / f"compactor_{conv_id}.json").write_text(
             json.dumps(record, indent=2), encoding="utf-8"
