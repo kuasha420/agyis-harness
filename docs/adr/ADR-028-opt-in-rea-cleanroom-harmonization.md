@@ -3,13 +3,13 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# ADR-0028: Opt-in REA Tooling and Cleanroom Reconstruction Harmonization
+# ADR-028: Opt-in REA Tooling and Cleanroom Reconstruction Harmonization
 
 * **Status**: Accepted (Proposed for v1.0.0-rc4)
 * **Date**: 2026-10-15
 * **Authors**: PSL Lead Architect & Successor Orchestrator 17
 * **Scope**: `harness/`, `docs/`, `skills/`
-* **Document Reference**: `PSL-ADR-0028`
+* **Document Reference**: `PSL-ADR-028`
 * **Supersedes/Replaces**: Re-allocates reserved ADR-028 slot to REA harmonization.
 
 ---
@@ -68,7 +68,7 @@ Per authoritative directive `2026-10-15T20:36:45Z`, REA integration and cleanroo
 
 ### Option 3: Opt-in `--experimental-rea` CLI Flag + Non-Interference Hooks + Cleanroom Decoupling
 - Introduce explicit `--experimental-rea` CLI flags for deep doctor diagnostics, workspace init, and auto-healing.
-- Maintain a zero-delay fast path in standard `agyis doctor` (<0.005s, 0 warnings added).
+- Maintain a zero-delay fast path in standard `agyis doctor` (<0.05s, 0 warnings added).
 - Harmonize lifecycle hooks (`command_safety`, `anti_loop`, `completion_fence`, `output_compactor`) to eliminate false blocks during reverse engineering.
 - Decouple specification authoring from code dirtying in the completion fence.
 - Package `reverse-engineer-anything` as a first-class modular skill.
@@ -180,7 +180,7 @@ flowchart TD
    - `tests/test_rea_doctor.py` asserts that `run_doctor()` without `--experimental-rea` executes in <0.05s and increments 0 warnings when REA is absent.
    - `python3 -m harness.cli doctor` runs in <1.0s on the host workstation.
 2. **Hermetic Test Isolation**:
-   - All tests in `tests/test_rea_doctor.py` and `tests/test_cleanroom_fence.py` mock subprocesses, filesystem paths, and MCP configs. Zero live network calls or heavy disassembler invocations.
+   - All tests in `tests/test_rea_doctor.py` and `tests/test_completion_fence_hook.py` mock subprocesses, filesystem paths, and MCP configs. Zero live network calls or heavy disassembler invocations.
 3. **Completion Fence Contract Tests**:
    - Assert that authoring declarative specifications (`docs/specs/test.md`) does not trap agents in a unit test coercion loop when in specification mode.
    - Assert that authoring executable code (`docs/specs/helper.py`) sets `code_dirty = True`, strictly demanding software unit tests (DEF-01).

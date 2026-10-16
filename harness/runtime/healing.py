@@ -21,7 +21,7 @@ def provision_rea_skill(
     target_skills_dir: Path,
     link: bool = True,
     allow_download: bool = True,
-) -> Optional[Path]:
+) -> Path | None:
     """Dynamically provisions the official reverse-engineer-anything skill without vendoring.
 
     1. Inspects local rea-agents package root via REA metadata or package managers.
@@ -33,7 +33,7 @@ def provision_rea_skill(
         return dest_dir
 
     # 1. Search candidate source skill paths
-    source_skill_dir: Optional[Path] = None
+    source_skill_dir: Path | None = None
 
     from harness.runtime.tool_checks import find_rea_binary
 

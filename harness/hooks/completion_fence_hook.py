@@ -778,18 +778,14 @@ def main() -> None:
             )
             if target_file:
                 record_edit(target_file, conv_id=conv_id, cwd=cwd)
-            print(json.dumps({"decision": "allow"}))
         elif tool_name in ("run_command", "execute_command", "bash"):
             cmd = tool_args.get("CommandLine") or tool_args.get("command") or ""
             exit_code = extract_exit_code(payload)
             if exit_code is not None and cmd:
                 check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, cwd=cwd)
 
-            if is_post_tool_use:
-                print(json.dumps({}))
-            else:
-                print(json.dumps({"decision": "allow"}))
-        elif is_post_tool_use:
+        # PostToolUse contract: Antigravity expects exact JSON {}
+        if is_post_tool_use:
             raw_result = payload.get("toolResponse") or payload.get("result") or payload.get("toolOutput") or {}
             if isinstance(raw_result, str):
                 try:

@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import unittest
+import uuid
 
 from harness.delivery.constants import REPO_ROOT
 from harness.runtime.doctor import run_doctor

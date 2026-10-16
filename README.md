@@ -8,14 +8,14 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity-4285F4.svg)](https://antigravity.google)
 [![Status](https://img.shields.io/badge/Status-Active_Development_(Research_&_POC)-orange.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-820%2F820_Passing_(100%25)-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-816%2F816_Passing_(100%25)-brightgreen.svg)]()
 
 > An open-source empirical audit pipeline and reference extension harness for **Google Antigravity™** by **Purrfect Software Limited (PSL)** under the **Apache-2.0** license.
 
 ---
 
 > [!NOTE]
-> **Project State Notice**: This repository has completed empirical ingestion of **722 real-world developer sessions (219,292 steps, 160,226 tool calls)**, verified isolated lifecycle hooks, codified hermetic testing contracts (820 passing tests in <1.0s), integrated opt-in Reverse Engineer Anything (REA) cleanroom tooling (ADR-0028), and packaged the unified 15-command `agyis` developer CLI suite. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
+> **Project State Notice**: This repository has completed empirical ingestion of **722 real-world developer sessions (219,292 steps, 160,226 tool calls)**, verified isolated lifecycle hooks, codified hermetic testing contracts (816 passing tests in <1.0s), integrated opt-in Reverse Engineer Anything (REA) cleanroom tooling (ADR-028), and packaged the unified 15-command `agyis` developer CLI suite. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
 
 > [!IMPORTANT]
 > **CLI Nomenclature & Backward-Compatibility Lifecycle**: The primary CLI executable is **`agyis`**. The legacy command **`psl`** is maintained as a backward-compatible alias with an active deprecation lifecycle (emitting `DeprecationWarning: 'psl' is deprecated and will be removed in 3 months. Use 'agyis' instead.` to `stderr`). All scripts, documentation, and workflows should use `agyis`.
@@ -184,7 +184,7 @@ The Antigravity engine and PSL Harness operate on a strict **3-Tier Precedence H
 Provides a single modular CLI entrypoint for diagnostics, tests, hooks, and mesh operations (see [docs/official-specs/cli-palette.md](docs/official-specs/cli-palette.md)):
 - `agyis doctor [--matrix <path>] [--heal] [--experimental-rea] [--json]`: Workstation environment diagnostic, zero-sudo auto-healing & opt-in REA provider audit.
 - `agyis hook <hook_name>`: Deterministic lifecycle hook dispatcher via fail-safe runner.
-- `agyis test [-v] [-s <dir>]`: Sub-second hermetic project test runner (<1.0s benchmark, 820 tests).
+- `agyis test [-v] [-s <dir>]`: Sub-second hermetic project test runner (<1.0s benchmark, 816 tests).
 - `agyis audit [stage] [options]`: Empirical telemetry laboratory extraction & analytical pipelines.
 - `agyis skills [name] [--sync] [--json]`: Discover, inspect, and synchronize modular product skills.
 - `agyis agents [name|action] [options]`: Specialist subagent catalog, scaffolding, validation & rehydration.
@@ -252,13 +252,13 @@ Formal cleanroom reconstruction architecture resolving Issue #44 (doctor latency
   ```
 - **Modular `reverse-engineer-anything` Skill**: Packages the upstream `morluto/rea` skill (version 42, 207 MCP tools) with 6 exhaustive reference guides (`android-applications.md`, `connection-and-recovery.md`, `evidence-workflows.md`, `javascript-applications.md`, `native-and-artifacts.md`, `runtime-observation.md`).
 - **Scratch Path Isolation**: Ephemeral analysis scratch paths (`.rea/**`, `decompiled/**`, `artifacts/rea/**`) are exempted from dirty-state tracking.
-- **Official References**: Read [ADR-0028: Opt-in REA Tooling and Cleanroom Reconstruction Harmonization](docs/adr/0028-opt-in-rea-cleanroom-harmonization.md) and [docs/official-specs/rea-antigravity-architecture.md](docs/official-specs/rea-antigravity-architecture.md) (`PSL-SPEC-2026-REA-001`).
+- **Official References**: Read [ADR-028: Opt-in REA Tooling and Cleanroom Reconstruction Harmonization](docs/adr/ADR-028-opt-in-rea-cleanroom-harmonization.md) and [docs/official-specs/rea-antigravity-architecture.md](docs/official-specs/rea-antigravity-architecture.md) (`PSL-SPEC-2026-REA-001`).
 
 ---
 
 ## 🧪 Verification & Test Suite
 
-All 820 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-015 benchmark):
+All 816 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-015 benchmark):
 
 ```bash
 ./agyis test
@@ -266,7 +266,7 @@ All 820 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-
 ```
 
 ```text
-Ran 820 tests in 0.985s
+Ran 816 tests in 0.985s
 OK
 ```
 
