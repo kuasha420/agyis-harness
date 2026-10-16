@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+import subprocess
+import sys
 from typing import Any, Dict, List, Optional
 import unittest
 from unittest.mock import patch
@@ -450,50 +452,74 @@ class TestTier1Features(OpaqueBoxTestCase):
 
     def test_r6_cli_doctor_experimental_rea(self) -> None:
         """Assures 'agyis doctor --experimental-rea' performs deep REA audit and reports diagnostics."""
-        code, out, err = self.run_cli(["doctor", "--experimental-rea", "--json"])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertTrue(data.get("experimental_rea"))
-        self.assertIn("rea_tooling", data)
-        rea_tooling = data["rea_tooling"]
-        self.assertFalse(rea_tooling.get("fast_path"))
-        self.assertIn("status", rea_tooling)
-        self.assertIn("mcp_configured", rea_tooling)
+        mock_candidates = json.dumps({
+            "analysis_provider_candidates": [
+                {"provider": {"name": "Ghidra"}, "availability": {"available": True}},
+                {"provider": {"name": "IDA"}, "availability": {"available": False, "reason": "No license"}},
+            ]
+        })
 
-        # Observable text output contract
-        code_txt, out_txt, err_txt = self.run_cli(["doctor", "--experimental-rea"])
-        self.assertEqual(code_txt, 0)
-        self.assertIn("REA Tooling", out_txt)
+        orig_run = subprocess.run
+
+        def mock_subproc(cmd, *args, **kwargs):
+            cmd_str = " ".join(str(c) for c in cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
+            if "rea" in cmd_str:
+                proc = unittest.mock.MagicMock()
+                proc.returncode = 0
+                proc.stderr = ""
+                if "--version" in cmd_str:
+                    proc.stdout = "rea 6.5.0\n"
+                elif "providers" in cmd_str:
+                    proc.stdout = mock_candidates
+                return proc
+            return orig_run(cmd, *args, **kwargs)
+
+        with unittest.mock.patch("subprocess.run", side_effect=mock_subproc):
+            code, out, err = self.run_cli(["doctor", "--experimental-rea", "--json"])
+            self.assertEqual(code, 0)
+            data = self.parse_json_stdout(out)
+            self.assertTrue(data.get("experimental_rea"))
+            self.assertIn("rea_tooling", data)
+            rea_tooling = data["rea_tooling"]
+            self.assertFalse(rea_tooling.get("fast_path"))
+            self.assertIn("status", rea_tooling)
+            self.assertIn("mcp_configured", rea_tooling)
+
+            # Observable text output contract
+            code_txt, out_txt, err_txt = self.run_cli(["doctor", "--experimental-rea"])
+            self.assertEqual(code_txt, 0)
+            self.assertIn("REA Tooling", out_txt)
 
     def test_r6_cli_init_experimental_rea(self) -> None:
         """Assures 'agyis init --experimental-rea' scaffolds .agents/ledger/ and sets config."""
         target_ws = self.ws / "rea_proj"
         target_ws.mkdir()
 
-        # Step 1: Live execution with --experimental-rea
-        code, out, err = self.run_cli(["init", "--experimental-rea", "--json", str(target_ws)])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertTrue(data.get("success"))
-        self.assertTrue(data.get("experimental_rea"))
+        with unittest.mock.patch("harness.runtime.healing.provision_rea_skill"):
+            # Step 1: Live execution with --experimental-rea
+            code, out, err = self.run_cli(["init", "--experimental-rea", "--json", str(target_ws)])
+            self.assertEqual(code, 0)
+            data = self.parse_json_stdout(out)
+            self.assertTrue(data.get("success"))
+            self.assertTrue(data.get("experimental_rea"))
 
-        # Verify side effects: .agents/ledger directory scaffolded and config set
-        ledger_dir = target_ws / ".agents" / "ledger"
-        self.assertTrue(ledger_dir.is_dir())
-        cfg_file = target_ws / ".agyis" / "config.json"
-        self.assertTrue(cfg_file.is_file())
-        cfg_data = json.loads(cfg_file.read_text(encoding="utf-8"))
-        self.assertTrue(cfg_data.get("experimental_rea"))
+            # Verify side effects: .agents/ledger directory scaffolded and config set
+            ledger_dir = target_ws / ".agents" / "ledger"
+            self.assertTrue(ledger_dir.is_dir())
+            cfg_file = target_ws / ".agyis" / "config.json"
+            self.assertTrue(cfg_file.is_file())
+            cfg_data = json.loads(cfg_file.read_text(encoding="utf-8"))
+            self.assertTrue(cfg_data.get("experimental_rea"))
 
-        # Step 2: Dry-run execution
-        dry_ws = self.ws / "rea_dry_proj"
-        dry_ws.mkdir()
-        code_d, out_d, err_d = self.run_cli(["init", "--experimental-rea", "--dry-run", "--json", str(dry_ws)])
-        self.assertEqual(code_d, 0)
-        data_d = self.parse_json_stdout(out_d)
-        self.assertTrue(data_d.get("dry_run"))
-        self.assertTrue(data_d.get("experimental_rea"))
-        self.assertFalse((dry_ws / ".agents" / "ledger").exists())
+            # Step 2: Dry-run execution
+            dry_ws = self.ws / "rea_dry_proj"
+            dry_ws.mkdir()
+            code_d, out_d, err_d = self.run_cli(["init", "--experimental-rea", "--dry-run", "--json", str(dry_ws)])
+            self.assertEqual(code_d, 0)
+            data_d = self.parse_json_stdout(out_d)
+            self.assertTrue(data_d.get("dry_run"))
+            self.assertTrue(data_d.get("experimental_rea"))
+            self.assertFalse((dry_ws / ".agents" / "ledger").exists())
 
 
 if __name__ == "__main__":

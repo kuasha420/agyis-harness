@@ -23,17 +23,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 __all__ = [
     "REPO_ROOT",
     "check_cli_binary",
-    "check_ghidra_installation",
-    "check_hopper_contract",
-    "check_ida_contract",
-    "check_jadx_contract",
     "check_psl_collision",
     "check_rea_tooling",
     "check_tool",
     "configure_rea_mcp_server",
     "detect_os_family",
     "find_hermetic_uv_python",
-    "find_jdk21_path",
     "find_rea_binary",
     "is_rea_mcp_configured",
     "parse_version",
@@ -451,8 +446,8 @@ def configure_rea_mcp_server(
                     ghidra_dir = str(cand)
                     break
 
-    if jdk21_path is None:
-        jdk21_path = find_jdk21_path()
+    if jdk21_path is None and os.environ.get("JAVA_HOME"):
+        jdk21_path = Path(os.environ["JAVA_HOME"])
 
     configured: List[Path] = []
     errors: List[str] = []
@@ -506,7 +501,7 @@ def _parse_rea_providers(raw_json: str) -> Dict[str, Any]:
     candidates = data.get("analysis_provider_candidates") if isinstance(data, dict) else None
     if candidates is None and isinstance(data, dict) and "providers" in data:
         candidates = data.get("providers")
-    if candidates is None and isinstance(data, list):
+    if candidates is None:
         candidates = data
 
     if isinstance(candidates, list):
@@ -569,249 +564,6 @@ def _parse_rea_providers(raw_json: str) -> Dict[str, Any]:
     return {"active": active, "unavailable": unavailable, "details": details}
 
 
-def _is_jdk21_dir(java_dir: Path) -> bool:
-    """Verify that a directory contains an OpenJDK 21+ installation."""
-    try:
-        if not java_dir.is_dir():
-            return False
-        # 1. Fast check: release metadata file
-        rel_file = java_dir / "release"
-        if rel_file.is_file():
-            content = rel_file.read_text(encoding="utf-8", errors="ignore")
-            m = re.search(r'JAVA_VERSION="?([0-9]+)', content)
-            if m:
-                return int(m.group(1)) >= 21
-        # 2. Check directory name if it explicitly declares 21
-        dir_name = java_dir.name.lower()
-        if "21" in dir_name and ((java_dir / "bin" / "java").is_file() or (java_dir / "bin").is_dir()):
-            return True
-        # 3. Subprocess check on bin/java
-        java_bin = java_dir / "bin" / "java"
-        if java_bin.is_file() and os.access(java_bin, os.X_OK):
-            proc = subprocess.run(
-                [str(java_bin), "-version"],
-                capture_output=True,
-                text=True,
-                timeout=1.5,
-            )
-            combined = (proc.stdout + " " + proc.stderr).strip()
-            m = re.search(r'version "([0-9]+)', combined)
-            if m:
-                return int(m.group(1)) >= 21
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return False
-    return False
-
-
-def find_jdk21_path() -> Optional[Path]:
-    """Traverse dynamic 7-level JVM discovery ladder to identify OpenJDK 21+ runtime."""
-    # Level 1: $JAVA_HOME (if valid JDK 21+ binary exists at $JAVA_HOME/bin/java)
-    java_home = os.environ.get("JAVA_HOME")
-    if java_home:
-        try:
-            p = Path(java_home)
-            if _is_jdk21_dir(p):
-                return p
-        except OSError:
-            pass
-
-    # Level 2: /usr/lib/jvm/java-21-openjdk* (Linux standard OpenJDK path glob)
-    try:
-        jvm_dir = Path("/usr/lib/jvm")
-        if jvm_dir.is_dir():
-            for cand in sorted(jvm_dir.glob("java-21-openjdk*")):
-                if _is_jdk21_dir(cand):
-                    return cand
-    except OSError:
-        pass
-
-    # Level 3: /usr/lib/jvm/java-21-openjdk-amd64 (Ubuntu / Debian multiarch)
-    try:
-        p = Path("/usr/lib/jvm/java-21-openjdk-amd64")
-        if _is_jdk21_dir(p):
-            return p
-    except OSError:
-        pass
-
-    # Level 4: /usr/lib/jvm/jre-21-openjdk (Fedora / RHEL)
-    try:
-        p = Path("/usr/lib/jvm/jre-21-openjdk")
-        if _is_jdk21_dir(p):
-            return p
-    except OSError:
-        pass
-
-    # Level 5: /opt/homebrew/opt/openjdk@21 (macOS Homebrew Apple Silicon)
-    try:
-        p = Path("/opt/homebrew/opt/openjdk@21")
-        if _is_jdk21_dir(p):
-            return p
-    except OSError:
-        pass
-
-    # Level 6: /usr/local/opt/openjdk@21 (macOS Homebrew Intel)
-    try:
-        p = Path("/usr/local/opt/openjdk@21")
-        if _is_jdk21_dir(p):
-            return p
-    except OSError:
-        pass
-
-    # Level 7: macOS PKG installers (Temurin & OpenJDK)
-    try:
-        for cand in [
-            Path("/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home"),
-            Path("/Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home"),
-        ]:
-            if _is_jdk21_dir(cand):
-                return cand
-    except OSError:
-        pass
-
-    return None
-
-
-def check_ghidra_installation(jdk_path: Optional[Path] = None) -> Dict[str, Any]:
-    """Audit Ghidra installation root and headless analyzer."""
-    ghidra_dir_str = os.environ.get("GHIDRA_INSTALL_DIR")
-    ghidra_path: Optional[Path] = None
-    if ghidra_dir_str:
-        p = Path(ghidra_dir_str)
-        if p.is_dir():
-            ghidra_path = p
-    if not ghidra_path:
-        for cand in [Path("/opt/ghidra"), Path("/usr/local/opt/ghidra"), Path.home() / "ghidra"]:
-            if cand.is_dir():
-                ghidra_path = cand
-                break
-
-    if not ghidra_path:
-        return {
-            "status": "optional_missing",
-            "install_dir": None,
-            "headless_analyzer": None,
-            "jdk_compliant": bool(jdk_path),
-            "fallback_chain": ["Rizin", "objdump", "built-in parsers"],
-            "details": "Ghidra installation not found ($GHIDRA_INSTALL_DIR unconfigured).",
-        }
-
-    analyzer = ghidra_path / "support" / "analyzeHeadless"
-    analyzer_ok = analyzer.is_file() and os.access(analyzer, os.X_OK)
-    jdk_ok = bool(jdk_path)
-
-    if analyzer_ok and jdk_ok:
-        return {
-            "status": "ok",
-            "install_dir": str(ghidra_path),
-            "headless_analyzer": str(analyzer),
-            "jdk_compliant": True,
-            "fallback_chain": [],
-            "details": f"Ghidra 12.1+ verified ({ghidra_path}) with analyzeHeadless ready.",
-        }
-    elif not jdk_ok:
-        return {
-            "status": "warning",
-            "install_dir": str(ghidra_path),
-            "headless_analyzer": str(analyzer) if analyzer_ok else None,
-            "jdk_compliant": False,
-            "fallback_chain": ["Rizin", "objdump", "built-in parsers"],
-            "details": f"Ghidra located at {ghidra_path}, but OpenJDK 21+ runtime is missing (fallback to Rizin/objdump).",
-        }
-    else:
-        return {
-            "status": "warning",
-            "install_dir": str(ghidra_path),
-            "headless_analyzer": None,
-            "jdk_compliant": jdk_ok,
-            "fallback_chain": ["Rizin", "objdump", "built-in parsers"],
-            "details": f"Ghidra located at {ghidra_path}, but support/analyzeHeadless executable was not found.",
-        }
-
-
-def check_hopper_contract() -> Dict[str, Any]:
-    """Audit Hopper Headless Contract ($DISPLAY, $WAYLAND_DISPLAY, xvfb-run, or offscreen)."""
-    disp = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
-    if disp:
-        return {
-            "status": "available",
-            "mode": "display_socket",
-            "display": disp,
-            "details": f"Display socket verified ({disp}).",
-        }
-
-    xvfb = shutil.which("xvfb-run")
-    if xvfb:
-        return {
-            "status": "available",
-            "mode": "virtual_framebuffer",
-            "display": None,
-            "details": f"Virtual framebuffer runner available ({xvfb}).",
-        }
-
-    if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
-        return {
-            "status": "available",
-            "mode": "offscreen",
-            "display": None,
-            "details": "QT_QPA_PLATFORM=offscreen configured.",
-        }
-
-    return {
-        "status": "unavailable",
-        "reason": "no display socket",
-        "mode": "headless_fallback",
-        "display": None,
-        "fallback": "Ghidra / Rizin",
-        "details": "No display socket or virtual framebuffer; Hopper will fall back cleanly to Ghidra or Rizin.",
-    }
-
-
-def check_ida_contract() -> Dict[str, Any]:
-    """Audit IDA Pro headless supervisor isolation flags (-A, -B, -o) and sandbox contract."""
-    ida_path = (
-        shutil.which("idat64")
-        or shutil.which("ida64")
-        or shutil.which("idalib-mcp")
-        or (Path(os.environ.get("IDA_DIR", "")) / "idat64" if os.environ.get("IDA_DIR") else None)
-    )
-    is_available = bool(ida_path and (isinstance(ida_path, str) or (isinstance(ida_path, Path) and ida_path.exists())))
-
-    return {
-        "status": "ok" if is_available else "optional_missing",
-        "path": str(ida_path) if is_available else None,
-        "autonomous_flags": ["-A", "-B", "-o"],
-        "sandbox_isolation": True,
-        "details": (
-            f"IDA Pro headless batch supervisor verified ({ida_path}) with flags (-A, -B, -o)."
-            if is_available
-            else "IDA Pro not detected (optional heavy disassembler)."
-        ),
-    }
-
-
-def check_jadx_contract(jdk_path: Optional[Path] = None) -> Dict[str, Any]:
-    """Audit JADX Android decompiler JAR and JDK availability."""
-    jar_env = os.environ.get("REA_JADX_MCP_JAR")
-    jar_path = Path(jar_env) if jar_env else None
-    if not jar_path or not jar_path.is_file():
-        for cand in [Path("/opt/jadx/lib/jadx-headless-mcp.jar"), Path.home() / ".local/share/jadx/jadx-headless-mcp.jar"]:
-            if cand.is_file():
-                jar_path = cand
-                break
-
-    has_jar = bool(jar_path and jar_path.is_file())
-    has_jdk = bool(jdk_path)
-
-    return {
-        "status": "ok" if (has_jar and has_jdk) else "optional_missing",
-        "jar_path": str(jar_path) if has_jar else None,
-        "jdk_available": has_jdk,
-        "details": (
-            f"JADX headless MCP JAR verified ({jar_path}) with JDK."
-            if (has_jar and has_jdk)
-            else "JADX headless MCP JAR unconfigured (optional Android decompiler)."
-        ),
-    }
 
 
 def check_rea_tooling(
@@ -860,12 +612,6 @@ def check_rea_tooling(
     mcp_configured = is_rea_mcp_configured(mcp_config_path)
     rea_bin = find_rea_binary()
 
-    jdk21 = find_jdk21_path()
-    ghidra = check_ghidra_installation(jdk21)
-    hopper = check_hopper_contract()
-    ida = check_ida_contract()
-    jadx = check_jadx_contract(jdk21)
-
     if not rea_bin:
         return {
             "status": "warning",
@@ -875,11 +621,6 @@ def check_rea_tooling(
             "fast_path": False,
             "providers": {"active": [], "unavailable": [], "details": []},
             "mcp_configured": mcp_configured,
-            "jdk21": str(jdk21) if jdk21 else None,
-            "ghidra": ghidra,
-            "hopper": hopper,
-            "ida": ida,
-            "jadx": jadx,
             "remediation": "Install REA via: pnpm add -g rea-agents (or run 'agyis doctor --experimental-rea --heal')",
             "details": "REA binary not found (--experimental-rea requested).",
         }
@@ -933,11 +674,6 @@ def check_rea_tooling(
             "fast_path": False,
             "providers": providers,
             "mcp_configured": mcp_configured,
-            "jdk21": str(jdk21) if jdk21 else None,
-            "ghidra": ghidra,
-            "hopper": hopper,
-            "ida": ida,
-            "jadx": jadx,
             "remediation": f"Update REA to >= {min_version} via: pnpm add -g rea-agents",
             "details": (
                 f"REA {version_str} is outdated (< {min_version}) at {rea_bin}."
@@ -955,11 +691,6 @@ def check_rea_tooling(
             "fast_path": False,
             "providers": providers,
             "mcp_configured": False,
-            "jdk21": str(jdk21) if jdk21 else None,
-            "ghidra": ghidra,
-            "hopper": hopper,
-            "ida": ida,
-            "jadx": jadx,
             "remediation": "Run 'rea setup' or register 'rea' in ~/.gemini/config/mcp_config.json (or run 'agyis doctor --experimental-rea --heal')",
             "details": f"REA {version_str} verified ({rea_bin}), but REA MCP server is not registered in agent configuration.",
         }
@@ -972,11 +703,6 @@ def check_rea_tooling(
         "fast_path": False,
         "providers": providers,
         "mcp_configured": True,
-        "jdk21": str(jdk21) if jdk21 else None,
-        "ghidra": ghidra,
-        "hopper": hopper,
-        "ida": ida,
-        "jadx": jadx,
         "remediation": None,
         "details": f"REA {version_str} verified ({rea_bin}) with MCP registered.",
     }

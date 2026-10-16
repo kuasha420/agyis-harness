@@ -52,11 +52,17 @@ def cmd_install(args: argparse.Namespace) -> int:
     exp_rea = bool(getattr(args, "experimental_rea", False))
     rea_mcp_configured = False
     rea_mcp_errors: List[str] = []
+    rea_skill_provisioned = False
     if exp_rea and result.success and not getattr(args, "dry_run", False):
+        from harness.runtime.healing import provision_rea_skill
         from harness.runtime.tool_checks import configure_rea_mcp_server
 
         configured_paths, rea_mcp_errors = configure_rea_mcp_server()
         rea_mcp_configured = bool(configured_paths)
+
+        global_skills = Path.home() / ".gemini" / "config" / "skills"
+        prov = provision_rea_skill(global_skills, link=True, allow_download=False)
+        rea_skill_provisioned = bool(prov)
 
     if getattr(args, "json", False):
         payload: Dict[str, Any] = {

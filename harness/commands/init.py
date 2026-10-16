@@ -111,6 +111,11 @@ def cmd_init(args: argparse.Namespace) -> int:
             ledger_dir = target_ws / ".agents" / "ledger"
             ledger_dir.mkdir(parents=True, exist_ok=True)
 
+            # Provision REA skill dynamically
+            from harness.runtime.healing import provision_rea_skill
+
+            provision_rea_skill(target_ws / ".agents" / "skills", link=True, allow_download=False)
+
     if getattr(args, "json", False):
         data = {
             "success": res.success,

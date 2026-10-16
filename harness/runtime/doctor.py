@@ -281,32 +281,18 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
             else:
                 print(f" REA Tooling:         [\033[34mINFO\033[0m] -> {rea_t.get('details', '')}")
 
-            # Deep REA diagnostics sweep
-            jdk21_val = rea_t.get("jdk21")
-            if jdk21_val:
-                print(f"   • OpenJDK 21+:     [\033[32mPASS\033[0m] -> {jdk21_val}")
-            else:
-                print("   • OpenJDK 21+:     [\033[33mWARN\033[0m] -> Not found across 7 discovery tiers (required for Ghidra)")
-
-            ghidra_val = rea_t.get("ghidra", {})
-            if ghidra_val.get("status") == "ok":
-                print(f"   • Ghidra Headless: [\033[32mPASS\033[0m] -> {ghidra_val.get('install_dir')} (analyzeHeadless ready)")
-            elif ghidra_val.get("status") == "warning":
-                print(f"   • Ghidra Headless: [\033[33mWARN\033[0m] -> {ghidra_val.get('details')}")
-            else:
-                print("   • Ghidra Headless: [\033[34mINFO\033[0m] -> Unconfigured (fallback chain active)")
-
-            hopper_val = rea_t.get("hopper", {})
-            if hopper_val.get("status") == "available":
-                print(f"   • Hopper Contract: [\033[32mPASS\033[0m] -> {hopper_val.get('details')}")
-            else:
-                print("   • Hopper Contract: [\033[34mINFO\033[0m] -> No display socket (graceful fallback to Ghidra/Rizin)")
-
-            ida_val = rea_t.get("ida", {})
-            if ida_val.get("status") == "ok":
-                print(f"   • IDA Supervisor:  [\033[32mPASS\033[0m] -> Headless batch flags (-A, -B, -o) verified ({ida_val.get('path')})")
-            else:
-                print("   • IDA Supervisor:  [\033[34mINFO\033[0m] -> Not installed (optional disassembler)")
+            # Dynamic render of native provider candidates from rea providers --json
+            prov_data = rea_t.get("providers") or {}
+            details = prov_data.get("details") or []
+            for p in details:
+                name = p.get("name") or "Unknown"
+                is_avail = p.get("available")
+                reason = p.get("reason")
+                if is_avail:
+                    print(f"   • {name:20}: [\033[32mPASS\033[0m] -> Active & verified")
+                else:
+                    reason_str = f" ({reason})" if reason else ""
+                    print(f"   • {name:20}: [\033[34mINFO\033[0m] -> Unavailable{reason_str}")
     print("-" * 70)
 
     symbols = {

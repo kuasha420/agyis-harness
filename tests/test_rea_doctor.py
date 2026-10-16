@@ -30,13 +30,9 @@ from harness.commands.install import cmd_install
 from harness.runtime.doctor import DEFAULT_MATRIX, print_cli_report, run_doctor
 from harness.runtime.healing import heal_environment, heal_rea_tooling
 from harness.runtime.tool_checks import (
-    _is_jdk21_dir,
-    check_ghidra_installation,
-    check_hopper_contract,
-    check_ida_contract,
-    check_jadx_contract,
+    _parse_rea_providers,
     check_rea_tooling,
-    find_jdk21_path,
+    find_rea_binary,
     is_rea_mcp_configured,
 )
 
@@ -116,7 +112,6 @@ class TestReaDoctorDeepAudit(unittest.TestCase):
 
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
              patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
-             patch("harness.runtime.tool_checks.find_jdk21_path", return_value=Path("/usr/lib/jvm/java-21-openjdk")), \
              patch("subprocess.run", side_effect=mock_subproc):
             audit = run_doctor(DEFAULT_MATRIX, experimental_rea=True)
             rea_info = audit["rea_tooling"]
@@ -126,7 +121,6 @@ class TestReaDoctorDeepAudit(unittest.TestCase):
             self.assertTrue(rea_info["mcp_configured"])
             self.assertEqual(rea_info["providers"]["active"], ["Ghidra"])
             self.assertEqual(rea_info["providers"]["unavailable"], ["IDA MCP adapter"])
-            self.assertEqual(rea_info["jdk21"], "/usr/lib/jvm/java-21-openjdk")
 
     def test_doctor_deep_audit_outdated_rea_warns(self):
         """Verifies deep audit adds warning when REA CLI version is < 6.0.0."""
@@ -151,7 +145,8 @@ class TestReaDoctorDeepAudit(unittest.TestCase):
     def test_doctor_deep_audit_missing_rea_warns(self):
         """Verifies deep audit adds warning when REA binary is absent and opt-in was requested."""
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=None), \
-             patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=False):
+             patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=False), \
+             patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="1.0.0\n", stderr="")):
             audit = run_doctor(DEFAULT_MATRIX, experimental_rea=True)
             self.assertEqual(audit["rea_tooling"]["status"], "warning")
             self.assertGreaterEqual(audit["summary"]["warning"], 1)
@@ -177,130 +172,75 @@ class TestReaDoctorDeepAudit(unittest.TestCase):
             self.assertGreaterEqual(audit["summary"]["warning"], 1)
 
 
-class TestJvmDiscoveryLadder(unittest.TestCase):
-    """Verifies all 7 tiers of the dynamic OpenJDK 21 discovery ladder."""
+class TestReaNativeProvidersParsing(unittest.TestCase):
+    """Verifies parsing of native `rea providers --json` output (ADR-032)."""
 
-    def test_ladder_tier_1_java_home(self):
-        """Tier 1: $JAVA_HOME with valid release file."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_p = Path(tmp_dir)
-            (tmp_p / "release").write_text('JAVA_VERSION="21.0.3"\n', encoding="utf-8")
-            with patch.dict(os.environ, {"JAVA_HOME": str(tmp_p)}):
-                self.assertEqual(find_jdk21_path(), tmp_p)
+    def test_parse_analysis_provider_candidates(self):
+        """Verifies structured candidate list with availability dicts and reasons."""
+        raw_json = json.dumps({
+            "analysis_provider_candidates": [
+                {
+                    "provider": {"name": "Ghidra", "id": "ghidra"},
+                    "availability": {"available": True, "reason": None},
+                },
+                {
+                    "provider": {"name": "IDA Pro", "id": "ida"},
+                    "availability": {"available": False, "reason": "No IDA license located"},
+                },
+                {
+                    "provider": {"name": "Rizin", "id": "rizin"},
+                    "availability": {"available": True},
+                },
+            ]
+        })
+        parsed = _parse_rea_providers(raw_json)
+        self.assertEqual(parsed["active"], ["Ghidra", "Rizin"])
+        self.assertEqual(parsed["unavailable"], ["IDA Pro"])
+        self.assertEqual(len(parsed["details"]), 3)
+        self.assertEqual(parsed["details"][1]["reason"], "No IDA license located")
 
-    def test_ladder_tier_2_linux_openjdk_glob(self):
-        """Tier 2: /usr/lib/jvm/java-21-openjdk* glob resolution."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_p = Path(tmp_dir)
-            cand = tmp_p / "java-21-openjdk-21.0.2"
-            cand.mkdir()
-            (cand / "release").write_text('JAVA_VERSION="21.0.2"\n', encoding="utf-8")
-            with patch.dict(os.environ, {"JAVA_HOME": ""}), \
-                 patch("harness.runtime.tool_checks.Path", side_effect=lambda *p: tmp_p if str(p[0]) == "/usr/lib/jvm" else Path(*p)):
-                found = find_jdk21_path()
-                self.assertIsNotNone(found)
+    def test_parse_flat_candidates_list(self):
+        """Verifies candidate dicts without nested provider or availability objects."""
+        raw_json = json.dumps({
+            "providers": [
+                {"name": "Hopper", "available": True},
+                {"name": "JADX", "available": False, "reason": "jadx not found on PATH"},
+            ]
+        })
+        parsed = _parse_rea_providers(raw_json)
+        self.assertEqual(parsed["active"], ["Hopper"])
+        self.assertEqual(parsed["unavailable"], ["JADX"])
+        self.assertEqual(parsed["details"][0]["available"], True)
+        self.assertEqual(parsed["details"][1]["reason"], "jadx not found on PATH")
 
-    def test_ladder_tier_3_ubuntu_debian_multiarch(self):
-        """Tier 3: /usr/lib/jvm/java-21-openjdk-amd64 standard path."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_p = Path(tmp_dir)
-            cand = tmp_p / "java-21-openjdk-amd64"
-            cand.mkdir()
-            (cand / "release").write_text('JAVA_VERSION="21.0.1"\n', encoding="utf-8")
+    def test_parse_candidates_dict_mapping(self):
+        """Verifies dictionary mapping candidate names to availability structures."""
+        raw_json = json.dumps({
+            "ghidra": True,
+            "ida": {"available": False, "reason": "No headless binary"},
+            "rizin": {"status": "available"},
+        })
+        parsed = _parse_rea_providers(raw_json)
+        self.assertIn("ghidra", parsed["active"])
+        self.assertIn("rizin", parsed["active"])
+        self.assertIn("ida", parsed["unavailable"])
+        ida_detail = next(d for d in parsed["details"] if d["name"] == "ida")
+        self.assertEqual(ida_detail["reason"], "No headless binary")
 
-            self.assertTrue(_is_jdk21_dir(cand))
+    def test_parse_string_list_candidates(self):
+        """Verifies simple list of provider name strings."""
+        raw_json = json.dumps(["ghidra", "hopper", "cutter"])
+        parsed = _parse_rea_providers(raw_json)
+        self.assertEqual(parsed["active"], ["ghidra", "hopper", "cutter"])
+        self.assertEqual(parsed["unavailable"], [])
 
-    def test_ladder_tier_5_macos_homebrew_arm(self):
-        """Tier 5: /opt/homebrew/opt/openjdk@21 Apple Silicon path."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_p = Path(tmp_dir)
-            cand = tmp_p / "openjdk@21"
-            cand.mkdir()
-            (cand / "bin").mkdir()
-            (cand / "bin" / "java").touch()
-            self.assertTrue(_is_jdk21_dir(cand))
-
-    def test_ladder_none_found(self):
-        """Ladder exhausts all tiers cleanly returning None when JDK 21+ absent."""
-        with patch.dict(os.environ, {"JAVA_HOME": "/nonexistent/path"}):
-            with patch("pathlib.Path.is_dir", return_value=False):
-                self.assertIsNone(find_jdk21_path())
-
-
-class TestDisassemblerContracts(unittest.TestCase):
-    """Verifies Ghidra, Hopper, IDA, and JADX architectural contracts."""
-
-    def test_ghidra_headless_analyzer_ok(self):
-        """Verifies Ghidra check passes when analyzeHeadless exists and JDK 21 is provided."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            ghidra_dir = Path(tmp_dir) / "ghidra"
-            support_dir = ghidra_dir / "support"
-            support_dir.mkdir(parents=True)
-            analyzer = support_dir / "analyzeHeadless"
-            analyzer.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            analyzer.chmod(0o755)
-
-            jdk_path = Path("/usr/lib/jvm/java-21-openjdk")
-            with patch.dict(os.environ, {"GHIDRA_INSTALL_DIR": str(ghidra_dir)}):
-                res = check_ghidra_installation(jdk_path=jdk_path)
-                self.assertEqual(res["status"], "ok")
-                self.assertEqual(res["install_dir"], str(ghidra_dir))
-                self.assertEqual(res["headless_analyzer"], str(analyzer))
-                self.assertTrue(res["jdk_compliant"])
-                self.assertEqual(res["fallback_chain"], [])
-
-    def test_ghidra_missing_jdk21_reports_fallback(self):
-        """Verifies Ghidra warns and reports fallback chain when JDK 21 is missing."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            ghidra_dir = Path(tmp_dir) / "ghidra"
-            support_dir = ghidra_dir / "support"
-            support_dir.mkdir(parents=True)
-            analyzer = support_dir / "analyzeHeadless"
-            analyzer.write_text("#!/bin/sh\n", encoding="utf-8")
-            analyzer.chmod(0o755)
-
-            with patch.dict(os.environ, {"GHIDRA_INSTALL_DIR": str(ghidra_dir)}):
-                res = check_ghidra_installation(jdk_path=None)
-                self.assertEqual(res["status"], "warning")
-                self.assertFalse(res["jdk_compliant"])
-                self.assertEqual(res["fallback_chain"], ["Rizin", "objdump", "built-in parsers"])
-
-    def test_hopper_display_socket_contract(self):
-        """Verifies Hopper passes when $DISPLAY or $WAYLAND_DISPLAY is available."""
-        with patch.dict(os.environ, {"DISPLAY": ":0", "WAYLAND_DISPLAY": ""}):
-            res = check_hopper_contract()
-            self.assertEqual(res["status"], "available")
-            self.assertEqual(res["mode"], "display_socket")
-
-        with patch.dict(os.environ, {"DISPLAY": "", "WAYLAND_DISPLAY": "wayland-0"}):
-            res = check_hopper_contract()
-            self.assertEqual(res["status"], "available")
-            self.assertEqual(res["mode"], "display_socket")
-
-    def test_hopper_xvfb_virtual_framebuffer_contract(self):
-        """Verifies Hopper uses virtual framebuffer when display is missing but xvfb-run exists."""
-        with patch.dict(os.environ, {"DISPLAY": "", "WAYLAND_DISPLAY": "", "QT_QPA_PLATFORM": ""}), \
-             patch("shutil.which", side_effect=lambda x: "/usr/bin/xvfb-run" if x == "xvfb-run" else None):
-            res = check_hopper_contract()
-            self.assertEqual(res["status"], "available")
-            self.assertEqual(res["mode"], "virtual_framebuffer")
-
-    def test_hopper_no_display_clean_degradation(self):
-        """Verifies Hopper gracefully degrades without throwing when headless and no xvfb."""
-        with patch.dict(os.environ, {"DISPLAY": "", "WAYLAND_DISPLAY": "", "QT_QPA_PLATFORM": ""}), \
-             patch("shutil.which", return_value=None):
-            res = check_hopper_contract()
-            self.assertEqual(res["status"], "unavailable")
-            self.assertEqual(res["reason"], "no display socket")
-            self.assertEqual(res["fallback"], "Ghidra / Rizin")
-
-    def test_ida_contract_autonomous_flags(self):
-        """Verifies IDA contract confirms autonomous batch flags (-A, -B, -o) and sandbox isolation."""
-        with patch("shutil.which", side_effect=lambda x: "/opt/ida/idat64" if x == "idat64" else None):
-            res = check_ida_contract()
-            self.assertEqual(res["status"], "ok")
-            self.assertEqual(res["autonomous_flags"], ["-A", "-B", "-o"])
-            self.assertTrue(res["sandbox_isolation"])
+    def test_parse_corrupted_json_graceful_degradation(self):
+        """Verifies corrupted or invalid JSON returns empty collections without failing."""
+        for invalid in ["", "{not valid json}", "12345", "null", "true"]:
+            parsed = _parse_rea_providers(invalid)
+            self.assertEqual(parsed["active"], [])
+            self.assertEqual(parsed["unavailable"], [])
+            self.assertEqual(parsed["details"], [])
 
 
 class TestReaAutoHealing(unittest.TestCase):
@@ -321,8 +261,7 @@ class TestReaAutoHealing(unittest.TestCase):
 
             with patch("pathlib.Path.home", return_value=tmp_home), \
                  patch("shutil.which", side_effect=lambda x: "/usr/bin/pnpm" if x == "pnpm" else None), \
-                 patch("harness.runtime.tool_checks.find_jdk21_path", return_value=Path("/usr/lib/jvm/java-21")), \
-                 patch.dict(os.environ, {"GHIDRA_INSTALL_DIR": "/opt/ghidra"}), \
+                 patch.dict(os.environ, {"JAVA_HOME": "/usr/lib/jvm/java-21", "GHIDRA_INSTALL_DIR": "/opt/ghidra"}), \
                  patch("sys.stdout", new_callable=io.StringIO), \
                  patch("subprocess.run", side_effect=mock_subproc):
                 audit = {
@@ -396,9 +335,11 @@ class TestReaCliFlagsAndProvisioning(unittest.TestCase):
                 experimental_rea=True,
             )
 
-            with patch("sys.stdout", new_callable=io.StringIO):
+            with patch("sys.stdout", new_callable=io.StringIO), \
+                 patch("harness.runtime.healing.provision_rea_skill") as mock_prov:
                 code = cmd_init(args)
             self.assertEqual(code, 0)
+            mock_prov.assert_called_once()
 
             # Assert .agyis/config.json exists with experimental_rea: true
             cfg_p = ws_dir / ".agyis" / "config.json"
@@ -432,9 +373,11 @@ class TestReaCliFlagsAndProvisioning(unittest.TestCase):
 
             with patch("pathlib.Path.home", return_value=tmp_home), \
                  patch("sys.stdout", new_callable=io.StringIO), \
+                 patch("harness.runtime.healing.provision_rea_skill") as mock_prov, \
                  patch("harness.delivery.PluginInstaller.install", return_value=MagicMock(success=True, mode="wheel", target_dir=tmp_home, source_dir=tmp_home, items_installed=[], message="Installed")):
                 code = cmd_install(args)
             self.assertEqual(code, 0)
+            mock_prov.assert_called_once()
             self.assertTrue(cfg_p.is_file())
             data = json.loads(cfg_p.read_text(encoding="utf-8"))
             self.assertIn("rea", data.get("mcpServers", {}))
