@@ -335,6 +335,39 @@ class TestTier2Boundaries(OpaqueBoxTestCase):
         self.assertIn("validations:", content)
         self.assertIn("required:", content)
 
+    # =========================================================================
+    # Domain 6: REA Fast-Path Boundaries & Non-Interference (Requirement R6)
+    # =========================================================================
+
+    def test_boundary_doctor_fast_path_omits_rea_warnings_and_preserves_latency(self) -> None:
+        """Assures default doctor runs zero-delay fast path without REA warnings in sub-second latency."""
+        import time
+
+        # Nominal fast path execution
+        t0 = time.perf_counter()
+        code, out, err = self.run_cli(["doctor", "--json"])
+        elapsed = time.perf_counter() - t0
+
+        self.assertEqual(code, 0)
+        self.assertLess(elapsed, 1.0, f"Doctor fast-path exceeded 1.0s benchmark: {elapsed:.3f}s")
+        data = self.parse_json_stdout(out)
+        self.assertFalse(data.get("experimental_rea", False))
+        rea_info = data.get("rea_tooling", {})
+        self.assertTrue(rea_info.get("fast_path", False))
+        self.assertNotEqual(rea_info.get("status"), "warning")
+
+        # Adverse condition: restricted PATH where 'rea' binary is completely missing
+        with unittest.mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}):
+            code_no_rea, out_no_rea, err_no_rea = self.run_cli(["doctor", "--json"])
+            self.assertEqual(code_no_rea, 0)
+            data_no_rea = self.parse_json_stdout(out_no_rea)
+            self.assertFalse(data_no_rea.get("experimental_rea", False))
+            rea_no_rea = data_no_rea.get("rea_tooling", {})
+            self.assertTrue(rea_no_rea.get("fast_path", False))
+            # Missing REA on fast path must never trigger a warning status
+            self.assertIn(rea_no_rea.get("status"), ["ok", "optional_missing"])
+            self.assertNotEqual(rea_no_rea.get("status"), "warning")
+
 
 if __name__ == "__main__":
     unittest.main()

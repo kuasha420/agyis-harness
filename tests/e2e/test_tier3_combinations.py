@@ -182,6 +182,50 @@ class TestTier3Combinations(OpaqueBoxTestCase):
         _, stop3 = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
         self.assertEqual(stop3.get("decision"), "allow")
 
+    def test_cross_skills_sync_includes_reverse_engineer_anything(self) -> None:
+        """Assures 'agyis skills --sync' synchronizes reverse-engineer-anything and reference guides."""
+        # Execute workspace skill synchronization
+        code_s, out_s, err_s = self.run_cli(["skills", "--sync", "-w", str(self.ws)])
+        self.assertEqual(code_s, 0)
+
+        # Verify reverse-engineer-anything skill directory and manifest
+        rea_skill_dir = self.ws / ".agents" / "skills" / "reverse-engineer-anything"
+        self.assertTrue(rea_skill_dir.is_dir())
+        skill_file = rea_skill_dir / "SKILL.md"
+        self.assertTrue(skill_file.is_file())
+
+        content = skill_file.read_text(encoding="utf-8")
+        self.assertIn("name: reverse-engineer-anything", content)
+        self.assertIn("tool_count: 207", content)
+
+        # Verify all 6 reference guides copied recursively
+        ref_dir = rea_skill_dir / "references"
+        self.assertTrue(ref_dir.is_dir())
+        expected_refs = [
+            "android-applications.md",
+            "connection-and-recovery.md",
+            "evidence-workflows.md",
+            "javascript-applications.md",
+            "native-and-artifacts.md",
+            "runtime-observation.md",
+        ]
+        for ref in expected_refs:
+            ref_path = ref_dir / ref
+            self.assertTrue(ref_path.is_file(), f"Missing expected REA reference guide: {ref}")
+            self.assertGreater(ref_path.stat().st_size, 100)
+
+        # Verify other modular skills coexist seamlessly
+        self.assertTrue((self.ws / ".agents" / "skills" / "storage-ops" / "SKILL.md").is_file())
+        self.assertTrue((self.ws / ".agents" / "skills" / "audio-ops" / "SKILL.md").is_file())
+
+        # Inspect public listing contract
+        code_l, out_l, err_l = self.run_cli(["skills", "--json"])
+        self.assertEqual(code_l, 0)
+        skills_data = self.parse_json_stdout(out_l)
+        rea_entry = next((s for s in skills_data if s.get("name") == "reverse-engineer-anything"), None)
+        self.assertIsNotNone(rea_entry)
+        self.assertEqual(rea_entry.get("name"), "reverse-engineer-anything")
+
 
 if __name__ == "__main__":
     unittest.main()

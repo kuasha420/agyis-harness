@@ -444,6 +444,57 @@ class TestTier1Features(OpaqueBoxTestCase):
         cfg_content = self._load_template_content("config.yml")
         self.assertIn("blank_issues_enabled", cfg_content)
 
+    # =========================================================================
+    # R6: REA Cleanroom Architecture & Opt-In Diagnostics (Requirement R6)
+    # =========================================================================
+
+    def test_r6_cli_doctor_experimental_rea(self) -> None:
+        """Assures 'agyis doctor --experimental-rea' performs deep REA audit and reports diagnostics."""
+        code, out, err = self.run_cli(["doctor", "--experimental-rea", "--json"])
+        self.assertEqual(code, 0)
+        data = self.parse_json_stdout(out)
+        self.assertTrue(data.get("experimental_rea"))
+        self.assertIn("rea_tooling", data)
+        rea_tooling = data["rea_tooling"]
+        self.assertFalse(rea_tooling.get("fast_path"))
+        self.assertIn("status", rea_tooling)
+        self.assertIn("mcp_configured", rea_tooling)
+
+        # Observable text output contract
+        code_txt, out_txt, err_txt = self.run_cli(["doctor", "--experimental-rea"])
+        self.assertEqual(code_txt, 0)
+        self.assertIn("REA Tooling", out_txt)
+
+    def test_r6_cli_init_experimental_rea(self) -> None:
+        """Assures 'agyis init --experimental-rea' scaffolds .agents/ledger/ and sets config."""
+        target_ws = self.ws / "rea_proj"
+        target_ws.mkdir()
+
+        # Step 1: Live execution with --experimental-rea
+        code, out, err = self.run_cli(["init", "--experimental-rea", "--json", str(target_ws)])
+        self.assertEqual(code, 0)
+        data = self.parse_json_stdout(out)
+        self.assertTrue(data.get("success"))
+        self.assertTrue(data.get("experimental_rea"))
+
+        # Verify side effects: .agents/ledger directory scaffolded and config set
+        ledger_dir = target_ws / ".agents" / "ledger"
+        self.assertTrue(ledger_dir.is_dir())
+        cfg_file = target_ws / ".agyis" / "config.json"
+        self.assertTrue(cfg_file.is_file())
+        cfg_data = json.loads(cfg_file.read_text(encoding="utf-8"))
+        self.assertTrue(cfg_data.get("experimental_rea"))
+
+        # Step 2: Dry-run execution
+        dry_ws = self.ws / "rea_dry_proj"
+        dry_ws.mkdir()
+        code_d, out_d, err_d = self.run_cli(["init", "--experimental-rea", "--dry-run", "--json", str(dry_ws)])
+        self.assertEqual(code_d, 0)
+        data_d = self.parse_json_stdout(out_d)
+        self.assertTrue(data_d.get("dry_run"))
+        self.assertTrue(data_d.get("experimental_rea"))
+        self.assertFalse((dry_ws / ".agents" / "ledger").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
