@@ -146,6 +146,8 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_skills.add_argument("--workspace", "-w", nargs="?", const=True, default=None, help="Sync to workspace (.agents/skills) instead of global/repo")
     p_skills.add_argument("--no-dedup", action="store_true", help="Disable deduplication when syncing skills")
     p_skills.add_argument("--prune-duplicates", action="store_true", help="Prune redundant workspace skills that shadow plugin skills")
+    p_skills.add_argument("--dry-run", action="store_true", help="Simulate pruning duplicate skills without modifying disk")
+    p_skills.add_argument("--config-dir", type=Path, default=None, help="Target configuration directory (default: ~/.gemini/config)")
     p_skills.add_argument("--json", action="store_true", help="Output skills in JSON format")
 
     # agents

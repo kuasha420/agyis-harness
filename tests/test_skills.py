@@ -21,6 +21,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from harness.cli import build_parser, main
 from harness.commands.skills import cmd_skills
 
 from harness.skills import (
@@ -913,6 +914,25 @@ class TestPruneDuplicateSkills(unittest.TestCase):
             self.assertIn("code-review", output)
             self.assertFalse((self.ws_skills_dir / "code-review").exists())
             self.assertTrue((self.ws_skills_dir / "custom-repo-skill").exists())
+
+    def test_prune_duplicates_cli_parser_options(self) -> None:
+        """CLI parser accepts --dry-run and --config-dir flags on skills subcommand."""
+        parser = build_parser()
+        args = parser.parse_args(["skills", "--prune-duplicates", "--dry-run"])
+        self.assertTrue(args.dry_run)
+        self.assertTrue(args.prune_duplicates)
+
+        args_cfg = parser.parse_args(["skills", "--prune-duplicates", "--config-dir", "/tmp/cfg"])
+        self.assertEqual(args_cfg.config_dir, Path("/tmp/cfg"))
+
+    def test_prune_duplicates_cli_main_invocation(self) -> None:
+        """python3 -m harness.cli skills --prune-duplicates --dry-run executes successfully via main()."""
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["skills", "--prune-duplicates", "--dry-run"])
+            self.assertEqual(code, 0)
+
+
+SkillPruneDuplicatesTests = TestPruneDuplicateSkills
 
 
 if __name__ == "__main__":
