@@ -145,6 +145,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_skills.add_argument("--override", action="store_true", help="Force overwrite existing skill files")
     p_skills.add_argument("--workspace", "-w", nargs="?", const=True, default=None, help="Sync to workspace (.agents/skills) instead of global/repo")
     p_skills.add_argument("--no-dedup", action="store_true", help="Disable deduplication when syncing skills")
+    p_skills.add_argument("--prune-duplicates", action="store_true", help="Prune redundant workspace skills that shadow plugin skills")
     p_skills.add_argument("--json", action="store_true", help="Output skills in JSON format")
 
     # agents

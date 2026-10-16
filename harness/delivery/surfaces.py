@@ -92,6 +92,111 @@ def enforce_single_source_agents_impl(
     return removed
 
 
+def enforce_single_source_skills(
+    config_dir: Path | str,
+    workspace_dir: Optional[Path | str] = None,
+    dry_run: bool = False,
+    plugin_skills_dir: Optional[Path | str] = None,
+    target: Optional[Path] = None,
+    source_dir: Optional[Path] = None,
+) -> List[str]:
+    """
+    Enforces single-source skill delivery (Issue #52).
+    Removes standalone duplicate skill directories in ~/.gemini/config/skills/
+    if already supplied by the plugin bundle. Also prunes redundant workspace
+    duplicate skills from <workspace>/.agents/skills/ when workspace_dir is provided.
+    """
+    cfg = Path(config_dir).resolve()
+    removed: List[str] = []
+
+    plugin_skill_names: Set[str] = set()
+    if plugin_skills_dir:
+        p_dir = Path(plugin_skills_dir).resolve()
+        if p_dir.is_dir():
+            for item in p_dir.iterdir():
+                if item.is_dir() and not item.name.startswith("."):
+                    if (item / "SKILL.md").is_file() or any(item.glob("*.md")):
+                        plugin_skill_names.add(item.name)
+
+    if not plugin_skill_names:
+        plugins_root = cfg / "plugins"
+        if plugins_root.is_dir():
+            for plugin_dir in plugins_root.iterdir():
+                if plugin_dir.is_dir() and not plugin_dir.name.startswith("."):
+                    skills_sub = plugin_dir / "skills"
+                    if skills_sub.is_dir():
+                        for item in skills_sub.iterdir():
+                            if item.is_dir() and not item.name.startswith("."):
+                                if (item / "SKILL.md").is_file() or any(item.glob("*.md")):
+                                    plugin_skill_names.add(item.name)
+
+    if not plugin_skill_names:
+        repo_skills = Path(__file__).resolve().parent.parent / "skills"
+        if repo_skills.is_dir():
+            for item in repo_skills.iterdir():
+                if item.is_dir() and not item.name.startswith("."):
+                    if (item / "SKILL.md").is_file() or any(item.glob("*.md")):
+                        plugin_skill_names.add(item.name)
+
+    if not plugin_skill_names:
+        return []
+
+    candidate_dirs = [cfg / "skills"]
+    if target is not None and target.parent.name == "plugins":
+        candidate_dirs.append(target.parent.parent / "skills")
+
+    seen_dirs: Set[Path] = set()
+    for cand_dir in candidate_dirs:
+        resolved_cand = cand_dir.resolve()
+        if resolved_cand in seen_dirs:
+            continue
+        seen_dirs.add(resolved_cand)
+
+        if not cand_dir.exists() or not cand_dir.is_dir():
+            continue
+
+        if source_dir is not None:
+            try:
+                if resolved_cand.is_relative_to(Path(source_dir).resolve()):
+                    continue
+            except (ValueError, OSError):
+                pass
+
+        for sname in plugin_skill_names:
+            dup_dir = cand_dir / sname
+            if dup_dir.exists():
+                if not dry_run:
+                    try:
+                        if dup_dir.is_symlink():
+                            dup_dir.unlink()
+                        elif dup_dir.is_dir():
+                            shutil.rmtree(dup_dir)
+                    except OSError:
+                        continue
+                removed.append(str(dup_dir))
+
+    if workspace_dir is not None:
+        ws_root = Path(workspace_dir).resolve()
+        from harness.utils.workspace import is_harness_workspace
+        if not is_harness_workspace(ws_root):
+            ws_skills = ws_root / ".agents" / "skills"
+            if ws_skills.is_dir():
+                for sname in plugin_skill_names:
+                    dup_ws_dir = ws_skills / sname
+                    if dup_ws_dir.exists():
+                        if not dry_run:
+                            try:
+                                if dup_ws_dir.is_symlink():
+                                    dup_ws_dir.unlink()
+                                elif dup_ws_dir.is_dir():
+                                    shutil.rmtree(dup_ws_dir)
+                            except OSError:
+                                continue
+                        removed.append(str(dup_ws_dir))
+
+    return removed
+
+
 def sync_surfaces_impl(
     surfaces: List[Path],
     config_dir: Path,

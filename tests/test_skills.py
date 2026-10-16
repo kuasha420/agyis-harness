@@ -13,9 +13,15 @@ and filesystem synchronization between harness/skills and .agents/skills.
 
 from __future__ import annotations
 
+import argparse
+import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+
+from harness.commands.skills import cmd_skills
 
 from harness.skills import (
     ARCHITECTURAL_ROLE_PRESETS,
@@ -844,6 +850,69 @@ class TestModularSkills(unittest.TestCase):
         (ws_sh_scripts / "scripts").mkdir()
         (ws_sh_scripts / "scripts" / "run.sh").write_text("#!/bin/bash\necho run\n", encoding="utf-8")
         self.assertEqual(detect_workspace_stack(ws_sh_scripts), "shell")
+
+
+class TestPruneDuplicateSkills(unittest.TestCase):
+    """Hermetic unit tests for 'agyis skills --prune-duplicates' CLI command (Issue #52)."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base_path = Path(self.temp_dir.name)
+        self.cfg_dir = self.base_path / "config"
+        self.ws_dir = self.base_path / "workspace"
+        self.cfg_dir.mkdir(parents=True)
+        self.ws_dir.mkdir(parents=True)
+
+        # Setup mock plugin skills
+        self.plugin_skills_dir = self.cfg_dir / "plugins" / "psl-agy-harness" / "skills"
+        (self.plugin_skills_dir / "code-review").mkdir(parents=True)
+        (self.plugin_skills_dir / "code-review" / "SKILL.md").write_text("# Plugin Code Review\n", encoding="utf-8")
+
+        # Setup mock workspace skills
+        self.ws_skills_dir = self.ws_dir / ".agents" / "skills"
+        (self.ws_skills_dir / "code-review").mkdir(parents=True)
+        (self.ws_skills_dir / "code-review" / "SKILL.md").write_text("# Redundant Code Review\n", encoding="utf-8")
+        (self.ws_skills_dir / "custom-repo-skill").mkdir(parents=True)
+        (self.ws_skills_dir / "custom-repo-skill" / "SKILL.md").write_text("# Unique Custom Skill\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_prune_duplicates_cli_dry_run(self) -> None:
+        """--prune-duplicates --dry-run reports candidates without removing files."""
+        args = argparse.Namespace(
+            prune_duplicates=True,
+            workspace=str(self.ws_dir),
+            config_dir=str(self.cfg_dir),
+            dry_run=True,
+            json=True,
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_skills(args)
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertTrue(data["dry_run"])
+            self.assertEqual(data["total_pruned"], 1)
+            self.assertIn("code-review", data["pruned_workspace"][0])
+            self.assertTrue((self.ws_skills_dir / "code-review").exists())
+
+    def test_prune_duplicates_cli_live_execution(self) -> None:
+        """--prune-duplicates purges redundant workspace duplicate and preserves custom skills."""
+        args = argparse.Namespace(
+            prune_duplicates=True,
+            workspace=str(self.ws_dir),
+            config_dir=str(self.cfg_dir),
+            dry_run=False,
+            json=False,
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_skills(args)
+            self.assertEqual(code, 0)
+            output = mock_out.getvalue()
+            self.assertIn("Pruned 1 duplicate skill(s)", output)
+            self.assertIn("code-review", output)
+            self.assertFalse((self.ws_skills_dir / "code-review").exists())
+            self.assertTrue((self.ws_skills_dir / "custom-repo-skill").exists())
 
 
 if __name__ == "__main__":

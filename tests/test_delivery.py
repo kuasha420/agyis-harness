@@ -41,6 +41,7 @@ from harness.delivery import (
     DeliveryResult,
     PluginInstaller,
     configure_git_exclude,
+    enforce_single_source_skills,
     find_workspace_root,
     install_workspace,
     sync_surfaces,
@@ -571,6 +572,103 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertTrue(user_agent.exists())
         # Single source exists inside plugin directory
         self.assertTrue((self.target_dir / "agents" / "harness_builder.md").exists())
+
+    def test_single_source_skill_delivery(self) -> None:
+        """Plugin installation purges duplicate standalone skills in ~/.gemini/config/skills/ (Issue #52)."""
+        fake_cfg = self.isolated_base / "cfg_single_source_skills"
+        fake_skills = fake_cfg / "skills"
+        fake_skills.mkdir(parents=True)
+
+        # Standalone skill duplicate that exists in harness/skills
+        dup_skill = fake_skills / "code-review"
+        dup_skill.mkdir(parents=True)
+        (dup_skill / "SKILL.md").write_text("# Duplicate Standalone Skill\n", encoding="utf-8")
+
+        # Independent custom skill
+        user_skill = fake_skills / "custom-user-skill"
+        user_skill.mkdir(parents=True)
+        (user_skill / "SKILL.md").write_text("# User Custom Skill\n", encoding="utf-8")
+
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            config_dir=fake_cfg,
+        )
+
+        res = installer.install(mode=DeliveryMode.COPY)
+        self.assertTrue(res.success)
+        # Standalone duplicate removed
+        self.assertIn(str(dup_skill), res.duplicates_removed)
+        self.assertFalse(dup_skill.exists())
+        # Custom user skill preserved
+        self.assertTrue(user_skill.exists())
+        # Plugin single source exists
+        self.assertTrue((self.target_dir / "skills" / "code-review").exists())
+
+    def test_enforce_single_source_skills_workspace_and_dry_run(self) -> None:
+        """enforce_single_source_skills prunes workspace duplicate skills and respects dry_run (Issue #52)."""
+        fake_cfg = self.isolated_base / "cfg_skills_ws"
+        fake_ws = self.isolated_base / "fake_workspace"
+        ws_skills = fake_ws / ".agents" / "skills"
+        ws_skills.mkdir(parents=True)
+
+        # Create plugin skill under fake_cfg/plugins/psl-agy-harness/skills/
+        plugin_skills_dir = fake_cfg / "plugins" / "psl-agy-harness" / "skills"
+        plugin_skill = plugin_skills_dir / "psl-stack-python"
+        plugin_skill.mkdir(parents=True)
+        (plugin_skill / "SKILL.md").write_text("# Plugin Python Skill\n", encoding="utf-8")
+
+        # Create shadowing workspace duplicate
+        ws_dup = ws_skills / "psl-stack-python"
+        ws_dup.mkdir(parents=True)
+        (ws_dup / "SKILL.md").write_text("# Redundant Workspace Python Skill\n", encoding="utf-8")
+
+        # Create unique custom workspace skill
+        ws_custom = ws_skills / "custom-project-skill"
+        ws_custom.mkdir(parents=True)
+        (ws_custom / "SKILL.md").write_text("# Custom Project Skill\n", encoding="utf-8")
+
+        # Test dry-run
+        dry_removed = enforce_single_source_skills(
+            config_dir=fake_cfg,
+            workspace_dir=fake_ws,
+            dry_run=True,
+            plugin_skills_dir=plugin_skills_dir,
+        )
+        self.assertIn(str(ws_dup), dry_removed)
+        self.assertTrue(ws_dup.exists(), "Dry run must not delete files")
+
+        # Test live enforcement
+        live_removed = enforce_single_source_skills(
+            config_dir=fake_cfg,
+            workspace_dir=fake_ws,
+            dry_run=False,
+            plugin_skills_dir=plugin_skills_dir,
+        )
+        self.assertIn(str(ws_dup), live_removed)
+        self.assertFalse(ws_dup.exists(), "Live enforcement must prune workspace duplicate")
+        self.assertTrue(ws_custom.exists(), "Custom project skill must remain intact")
+
+    def test_copy_delivery_rules_bifurcation(self) -> None:
+        """COPY installation delivers GLOBAL_AGENTS.md into rules/AGENTS.md without ADR-015 commands (Issue #53)."""
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            config_dir=self.isolated_base / "cfg_rules",
+        )
+
+        res = installer.install(mode=DeliveryMode.COPY)
+        self.assertTrue(res.success)
+        self.assertTrue((self.target_dir / "rules" / "AGENTS.md").exists())
+        content = (self.target_dir / "rules" / "AGENTS.md").read_text(encoding="utf-8")
+
+        # Must NOT contain repo-internal ADR-015 mandates
+        self.assertNotIn("./agyis test", content)
+        self.assertNotIn("harness.cli test", content)
+        self.assertNotIn("<1.0 second", content)
+        # Must contain universal engineering guidelines
+        self.assertIn("Universal Automated Verification Standard", content)
+        self.assertIn("Surgical Contiguous Edits Invariant", content)
 
     def test_uninstall_clean_surfaces(self) -> None:
         """Uninstall with clean_surfaces=True unlinks surface symlinks without touching config."""

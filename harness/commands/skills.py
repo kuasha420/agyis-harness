@@ -18,8 +18,51 @@ from typing import List
 
 def cmd_skills(args: argparse.Namespace) -> int:
     """Lists, inspects, or synchronizes modular product skills."""
-    from harness.delivery.surfaces import find_workspace_root
+    from harness.delivery.surfaces import enforce_single_source_skills, find_workspace_root
     from harness.skills import get_skill, list_skills, sync_skills
+
+    if getattr(args, "prune_duplicates", False):
+        ws_arg = getattr(args, "workspace", None)
+        if ws_arg and ws_arg is not True:
+            ws_root = Path(ws_arg).resolve()
+        else:
+            ws_root = find_workspace_root()
+
+        config_dir = getattr(args, "config_dir", None)
+        if config_dir is None:
+            config_dir = Path.home() / ".gemini" / "config"
+        else:
+            config_dir = Path(config_dir).resolve()
+
+        dry_run = getattr(args, "dry_run", False)
+
+        removed = enforce_single_source_skills(
+            config_dir=config_dir,
+            workspace_dir=ws_root,
+            dry_run=dry_run,
+        )
+
+        ws_removed = [p for p in removed if str(ws_root) in p]
+        cfg_removed = [p for p in removed if str(ws_root) not in p]
+
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "workspace": str(ws_root),
+                "dry_run": dry_run,
+                "pruned_workspace": ws_removed,
+                "pruned_config": cfg_removed,
+                "total_pruned": len(removed),
+            }, indent=2))
+            return 0
+
+        prefix = "Would prune" if dry_run else "Pruned"
+        if removed:
+            print(f"✔ {prefix} {len(removed)} duplicate skill(s):")
+            for p in removed:
+                print(f"  • {Path(p).name} ({p})")
+        else:
+            print(f"No duplicate skills found across workspace ({ws_root}) and config ({config_dir}).")
+        return 0
 
     if getattr(args, "sync", False):
         target_dir = getattr(args, "target_dir", None)

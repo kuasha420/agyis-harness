@@ -25,6 +25,7 @@ from unittest.mock import MagicMock, patch
 from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main, main
 from harness.commands.doctor import DEFAULT_MATRIX, cmd_doctor
 from harness.runtime.doctor import (
+    check_duplicate_skills,
     print_cli_report,
     run_doctor,
 )
@@ -1069,6 +1070,110 @@ class TestAdversarialReaDoctorProbing(unittest.TestCase):
                  patch("sys.stdout", new_callable=io.StringIO):
                 code = cmd_doctor(args)
                 self.assertEqual(code, 0, f"Doctor should exit 0 for REA state {rea_state['status']}")
+
+
+class TestDuplicateSkillsHygiene(unittest.TestCase):
+    """Hermetic unit tests for check_duplicate_skills and doctor integration (Issue #52)."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base_dir = Path(self.temp_dir.name)
+        self.cfg_dir = self.base_dir / "config"
+        self.ws_dir = self.base_dir / "workspace"
+        self.cfg_dir.mkdir(parents=True)
+        self.ws_dir.mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_check_duplicate_skills_pass(self) -> None:
+        """PASS status when no duplicate skill definitions exist across standalone, plugins, and workspace."""
+        # Standalone skill
+        (self.cfg_dir / "skills" / "skill-a").mkdir(parents=True)
+        (self.cfg_dir / "skills" / "skill-a" / "SKILL.md").write_text("# Skill A\n", encoding="utf-8")
+
+        # Plugin skill
+        (self.cfg_dir / "plugins" / "my-plugin" / "skills" / "skill-b").mkdir(parents=True)
+        (self.cfg_dir / "plugins" / "my-plugin" / "skills" / "skill-b" / "SKILL.md").write_text("# Skill B\n", encoding="utf-8")
+
+        # Workspace skill
+        (self.ws_dir / ".agents" / "skills" / "skill-c").mkdir(parents=True)
+        (self.ws_dir / ".agents" / "skills" / "skill-c" / "SKILL.md").write_text("# Skill C\n", encoding="utf-8")
+
+        res = check_duplicate_skills(workspace_root=self.ws_dir, config_dir=self.cfg_dir)
+        self.assertEqual(res["status"], "PASS")
+        self.assertEqual(res["duplicates"], [])
+        self.assertEqual(res["duplicate_items"], [])
+        self.assertIsNone(res["remediation"])
+
+    def test_check_duplicate_skills_workspace_plugin_collision(self) -> None:
+        """WARNING status when workspace duplicates a skill supplied by a plugin (Issue #52 root cause)."""
+        # Plugin skill
+        (self.cfg_dir / "plugins" / "my-plugin" / "skills" / "code-review").mkdir(parents=True)
+        (self.cfg_dir / "plugins" / "my-plugin" / "skills" / "code-review" / "SKILL.md").write_text("# Plugin Code Review\n", encoding="utf-8")
+
+        # Workspace duplicate skill
+        (self.ws_dir / ".agents" / "skills" / "code-review").mkdir(parents=True)
+        (self.ws_dir / ".agents" / "skills" / "code-review" / "SKILL.md").write_text("# Workspace Code Review\n", encoding="utf-8")
+
+        res = check_duplicate_skills(workspace_root=self.ws_dir, config_dir=self.cfg_dir)
+        self.assertEqual(res["status"], "WARNING")
+        self.assertIn("code-review", res["duplicates"])
+        self.assertIsNotNone(res["remediation"])
+        self.assertEqual(len(res["duplicate_items"]), 1)
+        self.assertEqual(len(res["duplicate_items"][0]["sources"]), 2)
+
+    def test_check_duplicate_skills_standalone_plugin_collision(self) -> None:
+        """WARNING status when standalone skill duplicates a plugin skill."""
+        (self.cfg_dir / "skills" / "subagent-ladder").mkdir(parents=True)
+        (self.cfg_dir / "skills" / "subagent-ladder" / "SKILL.md").write_text("# Standalone Ladder\n", encoding="utf-8")
+
+        (self.cfg_dir / "plugins" / "my-plugin" / "skills" / "subagent-ladder").mkdir(parents=True)
+        (self.cfg_dir / "plugins" / "my-plugin" / "skills" / "subagent-ladder" / "SKILL.md").write_text("# Plugin Ladder\n", encoding="utf-8")
+
+        res = check_duplicate_skills(workspace_root=self.ws_dir, config_dir=self.cfg_dir)
+        self.assertEqual(res["status"], "WARNING")
+        self.assertIn("subagent-ladder", res["duplicates"])
+
+    def test_doctor_report_rendering_duplicate_skills_warning(self) -> None:
+        """print_cli_report renders Duplicate Skills [WARN] with remediation."""
+        sample_audit = {
+            "os_family": "linux",
+            "duplicate_skills": {
+                "status": "WARNING",
+                "duplicates": ["code-review"],
+                "details": "Duplicate skill definitions detected across workspace, plugin, or config: code-review",
+                "remediation": "Prune redundant workspace skills with 'agyis skills --prune-duplicates'",
+            },
+            "tiers": {},
+            "summary": {"ok": 1, "warning": 1, "outdated": 0, "missing": 0},
+        }
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            print_cli_report(sample_audit)
+            output = mock_out.getvalue()
+            self.assertIn("Duplicate Skills:", output)
+            self.assertIn("WARN", output)
+            self.assertIn("code-review", output)
+            self.assertIn("--prune-duplicates", output)
+
+    def test_doctor_report_rendering_duplicate_skills_pass(self) -> None:
+        """print_cli_report renders Duplicate Skills [PASS]."""
+        sample_audit = {
+            "os_family": "linux",
+            "duplicate_skills": {
+                "status": "PASS",
+                "duplicates": [],
+                "details": "No duplicate skill registrations detected across workspace, plugin, or config.",
+                "remediation": None,
+            },
+            "tiers": {},
+            "summary": {"ok": 2, "warning": 0, "outdated": 0, "missing": 0},
+        }
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            print_cli_report(sample_audit)
+            output = mock_out.getvalue()
+            self.assertIn("Duplicate Skills:", output)
+            self.assertIn("PASS", output)
 
 
 if __name__ == "__main__":

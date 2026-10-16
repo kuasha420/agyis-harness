@@ -69,6 +69,90 @@ def check_duplicate_agents(config_dir: Optional[Path] = None) -> Dict[str, Any]:
     }
 
 
+def check_duplicate_skills(
+    workspace_root: Optional[Path | str] = None,
+    config_dir: Optional[Path | str] = None,
+) -> Dict[str, Any]:
+    """Audit ~/.gemini/config/skills/, ~/.gemini/config/plugins/*/skills/, and <workspace>/.agents/skills/ for duplicate skills (Issue #52)."""
+    cfg = Path(config_dir).resolve() if config_dir is not None else Path.home() / ".gemini" / "config"
+    ws = Path(workspace_root).resolve() if workspace_root is not None else Path.cwd().resolve()
+
+    standalone_skills: Dict[str, Path] = {}
+    standalone_dir = cfg / "skills"
+    if standalone_dir.is_dir():
+        for item in sorted(standalone_dir.iterdir()):
+            if item.is_dir() and not item.name.startswith("."):
+                if (item / "SKILL.md").is_file() or any(item.glob("*.md")):
+                    standalone_skills[item.name] = item
+
+    plugin_skills: Dict[str, List[Path]] = {}
+    plugins_dir = cfg / "plugins"
+    if plugins_dir.is_dir():
+        for plugin in sorted(plugins_dir.iterdir()):
+            if plugin.is_dir() and not plugin.name.startswith("."):
+                # Safety guard: ignore self-symlink when plugin points directly to current workspace
+                try:
+                    if plugin.resolve() == ws.resolve():
+                        continue
+                except OSError:
+                    pass
+                p_skills = plugin / "skills"
+                if p_skills.is_dir():
+                    for item in sorted(p_skills.iterdir()):
+                        if item.is_dir() and not item.name.startswith("."):
+                            if (item / "SKILL.md").is_file() or any(item.glob("*.md")):
+                                plugin_skills.setdefault(item.name, []).append(item)
+
+    workspace_skills: Dict[str, Path] = {}
+    ws_skills_dir = ws / ".agents" / "skills"
+    if ws_skills_dir.is_dir():
+        for item in sorted(ws_skills_dir.iterdir()):
+            if item.is_dir() and not item.name.startswith("."):
+                if (item / "SKILL.md").is_file() or any(item.glob("*.md")):
+                    workspace_skills[item.name] = item
+
+    all_skill_names = sorted(set(standalone_skills.keys()) | set(plugin_skills.keys()) | set(workspace_skills.keys()))
+    duplicate_names: List[str] = []
+    dups_info: List[Dict[str, Any]] = []
+
+    for name in all_skill_names:
+        sources: List[Dict[str, str]] = []
+        if name in standalone_skills:
+            sources.append({"type": "standalone", "path": str(standalone_skills[name])})
+        if name in plugin_skills:
+            for p in plugin_skills[name]:
+                sources.append({"type": "plugin", "path": str(p)})
+        if name in workspace_skills:
+            sources.append({"type": "workspace", "path": str(workspace_skills[name])})
+
+        if len(sources) > 1:
+            duplicate_names.append(name)
+            dups_info.append({
+                "skill": name,
+                "sources": sources,
+            })
+
+    if duplicate_names:
+        return {
+            "status": "WARNING",
+            "duplicates": duplicate_names,
+            "details": f"Duplicate skill definitions detected across workspace, plugin, or config: {', '.join(duplicate_names)}",
+            "duplicate_items": dups_info,
+            "remediation": (
+                "Prune redundant workspace skills with 'agyis skills --prune-duplicates' "
+                "or run 'python3 -m harness.cli install' to enforce single-source plugin delivery."
+            ),
+        }
+
+    return {
+        "status": "PASS",
+        "duplicates": [],
+        "details": "No duplicate skill registrations detected across workspace, plugin, or config.",
+        "duplicate_items": [],
+        "remediation": None,
+    }
+
+
 def check_node_script_hygiene(workspace_root: Optional[Path] = None) -> Dict[str, Any]:
     """
     In packages with 'type': 'module', check .js files for CommonJS syntax (Issue #17).
