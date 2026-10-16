@@ -88,11 +88,28 @@ def check_duplicate_skills(
     plugin_skills: Dict[str, List[Path]] = {}
     plugins_dir = cfg / "plugins"
     if plugins_dir.is_dir():
+        from harness.utils.workspace import is_harness_workspace
+        ws_is_harness = is_harness_workspace(ws)
+        ws_plugin_names: Set[str] = set()
+        if ws_is_harness:
+            ws_plugin_names.update(["psl-agy-harness", "agyis-harness"])
+        ws_plugin_json = ws / "plugin.json"
+        if ws_plugin_json.is_file():
+            try:
+                with open(ws_plugin_json, "r", encoding="utf-8") as f:
+                    pdata = json.load(f)
+                    if pdata.get("name"):
+                        ws_plugin_names.add(pdata["name"])
+            except Exception:
+                pass
+
         for plugin in sorted(plugins_dir.iterdir()):
             if plugin.is_dir() and not plugin.name.startswith("."):
-                # Safety guard: ignore self-symlink when plugin points directly to current workspace
+                # Safety guard: ignore self-symlink or installed copy when workspace is the source repository
                 try:
                     if plugin.resolve() == ws.resolve():
+                        continue
+                    if plugin.name in ws_plugin_names:
                         continue
                 except OSError:
                     pass

@@ -1135,6 +1135,21 @@ class TestDuplicateSkillsHygiene(unittest.TestCase):
         self.assertEqual(res["status"], "WARNING")
         self.assertIn("subagent-ladder", res["duplicates"])
 
+    def test_check_duplicate_skills_ignores_self_plugin_repo(self) -> None:
+        """PASS status when workspace is the source repository for the installed plugin."""
+        # Workspace has plugin.json defining 'psl-agy-harness'
+        (self.ws_dir / "plugin.json").write_text(json.dumps({"name": "psl-agy-harness"}), encoding="utf-8")
+        (self.ws_dir / ".agents" / "skills" / "code-review").mkdir(parents=True)
+        (self.ws_dir / ".agents" / "skills" / "code-review" / "SKILL.md").write_text("# Repo Code Review\n", encoding="utf-8")
+
+        # Installed plugin copy
+        (self.cfg_dir / "plugins" / "psl-agy-harness" / "skills" / "code-review").mkdir(parents=True)
+        (self.cfg_dir / "plugins" / "psl-agy-harness" / "skills" / "code-review" / "SKILL.md").write_text("# Installed Code Review\n", encoding="utf-8")
+
+        res = check_duplicate_skills(workspace_root=self.ws_dir, config_dir=self.cfg_dir)
+        self.assertEqual(res["status"], "PASS")
+        self.assertEqual(len(res["duplicates"]), 0)
+
     def test_doctor_report_rendering_duplicate_skills_warning(self) -> None:
         """print_cli_report renders Duplicate Skills [WARN] with remediation."""
         sample_audit = {
