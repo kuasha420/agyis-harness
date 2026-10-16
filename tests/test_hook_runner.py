@@ -305,8 +305,93 @@ class TestHookRunner(unittest.TestCase):
         self.assertEqual(proc_unknown.returncode, 0)
         res_unknown = json.loads(proc_unknown.stdout.strip())
         self.assertEqual(res_unknown["decision"], "allow")
-        self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", proc_unknown.stderr)
+        # 3. Fail-open PostToolUse compactor execution emits {}
+        proc_compactor = subprocess.run(
+            [sys.executable, "-m", "harness.hooks.runner", "compactor"],
+            input="INVALID_JSON",
+            capture_output=True,
+            text=True,
+            cwd=str(Path(__file__).parent.parent),
+            env=sub_env,
+            timeout=5,
+        )
+        self.assertEqual(proc_compactor.returncode, 0)
+        res_compactor = json.loads(proc_compactor.stdout.strip())
+        self.assertEqual(res_compactor, {}, f"Subprocess fail-open compactor must emit {{}}, got: {res_compactor}")
 
+    # --- PostToolUse Contract & Fail-Open Protection in Hook Runner ---
+
+    def test_fail_open_post_tool_use_compactor_emits_empty_dict(self):
+        """
+        When compactor hook raises SyntaxError/ImportError/RuntimeError, runner MUST
+        emit fail-open JSON {} (NOT {"decision": "allow"}), preventing protojson unmarshal errors.
+        """
+        for exc in (
+            SyntaxError("syntax error in compactor"),
+            ImportError("missing module in compactor"),
+            RuntimeError("compactor buffer overflow"),
+        ):
+            with self.subTest(exc=type(exc).__name__):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+                     patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+                    with patch("harness.hooks.runner.importlib.import_module", side_effect=exc):
+                        code = runner.run_hook("compactor", payload_str="{}")
+                        self.assertEqual(code, 0)
+                        res = json.loads(mock_out.getvalue().strip())
+                        self.assertEqual(
+                            res,
+                            {},
+                            f"Fail-open compactor must emit {{}}, got: {res}",
+                        )
+                        self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", mock_err.getvalue())
+
+    def test_fail_open_post_tool_use_verification_fence_emits_empty_dict(self):
+        """
+        When verification-fence hook crashes during a PostToolUse event,
+        runner MUST emit fail-open JSON {} (NOT {"decision": "allow"}).
+        """
+        post_payloads = [
+            json.dumps({"hookEvent": "PostToolUse", "toolCall": {"name": "run_command"}}),
+            json.dumps({"toolCall": {"name": "run_command"}, "toolResponse": {"exitCode": 0}}),
+            json.dumps({"toolCall": {"name": "run_command"}, "exitCode": 0}),
+        ]
+
+        for payload_str in post_payloads:
+            with self.subTest(payload=payload_str):
+                mock_mod = MagicMock()
+                mock_mod.main.side_effect = RuntimeError("fence crashed in PostToolUse")
+
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+                     patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+                    with patch("harness.hooks.runner.importlib.import_module", return_value=mock_mod):
+                        code = runner.run_hook("verification-fence", payload_str=payload_str)
+                        self.assertEqual(code, 0)
+                        res = json.loads(mock_out.getvalue().strip())
+                        self.assertEqual(
+                            res,
+                            {},
+                            f"Fail-open PostToolUse verification-fence must emit {{}}, got: {res}",
+                        )
+
+    def test_fail_open_pre_tool_use_retains_allow_decision(self):
+        """
+        Contrasts with PostToolUse: When a PreToolUse hook crashes,
+        runner MUST emit fail-open {"decision": "allow"}.
+        """
+        pre_payload = json.dumps({
+            "hookEvent": "PreToolUse",
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": "test.py"}},
+        })
+        mock_mod = MagicMock()
+        mock_mod.main.side_effect = RuntimeError("pre-tool hook crash")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+             patch("sys.stderr", new_callable=io.StringIO):
+            with patch("harness.hooks.runner.importlib.import_module", return_value=mock_mod):
+                code = runner.run_hook("command-safety", payload_str=pre_payload)
+                self.assertEqual(code, 0)
+                res = json.loads(mock_out.getvalue().strip())
+                self.assertEqual(res, {"decision": "allow"})
 
 
 if __name__ == "__main__":

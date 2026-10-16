@@ -31,6 +31,8 @@ from harness.hooks import completion_fence_hook
 from harness.hooks.completion_fence_hook import (
     check_command_verification,
     evaluate_stop,
+    extract_exit_code,
+    is_ephemeral_scratch_path,
     is_test_command,
     load_state,
     record_edit,
@@ -362,6 +364,439 @@ class TestCompletionFenceHookDRA(unittest.TestCase):
             duration,
             1.0,
             f"Expected 25 DRA evaluation cycles to execute in <1.0s, took {duration:.4f}s",
+        )
+
+
+class TestCompletionFenceHardeningM2(unittest.TestCase):
+    """
+    Contract test suite for Milestone 2: Issues #42, #43, and #45.
+    Governing ADRs: ADR-014, ADR-015, ADR-022.
+    """
+
+    def setUp(self):
+        self.temp_state_dir = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temp_state_dir.name)
+        self.orig_state_env = os.environ.get("PSL_HARNESS_STATE_DIR")
+        os.environ["PSL_HARNESS_STATE_DIR"] = str(self.state_dir)
+
+        self.temp_workspace_dir = tempfile.TemporaryDirectory()
+        self.client_dir = Path(self.temp_workspace_dir.name)
+        self.harness_root = Path(__file__).resolve().parent.parent
+
+    def tearDown(self):
+        if self.orig_state_env is not None:
+            os.environ["PSL_HARNESS_STATE_DIR"] = self.orig_state_env
+        else:
+            os.environ.pop("PSL_HARNESS_STATE_DIR", None)
+        self.temp_state_dir.cleanup()
+        self.temp_workspace_dir.cleanup()
+
+    # --- Issue #42: PostToolUse and Robust Exit Code Extraction ---
+
+    def test_extract_exit_code_direct_and_nested(self):
+        """extract_exit_code retrieves exit codes across direct and nested payload formats."""
+        self.assertEqual(extract_exit_code({"exitCode": 0}), 0)
+        self.assertEqual(extract_exit_code({"exit_code": 1}), 1)
+        self.assertEqual(extract_exit_code({"returncode": 0}), 0)
+        self.assertEqual(extract_exit_code({"returncode": 2}), 2)
+        self.assertEqual(extract_exit_code({"toolResponse": {"exitCode": 0}}), 0)
+        self.assertEqual(extract_exit_code({"toolResponse": {"result": {"exit_code": 2}}}), 2)
+        self.assertEqual(extract_exit_code({"result": {"returncode": 101}}), 101)
+        self.assertEqual(extract_exit_code({"toolResponse": '{"exitCode": 0}'}), 0)
+        self.assertEqual(extract_exit_code({"toolResponse": "The command exited with code 0.\nOutput:\nok"}), 0)
+        self.assertEqual(extract_exit_code({"toolResponse": "failed with exit code 1"}), 1)
+        self.assertEqual(extract_exit_code({"output": "The command exited with code 0.\nOutput:\nok"}), 0)
+        self.assertEqual(extract_exit_code({"output": "failed with exit code 1"}), 1)
+        self.assertEqual(extract_exit_code({"stdout": "The command exited with code 0."}), 0)
+        self.assertIsNone(extract_exit_code({}))
+        self.assertIsNone(extract_exit_code({"toolCall": {"name": "run_command"}}))
+
+    def test_post_tool_use_exit_code_zero_clears_code_dirty(self):
+        """PostToolUse with run_command and exitCode: 0 auto-clears code_dirty."""
+        conv_id = "test-post-tool-use-zero"
+        record_edit("src/app.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.client_dir)
+        self.assertTrue(load_state(conv_id=conv_id, state_dir=self.state_dir)["code_dirty"])
+
+        payload = {
+            "conversationId": conv_id,
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "pytest"},
+            },
+            "exitCode": 0,
+        }
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+            completion_fence_hook.main()
+
+        out = json.loads(buf.getvalue().strip())
+        self.assertEqual(out, {})
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+        self.assertEqual(state["block_count"], 0)
+        self.assertEqual(state["last_modified_files"], [])
+
+    def test_post_tool_use_exit_code_nonzero_preserves_dirty(self):
+        """PostToolUse with run_command and non-zero exit code preserves code_dirty."""
+        conv_id = "test-post-tool-use-nonzero"
+        record_edit("src/app.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.client_dir)
+
+        payload = {
+            "conversationId": conv_id,
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "pytest"},
+            },
+            "exitCode": 1,
+        }
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+            completion_fence_hook.main()
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(state["code_dirty"])
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.client_dir)
+        self.assertEqual(res.get("decision"), "continue")
+
+    def test_post_tool_use_nested_tool_response_clears_dirty(self):
+        """PostToolUse with nested toolResponse exitCode 0 clears code_dirty."""
+        conv_id = "test-post-tool-nested"
+        record_edit("src/app.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.client_dir)
+
+        payload = {
+            "conversationId": conv_id,
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "pytest"},
+            },
+            "toolResponse": {
+                "exitCode": 0,
+                "output": "1 passed",
+            },
+        }
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+            completion_fence_hook.main()
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+
+    # --- Issue #43: Ephemeral Scratch Path Filtering & Workspace Isolation ---
+
+    def test_is_ephemeral_scratch_path_unit(self):
+        """is_ephemeral_scratch_path accurately identifies scratch paths and workspace boundaries."""
+        # 1. Antigravity brain scratch path
+        brain_scratch = "/home/kuasha/.gemini/antigravity/brain/session-123/scratch/tool.py"
+        self.assertTrue(is_ephemeral_scratch_path(brain_scratch, cwd=self.client_dir))
+        self.assertTrue(is_ephemeral_scratch_path(brain_scratch, cwd=None))
+
+        # 2. Outside cwd when cwd is provided
+        outside_path = "/tmp/scratch_test.py"
+        workspace = Path("/home/kuasha/Dev/my-project")
+        self.assertTrue(is_ephemeral_scratch_path(outside_path, cwd=workspace))
+
+        # 3. Inside cwd when cwd is provided
+        inside_path = self.client_dir / "src" / "index.ts"
+        self.assertFalse(is_ephemeral_scratch_path(str(inside_path), cwd=self.client_dir))
+        self.assertFalse(is_ephemeral_scratch_path("src/index.ts", cwd=self.client_dir))
+
+        # 4. Outside cwd even if cwd is also inside /tmp
+        other_temp = Path(tempfile.gettempdir()) / "other_scratch_dir" / "script.py"
+        self.assertTrue(is_ephemeral_scratch_path(str(other_temp), cwd=self.client_dir))
+
+        # 5. When cwd is None
+        self.assertTrue(is_ephemeral_scratch_path("/tmp/test.py", cwd=None))
+        self.assertTrue(is_ephemeral_scratch_path("/var/tmp/script.sh", cwd=None))
+        self.assertFalse(is_ephemeral_scratch_path("src/app.py", cwd=None))
+
+    def test_scratch_edit_does_not_mark_dirty(self):
+        """Editing an ephemeral scratch file does not mark state dirty."""
+        conv_id = "test-scratch-edit"
+        scratch_file = "/tmp/scratch_test.py"
+        record_edit(scratch_file, conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+        self.assertEqual(state["last_modified_files"], [])
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+        self.assertEqual(res.get("decision"), "allow")
+
+    def test_brain_scratch_edit_does_not_mark_dirty(self):
+        """Editing a file in .gemini/antigravity/brain/.../scratch/... does not mark state dirty."""
+        conv_id = "test-brain-scratch"
+        brain_file = "/home/kuasha/.gemini/antigravity/brain/0e149e12-222e-4731-a96b-34d5026abdca/scratch/script.py"
+        record_edit(brain_file, conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+        self.assertEqual(res.get("decision"), "allow")
+
+    def test_workspace_edit_in_temp_dir_marks_dirty(self):
+        """Editing a code file inside the workspace (even in temp directory) DOES mark state dirty."""
+        conv_id = "test-temp-workspace"
+        inside_file = str(self.client_dir / "src" / "main.py")
+        record_edit(inside_file, conv_id=conv_id, state_dir=self.state_dir, cwd=self.client_dir)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(state["code_dirty"])
+        self.assertIn(inside_file, state["last_modified_files"])
+
+    def test_standard_docs_remain_exempt(self):
+        """Standard docs (README.md, PROJECT.md, docs/architecture.md, docs/guide.md) remain exempt."""
+        conv_id = "test-standard-docs"
+        for doc in ("README.md", "PROJECT.md", "docs/architecture.md", "docs/guide.md"):
+            record_edit(doc, conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+        self.assertEqual(state["last_modified_files"], [])
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+        self.assertEqual(res.get("decision"), "allow")
+
+    def test_workspace_paths_fallback_and_tool_args_cwd(self):
+        """Verifies workspacePaths fallback in payload and lowercase cwd in tool args."""
+        (self.client_dir / "package.json").write_text("{}", encoding="utf-8")
+        (self.client_dir / "pnpm-lock.yaml").touch()
+
+        conv_id = "test-ws-paths-fallback"
+
+        # 1. Edit using lowercase 'cwd' in tool args
+        payload_edit = {
+            "conversationId": conv_id,
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {
+                    "TargetFile": "src/Comp.tsx",
+                    "cwd": str(self.client_dir),
+                },
+            },
+        }
+        buf_edit = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload_edit))), patch("sys.stdout", buf_edit):
+            completion_fence_hook.main()
+        out_edit = json.loads(buf_edit.getvalue().strip())
+        self.assertEqual(out_edit.get("decision"), "allow")
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(state["code_dirty"])
+        self.assertEqual(state.get("cwd"), str(self.client_dir))
+
+        # 2. Evaluate stop with workspacePaths fallback (cwd/workspace omitted)
+        payload_stop = {
+            "conversationId": conv_id,
+            "workspacePaths": [str(self.client_dir)],
+        }
+        buf_stop = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload_stop))), patch("sys.stdout", buf_stop):
+            completion_fence_hook.main()
+        out_stop = json.loads(buf_stop.getvalue().strip())
+        self.assertEqual(out_stop.get("decision"), "continue")
+        self.assertIn("Execute your project test suite (pnpm test) before stopping.", out_stop.get("reason", ""))
+        self.assertNotIn("agyis test", out_stop.get("reason", ""))
+
+    # --- PostToolUse Empty Dict Invariant Across All Tools ---
+
+    def test_post_tool_use_emits_empty_dict_across_all_tools(self):
+        """
+        Validates that all PostToolUse tool completions emit exact JSON {}
+        across all tool types (run_command, write_to_file, replace_file_content,
+        edit_file, view_file, grep_search, manage_task, rea_*, and MCP tools),
+        preventing Antigravity protojson unmarshaling crashes.
+        """
+        tools_to_test = [
+            ("run_command", {"CommandLine": "pytest tests/"}),
+            ("write_to_file", {"TargetFile": "src/app.py", "CodeContent": "print('hello')"}),
+            ("replace_file_content", {"TargetFile": "src/index.ts", "ReplacementContent": "export {}"}),
+            ("edit_file", {"file_path": "src/module.py"}),
+            ("view_file", {"AbsolutePath": "/home/user/repo/src/app.py"}),
+            ("grep_search", {"Query": "TODO", "SearchPath": "/home/user/repo"}),
+            ("manage_task", {"Action": "status", "TaskId": "task-1"}),
+            ("rea_inspect_binary", {"binaryPath": "/bin/ls"}),
+            ("read_resource", {"Uri": "custom://resource"}),
+            ("unknown_custom_tool", {"foo": "bar"}),
+        ]
+
+        conv_id = "test-post-tool-all-tools"
+
+        for tool_name, tool_args in tools_to_test:
+            with self.subTest(tool=tool_name):
+                payload = {
+                    "hookEvent": "PostToolUse",
+                    "conversationId": conv_id,
+                    "toolCall": {
+                        "name": tool_name,
+                        "args": tool_args,
+                    },
+                    "toolResponse": {"status": "success", "exitCode": 0},
+                }
+                buf = io.StringIO()
+                with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+                    completion_fence_hook.main()
+
+                out_str = buf.getvalue().strip()
+                out_json = json.loads(out_str)
+                self.assertEqual(
+                    out_json,
+                    {},
+                    f"PostToolUse for '{tool_name}' must emit exact {{}}, got: {out_str}",
+                )
+
+    def test_post_tool_use_payload_event_variants_emit_empty_dict(self):
+        """
+        Validates that all variations of PostToolUse event signaling
+        (hookEvent, hook_event, event, toolResponse, toolOutput) emit exact JSON {}.
+        """
+        event_payload_variants = [
+            {"hookEvent": "PostToolUse", "toolCall": {"name": "write_to_file", "args": {"TargetFile": "a.py"}}},
+            {"hook_event": "PostToolUse", "toolCall": {"name": "write_to_file", "args": {"TargetFile": "b.py"}}},
+            {"event": "PostToolUse", "toolCall": {"name": "write_to_file", "args": {"TargetFile": "c.py"}}},
+            {"hookEvent": "posttooluse", "toolCall": {"name": "view_file", "args": {"AbsolutePath": "d.py"}}},
+            {"toolCall": {"name": "view_file", "args": {}}, "toolResponse": "some output"},
+            {"toolCall": {"name": "run_command", "args": {"CommandLine": "ls"}}, "toolOutput": "file1\nfile2"},
+            {"toolCall": {"name": "run_command", "args": {"CommandLine": "ls"}}, "exitCode": 0},
+        ]
+
+        for idx, payload in enumerate(event_payload_variants):
+            with self.subTest(variant=idx):
+                buf = io.StringIO()
+                with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+                    completion_fence_hook.main()
+
+                out_json = json.loads(buf.getvalue().strip())
+                self.assertEqual(out_json, {}, f"Variant {idx} must emit {{}}, got {out_json}")
+
+    def test_pre_tool_use_contrast_emits_allow_decision(self):
+        """
+        Contrasts PostToolUse with PreToolUse:
+        PreToolUse for write_to_file MUST emit {"decision": "allow"}.
+        """
+        payload = {
+            "hookEvent": "PreToolUse",
+            "conversationId": "test-pre-tool-contrast",
+            "toolCall": {
+                "name": "write_to_file",
+                "args": {"TargetFile": "src/app.py"},
+            },
+        }
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+            completion_fence_hook.main()
+
+        out_json = json.loads(buf.getvalue().strip())
+        self.assertEqual(out_json.get("decision"), "allow")
+
+    # --- Ephemeral Scratch Path Isolation Inside /tmp ---
+
+    def test_is_ephemeral_scratch_path_cwd_in_tmp_rejects_relative_paths(self):
+        """
+        Validates that when the process current working directory is inside /tmp
+        (e.g., CI runners, worktrees, or containerized environments), relative
+        workspace paths (e.g. 'src/app.py') are NOT resolved against process cwd
+        and are NOT falsely marked as scratch paths when cwd is None.
+        """
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir("/tmp")
+
+            relative_paths = [
+                "src/app.py",
+                "harness/cli.py",
+                "components/Button.tsx",
+                "lib/core.rs",
+                "tests/test_hook.py",
+                "./src/main.go",
+                "index.js",
+            ]
+            for rel_path in relative_paths:
+                with self.subTest(rel_path=rel_path):
+                    self.assertFalse(
+                        is_ephemeral_scratch_path(rel_path, cwd=None),
+                        f"Relative path '{rel_path}' must NOT be classified as scratch when running inside /tmp with cwd=None",
+                    )
+        finally:
+            os.chdir(orig_cwd)
+
+    def test_is_ephemeral_scratch_path_cwd_in_tmp_accepts_absolute_temp_paths(self):
+        """
+        Validates that genuine absolute temp files remain classified as ephemeral scratch
+        paths even when process cwd is inside /tmp.
+        """
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir("/tmp")
+
+            absolute_scratch_paths = [
+                "/tmp/scratch.py",
+                "/tmp/test_dir/script.sh",
+                "/var/tmp/temp_runner.py",
+                os.path.join(tempfile.gettempdir(), "test_scratch.py"),
+                "/home/kuasha/.gemini/antigravity/brain/session-123/scratch/tool.py",
+            ]
+            for abs_path in absolute_scratch_paths:
+                with self.subTest(abs_path=abs_path):
+                    self.assertTrue(
+                        is_ephemeral_scratch_path(abs_path, cwd=None),
+                        f"Absolute temp path '{abs_path}' MUST be classified as scratch",
+                    )
+        finally:
+            os.chdir(orig_cwd)
+
+    def test_tmp_worktree_record_edit_arms_completion_fence(self):
+        """
+        Simulates editing a relative production file inside a worktree rooted in /tmp.
+        Asserts that the completion fence is properly armed (code_dirty = True)
+        and evaluate_stop blocks exit.
+        """
+        temp_worktree = tempfile.TemporaryDirectory()
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir(temp_worktree.name)
+            conv_id = "test-tmp-worktree-fence"
+
+            # 1. Edit relative production file without explicit cwd
+            record_edit("src/service.py", conv_id=conv_id, state_dir=self.state_dir, cwd=None)
+
+            # 2. State must be marked dirty
+            state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+            self.assertTrue(
+                state.get("code_dirty"),
+                "Editing relative code file inside /tmp worktree MUST set code_dirty = True",
+            )
+            self.assertIn("src/service.py", state.get("last_modified_files", []))
+
+            # 3. Stop evaluation must be blocked
+            res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=Path(temp_worktree.name))
+            self.assertEqual(res.get("decision"), "continue")
+            self.assertIn("src/service.py", res.get("reason", ""))
+        finally:
+            os.chdir(orig_cwd)
+            temp_worktree.cleanup()
+
+    # --- Sub-second Benchmark Invariant ---
+
+    def test_hardening_subsecond_benchmark(self):
+        """Validates that Milestone 2 features execute in strictly <1.0s."""
+        start = time.perf_counter()
+        conv_id = "test-m2-perf"
+
+        for _ in range(30):
+            # Scratch edit (fast no-op)
+            record_edit("/tmp/scratch.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+            # Code edit (marks dirty)
+            record_edit("harness/cli.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+            evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+            # Clear dirty state
+            check_command_verification("agyis test", exit_code=0, conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+
+        duration = time.perf_counter() - start
+        self.assertLess(
+            duration,
+            1.0,
+            f"Expected 30 M2 evaluation cycles to execute in <1.0s, took {duration:.4f}s",
         )
 
 

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Agyis Harness Documentation
+    url: https://github.com/kuasha420/agyis-harness#readme
+    about: Read official documentation, CLI commands, and architectural decision records (ADRs).
+  - name: GitHub Discussions & Swarm Council
+    url: https://github.com/kuasha420/agyis-harness/discussions
+    about: Ask questions, share ideas, and discuss multi-agent workflows.
+  - name: Antigravity Telemetry & Diagnostic Runbooks
+    url: https://github.com/kuasha420/agyis-harness/tree/main/docs/runbooks
+    about: Troubleshooting guides, telemetry sync runbooks, and doctor audits.

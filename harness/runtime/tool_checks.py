@@ -9,21 +9,41 @@ Toolchain and binary version checks for Agyis Harness (ADR-014 / Antigravity Imm
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import platform
 import re
 import shutil
 import subprocess
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+__all__ = [
+    "REPO_ROOT",
+    "check_cli_binary",
+    "check_psl_collision",
+    "check_tool",
+    "detect_os_family",
+    "find_hermetic_uv_python",
+    "parse_version",
+    "version_less_than",
+]
 
 
 def parse_version(v_str: str) -> Tuple[int, ...]:
     """Parse version string into integer tuple for comparison."""
     parts = re.findall(r"\d+", v_str)
     return tuple(int(p) for p in parts) if parts else (0,)
+
+
+def version_less_than(v1: Tuple[int, ...], v2: Tuple[int, ...]) -> bool:
+    """Compare two version tuples with zero-padding for differing lengths."""
+    max_len = max(len(v1), len(v2))
+    v1_padded = v1 + (0,) * (max_len - len(v1))
+    v2_padded = v2 + (0,) * (max_len - len(v2))
+    return v1_padded < v2_padded
 
 
 def detect_os_family() -> str:
@@ -289,7 +309,7 @@ def check_tool(
     elif min_version_str:
         current_v = parse_version(version_str)
         required_v = parse_version(min_version_str)
-        if current_v < required_v:
+        if version_less_than(current_v, required_v):
             status = "OUTDATED"
         elif is_shim or is_collision:
             status = "WARNING"
@@ -311,3 +331,4 @@ def check_tool(
         "collision_details": collision_details,
         "spec": spec,
     }
+

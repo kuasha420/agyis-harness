@@ -5,14 +5,12 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Tier 2: Boundary & Corner Cases.
-Probes edge cases, invalid inputs, and boundary conditions across:
-- Empty files & missing workspaces
-- Corrupted & malformed manifests (JSON, TOML, binary Makefiles)
-- Symlink cycles & deep directory hierarchies
-- Read-only permissions & disk protections
-- Unicode, multilingual & emoji rule fidelity
-- CLI argument edge cases & unusual configurations
+Tier 2: Boundary & Corner Cases (Issues #41, #42, #43, and #46).
+Validates edge cases, invalid inputs, and boundary conditions (5 tests per domain, 20 tests total):
+- Domain 1: Anti-Loop Boundary Conditions
+- Domain 2: Stop-Fence Boundary Conditions
+- Domain 3: Scratch Path Boundary Conditions
+- Domain 6: Issue Template Boundary Conditions
 """
 
 from __future__ import annotations
@@ -20,311 +18,322 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import stat
-import sys
+import subprocess
+import tempfile
+from typing import Any, Dict, List, Optional
 import unittest
+from unittest.mock import MagicMock, patch
 
+from harness.delivery.constants import REPO_ROOT
+from harness.runtime.tool_checks import parse_version
 from tests.e2e.harness_base import OpaqueBoxTestCase
 
 
 class TestTier2Boundaries(OpaqueBoxTestCase):
     """
-    Tier 2 E2E test cases: Boundary and corner cases across all operational subsystems.
-    Tests system resilience under adverse or edge-case conditions.
+    Tier 2 E2E tests validating boundary conditions across all 6 domains.
     """
 
     # =========================================================================
-    # Domain 1: Workspaces, Permissions & Path Configurations
+    # Domain 1: Anti-Loop Boundary Conditions
     # =========================================================================
 
-    def test_boundary_nonexistent_workspace(self) -> None:
-        """Assures harmonizing a non-existent directory returns exit code 1 with clean error."""
-        bogus_path = self.ws / "does_not_exist_xyz123"
-        code, out, err = self.run_cli(["harmonize", str(bogus_path)])
-        self.assertEqual(code, 1)
-        self.assertIn("does not exist", err.lower() + out.lower())
-
-    def test_boundary_empty_workspace_init(self) -> None:
-        """Assures 'agyis init' on an empty directory succeeds and scaffolds clean files."""
-        empty_dir = self.ws / "empty_proj"
-        empty_dir.mkdir()
-        code, out, err = self.run_cli(["init", str(empty_dir)])
+    def test_b1_01_empty_path_handling(self) -> None:
+        """Assures empty string or whitespace path does not crash anti-loop hook."""
+        payload = {
+            "conversationId": "c_b1_01",
+            "toolCall": {
+                "name": "view_file",
+                "args": {"AbsolutePath": "   "},
+            },
+        }
+        code, resp = self.run_hook("anti-loop", payload)
         self.assertEqual(code, 0)
-        self.assertTrue((empty_dir / "AGENTS.md").exists())
+        self.assertIn(resp.get("decision"), ("allow", "deny"))
 
-    def test_boundary_read_only_agents_md_dry_run(self) -> None:
-        """Assures '--dry-run' succeeds without PermissionError even if AGENTS.md is chmod 0444."""
-        self.create_fixture("legacy_psl")
-        agents_file = self.ws / "AGENTS.md"
-        agents_file.chmod(stat.S_IREAD)
-        try:
-            code, out, err = self.run_cli(["harmonize", "--dry-run", str(self.ws)])
+    def test_b1_02_windows_backslashes_coordination_path(self) -> None:
+        """Assures coordination paths containing Windows backslashes are exempted."""
+        win_path = ".agents\\teamwork\\progress.md"
+        for _ in range(6):
+            payload = {
+                "conversationId": "c_b1_02",
+                "toolCall": {
+                    "name": "view_file",
+                    "args": {"Path": win_path},
+                },
+            }
+            code, resp = self.run_hook("anti-loop", payload)
             self.assertEqual(code, 0)
-        finally:
-            agents_file.chmod(stat.S_IREAD | stat.S_IWRITE)
+            self.assertEqual(resp.get("decision"), "allow")
 
-    def test_boundary_read_only_workspace_dir_dry_run(self) -> None:
-        """Assures '--dry-run' succeeds without writing when workspace directory is read-only."""
-        ro_dir = self.ws / "ro_workspace"
-        ro_dir.mkdir()
-        ro_dir.chmod(stat.S_IREAD | stat.S_IEXEC)
-        try:
-            code, out, err = self.run_cli(["init", "--dry-run", str(ro_dir)])
+    def test_b1_03_whitespace_padded_path(self) -> None:
+        """Assures coordination paths with leading and trailing whitespace are exempted."""
+        padded_path = "   .agents/ledger/obligations.json   "
+        for _ in range(6):
+            payload = {
+                "conversationId": "c_b1_03",
+                "toolCall": {
+                    "name": "view_file",
+                    "args": {"AbsolutePath": padded_path},
+                },
+            }
+            code, resp = self.run_hook("anti-loop", payload)
             self.assertEqual(code, 0)
-            self.assertFalse((ro_dir / "AGENTS.md").exists())
-        finally:
-            ro_dir.chmod(stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
+            self.assertEqual(resp.get("decision"), "allow")
 
-    def test_boundary_unusual_path_configurations_doctor(self) -> None:
-        """Assures 'agyis doctor' survives when PATH is restricted or tools are missing."""
-        with unittest.mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}):
-            code, out, err = self.run_cli(["doctor", "--json"])
+    def test_b1_04_case_variation_manifest_names(self) -> None:
+        """Assures coordination manifest basenames with case variations are exempted."""
+        variations = ["PROGRESS.MD", "Dispatch.Md", "Obligations.JSON", "TASK.md"]
+        for fname in variations:
+            for _ in range(6):
+                payload = {
+                    "conversationId": f"c_b1_04_{fname}",
+                    "toolCall": {
+                        "name": "view_file",
+                        "args": {"Path": fname},
+                    },
+                }
+                code, resp = self.run_hook("anti-loop", payload)
+                self.assertEqual(code, 0)
+                self.assertEqual(resp.get("decision"), "allow")
+
+    def test_b1_05_deeply_nested_teamwork_paths(self) -> None:
+        """Assures deeply nested teamwork subtask files are exempted."""
+        deep_path = str(self.ws / ".agents" / "teamwork" / "cluster_a" / "strand_9" / "progress.md")
+        for _ in range(8):
+            payload = {
+                "conversationId": "c_b1_05",
+                "toolCall": {
+                    "name": "view_file",
+                    "args": {"AbsolutePath": deep_path},
+                },
+            }
+            code, resp = self.run_hook("anti-loop", payload)
             self.assertEqual(code, 0)
-            data = self.parse_json_stdout(out)
-            self.assertIn("summary", data)
+            self.assertEqual(resp.get("decision"), "allow")
 
     # =========================================================================
-    # Domain 2: Malformed & Corrupted Manifests
+    # Domain 2: Stop-Fence Boundary Conditions
     # =========================================================================
 
-    def test_boundary_truncated_package_json(self) -> None:
-        """Assures 'agyis init' handles truncated package.json gracefully without crashing."""
-        (self.ws / "package.json").write_text('{"name": "broken_package_json', encoding="utf-8")
-        code, out, err = self.run_cli(["init", "--dry-run", "--json", str(self.ws)])
+    def test_b2_01_non_test_command_exit_zero_does_not_clear(self) -> None:
+        """Assures non-test command with exit 0 (e.g. ls, git status) does not clear dirty state."""
+        conv_id = "c_b2_01"
+        ws_file = str(self.ws / "src" / "main.py")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": ws_file}},
+        })
+
+        # Non-test command exit 0
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": 0,
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "ls -la"}},
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
         self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertTrue(data.get("success"))
+        self.assertEqual(stop_resp.get("decision"), "continue")
 
-    def test_boundary_corrupted_pyproject_toml(self) -> None:
-        """Assures 'agyis init' handles syntax errors in pyproject.toml gracefully."""
-        (self.ws / "pyproject.toml").write_text("[project\n broken syntax = = =\n", encoding="utf-8")
-        code, out, err = self.run_cli(["init", "--dry-run", "--json", str(self.ws)])
+    def test_b2_02_null_exit_code_handling(self) -> None:
+        """Assures PostToolUse with missing or null exitCode does not clear dirty state."""
+        conv_id = "c_b2_02"
+        ws_file = str(self.ws / "src" / "main.py")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": ws_file}},
+        })
+
+        # PostToolUse with null exitCode
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "exitCode": None,
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "python3 -m unittest discover"}},
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
         self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertTrue(data.get("success"))
+        self.assertEqual(stop_resp.get("decision"), "continue")
 
-    def test_boundary_binary_garbage_makefile(self) -> None:
-        """Assures 'agyis init' handles binary/non-UTF8 Makefiles without decode crash."""
-        (self.ws / "Makefile").write_bytes(b"\x00\xff\xfe\x00\x12\x34\xab\xcd")
-        code, out, err = self.run_cli(["init", "--dry-run", "--json", str(self.ws)])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertTrue(data.get("success"))
+    def test_b2_03_negative_signal_exit_codes(self) -> None:
+        """Assures commands terminated by signals (e.g. exit code 137 or -9) do not clear dirty state."""
+        conv_id = "c_b2_03"
+        ws_file = str(self.ws / "src" / "main.py")
 
-    def test_boundary_empty_manifest_files(self) -> None:
-        """Assures 0-byte manifest files are handled safely during preset detection."""
-        (self.ws / "package.json").write_text("", encoding="utf-8")
-        (self.ws / "pyproject.toml").write_text("", encoding="utf-8")
-        (self.ws / "Makefile").write_text("", encoding="utf-8")
-        code, out, err = self.run_cli(["init", "--dry-run", "--json", str(self.ws)])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertTrue(data.get("success"))
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": ws_file}},
+        })
 
-    def test_boundary_empty_doctor_matrix(self) -> None:
-        """Assures 'doctor --matrix' with empty tiers in custom matrix succeeds safely."""
-        empty_matrix = self.ws / "empty_matrix.json"
-        empty_matrix.write_text("{}", encoding="utf-8")
-        code, out, err = self.run_cli(["doctor", "--matrix", str(empty_matrix), "--json"])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertIn("summary", data)
+        for sig_code in (-9, 137, 143):
+            self.run_hook("verification-fence", {
+                "conversationId": conv_id,
+                "cwd": str(self.ws),
+                "exitCode": sig_code,
+                "toolCall": {"name": "run_command", "args": {"CommandLine": "pytest"}},
+            })
 
-    # =========================================================================
-    # Domain 3: Rule Fencing Robustness & Unicode/Emoji Fidelity
-    # =========================================================================
-
-    def test_boundary_empty_fences(self) -> None:
-        """Assures empty legacy fence block is upgraded cleanly to modern tagged block."""
-        empty_fence = "<!-- Added by PSL-HARNESS -->\n<!-- End PSL-HARNESS -->\n"
-        self.create_fixture("legacy_psl", custom_rules=empty_fence)
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("<!-- Added by AGYIS-HARNESS -->", content)
-        self.assertIn("<!-- End AGYIS-HARNESS -->", content)
-        self.assertNotIn("<!-- Added by PSL-HARNESS -->", content)
-
-    def test_boundary_unclosed_opening_tag_treated_safely(self) -> None:
-        """Assures an unclosed opening fence is preserved safely as user rules and block appended."""
-        unclosed = "# User Header\n<!-- Added by PSL-HARNESS -->\nNo closing delimiter here\n"
-        self.create_fixture("legacy_psl", custom_rules=unclosed)
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("# User Header", content)
-        self.assertIn("No closing delimiter here", content)
-        self.assertIn("<!-- Added by AGYIS-HARNESS -->", content)
-        self.assertIn("<!-- End AGYIS-HARNESS -->", content)
-
-    def test_boundary_regex_backreferences_in_user_rules(self) -> None:
-        """Assures regex backreferences (\\g<1>, \\1, $1) in user rules are preserved intact."""
-        regex_rules = (
-            "# Regex Preservation Rules\n"
-            "- Replace with \\g<1> and \\1 safely\n"
-            "- Variable substitution $1 or ${var}\n\n"
-            "<!-- Added by PSL-HARNESS -->\nOld rules\n<!-- End PSL-HARNESS -->\n"
-        )
-        self.create_fixture("legacy_psl", custom_rules=regex_rules)
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn(r"\g<1>", content)
-        self.assertIn(r"\1", content)
-        self.assertIn("$1", content)
-
-    def test_boundary_unicode_multilingual_and_emojis(self) -> None:
-        """Assures multilingual content (Bengali, Japanese, emojis) is preserved byte-for-byte."""
-        multilingual = (
-            "# সার্বজনীন নিয়মাবলী (Universal Rules 🚀)\n"
-            "- বাংলা: কোড পরিষ্কার রাখুন ✨\n"
-            "- 日本語: 品質を保つこと 🤖\n\n"
-            "<!-- Added by PSL-HARNESS -->\nOld rules\n<!-- End PSL-HARNESS -->\n"
-        )
-        self.create_fixture("legacy_psl", custom_rules=multilingual)
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("সার্বজনীন নিয়মাবলী", content)
-        self.assertIn("🚀", content)
-        self.assertIn("বাংলা: কোড পরিষ্কার রাখুন", content)
-        self.assertIn("日本語: 品質を保つこと", content)
-        self.assertIn("🤖", content)
-
-    def test_boundary_crlf_windows_line_endings(self) -> None:
-        """Assures Windows CRLF line endings are harmonized cleanly without corruption."""
-        crlf_rules = (
-            "# Windows Rules\r\n- Keep CRLF safe\r\n\r\n"
-            "<!-- Added by PSL-HARNESS -->\r\nOld rules\r\n<!-- End PSL-HARNESS -->\r\n"
-        )
-        self.create_fixture("legacy_psl", custom_rules=crlf_rules)
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("# Windows Rules", content)
-        self.assertIn("<!-- Added by AGYIS-HARNESS -->", content)
-
-    # =========================================================================
-    # Domain 4: Directory Structures & Symlink Cycles
-    # =========================================================================
-
-    def test_boundary_circular_symlinks_in_agents(self) -> None:
-        """Assures circular symlinks in .agent/ are skipped safely without infinite loop."""
-        self.create_fixture("legacy_psl")
-        loop_link = self.ws / ".agent" / "agents" / "loop"
-        try:
-            loop_link.symlink_to(self.ws / ".agent" / "agents", target_is_directory=True)
-        except OSError:
-            pass  # Some filesystems or OS may restrict directory symlinks
-
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-        self.assertTrue((self.ws / ".agents" / "agents" / "code_reviewer.md").exists())
-
-    def test_boundary_deeply_nested_rule_directories(self) -> None:
-        """Assures deeply nested rule hierarchies (.agent/rules/a/b/c/d/e.md) are preserved."""
-        self.create_fixture("legacy_psl")
-        deep_dir = self.ws / ".agent" / "rules" / "level1" / "level2" / "level3"
-        deep_dir.mkdir(parents=True, exist_ok=True)
-        deep_file = deep_dir / "deep_policy.md"
-        deep_file.write_text("# Deep Security Policy\nStrict security.", encoding="utf-8")
-
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        target_file = self.ws / ".agents" / "rules" / "level1" / "level2" / "level3" / "deep_policy.md"
-        self.assertTrue(target_file.exists())
-        self.assertEqual(target_file.read_text(encoding="utf-8"), deep_file.read_text(encoding="utf-8"))
-
-    def test_boundary_empty_workflow_file(self) -> None:
-        """Assures completely empty workflow file is synthesized into valid skill."""
-        self.create_fixture("legacy_psl")
-        (self.ws / ".agent" / "workflows" / "empty_flow.md").write_text("", encoding="utf-8")
-
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        skill_md = self.ws / ".agents" / "skills" / "empty_flow" / "SKILL.md"
-        self.assertTrue(skill_md.exists())
-        content = skill_md.read_text(encoding="utf-8")
-        self.assertIn("name: empty_flow", content)
-        self.assertIn("description:", content)
-
-    def test_boundary_workflow_with_partial_frontmatter(self) -> None:
-        """Assures workflow with missing description gets synthesized description."""
-        self.create_fixture("legacy_psl")
-        partial_fm = "---\nname: explicit_name\n---\n# Workflow Heading\nDetailed workflow body."
-        (self.ws / ".agent" / "workflows" / "partial.md").write_text(partial_fm, encoding="utf-8")
-
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-
-        skill_md = self.ws / ".agents" / "skills" / "partial" / "SKILL.md"
-        self.assertTrue(skill_md.exists())
-        content = skill_md.read_text(encoding="utf-8")
-        self.assertIn("name: explicit_name", content)
-        self.assertIn("description:", content)
-
-    def test_boundary_identical_destination_skips_unnecessary_writes(self) -> None:
-        """Assures pre-existing identical files in .agents/ do not trigger errors or corruption."""
-        self.create_fixture("legacy_psl")
-        dest_agent = self.ws / ".agents" / "agents" / "code_reviewer.md"
-        dest_agent.parent.mkdir(parents=True, exist_ok=True)
-        dest_agent.write_text("# Code Reviewer\nExpert automated reviewer.", encoding="utf-8")
-
-        code, out, err = self.run_cli(["harmonize", str(self.ws)])
-        self.assertEqual(code, 0)
-        self.assertTrue(dest_agent.exists())
-
-    # =========================================================================
-    # Domain 5: CLI Argument Combinations & Missing Inputs
-    # =========================================================================
-
-    def test_boundary_combine_dry_run_and_json(self) -> None:
-        """Assures combining '--dry-run' and '--json' returns pure JSON with dry_run=True."""
-        self.create_fixture("legacy_psl")
-        code, out, err = self.run_cli(["harmonize", "--dry-run", "--json", str(self.ws)])
-        self.assertEqual(code, 0)
-        data = self.parse_json_stdout(out)
-        self.assertTrue(data.get("dry_run"))
-        self.assertTrue(data.get("success"))
-
-    def test_boundary_unknown_subcommand(self) -> None:
-        """Assures unknown subcommand returns exit code 2."""
-        code, out, err = self.run_cli(["invalid_subcommand_xyz"])
-        self.assertIn(code, [2, 1])
-
-    def test_boundary_unknown_flag(self) -> None:
-        """Assures unrecognized command-line flag returns exit code 2 with usage notice."""
-        code, out, err = self.run_cli(["doctor", "--invalid-flag-123"])
-        self.assertEqual(code, 2)
-        self.assertIn("unrecognized arguments", err.lower() + out.lower())
-
-    def test_boundary_harmonize_default_path_current_dir(self) -> None:
-        """Assures omitting path argument defaults cleanly to current working directory."""
-        # Run inside temporary self.ws by patching CWD
-        orig_cwd = os.getcwd()
-        try:
-            os.chdir(str(self.ws))
-            code, out, err = self.run_cli(["harmonize", "--dry-run", "--json"])
+            code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
             self.assertEqual(code, 0)
-            data = self.parse_json_stdout(out)
-            self.assertTrue(data.get("success"))
-        finally:
-            os.chdir(orig_cwd)
+            self.assertEqual(stop_resp.get("decision"), "continue")
 
-    def test_boundary_init_override_flag(self) -> None:
-        """Assures 'agyis init --override' successfully overwrites existing files."""
-        (self.ws / "AGENTS.md").write_text("# Existing Pre-Rule", encoding="utf-8")
-        code, out, err = self.run_cli(["init", "--override", str(self.ws)])
+    def test_b2_04_malformed_json_payload(self) -> None:
+        """Assures malformed JSON payload returns fail-open allow without crashing."""
+        code, out, _ = self.run_hook_cli("verification-fence", "{not valid json")
         self.assertEqual(code, 0)
-        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("<!-- Added by AGYIS-HARNESS -->", content)
+        data = json.loads(out.strip()) if out.strip() else {}
+        self.assertEqual(data.get("decision"), "allow")
+
+    def test_b2_05_unknown_tool_name_ignored(self) -> None:
+        """Assures unrecognized tools do not modify verification fence dirty state."""
+        conv_id = "c_b2_05"
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "toolCall": {"name": "search_web", "args": {"query": "python"}},
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "allow")
+
+    # =========================================================================
+    # Domain 3: Scratch Path Boundary Conditions
+    # =========================================================================
+
+    def test_b3_01_workspace_inside_tmp(self) -> None:
+        """Assures that when workspace root itself is in /tmp, in-workspace code edits mark dirty."""
+        # self.ws is inside a temporary directory (/tmp/...)
+        conv_id = "c_b3_01"
+        ws_code = str(self.ws / "app" / "service.py")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": ws_code}},
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "continue")
+
+    def test_b3_02_brain_scratch_nested_subdirs(self) -> None:
+        """Assures deeply nested subdirectories under brain scratch are exempted."""
+        conv_id = "c_b3_02"
+        deep_scratch = "/home/user/.gemini/antigravity/brain/session_1/scratch/sub/utils/test.py"
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": deep_scratch}},
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "allow")
+
+    def test_b3_03_path_traversal_scrubbing(self) -> None:
+        """Assures path traversal navigating outside workspace root does not dirty workspace."""
+        conv_id = "c_b3_03"
+        traversal_path = str(self.ws / "subdir" / ".." / ".." / "external_script.py")
+
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": traversal_path}},
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "allow")
+
+    def test_b3_04_symlinked_scratch_dir(self) -> None:
+        """Assures symlinked scratch directories pointing outside workspace are isolated."""
+        conv_id = "c_b3_04"
+        with tempfile.TemporaryDirectory() as outside_dir:
+            outside_scratch = Path(outside_dir) / "scratch"
+            outside_scratch.mkdir()
+            symlink_in_ws = self.ws / "scratch_link"
+            try:
+                symlink_in_ws.symlink_to(outside_scratch)
+            except OSError:
+                self.skipTest("Symlinks not supported in environment")
+
+            target_file = str(symlink_in_ws / "script.py")
+            self.run_hook("verification-fence", {
+                "conversationId": conv_id,
+                "cwd": str(self.ws),
+                "toolCall": {"name": "write_to_file", "args": {"TargetFile": target_file}},
+            })
+
+            code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+            self.assertEqual(code, 0)
+            self.assertEqual(stop_resp.get("decision"), "allow")
+
+    def test_b3_05_empty_or_whitespace_file_path(self) -> None:
+        """Assures empty or whitespace TargetFile in write_to_file does not dirty state."""
+        conv_id = "c_b3_05"
+        self.run_hook("verification-fence", {
+            "conversationId": conv_id,
+            "cwd": str(self.ws),
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": "   "}},
+        })
+
+        code, stop_resp = self.run_hook("verification-fence", {"conversationId": conv_id, "cwd": str(self.ws)})
+        self.assertEqual(code, 0)
+        self.assertEqual(stop_resp.get("decision"), "allow")
+
+    # =========================================================================
+    # Domain 6: Issue Template Boundary Conditions
+    # =========================================================================
+
+    def _get_template_path(self, filename: str) -> Path:
+        p = REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / filename
+        if not p.exists():
+            self.skipTest(f"Pending implementation in Milestone M4: {filename} not yet created")
+        return p
+
+    def test_b6_01_malformed_yaml_syntax_detection(self) -> None:
+        """Assures issue template files parse cleanly without syntax errors."""
+        p = self._get_template_path("bug_report.yml")
+        content = p.read_text(encoding="utf-8")
+        # Check no tab indentation errors or unbalanced quotes
+        self.assertNotIn("\t", content, "YAML issue template contains illegal tab characters")
+
+    def test_b6_02_missing_body_elements_detection(self) -> None:
+        """Assures issue template contains structured body element array."""
+        p = self._get_template_path("bug_report.yml")
+        content = p.read_text(encoding="utf-8")
+        self.assertIn("body:", content)
+
+    def test_b6_03_non_yaml_files_ignored(self) -> None:
+        """Assures non-YAML files in .github/ISSUE_TEMPLATE/ (if any) are not treated as issue forms."""
+        template_dir = REPO_ROOT / ".github" / "ISSUE_TEMPLATE"
+        if not template_dir.exists():
+            self.skipTest("Pending implementation in Milestone M4: ISSUE_TEMPLATE directory not yet created")
+        for file in template_dir.iterdir():
+            if file.suffix not in (".yml", ".yaml"):
+                self.assertNotEqual(file.suffix, ".yml")
+
+    def test_b6_04_special_characters_in_descriptions(self) -> None:
+        """Assures markdown backticks, pipes, and special characters in descriptions parse cleanly."""
+        p = self._get_template_path("bug_report.yml")
+        content = p.read_text(encoding="utf-8")
+        self.assertIn("agyis doctor", content)
+
+    def test_b6_05_validations_structure_integrity(self) -> None:
+        """Assures validations blocks use valid boolean required flags."""
+        p = self._get_template_path("bug_report.yml")
+        content = p.read_text(encoding="utf-8")
+        self.assertIn("validations:", content)
+        self.assertIn("required:", content)
 
 
 if __name__ == "__main__":

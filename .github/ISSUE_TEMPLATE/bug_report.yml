@@ -1,0 +1,130 @@
+name: Bug Report
+description: Report a defect, hook collision, crash, or unexpected behavior in agyis-harness
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for submitting a bug report for `agyis-harness`!
+        
+        Before submitting, please run `agyis doctor` to check the health of your host environment and runtime dependencies.
+  - type: input
+    id: harness_version
+    attributes:
+      label: Agyis Harness Version
+      description: Exact active agyis-harness release version or git commit SHA (e.g. from `agyis --version` or `git rev-parse --short HEAD`).
+      placeholder: "e.g., 1.0.0-rc3 or ea9fa04"
+    validations:
+      required: true
+  - type: textarea
+    id: problem_description
+    attributes:
+      label: Problem Description & Symptoms
+      description: A clear and concise description of what the bug is, including unexpected hook behavior or errors.
+      placeholder: "Describe what happened and what you expected to happen..."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Steps to Reproduce
+      description: Exact sequence of steps, commands, or tool invocations that trigger the issue.
+      placeholder: |
+        1. Run command '...'
+        2. Tool call '...' executed
+        3. Observe failure or unexpected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected Behavior
+      description: What should have happened in accordance with architectural invariants or expected contract.
+      placeholder: "Describe the expected outcome..."
+    validations:
+      required: false
+  - type: input
+    id: antigravity_cli_version
+    attributes:
+      label: Antigravity CLI Version (Optional)
+      description: Output of `agy --version` or platform CLI build identifier if applicable.
+      placeholder: "e.g., agy 0.4.2"
+    validations:
+      required: false
+  - type: input
+    id: antigravity_ide_version
+    attributes:
+      label: Antigravity Electron App / IDE Version (Optional)
+      description: Application package version or IDE build number (e.g., Google Antigravity IDE v1.12.0).
+      placeholder: "e.g., Google Antigravity IDE v1.12.0"
+    validations:
+      required: false
+  - type: input
+    id: host_toolchain_versions
+    attributes:
+      label: Host Toolchain & Environment Versions (Optional)
+      description: Host SWE toolchain versions (Python, Node/pnpm, Git/gh, REA CLI & providers).
+      placeholder: "e.g., Python 3.12, Node 22, Git 2.45, REA 0.2.1"
+    validations:
+      required: false
+  - type: input
+    id: python_version
+    attributes:
+      label: Host Python Runtime (Optional)
+      description: Host Python runtime version (e.g., output of `python3 --version`).
+      placeholder: "e.g., CPython 3.12.3"
+    validations:
+      required: false
+  - type: input
+    id: node_package_manager
+    attributes:
+      label: Node & Package Manager Versions (Optional)
+      description: Node.js and package manager versions (e.g., `node -v`, `pnpm -v`).
+      placeholder: "e.g., Node.js v22.4.1, pnpm 9.4.0"
+    validations:
+      required: false
+  - type: input
+    id: vcs_tooling
+    attributes:
+      label: VCS & Platform Tooling (Optional)
+      description: Git and GitHub CLI versions (e.g., `git --version`, `gh --version`).
+      placeholder: "e.g., git 2.45.2, gh 2.50.0"
+    validations:
+      required: false
+  - type: input
+    id: rea_tooling
+    attributes:
+      label: REA CLI & Analysis Providers (Optional)
+      description: Reverse engineering and analysis tooling version and active providers (output of `rea --version`, `rea providers`).
+      placeholder: "e.g., rea 0.2.1 (providers: native, electron)"
+    validations:
+      required: false
+  - type: input
+    id: reproduction_repo
+    attributes:
+      label: Reference Codebase or Reproduction Repository (Optional)
+      description: Link to external repository, branch, or reproduction workspace where the issue was observed.
+      placeholder: "e.g., https://github.com/kuasha420/mi34-ultra"
+    validations:
+      required: false
+  - type: textarea
+    id: diagnostic_logs
+    attributes:
+      label: Relevant Diagnostic Logs & Doctor Output (Optional)
+      description: Output of `agyis doctor`, hook telemetry traces, or terminal logs.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-flight Verification Checklist
+      description: "Confirm the following before submitting this report:"
+      options:
+        - label: I have verified that this issue occurs on the specified agyis-harness version.
+          required: true
+        - label: I have searched open and closed issues to confirm this is not a duplicate.
+          required: false
+        - label: I have run `agyis doctor` to inspect host environment runtimes.
+          required: false

@@ -55,16 +55,66 @@ def _signatures_match(sig1: dict, sig2: dict) -> bool:
     return sig1.get("args") == sig2.get("args")
 
 
+PATH_KEYS = (
+    "AbsolutePath",
+    "Path",
+    "TargetFile",
+    "file_path",
+    "filePath",
+    "target_file",
+    "path",
+)
+
+COORDINATION_DIRS = (
+    "/.agents/teamwork/",
+    ".agents/teamwork/",
+    "/.agents/ledger/",
+    ".agents/ledger/",
+)
+
+COORDINATION_BASENAMES = (
+    "progress.md",
+    "dispatch.md",
+    "briefing.md",
+    "handoff.md",
+    "task.md",
+    "obligations.json",
+)
+
+
 def _is_peer_heartbeat(tool_name: str, tool_args: dict) -> bool:
     """
-    Exempts read-only inspections of peer heartbeat files.
-    If tool_name == 'view_file' and the path ends with 'progress.md' or contains '/.agents/teamwork/',
-    never flag as a loop denial.
+    Exempts read-only inspections of peer heartbeat and coordination files.
+    - Exempts files in /.agents/teamwork/ or /.agents/ledger/.
+    - Exempts coordination basenames (progress.md, dispatch.md, briefing.md,
+      handoff.md, task.md, obligations.json) unless they reside within
+      production source directories (harness/, src/, crates/, tests/).
     """
-    if tool_name != "view_file":
+    if tool_name != "view_file" or not isinstance(tool_args, dict):
         return False
-    path = str(tool_args.get("AbsolutePath") or tool_args.get("Path") or "")
-    return path.endswith("progress.md") or "/.agents/teamwork/" in path or ".agents/teamwork/" in path
+
+    path = ""
+    for key in PATH_KEYS:
+        val = tool_args.get(key)
+        if isinstance(val, str) and val.strip():
+            path = val.strip()
+            break
+
+    if not path:
+        return False
+
+    norm_path = path.replace("\\", "/")
+
+    if any(coord_dir in norm_path for coord_dir in COORDINATION_DIRS):
+        return True
+
+    basename = norm_path.rstrip("/").split("/")[-1].lower()
+    if basename in COORDINATION_BASENAMES:
+        if re.search(r"(?:^|/)(?:harness|src|crates|tests)/", norm_path):
+            return False
+        return True
+
+    return False
 
 
 def _is_code_edit(sig: dict) -> bool:
@@ -76,7 +126,10 @@ def _is_test_verification_command(sig: dict) -> bool:
     """Helper to check if a tool call is a test verification runner invocation."""
     if sig.get("name") != "run_command":
         return False
-    cmd = sig.get("args", {}).get("CommandLine", "").strip()
+    args = sig.get("args")
+    if not isinstance(args, dict):
+        return False
+    cmd = str(args.get("CommandLine") or "").strip()
     return any(re.search(pat, cmd) for pat in TEST_VERIFICATION_PATTERNS)
 
 
@@ -87,7 +140,10 @@ def _is_idempotent_status_command(sig: dict) -> bool:
     """
     if sig.get("name") != "run_command":
         return False
-    cmd = sig.get("args", {}).get("CommandLine", "").strip()
+    args = sig.get("args")
+    if not isinstance(args, dict):
+        return False
+    cmd = str(args.get("CommandLine") or "").strip()
     if cmd.startswith("PAGER=cat "):
         cmd = cmd[len("PAGER=cat "):].strip()
     tokens = cmd.split()
@@ -102,21 +158,28 @@ def _is_idempotent_status_command(sig: dict) -> bool:
 
 def _is_manage_task_status(sig: dict) -> bool:
     """Helper to detect manage_task(Action='status') background task inspections."""
-    return sig.get("name") == "manage_task" and sig.get("args", {}).get("Action") == "status"
+    if sig.get("name") != "manage_task":
+        return False
+    args = sig.get("args")
+    if not isinstance(args, dict):
+        return False
+    return args.get("Action") == "status"
 
 
 def _is_task_log_inspection(sig: dict) -> bool:
     """Helper to detect if a tool call is inspecting background task logs."""
     name = sig.get("name", "")
-    args = sig.get("args", {})
+    args = sig.get("args")
+    if not isinstance(args, dict):
+        return False
     if name == "view_file":
-        path = args.get("AbsolutePath", "")
+        path = str(args.get("AbsolutePath") or "")
         return (".system_generated/tasks" in path or "/tasks/task-" in path) and path.endswith(".log")
     if name == "grep_search":
-        search_path = args.get("SearchPath", "")
+        search_path = str(args.get("SearchPath") or "")
         return (".system_generated/tasks" in search_path or "/tasks/task-" in search_path) and (search_path.endswith(".log") or search_path.endswith("/tasks"))
     if name == "run_command":
-        cmd = args.get("CommandLine", "")
+        cmd = str(args.get("CommandLine") or "")
         return (".system_generated/tasks" in cmd or "/tasks/task-" in cmd) and ".log" in cmd
     return False
 
@@ -134,8 +197,11 @@ def check_anti_loop(
     2. Rolling frequency-window check (denies if identical signature appears >= 4 times within sliding window of 15 calls).
     3. N-gram cyclic pattern check (denies if repeating sequences of length P in [2, 5] repeat >= 2 consecutive cycles).
 
-    Relaxations (PSL-SPEC-2026-DRA-001 Phase 2):
-    - Peer Heartbeat Exemption: view_file on progress.md or /.agents/teamwork/ is never denied.
+    Relaxations (PSL-SPEC-2026-DRA-001 Phase 2 & Issue #41):
+    - Peer Heartbeat & Coordination Exemption: view_file on coordination files/directories
+      (.agents/teamwork/, .agents/ledger/, progress.md, dispatch.md, briefing.md,
+      handoff.md, task.md, obligations.json) is never denied unless located inside
+      production code directories (harness/, src/, crates/, tests/).
     - Verification Reset Invariant: Code edits clear test runner frequency/repeats counters.
     - Idempotent Status Command Relaxation: git status, git branch, stat, pwd allow up to at least 8 executions.
     - Non-Blocking Advisory: manage_task(Action='status') returns non-blocking advisory allow.
@@ -318,10 +384,10 @@ def main() -> None:
         print(json.dumps({"decision": "allow"}))
         return
 
-    conv_id = payload.get("conversationId", "default")
-    tool_call = payload.get("toolCall", {})
+    conv_id = payload.get("conversationId") or "default"
+    tool_call = payload.get("toolCall") or {}
     tool_name = tool_call.get("name", "")
-    tool_args = tool_call.get("args", {})
+    tool_args = tool_call.get("args") or {}
 
     result = check_anti_loop(tool_name, tool_args, conv_id=conv_id)
     print(json.dumps(result))
