@@ -183,6 +183,26 @@ class TestAntiLoopHookPhase2(unittest.TestCase):
         tripped = check_anti_loop("run_command", test_args, conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(tripped["decision"], "deny")
 
+    def test_consecutive_failing_tests_after_single_edit_trips_loop_detector(self):
+        """A single edit followed by consecutive test commands trips loop detector on 4th test (DEF-01)."""
+        conv_id = "test-consecutive-failing-tests-def01"
+        edit_args = {
+            "TargetFile": "/workspace/src/app.py",
+            "CodeContent": "print('fixed')\n",
+        }
+        res_edit = check_anti_loop("write_to_file", edit_args, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res_edit["decision"], "allow")
+
+        test_args = {"CommandLine": "pytest tests/ -v"}
+        for i in range(3):
+            res_test = check_anti_loop("run_command", test_args, conv_id=conv_id, state_dir=self.state_dir)
+            self.assertEqual(res_test["decision"], "allow", f"Test call {i+1} was unexpectedly denied")
+
+        # 4th consecutive test execution without an intervening edit must be denied
+        res_tripped = check_anti_loop("run_command", test_args, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res_tripped["decision"], "deny")
+        self.assertIn("identical consecutive executions", res_tripped.get("reason", ""))
+
     # 3. Non-Blocking Advisory for Background Tasks
     def test_manage_task_status_returns_non_blocking_advisory(self):
         """manage_task(Action='status') returns a non-blocking advisory (decision: 'allow') instead of denying."""

@@ -50,7 +50,7 @@ class TestTier3Combinations(OpaqueBoxTestCase):
         })
 
         # Anti-loop allows repeated test invocations because code edit reset sliding window
-        for _ in range(4):
+        for _ in range(3):
             code, loop_resp = self.run_hook("anti-loop", {
                 "conversationId": conv_id,
                 "toolCall": {"name": "run_command", "args": {"CommandLine": "./agyis test"}},

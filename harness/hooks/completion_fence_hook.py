@@ -631,7 +631,7 @@ UNIVERSAL_TEST_RUNNER_PATTERNS: tuple[re.Pattern, ...] = (
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*go\s+test\b"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*ctest\b"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:agyis|\./agyis|psl|\./psl)\s+test\b)"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:rea\s+(?:verify|verify-reconstruction|test)\b|agyis\s+verify\b)"),
+    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:rea\s+(?:verify|verify-reconstruction|test)\b|(?:\./)?agyis\s+verify\b)"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*make\s+(?:test|check|verify)\b"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:bash|sh)\s+|\./)tests?/[^\s]+\.sh\b"),
 )
@@ -640,7 +640,7 @@ HARNESS_TEST_RUNNER_PATTERNS: tuple[re.Pattern, ...] = (
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:agyis|\./agyis|psl|\./psl)\s+test\b)"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*python3?\s+-m\s+(?:harness(?:\.cli)?\s+test|unittest\b|pytest\b)"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*pytest(?:\s|$)"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:rea\s+(?:verify|verify-reconstruction|test)\b|agyis\s+verify\b)"),
+    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:rea\s+(?:verify|verify-reconstruction|test)\b|(?:\./)?agyis\s+verify\b)"),
 )
 
 

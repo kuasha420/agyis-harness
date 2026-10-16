@@ -300,6 +300,10 @@ class TestTier1Features(OpaqueBoxTestCase):
             "run_command" in entry.get("matcher", "") for entry in post_hooks
         )
         self.assertTrue(matcher_found, "PostToolUse does not register run_command matcher")
+        mcp_matcher_found = any(
+            "call_mcp_tool" in entry.get("matcher", "") for entry in post_hooks
+        )
+        self.assertTrue(mcp_matcher_found, "PostToolUse does not register call_mcp_tool matcher (DEF-04)")
 
     # =========================================================================
     # Feature 3 (Issue #43): Scratch Path Isolation

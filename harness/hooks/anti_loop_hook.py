@@ -263,11 +263,6 @@ def check_anti_loop(
     if _is_code_edit(sig):
         history = [item for item in history if not _is_test_verification_command(item)]
 
-    # If the current call is a test verification command preceded by any code edit,
-    # reset previous test runner history so verification following edits is never blocked as a loop.
-    if _is_test_verification_command(sig) and any(_is_code_edit(item) for item in history):
-        history = [item for item in history if not _is_test_verification_command(item)]
-
     # 0. Background task log polling check (prevents manual background task sniffing loops)
     if _is_task_log_inspection(sig):
         consecutive_inspections = 0

@@ -1,0 +1,1014 @@
+{
+  "timestamp": "2026-10-14T15:18:51Z",
+  "merge_commits": [
+    {
+      "item": "chakra-ui-icons-compat",
+      "path": "/home/kuasha/Dev/chakra-ui-icons-compat",
+      "gh_repo": "purrfectsoft/chakra-ui-icons-compat",
+      "pr_number": 1,
+      "expected_sha": "faa7b37af794a15f32aceddcc7cb267c06240519",
+      "actual_sha": "faa7b37af794a15f32aceddcc7cb267c06240519",
+      "parent_count": 2,
+      "parents": [
+        "6389d0b1fd05d94fea7f9c4311004568fdb384b7",
+        "e1f1222f0d9c5f63fe0f51a04d024d7a6869464f"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   faa7b37 Merge pull request #1 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * e1f1222 chore(remediation): address code review feedback and verify native tests\n| * 2b8c8aa chore: onboard chakra-ui-icons-compat to Agyis Harness v1.0.0-rc2\n|/  \n* 6389d0b Fix TSConfig path for commonJS build.\n* a2d19df Init.",
+      "branch_commits": [
+        "faa7b37 Merge pull request #1 from purrfectsoft/chore/agyis-harness-onboarding",
+        "e1f1222 chore(remediation): address code review feedback and verify native tests",
+        "2b8c8aa chore: onboard chakra-ui-icons-compat to Agyis Harness v1.0.0-rc2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "bookcover-craft-api",
+      "path": "/home/kuasha/Dev/bookcover-craft-api",
+      "gh_repo": "purrfectsoft/bookcover-craft-api",
+      "pr_number": 6,
+      "expected_sha": "c388be52795639684c80c5857328c639e68f9190",
+      "actual_sha": "c388be52795639684c80c5857328c639e68f9190",
+      "parent_count": 2,
+      "parents": [
+        "c25a747990bb092c23869d112ba8de034fbae856",
+        "2be769713f1eee528a01ff5f8a2d9e756b937194"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   c388be5 Merge pull request #6 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * 2be7697 chore(remediation): restore authentic jest test suites and provide mock dependencies\n| * cfde1bd chore(remediation): address code review feedback and verify native tests\n| * 1d86170 chore: onboard bookcover-craft-api to Agyis Harness v1.0.0-rc2\n|/  \n* c25a747 update callbackURL for facebook strategy",
+      "branch_commits": [
+        "c388be5 Merge pull request #6 from purrfectsoft/chore/agyis-harness-onboarding",
+        "2be7697 chore(remediation): restore authentic jest test suites and provide mock dependencies",
+        "cfde1bd chore(remediation): address code review feedback and verify native tests",
+        "1d86170 chore: onboard bookcover-craft-api to Agyis Harness v1.0.0-rc2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "bookcover-craft",
+      "path": "/home/kuasha/Dev/bookcover-craft",
+      "gh_repo": "purrfectsoft/bookcover-craft",
+      "pr_number": 4,
+      "expected_sha": "d2020b5bfe3442e63740695cb25f5b0a14807c25",
+      "actual_sha": "d2020b5bfe3442e63740695cb25f5b0a14807c25",
+      "parent_count": 2,
+      "parents": [
+        "3fbe0c757ee37a663bdaabead794aebb5d5caab7",
+        "3576a8bc4bc593a5e2a9a9f91221f6dec234db13"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   d2020b5 Merge pull request #4 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * 3576a8b chore(remediation): address code review feedback and verify native tests\n| * b3ef0f5 chore: onboard bookcover-craft to Agyis Harness v1.0.0-rc2\n|/  \n* 3fbe0c7 Move the usage of `useSearchParams` into a suspense boundary.\n* 44f7b21 Add close account page.",
+      "branch_commits": [
+        "d2020b5 Merge pull request #4 from purrfectsoft/chore/agyis-harness-onboarding",
+        "3576a8b chore(remediation): address code review feedback and verify native tests",
+        "b3ef0f5 chore: onboard bookcover-craft to Agyis Harness v1.0.0-rc2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "arbiter",
+      "path": "/home/kuasha/Dev/arbiter",
+      "gh_repo": "purrfectsoft/arbiter",
+      "pr_number": 1,
+      "expected_sha": "3b7c4e8878f9c2d792f50a39d73ae7e058412881",
+      "actual_sha": "3b7c4e8878f9c2d792f50a39d73ae7e058412881",
+      "parent_count": 2,
+      "parents": [
+        "aa4b6e12d13e4f7447bd5786d18880a4b7d3818c",
+        "39c0dcc1afb1d6d31e0ebcab8b1d0d86a9ab5b3a"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   3b7c4e8 Merge pull request #1 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * 39c0dcc chore(remediation): address code review feedback and verify native tests\n| * 19448f2 chore: onboard arbiter to Agyis Harness v1.0.0-rc2\n|/  \n* aa4b6e1 feat: scaffold arbiter monorepo structure (turborepo + yarn workspaces)\n* 576d471 Add gf project standard.",
+      "branch_commits": [
+        "3b7c4e8 Merge pull request #1 from purrfectsoft/chore/agyis-harness-onboarding",
+        "39c0dcc chore(remediation): address code review feedback and verify native tests",
+        "19448f2 chore: onboard arbiter to Agyis Harness v1.0.0-rc2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "jasper-hosted",
+      "path": "/home/kuasha/Dev/jasper-hosted",
+      "gh_repo": "purrfectsoft/jasper-hosted",
+      "pr_number": 42,
+      "expected_sha": "21f703c649d8174bf6caef54aaf20a84e5da2215",
+      "actual_sha": "21f703c649d8174bf6caef54aaf20a84e5da2215",
+      "parent_count": 2,
+      "parents": [
+        "d3c1b4ceb9b6358f356da97632583d360c600856",
+        "7ac866eb4dcc000dd53f3082c1c5bafdb3d7e67a"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   21f703c Merge pull request #42 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * 7ac866e chore(remediation): address code review feedback and verify native tests\n| * 62d36b5 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * 6893562 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/  \n*   d3c1b4c Merge pull request #36 from purrfectsoft/docs/wave2-readme-update\n|\\",
+      "branch_commits": [
+        "21f703c Merge pull request #42 from purrfectsoft/chore/agyis-harness-onboarding",
+        "7ac866e chore(remediation): address code review feedback and verify native tests",
+        "62d36b5 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "6893562 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "chronicle-time-keeper",
+      "path": "/home/kuasha/Dev/chronicle-time-keeper",
+      "gh_repo": "purrfectsoft/chronicle-time-keeper",
+      "pr_number": 16,
+      "expected_sha": "e0eb32e4a467a5227d887525e666c7cd36c90781",
+      "actual_sha": "e0eb32e4a467a5227d887525e666c7cd36c90781",
+      "parent_count": 2,
+      "parents": [
+        "51bc208665eca209e0e44ed4b9748c80a591c680",
+        "be16a10a13edcbeef4546c9c7630d70d9dfbfc14"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   e0eb32e Merge pull request #16 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * be16a10 chore(remediation): address code review feedback and verify native tests\n| * 955d9e7 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * a85d8ca chore: clean legacy .agent and provision psl-stack-backend skill\n| * 7ed51cb chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/",
+      "branch_commits": [
+        "e0eb32e Merge pull request #16 from purrfectsoft/chore/agyis-harness-onboarding",
+        "be16a10 chore(remediation): address code review feedback and verify native tests",
+        "955d9e7 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "a85d8ca chore: clean legacy .agent and provision psl-stack-backend skill",
+        "7ed51cb chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "sunshine-physio-universalapp",
+      "path": "/home/kuasha/Dev/sunshine-physio-universalapp",
+      "gh_repo": "purrfectsoft/sunshine-physio-webapp",
+      "pr_number": 52,
+      "expected_sha": "665ca430d57b0948d1173fb77b7eb0554c129d20",
+      "actual_sha": "665ca430d57b0948d1173fb77b7eb0554c129d20",
+      "parent_count": 2,
+      "parents": [
+        "f5d6ecfe900448dab7cfde04afe97ac68869e6d4",
+        "34c5075f7a8e97cc8a08abddfeded58a9cc88862"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   665ca43 Merge pull request #52 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * 34c5075 chore(remediation): address code review feedback and verify native tests\n| * 21fd700 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * cda6568 chore: clean legacy .agent and provision psl-stack-backend skill\n| * 1fd3621 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)",
+      "branch_commits": [
+        "665ca43 Merge pull request #52 from purrfectsoft/chore/agyis-harness-onboarding",
+        "34c5075 chore(remediation): address code review feedback and verify native tests",
+        "21fd700 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "cda6568 chore: clean legacy .agent and provision psl-stack-backend skill",
+        "1fd3621 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "purrmission (purrfectsoft PR #4)",
+      "path": "/home/kuasha/Dev/purrmission",
+      "gh_repo": "purrfectsoft/purrmission",
+      "pr_number": 4,
+      "expected_sha": "a6610ad5cc06e3f9e03600cf10a450d3727a235b",
+      "actual_sha": "a6610ad5cc06e3f9e03600cf10a450d3727a235b",
+      "parent_count": 2,
+      "parents": [
+        "dc6ab678e5a581f1ec44cee7a19324d67008af6a",
+        "a88ae4cdd6e00364c9b53468b244eac3904cf762"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   a6610ad Merge pull request #4 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * a88ae4c chore(remediation): address code review feedback and verify native tests\n| * f50cd45 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * 09ae0cb chore: clean legacy .agent and provision psl-stack-backend skill\n| * 6429e21 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)",
+      "branch_commits": [
+        "a6610ad Merge pull request #4 from purrfectsoft/chore/agyis-harness-onboarding",
+        "a88ae4c chore(remediation): address code review feedback and verify native tests",
+        "f50cd45 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "09ae0cb chore: clean legacy .agent and provision psl-stack-backend skill",
+        "6429e21 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)",
+        "575cf3e Merge pull request #160 from kuasha420/docs/update-epic-execution-graph",
+        "2709287 docs(epics): remove brittle test count references per review feedback",
+        "2785501 docs(epics): update prerequisite execution graph and knowledgebase live checkpoint for waves 1-7",
+        "1c11a8a Merge pull request #159 from kuasha420/feat/issue-130-pawthy-cutover",
+        "01fba35 fix(pawthy): address PR review comments on interval validation and formatting",
+        "258dcba feat(pawthy): cut CLI backend consumption over to DomainPorts and updated endpoints (#130)",
+        "3f02e15 feat(http): cut Fastify API routes over to DomainPorts (#158)",
+        "3528c27 feat(discord): cut Discord commands to DomainPorts and policy use cases (#157)",
+        "140249c Merge pull request #156 from kuasha420/feat/issue-127-domain-ports",
+        "583a785 fix(ports): fail closed on invalid principals and improve rollback tests (Refs #127)",
+        "d6a9d97 feat(ports): freeze DomainPorts capability checks and atomic transactions (Refs #127)",
+        "a2f4914 Merge pull request #155 from kuasha420/feat/issue-123-outbox-delivery",
+        "91c3d0d fix(outbox): enforce unique deliveryId, sanitize audit URLs, and isolate DM delivery",
+        "c83ac23 fix(outbox): import crypto in ports_impl and redact legacy migration secrets",
+        "6ecc9dc fix(outbox): enforce PENDING_VERIFICATION and clear stale tokens",
+        "0b1a780 fix(outbox): clear verification tokens on activation and preserve primary delivery reference",
+        "f4ecbc9 fix(outbox): address PR #155 code review comments on leases, transactions, and error handling",
+        "f047d48 feat(outbox): idempotent delivery, notification outbox, and callback state machine (Refs #123)",
+        "87b78d4 Merge pull request #154 from kuasha420/fix/issue-122-postmerge-typecheck",
+        "4d6f2ab fix(domain): import DuplicateError in mock repositories",
+        "11d35e9 Merge pull request #153 from kuasha420/feat/issue-122-approval-request-v2",
+        "aa372c1 fix(approval): address PR review feedback on idempotency and auth bindings",
+        "9804823 feat(approval): implement Approval Request V2, immutable grants, and atomic consumption",
+        "948f4c0 Merge pull request #152 from kuasha420/docs/issue-121-verification-checkpoint",
+        "ab7b939 docs(rbac): mark credential prerequisite verified",
+        "facd3c7 Merge pull request #151 from kuasha420/feat/issue-121-credential-lifecycle",
+        "df7c02e test(discord): preserve auth handler coverage",
+        "73220ba fix(discord): accept hardened login codes",
+        "3e6c128 fix(auth): validate credential key metadata",
+        "ed0e582 fix(auth): throttle resource credential failures",
+        "abb976d feat(auth): complete credential lifecycle",
+        "9e90c7c Merge pull request #150 from kuasha420/feat/issue-120-totp-custody-consent",
+        "6eb900d feat(totp): enforce custody-bound consent",
+        "fa6cc04 Merge pull request #149 from kuasha420/feat/issue-105-verified-backup-restore",
+        "1d6c9c4 feat(ops): require verified encrypted migration backups",
+        "6da3fbb Merge pull request #148 from kuasha420/docs/rbac-wave3-activation",
+        "867d677 docs(rbac): activate Wave 3 execution",
+        "b413978 Merge pull request #147 from kuasha420/feat/issue-119-metadata-persistence",
+        "d4e1bb0 fix(rbac): preserve exact metadata scopes",
+        "d6e1cfe fix(rbac): close metadata review gaps",
+        "1bbfca0 perf(rbac): page request projections before hydration",
+        "fdc1e9c fix(rbac): narrow metadata evaluator repository port",
+        "2113273 feat(rbac): complete metadata persistence and versions",
+        "341e646 docs(rbac): advance Wave 2 to metadata persistence",
+        "4420664 Merge pull request #146 from kuasha420/feat/issue-118-audit-outbox-correlation",
+        "460c521 fix(audit): close review scope and privacy gaps",
+        "bf30451 docs(rbac): record Wave 2 review checkpoint",
+        "5c5b24e fix(audit): integrate verified prerequisite baseline",
+        "8cd0065 fix(audit): close verification gaps",
+        "9cb6e47 feat(audit): add durable observability foundation",
+        "7ccc187 Merge pull request #145 from kuasha420/feat/issue-119-metadata-target-versions",
+        "ddea8b0 fix(metadata): address review contract gaps",
+        "990e4b0 feat(rbac): define metadata discovery contracts",
+        "4fae699 Merge pull request #144 from kuasha420/docs/rbac-wave1-verified",
+        "4e606c2 docs(rbac): mark wave 1 verified",
+        "a0144d4 Merge pull request #143 from kuasha420/fix/issue-117-postmerge-verification-gaps",
+        "3b78ce8 fix: address migration review feedback",
+        "4f97868 fix: compose target and migration recovery checks",
+        "858d838 fix: bind authorization to canonical targets",
+        "c3da127 fix: restore verification release gates",
+        "aaa2961 fix(rbac): close issue 117 verification gaps",
+        "6ad6fe1 Merge pull request #142 from kuasha420/docs/rbac-stabilization-checkpoint",
+        "38818b9 docs(rbac): approve stabilization checkpoint",
+        "0fa2e09 docs: record RBAC Wave 1 verification No-go (#141)",
+        "a1663c5 docs: record RBAC Wave 1 verification no-go",
+        "a1f2004 docs: record RBAC Wave 2 execution checkpoint (#140)",
+        "5445015 docs: record RBAC Wave 2 progress",
+        "edd9c34 feat(rbac): enforce typed principals and exact capability policy (#139)",
+        "f1d7796 fix: address RBAC contract review feedback",
+        "0432dd2 feat(rbac): enforce typed principal policy",
+        "8552b40 Merge pull request #138 from kuasha420/audit/rbac-prerequisite-no-go-signoff",
+        "72c18fa docs: restore prerequisite recovery checkpoint",
+        "d80e9d9 docs: record RBAC prerequisite no-go verification",
+        "e4269ce Merge pull request #137 from kuasha420/feat/issue-126-conformance-review",
+        "72a6f1c docs: certify prerequisite rbac conformance and readiness (Issue #126)",
+        "19eea3b Merge pull request #136 from kuasha420/feat/issue-124-integration-gate",
+        "107fd90 feat: enforce zero-trust, remove legacy bypasses, and align test mocks (Issue #124)",
+        "a56820b Merge pull request #135 from kuasha420/feat/issue-130-pawthy-api",
+        "e77a365 feat: cut Pawthy CLI over to stabilized request-grant APIs (Issue #130)",
+        "eba2be6 Merge pull request #134 from kuasha420/feat/issue-128-129-rbac",
+        "2f56df2 fix: address review comments on principal mapping and imports",
+        "df17d64 feat: cut Discord commands, interactions, and HTTP routes over to DomainPorts (Issue #128, #129)",
+        "4bb2d98 Merge pull request #133 from kuasha420/feat/issue-123-127-rbac",
+        "b039a69 fix: address review feedback on safe outbox, secrets batching, and encrypting signing secrets",
+        "2498158 feat: implement safe outbox, SSRF validation, and frozen domain ports (Issues #123, #127)",
+        "e99bca5 Merge pull request #132 from kuasha420/feat/issue-116-remediations",
+        "ff2bd9f chore: address PR review feedback and generate Prisma migration",
+        "cdaeb86 feat: implement typed approval requests and one-time grants (Issue #122)",
+        "bf12b93 feat: implement credential hardening and scoped service principals (Issue #121)",
+        "6d77657 feat: implement TOTP custody, consent-bound links, and secure reveals (Issue #120)",
+        "3059777 Merge pull request #131 from kuasha420/docs/rbac-prerequisite-execution-graph",
+        "fa75090 docs: revalidate integration after no-go",
+        "6ed4949 docs: add RBAC prerequisite execution graph",
+        "8bd65e1 feat: implement metadata-only read models, version tracking, and discovery (Issue #119)",
+        "e273080 feat: implement versioned audits, outbox, and correlation context (Issue #118)",
+        "34a8c9b feat: implement guardian uniqueness constraint, capability model, and policy evaluator (Issue #117)",
+        "8ef0641 Merge pull request #125 from kuasha420/docs/update-issue-templates",
+        "8489229 docs(github): update default labels in issue templates to type:* format",
+        "12c5b66 Merge pull request #115 from kuasha420/feat/rbac-observability-knowledgebase",
+        "f60101e docs(rbac): address review feedback",
+        "52e1467 docs(rbac): add dashboard observability knowledgebase",
+        "9eedd4d chore(release): bump pawthy cli to v0.5.0",
+        "7c42857 docs(pawthy): update CLI options and format flags documentation",
+        "f1bc008 docs(rules): add disaster recovery & multi-agent resiliency guidelines",
+        "4e49011 Merge pull request #104 from kuasha420/fix/differentiate-unauthorized-write-error",
+        "5ef2140 fix(api): differentiate unauthorized write operations from session expiry (#103)",
+        "6e49cf3 fix(test): resolve eslint warnings in format.test",
+        "42a3040 Merge pull request #102 from kuasha420/feat/pawthy-multiformat-secrets",
+        "8c1e520 Merge pull request #101 from kuasha420/feat/pawthy-env-cascading",
+        "e8f4e2a Merge pull request #100 from kuasha420/refactor/split-twofa-command",
+        "f94fbd1 feat(cli): support non-.env config files (JSON, YAML, TOML) (#64)",
+        "7891bba feat(cli): support .env.* variants with environment override cascading (#63)",
+        "8da3ed1 refactor(bot): rename and split monolithic twoFa slash command file (#51)",
+        "1ecbf4b fix(test): resolve TypeScript build errors in services.test and credential_sync_logic",
+        "afc6d2c Merge pull request #99 from kuasha420/chore/lint-warning-cleanup",
+        "1d53863 chore(lint): fix backup-db ESM import check and cleanup obsolete alias tests",
+        "1dc4d05 chore(lint): eliminate remaining ESLint warnings (#74)",
+        "9531bcd Merge pull request #98 from kuasha420/feat/guardian-remove-and-list",
+        "05f2409 refactor(bot): address code review feedback for guardian remove/list",
+        "db32c21 feat(bot): add guardian remove and list subcommands (#24)",
+        "190179c Merge pull request #97 from kuasha420/test/request-access-command-tests",
+        "06c9036 test(bot): set non-null expiresAt for expired approval mock in requestAccess test",
+        "312f8df feat: Unify ProjectMember and Guardian permission systems (#96)",
+        "a400b84 test(bot): add unit test suite for requestAccess command handler (#53)",
+        "a72b83e fix(ci): clear static npmrc & upgrade npm for pure OIDC publish & bump to 0.4.6",
+        "97fd215 fix(ci): use Node 22 in publish-npm for OIDC publishing & bump version to 0.4.5",
+        "48a907b fix(ci): upgrade npm CLI for OIDC publishing and bump to 0.4.4",
+        "82f0076 fix(ci): remove registry-url from setup-node for OIDC publishing & bump version to 0.4.3",
+        "5574f9e chore(pawthy): bump version to 0.4.2 for dual NPM/GPR release",
+        "1155572 chore(pawthy): setup OIDC trusted publishing and dual registry release",
+        "3ba75c8 Merge pull request #95 from kuasha420/fix/typecheck-errors",
+        "8ba0947 fix(bot): resolve typescript compilation and typecheck errors across bot packages",
+        "520bf14 Merge pull request #94 from kuasha420/chore/bump-pawthy-version",
+        "8949229 chore(cli): bump pawthy version to 0.4.1",
+        "e6db9f5 Merge pull request #93 from kuasha420/fix/pawthy-login-slash-command",
+        "fb3db8b fix(cli): address CR feedback on Device Flow polling (let, slow_down increment, network retry)",
+        "209a4b4 fix(cli): update outdated slash command instruction in login CLI output",
+        "a23c95d chore: consolidate agent rules and refactor review comments script (#91)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "purrmission (kuasha420 PR #161)",
+      "path": "/home/kuasha/Dev/purrmission",
+      "gh_repo": "kuasha420/purrmission",
+      "pr_number": 161,
+      "expected_sha": "224e222248a39bf67a4479a470032809904b30df",
+      "actual_sha": "224e222248a39bf67a4479a470032809904b30df",
+      "parent_count": 2,
+      "parents": [
+        "575cf3e797e77555b32fdb49be53bb648e4d9dfe",
+        "a88ae4cdd6e00364c9b53468b244eac3904cf762"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   224e222 Merge pull request #161 from kuasha420/chore/agyis-harness-onboarding\n|\\  \n| * a88ae4c chore(remediation): address code review feedback and verify native tests\n| * f50cd45 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * 09ae0cb chore: clean legacy .agent and provision psl-stack-backend skill\n| * 6429e21 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/",
+      "branch_commits": [
+        "224e222 Merge pull request #161 from kuasha420/chore/agyis-harness-onboarding",
+        "a88ae4c chore(remediation): address code review feedback and verify native tests",
+        "f50cd45 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "09ae0cb chore: clean legacy .agent and provision psl-stack-backend skill",
+        "6429e21 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "mm-website",
+      "path": "/home/kuasha/Dev/mm-website",
+      "gh_repo": "purrfectsoft/mm-website",
+      "pr_number": 411,
+      "expected_sha": "a513f1690d7f0cb02e684f43f043735cb3384e03",
+      "actual_sha": "a513f1690d7f0cb02e684f43f043735cb3384e03",
+      "parent_count": 2,
+      "parents": [
+        "13192a6bc1189e08864dabf32637e5ca38d3ec4c",
+        "fc655e1753c09c73d664240aaaa0f4de0782f59a"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   a513f16 Merge pull request #411 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * fc655e1 chore(remediation): address code review feedback and verify native tests\n| * 7dee232 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * 910a931 chore: clean legacy .agent and provision psl-stack-backend skill\n| * 602d42f chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/",
+      "branch_commits": [
+        "a513f16 Merge pull request #411 from purrfectsoft/chore/agyis-harness-onboarding",
+        "fc655e1 chore(remediation): address code review feedback and verify native tests",
+        "7dee232 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "910a931 chore: clean legacy .agent and provision psl-stack-backend skill",
+        "602d42f chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "psl-website",
+      "path": "/home/kuasha/Dev/psl-website",
+      "gh_repo": "purrfectsoft/psl-website",
+      "pr_number": 74,
+      "expected_sha": "4bdac50b6c6f3de961905f4b3098983891cd4234",
+      "actual_sha": "4bdac50b6c6f3de961905f4b3098983891cd4234",
+      "parent_count": 2,
+      "parents": [
+        "47dcf267a5bfdd60a73c2ac6ddf70f02d261978b",
+        "64aff6008edf7c733f4c3588fb84bf237e53f3ae"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   4bdac50 Merge pull request #74 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * 64aff60 chore(remediation): address code review feedback and verify native tests\n| * 73b96bb chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * f8d24f5 chore: clean legacy .agent and provision psl-stack-backend skill\n| * 202d18a chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/",
+      "branch_commits": [
+        "4bdac50 Merge pull request #74 from purrfectsoft/chore/agyis-harness-onboarding",
+        "64aff60 chore(remediation): address code review feedback and verify native tests",
+        "73b96bb chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "f8d24f5 chore: clean legacy .agent and provision psl-stack-backend skill",
+        "202d18a chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "psl-scaffold",
+      "path": "/home/kuasha/Dev/psl-scaffold",
+      "gh_repo": "purrfectsoft/psl-scaffold",
+      "pr_number": 11,
+      "expected_sha": "16505987b2a100818ba37cbab88023a2792f90fb",
+      "actual_sha": "16505987b2a100818ba37cbab88023a2792f90fb",
+      "parent_count": 2,
+      "parents": [
+        "1c0e6004cddf41620df39d9da559f6c2a56e03b9",
+        "a45b561a49c821f36406fcbfc834f68f74692fdf"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   1650598 Merge pull request #11 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * a45b561 chore(remediation): address code review feedback and verify native tests\n| * f34b0a0 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * 8874fde chore: clean legacy .agent and provision psl-stack-backend skill\n| * 78f5760 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/",
+      "branch_commits": [
+        "1650598 Merge pull request #11 from purrfectsoft/chore/agyis-harness-onboarding",
+        "a45b561 chore(remediation): address code review feedback and verify native tests",
+        "f34b0a0 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "8874fde chore: clean legacy .agent and provision psl-stack-backend skill",
+        "78f5760 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "psl-boilerplate",
+      "path": "/home/kuasha/Dev/psl-boilerplate",
+      "gh_repo": "purrfectsoft/psl-boilerplate",
+      "pr_number": 1,
+      "expected_sha": "895ed6acdb7bf1b00f0890c3158156ef703f7ca8",
+      "actual_sha": "895ed6acdb7bf1b00f0890c3158156ef703f7ca8",
+      "parent_count": 2,
+      "parents": [
+        "aab4a3ab24f8dc9162c66e3ac72e76c122ce6a89",
+        "4a6ec9047e270e825e98e9516f16425f8e517f18"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   895ed6a Merge pull request #1 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * 4a6ec90 chore(remediation): address code review feedback and verify native tests\n| * 2ae00b6 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * a6a9fde chore: clean legacy .agent and provision psl-stack-backend skill\n| * 8070c29 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/",
+      "branch_commits": [
+        "895ed6a Merge pull request #1 from purrfectsoft/chore/agyis-harness-onboarding",
+        "4a6ec90 chore(remediation): address code review feedback and verify native tests",
+        "2ae00b6 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "a6a9fde chore: clean legacy .agent and provision psl-stack-backend skill",
+        "8070c29 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "purrfectcore-client",
+      "path": "/home/kuasha/Dev/purrfectcore-client",
+      "gh_repo": "purrfectsoft/purrfectcore-client",
+      "pr_number": 543,
+      "expected_sha": "dc5b8dd30eec61724350ebe28acee773fbaf8e2c",
+      "actual_sha": "dc5b8dd30eec61724350ebe28acee773fbaf8e2c",
+      "parent_count": 2,
+      "parents": [
+        "be7904afde4d304bd18e622c2095eb4a0e7183a6",
+        "46cca8c7ead4ed13382598a28bb9b27bd97cbca6"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   dc5b8dd3 Merge pull request #543 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * 46cca8c7 chore(remediation): address code review feedback and verify native tests\n| * f0278291 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * b139ee4d chore: clean legacy .agent and provision psl-stack-backend skill\n| * c56f2faa chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/",
+      "branch_commits": [
+        "dc5b8dd3 Merge pull request #543 from purrfectsoft/chore/agyis-harness-onboarding",
+        "46cca8c7 chore(remediation): address code review feedback and verify native tests",
+        "f0278291 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "b139ee4d chore: clean legacy .agent and provision psl-stack-backend skill",
+        "c56f2faa chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "purrfectcore-001",
+      "path": "/home/kuasha/Dev/purrfectcore-001",
+      "gh_repo": "purrfectsoft/purrfectcore-001",
+      "pr_number": 611,
+      "expected_sha": "dc30494d4218e6205c961c6d6c1b23ebb9dcc7ae",
+      "actual_sha": "dc30494d4218e6205c961c6d6c1b23ebb9dcc7ae",
+      "parent_count": 2,
+      "parents": [
+        "fb0b172cf530e35986fe6440d111444b7d91e3a0",
+        "594e3cd98a925d7b1a24471d613457a3b694d2d5"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   dc30494d Merge pull request #611 from purrfectsoft/chore/agyis-harness-onboarding\n|\\  \n| * 594e3cd9 chore(remediation): address code review feedback and verify native tests\n| * a8155b18 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * fbbb5c29 chore: clean legacy .agent and provision psl-stack-backend skill\n| * f5095b21 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/",
+      "branch_commits": [
+        "dc30494d Merge pull request #611 from purrfectsoft/chore/agyis-harness-onboarding",
+        "594e3cd9 chore(remediation): address code review feedback and verify native tests",
+        "a8155b18 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "fbbb5c29 chore: clean legacy .agent and provision psl-stack-backend skill",
+        "f5095b21 chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "jimha",
+      "path": "/home/kuasha/Dev/jimha",
+      "gh_repo": "kuasha420/jimha",
+      "pr_number": 1,
+      "expected_sha": "521b7cc8d39b0ff94d2682245fd9ebea27645d9c",
+      "actual_sha": "521b7cc8d39b0ff94d2682245fd9ebea27645d9c",
+      "parent_count": 2,
+      "parents": [
+        "4df1d854aeda143ef53a3285cf88eb407a4ccd09",
+        "e35a663663d491ea72d7300652aa1b7b0f21be0e"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   521b7cc Merge pull request #1 from kuasha420/chore/agyis-harness-onboarding\n|\\  \n| * e35a663 chore(remediation): address code review feedback and verify native tests\n| * 63ce74b chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * 1f19661 chore: clean legacy .agent and provision psl-stack-backend skill\n| * 5685bdf chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/",
+      "branch_commits": [
+        "521b7cc Merge pull request #1 from kuasha420/chore/agyis-harness-onboarding",
+        "e35a663 chore(remediation): address code review feedback and verify native tests",
+        "63ce74b chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "1f19661 chore: clean legacy .agent and provision psl-stack-backend skill",
+        "5685bdf chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "knot-mesh",
+      "path": "/home/kuasha/Dev/knot-mesh",
+      "gh_repo": "kuasha420/knot-mesh",
+      "pr_number": 80,
+      "expected_sha": "e4ab43d56f392a184be1157f298493fac279b944",
+      "actual_sha": "e4ab43d56f392a184be1157f298493fac279b944",
+      "parent_count": 2,
+      "parents": [
+        "8f36330c541bc6dc4f0de036467f3f35ea765646",
+        "60094a384f221b535426ee141b8f25f20762d2dc"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   e4ab43d Merge pull request #80 from kuasha420/chore/agyis-harness-onboarding\n|\\  \n| * 60094a3 chore(remediation): address code review feedback and verify native tests\n| * 61eb79f chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * d7e628c chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/  \n* 8f36330 fix(ci): support non-Arch runners in PKGBUILD metadata validation",
+      "branch_commits": [
+        "e4ab43d Merge pull request #80 from kuasha420/chore/agyis-harness-onboarding",
+        "60094a3 chore(remediation): address code review feedback and verify native tests",
+        "61eb79f chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "d7e628c chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "purr",
+      "path": "/home/kuasha/Dev/purr",
+      "gh_repo": "kuasha420/purr",
+      "pr_number": 14,
+      "expected_sha": "891c806e1f50fe68af1b761d03995e76cec0a454",
+      "actual_sha": "891c806e1f50fe68af1b761d03995e76cec0a454",
+      "parent_count": 2,
+      "parents": [
+        "e6d1c300ccfa851b1ff44f9170d9c1512956379d",
+        "cab3455c9e1e4e07cd6d7c1a405e226fd00d105f"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   891c806 Merge pull request #14 from kuasha420/chore/agyis-harness-onboarding\n|\\  \n| * cab3455 chore(remediation): address code review feedback and verify native tests\n| * ec5f029 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * 34753fe chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/  \n* e6d1c30 fix(recipe): support --all and -a flags in purr recipe sync for alpm convergence hook",
+      "branch_commits": [
+        "891c806 Merge pull request #14 from kuasha420/chore/agyis-harness-onboarding",
+        "cab3455 chore(remediation): address code review feedback and verify native tests",
+        "ec5f029 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "34753fe chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "react-native-template-ts-plus",
+      "path": "/home/kuasha/Dev/react-native-template-ts-plus",
+      "gh_repo": "kuasha420/react-native-template-ts-plus",
+      "pr_number": 19,
+      "expected_sha": "28f4e079f44d06510f665e05b0cf25750a8d282b",
+      "actual_sha": "28f4e079f44d06510f665e05b0cf25750a8d282b",
+      "parent_count": 2,
+      "parents": [
+        "72e1d53b744fc725ef195fe1b92d3b9ca4edb524",
+        "24f5c6cd1db69c05f43791844c8e5e2a1222418e"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   28f4e07 Merge pull request #19 from kuasha420/chore/agyis-harness-onboarding\n|\\  \n| * 24f5c6c chore(remediation): eliminate error swallowing in react-native-harness\n| * 908ce97 chore(remediation): address code review feedback and verify native tests\n| * 7bae189 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * b08ac64 chore: clean legacy .agent and provision psl-stack-backend skill",
+      "branch_commits": [
+        "28f4e07 Merge pull request #19 from kuasha420/chore/agyis-harness-onboarding",
+        "24f5c6c chore(remediation): eliminate error swallowing in react-native-harness",
+        "908ce97 chore(remediation): address code review feedback and verify native tests",
+        "7bae189 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "b08ac64 chore: clean legacy .agent and provision psl-stack-backend skill",
+        "31521fb chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    },
+    {
+      "item": "purrfect-download-manager",
+      "gh_repo": "sakibtamim/purrfect-download-manager",
+      "pr_number": 23,
+      "is_merged": false,
+      "gh_state": "OPEN",
+      "status": "PASS_UNMERGED_AS_DOCUMENTED"
+    },
+    {
+      "item": "Jasper",
+      "path": "/home/kuasha/Dev/Jasper",
+      "gh_repo": "sakibtamim/Jasper",
+      "pr_number": 172,
+      "expected_sha": "3d10e0e89e607d3d7c1ea105f87c082c325b8dbd",
+      "actual_sha": "3d10e0e89e607d3d7c1ea105f87c082c325b8dbd",
+      "parent_count": 2,
+      "parents": [
+        "3baaf161cb1ed26d94488ada2ea7f74bcf78389f",
+        "0f349859c887a66f0633435bd207c106dc3c273b"
+      ],
+      "is_standard_merge": true,
+      "graph_preview": "*   3d10e0e Merge pull request #172 from sakibtamim/chore/agyis-harness-onboarding\n|\\  \n| * 0f34985 chore(remediation): address code review feedback and verify native tests\n| * 99a0b43 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets\n| * 9b4ec2e chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)\n|/  \n*   3baaf16 Merge pull request #171 from sakibtamim/docs/hosted-epic-status-update\n|\\",
+      "branch_commits": [
+        "3d10e0e Merge pull request #172 from sakibtamim/chore/agyis-harness-onboarding",
+        "0f34985 chore(remediation): address code review feedback and verify native tests",
+        "99a0b43 chore: reconcile to Agyis harness v1.0.0-rc2 with decoupled presets",
+        "9b4ec2e chore: onboard to PSL stack via Agyis harness (v1.0.0-rc1)"
+      ],
+      "status": "PASS"
+    }
+  ],
+  "remote_branches": [
+    {
+      "item": "chakra-ui-icons-compat",
+      "gh_repo": "purrfectsoft/chakra-ui-icons-compat",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "bookcover-craft-api",
+      "gh_repo": "purrfectsoft/bookcover-craft-api",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "bookcover-craft",
+      "gh_repo": "purrfectsoft/bookcover-craft",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "arbiter",
+      "gh_repo": "purrfectsoft/arbiter",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "jasper-hosted",
+      "gh_repo": "purrfectsoft/jasper-hosted",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "chronicle-time-keeper",
+      "gh_repo": "purrfectsoft/chronicle-time-keeper",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "sunshine-physio-universalapp",
+      "gh_repo": "purrfectsoft/sunshine-physio-webapp",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "purrmission (purrfectsoft PR #4)",
+      "gh_repo": "purrfectsoft/purrmission",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "purrmission (kuasha420 PR #161)",
+      "gh_repo": "kuasha420/purrmission",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "mm-website",
+      "gh_repo": "purrfectsoft/mm-website",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "psl-website",
+      "gh_repo": "purrfectsoft/psl-website",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "psl-scaffold",
+      "gh_repo": "purrfectsoft/psl-scaffold",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "psl-boilerplate",
+      "gh_repo": "purrfectsoft/psl-boilerplate",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "purrfectcore-client",
+      "gh_repo": "purrfectsoft/purrfectcore-client",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "purrfectcore-001",
+      "gh_repo": "purrfectsoft/purrfectcore-001",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "jimha",
+      "gh_repo": "kuasha420/jimha",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "knot-mesh",
+      "gh_repo": "kuasha420/knot-mesh",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "purr",
+      "gh_repo": "kuasha420/purr",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "react-native-template-ts-plus",
+      "gh_repo": "kuasha420/react-native-template-ts-plus",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    },
+    {
+      "item": "purrfect-download-manager",
+      "gh_repo": "sakibtamim/purrfect-download-manager",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS_UNMERGED_AS_DOCUMENTED"
+    },
+    {
+      "item": "Jasper",
+      "gh_repo": "sakibtamim/Jasper",
+      "branch": "chore/agyis-harness-onboarding",
+      "api_deleted": true,
+      "ls_remote_deleted": true,
+      "status": "PASS"
+    }
+  ],
+  "repo_hygiene": [
+    {
+      "name": "chakra-ui-icons-compat",
+      "path": "/home/kuasha/Dev/chakra-ui-icons-compat",
+      "active_branch": "develop",
+      "expected_base": "develop",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "bookcover-craft-api",
+      "path": "/home/kuasha/Dev/bookcover-craft-api",
+      "active_branch": "dev",
+      "expected_base": "dev",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "M src/common/auth/passport-facebook/facebook.strategy.ts",
+      "status": "PASS"
+    },
+    {
+      "name": "bookcover-craft",
+      "path": "/home/kuasha/Dev/bookcover-craft",
+      "active_branch": "staging",
+      "expected_base": "staging",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "M package.json\n M src/app/(auth)/signin/page.tsx\n D src/templates/navigation/navbar-links.tsx\n M yarn.lock",
+      "status": "PASS"
+    },
+    {
+      "name": "arbiter",
+      "path": "/home/kuasha/Dev/arbiter",
+      "active_branch": "develop",
+      "expected_base": "develop",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "jasper-hosted",
+      "path": "/home/kuasha/Dev/jasper-hosted",
+      "active_branch": "main",
+      "expected_base": "main",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "chronicle-time-keeper",
+      "path": "/home/kuasha/Dev/chronicle-time-keeper",
+      "active_branch": "develop",
+      "expected_base": "develop",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "sunshine-physio-universalapp",
+      "path": "/home/kuasha/Dev/sunshine-physio-universalapp",
+      "active_branch": "main",
+      "expected_base": "main",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "purrmission (purrfectsoft PR #4)",
+      "path": "/home/kuasha/Dev/purrmission",
+      "active_branch": "master",
+      "expected_base": "master",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "mm-website",
+      "path": "/home/kuasha/Dev/mm-website",
+      "active_branch": "develop",
+      "expected_base": "develop",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "psl-website",
+      "path": "/home/kuasha/Dev/psl-website",
+      "active_branch": "develop",
+      "expected_base": "develop",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "psl-scaffold",
+      "path": "/home/kuasha/Dev/psl-scaffold",
+      "active_branch": "develop",
+      "expected_base": "develop",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "psl-boilerplate",
+      "path": "/home/kuasha/Dev/psl-boilerplate",
+      "active_branch": "develop",
+      "expected_base": "develop",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "purrfectcore-client",
+      "path": "/home/kuasha/Dev/purrfectcore-client",
+      "active_branch": "develop",
+      "expected_base": "develop",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "purrfectcore-001",
+      "path": "/home/kuasha/Dev/purrfectcore-001",
+      "active_branch": "develop",
+      "expected_base": "develop",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "jimha",
+      "path": "/home/kuasha/Dev/jimha",
+      "active_branch": "main",
+      "expected_base": "main",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "knot-mesh",
+      "path": "/home/kuasha/Dev/knot-mesh",
+      "active_branch": "main",
+      "expected_base": "main",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "purr",
+      "path": "/home/kuasha/Dev/purr",
+      "active_branch": "main",
+      "expected_base": "main",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "react-native-template-ts-plus",
+      "path": "/home/kuasha/Dev/react-native-template-ts-plus",
+      "active_branch": "feat/resurrection",
+      "expected_base": "feat/resurrection",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "purrfect-download-manager",
+      "path": "/home/kuasha/Dev/purrfect-download-manager",
+      "active_branch": "develop",
+      "expected_base": "develop",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    },
+    {
+      "name": "Jasper",
+      "path": "/home/kuasha/Dev/Jasper",
+      "active_branch": "master",
+      "expected_base": "master",
+      "is_detached": false,
+      "lock_files": [],
+      "pending_states": [],
+      "local_feature_branch_exists": false,
+      "porcelain_status": "",
+      "status": "PASS"
+    }
+  ],
+  "failures": []
+}

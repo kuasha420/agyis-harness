@@ -1,0 +1,91 @@
+{
+  "timestamp": "2026-10-15T04:33:27Z",
+  "total_duration_seconds": 0.9994,
+  "overall_success": true,
+  "zero_lock_errors_guarantee": true,
+  "total_lock_errors": 0,
+  "scenarios": [
+    {
+      "name": "Multi-Threaded Contention",
+      "writers": 5,
+      "readers": 5,
+      "total_writes": 200,
+      "total_reads": 400,
+      "duration_seconds": 0.151,
+      "errors_count": 0,
+      "lock_errors_count": 0,
+      "verified_counts": {
+        "sessions": 200,
+        "steps": 600,
+        "tool_calls": 400
+      },
+      "success": true
+    },
+    {
+      "name": "Multi-Process Contention",
+      "writer_processes": 3,
+      "reader_processes": 3,
+      "writes_per_process": 30,
+      "reads_per_process": 60,
+      "duration_seconds": 0.1053,
+      "errors_count": 0,
+      "lock_errors_count": 0,
+      "verified_counts": {
+        "total_sessions": 290,
+        "total_steps": 870,
+        "total_tool_calls": 580
+      },
+      "success": true
+    },
+    {
+      "name": "Reader Snapshot Isolation During Active Writer",
+      "readers_tested": 5,
+      "reader_errors_count": 0,
+      "avg_reader_latency_seconds": 0.000777,
+      "max_reader_latency_seconds": 0.000905,
+      "writer_hold_duration_seconds": 0.2,
+      "non_blocking_verified": true,
+      "success": true
+    },
+    {
+      "name": "Synchronized Writer Burst Serialization",
+      "concurrent_writers": 8,
+      "duration_seconds": 0.1365,
+      "errors_count": 0,
+      "lock_errors_count": 0,
+      "burst_records_written": 8,
+      "success": true
+    },
+    {
+      "name": "Heavy Volume Contention Burst",
+      "writers": 10,
+      "readers": 10,
+      "total_writes": 500,
+      "total_reads": 1000,
+      "duration_seconds": 0.3957,
+      "errors_count": 0,
+      "lock_errors_count": 0,
+      "heavy_records_written": 500,
+      "success": true
+    },
+    {
+      "name": "Database Invariants & Integrity",
+      "journal_mode": "wal",
+      "journal_mode_wal": true,
+      "busy_timeout_ms": 30000,
+      "busy_timeout_ok": true,
+      "synchronous_level": 1,
+      "synchronous_normal": true,
+      "foreign_keys_enabled": 1,
+      "foreign_keys_ok": true,
+      "integrity_check": "ok",
+      "integrity_ok": true,
+      "final_counts": {
+        "sessions": 799,
+        "steps": 870,
+        "tool_calls": 580
+      },
+      "success": true
+    }
+  ]
+}

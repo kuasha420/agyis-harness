@@ -70,7 +70,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "run_command|execute_command|bash",
+        "matcher": "run_command|execute_command|bash|call_mcp_tool",
         "hooks": [
           {
             "type": "command",

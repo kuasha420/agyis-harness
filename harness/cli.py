@@ -43,6 +43,7 @@ from harness.commands import (
     cmd_sync,
     cmd_test,
     cmd_uninstall,
+    cmd_verify,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -496,6 +497,30 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_uninstall.add_argument("--target", type=Path, default=None, help="Custom target installation directory")
     p_uninstall.add_argument("--json", action="store_true", help="Output result in JSON format")
 
+    # verify
+    p_verify = subparsers.add_parser(
+        "verify",
+        help="Verify cleanroom specifications and reconstruction manifest (ADR-028)",
+        description="Verify cleanroom specifications and reconstruction manifest against formal obligations.",
+    )
+    p_verify.add_argument(
+        "--spec",
+        action="store_true",
+        help="Verify cleanroom specifications in docs/specs/**",
+    )
+    p_verify.add_argument(
+        "--workspace",
+        "-w",
+        type=Path,
+        default=None,
+        help="Target workspace root path (default: current working directory)",
+    )
+    p_verify.add_argument(
+        "--json",
+        action="store_true",
+        help="Output verification report in JSON format",
+    )
+
     return parser
 
 
@@ -548,6 +573,7 @@ def main(
         "onboard": cmd_onboard,
         "install": cmd_install,
         "uninstall": cmd_uninstall,
+        "verify": cmd_verify,
     }
 
     handler = commands.get(args.subcommand)

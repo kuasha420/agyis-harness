@@ -640,6 +640,27 @@ class TestCompletionFenceHardeningM2(unittest.TestCase):
         self.assertFalse(state["spec_dirty"])
         self.assertEqual(evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)["decision"], "allow")
 
+    def test_cleanroom_contract_cleared_by_agyis_verify_spec(self):
+        """Cleanroom contract dirty state is cleared by './agyis verify --spec' (DEF-02)."""
+        conv_id = "test-cleanroom-verify-dot-slash-spec"
+        record_edit("docs/specs/my_spec.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)
+        self.assertTrue(load_state(conv_id=conv_id, state_dir=self.state_dir)["spec_dirty"])
+
+        self.assertTrue(is_test_command("./agyis verify --spec", cwd=self.harness_root))
+        matched = check_command_verification(
+            "./agyis verify --spec",
+            exit_code=0,
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+            cwd=self.harness_root,
+        )
+        self.assertTrue(matched)
+
+        state = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(state["code_dirty"])
+        self.assertFalse(state["spec_dirty"])
+        self.assertEqual(evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.harness_root)["decision"], "allow")
+
     def test_workspace_paths_fallback_and_tool_args_cwd(self):
         """Verifies workspacePaths fallback in payload and lowercase cwd in tool args."""
         (self.client_dir / "package.json").write_text("{}", encoding="utf-8")

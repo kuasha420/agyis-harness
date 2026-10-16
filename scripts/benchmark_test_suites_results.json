@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-10-15T04:22:17Z",
+  "telemetry_sync_tests": {
+    "command": "/usr/bin/python3 -m unittest tests/test_telemetry_sync.py",
+    "runs": 5,
+    "durations": [
+      0.3619,
+      0.301,
+      0.3076,
+      0.3075,
+      0.3211
+    ],
+    "min_seconds": 0.301,
+    "max_seconds": 0.3619,
+    "mean_seconds": 0.3198,
+    "median_seconds": 0.3076,
+    "sub_second_guarantee": true,
+    "all_passed": true,
+    "last_output_summary": [
+      "",
+      "OK"
+    ]
+  },
+  "cli_tests": {
+    "command": "/usr/bin/python3 -m unittest tests/test_cli.py",
+    "runs": 5,
+    "durations": [
+      0.6093,
+      0.673,
+      0.6434,
+      0.6603,
+      0.6306
+    ],
+    "min_seconds": 0.6093,
+    "max_seconds": 0.673,
+    "mean_seconds": 0.6433,
+    "median_seconds": 0.6434,
+    "sub_second_guarantee": true,
+    "all_passed": true,
+    "last_output_summary": [
+      "",
+      "OK"
+    ]
+  },
+  "full_test_suite": {
+    "command": "/usr/bin/python3 -m harness.cli test",
+    "runs": 1,
+    "durations": [
+      10.1275
+    ],
+    "min_seconds": 10.1275,
+    "max_seconds": 10.1275,
+    "mean_seconds": 10.1275,
+    "median_seconds": 10.1275,
+    "sub_second_guarantee": false,
+    "all_passed": true,
+    "last_output_summary": [
+      "",
+      "OK"
+    ]
+  }
+}
