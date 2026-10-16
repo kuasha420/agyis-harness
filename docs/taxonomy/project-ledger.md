@@ -351,3 +351,23 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Research Taxonomy: [model-failure-clusters-report.md](model-failure-clusters-report.md)
   - Hook Hardening: [harness/hooks/anti_loop_hook.py](../../harness/hooks/anti_loop_hook.py)
 
+---
+
+## [Phase 11] Pre-Release v1.0.0-rc4: DRA Test Runner, Cleanroom REA Architecture & Single-Source Skills
+* **Status**: Completed | **Compaction Date**: 2026-10-16 | **Release**: `v1.0.0-rc4`
+* **Key Architectural Decisions & Invariants**:
+  - **Dynamic Repository Awareness (DRA) Test Runner (PSL-SPEC-2026-DRA-001)**: Implemented native test detection (`detect_project_test_runner`, `is_harness_workspace`) in `harness/utils/workspace.py` across Node (`pnpm test`), Rust (`cargo test`), Python (`pytest`), Make (`make test`), and Shell (`bash tests/*.sh`).
+  - **Opt-in Cleanroom REA Architecture (ADR-028)**: Decoupled reverse-engineering tooling under `--experimental-rea`. Enforced dirty-room vs clean-room isolation, typed obligation ledgers (`.agents/ledger/obligations.json`), and sub-second fast-path doctor checks (<0.05s).
+  - **Single-Source Skill & Rule Hygiene (Issue #52, #53)**: Eliminated dual-discovery context bleed (~4,500 tokens/turn) via `check_duplicate_skills` in doctor, `enforce_single_source_skills` in surface installer, and `agyis skills --prune-duplicates`. Hardened self-repository detection to protect git source skills.
+  - **High-Throughput Telemetry Sync**: Diagnosed 24-minute unindexed SQLite lockups; added composite unique indexes (`idx_steps_uniq`, etc.) and chunked `executemany("INSERT OR IGNORE")`, achieving a 3,000x speedup (79ms sync). Mined 10.6-day Titan session `5a0dd29f` across 1,667 steps.
+  - **Shadow Audit Remediation**: Fixed anti-loop test history bypass (DEF-01), added relative path regex in completion fence (DEF-02), implemented canonical `agyis verify` CLI dispatcher (DEF-03), and registered `call_mcp_tool` in output compactor (DEF-04).
+* **Verified Baseline Metrics**:
+  - Full test suite: **847 hermetic tests passing in 12.7s** (<0.60s unit test benchmark).
+  - Telemetry database: **1,443 sessions, 346,729 steps, 232,421 tool calls** synchronized with zero drops.
+  - Workstation doctor: **9 OK | 0 Outdated | 0 Missing** with clean hygiene across all tiers.
+* **Reference Assets Committed**:
+  - Cleanroom Architecture: [docs/adr/ADR-028-opt-in-rea-cleanroom-harmonization.md](../adr/ADR-028-opt-in-rea-cleanroom-harmonization.md), [docs/official-specs/rea-antigravity-architecture.md](../official-specs/rea-antigravity-architecture.md)
+  - Release Notes & Specs: [docs/release-notes/v1.0.0-rc4.md](../release-notes/v1.0.0-rc4.md), [CHANGELOG.md](../../CHANGELOG.md)
+  - Verification Subsystem: [harness/commands/verify.py](../../harness/commands/verify.py), [tests/test_verify.py](../../tests/test_verify.py)
+
+

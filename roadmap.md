@@ -252,13 +252,24 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - Tightened background task log anti-polling to enforce Strict Reactive Wait Invariant on `.system_generated/tasks/*.log`.
     - Synchronized 100% of telemetry dataset (722 sessions, 219,292 steps) with central gateway and mined cross-model failure clusters.
     - Full test suite expanded to **401 hermetic tests passing in <1.0s** (<1.00s benchmark invariant strictly maintained).
-* **Upcoming Milestones (Horizon 2: Fleet Scaling & Knot Mesh)**:
-  1. **Multi-Node Linda Tuplespace Protocol (ADR-028)**:
-     - Coordinate distributed batch fanouts and barrier joins across Knot mesh strands (Desktop, Laptop, Steam Deck).
-  2. **Spatial Terminal Multiplexing & Swarm Council (ADR-029)**:
-     - GPU-accelerated Confluence mode terminal multiplexing in Kitty with out-of-band GitHub Discussion coordination.
-  3. **Decoupled Visual Cockpits**:
-     - Distributed telemetry routing and visual dashboards on remote displays.
+  - [x] **Pre-Release v1.0.0-rc4: DRA Test Runner, Cleanroom REA Architecture & Single-Source Skills (Phase 11)**:
+    - Delivered Dynamic Repository Awareness (DRA) native test detection (`detect_project_test_runner`, `is_harness_workspace`).
+    - Integrated opt-in Cleanroom REA architecture under `--experimental-rea` (ADR-028) with <0.05s fast-path doctor diagnostics.
+    - Resolved P0 duplicate skill context leak (~4,500 tokens/turn saved) via `check_duplicate_skills`, `enforce_single_source_skills`, and `--prune-duplicates`.
+    - Accelerated telemetry sync by 3,000x (79ms) with composite unique indexes and chunked batch insertion.
+    - Remediated shadow audit findings (DEF-01 through DEF-04) and implemented canonical `agyis verify` CLI.
+    - Reached **847 hermetic tests passing in 12.7s**, doctor 9 OK / 0 missing, and federated 1,443 sessions (346k steps).
+
+* **Upcoming Milestones (Horizon 1.5: Multi-Repo Onboarding, Harmonization & Fleet Refresh)**:
+  1. **Cross-Repo Harmonization Audit & Remediation (`docs/specs/agyis-installation-harmonization-gaps.md`)**:
+     - Cross-verify onboarding status across the 18 tier repositories documented in conversation `1b78f4f2-f9eb-437b-be43-21ae5f60ce94`.
+     - Implement unified `agyis onboard` workflow combining rules injection, stack detection, and skill delivery.
+     - Automate legacy `.agent/` deprecation and staging lifecycle with safety archives.
+  2. **Decoupled Multi-Tier Stack Presets & Fork-Aware Remote Delivery**:
+     - Decouple `psl-stack-backend` from pure frontend, CLI, and mobile workspaces.
+     - Support fork-aware remote origin tracking for repositories with read-only viewer permissions.
+  3. **Canonical Background Sync Service Management (Issue #57)**:
+     - Implement first-class `agyis sync --service [install|status|start|stop|uninstall]` CLI dispatcher.
 
 ---
 
