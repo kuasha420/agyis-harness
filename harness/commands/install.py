@@ -51,73 +51,39 @@ def cmd_install(args: argparse.Namespace) -> int:
 
     exp_rea = bool(getattr(args, "experimental_rea", False))
     rea_mcp_configured = False
+    rea_mcp_errors: List[str] = []
     if exp_rea and result.success and not getattr(args, "dry_run", False):
-        from harness.runtime.tool_checks import find_jdk21_path
+        from harness.runtime.tool_checks import configure_rea_mcp_server
 
-        jdk21_path = find_jdk21_path()
-        ghidra_dir = os.environ.get("GHIDRA_INSTALL_DIR")
-        if not ghidra_dir:
-            for cand in [Path("/opt/ghidra"), Path("/usr/local/opt/ghidra"), Path.home() / "ghidra"]:
-                if cand.is_dir():
-                    ghidra_dir = str(cand)
-                    break
-
-        config_paths = [
-            Path.home() / ".gemini" / "config" / "mcp_config.json",
-            Path.home() / ".gemini" / "antigravity" / "mcp_config.json",
-        ]
-        for cfg_p in config_paths:
-            try:
-                data: Dict[str, Any] = {}
-                if cfg_p.is_file():
-                    try:
-                        data = json.loads(cfg_p.read_text(encoding="utf-8"))
-                    except (json.JSONDecodeError, OSError):
-                        data = {}
-                if not isinstance(data, dict):
-                    data = {}
-                if "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
-                    data["mcpServers"] = {}
-
-                data["mcpServers"]["rea"] = {
-                    "command": "rea",
-                    "args": ["mcp"],
-                    "env": {
-                        "GHIDRA_INSTALL_DIR": ghidra_dir or "/opt/ghidra",
-                        "JAVA_HOME": str(jdk21_path) if jdk21_path else "",
-                        "REA_MCP_INPUT_SCHEMA_PROFILE": "full",
-                        "REA_MCP_OUTPUT_SCHEMA_PROFILE": "off",
-                    },
-                }
-                cfg_p.parent.mkdir(parents=True, exist_ok=True)
-                cfg_p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-                rea_mcp_configured = True
-            except OSError:
-                pass
+        configured_paths, rea_mcp_errors = configure_rea_mcp_server()
+        rea_mcp_configured = bool(configured_paths)
 
     if getattr(args, "json", False):
-        print(
-            json.dumps(
-                {
-                    "success": result.success,
-                    "mode": result.mode,
-                    "target_dir": str(result.target_dir),
-                    "source_dir": str(result.source_dir),
-                    "items_installed": result.items_installed,
-                    "message": result.message,
-                    "experimental_rea": exp_rea,
-                    "rea_mcp_configured": rea_mcp_configured,
-                },
-                indent=2,
-            )
-        )
+        payload: Dict[str, Any] = {
+            "success": result.success,
+            "mode": result.mode,
+            "target_dir": str(result.target_dir),
+            "source_dir": str(result.source_dir),
+            "items_installed": result.items_installed,
+            "message": result.message,
+            "experimental_rea": exp_rea,
+            "rea_mcp_configured": rea_mcp_configured,
+        }
+        if rea_mcp_errors:
+            payload["rea_mcp_errors"] = rea_mcp_errors
+        print(json.dumps(payload, indent=2))
         return 0 if result.success else 1
 
     if result.success:
         print(f"✔ {result.message}")
         if exp_rea:
-            label = "Would configure" if getattr(args, "dry_run", False) else "Configured"
-            print(f"  • REA: {label} global Reverse Engineer Anything MCP server (~/.gemini/config/mcp_config.json)")
+            if getattr(args, "dry_run", False):
+                print("  • REA: Would configure global Reverse Engineer Anything MCP server (~/.gemini/config/mcp_config.json)")
+            elif rea_mcp_configured:
+                print("  • REA: Configured global Reverse Engineer Anything MCP server (~/.gemini/config/mcp_config.json)")
+            else:
+                err_detail = f" ({'; '.join(rea_mcp_errors)})" if rea_mcp_errors else ""
+                print(f"  • REA: Failed to configure MCP server{err_detail}")
         return 0
     else:
         sys.stderr.write(f"✘ Error: {result.message}\n")

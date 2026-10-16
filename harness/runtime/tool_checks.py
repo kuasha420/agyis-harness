@@ -30,6 +30,7 @@ __all__ = [
     "check_psl_collision",
     "check_rea_tooling",
     "check_tool",
+    "configure_rea_mcp_server",
     "detect_os_family",
     "find_hermetic_uv_python",
     "find_jdk21_path",
@@ -425,6 +426,67 @@ def is_rea_mcp_configured(mcp_config_path: Optional[Path] = None) -> bool:
         except (OSError, json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, AttributeError):
             continue
     return False
+
+
+def configure_rea_mcp_server(
+    config_paths: Optional[List[Path]] = None,
+    jdk21_path: Optional[Path] = None,
+    ghidra_dir: Optional[str] = None,
+) -> Tuple[List[Path], List[str]]:
+    """
+    Configures or updates the 'rea' MCP server entry in Antigravity mcp_config.json files.
+    Returns a tuple of (configured_paths, error_messages).
+    """
+    if config_paths is None:
+        config_paths = [
+            Path.home() / ".gemini" / "config" / "mcp_config.json",
+            Path.home() / ".gemini" / "antigravity" / "mcp_config.json",
+        ]
+
+    if not ghidra_dir:
+        ghidra_dir = os.environ.get("GHIDRA_INSTALL_DIR")
+        if not ghidra_dir:
+            for cand in [Path("/opt/ghidra"), Path("/usr/local/opt/ghidra"), Path.home() / "ghidra"]:
+                if cand.is_dir():
+                    ghidra_dir = str(cand)
+                    break
+
+    if jdk21_path is None:
+        jdk21_path = find_jdk21_path()
+
+    configured: List[Path] = []
+    errors: List[str] = []
+
+    for cfg_p in config_paths:
+        try:
+            data: Dict[str, Any] = {}
+            if cfg_p.is_file():
+                try:
+                    data = json.loads(cfg_p.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    data = {}
+            if not isinstance(data, dict):
+                data = {}
+            if "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
+                data["mcpServers"] = {}
+
+            data["mcpServers"]["rea"] = {
+                "command": "rea",
+                "args": ["mcp"],
+                "env": {
+                    "GHIDRA_INSTALL_DIR": ghidra_dir or "/opt/ghidra",
+                    "JAVA_HOME": str(jdk21_path) if jdk21_path else "",
+                    "REA_MCP_INPUT_SCHEMA_PROFILE": "full",
+                    "REA_MCP_OUTPUT_SCHEMA_PROFILE": "off",
+                },
+            }
+            cfg_p.parent.mkdir(parents=True, exist_ok=True)
+            cfg_p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            configured.append(cfg_p)
+        except (OSError, PermissionError) as e:
+            errors.append(f"Failed to write MCP configuration to {cfg_p}: {e}")
+
+    return configured, errors
 
 
 def _parse_rea_providers(raw_json: str) -> Dict[str, Any]:

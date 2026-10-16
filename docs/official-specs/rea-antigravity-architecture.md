@@ -666,7 +666,7 @@ The implementation of this architecture is scheduled across Milestones M3 throug
 | Milestone | Target Scope | Core Deliverables | Verification Contract |
 | :--- | :--- | :--- | :--- |
 | **Milestone 3** | CLI & Diagnostics | `harness/cli.py`, `harness/commands/doctor.py`, `harness/runtime/doctor.py`, `harness/commands/init.py`, `harness/commands/install.py` | Hermetic unit tests in `tests/test_rea_doctor.py`. Doctor runs in <1.0s without flag. |
-| **Milestone 4** | Lifecycle Hooks Harmonization | `harness/hooks/command_safety_hook.py`, `harness/hooks/anti_loop_hook.py`, `harness/hooks/completion_fence_hook.py`, `harness/hooks/output_compactor_hook.py` | Unit tests in `tests/test_cleanroom_fence.py` and hook runner tests. |
+| **Milestone 4** | Lifecycle Hooks Harmonization | `harness/hooks/command_safety_hook.py`, `harness/hooks/anti_loop_hook.py`, `harness/hooks/completion_fence_hook.py`, `harness/hooks/output_compactor_hook.py` | Unit tests in `tests/test_completion_fence_hook.py` and hook runner tests. |
 | **Milestone 5** | Skills, Rules & Ledgers | Package `skills/reverse-engineer-anything/`, update `AGENTS.md` and `GLOBAL_AGENTS.md`, scaffold `.agents/ledger/` | Hermetic verification in `tests/test_skills.py` and end-to-end rehearsal. |
 | **Milestone 6** | Quality Audit & PR Delivery | Full test discovery (`./agyis test`), git commit on HEAD, push to `origin`, open PR linking to #44 & #45 | All tests pass 100% with exit code 0. Zero regressions across existing 790 tests. |
 
