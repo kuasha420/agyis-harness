@@ -35,7 +35,7 @@ def pull_remote_sessions(
     all_developers: bool = False,
     include_self: bool = False,
     developer: Optional[str] = None,
-    batch_limit: int = 500,
+    batch_limit: int = 50,
     on_progress: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
     dry_run: bool = False,
     retry_backoff: Optional[float] = None,
@@ -247,10 +247,10 @@ def pull_remote_sessions(
                     ))
                     sessions_inserted += 1
                 else:
-                    if existing_row["remote_synced_at"] is None or existing_row["origin_developer"] == "local":
+                    if existing_row["remote_synced_at"] is None:
                         cur.execute(
-                            "UPDATE sessions SET remote_synced_at = ?, origin_developer = ? WHERE session_id = ?",
-                            (remote_sync_time, origin_val, s_id),
+                            "UPDATE sessions SET remote_synced_at = ? WHERE session_id = ?",
+                            (remote_sync_time, s_id),
                         )
                 valid_session_ids.add(s_id)
 
@@ -283,94 +283,119 @@ def pull_remote_sessions(
                     )
                     valid_session_ids.update(row[0] for row in cur.fetchall())
 
+            step_rows = []
             for st in pulled_steps:
                 sid = st.get("session_id")
                 if not sid or sid not in valid_session_ids:
                     continue
-                try:
-                    cur.execute("""
-                        INSERT INTO steps (
+                step_rows.append((
+                    sid,
+                    st.get("step_index"),
+                    st.get("step_type"),
+                    st.get("source"),
+                    st.get("status"),
+                    st.get("created_at"),
+                    st.get("content_length"),
+                    st.get("content_snippet"),
+                    st.get("has_thinking"),
+                    st.get("thinking_length"),
+                    st.get("tool_count"),
+                ))
+
+            if step_rows:
+                cur.execute("SELECT COUNT(*) FROM steps")
+                count_before = cur.fetchone()[0]
+                chunk_size = 1000
+                for i in range(0, len(step_rows), chunk_size):
+                    chunk = step_rows[i:i + chunk_size]
+                    cur.executemany("""
+                        INSERT OR IGNORE INTO steps (
                             session_id, step_index, step_type, source, status, created_at,
                             content_length, content_snippet, has_thinking, thinking_length, tool_count
-                        )
-                        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM steps WHERE session_id = ? AND step_index = ?
-                        )
-                    """, (
-                        sid, st.get("step_index"), st.get("step_type"),
-                        st.get("source"), st.get("status"), st.get("created_at"),
-                        st.get("content_length"), st.get("content_snippet"),
-                        st.get("has_thinking"), st.get("thinking_length"), st.get("tool_count"),
-                        sid, st.get("step_index"),
-                    ))
-                    if cur.rowcount > 0:
-                        steps_inserted += 1
-                except sqlite3.IntegrityError:
-                    continue
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, chunk)
+                cur.execute("SELECT COUNT(*) FROM steps")
+                count_after = cur.fetchone()[0]
+                steps_inserted += (count_after - count_before)
 
+            tool_rows = []
             for tc in pulled_tools:
                 sid = tc.get("session_id")
                 if not sid or sid not in valid_session_ids:
                     continue
-                try:
-                    cur.execute("""
-                        INSERT INTO tool_calls (
+                tool_rows.append((
+                    sid,
+                    tc.get("step_index"),
+                    tc.get("result_step_index"),
+                    tc.get("tool_name"),
+                    tc.get("arguments_json"),
+                    tc.get("arguments_snippet"),
+                    tc.get("target_path"),
+                    tc.get("command_line"),
+                    tc.get("started_at"),
+                    tc.get("completed_at"),
+                    tc.get("duration_seconds"),
+                    tc.get("status"),
+                    tc.get("exit_code"),
+                    tc.get("error_snippet"),
+                    tc.get("is_loop_candidate", 0),
+                    tc.get("output_length_chars", 0),
+                    tc.get("output_lines", 0),
+                    tc.get("arguments_length_chars", 0),
+                    tc.get("command_category"),
+                    tc.get("is_truncated", 0),
+                ))
+
+            if tool_rows:
+                cur.execute("SELECT COUNT(*) FROM tool_calls")
+                count_before = cur.fetchone()[0]
+                chunk_size = 1000
+                for i in range(0, len(tool_rows), chunk_size):
+                    chunk = tool_rows[i:i + chunk_size]
+                    cur.executemany("""
+                        INSERT OR IGNORE INTO tool_calls (
                             session_id, step_index, result_step_index, tool_name, arguments_json,
                             arguments_snippet, target_path, command_line, started_at, completed_at,
                             duration_seconds, status, exit_code, error_snippet, is_loop_candidate,
                             output_length_chars, output_lines, arguments_length_chars, command_category, is_truncated
-                        )
-                        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM tool_calls
-                            WHERE session_id = ?
-                              AND step_index = ?
-                              AND tool_name = ?
-                              AND (started_at = ? OR arguments_snippet = ?)
-                        )
-                    """, (
-                        sid, tc.get("step_index"), tc.get("result_step_index"),
-                        tc.get("tool_name"), tc.get("arguments_json"), tc.get("arguments_snippet"),
-                        tc.get("target_path"), tc.get("command_line"), tc.get("started_at"),
-                        tc.get("completed_at"), tc.get("duration_seconds"), tc.get("status"),
-                        tc.get("exit_code"), tc.get("error_snippet"), tc.get("is_loop_candidate", 0),
-                        tc.get("output_length_chars", 0), tc.get("output_lines", 0),
-                        tc.get("arguments_length_chars", 0), tc.get("command_category"),
-                        tc.get("is_truncated", 0),
-                        sid, tc.get("step_index"), tc.get("tool_name"),
-                        tc.get("started_at"), tc.get("arguments_snippet"),
-                    ))
-                    if cur.rowcount > 0:
-                        tools_inserted += 1
-                except sqlite3.IntegrityError:
-                    continue
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, chunk)
+                cur.execute("SELECT COUNT(*) FROM tool_calls")
+                count_after = cur.fetchone()[0]
+                tools_inserted += (count_after - count_before)
 
+            intervention_rows = []
             for ui in pulled_interventions:
                 sid = ui.get("session_id")
                 if not sid or sid not in valid_session_ids:
                     continue
-                try:
-                    cur.execute("""
-                        INSERT INTO user_interventions (
+                intervention_rows.append((
+                    sid,
+                    ui.get("step_index"),
+                    ui.get("created_at"),
+                    ui.get("prompt_text"),
+                    ui.get("prompt_length"),
+                    ui.get("preceding_tool_failed"),
+                    ui.get("preceding_tool_name"),
+                    ui.get("preceding_error_snippet"),
+                    ui.get("intervention_type"),
+                ))
+
+            if intervention_rows:
+                cur.execute("SELECT COUNT(*) FROM user_interventions")
+                count_before = cur.fetchone()[0]
+                chunk_size = 1000
+                for i in range(0, len(intervention_rows), chunk_size):
+                    chunk = intervention_rows[i:i + chunk_size]
+                    cur.executemany("""
+                        INSERT OR IGNORE INTO user_interventions (
                             session_id, step_index, created_at, prompt_text, prompt_length,
                             preceding_tool_failed, preceding_tool_name, preceding_error_snippet, intervention_type
-                        )
-                        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM user_interventions WHERE session_id = ? AND step_index = ?
-                        )
-                    """, (
-                        sid, ui.get("step_index"), ui.get("created_at"),
-                        ui.get("prompt_text"), ui.get("prompt_length"),
-                        ui.get("preceding_tool_failed"), ui.get("preceding_tool_name"),
-                        ui.get("preceding_error_snippet"), ui.get("intervention_type"),
-                        sid, ui.get("step_index"),
-                    ))
-                    if cur.rowcount > 0:
-                        interventions_inserted += 1
-                except sqlite3.IntegrityError:
-                    continue
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, chunk)
+                cur.execute("SELECT COUNT(*) FROM user_interventions")
+                count_after = cur.fetchone()[0]
+                interventions_inserted += (count_after - count_before)
 
             conn.commit()
         finally:

@@ -110,6 +110,80 @@ class TestSchemaMigration(unittest.TestCase):
             self.assertIn("remote_synced_at", cols)
             conn.close()
 
+    def test_ensure_sync_columns_deduplicates_and_creates_unique_indexes(self):
+        """Verifies ensure_sync_columns safely deduplicates existing child records and creates composite unique indexes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "dedup.db"
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            from harness.telemetry.schema import SCHEMA_SQL
+            cur.executescript(SCHEMA_SQL)
+
+            # Drop unique indexes to simulate legacy state before unique indexes existed
+            cur.execute("DROP INDEX IF EXISTS idx_steps_uniq")
+            cur.execute("DROP INDEX IF EXISTS idx_interventions_uniq")
+            cur.execute("DROP INDEX IF EXISTS idx_tool_calls_uniq")
+
+            # Insert parent session
+            cur.execute("INSERT INTO sessions (session_id) VALUES ('sess-dup-1')")
+
+            # Insert duplicate steps
+            cur.execute("""
+                INSERT INTO steps (session_id, step_index, content_snippet)
+                VALUES ('sess-dup-1', 0, 'first step copy')
+            """)
+            cur.execute("""
+                INSERT INTO steps (session_id, step_index, content_snippet)
+                VALUES ('sess-dup-1', 0, 'second step duplicate')
+            """)
+
+            # Insert duplicate user interventions
+            cur.execute("""
+                INSERT INTO user_interventions (session_id, step_index, prompt_text)
+                VALUES ('sess-dup-1', 0, 'first intervention copy')
+            """)
+            cur.execute("""
+                INSERT INTO user_interventions (session_id, step_index, prompt_text)
+                VALUES ('sess-dup-1', 0, 'second intervention duplicate')
+            """)
+
+            # Insert duplicate tool calls
+            cur.execute("""
+                INSERT INTO tool_calls (session_id, step_index, tool_name, started_at, arguments_snippet)
+                VALUES ('sess-dup-1', 0, 'view_file', '2026-10-16T12:00:00Z', 'arg1')
+            """)
+            cur.execute("""
+                INSERT INTO tool_calls (session_id, step_index, tool_name, started_at, arguments_snippet)
+                VALUES ('sess-dup-1', 0, 'view_file', '2026-10-16T12:00:00Z', 'arg1')
+            """)
+            conn.commit()
+
+            # Execute ensure_sync_columns
+            sync.ensure_sync_columns(conn)
+
+            # Verify deduplication
+            cur.execute("SELECT COUNT(*) FROM steps WHERE session_id = 'sess-dup-1' AND step_index = 0")
+            self.assertEqual(cur.fetchone()[0], 1)
+
+            cur.execute("SELECT COUNT(*) FROM user_interventions WHERE session_id = 'sess-dup-1' AND step_index = 0")
+            self.assertEqual(cur.fetchone()[0], 1)
+
+            cur.execute("SELECT COUNT(*) FROM tool_calls WHERE session_id = 'sess-dup-1' AND step_index = 0")
+            self.assertEqual(cur.fetchone()[0], 1)
+
+            # Verify unique indexes were created
+            cur.execute("SELECT name FROM sqlite_master WHERE type='index'")
+            indexes = {row[0] for row in cur.fetchall()}
+            self.assertIn("idx_steps_uniq", indexes)
+            self.assertIn("idx_interventions_uniq", indexes)
+            self.assertIn("idx_tool_calls_uniq", indexes)
+
+            # Verify unique constraint prevents duplicate insertion
+            with self.assertRaises(sqlite3.IntegrityError):
+                cur.execute("INSERT INTO steps (session_id, step_index) VALUES ('sess-dup-1', 0)")
+
+            conn.close()
+
 
 class TestTelemetryDbConnection(unittest.TestCase):
     """Verifies centralized get_db_connection factory and WAL concurrency invariants."""
@@ -1196,6 +1270,71 @@ class TestSyncPull(unittest.TestCase):
             cur.execute("SELECT COUNT(*) FROM tool_calls WHERE session_id = 'remote-multi-tool'")
             self.assertEqual(cur.fetchone()[0], 2)
             conn.close()
+
+    def test_pull_batch_executemany_chunks_and_count_deltas(self):
+        """Verifies pull_remote_sessions processes large batches (>1000) via chunked executemany with exact count deltas."""
+        num_items = 1050
+        remote_data = {
+            "sessions": [{
+                "session_id": "remote-large-batch",
+                "start_time": "2026-03-02T10:00:00Z",
+                "origin_developer": "peer-developer-99",
+                "remote_synced_at": "2026-03-02T10:05:00Z",
+            }],
+            "steps": [
+                {
+                    "session_id": "remote-large-batch",
+                    "step_index": i,
+                    "step_type": "tool_execution",
+                    "created_at": f"2026-03-02T10:01:{i % 60:02d}Z",
+                }
+                for i in range(num_items)
+            ],
+            "tool_calls": [
+                {
+                    "session_id": "remote-large-batch",
+                    "step_index": i,
+                    "tool_name": f"tool_{i}",
+                    "started_at": f"2026-03-02T10:01:{i % 60:02d}Z",
+                    "arguments_snippet": f"args_{i}",
+                }
+                for i in range(num_items)
+            ],
+            "user_interventions": [
+                {
+                    "session_id": "remote-large-batch",
+                    "step_index": i,
+                    "prompt_text": f"prompt_{i}",
+                }
+                for i in range(50)
+            ],
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(remote_data).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            summary = sync.pull_remote_sessions(
+                db_path=self.db_path,
+                since="2026-03-01T00:00:00Z",
+            )
+            self.assertEqual(summary["status"], "success")
+            self.assertEqual(summary["steps_pulled"], num_items)
+            self.assertEqual(summary["steps_inserted"], num_items)
+            self.assertEqual(summary["tool_calls_pulled"], num_items)
+            self.assertEqual(summary["tool_calls_inserted"], num_items)
+            self.assertEqual(summary["user_interventions_pulled"], 50)
+            self.assertEqual(summary["user_interventions_inserted"], 50)
+
+            # Re-pulling the exact same data asserts idempotency and 0 inserted
+            summary_again = sync.pull_remote_sessions(
+                db_path=self.db_path,
+                since="2026-03-01T00:00:00Z",
+            )
+            self.assertEqual(summary_again["steps_inserted"], 0)
+            self.assertEqual(summary_again["tool_calls_inserted"], 0)
+            self.assertEqual(summary_again["user_interventions_inserted"], 0)
 
     def test_since_watermark_ignores_local_pushed_sessions(self):
         """Verifies watermark calculation ignores local pushed sessions and defaults to 1970."""
