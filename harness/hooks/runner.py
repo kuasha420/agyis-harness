@@ -74,15 +74,27 @@ def is_post_tool_use_context(hook_name: str, payload_str: Optional[str] = None) 
             data = json.loads(payload_str)
             if isinstance(data, dict):
                 event = str(data.get("hookEvent") or data.get("hook_event") or data.get("event") or "").strip().lower()
-                if event == "posttooluse":
+                if "post" in event:
                     return True
                 if (
                     "toolResponse" in data
                     or "tool_response" in data
                     or "toolOutput" in data
                     or "tool_output" in data
+                    or "toolResult" in data
+                    or "tool_result" in data
                     or "result" in data
+                    or "response" in data
                 ):
+                    return True
+                tool_call = data.get("toolCall") or data.get("tool_call") or {}
+                tool_name = (
+                    data.get("tool_name")
+                    or data.get("toolName")
+                    or (tool_call.get("name") if isinstance(tool_call, dict) else "")
+                    or ""
+                )
+                if tool_name in ("run_command", "execute_command", "bash"):
                     return True
                 if "toolCall" in data and ("exitCode" in data or "exit_code" in data):
                     return True

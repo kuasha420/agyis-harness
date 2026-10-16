@@ -114,6 +114,8 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
    - Matching tools: `write_to_file`, `replace_file_content`, `edit_file`.
    - **Ephemeral Scratch Path Filtering**:
      - Ephemeral scratch paths (e.g. `.gemini/antigravity/brain/.../scratch/...`, or files outside target workspace `cwd`, or system temp files `/tmp/`, `/var/tmp/` when `cwd` is unspecified) are filtered out and do NOT mark state dirty.
+   - **Cleanroom Contract File Gate**:
+     - Modifications to files within `docs/specs/**` or `.agents/ledger/**` are classified as cleanroom contracts and override default `.md` or `.json` exemptions, immediately setting `code_dirty = True`.
    - **Standard Code File Interception**:
      - If target file is recognized as code (`.py`, `.ts`, `.rs`, `.go`, etc.):
        - Sets `code_dirty = True`.
@@ -132,13 +134,28 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
 3. **`Stop` Event Evaluation**:
    - If `code_dirty == False`: Emits `{"decision": "allow"}`.
    - If `code_dirty == True`:
-     - If `block_count < 2`: Increments `block_count` and emits:
-       ```json
-       {
-         "decision": "continue",
-         "reason": "Verification Required: Unverified code edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
-       }
-       ```
+     - If `block_count < 2`: Increments `block_count` and emits contextual diagnostic refusal guidance:
+       - For cleanroom contract edits:
+         ```json
+         {
+           "decision": "continue",
+           "reason": "Verification Required: Unverified cleanroom contract edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
+         }
+         ```
+       - For mixed code and contract edits:
+         ```json
+         {
+           "decision": "continue",
+           "reason": "Verification Required: Unverified code and cleanroom contract edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
+         }
+         ```
+       - For standard code edits:
+         ```json
+         {
+           "decision": "continue",
+           "reason": "Verification Required: Unverified code edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
+         }
+         ```
      - If `block_count >= 2`: Anti-deadlock safety valve trips! Emits:
        ```json
        {

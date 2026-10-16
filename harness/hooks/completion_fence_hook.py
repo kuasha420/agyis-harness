@@ -30,18 +30,23 @@ __all__ = [
     "EXEMPT_EXTENSIONS",
     "EXEMPT_FILENAMES",
     "CODE_EXTENSIONS",
+    "DECLARATIVE_SPEC_EXTENSIONS",
     "get_state_file",
     "is_code_file",
+    "is_cleanroom_contract_file",
     "is_ephemeral_scratch_path",
     "is_test_command",
+    "is_manifest_verified",
     "extract_exit_code",
     "load_state",
     "save_state",
     "record_edit",
     "record_verification",
+    "clear_spec_dirty",
     "reset_state",
     "evaluate_stop",
     "check_command_verification",
+    "handle_post_tool_use",
     "main",
 ]
 
@@ -52,6 +57,21 @@ def get_state_file(conv_id: str = "default", state_dir: Path | None = None) -> P
     target_dir = state_dir or get_state_dir()
     safe_conv_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", conv_id)
     return target_dir / f"verification_state_{safe_conv_id}.json"
+
+
+# Declarative cleanroom specification extensions (only these qualify for pure spec_dirty)
+DECLARATIVE_SPEC_EXTENSIONS: frozenset[str] = frozenset({
+    ".md",
+    ".markdown",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".proto",
+    ".schema",
+    ".fbs",
+    ".toml",
+    ".txt",
+})
 
 
 # Non-code files that do not trigger code dirty state
@@ -141,6 +161,24 @@ def is_code_file(path_str: str) -> bool:
     return suffix in CODE_EXTENSIONS
 
 
+def is_cleanroom_contract_file(path_str: str) -> bool:
+    """
+    Determines if a file path represents a cleanroom contract file
+    (in docs/specs/** or .agents/ledger/**) that requires verification,
+    overriding default .md and .json exemptions.
+    """
+    if not path_str or not isinstance(path_str, str):
+        return False
+    norm = path_str.replace("\\", "/").strip().lower()
+    if norm.startswith("./"):
+        norm = norm[2:]
+
+    if norm.startswith("docs/specs/") or "/docs/specs/" in norm:
+        return True
+    if norm.startswith(".agents/ledger/") or "/.agents/ledger/" in norm:
+        return True
+
+    return False
 
 def is_ephemeral_scratch_path(file_path: str, cwd: Path | str | None = None) -> bool:
     """
@@ -156,6 +194,16 @@ def is_ephemeral_scratch_path(file_path: str, cwd: Path | str | None = None) -> 
         return False
 
     norm = file_path.replace("\\", "/").strip()
+    if norm.startswith("./"):
+        norm = norm[2:]
+
+    # Rule 0: REA ephemeral scratch paths
+    if norm.startswith(".rea/") or "/.rea/" in norm:
+        return True
+    if norm.startswith("decompiled/") or "/decompiled/" in norm:
+        return True
+    if norm.startswith("artifacts/rea/") or "/artifacts/rea/" in norm:
+        return True
 
     # Rule 1: Antigravity ephemeral scratch transcripts/scripts
     if ".gemini/antigravity/brain" in norm and "/scratch/" in norm:
@@ -266,6 +314,7 @@ def load_state(conv_id: str = "default", state_dir: Path | None = None) -> dict:
     default_state = {
         "conversation_id": conv_id,
         "code_dirty": False,
+        "spec_dirty": False,
         "last_modified_files": [],
         "block_count": 0,
         "last_verified_at": None,
@@ -279,6 +328,7 @@ def load_state(conv_id: str = "default", state_dir: Path | None = None) -> dict:
                 return {
                     "conversation_id": str(data.get("conversation_id", conv_id)),
                     "code_dirty": bool(data.get("code_dirty", False)),
+                    "spec_dirty": bool(data.get("spec_dirty", False)),
                     "last_modified_files": list(data.get("last_modified_files", [])),
                     "block_count": int(data.get("block_count", 0)),
                     "last_verified_at": data.get("last_verified_at"),
@@ -310,9 +360,14 @@ def record_edit(
     cwd: Path | str | None = None,
 ) -> dict:
     """
-    Records a file edit. If the file is a code file, marks code_dirty = True,
-    resets block_count = 0 (re-arming the fence), appends the path to last_modified_files,
-    and records cwd if provided. Ephemeral scratch paths are filtered out without modifying state.
+    Records a file edit. Phase-aware decoupling (ADR-028):
+    - Cleanroom contracts (docs/specs/**, .agents/ledger/**) with declarative extensions
+      (.md, .json, .yaml, etc.) set spec_dirty = True (pure spec dirty).
+    - Non-declarative code files in specs (.py, .ts, .rs, etc.) trigger code_dirty = True
+      and spec_dirty = True (DEF-01 code-in-specs dual dirty guard).
+    - Code files outside specs set code_dirty = True.
+    - Ephemeral scratch paths (.rea/**, decompiled/**, artifacts/rea/**, /scratch/)
+      are filtered out without modifying state.
     """
     state = load_state(conv_id=conv_id, state_dir=state_dir)
     effective_cwd = cwd if cwd is not None else state.get("cwd")
@@ -320,8 +375,24 @@ def record_edit(
     if is_ephemeral_scratch_path(file_path, cwd=effective_cwd):
         return state
 
-    if is_code_file(file_path):
+    p = Path(file_path)
+    suffix = p.suffix.lower()
+
+    dirtied = False
+    if is_cleanroom_contract_file(file_path):
+        if suffix in DECLARATIVE_SPEC_EXTENSIONS:
+            state["spec_dirty"] = True
+            dirtied = True
+        else:
+            # Code-in-Specs guard (DEF-01): non-declarative code in specs triggers dual dirty state
+            state["code_dirty"] = True
+            state["spec_dirty"] = True
+            dirtied = True
+    elif is_code_file(file_path):
         state["code_dirty"] = True
+        dirtied = True
+
+    if dirtied:
         state["block_count"] = 0
         modified = state.get("last_modified_files", [])
         if file_path not in modified:
@@ -339,16 +410,38 @@ def record_verification(
     state_dir: Path | None = None,
 ) -> dict:
     """
-    Records test verification results. If successful, clears code_dirty, resets
-    last_modified_files and block_count, and sets last_verified_at.
+    Records test verification results. If successful, clears code_dirty, spec_dirty,
+    resets last_modified_files and block_count, and sets last_verified_at.
     """
     state = load_state(conv_id=conv_id, state_dir=state_dir)
     if success:
         state["code_dirty"] = False
+        state["spec_dirty"] = False
         state["last_modified_files"] = []
         state["block_count"] = 0
         state["last_verified_at"] = datetime.now(timezone.utc).isoformat()
         save_state(state, conv_id=conv_id, state_dir=state_dir)
+    return state
+
+
+def clear_spec_dirty(
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+) -> dict:
+    """
+    Clears spec_dirty state following cleanroom verification.
+    If code_dirty is False, removes cleanroom spec files from last_modified_files and resets block_count.
+    """
+    state = load_state(conv_id=conv_id, state_dir=state_dir)
+    state["spec_dirty"] = False
+    if not state.get("code_dirty", False):
+        state["last_modified_files"] = [
+            f for f in state.get("last_modified_files", [])
+            if not is_cleanroom_contract_file(f)
+        ]
+        state["block_count"] = 0
+    state["last_verified_at"] = datetime.now(timezone.utc).isoformat()
+    save_state(state, conv_id=conv_id, state_dir=state_dir)
     return state
 
 
@@ -360,6 +453,7 @@ def reset_state(
     state = {
         "conversation_id": conv_id,
         "code_dirty": False,
+        "spec_dirty": False,
         "last_modified_files": [],
         "block_count": 0,
         "last_verified_at": None,
@@ -369,6 +463,70 @@ def reset_state(
     return state
 
 
+def is_manifest_verified(cwd: Path | str | None = None) -> bool:
+    """
+    Validates .agents/ledger/manifest.json against the formal cleanroom schema:
+    1. Valid JSON object.
+    2. 'status': 'verified'.
+    3. 'evidence_hash': 64-char lowercase hexadecimal string.
+    4. 'obligations': non-empty array where every obligation has 'status': 'satisfied'.
+    """
+    effective_cwd = Path(cwd).resolve() if cwd else Path.cwd().resolve()
+    manifest_path = effective_cwd / ".agents" / "ledger" / "manifest.json"
+    if not manifest_path.is_file():
+        return False
+
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return False
+
+        if data.get("status") != "verified":
+            return False
+
+        evidence_hash = data.get("evidence_hash")
+        if not isinstance(evidence_hash, str) or not re.match(r"^[a-f0-9]{64}$", evidence_hash):
+            return False
+
+        obligations = data.get("obligations")
+        if not isinstance(obligations, list) or len(obligations) == 0:
+            return False
+
+        for ob in obligations:
+            if not isinstance(ob, dict):
+                return False
+            if ob.get("status") != "satisfied":
+                return False
+
+        return True
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
+def handle_post_tool_use(
+    tool_name: str,
+    args: dict,
+    result: dict,
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+) -> None:
+    """
+    PostToolUse handler: intercepts MCP tools (verify_reconstruction,
+    evaluate_reconstruction_coverage) and clears spec_dirty state upon success.
+    """
+    if tool_name == "call_mcp_tool":
+        inner_tool = args.get("ToolName", "")
+        if inner_tool in ("verify_reconstruction", "evaluate_reconstruction_coverage"):
+            status = result.get("status") if isinstance(result, dict) else None
+            is_err = result.get("isError") or result.get("is_error") if isinstance(result, dict) else False
+            if status != "error" and not is_err:
+                clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
+    elif "verify_reconstruction" in tool_name or "evaluate_reconstruction_coverage" in tool_name:
+        status = result.get("status") if isinstance(result, dict) else None
+        is_err = result.get("isError") or result.get("is_error") if isinstance(result, dict) else False
+        if status != "error" and not is_err:
+            clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
+
 
 def evaluate_stop(
     conv_id: str = "default",
@@ -377,13 +535,54 @@ def evaluate_stop(
 ) -> dict:
     """
     Evaluates whether an agent may stop.
-    If code is dirty and block_count < 2, blocks stop and requests test execution.
-    If block_count >= 2, trips the anti-deadlock safety valve and allows exit.
+    Phase-aware cleanroom fence logic (ADR-028):
+    1. If neither code_dirty nor spec_dirty: allows stop.
+    2. If code_dirty is False and spec_dirty is True (pure cleanroom spec edits):
+       - If .agents/ledger/manifest.json is verified: clears spec_dirty and allows stop.
+       - Otherwise if block_count < 2: blocks stop and outputs exact cleanroom rejection message:
+         "Cleanroom Verification Required: Unverified cleanroom contract edits detected in: <files>. Execute 'rea verify-reconstruction' or 'agyis verify --spec' before stopping."
+       - If block_count >= 2: trips anti-deadlock safety valve.
+    3. If code_dirty is True (code edits or code-in-specs dual dirty state):
+       - If block_count < 2: blocks stop and requests project test suite execution.
+       - If block_count >= 2: trips anti-deadlock safety valve.
     """
     state = load_state(conv_id=conv_id, state_dir=state_dir)
-    if not state.get("code_dirty", False):
+    code_dirty = state.get("code_dirty", False)
+    spec_dirty = state.get("spec_dirty", False)
+
+    effective_cwd = cwd if cwd is not None else state.get("cwd")
+    if effective_cwd is None:
+        effective_cwd = Path.cwd()
+
+    if not code_dirty and not spec_dirty:
         return {"decision": "allow"}
 
+    # Pure spec_dirty: cleanroom contract edits without code changes
+    if not code_dirty and spec_dirty:
+        if is_manifest_verified(effective_cwd):
+            clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
+            return {"decision": "allow"}
+
+        block_count = state.get("block_count", 0)
+        if block_count < 2:
+            state["block_count"] = block_count + 1
+            save_state(state, conv_id=conv_id, state_dir=state_dir)
+            modified_files = [f for f in state.get("last_modified_files", []) if is_cleanroom_contract_file(f)]
+            files_str = ", ".join(modified_files) if modified_files else "cleanroom contract files"
+            return {
+                "decision": "continue",
+                "reason": (
+                    f"Cleanroom Verification Required: Unverified cleanroom contract edits detected in: {files_str}. "
+                    "Execute 'rea verify-reconstruction' or 'agyis verify --spec' before stopping."
+                ),
+            }
+        else:
+            return {
+                "decision": "allow",
+                "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite unverified edits.",
+            }
+
+    # code_dirty is True (either pure code or dual dirty state)
     block_count = state.get("block_count", 0)
     if block_count < 2:
         state["block_count"] = block_count + 1
@@ -391,20 +590,26 @@ def evaluate_stop(
         modified_files = state.get("last_modified_files", [])
         files_str = ", ".join(modified_files) if modified_files else "untracked code files"
 
-        effective_cwd = cwd if cwd is not None else state.get("cwd")
-        if effective_cwd is None:
-            effective_cwd = Path.cwd()
+        has_contract = any(is_cleanroom_contract_file(f) for f in modified_files)
+        has_code = any(not is_cleanroom_contract_file(f) or (Path(f).suffix.lower() not in DECLARATIVE_SPEC_EXTENSIONS) for f in modified_files)
+
+        if has_contract and has_code:
+            category = "code and cleanroom contract edits"
+        elif has_contract:
+            category = "cleanroom contract edits"
+        else:
+            category = "code edits"
 
         if is_harness_workspace(effective_cwd):
             reason = (
-                f"Verification Required: Unverified code edits detected in: {files_str}. "
+                f"Verification Required: Unverified {category} detected in: {files_str}. "
                 "Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
             )
         else:
             detected_runner = detect_project_test_runner(effective_cwd)
             runner_str = detected_runner if detected_runner else "e.g. npm test, cargo test, pytest"
             reason = (
-                f"Verification Required: Unverified code edits detected in: {files_str}. "
+                f"Verification Required: Unverified {category} detected in: {files_str}. "
                 f"Execute your project test suite ({runner_str}) before stopping."
             )
 
@@ -426,6 +631,7 @@ UNIVERSAL_TEST_RUNNER_PATTERNS: tuple[re.Pattern, ...] = (
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*go\s+test\b"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*ctest\b"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:agyis|\./agyis|psl|\./psl)\s+test\b)"),
+    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:rea\s+(?:verify|verify-reconstruction|test)\b|agyis\s+verify\b)"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*make\s+(?:test|check|verify)\b"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:bash|sh)\s+|\./)tests?/[^\s]+\.sh\b"),
 )
@@ -434,6 +640,7 @@ HARNESS_TEST_RUNNER_PATTERNS: tuple[re.Pattern, ...] = (
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:agyis|\./agyis|psl|\./psl)\s+test\b)"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*python3?\s+-m\s+(?:harness(?:\.cli)?\s+test|unittest\b|pytest\b)"),
     re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*pytest(?:\s|$)"),
+    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:rea\s+(?:verify|verify-reconstruction|test)\b|agyis\s+verify\b)"),
 )
 
 
@@ -529,6 +736,9 @@ def main() -> None:
         matched = check_command_verification(command, exit_code=exit_code, conv_id=conv_id, cwd=cwd)
         state = load_state(conv_id=conv_id)
         print(json.dumps({"status": "ok", "matched": matched, "state": state}))
+    elif action == "clear_spec_dirty":
+        state = clear_spec_dirty(conv_id=conv_id)
+        print(json.dumps({"status": "ok", "state": state}))
     elif action == "reset":
         state = reset_state(conv_id=conv_id)
         print(json.dumps({"status": "ok", "state": state}))
@@ -542,7 +752,6 @@ def main() -> None:
         tool_args = tool_call.get("args") or {}
         if cwd is None:
             cwd = tool_args.get("Cwd") or tool_args.get("cwd")
-
         event = str(payload.get("hookEvent") or payload.get("hook_event") or payload.get("event") or "").strip().lower()
         if event == "posttooluse":
             is_post_tool_use = True
@@ -577,6 +786,17 @@ def main() -> None:
 
         # PostToolUse contract: Antigravity expects exact JSON {}
         if is_post_tool_use:
+            raw_result = payload.get("toolResponse") or payload.get("result") or payload.get("toolOutput") or {}
+            if isinstance(raw_result, str):
+                try:
+                    result_dict = json.loads(raw_result)
+                except (json.JSONDecodeError, ValueError):
+                    result_dict = {"output": raw_result}
+            elif isinstance(raw_result, dict):
+                result_dict = raw_result
+            else:
+                result_dict = {}
+            handle_post_tool_use(tool_name, tool_args, result_dict, conv_id=conv_id)
             print(json.dumps({}))
         else:
             print(json.dumps({"decision": "allow"}))

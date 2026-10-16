@@ -71,3 +71,20 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 1. **Anti-Drift Commitment**: Anchor all implementation decisions to the agreed plan. If novel obstacles arise, pause and present options.
 2. **Proactive Confirmation Gates**: When encountering destructive operations (file deletion, git branch force-push, node reboots), pause for explicit review.
 3. **Clear Error Reporting**: If a command fails twice, stop thrashing. State the error concisely and propose a concrete path forward.
+
+---
+
+## 7. Universal Cleanroom Reverse Engineering & Reconstruction Invariants
+1. **Dirty Room vs. Clean Room Isolation**:
+   - Maintain strict separation between binary inspection, disassembly analysis, or decompiler observation (dirty room) and specification or implementation authoring (clean room).
+   - Never copy decompiled code, disassembly listings, proprietary symbol tables, or vendor assets directly into cleanroom source code.
+2. **Obligation Ledgers & Immutable Evidence**:
+   - Cleanroom reconstructions must derive from formal specifications backed by typed obligation ledgers linking claims to concrete verification criteria.
+   - Retain immutable evidence records (evidence identifiers, subjects, analysis providers, and cryptographic digests) to substantiate every architectural and behavioral claim.
+   - Reconstructed systems must validate their behavior against retained evidence rather than ungrounded assumptions.
+3. **Residual Unknowns Lifecycle**:
+   - Incomplete findings, ambiguous structures, or unobserved protocol paths must be formally tracked as residual unknowns with explicit required authorities.
+   - Unknowns may only be resolved by citing concrete observed evidence; silent assumption, unverified guessing, or speculative hallucination is strictly prohibited.
+4. **Formal Cleanroom Verification**:
+   - Before completing cleanroom reconstruction tasks, evaluate coverage against the obligation ledger and formally verify that all declared obligations are satisfied by evidence.
+

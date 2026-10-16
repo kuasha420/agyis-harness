@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CleanroomManifest",
+  "target": "reconstruction_target",
+  "status": "pending",
+  "evidence_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "verified_at": "2026-10-15T00:00:00Z",
+  "verifier": "rea-agents",
+  "obligations": [
+    {
+      "id": "OBLIG-AUTH-TOKEN-001",
+      "status": "pending",
+      "proof": ""
+    }
+  ]
+}

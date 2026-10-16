@@ -28,6 +28,8 @@ HISTORY_WINDOW = 30
 FREQUENCY_WINDOW = 15
 MAX_FREQUENCY_REPEATS = 4
 MAX_IDEMPOTENT_FREQUENCY_REPEATS = 8
+SPEC_WINDOW_MAX_CALLS = 8
+SPEC_DIR_PREFIXES = ("/docs/specs/", "docs/specs/", "/.agents/ledger/", ".agents/ledger/")
 CYCLE_PERIODS = (2, 3, 4, 5)
 MAX_TASK_INSPECTION_CONSECUTIVE = 2
 MAX_TASK_INSPECTION_WINDOW_FREQUENCY = 3
@@ -45,6 +47,9 @@ TEST_VERIFICATION_PATTERNS = (
     r"(?:^|[\s;&|])npm\s+test\b",
     r"(?:^|[\s;&|])yarn\s+test\b",
     r"(?:^|[\s;&|])go\s+test\b",
+    r"(?:^|[\s;&|])rea\s+(?:verify|verify-reconstruction|test)\b",
+    r"(?:^|[\s;&|])python3?\s+-m\s+harness(?:\.cli)?\s+(?:verify|verify-cleanroom)\b",
+    r"(?:^|[\s;&|])(?:\./)?agyis\s+verify\b",
 )
 
 
@@ -115,6 +120,15 @@ def _is_peer_heartbeat(tool_name: str, tool_args: dict) -> bool:
         return True
 
     return False
+
+
+def _is_spec_file(tool_name: str, tool_args: dict) -> bool:
+    """Helper to detect if a tool call is inspecting cleanroom specification or ledger files."""
+    if tool_name != "view_file":
+        return False
+    path = str(tool_args.get("AbsolutePath") or tool_args.get("Path") or "")
+    norm = path.replace("\\", "/").strip()
+    return any(p in norm for p in SPEC_DIR_PREFIXES) or norm.startswith("docs/specs/") or norm.startswith(".agents/ledger/")
 
 
 def _is_code_edit(sig: dict) -> bool:
@@ -314,9 +328,15 @@ def check_anti_loop(
     # Evaluate frequency limit with explicit branching:
     # - Idempotent inspection commands: allow up to MAX_IDEMPOTENT_FREQUENCY_REPEATS (8),
     #   denying strictly when freq_count exceeds threshold on the 9th call (> 8).
+    # - Cleanroom spec inspections: allow up to SPEC_WINDOW_MAX_CALLS (8),
+    #   denying strictly when freq_count exceeds threshold on the 9th call (> 8).
     # - Generic commands: deny when freq_count reaches MAX_FREQUENCY_REPEATS on the 4th call (>= 4).
+    is_spec = _is_spec_file(tool_name, tool_args)
     if is_idempotent:
         max_freq = MAX_IDEMPOTENT_FREQUENCY_REPEATS
+        frequency_exceeded = freq_count > max_freq
+    elif is_spec:
+        max_freq = SPEC_WINDOW_MAX_CALLS
         frequency_exceeded = freq_count > max_freq
     else:
         max_freq = MAX_FREQUENCY_REPEATS

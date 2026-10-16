@@ -99,5 +99,65 @@ class TestCommandSafetyHookPhase1(unittest.TestCase):
                 self.assertIn('python3 -c "print(\'hello\')"', overwritten_cmd)
 
 
+class TestCommandSafetyReaHarmonization(unittest.TestCase):
+    """Hermetic unit tests validating REA toolchain & disassembler batch harmonization (Milestone 4)."""
+
+    def test_user_toolchains_includes_rea(self):
+        """USER_TOOLCHAINS includes rea."""
+        from harness.hooks.command_safety_hook import USER_TOOLCHAINS
+        self.assertIn("rea", USER_TOOLCHAINS)
+
+    def test_rea_path_shim_injection(self):
+        """rea commands receive user path shims."""
+        from harness.hooks.command_safety_hook import inject_path_shims
+        with patch("harness.hooks.command_safety_hook.get_user_path_shims", return_value=["/home/user/.npm-global/bin", "/home/user/.local/bin"]):
+            mod, changed = inject_path_shims("rea verify-reconstruction")
+            self.assertTrue(changed)
+            self.assertIn('export PATH="/home/user/.npm-global/bin:/home/user/.local/bin:$PATH"; rea verify-reconstruction', mod)
+
+    def test_command_wrapper_prefix_triggers_shim_injection(self):
+        """Wrappers like 'command rea' or 'command -v rea' match USER_TOOLCHAIN_REGEX."""
+        from harness.hooks.command_safety_hook import USER_TOOLCHAIN_REGEX, extract_command_binary
+        self.assertIsNotNone(USER_TOOLCHAIN_REGEX.search("command rea verify"))
+        self.assertIsNotNone(USER_TOOLCHAIN_REGEX.search("command -v rea"))
+        self.assertEqual(extract_command_binary("command rea verify"), "rea")
+        self.assertEqual(extract_command_binary("command -v rea"), "rea")
+
+    def test_rea_preflight_package_suggestion(self):
+        """Preflight tool check emits actionable suggestion for missing rea."""
+        from harness.hooks.command_safety_hook import check_preflight_tool_availability
+        with patch("shutil.which", return_value=None), patch("harness.hooks.command_safety_hook.get_user_path_shims", return_value=[]):
+            res = check_preflight_tool_availability("rea verify")
+            self.assertFalse(res["available"])
+            self.assertEqual(res["binary"], "rea")
+            self.assertIn("pnpm add -g rea-agents", res["suggestion"])
+
+    def test_disassembler_batch_mode_gdb_rewrite(self):
+        """Raw gdb commands are automatically rewritten to include -batch."""
+        decision, mod_cmd, reason = sanitize_command("gdb /usr/bin/ls")
+        self.assertEqual(decision, "allow")
+        self.assertIsNotNone(mod_cmd)
+        self.assertIn("gdb -batch /usr/bin/ls", mod_cmd)
+        self.assertIn("enforced non-interactive gdb -batch mode", reason)
+
+        # Idempotent if -batch already present
+        decision, mod_cmd2, reason2 = sanitize_command("gdb -batch /usr/bin/ls")
+        self.assertEqual(decision, "allow")
+        self.assertIsNone(mod_cmd2)
+
+    def test_disassembler_batch_mode_rizin_rewrite(self):
+        """Raw rizin commands are automatically rewritten to include -q."""
+        decision, mod_cmd, reason = sanitize_command("rizin -c 'pdf @main' /usr/bin/ls")
+        self.assertEqual(decision, "allow")
+        self.assertIsNotNone(mod_cmd)
+        self.assertIn("rizin -q -c 'pdf @main' /usr/bin/ls", mod_cmd)
+        self.assertIn("enforced non-interactive rizin -q batch mode", reason)
+
+        # Idempotent if -q already present
+        decision, mod_cmd2, reason2 = sanitize_command("rizin -q -c 'pdf @main' /usr/bin/ls")
+        self.assertEqual(decision, "allow")
+        self.assertIsNone(mod_cmd2)
+
+
 if __name__ == "__main__":
     unittest.main()

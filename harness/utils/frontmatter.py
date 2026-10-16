@@ -83,6 +83,14 @@ def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
                             child_dict[ck] = True
                         elif cv.lower() == "false":
                             child_dict[ck] = False
+                        elif (
+                            cv.startswith(('"', "'"))
+                            and cv.endswith(('"', "'"))
+                            and len(cv) >= 2
+                        ):
+                            child_dict[ck] = cv[1:-1]
+                        elif cv.isdigit():
+                            child_dict[ck] = int(cv)
                         else:
                             child_dict[ck] = cv
                     i += 1

@@ -35,6 +35,9 @@ from harness.utils.state import get_state_dir
 MAX_OUTPUT_CHARS = 2048
 HEAD_CHARS = 500
 TAIL_CHARS = 1000
+PRESLICE_THRESHOLD = 200_000
+PRESLICE_CHUNK_SIZE = 100_000
+MAX_PRESERVED_DIAGNOSTIC_LINES = 50
 ERROR_KEYWORDS = ("exit code", "exit_code", "fatal", "error", "failure", "failed")
 
 
@@ -80,13 +83,20 @@ def compact_output(
     tail = output[-tail_chars:]
     middle = output[head_chars:-tail_chars]
 
-    # Preserve all lines in middle containing error, fatal, failure, or exit code keywords
-    middle_lines = middle.splitlines()
+    # Pre-slice character chunks before splitlines if middle exceeds threshold (DEFECT-001 / DEF-04)
+    if len(middle) > PRESLICE_THRESHOLD:
+        head_chunk = middle[:PRESLICE_CHUNK_SIZE]
+        tail_chunk = middle[-PRESLICE_CHUNK_SIZE:]
+        candidate_lines = head_chunk.splitlines() + tail_chunk.splitlines()
+    else:
+        candidate_lines = middle.splitlines()
+
+    # Preserve lines in candidate chunks containing error, fatal, failure, or exit code keywords (max 50 lines)
     preserved_diagnostic_lines: List[str] = [
         line.strip()
-        for line in middle_lines
+        for line in candidate_lines
         if line.strip() and any(kw in line.lower() for kw in ERROR_KEYWORDS)
-    ]
+    ][:MAX_PRESERVED_DIAGNOSTIC_LINES]
 
     omitted_chars = len(middle)
 
@@ -101,7 +111,22 @@ def compact_output(
     else:
         separator = f"\n\n[... PSL Compactor: {omitted_chars:,} characters truncated ...]\n\n"
 
-    return f"{head}{separator}{tail}"
+    compacted = f"{head}{separator}{tail}"
+
+    # Preserve outer structural JSON syntax brackets if original had them
+    stripped_orig = output.strip()
+    if stripped_orig.startswith("{") and stripped_orig.endswith("}"):
+        if not compacted.strip().startswith("{"):
+            compacted = "{\n" + compacted
+        if not compacted.strip().endswith("}"):
+            compacted = compacted + "\n}"
+    elif stripped_orig.startswith("[") and stripped_orig.endswith("]"):
+        if not compacted.strip().startswith("["):
+            compacted = "[\n" + compacted
+        if not compacted.strip().endswith("]"):
+            compacted = compacted + "\n]"
+
+    return compacted
 
 
 def extract_output_and_status(payload: Dict[str, Any]) -> Tuple[str, int, bool]:

@@ -50,11 +50,11 @@ INTERACTIVE_COMMANDS = [
 
 USER_TOOLCHAINS = (
     "agyis", "psl", "knot", "uv", "pnpm", "npm", "npx", "cargo", "rustc",
-    "pytest", "ruff", "black", "mypy", "flake8", "tsc",
+    "pytest", "ruff", "black", "mypy", "flake8", "tsc", "rea",
 )
 
 USER_TOOLCHAIN_REGEX = re.compile(
-    r"(?:^|[;&|]\s*|\b(?:sudo|xargs|nohup|exec|env|time)\s+)\s*(?:/[^\s]+/)?\b("
+    r"(?:^|[;&|]\s*|\b(?:sudo|xargs|nohup|exec|env|time|command)(?:\s+-[^\s]+)*\s+)\s*(?:/[^\s]+/)?\b("
     + "|".join(USER_TOOLCHAINS)
     + r")\b"
 )
@@ -67,6 +67,7 @@ COMMON_PACKAGE_SUGGESTIONS: Dict[str, str] = {
     "uv": "Install uv hermetic package manager: 'curl -LsSf https://astral.sh/uv/install.sh | sh'.",
     "qdbus": "Install Qt D-Bus tools via your system package manager (e.g. 'pacman -S qt5-tools').",
     "lxc-attach": "Install LXC container utilities via system package manager.",
+    "rea": "Install via 'pnpm add -g rea-agents' or run with 'npx rea-agents'",
 }
 
 SHELL_BUILTINS: frozenset[str] = frozenset({
@@ -91,7 +92,7 @@ def extract_command_binary(cmd: str) -> Optional[str]:
     if not tokens:
         return None
 
-    wrappers = {"sudo", "xargs", "nohup", "exec", "env", "time"}
+    wrappers = {"sudo", "xargs", "nohup", "exec", "env", "time", "command"}
     idx = 0
     while idx < len(tokens):
         token = tokens[idx]
@@ -100,6 +101,8 @@ def extract_command_binary(cmd: str) -> Optional[str]:
             continue
         if token in wrappers:
             idx += 1
+            while idx < len(tokens) and tokens[idx].startswith("-"):
+                idx += 1
             continue
         bin_name = token.split("/")[-1]
         return bin_name
@@ -157,12 +160,13 @@ from harness.remote.safety import (
 def get_user_path_shims() -> List[str]:
     """
     Discovers existing candidate user bin directories on the host:
-    ~/.local/bin, ~/.cargo/bin, ~/.local/share/pnpm, ~/.pyenv/shims.
+    ~/.local/bin, ~/.cargo/bin, ~/.local/share/pnpm, ~/.npm-global/bin, ~/.pyenv/shims.
     """
     candidates = [
         Path.home() / ".local/bin",
         Path.home() / ".cargo/bin",
         Path.home() / ".local/share/pnpm",
+        Path.home() / ".npm-global/bin",
         Path.home() / ".pyenv/shims",
     ]
     return [str(p) for p in candidates if p.is_dir()]
@@ -171,7 +175,7 @@ def get_user_path_shims() -> List[str]:
 def inject_path_shims(cmd: str) -> Tuple[str, bool]:
     """
     Prepend export PATH="<shims>:$PATH"; <cmd> if user toolchains
-    (uv, pnpm, npm, npx, cargo, rustc, pytest, ruff, black, mypy, flake8, tsc)
+    (uv, pnpm, npm, npx, cargo, rustc, pytest, ruff, black, mypy, flake8, tsc, rea)
     are invoked and PATH= is not already defined. Idempotent.
     """
     if not cmd.strip():
@@ -187,7 +191,7 @@ def inject_path_shims(cmd: str) -> Tuple[str, bool]:
     if not shims:
         return cmd, False
 
-    candidate_names = (".local/bin", ".cargo/bin", ".local/share/pnpm", ".pyenv/shims")
+    candidate_names = (".local/bin", ".cargo/bin", ".local/share/pnpm", ".npm-global/bin", ".pyenv/shims")
     if any(shim in cmd for shim in shims) or any(cand in cmd for cand in candidate_names):
         return cmd, False
 
@@ -310,6 +314,44 @@ def should_sanitize_grep_or_diff(cmd: str) -> bool:
     return bin_name in ("grep", "egrep", "fgrep", "diff", "pgrep")
 
 
+def inject_disassembler_batch_flags(cmd: str) -> Tuple[str, bool, List[str]]:
+    """
+    Ensures non-interactive batch execution for interactive disassemblers
+    (gdb -> gdb -batch, rizin -> rizin -q).
+    """
+    bin_name = extract_command_binary(cmd)
+    if not bin_name or bin_name not in ("gdb", "rizin"):
+        return cmd, False, []
+
+    reasons: List[str] = []
+    modified = cmd
+
+    if bin_name == "gdb":
+        if not re.search(r"\b--?batch\b", modified):
+            modified = re.sub(
+                r"(\b(?:[^\s]+/)?gdb\b)(?!\s+--?batch\b)",
+                r"\1 -batch",
+                modified,
+                count=1,
+            )
+            if modified != cmd:
+                reasons.append("enforced non-interactive gdb -batch mode")
+
+    elif bin_name == "rizin":
+        if not re.search(r"(?:^|\s)-q(?:\s|$)", modified):
+            modified = re.sub(
+                r"(\b(?:[^\s]+/)?rizin\b)(?!\s+-q(?:\s|$))",
+                r"\1 -q",
+                modified,
+                count=1,
+            )
+            if modified != cmd:
+                reasons.append("enforced non-interactive rizin -q batch mode")
+
+    changed = modified != cmd
+    return modified, changed, reasons
+
+
 def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Evaluates and sanitizes a raw command line string.
@@ -351,7 +393,13 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optio
     modified_cmd = cmd
     reasons = []
 
-    # 3. Pager / non-interactive optimization
+    # 3. Disassembler batch mode optimization
+    mod_disasm, disasm_injected, disasm_reasons = inject_disassembler_batch_flags(modified_cmd)
+    if disasm_injected:
+        modified_cmd = mod_disasm
+        reasons.extend(disasm_reasons)
+
+    # 4. Pager / non-interactive optimization
     if first_token in ("git", "gh") and not re.search(r"--no-pager|\bPAGER=", modified_cmd):
         modified_cmd = f"PAGER=cat {modified_cmd}"
         reasons.append("enforced non-interactive PAGER=cat")

@@ -213,6 +213,53 @@ class TestModularSkills(unittest.TestCase):
         self.assertIn("Multi-Node Swarm PR Ingestion Protocol", body)
         self.assertIn("gh pr list", body)
 
+    def test_reverse_engineer_anything_dynamic_provisioning(self) -> None:
+        """Verifies on-demand skill provisioner dynamically locates and links official REA skill without vendoring."""
+        import json
+        from unittest.mock import MagicMock, patch
+        from harness.runtime.healing import provision_rea_skill
+
+        repo_root = DEFAULT_SKILLS_DIR.parents[1]
+        harness_rea = repo_root / "harness" / "skills" / "reverse-engineer-anything"
+        # Product code must remain clean per ADR-014
+        self.assertFalse(harness_rea.exists(), "harness/skills/reverse-engineer-anything must not be vendored")
+
+        # Create mock source package
+        mock_pkg_root = self.isolated_path / "mock_rea_package"
+        mock_rea_src = mock_pkg_root / "skills" / "reverse-engineer-anything"
+        mock_rea_src.mkdir(parents=True)
+        (mock_rea_src / "SKILL.md").write_text(
+            "---\nname: reverse-engineer-anything\ndescription: Dynamic REA skill\nmetadata:\n  version: '42'\n---\n# REA Guide",
+            encoding="utf-8",
+        )
+        (mock_rea_src / "references").mkdir()
+        (mock_rea_src / "references" / "native-and-artifacts.md").write_text("# Native", encoding="utf-8")
+
+        target_dir = self.isolated_path / "test_provision_target"
+        # Test provisioning from mock package via mock subprocess returning root_path
+        mock_prov_json = json.dumps({
+            "server_identity": {
+                "package": {
+                    "name": "rea-agents",
+                    "root_path": str(mock_pkg_root),
+                }
+            }
+        })
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = mock_prov_json
+
+        with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
+             patch("subprocess.run", return_value=mock_proc):
+            prov_path = provision_rea_skill(target_dir, link=True, allow_download=False)
+            self.assertIsNotNone(prov_path)
+            self.assertEqual(prov_path, target_dir / "reverse-engineer-anything")
+            self.assertTrue((prov_path / "SKILL.md").is_file())
+            self.assertTrue((prov_path / "references" / "native-and-artifacts.md").is_file())
+            content = (prov_path / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("Dynamic REA skill", content)
+
     def test_psl_test_runner_skills_contract(self) -> None:
         """Modular test runner skills (python, node, cargo, go) must satisfy discovery and instructions."""
         expected_runners = {

@@ -1241,6 +1241,24 @@ class TestCliDualExecutionMatrix(unittest.TestCase):
             self.assertEqual(code2, 0)
             self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
 
+    def test_experimental_rea_flags_parsed(self):
+        """Verifies --experimental-rea flag is accepted on doctor, init, onboard, and install."""
+        from harness.cli import build_parser
+
+        parser = build_parser()
+
+        args_doc = parser.parse_args(["doctor", "--experimental-rea"])
+        self.assertTrue(args_doc.experimental_rea)
+
+        args_init = parser.parse_args(["init", "--experimental-rea"])
+        self.assertTrue(args_init.experimental_rea)
+
+        args_onb = parser.parse_args(["onboard", "--experimental-rea"])
+        self.assertTrue(args_onb.experimental_rea)
+
+        args_inst = parser.parse_args(["install", "--experimental-rea"])
+        self.assertTrue(args_inst.experimental_rea)
+
 
 if __name__ == "__main__":
     unittest.main()

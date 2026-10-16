@@ -137,13 +137,14 @@ class TestCommandSafety(unittest.TestCase):
 
         # Test discovery with mocked directories
         with patch("pathlib.Path.is_dir") as mock_is_dir:
-            # All 4 candidate dirs exist
+            # All 5 candidate dirs exist
             mock_is_dir.return_value = True
             mocked_shims = get_user_path_shims()
-            self.assertEqual(len(mocked_shims), 4)
+            self.assertEqual(len(mocked_shims), 5)
             self.assertTrue(any(".local/bin" in s for s in mocked_shims))
             self.assertTrue(any(".cargo/bin" in s for s in mocked_shims))
             self.assertTrue(any(".local/share/pnpm" in s for s in mocked_shims))
+            self.assertTrue(any(".npm-global/bin" in s for s in mocked_shims))
             self.assertTrue(any(".pyenv/shims" in s for s in mocked_shims))
 
     def test_user_path_shim_injection(self):

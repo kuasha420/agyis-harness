@@ -30,7 +30,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             sys.stderr.write(f"Error: matrix.json not found at {matrix_path}\n")
             return 1
 
-    audit = psl_doctor.run_doctor(matrix_path)
+    exp_rea = bool(getattr(args, "experimental_rea", False))
+    audit = psl_doctor.run_doctor(matrix_path, experimental_rea=exp_rea)
 
     if getattr(args, "json", False):
         print(json.dumps(audit, indent=2))
@@ -40,7 +41,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     if getattr(args, "heal", False):
         print("\n🔧 Executing Auto-Healing...")
-        actions = psl_doctor.heal_environment(audit, matrix_path)
+        actions = psl_doctor.heal_environment(audit, matrix_path, experimental_rea=exp_rea)
         for act in actions:
             print(f"  ✔ {act}")
         print()
