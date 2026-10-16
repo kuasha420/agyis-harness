@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from harness.runtime.healing import heal_environment
 from harness.runtime.hygiene_checks import (
     check_duplicate_agents,
+    check_duplicate_skills,
     check_hooks_health,
     check_node_script_hygiene,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "REPO_ROOT",
     "check_cli_binary",
     "check_duplicate_agents",
+    "check_duplicate_skills",
     "check_hooks_health",
     "check_node_script_hygiene",
     "check_psl_collision",
@@ -92,6 +94,7 @@ def run_doctor(
     cli_binary = check_cli_binary()
     psl_collision = cli_binary.get("psl_details") or cli_binary.get("psl_collision") or check_psl_collision()
     duplicate_agents = check_duplicate_agents(config_dir=config_dir)
+    duplicate_skills = check_duplicate_skills(workspace_root=effective_workspace, config_dir=config_dir)
     node_script_hygiene = check_node_script_hygiene(workspace_root=effective_workspace)
     hooks_health = check_hooks_health(hooks_path=hooks_path)
     rea_tooling = check_rea_tooling(mcp_config_path=mcp_config_path, experimental_rea=experimental_rea)
@@ -103,6 +106,7 @@ def run_doctor(
         "cli_binary": cli_binary,
         "psl_collision": psl_collision,
         "duplicate_agents": duplicate_agents,
+        "duplicate_skills": duplicate_skills,
         "node_script_hygiene": node_script_hygiene,
         "hooks_health": hooks_health,
         "rea_tooling": rea_tooling,
@@ -123,6 +127,8 @@ def run_doctor(
     elif psl_collision.get("collision") or psl_collision.get("status") == "WARNING":
         results["summary"]["warning"] += 1
     if duplicate_agents.get("status") == "WARNING":
+        results["summary"]["warning"] += 1
+    if duplicate_skills.get("status") == "WARNING":
         results["summary"]["warning"] += 1
     if node_script_hygiene.get("status") == "WARNING":
         results["summary"]["warning"] += 1
@@ -226,6 +232,17 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
             print(f" Duplicate Agents: [\033[32mPASS\033[0m] -> {dup_agents.get('details')}")
         else:
             print(f" Duplicate Agents: [\033[34mINFO\033[0m] -> {dup_agents.get('details')}")
+
+    dup_skills = audit.get("duplicate_skills")
+    if dup_skills:
+        if dup_skills.get("status") == "WARNING":
+            print(f" Duplicate Skills:    [\033[33mWARN\033[0m] -> {dup_skills.get('details')}")
+            if dup_skills.get("remediation"):
+                print(f"    Remediation:\n      {dup_skills.get('remediation')}")
+        elif dup_skills.get("status") in ("OK", "PASS"):
+            print(f" Duplicate Skills:    [\033[32mPASS\033[0m] -> {dup_skills.get('details')}")
+        else:
+            print(f" Duplicate Skills:    [\033[34mINFO\033[0m] -> {dup_skills.get('details')}")
 
     node_hyg = audit.get("node_script_hygiene")
     if node_hyg:

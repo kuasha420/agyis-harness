@@ -203,9 +203,14 @@ class TestFrozenWheelPackaging(unittest.TestCase):
         self.assertTrue((self.target_dir / "hooks.json").exists())
         self.assertTrue((self.target_dir / "skills").is_dir())
 
-        # Rules isolation in global installation: GLOBAL_AGENTS.md present, local AGENTS.md pruned
+        # Rules isolation in global installation: GLOBAL_AGENTS.md installed into rules/AGENTS.md, repo-internal commands pruned
         self.assertTrue((self.target_dir / "rules" / "GLOBAL_AGENTS.md").exists())
-        self.assertFalse((self.target_dir / "rules" / "AGENTS.md").exists())
+        self.assertTrue((self.target_dir / "rules" / "AGENTS.md").exists())
+        installed_rules = (self.target_dir / "rules" / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertNotIn("./agyis test", installed_rules)
+        self.assertNotIn("harness.cli test", installed_rules)
+        self.assertIn("Universal Automated Verification Standard", installed_rules)
+        self.assertEqual(installed_rules, (self.target_dir / "rules" / "GLOBAL_AGENTS.md").read_text(encoding="utf-8"))
 
         # Install info detection
         info = installer.get_install_info(self.target_dir)

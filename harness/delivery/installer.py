@@ -31,6 +31,7 @@ from harness.delivery.constants import (
 from harness.delivery.copy_install import copy_distributable_tree
 from harness.delivery.surfaces import (
     enforce_single_source_agents_impl,
+    enforce_single_source_skills as enforce_single_source_skills_impl,
     sync_surfaces_impl,
 )
 
@@ -235,6 +236,23 @@ class PluginInstaller:
             plugin_agents_dir, self.config_dir, target, self.source_dir, dry_run=dry_run
         )
 
+    def _enforce_single_source_skills(
+        self,
+        target: Path,
+        dry_run: bool = False,
+        workspace_dir: Optional[Path] = None,
+    ) -> List[str]:
+        """Enforces single-source skill delivery (Issue #52)."""
+        plugin_skills_dir = self._find_distributable_item("skills")
+        return enforce_single_source_skills_impl(
+            config_dir=self.config_dir,
+            workspace_dir=workspace_dir,
+            dry_run=dry_run,
+            plugin_skills_dir=plugin_skills_dir,
+            target=target,
+            source_dir=self.source_dir,
+        )
+
     def sync_surfaces(
         self,
         surfaces: Optional[List[Path]] = None,
@@ -271,6 +289,9 @@ class PluginInstaller:
 
         # Enforce single-source agent delivery (Issue #30)
         duplicates_removed = self._enforce_single_source_agents(target, dry_run=dry_run)
+
+        # Enforce single-source skill delivery (Issue #52)
+        duplicates_removed.extend(self._enforce_single_source_skills(target, dry_run=dry_run))
 
         # Multi-surface sync if requested (Issues #29 & #23)
         surfaces_synced: List[Dict[str, Any]] = []
@@ -405,17 +426,13 @@ class PluginInstaller:
             installed_items.append("wheel")
             installed_items.append("harness")
 
-            # Scoped rule isolation: global plugin must only publish GLOBAL_AGENTS.md
-            if (target / "rules" / "AGENTS.md").exists():
-                try:
-                    (target / "rules" / "AGENTS.md").unlink()
-                except OSError:
-                    pass
+            # Scoped rule isolation: global plugin must install GLOBAL_AGENTS.md into rules/AGENTS.md (Issue #53)
             global_rules_src = self.source_dir / "GLOBAL_AGENTS.md"
             if not global_rules_src.exists():
                 global_rules_src = self.source_dir / "harness" / "rules" / "GLOBAL_AGENTS.md"
             if global_rules_src.exists():
                 (target / "rules").mkdir(parents=True, exist_ok=True)
+                shutil.copy2(global_rules_src, target / "rules" / "AGENTS.md")
                 shutil.copy2(global_rules_src, target / "rules" / "GLOBAL_AGENTS.md")
 
             self._install_bin(target)
@@ -637,3 +654,16 @@ class PluginInstaller:
             "version": version,
             "items": items,
         }
+
+
+def enforce_single_source_skills(
+    config_dir: Path | str,
+    workspace_dir: Optional[Path | str] = None,
+    dry_run: bool = False,
+) -> List[str]:
+    """Module-level single-source skill enforcement entrypoint (Issue #52)."""
+    return enforce_single_source_skills_impl(
+        config_dir=config_dir,
+        workspace_dir=workspace_dir,
+        dry_run=dry_run,
+    )

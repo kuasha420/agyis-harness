@@ -98,6 +98,9 @@ CREATE INDEX IF NOT EXISTS idx_interventions_session ON user_interventions(sessi
 CREATE INDEX IF NOT EXISTS idx_interventions_type ON user_interventions(intervention_type);
 CREATE INDEX IF NOT EXISTS idx_sessions_origin ON sessions(origin_developer);
 CREATE INDEX IF NOT EXISTS idx_sessions_synced ON sessions(remote_synced_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_steps_uniq ON steps(session_id, step_index);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_interventions_uniq ON user_interventions(session_id, step_index);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_calls_uniq ON tool_calls(session_id, step_index, tool_name, started_at, arguments_snippet);
 """
 
 
@@ -130,4 +133,21 @@ def ensure_sync_columns(conn: sqlite3.Connection) -> None:
 
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_origin ON sessions(origin_developer)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_synced ON sessions(remote_synced_at)")
+
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    existing_tables = {row[0] for row in cur.fetchall()}
+
+    if "steps" in existing_tables:
+        cur.execute("DELETE FROM steps WHERE id NOT IN (SELECT MIN(id) FROM steps GROUP BY session_id, step_index)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_steps_uniq ON steps(session_id, step_index)")
+
+    if "user_interventions" in existing_tables:
+        cur.execute("DELETE FROM user_interventions WHERE id NOT IN (SELECT MIN(id) FROM user_interventions GROUP BY session_id, step_index)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_interventions_uniq ON user_interventions(session_id, step_index)")
+
+    if "tool_calls" in existing_tables:
+        cur.execute("DELETE FROM tool_calls WHERE id NOT IN (SELECT MIN(id) FROM tool_calls GROUP BY session_id, step_index, tool_name, started_at, arguments_snippet)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_calls_uniq ON tool_calls(session_id, step_index, tool_name, started_at, arguments_snippet)")
+
     conn.commit()
+

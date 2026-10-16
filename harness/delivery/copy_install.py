@@ -89,11 +89,25 @@ def copy_distributable_tree(
         rules_dst = target / "rules"
         if rules_dst.exists():
             shutil.rmtree(rules_dst)
-        shutil.copytree(
-            rules_src,
-            rules_dst,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-        )
+        rules_dst.mkdir(parents=True, exist_ok=True)
+
+        # Copy auxiliary markdown rules excluding repo-internal AGENTS.md
+        for f in rules_src.glob("*.md"):
+            if f.name not in ("AGENTS.md", "GLOBAL_AGENTS.md"):
+                shutil.copy2(f, rules_dst / f.name)
+
+        # Scoped rule isolation: ensure plugin distribution rules install GLOBAL_AGENTS.md into rules/AGENTS.md
+        # and do not copy repo-internal ADR-015 commands into the global plugin (Issue #53)
+        global_rules_src = source_dir / "GLOBAL_AGENTS.md"
+        if not global_rules_src.exists():
+            global_rules_src = rules_src / "GLOBAL_AGENTS.md"
+        if not global_rules_src.exists():
+            global_rules_src = source_dir / "harness" / "rules" / "GLOBAL_AGENTS.md"
+
+        if global_rules_src.exists():
+            shutil.copy2(global_rules_src, rules_dst / "AGENTS.md")
+            shutil.copy2(global_rules_src, rules_dst / "GLOBAL_AGENTS.md")
+
         installed_items.append("rules")
 
     return installed_items
