@@ -31,6 +31,7 @@ from harness.commands import (
     cmd_audit,
     cmd_auth,
     cmd_doctor,
+    cmd_gui,
     cmd_harmonize,
     cmd_hook,
     cmd_init,
@@ -104,6 +105,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
             "output-compactor", "compactor",
             "verification-fence", "fence", "stop-fence", "stop", "completion-fence",
             "anti-drift", "drift", "anti_drift",
+            "token-proximity", "token-proximity-guard", "token", "token_proximity_guard",
         ],
         help="Name of the lifecycle hook to invoke",
     )
@@ -546,6 +548,40 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Output verification report in JSON format",
     )
 
+    # gui
+    p_gui = subparsers.add_parser(
+        "gui",
+        help="Control and introspect Google Antigravity GUI via Chrome DevTools Protocol (CDP)",
+        description="Google Antigravity Desktop GUI Telemetry & DevTools Controller (ADR-014)",
+    )
+    p_gui.add_argument(
+        "--devtools",
+        action="store_true",
+        help="Inspect active Antigravity DevTools port and display CDP connection URLs",
+    )
+    p_gui.add_argument(
+        "--trajectory-debug",
+        action="store_true",
+        help="Inject developer flags and trigger Trajectory Debug View (?trajectoryDebugOpen=true)",
+    )
+    p_gui.add_argument(
+        "--port-file",
+        type=Path,
+        default=None,
+        help="Path to DevToolsActivePort file (default: ~/.config/Antigravity/DevToolsActivePort)",
+    )
+    p_gui.add_argument(
+        "--timeout",
+        type=float,
+        default=5.0,
+        help="Connection timeout in seconds (default: 5.0)",
+    )
+    p_gui.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result in JSON format",
+    )
+
     return parser
 
 
@@ -599,6 +635,7 @@ def main(
         "install": cmd_install,
         "uninstall": cmd_uninstall,
         "verify": cmd_verify,
+        "gui": cmd_gui,
     }
 
     handler = commands.get(args.subcommand)

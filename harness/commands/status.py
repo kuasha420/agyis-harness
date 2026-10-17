@@ -71,11 +71,33 @@ def cmd_status(args: argparse.Namespace) -> int:
     print("   ✔ output-compactor (PostToolUse: deterministic 2KB output truncation)")
     print("   ✔ verification-fence (Stop: unverified code edit completion guard)")
     print("   ✔ anti-drift       (PreToolUse: plan boundary & cognitive anchor gate)")
+    print("   ✔ token-proximity (PreToolUse: proactive token urgency monitor & alert)")
     print("-" * 70)
     print(" Cognitive Attention Horizon Gauge:")
     print("   🟢 Healthy Zone: <50k tokens / <50 steps (High Attention Aperture)")
     print("   🟡 Amber Zone:   50k–100k tokens / 50–100 steps (Attention Compaction Advised)")
     print("   🔴 Red Alert:    >100k tokens / >100 steps (Context Cliff Active)")
+    try:
+        import os
+        from harness.hooks.token_proximity_guard import (
+            format_terminal_gauge,
+            get_active_conversation_tokens,
+            get_conversations_dir,
+        )
+        conv_id = os.environ.get("ANTIGRAVITY_CONVERSATION_ID") or os.environ.get("CONVERSATION_ID")
+        tokens = 0
+        if conv_id:
+            tokens = get_active_conversation_tokens(conv_id)
+        else:
+            conv_dir = get_conversations_dir()
+            if conv_dir.is_dir():
+                dbs = sorted([f for f in conv_dir.glob("*.db") if not f.name.endswith(".tmp")], key=lambda f: f.stat().st_mtime, reverse=True)
+                if dbs:
+                    tokens = get_active_conversation_tokens(dbs[0].stem)
+        if tokens > 0:
+            print(f"   📊 Active Session: {format_terminal_gauge(tokens)}")
+    except Exception:
+        pass
     print("-" * 70)
     print(" Specialist Subagents:")
     for ag in agents:

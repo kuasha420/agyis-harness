@@ -24,6 +24,7 @@ from harness.commands.install import cmd_init, cmd_install, cmd_uninstall
 from harness.commands.harmonize import cmd_harmonize
 from harness.commands.onboard import cmd_onboard
 from harness.commands.verify import cmd_verify
+from harness.commands.gui import cmd_gui
 
 __all__ = [
     "cmd_doctor",
@@ -43,4 +44,5 @@ __all__ = [
     "cmd_harmonize",
     "cmd_onboard",
     "cmd_verify",
+    "cmd_gui",
 ]

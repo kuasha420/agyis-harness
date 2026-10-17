@@ -119,6 +119,7 @@ class TestSpecialistSubagents(unittest.TestCase):
             self.assertIn(wt, tool_set, f"Builder must include write tool '{wt}'")
         for et in self.EXEC_TOOLS:
             self.assertIn(et, tool_set, f"Builder must include exec tool '{et}'")
+        self.assertIn("send_message", tool_set, "Builder must include 'send_message'")
 
     def test_reviewer_toolgroup_permissions(self) -> None:
         """Reviewer (Hammer) must be strictly read-only: no write tools, no exec tools."""
@@ -139,6 +140,7 @@ class TestSpecialistSubagents(unittest.TestCase):
             self.assertNotIn(
                 et, tool_set, f"Reviewer must NEVER include exec tool '{et}'"
             )
+        self.assertIn("send_message", tool_set, "Reviewer must include 'send_message'")
 
     def test_auditor_toolgroup_permissions(self) -> None:
         """Auditor (QA Verifier) must have exec tools to run tests, but zero write tools."""
@@ -147,9 +149,9 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertEqual(auditor.archetype, AgentArchetype.AUDITOR)
         self.assertFalse(auditor.can_write, "Auditor must not have write permission")
         self.assertTrue(auditor.can_execute, "Auditor must have exec permission")
-        self.assertTrue(
+        self.assertFalse(
             auditor.permissions.enable_write_tools,
-            "Auditor frontmatter must declare enable_write_tools: true",
+            "Auditor frontmatter must declare enable_write_tools: false",
         )
         self.assertFalse(auditor.can_subagent, "Auditor must not spawn subagents")
 
@@ -161,6 +163,7 @@ class TestSpecialistSubagents(unittest.TestCase):
             self.assertNotIn(
                 wt, tool_set, f"Auditor must NEVER include write tool '{wt}'"
             )
+        self.assertIn("send_message", tool_set, "Auditor must include 'send_message'")
 
     def test_custodian_toolgroup_permissions(self) -> None:
         """Custodian (Git Commit Gate) must have exec tools to run git, but zero write tools."""
@@ -170,9 +173,9 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertEqual(custodian.archetype, AgentArchetype.CUSTODIAN)
         self.assertFalse(custodian.can_write, "Custodian must not have write permission")
         self.assertTrue(custodian.can_execute, "Custodian must have exec permission")
-        self.assertTrue(
+        self.assertFalse(
             custodian.permissions.enable_write_tools,
-            "Custodian frontmatter must declare enable_write_tools: true",
+            "Custodian frontmatter must declare enable_write_tools: false",
         )
         self.assertFalse(custodian.can_subagent, "Custodian must not spawn subagents")
 
@@ -184,6 +187,7 @@ class TestSpecialistSubagents(unittest.TestCase):
             self.assertNotIn(
                 wt, tool_set, f"Custodian must NEVER include write tool '{wt}'"
             )
+        self.assertIn("send_message", tool_set, "Custodian must include 'send_message'")
 
     def test_planner_toolgroup_permissions(self) -> None:
         """Planner must have read, write (artifact synthesis), subagent, and MCP enabled, but zero exec."""
@@ -224,6 +228,7 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIn("send_message", tool_set)
         self.assertIn("manage_subagents", tool_set)
         self.assertIn("ask_question", tool_set)
+        self.assertIn("schedule", tool_set)
 
     def test_agyis_architect_toolgroup_permissions(self) -> None:
         """Main agent (agyis_architect) must have full permissions across read, write, exec, subagent, mcp."""
@@ -556,6 +561,41 @@ class TestSpecialistSubagents(unittest.TestCase):
             data = json.loads(mock_out.getvalue())
             self.assertEqual(data["conversation_id"], "conv-cli-test")
             self.assertEqual(data["status"], "REHYDRATED_COMPLETED")
+
+    def test_all_capability_bundles_include_send_message(self) -> None:
+        """Every capability bundle in CAPABILITY_BUNDLES must include 'send_message'."""
+        from harness.subagents import CAPABILITY_BUNDLES
+
+        for bundle_name, tools in CAPABILITY_BUNDLES.items():
+            self.assertIn(
+                "send_message",
+                tools,
+                f"Capability bundle '{bundle_name}' must include 'send_message'",
+            )
+
+    def test_all_specialist_agents_include_send_message(self) -> None:
+        """Every specialist agent must include 'send_message' in tools and allowed_tools."""
+        agents = list_agent_specs()
+        for agent in agents:
+            self.assertIn(
+                "send_message",
+                agent.allowed_tools,
+                f"Specialist agent '{agent.name}' must include 'send_message' in allowed_tools",
+            )
+            self.assertIn(
+                "send_message",
+                agent.tools,
+                f"Specialist agent '{agent.name}' must include 'send_message' in tools",
+            )
+
+    def test_no_contradictory_write_permissions(self) -> None:
+        """No agent may declare 'write: false' while 'enable_write_tools: true'."""
+        agents = list_agent_specs()
+        for agent in agents:
+            self.assertFalse(
+                not agent.permissions.write and agent.permissions.enable_write_tools,
+                f"Agent '{agent.name}' has contradictory write: false and enable_write_tools: true",
+            )
 
 
 if __name__ == "__main__":

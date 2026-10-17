@@ -98,6 +98,7 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "find_by_name",
         "read_url_content",
         "search_web",
+        "send_message",
     ],
     "verifier": [
         "view_file",
@@ -108,6 +109,7 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "search_web",
         "run_command",
         "manage_task",
+        "send_message",
     ],
     "adversarial_verifier": [
         "view_file",
@@ -120,6 +122,7 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "manage_task",
         "write_to_file",
         "replace_file_content",
+        "send_message",
     ],
     "builder": [
         "view_file",
@@ -132,6 +135,7 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "manage_task",
         "write_to_file",
         "replace_file_content",
+        "send_message",
     ],
     "orchestrator": [
         "view_file",

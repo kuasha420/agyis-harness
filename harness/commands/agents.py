@@ -182,12 +182,29 @@ def cmd_agents(args: argparse.Namespace) -> int:
         print(f"✔ Created agent '{name}' ({archetype.value}) at {out_path}")
         return 0
 
-    # 2. agents validate <path_or_name>
+    # 2. agents validate [path_or_name]
     if action_or_name == "validate":
         target = target_name
-        if not target:
-            sys.stderr.write("Error: Path or agent name required for validate.\n")
-            return 1
+        if not target or target in ("all", "--all"):
+            specs = list_agent_specs(DEFAULT_AGENTS_DIR)
+            if not specs:
+                sys.stderr.write("Error: No agent specifications found to validate.\n")
+                return 1
+            all_errors = {}
+            for spec in specs:
+                if spec.source_file and spec.source_file.is_file():
+                    errs = validate_agent_spec(spec.source_file)
+                    if errs:
+                        all_errors[spec.source_file.name] = errs
+            if all_errors:
+                sys.stderr.write(f"✘ {len(all_errors)} agent(s) failed validation:\n")
+                for fname, errs in all_errors.items():
+                    sys.stderr.write(f"  • {fname}:\n")
+                    for e in errs:
+                        sys.stderr.write(f"    - {e}\n")
+                return 1
+            print(f"✔ All {len(specs)} registered agents are valid.")
+            return 0
 
         cand = Path(target)
         found_file: Optional[Path] = None

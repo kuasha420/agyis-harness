@@ -30,6 +30,7 @@ HOOK_MODULES: Dict[str, str] = {
     "command-safety": "harness.hooks.command_safety_hook",
     "compactor": "harness.hooks.output_compactor_hook",
     "verification-fence": "harness.hooks.completion_fence_hook",
+    "token-proximity": "harness.hooks.token_proximity_guard",
 }
 
 ALIASES: Dict[str, str] = {
@@ -45,6 +46,13 @@ ALIASES: Dict[str, str] = {
     "fence": "verification-fence",
     "stop-fence": "verification-fence",
     "stop": "verification-fence",
+    "token-proximity": "token-proximity",
+    "token_proximity": "token-proximity",
+    "token-guard": "token-proximity",
+    "token_guard": "token-proximity",
+    "token-proximity-guard": "token-proximity",
+    "token_proximity_guard": "token-proximity",
+    "token": "token-proximity",
 }
 
 

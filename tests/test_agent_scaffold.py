@@ -250,13 +250,13 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         self.assertEqual(errors, [], f"Validation failed for test_planner: {errors}")
 
     def test_custodian_archetype_scaffold_tools_and_permissions(self) -> None:
-        """Custodian archetype scaffolds with verifier bundle, exec tools, write: false, and enable_write_tools: true."""
+        """Custodian archetype scaffolds with verifier bundle, exec tools, write: false, and enable_write_tools: false."""
         md = scaffold_agent_markdown(name="test_custodian", archetype=AgentArchetype.CUSTODIAN)
         fm, prompt = parse_frontmatter(md)
         self.assertEqual(fm["archetype"], "custodian")
         self.assertFalse(fm["permissions"]["write"])
         self.assertTrue(fm["permissions"]["execute"])
-        self.assertTrue(fm["permissions"]["enable_write_tools"])
+        self.assertFalse(fm["permissions"].get("enable_write_tools", False))
         self.assertFalse(fm["permissions"]["subagents"])
         self.assertIn("run_command", fm["tools"])
         self.assertNotIn("write_to_file", fm["tools"])
@@ -473,6 +473,39 @@ You are `liar_agent`.
         errors = validate_agent_spec(c_path)
         self.assertTrue(any("Contradiction: agent has 'write: false'" in e for e in errors))
 
+        # Rejects write: false with enable_write_tools: true
+        paradox_md = """---
+name: paradox_agent
+archetype: hammer
+description: Contradictory enable_write_tools test.
+role: Reviewer
+subagent: true
+mainAgent: true
+model: inherit
+permissions:
+  read: true
+  write: false
+  execute: false
+  subagents: false
+  enable_write_tools: true
+tools:
+  - view_file
+allowed_tools:
+  - view_file
+---
+
+# Reviewer
+
+You are `paradox_agent`.
+
+## Operational Invariants
+1. Zero-Exploration Invariant: Prohibit blind list_dir and find_by_name sweeps.
+"""
+        p_path = self.workspace / "paradox_agent.md"
+        p_path.write_text(paradox_md, encoding="utf-8")
+        errors2 = validate_agent_spec(p_path)
+        self.assertTrue(any("Contradiction: agent has 'write: false' but 'enable_write_tools: true'" in e for e in errors2))
+
     def test_validate_agent_spec_requires_zero_exploration_invariant(self) -> None:
         """Rejects agent specs that do not enforce the Zero-Exploration Invariant."""
         no_zero_expl = """---
@@ -550,6 +583,13 @@ You are `careless_agent`. Explore the whole repository freely!
                     err_code = main(["agents", "validate", "non_existent_fake_agent_xyz"])
                 self.assertEqual(err_code, 1)
                 self.assertIn("not found", buf_err.getvalue())
+
+                # 5. Validate all registered agents via CLI without arguments
+                buf_out4 = io.StringIO()
+                with patch("sys.stdout", buf_out4):
+                    val_code_all = main(["agents", "validate"])
+                self.assertEqual(val_code_all, 0)
+                self.assertIn("registered agents are valid", buf_out4.getvalue())
 
             finally:
                 if created_file.is_file():

@@ -117,6 +117,12 @@ def validate_agent_spec(file_path: Path | str) -> List[str]:
                 f"Contradiction: agent has 'write: false' in permissions, but declares file mutation tools: {write_tools}"
             )
 
+    if not perms.write and perms.enable_write_tools:
+        errors.append(
+            "Contradiction: agent has 'write: false' but 'enable_write_tools: true' in permissions. "
+            "Reconcile by setting 'enable_write_tools: false' (or 'write: true')."
+        )
+
     if not perms.execute:
         exec_tools = [t for t in declared_tools if t in ("run_command",)]
         if exec_tools:

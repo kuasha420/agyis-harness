@@ -291,7 +291,7 @@ def scaffold_agent_markdown(
             can_e = any(t in tools for t in ("run_command",))
             can_s = any(t in tools for t in ("invoke_subagent", "manage_subagents", "define_subagent")) or arch == AgentArchetype.COORDINATOR
             can_m = arch in (AgentArchetype.PLANNER, AgentArchetype.MAIN) or bool(skills)
-            enable_w = arch in (AgentArchetype.EXECUTIONER, AgentArchetype.AUDITOR, AgentArchetype.CUSTODIAN) or can_w
+            enable_w = can_w
             perms = ToolPermissions(
                 read=True,
                 write=can_w,

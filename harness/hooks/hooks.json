@@ -87,5 +87,19 @@
         "timeout": 5
       }
     ]
+  },
+  "psl-token-proximity-guard": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.hooks.runner token-proximity",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }

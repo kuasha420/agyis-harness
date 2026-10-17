@@ -343,6 +343,7 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
             "command-safety": "harness.hooks.command_safety_hook",
             "compactor": "harness.hooks.output_compactor_hook",
             "verification-fence": "harness.hooks.completion_fence_hook",
+            "token-proximity": "harness.hooks.token_proximity_guard",
         }
 
         def resolve_hook_module(name: str) -> str:
