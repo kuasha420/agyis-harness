@@ -866,6 +866,171 @@ class TestHarmonizeDeprecationLifecycle(unittest.TestCase):
         self.assertTrue((self.ws / ".agents" / "skills" / "psl-stack-shell" / "SKILL.md").is_file())
         self.assertIn("psl-stack-shell", res.skills_provisioned)
 
+    def test_subproject_monorepo_git_root_resolution_and_pruning(self) -> None:
+        """Harmonization in a monorepo subproject resolves root repo .git, updates exclude, and prunes cleanly."""
+        self._init_git_repo(self.ws)
+        sub = self.ws / "services" / "billing"
+        sub_agent = sub / ".agent"
+        (sub_agent / "workflows").mkdir(parents=True)
+        (sub_agent / "workflows" / "deploy.md").write_text("# Deploy Runbook\nSteps.", encoding="utf-8")
+
+        subprocess.run(["git", "add", "."], cwd=self.ws, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        subprocess.run(["git", "commit", "-m", "add subproject legacy"], cwd=self.ws, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+        # Untracked debris in subproject .agent/
+        (sub_agent / "untracked.tmp").write_text("debris\n", encoding="utf-8")
+
+        res = harmonize_workspace(sub, prune_legacy=True, backup=True)
+        self.assertTrue(res.success)
+        self.assertTrue(res.pruned_legacy)
+        self.assertFalse(sub_agent.exists())
+
+        # Migrated skill in subproject
+        self.assertTrue((sub / ".agents" / "skills" / "deploy" / "SKILL.md").is_file())
+
+        # Archive created inside subproject
+        self.assertIsNotNone(res.backup_archive)
+        self.assertTrue(res.backup_archive.is_file())
+        self.assertEqual(res.backup_archive.parent, (sub / ".agents" / "archive").resolve())
+        self.assertIn("untracked.tmp", res.untracked_debris_cleaned)
+
+        # Root .git/info/exclude updated
+        exclude_file = self.ws / ".git" / "info" / "exclude"
+        self.assertTrue(exclude_file.is_file())
+        exclude_text = exclude_file.read_text(encoding="utf-8")
+        self.assertIn(".agents/archive/", exclude_text)
+
+        # Git status reflects deletion of tracked files and no archive untracked files
+        st = subprocess.run(["git", "status", "--porcelain"], cwd=self.ws, stdout=subprocess.PIPE, text=True, check=True)
+        self.assertIn("D  services/billing/.agent/workflows/deploy.md", st.stdout)
+        self.assertNotIn(".agents/archive", st.stdout)
+
+    def test_empty_legacy_agent_directory_archival_and_pruning(self) -> None:
+        """An empty legacy .agent/ directory is cleanly archived with a valid manifest and pruned without error."""
+        agent_dir = self.ws / ".agent"
+        agent_dir.mkdir(parents=True)
+
+        res = harmonize_workspace(self.ws, prune_legacy=True, backup=True)
+        self.assertTrue(res.success)
+        self.assertTrue(res.pruned_legacy)
+        self.assertFalse(agent_dir.exists())
+
+        # Tarball created and contains .agent directory node
+        self.assertIsNotNone(res.backup_archive)
+        self.assertTrue(res.backup_archive.is_file())
+        with tarfile.open(res.backup_archive, "r:gz") as tar:
+            self.assertIn(".agent", tar.getnames())
+
+        # Manifest exists and has file_count 0
+        self.assertIsNotNone(res.backup_manifest)
+        self.assertEqual(res.backup_manifest["file_count"], 0)
+        self.assertEqual(res.backup_manifest["files"], [])
+        self.assertEqual(res.backup_manifest["digests"], {})
+
+    def test_empty_subdirectories_in_legacy_agent_directory(self) -> None:
+        """A legacy .agent/ directory containing only empty subdirectories prunes cleanly."""
+        (self.ws / ".agent" / "rules").mkdir(parents=True)
+        (self.ws / ".agent" / "workflows").mkdir(parents=True)
+
+        res = harmonize_workspace(self.ws, prune_legacy=True, backup=True)
+        self.assertTrue(res.success)
+        self.assertTrue(res.pruned_legacy)
+        self.assertFalse((self.ws / ".agent").exists())
+        self.assertEqual(res.backup_manifest["file_count"], 0)
+
+    def test_pre_prune_sha256_manifest_integrity_and_tarball_extraction(self) -> None:
+        """Verifies bit-for-bit SHA-256 manifest integrity and round-trip tarball archive extraction."""
+        agent_dir = self.ws / ".agent"
+        (agent_dir / "agents").mkdir(parents=True)
+        (agent_dir / "agents" / "worker.md").write_text("# Worker Role\nSpecialist.\n", encoding="utf-8")
+
+        (agent_dir / "data").mkdir(parents=True)
+        bin_content = b"\x00\x01\x02\xfe\xff" * 512
+        (agent_dir / "data" / "payload.bin").write_bytes(bin_content)
+
+        (agent_dir / "notes.txt").write_text("User scratch notes\n", encoding="utf-8")
+
+        expected_worker_sha = hashlib.sha256("# Worker Role\nSpecialist.\n".encode("utf-8")).hexdigest()
+        expected_bin_sha = hashlib.sha256(bin_content).hexdigest()
+        expected_notes_sha = hashlib.sha256("User scratch notes\n".encode("utf-8")).hexdigest()
+
+        res = harmonize_workspace(self.ws, prune_legacy=True, backup=True)
+        self.assertTrue(res.success)
+        self.assertFalse(agent_dir.exists())
+
+        manifest = res.backup_manifest
+        self.assertIsNotNone(manifest)
+        self.assertEqual(manifest["file_count"], 3)
+        self.assertEqual(manifest["digests"]["agents/worker.md"], expected_worker_sha)
+        self.assertEqual(manifest["digests"]["data/payload.bin"], expected_bin_sha)
+        self.assertEqual(manifest["digests"]["notes.txt"], expected_notes_sha)
+
+        # Extract tarball into clean verification directory
+        extract_dest = Path(self.temp_dir.name) / "extracted_tarball"
+        extract_dest.mkdir(parents=True)
+        with tarfile.open(res.backup_archive, "r:gz") as tar:
+            tar.extractall(extract_dest)
+
+        self.assertEqual((extract_dest / ".agent" / "agents" / "worker.md").read_text(encoding="utf-8"), "# Worker Role\nSpecialist.\n")
+        self.assertEqual((extract_dest / ".agent" / "data" / "payload.bin").read_bytes(), bin_content)
+        self.assertEqual((extract_dest / ".agent" / "notes.txt").read_text(encoding="utf-8"), "User scratch notes\n")
+
+    def test_assertion_error_if_legacy_dir_cannot_be_pruned(self) -> None:
+        """Harmonization raises AssertionError when legacy .agent/ directory cannot be removed."""
+        agent_dir = self.ws / ".agent"
+        (agent_dir / "rules").mkdir(parents=True)
+        (agent_dir / "rules" / "r.md").write_text("# Rule\n", encoding="utf-8")
+
+        # Mock shutil.rmtree to a no-op so .agent/ persists after step 2
+        with patch("shutil.rmtree") as mock_rm:
+            mock_rm.side_effect = lambda path, *args, **kwargs: None
+            with self.assertRaises(AssertionError) as ctx:
+                harmonize_workspace(self.ws, prune_legacy=True, backup=True)
+            self.assertIn("still exists after pruning", str(ctx.exception))
+
+    def test_git_exclusion_idempotency_and_formatting(self) -> None:
+        """Calling harmonize repeatedly does not duplicate .agents/archive/ in .git/info/exclude."""
+        self._init_git_repo(self.ws)
+        (self.ws / ".agent" / "rules").mkdir(parents=True)
+        (self.ws / ".agent" / "rules" / "r1.md").write_text("# R1\n", encoding="utf-8")
+
+        res1 = harmonize_workspace(self.ws, prune_legacy=True, backup=True)
+        self.assertTrue(res1.success)
+
+        exclude_file = self.ws / ".git" / "info" / "exclude"
+        self.assertTrue(exclude_file.is_file())
+        count1 = exclude_file.read_text(encoding="utf-8").count(".agents/archive/")
+        self.assertEqual(count1, 1)
+
+        # Create another legacy directory
+        (self.ws / ".agent" / "rules").mkdir(parents=True)
+        (self.ws / ".agent" / "rules" / "r2.md").write_text("# R2\n", encoding="utf-8")
+
+        res2 = harmonize_workspace(self.ws, prune_legacy=True, backup=True)
+        self.assertTrue(res2.success)
+
+        count2 = exclude_file.read_text(encoding="utf-8").count(".agents/archive/")
+        self.assertEqual(count2, 1)
+
+    def test_symlink_legacy_agent_directory_safety(self) -> None:
+        """Symlinked .agent directory is unlinked without recursively destroying external target directory."""
+        external_target = Path(self.temp_dir.name) / "external_vault"
+        external_target.mkdir(parents=True)
+        valuable_file = external_target / "valuable_data.txt"
+        valuable_file.write_text("critical user data", encoding="utf-8")
+
+        (self.ws / ".agent").symlink_to(external_target, target_is_directory=True)
+
+        res = harmonize_workspace(self.ws, prune_legacy=True, backup=False)
+        self.assertTrue(res.success)
+        self.assertTrue(res.pruned_legacy)
+        self.assertFalse((self.ws / ".agent").exists())
+
+        # External target remains completely intact
+        self.assertTrue(external_target.is_dir())
+        self.assertTrue(valuable_file.is_file())
+        self.assertEqual(valuable_file.read_text(encoding="utf-8"), "critical user data")
+
 
 class TestWorkspacePythonCommandExtraction(unittest.TestCase):
     """Hermetic tests validating Python test runner discovery (dead code removal in workspace.py)."""

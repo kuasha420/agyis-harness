@@ -19,6 +19,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from harness.delivery import (
+    detect_test_command,
+    extract_command_dictionary,
+)
+from harness.delivery.workspace import _has_python_files
 from harness.utils.workspace import (
     detect_project_test_runner,
     is_harness_workspace,
@@ -209,5 +214,275 @@ class TestWorkspaceDetection(unittest.TestCase):
         self.assertIsNone(detect_project_test_runner(self.workspace_dir / "nonexistent"))
 
 
+
+class TestDeliveryWorkspacePythonCommandExtraction(unittest.TestCase):
+    """
+    Hermetic unit tests for Python test command extraction fallback (GAP-06, GAP-07).
+    Validates detect_test_command and extract_command_dictionary across multi-manifest scenarios.
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.ws = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    # --- _has_python_files helper tests ---
+
+    def test_has_python_files_empty_and_nonexistent(self):
+        """Empty or nonexistent directory returns False."""
+        self.assertFalse(_has_python_files(self.ws / "nonexistent"))
+        empty_dir = self.ws / "empty"
+        empty_dir.mkdir()
+        self.assertFalse(_has_python_files(empty_dir))
+
+    def test_has_python_files_shell_only(self):
+        """Directory with only shell scripts returns False."""
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "suite.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        self.assertFalse(_has_python_files(tests_dir))
+
+    def test_has_python_files_with_nested_py(self):
+        """Directory with nested python files returns True."""
+        nested = self.ws / "tests" / "unit"
+        nested.mkdir(parents=True)
+        (nested / "test_nested.py").write_text("import unittest\n", encoding="utf-8")
+        self.assertTrue(_has_python_files(self.ws / "tests"))
+
+    # --- detect_test_command manifest scenarios ---
+
+    def test_detect_test_command_setup_py_unittest(self):
+        """setup.py without pytest + tests/ extracts unittest discovery."""
+        (self.ws / "setup.py").write_text(
+            "from setuptools import setup\nsetup(name='myapp', version='0.1.0')\n",
+            encoding="utf-8",
+        )
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_app.py").write_text("import unittest\n", encoding="utf-8")
+
+        self.assertEqual(
+            detect_test_command(self.ws),
+            "python3 -m unittest discover -s tests -v",
+        )
+        self.assertEqual(
+            detect_test_command(str(self.ws)),
+            "python3 -m unittest discover -s tests -v",
+        )
+
+    def test_detect_test_command_setup_py_pytest(self):
+        """setup.py mentioning pytest extracts pytest runner."""
+        (self.ws / "setup.py").write_text(
+            "from setuptools import setup\nsetup(name='myapp', tests_require=['pytest'])\n",
+            encoding="utf-8",
+        )
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_app.py").write_text("import pytest\n", encoding="utf-8")
+
+        self.assertEqual(detect_test_command(self.ws), "pytest")
+
+    def test_detect_test_command_setup_cfg_flake8_unittest(self):
+        """setup.cfg configuring only flake8/mypy falls back to unittest discovery (GAP-06 fix)."""
+        (self.ws / "setup.cfg").write_text(
+            "[flake8]\nmax-line-length = 88\n[mypy]\nignore_missing_imports = True\n",
+            encoding="utf-8",
+        )
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_mod.py").write_text("import unittest\n", encoding="utf-8")
+
+        self.assertEqual(
+            detect_test_command(self.ws),
+            "python3 -m unittest discover -s tests -v",
+        )
+
+    def test_detect_test_command_setup_cfg_tool_pytest(self):
+        """setup.cfg configuring [tool:pytest] extracts pytest."""
+        (self.ws / "setup.cfg").write_text(
+            "[tool:pytest]\naddopts = -ra -q\n",
+            encoding="utf-8",
+        )
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_mod.py").write_text("import pytest\n", encoding="utf-8")
+
+        self.assertEqual(detect_test_command(self.ws), "pytest")
+
+    def test_detect_test_command_setup_cfg_section_pytest(self):
+        """setup.cfg configuring [pytest] extracts pytest."""
+        (self.ws / "setup.cfg").write_text(
+            "[pytest]\nminversion = 6.0\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(detect_test_command(self.ws), "pytest")
+
+    def test_detect_test_command_requirements_txt_pytest(self):
+        """requirements.txt containing pytest extracts pytest."""
+        (self.ws / "requirements.txt").write_text(
+            "requests==2.28.1\npytest>=7.4.0\nblack\n",
+            encoding="utf-8",
+        )
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_req.py").write_text("import pytest\n", encoding="utf-8")
+
+        self.assertEqual(detect_test_command(self.ws), "pytest")
+
+    def test_detect_test_command_requirements_dev_txt_pytest(self):
+        """requirements-dev.txt containing pytest extracts pytest."""
+        (self.ws / "requirements-dev.txt").write_text(
+            "pytest-cov==4.1.0\npytest\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(detect_test_command(self.ws), "pytest")
+
+    def test_detect_test_command_test_requirements_txt_pytest(self):
+        """test-requirements.txt containing pytest extracts pytest."""
+        (self.ws / "test-requirements.txt").write_text(
+            "pytest>=7.0\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(detect_test_command(self.ws), "pytest")
+
+    def test_detect_test_command_pyproject_toml_pytest(self):
+        """pyproject.toml configuring pytest extracts pytest."""
+        (self.ws / "pyproject.toml").write_text(
+            "[project]\nname = 'demo'\n[tool.pytest.ini_options]\naddopts = '-v'\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(detect_test_command(self.ws), "pytest")
+
+    def test_detect_test_command_pyproject_toml_dependencies_pytest(self):
+        """pyproject.toml listing pytest in dependencies extracts pytest."""
+        (self.ws / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\ndependencies = ["pytest>=7.0"]\n',
+            encoding="utf-8",
+        )
+        self.assertEqual(detect_test_command(self.ws), "pytest")
+
+    def test_detect_test_command_pyproject_toml_unittest_fallback(self):
+        """pyproject.toml without pytest falls back to unittest discovery."""
+        (self.ws / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n',
+            encoding="utf-8",
+        )
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_core.py").write_text("import unittest\n", encoding="utf-8")
+
+        self.assertEqual(
+            detect_test_command(self.ws),
+            "python3 -m unittest discover -s tests -v",
+        )
+
+    def test_detect_test_command_plain_tests_dir_unittest(self):
+        """Plain tests/ directory with .py files without pyproject.toml extracts unittest."""
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_simple.py").write_text("import unittest\n", encoding="utf-8")
+
+        self.assertEqual(
+            detect_test_command(self.ws),
+            "python3 -m unittest discover -s tests -v",
+        )
+
+    def test_detect_test_command_singular_test_dir_unittest(self):
+        """Singular test/ directory with .py files extracts unittest."""
+        test_dir = self.ws / "test"
+        test_dir.mkdir()
+        (test_dir / "test_singular.py").write_text("import unittest\n", encoding="utf-8")
+
+        self.assertEqual(
+            detect_test_command(self.ws),
+            "python3 -m unittest discover -s test -v",
+        )
+
+    def test_detect_test_command_shell_tests_ignored(self):
+        """Directory with only shell scripts returns None (not Python unittest)."""
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "run_all.sh").write_text("#!/bin/bash\npytest\n", encoding="utf-8")
+
+        self.assertIsNone(detect_test_command(self.ws))
+
+    def test_detect_test_command_package_manager_prefixes(self):
+        """Package manager prefixes (poetry, uv, pipenv) are preserved."""
+        # Poetry
+        (self.ws / "poetry.lock").write_text("", encoding="utf-8")
+        (self.ws / "pyproject.toml").write_text("[tool.pytest]\n", encoding="utf-8")
+        self.assertEqual(detect_test_command(self.ws), "poetry run pytest")
+
+        # Cleanup poetry
+        (self.ws / "poetry.lock").unlink()
+
+        # uv
+        (self.ws / "uv.lock").write_text("", encoding="utf-8")
+        self.assertEqual(detect_test_command(self.ws), "uv run pytest")
+
+        # Cleanup uv
+        (self.ws / "uv.lock").unlink()
+        (self.ws / "pyproject.toml").unlink()
+
+        # Pipfile with unittest
+        (self.ws / "Pipfile").write_text("", encoding="utf-8")
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir(exist_ok=True)
+        (tests_dir / "test_pip.py").write_text("import unittest\n", encoding="utf-8")
+        self.assertEqual(
+            detect_test_command(self.ws),
+            "pipenv run python3 -m unittest discover -s tests -v",
+        )
+
+    # --- extract_command_dictionary integration tests ---
+
+    def test_extract_command_dictionary_setup_py_fallback(self):
+        """extract_command_dictionary extracts unittest command for setup.py repo."""
+        (self.ws / "setup.py").write_text("from setuptools import setup\nsetup(name='pkg')\n", encoding="utf-8")
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_pkg.py").write_text("import unittest\n", encoding="utf-8")
+
+        cmds = extract_command_dictionary(self.ws)
+        self.assertEqual(cmds.get("test"), "python3 -m unittest discover -s tests -v")
+
+    def test_extract_command_dictionary_setup_cfg_tooling_fallbacks(self):
+        """extract_command_dictionary extracts lint and check from setup.cfg without pyproject.toml."""
+        (self.ws / "setup.cfg").write_text(
+            "[flake8]\nmax-line-length = 100\n[mypy]\npython_version = 3.12\n",
+            encoding="utf-8",
+        )
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_lint.py").write_text("import unittest\n", encoding="utf-8")
+
+        cmds = extract_command_dictionary(self.ws)
+        self.assertEqual(cmds.get("test"), "python3 -m unittest discover -s tests -v")
+        self.assertEqual(cmds.get("lint"), "flake8")
+        self.assertEqual(cmds.get("check"), "mypy .")
+
+    def test_extract_command_dictionary_requirements_txt(self):
+        """extract_command_dictionary extracts pytest command when requirements.txt specifies pytest."""
+        (self.ws / "requirements.txt").write_text("pytest\n", encoding="utf-8")
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_req.py").write_text("import pytest\n", encoding="utf-8")
+
+        cmds = extract_command_dictionary(self.ws)
+        self.assertEqual(cmds.get("test"), "pytest")
+
+    def test_extract_command_dictionary_pure_shell_not_python_unittest(self):
+        """extract_command_dictionary does not assign python unittest to a shell test suite."""
+        tests_dir = self.ws / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_sh.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+        cmds = extract_command_dictionary(self.ws)
+        self.assertNotIn("test", cmds)
+
+
 if __name__ == "__main__":
     unittest.main()
+

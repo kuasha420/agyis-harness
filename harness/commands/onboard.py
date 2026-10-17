@@ -24,8 +24,10 @@ from harness.delivery import (
     RemoteInfo,
     configure_git_exclude,
     create_pull_request,
+    enforce_single_source_skills,
     harmonize_workspace,
     install_workspace,
+    purge_build_caches,
     verify_zero_git_pollution,
 )
 from harness.skills import (
@@ -44,12 +46,15 @@ def cmd_onboard(
     lang: Optional[str] = None,
     role: Optional[str] = None,
     subproject: Optional[str] = None,
-    prune_legacy: bool = False,
+    skills: Optional[Union[str, List[str]]] = None,
+    prune_legacy: bool = True,
+    no_prune: bool = False,
     dry_run: bool = False,
     json_output: bool = False,
     open_pr: bool = False,
     upstream_remote: Optional[str] = None,
     base_branch: Optional[str] = None,
+    config_dir: Optional[Union[Path, str]] = None,
 ) -> int:
     """
     Onboards a repository to the Agyis harness runtime.
@@ -65,14 +70,29 @@ def cmd_onboard(
         lang = getattr(args, "lang", None) or getattr(args, "stack", None)
         role = getattr(args, "role", None)
         subproject = getattr(args, "subproject", None)
-        prune_legacy = bool(getattr(args, "prune_legacy", False) or getattr(args, "clean_agent_dir", False))
+        skills_arg = getattr(args, "skills", None)
+        if isinstance(skills_arg, str):
+            skills = [s.strip() for s in skills_arg.split(",") if s.strip()]
+        elif isinstance(skills_arg, (list, tuple, set)):
+            skills = list(skills_arg)
+        else:
+            skills = None
+        no_prune = bool(getattr(args, "no_prune", False))
+        prune_legacy = bool(getattr(args, "prune_legacy", True) or getattr(args, "clean_agent_dir", False))
+        effective_prune = False if no_prune else prune_legacy
         dry_run = bool(getattr(args, "dry_run", False))
         json_output = bool(getattr(args, "json", False))
         open_pr = bool(getattr(args, "pr", False) or getattr(args, "open_pr", False) or getattr(args, "create_pr", False))
         upstream_remote = getattr(args, "upstream_remote", None)
         base_branch = getattr(args, "base_branch", None)
+        config_dir = getattr(args, "config_dir", None)
     else:
         target_path = Path(workspace)
+        if isinstance(skills, str):
+            skills = [s.strip() for s in skills.split(",") if s.strip()]
+        elif isinstance(skills, (list, tuple, set)):
+            skills = list(skills)
+        effective_prune = False if no_prune else prune_legacy
 
     ws = target_path.resolve()
     if not ws.exists() or not ws.is_dir():
@@ -137,18 +157,21 @@ def cmd_onboard(
             sys.stderr.write(f"✘ Error: {err_msg}\n")
         return 1
 
-    # 5. Configure git exclusions for runtime safety
+    # 5. Purge stale build caches (.next/, .turbo/) before verification gates
+    purged_caches = purge_build_caches(ws, subproject=subproject, dry_run=dry_run)
+
+    # 6. Configure git exclusions for runtime safety
     if not dry_run:
         try:
             configure_git_exclude(ws)
         except Exception:
             pass
 
-    # 6. Harmonize workspace (legacy .agent/ migration, rules tags, archive/prune)
+    # 7. Harmonize workspace (legacy .agent/ migration, rules tags, archive/prune)
     harm_res = harmonize_workspace(
         workspace_dir=subproject_path,
         dry_run=dry_run,
-        prune_legacy=prune_legacy,
+        prune_legacy=effective_prune,
         backup=True,
         stack=lang,
     )
@@ -163,9 +186,11 @@ def cmd_onboard(
             sys.stderr.write(f"✘ Error: {harm_res.message}\n")
         return 1
 
-    # 7. Provision skills with decoupled presets
+    # 8. Provision skills with decoupled presets or explicit list
     skills_list: List[str] = []
-    if is_monorepo(ws) and not subproject and not lang and not role:
+    if skills is not None:
+        skills_list = list(skills)
+    elif is_monorepo(ws) and not subproject and not lang and not role:
         mono_langs, mono_roles = detect_monorepo_stack(ws)
         s_set: set[str] = set()
         for l in mono_langs:
@@ -177,7 +202,7 @@ def cmd_onboard(
         if s_set:
             skills_list = sorted(s_set)
 
-    if not skills_list:
+    if not skills_list and skills is None:
         skills_list = resolve_skills_to_sync(
             stack=lang or "auto",
             role=role,
@@ -197,7 +222,19 @@ def cmd_onboard(
             dry_run=dry_run,
         )
 
-    # 8. Pull Request creation if requested
+    # 9. Enforce single-source skill deduplication by default (Issue #52, rc4 learnings)
+    config_dir_path = (
+        Path(config_dir).resolve()
+        if config_dir is not None
+        else Path(os.environ.get("AGYIS_CONFIG_DIR") or os.environ.get("PSL_CONFIG_DIR") or (Path.home() / ".gemini" / "config")).resolve()
+    )
+    pruned_skills = enforce_single_source_skills(
+        config_dir=config_dir_path,
+        workspace_dir=subproject_path,
+        dry_run=dry_run,
+    )
+
+    # 10. Pull Request creation if requested
     pr_created = False
     pr_url: Optional[str] = None
     pr_msg: Optional[str] = None
@@ -241,7 +278,7 @@ def cmd_onboard(
 
     polluting_files = verify_zero_git_pollution(ws)
 
-    # 9. Return JSON output or formatted terminal summary
+    # 11. Return JSON output or formatted terminal summary
     if json_output:
         out_data = {
             "success": True,
@@ -254,6 +291,8 @@ def cmd_onboard(
             "topology": topology.to_dict(),
             "harmonize": harm_res.to_dict(),
             "skills_provisioned": skills_list,
+            "skills_deduplicated": pruned_skills,
+            "caches_purged": purged_caches,
             "polluting_files": polluting_files,
             "pr_opened": pr_created,
             "pr_url": pr_url,
@@ -273,8 +312,14 @@ def cmd_onboard(
         print(f"  • Subproject: {subproject}")
     print(f"  • Stack: {effective_stack} (role: {effective_role or 'none'})")
     print(f"  • Skills: {', '.join(skills_list) if skills_list else 'none'}")
+    if pruned_skills:
+        prefix_dedup = "[dry-run] Would prune" if dry_run else "Pruned"
+        print(f"  • {prefix_dedup} {len(pruned_skills)} duplicate skill(s) shadowing global plugin: {', '.join(Path(p).name for p in pruned_skills)}")
+    if purged_caches:
+        prefix_cache = "[dry-run] Would purge" if dry_run else "Purged"
+        print(f"  • {prefix_cache} {len(purged_caches)} build cache directory(ies): {', '.join(Path(p).name for p in purged_caches)}")
     if harm_res.legacy_agent_dir_found:
-        print(f"  • Harmonized legacy .agent/: yes (pruned: {'yes' if prune_legacy else 'no'})")
+        print(f"  • Harmonized legacy .agent/: yes (pruned: {'yes' if effective_prune else 'no'})")
     if open_pr:
         print(f"  • Pull Request: {pr_msg}")
     if polluting_files:

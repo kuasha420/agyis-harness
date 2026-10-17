@@ -370,4 +370,24 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Release Notes & Specs: [docs/release-notes/v1.0.0-rc4.md](../release-notes/v1.0.0-rc4.md), [CHANGELOG.md](../../CHANGELOG.md)
   - Verification Subsystem: [harness/commands/verify.py](../../harness/commands/verify.py), [tests/test_verify.py](../../tests/test_verify.py)
 
+---
+
+## [Phase 12] Release Candidate v1.0.0-rc5 Preparation: Fleet Harmonization & REA GUI Telemetry
+* **Status**: Completed | **Compaction Date**: 2026-10-17 | **Release**: `v1.0.0-rc5-prep`
+* **Key Architectural Decisions & Invariants**:
+  - **Dual-Auditor Gate Invariant**: Required independent out-of-band audit verification concurrently with internal Victory Audits before authorizing phase completions.
+  - **Unified `agyis onboard` CLI Engine (Issue #58)**: Consolidated git topology inspection, monorepo subprojects (`--subproject`), explicit skills (`--skills`), default legacy pruning (`--prune-legacy`), `.next`/`.turbo` cache purging, and single-source deduplication.
+  - **Automated `.agents/archive/` Safety Backup Lifecycle (Issue #59)**: Pre-prune SHA-256 manifest and tarball creation with automatic `.git/info/exclude` registration.
+  - **Python Test Command Extraction Fallback GAP-07 (Issue #60)**: Multi-manifest detection with standard `unittest` test discovery fallback.
+  - **Native Background Sync Service Management (Issue #61, #57)**: Integrated systemd user daemon management (`agyis sync --service [install|status|start|stop|uninstall]`).
+  - **REA Cleanroom Reverse Engineering (Compaction & GUI Telemetry)**: Forensically deconstructed Antigravity 50k token compaction window, located hidden native context visualizer (`j5b`), and unlocked Trajectory Debug View & DevTools via live CDP.
+* **Verified Baseline Metrics**:
+  - Complete test suite expanded to **903 hermetic tests passing in 14.107s** (100% green, exit code 0; <15s budget; sub-second unit benchmark <0.02s–0.75s).
+  - 16/16 active PRs across 5 highest-velocity fleet repositories rebased and verified mergeable.
+  - Staged 7 publication-grade GitHub issues (#57–#63) under milestone `v1.0.0-rc5`.
+  - Workstation doctor: **9 OK | 0 Outdated | 0 Missing** with zero external runtime dependencies.
+* **Reference Assets Committed**:
+  - Remediations: `harness/commands/onboard.py`, `harness/delivery/harmonize.py`, `harness/delivery/workspace.py`, `harness/telemetry/sync/systemd.py`.
+  - Specs & Findings: `docs/specs/rc4_rehydration_findings.md`, `docs/specs/rc5_github_issues_manifest.md`.
+
 

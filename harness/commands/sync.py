@@ -26,6 +26,17 @@ def cmd_sync(args: argparse.Namespace) -> int:
         print(unit)
         return 0
 
+    service_action = getattr(args, "service", None)
+    if service_action:
+        from harness.telemetry.sync.systemd import manage_service
+        interval = getattr(args, "interval", 5.0) or 5.0
+        json_output = getattr(args, "json", False)
+        return manage_service(
+            action=service_action,
+            interval=interval,
+            json_output=json_output,
+        )
+
     if getattr(args, "watch", False):
         from harness.telemetry.sync import watch_and_sync
         interval = getattr(args, "interval", 5.0) or 5.0

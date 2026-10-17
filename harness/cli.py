@@ -293,6 +293,12 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_sync.add_argument("--watch", action="store_true", help="Continuously watch and sync telemetry in the background")
     p_sync.add_argument("--interval", type=float, default=5.0, help="Poll interval in seconds for watch mode (default: 5.0)")
     p_sync.add_argument("--systemd", action="store_true", help="Output systemd user service unit definition")
+    p_sync.add_argument(
+        "--service",
+        choices=["install", "status", "start", "stop", "uninstall"],
+        default=None,
+        help="Manage background sync systemd user service (install, status, start, stop, uninstall)",
+    )
     p_sync.add_argument("--limit", "-l", type=int, default=None, help="Maximum number of sessions to push")
     p_sync.add_argument("--dry-run", action="store_true", help="Simulate synchronization without modifications")
     p_sync.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID to ingest before syncing")
@@ -401,6 +407,12 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Subproject path for localized monorepo onboarding",
     )
     p_onboard.add_argument(
+        "--skills",
+        type=str,
+        default=None,
+        help="Comma-separated list of explicit skills to provision (overrides preset inference)",
+    )
+    p_onboard.add_argument(
         "--upstream-remote",
         type=str,
         default=None,
@@ -415,7 +427,20 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_onboard.add_argument(
         "--prune-legacy",
         action="store_true",
-        help="Prune legacy .agent/ directory after harmonization",
+        default=True,
+        help="Prune legacy .agent/ directory after harmonization (default: True)",
+    )
+    p_onboard.add_argument(
+        "--no-prune",
+        action="store_true",
+        dest="no_prune",
+        help="Disable pruning of legacy .agent/ directory",
+    )
+    p_onboard.add_argument(
+        "--config-dir",
+        type=str,
+        default=None,
+        help="Optional custom configuration directory (overrides ~/.gemini/config)",
     )
     p_onboard.add_argument(
         "--pr",

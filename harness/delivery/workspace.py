@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 from typing import Any, Dict, List, Optional
 
 from harness.delivery.constants import REPO_ROOT
@@ -63,13 +64,147 @@ STANDARD_VERB_DESCRIPTIONS: Dict[str, str] = {
 }
 
 
+def _has_python_files(dir_path: Path) -> bool:
+    """Returns True if directory contains at least one Python (.py) file."""
+    if not dir_path.is_dir():
+        return False
+    try:
+        for p in dir_path.glob("*.py"):
+            if p.is_file():
+                return True
+        for p in dir_path.rglob("*.py"):
+            if p.is_file():
+                return True
+        return False
+    except OSError:
+        return False
+
+
+def detect_test_command(workspace_path: Path | str) -> Optional[str]:
+    """
+    Detects the native test command for a Python workspace (GAP-06, GAP-07).
+
+    Inspects in order:
+    1. pyproject.toml: [tool.pytest] or pytest in dependencies
+    2. pytest.ini
+    3. setup.cfg: content check for [tool:pytest], [pytest], or pytest
+    4. setup.py: content check for pytest
+    5. requirements*.txt: content check for pytest
+    6. tests/ or test/ directory: fallback to standard unittest discovery if .py files present
+
+    Returns the executable test command (with package manager prefix if detected) or None.
+    """
+    ws = Path(workspace_path).resolve()
+    if not ws.exists() or not ws.is_dir():
+        return None
+
+    # Detect package manager runner prefix
+    if (ws / "poetry.lock").is_file():
+        prefix = "poetry run "
+    elif (ws / "uv.lock").is_file():
+        prefix = "uv run "
+    elif (ws / "Pipfile.lock").is_file() or (ws / "Pipfile").is_file():
+        prefix = "pipenv run "
+    else:
+        prefix = ""
+
+    pyproj = ws / "pyproject.toml"
+    setup_py = ws / "setup.py"
+    setup_cfg = ws / "setup.cfg"
+    pytest_ini = ws / "pytest.ini"
+    tests_dir = ws / "tests"
+    test_dir = ws / "test"
+
+    has_pytest = False
+
+    # 1. pyproject.toml
+    if pyproj.is_file():
+        try:
+            import tomllib
+
+            toml_data = tomllib.loads(pyproj.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(toml_data, dict):
+                tools = toml_data.get("tool", {})
+                if isinstance(tools, dict) and "pytest" in tools:
+                    has_pytest = True
+        except Exception:
+            pass
+
+        if not has_pytest:
+            try:
+                pyproj_text = pyproj.read_text(encoding="utf-8", errors="replace")
+                if re.search(r"['\"]pytest(?:[<>=!~].*)?['\"]", pyproj_text) or re.search(
+                    r"(?im)^\s*pytest\s*=", pyproj_text
+                ):
+                    has_pytest = True
+            except OSError:
+                pass
+
+    # 2. pytest.ini
+    if not has_pytest and pytest_ini.is_file():
+        has_pytest = True
+
+    # 3. setup.cfg (content check for [tool:pytest], [pytest], or pytest)
+    if not has_pytest and setup_cfg.is_file():
+        try:
+            cfg_text = setup_cfg.read_text(encoding="utf-8", errors="replace")
+            if re.search(r"(?im)^\s*\[(?:tool:)?pytest\]", cfg_text) or re.search(
+                r"(?im)^\s*pytest\b", cfg_text
+            ):
+                has_pytest = True
+        except OSError:
+            pass
+
+    # 4. setup.py (content check for pytest)
+    if not has_pytest and setup_py.is_file():
+        try:
+            setup_text = setup_py.read_text(encoding="utf-8", errors="replace")
+            if re.search(r"\bpytest\b", setup_text, re.IGNORECASE):
+                has_pytest = True
+        except OSError:
+            pass
+
+    # 5. requirements*.txt (content check for pytest)
+    if not has_pytest:
+        req_candidates = [
+            ws / "requirements.txt",
+            ws / "requirements-dev.txt",
+            ws / "test-requirements.txt",
+            ws / "requirements_dev.txt",
+            ws / "requirements_test.txt",
+            ws / "requirements" / "test.txt",
+            ws / "requirements" / "dev.txt",
+        ]
+        for req_f in req_candidates:
+            if req_f.is_file():
+                try:
+                    req_text = req_f.read_text(encoding="utf-8", errors="replace")
+                    if re.search(r"(?im)^\s*pytest\b", req_text):
+                        has_pytest = True
+                        break
+                except OSError:
+                    pass
+
+    # If pytest detected, return pytest command with prefix
+    if has_pytest:
+        return f"{prefix}pytest"
+
+    # 6. Fallback to standard unittest discovery if Python test files are present
+    if _has_python_files(tests_dir):
+        return f"{prefix}python3 -m unittest discover -s tests -v"
+    elif _has_python_files(test_dir):
+        return f"{prefix}python3 -m unittest discover -s test -v"
+
+    return None
+
+
 def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
     """
     Extracts an explicit project command dictionary from workspace configuration.
 
     Inspects in order:
     1. package.json scripts (Node / TypeScript)
-    2. pyproject.toml / test runner configs (Python)
+    2. Python test runner configs (pyproject.toml, setup.py, setup.cfg, requirements.txt, tests/)
     3. Cargo.toml (Rust)
     4. go.mod (Go)
     5. Makefile targets (Systems / C / Shell)
@@ -134,9 +269,30 @@ def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
         except Exception:
             pass
 
-    # 2. Python (pyproject.toml)
+    # 2. Python (pyproject.toml, setup.py, setup.cfg, requirements.txt, tests/, test/)
     pyproj = ws / "pyproject.toml"
-    if pyproj.is_file():
+    setup_py = ws / "setup.py"
+    setup_cfg = ws / "setup.cfg"
+    req_txt = ws / "requirements.txt"
+    tests_dir = ws / "tests"
+    test_dir = ws / "test"
+
+    has_py_manifest = (
+        pyproj.is_file()
+        or setup_py.is_file()
+        or setup_cfg.is_file()
+        or req_txt.is_file()
+        or (ws / "requirements-dev.txt").is_file()
+        or (ws / "test-requirements.txt").is_file()
+        or (ws / "pytest.ini").is_file()
+        or (ws / "Pipfile").is_file()
+        or (ws / "Pipfile.lock").is_file()
+        or (ws / "poetry.lock").is_file()
+        or (ws / "uv.lock").is_file()
+    )
+    has_py_tests = _has_python_files(tests_dir) or _has_python_files(test_dir)
+
+    if has_py_manifest or has_py_tests:
         if (ws / "poetry.lock").is_file():
             prefix = "poetry run "
         elif (ws / "uv.lock").is_file():
@@ -146,44 +302,44 @@ def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
         else:
             prefix = ""
 
-        toml_data: Dict[str, Any] = {}
-        try:
-            import tomllib
+        tools: Dict[str, Any] = {}
+        if pyproj.is_file():
+            try:
+                import tomllib
 
-            toml_data = tomllib.loads(pyproj.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+                toml_data = tomllib.loads(pyproj.read_text(encoding="utf-8"))
+                tools = toml_data.get("tool", {}) if isinstance(toml_data, dict) else {}
+            except Exception:
+                pass
 
-        tools = toml_data.get("tool", {}) if isinstance(toml_data, dict) else {}
         if "test" not in commands:
-            has_pytest = (
-                "pytest" in tools
-                or (ws / "pytest.ini").is_file()
-                or (ws / "setup.cfg").is_file()
-            )
-            if has_pytest:
-                commands["test"] = f"{prefix}pytest"
-            elif (ws / "tests").is_dir():
-                commands["test"] = f"{prefix}python3 -m unittest discover -s tests -v"
-            elif (ws / "test").is_dir():
-                commands["test"] = f"{prefix}python3 -m unittest discover -s test -v"
+            test_cmd = detect_test_command(ws)
+            if test_cmd:
+                commands["test"] = test_cmd
+
+        cfg_text = ""
+        if setup_cfg.is_file():
+            try:
+                cfg_text = setup_cfg.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                pass
 
         if "lint" not in commands:
-            if "ruff" in tools:
+            if "ruff" in tools or (ws / "ruff.toml").is_file() or (ws / ".ruff.toml").is_file():
                 commands["lint"] = f"{prefix}ruff check ."
-            elif "flake8" in tools:
+            elif "flake8" in tools or (ws / ".flake8").is_file() or "[flake8]" in cfg_text:
                 commands["lint"] = f"{prefix}flake8"
 
         if "format" not in commands:
-            if "ruff" in tools:
+            if "ruff" in tools or (ws / "ruff.toml").is_file() or (ws / ".ruff.toml").is_file():
                 commands["format"] = f"{prefix}ruff format ."
-            elif "black" in tools:
+            elif "black" in tools or (ws / ".black").is_file():
                 commands["format"] = f"{prefix}black ."
 
         if "check" not in commands and "typecheck" not in commands:
-            if "mypy" in tools:
+            if "mypy" in tools or (ws / "mypy.ini").is_file() or (ws / ".mypy.ini").is_file() or "[mypy" in cfg_text:
                 commands["check"] = f"{prefix}mypy ."
-            elif "pyright" in tools:
+            elif "pyright" in tools or (ws / "pyrightconfig.json").is_file():
                 commands["check"] = f"{prefix}pyright"
 
     # 3. Rust (Cargo.toml)
@@ -682,3 +838,91 @@ def install_workspace(
             else f"Workspace initialized successfully for stack '{detected_stack}'"
         ),
     )
+
+
+def _handle_remove_readonly(func, path, exc_info):
+    """
+    Onerror handler for shutil.rmtree to unblock removal of read-only files and directories on Linux/POSIX (ADR-031).
+    """
+    try:
+        parent = os.path.dirname(path)
+        if parent and os.path.exists(parent):
+            os.chmod(parent, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+        if os.path.exists(path):
+            os.chmod(path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+        func(path)
+    except Exception:
+        pass
+
+
+def purge_build_caches(
+    workspace_dir: Path | str,
+    subproject: Optional[Path | str] = None,
+    dry_run: bool = False,
+) -> List[str]:
+    """
+    Purges stale build cache directories (.next/, .turbo/) before verification gates (ADR-031).
+    Recursively scans workspace (and optional subproject), skipping node_modules, .git, and .agents.
+    Returns list of paths of purged cache directories.
+    """
+    ws = Path(workspace_dir).resolve()
+    if not ws.exists() or not ws.is_dir():
+        return []
+
+    target_cache_names = {".next", ".turbo"}
+    ignored_dir_names = {
+        "node_modules", ".git", ".venv", "venv", ".agents", ".agent", "dist", "build", ".cache", "scratch"
+    }
+
+    found_targets: set[Path] = set()
+
+    # 1. Direct checks on workspace root and subproject
+    for name in target_cache_names:
+        cand = ws / name
+        if cand.is_symlink() or cand.is_dir() or cand.is_file():
+            found_targets.add(cand)
+
+    if subproject:
+        sub_path = Path(subproject)
+        if not sub_path.is_absolute():
+            sub_path = (ws / subproject).resolve()
+        if sub_path.is_dir():
+            for name in target_cache_names:
+                cand = sub_path / name
+                if cand.is_symlink() or cand.is_dir() or cand.is_file():
+                    found_targets.add(cand)
+
+    # 2. Bounded filesystem sweep (skipping ignored dirs and matched target subtrees)
+    for root_dir, dirs, files in os.walk(ws):
+        root = Path(root_dir)
+        matched = [d for d in dirs if d in target_cache_names]
+        for d in matched:
+            found_targets.add(root / d)
+        for f in files:
+            if f in target_cache_names:
+                found_targets.add(root / f)
+        # Prune dirs in-place to prevent descending into ignored or cache subtrees
+        dirs[:] = [d for d in dirs if d not in ignored_dir_names and d not in target_cache_names]
+
+    purged: List[str] = []
+    for target in sorted(found_targets, key=lambda p: str(p)):
+        if dry_run:
+            purged.append(str(target))
+        else:
+            try:
+                if target.is_symlink():
+                    target.unlink()
+                elif target.is_dir():
+                    shutil.rmtree(target, onerror=_handle_remove_readonly)
+                elif target.is_file():
+                    try:
+                        target.unlink()
+                    except PermissionError:
+                        os.chmod(target, stat.S_IRWXU)
+                        target.unlink()
+            except OSError:
+                pass
+            if not target.exists() and not target.is_symlink():
+                purged.append(str(target))
+
+    return purged

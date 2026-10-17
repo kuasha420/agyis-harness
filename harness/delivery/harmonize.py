@@ -56,6 +56,32 @@ def _compute_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _find_git_root(path: Path) -> Optional[Path]:
+    """
+    Resolves the root directory of the git repository containing path, if any.
+    Correctly resolves repositories when path is a monorepo subproject.
+    """
+    curr = path.resolve()
+    for p in [curr, *curr.parents]:
+        if (p / ".git").exists():
+            return p
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            root = Path(proc.stdout.strip()).resolve()
+            if root.is_dir():
+                return root
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
 def _rewrite_legacy_agent_references(text: str) -> str:
     """
     Rewrites references to legacy .agent/ paths (such as .agent/rules/, .agent/agents/,
@@ -523,6 +549,7 @@ def harmonize_workspace(
     # ---------------------------------------------------------
     backup_archive_path: Optional[Path] = None
     backup_manifest: Optional[Dict[str, Any]] = None
+    manifest_path: Optional[Path] = None
 
     if prune_legacy and backup and legacy_agent_dir_found:
         target_archive_dir = Path(archive_dir).resolve() if archive_dir else (ws / ".agents" / "archive")
@@ -531,9 +558,29 @@ def harmonize_workspace(
         manifest_path = target_archive_dir / f"legacy-agent-backup-{timestamp}-manifest.json"
 
         # Ensure git exclusion for .agents/archive/ if in a git repo
-        if not dry_run and (ws / ".git").exists():
+        git_root = _find_git_root(ws)
+        if not dry_run and git_root is not None:
             try:
-                configure_git_exclude(ws)
+                exclude_file = configure_git_exclude(git_root)
+                if ws != git_root and exclude_file.exists():
+                    try:
+                        rel = ws.relative_to(git_root).as_posix()
+                        sub_pattern = f"{rel}/.agents/archive/"
+                        lines = [
+                            line.strip()
+                            for line in exclude_file.read_text(encoding="utf-8", errors="replace").splitlines()
+                        ]
+                        missing: List[str] = []
+                        if "**/.agents/archive/" not in lines:
+                            missing.append("**/.agents/archive/")
+                        if sub_pattern not in lines:
+                            missing.append(sub_pattern)
+                        if missing:
+                            with open(exclude_file, "a", encoding="utf-8") as f:
+                                for pat in missing:
+                                    f.write(f"{pat}\n")
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -564,10 +611,14 @@ def harmonize_workspace(
         if not dry_run:
             target_archive_dir.mkdir(parents=True, exist_ok=True)
             with tarfile.open(tarball_path, "w:gz") as tar:
-                for entry in manifest_entries:
-                    file_to_add = legacy_agent_dir / entry["path"]
-                    arcname = str(Path(".agent") / entry["path"])
-                    tar.add(file_to_add, arcname=arcname)
+                if manifest_entries:
+                    for entry in manifest_entries:
+                        file_to_add = legacy_agent_dir / entry["path"]
+                        arcname = str(Path(".agent") / entry["path"])
+                        tar.add(file_to_add, arcname=arcname)
+                else:
+                    # Archive empty directory node
+                    tar.add(legacy_agent_dir, arcname=".agent", recursive=False)
             manifest_path.write_text(json.dumps(backup_manifest, indent=2), encoding="utf-8")
 
         backup_archive_path = tarball_path
@@ -581,10 +632,11 @@ def harmonize_workspace(
     if prune_legacy and legacy_agent_dir_found:
         any_modified = True
         pruned_legacy_done = True
+        git_root = _find_git_root(ws)
 
         if not dry_run:
             # Step 1: If tracked by git, git rm -rf .agent
-            if (ws / ".git").exists():
+            if git_root is not None:
                 try:
                     subprocess.run(
                         ["git", "-C", str(ws), "rm", "-rf", ".agent"],
@@ -609,10 +661,16 @@ def harmonize_workspace(
 
                 if backup_manifest is not None and untracked_debris_cleaned:
                     backup_manifest["untracked_debris_cleaned"] = list(untracked_debris_cleaned)
-                    if manifest_path.exists():
+                    if manifest_path is not None and manifest_path.exists():
                         manifest_path.write_text(json.dumps(backup_manifest, indent=2), encoding="utf-8")
 
-                shutil.rmtree(legacy_agent_dir)
+                try:
+                    if legacy_agent_dir.is_symlink():
+                        legacy_agent_dir.unlink()
+                    else:
+                        shutil.rmtree(legacy_agent_dir)
+                except OSError:
+                    pass
 
             # Step 3: Explicit assertion
             assert not legacy_agent_dir.exists(), f"Legacy directory {legacy_agent_dir} still exists after pruning"
