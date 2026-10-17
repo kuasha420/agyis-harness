@@ -260,16 +260,24 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - Remediated shadow audit findings (DEF-01 through DEF-04) and implemented canonical `agyis verify` CLI.
     - Reached **847 hermetic tests passing in 12.7s**, doctor 9 OK / 0 missing, and federated 1,443 sessions (346k steps).
 
-* **Upcoming Milestones (Horizon 1.5: Multi-Repo Onboarding, Harmonization & Fleet Refresh)**:
-  1. **Cross-Repo Harmonization Audit & Remediation (`docs/specs/agyis-installation-harmonization-gaps.md`)**:
-     - Cross-verify onboarding status across the 18 tier repositories documented in conversation `1b78f4f2-f9eb-437b-be43-21ae5f60ce94`.
-     - Implement unified `agyis onboard` workflow combining rules injection, stack detection, and skill delivery.
-     - Automate legacy `.agent/` deprecation and staging lifecycle with safety archives.
-  2. **Decoupled Multi-Tier Stack Presets & Fork-Aware Remote Delivery**:
-     - Decouple `psl-stack-backend` from pure frontend, CLI, and mobile workspaces.
-     - Support fork-aware remote origin tracking for repositories with read-only viewer permissions.
-  3. **Canonical Background Sync Service Management (Issue #57)**:
-     - Implement first-class `agyis sync --service [install|status|start|stop|uninstall]` CLI dispatcher.
+  - [x] **Fleet Harmonization, Multi-Repo Onboarding & Release Candidate v1.0.0-rc5 Preparation (Phase 12 - Horizon 1.5)**:
+    - Executed 18-repository fleet audit and rehydrated/rebased 16 active PRs across 5 highest-velocity repos (`sunshine-physio-webapp`, `knot-mesh`, `purrfectcore-001`, `psl-website`, `mm-website`), publishing [`docs/specs/rc4_rehydration_findings.md`](docs/specs/rc4_rehydration_findings.md).
+    - Staged 7 publication-grade GitHub issues (#57–#63) under milestone `v1.0.0-rc5` with 100% manifest parity (`docs/specs/rc5_github_issues_manifest.md`), dual-audited by `victory_auditor_16` and cockpit auditor `3402c677`.
+    - Delivered all 4 Category B core remediations in `harness/` (unified `agyis onboard` CLI, `.agents/archive/` backup lifecycle, Python test extraction GAP-07, and background sync service management #57), dual-audited by `victory_auditor_17` and cockpit auditor `e771d12d`.
+    - Conducted 3 cleanroom REA investigations on Antigravity desktop: verified 50k token compaction window, located hidden native context visualizer (`j5b`), and unlocked Trajectory Debug View & DevTools via live CDP.
+    - Expanded test suite to **903 hermetic tests passing in 14.107s** (exit code 0; <15s budget; sub-second unit benchmark <0.02s–0.75s). Doctor reports 9 OK / 0 missing; 0 external runtime dependencies.
+
+* **Upcoming Milestones (Horizon 1.6: Agent Architecture Overhaul & REA Telemetry Surfacing)**:
+  1. **Agent Architecture Overhaul via `/boost` (ADR-026/ADR-031 Alignment)**:
+     - Eliminate the Mute Subagent Trap: inject `send_message` into all specialist personas (`agyis_architect`, `coordinator`, `planner`, `harness_builder`, `harness_custodian`, `harness_auditor`, `harness_reviewer`) and capability bundles in `harness/subagents.py`.
+     - Reconcile frontmatter permission contradictions (`write: false` vs `enable_write_tools: true`).
+     - Align system prompts with the 8 Canonical Empirical Rules and surface native Antigravity primitives (`/teamwork-preview`, `/boost`, `/plan`, `/schedule`).
+  2. **Antigravity Desktop GUI & CLI Telemetry Surfacing (REA Implementation)**:
+     - Implement `harness/commands/gui.py` / `agyis gui --devtools` / `--trajectory-debug` automated CDP injection.
+     - Implement `harness/hooks/token_proximity_guard.py` for CLI ANSI urgency alerts and terminal bells.
+  3. **Release Cut & Distribution Gate**:
+     - Push release commits to `origin/main` and tag `v1.0.0-rc5`.
+
 
 ---
 
