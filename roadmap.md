@@ -267,16 +267,13 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - Conducted 3 cleanroom REA investigations on Antigravity desktop: verified 50k token compaction window, located hidden native context visualizer (`j5b`), and unlocked Trajectory Debug View & DevTools via live CDP.
     - Expanded test suite to **903 hermetic tests passing in 14.107s** (exit code 0; <15s budget; sub-second unit benchmark <0.02s–0.75s). Doctor reports 9 OK / 0 missing; 0 external runtime dependencies.
 
-* **Upcoming Milestones (Horizon 1.6: Agent Architecture Overhaul & REA Telemetry Surfacing)**:
-  1. **Agent Architecture Overhaul via `/boost` (ADR-026/ADR-031 Alignment)**:
-     - Eliminate the Mute Subagent Trap: inject `send_message` into all specialist personas (`agyis_architect`, `coordinator`, `planner`, `harness_builder`, `harness_custodian`, `harness_auditor`, `harness_reviewer`) and capability bundles in `harness/subagents.py`.
-     - Reconcile frontmatter permission contradictions (`write: false` vs `enable_write_tools: true`).
-     - Align system prompts with the 8 Canonical Empirical Rules and surface native Antigravity primitives (`/teamwork-preview`, `/boost`, `/plan`, `/schedule`).
-  2. **Antigravity Desktop GUI & CLI Telemetry Surfacing (REA Implementation)**:
-     - Implement `harness/commands/gui.py` / `agyis gui --devtools` / `--trajectory-debug` automated CDP injection.
-     - Implement `harness/hooks/token_proximity_guard.py` for CLI ANSI urgency alerts and terminal bells.
-  3. **Release Cut & Distribution Gate**:
-     - Push release commits to `origin/main` and tag `v1.0.0-rc5`.
+  - [x] **Agent Architecture Overhaul, REA GUI Telemetry & Trajectory Persistence (Phase 13 - Horizon 1.6)**:
+    - **Subagents Engine Modernization**: Injected `send_message` across all capability bundles and 7 specialist personas in `harness/subagents/spec.py`; resolved permission paradox (`write: true` when `enable_write_tools: true`).
+    - **Native Primitives & Empirical Rules Alignment**: Synchronized all personas in `harness/agents/` and `.agents/agents/` with `/teamwork-preview`, `/boost`, and the 8 Canonical Empirical Rules.
+    - **Token Proximity Guard**: Implemented PreToolUse hook monitoring session context consumption with amber (>35k) and red pulse (>45k) terminal alerts.
+    - **GUI Telemetry & Autonomous Persistence (`agyis gui`)**: Implemented 100% stdlib RFC 6455 CDP WebSocket controller, `--toggle`, `--wait` hydration retry loop, `--no-popup` startup priming, DOM hotkey listeners (`F12`, `Ctrl+Shift+T`), Command Palette feature flag unlocking, `~/.local/bin/agy-debug` shortcut, and `antigravity-trajectory.path` systemd user service.
+    - **Test Benchmark & Certification**: Expanded test suite to **1,006 hermetic tests passing in 15.16s** (exit code 0; GUI unit tests pass in 0.043s). Certified by Triple Auditor Gate and deployed globally to `~/.gemini/config/plugins/psl-agy-harness/`.
+
 
 
 ---

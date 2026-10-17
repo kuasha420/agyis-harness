@@ -390,4 +390,25 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Remediations: `harness/commands/onboard.py`, `harness/delivery/harmonize.py`, `harness/delivery/workspace.py`, `harness/telemetry/sync/systemd.py`.
   - Specs & Findings: `docs/specs/rc4_rehydration_findings.md`, `docs/specs/rc5_github_issues_manifest.md`.
 
+---
+
+## [Phase 13] Horizon 1.6: Agent Architecture Overhaul, REA GUI Telemetry & Trajectory Persistence
+* **Status**: Completed | **Compaction Date**: 2026-10-17 | **Release**: `v1.0.0-rc5`
+* **Key Architectural Decisions & Invariants**:
+  - **Universal Subagent Communication (ADR-026/031)**: Injected `send_message` across all 6 capability bundles and 7 specialist personas in `harness/subagents/spec.py`. Resolved frontmatter permission paradox (`write: true` when `enable_write_tools: true`).
+  - **Persona Modernization & Empirical Rules Alignment**: Synchronized all personas in `harness/agents/` and `.agents/agents/` with Antigravity native primitives (`/teamwork-preview`, `/boost`) and the 8 Canonical Empirical Rules.
+  - **Token Proximity Guard (ADR-014)**: Built PreToolUse hook monitoring active session SQLite context consumption; emits amber warnings at >35k and red pulses with terminal bells at >45k tokens.
+  - **REA GUI Telemetry & DevTools Controller (`agyis gui`)**: 100% stdlib RFC 6455 WebSocket CDP client connecting to loopback `DevToolsActivePort`. Unlocks developer flags (`enable-trajectory-debug-tools`), injects in-window hotkeys (`F12`, `Ctrl+Shift+T`), and enables Command Palette ("Open Trajectory Debug View").
+  - **Autonomous Cold-Boot Persistence & Startup Priming**: Resolved Electron pre-hydration `SecurityError` with wait retry loop; added `--no-popup` startup priming via systemd user unit (`antigravity-trajectory.path`), keeping startup clean while hotkeys and Command Palette remain permanently active. Delivered instant executable `~/.local/bin/agy-debug`.
+* **Verified Baseline Metrics**:
+  - Full test suite expanded to **1,006 hermetic tests passing in 15.16s** (100% green; GUI tests pass in 0.043s).
+  - Doctor reports **9 OK | 0 Missing**; 7/7 specialist personas validated cleanly.
+  - Certified by Triple Auditor Gate and deployed globally to `~/.gemini/config/plugins/psl-agy-harness/`.
+* **Reference Assets Committed**:
+  - GUI Controller & Persistence: [harness/commands/gui.py](../../harness/commands/gui.py), [tests/test_gui.py](../../tests/test_gui.py)
+  - Subagents Engine: [harness/subagents/spec.py](../../harness/subagents/spec.py), [harness/agents/](../../harness/agents/)
+  - Token Guard: [harness/hooks/token_proximity_guard.py](../../harness/hooks/token_proximity_guard.py)
+  - Systemd Service: `~/.config/systemd/user/antigravity-trajectory.{path,service}`
+
+
 
