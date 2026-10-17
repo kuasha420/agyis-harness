@@ -353,6 +353,18 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
         with self.assertRaises(CDPError):
             inject_trajectory_debug(mock_client)
 
+    def test_inject_trajectory_debug_retry_on_unhydrated_origin(self) -> None:
+        mock_client = MagicMock()
+        mock_client.evaluate.return_value = {
+            "success": False,
+            "retry": True,
+            "error": "SecurityError: Failed to read the 'localStorage' property from 'Window': Access is denied for this document.",
+        }
+
+        with self.assertRaises(CDPError) as ctx:
+            inject_trajectory_debug(mock_client)
+        self.assertIn("SecurityError", str(ctx.exception))
+
     def test_build_hotkey_script_contents(self) -> None:
         script = build_hotkey_script()
         self.assertIn("F12", script)
@@ -866,6 +878,142 @@ class TestGuiCommandCLI(unittest.TestCase):
             self.assertEqual(mock_targets.call_count, 2)
             out = mock_out.getvalue()
             self.assertIn("Trajectory Debug View unlocked successfully", out)
+
+    @patch("time.sleep")
+    @patch("harness.commands.gui.inject_trajectory_debug")
+    @patch.object(CDPWebSocketClient, "connect")
+    @patch.object(CDPWebSocketClient, "close")
+    @patch("harness.commands.gui.get_cdp_targets")
+    def test_cmd_gui_wait_retries_through_security_error_until_success(
+        self,
+        mock_targets: MagicMock,
+        mock_close: MagicMock,
+        mock_connect: MagicMock,
+        mock_inject: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_targets.return_value = [{
+            "id": "PAGE1",
+            "type": "page",
+            "title": "Antigravity",
+            "url": "https://127.0.0.1:37277/",
+            "webSocketDebuggerUrl": "ws://127.0.0.1:46391/devtools/page/PAGE1",
+        }]
+        # Fails twice with SecurityError / unhydrated origin, succeeds on 3rd attempt
+        mock_inject.side_effect = [
+            CDPError("Failed to inject trajectory debug flags: SecurityError: Access is denied"),
+            CDPError("Failed to inject trajectory debug flags: SecurityError: Access is denied"),
+            {
+                "success": True,
+                "url": "https://127.0.0.1:37277/?trajectoryDebugOpen=true",
+                "open": True,
+            },
+        ]
+        args = argparse.Namespace(
+            port_file=self.port_file,
+            timeout=5.0,
+            wait=5.0,
+            json=False,
+            devtools=False,
+            trajectory_debug=True,
+            toggle=False,
+            verbose=True,
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code = cmd_gui(args)
+            self.assertEqual(code, 0)
+            self.assertEqual(mock_inject.call_count, 3)
+            self.assertEqual(mock_sleep.call_count, 2)
+            mock_sleep.assert_called_with(0.5)
+            self.assertIn("Trajectory Debug View unlocked successfully", mock_out.getvalue())
+            self.assertIn("Retrying after injection error", mock_err.getvalue())
+
+    @patch("time.sleep")
+    @patch("time.time")
+    @patch("harness.commands.gui.inject_trajectory_debug")
+    @patch.object(CDPWebSocketClient, "connect")
+    @patch.object(CDPWebSocketClient, "close")
+    @patch("harness.commands.gui.get_cdp_targets")
+    def test_cmd_gui_wait_injection_failure_timeout(
+        self,
+        mock_targets: MagicMock,
+        mock_close: MagicMock,
+        mock_connect: MagicMock,
+        mock_inject: MagicMock,
+        mock_time: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_targets.return_value = [{
+            "id": "PAGE1",
+            "type": "page",
+            "title": "Antigravity",
+            "url": "https://127.0.0.1:37277/",
+            "webSocketDebuggerUrl": "ws://127.0.0.1:46391/devtools/page/PAGE1",
+        }]
+        mock_inject.side_effect = CDPError("SecurityError: Access is denied")
+        # Time progression: start=100.0 (deadline=102.0), retry check 1=100.5, loop check 2=101.0, retry check 2=103.0 (>=102.0)
+        mock_time.side_effect = [100.0, 100.5, 101.0, 103.0]
+
+        args = argparse.Namespace(
+            port_file=self.port_file,
+            timeout=5.0,
+            wait=2.0,
+            json=False,
+            devtools=False,
+            trajectory_debug=True,
+            toggle=False,
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_gui(args)
+            self.assertEqual(code, 1)
+            self.assertEqual(mock_inject.call_count, 2)
+            self.assertEqual(mock_sleep.call_count, 1)
+            mock_sleep.assert_called_with(0.5)
+            self.assertIn("Failed to inject trajectory debug flags via CDP", mock_out.getvalue())
+            self.assertIn("SecurityError", mock_out.getvalue())
+
+    @patch("time.sleep")
+    @patch("time.time")
+    @patch("harness.commands.gui.inject_trajectory_debug")
+    @patch.object(CDPWebSocketClient, "connect")
+    @patch.object(CDPWebSocketClient, "close")
+    @patch("harness.commands.gui.get_cdp_targets")
+    def test_cmd_gui_wait_injection_failure_timeout_json(
+        self,
+        mock_targets: MagicMock,
+        mock_close: MagicMock,
+        mock_connect: MagicMock,
+        mock_inject: MagicMock,
+        mock_time: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_targets.return_value = [{
+            "id": "PAGE1",
+            "type": "page",
+            "title": "Antigravity",
+            "url": "https://127.0.0.1:37277/",
+            "webSocketDebuggerUrl": "ws://127.0.0.1:46391/devtools/page/PAGE1",
+        }]
+        mock_inject.side_effect = CDPError("SecurityError: Access is denied")
+        mock_time.side_effect = [100.0, 105.0]
+
+        args = argparse.Namespace(
+            port_file=self.port_file,
+            timeout=5.0,
+            wait=2.0,
+            json=True,
+            devtools=False,
+            trajectory_debug=True,
+            toggle=False,
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_gui(args)
+            self.assertEqual(code, 1)
+            data = json.loads(mock_out.getvalue())
+            self.assertEqual(data["status"], "error")
+            self.assertEqual(data["error"], "injection_failed")
+            self.assertIn("SecurityError", data["message"])
 
 
 if __name__ == "__main__":

@@ -593,6 +593,11 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         action="store_true",
         help="Output result in JSON format",
     )
+    p_gui.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Print verbose retry diagnostics to stderr",
+    )
 
     return parser
 

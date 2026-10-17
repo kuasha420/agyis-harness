@@ -427,15 +427,24 @@ def inject_trajectory_debug(
             // Install hotkey listener immediately on current document
             {hotkey_script}
 
-            // Set developer flags in localStorage
+            // Set developer flags in localStorage with safe try-catch for unhydrated origins
             const key = "{FLAG_OVERRIDES_KEY}";
             let current = {{}};
             try {{
-                current = JSON.parse(localStorage.getItem(key) || "{{}}");
-            }} catch (_) {{}}
-            const targetFlags = {flags_json};
-            Object.assign(current, targetFlags);
-            localStorage.setItem(key, JSON.stringify(current));
+                const raw = localStorage.getItem(key);
+                if (raw) {{
+                    current = JSON.parse(raw);
+                }}
+                const targetFlags = {flags_json};
+                Object.assign(current, targetFlags);
+                localStorage.setItem(key, JSON.stringify(current));
+            }} catch (storageErr) {{
+                return {{
+                    success: false,
+                    retry: true,
+                    error: (storageErr && storageErr.toString) ? storageErr.toString() : String(storageErr)
+                }};
+            }}
 
             // Determine open/toggle state
             const url = new URL(window.location.href);
@@ -456,7 +465,8 @@ def inject_trajectory_debug(
         }} catch (e) {{
             return {{
                 success: false,
-                error: String(e)
+                retry: true,
+                error: (e && e.toString) ? e.toString() : String(e)
             }};
         }}
     }})()
@@ -464,6 +474,8 @@ def inject_trajectory_debug(
     res = client.evaluate(expr)
     if isinstance(res, dict) and res.get("success"):
         return res
+    if isinstance(res, dict) and "error" in res:
+        raise CDPError(f"Failed to inject trajectory debug flags: {res['error']}")
     raise CDPError(f"Failed to inject trajectory debug flags: {res}")
 
 
@@ -476,6 +488,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
     do_devtools: bool = getattr(args, "devtools", False)
     do_trajectory: bool = getattr(args, "trajectory_debug", False)
     do_toggle: bool = getattr(args, "toggle", False)
+    verbose: bool = getattr(args, "verbose", False)
 
     # Bare default action: if no action flags provided, default to opening trajectory debug
     if not do_devtools and not do_trajectory and not do_toggle:
@@ -483,50 +496,67 @@ def cmd_gui(args: argparse.Namespace) -> int:
     elif do_toggle:
         do_trajectory = True
 
-    # 1. Inspect Port File and Query Targets (with optional startup wait polling)
+    # 1. Inspect Port File, Query Targets, and Connect/Inject with retry budget
     deadline = (time.time() + wait) if (wait is not None and wait > 0) else 0.0
 
     port: int = 0
     browser_target: str = ""
     targets: List[Dict[str, Any]] = []
     target: Optional[Dict[str, Any]] = None
+    trajectory_result: Optional[Dict[str, Any]] = None
 
-    last_phase = "port"  # "port", "connection", "page"
+    last_phase = "port"  # "port", "connection", "page", "injection"
     last_error: Optional[Exception] = None
+    first_pass = True
 
-    while True:
+    while first_pass or time.time() < deadline:
+        first_pass = False
         try:
+            last_phase = "port"
             port, browser_target = get_devtools_active_port(port_file)
+
             last_phase = "connection"
             targets = get_cdp_targets(port, timeout=min(timeout, 2.0))
-            last_phase = "page"
-            target = find_page_target(targets)
 
-            # If wait is specified, wait until active webview is loaded (not about:blank and 127.0.0.1: in url)
+            last_phase = "page"
+            cur_target = find_page_target(targets)
+            if not cur_target or not cur_target.get("webSocketDebuggerUrl"):
+                raise CDPTargetNotFoundError(f"No active Antigravity page target found on 127.0.0.1:{port}")
+
             if wait is not None and wait > 0:
-                target_url = target.get("url", "") if target else ""
-                if (
-                    target
-                    and target.get("webSocketDebuggerUrl")
-                    and target_url != "about:blank"
-                    and not target_url.startswith("about:blank")
-                    and "127.0.0.1:" in target_url
-                ):
-                    break
-            else:
-                if target and target.get("webSocketDebuggerUrl"):
-                    break
-            if not target:
-                last_error = CDPTargetNotFoundError(f"No active Antigravity page target found on 127.0.0.1:{port}")
+                target_url = cur_target.get("url", "")
+                if target_url.startswith("about:blank") or "127.0.0.1:" not in target_url:
+                    raise CDPTargetNotFoundError(f"Page target not fully hydrated ({target_url})")
+
+            target = cur_target
+
+            # 2. Trajectory Debug Injection inside retry loop
+            if do_trajectory:
+                last_phase = "injection"
+                ws_url = target["webSocketDebuggerUrl"]
+                client = CDPWebSocketClient(timeout=timeout)
+                try:
+                    client.connect(ws_url)
+                    trajectory_result = inject_trajectory_debug(client, toggle=do_toggle)
+                finally:
+                    client.close()
+
+            # Successfully completed required actions
+            break
         except Exception as exc:
             last_error = exc
-
-        if wait is None or wait <= 0 or time.time() >= deadline:
+            if time.time() < deadline:
+                if verbose:
+                    sys.stderr.write(f"[agyis gui] Retrying after {last_phase} error: {exc}\n")
+                    sys.stderr.flush()
+                time.sleep(0.5)
+                continue
             break
-        time.sleep(0.25)
 
-    # Report failure if target not found
-    if not target or not target.get("webSocketDebuggerUrl"):
+    success = (trajectory_result is not None) if do_trajectory else (target is not None and bool(target.get("webSocketDebuggerUrl")))
+
+    # Report failure if target not found or injection failed
+    if not success or target is None:
         if last_phase == "port":
             is_headless = not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")
             if as_json:
@@ -554,7 +584,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
                 print(f"❌ Failed to connect to CDP endpoint on 127.0.0.1:{port}: {last_error}")
                 print("   The DevToolsActivePort file may be stale from a terminated session.")
             return 1
-        else:  # last_phase == "page"
+        elif last_phase == "page":
             if as_json:
                 print(json.dumps({
                     "status": "error",
@@ -565,30 +595,19 @@ def cmd_gui(args: argparse.Namespace) -> int:
             else:
                 print(f"❌ No active Antigravity page target found on 127.0.0.1:{port}.")
             return 1
-
-    urls = format_devtools_urls(port, target)
-    trajectory_result = None
-
-    # 2. Trajectory Debug Injection
-    if do_trajectory:
-        ws_url = target["webSocketDebuggerUrl"]
-        client = CDPWebSocketClient(timeout=timeout)
-        try:
-            client.connect(ws_url)
-            trajectory_result = inject_trajectory_debug(client, toggle=do_toggle)
-        except Exception as exc:
+        else:  # last_phase == "injection"
             if as_json:
                 print(json.dumps({
                     "status": "error",
                     "error": "injection_failed",
                     "port": port,
-                    "message": str(exc),
+                    "message": str(last_error or "CDP injection failed"),
                 }, indent=2))
             else:
-                print(f"❌ Failed to inject trajectory debug flags via CDP: {exc}")
+                print(f"❌ Failed to inject trajectory debug flags via CDP: {last_error}")
             return 1
-        finally:
-            client.close()
+
+    urls = format_devtools_urls(port, target)
 
     # 3. Output Formatting
     if as_json:
