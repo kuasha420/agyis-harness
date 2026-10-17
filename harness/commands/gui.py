@@ -27,6 +27,7 @@ from pathlib import Path
 import socket
 import struct
 import sys
+import time
 from typing import Any, Dict, List, Optional, Tuple
 import urllib.error
 import urllib.parse
@@ -104,8 +105,11 @@ def get_cdp_targets(port: int, host: str = "127.0.0.1", timeout: float = 5.0) ->
 
 
 def find_page_target(targets: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Identifies the active Antigravity main application page target."""
-    pages = [t for t in targets if t.get("type") == "page"]
+    """Identifies the active Antigravity main application page target, skipping about:blank."""
+    pages = [
+        t for t in targets
+        if t.get("type") == "page" and not (t.get("url") or "").startswith("about:blank")
+    ]
     if not pages:
         return None
 
@@ -289,31 +293,40 @@ class CDPWebSocketClient:
                     message_payload.clear()
                     current_opcode = None
 
-    def evaluate(self, expression: str, await_promise: bool = True, return_by_value: bool = True) -> Any:
-        """Executes a JavaScript expression in the target page context via Runtime.evaluate."""
+    def send_command(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Sends a CDP JSON-RPC command and waits for its response."""
         self._req_id += 1
-        payload = {
+        payload: Dict[str, Any] = {
             "id": self._req_id,
-            "method": "Runtime.evaluate",
-            "params": {
-                "expression": expression,
-                "awaitPromise": await_promise,
-                "returnByValue": return_by_value,
-            },
+            "method": method,
         }
+        if params is not None:
+            payload["params"] = params
         self.send_json(payload)
         resp = self.recv_message(expected_id=self._req_id)
 
         if "error" in resp:
             err_msg = resp["error"].get("message", "Unknown CDP error")
-            raise CDPError(f"CDP Runtime.evaluate error: {err_msg}")
+            raise CDPError(f"CDP {method} error: {err_msg}")
 
-        result_obj = resp.get("result", {}).get("result", {})
-        if resp.get("result", {}).get("exceptionDetails"):
-            details = resp["result"]["exceptionDetails"]
-            raise CDPError(f"JavaScript evaluation exception: {details.get('text', details)}")
+        return resp.get("result", {})
 
-        return result_obj.get("value")
+    def evaluate(self, expression: str, await_promise: bool = True, return_by_value: bool = True) -> Any:
+        """Executes a JavaScript expression in the target page context via Runtime.evaluate."""
+        result_obj = self.send_command(
+            "Runtime.evaluate",
+            {
+                "expression": expression,
+                "awaitPromise": await_promise,
+                "returnByValue": return_by_value,
+            },
+        )
+        if result_obj.get("exceptionDetails"):
+            details = result_obj["exceptionDetails"]
+            text = details.get("text", details) if isinstance(details, dict) else details
+            raise CDPError(f"JavaScript evaluation exception: {text}")
+
+        return result_obj.get("result", {}).get("value")
 
     def close(self) -> None:
         """Closes the active WebSocket connection."""
@@ -355,16 +368,66 @@ def format_devtools_urls(port: int, target: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
-def inject_trajectory_debug(client: CDPWebSocketClient, flags: Optional[Dict[str, bool]] = None) -> Dict[str, Any]:
+def build_hotkey_script() -> str:
     """
-    Injects developer custom flag overrides into localStorage and pops open Trajectory Debug View.
+    Builds the JavaScript snippet to listen for F12 and Ctrl+Shift+T hotkeys
+    and toggle the trajectoryDebugOpen URL parameter.
+    """
+    return (
+        "(() => {\n"
+        "  if (window.__agyis_hotkey_installed) return;\n"
+        "  window.__agyis_hotkey_installed = true;\n"
+        "  window.addEventListener('keydown', (e) => {\n"
+        "    const isF12 = e.key === 'F12';\n"
+        "    const isCtrlShiftT = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't');\n"
+        "    if (isF12 || isCtrlShiftT) {\n"
+        "      e.preventDefault();\n"
+        "      e.stopPropagation();\n"
+        "      try {\n"
+        "        const url = new URL(window.location.href);\n"
+        "        const current = url.searchParams.get('trajectoryDebugOpen');\n"
+        "        const nextState = current === 'true' ? 'false' : 'true';\n"
+        "        url.searchParams.set('trajectoryDebugOpen', nextState);\n"
+        "        window.history.pushState({}, '', url.toString());\n"
+        "        window.dispatchEvent(new PopStateEvent('popstate'));\n"
+        "      } catch (err) {\n"
+        "        console.error('Failed to toggle trajectory debug view:', err);\n"
+        "      }\n"
+        "    }\n"
+        "  }, true);\n"
+        "})();"
+    )
+
+
+def inject_trajectory_debug(
+    client: CDPWebSocketClient,
+    flags: Optional[Dict[str, bool]] = None,
+    toggle: bool = False,
+) -> Dict[str, Any]:
+    """
+    Injects developer custom flag overrides into localStorage, opens or toggles
+    Trajectory Debug View, and installs hotkey listeners (F12, Ctrl+Shift+T) surviving page reloads.
     """
     target_flags = flags or DEFAULT_TARGET_FLAGS
     flags_json = json.dumps(target_flags)
+    toggle_json = "true" if toggle else "false"
+    hotkey_script = build_hotkey_script()
 
+    # 1. Register with Page.addScriptToEvaluateOnNewDocument to survive page reloads
+    try:
+        client.send_command("Page.addScriptToEvaluateOnNewDocument", {"source": hotkey_script})
+    except Exception:
+        # Gracefully handle target environments where Page domain is not active
+        pass
+
+    # 2. Evaluate in active document context
     expr = f"""
     (() => {{
         try {{
+            // Install hotkey listener immediately on current document
+            {hotkey_script}
+
+            // Set developer flags in localStorage
             const key = "{FLAG_OVERRIDES_KEY}";
             let current = {{}};
             try {{
@@ -374,14 +437,21 @@ def inject_trajectory_debug(client: CDPWebSocketClient, flags: Optional[Dict[str
             Object.assign(current, targetFlags);
             localStorage.setItem(key, JSON.stringify(current));
 
+            // Determine open/toggle state
             const url = new URL(window.location.href);
-            url.searchParams.set("trajectoryDebugOpen", "true");
+            const isToggle = {toggle_json};
+            const currentVal = url.searchParams.get("trajectoryDebugOpen");
+            const nextState = isToggle ? (currentVal === "true" ? "false" : "true") : "true";
+            url.searchParams.set("trajectoryDebugOpen", nextState);
             window.history.pushState({{}}, "", url.toString());
             window.dispatchEvent(new PopStateEvent("popstate"));
+
             return {{
                 success: true,
                 flags: current,
-                url: url.toString()
+                url: url.toString(),
+                open: nextState === "true",
+                hotkey_registered: true
             }};
         }} catch (e) {{
             return {{
@@ -401,69 +471,111 @@ def cmd_gui(args: argparse.Namespace) -> int:
     """Primary handler for 'agyis gui' subcommand."""
     port_file: Optional[Path] = getattr(args, "port_file", None)
     timeout: float = getattr(args, "timeout", 5.0)
+    wait: Optional[float] = getattr(args, "wait", None)
     as_json: bool = getattr(args, "json", False)
     do_devtools: bool = getattr(args, "devtools", False)
     do_trajectory: bool = getattr(args, "trajectory_debug", False)
+    do_toggle: bool = getattr(args, "toggle", False)
 
-    # 1. Inspect Port File
-    try:
-        port, browser_target = get_devtools_active_port(port_file)
-    except Exception as exc:
-        is_headless = not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")
-        if as_json:
-            print(json.dumps({
-                "status": "error",
-                "error": "port_file_not_found",
-                "message": str(exc),
-                "headless": is_headless,
-            }, indent=2))
-        else:
-            print(f"❌ Could not resolve Antigravity DevTools port: {exc}")
-            if is_headless:
-                print("   (Host environment appears headless: neither DISPLAY nor WAYLAND_DISPLAY is set)")
-            print("   Ensure Google Antigravity Desktop GUI is running.")
-        return 1
+    # Bare default action: if no action flags provided, default to opening trajectory debug
+    if not do_devtools and not do_trajectory and not do_toggle:
+        do_trajectory = True
+    elif do_toggle:
+        do_trajectory = True
 
-    # 2. Query CDP Targets
-    try:
-        targets = get_cdp_targets(port, timeout=timeout)
-    except Exception as exc:
-        if as_json:
-            print(json.dumps({
-                "status": "error",
-                "error": "connection_failed",
-                "port": port,
-                "message": str(exc),
-            }, indent=2))
-        else:
-            print(f"❌ Failed to connect to CDP endpoint on 127.0.0.1:{port}: {exc}")
-            print("   The DevToolsActivePort file may be stale from a terminated session.")
-        return 1
+    # 1. Inspect Port File and Query Targets (with optional startup wait polling)
+    deadline = (time.time() + wait) if (wait is not None and wait > 0) else 0.0
 
-    # 3. Locate Page Target
-    target = find_page_target(targets)
+    port: int = 0
+    browser_target: str = ""
+    targets: List[Dict[str, Any]] = []
+    target: Optional[Dict[str, Any]] = None
+
+    last_phase = "port"  # "port", "connection", "page"
+    last_error: Optional[Exception] = None
+
+    while True:
+        try:
+            port, browser_target = get_devtools_active_port(port_file)
+            last_phase = "connection"
+            targets = get_cdp_targets(port, timeout=min(timeout, 2.0))
+            last_phase = "page"
+            target = find_page_target(targets)
+
+            # If wait is specified, wait until active webview is loaded (not about:blank and 127.0.0.1: in url)
+            if wait is not None and wait > 0:
+                target_url = target.get("url", "") if target else ""
+                if (
+                    target
+                    and target.get("webSocketDebuggerUrl")
+                    and target_url != "about:blank"
+                    and not target_url.startswith("about:blank")
+                    and "127.0.0.1:" in target_url
+                ):
+                    break
+            else:
+                if target and target.get("webSocketDebuggerUrl"):
+                    break
+            if not target:
+                last_error = CDPTargetNotFoundError(f"No active Antigravity page target found on 127.0.0.1:{port}")
+        except Exception as exc:
+            last_error = exc
+
+        if wait is None or wait <= 0 or time.time() >= deadline:
+            break
+        time.sleep(0.25)
+
+    # Report failure if target not found
     if not target or not target.get("webSocketDebuggerUrl"):
-        if as_json:
-            print(json.dumps({
-                "status": "error",
-                "error": "no_page_target",
-                "port": port,
-                "target_count": len(targets),
-            }, indent=2))
-        else:
-            print(f"❌ No active Antigravity page target found on 127.0.0.1:{port}.")
-        return 1
+        if last_phase == "port":
+            is_headless = not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")
+            if as_json:
+                print(json.dumps({
+                    "status": "error",
+                    "error": "port_file_not_found",
+                    "message": str(last_error or "DevTools port file not found"),
+                    "headless": is_headless,
+                }, indent=2))
+            else:
+                print(f"❌ Could not resolve Antigravity DevTools port: {last_error or 'DevTools port file not found'}")
+                if is_headless:
+                    print("   (Host environment appears headless: neither DISPLAY nor WAYLAND_DISPLAY is set)")
+                print("   Ensure Google Antigravity Desktop GUI is running.")
+            return 1
+        elif last_phase == "connection":
+            if as_json:
+                print(json.dumps({
+                    "status": "error",
+                    "error": "connection_failed",
+                    "port": port,
+                    "message": str(last_error or "CDP connection failed"),
+                }, indent=2))
+            else:
+                print(f"❌ Failed to connect to CDP endpoint on 127.0.0.1:{port}: {last_error}")
+                print("   The DevToolsActivePort file may be stale from a terminated session.")
+            return 1
+        else:  # last_phase == "page"
+            if as_json:
+                print(json.dumps({
+                    "status": "error",
+                    "error": "no_page_target",
+                    "port": port,
+                    "target_count": len(targets),
+                }, indent=2))
+            else:
+                print(f"❌ No active Antigravity page target found on 127.0.0.1:{port}.")
+            return 1
 
     urls = format_devtools_urls(port, target)
     trajectory_result = None
 
-    # 4. Trajectory Debug Injection
+    # 2. Trajectory Debug Injection
     if do_trajectory:
         ws_url = target["webSocketDebuggerUrl"]
         client = CDPWebSocketClient(timeout=timeout)
         try:
             client.connect(ws_url)
-            trajectory_result = inject_trajectory_debug(client)
+            trajectory_result = inject_trajectory_debug(client, toggle=do_toggle)
         except Exception as exc:
             if as_json:
                 print(json.dumps({
@@ -478,7 +590,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
         finally:
             client.close()
 
-    # 5. Output Formatting
+    # 3. Output Formatting
     if as_json:
         payload: Dict[str, Any] = {
             "status": "success",
@@ -502,10 +614,12 @@ def cmd_gui(args: argparse.Namespace) -> int:
 
     if trajectory_result is not None:
         print("-" * 70)
-        print(" ✔ Trajectory Debug View unlocked successfully:")
+        is_open = trajectory_result.get("open", True)
+        state_str = "unlocked" if is_open else "closed"
+        print(f" ✔ Trajectory Debug View {state_str} successfully:")
         print("   • Injected flags: 'enable-trajectory-debug-tools', 'enable-developer-mode'")
-        print("   • Dispatched URL parameter: ?trajectoryDebugOpen=true")
-        print("   • Trajectory modal is now open on your desktop GUI.")
+        print(f"   • Dispatched URL parameter: ?trajectoryDebugOpen={'true' if is_open else 'false'}")
+        print("   • Keyboard hotkey active: [F12] or [Ctrl+Shift+T] directly toggle modal inside Antigravity.")
 
     if do_devtools or not do_trajectory:
         print("-" * 70)
@@ -515,10 +629,12 @@ def cmd_gui(args: argparse.Namespace) -> int:
             print(f"   • Direct Web Inspector: {urls['devtools_frontend_url']}")
         if urls["bundled_inspector_url"]:
             print(f"   • Bundled URL:          {urls['bundled_inspector_url']}")
-        print("-" * 70)
-        print(" CLI Usage Tip:")
-        print("   • agyis gui --trajectory-debug : Open context breakdown & trajectory view")
-        print("   • agyis gui --devtools         : Display DevTools inspector connection endpoints")
-        print("   • agyis gui --json             : Emit structured JSON for automation")
+
+    print("-" * 70)
+    print(" Quick Controls:")
+    print("   • agyis gui          : Open trajectory debug view (default)")
+    print("   • agyis gui --toggle : Toggle open/closed state")
+    print("   • In-window hotkey   : Press F12 or Ctrl+Shift+T inside Antigravity")
+    print("   • agyis gui --devtools : Display DevTools inspector connection endpoints")
     print("=" * 70)
     return 0

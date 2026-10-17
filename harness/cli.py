@@ -565,6 +565,18 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Inject developer flags and trigger Trajectory Debug View (?trajectoryDebugOpen=true)",
     )
     p_gui.add_argument(
+        "--toggle",
+        action="store_true",
+        help="Toggle Trajectory Debug View open/closed state",
+    )
+    p_gui.add_argument(
+        "--wait",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Wait/poll timeout in seconds for active Antigravity webview to become ready",
+    )
+    p_gui.add_argument(
         "--port-file",
         type=Path,
         default=None,
