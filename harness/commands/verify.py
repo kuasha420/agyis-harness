@@ -17,7 +17,7 @@ import subprocess
 import sys
 from typing import Any, Dict, List, Optional
 
-from harness.hooks.completion_fence_hook import is_manifest_verified
+from harness.hooks.completion_fence_hook import clear_spec_dirty, is_manifest_verified
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
@@ -80,6 +80,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
             print(
                 f"✔ Cleanroom specifications verified ({len(spec_files)} specifications found in docs/specs/)."
             )
+        try:
+            clear_spec_dirty()
+        except Exception:
+            pass
         return 0
 
     # 2. Delegation to 'rea verify-reconstruction' if applicable
@@ -110,6 +114,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
                         if res.stdout.strip():
                             print(res.stdout.strip())
                         print("✔ Cleanroom reconstruction verified via 'rea verify-reconstruction'.")
+                    try:
+                        clear_spec_dirty()
+                    except Exception:
+                        pass
                     return 0
                 else:
                     if is_json:
@@ -188,4 +196,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
             f"✔ Cleanroom verification passed ({len(spec_files)} specifications found, manifest: {manifest_desc})."
         )
 
+    try:
+        clear_spec_dirty()
+    except Exception:
+        pass
     return 0

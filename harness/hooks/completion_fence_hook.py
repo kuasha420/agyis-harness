@@ -526,6 +526,21 @@ def handle_post_tool_use(
         is_err = result.get("isError") or result.get("is_error") if isinstance(result, dict) else False
         if status != "error" and not is_err:
             clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
+    elif tool_name in ("run_command", "execute_command", "bash"):
+        cmd = args.get("CommandLine") or args.get("command") or ""
+        exit_code = result.get("exit_code") or result.get("returncode")
+        if exit_code is None:
+            is_err = result.get("isError") or result.get("is_error") or False
+            status = result.get("status")
+            if status != "error" and not is_err:
+                exit_code = 0
+        if exit_code == 0 and cmd:
+            cmd_lower = cmd.lower()
+            if any(
+                p in cmd_lower
+                for p in ("verify --spec", "verify-reconstruction", "agyis verify", "harness.cli verify")
+            ):
+                clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
 
 
 def evaluate_stop(
@@ -783,6 +798,13 @@ def main() -> None:
             exit_code = extract_exit_code(payload)
             if exit_code is not None and cmd:
                 check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, cwd=cwd)
+                if exit_code == 0:
+                    cmd_lower = cmd.lower()
+                    if any(
+                        p in cmd_lower
+                        for p in ("verify --spec", "verify-reconstruction", "agyis verify", "harness.cli verify")
+                    ):
+                        clear_spec_dirty(conv_id=conv_id)
 
         # PostToolUse contract: Antigravity expects exact JSON {}
         if is_post_tool_use:

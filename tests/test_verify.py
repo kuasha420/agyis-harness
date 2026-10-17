@@ -198,7 +198,29 @@ class TestVerifyCommand(unittest.TestCase):
 
         with patch("sys.stdout", io.StringIO()):
             ret = cli_main(["verify", "--spec", "-w", str(self.workspace)])
-        self.assertEqual(ret, 0)
+    def test_cmd_verify_clears_spec_dirty(self) -> None:
+        """Verifies that cmd_verify clears spec_dirty state in completion fence upon success."""
+        from harness.hooks.completion_fence_hook import load_state, record_edit
+
+        specs_dir = self.workspace / "docs" / "specs"
+        specs_dir.mkdir(parents=True, exist_ok=True)
+        spec_file = specs_dir / "clean_contract.md"
+        spec_file.write_text("# Contract", encoding="utf-8")
+
+        # Simulate spec edit dirtying state
+        record_edit(str(spec_file), conv_id="test_verify_clear", cwd=str(self.workspace))
+        st_before = load_state(conv_id="test_verify_clear")
+        self.assertTrue(st_before.get("spec_dirty"))
+
+        args = argparse.Namespace(
+            workspace=self.workspace,
+            spec=True,
+            json=False,
+        )
+        with patch("harness.commands.verify.clear_spec_dirty") as mock_clear:
+            code = cmd_verify(args)
+            self.assertEqual(code, 0)
+            mock_clear.assert_called_once()
 
 
 if __name__ == "__main__":
