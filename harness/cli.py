@@ -570,6 +570,12 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Toggle Trajectory Debug View open/closed state",
     )
     p_gui.add_argument(
+        "--no-popup", "--no-open", "--setup-only",
+        action="store_true",
+        dest="no_popup",
+        help="Inject developer flags and hotkeys without opening the Trajectory Debug View modal popup",
+    )
+    p_gui.add_argument(
         "--wait",
         type=float,
         default=None,

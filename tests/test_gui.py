@@ -410,6 +410,31 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
         self.assertIn("const isToggle = true;", expr)
         self.assertIn('const nextState = isToggle ? (currentVal === "true" ? "false" : "true") : "true";', expr)
 
+    def test_inject_trajectory_debug_open_view_false(self) -> None:
+        mock_client = MagicMock()
+        mock_client.evaluate.return_value = {
+            "success": True,
+            "flags": {"enable-trajectory-debug-tools": True, "enable-developer-mode": True},
+            "url": "https://127.0.0.1:37277/",
+            "open": False,
+            "hotkey_registered": True,
+        }
+        res = inject_trajectory_debug(mock_client, open_view=False)
+        self.assertTrue(res["success"])
+        self.assertFalse(res["open"])
+        self.assertEqual(res["url"], "https://127.0.0.1:37277/")
+        self.assertTrue(res["hotkey_registered"])
+
+        # Verify evaluate expression contains openView = false
+        expr = mock_client.evaluate.call_args[0][0]
+        self.assertIn("const openView = false;", expr)
+        self.assertIn("if (openView)", expr)
+        # Verify Page.addScriptToEvaluateOnNewDocument was still called
+        mock_client.send_command.assert_called_once()
+        method, params = mock_client.send_command.call_args[0]
+        self.assertEqual(method, "Page.addScriptToEvaluateOnNewDocument")
+        self.assertIn("F12", params["source"])
+
 
 class TestFormatDevToolsUrls(unittest.TestCase):
     """Tests formatting of DevTools inspection URLs."""
@@ -452,10 +477,26 @@ class TestGuiCommandCLI(unittest.TestCase):
             self.assertIn("--devtools", out)
             self.assertIn("--trajectory-debug", out)
             self.assertIn("--toggle", out)
+            self.assertIn("--no-popup", out)
             self.assertIn("--wait", out)
             self.assertIn("--port-file", out)
             self.assertIn("--timeout", out)
             self.assertIn("--json", out)
+
+    def test_gui_cli_no_popup_flags(self) -> None:
+        """Verifies --no-popup and its aliases --no-open, --setup-only set args.no_popup."""
+        parser = build_parser()
+        args1 = parser.parse_args(["gui", "--no-popup"])
+        self.assertTrue(args1.no_popup)
+
+        args2 = parser.parse_args(["gui", "--no-open"])
+        self.assertTrue(args2.no_popup)
+
+        args3 = parser.parse_args(["gui", "--setup-only"])
+        self.assertTrue(args3.no_popup)
+
+        args_default = parser.parse_args(["gui"])
+        self.assertFalse(args_default.no_popup)
 
     @patch("harness.commands.gui.get_cdp_targets")
     def test_cmd_gui_devtools_terminal(self, mock_targets: MagicMock) -> None:
@@ -714,7 +755,7 @@ class TestGuiCommandCLI(unittest.TestCase):
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             code = cmd_gui(args)
             self.assertEqual(code, 0)
-            mock_inject.assert_called_once_with(unittest.mock.ANY, toggle=False)
+            mock_inject.assert_called_once_with(unittest.mock.ANY, toggle=False, open_view=True)
             out = mock_out.getvalue()
             self.assertIn("Trajectory Debug View unlocked successfully", out)
 
@@ -755,9 +796,104 @@ class TestGuiCommandCLI(unittest.TestCase):
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             code = cmd_gui(args)
             self.assertEqual(code, 0)
-            mock_inject.assert_called_once_with(unittest.mock.ANY, toggle=True)
+            mock_inject.assert_called_once_with(unittest.mock.ANY, toggle=True, open_view=True)
             out = mock_out.getvalue()
             self.assertIn("Trajectory Debug View closed successfully", out)
+
+    @patch("harness.commands.gui.inject_trajectory_debug")
+    @patch.object(CDPWebSocketClient, "connect")
+    @patch.object(CDPWebSocketClient, "close")
+    @patch("harness.commands.gui.get_cdp_targets")
+    def test_cmd_gui_no_popup_terminal(
+        self,
+        mock_targets: MagicMock,
+        mock_close: MagicMock,
+        mock_connect: MagicMock,
+        mock_inject: MagicMock,
+    ) -> None:
+        mock_targets.return_value = [
+            {
+                "id": "PAGE1",
+                "type": "page",
+                "title": "Antigravity Workspace",
+                "url": "https://127.0.0.1:37277/",
+                "webSocketDebuggerUrl": "ws://127.0.0.1:46391/devtools/page/PAGE1",
+            }
+        ]
+        mock_inject.return_value = {
+            "success": True,
+            "url": "https://127.0.0.1:37277/",
+            "open": False,
+            "flags": {"enable-trajectory-debug-tools": True, "enable-developer-mode": True},
+            "hotkey_registered": True,
+        }
+
+        args = argparse.Namespace(
+            port_file=self.port_file,
+            timeout=5.0,
+            wait=0.0,
+            json=False,
+            devtools=False,
+            trajectory_debug=False,
+            toggle=False,
+            no_popup=True,
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_gui(args)
+            self.assertEqual(code, 0)
+            mock_inject.assert_called_once_with(unittest.mock.ANY, toggle=False, open_view=False)
+            out = mock_out.getvalue()
+            self.assertIn("Trajectory Debug shortcuts and Command Palette flags primed successfully (modal popup suppressed)", out)
+            self.assertIn("Injected flags: 'enable-trajectory-debug-tools', 'enable-developer-mode'", out)
+            self.assertIn("Developer: Trajectory Debug View", out)
+            self.assertIn("F12", out)
+
+    @patch("harness.commands.gui.inject_trajectory_debug")
+    @patch.object(CDPWebSocketClient, "connect")
+    @patch.object(CDPWebSocketClient, "close")
+    @patch("harness.commands.gui.get_cdp_targets")
+    def test_cmd_gui_no_popup_json(
+        self,
+        mock_targets: MagicMock,
+        mock_close: MagicMock,
+        mock_connect: MagicMock,
+        mock_inject: MagicMock,
+    ) -> None:
+        mock_targets.return_value = [
+            {
+                "id": "PAGE1",
+                "type": "page",
+                "title": "Antigravity Workspace",
+                "url": "https://127.0.0.1:37277/",
+                "webSocketDebuggerUrl": "ws://127.0.0.1:46391/devtools/page/PAGE1",
+            }
+        ]
+        mock_inject.return_value = {
+            "success": True,
+            "url": "https://127.0.0.1:37277/",
+            "open": False,
+            "flags": {"enable-trajectory-debug-tools": True, "enable-developer-mode": True},
+            "hotkey_registered": True,
+        }
+
+        args = argparse.Namespace(
+            port_file=self.port_file,
+            timeout=5.0,
+            wait=0.0,
+            json=True,
+            devtools=False,
+            trajectory_debug=False,
+            toggle=False,
+            no_popup=True,
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_gui(args)
+            self.assertEqual(code, 0)
+            mock_inject.assert_called_once_with(unittest.mock.ANY, toggle=False, open_view=False)
+            data = json.loads(mock_out.getvalue())
+            self.assertEqual(data["status"], "success")
+            self.assertEqual(data["trajectory_debug"]["open"], False)
+            self.assertEqual(data["trajectory_debug"]["url"], "https://127.0.0.1:37277/")
 
     @patch("time.sleep")
     @patch("harness.commands.gui.inject_trajectory_debug")

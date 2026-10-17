@@ -403,6 +403,7 @@ def inject_trajectory_debug(
     client: CDPWebSocketClient,
     flags: Optional[Dict[str, bool]] = None,
     toggle: bool = False,
+    open_view: bool = True,
 ) -> Dict[str, Any]:
     """
     Injects developer custom flag overrides into localStorage, opens or toggles
@@ -411,6 +412,7 @@ def inject_trajectory_debug(
     target_flags = flags or DEFAULT_TARGET_FLAGS
     flags_json = json.dumps(target_flags)
     toggle_json = "true" if toggle else "false"
+    open_view_json = "true" if open_view else "false"
     hotkey_script = build_hotkey_script()
 
     # 1. Register with Page.addScriptToEvaluateOnNewDocument to survive page reloads
@@ -438,6 +440,9 @@ def inject_trajectory_debug(
                 const targetFlags = {flags_json};
                 Object.assign(current, targetFlags);
                 localStorage.setItem(key, JSON.stringify(current));
+                try {{
+                    window.dispatchEvent(new StorageEvent("storage", {{ key: key, newValue: JSON.stringify(current) }}));
+                }} catch (_) {{}}
             }} catch (storageErr) {{
                 return {{
                     success: false,
@@ -448,18 +453,24 @@ def inject_trajectory_debug(
 
             // Determine open/toggle state
             const url = new URL(window.location.href);
+            const openView = {open_view_json};
             const isToggle = {toggle_json};
             const currentVal = url.searchParams.get("trajectoryDebugOpen");
-            const nextState = isToggle ? (currentVal === "true" ? "false" : "true") : "true";
-            url.searchParams.set("trajectoryDebugOpen", nextState);
-            window.history.pushState({{}}, "", url.toString());
-            window.dispatchEvent(new PopStateEvent("popstate"));
+            let isOpen = currentVal === "true";
+
+            if (openView) {{
+                const nextState = isToggle ? (currentVal === "true" ? "false" : "true") : "true";
+                url.searchParams.set("trajectoryDebugOpen", nextState);
+                window.history.pushState({{}}, "", url.toString());
+                window.dispatchEvent(new PopStateEvent("popstate"));
+                isOpen = nextState === "true";
+            }}
 
             return {{
                 success: true,
                 flags: current,
                 url: url.toString(),
-                open: nextState === "true",
+                open: isOpen,
                 hotkey_registered: true
             }};
         }} catch (e) {{
@@ -488,10 +499,13 @@ def cmd_gui(args: argparse.Namespace) -> int:
     do_devtools: bool = getattr(args, "devtools", False)
     do_trajectory: bool = getattr(args, "trajectory_debug", False)
     do_toggle: bool = getattr(args, "toggle", False)
+    no_popup: bool = getattr(args, "no_popup", False)
     verbose: bool = getattr(args, "verbose", False)
 
     # Bare default action: if no action flags provided, default to opening trajectory debug
-    if not do_devtools and not do_trajectory and not do_toggle:
+    if no_popup and not do_devtools:
+        do_trajectory = True
+    elif not do_devtools and not do_trajectory and not do_toggle:
         do_trajectory = True
     elif do_toggle:
         do_trajectory = True
@@ -537,7 +551,11 @@ def cmd_gui(args: argparse.Namespace) -> int:
                 client = CDPWebSocketClient(timeout=timeout)
                 try:
                     client.connect(ws_url)
-                    trajectory_result = inject_trajectory_debug(client, toggle=do_toggle)
+                    trajectory_result = inject_trajectory_debug(
+                        client,
+                        toggle=do_toggle,
+                        open_view=(not no_popup),
+                    )
                 finally:
                     client.close()
 
@@ -634,11 +652,17 @@ def cmd_gui(args: argparse.Namespace) -> int:
     if trajectory_result is not None:
         print("-" * 70)
         is_open = trajectory_result.get("open", True)
-        state_str = "unlocked" if is_open else "closed"
-        print(f" ✔ Trajectory Debug View {state_str} successfully:")
-        print("   • Injected flags: 'enable-trajectory-debug-tools', 'enable-developer-mode'")
-        print(f"   • Dispatched URL parameter: ?trajectoryDebugOpen={'true' if is_open else 'false'}")
-        print("   • Keyboard hotkey active: [F12] or [Ctrl+Shift+T] directly toggle modal inside Antigravity.")
+        if no_popup:
+            print(" ✔ Trajectory Debug shortcuts and Command Palette flags primed successfully (modal popup suppressed)")
+            print("   • Injected flags: 'enable-trajectory-debug-tools', 'enable-developer-mode'")
+            print("   • Command Palette: 'Developer: Trajectory Debug View' is visible")
+            print("   • Keyboard hotkey active: [F12] or [Ctrl+Shift+T] directly toggle modal inside Antigravity.")
+        else:
+            state_str = "unlocked" if is_open else "closed"
+            print(f" ✔ Trajectory Debug View {state_str} successfully:")
+            print("   • Injected flags: 'enable-trajectory-debug-tools', 'enable-developer-mode'")
+            print(f"   • Dispatched URL parameter: ?trajectoryDebugOpen={'true' if is_open else 'false'}")
+            print("   • Keyboard hotkey active: [F12] or [Ctrl+Shift+T] directly toggle modal inside Antigravity.")
 
     if do_devtools or not do_trajectory:
         print("-" * 70)
@@ -652,6 +676,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
     print("-" * 70)
     print(" Quick Controls:")
     print("   • agyis gui          : Open trajectory debug view (default)")
+    print("   • agyis gui --no-popup : Prime shortcuts and flags without opening modal")
     print("   • agyis gui --toggle : Toggle open/closed state")
     print("   • In-window hotkey   : Press F12 or Ctrl+Shift+T inside Antigravity")
     print("   • agyis gui --devtools : Display DevTools inspector connection endpoints")
