@@ -6,17 +6,17 @@
 # 🔬 The Ultra-Deep Horizon Microscope: 1,000+ Step Survival Analysis
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
-**Generated At**: 2026-10-10T19:30:30.456786+00:00  
+**Generated At**: 2026-10-18T16:58:44.709139+00:00  
 **Data Source**: Deep forensic mining of `data/telemetry.db` across all sessions with `>= 1,000` steps  
 
 ---
 
 ## 1. Executive Summary: The Titan Population
 
-While the typical agent trajectory faces a severe cognitive degradation cliff beyond **50–200 steps**, exactly **40 sessions** on this workstation broke through the horizon and survived into **1,000 to 10,717 steps**.
-- **Titan Steps Count**: **109,354 steps** (**49.9% of our entire 140,005-step historical corpus**!).
-- **Titan Tool Calls**: **50,504 tool calls** (60.7% of all workstation executions).
-- **Titan Errors & Interventions**: **1,007 errors** and **1,189 human interventions**.
+While the typical agent trajectory faces a severe cognitive degradation cliff beyond **50–200 steps**, exactly **51 sessions** on this workstation broke through the horizon and survived into **1,000 to 10,717 steps**.
+- **Titan Steps Count**: **132,543 steps** (**34.2% of our entire 140,005-step historical corpus**!).
+- **Titan Tool Calls**: **61,045 tool calls** (60.7% of all workstation executions).
+- **Titan Errors & Interventions**: **1,104 errors** and **1,343 human interventions**.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -24,9 +24,9 @@ While the typical agent trajectory faces a severe cognitive degradation cliff be
 ├───────────────────────────────┬───────────────────┬────────────────────┤
 │ Metric                        │ Titan Sessions    │ Entire Corpus      │
 ├───────────────────────────────┼───────────────────┼────────────────────┤
-│ Session Count                 │                40 │                722 │
-│ Step Count                    │           109,354 │            219,289 │
-│ Share of Total Lifetime Steps │             49.9% │            100.0%  │
+│ Session Count                 │                51 │              1,720 │
+│ Step Count                    │           132,543 │            387,708 │
+│ Share of Total Lifetime Steps │             34.2% │            100.0%  │
 └───────────────────────────────┴───────────────────┴────────────────────┘
 ```
 
@@ -37,8 +37,8 @@ Our forensic clustering reveals that ultra-deep sessions do not fail or succeed 
 
 | Archetype | Sessions | Characteristics & Dynamics |
 | :--- | :--- | :--- |
-| **Type A: High-Endurance Survivors** | **14** | **<0.8 interventions/100 steps**. Relies on rigid command dictionaries, high test cadence, and surgical contiguous edits. Operates 250+ steps between interventions. |
-| **Type B: Systems Breakthroughs** | **10** | **Hardware mesh & Linux OS automation** (Knot, KDE, DBus, Wayland). Higher interventions due to mandatory safety gates (sudo passwords, physical pairing, GPG). |
+| **Type A: High-Endurance Survivors** | **21** | **<0.8 interventions/100 steps**. Relies on rigid command dictionaries, high test cadence, and surgical contiguous edits. Operates 250+ steps between interventions. |
+| **Type B: Systems Breakthroughs** | **14** | **Hardware mesh & Linux OS automation** (Knot, KDE, DBus, Wayland). Higher interventions due to mandatory safety gates (sudo passwords, physical pairing, GPG). |
 | **Type C: Thrashing & Exhaustion Traps** | **16** | **>1.5 interventions/100 steps & >5% errors**. Dominant `run_command` loops (>55%), rule indirection, guessing deployment configs, infinite view_file loops. |
 
 ---
@@ -53,8 +53,10 @@ Our forensic clustering reveals that ultra-deep sessions do not fail or succeed 
 | `e8aadb54` | 6,274 | 3,052 | 110 (3.6%) | 42 (0.67) | 191.8h | 🟢 Type A (Survivor) | `` |
 | `4185ee65` | 5,452 | 2,633 | 114 (4.33%) | 43 (0.79) | 35.4h | 🟢 Type A (Survivor) | `` |
 | `8a06bca0` | 4,836 | 2,227 | 6 (0.27%) | 90 (1.86) | 36.6h | 🔴 Type C (Trap) | `2768d860-6228-4b33-9148-eea0adef03ec` |
+| `07a02799` | 4,622 | 2,083 | 10 (0.48%) | 34 (0.74) | 16.1h | 🟢 Type A (Survivor) | `[WORKSPACE_ROOT]` |
 | `7a2a32af` | 4,466 | 2,106 | 7 (0.33%) | 47 (1.05) | 53.3h | 🔵 Type B (Systems) | `cd5ef963-87c7-4164-81d3-1d248a1e802d` |
 | `efa95f0e` | 4,215 | 1,972 | 13 (0.66%) | 47 (1.12) | 20.0h | 🔵 Type B (Systems) | `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` |
+| `5dbd65c7` | 4,161 | 1,891 | 10 (0.53%) | 24 (0.58) | 14.1h | 🟢 Type A (Survivor) | `` |
 | `57edf3ef` | 3,757 | 1,809 | 6 (0.33%) | 16 (0.43) | 89.3h | 🟢 Type A (Survivor) | `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` |
 | `1a189987` | 3,650 | 1,702 | 10 (0.59%) | 63 (1.73) | 108.3h | 🔴 Type C (Trap) | `2768d860-6228-4b33-9148-eea0adef03ec` |
 | `8cbe936a` | 3,369 | 1,618 | 12 (0.74%) | 33 (0.98) | 21.7h | 🔵 Type B (Systems) | `d3fbdfad-63f8-4578-a39a-6e3b2cd62690` |
@@ -62,7 +64,10 @@ Our forensic clustering reveals that ultra-deep sessions do not fail or succeed 
 | `57c5c5b4` | 2,445 | 1,148 | 17 (1.48%) | 7 (0.29) | 6.5h | 🟢 Type A (Survivor) | `57b9a748-8fcd-4f69-9d33-400bf25f3345` |
 | `ad52d7ba` | 2,435 | 1,131 | 18 (1.59%) | 17 (0.7) | 23.2h | 🟢 Type A (Survivor) | `57b9a748-8fcd-4f69-9d33-400bf25f3345` |
 | `f6c90459` | 2,411 | 1,110 | 65 (5.86%) | 45 (1.87) | 336.9h | 🔴 Type C (Trap) | `[WORKSPACE_ROOT]` |
+| `8cd7c340` | 2,388 | 1,073 | 3 (0.28%) | 20 (0.84) | 8.0h | 🟢 Type A (Survivor) | `` |
+| `5f4c04e5` | 2,303 | 1,017 | 27 (2.65%) | 0 (0.0) | 9.6h | 🟢 Type A (Survivor) | `[WORKSPACE_ROOT]` |
 | `704348b0` | 2,301 | 1,064 | 43 (4.04%) | 30 (1.3) | 41.8h | 🔵 Type B (Systems) | `` |
+| `2bb2f2f0` | 2,094 | 931 | 3 (0.32%) | 19 (0.91) | 7.5h | 🔵 Type B (Systems) | `` |
 | `908e2211` | 1,899 | 883 | 4 (0.45%) | 31 (1.63) | 271.7h | 🔴 Type C (Trap) | `0a7e0526-5229-4bad-8f1d-74ac878e0fb0` |
 | `4021bbec` | 1,887 | 801 | 6 (0.75%) | 24 (1.27) | 101.5h | 🔵 Type B (Systems) | `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` |
 | `40d9fe8a` | 1,810 | 841 | 12 (1.43%) | 33 (1.82) | 3.6h | 🔴 Type C (Trap) | `57b9a748-8fcd-4f69-9d33-400bf25f3345` |
@@ -72,20 +77,26 @@ Our forensic clustering reveals that ultra-deep sessions do not fail or succeed 
 | `4f494818` | 1,660 | 801 | 4 (0.5%) | 14 (0.84) | 28.9h | 🟢 Type A (Survivor) | `2768d860-6228-4b33-9148-eea0adef03ec` |
 | `4af37bb1` | 1,622 | 770 | 10 (1.3%) | 7 (0.43) | 5.0h | 🟢 Type A (Survivor) | `57b9a748-8fcd-4f69-9d33-400bf25f3345` |
 | `f9c3a0df` | 1,540 | 730 | 21 (2.88%) | 26 (1.69) | 68.2h | 🔵 Type B (Systems) | `purrmission` |
+| `6a45c337` | 1,512 | 676 | 3 (0.44%) | 13 (0.86) | 3.4h | 🟢 Type A (Survivor) | `` |
 | `421c3581` | 1,458 | 644 | 6 (0.93%) | 24 (1.65) | 17.3h | 🔴 Type C (Trap) | `57b9a748-8fcd-4f69-9d33-400bf25f3345` |
 | `d5c789b4` | 1,419 | 639 | 9 (1.41%) | 24 (1.69) | 140.9h | 🔴 Type C (Trap) | `Jasper` |
 | `afa20cf4` | 1,408 | 665 | 7 (1.05%) | 28 (1.99) | 135.5h | 🔴 Type C (Trap) | `74a18ea8-e7dc-49d9-83e2-d1b22fc9417f` |
 | `cea70064` | 1,357 | 625 | 5 (0.8%) | 12 (0.88) | 21.3h | 🟢 Type A (Survivor) | `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` |
 | `b41ba2c1` | 1,328 | 607 | 10 (1.65%) | 16 (1.2) | 22.7h | 🔵 Type B (Systems) | `57b9a748-8fcd-4f69-9d33-400bf25f3345` |
 | `13fada49` | 1,326 | 628 | 2 (0.32%) | 21 (1.58) | 4.2h | 🔴 Type C (Trap) | `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` |
+| `15467df2` | 1,298 | 634 | 4 (0.63%) | 4 (0.31) | 5.7h | 🟢 Type A (Survivor) | `[WORKSPACE_ROOT]` |
+| `ea0c06af` | 1,285 | 582 | 3 (0.52%) | 13 (1.01) | 2.9h | 🔵 Type B (Systems) | `` |
 | `8752b088` | 1,282 | 600 | 7 (1.17%) | 16 (1.25) | 1.8h | 🔵 Type B (Systems) | `57b9a748-8fcd-4f69-9d33-400bf25f3345` |
+| `84f48da6` | 1,280 | 628 | 7 (1.11%) | 0 (0.0) | 1.4h | 🟢 Type A (Survivor) | `[WORKSPACE_ROOT]` |
 | `9d122830` | 1,212 | 557 | 2 (0.36%) | 11 (0.91) | 16.4h | 🔵 Type B (Systems) | `2768d860-6228-4b33-9148-eea0adef03ec` |
 | `a663f8d0` | 1,208 | 573 | 3 (0.52%) | 13 (1.08) | 7.6h | 🔵 Type B (Systems) | `cd5ef963-87c7-4164-81d3-1d248a1e802d` |
 | `22fa3d25` | 1,189 | 556 | 39 (7.01%) | 30 (2.52) | 126.9h | 🔴 Type C (Trap) | `` |
+| `8e57a742` | 1,183 | 558 | 19 (3.41%) | 16 (1.35) | 12.4h | 🔵 Type B (Systems) | `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` |
 | `761bb75c` | 1,172 | 543 | 5 (0.92%) | 9 (0.77) | 4.4h | 🟢 Type A (Survivor) | `57b9a748-8fcd-4f69-9d33-400bf25f3345` |
 | `e4e3c534` | 1,110 | 514 | 6 (1.17%) | 27 (2.43) | 117.1h | 🔴 Type C (Trap) | `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` |
 | `d17081fe` | 1,104 | 518 | 45 (8.69%) | 20 (1.81) | 2.4h | 🔴 Type C (Trap) | `` |
 | `0ae0ba33` | 1,095 | 498 | 10 (2.01%) | 23 (2.1) | 52.9h | 🔴 Type C (Trap) | `Jasper` |
+| `2988fabb` | 1,063 | 468 | 8 (1.71%) | 11 (1.03) | 24.3h | 🔵 Type B (Systems) | `psl-agy-harness` |
 | `0578d96d` | 1,055 | 518 | 5 (0.97%) | 0 (0.0) | 1.1h | 🟢 Type A (Survivor) | `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` |
 
 ---
