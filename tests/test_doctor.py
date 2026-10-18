@@ -689,7 +689,8 @@ class TestReaToolingDiagnostics(unittest.TestCase):
             return proc
 
         with patch("subprocess.run", side_effect=mock_run), \
-             patch("harness.runtime.doctor.check_rea_tooling", return_value=mock_rea):
+             patch("harness.runtime.doctor.check_rea_tooling", return_value=mock_rea), \
+             patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}):
             audit = run_doctor(DEFAULT_MATRIX, experimental_rea=True)
             self.assertEqual(audit["rea_tooling"]["status"], "warning")
             self.assertGreaterEqual(audit["summary"]["warning"], 1)

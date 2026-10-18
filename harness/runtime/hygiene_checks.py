@@ -10,11 +10,13 @@ Workspace and configuration hygiene audits for PSL Harness (ADR-014 / ADR-016).
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import shlex
+import sys
 from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -417,3 +419,117 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
         "failures": failures,
         "remediation": remediation,
     }
+
+
+_PORT_DETECTOR_MOD = None
+
+
+def _load_port_detector_module():
+    global _PORT_DETECTOR_MOD
+    if "detect_port_collision" in sys.modules and sys.modules["detect_port_collision"] is not None:
+        return sys.modules["detect_port_collision"]
+    if _PORT_DETECTOR_MOD is not None:
+        return _PORT_DETECTOR_MOD
+
+    candidates = [
+        Path(__file__).resolve().parent.parent / "skills" / "db-ops" / "scripts" / "detect_port_collision.py",
+        REPO_ROOT / "harness" / "skills" / "db-ops" / "scripts" / "detect_port_collision.py",
+        REPO_ROOT / ".agents" / "skills" / "db-ops" / "scripts" / "detect_port_collision.py",
+        Path.cwd() / "harness" / "skills" / "db-ops" / "scripts" / "detect_port_collision.py",
+        Path.cwd() / ".agents" / "skills" / "db-ops" / "scripts" / "detect_port_collision.py",
+    ]
+    for cand in candidates:
+        if cand.is_file():
+            try:
+                spec = importlib.util.spec_from_file_location("detect_port_collision", cand)
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    _PORT_DETECTOR_MOD = mod
+                    return mod
+            except Exception:
+                pass
+    return None
+
+
+def _fallback_check_database_port(
+    workspace_root: Optional[Path | str] = None,
+    port: int = 5432,
+) -> Dict[str, Any]:
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.5)
+    in_use = False
+    try:
+        if s.connect_ex(("127.0.0.1", port)) == 0:
+            in_use = True
+    except Exception:
+        pass
+    finally:
+        s.close()
+
+    if not in_use:
+        return {
+            "status": "PASS",
+            "collision": False,
+            "port": port,
+            "owner": None,
+            "free_port": port,
+            "details": f"Port {port} is unbound and free for database binding.",
+            "remediation": None,
+        }
+
+    return {
+        "status": "WARNING",
+        "collision": True,
+        "port": port,
+        "owner": None,
+        "free_port": None,
+        "details": f"Port {port} is active and occupied.",
+        "remediation": f"Inspect active port {port} or rebind database configuration.",
+    }
+
+
+def check_database_port_conflicts(
+    workspace_root: Optional[Path | str] = None,
+    port: int = 5432,
+) -> Dict[str, Any]:
+    """
+    Audits active database port (default 5432) for socket occupancy and foreign container collision (Issue #62).
+    Returns dict with status ("PASS", "OK", "WARNING"), port, collision, owner, free_port, details, remediation.
+    """
+    mod = _load_port_detector_module()
+    if mod is not None:
+        try:
+            res = mod.check_port_collision(port=port, workspace_root=workspace_root)
+            script_status = res.get("status", "UNKNOWN")
+            if script_status == "UNBOUND":
+                status = "PASS"
+            elif script_status == "SELF_OWNED":
+                status = "OK"
+            else:
+                status = "WARNING"
+
+            return {
+                "status": status,
+                "collision": bool(res.get("collision", script_status == "FOREIGN_COLLISION")),
+                "port": port,
+                "owner": res.get("owner"),
+                "free_port": res.get("free_port"),
+                "details": res.get("details", ""),
+                "remediation": res.get("remediation"),
+            }
+        except Exception as exc:
+            return {
+                "status": "WARNING",
+                "collision": False,
+                "port": port,
+                "owner": None,
+                "free_port": None,
+                "details": f"Error executing port collision check: {exc}",
+                "remediation": None,
+            }
+
+    return _fallback_check_database_port(workspace_root=workspace_root, port=port)
+

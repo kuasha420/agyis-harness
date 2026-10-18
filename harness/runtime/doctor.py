@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from harness.runtime.healing import heal_environment
 from harness.runtime.hygiene_checks import (
+    check_database_port_conflicts,
     check_duplicate_agents,
     check_duplicate_skills,
     check_hooks_health,
@@ -52,6 +53,7 @@ __all__ = [
     "DEFAULT_MATRIX",
     "REPO_ROOT",
     "check_cli_binary",
+    "check_database_port_conflicts",
     "check_duplicate_agents",
     "check_duplicate_skills",
     "check_hooks_health",
@@ -97,6 +99,7 @@ def run_doctor(
     duplicate_skills = check_duplicate_skills(workspace_root=effective_workspace, config_dir=config_dir)
     node_script_hygiene = check_node_script_hygiene(workspace_root=effective_workspace)
     hooks_health = check_hooks_health(hooks_path=hooks_path)
+    database_port_conflicts = check_database_port_conflicts(workspace_root=effective_workspace)
     rea_tooling = check_rea_tooling(mcp_config_path=mcp_config_path, experimental_rea=experimental_rea)
 
     results: Dict[str, Any] = {
@@ -109,6 +112,7 @@ def run_doctor(
         "duplicate_skills": duplicate_skills,
         "node_script_hygiene": node_script_hygiene,
         "hooks_health": hooks_health,
+        "database_port_conflicts": database_port_conflicts,
         "rea_tooling": rea_tooling,
         "experimental_rea": experimental_rea,
         "tiers": {},
@@ -133,6 +137,8 @@ def run_doctor(
     if node_script_hygiene.get("status") == "WARNING":
         results["summary"]["warning"] += 1
     if hooks_health.get("status") != "OK":
+        results["summary"]["warning"] += 1
+    if database_port_conflicts.get("status") == "WARNING":
         results["summary"]["warning"] += 1
 
     if experimental_rea:
@@ -268,6 +274,18 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
             print(f" Lifecycle Hooks:     [\033[32mPASS\033[0m] -> {hook_count} hooks verified ({hooks_h.get('hooks_path')})")
         else:
             print(f" Lifecycle Hooks:     [\033[34mINFO\033[0m] -> {hooks_h.get('status')}")
+
+    db_conflict = audit.get("database_port_conflicts")
+    if db_conflict:
+        port = db_conflict.get("port", 5432)
+        if db_conflict.get("status") == "WARNING":
+            print(f" Database Port ({port}): [\033[33mWARN\033[0m] -> {db_conflict.get('details')}")
+            if db_conflict.get("remediation"):
+                print(f"    Remediation:\n      {db_conflict.get('remediation')}")
+        elif db_conflict.get("status") in ("OK", "PASS"):
+            print(f" Database Port ({port}): [\033[32mPASS\033[0m] -> {db_conflict.get('details')}")
+        else:
+            print(f" Database Port ({port}): [\033[34mINFO\033[0m] -> {db_conflict.get('details')}")
 
     rea_t = audit.get("rea_tooling")
     if rea_t:

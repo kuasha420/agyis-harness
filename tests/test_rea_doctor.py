@@ -43,6 +43,7 @@ class TestReaDoctorFastPath(unittest.TestCase):
     def test_doctor_fast_path_when_rea_missing(self):
         """Verifies fast path executes in <0.05s, skips subprocesses, and adds 0 warnings."""
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=None), \
+             patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}), \
              patch("subprocess.run") as mock_run:
             t0 = time.perf_counter()
             audit = run_doctor(DEFAULT_MATRIX, experimental_rea=False)
@@ -67,6 +68,7 @@ class TestReaDoctorFastPath(unittest.TestCase):
     def test_doctor_fast_path_when_rea_present(self):
         """Verifies fast path detects binary presence without running heavy provider scans."""
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
+             patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}), \
              patch("subprocess.run") as mock_run:
             t0 = time.perf_counter()
             audit = run_doctor(DEFAULT_MATRIX, experimental_rea=False)

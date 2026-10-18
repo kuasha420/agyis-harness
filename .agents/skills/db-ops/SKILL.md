@@ -169,3 +169,68 @@ docker logs --tail 100 --timestamps <container_name>
 docker inspect --format='{{json .NetworkSettings.Ports}}' <container_name>
 docker inspect --format='{{.State.Health.Status}}' <container_name> 2>/dev/null || echo "No healthcheck"
 ```
+
+### 4.4 Host Port 5432 Collision Probing Across Containers & Processes
+When spinning up PostgreSQL containers or running local database migrations, host port 5432 may be held by a foreign Docker container or host process.
+
+1. **Non-Blocking Socket Probe**:
+```bash
+python3 -c "import socket; s = socket.socket(); s.settimeout(0.5); print('OCCUPIED' if s.connect_ex(('127.0.0.1', 5432)) == 0 else 'UNBOUND')"
+```
+
+2. **Docker Container Attribution**:
+Probe published port 5432 across all local containers:
+```bash
+docker ps --filter "publish=5432" --format "table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+```
+Inspect compose project working directory labels to determine ownership:
+```bash
+docker ps --filter "publish=5432" --format '{{.Names}}: {{.Labels}}'
+```
+
+3. **Host Process Fallback**:
+If port 5432 is occupied but no Docker container is returned:
+```bash
+lsof -i :5432 || ss -tulpn "sport = :5432"
+```
+
+### 4.5 Dynamic Free Port Discovery & .env DATABASE_URL Re-binding
+When port 5432 is occupied by an unrelated foreign container, dynamically discover the first available port in the 5432–5442 range and re-bind local configurations:
+
+1. **Scan Free Candidate Port (5432–5442)**:
+```bash
+python3 -c "
+import socket
+for p in range(5432, 5443):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        if s.connect_ex(('127.0.0.1', p)) != 0:
+            try:
+                s.bind(('127.0.0.1', p))
+                print(f'FREE_PORT={p}')
+                break
+            except OSError:
+                continue
+"
+```
+
+2. **Re-bind `docker-compose.yml` and `.env`**:
+- In `docker-compose.yml`: map `${POSTGRES_PORT:-5433}:5432`.
+- In `.env`: update `POSTGRES_PORT` and `DATABASE_URL` with the discovered free port while preserving credentials, path, query parameters, and surrounding comments.
+
+### 4.6 Automated Diagnostic Script (`detect_port_collision.py`)
+Use the automated, standalone, zero-dependency collision detection script:
+
+```bash
+# Check port 5432 collision status (returns UNBOUND, SELF_OWNED, or FOREIGN_COLLISION)
+python3 harness/skills/db-ops/scripts/detect_port_collision.py --check
+
+# Structured JSON output for automated pipelines
+python3 harness/skills/db-ops/scripts/detect_port_collision.py --check --json
+
+# Find first free candidate port (5432–5442)
+python3 harness/skills/db-ops/scripts/detect_port_collision.py --find-free
+
+# Re-bind local .env file preserving URL query params, passwords, and comments
+python3 harness/skills/db-ops/scripts/detect_port_collision.py --find-free --rebind --env .env
+```
