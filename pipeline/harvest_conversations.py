@@ -557,7 +557,7 @@ def harvest_conversation_db(db_path: Path, target_db: Path) -> Dict[str, Any]:
 
     if step_rows:
         cur.executemany("""
-            INSERT INTO steps (
+            INSERT OR IGNORE INTO steps (
                 session_id, step_index, step_type, source, status, created_at,
                 content_length, content_snippet, has_thinking, thinking_length, tool_count
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -580,7 +580,7 @@ def harvest_conversation_db(db_path: Path, target_db: Path) -> Dict[str, Any]:
 
     if tool_rows:
         cur.executemany("""
-            INSERT INTO tool_calls (
+            INSERT OR IGNORE INTO tool_calls (
                 session_id, step_index, result_step_index, tool_name, arguments_json,
                 arguments_snippet, target_path, command_line, started_at, completed_at,
                 duration_seconds, status, exit_code, error_snippet, is_loop_candidate,
@@ -614,7 +614,7 @@ def harvest_conversation_db(db_path: Path, target_db: Path) -> Dict[str, Any]:
 
     if interv_rows:
         cur.executemany("""
-            INSERT INTO user_interventions (
+            INSERT OR IGNORE INTO user_interventions (
                 session_id, step_index, created_at, prompt_text, prompt_length,
                 preceding_tool_failed, preceding_tool_name, preceding_error_snippet, intervention_type
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)

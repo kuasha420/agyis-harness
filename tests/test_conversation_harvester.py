@@ -337,6 +337,30 @@ class TestHarvestConversationDb(unittest.TestCase):
         self.assertEqual(cur.fetchone()[0], 2)
         conn.close()
 
+    def test_harvest_handles_duplicate_tool_calls_without_error(self):
+        """Verifies harvest_conversation_db ignores duplicate tool calls violating idx_tool_calls_uniq."""
+        src_db = self.conv_dir / "sess_dup.db"
+        t = TestExtractConversationDb()
+        t.tmpdir = self.tmpdir
+        t.db_path = src_db
+        t._create_mock_conversation_db()
+
+        from unittest.mock import patch
+        orig_extract = extract_conversation_db(src_db)
+        self.assertIsNotNone(orig_extract)
+        session_row, step_rows, tool_rows, interv_rows = orig_extract
+        dup_tool_rows = [tool_rows[0], dict(tool_rows[0])]
+
+        with patch("pipeline.harvest_conversations.extract_conversation_db", return_value=(session_row, step_rows, dup_tool_rows, interv_rows)):
+            res = harvest_conversation_db(src_db, self.target_db)
+            self.assertEqual(res["status"], "harvested")
+
+        conn = sqlite3.connect(self.target_db)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM tool_calls WHERE session_id = ?", (session_row["session_id"],))
+        self.assertEqual(cur.fetchone()[0], 1)
+        conn.close()
+
     def test_harvest_preserves_remote_synced_at(self):
         src_db = self.conv_dir / "sess_synced.db"
         t = TestExtractConversationDb()
