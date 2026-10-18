@@ -89,22 +89,52 @@ agyis sync --push --dry-run
 agyis sync --pull --all --dry-run
 ```
 
-### 2.5 Automated Background Daemon & Systemd Unit
-Keep local telemetry synchronized automatically in the background:
+### 2.5 Native Background Telemetry Service Management (`agyis sync --service`)
+
+Agyis Harness provides native, turnkey lifecycle management for background telemetry synchronization via systemd user services. Operators and agents no longer need to manually redirect unit files or manually execute `systemctl` commands:
+
 ```bash
-# Foreground watch daemon (polls every 10 seconds)
-agyis sync --watch --interval 10.0
+# 1. Install and enable the systemd user service unit
+agyis sync --service install
+# Automatically writes ~/.config/systemd/user/agyis-sync.service,
+# runs systemctl --user daemon-reload, and enables agyis-sync.service.
 
-# Generate systemd user service definition
-agyis sync --systemd > ~/.config/systemd/user/agyis-sync.service
+# 2. Check service status, active state, and recent logs
+agyis sync --service status
 
-# Enable and start the user service
-systemctl --user daemon-reload
-systemctl --user enable --now agyis-sync.service
+# Structured JSON status report for automated telemetry audits / monitoring
+agyis sync --service status --json
 
-# Inspect daemon logs
-journalctl --user -u agyis-sync.service -f
+# 3. Start the background sync service
+agyis sync --service start
+
+# 4. Stop the background sync service
+agyis sync --service stop
+
+# 5. Cleanly uninstall the service (stops, disables, deletes unit file, and reloads daemon)
+agyis sync --service uninstall
 ```
+
+#### Low-Level Unit Definition Generation (`--systemd`) & Non-Systemd Workstations
+For headless CI environments, Docker containers, macOS workstations, or custom init systems where `systemctl` is unavailable:
+```bash
+# Output raw unit definition to stdout
+agyis sync --systemd
+
+# Run continuous foreground watch loop (polls every 10 seconds)
+agyis sync --watch --interval 10.0
+```
+
+#### Diagnostic Remediation for Systemd User Session Failures
+If running `agyis sync --service status` or `install` fails with:
+`✘ Unable to communicate with systemd user session bus (Failed to connect to bus)`:
+- **Diagnosis**: The systemd user session is inactive or `XDG_RUNTIME_DIR` is not set in the current shell environment (common in SSH sessions or tmux).
+- **Remediation**: Set your runtime directory before invoking the service command:
+  ```bash
+  export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+  agyis sync --service status
+  ```
+  Or fall back to foreground watch mode: `agyis sync --watch --interval 10.0`.
 
 ---
 
@@ -155,4 +185,6 @@ Both push and pull operations implement transient retries:
 2. [ ] Total test execution time is `<1.0s` for hermetic sync test suite.
 3. [ ] `agyis sync --dry-run` connects to the hub and previews pending counts.
 4. [ ] `agyis sync --pull --developer <user> --dry-run` queries remote counts without mutating local DB.
-5. [ ] `agyis sync --systemd` prints valid systemd service definition.
+5. [ ] `agyis sync --service status` reports service installation and active status.
+6. [ ] `agyis sync --service status --json` outputs structured machine-readable JSON status.
+7. [ ] `agyis sync --systemd` prints valid systemd service definition.

@@ -13,23 +13,41 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 *Derived from purrmission & sunshine-physio: explicit CLI palettes yield 10x lower human intervention rates:*
 
 ```bash
-# 🧪 Verification & Testing (Hermetic, <1.0s benchmark)
-./agyis test                                   # Run complete project test suite
+# 🧪 Verification & Testing (Hermetic, 1,065 tests, clean dots)
+./agyis test                                   # Run complete project test suite (<25s suite, sub-second components)
 python3 -m harness.cli test                    # Run complete project test suite
+agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
+agyis verify                                   # Formally verify typed cleanroom obligations against evidence
 python3 -m unittest discover -s tests -v        # Standard unittest runner
 
-# 🩺 Environment Diagnostics & Auto-Healing
-agyis doctor                                   # Audit 3-tier runtime matrix
+# 🩺 Environment Diagnostics, Auto-Healing & Port Collision
+agyis doctor                                   # Audit 3-tier runtime matrix & port 5432 collisions
 agyis doctor --heal                            # Safe zero-sudo user-space repair
-agyis status                                   # Print harness health, active hooks & telemetry
+agyis status                                   # Print harness health, active hooks, attention horizon & telemetry
+python3 harness/skills/db-ops/scripts/detect_port_collision.py --find-free --rebind --env .env # Auto-rebind DB port collision
+
+# 🚀 Turnkey Workspace Onboarding & Scaffolding
+agyis onboard [path] [flags]                   # Golden path onboarding (branch isolation, cache purge, PR delivery)
+agyis onboard . --create-branch chore/onboard  # Onboard target repository in isolated git branch
+agyis onboard . --allow-dirty                  # Proceed safely on dirty tree with pre-onboard safety patch
+agyis onboard . --skills db-ops,remote-ops     # Explicitly provision specialist skills override
+agyis init [path] [-s <stack>] [-r <role>]     # Initialize workspace project with stack skills & cleanroom ledgers
+agyis harmonize [path] [--dry-run]             # Harmonize legacy .agent/ directories into modern .agents/
 
 # 🪝 Lifecycle Hooks Dispatcher
 python3 -m harness.cli hook command-safety     # PreToolUse terminal safety guard
 python3 -m harness.cli hook anti-loop          # PreToolUse redundant call breaker
 python3 -m harness.cli hook compactor          # PostToolUse 2KB output compactor
+python3 -m harness.cli hook anti-drift         # PreToolUse plan boundary and auditor write guard
+python3 -m harness.cli hook token-proximity-guard # PreToolUse attention horizon token guard
+python3 -m harness.cli hook completion-fence   # Stop gate verification fence (code_dirty vs spec_dirty)
 
-# 📊 Empirical Telemetry Laboratory
+# 📊 Empirical Telemetry Laboratory & Background Daemon
 ./agyis sync                                   # Audit & synchronize active session into telemetry.db
+agyis sync --service install                   # Install background telemetry systemd user daemon (ADR-030)
+agyis sync --service status                    # Check background telemetry sync daemon status
+agyis sync --service start                     # Start background telemetry sync daemon
+agyis sync --service stop                      # Stop background telemetry sync daemon
 ./agyis audit deep                             # Dissect 30 titan sessions (>=1k steps) & Knot inception
 ./agyis audit volume                           # Analyze tool & command volume distributions
 python3 -m harness.cli audit all               # Run full extraction, classification & summary
@@ -37,9 +55,22 @@ python3 -m harness.cli audit extract           # Ingest ~/.gemini/antigravity tr
 python3 -m harness.cli audit classify          # Categorize trajectories into WHAT_WORKED / WHAT_FAILED
 python3 -m harness.cli audit inventory         # Catalog plugins, skills, hooks & MCP servers
 
-# 🧩 Skills & Subagents Discovery
+# 🧩 Skills & Subagents Discovery & Deduplication
 agyis skills                                   # List installed modular skills & triggers
+agyis skills --prune-duplicates                # Prune redundant workspace skills shadowing global plugin (~4,500 tokens/turn saved)
+agyis skills --prune-duplicates --dry-run      # Preview duplicate skill pruning without mutating disk
 agyis agents                                   # List registered specialist subagents & tools
+agyis subagents [--json]                       # Live active subagents status table & context health gauges (<2ms query)
+
+# 🖥️ Electron GUI DevTools & Trajectory Debugging (ADR-014)
+agyis gui                                      # Unlock Trajectory Debug View via live CDP WebSocket
+agyis gui --devtools                           # Inspect DevToolsActivePort and print Chrome Inspect URLs
+agyis gui --no-popup                           # Prime DevTools flags and hotkeys (F12, Ctrl+Shift+T) without auto-popup
+agyis gui --toggle                             # Toggle Trajectory Debug View open/closed
+
+# 🧹 Multi-Branch Workspace & Cache Hygiene
+rm -rf .next/ .turbo/ node_modules/.cache      # Invalidate stale build caches prior to verification gates
+python3 -c "from harness.delivery import purge_build_caches; purge_build_caches('.')" # Standalone cache purge
 
 # 🛠️ Workstation & Remote Modular Skills
 # storage-ops:      Bounded disk triage (`du -h -d 1`), pacman cache (`paccache -r`), journalctl vacuum, Docker prune, Btrfs, ntfs3
@@ -86,10 +117,12 @@ agyis doctor --experimental-rea --heal         # Safe zero-sudo auto-healing & R
 1. **Mandatory Automated Verification**:
    - Never declare a task "complete", "fixed", or "verified" without executing `python3 -m harness.cli test` and asserting exit code 0.
 2. **Sub-Second Benchmark Invariant**:
-   - The complete test suite must execute in **<1.0 second**. Slow operations, long sleeps, or disk sweeps are strictly prohibited in unit and integration test paths.
+   - Individual unit and contract test modules must execute in sub-second benchmark latency (<1.0 second benchmark, <0.02s–0.75s). Slow operations, unbounded sleeps, or unneeded whole-filesystem sweeps are strictly prohibited in verification loops.
 3. **Hermetic Isolation**:
    - Tests must never access the network or depend on external daemon services.
    - All state-persisting components must support `PSL_HARNESS_STATE_DIR` and use `tempfile.TemporaryDirectory()`.
+4. **Mandatory Build Cache Invalidation**:
+   - Prior to executing verification gates (`python3 -m harness.cli test`, `pnpm test`, `cargo test`) in multi-branch PR rebase, migration, or onboarding workflows, stale build caches (`.next/`, `.turbo/`, `node_modules/.cache`) MUST be purged to prevent phantom build artifact regressions.
 
 ---
 
@@ -102,6 +135,8 @@ agyis doctor --experimental-rea --heal         # Safe zero-sudo auto-healing & R
    - Error swallowing is banned in production code, but standalone terminal pattern probes (`grep`, `diff`) without conditionals must use `|| [ $? -eq 1 ]` to avoid panicking on benign empty matches.
 4. **Multi-line Script Hygiene**:
    - Write multi-line Python scripts to `<artifactDir>/scratch/script.py` rather than escaping complex bash `-c` one-liners.
+5. **Automated Database Port Collision Remediation**:
+   - When containerized services or database migrations fail with port binding or connection pool errors (e.g. Prisma P1000 on port 5432 occupied by foreign containers), execute automated collision discovery and rebinding (`python3 harness/skills/db-ops/scripts/detect_port_collision.py --find-free --rebind --env .env`) rather than manually terminating unrelated host processes.
 
 ---
 
@@ -122,7 +157,9 @@ agyis doctor --experimental-rea --heal         # Safe zero-sudo auto-healing & R
    - **Strict Reactive Wait Invariant**: Never poll `manage_task(Action='status')` NOR repeatedly read background task logs (`tail`, `cat`, `grep`, `view_file` on `.system_generated/tasks/*.log`) to print manual progress updates. After launching a background task, output a single concise notification and stop calling tools. Await reactive wakeup.
 3. **Tool-Native Primacy (The Anti-Premature-Cognition Invariant)**:
    - When an external CLI or tool fails, exhaust the tool's standard native options, configurations, and flag escalation ladders (e.g., `--impersonate`, `--concurrent-fragments`, retry/timeout flags, native formatting options) before reading internal tool source code, monkeypatching APIs, or constructing custom proxy scripts. Cognitive intervention is a last resort, not a first reflex.
-4. **Subagent Delegation Protocol**:
+4. **Single-Source Skill Deduplication Invariant**:
+   - Never duplicate global plugin skills inside workspace-local `.agents/skills/` without specialized modifications. Duplicate skills bleed ~4,500 tokens/turn of redundant prompt context into every turn. Enforce single-source hygiene via `agyis skills --prune-duplicates` and strictly respect the 3-tier boundary (Layer 3: Project Specialist > Layer 2: User Environment > Layer 1: Global Plugin).
+5. **Subagent Delegation Protocol**:
    - For multi-phase refactoring, test debugging, or massive build sweeps, delegate to subagents in shared worktrees (`Workspace: "share"`).
 
 ---

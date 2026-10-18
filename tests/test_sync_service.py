@@ -71,7 +71,8 @@ class TestSyncServiceLifecycle(unittest.TestCase):
         mock_which.side_effect = lambda cmd: "/usr/bin/" + cmd if cmd in ("systemctl", "agyis") else None
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
-        rc = systemd.install_service(interval=10.0, unit_path=self.unit_path)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            rc = systemd.install_service(interval=10.0, unit_path=self.unit_path)
         self.assertEqual(rc, 0)
         self.assertTrue(self.unit_path.exists())
         content = self.unit_path.read_text(encoding="utf-8")
@@ -245,7 +246,8 @@ class TestSyncServiceLifecycle(unittest.TestCase):
     @patch("subprocess.run")
     def test_uninstall_service_idempotent_when_already_missing(self, mock_run, mock_which):
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        rc = systemd.uninstall_service(unit_path=self.unit_path)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            rc = systemd.uninstall_service(unit_path=self.unit_path)
         self.assertEqual(rc, 0)
 
     @patch("shutil.which", return_value="/usr/bin/systemctl")

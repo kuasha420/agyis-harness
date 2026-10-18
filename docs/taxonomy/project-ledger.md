@@ -410,5 +410,29 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Token Guard: [harness/hooks/token_proximity_guard.py](../../harness/hooks/token_proximity_guard.py)
   - Systemd Service: `~/.config/systemd/user/antigravity-trajectory.{path,service}`
 
+---
+
+## [Phase 14] Documentation & Runbook Hydration, Test Noise Suppression & v1.0.0-rc5 Release Preparation
+* **Status**: Completed | **Compaction Date**: 2026-10-18 | **Release**: `v1.0.0-rc5`
+* **Key Architectural Decisions & Operational Invariants**:
+  - **Clean Test Output Invariant & Noise Suppression (M1)**: Isolated stdout/stderr in negative test paths (`test_onboard.py`, `test_verify.py`, `test_anti_drift.py`, `test_sync_service.py`, `test_pipeline_audit_smoke.py`), eliminating raw JSON error blocks (`{"success": false}`) and failure notices during green test runs.
+  - **Universal Golden Path Onboarding Standard**: Codified `agyis onboard` as the turnkey golden path across runbooks and rules, supporting branch isolation, dirty-tree safety patch export, cache purging, 4-phase legacy pruning, and automated PR delivery.
+  - **Automated Database Port Collision Remediation**: Standardized `detect_port_collision.py --find-free --rebind` in developer runbooks and doctor diagnostics to resolve Prisma P1000 container collisions.
+  - **Single-Source Skill Deduplication Invariant**: Codified `agyis skills --prune-duplicates` and 3-tier boundary hierarchy (Project Specialist > User Environment > Global Plugin), eliminating ~4,500 tokens/turn of redundant prompt context.
+  - **Mandatory Build Cache Invalidation**: Enforced pre-verification cache purging (`.next/`, `.turbo/`, `node_modules/.cache`) in multi-branch PR rebase workflows to prevent phantom cache regressions.
+  - **Native Background Telemetry Daemon**: Codified `agyis sync --service [install|status|start|stop|uninstall]` via systemd user units for resilient background telemetry replication.
+  - **Canonical 18-Command CLI Palette & Documentation Hydration (M2)**: Synchronized `README.md`, `cli-palette.md`, `lifecycle-hooks.md`, `repo-onboarding.md`, `telemetry-sync.md`, `AGENTS.md`, and `.agents/rules/AGENTS.md` to reflect complete ground truth on `main`.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,065 hermetic tests passing in 20.2s** (100% green, exit code 0; unbroken test dots, zero noise).
+  - Cleanroom specifications: **11 specifications verified** cleanly via `agyis verify --spec` in `docs/specs/`.
+  - Host workstation doctor: **9 OK | 2 Warnings (benign pyenv, port 5432 foreign container) | 0 Outdated | 0 Missing**.
+  - CLI palette: **18 canonical subcommands** operational with zero external runtime dependencies.
+* **Handover Status & Release Readiness**:
+  - Certified ready for `v1.0.0-rc5` release tag and publication directly to `main`.
+* **Reference Assets Committed**:
+  - Documentation Bundle: `README.md`, `docs/official-specs/cli-palette.md`, `docs/official-specs/lifecycle-hooks.md`, `docs/runbooks/repo-onboarding.md`, `docs/runbooks/telemetry-sync.md`, `docs/release/fleet_audit_rc4.md`, `docs/release/root_sync_staging.md`.
+  - Rules & Ledger: `GLOBAL_AGENTS.md`, `.agents/rules/AGENTS.md`, `harness/rules/AGENTS.md`, `harness/rules/GLOBAL_AGENTS.md`, `roadmap.md`, `docs/taxonomy/project-ledger.md`.
+  - Test Suites: `tests/test_onboard.py`, `tests/test_verify.py`, `tests/test_anti_drift.py`, `tests/test_sync_service.py`, `tests/test_pipeline_audit_smoke.py`.
+
 
 

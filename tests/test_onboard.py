@@ -119,13 +119,14 @@ class TestOnboardCommand(unittest.TestCase):
         subprocess.run(["git", "commit", "-m", "Add legacy .agent"], cwd=target, check=True, stdout=subprocess.DEVNULL)
 
         # Run live onboarding with pruning and test-isolated config
-        code = cmd_onboard(
-            target,
-            lang="python",
-            role="backend",
-            prune_legacy=True,
-            config_dir=self.isolated_cfg,
-        )
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = cmd_onboard(
+                target,
+                lang="python",
+                role="backend",
+                prune_legacy=True,
+                config_dir=self.isolated_cfg,
+            )
         self.assertEqual(code, 0)
 
         # Assertions
@@ -162,13 +163,14 @@ class TestOnboardCommand(unittest.TestCase):
         subprocess.run(["git", "add", "."], cwd=target, check=True)
         subprocess.run(["git", "commit", "-m", "Add services/billing"], cwd=target, check=True, stdout=subprocess.DEVNULL)
 
-        code = cmd_onboard(
-            target,
-            subproject="services/billing",
-            lang="typescript",
-            role="frontend",
-            config_dir=self.isolated_cfg,
-        )
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = cmd_onboard(
+                target,
+                subproject="services/billing",
+                lang="typescript",
+                role="frontend",
+                config_dir=self.isolated_cfg,
+            )
         self.assertEqual(code, 0)
 
         # Skills should be installed in subproject directory
@@ -207,7 +209,8 @@ class TestOnboardCommand(unittest.TestCase):
             return real_run(cmd, *args, **kwargs)
 
         with patch("harness.commands.onboard.create_pull_request") as mock_pr, \
-             patch("subprocess.run", side_effect=mock_subprocess_run):
+             patch("subprocess.run", side_effect=mock_subprocess_run), \
+             patch("sys.stdout", new_callable=io.StringIO):
             mock_pr.return_value = (True, "https://github.com/org/repo/pull/42")
 
             code = cmd_onboard(target, open_pr=True)
@@ -242,11 +245,12 @@ class TestOnboardCommand(unittest.TestCase):
         target = self.ws / "explicit-skills-repo"
         self._init_git_repo(target)
 
-        code = cmd_onboard(
-            target,
-            skills=["git-worktree-ops", "telemetry-sync"],
-            config_dir=self.isolated_cfg,
-        )
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = cmd_onboard(
+                target,
+                skills=["git-worktree-ops", "telemetry-sync"],
+                config_dir=self.isolated_cfg,
+            )
         self.assertEqual(code, 0)
         skills_dir = target / ".agents" / "skills"
         self.assertTrue((skills_dir / "git-worktree-ops").exists())
@@ -258,11 +262,12 @@ class TestOnboardCommand(unittest.TestCase):
         target = self.ws / "explicit-skills-str"
         self._init_git_repo(target)
 
-        code = cmd_onboard(
-            target,
-            skills="git-worktree-ops,telemetry-sync",
-            config_dir=self.isolated_cfg,
-        )
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = cmd_onboard(
+                target,
+                skills="git-worktree-ops,telemetry-sync",
+                config_dir=self.isolated_cfg,
+            )
         self.assertEqual(code, 0)
         skills_dir = target / ".agents" / "skills"
         self.assertTrue((skills_dir / "git-worktree-ops").exists())
@@ -278,7 +283,8 @@ class TestOnboardCommand(unittest.TestCase):
         subprocess.run(["git", "add", ".agent"], cwd=target, check=True)
         subprocess.run(["git", "commit", "-m", "add legacy"], cwd=target, check=True, stdout=subprocess.DEVNULL)
 
-        code = cmd_onboard(target, config_dir=self.isolated_cfg)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = cmd_onboard(target, config_dir=self.isolated_cfg)
         self.assertEqual(code, 0)
         self.assertFalse(legacy.exists(), "Legacy .agent/ must be pruned by default")
 
@@ -293,7 +299,8 @@ class TestOnboardCommand(unittest.TestCase):
         subprocess.run(["git", "add", ".agent"], cwd=target, check=True)
         subprocess.run(["git", "commit", "-m", "Add legacy .agent"], cwd=target, check=True, stdout=subprocess.DEVNULL)
 
-        code = cmd_onboard(target, no_prune=True, config_dir=self.isolated_cfg)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = cmd_onboard(target, no_prune=True, config_dir=self.isolated_cfg)
         self.assertEqual(code, 0)
         self.assertTrue(legacy.exists(), "Legacy .agent/ must remain when no_prune=True")
 
@@ -320,7 +327,8 @@ class TestOnboardCommand(unittest.TestCase):
         # Untouched directory in node_modules
         (target / "node_modules" / "some-pkg" / ".next").mkdir(parents=True)
 
-        code = cmd_onboard(target, config_dir=self.isolated_cfg)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = cmd_onboard(target, config_dir=self.isolated_cfg)
         self.assertEqual(code, 0)
 
         self.assertFalse((target / ".next").exists())
@@ -358,7 +366,8 @@ class TestOnboardCommand(unittest.TestCase):
         subprocess.run(["git", "add", "."], cwd=target, check=True)
         subprocess.run(["git", "commit", "-m", "Add custom skill"], cwd=target, check=True, stdout=subprocess.DEVNULL)
 
-        code = cmd_onboard(target, lang="python", config_dir=fake_cfg)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = cmd_onboard(target, lang="python", config_dir=fake_cfg)
         self.assertEqual(code, 0)
 
         # psl-stack-python should have been deduplicated against plugin
@@ -397,7 +406,8 @@ class TestOnboardCommand(unittest.TestCase):
         (target / "dirty.txt").write_text("uncommitted content\n", encoding="utf-8")
 
         # Test stderr output and exit code 1
-        with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+        with patch("sys.stderr", new_callable=io.StringIO) as mock_err, \
+             patch("sys.stdout", new_callable=io.StringIO):
             code = cmd_onboard(target, allow_dirty=False)
             self.assertEqual(code, 1)
             self.assertIn("Working tree has uncommitted changes", mock_err.getvalue())
@@ -454,7 +464,8 @@ class TestOnboardCommand(unittest.TestCase):
         # Case A: Default branch name
         target_default = self.ws / "branch-repo-default"
         self._init_git_repo(target_default)
-        code = cmd_onboard(target_default, create_branch=True, config_dir=self.isolated_cfg)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = cmd_onboard(target_default, create_branch=True, config_dir=self.isolated_cfg)
         self.assertEqual(code, 0)
         curr_branch = (
             subprocess.check_output(["git", "branch", "--show-current"], cwd=target_default)
@@ -466,7 +477,8 @@ class TestOnboardCommand(unittest.TestCase):
         # Case B: Custom branch name
         target_custom = self.ws / "branch-repo-custom"
         self._init_git_repo(target_custom)
-        code2 = cmd_onboard(target_custom, create_branch="feat/custom-onboard", config_dir=self.isolated_cfg)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code2 = cmd_onboard(target_custom, create_branch="feat/custom-onboard", config_dir=self.isolated_cfg)
         self.assertEqual(code2, 0)
         curr_branch2 = (
             subprocess.check_output(["git", "branch", "--show-current"], cwd=target_custom)
@@ -489,7 +501,8 @@ class TestOnboardCommand(unittest.TestCase):
         )
         self.assertEqual(curr_before, "main")
 
-        code = cmd_onboard(target, create_branch=True, config_dir=self.isolated_cfg)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = cmd_onboard(target, create_branch=True, config_dir=self.isolated_cfg)
         self.assertEqual(code, 0)
         curr_after = (
             subprocess.check_output(["git", "branch", "--show-current"], cwd=target)
@@ -505,9 +518,13 @@ class TestOnboardCommand(unittest.TestCase):
         (target / "README.md").write_text("# Dirty file\n", encoding="utf-8")
 
         # 1. Without --allow-dirty, CLI must exit with code 1
-        with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
             code_fail = main(["onboard", str(target), "--json"], prog="agyis")
             self.assertEqual(code_fail, 1)
+            data_fail = json.loads(mock_out.getvalue().strip())
+            self.assertFalse(data_fail["success"])
+            self.assertTrue(data_fail["is_dirty"])
 
         # 2. With --allow-dirty, --create-branch (flag only = default branch), and --no-cache-purge
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:

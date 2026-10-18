@@ -15,11 +15,13 @@ against isolated in-memory and temporary SQLite databases and filesystems.
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from pipeline.analyze_context_dynamics import analyze_context_dynamics
 from pipeline.classify_failures import run_classification_audit
@@ -202,7 +204,8 @@ class TestPipelineAuditSmoke(unittest.TestCase):
             "drift_samples": [],
         }
         report_file = self.isolated_path / "test_report.md"
-        generate_markdown_report(mock_data, report_file)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            generate_markdown_report(mock_data, report_file)
 
         content = report_file.read_text(encoding="utf-8")
         self.assertTrue(content.startswith("<!-- SPDX-License-Identifier: Apache-2.0 -->"))

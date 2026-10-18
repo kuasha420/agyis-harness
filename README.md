@@ -8,14 +8,14 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity-4285F4.svg)](https://antigravity.google)
 [![Status](https://img.shields.io/badge/Status-Active_Development_(Research_&_POC)-orange.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-816%2F816_Passing_(100%25)-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-1065%2F1065_Passing_(100%25)-brightgreen.svg)]()
 
 > An open-source empirical audit pipeline and reference extension harness for **Google Antigravity™** by **Purrfect Software Limited (PSL)** under the **Apache-2.0** license.
 
 ---
 
 > [!NOTE]
-> **Project State Notice**: This repository has completed empirical ingestion of **722 real-world developer sessions (219,292 steps, 160,226 tool calls)**, verified isolated lifecycle hooks, codified hermetic testing contracts (816 passing tests in <1.0s), integrated opt-in Reverse Engineer Anything (REA) cleanroom tooling (ADR-028), and packaged the unified 15-command `agyis` developer CLI suite. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
+> **Project State Notice**: This repository has completed empirical ingestion of **722 real-world developer sessions (219,292 steps, 160,226 tool calls)**, verified isolated lifecycle hooks, codified hermetic testing contracts (1,065 passing tests, hermetic sub-second component suites), integrated opt-in Reverse Engineer Anything (REA) cleanroom tooling (ADR-028), and packaged the unified 18-command `agyis` developer CLI suite. See [roadmap.md](roadmap.md) for the master vision and upcoming milestones.
 
 > [!IMPORTANT]
 > **CLI Nomenclature & Backward-Compatibility Lifecycle**: The primary CLI executable is **`agyis`**. The legacy command **`psl`** is maintained as a backward-compatible alias with an active deprecation lifecycle (emitting `DeprecationWarning: 'psl' is deprecated and will be removed in 3 months. Use 'agyis' instead.` to `stderr`). All scripts, documentation, and workflows should use `agyis`.
@@ -182,22 +182,24 @@ The Antigravity engine and PSL Harness operate on a strict **3-Tier Precedence H
 
 ### 1. Unified Developer CLI (`agyis`)
 Provides a single modular CLI entrypoint for diagnostics, tests, hooks, and mesh operations (see [docs/official-specs/cli-palette.md](docs/official-specs/cli-palette.md)):
-- `agyis doctor [--matrix <path>] [--heal] [--experimental-rea] [--json]`: Workstation environment diagnostic, zero-sudo auto-healing & opt-in REA provider audit.
+- `agyis doctor [--matrix <path>] [--heal] [--experimental-rea] [--json]`: Workstation environment diagnostic, zero-sudo auto-healing, port 5432 collision probing & opt-in REA provider audit.
 - `agyis hook <hook_name>`: Deterministic lifecycle hook dispatcher via fail-safe runner.
-- `agyis test [-v] [-s <dir>]`: Sub-second hermetic project test runner (<1.0s benchmark, 816 tests).
-- `agyis audit [stage] [options]`: Empirical telemetry laboratory extraction & analytical pipelines.
-- `agyis skills [name] [--sync] [--json]`: Discover, inspect, and synchronize modular product skills.
+- `agyis test [-v] [-s <dir>]`: Hermetic project test runner (1,065 tests passing, sub-second component benchmark).
+- `agyis audit [stage] [options]`: Empirical telemetry laboratory extraction & analytical pipelines (13 stages).
+- `agyis skills [name] [--sync] [--prune-duplicates] [--json]`: Discover, inspect, synchronize, and deduplicate modular skills.
 - `agyis agents [name|action] [options]`: Specialist subagent catalog, scaffolding, validation & rehydration.
-- `agyis subagents [--json] [--brain-dir <dir>]`: Live active subagents status table & context health gauges.
-- `agyis status`: Unified system health, active hooks, attention horizon, skills & agents overview.
-- `agyis remote <exec|script|triage|socket>`: SSH-multiplexed remote mesh execution and triage (ADR-027).
+- `agyis subagents [--json] [--brain-dir <dir>]`: Live active subagents status table & context health gauges (<2ms query).
+- `agyis status`: Unified system health, active hooks, attention horizon gauge, skills & agents overview.
+- `agyis remote <exec|script|triage|socket|screens>`: SSH-multiplexed remote mesh execution, script streaming, and triage (ADR-027).
 - `agyis auth <login|status|logout>`: GitHub organization credential management for centralized telemetry.
-- `agyis sync [options]`: Bi-directional telemetry synchronization with central hub (ADR-030).
-- `agyis init [path] [-s <stack>] [--experimental-rea]`: Initialize workspace project with stack skills, tagged rules & cleanroom ledger scaffolding.
-- `agyis onboard [path] [--experimental-rea]`: Guided brownfield workspace onboarding and stack discovery.
-- `agyis harmonize [path] [--dry-run]`: Harmonize legacy `.agent/` and PSL-HARNESS rules into `.agents/`.
-- `agyis install [-g|--global] [--symlink|--copy] [--experimental-rea]`: Global plugin and standalone CLI installation.
+- `agyis sync [--service {install,status,start,stop,uninstall}] [options]`: Bi-directional telemetry sync and native background systemd daemon (ADR-030).
+- `agyis init [path] [-s <stack>] [-r <role>] [--experimental-rea]`: Initialize workspace project with stack skills, tagged rules & cleanroom ledger scaffolding.
+- `agyis onboard [path] [flags]`: Unified turnkey workspace onboarding with branch isolation, dirty tree safety patch, cache purge, skill deduplication, and automated PR delivery.
+- `agyis harmonize [path] [--dry-run]`: Harmonize legacy `.agent/` directories and PSL-HARNESS rules into modern `.agents/`.
+- `agyis install [-g|--global] [--symlink|--copy] [--all-surfaces] [--experimental-rea]`: Global plugin and standalone CLI installation across surfaces.
 - `agyis uninstall [--target <path>]`: Clean global plugin uninstallation without collateral damage.
+- `agyis verify [--spec] [--workspace <path>] [--json]`: Formally verify cleanroom specifications and REA reconstruction obligation manifests (ADR-028).
+- `agyis gui [--devtools] [--trajectory-debug] [--toggle] [--no-popup] [--wait <sec>]`: Introspect and unlock Antigravity Electron GUI via CDP WebSocket (ADR-014).
 
 > *Note: `psl` remains available as a backward-compatible alias with a deprecation notice.*
 
@@ -211,6 +213,7 @@ Audits the host environment against the 3-Tier Telemetry-Scaffolded Matrix ([mat
 - **Tier 1 (Languages)**: Python >= 3.12 (PEP 701 f-string support), Node >= 20, `uv`, `pnpm`.
 - **Tier 2 (Core SWE CLI)**: `git >= 2.38`, `gh >= 2.30`, `ripgrep >= 13.0`, `fd >= 8.7`.
 - **Tier 3 (Mesh Host)**: `ssh >= 8.9`, `knot >= 1.0`.
+- **Database Port Collision Probing**: Probes TCP port 5432 to identify foreign container collisions (e.g. `jasper_dev_postgres`) and recommends dynamic port re-binding.
 - **Fast-Path Invariant**: Default `agyis doctor` runs zero-delay fast-path checks (<0.05s) with strictly 0 warnings added when REA is absent, preserving sub-second benchmark latency (<1.0s).
 - **Opt-In REA Provider Audit (`--experimental-rea`)**: Audits Reverse Engineer Anything (REA >= 6.0.0), MCP server registration, dynamic JDK 21+ discovery ladder, Ghidra 12.1+ headless analyzer, Hopper display socket contract, and optional IDA Pro/JADX supervisor isolation flags.
 - **Auto-Healing (`--heal`)**: Provisions user-space runtimes via `uv` (and installs `rea-agents` + MCP registration when combined with `--experimental-rea`) with zero sudo and zero host pollution.
@@ -258,7 +261,7 @@ Formal cleanroom reconstruction architecture resolving Issue #44 (doctor latency
 
 ## 🧪 Verification & Test Suite
 
-All 816 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-015 benchmark):
+All 1,065 unit, integration, and replay tests pass hermetically (100% pass rate):
 
 ```bash
 ./agyis test
@@ -266,7 +269,7 @@ All 816 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-
 ```
 
 ```text
-Ran 816 tests in 0.985s
+Ran 1065 tests in 20.405s
 OK
 ```
 

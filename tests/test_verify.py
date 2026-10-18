@@ -161,7 +161,7 @@ class TestVerifyCommand(unittest.TestCase):
         )
         with patch("shutil.which", return_value="/usr/local/bin/rea"), patch(
             "subprocess.run", return_value=mock_proc
-        ) as mock_run:
+        ) as mock_run, patch("sys.stdout", new_callable=io.StringIO):
             code = cmd_verify(args)
             self.assertEqual(code, 0)
             mock_run.assert_called_once_with(
@@ -186,9 +186,11 @@ class TestVerifyCommand(unittest.TestCase):
         )
         with patch("shutil.which", return_value="/usr/local/bin/rea"), patch(
             "subprocess.run", return_value=mock_proc
-        ):
+        ), patch("sys.stderr", new_callable=io.StringIO) as mock_err:
             code = cmd_verify(args)
             self.assertEqual(code, 1)
+            self.assertIn("Verification failed", mock_err.getvalue())
+            self.assertIn("Unsatisfied obligation: OBL-042", mock_err.getvalue())
 
     def test_cli_main_verify_integration(self) -> None:
         """Verifies running 'verify' through harness.cli.main dispatcher."""
@@ -198,6 +200,8 @@ class TestVerifyCommand(unittest.TestCase):
 
         with patch("sys.stdout", io.StringIO()):
             ret = cli_main(["verify", "--spec", "-w", str(self.workspace)])
+            self.assertEqual(ret, 0)
+
     def test_cmd_verify_clears_spec_dirty(self) -> None:
         """Verifies that cmd_verify clears spec_dirty state in completion fence upon success."""
         from harness.hooks.completion_fence_hook import load_state, record_edit
@@ -217,7 +221,8 @@ class TestVerifyCommand(unittest.TestCase):
             spec=True,
             json=False,
         )
-        with patch("harness.commands.verify.clear_spec_dirty") as mock_clear:
+        with patch("harness.commands.verify.clear_spec_dirty") as mock_clear, \
+             patch("sys.stdout", new_callable=io.StringIO):
             code = cmd_verify(args)
             self.assertEqual(code, 0)
             mock_clear.assert_called_once()

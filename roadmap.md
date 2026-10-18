@@ -8,7 +8,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Repository**: `kuasha420/agyis-harness` (Private Development → Public Release)  
-**Last Updated**: 2026-10-10  
+**Last Updated**: 2026-10-18  
 
 ---
 
@@ -274,7 +274,21 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - **GUI Telemetry & Autonomous Persistence (`agyis gui`)**: Implemented 100% stdlib RFC 6455 CDP WebSocket controller, `--toggle`, `--wait` hydration retry loop, `--no-popup` startup priming, DOM hotkey listeners (`F12`, `Ctrl+Shift+T`), Command Palette feature flag unlocking, `~/.local/bin/agy-debug` shortcut, and `antigravity-trajectory.path` systemd user service.
     - **Test Benchmark & Certification**: Expanded test suite to **1,006 hermetic tests passing in 15.16s** (exit code 0; GUI unit tests pass in 0.043s). Certified by Triple Auditor Gate and deployed globally to `~/.gemini/config/plugins/psl-agy-harness/`.
 
-
+  - [x] **Documentation & Runbook Hydration, Test Noise Suppression & v1.0.0-rc5 Release (Phase 14 - Horizon 1.7)**:
+    - **Test Output Noise Suppression (Clean Dots Invariant)**: Isolated stdout/stderr across negative test cases (`tests/test_onboard.py`, `tests/test_verify.py`, `tests/test_anti_drift.py`, `tests/test_sync_service.py`, `tests/test_pipeline_audit_smoke.py`) using `redirect_stdout`/`redirect_stderr` and `mock.patch`. Running `python3 -m harness.cli test` produces clean unbroken test dots across all **1,065 tests** with exit code 0 and zero leaked JSON error objects or failure banners.
+    - **Codification of 5 Strategic Fleet Recommendations**:
+      1. *Universal Golden Path*: Promoted `agyis onboard` as turnkey golden path in `docs/runbooks/repo-onboarding.md`, agent instructions, and user guides with branch isolation, dirty-tree safety patch generation, 4-phase legacy pruning, and automated PR delivery.
+      2. *Automated DB Port Collision Remediation*: Standardized `detect_port_collision.py --rebind` in developer runbooks and doctor diagnostics to resolve Prisma P1000 errors on developer workstations.
+      3. *Single-Source Skill Deduplication*: Enforced single-source hygiene (`enforce_single_source_skills` / `agyis skills --prune-duplicates`), eliminating ~4,500 tokens/turn context bleed and defining the 3-tier boundary (Project Specialist > User Environment > Global Plugin).
+      4. *Mandatory Build Cache Invalidation*: Codified mandate in rules and runbooks requiring Next.js/Turborepo cache purging (`.next/`, `.turbo/`, `node_modules/.cache`) prior to verification gates in PR rebase workflows.
+      5. *Native Background Telemetry Daemon*: Promoted `agyis sync --service [install|status|start|stop|uninstall]` via systemd user units as the standard persistent sync mechanism.
+    - **Synchronized Documentation Bundle & 18-Command CLI Palette**:
+      - Updated `README.md` to reflect 1,065 tests, 18 CLI subcommands, GUI devtools, cleanroom verification, port collision checks, and updated benchmark data.
+      - Overhauled `docs/official-specs/cli-palette.md` to canonical 18-subcommand specification (`doctor`, `hook`, `test`, `audit`, `skills`, `agents`, `subagents`, `status`, `remote`, `auth`, `sync`, `init`, `harmonize`, `onboard`, `install`, `uninstall`, `verify`, `gui`).
+      - Updated `docs/official-specs/lifecycle-hooks.md` with all 6 active hooks, `token-proximity-guard`, and ADR-028 decoupled dirty state (`spec_dirty` vs `code_dirty`).
+      - Modernized `docs/runbooks/repo-onboarding.md` and `docs/runbooks/telemetry-sync.md`.
+      - Harmonized `AGENTS.md` and `.agents/rules/AGENTS.md` with v1.0.0-rc5 CLI commands and invariants.
+    - **Automated Verification Gates & Certification**: Verified 1,065 hermetic tests passing with 100% green exit code 0, host doctor passing with 9 OK / 0 missing, and all 11 cleanroom specifications in `docs/specs/` verified (`agyis verify --spec`). Full release readiness achieved for `v1.0.0-rc5`.
 
 ---
 

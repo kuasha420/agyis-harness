@@ -17,6 +17,8 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
    - Unit and integration tests must run as fast and hermetically as possible. Avoid slow network calls, unbounded sleeps, or unneeded whole-filesystem sweeps in verification loops.
 3. **Hermetic Isolation**:
    - Tests must never access untracked external services without hermetic mocks or local temporary environments. All state-persisting operations should use temporary directories.
+4. **Mandatory Build Cache Invalidation**:
+   - Prior to executing project verification gates in multi-branch PR rebase, migration, or onboarding workflows, stale build caches (e.g., `.next/`, `.turbo/`, `node_modules/.cache`) must be purged to prevent phantom build artifact regressions.
 
 ---
 
@@ -29,6 +31,8 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
    - Error swallowing is banned in production code, but standalone terminal pattern probes (`grep`, `diff`) without conditionals must use `|| [ $? -eq 1 ]` to avoid panicking on benign empty matches.
 4. **Multi-line Script Hygiene**:
    - Write multi-line scripts to temporary scratch files (`scratch/script.sh` or `scratch/script.py`) rather than escaping fragile multi-line bash `-c` one-liners.
+5. **Automated Database Port Collision Remediation**:
+   - When containerized services fail with port binding or connection pool errors (e.g. Prisma P1000 on port 5432 occupied by foreign containers), execute automated collision discovery and rebinding (`detect_port_collision.py --find-free --rebind --env .env`) rather than manually terminating unrelated host services.
 
 ---
 
@@ -49,7 +53,9 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
    - **Strict Reactive Wait Invariant**: Never poll `manage_task(Action='status')` NOR repeatedly read background task logs (`tail`, `cat`, `grep`, `view_file` on `.system_generated/tasks/*.log`) to print manual progress updates. After launching a background task, output a single concise notification and stop calling tools. Await reactive wakeup.
 3. **Tool-Native Primacy (The Anti-Premature-Cognition Invariant)**:
    - When an external CLI or tool fails, exhaust the tool's standard native options, configurations, and flag escalation ladders (e.g., `--impersonate`, `--concurrent-fragments`, retry/timeout flags, native formatting options) before reading internal tool source code, monkeypatching APIs, or constructing custom proxy scripts. Cognitive intervention is a last resort, not a first reflex.
-4. **Subagent Delegation Protocol**:
+4. **Single-Source Skill Deduplication Invariant**:
+   - Never duplicate global plugin skills inside workspace-local `.agents/skills/` without specialized modifications. Duplicate skills bleed ~4,500 tokens/turn of redundant prompt context into every turn. Maintain single-source hygiene and respect the 3-tier precedence hierarchy (Layer 3: Project Specialist > Layer 2: User Environment > Layer 1: Global Plugin).
+5. **Subagent Delegation Protocol**:
    - For multi-phase refactoring, test debugging, or massive build sweeps, delegate to subagents in shared worktrees (`Workspace: "share"`).
 
 ---

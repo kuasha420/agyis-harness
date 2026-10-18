@@ -383,10 +383,13 @@ class TestAntiDriftHook(unittest.TestCase):
         from unittest.mock import patch
         from harness.hooks.anti_drift_hook import main
 
-        with patch("sys.stdin", io.StringIO("invalid-json{{{")), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+        with patch("sys.stdin", io.StringIO("invalid-json{{{")), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
             main()
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "allow")
+            self.assertIn("PSL Anti-Drift: Error parsing stdin", mock_err.getvalue())
 
     def test_auditor_write_block_direct(self):
         """Auditor write guard blocks file mutation tools directly."""

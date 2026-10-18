@@ -59,16 +59,17 @@ Antigravity lifecycle hooks allow execution of external shell commands or script
 
 ## 3. Reference Implementation: `agyis-harness` Hooks
 
-In `harness/hooks/`, we provide reference hooks:
-1. `anti_loop_hook.py`: Intercepts repetitive consecutive calls to identical files/queries in `PreToolUse` and enforces the Strict Reactive Wait Invariant.
-2. `output_compactor_hook.py`: PostToolUse deterministic 2KB output compactor preserving head, tail, and error lines (ADR-007, ADR-008).
-3. `completion_fence_hook.py`: Validates test/verification state in `Stop` before allowing the agent to claim victory (ADR-022).
-4. `command_safety_hook.py`: Audits `PreToolUse` shell execution, injects user toolchain PATH shims, enforces non-blocking network probe timeouts, and guarantees hermetic runtime safety (ADR-011, ADR-013, ADR-023).
-5. `anti_drift_hook.py`: Intercepts file modifications in `PreToolUse` against declared implementation plan boundaries, enforces Native Plan-Mode Locks, and applies Auditor Write-Block Guards (ADR-024, ADR-025, ADR-031).
+In `harness/hooks/`, we provide 6 deterministic hooks registered in `hooks.json`:
+1. `command_safety_hook.py`: PreToolUse shell execution sanitizer, Python >= 3.12 uv runtime injector, and grep pattern probing exit normalizer (ADR-013).
+2. `anti_loop_hook.py`: PreToolUse repetitive call breaker and Strict Reactive Wait enforcer.
+3. `output_compactor_hook.py`: PostToolUse deterministic 2KB output compactor with DEF-04 pre-slice optimization for massive dumps.
+4. `completion_fence_hook.py`: PreToolUse/PostToolUse/Stop verification fence with ADR-028 decoupled dirty state (`code_dirty` vs `spec_dirty`).
+5. `token_proximity_guard.py`: PreToolUse context accumulation monitor decoding SQLite protobuf metadata and emitting ANSI threshold gauges.
+6. `anti_drift_hook.py`: PreToolUse plan adherence guard and Auditor write-block enforcer.
 
-### 3.1 The `psl-stop-verification-fence` Contract (ADR-022)
+### 3.1 The `psl-stop-verification-fence` Contract (ADR-022 / ADR-028)
 
-The `psl-stop-verification-fence` hook enforces verification discipline by preventing agents from declaring completion when code has been modified without running tests.
+The `psl-stop-verification-fence` hook enforces verification discipline by preventing agents from declaring completion when code or cleanroom specifications have been modified without formal verification.
 
 #### A. Triple Event Registration in `hooks.json`
 ```json
@@ -88,7 +89,7 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
     ],
     "PostToolUse": [
       {
-        "matcher": "run_command|execute_command|bash",
+        "matcher": "run_command|execute_command|bash|call_mcp_tool",
         "hooks": [
           {
             "type": "command",
@@ -109,67 +110,77 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
 }
 ```
 
-#### B. Operational State Machine
-1. **`PreToolUse` Interception**:
-   - Matching tools: `write_to_file`, `replace_file_content`, `edit_file`.
-   - **Ephemeral Scratch Path Filtering**:
-     - Ephemeral scratch paths (e.g. `.gemini/antigravity/brain/.../scratch/...`, or files outside target workspace `cwd`, or system temp files `/tmp/`, `/var/tmp/` when `cwd` is unspecified) are filtered out and do NOT mark state dirty.
-   - **Cleanroom Contract File Gate**:
-     - Modifications to files within `docs/specs/**` or `.agents/ledger/**` are classified as cleanroom contracts and override default `.md` or `.json` exemptions, immediately setting `code_dirty = True`.
-   - **Standard Code File Interception**:
-     - If target file is recognized as code (`.py`, `.ts`, `.rs`, `.go`, etc.):
-       - Sets `code_dirty = True`.
-       - Appends target file to `last_modified_files`.
-       - Resets `block_count = 0` (re-arming the fence if previously tripped).
-   - Exemptions: Standard documentation (`README.md`, `PROJECT.md`, `docs/architecture.md`, `docs/guide.md`), assets (`.png`, `.svg`), lockfiles (`uv.lock`, `package-lock.json`), and git configs (`.gitignore`) do NOT dirty the state.
-   - Always emits `{"decision": "allow"}` so the edit proceeds unhindered.
+#### B. Operational State Machine & Decoupled Dirty State (ADR-028)
 
-2. **`PostToolUse` Interception & Command Verification**:
-   - Matching tools: `run_command`, `execute_command`, `bash`.
-   - Robustly extracts exit codes from payload fields (`exitCode`, `exit_code`, `returncode`) and nested structures (`toolResponse`, `result`).
-   - If the command executed a recognized test runner (e.g. `pytest`, `cargo test`, `pnpm test`, `agyis test`):
-     - Exit code 0 auto-clears `code_dirty = False`, resets `block_count = 0`, and clears `last_modified_files`.
-     - Non-zero exit code preserves `code_dirty = True`.
+The completion fence decouples dirty state into two independent flags:
 
-3. **`Stop` Event Evaluation**:
-   - If `code_dirty == False`: Emits `{"decision": "allow"}`.
-   - If `code_dirty == True`:
-     - If `block_count < 2`: Increments `block_count` and emits contextual diagnostic refusal guidance:
-       - For cleanroom contract edits:
-         ```json
-         {
-           "decision": "continue",
-           "reason": "Verification Required: Unverified cleanroom contract edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
-         }
-         ```
-       - For mixed code and contract edits:
-         ```json
-         {
-           "decision": "continue",
-           "reason": "Verification Required: Unverified code and cleanroom contract edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
-         }
-         ```
-       - For standard code edits:
-         ```json
-         {
-           "decision": "continue",
-           "reason": "Verification Required: Unverified code edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
-         }
-         ```
-     - If `block_count >= 2`: Anti-deadlock safety valve trips! Emits:
-       ```json
-       {
-         "decision": "allow",
-         "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite unverified edits."
-       }
-       ```
+1. **`code_dirty` State**:
+   - Set when any file matching `CODE_EXTENSIONS` (`.py`, `.ts`, `.rs`, `.go`, `.c`, `.sh`) outside specification directories is modified.
+   - Cleared ONLY when the active repository test runner (`agyis test`, `pytest`, `npm test`, `cargo test`) runs and exits with code 0.
+   - When active, blocks agent `Stop` with:
+     `Verification Required: Unverified code edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping.`
 
-4. **Verification Clearance via Test Runner**:
-   - Running `./agyis test` (or `./psl test`) or `python3 -m harness.cli test` executes the test suite.
-   - Upon successful completion (`success == True`), clears `code_dirty = False`, resets `block_count = 0`, and sweeps active session state files in `$PSL_HARNESS_STATE_DIR/verification_state_*.json`.
+2. **`spec_dirty` State**:
+   - Set when cleanroom contracts (`docs/specs/**`, `.agents/ledger/**`) with declarative extensions (`.md`, `.json`, `.yaml`, `.proto`, `.schema`) are modified.
+   - Does NOT demand unit tests!
+   - Cleared when `agyis verify --spec` exits 0, or when cleanroom manifest is verified via `rea verify-reconstruction` / MCP `verify_reconstruction`.
+   - When active, blocks agent `Stop` with:
+     `Cleanroom Verification Required: Unverified cleanroom contract edits detected in: <files>. Execute 'rea verify-reconstruction' or 'agyis verify --spec' before stopping.`
+
+3. **Code-in-Specs Dual Dirty Guard (DEF-01)**:
+   - If an agent writes executable code (`.py`, `.ts`, `.sh`) into `docs/specs/`, the fence sets **BOTH `code_dirty = True` and `spec_dirty = True`**, preventing agents from evading unit test requirements.
+   - When active alongside code changes, blocks agent `Stop` with:
+     `Verification Required: Unverified code and cleanroom contract edits detected in: <files>. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping.`
+
+4. **Ephemeral Scratch Paths**:
+   - Ephemeral scratch paths (`.rea/**`, `decompiled/**`, `artifacts/rea/**`, `/scratch/`, or temporary paths outside workspace root) never mark state dirty.
+
+5. **Formal Manifest Clearance (DEF-06)**:
+   - Validates cleanroom clearance manifests in `.agents/ledger/manifest.json` against typed schemas (`status: "verified"`, 64-character lowercase SHA-256 `evidence_hash`, and non-empty `obligations` array where all entries have `status: "satisfied"`). If verified, clears `spec_dirty = False` automatically.
+
+6. **Anti-Deadlock Safety Valve**:
+   - If blocked twice consecutively (`block_count >= 2`), the safety valve trips and allows termination with warning, preventing infinite loops.
+
+7. **Verification Clearance via Test Runner / Verify Command**:
+   - Running `./agyis test` (or `python3 -m harness.cli test`) clears `code_dirty = False` and `spec_dirty = False`.
+   - Running `agyis verify --spec` or `rea verify-reconstruction` clears `spec_dirty = False` without requiring test suite execution.
+
+### 3.2 The `psl-token-proximity-guard` Contract (ADR-014 / ADR-028)
+
+The token proximity guard monitors active session context accumulation to warn agents before they hit the catastrophic 50k token context cliff.
+
+#### A. Registration in `hooks.json`
+```json
+{
+  "psl-token-proximity-guard": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.hooks.runner token-proximity",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+#### B. Decoding & Thresholds
+1. **SQLite Sampling**: Directly queries `~/.gemini/antigravity/conversations/*.db` using read-only URI mode (`file:<path>?mode=ro`, timeout=1.0) to prevent database lock contention.
+2. **Protobuf Extraction**: Reads the latest step from the `steps` table and decodes binary protobuf field 9 to extract exact prompt tokens (subfield 2) and cached content tokens (subfield 5).
+3. **Compaction Checkpoint Detection**: Honors Antigravity compaction checkpoint barriers (enum 23 / 0x17), bounding token calculation to post-compaction steps.
+4. **Threshold Indicators**:
+   - `< 35,000 tokens`: Silent (nominal operation).
+   - `35,000 - 44,999 tokens`: Emits an ANSI amber warning gauge to `stderr` advising approaching horizon limits.
+   - `>= 45,000 tokens`: Emits a bold ANSI red alert and terminal bell (`\a`) warning that the 50k compaction threshold is imminent.
+5. **Fail-Open Invariant**: Always outputs `{"decision": "allow"}` and exits 0. Tool calls are never interrupted.
 
 
-### 3.2 Command Safety & Subshell PATH Reliability Contract (ADR-023)
+### 3.3 Command Safety & Subshell PATH Reliability Contract (ADR-023)
 
 The `command_safety_hook.py` hook intercepts `run_command` in `PreToolUse` to guarantee reliable subshell execution:
 
@@ -197,7 +208,7 @@ The `command_safety_hook.py` hook intercepts `run_command` in `PreToolUse` to gu
 - Enforces non-interactive pagers (`PAGER=cat` for `git`, `gh`).
 - Injects certified CPython 3.12+ for inline Python scripts (`python3 -c`) and sanitizes f-string quote escapes.
 - Surgical tail sanitization (`|| [ $? -eq 1 ]`) for standalone pattern searches (`grep`, `diff`).
-### 3.3 Plan-to-Execution Anti-Drift Verification Gate (ADR-024)
+### 3.4 Plan-to-Execution Anti-Drift Verification Gate (ADR-024)
 
 The `anti_drift_hook.py` hook (`psl-anti-drift-guard`) intercepts file modifications in `PreToolUse` to ensure agents do not mutate files outside the boundaries of the approved implementation plan.
 
@@ -260,7 +271,7 @@ Non-code and operational files are never blocked by the anti-drift gate:
 
 ---
 
-### 5. PreToolUse Auditor Write-Block Guard & Zero-Token Context Health Gauge (ADR-025)
+### 3.5 PreToolUse Auditor Write-Block Guard & Zero-Token Context Health Gauge (ADR-025)
 
 * **Hook Name**: `anti-drift` (auditor write-block extension) & `harness.subagents`
 * **Trigger Event**: `PreToolUse` (interception) and programmatic telemetry

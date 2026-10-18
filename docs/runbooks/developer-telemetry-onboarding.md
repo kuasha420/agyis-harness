@@ -143,6 +143,11 @@ agyis doctor
 
 # 2. View local harness overview and telemetry count
 agyis status
+
+# 3. Enable persistent background telemetry sync
+agyis sync --service install
+agyis sync --service start
+agyis sync --service status
 ```
 
 ---
@@ -176,3 +181,16 @@ agyis status
   ```bash
   agyis sync --session-id <conversation-id>
   ```
+
+### Q5: `agyis doctor` warns: `Database Port (5432) collision: occupied by foreign container` or backend tests fail with Prisma `P1000`
+- **Cause**: On developer workstations running Docker containers across multiple projects (e.g. `jasper-hosted` alongside `purrfectsoft/mm-website`), host port 5432 is frequently occupied by a foreign PostgreSQL container. When your current project spins up Prisma or runs localized migrations, connection attempts fail with `P1000: Authentication failed against database server` because it connects to the wrong container.
+- **Solution**:
+  Use the standalone collision detection utility to discover an unbound port (in range 5432..5442) and rebind your `.env` file:
+  ```bash
+  # Check collision status and inspect container owner
+  python3 harness/skills/db-ops/scripts/detect_port_collision.py --check
+
+  # Automatically find a free port and surgically rebind .env
+  python3 harness/skills/db-ops/scripts/detect_port_collision.py --find-free --rebind --env .env
+  ```
+  The script updates `POSTGRES_PORT` and `DATABASE_URL` in `.env` while preserving surrounding comments, quotes, and URL query parameters.
