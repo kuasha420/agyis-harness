@@ -434,5 +434,22 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Rules & Ledger: `GLOBAL_AGENTS.md`, `.agents/rules/AGENTS.md`, `harness/rules/AGENTS.md`, `harness/rules/GLOBAL_AGENTS.md`, `roadmap.md`, `docs/taxonomy/project-ledger.md`.
   - Test Suites: `tests/test_onboard.py`, `tests/test_verify.py`, `tests/test_anti_drift.py`, `tests/test_sync_service.py`, `tests/test_pipeline_audit_smoke.py`.
 
+---
+
+## [Phase 15] Automated Release Notes Generation, Manifest Harmonization & v1.0.0-rc6 Release
+* **Status**: Completed | **Compaction Date**: 2026-10-18 | **Release**: `v1.0.0-rc6`
+* **Key Architectural Decisions & Operational Invariants**:
+  - **Automated Conventional Release Notes Engine (`harness/delivery/release_notes.py`)**: Built standard-library conventional commit parser, issue/PR regex link extractor, and markdown generator categorizing commits into Features & Architecture, Bug Fixes & Hardening, Documentation & Usability, and Maintenance & Release.
+  - **CLI & GitHub Actions Workflow Integration**: Integrated `agyis release-notes [--base <base>] [--tag <tag>] [--output <file>] [--gh-release <tag>]` subcommand into CLI palette and wired into `.github/workflows/release.yml` for automated structured release notes on tag push.
+  - **Retroactive Release Harmonization**: Generated rich changelog and updated GitHub release `v1.0.0-rc5` via `gh release edit`.
+  - **Version Harmonization to `1.0.0-rc6`**: Bumped version across all 9 manifest and documentation files (`pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`, `tests/test_cli.py`, `tests/test_delivery.py`, `README.md`, `roadmap.md`, `docs/taxonomy/project-ledger.md`).
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,090 hermetic tests passing** (100% green, exit code 0; unit test benchmark <1.0s).
+  - Cleanroom specifications: Verified cleanly via `python3 -m harness.cli verify --spec`.
+* **Reference Assets Committed**:
+  - Release Engine: `harness/delivery/release_notes.py`, `harness/cli.py`, `.github/workflows/release.yml`
+  - Unit Tests: `tests/test_release_notes.py`
+  - Manifests: `pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`
+
 
 

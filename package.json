@@ -1,6 +1,6 @@
 {
   "name": "agyis-harness",
-  "version": "1.0.0-rc4",
+  "version": "1.0.0-rc6",
   "description": "Autonomous agent runtime harness and immune system for Google Antigravity™",
   "type": "module",
   "scripts": {

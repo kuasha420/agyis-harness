@@ -29,7 +29,7 @@ An official Antigravity plugin packages skills, rules, lifecycle hooks, and MCP 
 {
   "name": "agyis-harness",
   "displayName": "Agyis Harness for Google Antigravity™",
-  "version": "1.0.0-rc4",
+  "version": "1.0.0-rc6",
   "description": "Empirical audit pipeline and reference extension harness for Google Antigravity™",
   "author": {
     "name": "Purrfect Software Limited (PSL)"

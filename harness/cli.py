@@ -45,6 +45,7 @@ from harness.commands import (
     cmd_test,
     cmd_uninstall,
     cmd_verify,
+    cmd_release_notes,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -630,6 +631,54 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Print verbose retry diagnostics to stderr",
     )
 
+    # release-notes
+    p_relnotes = subparsers.add_parser(
+        "release-notes",
+        help="Generate conventional release notes from git commits and PR references",
+        description="Conventional Release Notes Generator & GitHub Release Synchronizer (Milestone M1)",
+    )
+    p_relnotes.add_argument(
+        "--tag",
+        type=str,
+        default=None,
+        help="Target release tag or ref (default: HEAD or latest tag)",
+    )
+    p_relnotes.add_argument(
+        "--base",
+        type=str,
+        default=None,
+        help="Base release tag or ref to compare against (default: auto-detected predecessor tag)",
+    )
+    p_relnotes.add_argument(
+        "--output", "-o",
+        type=str,
+        default=None,
+        help="Output markdown file path",
+    )
+    p_relnotes.add_argument(
+        "--gh-release",
+        type=str,
+        default=None,
+        help="Create or edit GitHub release using gh CLI",
+    )
+    p_relnotes.add_argument(
+        "--workspace", "-w",
+        type=Path,
+        default=None,
+        help="Path to git repository workspace (default: current directory)",
+    )
+    p_relnotes.add_argument(
+        "--repo-url",
+        type=str,
+        default=None,
+        help="GitHub repository URL override for changelog compare links",
+    )
+    p_relnotes.add_argument(
+        "--json",
+        action="store_true",
+        help="Output release notes and structured categories in JSON format",
+    )
+
     return parser
 
 
@@ -684,6 +733,7 @@ def main(
         "uninstall": cmd_uninstall,
         "verify": cmd_verify,
         "gui": cmd_gui,
+        "release-notes": cmd_release_notes,
     }
 
     handler = commands.get(args.subcommand)

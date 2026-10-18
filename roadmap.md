@@ -290,6 +290,13 @@ Our empirical audit proved that session depth is the single greatest catalyst of
       - Harmonized `AGENTS.md` and `.agents/rules/AGENTS.md` with v1.0.0-rc5 CLI commands and invariants.
     - **Automated Verification Gates & Certification**: Verified 1,065 hermetic tests passing with 100% green exit code 0, host doctor passing with 9 OK / 0 missing, and all 11 cleanroom specifications in `docs/specs/` verified (`agyis verify --spec`). Full release readiness achieved for `v1.0.0-rc5`.
 
+  - [x] **Release Notes Automation, Manifest Harmonization & v1.0.0-rc6 Release (Phase 15 - Horizon 1.8)**:
+    - **Automated Conventional Release Notes Engine (`harness/delivery/release_notes.py`)**: Built standard-library conventional commit parser, issue/PR regex link extractor, and markdown generator categorizing commits into Features & Architecture, Bug Fixes & Hardening, Documentation & Usability, and Maintenance & Release.
+    - **CLI & Workflow Integration**: Integrated `agyis release-notes` CLI subcommand and updated `.github/workflows/release.yml` for automated structured release notes generation on tag push.
+    - **Retroactive Release Notes Harmonization**: Generated rich changelog and updated GitHub release `v1.0.0-rc5` via `gh release edit`.
+    - **Version Synchronization & Manifest Harmonization**: Synchronized version `1.0.0-rc6` across `pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`, `tests/test_cli.py`, `tests/test_delivery.py`, and `README.md`.
+    - **Hermetic Testing & Verification**: Authored unit test suite in `tests/test_release_notes.py` with sub-second execution, achieving 100% green exit code 0 across all 1,090 repository tests.
+
 ---
 
 ### ⚪ Horizon 2: Fleet Scaling & Knot Hardware Mesh (FUTURE)

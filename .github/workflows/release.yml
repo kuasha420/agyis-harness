@@ -56,13 +56,23 @@ jobs:
           test -f dist/agyis_harness-*.tar.gz
           sha256sum dist/*
 
+      - name: Generate conventional release notes
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == "main" || "$TAG" == "master" ]]; then
+            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0-rc5")
+          fi
+          echo "Generating release notes for $TAG..."
+          uv run python3 -m harness.cli release-notes --tag "$TAG" --output dist/RELEASE_NOTES.md
+          cat dist/RELEASE_NOTES.md
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ github.ref_name }}"
           if [[ "$TAG" == "main" || "$TAG" == "master" ]]; then
-            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0-rc4")
+            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0-rc5")
           fi
           echo "Target release tag: $TAG"
           PRERELEASE_FLAG=""
@@ -71,12 +81,13 @@ jobs:
           fi
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; uploading/updating distribution artifacts..."
+            echo "Release $TAG already exists; uploading artifacts and updating release notes..."
             gh release upload "$TAG" dist/agyis_harness-*.whl dist/agyis_harness-*.tar.gz --clobber
+            gh release edit "$TAG" --notes-file dist/RELEASE_NOTES.md
           else
             echo "Creating GitHub Release for $TAG ($PRERELEASE_FLAG)..."
             gh release create "$TAG" dist/agyis_harness-*.whl dist/agyis_harness-*.tar.gz \
               --title "${{ github.ref_name }}" \
-              --generate-notes \
+              --notes-file dist/RELEASE_NOTES.md \
               $PRERELEASE_FLAG
           fi

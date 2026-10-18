@@ -25,6 +25,7 @@ from harness.commands.harmonize import cmd_harmonize
 from harness.commands.onboard import cmd_onboard
 from harness.commands.verify import cmd_verify
 from harness.commands.gui import cmd_gui
+from harness.commands.release_notes import cmd_release_notes
 
 __all__ = [
     "cmd_doctor",
@@ -45,4 +46,5 @@ __all__ = [
     "cmd_onboard",
     "cmd_verify",
     "cmd_gui",
+    "cmd_release_notes",
 ]
