@@ -1,7 +1,7 @@
 {
   "name": "agyis-harness",
   "displayName": "Agyis Harness for Google Antigravity™",
-  "version": "1.0.0-rc4",
+  "version": "1.0.0-rc5",
   "description": "Autonomous agent runtime harness and immune system for Google Antigravity™",
   "author": {
     "name": "Arafat Zahan (@kuasha420) & Purrfect Software Limited (PSL)"
