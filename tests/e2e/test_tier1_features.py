@@ -478,6 +478,17 @@ class TestTier1Features(OpaqueBoxTestCase):
                 return proc
             return orig_run(cmd, *args, **kwargs)
 
+        mock_cli = {
+            "status": "OK",
+            "path": "/usr/local/bin/agyis",
+            "collision": False,
+            "agyis_status": "OK",
+            "agyis_path": "/usr/local/bin/agyis",
+            "psl_details": {"status": "OK", "collision": False, "path": "/usr/local/bin/psl"},
+            "psl_collision": {"status": "OK", "collision": False, "path": "/usr/local/bin/psl"},
+            "details": "Agyis launcher OK",
+            "remediation": None,
+        }
         mock_tool = {
             "name": "mock",
             "binary": "mock",
@@ -494,6 +505,7 @@ class TestTier1Features(OpaqueBoxTestCase):
 
         with unittest.mock.patch("subprocess.run", side_effect=mock_subproc), \
              unittest.mock.patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
+             unittest.mock.patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
              unittest.mock.patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")):
             code, out, err = self.run_cli(["doctor", "--experimental-rea", "--json"])
             self.assertEqual(code, 0)

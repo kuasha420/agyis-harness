@@ -662,6 +662,17 @@ class TestReaToolingDiagnostics(unittest.TestCase):
             proc.stdout = "99.0.0"
             return proc
 
+        mock_cli = {
+            "status": "OK",
+            "path": "/usr/local/bin/agyis",
+            "collision": False,
+            "agyis_status": "OK",
+            "agyis_path": "/usr/local/bin/agyis",
+            "psl_details": {"status": "OK", "collision": False, "path": "/usr/local/bin/psl"},
+            "psl_collision": {"status": "OK", "collision": False, "path": "/usr/local/bin/psl"},
+            "details": "Agyis launcher OK",
+            "remediation": None,
+        }
         mock_tool = {
             "name": "mock",
             "binary": "mock",
@@ -678,6 +689,7 @@ class TestReaToolingDiagnostics(unittest.TestCase):
 
         with patch("subprocess.run", side_effect=mock_run), \
              patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
+             patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
              patch("harness.runtime.doctor.check_rea_tooling", return_value=mock_rea):
             audit = run_doctor(DEFAULT_MATRIX)
             self.assertEqual(audit["rea_tooling"]["status"], "optional_missing")
@@ -703,7 +715,34 @@ class TestReaToolingDiagnostics(unittest.TestCase):
             proc.stdout = "99.0.0"
             return proc
 
+        mock_cli = {
+            "status": "OK",
+            "path": "/usr/local/bin/agyis",
+            "collision": False,
+            "agyis_status": "OK",
+            "agyis_path": "/usr/local/bin/agyis",
+            "psl_details": {"status": "OK", "collision": False, "path": "/usr/local/bin/psl"},
+            "psl_collision": {"status": "OK", "collision": False, "path": "/usr/local/bin/psl"},
+            "details": "Agyis launcher OK",
+            "remediation": None,
+        }
+        mock_tool = {
+            "name": "mock",
+            "binary": "mock",
+            "status": "OK",
+            "path": "/usr/bin/mock",
+            "version": "99.0.0",
+            "min_version": "1.0.0",
+            "is_shim": False,
+            "shim_details": None,
+            "is_collision": False,
+            "collision_details": None,
+            "spec": {},
+        }
+
         with patch("subprocess.run", side_effect=mock_run), \
+             patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
+             patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
              patch("harness.runtime.doctor.check_rea_tooling", return_value=mock_rea), \
              patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}):
             audit = run_doctor(DEFAULT_MATRIX, experimental_rea=True)
