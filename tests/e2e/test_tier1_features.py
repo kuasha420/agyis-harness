@@ -478,7 +478,23 @@ class TestTier1Features(OpaqueBoxTestCase):
                 return proc
             return orig_run(cmd, *args, **kwargs)
 
-        with unittest.mock.patch("subprocess.run", side_effect=mock_subproc):
+        mock_tool = {
+            "name": "mock",
+            "binary": "mock",
+            "status": "OK",
+            "path": "/usr/bin/mock",
+            "version": "99.0.0",
+            "min_version": "1.0.0",
+            "is_shim": False,
+            "shim_details": None,
+            "is_collision": False,
+            "collision_details": None,
+            "spec": {},
+        }
+
+        with unittest.mock.patch("subprocess.run", side_effect=mock_subproc), \
+             unittest.mock.patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
+             unittest.mock.patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")):
             code, out, err = self.run_cli(["doctor", "--experimental-rea", "--json"])
             self.assertEqual(code, 0)
             data = self.parse_json_stdout(out)

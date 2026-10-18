@@ -42,7 +42,22 @@ class TestReaDoctorFastPath(unittest.TestCase):
 
     def test_doctor_fast_path_when_rea_missing(self):
         """Verifies fast path executes in <0.05s, skips subprocesses, and adds 0 warnings."""
+        mock_tool = {
+            "name": "mock",
+            "binary": "mock",
+            "status": "OK",
+            "path": "/usr/bin/mock",
+            "version": "99.0.0",
+            "min_version": "1.0.0",
+            "is_shim": False,
+            "shim_details": None,
+            "is_collision": False,
+            "collision_details": None,
+            "spec": {},
+        }
+
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=None), \
+             patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
              patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}), \
              patch("subprocess.run") as mock_run:
             t0 = time.perf_counter()

@@ -662,7 +662,22 @@ class TestReaToolingDiagnostics(unittest.TestCase):
             proc.stdout = "99.0.0"
             return proc
 
+        mock_tool = {
+            "name": "mock",
+            "binary": "mock",
+            "status": "OK",
+            "path": "/usr/bin/mock",
+            "version": "99.0.0",
+            "min_version": "1.0.0",
+            "is_shim": False,
+            "shim_details": None,
+            "is_collision": False,
+            "collision_details": None,
+            "spec": {},
+        }
+
         with patch("subprocess.run", side_effect=mock_run), \
+             patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
              patch("harness.runtime.doctor.check_rea_tooling", return_value=mock_rea):
             audit = run_doctor(DEFAULT_MATRIX)
             self.assertEqual(audit["rea_tooling"]["status"], "optional_missing")

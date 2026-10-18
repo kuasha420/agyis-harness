@@ -228,7 +228,8 @@ class TestTier3Combinations(OpaqueBoxTestCase):
         mock_proc = MagicMock(returncode=0, stdout=mock_prov_json, stderr="")
 
         target_skills = self.ws / ".agents" / "skills"
-        with patch("subprocess.run", return_value=mock_proc):
+        with patch("subprocess.run", return_value=mock_proc), \
+             patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")):
             prov_path = provision_rea_skill(target_skills, link=False, allow_download=False)
             self.assertIsNotNone(prov_path)
             self.assertTrue((prov_path / "SKILL.md").is_file())
