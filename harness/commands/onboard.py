@@ -49,6 +49,10 @@ def cmd_onboard(
     skills: Optional[Union[str, List[str]]] = None,
     prune_legacy: bool = True,
     no_prune: bool = False,
+    allow_dirty: bool = False,
+    create_branch: Optional[Union[str, bool]] = None,
+    purge_caches: bool = True,
+    no_cache_purge: bool = False,
     dry_run: bool = False,
     json_output: bool = False,
     open_pr: bool = False,
@@ -80,6 +84,11 @@ def cmd_onboard(
         no_prune = bool(getattr(args, "no_prune", False))
         prune_legacy = bool(getattr(args, "prune_legacy", True) or getattr(args, "clean_agent_dir", False))
         effective_prune = False if no_prune else prune_legacy
+        allow_dirty = bool(getattr(args, "allow_dirty", False))
+        create_branch = getattr(args, "create_branch", None)
+        no_cache_purge = bool(getattr(args, "no_cache_purge", False))
+        purge_caches = bool(getattr(args, "purge_caches", True))
+        effective_purge_caches = False if no_cache_purge else purge_caches
         dry_run = bool(getattr(args, "dry_run", False))
         json_output = bool(getattr(args, "json", False))
         open_pr = bool(getattr(args, "pr", False) or getattr(args, "open_pr", False) or getattr(args, "create_pr", False))
@@ -93,6 +102,8 @@ def cmd_onboard(
         elif isinstance(skills, (list, tuple, set)):
             skills = list(skills)
         effective_prune = False if no_prune else prune_legacy
+        allow_dirty = bool(allow_dirty)
+        effective_purge_caches = False if no_cache_purge else purge_caches
 
     ws = target_path.resolve()
     if not ws.exists() or not ws.is_dir():
@@ -147,7 +158,106 @@ def cmd_onboard(
             print(f"💡 {msg}")
         return 0
 
-    # 4. Monorepo subproject path resolution
+    # 4. Working tree dirty safety check
+    safety_patch_path: Optional[str] = None
+    if topology.is_dirty:
+        if not allow_dirty:
+            err_msg = "Working tree has uncommitted changes. Stash/commit your changes or use --allow-dirty."
+            if json_output:
+                print(json.dumps({
+                    "success": False,
+                    "error": err_msg,
+                    "workspace": str(ws),
+                    "is_dirty": True,
+                }, indent=2))
+            else:
+                sys.stderr.write(f"✘ Error: {err_msg}\n")
+            return 1
+
+        patch_file = ws / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch"
+        safety_patch_path = str(patch_file)
+        if not dry_run:
+            patch_file.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                configure_git_exclude(ws)
+            except Exception:
+                pass
+            diff_proc = subprocess.run(
+                ["git", "diff", "HEAD"],
+                cwd=ws,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            diff_content = diff_proc.stdout
+            if diff_proc.returncode != 0 or not diff_content:
+                diff_proc2 = subprocess.run(
+                    ["git", "diff"],
+                    cwd=ws,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                )
+                diff_content = diff_proc2.stdout
+            patch_file.write_text(diff_content, encoding="utf-8")
+
+    # 5. Dedicated branch isolation
+    created_branch_name: Optional[str] = None
+    if create_branch:
+        branch_name = (
+            create_branch
+            if isinstance(create_branch, str) and create_branch.strip()
+            else "chore/agyis-harness-onboarding"
+        )
+        created_branch_name = branch_name
+        if topology.current_branch != branch_name:
+            if dry_run:
+                topology.current_branch = branch_name
+            else:
+                base_b = topology.active_base_branch or topology.default_branch or "main"
+                checkout_proc = subprocess.run(
+                    ["git", "checkout", "-b", branch_name, base_b],
+                    cwd=ws,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                if checkout_proc.returncode != 0:
+                    checkout_proc = subprocess.run(
+                        ["git", "checkout", "-b", branch_name],
+                        cwd=ws,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        timeout=10,
+                        check=False,
+                    )
+                if checkout_proc.returncode != 0:
+                    checkout_proc = subprocess.run(
+                        ["git", "checkout", branch_name],
+                        cwd=ws,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        timeout=10,
+                        check=False,
+                    )
+                if checkout_proc.returncode != 0:
+                    err_msg = f"Failed to checkout branch '{branch_name}': {checkout_proc.stderr.strip()}"
+                    if json_output:
+                        print(json.dumps({"success": False, "error": err_msg, "workspace": str(ws)}, indent=2))
+                    else:
+                        sys.stderr.write(f"✘ Error: {err_msg}\n")
+                    return 1
+                topology.current_branch = branch_name
+
+    # 6. Monorepo subproject path resolution
     subproject_path = (ws / subproject).resolve() if subproject else ws
     if subproject and not subproject_path.is_dir():
         err_msg = f"Subproject directory '{subproject}' does not exist in {ws}"
@@ -157,17 +267,19 @@ def cmd_onboard(
             sys.stderr.write(f"✘ Error: {err_msg}\n")
         return 1
 
-    # 5. Purge stale build caches (.next/, .turbo/) before verification gates
-    purged_caches = purge_build_caches(ws, subproject=subproject, dry_run=dry_run)
+    # 7. Purge stale build caches (.next/, .turbo/) before verification gates
+    purged_caches: List[str] = []
+    if effective_purge_caches:
+        purged_caches = purge_build_caches(ws, subproject=subproject, dry_run=dry_run)
 
-    # 6. Configure git exclusions for runtime safety
+    # 8. Configure git exclusions for runtime safety
     if not dry_run:
         try:
             configure_git_exclude(ws)
         except Exception:
             pass
 
-    # 7. Harmonize workspace (legacy .agent/ migration, rules tags, archive/prune)
+    # 9. Harmonize workspace (legacy .agent/ migration, rules tags, archive/prune)
     harm_res = harmonize_workspace(
         workspace_dir=subproject_path,
         dry_run=dry_run,
@@ -186,7 +298,7 @@ def cmd_onboard(
             sys.stderr.write(f"✘ Error: {harm_res.message}\n")
         return 1
 
-    # 8. Provision skills with decoupled presets or explicit list
+    # 10. Provision skills with decoupled presets or explicit list
     skills_list: List[str] = []
     if skills is not None:
         skills_list = list(skills)
@@ -212,6 +324,13 @@ def cmd_onboard(
     effective_stack = lang or detect_workspace_stack(subproject_path) or "generic"
     effective_role = role or detect_workspace_role(subproject_path)
 
+    # 11. Database port collision audit for backend/fullstack roles
+    db_check: Optional[Dict[str, Any]] = None
+    if effective_role in ("backend", "fullstack"):
+        from harness.runtime.hygiene_checks import check_database_port_conflicts
+
+        db_check = check_database_port_conflicts(workspace_root=subproject_path)
+
     if skills_list:
         install_workspace(
             workspace_dir=subproject_path,
@@ -222,7 +341,7 @@ def cmd_onboard(
             dry_run=dry_run,
         )
 
-    # 9. Enforce single-source skill deduplication by default (Issue #52, rc4 learnings)
+    # 12. Enforce single-source skill deduplication by default (Issue #52, rc4 learnings)
     config_dir_path = (
         Path(config_dir).resolve()
         if config_dir is not None
@@ -234,7 +353,7 @@ def cmd_onboard(
         dry_run=dry_run,
     )
 
-    # 10. Pull Request creation if requested
+    # 13. Pull Request creation if requested
     pr_created = False
     pr_url: Optional[str] = None
     pr_msg: Optional[str] = None
@@ -278,7 +397,7 @@ def cmd_onboard(
 
     polluting_files = verify_zero_git_pollution(ws)
 
-    # 11. Return JSON output or formatted terminal summary
+    # 14. Return JSON output or formatted terminal summary
     if json_output:
         out_data = {
             "success": True,
@@ -293,6 +412,10 @@ def cmd_onboard(
             "skills_provisioned": skills_list,
             "skills_deduplicated": pruned_skills,
             "caches_purged": purged_caches,
+            "purged_caches": purged_caches,
+            "safety_patch": safety_patch_path,
+            "created_branch": created_branch_name,
+            "database_port_check": db_check,
             "polluting_files": polluting_files,
             "pr_opened": pr_created,
             "pr_url": pr_url,
@@ -305,6 +428,9 @@ def cmd_onboard(
     prefix = "✔ [DRY-RUN] " if dry_run else "✔ "
     print(f"{prefix}Workspace onboarded: {ws}")
     print(f"  • Current branch: {topology.current_branch} (base: {topology.active_base_branch})")
+    if created_branch_name:
+        prefix_branch = "[dry-run] Would checkout" if dry_run else "Switched to"
+        print(f"  • {prefix_branch} onboarding branch: {created_branch_name}")
     print(f"  • Remote target: {topology.push_target_remote} -> {topology.pr_target_repo or 'origin'}")
     if topology.requires_fork:
         print(f"  • Fork required: yes (viewer permission: {topology.viewer_permission or 'read-only'})")
@@ -315,11 +441,16 @@ def cmd_onboard(
     if pruned_skills:
         prefix_dedup = "[dry-run] Would prune" if dry_run else "Pruned"
         print(f"  • {prefix_dedup} {len(pruned_skills)} duplicate skill(s) shadowing global plugin: {', '.join(Path(p).name for p in pruned_skills)}")
+    if safety_patch_path:
+        prefix_patch = "[dry-run] Would record" if dry_run else "Recorded"
+        print(f"  • {prefix_patch} pre-onboard safety patch: .agents/artifacts/wip-safety-pre-onboard.patch")
     if purged_caches:
         prefix_cache = "[dry-run] Would purge" if dry_run else "Purged"
         print(f"  • {prefix_cache} {len(purged_caches)} build cache directory(ies): {', '.join(Path(p).name for p in purged_caches)}")
     if harm_res.legacy_agent_dir_found:
         print(f"  • Harmonized legacy .agent/: yes (pruned: {'yes' if effective_prune else 'no'})")
+    if db_check and db_check.get("status") == "WARNING":
+        print(f"  • Warning: Database port conflict detected on port {db_check.get('port')}: {db_check.get('details')}")
     if open_pr:
         print(f"  • Pull Request: {pr_msg}")
     if polluting_files:

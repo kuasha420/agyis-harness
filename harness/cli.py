@@ -439,6 +439,31 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Disable pruning of legacy .agent/ directory",
     )
     p_onboard.add_argument(
+        "--create-branch",
+        nargs="?",
+        const="chore/agyis-harness-onboarding",
+        default=None,
+        help="Create and checkout dedicated onboarding branch (default: chore/agyis-harness-onboarding)",
+    )
+    p_onboard.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        default=False,
+        help="Proceed with onboarding even if git working tree has uncommitted modifications",
+    )
+    p_onboard.add_argument(
+        "--purge-caches",
+        action="store_true",
+        default=True,
+        help="Purge build caches (.next/, .turbo/) before verification (default: True)",
+    )
+    p_onboard.add_argument(
+        "--no-cache-purge",
+        action="store_true",
+        dest="no_cache_purge",
+        help="Disable automatic build cache purging",
+    )
+    p_onboard.add_argument(
         "--config-dir",
         type=str,
         default=None,

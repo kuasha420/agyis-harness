@@ -46,7 +46,8 @@ class TestOnboardCommand(unittest.TestCase):
         subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_path, check=True)
         dummy = repo_path / "README.md"
         dummy.write_text("# Test Repo\n", encoding="utf-8")
-        subprocess.run(["git", "add", "README.md"], cwd=repo_path, check=True)
+        (repo_path / ".gitignore").write_text(".next\n.turbo\nnode_modules\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md", ".gitignore"], cwd=repo_path, check=True)
         subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def test_onboard_harness_host_notice(self):
@@ -89,6 +90,8 @@ class TestOnboardCommand(unittest.TestCase):
         legacy.mkdir()
         (legacy / "rules").mkdir()
         (legacy / "rules" / "rule.md").write_text("Legacy rule\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".agent"], cwd=target, check=True)
+        subprocess.run(["git", "commit", "-m", "Add legacy .agent"], cwd=target, check=True, stdout=subprocess.DEVNULL)
 
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             code = cmd_onboard(target, dry_run=True, lang="python", role="cli")
@@ -156,6 +159,8 @@ class TestOnboardCommand(unittest.TestCase):
         sub = target / "services" / "billing"
         sub.mkdir(parents=True)
         (sub / "package.json").write_text('{"name": "billing"}\n', encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=target, check=True)
+        subprocess.run(["git", "commit", "-m", "Add services/billing"], cwd=target, check=True, stdout=subprocess.DEVNULL)
 
         code = cmd_onboard(
             target,
@@ -285,6 +290,8 @@ class TestOnboardCommand(unittest.TestCase):
         legacy.mkdir()
         (legacy / "rules").mkdir()
         (legacy / "rules" / "rule.md").write_text("# Old Rule\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".agent"], cwd=target, check=True)
+        subprocess.run(["git", "commit", "-m", "Add legacy .agent"], cwd=target, check=True, stdout=subprocess.DEVNULL)
 
         code = cmd_onboard(target, no_prune=True, config_dir=self.isolated_cfg)
         self.assertEqual(code, 0)
@@ -348,6 +355,8 @@ class TestOnboardCommand(unittest.TestCase):
         custom_skill = target / ".agents" / "skills" / "custom-mesh-op"
         custom_skill.mkdir(parents=True)
         (custom_skill / "SKILL.md").write_text("# Custom Skill\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=target, check=True)
+        subprocess.run(["git", "commit", "-m", "Add custom skill"], cwd=target, check=True, stdout=subprocess.DEVNULL)
 
         code = cmd_onboard(target, lang="python", config_dir=fake_cfg)
         self.assertEqual(code, 0)
@@ -380,6 +389,236 @@ class TestOnboardCommand(unittest.TestCase):
             self.assertEqual(code, 0)
             data = json.loads(mock_out.getvalue().strip())
             self.assertEqual(data["skills_provisioned"], ["git-worktree-ops", "telemetry-sync"])
+
+    def test_onboard_dirty_working_tree_aborts_without_allow_dirty(self):
+        """Verifies onboarding aborts with exit code 1 if working tree has uncommitted modifications without --allow-dirty."""
+        target = self.ws / "dirty-repo-abort"
+        self._init_git_repo(target)
+        (target / "dirty.txt").write_text("uncommitted content\n", encoding="utf-8")
+
+        # Test stderr output and exit code 1
+        with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code = cmd_onboard(target, allow_dirty=False)
+            self.assertEqual(code, 1)
+            self.assertIn("Working tree has uncommitted changes", mock_err.getvalue())
+
+        # Test JSON output and exit code 1
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_onboard(target, allow_dirty=False, json_output=True)
+            self.assertEqual(code, 1)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertFalse(data["success"])
+            self.assertTrue(data["is_dirty"])
+            self.assertIn("Working tree has uncommitted changes", data["error"])
+
+    def test_onboard_dirty_working_tree_proceeds_with_allow_dirty_and_exports_patch(self):
+        """Verifies --allow-dirty records pre-onboard diff to .agents/artifacts/wip-safety-pre-onboard.patch."""
+        target = self.ws / "dirty-repo-allow"
+        self._init_git_repo(target)
+        # Modify tracked file
+        (target / "README.md").write_text("# Test Repo modified\n", encoding="utf-8")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_onboard(target, allow_dirty=True, json_output=True, config_dir=self.isolated_cfg)
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertTrue(data["success"])
+            patch_expected = str(target / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch")
+            self.assertEqual(data["safety_patch"], patch_expected)
+
+        patch_file = target / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch"
+        self.assertTrue(patch_file.is_file())
+        patch_text = patch_file.read_text(encoding="utf-8")
+        self.assertIn("+# Test Repo modified", patch_text)
+
+    def test_onboard_dirty_working_tree_dry_run_with_allow_dirty(self):
+        """Verifies dry-run reports safety patch path without writing patch to disk."""
+        target = self.ws / "dirty-repo-dry-run"
+        self._init_git_repo(target)
+        (target / "README.md").write_text("# Modified in dry run\n", encoding="utf-8")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_onboard(target, allow_dirty=True, dry_run=True, json_output=True, config_dir=self.isolated_cfg)
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertTrue(data["dry_run"])
+            patch_expected = str(target / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch")
+            self.assertEqual(data["safety_patch"], patch_expected)
+
+        # In dry run, patch file should not be created
+        patch_file = target / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch"
+        self.assertFalse(patch_file.exists())
+
+    def test_onboard_create_branch_default_and_custom(self):
+        """Verifies --create-branch switches to default chore/agyis-harness-onboarding or custom branch."""
+        # Case A: Default branch name
+        target_default = self.ws / "branch-repo-default"
+        self._init_git_repo(target_default)
+        code = cmd_onboard(target_default, create_branch=True, config_dir=self.isolated_cfg)
+        self.assertEqual(code, 0)
+        curr_branch = (
+            subprocess.check_output(["git", "branch", "--show-current"], cwd=target_default)
+            .decode("utf-8")
+            .strip()
+        )
+        self.assertEqual(curr_branch, "chore/agyis-harness-onboarding")
+
+        # Case B: Custom branch name
+        target_custom = self.ws / "branch-repo-custom"
+        self._init_git_repo(target_custom)
+        code2 = cmd_onboard(target_custom, create_branch="feat/custom-onboard", config_dir=self.isolated_cfg)
+        self.assertEqual(code2, 0)
+        curr_branch2 = (
+            subprocess.check_output(["git", "branch", "--show-current"], cwd=target_custom)
+            .decode("utf-8")
+            .strip()
+        )
+        self.assertEqual(curr_branch2, "feat/custom-onboard")
+
+    def test_onboard_create_branch_already_exists(self):
+        """Verifies checking out an already-existing branch succeeds cleanly."""
+        target = self.ws / "branch-repo-exists"
+        self._init_git_repo(target)
+        # Create the branch beforehand
+        subprocess.run(["git", "branch", "chore/agyis-harness-onboarding"], cwd=target, check=True)
+        # Ensure we are currently on main
+        curr_before = (
+            subprocess.check_output(["git", "branch", "--show-current"], cwd=target)
+            .decode("utf-8")
+            .strip()
+        )
+        self.assertEqual(curr_before, "main")
+
+        code = cmd_onboard(target, create_branch=True, config_dir=self.isolated_cfg)
+        self.assertEqual(code, 0)
+        curr_after = (
+            subprocess.check_output(["git", "branch", "--show-current"], cwd=target)
+            .decode("utf-8")
+            .strip()
+        )
+        self.assertEqual(curr_after, "chore/agyis-harness-onboarding")
+
+    def test_cli_onboard_allow_dirty_and_create_branch_flags(self):
+        """Verifies CLI argument parsing for --allow-dirty, --create-branch, --purge-caches, and --no-cache-purge."""
+        target = self.ws / "cli-flags-repo"
+        self._init_git_repo(target)
+        (target / "README.md").write_text("# Dirty file\n", encoding="utf-8")
+
+        # 1. Without --allow-dirty, CLI must exit with code 1
+        with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code_fail = main(["onboard", str(target), "--json"], prog="agyis")
+            self.assertEqual(code_fail, 1)
+
+        # 2. With --allow-dirty, --create-branch (flag only = default branch), and --no-cache-purge
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code_ok = main(
+                [
+                    "onboard",
+                    str(target),
+                    "--allow-dirty",
+                    "--create-branch",
+                    "--no-cache-purge",
+                    "--dry-run",
+                    "--json",
+                    "--config-dir",
+                    str(self.isolated_cfg),
+                ],
+                prog="agyis",
+            )
+            self.assertEqual(code_ok, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(data["created_branch"], "chore/agyis-harness-onboarding")
+            self.assertIn("wip-safety-pre-onboard.patch", data["safety_patch"])
+            self.assertEqual(data["purged_caches"], [])
+            self.assertEqual(data["caches_purged"], [])
+
+        # 3. With explicit branch name
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code_custom = main(
+                [
+                    "onboard",
+                    str(target),
+                    "--allow-dirty",
+                    "--create-branch",
+                    "feat/custom-branch",
+                    "--dry-run",
+                    "--json",
+                    "--config-dir",
+                    str(self.isolated_cfg),
+                ],
+                prog="agyis",
+            )
+            self.assertEqual(code_custom, 0)
+            data_custom = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(data_custom["created_branch"], "feat/custom-branch")
+
+    def test_onboard_database_port_conflict_warning_backend_role(self):
+        """Verifies database port conflict detection is invoked and reported for backend/fullstack roles."""
+        target = self.ws / "db-warning-repo"
+        self._init_git_repo(target)
+
+        mock_db_warning = {
+            "status": "WARNING",
+            "collision": True,
+            "port": 5432,
+            "owner": {"type": "docker", "name": "foreign_pg"},
+            "free_port": 5433,
+            "details": "Foreign container collision on port 5432",
+            "remediation": "Rebind port to 5433",
+        }
+
+        # Backend role with mocked warning in JSON output
+        target_json = self.ws / "db-warning-json"
+        self._init_git_repo(target_json)
+        with patch(
+            "harness.runtime.hygiene_checks.check_database_port_conflicts",
+            return_value=mock_db_warning,
+        ) as mock_chk, patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_onboard(
+                target_json,
+                role="backend",
+                json_output=True,
+                config_dir=self.isolated_cfg,
+            )
+            self.assertEqual(code, 0)
+            self.assertTrue(mock_chk.called)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(data["database_port_check"]["status"], "WARNING")
+            self.assertEqual(data["database_port_check"]["port"], 5432)
+
+        # Backend role with mocked warning in console output
+        target_console = self.ws / "db-warning-console"
+        self._init_git_repo(target_console)
+        with patch(
+            "harness.runtime.hygiene_checks.check_database_port_conflicts",
+            return_value=mock_db_warning,
+        ), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_onboard(
+                target_console,
+                role="backend",
+                json_output=False,
+                config_dir=self.isolated_cfg,
+            )
+            self.assertEqual(code, 0)
+            self.assertIn("Warning: Database port conflict detected on port 5432: Foreign container collision on port 5432", mock_out.getvalue())
+
+        # Non-backend role (e.g. frontend) should NOT trigger check
+        target_frontend = self.ws / "db-warning-frontend"
+        self._init_git_repo(target_frontend)
+        with patch(
+            "harness.runtime.hygiene_checks.check_database_port_conflicts",
+            return_value=mock_db_warning,
+        ) as mock_chk_frontend, patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_onboard(
+                target_frontend,
+                role="frontend",
+                json_output=True,
+                config_dir=self.isolated_cfg,
+            )
+            self.assertEqual(code, 0)
+            self.assertFalse(mock_chk_frontend.called)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertIsNone(data["database_port_check"])
 
 
 if __name__ == "__main__":
