@@ -15,8 +15,9 @@ from pathlib import Path
 import re
 import shutil
 import stat
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
+from harness.delivery.cache import purge_workspace_build_caches
 from harness.delivery.constants import REPO_ROOT
 from harness.delivery.surfaces import find_workspace_root
 from harness.skills import (
@@ -840,89 +841,21 @@ def install_workspace(
     )
 
 
-def _handle_remove_readonly(func, path, exc_info):
-    """
-    Onerror handler for shutil.rmtree to unblock removal of read-only files and directories on Linux/POSIX (ADR-031).
-    """
-    try:
-        parent = os.path.dirname(path)
-        if parent and os.path.exists(parent):
-            os.chmod(parent, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
-        if os.path.exists(path):
-            os.chmod(path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
-        func(path)
-    except Exception:
-        pass
-
-
 def purge_build_caches(
     workspace_dir: Path | str,
     subproject: Optional[Path | str] = None,
     dry_run: bool = False,
+    target_dirs: Optional[Sequence[str]] = None,
+    max_depth: int = 3,
 ) -> List[str]:
     """
-    Purges stale build cache directories (.next/, .turbo/) before verification gates (ADR-031).
-    Recursively scans workspace (and optional subproject), skipping node_modules, .git, and .agents.
-    Returns list of paths of purged cache directories.
+    Purges stale build cache directories (.next/, .turbo/, node_modules/.cache) before verification gates (ADR-031).
+    Delegates to harness.delivery.cache.purge_workspace_build_caches.
     """
-    ws = Path(workspace_dir).resolve()
-    if not ws.exists() or not ws.is_dir():
-        return []
-
-    target_cache_names = {".next", ".turbo"}
-    ignored_dir_names = {
-        "node_modules", ".git", ".venv", "venv", ".agents", ".agent", "dist", "build", ".cache", "scratch"
-    }
-
-    found_targets: set[Path] = set()
-
-    # 1. Direct checks on workspace root and subproject
-    for name in target_cache_names:
-        cand = ws / name
-        if cand.is_symlink() or cand.is_dir() or cand.is_file():
-            found_targets.add(cand)
-
-    if subproject:
-        sub_path = Path(subproject)
-        if not sub_path.is_absolute():
-            sub_path = (ws / subproject).resolve()
-        if sub_path.is_dir():
-            for name in target_cache_names:
-                cand = sub_path / name
-                if cand.is_symlink() or cand.is_dir() or cand.is_file():
-                    found_targets.add(cand)
-
-    # 2. Bounded filesystem sweep (skipping ignored dirs and matched target subtrees)
-    for root_dir, dirs, files in os.walk(ws):
-        root = Path(root_dir)
-        matched = [d for d in dirs if d in target_cache_names]
-        for d in matched:
-            found_targets.add(root / d)
-        for f in files:
-            if f in target_cache_names:
-                found_targets.add(root / f)
-        # Prune dirs in-place to prevent descending into ignored or cache subtrees
-        dirs[:] = [d for d in dirs if d not in ignored_dir_names and d not in target_cache_names]
-
-    purged: List[str] = []
-    for target in sorted(found_targets, key=lambda p: str(p)):
-        if dry_run:
-            purged.append(str(target))
-        else:
-            try:
-                if target.is_symlink():
-                    target.unlink()
-                elif target.is_dir():
-                    shutil.rmtree(target, onerror=_handle_remove_readonly)
-                elif target.is_file():
-                    try:
-                        target.unlink()
-                    except PermissionError:
-                        os.chmod(target, stat.S_IRWXU)
-                        target.unlink()
-            except OSError:
-                pass
-            if not target.exists() and not target.is_symlink():
-                purged.append(str(target))
-
-    return purged
+    return purge_workspace_build_caches(
+        workspace_dir=workspace_dir,
+        target_dirs=target_dirs,
+        dry_run=dry_run,
+        max_depth=max_depth,
+        subproject=subproject,
+    )

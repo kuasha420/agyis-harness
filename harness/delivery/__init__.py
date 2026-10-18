@@ -50,13 +50,18 @@ from harness.delivery.workspace import (
     extract_command_dictionary,
     format_command_dictionary,
     install_workspace,
-    purge_build_caches,
+)
+from harness.delivery.cache import (
+    DEFAULT_CACHE_TARGETS,
+    purge_workspace_build_caches,
 )
 from harness.delivery.harmonize import (
     HarmonizeResult,
     harmonize_workspace,
     sanitize_workspace_links,
 )
+
+purge_build_caches = purge_workspace_build_caches
 
 __all__ = [
     "DEFAULT_PLUGIN_DIR",
@@ -93,6 +98,8 @@ __all__ = [
     "extract_command_dictionary",
     "format_command_dictionary",
     "install_workspace",
+    "DEFAULT_CACHE_TARGETS",
+    "purge_workspace_build_caches",
     "purge_build_caches",
     "HarmonizeResult",
     "harmonize_workspace",
