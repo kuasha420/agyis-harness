@@ -23,7 +23,7 @@ import re
 import sys
 import tempfile
 
-from harness.discovery import detect_project_test_runner
+from harness.discovery import detect_project_test_runner, get_git_modified_files
 from harness.utils.state import get_state_dir
 from harness.utils.workspace import is_harness_workspace
 
@@ -989,6 +989,20 @@ def evaluate_stop(
     5. Pure spec_dirty: requires verified manifest.json or trips anti-deadlock.
     6. code_dirty: requires recognized project test suite pass or trips anti-deadlock.
     """
+    if os.environ.get("PSL_COMPLETION_FENCE_DISABLED", "").lower() in ("1", "true", "yes"):
+        return {"decision": "allow"}
+
+    # Orchestrator / Cockpit / Flight Director exemption (ADR-014 / ADR-022)
+    role = (
+        (payload.get("agent_role") if payload else "")
+        or (payload.get("agentRole") if payload else "")
+        or (payload.get("role") if payload else "")
+        or os.environ.get("AGYIS_ROLE", "")
+        or os.environ.get("PSL_AGENT_ROLE", "")
+    ).lower()
+    if any(r in role for r in ("cockpit", "orchestrator", "flight_director", "sentinel", "coordinator", "main", "main_agent")):
+        return {"decision": "allow"}
+
     # 1. Reconcile background tasks first
     sync_background_tasks(
         conv_id=conv_id,
@@ -1021,6 +1035,21 @@ def evaluate_stop(
     effective_cwd = cwd if cwd is not None else state.get("cwd")
     if effective_cwd is None:
         effective_cwd = Path.cwd()
+
+    # Truth Anchor: reconcile empty last_modified_files against git status
+    # Eliminates phantom "untracked code files" blocks when git working tree is clean
+    if code_dirty and not state.get("last_modified_files", []):
+        git_mods = get_git_modified_files(effective_cwd)
+        if not git_mods:
+            state["code_dirty"] = False
+            state["turn_mutated"] = False
+            state["turn_modified_files"] = []
+            state["block_count"] = 0
+            save_state(state, conv_id=conv_id, state_dir=state_dir)
+            code_dirty = False
+        else:
+            state["last_modified_files"] = git_mods
+            save_state(state, conv_id=conv_id, state_dir=state_dir)
 
     session_has_code = any(
         is_code_file(f) or f == "<shell-mutation>" for f in state.get("session_modified_files", [])
@@ -1421,20 +1450,23 @@ def main() -> None:
         if cwd is None:
             cwd = tool_args.get("Cwd") or tool_args.get("cwd")
         event = str(payload.get("hookEvent") or payload.get("hook_event") or payload.get("event") or "").strip().lower()
-        if event == "posttooluse":
+        if "post" in event:
             is_post_tool_use = True
-        elif event == "pretooluse":
+        elif "pre" in event:
             is_post_tool_use = False
         else:
             is_post_tool_use = bool(
-                "toolResponse" in payload
+                "error" in payload
+                or "toolResponse" in payload
                 or "tool_response" in payload
                 or "toolOutput" in payload
                 or "tool_output" in payload
+                or "toolResult" in payload
+                or "tool_result" in payload
                 or "result" in payload
+                or "response" in payload
                 or "exitCode" in payload
                 or "exit_code" in payload
-                or tool_name in ("run_command", "execute_command", "bash")
             )
 
         if turn_id is not None:

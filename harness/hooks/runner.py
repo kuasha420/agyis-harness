@@ -53,6 +53,10 @@ ALIASES: Dict[str, str] = {
     "token-proximity-guard": "token-proximity",
     "token_proximity_guard": "token-proximity",
     "token": "token-proximity",
+    "post-verification-fence": "verification-fence",
+    "post_verification_fence": "verification-fence",
+    "post-fence": "verification-fence",
+    "post_fence": "verification-fence",
 }
 
 
@@ -74,7 +78,7 @@ def is_post_tool_use_context(hook_name: str, payload_str: Optional[str] = None) 
     """
     normalized = (hook_name or "").strip().lower().replace("_", "-")
     canonical = ALIASES.get(normalized, normalized)
-    if canonical == "compactor":
+    if canonical == "compactor" or normalized.startswith("post-"):
         return True
 
     if payload_str:
@@ -82,7 +86,11 @@ def is_post_tool_use_context(hook_name: str, payload_str: Optional[str] = None) 
             data = json.loads(payload_str)
             if isinstance(data, dict):
                 event = str(data.get("hookEvent") or data.get("hook_event") or data.get("event") or "").strip().lower()
+                if "pre" in event:
+                    return False
                 if "post" in event:
+                    return True
+                if "error" in data:
                     return True
                 if (
                     "toolResponse" in data
@@ -95,16 +103,7 @@ def is_post_tool_use_context(hook_name: str, payload_str: Optional[str] = None) 
                     or "response" in data
                 ):
                     return True
-                tool_call = data.get("toolCall") or data.get("tool_call") or {}
-                tool_name = (
-                    data.get("tool_name")
-                    or data.get("toolName")
-                    or (tool_call.get("name") if isinstance(tool_call, dict) else "")
-                    or ""
-                )
-                if tool_name in ("run_command", "execute_command", "bash"):
-                    return True
-                if "toolCall" in data and ("exitCode" in data or "exit_code" in data):
+                if "exitCode" in data or "exit_code" in data or "output" in data:
                     return True
         except Exception:
             pass
@@ -139,6 +138,16 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
                     payload_str = ""
             except Exception:
                 payload_str = ""
+
+        is_post = is_post_tool_use_context(hook_name, payload_str)
+        if is_post:
+            try:
+                data = json.loads(payload_str) if payload_str else {}
+                if isinstance(data, dict) and "hookEvent" not in data and "event" not in data:
+                    data["hookEvent"] = "PostToolUse"
+                    payload_str = json.dumps(data)
+            except Exception:
+                pass
 
         sys.stdin = io.StringIO(payload_str)
 

@@ -1329,5 +1329,34 @@ class TestTierGatedCompletionFence(unittest.TestCase):
         self.assertFalse(st_turn2.get("handoff_modified", False))
 
 
+    def test_evaluate_stop_orchestrator_role_exemption(self):
+        """Assures Cockpit/Orchestrator roles are exempt from Stop verification fence."""
+        conv_id = "test-orchestrator-exemption"
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        st["code_dirty"] = True
+        st["turn_mutated"] = True
+        st["last_modified_files"] = ["src/logic.py"]
+        save_state(st, conv_id=conv_id, state_dir=self.state_dir)
+
+        payload = {"role": "Cockpit Flight Director"}
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, payload=payload)
+        self.assertEqual(res.get("decision"), "allow")
+
+    def test_evaluate_stop_reconciles_empty_modified_files_with_clean_git(self):
+        """Assures phantom untracked code files are cleared when last_modified_files is empty and git is clean."""
+        conv_id = "test-git-truth-anchor"
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        st["code_dirty"] = True
+        st["turn_mutated"] = True
+        st["last_modified_files"] = []
+        save_state(st, conv_id=conv_id, state_dir=self.state_dir)
+
+        # In a clean mock/non-git or clean git dir without modified files
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res.get("decision"), "allow")
+        st_after = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(st_after.get("code_dirty"))
+
+
 if __name__ == "__main__":
     unittest.main()

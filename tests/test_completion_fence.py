@@ -521,7 +521,7 @@ class TestCompletionFenceHook(unittest.TestCase):
             completion_fence_hook.main()
 
         out_pre = json.loads(buf_pre.getvalue().strip())
-        self.assertEqual(out_pre, {})
+        self.assertEqual(out_pre, {"decision": "allow"})
         state_pre = load_state(conv_id=conv_id, state_dir=self.state_dir)
         self.assertTrue(state_pre["code_dirty"])
 
