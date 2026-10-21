@@ -488,6 +488,27 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Manifest Test Suite: [tests/test_cognitive_resilience_manifest.py](../../tests/test_cognitive_resilience_manifest.py)
   - GitHub Milestone: [v1.0.0-rc7 (Node: MI_kwDOU4VZGs4BHUve)](https://github.com/kuasha420/agyis-harness/milestone/2)
 
+---
+
+## [Phase 18] Epic #51: Real-World Testing & Anti-Synthetic Validation (Phases 1 & 2 Live, Phase 3.1 Ratified)
+* **Status**: In Progress (Phases 1 & 2 Certified in `main`, Phase 3.1 Ratified) | **Compaction Date**: 2026-10-22
+* **Key Architectural Decisions & Discoveries**:
+  - **Issue #51 Problem Statement**: Synthetic Tautological Verification crisis (zero-mounting passes in Sunshine Physio, fake ORM mocks in Purrfectcore, echo-assertion loophole where mock returns mirror state assertions).
+  - **Phase 1 (Completion Fence Triad)**: Intercepted async background task ledger (<1ms scan) auto-clearing `code_dirty` on `exit_code: 0` (#79); tool-mutation sensitivity unblocking conversational turns (#80); universal polyglot runner regex union across 12 ecosystems (#81); decoupled living DB scalar drift in `tests/test_audit_report.py`.
+  - **Phase 2 (Diff-Aware Affected Testing)**: Discarded artificial "unit vs full" taxonomy. Implemented Google Site Kit-derived Tier 1A/B diff testing (`agyis test --diff`, `--affected`, `--pkg`, `--full`) with strict working tree anchor and non-interactive subshell guards (`CI=true`, `--no-watch`). Authored `psl-test-harmonize` skill and CLI with safe backup patches and `.agyis/test_manifest.json`.
+  - **Phase 3 Tri-Subphase Plan**: Decomposed into 3.1 (Programmatic Safety Net: AST Smell Linter + Diff-Aware Micro-Mutator), 3.2 (TDD Basics & Cognitive Guidance), and 3.3 (Full-Stack Integration).
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,198 hermetic tests passing in 19.8s** (100% green, exit code 0).
+  - Phase 2 targeted unit tests: 103 tests in 0.354s (<1.0s benchmark).
+  - Diff-aware execution: 339 affected tests in 2.75s.
+  - Closed & verified GitHub issues: #79, #80, #81, #54.
+* **Reference Assets Committed**:
+  - Core Modules: `harness/discovery.py`, `harness/harmonize/test_runner.py`, `harness/hooks/completion_fence_hook.py`, `harness/cli.py`
+  - Skills: `skills/psl-test-harmonize/SKILL.md`
+  - Tests: `tests/test_diff_resolver.py`, `tests/test_harmonize_test.py`, `tests/test_completion_fence_hook.py`
+  - Master RFC: [epic_51_real_world_testing_rfc.md](../../docs/specs/RFC-051-real-world-testing-and-anti-synthetic-validation.md)
+
+
 
 
 
