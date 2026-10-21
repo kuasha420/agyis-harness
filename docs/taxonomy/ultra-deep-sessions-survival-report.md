@@ -6,7 +6,7 @@
 # 🔬 The Ultra-Deep Horizon Microscope: 1,000+ Step Survival Analysis
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
-**Generated At**: 2026-10-18T16:58:44.709139+00:00  
+**Generated At**: 2026-10-18T18:29:34.084410+00:00  
 **Data Source**: Deep forensic mining of `data/telemetry.db` across all sessions with `>= 1,000` steps  
 
 ---
@@ -14,9 +14,9 @@
 ## 1. Executive Summary: The Titan Population
 
 While the typical agent trajectory faces a severe cognitive degradation cliff beyond **50–200 steps**, exactly **51 sessions** on this workstation broke through the horizon and survived into **1,000 to 10,717 steps**.
-- **Titan Steps Count**: **132,543 steps** (**34.2% of our entire 140,005-step historical corpus**!).
+- **Titan Steps Count**: **132,543 steps** (**34.0% of our entire 140,005-step historical corpus**!).
 - **Titan Tool Calls**: **61,045 tool calls** (60.7% of all workstation executions).
-- **Titan Errors & Interventions**: **1,104 errors** and **1,343 human interventions**.
+- **Titan Errors & Interventions**: **1,103 errors** and **1,342 human interventions**.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -24,9 +24,9 @@ While the typical agent trajectory faces a severe cognitive degradation cliff be
 ├───────────────────────────────┬───────────────────┬────────────────────┤
 │ Metric                        │ Titan Sessions    │ Entire Corpus      │
 ├───────────────────────────────┼───────────────────┼────────────────────┤
-│ Session Count                 │                51 │              1,720 │
-│ Step Count                    │           132,543 │            387,708 │
-│ Share of Total Lifetime Steps │             34.2% │            100.0%  │
+│ Session Count                 │                51 │              1,734 │
+│ Step Count                    │           132,543 │            389,329 │
+│ Share of Total Lifetime Steps │             34.0% │            100.0%  │
 └───────────────────────────────┴───────────────────┴────────────────────┘
 ```
 
@@ -91,7 +91,7 @@ Our forensic clustering reveals that ultra-deep sessions do not fail or succeed 
 | `9d122830` | 1,212 | 557 | 2 (0.36%) | 11 (0.91) | 16.4h | 🔵 Type B (Systems) | `2768d860-6228-4b33-9148-eea0adef03ec` |
 | `a663f8d0` | 1,208 | 573 | 3 (0.52%) | 13 (1.08) | 7.6h | 🔵 Type B (Systems) | `cd5ef963-87c7-4164-81d3-1d248a1e802d` |
 | `22fa3d25` | 1,189 | 556 | 39 (7.01%) | 30 (2.52) | 126.9h | 🔴 Type C (Trap) | `` |
-| `8e57a742` | 1,183 | 558 | 19 (3.41%) | 16 (1.35) | 12.4h | 🔵 Type B (Systems) | `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` |
+| `8e57a742` | 1,183 | 558 | 18 (3.23%) | 15 (1.27) | 12.4h | 🔵 Type B (Systems) | `knot-mesh` |
 | `761bb75c` | 1,172 | 543 | 5 (0.92%) | 9 (0.77) | 4.4h | 🟢 Type A (Survivor) | `57b9a748-8fcd-4f69-9d33-400bf25f3345` |
 | `e4e3c534` | 1,110 | 514 | 6 (1.17%) | 27 (2.43) | 117.1h | 🔴 Type C (Trap) | `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` |
 | `d17081fe` | 1,104 | 518 | 45 (8.69%) | 20 (1.81) | 2.4h | 🔴 Type C (Trap) | `` |

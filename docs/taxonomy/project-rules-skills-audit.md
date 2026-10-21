@@ -7,7 +7,7 @@
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
-**Generated At**: 2026-10-10 19:30:28Z  
+**Generated At**: 2026-10-21 12:46:51Z  
 **Data Source**: Cross-analysis of repository configuration files (`AGENTS.md`, `.agents/skills`) vs. session telemetry in `data/telemetry.db`
 
 ---
@@ -24,26 +24,33 @@ When we evaluate the agent's behavior across distinct workspaces on this worksta
 ├──────────────────────────────┬────────────┬───────────┬────────────┬───────────────────┤
 │ Workspace                    │ Sessions   │ Error %   │ Interv/Sess│ Rule Architecture │
 ├──────────────────────────────┼────────────┼───────────┼────────────┼───────────────────┤
-| `57b9a748-8fcd-4f69-9d33-400bf25f3345` | 101 | 1.36% | 2.67 | None / Undetected |
-| `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` | 100 | 0.51% | 2.68 | None / Undetected |
-| `4eacf503-ea78-4551-aac9-ac9878ecd20a` | 97 | 1.4% | 1.75 | None / Undetected |
-| `[WORKSPACE_ROOT]` | 81 | 3.76% | 2.1 | None / Undetected |
+| `4eacf503-ea78-4551-aac9-ac9878ecd20a` | 524 | 2.4% | 0.6 | None / Undetected |
+| `psl-agy-harness` | 279 | 3.11% | 0.27 | None / Undetected |
+| `[WORKSPACE_ROOT]` | 239 | 2.49% | 1.32 | None / Undetected |
+| `57b9a748-8fcd-4f69-9d33-400bf25f3345` | 196 | 2.07% | 1.55 | None / Undetected |
+| `1da6ae24-e267-49d2-8aac-44bdf83d7d0e` | 107 | 0.59% | 2.67 | None / Undetected |
+| `mi34-ultra` | 104 | 5.02% | 0.15 | None / Undetected |
 | `Jasper` | 68 | 2.75% | 1.68 | None / Undetected |
-| `d3fbdfad-63f8-4578-a39a-6e3b2cd62690` | 55 | 2.01% | 5.04 | None / Undetected |
+| `d3fbdfad-63f8-4578-a39a-6e3b2cd62690` | 62 | 1.9% | 4.56 | None / Undetected |
 | `9f4acf7a-cfa7-48f1-a9b8-eb37422d7818` | 39 | 2.47% | 2.05 | None / Undetected |
 | `0a7e0526-5229-4bad-8f1d-74ac878e0fb0` | 39 | 0.46% | 1.46 | None / Undetected |
 | `cd5ef963-87c7-4164-81d3-1d248a1e802d` | 23 | 0.92% | 5.57 | None / Undetected |
 | `23eb585f-3ea7-470e-864a-ec012616f85d` | 22 | 1.33% | 0.68 | None / Undetected |
 | `purrmission` | 17 | 2.62% | 1.94 | None / Undetected |
+| `a78db7a3-e526-4448-a7a9-63a2ba3e91bc` | 12 | 1.65% | 0.83 | None / Undetected |
 | `2768d860-6228-4b33-9148-eea0adef03ec` | 12 | 0.43% | 17.08 | None / Undetected |
-| `mm-website` | 5 | 6.36% | 44.4 | None / Undetected |
+| `mm-website` | 6 | 6.27% | 39.17 | None / Undetected |
 | `74a18ea8-e7dc-49d9-83e2-d1b22fc9417f` | 4 | 1.07% | 7.0 | None / Undetected |
 | `6eca5e94-d64a-41fe-99b1-beb5e7d61b88` | 4 | 0.88% | 4.25 | None / Undetected |
+| `knot-mesh` | 3 | 0.93% | 0.0 | None / Undetected |
 | `d3f78cc7-fd7c-47a0-a8ec-2cb266b85f2a` | 2 | 4.51% | 14.5 | None / Undetected |
 | `c77df798-cee6-426f-9b16-1be4b2fd2fb2` | 2 | 6.75% | 7.5 | None / Undetected |
+| `8e74a8f1-ce31-42da-8986-dd874008d2ae` | 2 | 4.56% | 3.5 | None / Undetected |
+| `sunshine-physio-universalapp` | 2 | 4.19% | 7.0 | None / Undetected |
 | `purrfectcore-001` | 2 | 6.56% | 0.0 | None / Undetected |
 | `b6fe4764-b153-4d1d-9523-00dc7d3d5b49` | 1 | 0.68% | 6.0 | None / Undetected |
 | `b68905fe-5210-4dee-a913-328801cb38de` | 1 | 2.56% | 3.0 | None / Undetected |
+| `522b4f88-5147-4f85-8d53-6a3b80ac3aaf` | 1 | 5.33% | 7.0 | None / Undetected |
 | `purrfectcore-client` | 1 | 0.0% | 0.0 | None / Undetected |
 | `psl-website` | 1 | 6.34% | 8.0 | None / Undetected |
 | `p` | 1 | 8.33% | 3.0 | None / Undetected |

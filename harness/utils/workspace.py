@@ -43,73 +43,10 @@ def is_harness_workspace(cwd: Union[Path, str, None] = None) -> bool:
         return False
 
 
-def detect_project_test_runner(cwd: Union[Path, str, None] = None) -> Optional[str]:
-    """
-    Inspects cwd for client project test runners:
-      * package.json -> checks for 'test' script or pnpm-lock.yaml/yarn.lock -> returns 'pnpm test' or 'npm test'
-      * Cargo.toml -> returns 'cargo test'
-      * pyproject.toml / pytest.ini / setup.cfg -> returns 'pytest'
-      * Makefile -> returns 'make test'
-      * tests/*.sh or test/*.sh (shell test files) -> returns 'bash tests/*.sh' or 'bash test/*.sh'
-    Returns None if no recognized test runner configuration is found.
-    """
-    if cwd is None:
-        root = Path.cwd()
-    else:
-        root = Path(cwd)
+from harness.discovery import detect_project_test_runner
 
-    try:
-        if not root.is_dir():
-            return None
+__all__ = [
+    "is_harness_workspace",
+    "detect_project_test_runner",
+]
 
-        # 1. Node / JavaScript / TypeScript projects
-        package_json = root / "package.json"
-        pnpm_lock = root / "pnpm-lock.yaml"
-        alt_pnpm_lock = root / ".pnpm-lock.yaml"
-        yarn_lock = root / "yarn.lock"
-
-        if package_json.exists() or pnpm_lock.exists() or alt_pnpm_lock.exists() or yarn_lock.exists():
-            if pnpm_lock.exists() or alt_pnpm_lock.exists():
-                return "pnpm test"
-            if yarn_lock.exists():
-                return "npm test"
-            if package_json.exists():
-                try:
-                    data = json.loads(package_json.read_text(encoding="utf-8"))
-                    if isinstance(data, dict):
-                        scripts = data.get("scripts", {})
-                        if isinstance(scripts, dict) and "test" in scripts:
-                            return "npm test"
-                except (json.JSONDecodeError, OSError):
-                    pass
-                return "npm test"
-
-        # 2. Rust projects
-        if (root / "Cargo.toml").exists():
-            return "cargo test"
-
-        # 3. Python projects
-        if (
-            (root / "pyproject.toml").exists()
-            or (root / "pytest.ini").exists()
-            or (root / "setup.cfg").exists()
-        ):
-            return "pytest"
-
-        # 4. Makefile projects
-        if (root / "Makefile").exists() or (root / "makefile").exists():
-            return "make test"
-
-        # 5. Shell test suites
-        for test_dirname in ("tests", "test"):
-            test_dir = root / test_dirname
-            if test_dir.is_dir():
-                try:
-                    if any(test_dir.glob("*.sh")):
-                        return f"bash {test_dirname}/*.sh"
-                except OSError:
-                    pass
-
-        return None
-    except OSError:
-        return None

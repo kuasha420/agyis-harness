@@ -172,12 +172,14 @@ GROUP_PRESETS: Dict[str, List[str]] = {
         "psl-test-node",
         "psl-test-cargo",
         "psl-test-go",
+        "psl-test-harmonize",
     ],
     "runners": [
         "psl-test-python",
         "psl-test-node",
         "psl-test-cargo",
         "psl-test-go",
+        "psl-test-harmonize",
     ],
     "ops": [
         "storage-ops",

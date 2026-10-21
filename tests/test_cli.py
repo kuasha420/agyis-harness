@@ -333,6 +333,29 @@ class TestPslCli(unittest.TestCase):
                 "--output-report", "out.md",
             ])
 
+    def test_cli_audit_artifacts(self):
+        """Verifies `psl audit artifacts` dispatches to audit_artifacts.main."""
+        with patch("pipeline.audit_artifacts.main") as mock_artifacts:
+            code = main(["audit", "artifacts"])
+            self.assertEqual(code, 0)
+            mock_artifacts.assert_called_once_with([])
+
+    def test_cli_audit_configs(self):
+        """Verifies `psl audit configs` dispatches to audit_project_configs.main."""
+        with patch("pipeline.audit_project_configs.main") as mock_configs:
+            code = main(["audit", "configs"])
+            self.assertEqual(code, 0)
+            mock_configs.assert_called_once_with([])
+
+    def test_cli_audit_configs_aliases(self):
+        """Verifies `psl audit project_configs` and `psl audit project-configs` dispatch cleanly."""
+        with patch("pipeline.audit_project_configs.main") as mock_configs:
+            code1 = main(["audit", "project_configs"])
+            self.assertEqual(code1, 0)
+            code2 = main(["audit", "project-configs"])
+            self.assertEqual(code2, 0)
+            self.assertEqual(mock_configs.call_count, 2)
+
     def test_cli_audit_session_with_db_flag(self):
         """Verifies `psl audit session --save-db --db <path>` saves into specified database."""
         sess_dir = Path(self.temp_dir.name) / "sess_dir"

@@ -6,14 +6,14 @@
 # 📉 Context Cliff & Token Dynamics Empirical Report
 **Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
 **Specification**: Horizon 1 — Context Dynamics Analysis  
-**Generated At**: 2026-10-18 16:58:18Z  
+**Generated At**: 2026-10-18 18:29:32Z  
 **Data Source**: Telemetry database `data/telemetry.db` (140,005 steps across 348 sessions)
 
 ---
 
 ## 1. Executive Summary: The Token Saturation Cliff
 
-Our empirical analysis maps context size directly against agent error rates and operator intervention frequency. Across **348 real developer sessions**, total mined token volume reached **~28,752,861 tokens**.
+Our empirical analysis maps context size directly against agent error rates and operator intervention frequency. Across **348 real developer sessions**, total mined token volume reached **~44,407,727 tokens**.
 
 ### The Context Saturation Curve
 ```text
@@ -22,11 +22,11 @@ Our empirical analysis maps context size directly against agent error rates and 
 ├────────────────────┬──────────┬───────────┬─────────────┬─────────────┬───────────────┤
 │ Token Load Bucket  │ Sessions │ Avg Steps │ Avg Errors  │ Avg Interv  │ Avg Tokens    │
 ├────────────────────┼──────────┼───────────┼─────────────┼─────────────┼───────────────┤
-| < 20k tokens       |     1389 |     156.0 |        1.59 |        0.96 | 4,938 |
-| 20k - 50k tokens   |      249 |     370.1 |        2.88 |        2.69 | 31,884 |
-| 50k - 100k tokens  |       52 |     626.5 |        5.23 |        5.94 | 64,731 |
-| 100k - 200k tokens |       14 |     730.2 |       16.79 |       13.71 | 139,560 |
-| 200k+ tokens       |       12 |    3006.1 |       65.25 |        41.5 | 719,486 |
+| < 20k tokens       |     1032 |     153.8 |        1.26 |        1.22 | 6,473 |
+| 20k - 50k tokens   |      544 |     232.1 |        2.26 |         1.1 | 32,186 |
+| 50k - 100k tokens  |      113 |     431.5 |        4.29 |        3.01 | 65,168 |
+| 100k - 200k tokens |       28 |     632.6 |       11.14 |        9.54 | 133,418 |
+| 200k+ tokens       |       14 |    2707.5 |       57.79 |        39.0 | 651,307 |
 └────────────────────┴──────────┴───────────┴─────────────┴─────────────┴───────────────┘
 ```
 
@@ -43,17 +43,17 @@ Our empirical analysis maps context size directly against agent error rates and 
 
 | Step Type | Total Steps | Total Volume (Chars) | Estimated Tokens | % of Total Footprint |
 | :--- | :--- | :--- | :--- | :--- |
-| `GENERIC` | 32,753 | 50,427,212 | 12,606,803 | 43.8% |
-| `AGENT_OUTPUT` | 141,926 | 24,420,641 | 6,105,160 | 21.2% |
-| `VIEW_FILE` | 3,042 | 8,461,102 | 2,115,275 | 7.4% |
-| `RUN_COMMAND` | 5,268 | 6,286,538 | 1,571,634 | 5.5% |
-| `EPHEMERAL_MESSAGE` | 1,811 | 4,610,806 | 1,152,701 | 4.0% |
-| `SYSTEM_MESSAGE` | 2,922 | 4,269,132 | 1,067,283 | 3.7% |
-| `PLANNER_RESPONSE` | 47,151 | 11,374,561 | 2,843,640 | 9.9% |
+| `GENERIC` | 64,391 | 105,755,635 | 26,438,908 | 59.5% |
+| `AGENT_OUTPUT` | 108,670 | 17,171,967 | 4,292,991 | 9.7% |
+| `SYSTEM_MESSAGE` | 5,899 | 9,536,073 | 2,384,018 | 5.4% |
+| `VIEW_FILE` | 3,042 | 8,461,102 | 2,115,275 | 4.8% |
+| `RUN_COMMAND` | 5,268 | 6,286,538 | 1,571,634 | 3.5% |
+| `PLANNER_RESPONSE` | 81,207 | 20,265,216 | 5,066,304 | 11.4% |
+| `EPHEMERAL_MESSAGE` | 1,846 | 4,754,110 | 1,188,527 | 2.7% |
 
 ### Key Findings:
 1. **Tool Outputs (`RUN_COMMAND` / `VIEW_FILE` / `GENERIC`) dominate context**: They account for the overwhelming majority of raw text entering the model's history.
-2. **Thinking Traces (`thinking`)**: Contributed **8,320,673 characters** (~2,080,168 tokens) of internal Chain-of-Thought across 14,476 steps.
+2. **Thinking Traces (`thinking`)**: Contributed **15,122,859 characters** (~3,780,714 tokens) of internal Chain-of-Thought across 14,476 steps.
 
 ---
 
@@ -63,14 +63,14 @@ What happens if the harness mechanically truncates or summarizes tool output pay
 
 | Simulation Metric | Empirical Value |
 | :--- | :--- |
-| **Tool Execution Steps Exceeding 2KB** | **13,271 steps** |
-| **Raw Volume in Oversized Outputs** | **46,716,759 characters** |
-| **Characters Saved by 2KB Cap** | **19,537,751 characters** |
-| **Estimated Tokens Saved** | **~4,884,437 tokens** |
-| **Total Context Reduction Potential** | **16.99% of entire workstation context** |
+| **Tool Execution Steps Exceeding 2KB** | **25,311 steps** |
+| **Raw Volume in Oversized Outputs** | **89,692,237 characters** |
+| **Characters Saved by 2KB Cap** | **37,855,309 characters** |
+| **Estimated Tokens Saved** | **~9,463,827 tokens** |
+| **Total Context Reduction Potential** | **21.31% of entire workstation context** |
 
 > [!TIP]
-> A simple, deterministic `PostToolUse` output compactor that limits tool stdout to 2KB (retaining the first 500 chars, the last 1,000 chars, and explicit exit code/error lines) would **eliminate nearly 16.99% of all token bloat**, keeping 90% of sessions safely below the 100k token cliff!
+> A simple, deterministic `PostToolUse` output compactor that limits tool stdout to 2KB (retaining the first 500 chars, the last 1,000 chars, and explicit exit code/error lines) would **eliminate nearly 21.31% of all token bloat**, keeping 90% of sessions safely below the 100k token cliff!
 
 ---
 

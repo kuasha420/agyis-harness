@@ -5,7 +5,7 @@
 
 # Empirical Telemetry Analysis: Cross-Model Failure Clusters & Intervention Hotspots
 
-**Dataset Source**: `data/telemetry.db` (1720 Total Sessions, 387,708 Steps, 178,005 Tool Calls, 3,003 Interventions)
+**Dataset Source**: `data/telemetry.db` (1734 Total Sessions, 389,329 Steps, 178,747 Tool Calls, 3,008 Interventions)
 **Date**: 2026-10-10
 
 ---
@@ -14,10 +14,10 @@
 
 | Model | Sessions | Steps | Tool Calls | Errors | Error % | Interventions | Interv % |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `gemini-3.8-flash-tiered` | 662 | 93,841 | 43,378 | 1,221 | 2.81% | 136 | 0.14% |
-| `gemini-3.8-flash-high` | 541 | 170,172 | 78,353 | 828 | 1.06% | 1,480 | 0.87% |
-| `Gemini 3.5/Flash/Pro (Default)` | 375 | 45,437 | 21,204 | 683 | 3.22% | 11 | 0.02% |
-| `Gemini 3` | 71 | 52,990 | 23,686 | 1,231 | 5.2% | 863 | 1.63% |
+| `Gemini 3.5/Flash/Pro (Default)` | 843 | 108,605 | 50,547 | 1,580 | 3.13% | 10 | 0.01% |
+| `gemini-3.8-flash-high` | 482 | 158,833 | 73,456 | 672 | 0.91% | 1,309 | 0.82% |
+| `gemini-3.8-flash-tiered` | 251 | 37,807 | 17,375 | 322 | 1.85% | 136 | 0.36% |
+| `Gemini 3` | 86 | 58,748 | 25,953 | 1,306 | 5.03% | 1,040 | 1.77% |
 | `gemini-3.6-flash-tiered` | 33 | 2,098 | 836 | 34 | 4.07% | 33 | 1.57% |
 | `gemini-3.6-flash-high` | 16 | 4,558 | 1,908 | 144 | 7.55% | 193 | 4.23% |
 | `gemini-3.7-flash-high` | 15 | 17,472 | 8,124 | 46 | 0.57% | 256 | 1.47% |
@@ -25,6 +25,7 @@
 | `gemini-3.7-flash-tiered` | 1 | 73 | 35 | 0 | 0.0% | 1 | 1.37% |
 | `gemini-3-flash-agent` | 1 | 688 | 309 | 23 | 7.44% | 13 | 1.89% |
 | `GPT-OSS 120B (Medium)` | 1 | 274 | 112 | 1 | 0.89% | 13 | 4.74% |
+| `([^` | 1 | 68 | 32 | 1 | 3.12% | 0 | 0.0% |
 
 ### Key Model Bias Observations:
 - **`gemini-3.8-flash-high`** (393 sessions, 54.4% of total): High endurance, but generates significant non-command loop candidates (over 10,192 redundant `view_file` / `list_dir` steps) and exit code 1 (933 failures) primarily from pattern probes and unhandled syntax edge cases.
@@ -38,31 +39,31 @@
 
 | Model | Category | Total Calls | Failures | Loops | Failure Rate |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `Gemini 3` | `other` | 9,143 | 713 | 127 | 7.8% |
-| `gemini-3.8-flash-high` | `other` | 17,638 | 708 | 71 | 4.01% |
-| `gemini-3.8-flash-tiered` | `non_command` | 34,915 | 595 | 4,865 | 1.7% |
-| `gemini-3.8-flash-high` | `non_command` | 61,581 | 548 | 10,781 | 0.89% |
-| `Gemini 3.5/Flash/Pro (Default)` | `other` | 4,688 | 323 | 29 | 6.89% |
-| `gemini-3.8-flash-tiered` | `test_runner` | 3,278 | 283 | 25 | 8.63% |
-| `Gemini 3.5/Flash/Pro (Default)` | `non_command` | 16,624 | 245 | 1,821 | 1.47% |
-| `gemini-3.8-flash-high` | `test_runner` | 5,010 | 204 | 37 | 4.07% |
+| `Gemini 3` | `other` | 10,137 | 760 | 129 | 7.5% |
+| `gemini-3.8-flash-high` | `other` | 17,295 | 687 | 69 | 3.97% |
+| `Gemini 3.5/Flash/Pro (Default)` | `other` | 10,749 | 675 | 60 | 6.28% |
+| `Gemini 3.5/Flash/Pro (Default)` | `non_command` | 36,276 | 527 | 4,519 | 1.45% |
+| `gemini-3.8-flash-high` | `non_command` | 59,557 | 523 | 10,414 | 0.88% |
+| `Gemini 3.5/Flash/Pro (Default)` | `test_runner` | 3,065 | 311 | 15 | 10.15% |
+| `gemini-3.8-flash-tiered` | `non_command` | 16,856 | 281 | 2,439 | 1.67% |
+| `Gemini 3` | `grep_search` | 1,645 | 209 | 2 | 12.71% |
 | `gemini-3.7-flash-high` | `other` | 3,715 | 203 | 44 | 5.46% |
-| `Gemini 3` | `grep_search` | 1,561 | 202 | 2 | 12.94% |
-| `gemini-3.8-flash-tiered` | `other` | 1,934 | 164 | 30 | 8.48% |
-| `gemini-3.8-flash-high` | `grep_search` | 4,768 | 153 | 4 | 3.21% |
-| `Gemini 3.5/Flash/Pro (Default)` | `test_runner` | 1,229 | 121 | 11 | 9.85% |
-| `gemini-3.8-flash-tiered` | `python_exec` | 1,628 | 102 | 0 | 6.27% |
-| `Gemini 3` | `file_search` | 849 | 78 | 0 | 9.19% |
-| `Gemini 3` | `test_runner` | 621 | 77 | 4 | 12.4% |
-| `gemini-3.8-flash-high` | `git` | 8,273 | 72 | 32 | 0.87% |
-| `Gemini 3` | `package_manager` | 407 | 69 | 13 | 16.95% |
+| `gemini-3.8-flash-high` | `test_runner` | 4,773 | 185 | 37 | 3.88% |
+| `gemini-3.8-flash-high` | `grep_search` | 4,436 | 139 | 4 | 3.13% |
+| `Gemini 3` | `test_runner` | 706 | 83 | 4 | 11.76% |
+| `Gemini 3` | `file_search` | 878 | 78 | 0 | 8.88% |
+| `gemini-3.8-flash-tiered` | `test_runner` | 1,606 | 71 | 21 | 4.42% |
+| `Gemini 3` | `package_manager` | 411 | 70 | 13 | 17.03% |
 | `gemini-3.7-flash-high` | `grep_search` | 1,350 | 68 | 2 | 5.04% |
 | `gemini-3.6-flash-high` | `other` | 890 | 65 | 25 | 7.3% |
-| `Gemini 3` | `git` | 1,276 | 63 | 26 | 4.94% |
-| `gemini-3.8-flash-high` | `python_exec` | 5,180 | 63 | 2 | 1.22% |
-| `gemini-3.8-flash-tiered` | `git` | 3,941 | 59 | 3 | 1.5% |
-| `gemini-3.8-flash-high` | `package_manager` | 1,513 | 54 | 1 | 3.57% |
-| `gemini-3.8-flash-tiered` | `file_search` | 1,015 | 49 | 0 | 4.83% |
+| `Gemini 3` | `git` | 1,338 | 63 | 26 | 4.71% |
+| `gemini-3.8-flash-high` | `git` | 7,532 | 59 | 32 | 0.78% |
+| `Gemini 3` | `non_command` | 11,722 | 53 | 1,659 | 0.45% |
+| `gemini-3.7-flash-high` | `non_command` | 7,609 | 46 | 1,350 | 0.6% |
+| `gemini-3.8-flash-high` | `package_manager` | 1,432 | 46 | 1 | 3.21% |
+| `gemini-3.6-flash-high` | `git` | 509 | 45 | 14 | 8.84% |
+| `gemini-3.7-flash-high` | `test_runner` | 303 | 39 | 0 | 12.87% |
+| `Gemini 3` | `file_system` | 921 | 38 | 2 | 4.13% |
 
 ---
 
@@ -103,31 +104,33 @@ SSH connection dropouts (Exit Code 255), unverified Tailscale hostnames, and unp
 ### C. Git Worktree & Branching Operations (`git-worktree-ops` Justification)
 Stale worktrees, unmerged index collisions, checkout conflicts with dirty state, and orphan worktree directories:
 
-- **`git status`** (Exit 0, count=6)
-  *Snippet*: `� tool call denied by pre-tool hook: PSL Anti-Loop Guard: Tool signature 'run_command' appeared 4 times within a sliding window of 15 calls (threshold is 4). Denying execution to prevent thrashing loo`
+- **`"GIT_EDITOR=true git rebase --continue"`** (Exit 1, count=5)
+  *Snippet*: `Created At: 2026-09-18T02:40:25+06:00 Completed At: 2026-09-18T02:40:25+06:00  The command exited with code 1. Output: hint: Waiting for your editor to close the file... [detached HEAD f2bac98] feat(`
 - **`gh issue view 100`** (Exit 0, count=5)
   *Snippet*: `oerror executing cascade step: CORTEX_STEP_TYPE_RUN_COMMAND: read unix @ -> @: recvmsg: connection reset by peer � error executing cascade step: CORTEX_STEP_TYPE_RUN_COMMAND: read unix @ -> @: recvmsg`
-- **`GIT_EDITOR=true git rebase --continue`** (Exit 1, count=3)
 - **`gh secret set -f .env -R purrfectsoft/psl-website`** (Exit 1, count=3)
-- **`git checkout feat/harness-dra-remediation`** (Exit 128, count=3)
-- **`git status --porcelain`** (Exit 0, count=3)
+- **`git status`** (Exit 0, count=3)
   *Snippet*: `� tool call denied by pre-tool hook: PSL Anti-Loop Guard: Tool signature 'run_command' appeared 4 times within a sliding window of 15 calls (threshold is 4). Denying execution to prevent thrashing loo`
+- **`"git checkout production && git commit --allow-empty -m \"chore: trigger coolify deployment\" && git push origin production"`** (Exit 1, count=2)
+  *Snippet*: `Created At: 2026-06-05T00:54:33Z Completed At: 2026-06-05T00:54:34Z  				The command failed with exit code: 1 			Stdout: 			 			Stderr: 			 `
+- **`"git config user.name; git config user.email"`** (Exit 1, count=2)
+  *Snippet*: `Created At: 2026-09-18T18:25:00+06:00 Completed At: 2026-09-18T18:25:01+06:00  The command exited with code 1. Stdout:  Stderr:  `
 
 ---
 
 ## 4. Human-in-the-Loop Intervention Hotspots
 
 ### Breakdown of Operator Steering Triggers:
-- **`db_and_migration`**: 58 operator steering prompts
-- **`mesh_and_tailscale`**: 70 operator steering prompts
-- **`git_worktree_and_branches`**: 67 operator steering prompts
-- **`loop_stop_and_wait`**: 172 operator steering prompts
-- **`credentials_and_tokens`**: 107 operator steering prompts
-- **`test_and_verification`**: 112 operator steering prompts
+- **`db_and_migration`**: 57 operator steering prompts
+- **`mesh_and_tailscale`**: 69 operator steering prompts
+- **`git_worktree_and_branches`**: 65 operator steering prompts
+- **`loop_stop_and_wait`**: 171 operator steering prompts
+- **`credentials_and_tokens`**: 105 operator steering prompts
+- **`test_and_verification`**: 110 operator steering prompts
 
 ### Preceding Tool Failures Leading to Operator Rescues:
 Direct interventions immediately triggered after tool failures:
-- **Step 91** (`run_command`, model `gemini-3.8-flash-high`): Operator prompt: *"@[/home/kuasha/.gemini/antigravity/brain/a4520558-1f47-4e14-a275-c9ea159ecea4/invoice_and_maintenance_proposal.md:L1] We evolve ideas into digital excellence"*
+- **Step 91** (`run_command`, model `Gemini 3`): Operator prompt: *"@[/home/kuasha/.gemini/antigravity/brain/a4520558-1f47-4e14-a275-c9ea159ecea4/invoice_and_maintenance_proposal.md:L1] We evolve ideas into digital excellence"*
 - **Step 500** (`run_command`, model `gemini-3.8-flash-high`): Operator prompt: *"we are back"*
 - **Step 500** (`run_command`, model `gemini-3.8-flash-high`): Operator prompt: *"we are back"*
 - **Step 500** (`run_command`, model `gemini-3.8-flash-high`): Operator prompt: *"we are back"*

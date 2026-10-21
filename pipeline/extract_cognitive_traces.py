@@ -92,14 +92,13 @@ def extract_cognitive_traces(db_path: Path) -> Dict[str, Any]:
     """)
     failure_loop_events = c.fetchall()
 
-    # 3. Find top 100 worst sessions by error + loop density
+    # 3. Find top 100 worst sessions by error + loop density with available transcripts
     c.execute("""
         SELECT session_id, total_steps, tool_error_count, intervention_count,
                (tool_error_count * 2 + intervention_count * 3) as severity_score,
                model, workspace_path, transcript_path
         FROM sessions
         ORDER BY severity_score DESC
-        LIMIT 100
     """)
     worst_sessions = c.fetchall()
 
@@ -109,10 +108,16 @@ def extract_cognitive_traces(db_path: Path) -> Dict[str, Any]:
     top_100_trajectories = []
     category_counts = {cat: 0 for cat in COGNITIVE_PATTERNS}
     total_thinking_mined = 0
+    user_home = str(Path.home())
+    brain_dir = Path.home() / ".gemini" / "antigravity" / "brain"
 
     for s_id, steps, errs, intervs, score, model, ws, t_path in worst_sessions:
-        p = Path(t_path)
-        if not p.exists():
+        candidates = []
+        if t_path:
+            candidates.append(Path(str(t_path).replace("[USER_HOME]", user_home)))
+        candidates.append(brain_dir / s_id / ".system_generated" / "logs" / "transcript.jsonl")
+        p = next((c for c in candidates if c.exists() and c.is_file() and c.suffix == ".jsonl"), None)
+        if not p:
             continue
 
         session_events = []
@@ -154,6 +159,8 @@ def extract_cognitive_traces(db_path: Path) -> Dict[str, Any]:
                 "events_count": len(session_events),
                 "key_events": session_events[:10]  # Compacted representation
             })
+            if len(top_100_trajectories) >= 100:
+                break
 
     return {
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),

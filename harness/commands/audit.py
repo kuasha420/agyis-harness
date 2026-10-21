@@ -93,25 +93,100 @@ def cmd_audit(args: argparse.Namespace) -> int:
         if getattr(args, "output_report", None):
             extra.extend(["--output-report", str(args.output_report)])
         return analyze_failure_clusters.main(extra)
-    elif sub == "all":
-        print("▶ [1/4] Scanning Customization Inventory...")
-        from pipeline import inventory_customizations
-        inventory_customizations.main([])
-
-        print("\n▶ [2/4] Harvesting Transcripts...")
-        from pipeline import extract_transcripts
+    elif sub == "artifacts":
+        from pipeline import audit_artifacts
+        extra = []
+        if getattr(args, "output_json", None):
+            extra.extend(["--json-out", str(args.output_json)])
+        if getattr(args, "output_report", None):
+            extra.extend(["--output", str(args.output_report)])
+        audit_artifacts.main(extra)
+        return 0
+    elif sub in ("configs", "project_configs", "project-configs"):
+        from pipeline import audit_project_configs
         extra = []
         if getattr(args, "db", None):
             extra.extend(["--db", args.db])
-        extract_transcripts.main(extra)
+        if getattr(args, "output_json", None):
+            extra.extend(["--json-out", str(args.output_json)])
+        if getattr(args, "output_report", None):
+            extra.extend(["--output", str(args.output_report)])
+        audit_project_configs.main(extra)
+        return 0
+    elif sub == "all":
+        extra_db = ["--db", args.db] if getattr(args, "db", None) else ["--db", str(DEFAULT_DB)]
 
-        print("\n▶ [3/4] Classifying Failures & Workstation Metrics...")
+        if getattr(args, "backfill", False) or getattr(args, "conv_dir", None):
+            print("▶ [Pre] Harvesting Transcripts & Volume Backfill...")
+            from pipeline import extract_transcripts
+            extract_extra = list(extra_db)
+            if getattr(args, "backfill", False):
+                extract_extra.append("--backfill-volumes")
+            if getattr(args, "conv_dir", None):
+                extract_extra.extend(["--conv-dir", args.conv_dir])
+            extract_transcripts.main(extract_extra)
+
+        print("▶ [1/11] Scanning Customization & Extension Inventory...")
+        from pipeline import inventory_customizations
+        inventory_customizations.main([])
+
+        print("\n▶ [2/11] Classifying Failures & Workstation Metrics...")
         from pipeline import classify_failures
-        classify_failures.main(extra)
+        classify_failures.main(extra_db)
 
-        print("\n▶ [4/4] Summarizing Operator Interventions...")
+        print("\n▶ [3/11] Summarizing Operator Interventions...")
         from pipeline import summarize_interventions
-        summarize_interventions.main(extra)
+        summarize_interventions.main(extra_db)
+
+        print("\n▶ [4/11] Analyzing Context Cliff & Token Dynamics...")
+        from pipeline import analyze_context_dynamics
+        analyze_context_dynamics.main(extra_db)
+
+        print("\n▶ [5/11] Analyzing Tool & Command Character Volume Distributions...")
+        from pipeline import analyze_volume_distributions
+        vol_args = argparse.Namespace(
+            db=getattr(args, "db", None) or str(DEFAULT_DB),
+            backfill=getattr(args, "backfill", False),
+            output_json=None,
+            output_report=None,
+            quiet=getattr(args, "quiet", False),
+        )
+        analyze_volume_distributions.main(vol_args)
+
+        print("\n▶ [6/11] Analyzing Ultra-Deep 1,000+ Step Titan Sessions...")
+        from pipeline import analyze_ultra_deep_sessions
+        deep_args = argparse.Namespace(
+            db=getattr(args, "db", None) or str(DEFAULT_DB),
+            output_json=None,
+            output_report=None,
+            quiet=getattr(args, "quiet", False),
+        )
+        analyze_ultra_deep_sessions.main(deep_args)
+
+        print("\n▶ [7/11] Analyzing Model Failure Clusters & Hotspots...")
+        from pipeline import analyze_failure_clusters
+        analyze_failure_clusters.main(extra_db)
+
+        print("\n▶ [8/11] Benchmarking Reasoning Tiers...")
+        from pipeline import benchmark_reasoning_tiers
+        benchmark_reasoning_tiers.main(extra_db)
+
+        print("\n▶ [9/11] Extracting Cognitive & Chain-of-Thought Traces...")
+        from pipeline import extract_cognitive_traces
+        extract_cognitive_traces.main(extra_db)
+
+        print("\n▶ [10/11] Auditing Artifacts & Plan-Execution Drift...")
+        from pipeline import audit_artifacts
+        audit_artifacts.main([])
+
+        print("\n▶ [11/11] Auditing Project Rules & Skills Ecosystem...")
+        from pipeline import audit_project_configs
+        audit_project_configs.main(extra_db)
+
+        print("\n" + "=" * 75)
+        print(" ✔ COMPLETE 360-DEGREE TELEMETRY PIPELINE EXECUTION FINISHED")
+        print("=" * 75)
+        return 0
     elif sub in ("session", "live"):
         from pipeline import analyze_live_session
         session_id = getattr(args, "session_id", None)

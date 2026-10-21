@@ -29,16 +29,21 @@ from unittest.mock import patch
 
 from harness.hooks import completion_fence_hook
 from harness.hooks.completion_fence_hook import (
+    check_background_task_detachment,
     check_command_verification,
+    classify_test_tier,
     evaluate_stop,
     extract_exit_code,
     is_cleanroom_contract_file,
+    is_commit_or_pr_command,
     is_ephemeral_scratch_path,
     is_test_command,
     load_state,
     record_edit,
     record_verification,
     reset_state,
+    sync_background_tasks,
+    TIER_RANKS,
 )
 
 
@@ -1048,6 +1053,275 @@ class TestCleanroomHarmonizationM4(unittest.TestCase):
         self.assertFalse(state["spec_dirty"])
         self.assertEqual(state["last_modified_files"], [])
         self.assertEqual(evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.workspace_dir)["decision"], "allow")
+
+
+class TestTierGatedCompletionFence(unittest.TestCase):
+    """
+    R4 Contract Tests: Tier-gated verification fence (RFC-051 Phase 2).
+    Validates:
+    - classify_test_tier matrix
+    - turn stop allowed on diff test (Tier 1A)
+    - handoff blocked on diff test alone
+    - handoff allowed on affected test (Tier 1B)
+    - handoff allowed on full test (Tier 2B)
+    - handoff without code edits allowed
+    - commit blocked on diff or affected tests alone
+    - commit allowed on full test suite
+    - async background task tier gating and reconciliation
+    """
+
+    def setUp(self):
+        self.temp_state_dir = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temp_state_dir.name)
+        self.temp_workspace_dir = tempfile.TemporaryDirectory()
+        self.ws = Path(self.temp_workspace_dir.name)
+
+    def tearDown(self):
+        self.temp_state_dir.cleanup()
+        self.temp_workspace_dir.cleanup()
+
+    def test_classify_test_tier_matrix(self):
+        diff_cmds = [
+            "pnpm test:diff",
+            "vitest related src/a.ts",
+            "pytest --picked",
+            "npm test -- --diff",
+        ]
+        for cmd in diff_cmds:
+            with self.subTest(cmd=cmd):
+                self.assertEqual(classify_test_tier(cmd), "diff")
+
+        affected_cmds = [
+            "pnpm test:affected",
+            "vitest run src/a.test.ts",
+            "pytest tests/test_foo.py",
+            "npm test -- --affected",
+        ]
+        for cmd in affected_cmds:
+            with self.subTest(cmd=cmd):
+                self.assertEqual(classify_test_tier(cmd), "affected")
+
+        pkg_cmds = [
+            "pnpm test:pkg",
+            "pnpm --filter my-pkg test",
+            "cargo test -p my-crate",
+        ]
+        for cmd in pkg_cmds:
+            with self.subTest(cmd=cmd):
+                self.assertEqual(classify_test_tier(cmd), "pkg")
+
+        full_cmds = [
+            "pnpm test:full",
+            "python3 -m harness.cli test",
+            "./agyis test",
+            "cargo test",
+            "pytest",
+        ]
+        for cmd in full_cmds:
+            with self.subTest(cmd=cmd):
+                self.assertEqual(classify_test_tier(cmd), "full")
+
+    def test_turn_stop_allowed_on_diff_test(self):
+        conv_id = "test-turn-stop-diff"
+        record_edit("src/utils.ts", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_verification(success=True, tier="diff", conv_id=conv_id, state_dir=self.state_dir)
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "allow")
+
+    def test_handoff_blocked_on_diff_test_alone(self):
+        conv_id = "test-handoff-diff-alone"
+        record_edit("src/utils.ts", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_verification(success=True, tier="diff", conv_id=conv_id, state_dir=self.state_dir)
+        record_edit(".agents/teamwork/worker_1/handoff.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "continue")
+        self.assertIn("Handoff Verification Required", res["reason"])
+        self.assertIn("Tier 1B affected tests", res["reason"])
+
+    def test_handoff_allowed_on_affected_test(self):
+        conv_id = "test-handoff-affected"
+        record_edit("src/utils.ts", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_verification(success=True, tier="affected", conv_id=conv_id, state_dir=self.state_dir)
+        record_edit(".agents/teamwork/worker_1/handoff.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "allow")
+
+    def test_handoff_allowed_on_full_test(self):
+        conv_id = "test-handoff-full"
+        record_edit("src/utils.ts", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_verification(success=True, tier="full", conv_id=conv_id, state_dir=self.state_dir)
+        record_edit(".agents/teamwork/worker_1/handoff.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "allow")
+
+    def test_handoff_without_code_edits_allowed(self):
+        conv_id = "test-handoff-no-code"
+        reset_state(conv_id=conv_id, state_dir=self.state_dir)
+        record_edit(".agents/teamwork/worker_1/handoff.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "allow")
+
+    def test_commit_denied_on_diff_or_affected_tests(self):
+        conv_id = "test-commit-denied"
+        record_edit("src/utils.ts", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_verification(success=True, tier="affected", conv_id=conv_id, state_dir=self.state_dir)
+
+        payload = {
+            "conversation_id": conv_id,
+            "hookEvent": "pretooluse",
+            "toolCall": {
+                "name": "run_command",
+                "args": {
+                    "CommandLine": "git commit -m 'feat: test commit'",
+                    "Cwd": str(self.ws),
+                },
+            },
+        }
+
+        stdout_buf = io.StringIO()
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdout", stdout_buf):
+                with patch("sys.stdin", io.StringIO(json.dumps(payload))):
+                    completion_fence_hook.main()
+
+        output = stdout_buf.getvalue().strip()
+        self.assertTrue(output)
+        data = json.loads(output)
+        self.assertEqual(data.get("decision"), "deny")
+        self.assertIn("Commit Verification Required", data.get("reason", ""))
+
+    def test_commit_allowed_on_full_test_suite(self):
+        conv_id = "test-commit-allowed"
+        record_edit("src/utils.ts", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_verification(success=True, tier="full", conv_id=conv_id, state_dir=self.state_dir)
+
+        payload = {
+            "conversation_id": conv_id,
+            "hookEvent": "pretooluse",
+            "toolCall": {
+                "name": "run_command",
+                "args": {
+                    "CommandLine": "git commit -m 'feat: test commit'",
+                    "Cwd": str(self.ws),
+                },
+            },
+        }
+
+        stdout_buf = io.StringIO()
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdout", stdout_buf):
+                with patch("sys.stdin", io.StringIO(json.dumps(payload))):
+                    completion_fence_hook.main()
+
+        output = stdout_buf.getvalue().strip()
+        # Does not output a deny decision
+        if output:
+            data = json.loads(output)
+            self.assertNotEqual(data.get("decision"), "deny")
+
+    def test_async_background_tier_gating(self):
+        conv_id = "test-async-tier"
+        record_edit("src/utils.ts", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        # Mock background task launch
+        det = check_background_task_detachment(
+            tool_name="run_command",
+            tool_args={"CommandLine": "pnpm test:affected", "Cwd": str(self.ws)},
+            raw_output="Tool is running as a background task with task id: task-888\nTask logs are available at: /tmp/log",
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+            cwd=self.ws,
+        )
+        self.assertIsNotNone(det)
+        self.assertEqual(det["tier"], "affected")
+
+        # Mock brain dir and message
+        temp_brain = tempfile.TemporaryDirectory()
+        brain_path = Path(temp_brain.name)
+        msg_dir = brain_path / ".system_generated" / "messages"
+        msg_dir.mkdir(parents=True, exist_ok=True)
+        msg_file = msg_dir / "msg_001.json"
+        msg_file.write_text(json.dumps({
+            "sender": "background_task/task-888",
+            "timestamp": "2026-10-21T18:00:00Z",
+            "content": "The command exited with code 0.",
+        }))
+
+        cleared = sync_background_tasks(
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+            cwd=self.ws,
+            brain_dir=brain_path,
+        )
+        self.assertTrue(cleared)
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(st["code_dirty"])
+        self.assertEqual(st["verified_tier"], "affected")
+
+        temp_brain.cleanup()
+
+    def test_task_completed_tier_lookup(self):
+        conv_id = "test-task-completed-tier"
+        record_edit("src/service.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(st["code_dirty"])
+        self.assertEqual(st["session_modified_files"], ["src/service.py"])
+
+        payload = {
+            "conversation_id": conv_id,
+            "action": "task_completed",
+            "taskId": "task-diff-1",
+            "command": "pnpm test:diff",
+            "exit_code": 0,
+        }
+        buf = io.StringIO()
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdout", buf), patch("sys.stdin", io.StringIO(json.dumps(payload))):
+                completion_fence_hook.main()
+
+        st_after = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(st_after["verified_tier"], "diff")
+        self.assertEqual(st_after["session_modified_files"], ["src/service.py"])
+        self.assertFalse(st_after["code_dirty"])
+
+    def test_narrow_handoff_detection(self):
+        conv_id = "test-narrow-handoff"
+        # Routine teamwork metadata edits should NOT trigger handoff gate
+        record_edit(".agents/teamwork/worker_1/progress.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_edit(".agents/teamwork/worker_1/BRIEFING.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_edit(".agents/teamwork/worker_1/DISPATCH.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(st.get("handoff_modified", False))
+
+        # Real handoff should trigger handoff gate
+        record_edit(".agents/teamwork/worker_1/handoff.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(st.get("handoff_modified", False))
+
+    def test_handoff_modified_resets_on_turn_change_and_allow(self):
+        conv_id = "test-handoff-reset"
+        record_edit("src/app.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws, turn_id="turn-1")
+        record_edit(".agents/teamwork/worker_1/handoff.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws, turn_id="turn-1")
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(st["handoff_modified"])
+
+        # Running affected tests and evaluating stop grants allow and resets latch
+        record_verification(success=True, tier="affected", conv_id=conv_id, state_dir=self.state_dir)
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "allow")
+        st_after = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(st_after.get("handoff_modified", False))
+
+        # Now edit a code file in turn-2 without handoff: handoff_modified remains False
+        record_edit("src/app2.py", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws, turn_id="turn-2")
+        st_turn2 = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(st_turn2.get("handoff_modified", False))
 
 
 if __name__ == "__main__":

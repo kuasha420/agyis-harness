@@ -23,15 +23,21 @@ import re
 import sys
 import tempfile
 
+from harness.discovery import detect_project_test_runner
 from harness.utils.state import get_state_dir
-from harness.utils.workspace import detect_project_test_runner, is_harness_workspace
+from harness.utils.workspace import is_harness_workspace
 
 __all__ = [
     "EXEMPT_EXTENSIONS",
     "EXEMPT_FILENAMES",
     "CODE_EXTENSIONS",
     "DECLARATIVE_SPEC_EXTENSIONS",
+    "COMMAND_PREFIX",
+    "UNIVERSAL_TEST_RUNNER_PATTERNS",
+    "HARNESS_TEST_RUNNER_PATTERNS",
+    "SHELL_MUTATION_PATTERNS",
     "get_state_file",
+    "get_brain_dir",
     "is_code_file",
     "is_cleanroom_contract_file",
     "is_ephemeral_scratch_path",
@@ -46,7 +52,13 @@ __all__ = [
     "reset_state",
     "evaluate_stop",
     "check_command_verification",
+    "check_background_task_detachment",
+    "sync_background_tasks",
+    "check_shell_command_mutation",
     "handle_post_tool_use",
+    "classify_test_tier",
+    "is_commit_or_pr_command",
+    "TIER_RANKS",
     "main",
 ]
 
@@ -72,6 +84,50 @@ DECLARATIVE_SPEC_EXTENSIONS: frozenset[str] = frozenset({
     ".toml",
     ".txt",
 })
+
+
+TIER_RANKS: dict[str, int] = {
+    "diff": 1,
+    "affected": 2,
+    "pkg": 3,
+    "full": 4,
+}
+
+
+def classify_test_tier(command: str) -> str:
+    """Classifies a recognized test command into its verification tier (RFC-051 Phase 2 R4)."""
+    cmd_clean = command.strip()
+
+    # 1. Tier 1A: Diff-targeted
+    if re.search(r"(?:--diff\b|:(?:diff|related)\b|\bvitest\s+(?:run\s+)?related\b|--findRelatedTests\b|--picked\b)", cmd_clean):
+        return "diff"
+
+    # 2. Tier 1B: Affected blast-radius
+    if re.search(r"(?:--affected\b|:affected\b|\bnx\s+affected\b)", cmd_clean):
+        return "affected"
+    # Targeted test file invocations (e.g. pytest tests/test_foo.py, vitest run src/a.test.ts)
+    if not re.search(r"\bdiscover\b", cmd_clean):
+        if re.search(r"\b(?:pytest|unittest|vitest|jest)\b.*\b(?:tests?/[^\s;&|]+\.py|\S+\.(?:test|spec)\.[a-zA-Z0-9]+)\b", cmd_clean):
+            return "affected"
+        if re.search(r"\bcargo\s+test\s+(?:--test\b|-t\b)", cmd_clean):
+            return "affected"
+
+    # 3. Tier 2A: Package-scoped
+    if re.search(r"(?:--pkg\b|:pkg\b|--filter\s+[^\s]+\s+test\b|-p\s+[^\s]+\b|--package\b)", cmd_clean):
+        return "pkg"
+
+    # 4. Tier 2B: Full suite (default for unqualified test commands)
+    return "full"
+
+
+def is_commit_or_pr_command(command: str) -> bool:
+    """Detects git commit, push, or gh PR creation commands."""
+    clean = command.strip()
+    if re.search(r"\b(?:git\s+commit|gh\s+pr\s+create|git\s+push)\b", clean):
+        if "--help" in clean or "--dry-run" in clean:
+            return False
+        return True
+    return False
 
 
 # Non-code files that do not trigger code dirty state
@@ -150,6 +206,8 @@ def is_code_file(path_str: str) -> bool:
     Determines if a file path represents code that requires verification.
     Exempts documentation, asset/image files, lockfiles, and git configs.
     """
+    if path_str == "<shell-mutation>":
+        return True
     p = Path(path_str)
     name = p.name.lower()
     suffix = p.suffix.lower()
@@ -315,10 +373,19 @@ def load_state(conv_id: str = "default", state_dir: Path | None = None) -> dict:
         "conversation_id": conv_id,
         "code_dirty": False,
         "spec_dirty": False,
+        "handoff_modified": False,
+        "verified_tier": None,
+        "session_modified_files": [],
+        "turn_mutated": False,
+        "turn_modified_files": [],
+        "active_turn_id": None,
         "last_modified_files": [],
         "block_count": 0,
         "last_verified_at": None,
+        "last_dirtied_at": None,
         "cwd": None,
+        "pending_background_tests": {},
+        "processed_task_ids": [],
     }
     if state_file.exists():
         try:
@@ -329,10 +396,19 @@ def load_state(conv_id: str = "default", state_dir: Path | None = None) -> dict:
                     "conversation_id": str(data.get("conversation_id", conv_id)),
                     "code_dirty": bool(data.get("code_dirty", False)),
                     "spec_dirty": bool(data.get("spec_dirty", False)),
+                    "handoff_modified": bool(data.get("handoff_modified", False)),
+                    "verified_tier": data.get("verified_tier"),
+                    "session_modified_files": list(data.get("session_modified_files", [])),
+                    "turn_mutated": bool(data.get("turn_mutated", False)),
+                    "turn_modified_files": list(data.get("turn_modified_files", [])),
+                    "active_turn_id": data.get("active_turn_id"),
                     "last_modified_files": list(data.get("last_modified_files", [])),
                     "block_count": int(data.get("block_count", 0)),
                     "last_verified_at": data.get("last_verified_at"),
+                    "last_dirtied_at": data.get("last_dirtied_at"),
                     "cwd": data.get("cwd"),
+                    "pending_background_tests": dict(data.get("pending_background_tests", {})),
+                    "processed_task_ids": list(data.get("processed_task_ids", [])),
                 }
         except (json.JSONDecodeError, OSError, ValueError):
             return default_state
@@ -358,6 +434,7 @@ def record_edit(
     conv_id: str = "default",
     state_dir: Path | None = None,
     cwd: Path | str | None = None,
+    turn_id: str | None = None,
 ) -> dict:
     """
     Records a file edit. Phase-aware decoupling (ADR-028):
@@ -375,25 +452,62 @@ def record_edit(
     if is_ephemeral_scratch_path(file_path, cwd=effective_cwd):
         return state
 
+    if turn_id is not None:
+        current_turn = state.get("active_turn_id")
+        if current_turn is not None and turn_id != current_turn:
+            state["active_turn_id"] = turn_id
+            state["turn_mutated"] = False
+            state["turn_modified_files"] = []
+            state["handoff_modified"] = False
+        elif current_turn is None:
+            state["active_turn_id"] = turn_id
+
     p = Path(file_path)
     suffix = p.suffix.lower()
+    p_name = p.name.lower()
+    p_str = p.as_posix().lower()
+
+    is_handoff = (p_name == "handoff.md" or (p_name.startswith("handoff") and p_name.endswith(".md")))
+    if is_handoff:
+        state["handoff_modified"] = True
 
     dirtied = False
     if is_cleanroom_contract_file(file_path):
         if suffix in DECLARATIVE_SPEC_EXTENSIONS:
             state["spec_dirty"] = True
+            state["turn_mutated"] = True
             dirtied = True
         else:
             # Code-in-Specs guard (DEF-01): non-declarative code in specs triggers dual dirty state
             state["code_dirty"] = True
             state["spec_dirty"] = True
+            state["turn_mutated"] = True
             dirtied = True
     elif is_code_file(file_path):
         state["code_dirty"] = True
+        state["turn_mutated"] = True
         dirtied = True
 
     if dirtied:
         state["block_count"] = 0
+        state["last_dirtied_at"] = datetime.now(timezone.utc).isoformat()
+        state["verified_tier"] = None
+        modified = state.get("last_modified_files", [])
+        if file_path not in modified:
+            modified.append(file_path)
+        state["last_modified_files"] = modified
+        turn_mod = state.get("turn_modified_files", [])
+        if file_path not in turn_mod:
+            turn_mod.append(file_path)
+        state["turn_modified_files"] = turn_mod
+        sess_mod = state.get("session_modified_files", [])
+        if file_path not in sess_mod and (is_code_file(file_path) or file_path == "<shell-mutation>"):
+            sess_mod.append(file_path)
+        state["session_modified_files"] = sess_mod
+        if cwd is not None:
+            state["cwd"] = str(cwd)
+        save_state(state, conv_id=conv_id, state_dir=state_dir)
+    elif is_handoff:
         modified = state.get("last_modified_files", [])
         if file_path not in modified:
             modified.append(file_path)
@@ -406,20 +520,31 @@ def record_edit(
 
 def record_verification(
     success: bool = True,
+    tier: str = "full",
     conv_id: str = "default",
     state_dir: Path | None = None,
 ) -> dict:
     """
-    Records test verification results. If successful, clears code_dirty, spec_dirty,
-    resets last_modified_files and block_count, and sets last_verified_at.
+    Records test verification results with verification tier tracking (RFC-051 Phase 2 R4).
+    If successful, clears code_dirty, spec_dirty, turn_mutated, resets last_modified_files,
+    records verified_tier, and clears session_modified_files if tier in ('pkg', 'full').
     """
     state = load_state(conv_id=conv_id, state_dir=state_dir)
     if success:
         state["code_dirty"] = False
         state["spec_dirty"] = False
+        state["turn_mutated"] = False
+        state["turn_modified_files"] = []
         state["last_modified_files"] = []
         state["block_count"] = 0
         state["last_verified_at"] = datetime.now(timezone.utc).isoformat()
+        state["verified_tier"] = tier
+        if tier in ("pkg", "full"):
+            state["session_modified_files"] = []
+        save_state(state, conv_id=conv_id, state_dir=state_dir)
+    else:
+        state["code_dirty"] = True
+        state["verified_tier"] = None
         save_state(state, conv_id=conv_id, state_dir=state_dir)
     return state
 
@@ -439,6 +564,12 @@ def clear_spec_dirty(
             f for f in state.get("last_modified_files", [])
             if not is_cleanroom_contract_file(f)
         ]
+        state["turn_modified_files"] = [
+            f for f in state.get("turn_modified_files", [])
+            if not is_cleanroom_contract_file(f)
+        ]
+        if not state["turn_modified_files"]:
+            state["turn_mutated"] = False
         state["block_count"] = 0
     state["last_verified_at"] = datetime.now(timezone.utc).isoformat()
     save_state(state, conv_id=conv_id, state_dir=state_dir)
@@ -454,10 +585,19 @@ def reset_state(
         "conversation_id": conv_id,
         "code_dirty": False,
         "spec_dirty": False,
+        "handoff_modified": False,
+        "verified_tier": None,
+        "session_modified_files": [],
+        "turn_mutated": False,
+        "turn_modified_files": [],
+        "active_turn_id": None,
         "last_modified_files": [],
         "block_count": 0,
         "last_verified_at": None,
+        "last_dirtied_at": None,
         "cwd": None,
+        "pending_background_tests": {},
+        "processed_task_ids": [],
     }
     save_state(state, conv_id=conv_id, state_dir=state_dir)
     return state
@@ -543,39 +683,446 @@ def handle_post_tool_use(
                 clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
 
 
+def get_brain_dir(
+    conv_id: str,
+    payload: Optional[dict] = None,
+    brain_dir: Optional[Path | str] = None,
+) -> Optional[Path]:
+    """
+    Resolves the Antigravity conversation brain directory:
+    1. Explicit brain_dir argument / override.
+    2. payload['brain_dir'], payload['brainDirectory'], payload['artifactDirectoryPath'] or payload['transcriptPath'].
+    3. Standard user location: ~/.gemini/antigravity/brain/<conv_id>.
+    """
+    if brain_dir:
+        p = Path(brain_dir).resolve()
+        if p.is_dir():
+            return p
+
+    if payload:
+        for k in ("brain_dir", "brainDirectory", "brainPath"):
+            val = payload.get(k)
+            if val:
+                p = Path(val).resolve()
+                if p.is_dir():
+                    return p
+        artifact_path = payload.get("artifactDirectoryPath")
+        if artifact_path:
+            p = Path(artifact_path).resolve()
+            if p.is_dir():
+                return p
+        transcript_path = payload.get("transcriptPath")
+        if transcript_path:
+            p = Path(transcript_path).resolve().parent.parent
+            if p.is_dir():
+                return p
+
+    # Standard Antigravity user location
+    candidate = Path.home() / ".gemini" / "antigravity" / "brain" / conv_id
+    if candidate.is_dir():
+        return candidate
+
+    return None
+
+
+def check_background_task_detachment(
+    tool_name: str,
+    tool_args: dict,
+    raw_output: str,
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+    cwd: Path | str | None = None,
+) -> Optional[dict]:
+    """
+    Detects if a run_command tool execution was detached as a background task.
+    If the command is a recognized test runner, registers it in pending_background_tests.
+    """
+    if tool_name not in ("run_command", "execute_command", "bash"):
+        return None
+
+    if "Tool is running as a background task with task id:" not in raw_output:
+        return None
+
+    m_task = re.search(r"task id:\s*([^\s\n\r]+)", raw_output)
+    if not m_task:
+        return None
+    task_id = m_task.group(1).strip()
+
+    cmd = tool_args.get("CommandLine") or tool_args.get("command") or ""
+    effective_cwd = cwd or tool_args.get("Cwd")
+    if not cmd or not is_test_command(cmd, cwd=effective_cwd):
+        return None
+
+    m_log = re.search(r"Task logs are available at:\s*(?:file://)?([^\s\n\r]+)", raw_output)
+    log_path = m_log.group(1).strip() if m_log else None
+
+    task_tier = classify_test_tier(cmd)
+    state = load_state(conv_id=conv_id, state_dir=state_dir)
+    pending = state.setdefault("pending_background_tests", {})
+    pending[task_id] = {
+        "command": cmd,
+        "tier": task_tier,
+        "cwd": str(effective_cwd) if effective_cwd else None,
+        "log_path": log_path,
+        "launched_at": datetime.now(timezone.utc).isoformat(),
+    }
+    save_state(state, conv_id=conv_id, state_dir=state_dir)
+    return pending[task_id]
+
+
+def sync_background_tasks(
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+    cwd: Path | str | None = None,
+    brain_dir: Path | str | None = None,
+    payload: Optional[dict] = None,
+) -> bool:
+    """
+    Scans background task completion messages in .system_generated/messages/
+    and reconciles completed test runner tasks against the dirty state.
+
+    Returns True if an exit code 0 test runner completion cleared code_dirty.
+    """
+    state = load_state(conv_id=conv_id, state_dir=state_dir)
+
+    # Fast exit if clean and no pending tasks
+    if not state.get("code_dirty") and not state.get("pending_background_tests"):
+        return False
+
+    target_brain = get_brain_dir(conv_id, payload=payload, brain_dir=brain_dir)
+    if not target_brain:
+        return False
+
+    messages_dir = target_brain / ".system_generated" / "messages"
+    if not messages_dir.is_dir():
+        return False
+
+    pending_tests = state.get("pending_background_tests", {})
+    processed_ids = set(state.get("processed_task_ids", []))
+    last_dirtied_at = state.get("last_dirtied_at")
+
+    cleared_state = False
+
+    try:
+        msg_files = list(messages_dir.glob("*.json"))
+    except OSError:
+        return False
+
+    parsed_messages = []
+    for msg_file in msg_files:
+        try:
+            data = json.loads(msg_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                continue
+            ts_str = data.get("timestamp")
+            sort_val = 0.0
+            if ts_str and isinstance(ts_str, str):
+                try:
+                    clean_ts = ts_str.replace("Z", "+00:00")
+                    sort_val = datetime.fromisoformat(clean_ts).timestamp()
+                except (ValueError, TypeError):
+                    sort_val = 0.0
+            if sort_val == 0.0:
+                try:
+                    sort_val = msg_file.stat().st_mtime
+                except OSError:
+                    sort_val = 0.0
+            parsed_messages.append((sort_val, msg_file, data))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+    parsed_messages.sort(key=lambda x: x[0])
+
+    for _, msg_file, data in parsed_messages:
+        try:
+            sender = str(data.get("sender", ""))
+            content = str(data.get("content", ""))
+
+            if not ("/task-" in sender or "task-" in sender or "The command exited with code" in content or "failed with exit code" in content):
+                continue
+
+            task_id = sender.split("/")[-1] if "/task-" in sender else None
+            if not task_id:
+                m_id = re.search(r"Task id\s*\"(?:[^\"]+/)?(task-\d+)\"", content)
+                if m_id:
+                    task_id = m_id.group(1)
+
+            if not task_id or task_id in processed_ids:
+                continue
+
+            m_exit = re.search(r"(?:failed with exit code|exited with code)\s*[:=]?\s*(\d+)", content)
+            if not m_exit:
+                continue
+            exit_code = int(m_exit.group(1))
+
+            cmd = None
+            cmd_cwd = cwd
+            source_meta = data.get("sourceMetadata")
+            if isinstance(source_meta, dict):
+                tool_obj = source_meta.get("tool") if isinstance(source_meta, dict) else None
+                tool_call_obj = tool_obj.get("toolCall") if isinstance(tool_obj, dict) else None
+                args_json_str = tool_call_obj.get("argumentsJson") if isinstance(tool_call_obj, dict) else None
+                if args_json_str:
+                    try:
+                        args_obj = json.loads(args_json_str)
+                        if isinstance(args_obj, dict):
+                            cmd = args_obj.get("CommandLine") or args_obj.get("command")
+                            cmd_cwd = args_obj.get("Cwd") or cmd_cwd
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+            if not cmd and task_id in pending_tests:
+                cmd = pending_tests[task_id].get("command")
+                cmd_cwd = pending_tests[task_id].get("cwd") or cmd_cwd
+
+            if not cmd:
+                for pending_k, pending_v in pending_tests.items():
+                    if pending_k.endswith(task_id):
+                        cmd = pending_v.get("command")
+                        cmd_cwd = pending_v.get("cwd") or cmd_cwd
+                        break
+
+            if not cmd or not is_test_command(cmd, cwd=cmd_cwd):
+                continue
+
+            msg_timestamp = data.get("timestamp")
+            if last_dirtied_at and msg_timestamp and msg_timestamp < last_dirtied_at:
+                continue
+
+            task_tier = pending_tests.get(task_id, {}).get("tier") or classify_test_tier(cmd)
+            if exit_code == 0:
+                record_verification(success=True, tier=task_tier, conv_id=conv_id, state_dir=state_dir)
+                cleared_state = True
+            else:
+                record_verification(success=False, tier=task_tier, conv_id=conv_id, state_dir=state_dir)
+                cur_st = load_state(conv_id=conv_id, state_dir=state_dir)
+                cur_st["code_dirty"] = True
+                cur_st["verified_tier"] = None
+                save_state(cur_st, conv_id=conv_id, state_dir=state_dir)
+                cleared_state = False
+
+            processed_ids.add(task_id)
+            to_del = [k for k in pending_tests if k == task_id or k.endswith("/" + task_id)]
+            for k in to_del:
+                del pending_tests[k]
+        except Exception:
+            continue
+
+    state = load_state(conv_id=conv_id, state_dir=state_dir)
+    state["processed_task_ids"] = list(processed_ids)
+    state["pending_background_tests"] = pending_tests
+    save_state(state, conv_id=conv_id, state_dir=state_dir)
+
+    return cleared_state
+
+
+SHELL_MUTATION_PATTERNS = (
+    re.compile(r"\bsed\s+(?:-[a-zA-Z]*i|--in-place)\b"),
+    re.compile(r"\b(?:git\s+(?:apply|restore|checkout\s+--)|patch)\b"),
+)
+
+
+def check_shell_command_mutation(
+    cmd: str,
+    cwd: Path | str | None = None,
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+    turn_id: str | None = None,
+) -> bool:
+    """Detects if a shell command mutated project code files."""
+    if not cmd or not cmd.strip():
+        return False
+    cmd_clean = cmd.strip()
+
+    # Redirection check: extract target filename
+    m_redir = re.search(r"(?:>>|>)\s*([^\s;&|]+)", cmd_clean)
+    if m_redir:
+        target = m_redir.group(1).strip("\"'")
+        is_benign = (
+            target in ("/dev/null", "/tmp", "&1", "&2")
+            or target.startswith(("/dev/", "/tmp/", "&"))
+        )
+        if not is_benign:
+            if is_code_file(target) or is_cleanroom_contract_file(target):
+                record_edit(target, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
+                return True
+
+    # Tee check
+    m_tee = re.search(r"\btee\s+(?:-[a-zA-Z]*a\s+)?([^\s;&|]+)", cmd_clean)
+    if m_tee:
+        target = m_tee.group(1).strip("\"'")
+        is_benign = (
+            target in ("/dev/null", "/tmp", "&1", "&2")
+            or target.startswith(("/dev/", "/tmp/", "&"))
+        )
+        if not is_benign:
+            if is_code_file(target) or is_cleanroom_contract_file(target):
+                record_edit(target, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
+                return True
+
+    # In-place sed, git apply, patch
+    for pat in SHELL_MUTATION_PATTERNS:
+        if pat.search(cmd_clean):
+            m_sed_file = re.search(r"\bsed\s+-[^\s]*i[^\s]*\s+(?:'[^']*'|\"[^\"]*\"|[^\s]+)\s+([^\s;&|]+)", cmd_clean)
+            target = m_sed_file.group(1).strip("\"'") if m_sed_file else "<shell-mutation>"
+            record_edit(target, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
+            return True
+
+    return False
+
+
 def evaluate_stop(
     conv_id: str = "default",
     state_dir: Path | None = None,
     cwd: Path | str | None = None,
+    turn_id: str | None = None,
+    brain_dir: Path | str | None = None,
+    payload: Optional[dict] = None,
 ) -> dict:
     """
     Evaluates whether an agent may stop.
-    Phase-aware cleanroom fence logic (ADR-028):
-    1. If neither code_dirty nor spec_dirty: allows stop.
-    2. If code_dirty is False and spec_dirty is True (pure cleanroom spec edits):
-       - If .agents/ledger/manifest.json is verified: clears spec_dirty and allows stop.
-       - Otherwise if block_count < 2: blocks stop and outputs exact cleanroom rejection message:
-         "Cleanroom Verification Required: Unverified cleanroom contract edits detected in: <files>. Execute 'rea verify-reconstruction' or 'agyis verify --spec' before stopping."
-       - If block_count >= 2: trips anti-deadlock safety valve.
-    3. If code_dirty is True (code edits or code-in-specs dual dirty state):
-       - If block_count < 2: blocks stop and requests project test suite execution.
-       - If block_count >= 2: trips anti-deadlock safety valve.
+    Phase-aware cleanroom fence logic (ADR-022, ADR-028, RFC-051):
+    1. Reconciles background tasks via sync_background_tasks().
+    2. If neither code_dirty nor spec_dirty: allows stop.
+    3. If turn_mutated is False: allows stop (unblocking conversational & read-only turns).
+    4. If code_dirty is True and background test is in progress: waits for reactive wakeup.
+    5. Pure spec_dirty: requires verified manifest.json or trips anti-deadlock.
+    6. code_dirty: requires recognized project test suite pass or trips anti-deadlock.
     """
+    # 1. Reconcile background tasks first
+    sync_background_tasks(
+        conv_id=conv_id,
+        state_dir=state_dir,
+        cwd=cwd,
+        brain_dir=brain_dir,
+        payload=payload,
+    )
+
     state = load_state(conv_id=conv_id, state_dir=state_dir)
+
+    # Turn management: if turn_id is provided and differs from active_turn_id,
+    # reset turn_mutated for the new turn
+    if turn_id is not None:
+        current_turn = state.get("active_turn_id")
+        if current_turn is not None and turn_id != current_turn:
+            state["active_turn_id"] = turn_id
+            state["turn_mutated"] = False
+            state["turn_modified_files"] = []
+            save_state(state, conv_id=conv_id, state_dir=state_dir)
+        elif current_turn is None:
+            state["active_turn_id"] = turn_id
+            save_state(state, conv_id=conv_id, state_dir=state_dir)
+
     code_dirty = state.get("code_dirty", False)
     spec_dirty = state.get("spec_dirty", False)
+    turn_mutated = state.get("turn_mutated", False)
+    verified_tier = state.get("verified_tier")
 
     effective_cwd = cwd if cwd is not None else state.get("cwd")
     if effective_cwd is None:
         effective_cwd = Path.cwd()
 
+    session_has_code = any(
+        is_code_file(f) or f == "<shell-mutation>" for f in state.get("session_modified_files", [])
+    ) or bool(code_dirty)
+
+    # Check commit gate if payload specifically requested it
+    if payload and payload.get("gate_type") == "commit" and session_has_code:
+        current_rank = TIER_RANKS.get(verified_tier or "", 0)
+        if current_rank < TIER_RANKS["pkg"]:
+            return {
+                "decision": "deny",
+                "reason": (
+                    "Commit Verification Required: Git commit and PR creation require full package or workspace test suite "
+                    "('agyis test', 'agyis test --full', or 'pnpm test:full') before committing."
+                ),
+            }
+
+    # Detect handoff gate: handoff.md in modified files or .agents/teamwork/, or explicit gate_type in ("handoff", "milestone")
+    is_handoff_gate = bool(state.get("handoff_modified", False))
+    if payload and (payload.get("gate_type") in ("handoff", "milestone") or payload.get("action") == "evaluate_handoff"):
+        is_handoff_gate = True
+    if os.environ.get("PSL_COMPLETION_FENCE_GATE", "").lower() in ("handoff", "milestone"):
+        is_handoff_gate = True
+
+    all_mods = set(
+        state.get("last_modified_files", [])
+        + state.get("turn_modified_files", [])
+        + state.get("session_modified_files", [])
+    )
+    for f in all_mods:
+        p_name = Path(f).name.lower()
+        if p_name == "handoff.md" or (p_name.startswith("handoff") and p_name.endswith(".md")):
+            is_handoff_gate = True
+            break
+
+    if is_handoff_gate and session_has_code:
+        current_rank = TIER_RANKS.get(verified_tier or "", 0)
+        required_rank = TIER_RANKS["affected"]  # Rank 2
+        if current_rank < required_rank:
+            block_count = state.get("block_count", 0)
+            if block_count < 2:
+                state["block_count"] = block_count + 1
+                save_state(state, conv_id=conv_id, state_dir=state_dir)
+                return {
+                    "decision": "continue",
+                    "reason": (
+                        "Handoff Verification Required: Subagent handoff detected ('handoff.md'). "
+                        "Subagent handoffs and milestone completion require Tier 1B affected tests "
+                        "('agyis test --affected' or 'pnpm test:affected') before completing handoff."
+                    ),
+                }
+            else:
+                state["turn_mutated"] = False
+                state["turn_modified_files"] = []
+                state["handoff_modified"] = False
+                state["block_count"] = 0
+                save_state(state, conv_id=conv_id, state_dir=state_dir)
+                return {
+                    "decision": "allow",
+                    "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite unverified handoff.",
+                }
+
     if not code_dirty and not spec_dirty:
+        state["turn_mutated"] = False
+        state["turn_modified_files"] = []
+        state["handoff_modified"] = False
+        save_state(state, conv_id=conv_id, state_dir=state_dir)
         return {"decision": "allow"}
+
+    # Issue #80: Turn-Scoped Mutation Sensitivity Guard
+    # If no code/spec mutations occurred during the active turn (e.g. read-only file views,
+    # conversational answers, triage questions), allow stop without blocking.
+    if not turn_mutated:
+        state["turn_mutated"] = False
+        state["turn_modified_files"] = []
+        save_state(state, conv_id=conv_id, state_dir=state_dir)
+        return {"decision": "allow"}
+
+    # Issue #79: If code_dirty is True and a background test is currently in progress,
+    # inform the agent and await reactive wakeup before anti-deadlock trips
+    pending_tests = state.get("pending_background_tests", {})
+    if code_dirty and pending_tests:
+        active_list = ", ".join(f"{t}: {info.get('command')}" for t, info in pending_tests.items())
+        block_count = state.get("block_count", 0)
+        if block_count < 2:
+            state["block_count"] = block_count + 1
+            save_state(state, conv_id=conv_id, state_dir=state_dir)
+            return {
+                "decision": "continue",
+                "reason": (
+                    f"Background Test In Progress: Waiting for test task(s) to finish: [{active_list}]. "
+                    "Await reactive wakeup before stopping."
+                ),
+            }
 
     # Pure spec_dirty: cleanroom contract edits without code changes
     if not code_dirty and spec_dirty:
         if is_manifest_verified(effective_cwd):
             clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
+            state["turn_mutated"] = False
+            state["turn_modified_files"] = []
+            save_state(state, conv_id=conv_id, state_dir=state_dir)
             return {"decision": "allow"}
 
         block_count = state.get("block_count", 0)
@@ -592,6 +1139,10 @@ def evaluate_stop(
                 ),
             }
         else:
+            state["turn_mutated"] = False
+            state["turn_modified_files"] = []
+            state["block_count"] = 0
+            save_state(state, conv_id=conv_id, state_dir=state_dir)
             return {
                 "decision": "allow",
                 "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite unverified edits.",
@@ -633,29 +1184,81 @@ def evaluate_stop(
             "reason": reason,
         }
     else:
+        state["turn_mutated"] = False
+        state["turn_modified_files"] = []
+        state["block_count"] = 0
+        save_state(state, conv_id=conv_id, state_dir=state_dir)
         return {
             "decision": "allow",
             "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite unverified edits.",
         }
 
 
+COMMAND_PREFIX: str = (
+    r"(?:^|[;&|(]\s*)(?:\b(?:sudo|nohup|exec|time|command)\s+|\benv\s+)?(?:\b[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)*\s*"
+)
+
 UNIVERSAL_TEST_RUNNER_PATTERNS: tuple[re.Pattern, ...] = (
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:pytest(?:\s|$)|python3?\s+-m\s+(?:unittest|pytest|harness(?:\.cli)?\s+test)\b)"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:pnpm|npm|yarn|bun)\s+(?:--filter\s+[^\s]+\s+)?(?:run\s+)?test(?:\s+--run)?\b|\bvitest\b|\bjest\b|\bturbo\s+run\s+test\b)"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*cargo\s+test\b"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*go\s+test\b"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*ctest\b"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:agyis|\./agyis|psl|\./psl)\s+test\b)"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:rea\s+(?:verify|verify-reconstruction|test)\b|(?:\./)?agyis\s+verify\b)"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*make\s+(?:test|check|verify)\b"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:bash|sh)\s+|\./)tests?/[^\s]+\.sh\b"),
+    # 1. Python runners: pytest, unittest, harness.cli test, tox, nox
+    re.compile(
+        COMMAND_PREFIX
+        + r"(?:pytest(?=[\s;&|)]|$)|python3?(?:\.\d+)?(?:\.exe)?\s+-m\s+(?:unittest(?=[\s;&|)]|$)|pytest(?=[\s;&|)]|$)|harness(?:\.cli)?\s+test\b)|tox\b|nox\b)"
+    ),
+    # 2. JS/TS/Node/Bun package manager invocations: pnpm, npm, yarn, bun test/t
+    re.compile(
+        COMMAND_PREFIX
+        + r"(?:pnpm|npm|yarn|bun)\s+(?:(?:--filter|-C|--prefix)\s+[^\s]+\s+|(?:-w|-r|--workspace-root|--recursive)\s+)*(?:run\s+)?(?:test(?::\w+)?|t)\b"
+    ),
+    # 3. Direct test frameworks & npx/pnpx/bunx/yarn dlx runners: vitest, playwright, jest
+    re.compile(
+        COMMAND_PREFIX
+        + r"(?:(?:npx|pnpx|bunx|yarn(?:\s+dlx)?|pnpm(?:\s+exec)?|bun)\s+)?(?:vitest(?!\s+init\b)(?:\s+(?:run|--run))?|playwright\s+test|jest)(?=[\s;&|)]|$)"
+    ),
+    # 4. Node native test runner (node --test)
+    re.compile(COMMAND_PREFIX + r"node(?:\.exe)?\s+--test\b"),
+    # 5. Monorepo runners: turborepo
+    re.compile(COMMAND_PREFIX + r"turbo(?:\s+run)?\s+test\b"),
+    # 6. Rust runners: cargo test, cargo nextest
+    re.compile(COMMAND_PREFIX + r"cargo\s+(?:nextest(?:\s+run)?|test)\b"),
+    # 7. Go runners: go test, gotestsum
+    re.compile(COMMAND_PREFIX + r"(?:go\s+test\b|gotestsum\b)"),
+    # 8. CMake / CTest
+    re.compile(COMMAND_PREFIX + r"ctest(?=[\s;&|)]|$)"),
+    # 9. Make / Ninja test targets
+    re.compile(COMMAND_PREFIX + r"(?:make|ninja)\s+(?:test|check|verify)\b"),
+    # 10. Java Maven: mvn, ./mvnw test / verify
+    re.compile(COMMAND_PREFIX + r"(?:\./)?(?:mvn|mvnw)(?:\.cmd|\.sh)?\s+(?:test|verify)\b"),
+    # 11. Java / Kotlin Gradle: gradle, ./gradlew test / check
+    re.compile(COMMAND_PREFIX + r"(?:\./)?(?:gradle|gradlew)(?:\.bat)?\s+(?:test|check)\b"),
+    # 12. .NET / C# / F#: dotnet test
+    re.compile(COMMAND_PREFIX + r"dotnet(?:\.exe)?\s+test\b"),
+    # 13. Elixir: mix test
+    re.compile(COMMAND_PREFIX + r"mix\s+test\b"),
+    # 14. Agyis / PSL project CLI
+    re.compile(
+        COMMAND_PREFIX
+        + r"(?:(?:\./)?(?:agyis|psl)\s+test\b|python3?(?:\.\d+)?\s+-m\s+harness(?:\.cli)?\s+test\b)"
+    ),
+    # 14. Cleanroom REA & spec verification
+    re.compile(
+        COMMAND_PREFIX
+        + r"(?:rea\s+(?:verify|verify-reconstruction|test|evaluate-coverage)\b|(?:\./)?agyis\s+verify\b)"
+    ),
+    # 15. Shell test suites
+    re.compile(COMMAND_PREFIX + r"(?:(?:bash|sh)\s+|\./)tests?/[^\s]+\.sh\b"),
 )
 
 HARNESS_TEST_RUNNER_PATTERNS: tuple[re.Pattern, ...] = (
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:(?:agyis|\./agyis|psl|\./psl)\s+test\b)"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*python3?\s+-m\s+(?:harness(?:\.cli)?\s+test|unittest\b|pytest\b)"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*pytest(?:\s|$)"),
-    re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|nohup|exec|env|time)\s+)\s*(?:rea\s+(?:verify|verify-reconstruction|test)\b|(?:\./)?agyis\s+verify\b)"),
+    re.compile(COMMAND_PREFIX + r"(?:(?:\./)?(?:agyis|psl)\s+test\b)"),
+    re.compile(
+        COMMAND_PREFIX
+        + r"python3?(?:\.\d+)?\s+-m\s+(?:harness(?:\.cli)?\s+test|unittest(?=[\s;&|)]|$)|pytest(?=[\s;&|)]|$))"
+    ),
+    re.compile(COMMAND_PREFIX + r"pytest(?=[\s;&|)]|$)"),
+    re.compile(
+        COMMAND_PREFIX
+        + r"(?:rea\s+(?:verify|verify-reconstruction|test|evaluate-coverage)\b|(?:\./)?agyis\s+verify\b)"
+    ),
 )
 
 
@@ -664,15 +1267,29 @@ def is_test_command(command: str, cwd: Path | str | None = None) -> bool:
     Checks whether a command line executes a recognized test runner.
     If cwd is specified and is identified as the harness repository,
     strictly enforces harness test commands.
-    Otherwise, recognizes universal and client test runner patterns
-    (including cargo, pnpm, npm, pytest, make, shell test suites).
+    Otherwise:
+      1. Dynamically queries detect_project_test_runner(cwd) for project-native match.
+      2. Evaluates against expanded UNIVERSAL_TEST_RUNNER_PATTERNS polyglot regex union.
     """
     if not command or not command.strip():
         return False
     cmd_clean = command.strip()
 
+    if re.search(r"(?:^|\s)(?:--help|-h|--version)\b", cmd_clean):
+        return False
+    if re.search(r"(?:^|\s)-V\b", cmd_clean) and not re.search(r"\bctest\b", cmd_clean):
+        return False
+
     if cwd is not None and is_harness_workspace(cwd):
         return any(pat.search(cmd_clean) is not None for pat in HARNESS_TEST_RUNNER_PATTERNS)
+
+    if cwd is not None:
+        detected = detect_project_test_runner(cwd)
+        if detected:
+            escaped = re.escape(detected).replace(r"\*", r"[^\s]+")
+            det_pat = re.compile(COMMAND_PREFIX + escaped + r"\b")
+            if det_pat.search(cmd_clean) is not None:
+                return True
 
     return any(pat.search(cmd_clean) is not None for pat in UNIVERSAL_TEST_RUNNER_PATTERNS)
 
@@ -699,8 +1316,9 @@ def check_command_verification(
     if not is_test_command(command, cwd=effective_cwd):
         return False
 
+    tier = classify_test_tier(command)
     success = (exit_code == 0)
-    record_verification(success=success, conv_id=conv_id, state_dir=state_dir)
+    record_verification(success=success, tier=tier, conv_id=conv_id, state_dir=state_dir)
     if not success:
         state = load_state(conv_id=conv_id, state_dir=state_dir)
         state["block_count"] = 0
@@ -735,30 +1353,65 @@ def main() -> None:
         or payload.get("working_directory")
         or (workspace_paths[0] if workspace_paths else None)
     )
+    turn_id = payload.get("turnId") or payload.get("turn_id")
+    state_dir = Path(payload["state_dir"]) if ("state_dir" in payload or "stateDir" in payload) else None
+    brain_dir = payload.get("brain_dir") or payload.get("brainDirectory") or payload.get("brainPath")
 
     if action == "record_edit":
         file_path = payload.get("file_path") or payload.get("path") or ""
-        state = record_edit(file_path, conv_id=conv_id, cwd=cwd)
+        state = record_edit(file_path, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
         print(json.dumps({"status": "ok", "state": state}))
     elif action == "record_verification":
         success = bool(payload.get("success", True))
-        state = record_verification(success=success, conv_id=conv_id)
+        state = record_verification(success=success, conv_id=conv_id, state_dir=state_dir)
         print(json.dumps({"status": "ok", "state": state}))
+    elif action == "task_completed":
+        task_id = payload.get("task_id") or payload.get("taskId") or ""
+        command = payload.get("command") or payload.get("CommandLine") or ""
+        extracted = extract_exit_code(payload)
+        exit_code = extracted if extracted is not None else 0
+        state = load_state(conv_id=conv_id, state_dir=state_dir)
+        matched = is_test_command(command, cwd=cwd)
+        if matched:
+            success = (exit_code == 0)
+            pending = state.get("pending_background_tests", {})
+            task_tier = pending.get(task_id, {}).get("tier") or classify_test_tier(command)
+            record_verification(success=success, tier=task_tier, conv_id=conv_id, state_dir=state_dir)
+            state = load_state(conv_id=conv_id, state_dir=state_dir)
+            pending = state.get("pending_background_tests", {})
+            if task_id in pending:
+                del pending[task_id]
+            for k in [k for k in pending if k.endswith("/" + task_id)]:
+                del pending[k]
+            processed = set(state.get("processed_task_ids", []))
+            if task_id:
+                processed.add(task_id)
+            state["pending_background_tests"] = pending
+            state["processed_task_ids"] = list(processed)
+            save_state(state, conv_id=conv_id, state_dir=state_dir)
+        print(json.dumps({"status": "ok", "matched": matched, "state": state}))
     elif action == "check_command_verification":
         command = payload.get("command") or payload.get("CommandLine") or ""
         extracted = extract_exit_code(payload)
         exit_code = extracted if extracted is not None else 0
-        matched = check_command_verification(command, exit_code=exit_code, conv_id=conv_id, cwd=cwd)
-        state = load_state(conv_id=conv_id)
+        matched = check_command_verification(command, exit_code=exit_code, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
+        state = load_state(conv_id=conv_id, state_dir=state_dir)
         print(json.dumps({"status": "ok", "matched": matched, "state": state}))
     elif action == "clear_spec_dirty":
-        state = clear_spec_dirty(conv_id=conv_id)
+        state = clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
         print(json.dumps({"status": "ok", "state": state}))
     elif action == "reset":
-        state = reset_state(conv_id=conv_id)
+        state = reset_state(conv_id=conv_id, state_dir=state_dir)
         print(json.dumps({"status": "ok", "state": state}))
     elif action == "evaluate_stop":
-        result = evaluate_stop(conv_id=conv_id, cwd=cwd)
+        result = evaluate_stop(
+            conv_id=conv_id,
+            state_dir=state_dir,
+            cwd=cwd,
+            turn_id=turn_id,
+            brain_dir=brain_dir,
+            payload=payload,
+        )
         print(json.dumps(result))
     elif "toolCall" in payload:
         # PreToolUse / PostToolUse event: intercept file modifications and test runner commands
@@ -784,6 +1437,17 @@ def main() -> None:
                 or tool_name in ("run_command", "execute_command", "bash")
             )
 
+        if turn_id is not None:
+            state = load_state(conv_id=conv_id, state_dir=state_dir)
+            if state.get("active_turn_id") is not None and turn_id != state.get("active_turn_id"):
+                state["active_turn_id"] = turn_id
+                state["turn_mutated"] = False
+                state["turn_modified_files"] = []
+                save_state(state, conv_id=conv_id, state_dir=state_dir)
+            elif state.get("active_turn_id") is None:
+                state["active_turn_id"] = turn_id
+                save_state(state, conv_id=conv_id, state_dir=state_dir)
+
         if tool_name in ("write_to_file", "replace_file_content", "edit_file"):
             target_file = (
                 tool_args.get("TargetFile")
@@ -792,19 +1456,42 @@ def main() -> None:
                 or tool_args.get("file_path", "")
             )
             if target_file:
-                record_edit(target_file, conv_id=conv_id, cwd=cwd)
+                record_edit(target_file, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
         elif tool_name in ("run_command", "execute_command", "bash"):
             cmd = tool_args.get("CommandLine") or tool_args.get("command") or ""
-            exit_code = extract_exit_code(payload)
-            if exit_code is not None and cmd:
-                check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, cwd=cwd)
-                if exit_code == 0:
-                    cmd_lower = cmd.lower()
-                    if any(
-                        p in cmd_lower
-                        for p in ("verify --spec", "verify-reconstruction", "agyis verify", "harness.cli verify")
-                    ):
-                        clear_spec_dirty(conv_id=conv_id)
+            if not is_post_tool_use and cmd:
+                if is_commit_or_pr_command(cmd) or (payload.get("gate_type") == "commit"):
+                    state = load_state(conv_id=conv_id, state_dir=state_dir)
+                    session_has_code = any(
+                        is_code_file(f) or f == "<shell-mutation>" for f in state.get("session_modified_files", [])
+                    ) or bool(state.get("code_dirty"))
+                    if session_has_code:
+                        verified_tier = state.get("verified_tier")
+                        current_rank = TIER_RANKS.get(verified_tier or "", 0)
+                        if current_rank < TIER_RANKS["pkg"]:
+                            reason = (
+                                "Commit Verification Required: Git commit and PR creation require full package or workspace test suite "
+                                "('agyis test', 'agyis test --full', or 'pnpm test:full') before committing."
+                            )
+                            print(json.dumps({"decision": "deny", "reason": reason}))
+                            return
+                check_shell_command_mutation(cmd, cwd=cwd, conv_id=conv_id, state_dir=state_dir, turn_id=turn_id)
+            elif is_post_tool_use:
+                raw_out = str(payload.get("toolResponse") or payload.get("result") or payload.get("toolOutput") or "")
+                check_background_task_detachment(
+                    tool_name, tool_args, raw_out, conv_id=conv_id, state_dir=state_dir, cwd=cwd
+                )
+                check_shell_command_mutation(cmd, cwd=cwd, conv_id=conv_id, state_dir=state_dir, turn_id=turn_id)
+                exit_code = extract_exit_code(payload)
+                if exit_code is not None and cmd:
+                    check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
+                    if exit_code == 0:
+                        cmd_lower = cmd.lower()
+                        if any(
+                            p in cmd_lower
+                            for p in ("verify --spec", "verify-reconstruction", "agyis verify", "harness.cli verify")
+                        ):
+                            clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
 
         # PostToolUse contract: Antigravity expects exact JSON {}
         if is_post_tool_use:
@@ -818,7 +1505,7 @@ def main() -> None:
                 result_dict = raw_result
             else:
                 result_dict = {}
-            handle_post_tool_use(tool_name, tool_args, result_dict, conv_id=conv_id)
+            handle_post_tool_use(tool_name, tool_args, result_dict, conv_id=conv_id, state_dir=state_dir)
             print(json.dumps({}))
         else:
             print(json.dumps({"decision": "allow"}))
@@ -826,14 +1513,20 @@ def main() -> None:
         cmd = payload.get("command") or payload.get("CommandLine") or ""
         extracted = extract_exit_code(payload)
         exit_code = extracted if extracted is not None else 0
-        matched = check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, cwd=cwd)
-        state = load_state(conv_id=conv_id)
+        matched = check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
+        state = load_state(conv_id=conv_id, state_dir=state_dir)
         print(json.dumps({"status": "ok", "matched": matched, "state": state, "decision": "allow"}))
     else:
         # Default behavior: Stop hook evaluation
-        result = evaluate_stop(conv_id=conv_id, cwd=cwd)
+        result = evaluate_stop(
+            conv_id=conv_id,
+            state_dir=state_dir,
+            cwd=cwd,
+            turn_id=turn_id,
+            brain_dir=brain_dir,
+            payload=payload,
+        )
         print(json.dumps(result))
-
 
 
 if __name__ == "__main__":

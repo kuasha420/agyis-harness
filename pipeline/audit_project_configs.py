@@ -327,12 +327,12 @@ Banning `|| true` without distinguishing between **production code** and **agent
     print(f"[✓] Generated project rules audit report: {output_path}")
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Audit project rules and skills across repositories.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
     parser.add_argument("--output", "-o", default="docs/taxonomy/project-rules-skills-audit.md", help="Path to output markdown report")
     parser.add_argument("--json-out", default="data/project_configs_audit.json", help="Path to output structured JSON")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     db_path = Path(args.db)
     if not db_path.exists():

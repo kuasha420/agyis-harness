@@ -58,7 +58,7 @@
   "psl-stop-verification-fence": {
     "PreToolUse": [
       {
-        "matcher": "write_to_file|replace_file_content|edit_file",
+        "matcher": "write_to_file|replace_file_content|edit_file|run_command|execute_command|bash",
         "hooks": [
           {
             "type": "command",

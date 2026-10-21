@@ -115,6 +115,45 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_test = subparsers.add_parser("test", help="Run the test suite")
     p_test.add_argument("-v", "--verbose", action="store_true", help="Verbose test runner output")
     p_test.add_argument("-s", "--start-dir", type=Path, default=None, help="Start directory for tests")
+    p_test.add_argument(
+        "--diff",
+        action="store_true",
+        help="Run immediate related tests for uncommitted working tree changes (Tier 1A micro-scope)",
+    )
+    p_test.add_argument(
+        "--branch",
+        type=str,
+        default=None,
+        metavar="REF",
+        help="Compare against target branch base (e.g. origin/main or main)",
+    )
+    p_test.add_argument(
+        "--affected",
+        action="store_true",
+        help="Run all tests affected by the modified diff graph (Tier 1B blast-radius)",
+    )
+    p_test.add_argument(
+        "--pkg",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="Scope test execution to package boundaries in monorepos",
+    )
+    p_test.add_argument(
+        "--full",
+        action="store_true",
+        help="Unfiltered macro test sweep for final commit gates (Tier 2B)",
+    )
+    p_test.add_argument(
+        "--harmonize",
+        action="store_true",
+        help="Harmonize test manifests before executing tests",
+    )
+    p_test.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview test execution or harmonization without modifying files",
+    )
 
     # audit
     p_audit = subparsers.add_parser("audit", help="Run empirical telemetry laboratory pipelines")
@@ -125,6 +164,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         choices=[
             "all", "extract", "benchmark", "classify", "inventory", "dynamics",
             "traces", "interventions", "volume", "deep", "session", "live", "clusters",
+            "artifacts", "configs", "project_configs", "project-configs",
         ],
         help="Audit pipeline stage to run (default: all)",
     )
@@ -368,8 +408,11 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_harm = subparsers.add_parser(
         "harmonize", help="Harmonize legacy .agent/ directories and PSL-HARNESS rules into modern .agents/ structure"
     )
-    p_harm.add_argument("path", nargs="?", default=None, help="Target workspace path (defaults to current directory)")
+    p_harm.add_argument("path", nargs="?", default=None, help="Target workspace path (or 'test' subcommand)")
+    p_harm.add_argument("test_path", nargs="?", default=None, help="Optional test workspace path when target is 'test'")
     p_harm.add_argument("--dry-run", action="store_true", help="Preview harmonization actions without modifying files")
+    p_harm.add_argument("--apply", action="store_true", help="Apply harmonization mutations to disk")
+    p_harm.add_argument("--yes", "-y", action="store_true", help="Apply mutations non-interactively without prompt")
     p_harm.add_argument("--json", action="store_true", help="Output harmonization report in JSON format")
     p_harm.add_argument("--prune-legacy", action="store_true", help="Safely remove or git-rm legacy .agent/ directory after successful migration")
     p_harm.add_argument("--clean-agent-dir", action="store_true", help="Alias for --prune-legacy")

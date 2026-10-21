@@ -1,62 +1,53 @@
-# Project: Agyis Harness Fleet Onboarding & Wave 1 Reconciliation (v1.0.0-rc2)
+# Project: 360-Degree Telemetry Audit & Emergent Pattern Mining
 
 ## Architecture
-Agyis Harness (`v1.0.0-rc2`) provides autonomous agent workspace harmonization, preset decoupling, deterministic legacy `.agent/` migration/pruning, and multi-tier environment diagnostics.
-This project coordinates fleet-wide reconciliation of 17 open Wave 1 pull requests and onboarding of 4 Tier 1 local repositories in `/home/kuasha/Dev` under strict WIP safeguarding and decoupled architectural roles.
+- **Data Layer (`data/`)**: SQLite telemetry databases (`data/telemetry.db`, `data/telemetry_hub.db`), intermediate analysis JSON caches (`data/*.json`).
+- **Telemetry Infrastructure (`harness/telemetry/`)**: Schema definition (`schema.py`), bidirectional multi-node sync engine (`sync/push.py`, `sync/pull.py`, `sync/coordinator.py`).
+- **Analytical Pipeline (`pipeline/`)**: Dedicated forensic modules (`extract_transcripts.py`, `classify_failures.py`, `analyze_ultra_deep_sessions.py`, `analyze_failure_clusters.py`, `analyze_volume_distributions.py`, `analyze_context_dynamics.py`, `summarize_interventions.py`, `audit_artifacts.py`, `audit_project_configs.py`).
+- **CLI Dispatcher (`harness/commands/audit.py`, `harness/cli.py`)**: `./agyis audit <stage>` and `python3 -m harness.cli audit <stage>`.
+- **Reporting Deliverables (`docs/reports/`)**: Permanent evidence-grounded report at `docs/reports/360_telemetry_audit_2026_10.md`.
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | Wave 1 PR Inventory & Checkout Verification | Map 17 open PRs to local checkouts on branch `chore/agyis-harness-onboarding` | M1 | ORIGINAL_REQUEST §R1 |
-| 2 | Preset Decoupling (Frontend & Mobile) | Ensure `sunshine-physio-webapp`, `mm-website`, `react-native-template-ts-plus`, and `purrfectcore-client` contain only relevant stack skills and strictly omit `psl-stack-backend` and `db-ops` | M1 | ORIGINAL_REQUEST §R1 |
-| 3 | Legacy Debris Pruning | Ensure zero legacy `.agent/` directories or `.agent/workflows` remain in any Wave 1 or Tier 1 repository | M1, M2 | ORIGINAL_REQUEST §R1, §R2 |
-| 4 | Invariant Rules Fencing | Ensure `AGENTS.md` rule fences (`<!-- Added by AGYIS-HARNESS -->` / `<!-- End AGYIS-HARNESS -->`) are present and intact | M1, M2 | ORIGINAL_REQUEST §R1 |
-| 5 | WIP Safeguarding (bookcover-craft) | Create dual-shield backup: isolated patch file `wip-safety-pre-onboarding.patch` and backup branch `backup/wip-pre-onboarding-staging` before any modification | M2 | ORIGINAL_REQUEST §R3 |
-| 6 | WIP Safeguarding (bookcover-craft-api) | Create dual-shield backup: isolated patch file `wip-safety-pre-onboarding.patch` and backup branch `backup/wip-pre-onboarding-dev` before any modification | M2 | ORIGINAL_REQUEST §R3 |
-| 7 | Tier 1 Clean Reset | Reset `bookcover-craft` to clean `origin/staging` and `bookcover-craft-api` to clean `origin/dev` after backup | M2 | ORIGINAL_REQUEST §R3 |
-| 8 | Tier 1 Onboarding Branches & PRs | Run `agyis onboard` with explicit decoupled roles and tracking branches for `arbiter`, `bookcover-craft`, `bookcover-craft-api`, and `chakra-ui-icons-compat` | M2 | ORIGINAL_REQUEST §R2 |
-| 9 | Native Test Suite Verification | Execute native test suites / typecheck / build commands across targeted repositories | M3 | ORIGINAL_REQUEST §R4 |
-| 10 | Agyis Doctor Diagnostics | Verify `agyis doctor` passes with exit code 0 across all target repositories | M3 | ORIGINAL_REQUEST §R4 |
-| 11 | Push Updated Branches to Origin | Push updated `chore/agyis-harness-onboarding` branches to remote origin / fork targets without merging PRs | M3 | ORIGINAL_REQUEST §R4 |
+| 1 | Full Pipeline Ingestion & Execution | Run full audit pipeline (`extract`, `classify`, `dynamics`, `interventions`, `volume`, `deep`, `clusters`) with exit code 0 | M1 | Survey 1 / R1 |
+| 2 | Cache Reconciliation & Stale Cache Refresh | Refresh stale caches (`artifacts_audit_summary.json`, `project_configs_audit.json`, `top_100_cognitive_trajectories.json`) | M1 | Survey 1 / R1 |
+| 3 | Double-Ingestion Duplication Documentation | Document the 623-session duplication anomaly and provide mathematical dedup filters | M1 | Survey 1 / R1 |
+| 4 | Native `/teamwork-preview` Topology Dissection | Analyze evolution (prototype -> July 29-subagent swarm -> Oct resilient dual-gen) | M2 | Survey 2 / R2 |
+| 5 | High-Intensity `/boost` Modality Analysis | Dissect 346 `/boost` interventions, reasoning mode selection, and 4k char thinking spans | M2 | Survey 2 / R2 |
+| 6 | Agyis `/subagent-ladder` Pipeline Analysis | Trace historical inception (Session `4021bbec`, 101.5h) and 4-stage ladder protocol | M2 | Survey 2 / R2 |
+| 7 | Cognitive Cliff & Titan Session Dynamics | Quantify error/intervention escalation (<20k vs >100k vs >200k) and tool shift in titan sessions | M2 | Survey 2 / R2 |
+| 8 | Subagent Latency & Coordination Profiles | Profile subagent dispatch (0.05s) vs background task sync (1.26s) and blockage risks | M2 | Survey 2 / R2 |
+| 9 | Tool-Failure Disconnect Discovery | Document finding that only 26 of 3,270 (0.8%) interventions followed tool errors | M3 | Survey 3 / R3 |
+| 10 | Flight Director Steering & Drift Mitigation | Categorize 55 interventions for monorepo drift, generative overfit, and synthetic status | M3 | Survey 3 / R3 |
+| 11 | ADR Invariant Enforcement Analysis | Document 112 interventions enforcing ADR-012, ADR-013, ADR-015, ADR-028 | M3 | Survey 3 / R3 |
+| 12 | Pause & Resume Lifecycle Invariants | Analyze 222 pause/park alerts, 78 resumes, and the "Never Kill Subagents During Pause" rule | M3 | Survey 3 / R3 |
+| 13 | Disaster & Powerloss Recovery Signatures | Document 106 events: Bangladesh load shedding, `/powerloss-resume`, Linux OOM crashes | M3 | Survey 3 / R3 |
+| 14 | 360-Degree Comprehensive Synthesis Report Authoring | Compile complete evidence-grounded report at `docs/reports/360_telemetry_audit_2026_10.md` | M4 | Survey 1-3 / R4 |
+| 15 | Harness & Cockpit Strategic Recommendations | Codify 5 concrete recommendations (Anti-Kill Hook, Powerloss Resume Skill, Quota Burn Gauges, Memory Throttling, Dual Gate Auditor) | M4 | Survey 1-3 / R4 |
+| 16 | Comprehensive E2E Verification Suite | Automated verification of pipeline execution, report structure, and telemetry claims | E2E | R1-R4 / Acceptance |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Wave 1 PR Reconciliation | Reconcile all 17 Wave 1 repositories to v1.0.0-rc2 with decoupled presets in frontend/mobile repos and intact rules fences | none | DONE |
-| M2 | Tier 1 Repositories Safeguarding & Onboarding | Safeguard in-flight WIP in bookcover-craft and bookcover-craft-api via dual-shield patches and backup branches; onboard arbiter, bookcover-craft, bookcover-craft-api, chakra-ui-icons-compat with clean branches and PRs | none | DONE |
-| M3 | Fleet Verification Gate & Remote Push | Automated verification gate (agyis doctor, preset audit, legacy audit, test suites) across all 21 repos and push to origin/fork remotes | M1, M2 | DONE |
-
-## Code Layout
-- Target Workspaces:
-  - `/home/kuasha/Dev/psl-agy-harness` (Harness host toolchain)
-  - Wave 1 Repos (17 checkouts in `/home/kuasha/Dev/`):
-    - `jasper-hosted`
-    - `chronicle-time-keeper`
-    - `sunshine-physio-universalapp` (upstream `sunshine-physio-webapp`)
-    - `purrmission`
-    - `mm-website`
-    - `psl-website`
-    - `purrfect-download-manager`
-    - `psl-scaffold`
-    - `psl-boilerplate`
-    - `Jasper`
-    - `purrfectcore-client`
-    - `purrfectcore-001`
-    - `react-native-template-ts-plus`
-    - `purr`
-    - `knot-mesh`
-    - `jimha`
-  - Tier 1 Repos (4 local checkouts in `/home/kuasha/Dev/`):
-    - `arbiter` (base: `develop`)
-    - `bookcover-craft` (base: `staging`, role: `frontend`)
-    - `bookcover-craft-api` (base: `dev`, role: `backend`)
-    - `chakra-ui-icons-compat` (base: `develop`, role: `frontend`)
+| M1 | Pipeline Ingestion & Cache Reconciliation | Run all audit pipeline stages, reconcile DB records, update `data/*.json` | None | DONE |
+| M2 | Multi-Agent & Topology Dissection Verification | Validate multi-agent, boost, ladder, and cognitive cliff metrics | M1 | DONE |
+| M3 | Operator Steering & Resilience Dissection Verification | Validate steering, ADR invariants, pause/resume, and disaster recovery metrics | M1 | DONE |
+| M4 | 360-Degree Comprehensive Synthesis Report Authoring | Author `docs/reports/360_telemetry_audit_2026_10.md` | M2, M3 | DONE |
+| M5 | E2E Verification & Out-of-Band Audit Gate | Run E2E verification test suite, reviewer, challenger, and forensic auditor | M4 | DONE |
 
 ## Interface Contracts
-### Agyis Onboard Invariants
-- `agyis onboard <path> --base-branch <branch> [--role <role>] [--prune-legacy] [--pr]`
-- Fences: `<!-- Added by AGYIS-HARNESS -->` and `<!-- End AGYIS-HARNESS -->`
-- Decoupled roles:
-  - `frontend`: `modern-web-guidance`, `psl-stack-typescript`, `psl-test-node` (NO `psl-stack-backend`, NO `db-ops`)
-  - `mobile`: `android-cli`, `psl-stack-typescript`, `psl-test-node` (NO `psl-stack-backend`, NO `db-ops`)
-  - `backend`: `psl-stack-backend`, `db-ops`, plus runtime skills
+### Analytical Pipeline ↔ Data Caches
+- Pipeline scripts output clean, formatted JSON files in `data/*.json`.
+- Analytical caches record standard analytical keys and summary metrics (e.g. `overview`, `total_interventions`, `timestamp` / `generated_at`).
+- Database queries must handle double-ingested tool calls gracefully using deduplication keys or raw session counts.
+
+### Data Caches ↔ Comprehensive Synthesis Report
+- Every metric, table, and percentage in `docs/reports/360_telemetry_audit_2026_10.md` must link to a verified query in `data/telemetry.db` or a field in `data/*.json`.
+- Every cited session must include `session_id`, step index, timestamp, and context summary.
+
+## Code Layout
+- `pipeline/`: Analytical scripts. Owned by Worker M1.
+- `data/`: Database and cache files. Managed by Worker M1.
+- `docs/reports/360_telemetry_audit_2026_10.md`: Authoritative synthesis deliverable. Owned by Worker M4.
+- `tests/test_audit_report.py`: E2E verification suite. Owned by E2E Test Writer.

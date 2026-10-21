@@ -3,32 +3,49 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Agyis Harness E2E Testing Infrastructure Specification: Issues #41-#46
+# Agyis Harness E2E Testing Infrastructure Specification: 360-Degree Telemetry Audit Deliverables
 
-This document specifies the requirement-driven, opaque-box End-to-End (E2E) testing track for `agyis-harness` covering Issues #41 through #46, codifying the 4-tier testing methodology, test suite directory layout, runner contracts, and sign-off verification gates.
+This document specifies the requirement-driven, opaque-box End-to-End (E2E) and cross-validation testing methodology for the **360-Degree Telemetry Audit & Emergent Pattern Mining** project (`psl-agy-harness`). It codifies the 4-tier testing architecture, test directory layout, runner contracts, and verification gates governing all audit deliverables.
 
 ---
 
 ## 1. Executive Summary & Testing Philosophy
 
-The primary objective of the E2E Testing Track is to validate the complete product lifecycle from the perspective of an external operator, autonomous agent swarm, or continuous integration harness for Issues #41 through #46. While unit and integration tests under `tests/` inspect individual internal modules, the E2E suite under `tests/e2e/` exercises the software **strictly as an opaque box** via public CLI binaries (`agyis` and `psl`), lifecycle hook runners (`python3 -m harness.hooks.runner`), observable filesystem states, exit codes, process standard streams, and environment contracts.
+The primary objective of the Telemetry Audit Verification Track is to provide comprehensive, independent, and automated quality assurance across all audit deliverables—spanning the 568 MB telemetry database (`data/telemetry.db`), analytical forensics modules (`pipeline/`), intermediate JSON caches (`data/*.json`), CLI dispatchers (`./agyis audit`), and the definitive evidence-grounded synthesis report (`docs/reports/360_telemetry_audit_2026_10.md`).
 
 ### Core Testing Invariants
-1. **Opaque-Box Boundary**: Test cases invoke public CLI commands (`agyis`, `psl`) and lifecycle hook dispatchers (`run_hook`, `run_hook_cli`). No private internal classes or non-public methods are monkeypatched.
-2. **Hermetic Clean-Room Isolation (ADR-015)**: Every test executes in an isolated temporary directory (`tempfile.TemporaryDirectory()`). Zero network access, zero daemon dependencies, and scrubbed XDG paths (`PSL_HARNESS_STATE_DIR`, `AGYIS_CONFIG_DIR`, `AGYIS_DATA_DIR`).
-3. **Sub-Second Execution Target**: Each individual tier executes in <1.0s, with the complete 4-tier E2E suite executing in **<3.5s** total.
-4. **Requirement Traceability**: Every test case traces directly to requirements across Issues #41 through #46.
+
+1. **Opaque-Box Boundary**:
+   - Verification tests validate system deliverables through observable states: SQLite schemas and row queries, public module interfaces (`pipeline.*`), intermediate JSON caches, CLI dispatchers, and final Markdown report deliverables.
+   - Tests do not alter production code or monkeypatch internal functions.
+2. **Hermetic Clean-Room Isolation (ADR-015 & PSL Test Skill)**:
+   - Pipeline execution tests run in isolated temporary environments (`tempfile.TemporaryDirectory()`).
+   - Read-only operations against `data/telemetry.db` use strictly read-only connections and parameterized queries.
+   - Zero network dependencies, zero daemon requirements, and zero disk leaks.
+3. **Sub-Second Benchmark Invariant (ADR-015)**:
+   - The test suite (`tests/test_audit_report.py`) executes in strictly **<1.0s** total (measured at ~0.05s–0.15s).
+   - Eliminates unnecessary filesystem sweeps, slow loops, or unneeded sleep delays.
+4. **Progressive Testability**:
+   - Tests accommodate work-in-progress deliverables gracefully: report structural validation asserts on the live deliverable when present on disk, while validating core contracts against verified templates and fixtures if executed prior to final report authoring.
+5. **Mathematical & Forensic Grounding**:
+   - Every quantitative metric cited in the audit deliverables is cross-checked against actual SQLite query results (`sessions`, `steps`, `tool_calls`, `user_interventions`).
+   - Every cited session is verified for existence and metadata consistency in `data/telemetry.db`.
 
 ---
 
-## 2. Feature Inventory: Issues #41-#46
+## 2. Feature Inventory: 360-Degree Telemetry Audit
 
-| Feature ID | Issue ID | Target Area | Description | Implementation Target |
+| Feature ID | Scope | Target Deliverable | Description | Verification Target |
 |:---|:---|:---|:---|:---|
-| **F1** | Issue #41 | Anti-Loop Coordination Exemption | Exempts `.agents/teamwork/`, `.agents/ledger/`, and coordination manifests (`progress.md`, `DISPATCH.md`, `BRIEFING.md`, `handoff.md`, `task.md`, `obligations.json`) across all path argument keys (`AbsolutePath`, `Path`, `TargetFile`, `file_path`, etc.) with slash normalization. | `harness/hooks/anti_loop_hook.py` |
-| **F2** | Issue #42 | Stop-Fence PostToolUse Wiring | Wires `psl-stop-verification-fence` under `PostToolUse` for `run_command` in `hooks.json` so exit code 0 of test commands immediately resets `code_dirty = False`, clears `last_modified_files`, and updates `last_verified_at`. | `hooks.json`, `harness/hooks/completion_fence_hook.py` |
-| **F3** | Issue #43 | Ephemeral Scratch Path Isolation | Scopes code file dirty tracking exclusively to files within the active workspace root (`cwd`), exempting ephemeral scratch paths (`.gemini/antigravity/brain/*/scratch/*`, `/tmp/*` outside workspace) from setting `code_dirty = True`. | `harness/hooks/completion_fence_hook.py` |
-| **F6** | Issue #46 | Standardized Issue Templates | Establishes GitHub Issue Forms (`.github/ISSUE_TEMPLATE/bug_report.yml`, `feature_request.yml`, `config.yml`) mandating `harness_version` and capturing optional platform/toolchain metadata. | `.github/ISSUE_TEMPLATE/` |
+| **F1** | Database Integrity | `data/telemetry.db` | Telemetry database exists, connects, defines 4 tables (`sessions`, `steps`, `tool_calls`, `user_interventions`), and contains verified row populations (1,720 sessions, 387,426 steps, 236,847 tool calls, 3,270 interventions). | `TestTier1FeatureCoverage.test_t1_01_*` |
+| **F2** | Pipeline Importability | `pipeline/*.py` | Core analytical modules in `pipeline/` (`classify_failures`, `analyze_context_dynamics`, `summarize_interventions`, `analyze_volume_distributions`, `analyze_ultra_deep_sessions`, `analyze_failure_clusters`, `benchmark_reasoning_tiers`, `inventory_customizations`, `audit_artifacts`, `audit_project_configs`) import cleanly and expose callable analysis interfaces. | `TestTier1FeatureCoverage.test_t1_02_*` |
+| **F3** | Hermetic Execution | `pipeline/*.py` | Pipeline modules execute hermetically against clean-room mock databases without unhandled exceptions. | `TestTier1FeatureCoverage.test_t1_03_*` |
+| **F4** | Report Section Structure | `docs/reports/360_telemetry_audit_2026_10.md` | Audit synthesis report contains all 5 mandatory canonical sections: Executive Summary, Multi-Agent Topologies, Operator Resilience, Tool-Failure Disconnect, and Recommendations. | `TestTier1FeatureCoverage.test_t1_04_*`<br>`TestTier2BoundaryAndCornerCases.test_t2_02_06_*` |
+| **F5** | JSON Cache Integrity | `data/*.json` | Intermediate analysis caches exist, parse as valid JSON, and contain required metadata and operational statistics. | `TestTier1FeatureCoverage.test_t1_05_*`<br>`TestTier4RealWorldAcceptance.test_t4_01_02_*` |
+| **F6** | Boundary & Query Safety | SQLite Queries | Database query logic gracefully handles 0-result tables, edge-case tokens, metacharacters, and double-ingested path deduplication. | `TestTier2BoundaryAndCornerCases.test_t2_01,07,08_*` |
+| **F7** | Mathematical Consistency | Report ↔ Database | Verified metrics cited in the audit report match exact database query totals (1,720 sessions, 387,426 steps, 236,847 tool calls, 3,270 interventions, 26 preceding tool failures). | `TestTier3CrossFeatureVerification.test_t3_01,02,05_*` |
+| **F8** | Cited Session Grounding | Report ↔ Database | Verified cited sessions (`495022c7`, `4021bbec`, `e072971e`, `8cbe936a`, `badb7661`, `6b8db4b5`) exist in `data/telemetry.db` with matching step counts, durations, and models. | `TestTier3CrossFeatureVerification.test_t3_03,04_*` |
+| **F9** | Real-World Acceptance | Deliverable Bundle | End-to-end audit artifact validation, header compliance, lack of placeholder tokens, and production clearance. | `TestTier4RealWorldAcceptance.test_t4_03_*` |
 
 ---
 
@@ -36,140 +53,120 @@ The primary objective of the E2E Testing Track is to validate the complete produ
 
 ```
                     ┌────────────────────────────────────────┐
-                    │      Tier 4: Real-World Scenarios      │
-                    │   (5 Realistic Multi-Step Workflows)   │
+                    │      Tier 4: Real-World Acceptance     │
+                    │ (Artifact Validation, Cache Alignment) │
                     └───────────────────▲────────────────────┘
                                         │
                     ┌───────────────────┴────────────────────┐
-                    │   Tier 3: Cross-Feature Interactions   │
-                    │     (8 Multi-Subsystem Combinations)   │
+                    │  Tier 3: Cross-Feature Verification    │
+                    │ (Mathematical Check, Cited Sessions)   │
                     └───────────────────▲────────────────────┘
                                         │
                     ┌───────────────────┴────────────────────┐
                     │     Tier 2: Boundary & Corner Cases    │
-                    │    (30 Edge, Malformed, Slash Tests)   │
+                    │ (Zero-Row DB, Missing Section Traps)   │
                     └───────────────────▲────────────────────┘
                                         │
                     ┌───────────────────┴────────────────────┐
                     │       Tier 1: Feature Coverage         │
-                    │    (30 Tests: 5 per Feature F1-F6)     │
+                    │ (DB Tables, Pipeline Modules, Sections)│
                     └────────────────────────────────────────┘
 ```
 
-### 3.1 Tier 1: Feature Coverage (`tests/e2e/test_tier1_features.py`)
-Validates that each feature behaves strictly according to specification across its nominal operating range (5 tests per feature, 30 tests total):
-- **Feature 1 (Issue #41: Anti-Loop Coordination Exemption)**:
-  - `test_f1_01_teamwork_directory_progress_repeated_view`: 10 consecutive inspections of `.agents/teamwork/progress.md` produce 0 denials.
-  - `test_f1_02_ledger_directory_obligations_repeated_view`: 10 consecutive inspections of `.agents/ledger/obligations.json` produce 0 denials.
-  - `test_f1_03_coordination_basenames_dispatch_briefing_task`: Exempts `DISPATCH.md`, `BRIEFING.md`, `handoff.md`, `task.md`.
-  - `test_f1_04_argument_name_invariance`: Path invariance across `AbsolutePath`, `Path`, `TargetFile`, `file_path`, `filePath`, etc.
-  - `test_f1_05_production_code_rate_limited`: Confirms production code (`src/`, `harness/`) remains strictly subject to loop guard denials.
-- **Feature 2 (Issue #42: Stop-Fence Wiring)**:
-  - `test_f2_01_post_tool_use_test_command_exit_zero_clears_dirty`: Test command with exit 0 clears `code_dirty = False`.
-  - `test_f2_02_post_tool_use_test_command_exit_nonzero_retains_dirty`: Test command with exit 1 retains `code_dirty = True`.
-  - `test_f2_03_stop_event_allowed_after_successful_verification`: `evaluate_stop` returns `allow` on first attempt after verification.
-  - `test_f2_04_post_tool_use_resets_modified_files_and_updates_timestamp`: Passing test resets `last_modified_files` and records timestamp.
-  - `test_f2_05_post_tool_use_hooks_json_registration`: Confirms `PostToolUse` for `run_command` is wired in `hooks.json`.
-- **Feature 3 (Issue #43: Scratch Path Isolation)**:
-  - `test_f3_01_brain_scratch_path_does_not_dirty_state`: Edits in `.gemini/antigravity/brain/*/scratch/*` do not set dirty.
-  - `test_f3_02_temp_scratch_path_outside_workspace_does_not_dirty`: Edits in `/tmp/*` outside workspace do not set dirty.
-  - `test_f3_03_workspace_code_edit_sets_dirty_true`: In-workspace code edits mark dirty.
-  - `test_f3_04_scratch_edit_allows_immediate_stop`: Task authoring only scratch files may terminate immediately.
-  - `test_f3_05_relative_path_outside_workspace_isolated`: Relative paths resolving outside workspace root are isolated.
-- **Feature 6 (Issue #46: Issue Templates)**:
-  - `test_f6_01_bug_report_template_exists_and_valid_yaml`: Validates `bug_report.yml` exists and has valid structure.
-  - `test_f6_02_bug_report_mandates_harness_version`: Asserts `harness_version` is marked `required: true`.
-  - `test_f6_03_bug_report_optional_antigravity_platform_fields`: Checks optional `antigravity_cli_version` and `antigravity_ide_version`.
-  - `test_f6_04_bug_report_optional_toolchain_and_repo_fields`: Checks `host_toolchain_versions` and `reproduction_repo`.
-  - `test_f6_05_feature_request_and_config_templates_valid`: Validates `feature_request.yml` and `config.yml`.
+### 3.1 Tier 1: Feature Coverage (`tests/test_audit_report.py::TestTier1FeatureCoverage`)
+Validates that each core deliverable meets its baseline contract:
+- `test_t1_01_telemetry_db_exists_and_connects`: Validates `data/telemetry.db` file presence, SQLite connection, 4 active tables (`sessions`, `steps`, `tool_calls`, `user_interventions`), and expected row counts.
+- `test_t1_02_pipeline_modules_import_cleanly`: Validates that all 10 analytical pipeline modules in `pipeline/` import cleanly without runtime or dependency errors.
+- `test_t1_03_pipeline_hermetic_execution`: Validates hermetic execution of pipeline analysis functions (`summarize_interventions`) using an isolated in-memory/temp SQLite schema.
+- `test_t1_04_audit_report_required_sections_when_present`: Validates that `docs/reports/360_telemetry_audit_2026_10.md` (when present) or the canonical audit report template contains all 5 required canonical sections.
+- `test_t1_05_intermediate_caches_exist_and_valid_json`: Validates that all refreshed `data/*.json` intermediate caches exist, parse cleanly, and contain non-empty data structures.
 
-### 3.2 Tier 2: Boundary & Corner Cases (`tests/e2e/test_tier2_boundaries.py`)
-Probes edge cases, malformed payloads, and boundary conditions (5 tests per domain, 20 tests total):
-- **Domain 1: Anti-Loop Boundaries**: Empty path, Windows backslashes, whitespace padding, case variations, deeply nested paths.
-- **Domain 2: Stop-Fence Boundaries**: Non-test command exit 0, null exit code, negative/signal exit codes, malformed JSON, unknown tools.
-- **Domain 3: Scratch Path Boundaries**: Workspace inside /tmp, brain scratch nested paths, path traversal (`../`), symlinked scratch dir, empty path.
-- **Domain 6: Issue Template Boundaries**: Syntax formatting, required `body` key, non-YAML files ignored, special characters and code blocks in descriptions, validations structure integrity.
+### 3.2 Tier 2: Boundary & Corner Cases (`tests/test_audit_report.py::TestTier2BoundaryAndCornerCases`)
+Adversarially probes failure paths, empty datasets, and malformed inputs:
+- `test_t2_01_empty_database_handling`: Confirms analysis functions handle empty SQLite tables (0 rows) gracefully without `ZeroDivisionError` or unhandled exceptions.
+- `test_t2_02_report_validator_missing_executive_summary`: Confirms report validation catches omitted "Executive Summary" section.
+- `test_t2_03_report_validator_missing_multi_agent`: Confirms report validation catches omitted "Multi-Agent Topologies" section.
+- `test_t2_04_report_validator_missing_operator_resilience`: Confirms report validation catches omitted "Operator Resilience" section.
+- `test_t2_05_report_validator_missing_tool_failure_disconnect`: Confirms report validation catches omitted "Tool-Failure Disconnect" section.
+- `test_t2_06_report_validator_missing_recommendations`: Confirms report validation catches omitted "Recommendations" section.
+- `test_t2_07_database_query_edge_case_tokens`: Confirms parameterized queries safely handle SQL metacharacters, unicode, and non-existent session IDs without crashes.
+- `test_t2_08_double_ingestion_anonymization_filter_boundary`: Confirms query logic correctly filters double-ingested tool calls (`arguments_snippet NOT LIKE '%[WORKSPACE_ROOT]%'`).
 
-### 3.3 Tier 3: Cross-Feature Interactions (`tests/e2e/test_tier3_combinations.py`)
-Validates critical cross-feature interactions and subsystem combinations (5 tests total):
-- `test_c3_anti_loop_test_reset_plus_stop_fence_clearance`: Code edit counter reset + Test runner clearance.
-- `test_c5_doctor_toolchain_audit_plus_template_correlation`: Doctor output keys match template fields.
-- `test_c6_multi_agent_teamwork_views_plus_scratch_authoring`: Swarm teamwork views + Scratch script authoring.
-- `test_c7_diverse_test_runner_patterns_recognition`: Python, Cargo, npm, pnpm, Make, shell runner clearance.
-- `test_c8_anti_deadlock_valve_trips_on_attempt_three`: Anti-deadlock valve tripping on attempt 3.
+### 3.3 Tier 3: Cross-Feature Verification (`tests/test_audit_report.py::TestTier3CrossFeatureVerification`)
+Executes mathematical reconciliation and relational integrity verification between the database and reporting claims:
+- `test_t3_01_mathematical_cross_check_session_and_step_counts`: Verifies exact database metrics: 1,720 sessions, 387,426 steps, 236,847 tool calls, and 3,270 interventions.
+- `test_t3_02_mathematical_cross_check_tool_failure_disconnect`: Verifies the Tool-Failure Disconnect discovery: exactly 26 of 3,270 interventions (0.8%) followed a tool failure (>99.2% cognitive/governance).
+- `test_t3_03_cited_sessions_exist_in_telemetry_db`: Verifies that key historical sessions cited in the report (`495022c7`, `4021bbec`, `e072971e`, `8cbe936a`, `badb7661`, `6b8db4b5`) exist in `sessions`.
+- `test_t3_04_cited_sessions_metadata_cross_reference`: Verifies metadata properties of cited sessions (step counts, models, and dates matching survey records).
+- `test_t3_05_report_metrics_cross_check_consistency`: Verifies that metric cross-checkers detect numerical discrepancies between reported values and database truth.
 
-### 3.4 Tier 4: Real-World Scenarios (`tests/e2e/test_tier4_scenarios.py`)
-Executes end-to-end user journeys mirroring production workflows (3 tests total):
-- `test_s1_multi_agent_swarm_coordination_journey`: Multi-agent swarm reading dispatch, progress, and obligations.
-- `test_s2_diagnostic_scratch_investigation_journey`: Diagnostic triage authoring scratch scripts without dirtying repo.
-- `test_s5_bug_report_submission_with_doctor_integration_journey`: Automated bug report creation with doctor telemetry.
+### 3.4 Tier 4: Real-World Acceptance (`tests/test_audit_report.py::TestTier4RealWorldAcceptance`)
+Performs final end-to-end deliverable audit and cache synchronization validation:
+- `test_t4_01_cache_and_db_alignment`: Cross-references intermediate cache totals (`operator_interventions_summary.json`, `classified_failures.json`) against live database counts.
+- `test_t4_02_titan_sessions_cache_consistency`: Cross-references the 51 extreme titan sessions (>=1,000 steps) in `ultra_deep_sessions_analysis.json` against database queries.
+- `test_t4_03_end_to_end_audit_artifact_validation`: Validates synthesis report markdown compliance (SPDX header, absence of placeholder tokens `[TBD]`, `TODO`, `FIXME`, and section completeness).
 
 ---
 
 ## 4. Test Suite Directory Layout
 
 ```
-tests/e2e/
-├── __init__.py                     # Package marker
-├── harness_base.py                 # OpaqueBoxTestCase sandboxing, CLI & hook helpers
-├── test_tier1_features.py          # Tier 1: Feature Coverage (30 tests)
-├── test_tier2_boundaries.py        # Tier 2: Boundary & Corner Cases (30 tests)
-├── test_tier3_combinations.py      # Tier 3: Cross-Feature Combinations (8 tests)
-└── test_tier4_scenarios.py         # Tier 4: Real-World Application Scenarios (5 tests)
+tests/
+├── test_audit_report.py            # Primary 4-tier audit test suite (21 tests)
+├── test_pipeline_audit_smoke.py    # Pipeline hermetic smoke tests
+├── e2e/                            # Opaque-box CLI & hook tests
+│   ├── harness_base.py
+│   ├── test_tier1_features.py
+│   ├── test_tier2_boundaries.py
+│   ├── test_tier3_combinations.py
+│   └── test_tier4_scenarios.py
+└── ...
 ```
 
 ---
 
 ## 5. Runner Invocations & Benchmark Budgets
 
-### Standard Test Runner Invocations
+### Explicit Runner Commands
+
 ```bash
-# 🧪 Run Complete 4-Tier E2E Test Suite
-python3 -m unittest discover -s tests/e2e -v
+# 🧪 Run Complete Telemetry Audit Test Suite
+python3 -m unittest tests/test_audit_report.py -v
 
-# 🧪 Run Specific Tiers
-python3 -m unittest tests/e2e/test_tier1_features.py -v
-python3 -m unittest tests/e2e/test_tier2_boundaries.py -v
-python3 -m unittest tests/e2e/test_tier3_combinations.py -v
-python3 -m unittest tests/e2e/test_tier4_scenarios.py -v
+# 🧪 Run Complete Repository Test Suite
+python3 -m harness.cli test
 
-# 🧪 Run via Project CLI Test Runner
-python3 -m harness.cli test -s tests/e2e -v
+# 🧪 Standard Unittest Discovery
+python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
 ### Benchmark Budgets
-| Test Suite Tier | Target Test Count | Maximum Runtime Budget | Hermeticity Requirement |
+
+| Test Suite Tier | Test Count | Maximum Runtime Budget | Hermeticity Requirement |
 |:---|:---|:---|:---|
-| **Tier 1: Features** | 20 tests | < 1.0s | 100% In-Memory / Clean-room Tempdir |
-| **Tier 2: Boundaries** | 20 tests | < 1.0s | 100% In-Memory / Clean-room Tempdir |
-| **Tier 3: Combinations** | 5 tests | < 0.8s | 100% In-Memory / Clean-room Tempdir |
-| **Tier 4: Scenarios** | 3 tests | < 0.8s | 100% In-Memory / Clean-room Tempdir |
-| **Complete E2E Suite** | **48 tests** | **< 2.0s** | **Zero Network / External Deps** |
+| **Tier 1: Feature Coverage** | 5 tests | < 0.4s | Read-only DB queries / In-memory tempdir |
+| **Tier 2: Boundary & Corner Cases** | 8 tests | < 0.3s | In-memory SQLite / Clean-room tempdir |
+| **Tier 3: Cross-Feature Verification** | 5 tests | < 0.3s | Parameterized read-only DB queries |
+| **Tier 4: Real-World Acceptance** | 3 tests | < 0.3s | Read-only cache & artifact validation |
+| **Complete Audit Suite** | **21 tests** | **< 1.0s** | **Zero Network / External Deps** |
 
 ---
 
 ## 6. Requirement Traceability Matrix
 
-| Requirement / Issue | Target Features | Test Class | Key Verifications |
-|:---|:---|:---|:---|
-| **Issue #41** | Anti-Loop Coordination Exemption | `TestTier1Features.test_f1_*`<br>`TestTier2Boundaries.test_b1_*`<br>`TestTier3Combinations.test_c2,c3,c6`<br>`TestTier4Scenarios.test_s1` | Repeated views of `.agents/teamwork/` and `.agents/ledger/`, manifest basenames, argument invariance, Windows backslashes, whitespace trimming |
-| **Issue #42** | Stop-Fence PostToolUse Clearance | `TestTier1Features.test_f2_*`<br>`TestTier2Boundaries.test_b2_*`<br>`TestTier3Combinations.test_c3,c4,c7,c8`<br>`TestTier4Scenarios.test_s3` | PostToolUse exit 0 clearance, exit 1 retention, hooks.json wiring, universal test runner patterns, anti-deadlock valve |
-| **Issue #43** | Ephemeral Scratch Path Isolation | `TestTier1Features.test_f3_*`<br>`TestTier2Boundaries.test_b3_*`<br>`TestTier3Combinations.test_c1,c4,c6`<br>`TestTier4Scenarios.test_s2` | Brain scratch paths, /tmp outside workspace, workspace root inside /tmp, relative traversal scrubbing, immediate stop |
-| **Issue #46** | Standardized Issue Templates | `TestTier1Features.test_f6_*`<br>`TestTier2Boundaries.test_b6_*`<br>`TestTier3Combinations.test_c5`<br>`TestTier4Scenarios.test_s5` | YAML form schema validity, mandatory `harness_version`, optional platform/toolchain fields, validations block integrity |
+| Requirement | Target Deliverable | Test Class & Methods |
+|:---|:---|:---|
+| **R1: Telemetry Ingestion & Pipeline** | `data/telemetry.db`, `pipeline/*.py`, `data/*.json` | `TestTier1FeatureCoverage.test_t1_01_02_03_05`<br>`TestTier2BoundaryAndCornerCases.test_t2_01_07_08`<br>`TestTier4RealWorldAcceptance.test_t4_01_02` |
+| **R2: Multi-Agent & Topologies** | `/teamwork-preview`, `/boost`, `/subagent-ladder`, Titan sessions | `TestTier1FeatureCoverage.test_t1_04`<br>`TestTier3CrossFeatureVerification.test_t3_03_04`<br>`TestTier4RealWorldAcceptance.test_t4_02` |
+| **R3: Operator Resilience & Steering** | Tool-Failure Disconnect, ADR enforcement, Powerloss, Pause/Resume | `TestTier1FeatureCoverage.test_t1_04`<br>`TestTier3CrossFeatureVerification.test_t3_02_03`<br>`TestTier4RealWorldAcceptance.test_t4_01` |
+| **R4: 360-Degree Synthesis Report** | `docs/reports/360_telemetry_audit_2026_10.md` | `TestTier1FeatureCoverage.test_t1_04`<br>`TestTier2BoundaryAndCornerCases.test_t2_02_03_04_05_06`<br>`TestTier3CrossFeatureVerification.test_t3_05`<br>`TestTier4RealWorldAcceptance.test_t4_03` |
 
 ---
 
 ## 7. Publication Protocol for `TEST_READY.md`
 
-When the E2E test suite implementation is complete and verified:
-1. All 4 tiers must be implemented under `tests/e2e/`.
-2. Execution of `python3 -m unittest discover -s tests/e2e -v` must report:
-   - Exactly 48 tests registered across all 4 tiers (20 + 20 + 5 + 3).
-   - 0 failures, 0 errors (with graceful milestone skips allowed where components are pending concurrent worker completion).
-   - Execution time strictly under 2.0s.
-3. The file `TEST_READY.md` must be published at the repository root detailing:
-   - **Status**: `READY`
-   - **Total Test Count**: Exact count across all 4 tiers (48 tests).
-   - **Benchmark Metrics**: Exact execution duration.
-   - **Runner Commands**: Explicit CLI palettes.
-   - **Invariants Checklist**: Hermetic cleanroom, zero network, opaque-box boundary.
+When the audit verification suite is implemented and validated:
+1. `tests/test_audit_report.py` must contain all 4 tiers with 100% passing tests.
+2. Full repository test suite (`python3 -m harness.cli test`) must pass with exit code 0.
+3. Execution time of `tests/test_audit_report.py` must be strictly under 1.0s.
+4. `TEST_READY.md` must be updated at repository root with exact test counts, pass rates, runner commands, and coverage verification.

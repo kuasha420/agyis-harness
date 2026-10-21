@@ -18,7 +18,47 @@ from harness.delivery.harmonize import harmonize_workspace
 
 
 def cmd_harmonize(args: argparse.Namespace) -> int:
-    """Harmonizes legacy .agent/ configuration and tagged rules into modern .agents/ structure."""
+    """Harmonizes legacy .agent/ configuration or test runners into modern standard structure."""
+    target_arg = getattr(args, "path", None)
+    if target_arg == "test":
+        from harness.harmonize.test_runner import harmonize_test_runners
+        test_ws = Path(getattr(args, "test_path", None) or Path.cwd()).resolve()
+        apply = bool(getattr(args, "apply", False) or getattr(args, "yes", False))
+        dry_run = bool(getattr(args, "dry_run", False))
+        backup = bool(getattr(args, "backup", True)) and not bool(getattr(args, "no_backup", False))
+        backup_dir_val = getattr(args, "backup_dir", None) or getattr(args, "archive_dir", None)
+        backup_dir = Path(backup_dir_val) if backup_dir_val else None
+
+        test_res = harmonize_test_runners(
+            workspace_dir=test_ws,
+            dry_run=dry_run,
+            apply=apply,
+            backup=backup,
+            backup_dir=backup_dir,
+        )
+
+        if getattr(args, "json", False):
+            print(json.dumps(test_res.to_dict(), indent=2))
+            return 0 if test_res.success else 1
+
+        if not test_res.success:
+            sys.stderr.write(f"✘ Error: {test_res.message}\n")
+            return 1
+
+        prefix = "✔ [DRY-RUN] " if test_res.dry_run else "✔ "
+        print(f"{prefix}{test_res.message}")
+        print(f"  • Workspace: {test_res.workspace_root}")
+        print(f"  • Framework: {test_res.audit.test_framework} ({test_res.audit.package_manager})")
+        if test_res.mutations:
+            print(f"  • Mutations ({len(test_res.mutations)}):")
+            for m in test_res.mutations:
+                print(f"    - {m.description}")
+        if test_res.backup_patch:
+            print(f"  • Backup Patch: {test_res.backup_patch}")
+        if test_res.manifest_path:
+            print(f"  • Test Manifest: {test_res.manifest_path}")
+        return 0
+
     target_ws = Path(args.path) if getattr(args, "path", None) else Path.cwd()
     dry_run = bool(getattr(args, "dry_run", False))
     prune_legacy = bool(getattr(args, "prune_legacy", False) or getattr(args, "clean_agent_dir", False))

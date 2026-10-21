@@ -251,11 +251,11 @@ We paired **{p_stats['paired_plan_walkthrough_sessions']} sessions** that genera
     print(f"[✓] Generated artifact audit report: {output_path}")
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Audit artifacts and plan drift.")
     parser.add_argument("--output", "-o", default="docs/taxonomy/planning-and-drift-report.md", help="Path to markdown output")
     parser.add_argument("--json-out", default="data/artifacts_audit_summary.json", help="Path to JSON output")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     data = audit_artifacts()
 
