@@ -42,6 +42,7 @@ from harness.hooks.completion_fence_hook import (
     record_edit,
     record_verification,
     reset_state,
+    save_state,
     sync_background_tasks,
     TIER_RANKS,
 )
@@ -1227,6 +1228,10 @@ class TestTierGatedCompletionFence(unittest.TestCase):
     def test_async_background_tier_gating(self):
         conv_id = "test-async-tier"
         record_edit("src/utils.ts", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        # Decouple test from wall-clock time by explicitly pinning last_dirtied_at
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        st["last_dirtied_at"] = "2026-10-21T17:55:00Z"
+        save_state(st, conv_id=conv_id, state_dir=self.state_dir)
 
         # Mock background task launch
         det = check_background_task_detachment(
