@@ -20,7 +20,16 @@ DEFAULT_MATRIX = Path(__file__).resolve().parent.parent / "runtime" / "matrix.js
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    """Executes the workstation runtime audit and optional auto-healing."""
+    """Executes the workstation runtime audit, anti-synthetic test smell audit, and optional auto-healing."""
+    if getattr(args, "anti_synthetic", False):
+        from harness.doctor.test_smells import run_anti_synthetic_doctor
+        test_path = getattr(args, "test_path", None)
+        as_json = getattr(args, "json", False)
+        return run_anti_synthetic_doctor(
+            target_path=test_path,
+            as_json=as_json,
+        )
+
     matrix_path = Path(args.matrix) if getattr(args, "matrix", None) else DEFAULT_MATRIX
     if not matrix_path.exists():
         pkg_matrix = Path(__file__).resolve().parent.parent / "runtime" / "matrix.json"

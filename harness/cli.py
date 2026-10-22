@@ -95,6 +95,18 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         action="store_true",
         help="Enable experimental Reverse Engineer Anything (REA) diagnostics and provider audit",
     )
+    p_doc.add_argument(
+        "--anti-synthetic",
+        action="store_true",
+        help="Audit test files for synthetic, tautological, and fake test smells (Epic #51 R1)",
+    )
+    p_doc.add_argument(
+        "--test-path",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Target directory or specific test file to audit (defaults to workspace test suites)",
+    )
 
     # hook
     p_hook = subparsers.add_parser("hook", help="Run a lifecycle hook handler directly")
@@ -153,6 +165,16 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Preview test execution or harmonization without modifying files",
+    )
+    p_test.add_argument(
+        "--mutation",
+        action="store_true",
+        help="Run diff-aware in-harness micro-mutation testing against modified code",
+    )
+    p_test.add_argument(
+        "--json",
+        action="store_true",
+        help="Output test or mutation results in structured JSON format",
     )
 
     # audit

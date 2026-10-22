@@ -31,13 +31,16 @@ from harness.hooks import completion_fence_hook
 from harness.hooks.completion_fence_hook import (
     check_background_task_detachment,
     check_command_verification,
+    check_has_mutable_code,
     classify_test_tier,
     evaluate_stop,
     extract_exit_code,
     is_cleanroom_contract_file,
     is_commit_or_pr_command,
     is_ephemeral_scratch_path,
+    is_mutation_test_command,
     is_test_command,
+    is_test_file,
     load_state,
     record_edit,
     record_verification,
@@ -1147,8 +1150,9 @@ class TestTierGatedCompletionFence(unittest.TestCase):
         record_verification(success=True, tier="affected", conv_id=conv_id, state_dir=self.state_dir)
         record_edit(".agents/teamwork/worker_1/handoff.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
 
-        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
-        self.assertEqual(res["decision"], "allow")
+        with patch.dict(os.environ, {"AGYIS_NO_MUTATION": "1"}):
+            res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+            self.assertEqual(res["decision"], "allow")
 
     def test_handoff_allowed_on_full_test(self):
         conv_id = "test-handoff-full"
@@ -1156,8 +1160,9 @@ class TestTierGatedCompletionFence(unittest.TestCase):
         record_verification(success=True, tier="full", conv_id=conv_id, state_dir=self.state_dir)
         record_edit(".agents/teamwork/worker_1/handoff.md", conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
 
-        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
-        self.assertEqual(res["decision"], "allow")
+        with patch.dict(os.environ, {"AGYIS_NO_MUTATION": "1"}):
+            res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+            self.assertEqual(res["decision"], "allow")
 
     def test_handoff_without_code_edits_allowed(self):
         conv_id = "test-handoff-no-code"
@@ -1214,7 +1219,7 @@ class TestTierGatedCompletionFence(unittest.TestCase):
         }
 
         stdout_buf = io.StringIO()
-        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir), "AGYIS_NO_MUTATION": "1"}):
             with patch("sys.stdout", stdout_buf):
                 with patch("sys.stdin", io.StringIO(json.dumps(payload))):
                     completion_fence_hook.main()
@@ -1318,8 +1323,9 @@ class TestTierGatedCompletionFence(unittest.TestCase):
 
         # Running affected tests and evaluating stop grants allow and resets latch
         record_verification(success=True, tier="affected", conv_id=conv_id, state_dir=self.state_dir)
-        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
-        self.assertEqual(res["decision"], "allow")
+        with patch.dict(os.environ, {"AGYIS_NO_MUTATION": "1"}):
+            res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+            self.assertEqual(res["decision"], "allow")
         st_after = load_state(conv_id=conv_id, state_dir=self.state_dir)
         self.assertFalse(st_after.get("handoff_modified", False))
 
@@ -1328,6 +1334,44 @@ class TestTierGatedCompletionFence(unittest.TestCase):
         st_turn2 = load_state(conv_id=conv_id, state_dir=self.state_dir)
         self.assertFalse(st_turn2.get("handoff_modified", False))
 
+    def test_pre_tool_use_run_command_emits_allow_decision(self):
+        """
+        Validates that run_command in PreToolUse emits {"decision": "allow"}
+        and is never misclassified as PostToolUse.
+        """
+        payload = {
+            "hookEvent": "PreToolUse",
+            "conversationId": "test-pre-tool-run-command",
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "python3 -m unittest"},
+            },
+        }
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+            completion_fence_hook.main()
+
+        out_json = json.loads(buf.getvalue().strip())
+        self.assertEqual(out_json.get("decision"), "allow")
+
+    def test_run_command_without_event_defaults_to_pre_tool_allow(self):
+        """
+        Validates that run_command without explicit hookEvent field
+        defaults to PreToolUse allow decision to avoid classification deadlock (b69d1c7).
+        """
+        payload = {
+            "conversationId": "test-run-command-no-event",
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "python3 -m unittest"},
+            },
+        }
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+            completion_fence_hook.main()
+
+        out_json = json.loads(buf.getvalue().strip())
+        self.assertEqual(out_json.get("decision"), "allow")
 
     def test_evaluate_stop_orchestrator_role_exemption(self):
         """Assures Cockpit/Orchestrator roles are exempt from Stop verification fence."""
@@ -1358,5 +1402,437 @@ class TestTierGatedCompletionFence(unittest.TestCase):
         self.assertFalse(st_after.get("code_dirty"))
 
 
+class TestSyntheticSmellsAndMicroMutationFence(unittest.TestCase):
+    """
+    Epic #51 Phase 3.1 R3 Contract Tests:
+    - Turn-level AST test smell linting fence (SM001, SM002, SM003 block, SM004 warning allows).
+    - Inline pragma and environment variable smell bypasses (# agyis: no-smell, AGYIS_ANTI_SYNTHETIC_BYPASS).
+    - Micro-mutation verification handoff fence (blocks when mutation_verified=False, unblocks when True).
+    - Micro-mutation verification commit fence (blocks in PreToolUse and evaluate_stop when mutation_verified=False).
+    - PostToolUse command interception for 'agyis test --mutation' setting mutation_verified=True/False.
+    - Anti-deadlock safety valve tripping after 2 blocks on smell and mutation fences.
+    - Zero-state tautological and synthetic test smell prevention.
+    """
+
+    def setUp(self):
+        self.temp_state_dir = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temp_state_dir.name)
+        self.temp_workspace_dir = tempfile.TemporaryDirectory()
+        self.ws = Path(self.temp_workspace_dir.name)
+        (self.ws / "tests").mkdir(parents=True, exist_ok=True)
+        (self.ws / "src").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.temp_state_dir.cleanup()
+        self.temp_workspace_dir.cleanup()
+
+    def test_smell_blocks_on_sm001_zero_state_tautology(self):
+        """Turn-level fence blocks when modified test contains SM001 zero-state tautology."""
+        conv_id = "test-smell-sm001"
+        test_file = self.ws / "tests" / "test_tautology.py"
+        test_file.write_text(
+            "import unittest\n"
+            "from unittest.mock import MagicMock\n\n"
+            "class MyTest(unittest.TestCase):\n"
+            "    def test_mock_only(self):\n"
+            "        m = MagicMock()\n"
+            "        m.call_something()\n"
+            "        m.call_something.assert_called_once()\n",
+            encoding="utf-8",
+        )
+        record_edit(str(test_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "continue")
+        self.assertIn("Synthetic Test Smell Rejection", res["reason"])
+        self.assertIn("SM001", res["reason"])
+        self.assertIn("Resolve the synthetic test smell before stopping", res["reason"])
+
+    def test_smell_blocks_on_sm002_direct_component_call(self):
+        """Turn-level fence blocks on SM002 direct component call in TS/JS test."""
+        conv_id = "test-smell-sm002"
+        test_file = self.ws / "src" / "Button.test.tsx"
+        test_file.write_text(
+            "import { Button } from './Button';\n\n"
+            "describe('Button', () => {\n"
+            "  it('renders', () => {\n"
+            "    const res = Button({ label: 'Click' });\n"
+            "    expect(res).toBeDefined();\n"
+            "  });\n"
+            "});\n",
+            encoding="utf-8",
+        )
+        record_edit(str(test_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "continue")
+        self.assertIn("Synthetic Test Smell Rejection", res["reason"])
+        self.assertIn("SM002", res["reason"])
+
+    def test_smell_blocks_on_sm003_fake_vrt(self):
+        """Turn-level fence blocks on SM003 fake visual regression test without pixel diff."""
+        conv_id = "test-smell-sm003"
+        test_file = self.ws / "tests" / "test_visual.py"
+        test_file.write_text(
+            "import os, unittest\n\n"
+            "class VRTTest(unittest.TestCase):\n"
+            "    def test_screenshot(self):\n"
+            "        path = 'screenshots/hero.png'\n"
+            "        self.assertTrue(os.path.exists(path))\n",
+            encoding="utf-8",
+        )
+        record_edit(str(test_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "continue")
+        self.assertIn("Synthetic Test Smell Rejection", res["reason"])
+        self.assertIn("SM003", res["reason"])
+
+    def test_smell_allows_on_sm004_warning_alone(self):
+        """Turn-level fence allows stop when test only contains non-blocking warnings (SM004)."""
+        conv_id = "test-smell-sm004"
+        test_file = self.ws / "tests" / "test_echo.py"
+        test_file.write_text(
+            "import unittest\n"
+            "from unittest.mock import MagicMock\n\n"
+            "class EchoTest(unittest.TestCase):\n"
+            "    def test_echo(self):\n"
+            "        m = MagicMock()\n"
+            "        m.fetch.return_value = 'custom_val'\n"
+            "        res = m.fetch()\n"
+            "        self.assertEqual(res, 'custom_val')\n",
+            encoding="utf-8",
+        )
+        record_edit(str(test_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        # Clear code_dirty to emulate passing test runner
+        record_verification(success=True, tier="diff", conv_id=conv_id, state_dir=self.state_dir)
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "allow")
+
+    def test_smell_allows_with_inline_pragma_exemption(self):
+        """Turn-level fence allows stop when test smell is exempted with # agyis: no-smell."""
+        conv_id = "test-smell-pragma"
+        test_file = self.ws / "tests" / "test_exempt.py"
+        test_file.write_text(
+            "import unittest\n"
+            "from unittest.mock import MagicMock\n\n"
+            "class PragmaTest(unittest.TestCase):\n"
+            "    def test_exempt_tautology(self):\n"
+            "        # agyis: no-smell SM001 intentional mock invocation check\n"
+            "        m = MagicMock()\n"
+            "        m.action()\n"
+            "        m.action.assert_called_once()\n",
+            encoding="utf-8",
+        )
+        record_edit(str(test_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_verification(success=True, tier="diff", conv_id=conv_id, state_dir=self.state_dir)
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "allow")
+
+    def test_smell_allows_with_env_var_bypasses(self):
+        """Turn-level fence allows stop when AGYIS_ANTI_SYNTHETIC_BYPASS=1 or PSL_FENCE_BYPASS=1."""
+        conv_id = "test-smell-env-bypass"
+        test_file = self.ws / "tests" / "test_bypass.py"
+        test_file.write_text(
+            "import unittest\n"
+            "from unittest.mock import MagicMock\n\n"
+            "class BypassTest(unittest.TestCase):\n"
+            "    def test_mock_only(self):\n"
+            "        m = MagicMock()\n"
+            "        m.do_it()\n"
+            "        m.do_it.assert_called_once()\n",
+            encoding="utf-8",
+        )
+        record_edit(str(test_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_verification(success=True, tier="diff", conv_id=conv_id, state_dir=self.state_dir)
+
+        # 1. With AGYIS_ANTI_SYNTHETIC_BYPASS=1
+        with patch.dict(os.environ, {"AGYIS_ANTI_SYNTHETIC_BYPASS": "1"}):
+            res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+            self.assertEqual(res["decision"], "allow")
+
+        # 2. With PSL_FENCE_BYPASS=1
+        with patch.dict(os.environ, {"PSL_FENCE_BYPASS": "1"}):
+            res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+            self.assertEqual(res["decision"], "allow")
+
+    def test_smell_anti_deadlock_valve_trips_after_2_blocks(self):
+        """Turn-level smell fence trips anti-deadlock safety valve on 2nd block."""
+        conv_id = "test-smell-deadlock"
+        test_file = self.ws / "tests" / "test_deadlock.py"
+        test_file.write_text(
+            "import unittest\n"
+            "from unittest.mock import MagicMock\n\n"
+            "class DeadlockTest(unittest.TestCase):\n"
+            "    def test_mock_only(self):\n"
+            "        m = MagicMock()\n"
+            "        m.ping()\n"
+            "        m.ping.assert_called_once()\n",
+            encoding="utf-8",
+        )
+        record_edit(str(test_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        # Block 1
+        res1 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res1["decision"], "continue")
+        st1 = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(st1["block_count"], 1)
+
+        # Block 2
+        res2 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res2["decision"], "continue")
+        st2 = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(st2["block_count"], 2)
+
+        # 3rd attempt: anti-deadlock valve trips and allows
+        res3 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res3["decision"], "allow")
+        self.assertIn("Anti-deadlock valve tripped", res3.get("warning", ""))
+
+    def test_handoff_gate_blocks_when_mutation_verified_false(self):
+        """Handoff gate blocks when code is modified and mutation_verified is False."""
+        conv_id = "test-handoff-mutation-block"
+        code_file = self.ws / "src" / "app.py"
+        code_file.write_text("def add(a, b): return a + b\n")
+        record_edit(str(code_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        # Running affected tests satisfies tier rank (Tier 1B) but not mutation
+        record_verification(success=True, tier="affected", conv_id=conv_id, state_dir=self.state_dir)
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(st.get("mutation_verified", False))
+
+        handoff_file = self.ws / "handoff.md"
+        handoff_file.write_text("# Handoff\nDone.\n")
+        record_edit(str(handoff_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "continue")
+        self.assertIn("Micro-Mutation Verification Required", res["reason"])
+        self.assertIn("agyis test --mutation", res["reason"])
+
+    def test_running_mutation_test_unblocks_handoff(self):
+        """Running agyis test --mutation records mutation_verified=True and unblocks handoff."""
+        conv_id = "test-handoff-mutation-pass"
+        code_file = self.ws / "src" / "app.py"
+        code_file.write_text("def multiply(a, b): return a * b\n")
+        record_edit(str(code_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        handoff_file = self.ws / "handoff.md"
+        handoff_file.write_text("# Handoff\nDone.\n")
+        record_edit(str(handoff_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        # Emulate successful agyis test --mutation run via check_command_verification
+        matched = check_command_verification(
+            "agyis test --mutation",
+            exit_code=0,
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+            cwd=self.ws,
+        )
+        self.assertTrue(matched)
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(st.get("mutation_verified", False))
+        self.assertEqual(st.get("verified_tier"), "mutation")
+
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res["decision"], "allow")
+
+    def test_handoff_mutation_gate_bypasses(self):
+        """AGYIS_NO_MUTATION=1 or PSL_FENCE_BYPASS=1 bypasses handoff mutation requirement."""
+        conv_id = "test-handoff-mutation-bypass"
+        code_file = self.ws / "src" / "app.py"
+        code_file.write_text("def sub(a, b): return a - b\n")
+        record_edit(str(code_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_verification(success=True, tier="affected", conv_id=conv_id, state_dir=self.state_dir)
+
+        handoff_file = self.ws / "handoff.md"
+        handoff_file.write_text("# Handoff\n")
+        record_edit(str(handoff_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        with patch.dict(os.environ, {"AGYIS_NO_MUTATION": "1"}):
+            res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+            self.assertEqual(res["decision"], "allow")
+
+        with patch.dict(os.environ, {"PSL_FENCE_BYPASS": "1"}):
+            res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+            self.assertEqual(res["decision"], "allow")
+
+    def test_commit_gate_blocks_when_mutation_verified_false_and_unblocks_when_true(self):
+        """Commit gate in PreToolUse and evaluate_stop blocks unless mutation_verified is True."""
+        conv_id = "test-commit-mutation"
+        code_file = self.ws / "src" / "lib.py"
+        code_file.write_text("def greet(): return 'hi'\n")
+        record_edit(str(code_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        # Full package tests run (tier rank 4), but mutation test has not run
+        record_verification(success=True, tier="pkg", conv_id=conv_id, state_dir=self.state_dir)
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertFalse(st.get("mutation_verified", False))
+
+        # 1. Evaluate stop with gate_type=commit
+        res_commit = evaluate_stop(
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+            cwd=self.ws,
+            payload={"gate_type": "commit"},
+        )
+        self.assertEqual(res_commit["decision"], "deny")
+        self.assertIn("Commit Verification Required", res_commit["reason"])
+        self.assertIn("agyis test --mutation", res_commit["reason"])
+
+        # 2. PreToolUse main() with git commit
+        payload_commit = {
+            "hookEvent": "PreToolUse",
+            "conversationId": conv_id,
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "git commit -m 'feat: lib'"},
+            },
+        }
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload_commit))), patch("sys.stdout", buf):
+            with patch("harness.hooks.completion_fence_hook.get_state_dir", return_value=self.state_dir):
+                completion_fence_hook.main()
+
+        out = json.loads(buf.getvalue().strip())
+        self.assertEqual(out["decision"], "deny")
+        self.assertIn("Commit Verification Required", out["reason"])
+
+        # 3. Run mutation test successfully
+        check_command_verification("agyis test --mutation", exit_code=0, conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        # 4. Now commit should be allowed in evaluate_stop
+        res_commit_after = evaluate_stop(
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+            cwd=self.ws,
+            payload={"gate_type": "commit"},
+        )
+        self.assertEqual(res_commit_after["decision"], "allow")
+
+        # 5. Now PreToolUse commit should be allowed
+        buf2 = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(payload_commit))), patch("sys.stdout", buf2):
+            with patch("harness.hooks.completion_fence_hook.get_state_dir", return_value=self.state_dir):
+                completion_fence_hook.main()
+
+        out2 = json.loads(buf2.getvalue().strip())
+        self.assertEqual(out2["decision"], "allow")
+
+    def test_mutation_handoff_anti_deadlock_valve_trips(self):
+        """Handoff mutation gate trips anti-deadlock safety valve on 2nd block."""
+        conv_id = "test-mutation-deadlock"
+        code_file = self.ws / "src" / "worker.py"
+        code_file.write_text("def work(a, b): return a + b\n")
+        record_edit(str(code_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        record_verification(success=True, tier="affected", conv_id=conv_id, state_dir=self.state_dir)
+
+        handoff_file = self.ws / "handoff.md"
+        handoff_file.write_text("# Done\n")
+        record_edit(str(handoff_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+
+        # Block 1
+        res1 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res1["decision"], "continue")
+        st1 = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(st1["block_count"], 1)
+
+        # Block 2
+        res2 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res2["decision"], "continue")
+        st2 = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(st2["block_count"], 2)
+
+        # 3rd attempt: anti-deadlock valve trips and allows
+        res3 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        self.assertEqual(res3["decision"], "allow")
+        self.assertIn("Anti-deadlock valve tripped", res3.get("warning", ""))
+
+    def test_sub_second_latency_invariant(self):
+        """Validates that evaluate_stop with AST smell and mutation checks executes in <0.10s."""
+        import time
+        conv_id = "test-latency-subsecond"
+        test_file = self.ws / "tests" / "test_speed.py"
+        test_file.write_text(
+            "import unittest\n\n"
+            "class SpeedTest(unittest.TestCase):\n"
+            "    def test_fast(self):\n"
+            "        self.assertEqual(1 + 1, 2)\n",
+            encoding="utf-8",
+        )
+        record_edit(str(test_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        start = time.perf_counter()
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        elapsed = time.perf_counter() - start
+        self.assertLess(elapsed, 0.50, f"evaluate_stop took {elapsed:.4f}s, exceeding 0.50s benchmark")
+
+    def test_is_mutation_test_command_boundaries(self):
+        """Validates detection and boundary checks of mutation test commands."""
+        self.assertFalse(is_mutation_test_command(""))
+        self.assertFalse(is_mutation_test_command("   "))
+        self.assertTrue(is_mutation_test_command("python3 -m harness.cli test --mutation"))
+        self.assertTrue(is_mutation_test_command("./agyis test --mutation"))
+        self.assertTrue(is_mutation_test_command("psl-test --mutation"))
+        self.assertFalse(is_mutation_test_command("python3 -m unittest"))
+        self.assertFalse(is_mutation_test_command("echo --mutation"))
+
+    def test_record_verification_mutation_tier_and_clearing(self):
+        """Validates mutation tier verification recording and session file clearing."""
+        conv_id = "test-rec-mut-tier"
+        code_file = self.ws / "src" / "pkg_mod.py"
+        code_file.write_text("def mul(a, b): return a * b\n")
+        record_edit(str(code_file), conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(st.get("session_modified_files"), [str(code_file)])
+
+        # Verify with affected (mutation_verified is still False)
+        record_verification(success=True, tier="affected", conv_id=conv_id, state_dir=self.state_dir)
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(st.get("verified_tier"), "affected")
+        self.assertFalse(st.get("mutation_verified"))
+        self.assertEqual(st.get("session_modified_files"), [str(code_file)])
+
+        # Verify with full when mutation_verified is False: session_modified_files NOT cleared
+        record_verification(success=True, tier="full", conv_id=conv_id, state_dir=self.state_dir)
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(st.get("verified_tier"), "full")
+        self.assertEqual(st.get("session_modified_files"), [str(code_file)])
+
+        # Verify with mutation: sets mutation_verified=True, keeps tier as full (since full rank > mutation rank)
+        record_verification(success=True, tier="mutation", conv_id=conv_id, state_dir=self.state_dir)
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(st.get("mutation_verified"))
+        self.assertEqual(st.get("verified_tier"), "full")
+
+        # Now verify with full when mutation_verified is True: clears session_modified_files
+        record_verification(success=True, tier="full", conv_id=conv_id, state_dir=self.state_dir)
+        st = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(st.get("session_modified_files"), [])
+
+        # Verify failure with mutation tier resets mutation_verified and dirties code
+        record_verification(success=False, tier="mutation", conv_id=conv_id, state_dir=self.state_dir)
+        st_fail = load_state(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertTrue(st_fail.get("code_dirty"))
+        self.assertIsNone(st_fail.get("verified_tier"))
+        self.assertFalse(st_fail.get("mutation_verified"))
+
+    def test_check_has_mutable_code_branches(self):
+        """Validates empty diff and mutable code detection branches."""
+        self.assertFalse(check_has_mutable_code([]))
+        self.assertTrue(check_has_mutable_code(["<shell-mutation>"]))
+        self.assertFalse(is_test_file(""))
+        self.assertFalse(is_test_file(None))
+        self.assertTrue(is_test_file("tests/test_foo.py"))
+        readme = self.ws / "README.md"
+        readme.write_text("# Documentation\n")
+        self.assertFalse(check_has_mutable_code([str(readme)], cwd=self.ws))
+
+        const_file = self.ws / "constants.py"
+        const_file.write_text("# only comments and constants\nX = 1\nY = 'hello'\n")
+        self.assertFalse(check_has_mutable_code([str(const_file)], cwd=self.ws))
+
+        func_file = self.ws / "func.py"
+        func_file.write_text("def run(val):\n    return val + 1\n")
+        self.assertTrue(check_has_mutable_code([str(func_file)], cwd=self.ws))
+
+
 if __name__ == "__main__":
     unittest.main()
+

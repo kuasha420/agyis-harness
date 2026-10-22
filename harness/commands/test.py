@@ -57,6 +57,46 @@ def cmd_test(args: argparse.Namespace) -> int:
             print(f"✔ [DRY-RUN] {res.message}")
             return 0
 
+    # 1.5. Micro-mutation testing if requested
+    if getattr(args, "mutation", False):
+        from harness.mutation.micro_probe import run_micro_mutation, MutationConfig
+        config = MutationConfig(
+            verbose=getattr(args, "verbose", False),
+            repo_root=cwd,
+        )
+        result = run_micro_mutation(config=config)
+        if getattr(args, "json", False):
+            import json
+            score = 100.0 if result.total_mutants == 0 else (result.killed_mutants / result.total_mutants) * 100.0
+            passed = len(result.survived_mutants) == 0
+            payload = {
+                "total_mutants": result.total_mutants,
+                "killed": result.killed_mutants,
+                "killed_mutants": result.killed_mutants,
+                "survived": len(result.survived_mutants),
+                "survived_mutants": [sm.to_dict() if hasattr(sm, "to_dict") else str(sm) for sm in result.survived_mutants],
+                "score": score,
+                "passed": passed,
+            }
+            print(json.dumps(payload, indent=2))
+            _record_verification_all(success=passed, tier="mutation")
+            return 0 if passed else 1
+
+        if result.total_mutants == 0:
+            print("✔ 0 mutants generated (clean working tree or only arid lines modified).")
+            _record_verification_all(success=True, tier="mutation")
+            return 0
+
+        print(f"\nMicro-mutation testing complete: {result.killed_mutants}/{result.total_mutants} killed.")
+        if result.survived_mutants:
+            for sm in result.survived_mutants:
+                print(sm.to_actionable_report())
+            _record_verification_all(success=False, tier="mutation")
+            return 1
+        print("✔ All mutants killed! Test suite verified.")
+        _record_verification_all(success=True, tier="mutation")
+        return 0
+
     is_diff = getattr(args, "diff", False)
     is_affected = getattr(args, "affected", False)
     branch = getattr(args, "branch", None)
