@@ -135,6 +135,7 @@ class TestCognitiveResilienceManifest(unittest.TestCase):
         # Connect to SQLite read-only
         uri = f"file:{TELEMETRY_DB_PATH}?mode=ro"
         conn = sqlite3.connect(uri, uri=True)
+        conn.execute("PRAGMA case_sensitive_like = ON;")
         cursor = conn.cursor()
 
         try:

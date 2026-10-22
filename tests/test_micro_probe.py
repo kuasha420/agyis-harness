@@ -533,6 +533,60 @@ class TestMicroProbeUnit(unittest.TestCase):
         args = parser.parse_args(["test", "--mutation"])
         self.assertTrue(args.mutation)
 
+    # -----------------------------------------------------------------------
+    # Hard Mutant Cap & AugAssign Starvation Defense
+    # -----------------------------------------------------------------------
+    def test_hard_mutant_cap_fail_fast_run_micro_mutation(self) -> None:
+        """Asserts run_micro_mutation fails fast with exit_code=1 and actionable error when cap is exceeded."""
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            src_file = repo / "core.py"
+            src_file.write_text("def fn():\n    a = 1 + 2\n    b = 3 + 4\n    return a + b\n")
+            diff = (
+                "--- a/core.py\n+++ b/core.py\n@@ -1,4 +1,4 @@\n"
+                " def fn():\n+    a = 1 + 2\n+    b = 3 + 4\n+    return a + b\n"
+            )
+            cfg = MutationConfig(max_mutants_total=1, repo_root=repo)
+            res = run_micro_mutation(target_diff=diff, config=cfg)
+            self.assertEqual(res.exit_code, 1)
+            self.assertIsNotNone(res.error_message)
+            self.assertIn("Exceeded hard mutant cap", res.error_message)
+
+    def test_augassign_not_starved_by_binop(self) -> None:
+        """Asserts AugAssign mutant (+= -> -=) is generated even when binop is present in same function."""
+        from harness.mutation.micro_probe import generate_mutants_for_function
+        code = (
+            "def calculate_discount(total, coupon):\n"
+            "    discount = total * 0.20\n"
+            "    if coupon:\n"
+            "        discount += 5.0\n"
+            "    return discount\n"
+        )
+        tree = ast.parse(code)
+        func = tree.body[0]
+        mutants = generate_mutants_for_function(
+            file_path=Path("calc.py"),
+            func_node=func,
+            source_code=code,
+            source_lines=code.splitlines(keepends=True),
+            target_lines={2, 4},
+            mutant_counter=[0],
+        )
+        aug_mutants = [m for m in mutants if "discount -= 5.0" in m.mutated_source]
+        self.assertGreater(len(aug_mutants), 0, "AugAssign mutant should not be starved by BinOp")
+
+    def test_run_micro_mutation_probe_hard_cap(self) -> None:
+        """Asserts run_micro_mutation_probe fails fast with actionable report when mutants > 20."""
+        from harness.mutation.micro_probe import run_micro_mutation_probe
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            with patch("harness.mutation.micro_probe.generate_mutants_for_diff") as mock_gen:
+                mock_gen.return_value = [MagicMock() for _ in range(25)]
+                rep = run_micro_mutation_probe(repo_root=repo)
+                self.assertFalse(rep.passed)
+                self.assertEqual(rep.errors, 1)
+                self.assertIn("Exceeded hard mutant cap", rep.report_text)
+
 
 if __name__ == "__main__":
     unittest.main()

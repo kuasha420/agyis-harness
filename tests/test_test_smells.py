@@ -445,8 +445,25 @@ class TestContainerManager(unittest.TestCase):
             self.assertTrue(len(report.exemptions) >= 1)
 
     def test_boundary_adapter_still_enforces_hard_rejections(self):
-        # A boundary test that does zero-state tautology (assert_called with 0 state asserts)
-        # must still be rejected. Exemption only waives mock density (SM005)!
+        # A boundary adapter that contains constant tautologies (e.g. assert 1 == 1)
+        # must still be rejected. Exemption only waives mock-only interactions and mock density!
+        code = """
+import subprocess
+import unittest
+from unittest.mock import MagicMock
+
+class TestSubprocessAdapter(unittest.TestCase):
+    def test_run_cmd(self):
+        mock_sub = MagicMock()
+        mock_sub.run()
+        mock_sub.run.assert_called()
+        assert 1 == 1
+"""
+        smells = audit_file_smells("test_sub.py", content=code)
+        self.assertTrue(any(s.rule_id == SmellType.ZERO_STATE_TAUTOLOGY.value for s in smells))
+
+    def test_boundary_adapter_waives_mock_only_calls(self):
+        # A boundary adapter asserting only mock interactions is waived under Route A domain injection
         code = """
 import subprocess
 import unittest
@@ -459,7 +476,52 @@ class TestSubprocessAdapter(unittest.TestCase):
         mock_sub.run.assert_called()
 """
         smells = audit_file_smells("test_sub.py", content=code)
-        self.assertTrue(any(s.rule_id == SmellType.ZERO_STATE_TAUTOLOGY.value for s in smells))
+        self.assertFalse(any(s.rule_id == SmellType.ZERO_STATE_TAUTOLOGY.value for s in smells))
+
+    def test_mock_only_waived_for_adapter_boundary(self):
+        """Route A contract: Mock-only tests in adapter classes or files with adapter names/decorators are waived."""
+        # 1. File name containing Adapter
+        code_file = """
+import unittest
+from unittest.mock import MagicMock
+
+class NetworkTest(unittest.TestCase):
+    def test_network_dispatch(self):
+        mock = MagicMock()
+        mock.send()
+        mock.assert_called_once()
+"""
+        issues_file = audit_file_smells("test_network_adapter.py", content=code_file)
+        self.assertEqual(len(issues_file), 0)
+
+        # 2. Class name containing Socket / Docker / Client / Process
+        code_client = """
+import unittest
+from unittest.mock import MagicMock
+
+class DockerContainerTest(unittest.TestCase):
+    def test_docker_call(self):
+        mock = MagicMock()
+        mock.start()
+        mock.assert_called_once()
+"""
+        issues_client = audit_file_smells("test_docker.py", content=code_client)
+        self.assertEqual(len(issues_client), 0)
+
+        # 3. Decorator @mock_network or @adapter_boundary
+        code_dec = """
+import unittest
+from unittest.mock import MagicMock
+
+class DecoratedTest(unittest.TestCase):
+    @mock_network
+    def test_call(self):
+        mock = MagicMock()
+        mock.ping()
+        mock.assert_called_once()
+"""
+        issues_dec = audit_file_smells("test_api.py", content=code_dec)
+        self.assertEqual(len(issues_dec), 0)
 
 
 class TestPragmaSuppression(unittest.TestCase):
@@ -561,7 +623,7 @@ class TestCLIDoctorIntegration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             clean_file = Path(td) / "test_clean.py"
             clean_file.write_text(
-                "import unittest\nclass T(unittest.TestCase):\n    def test_pass(self):\n        self.assertTrue(True)\n",
+                "import unittest\nclass T(unittest.TestCase):\n    def test_pass(self):\n        self.assertEqual(1 + 1, 2)\n",
                 encoding="utf-8",
             )
             stdout = io.StringIO()

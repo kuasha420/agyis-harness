@@ -65,6 +65,22 @@ def cmd_test(args: argparse.Namespace) -> int:
             repo_root=cwd,
         )
         result = run_micro_mutation(config=config)
+        if result.error_message:
+            if getattr(args, "json", False):
+                import json
+                print(json.dumps({
+                    "error": result.error_message,
+                    "passed": False,
+                    "total_mutants": result.total_mutants,
+                    "killed": result.killed_mutants,
+                    "survived": len(result.survived_mutants),
+                    "exit_code": result.exit_code,
+                }, indent=2))
+            else:
+                sys.stderr.write(f"✖ {result.error_message}\n")
+            _record_verification_all(success=False, tier="mutation")
+            return result.exit_code or 1
+
         if getattr(args, "json", False):
             import json
             score = 100.0 if result.total_mutants == 0 else (result.killed_mutants / result.total_mutants) * 100.0

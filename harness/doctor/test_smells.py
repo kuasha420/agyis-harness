@@ -68,6 +68,7 @@ BOUNDARY_PATH_KEYWORDS: Set[str] = {
 }
 
 ADAPTER_PATTERNS = re.compile(r"(?:Adapter|Socket|Docker|Client|Process)", re.IGNORECASE)
+ADAPTER_DECORATORS: Set[str] = {"mock_network", "adapter_boundary"}
 
 # Standard mock assertion names on Python mock objects
 PYTHON_MOCK_ASSERT_ATTRS: Set[str] = {
@@ -582,7 +583,11 @@ class PythonTestSmellVisitor(ast.NodeVisitor):
         if ADAPTER_PATTERNS.search(node.name) or any(kw in node.name.lower() for kw in BOUNDARY_PATH_KEYWORDS):
             self.class_boundary_modules.append(f"class:{node.name}")
         for decorator in node.decorator_list:
-            if isinstance(decorator, ast.Call):
+            if isinstance(decorator, ast.Name) and decorator.id in ADAPTER_DECORATORS:
+                self.class_boundary_modules.append(f"dec:{decorator.id}")
+            elif isinstance(decorator, ast.Call):
+                if isinstance(decorator.func, ast.Name) and decorator.func.id in ADAPTER_DECORATORS:
+                    self.class_boundary_modules.append(f"dec:{decorator.func.id}")
                 for arg in decorator.args:
                     val = self._extract_constant_value(arg)
                     if isinstance(val, str):
@@ -743,9 +748,13 @@ class PythonTestSmellVisitor(ast.NodeVisitor):
         if ADAPTER_PATTERNS.search(stem) or any(kw in str(self.file_path).lower() for kw in BOUNDARY_PATH_KEYWORDS):
             func_boundary_modules.append(f"file:{stem}")
 
-        # Inspect function-level patch decorators: @patch("subprocess.run"), @patch("socket.socket")
+        # Inspect function-level patch decorators: @patch("subprocess.run"), @patch("socket.socket"), @mock_network
         for decorator in node.decorator_list:
-            if isinstance(decorator, ast.Call):
+            if isinstance(decorator, ast.Name) and decorator.id in ADAPTER_DECORATORS:
+                func_boundary_modules.append(f"dec:{decorator.id}")
+            elif isinstance(decorator, ast.Call):
+                if isinstance(decorator.func, ast.Name) and decorator.func.id in ADAPTER_DECORATORS:
+                    func_boundary_modules.append(f"dec:{decorator.func.id}")
                 for arg in decorator.args:
                     val = self._extract_constant_value(arg)
                     if isinstance(val, str):
@@ -964,7 +973,11 @@ class PythonTestSmellVisitor(ast.NodeVisitor):
                         elif self._is_trivial_call_assertion(attr_name, subnode.args):
                             # Trivial literal assertion (e.g. self.assertTrue(True), self.assertEqual(1, 1))
                             # Exclude from state_assertions to prevent SM001 evasion
-                            pass
+                            try:
+                                call_str = ast.unparse(subnode)
+                            except Exception:
+                                call_str = f"self.{attr_name}(...)"
+                            constant_tautologies.append((subnode.lineno, call_str))
                         else:
                             state_assertions += 1
 
@@ -1027,8 +1040,8 @@ class PythonTestSmellVisitor(ast.NodeVisitor):
         # -------------------------------------------------------------
         # Evaluate SM001: Zero-State Tautology (It == 1.0)
         # -------------------------------------------------------------
-        is_socket_adapter = any("socket" in m.lower() and "adapter" in m.lower() for m in func_boundary_modules)
-        is_sm001_waived = is_socket_adapter
+        is_sm001_waived = is_boundary_adapter
+        sm001_flagged = False
         if mock_assertions >= 1 and state_assertions == 0:
             if not is_sm001_waived:
                 if not _is_rule_suppressed("SM001", last_mock_line, func_start, func_end, self.pragmas):
@@ -1048,7 +1061,9 @@ class PythonTestSmellVisitor(ast.NodeVisitor):
                             metrics={"mock_assertions": mock_assertions, "state_assertions": state_assertions, "it": 1.0},
                         )
                     )
-        elif mock_assertions == 0 and state_assertions == 0 and constant_tautologies:
+                    sm001_flagged = True
+
+        if constant_tautologies and not sm001_flagged:
             first_line, expr_str = constant_tautologies[0]
             if not _is_rule_suppressed("SM001", first_line, func_start, func_end, self.pragmas):
                 self.smells.append(
@@ -1059,12 +1074,12 @@ class PythonTestSmellVisitor(ast.NodeVisitor):
                         severity=SmellSeverity.HARD_REJECTION.value,
                         message=(
                             f"Zero-State Tautology (zero-state-tautology): constant or identical assertion '{expr_str}' "
-                            f"detected in test '{func_name}' with 0 genuine state assertions."
+                            f"detected in test '{func_name}'."
                         ),
                         context_snippet=_get_context_snippet(self.lines, first_line),
                         test_name=func_name,
                         remediation="Replace constant tautological assertion with genuine assertions verifying returned values or state transitions.",
-                        metrics={"mock_assertions": 0, "state_assertions": 0, "tautology": expr_str},
+                        metrics={"mock_assertions": mock_assertions, "state_assertions": state_assertions, "tautology": expr_str},
                     )
                 )
 
@@ -1734,451 +1749,6 @@ def audit_workspace_test_smells(
     return report
 
 
-ADAPTER_PATTERNS_A = re.compile(r"(?:Adapter|Socket|Docker|Client|Process)", re.IGNORECASE)
-ADAPTER_DECORATORS_A = {"mock_network", "adapter_boundary"}
-NON_COMPONENT_PASCAL_A = {
-    "Array", "Boolean", "Buffer", "Date", "Error", "Map", "Number", "Object",
-    "Promise", "RegExp", "Set", "String", "Symbol", "URL", "Path", "Mock",
-    "MagicMock", "TestCase", "Exception", "ValueError", "TypeError", "RuntimeError",
-    "KeyError", "IndexError", "AttributeError", "StopIteration", "BytesIO", "StringIO",
-    "Function", "BigInt", "RangeError", "SyntaxError", "ReferenceError", "URIError",
-    "EvalError", "WeakMap", "WeakSet", "ArrayBuffer", "SharedArrayBuffer", "DataView",
-    "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array",
-    "Int32Array", "Uint32Array", "Float32Array", "Float64Array", "BigInt64Array",
-    "BigUint64Array", "URLSearchParams", "JSON", "Math", "Reflect", "Proxy", "Intl",
-    "File", "Blob", "FormData", "Headers", "Request", "Response", "AbortController",
-    "Event", "CustomEvent", "EventTarget", "Describe", "Test", "It", "Expect",
-    "BeforeEach", "AfterEach", "BeforeAll", "AfterAll", "Suite",
-}
-VRT_KEYWORDS_A = {"screenshot", "snapshot", ".png", ".jpg", ".jpeg", "screenshotpath", "screenshot_path"}
-VISUAL_DIFF_KEYWORDS_A = {
-    "pixelmatch", "looks-same", "lookssame", "tomatchimagesnapshot", "assert_images_equal",
-    "compare_images", "image_diff", "diff_images", "perceptual_diff"
-}
-
-
-def _is_adapter_boundary_a(path: Path, class_name: Optional[str] = None, decorators: Optional[List[str]] = None) -> bool:
-    if ADAPTER_PATTERNS_A.search(path.stem):
-        return True
-    if class_name and ADAPTER_PATTERNS_A.search(class_name):
-        return True
-    if decorators:
-        for dec in decorators:
-            dec_clean = dec.split(".")[-1].lower()
-            if dec_clean in ADAPTER_DECORATORS_A:
-                return True
-    return False
-
-
-def _get_decorator_names_a(decorator_list: List[ast.AST]) -> List[str]:
-    names: List[str] = []
-    for d in decorator_list:
-        if isinstance(d, ast.Name):
-            names.append(d.id)
-        elif isinstance(d, ast.Attribute):
-            names.append(f"{ast.unparse(d)}")
-        elif isinstance(d, ast.Call):
-            if isinstance(d.func, (ast.Name, ast.Attribute)):
-                names.append(ast.unparse(d.func))
-    return names
-
-
-class RouteAPythonTestSmellVisitor(ast.NodeVisitor):
-    def __init__(self, file_path: Path, source_lines: List[str]):
-        self.file_path = file_path
-        self.source_lines = source_lines
-        self.issues: List[TestSmell] = []
-        self.current_class: Optional[str] = None
-        self.class_decorators: List[str] = []
-        self.current_function: str = ""
-        self.is_file_adapter = _is_adapter_boundary_a(file_path)
-
-    def _get_line_snippet(self, lineno: int) -> str:
-        if 1 <= lineno <= len(self.source_lines):
-            return self.source_lines[lineno - 1]
-        return ""
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        old_class = self.current_class
-        old_decs = self.class_decorators
-        self.current_class = node.name
-        self.class_decorators = _get_decorator_names_a(node.decorator_list)
-        self.generic_visit(node)
-        self.current_class = old_class
-        self.class_decorators = old_decs
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        self._analyze_function(node)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self._analyze_function(node)
-
-    def _analyze_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-        old_fn = self.current_function
-        self.current_function = node.name
-        fn_decorators = _get_decorator_names_a(node.decorator_list)
-        is_adapter = (
-            self.is_file_adapter
-            or _is_adapter_boundary_a(self.file_path, self.current_class, self.class_decorators + fn_decorators)
-        )
-        is_test_fn = node.name.startswith("test_") or node.name.endswith("_test")
-
-        mock_assertion_calls: List[Tuple[ast.Call, int]] = []
-        state_assertions: List[Tuple[ast.AST, int]] = []
-        mock_return_values: Dict[str, Any] = {}
-        assigned_constants: Dict[str, Any] = {}
-        has_visual_diff = False
-
-        fn_text = ast.unparse(node).lower()
-        for vdk in VISUAL_DIFF_KEYWORDS_A:
-            if vdk in fn_text:
-                has_visual_diff = True
-                break
-
-        for stmt in node.body:
-            self._scan_statement(
-                stmt=stmt,
-                mock_assertion_calls=mock_assertion_calls,
-                state_assertions=state_assertions,
-                mock_return_values=mock_return_values,
-                assigned_constants=assigned_constants,
-                has_visual_diff=has_visual_diff,
-            )
-
-        if is_test_fn and not is_adapter:
-            if mock_assertion_calls and not state_assertions:
-                first_call, lineno = mock_assertion_calls[0]
-                self.issues.append(
-                    TestSmell(
-                        file_path=str(self.file_path),
-                        line_number=lineno,
-                        rule_id=RuleIdStr("zero-state-tautology"),
-                        severity=SeverityStr("ERROR"),
-                        message=(
-                            "Mock-only tautology: test function contains only mock call assertions "
-                            "with zero state, return value, or output assertions."
-                        ),
-                        context_snippet=self._get_line_snippet(lineno),
-                        test_name=self.current_function,
-                    )
-                )
-
-        self.generic_visit(node)
-        self.current_function = old_fn
-
-    def _scan_statement(
-        self,
-        stmt: ast.AST,
-        mock_assertion_calls: List[Tuple[ast.Call, int]],
-        state_assertions: List[Tuple[ast.AST, int]],
-        mock_return_values: Dict[str, Any],
-        assigned_constants: Dict[str, Any],
-        has_visual_diff: bool,
-    ) -> None:
-        if isinstance(stmt, ast.Assign):
-            for target in stmt.targets:
-                if isinstance(target, ast.Attribute) and target.attr == "return_value":
-                    val_repr = ast.unparse(stmt.value)
-                    mock_repr = ast.unparse(target.value)
-                    mock_return_values[mock_repr] = val_repr
-                elif isinstance(target, ast.Name):
-                    if isinstance(stmt.value, ast.Constant):
-                        assigned_constants[target.id] = stmt.value.value
-                    elif isinstance(stmt.value, ast.Call):
-                        call_repr = ast.unparse(stmt.value.func)
-                        if call_repr in mock_return_values:
-                            mock_return_values[target.id] = mock_return_values[call_repr]
-
-        for subnode in ast.walk(stmt):
-            if isinstance(subnode, ast.Assert):
-                self._check_assert_node(
-                    subnode, state_assertions, mock_return_values, assigned_constants, has_visual_diff
-                )
-            elif isinstance(subnode, ast.Call):
-                self._check_call_node(
-                    subnode, mock_assertion_calls, state_assertions, mock_return_values, assigned_constants, has_visual_diff
-                )
-
-    def _check_assert_node(
-        self,
-        node: ast.Assert,
-        state_assertions: List[Tuple[ast.AST, int]],
-        mock_return_values: Dict[str, Any],
-        assigned_constants: Dict[str, Any],
-        has_visual_diff: bool,
-    ) -> None:
-        test = node.test
-        lineno = getattr(node, "lineno", 1)
-
-        # Skip assert False, "unreachable"
-        if isinstance(test, ast.Constant) and test.value is False:
-            return
-
-        if isinstance(test, ast.Constant) and bool(test.value):
-            self.issues.append(
-                TestSmell(
-                    file_path=str(self.file_path),
-                    line_number=lineno,
-                    rule_id=RuleIdStr("zero-state-tautology"),
-                    severity=SeverityStr("ERROR"),
-                    message=f"Zero-state tautology: constant assertion 'assert {test.value}'",
-                    context_snippet=self._get_line_snippet(lineno),
-                    test_name=self.current_function,
-                )
-            )
-            return
-
-        if isinstance(test, ast.Compare):
-            left = test.left
-            for op, right in zip(test.ops, test.comparators):
-                left_dump = ast.dump(left)
-                right_dump = ast.dump(right)
-                left_unparsed = ast.unparse(left)
-                right_unparsed = ast.unparse(right)
-
-                if left_dump == right_dump and isinstance(op, (ast.Eq, ast.Is, ast.LtE, ast.GtE)):
-                    self.issues.append(
-                        TestSmell(
-                            file_path=str(self.file_path),
-                            line_number=lineno,
-                            rule_id=RuleIdStr("zero-state-tautology"),
-                            severity=SeverityStr("ERROR"),
-                            message=f"Zero-state tautology: identical operand comparison 'assert {left_unparsed} == {right_unparsed}'",
-                            context_snippet=self._get_line_snippet(lineno),
-                            test_name=self.current_function,
-                        )
-                    )
-                    return
-
-                if isinstance(left, ast.Constant) and isinstance(right, ast.Constant):
-                    self.issues.append(
-                        TestSmell(
-                            file_path=str(self.file_path),
-                            line_number=lineno,
-                            rule_id=RuleIdStr("zero-state-tautology"),
-                            severity=SeverityStr("ERROR"),
-                            message=f"Zero-state tautology: constant literal comparison 'assert {left_unparsed} == {right_unparsed}'",
-                            context_snippet=self._get_line_snippet(lineno),
-                            test_name=self.current_function,
-                        )
-                    )
-                    return
-
-                for mock_name, ret_val in mock_return_values.items():
-                    if (left_unparsed == mock_name and right_unparsed == ret_val) or (
-                        right_unparsed == mock_name and left_unparsed == ret_val
-                    ):
-                        self.issues.append(
-                            TestSmell(
-                                file_path=str(self.file_path),
-                                line_number=lineno,
-                                rule_id=RuleIdStr("echo-assertion"),
-                                severity=SeverityStr("WARNING"),
-                                message=(
-                                    f"Echo assertion: mock return value '{ret_val}' mirrored directly "
-                                    f"into assertion target '{mock_name}' without business logic transformation."
-                                ),
-                                context_snippet=self._get_line_snippet(lineno),
-                                test_name=self.current_function,
-                            )
-                        )
-
-        test_unparsed = ast.unparse(test)
-        if any(v in test_unparsed.lower() for v in VRT_KEYWORDS_A):
-            if ("exists(" in test_unparsed or ".exists()" in test_unparsed) and not has_visual_diff:
-                self.issues.append(
-                    TestSmell(
-                        file_path=str(self.file_path),
-                        line_number=lineno,
-                        rule_id=RuleIdStr("fake-vrt"),
-                        severity=SeverityStr("ERROR"),
-                        message="Fake VRT: asserting file existence on screenshot/snapshot instead of perceptual or pixel visual comparison.",
-                        context_snippet=self._get_line_snippet(lineno),
-                        test_name=self.current_function,
-                    )
-                )
-                return
-
-        state_assertions.append((node, lineno))
-
-    def _check_call_node(
-        self,
-        node: ast.Call,
-        mock_assertion_calls: List[Tuple[ast.Call, int]],
-        state_assertions: List[Tuple[ast.AST, int]],
-        mock_return_values: Dict[str, Any],
-        assigned_constants: Dict[str, Any],
-        has_visual_diff: bool,
-    ) -> None:
-        lineno = getattr(node, "lineno", 1)
-
-        if isinstance(node.func, ast.Name):
-            func_name = node.func.id
-            if (
-                func_name[0].isupper()
-                and func_name not in NON_COMPONENT_PASCAL_A
-                and not func_name.endswith("Error")
-                and not func_name.endswith("Exception")
-            ):
-                if func_name.endswith("Component") or "Component(" in self._get_line_snippet(lineno):
-                    self.issues.append(
-                        TestSmell(
-                            file_path=str(self.file_path),
-                            line_number=lineno,
-                            rule_id=RuleIdStr("direct-component-call"),
-                            severity=SeverityStr("ERROR"),
-                            message=f"Direct Component call '{func_name}(...)' in test without DOM mounting (e.g. render, mount, shallow).",
-                            context_snippet=self._get_line_snippet(lineno),
-                            test_name=self.current_function,
-                        )
-                    )
-
-        if isinstance(node.func, ast.Attribute):
-            attr = node.func.attr
-            if attr in (
-                "assert_called", "assert_called_once", "assert_called_with",
-                "assert_called_once_with", "assert_any_call", "assert_has_calls",
-                "assert_not_called",
-            ):
-                mock_assertion_calls.append((node, lineno))
-                return
-
-            if attr.startswith("assert"):
-                self._check_unittest_assert(
-                    attr=attr,
-                    node=node,
-                    lineno=lineno,
-                    state_assertions=state_assertions,
-                    mock_return_values=mock_return_values,
-                    assigned_constants=assigned_constants,
-                    has_visual_diff=has_visual_diff,
-                )
-
-    def _check_unittest_assert(
-        self,
-        attr: str,
-        node: ast.Call,
-        lineno: int,
-        state_assertions: List[Tuple[ast.AST, int]],
-        mock_return_values: Dict[str, Any],
-        assigned_constants: Dict[str, Any],
-        has_visual_diff: bool,
-    ) -> None:
-        if attr == "assertTrue" and node.args:
-            first_arg = node.args[0]
-            if isinstance(first_arg, ast.Constant) and bool(first_arg.value):
-                self.issues.append(
-                    TestSmell(
-                        file_path=str(self.file_path),
-                        line_number=lineno,
-                        rule_id=RuleIdStr("zero-state-tautology"),
-                        severity=SeverityStr("ERROR"),
-                        message=f"Zero-state tautology: unittest 'self.assertTrue({first_arg.value})'",
-                        context_snippet=self._get_line_snippet(lineno),
-                        test_name=self.current_function,
-                    )
-                )
-                return
-
-        if attr in ("assertEqual", "assertIs") and len(node.args) >= 2:
-            arg1, arg2 = node.args[0], node.args[1]
-            arg1_dump, arg2_dump = ast.dump(arg1), ast.dump(arg2)
-            arg1_unparsed, arg2_unparsed = ast.unparse(arg1), ast.unparse(arg2)
-
-            if arg1_dump == arg2_dump:
-                self.issues.append(
-                    TestSmell(
-                        file_path=str(self.file_path),
-                        line_number=lineno,
-                        rule_id=RuleIdStr("zero-state-tautology"),
-                        severity=SeverityStr("ERROR"),
-                        message=f"Zero-state tautology: identical operand unittest 'self.{attr}({arg1_unparsed}, {arg2_unparsed})'",
-                        context_snippet=self._get_line_snippet(lineno),
-                        test_name=self.current_function,
-                    )
-                )
-                return
-
-            if isinstance(arg1, ast.Constant) and isinstance(arg2, ast.Constant):
-                self.issues.append(
-                    TestSmell(
-                        file_path=str(self.file_path),
-                        line_number=lineno,
-                        rule_id=RuleIdStr("zero-state-tautology"),
-                        severity=SeverityStr("ERROR"),
-                        message=f"Zero-state tautology: constant comparison 'self.{attr}({arg1_unparsed}, {arg2_unparsed})'",
-                        context_snippet=self._get_line_snippet(lineno),
-                        test_name=self.current_function,
-                    )
-                )
-                return
-
-            for mock_name, ret_val in mock_return_values.items():
-                if (arg1_unparsed == mock_name and arg2_unparsed == ret_val) or (
-                    arg2_unparsed == mock_name and arg1_unparsed == ret_val
-                ):
-                    self.issues.append(
-                        TestSmell(
-                            file_path=str(self.file_path),
-                            line_number=lineno,
-                            rule_id=RuleIdStr("echo-assertion"),
-                            severity=SeverityStr("WARNING"),
-                            message=f"Echo assertion: mock return value '{ret_val}' mirrored directly into assertion target '{mock_name}' without business logic transformation.",
-                            context_snippet=self._get_line_snippet(lineno),
-                            test_name=self.current_function,
-                        )
-                    )
-
-        if attr == "assertAlmostEqual" and len(node.args) >= 2:
-            arg1, arg2 = node.args[0], node.args[1]
-            if isinstance(arg1, ast.Constant) and isinstance(arg2, ast.Constant):
-                self.issues.append(
-                    TestSmell(
-                        file_path=str(self.file_path),
-                        line_number=lineno,
-                        rule_id=RuleIdStr("zero-state-tautology"),
-                        severity=SeverityStr("ERROR"),
-                        message="Zero-state tautology: assertAlmostEqual with constant literals",
-                        context_snippet=self._get_line_snippet(lineno),
-                        test_name=self.current_function,
-                    )
-                )
-                return
-
-            if isinstance(arg1, ast.Name) and isinstance(arg2, ast.Constant):
-                if arg1.id in assigned_constants and assigned_constants[arg1.id] == arg2.value:
-                    self.issues.append(
-                        TestSmell(
-                            file_path=str(self.file_path),
-                            line_number=lineno,
-                            rule_id=RuleIdStr("zero-state-tautology"),
-                            severity=SeverityStr("ERROR"),
-                            message=f"Zero-state tautology: assertAlmostEqual({arg1.id}, {arg2.value}) where variable is unmodified constant",
-                            context_snippet=self._get_line_snippet(lineno),
-                            test_name=self.current_function,
-                        )
-                    )
-                    return
-
-        call_unparsed = ast.unparse(node)
-        if any(v in call_unparsed.lower() for v in VRT_KEYWORDS_A):
-            if ("exists(" in call_unparsed or ".exists()" in call_unparsed) and not has_visual_diff:
-                self.issues.append(
-                    TestSmell(
-                        file_path=str(self.file_path),
-                        line_number=lineno,
-                        rule_id=RuleIdStr("fake-vrt"),
-                        severity=SeverityStr("ERROR"),
-                        message="Fake VRT: asserting file existence on screenshot/snapshot instead of perceptual or pixel visual comparison.",
-                        context_snippet=self._get_line_snippet(lineno),
-                        test_name=self.current_function,
-                    )
-                )
-                return
-
-        state_assertions.append((node, lineno))
-
-
 def audit_test_file(path: Union[str, Path], content: Optional[str] = None) -> List[TestSmell]:
     """Audits a single test file for synthetic test smells (Route A compatibility)."""
     return audit_file_smells(path, content=content)
@@ -2268,7 +1838,8 @@ def print_ansi_smell_report(report: SmellAuditReport) -> None:
                 rel_file = str(Path(hr.file_path).relative_to(report.workspace_root))
             except Exception:
                 pass
-            print(f"  [HARD REJECT] [{hr.rule_id}] {rel_file}:{hr.line_number} in {hr.test_name or 'test'} (zero-state-tautology)")
+            rule_alias = RuleIdStr._MAP.get(str(hr.rule_id).lower(), str(hr.rule_id))
+            print(f"  [HARD REJECT] [{hr.rule_id}] {rel_file}:{hr.line_number} in {hr.test_name or 'test'} ({rule_alias})")
             print(f"    Message: {hr.message}")
             if hr.remediation:
                 print(f"    Remediation: {hr.remediation}")

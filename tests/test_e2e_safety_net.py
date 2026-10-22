@@ -616,7 +616,7 @@ class TestTier1FeatureCoverage(OpaqueBoxTestCase):
 
     @unittest.skipUnless(HAVE_M1, "Milestone M1 (harness.doctor.test_smells) not yet implemented")
     def test_f5_04_boundary_adapter_still_enforces_zero_state_tautology(self) -> None:
-        """Assures boundary adapter test asserting ONLY mock call still fails with SM001."""
+        """Assures boundary adapter test asserting constant tautologies still fails with SM001."""
         from harness.doctor.test_smells import audit_file_smells
 
         test_code = (
@@ -627,6 +627,7 @@ class TestTier1FeatureCoverage(OpaqueBoxTestCase):
             "        mock_sock = MagicMock()\n"
             "        mock_sock.connect(('127.0.0.1', 80))\n"
             "        mock_sock.connect.assert_called_once()\n"
+            "        assert 1 == 1\n"
         )
         test_file = self.ws / "tests" / "test_sock_tautology.py"
         test_file.parent.mkdir(parents=True, exist_ok=True)
@@ -634,7 +635,29 @@ class TestTier1FeatureCoverage(OpaqueBoxTestCase):
 
         issues = audit_file_smells(str(test_file))
         sm001_issues = [i for i in issues if getattr(i, "rule_id", "") == "SM001" or "ZERO_STATE" in str(getattr(i, "smell_type", ""))]
-        self.assertGreaterEqual(len(sm001_issues), 1, "Boundary adapter with zero state assertions must still trigger SM001")
+        self.assertGreaterEqual(len(sm001_issues), 1, "Boundary adapter with constant tautology must still trigger SM001")
+
+    @unittest.skipUnless(HAVE_M1, "Milestone M1 (harness.doctor.test_smells) not yet implemented")
+    def test_f5_04b_boundary_adapter_waives_mock_only_interactions(self) -> None:
+        """Assures boundary adapter test asserting only mock calls is waived under Route A domain injection."""
+        from harness.doctor.test_smells import audit_file_smells
+
+        test_code = (
+            "import socket, unittest\n"
+            "from unittest.mock import MagicMock\n\n"
+            "class SocketAdapterTest(unittest.TestCase):\n"
+            "    def test_connect(self):\n"
+            "        mock_sock = MagicMock()\n"
+            "        mock_sock.connect(('127.0.0.1', 80))\n"
+            "        mock_sock.connect.assert_called_once()\n"
+        )
+        test_file = self.ws / "tests" / "test_sock_adapter.py"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_text(test_code, encoding="utf-8")
+
+        issues = audit_file_smells(str(test_file))
+        sm001_issues = [i for i in issues if getattr(i, "rule_id", "") == "SM001" or "ZERO_STATE" in str(getattr(i, "smell_type", ""))]
+        self.assertEqual(len(sm001_issues), 0, "Boundary adapter mock-only call must be waived")
 
     @unittest.skipUnless(HAVE_M1, "Milestone M1 (harness.doctor.test_smells) not yet implemented")
     def test_f5_05_non_boundary_high_mock_density_warns(self) -> None:
@@ -931,8 +954,15 @@ class TestTier1FeatureCoverage(OpaqueBoxTestCase):
     @unittest.skipUnless(HAVE_CLI_MUTATION, "CLI flag agyis test --mutation not yet registered")
     def test_f14_01_cli_test_mutation_flag_clean_pass(self) -> None:
         """Assures agyis test --mutation exits 0 on clean diff."""
-        code, out, _ = self.run_cli(["test", "--mutation"])
-        self.assertEqual(code, 0)
+        orig_run = subprocess.run
+        def mock_run(cmd, *args, **kwargs):
+            if isinstance(cmd, list) and len(cmd) > 1 and cmd[0] == "git" and cmd[1] == "diff":
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            return orig_run(cmd, *args, **kwargs)
+
+        with patch("subprocess.run", side_effect=mock_run):
+            code, out, _ = self.run_cli(["test", "--mutation"])
+            self.assertEqual(code, 0)
 
     # -----------------------------------------------------------------------
     # Feature 15-17 (F15-F17): Completion Fence & Lifecycle Hook Integration

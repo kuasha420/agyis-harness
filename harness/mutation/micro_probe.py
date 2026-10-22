@@ -139,6 +139,7 @@ class MutationResult:
     survived_mutants: List[SurvivingMutant] = field(default_factory=list)
     exit_code: int = 0
     suppressed_by_pragma: int = 0
+    error_message: Optional[str] = None
 
 
 @dataclass
@@ -678,7 +679,7 @@ def generate_function_mutants(func_code: str, max_mutants: int = 6) -> List[Func
             by_op.setdefault("condition_inversion", []).append((line_num, "condition_inversion"))
         elif isinstance(node, ast.BoolOp):
             by_op.setdefault("logical_swap", []).append((line_num, "logical_swap"))
-        elif isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub)):
+        elif isinstance(node, (ast.BinOp, ast.AugAssign)) and isinstance(node.op, (ast.Add, ast.Sub)):
             by_op.setdefault("boundary_shift", []).append((line_num, "boundary_shift"))
         elif isinstance(node, ast.Return):
             by_op.setdefault("return_stub", []).append((line_num, "return_stub"))
@@ -776,10 +777,10 @@ def run_micro_mutation(
     survived_mutants: List[SurvivingMutant] = []
     suppressed_by_pragma = 0
 
-    # 5. Process each file
+    # 5. Plan mutants across candidate files
+    all_planned: List[Tuple[str, Path, str, FunctionMutant]] = []
+
     for rel_path, file_candidates in by_file.items():
-        if total_mutants >= cfg.max_mutants_total:
-            break
         file_path = repo_root / rel_path
         if not file_path.is_file():
             continue
@@ -814,13 +815,8 @@ def run_micro_mutation(
         if not active_candidates:
             continue
 
-        # Backup file in memory
-        ACTIVE_BACKUPS[file_path] = original_content
-
         # Generate planned mutants
         is_python = rel_path.endswith(".py")
-        planned_mutants: List[FunctionMutant] = []
-
         if is_python:
             target_lines = {c.line_number for c in active_candidates}
             # Walk AST to locate functions and candidates
@@ -859,12 +855,17 @@ def run_micro_mutation(
                             operator=op,
                         )
                         if file_mut_src and file_mut_src != original_content:
-                            planned_mutants.append(FunctionMutant(
-                                mutated_code=file_mut_src,
-                                operator=op,
-                                line_number=l,
-                                diff_snippet=diff_snip,
-                                function_name=fname,
+                            all_planned.append((
+                                rel_path,
+                                file_path,
+                                original_content,
+                                FunctionMutant(
+                                    mutated_code=file_mut_src,
+                                    operator=op,
+                                    line_number=l,
+                                    diff_snippet=diff_snip,
+                                    function_name=fname,
+                                ),
                             ))
                             seen_ops.add(op)
                             count += 1
@@ -879,76 +880,94 @@ def run_micro_mutation(
                     file_lines[cand.line_number - 1] = mut_line
                     file_mut_src = "\n".join(file_lines) + ("\n" if original_content.endswith("\n") else "")
                     diff_snip = f"- {cand.content}\n+ {mut_line}"
-                    planned_mutants.append(FunctionMutant(
-                        mutated_code=file_mut_src,
-                        operator=op,
-                        line_number=cand.line_number,
-                        diff_snippet=diff_snip,
-                        function_name="<external>",
+                    all_planned.append((
+                        rel_path,
+                        file_path,
+                        original_content,
+                        FunctionMutant(
+                            mutated_code=file_mut_src,
+                            operator=op,
+                            line_number=cand.line_number,
+                            diff_snippet=diff_snip,
+                            function_name="<external>",
+                        ),
                     ))
 
-        # Run planned mutants
-        for pm in planned_mutants:
-            if total_mutants >= cfg.max_mutants_total:
-                break
-            total_mutants += 1
-            file_path.write_text(pm.mutated_code, encoding="utf-8")
-            try:
-                resolved = resolve_affected_tests(
-                    repo_root=repo_root,
-                    modified_files=[rel_path],
-                    mode="diff",
-                )
-                if rel_path == "harness/cli.py" and "tests/test_cli.py" in resolved.runner_cmd:
-                    extra_cli_tests = [
-                        t for t in ("tests/test_test_smells.py", "tests/test_micro_probe.py")
-                        if (repo_root / t).is_file()
-                    ]
-                    if extra_cli_tests:
-                        resolved.runner_cmd += " " + " ".join(extra_cli_tests)
+    # 6. Hard mutant cap enforcement: fail-fast if exceeded
+    if len(all_planned) > cfg.max_mutants_total:
+        return MutationResult(
+            total_mutants=len(all_planned),
+            killed_mutants=0,
+            survived_mutants=[],
+            exit_code=1,
+            suppressed_by_pragma=suppressed_by_pragma,
+            error_message=(
+                f"Exceeded hard mutant cap of {cfg.max_mutants_total} mutants per inner-loop run "
+                f"(generated {len(all_planned)} mutants). Scope your diff or apply inline "
+                f"'# agyis: no-mutant' pragmas to prevent runaway mutation loops."
+            ),
+        )
 
-                if resolved.is_empty:
-                    survived_mutants.append(SurvivingMutant(
-                        file_path=rel_path,
-                        function_name=pm.function_name,
-                        line_number=pm.line_number,
-                        operator=pm.operator,
-                        diff_snippet=pm.diff_snippet,
-                        test_target="<none>",
-                    ))
-                else:
-                    clean_cmd, guarded_env = inject_non_interactive_guards(resolved.runner_cmd)
-                    if "PYTHONPATH" not in guarded_env or str(repo_root) not in guarded_env.get("PYTHONPATH", ""):
-                        guarded_env["PYTHONPATH"] = f"{repo_root}:{guarded_env.get('PYTHONPATH', '')}".rstrip(":")
-                    try:
-                        proc = subprocess.run(
-                            clean_cmd,
-                            shell=True,
-                            env=guarded_env,
-                            cwd=str(repo_root),
-                            capture_output=True,
-                            text=True,
-                            timeout=cfg.timeout_sec,
-                        )
-                        if proc.returncode != 0:
-                            killed_mutants += 1
-                        else:
-                            survived_mutants.append(SurvivingMutant(
-                                file_path=rel_path,
-                                function_name=pm.function_name,
-                                line_number=pm.line_number,
-                                operator=pm.operator,
-                                diff_snippet=pm.diff_snippet,
-                                test_target=resolved.runner_cmd,
-                            ))
-                            if cfg.fail_fast:
-                                break
-                    except subprocess.TimeoutExpired:
+    # 7. Run planned mutants
+    for rel_path, file_path, original_content, pm in all_planned:
+        total_mutants += 1
+        ACTIVE_BACKUPS[file_path] = original_content
+        file_path.write_text(pm.mutated_code, encoding="utf-8")
+        try:
+            resolved = resolve_affected_tests(
+                repo_root=repo_root,
+                modified_files=[rel_path],
+                mode="diff",
+            )
+            if rel_path == "harness/cli.py" and "tests/test_cli.py" in resolved.runner_cmd:
+                extra_cli_tests = [
+                    t for t in ("tests/test_test_smells.py", "tests/test_micro_probe.py")
+                    if (repo_root / t).is_file()
+                ]
+                if extra_cli_tests:
+                    resolved.runner_cmd += " " + " ".join(extra_cli_tests)
+
+            if resolved.is_empty:
+                survived_mutants.append(SurvivingMutant(
+                    file_path=rel_path,
+                    function_name=pm.function_name,
+                    line_number=pm.line_number,
+                    operator=pm.operator,
+                    diff_snippet=pm.diff_snippet,
+                    test_target="<none>",
+                ))
+            else:
+                clean_cmd, guarded_env = inject_non_interactive_guards(resolved.runner_cmd)
+                if "PYTHONPATH" not in guarded_env or str(repo_root) not in guarded_env.get("PYTHONPATH", ""):
+                    guarded_env["PYTHONPATH"] = f"{repo_root}:{guarded_env.get('PYTHONPATH', '')}".rstrip(":")
+                try:
+                    proc = subprocess.run(
+                        clean_cmd,
+                        shell=True,
+                        env=guarded_env,
+                        cwd=str(repo_root),
+                        capture_output=True,
+                        text=True,
+                        timeout=cfg.timeout_sec,
+                    )
+                    if proc.returncode != 0:
                         killed_mutants += 1
-            finally:
-                file_path.write_text(original_content, encoding="utf-8")
-
-        ACTIVE_BACKUPS.pop(file_path, None)
+                    else:
+                        survived_mutants.append(SurvivingMutant(
+                            file_path=rel_path,
+                            function_name=pm.function_name,
+                            line_number=pm.line_number,
+                            operator=pm.operator,
+                            diff_snippet=pm.diff_snippet,
+                            test_target=resolved.runner_cmd,
+                        ))
+                        if cfg.fail_fast:
+                            break
+                except subprocess.TimeoutExpired:
+                    killed_mutants += 1
+        finally:
+            file_path.write_text(original_content, encoding="utf-8")
+            ACTIVE_BACKUPS.pop(file_path, None)
 
     exit_code = 1 if len(survived_mutants) > 0 else 0
     return MutationResult(
@@ -1278,7 +1297,7 @@ def generate_mutants_for_function(
             mutated_bin = copy.deepcopy(binop)
             mutated_bin.op = new_op_bin
             _add_mutant(binop, "boundary_shift", ast.unparse(mutated_bin))
-    elif collector.augassigns:
+    if collector.augassigns:
         aug = collector.augassigns[0]
         new_op_aug: Optional[ast.operator] = None
         if isinstance(aug.op, ast.Add):
@@ -1423,7 +1442,20 @@ def run_micro_mutation_probe(
     ecosystem_tool = detect_ecosystem_tools(repo_root)
 
     mutants = generate_mutants_for_diff(repo_root, diff_text=diff_text)
-    mutants = mutants[:20]
+    if len(mutants) > 20:
+        return MutationReport(
+            total_mutants=len(mutants),
+            killed=0,
+            survived=0,
+            errors=1,
+            score=0.0,
+            passed=False,
+            ecosystem_tool=ecosystem_tool,
+            report_text=(
+                f"✖ Exceeded hard mutant cap of 20 mutants per inner-loop run (generated {len(mutants)}). "
+                f"Scope your diff or apply '# agyis: no-mutant' pragmas to non-critical logic to prevent runaway loops."
+            ),
+        )
 
     if not mutants:
         return MutationReport(
@@ -1437,13 +1469,6 @@ def run_micro_mutation_probe(
             report_text="✔ 0 mutants generated for current diff (clean working tree or arid lines). Mutation score: 100.0%.",
         )
 
-    actual_test_cmd = test_cmd
-    if not actual_test_cmd:
-        if (repo_root / "tests").is_dir():
-            actual_test_cmd = "python3 -m unittest discover -s tests"
-        else:
-            actual_test_cmd = "python3 -m unittest"
-
     killed = 0
     survived = 0
     errors = 0
@@ -1451,11 +1476,36 @@ def run_micro_mutation_probe(
 
     for mutant in mutants:
         original_content = mutant.file_path.read_text(encoding="utf-8")
+        ACTIVE_BACKUPS[mutant.file_path] = original_content
         try:
             mutant.file_path.write_text(mutant.mutated_source, encoding="utf-8")
+            if test_cmd:
+                cmd_to_run = test_cmd
+            else:
+                try:
+                    rel_file = str(mutant.file_path.relative_to(repo_root))
+                except ValueError:
+                    rel_file = str(mutant.file_path)
+                resolved = resolve_affected_tests(
+                    repo_root=repo_root,
+                    modified_files=[rel_file],
+                    mode="diff",
+                )
+                if not resolved.is_empty:
+                    cmd_to_run = resolved.runner_cmd
+                elif (repo_root / "tests").is_dir():
+                    cmd_to_run = "python3 -m unittest discover -s tests"
+                else:
+                    cmd_to_run = "python3 -m unittest"
+
+            clean_cmd, guarded_env = inject_non_interactive_guards(cmd_to_run)
+            if "PYTHONPATH" not in guarded_env or str(repo_root) not in guarded_env.get("PYTHONPATH", ""):
+                guarded_env["PYTHONPATH"] = f"{repo_root}:{guarded_env.get('PYTHONPATH', '')}".rstrip(":")
+
             res = subprocess.run(
-                actual_test_cmd,
+                clean_cmd,
                 shell=True,
+                env=guarded_env,
                 cwd=str(repo_root),
                 capture_output=True,
                 text=True,
@@ -1477,6 +1527,7 @@ def run_micro_mutation_probe(
             errors += 1
         finally:
             mutant.file_path.write_text(original_content, encoding="utf-8")
+            ACTIVE_BACKUPS.pop(mutant.file_path, None)
 
     total = len(mutants)
     score = (killed / total) * 100.0 if total > 0 else 100.0
