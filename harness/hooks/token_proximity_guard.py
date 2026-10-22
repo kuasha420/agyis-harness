@@ -26,6 +26,7 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
+import time
 from typing import Any, Dict, Optional, TextIO
 
 COMPACTION_THRESHOLD: int = 50000
@@ -33,12 +34,66 @@ AMBER_THRESHOLD: int = 35000
 RED_THRESHOLD: int = 45000
 CHECKPOINT_STEP_TYPE: int = 23  # Google Antigravity compaction checkpoint enum (0x17)
 
-LOCKED_CONVERSATION_IDS: set[str] = set()
+_LOCKED_CONVERSATIONS: dict[str, float] = {}
+LOCK_EXPIRY_SECONDS: float = 2.0
+
+
+def is_conversation_locked(conversation_id: str) -> bool:
+    """Returns True if the conversation database is currently marked as locked within the expiry window."""
+    if not conversation_id:
+        return False
+    lock_time = _LOCKED_CONVERSATIONS.get(conversation_id)
+    if lock_time is None:
+        return False
+    if time.monotonic() - lock_time < LOCK_EXPIRY_SECONDS:
+        return True
+    _LOCKED_CONVERSATIONS.pop(conversation_id, None)
+    return False
+
+
+def record_locked_conversation(conversation_id: str) -> None:
+    """Records a conversation database as locked with current monotonic timestamp."""
+    if conversation_id:
+        _LOCKED_CONVERSATIONS[conversation_id] = time.monotonic()
 
 
 def clear_locked_conversations() -> None:
     """Clears recorded locked conversation identifiers."""
-    LOCKED_CONVERSATION_IDS.clear()
+    _LOCKED_CONVERSATIONS.clear()
+    LOCKED_CONVERSATION_IDS._clear_internal()
+
+
+class _LockedConversationsProxy(set):
+    """Set-compatible proxy providing transparent TTL-based expiration for locked conversation IDs."""
+
+    def __contains__(self, item: object) -> bool:
+        if isinstance(item, str):
+            return is_conversation_locked(item)
+        return False
+
+    def add(self, element: Any) -> None:
+        if isinstance(element, str):
+            record_locked_conversation(element)
+            super().add(element)
+
+    def remove(self, element: Any) -> None:
+        _LOCKED_CONVERSATIONS.pop(str(element), None)
+        if element in self:
+            super().remove(element)
+
+    def discard(self, element: Any) -> None:
+        _LOCKED_CONVERSATIONS.pop(str(element), None)
+        super().discard(element)
+
+    def clear(self) -> None:
+        clear_locked_conversations()
+        super().clear()
+
+    def _clear_internal(self) -> None:
+        super().clear()
+
+
+LOCKED_CONVERSATION_IDS: _LockedConversationsProxy = _LockedConversationsProxy()
 
 
 def is_checkpoint_step(step_type: Any) -> bool:

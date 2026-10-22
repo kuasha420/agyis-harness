@@ -41,13 +41,13 @@ DEFAULT_SQLITE_TIMEOUT: float = 0.5
 
 
 def get_compaction_sqlite_timeout() -> float:
-    """Returns the effective SQLite connection timeout in seconds (default <= 0.5s)."""
+    """Returns the effective SQLite connection timeout in seconds (strictly <= 0.5s)."""
     env_to = os.environ.get("AGYIS_SQLITE_TIMEOUT")
     if env_to:
         try:
             val = float(env_to.strip())
-            if 0 < val <= 5.0:
-                return val
+            if 0 < val:
+                return min(val, DEFAULT_SQLITE_TIMEOUT)
         except (ValueError, TypeError):
             pass
     return DEFAULT_SQLITE_TIMEOUT
@@ -512,7 +512,7 @@ def check_pillar_1_intent(
 
     if effective_cid and effective_cid != "default" and effective_cid not in LOCKED_CONVERSATION_IDS:
         base_dir = db_dir or get_conversations_dir()
-        db_path = base_dir / f"{effective_cid}.db"
+        db_path = base_dir / effective_cid if effective_cid.endswith(".db") else base_dir / f"{effective_cid}.db"
         if db_path.is_file():
             conn: Optional[sqlite3.Connection] = None
             try:
@@ -1127,7 +1127,9 @@ def evaluate_pre_invocation(
 def main(argv: Optional[List[str]] = None) -> int:
     """Fail-open CLI entrypoint for PreInvocation lifecycle hook."""
     try:
-        if hasattr(sys.stdin, "buffer"):
+        if hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
+            raw_stdin = ""
+        elif hasattr(sys.stdin, "buffer"):
             raw_bytes = sys.stdin.buffer.read()
             raw_stdin = raw_bytes.decode("utf-8", errors="replace")
         else:

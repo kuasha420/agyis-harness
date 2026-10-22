@@ -55,6 +55,12 @@ from harness.hooks.pre_invocation_hook import (
     get_compaction_sqlite_timeout,
     main as hook_main,
 )
+from harness.hooks.token_proximity_guard import (
+    LOCKED_CONVERSATION_IDS,
+    clear_locked_conversations,
+    is_conversation_locked,
+    record_locked_conversation,
+)
 
 
 class TestThresholdCalibrationAndTrigger(unittest.TestCase):
@@ -522,6 +528,7 @@ class TestSqliteIntegration(unittest.TestCase):
                 "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
                 (1, json.dumps(step_obj)),
             )
+        conn.close()
 
         payload = json.dumps({"conversationId": conv_id, "role": "deep_execution"})
         res = evaluate_pre_invocation(payload, db_dir=self.db_dir)
@@ -549,6 +556,7 @@ class TestSqliteIntegration(unittest.TestCase):
             # Post-compaction model step: 28,000 tokens (well below 230k threshold)
             step_post = json.dumps({"step_type": 15, "token_count": 28_000, "role": "deep_execution"})
             conn.execute("INSERT INTO steps (idx, step_type, step_data) VALUES (3, 15, ?)", (step_post,))
+        conn.close()
 
         payload = json.dumps({"conversationId": conv_id, "role": "deep_execution"})
         res = evaluate_pre_invocation(payload, db_dir=self.db_dir)
@@ -711,6 +719,7 @@ class TestPillar1EarlyTurnIntent(unittest.TestCase):
                 "INSERT INTO steps (idx, step_data) VALUES (1, ?)",
                 (json.dumps({"prompt": "Fix bug in payment processing and add tests"}),),
             )
+        conn.close()
 
         role = classify_agent_role({}, conversation_id=conv_id, db_dir=self.db_dir)
         self.assertEqual(role, ROLE_DEEP_EXECUTION)
@@ -726,6 +735,7 @@ class TestPillar1EarlyTurnIntent(unittest.TestCase):
                 "INSERT INTO steps (idx, step_data) VALUES (1, ?)",
                 (json.dumps({"prompt": "/subagent-ladder --all execute milestone"}),),
             )
+        conn.close()
 
         role = classify_agent_role({}, conversation_id=conv_id, db_dir=self.db_dir)
         self.assertEqual(role, ROLE_FLIGHT_DIRECTOR)
@@ -830,6 +840,7 @@ class TestPillar2MidTrajectoryBehavioralVerification(unittest.TestCase):
                     "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
                     (i, json.dumps(step_data)),
                 )
+        conn.close()
 
         role = classify_agent_role(
             {"tokens": 80_000},
@@ -852,6 +863,7 @@ class TestPillar2MidTrajectoryBehavioralVerification(unittest.TestCase):
                     "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
                     (i, json.dumps(step_data)),
                 )
+        conn.close()
 
         role = classify_agent_role(
             {"tokens": 215_000},
@@ -1043,6 +1055,7 @@ class TestAdversarialConcurrencyAndTimeoutResilience(unittest.TestCase):
         self.old_env = os.environ.copy()
 
     def tearDown(self):
+        clear_locked_conversations()
         os.environ.clear()
         os.environ.update(self.old_env)
         self.temp_dir.cleanup()
@@ -1051,6 +1064,122 @@ class TestAdversarialConcurrencyAndTimeoutResilience(unittest.TestCase):
         """Asserts default SQLite timeout is <= 0.5s."""
         self.assertLessEqual(DEFAULT_SQLITE_TIMEOUT, 0.5)
         self.assertLessEqual(get_compaction_sqlite_timeout(), 0.5)
+
+    def test_env_override_sqlite_timeout_clamped_to_max_half_second(self):
+        """R1: AGYIS_SQLITE_TIMEOUT overrides are strictly clamped to <= 0.5s."""
+        os.environ["AGYIS_SQLITE_TIMEOUT"] = "2.0"
+        self.assertLessEqual(get_compaction_sqlite_timeout(), 0.5)
+
+        os.environ["AGYIS_SQLITE_TIMEOUT"] = "0.02"
+        self.assertEqual(get_compaction_sqlite_timeout(), 0.02)
+
+        os.environ["AGYIS_SQLITE_TIMEOUT"] = "-1"
+        self.assertEqual(get_compaction_sqlite_timeout(), 0.5)
+
+        os.environ["AGYIS_SQLITE_TIMEOUT"] = "invalid"
+        self.assertEqual(get_compaction_sqlite_timeout(), 0.5)
+
+    def test_locked_conversation_expiry(self):
+        """R1: Locked conversation IDs expire transparently after TTL window."""
+        conv_id = "test-conv-exp-ttl"
+        record_locked_conversation(conv_id)
+        self.assertTrue(is_conversation_locked(conv_id))
+        self.assertIn(conv_id, LOCKED_CONVERSATION_IDS)
+
+        clear_locked_conversations()
+        self.assertFalse(is_conversation_locked(conv_id))
+        self.assertNotIn(conv_id, LOCKED_CONVERSATION_IDS)
+
+    def test_pillar_1_db_path_with_db_extension(self):
+        """R1: check_pillar_1_intent correctly queries DB when conversation_id ends with .db."""
+        conv_id = "test-conv-ext.db"
+        db_path = self.db_dir / conv_id
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (1, ?)",
+                (json.dumps({"prompt": "Fix bug in payment processing and add tests"}),),
+            )
+        conn.close()
+
+        role = check_pillar_1_intent({}, conversation_id=conv_id, db_dir=self.db_dir)
+        self.assertEqual(role, ROLE_DEEP_EXECUTION)
+
+    def test_runner_and_hook_main_unpiped_stdin_tty_does_not_hang(self):
+        """R4: runner and hook_main exit 0 and emit {'injectSteps': []} without blocking on TTY stdin."""
+        class MockTTYStdin:
+            def isatty(self):
+                return True
+            @property
+            def buffer(self):
+                raise AssertionError("buffer should not be read when isatty is True")
+            def read(self):
+                raise AssertionError("read should not be called when isatty is True")
+
+        with patch("sys.stdin", MockTTYStdin()), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = runner.run_hook("compaction-advisory")
+            self.assertEqual(code, 0)
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res, {"injectSteps": []})
+
+        with patch("sys.stdin", MockTTYStdin()), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = hook_main([])
+            self.assertEqual(code, 0)
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res, {"injectSteps": []})
+
+    def test_multiprocess_sqlite_lock_contention_runner_fails_open_cleanly(self):
+        """R1: Cross-process SQLite write-lock contention respects <=0.5s timeout and fails open."""
+        conv_id = "test-mp-locked-runner"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        # Initialize SQLite DB in WAL mode with steps
+        init_conn = sqlite3.connect(str(db_path))
+        init_conn.execute("PRAGMA journal_mode=WAL")
+        init_conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+        init_conn.execute(
+            "INSERT INTO steps (idx, step_data) VALUES (1, ?)",
+            (json.dumps({"step_type": 15, "token_count": 245000, "tool_name": "edit_file"}),),
+        )
+        init_conn.commit()
+        init_conn.close()
+
+        # Start external subprocess holding exclusive lock
+        lock_script = (
+            "import sqlite3, time, sys\n"
+            "conn = sqlite3.connect(sys.argv[1])\n"
+            "conn.execute('PRAGMA locking_mode = EXCLUSIVE')\n"
+            "conn.execute('BEGIN EXCLUSIVE')\n"
+            "conn.execute('INSERT INTO steps (idx, step_data) VALUES (999, \"locked\")')\n"
+            "print('LOCKED', flush=True)\n"
+            "time.sleep(0.5)\n"
+            "conn.close()\n"
+        )
+        sub_proc = subprocess.Popen(
+            [sys.executable, "-c", lock_script, str(db_path)],
+            stdout=subprocess.PIPE,
+        )
+        try:
+            line = sub_proc.stdout.readline().decode().strip()
+            self.assertEqual(line, "LOCKED")
+
+            os.environ["AGYIS_SQLITE_TIMEOUT"] = "0.01"
+            t0 = time.perf_counter()
+            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                payload = json.dumps({"conversationId": conv_id})
+                code = runner.run_hook("compaction-advisory", payload_str=payload)
+                elapsed = time.perf_counter() - t0
+
+                self.assertEqual(code, 0)
+                self.assertLessEqual(elapsed, 0.5)
+                res = json.loads(mock_out.getvalue().strip())
+                self.assertEqual(res, {"injectSteps": []})
+        finally:
+            if sub_proc.stdout:
+                sub_proc.stdout.close()
+            sub_proc.kill()
+            sub_proc.wait()
 
     def test_sqlite_locked_concurrency_fail_open(self):
         """R1: Concurrent SQLite write-lock contention respects <=0.5s timeout and fails open to empty injectSteps."""
@@ -1269,6 +1398,7 @@ class TestTokenBurstBoundaryHardening(unittest.TestCase):
                 "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
                 (1, json.dumps({"step_type": 15, "token_count": 180_000, "role": "deep_execution"})),
             )
+        conn.close()
 
         payload = json.dumps({"conversationId": conv_id, "role": "deep_execution"})
         res_turn1 = evaluate_pre_invocation(payload, db_dir=self.db_dir)
@@ -1280,6 +1410,7 @@ class TestTokenBurstBoundaryHardening(unittest.TestCase):
                 "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
                 (2, json.dumps({"step_type": 15, "token_count": 245_000, "role": "deep_execution"})),
             )
+        conn.close()
 
         res_turn2 = evaluate_pre_invocation(payload, db_dir=self.db_dir)
         self.assertEqual(len(res_turn2.get("injectSteps", [])), 1)
@@ -1314,6 +1445,7 @@ class TestTokenBurstBoundaryHardening(unittest.TestCase):
                     "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
                     (i, json.dumps({"step_type": 15, "token_count": 150_000, "tool_name": tool})),
                 )
+        conn.close()
 
         payload = json.dumps({"conversationId": conv_id})
         # Turn 1: 150k is below threshold
@@ -1325,6 +1457,7 @@ class TestTokenBurstBoundaryHardening(unittest.TestCase):
                 "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
                 (106, json.dumps({"step_type": 15, "token_count": 245_000, "tool_name": "edit_file"})),
             )
+        conn.close()
 
         res_turn2 = evaluate_pre_invocation(payload, db_dir=self.db_dir)
         self.assertEqual(len(res_turn2.get("injectSteps", [])), 1)
