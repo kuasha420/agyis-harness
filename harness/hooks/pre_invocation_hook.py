@@ -76,6 +76,159 @@ ROLE_SWARM_ORCHESTRATOR: str = "swarm_orchestrator"
 ROLE_DEEP_EXECUTION: str = "deep_execution"
 ROLE_FORENSIC_AUDITOR: str = "forensic_auditor"
 
+NATIVE_SYSTEM_SLASH_COMMANDS: frozenset[str] = frozenset({
+    "compact",
+    "clear",
+    "reset",
+    "goal",
+    "plan",
+    "boost",
+    "teamwork-preview",
+    "grill-me",
+    "browser",
+    "schedule",
+    "learn",
+    "automation",
+    "plugin",
+})
+
+
+def is_native_slash_command(text: str) -> bool:
+    """
+    Checks if a prompt or user message starts with an Antigravity native system slash command.
+    Handles raw slash commands ("/compact") as well as XML-wrapped requests ("<USER_REQUEST>/compact...</USER_REQUEST>").
+    Skills (e.g. /db-ops, /audio-ops) are NOT native system slash commands and return False.
+    """
+    if not text or not isinstance(text, str):
+        return False
+    cleaned = re.sub(r"</?USER_REQUEST>", "", text, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(
+        r"<ADDITIONAL_METADATA>.*?</ADDITIONAL_METADATA>",
+        "",
+        cleaned,
+        flags=re.DOTALL | re.IGNORECASE,
+    ).strip()
+    if not cleaned.startswith("/"):
+        return False
+    m = re.match(r"^/([a-zA-Z0-9_-]+)(?:\s|$)", cleaned)
+    if not m:
+        return False
+    cmd_name = m.group(1).lower()
+    return cmd_name in NATIVE_SYSTEM_SLASH_COMMANDS
+
+
+def extract_prompt_text(
+    payload: Dict[str, Any],
+    conversation_id: Optional[str] = None,
+    db_dir: Optional[Path] = None,
+    timeout: Optional[float] = None,
+) -> str:
+    """Extracts raw user prompt or command text from incoming hook payload or SQLite steps."""
+    for k in (
+        "prompt",
+        "user_prompt",
+        "userPrompt",
+        "message",
+        "text",
+        "query",
+        "input",
+        "initial_prompt",
+        "task",
+        "command",
+        "slash_command",
+        "slashCommand",
+    ):
+        v = payload.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    steps = payload.get("steps")
+    if isinstance(steps, list) and steps:
+        for s in reversed(steps):
+            if isinstance(s, dict):
+                for sk in ("prompt", "user_input", "userPrompt", "message", "text", "query", "input", "content"):
+                    sv = s.get(sk)
+                    if isinstance(sv, str) and sv.strip():
+                        return sv.strip()
+
+    if conversation_id and conversation_id != "default" and conversation_id not in LOCKED_CONVERSATION_IDS:
+        conn: Optional[sqlite3.Connection] = None
+        try:
+            base_dir = db_dir or get_conversations_dir()
+            db_path = base_dir / f"{conversation_id}.db"
+            if db_path.is_file():
+                to = get_compaction_sqlite_timeout(timeout)
+                uri_path = f"file:{db_path.resolve()}?mode=ro"
+                conn = sqlite3.connect(uri_path, uri=True, timeout=to)
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='steps'")
+                if cur.fetchone():
+                    cur.execute("PRAGMA table_info(steps)")
+                    cols = {row[1] for row in cur.fetchall()}
+                    target_cols = [c for c in ("step_data", "metadata", "step_payload") if c in cols]
+                    if target_cols:
+                        col_expr = target_cols[0]
+                        cur.execute(
+                            f"SELECT {col_expr} FROM steps ORDER BY rowid DESC LIMIT 3"
+                        )
+                        rows = cur.fetchall()
+                        for (row_data,) in rows:
+                            if not row_data:
+                                continue
+                            if isinstance(row_data, bytes):
+                                try:
+                                    text_payload = row_data.decode("utf-8", errors="replace")
+                                except Exception:
+                                    continue
+                            elif isinstance(row_data, str):
+                                text_payload = row_data
+                            else:
+                                continue
+
+                            text_payload = text_payload.strip()
+                            if not text_payload:
+                                continue
+
+                            candidate_text = ""
+                            if text_payload.startswith("{"):
+                                try:
+                                    parsed = json.loads(text_payload)
+                                    if isinstance(parsed, dict):
+                                        for sk in (
+                                            "prompt",
+                                            "user_input",
+                                            "userPrompt",
+                                            "message",
+                                            "text",
+                                            "query",
+                                            "input",
+                                            "content",
+                                        ):
+                                            val = parsed.get(sk)
+                                            if isinstance(val, str) and val.strip():
+                                                candidate_text = val.strip()
+                                                break
+                                except Exception:
+                                    pass
+                            else:
+                                candidate_text = text_payload
+
+                            if candidate_text and is_native_slash_command(candidate_text):
+                                return candidate_text
+        except sqlite3.OperationalError:
+            if conversation_id:
+                LOCKED_CONVERSATION_IDS.add(conversation_id)
+        except Exception:
+            pass
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    return ""
+
 
 def get_compaction_advisory_threshold() -> int:
     """Returns the effective compaction advisory threshold with env override support."""
@@ -1135,6 +1288,16 @@ def evaluate_pre_invocation(
         tokens = max(db_tokens, payload_tokens)
 
         if tokens < effective_threshold:
+            return {"injectSteps": []}
+
+        # Native slash command bypass (AC8 / Anti-Collision Invariant):
+        # Native platform slash commands (/compact, /plan, /goal, /boost, /teamwork-preview, etc.)
+        # must bypass PreInvocation advisory injection to prevent client-side interceptor collisions.
+        # Custom modular skills (/db-ops, /audio-ops) remain protected.
+        prompt_text = extract_prompt_text(
+            payload, conversation_id=conv_id, db_dir=db_dir, timeout=to
+        )
+        if is_native_slash_command(prompt_text):
             return {"injectSteps": []}
 
         role = classify_agent_role(

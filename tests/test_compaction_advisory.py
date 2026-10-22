@@ -1787,6 +1787,245 @@ class TestDefectRemediesAndAdversarialEdgeCases(unittest.TestCase):
         self.assertIn("245,000 / 230,000 TOKENS", res["injectSteps"][0]["ephemeralMessage"])
 
 
+class TestNativeSlashCommandBypass(unittest.TestCase):
+    """
+    Verifies that all Antigravity native system slash commands cleanly bypass
+    PreInvocation compaction advisories to eliminate client-side interceptor collisions,
+    while custom modular skills (/db-ops, etc.) retain full protection.
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        clear_locked_conversations()
+        self.temp_dir.cleanup()
+
+    def test_native_slash_commands_recognized(self):
+        """All 13 native system slash commands are recognized regardless of flags or args."""
+        from harness.hooks.pre_invocation_hook import is_native_slash_command, NATIVE_SYSTEM_SLASH_COMMANDS
+
+        expected_cmds = [
+            "compact",
+            "clear",
+            "reset",
+            "goal",
+            "plan",
+            "boost",
+            "teamwork-preview",
+            "grill-me",
+            "browser",
+            "schedule",
+            "learn",
+            "automation",
+            "plugin",
+        ]
+        self.assertEqual(set(expected_cmds), set(NATIVE_SYSTEM_SLASH_COMMANDS))
+
+        for cmd in expected_cmds:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(is_native_slash_command(f"/{cmd}"))
+                self.assertTrue(is_native_slash_command(f"/{cmd} with additional arguments"))
+                self.assertTrue(is_native_slash_command(f"  /{cmd}  "))
+                self.assertTrue(is_native_slash_command(f"/{cmd.upper()}"))
+
+    def test_xml_wrapped_native_slash_command(self):
+        """is_native_slash_command handles Antigravity <USER_REQUEST> XML envelopes."""
+        from harness.hooks.pre_invocation_hook import is_native_slash_command
+
+        xml_compact = "<USER_REQUEST>\n/compact \n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nTime: now\n</ADDITIONAL_METADATA>"
+        self.assertTrue(is_native_slash_command(xml_compact))
+
+        xml_plan = "<USER_REQUEST>\n/plan design architecture\n</USER_REQUEST>"
+        self.assertTrue(is_native_slash_command(xml_plan))
+
+    def test_skills_and_normal_prompts_not_bypassed(self):
+        """Modular skills and standard conversational turns are NOT classified as native commands."""
+        from harness.hooks.pre_invocation_hook import is_native_slash_command
+
+        skills = [
+            "/db-ops",
+            "/audio-ops",
+            "/storage-ops",
+            "/modern-web-guidance",
+            "/git-worktree-ops",
+            "/sec-forensics",
+            "/custom-skill",
+        ]
+        for skill in skills:
+            with self.subTest(skill=skill):
+                self.assertFalse(is_native_slash_command(skill))
+                self.assertFalse(is_native_slash_command(f"{skill} execute check"))
+
+        normal_prompts = [
+            "Please run /compact on the context",
+            "How does /plan work?",
+            "Fix the bug in server.py",
+            "// comment in code",
+            "/",
+            "https://example.com/plan",
+        ]
+        for p in normal_prompts:
+            with self.subTest(prompt=p):
+                self.assertFalse(is_native_slash_command(p))
+
+        path_prompts = [
+            "/plan.md",
+            "/plan/roadmap.md",
+            "/plugin/index.ts",
+            "/clear.sh",
+            "/reset.json",
+            "/browser/page.ts",
+            "/compact.tar.gz",
+        ]
+        for p in path_prompts:
+            with self.subTest(path=p):
+                self.assertFalse(is_native_slash_command(p))
+                self.assertFalse(is_native_slash_command(f"{p} review"))
+
+    def test_extract_prompt_text_handles_sqlite_json_steps(self):
+        """extract_prompt_text extracts slash commands from SQLite JSON string and bytes steps."""
+        from harness.hooks.pre_invocation_hook import extract_prompt_text
+
+        cid = "test-conv-sqlite-json-steps"
+        db_path = self.db_dir / f"{cid}.db"
+
+        # 1. JSON string step with candidate field 'prompt'
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)"
+            )
+            step_obj = {"prompt": "/compact"}
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                (1, json.dumps(step_obj)),
+            )
+        conn.close()
+
+        extracted = extract_prompt_text({}, conversation_id=cid, db_dir=self.db_dir)
+        self.assertEqual(extracted, "/compact")
+
+        # 2. JSON bytes step with candidate field 'message'
+        cid_bytes = "test-conv-sqlite-bytes-steps"
+        db_path_bytes = self.db_dir / f"{cid_bytes}.db"
+        with sqlite3.connect(db_path_bytes) as conn:
+            conn.execute(
+                "CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_payload BLOB)"
+            )
+            step_bytes = json.dumps({"message": "/plan design architecture"}).encode("utf-8")
+            conn.execute(
+                "INSERT INTO steps (idx, step_payload) VALUES (?, ?)",
+                (1, step_bytes),
+            )
+        conn.close()
+
+        extracted_bytes = extract_prompt_text({}, conversation_id=cid_bytes, db_dir=self.db_dir)
+        self.assertEqual(extracted_bytes, "/plan design architecture")
+
+        # 3. Non-command JSON steps (URLs, file paths, unrelated fields) do not match
+        cid_non_cmd = "test-conv-sqlite-non-cmd"
+        db_path_non_cmd = self.db_dir / f"{cid_non_cmd}.db"
+        with sqlite3.connect(db_path_non_cmd) as conn:
+            conn.execute(
+                "CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)"
+            )
+            # URL in prompt
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                (1, json.dumps({"prompt": "https://example.com/plan"})),
+            )
+            # Path in text
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                (2, json.dumps({"text": "/plan.md"})),
+            )
+            # Unrelated field with slash command
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                (3, json.dumps({"unrelated": "/compact"})),
+            )
+        conn.close()
+
+        extracted_non_cmd = extract_prompt_text({}, conversation_id=cid_non_cmd, db_dir=self.db_dir)
+        self.assertEqual(extracted_non_cmd, "")
+
+    def test_extract_prompt_text_records_locked_cid_on_operational_error(self):
+        """extract_prompt_text records conversation_id into LOCKED_CONVERSATION_IDS on sqlite3.OperationalError."""
+        from harness.hooks.pre_invocation_hook import extract_prompt_text
+        from harness.hooks.token_proximity_guard import LOCKED_CONVERSATION_IDS
+
+        cid = "test-conv-locked-operational-err"
+        db_path = self.db_dir / f"{cid}.db"
+        db_path.touch()
+
+        self.assertNotIn(cid, LOCKED_CONVERSATION_IDS)
+
+        with patch("sqlite3.connect", side_effect=sqlite3.OperationalError("database is locked")):
+            extracted = extract_prompt_text({}, conversation_id=cid, db_dir=self.db_dir)
+            self.assertEqual(extracted, "")
+
+        self.assertIn(cid, LOCKED_CONVERSATION_IDS)
+
+        # Subsequent call skips SQLite access entirely because CID is locked
+        with patch("sqlite3.connect") as mock_conn:
+            extracted_subsequent = extract_prompt_text({}, conversation_id=cid, db_dir=self.db_dir)
+            self.assertEqual(extracted_subsequent, "")
+            mock_conn.assert_not_called()
+
+    def test_evaluate_pre_invocation_bypasses_native_slash_commands(self):
+        """Above threshold (245k tokens), native commands emit empty injectSteps, skills emit advisory."""
+        # 1. Native /compact -> bypassed
+        res_compact = evaluate_pre_invocation(json.dumps({
+            "tokens": 245_000,
+            "prompt": "/compact",
+            "role": "deep_execution",
+        }))
+        self.assertEqual(res_compact, {"injectSteps": []})
+
+        # 2. Native /plan -> bypassed
+        res_plan = evaluate_pre_invocation(json.dumps({
+            "tokens": 245_000,
+            "prompt": "/plan refactor backend",
+            "role": "flight_director",
+        }))
+        self.assertEqual(res_plan, {"injectSteps": []})
+
+        # 3. Native /boost -> bypassed
+        res_boost = evaluate_pre_invocation(json.dumps({
+            "tokens": 245_000,
+            "prompt": "/boost investigate latency spike",
+            "role": "flight_director",
+        }))
+        self.assertEqual(res_boost, {"injectSteps": []})
+
+        # 4. XML-wrapped /compact -> bypassed
+        res_xml = evaluate_pre_invocation(json.dumps({
+            "tokens": 245_000,
+            "prompt": "<USER_REQUEST>\n/compact \n</USER_REQUEST>",
+            "role": "deep_execution",
+        }))
+        self.assertEqual(res_xml, {"injectSteps": []})
+
+        # 5. Modular skill /db-ops -> NOT bypassed, advisory emitted
+        res_skill = evaluate_pre_invocation(json.dumps({
+            "tokens": 245_000,
+            "prompt": "/db-ops check connection pool",
+            "role": "deep_execution",
+        }))
+        self.assertEqual(len(res_skill.get("injectSteps", [])), 1)
+        self.assertIn("245,000 / 230,000 TOKENS", res_skill["injectSteps"][0]["ephemeralMessage"])
+
+        # 6. Standard developer prompt -> NOT bypassed, advisory emitted
+        res_dev = evaluate_pre_invocation(json.dumps({
+            "tokens": 245_000,
+            "prompt": "Please fix the failing tests in auth.py",
+            "role": "deep_execution",
+        }))
+        self.assertEqual(len(res_dev.get("injectSteps", [])), 1)
+        self.assertIn("245,000 / 230,000 TOKENS", res_dev["injectSteps"][0]["ephemeralMessage"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
