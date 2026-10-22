@@ -45,6 +45,9 @@ from harness.hooks.pre_invocation_hook import (
     ROLE_FORENSIC_AUDITOR,
     ROLE_SWARM_ORCHESTRATOR,
     build_compaction_advisory,
+    check_pillar_1_intent,
+    check_pillar_2_behavior,
+    check_pillar_3_explicit_role,
     classify_agent_role,
     evaluate_pre_invocation,
     get_compaction_advisory_threshold,
@@ -550,5 +553,485 @@ class TestSqliteIntegration(unittest.TestCase):
         self.assertEqual(res, {"injectSteps": []})
 
 
+class TestPillar3ExplicitSelfIdentification(unittest.TestCase):
+    """Pillar 3: Explicit Cognitive Self-Identification (.agents/session_role.json, active plan, env vars)."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.workspace_dir = Path(self.temp_dir.name)
+        self.old_env = os.environ.copy()
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.old_env)
+        self.temp_dir.cleanup()
+
+    def test_session_role_json_in_agents(self):
+        """Pillar 3: .agents/session_role.json explicitly sets flight_director."""
+        agents_dir = self.workspace_dir / ".agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        role_file = agents_dir / "session_role.json"
+        role_file.write_text(json.dumps({"role": "flight_director"}), encoding="utf-8")
+
+        self.assertEqual(
+            check_pillar_3_explicit_role({}, workspace_dir=self.workspace_dir),
+            ROLE_FLIGHT_DIRECTOR,
+        )
+        self.assertEqual(
+            classify_agent_role({}, workspace_dir=self.workspace_dir),
+            ROLE_FLIGHT_DIRECTOR,
+        )
+
+    def test_session_role_json_in_artifacts(self):
+        """Pillar 3: .agents/artifacts/session_role.json explicitly sets deep_execution."""
+        artifacts_dir = self.workspace_dir / ".agents" / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        role_file = artifacts_dir / "session_role.json"
+        role_file.write_text(json.dumps({"role": "deep_execution"}), encoding="utf-8")
+
+        self.assertEqual(
+            check_pillar_3_explicit_role({}, workspace_dir=self.workspace_dir),
+            ROLE_DEEP_EXECUTION,
+        )
+        self.assertEqual(
+            classify_agent_role({}, workspace_dir=self.workspace_dir),
+            ROLE_DEEP_EXECUTION,
+        )
+
+    def test_active_plan_markdown_role(self):
+        """Pillar 3: Active implementation plan markdown declares role."""
+        artifacts_dir = self.workspace_dir / ".agents" / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        plan_file = artifacts_dir / "implementation_plan.md"
+        plan_file.write_text("# Implementation Plan\n\n**Role**: deep_execution\n\nDetails...", encoding="utf-8")
+
+        self.assertEqual(
+            check_pillar_3_explicit_role({}, workspace_dir=self.workspace_dir),
+            ROLE_DEEP_EXECUTION,
+        )
+        self.assertEqual(
+            classify_agent_role({}, workspace_dir=self.workspace_dir),
+            ROLE_DEEP_EXECUTION,
+        )
+
+    def test_active_plan_json_role(self):
+        """Pillar 3: Active plan.json declares role."""
+        artifacts_dir = self.workspace_dir / ".agents" / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        plan_file = artifacts_dir / "plan.json"
+        plan_file.write_text(json.dumps({"role": "flight_director", "goal": "coordinate"}), encoding="utf-8")
+
+        self.assertEqual(
+            check_pillar_3_explicit_role({}, workspace_dir=self.workspace_dir),
+            ROLE_FLIGHT_DIRECTOR,
+        )
+
+    def test_pillar_3_overrides_prompt_heuristics(self):
+        """Pillar 3: Explicit session_role.json strictly overrides prompt-based intent heuristics."""
+        agents_dir = self.workspace_dir / ".agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        (agents_dir / "session_role.json").write_text(
+            json.dumps({"role": "flight_director"}), encoding="utf-8"
+        )
+
+        # Prompt would normally seed ROLE_DEEP_EXECUTION
+        payload = {"prompt": "Please fix the bug in server.py and write unit tests"}
+        role = classify_agent_role(payload, workspace_dir=self.workspace_dir)
+        self.assertEqual(role, ROLE_FLIGHT_DIRECTOR)
+
+    def test_pillar_3_env_vars(self):
+        """Pillar 3: AGYIS_ROLE and PSL_AGENT_ROLE act as explicit self-identification."""
+        os.environ["AGYIS_ROLE"] = "deep_execution"
+        self.assertEqual(check_pillar_3_explicit_role({}), ROLE_DEEP_EXECUTION)
+
+        os.environ.pop("AGYIS_ROLE", None)
+        os.environ["PSL_AGENT_ROLE"] = "flight_director"
+        self.assertEqual(check_pillar_3_explicit_role({}), ROLE_FLIGHT_DIRECTOR)
+
+    def test_corrupt_session_role_fails_open(self):
+        """Pillar 3: Corrupt JSON in session_role.json fails open gracefully."""
+        agents_dir = self.workspace_dir / ".agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        (agents_dir / "session_role.json").write_text("{corrupt json", encoding="utf-8")
+
+        self.assertIsNone(check_pillar_3_explicit_role({}, workspace_dir=self.workspace_dir))
+
+
+class TestPillar1EarlyTurnIntent(unittest.TestCase):
+    """Pillar 1: Early Turn Intent Interception (Step 1/2 in SQLite steps or prompt payload)."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_orchestrator_keywords_in_prompt(self):
+        """Pillar 1: Orchestrator keywords in prompt seed preliminary ROLE_FLIGHT_DIRECTOR."""
+        keywords = [
+            "/teamwork-preview",
+            "/boost",
+            "/subagent-ladder",
+            "/goal",
+            "orchestrate",
+            "coordinate swarm",
+        ]
+        for kw in keywords:
+            with self.subTest(kw=kw):
+                payload = {"prompt": f"Let's {kw} and refactor auth module"}
+                self.assertEqual(check_pillar_1_intent(payload), ROLE_FLIGHT_DIRECTOR)
+                self.assertEqual(classify_agent_role(payload), ROLE_FLIGHT_DIRECTOR)
+
+    def test_direct_coding_keywords_in_prompt(self):
+        """Pillar 1: Direct coding/bugfix prompt seeds preliminary ROLE_DEEP_EXECUTION."""
+        prompts = [
+            "Please fix the bug in auth.py and verify tests",
+            "Implement the 3-pillar classifier in pre_invocation_hook.py",
+            "Refactor database connection pool handling",
+            "Add unit test for token counter",
+            "/fix crash on startup",
+        ]
+        for p in prompts:
+            with self.subTest(prompt=p):
+                payload = {"prompt": p}
+                self.assertEqual(check_pillar_1_intent(payload), ROLE_DEEP_EXECUTION)
+                self.assertEqual(classify_agent_role(payload), ROLE_DEEP_EXECUTION)
+
+    def test_early_steps_in_sqlite_direct_coding(self):
+        """Pillar 1: SQLite Step 1 with direct bugfix prompt seeds ROLE_DEEP_EXECUTION."""
+        conv_id = "test-conv-early-step-bugfix"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (1, ?)",
+                (json.dumps({"prompt": "Fix bug in payment processing and add tests"}),),
+            )
+
+        role = classify_agent_role({}, conversation_id=conv_id, db_dir=self.db_dir)
+        self.assertEqual(role, ROLE_DEEP_EXECUTION)
+
+    def test_early_steps_in_sqlite_orchestrator(self):
+        """Pillar 1: SQLite Step 1 with orchestrator slash command seeds ROLE_FLIGHT_DIRECTOR."""
+        conv_id = "test-conv-early-step-orch"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (1, ?)",
+                (json.dumps({"prompt": "/subagent-ladder --all execute milestone"}),),
+            )
+
+        role = classify_agent_role({}, conversation_id=conv_id, db_dir=self.db_dir)
+        self.assertEqual(role, ROLE_FLIGHT_DIRECTOR)
+
+    def test_orchestrator_precedence_over_coding_in_same_prompt(self):
+        """Pillar 1: Orchestrator keyword takes precedence when combined with coding keyword."""
+        payload = {"prompt": "/subagent-ladder fix the bug in server.py"}
+        self.assertEqual(check_pillar_1_intent(payload), ROLE_FLIGHT_DIRECTOR)
+        self.assertEqual(classify_agent_role(payload), ROLE_FLIGHT_DIRECTOR)
+
+
+class TestPillar2MidTrajectoryBehavioralVerification(unittest.TestCase):
+    """Pillar 2: Mid-Trajectory Behavioral Verification at Step 100 or >= 200,000 tokens."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_below_threshold_returns_none(self):
+        """Pillar 2: Inactive below 100 steps and 200,000 tokens."""
+        payload = {"tokens": 150_000, "step_count": 50, "tool_calls": ["edit_file"]}
+        self.assertIsNone(check_pillar_2_behavior(payload, tokens=150_000))
+
+    def test_subagent_spawns_confirm_flight_director(self):
+        """Pillar 2: Count of invoke_subagent, manage_task, schedule, send_message > 0 confirms flight_director."""
+        subagent_tools = ["invoke_subagent", "manage_task", "schedule", "send_message"]
+        for tool in subagent_tools:
+            with self.subTest(tool=tool):
+                payload = {
+                    "tokens": 205_000,
+                    "tool_calls": [tool, "read_file", "view_file"],
+                }
+                self.assertEqual(
+                    check_pillar_2_behavior(payload, tokens=205_000),
+                    ROLE_FLIGHT_DIRECTOR,
+                )
+                self.assertEqual(classify_agent_role(payload, tokens=205_000), ROLE_FLIGHT_DIRECTOR)
+
+    def test_swarm_subagent_confirms_swarm_orchestrator(self):
+        """Pillar 2: Swarm/mesh coordination tool calls confirm swarm_orchestrator."""
+        payload = {
+            "tokens": 205_000,
+            "tool_calls": [{"tool_name": "manage_task", "arguments": "swarm barrier join"}],
+        }
+        self.assertEqual(
+            check_pillar_2_behavior(payload, tokens=205_000),
+            ROLE_SWARM_ORCHESTRATOR,
+        )
+
+    def test_monolithic_swe_pairing_confirms_deep_execution(self):
+        """Pillar 2: edit_file, write_file, test runner commands with 0 subagents confirm deep_execution."""
+        payload = {
+            "tokens": 210_000,
+            "tool_calls": [
+                "edit_file",
+                "write_file",
+                {"tool_name": "run_command", "arguments": "pytest tests/test_auth.py"},
+                "replace_file_content",
+            ],
+        }
+        self.assertEqual(
+            check_pillar_2_behavior(payload, tokens=210_000),
+            ROLE_DEEP_EXECUTION,
+        )
+        self.assertEqual(classify_agent_role(payload, tokens=210_000), ROLE_DEEP_EXECUTION)
+
+    def test_dominant_read_grep_confirms_forensic_auditor(self):
+        """Pillar 2: Dominant read_file, grep, audit tools confirm forensic_auditor."""
+        payload = {
+            "tokens": 210_000,
+            "tool_calls": [
+                "read_file",
+                "view_file",
+                "grep_search",
+                "find_by_name",
+                {"tool_name": "run_command", "arguments": "python3 -m harness.cli audit all"},
+            ],
+        }
+        self.assertEqual(
+            check_pillar_2_behavior(payload, tokens=210_000),
+            ROLE_FORENSIC_AUDITOR,
+        )
+        self.assertEqual(classify_agent_role(payload, tokens=210_000), ROLE_FORENSIC_AUDITOR)
+
+    def test_step_100_in_sqlite_triggers_pillar_2(self):
+        """Pillar 2: Step count >= 100 in SQLite triggers behavioral verification even under 200k tokens."""
+        conv_id = "test-conv-step-100-swe"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+            # Insert 105 steps with edit_file and test runners
+            for i in range(1, 106):
+                step_data = {
+                    "tool_name": "edit_file" if i % 2 == 0 else "run_command",
+                    "arguments": "python3 -m unittest discover" if i % 2 != 0 else "harness/hooks.py",
+                }
+                conn.execute(
+                    "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                    (i, json.dumps(step_data)),
+                )
+
+        role = classify_agent_role(
+            {"tokens": 80_000},
+            conversation_id=conv_id,
+            db_dir=self.db_dir,
+            tokens=80_000,
+        )
+        self.assertEqual(role, ROLE_DEEP_EXECUTION)
+
+    def test_200k_tokens_in_sqlite_triggers_pillar_2(self):
+        """Pillar 2: Tokens >= 200k in SQLite triggers behavioral verification with subagent spawn."""
+        conv_id = "test-conv-200k-subagent"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+            for i in range(1, 15):
+                step_data = {"tool_name": "invoke_subagent" if i == 5 else "view_file"}
+                conn.execute(
+                    "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                    (i, json.dumps(step_data)),
+                )
+
+        role = classify_agent_role(
+            {"tokens": 215_000},
+            conversation_id=conv_id,
+            db_dir=self.db_dir,
+            tokens=215_000,
+        )
+        self.assertEqual(role, ROLE_FLIGHT_DIRECTOR)
+
+
+class TestDualAdvisoriesDistinctText(unittest.TestCase):
+    """Verifies distinct contract texts for Flight Director and Deep Execution dual advisories."""
+
+    def test_flight_director_cognitive_state_flush_distinct_directives(self):
+        """Flight Director advisory mandates Cognitive State Flush Invariant into compaction_checkpoint.md."""
+        adv = build_compaction_advisory(ROLE_FLIGHT_DIRECTOR, 235_000, 230_000)
+
+        # Mandatory Invariant Directives
+        self.assertIn("COGNITIVE STATE FLUSH INVARIANT", adv)
+        self.assertIn("compaction_checkpoint.md", adv)
+        self.assertIn("materialize working memory", adv)
+        self.assertIn("active task decomposition", adv)
+        self.assertIn("pending subagent assignments", adv)
+        self.assertIn("operator steering decisions", adv)
+        self.assertIn("Zero repository pollution", adv)
+
+        # Must NOT include monolithic SWE pairing directive
+        self.assertNotIn("Monolithic SWE Pairing", adv)
+
+    def test_deep_execution_work_preservation_distinct_directives(self):
+        """Deep Execution advisory mandates Work Preservation Contract with git clean -fd and wake-up directive."""
+        adv = build_compaction_advisory(ROLE_DEEP_EXECUTION, 235_000, 230_000)
+
+        # Mandatory Invariant Directives
+        self.assertIn("Monolithic SWE Pairing", adv)
+        self.assertIn("WORK PRESERVATION CONTRACT", adv)
+        self.assertIn("git checkout -- .", adv)
+        self.assertIn("git reset --hard", adv)
+        self.assertIn("git clean -fd", adv)
+        self.assertIn("in-flight work", adv)
+        self.assertIn("intact on disk", adv)
+        self.assertIn("Post-compaction wake-up directive", adv)
+        self.assertIn("git status", adv)
+        self.assertIn("git diff", adv)
+        self.assertIn("without reverting", adv)
+
+        # Must NOT include compaction_checkpoint.md flush
+        self.assertNotIn("compaction_checkpoint.md", adv)
+
+
+class TestClassifierEdgeCases(unittest.TestCase):
+    """Explicit edge case tests: empty inputs, boundary thresholds, error paths, and tie-breakers."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_empty_inputs_return_none_or_default(self):
+        """Empty inputs to helper functions safely return None; classify_agent_role falls back to flight_director."""
+        self.assertIsNone(check_pillar_3_explicit_role({}))
+        self.assertIsNone(check_pillar_1_intent({}))
+        self.assertIsNone(check_pillar_2_behavior({}))
+        self.assertEqual(classify_agent_role({}), ROLE_FLIGHT_DIRECTOR)
+
+    def test_pillar_2_exact_boundary_conditions(self):
+        """Tokens 199,999 and step 99 do not trigger Pillar 2; 200,000 tokens triggers."""
+        # Just below boundary
+        payload_below = {"tokens": 199_999, "step_count": 99, "tool_calls": ["edit_file"]}
+        self.assertIsNone(check_pillar_2_behavior(payload_below, tokens=199_999))
+
+        # At boundary: 200,000 tokens
+        payload_at = {"tokens": 200_000, "tool_calls": ["edit_file"]}
+        self.assertEqual(check_pillar_2_behavior(payload_at, tokens=200_000), ROLE_DEEP_EXECUTION)
+
+    def test_pillar_2_subagent_precedence_over_heavy_editing(self):
+        """Even if editing tools vastly outnumber subagent calls, any subagent call triggers flight_director."""
+        payload = {
+            "tokens": 205_000,
+            "tool_calls": ["edit_file"] * 50 + ["invoke_subagent"],
+        }
+        self.assertEqual(check_pillar_2_behavior(payload, tokens=205_000), ROLE_FLIGHT_DIRECTOR)
+
+    def test_pillar_2_equal_edit_and_audit_tools_tie_breaker(self):
+        """When edit_write_test count equals audit_read count, deep execution wins the tie-break."""
+        payload = {
+            "tokens": 205_000,
+            "tool_calls": ["edit_file", "write_file", "read_file", "view_file"],
+        }
+        self.assertEqual(check_pillar_2_behavior(payload, tokens=205_000), ROLE_DEEP_EXECUTION)
+
+    def test_pillar_2_dominant_audit_over_minimal_edit(self):
+        """When explicit audit commands dominate over minimal edit, forensic auditor is confirmed."""
+        payload = {
+            "tokens": 205_000,
+            "tool_calls": [
+                "edit_file",
+                {"tool_name": "run_command", "arguments": "python3 -m harness.cli audit all"},
+                {"tool_name": "run_command", "arguments": "agyis audit deep"},
+                {"tool_name": "run_command", "arguments": "agyis audit volume"},
+                "read_file",
+                "grep_search",
+            ],
+        }
+        self.assertEqual(check_pillar_2_behavior(payload, tokens=205_000), ROLE_FORENSIC_AUDITOR)
+
+    def test_pillar_2_monolithic_swe_pairing_reads_outnumber_edits(self):
+        """Monolithic SWE pairing where reads outnumber edits still confirms deep_execution."""
+        payload = {
+            "tokens": 205_000,
+            "tool_calls": [
+                "edit_file",
+                "read_file",
+                "view_file",
+                "grep_search",
+                "find_by_name",
+            ],
+        }
+        self.assertEqual(check_pillar_2_behavior(payload, tokens=205_000), ROLE_DEEP_EXECUTION)
+        self.assertEqual(classify_agent_role(payload, tokens=205_000), ROLE_DEEP_EXECUTION)
+
+    def test_pillar_2_initial_num_steps_triggers_behavioral_verification(self):
+        """Official Antigravity initialNumSteps >= 100 triggers Pillar 2 behavioral verification."""
+        payload = {
+            "initialNumSteps": 105,
+            "tokens": 80_000,
+            "tool_calls": ["edit_file", "write_file", "view_file"],
+        }
+        self.assertEqual(check_pillar_2_behavior(payload, tokens=80_000), ROLE_DEEP_EXECUTION)
+        self.assertEqual(classify_agent_role(payload, tokens=80_000), ROLE_DEEP_EXECUTION)
+
+    def test_pillar_3_artifact_directory_path_tilde_expansion(self):
+        """Pillar 3: artifactDirectoryPath discovers session_role.json."""
+        with tempfile.TemporaryDirectory() as td:
+            brain_path = Path(td) / "brain"
+            brain_path.mkdir(parents=True, exist_ok=True)
+            (brain_path / "session_role.json").write_text(json.dumps({"role": "deep_execution"}), encoding="utf-8")
+
+            payload = {
+                "artifactDirectoryPath": str(brain_path),
+            }
+            self.assertEqual(check_pillar_3_explicit_role(payload), ROLE_DEEP_EXECUTION)
+            self.assertEqual(classify_agent_role(payload), ROLE_DEEP_EXECUTION)
+
+    def test_pillar_2_takes_precedence_over_generic_cwd(self):
+        """At Step 100 or 200k tokens, Pillar 2 behavioral verification takes precedence over generic cwd name."""
+        payload = {
+            "cwd": "/home/kuasha/Dev/mesh-orchestrator",
+            "tokens": 205_000,
+            "tool_calls": ["edit_file", "write_file", "view_file"],
+        }
+        self.assertEqual(classify_agent_role(payload, tokens=205_000), ROLE_DEEP_EXECUTION)
+
+    def test_multi_worktree_stale_subagent_does_not_override_pillar_2(self):
+        """Multi-worktree session with stale subagent worktree does not override subagent tool confirmation."""
+        payload = {
+            "workspacePaths": [
+                "/home/kuasha/Dev/psl-agy-harness",
+                "/home/kuasha/.gemini/antigravity/worktrees/6deb7452/subagent-subagent-1-executioner-8f776b9f",
+            ],
+            "tokens": 210_000,
+            "tool_calls": ["invoke_subagent", "send_message", "view_file"],
+        }
+        self.assertEqual(classify_agent_role(payload, tokens=210_000), ROLE_FLIGHT_DIRECTOR)
+
+    def test_corrupt_sqlite_file_fail_open(self):
+        """Corrupt or locked SQLite file does not raise an unhandled error."""
+        conv_id = "test-corrupt-db"
+        bad_file = self.db_dir / f"{conv_id}.db"
+        bad_file.write_bytes(b"not a valid sqlite database header bytes")
+
+        role = classify_agent_role(
+            {"tokens": 220_000},
+            conversation_id=conv_id,
+            db_dir=self.db_dir,
+            tokens=220_000,
+        )
+        self.assertEqual(role, ROLE_FLIGHT_DIRECTOR)
+
+
 if __name__ == "__main__":
     unittest.main()
+
