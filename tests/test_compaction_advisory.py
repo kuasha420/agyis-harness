@@ -58,6 +58,8 @@ from harness.hooks.pre_invocation_hook import (
 from harness.hooks.token_proximity_guard import (
     LOCKED_CONVERSATION_IDS,
     clear_locked_conversations,
+    get_active_conversation_tokens,
+    get_conversations_dir,
     is_conversation_locked,
     record_locked_conversation,
 )
@@ -1539,6 +1541,181 @@ class TestBinaryNoiseAndStdinStreamResilience(unittest.TestCase):
             self.assertEqual(code, 0)
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res, {"injectSteps": []})
+
+
+class TestDefectRemediesAndAdversarialEdgeCases(unittest.TestCase):
+    """Verifies remedies for OPEN-2, OPEN-6, OPEN-7, OPEN-8, OPEN-9, OPEN-10, OPEN-11."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_dir = Path(self.temp_dir.name)
+        clear_locked_conversations()
+
+    def tearDown(self):
+        clear_locked_conversations()
+        self.temp_dir.cleanup()
+
+    def test_dot_db_suffix_resolution_pillar2_and_token_guard(self):
+        """OPEN-8: Passes .db suffix into token guard and Pillar 2 without creating .db.db."""
+        conv_id = "test-suffix-conv"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                (1, json.dumps({"step_type": 15, "token_count": 240_000, "tool_name": "replace_file_content"})),
+            )
+        conn.close()
+
+        # 1. get_active_conversation_tokens with .db suffix
+        tokens = get_active_conversation_tokens(f"{conv_id}.db", db_dir=self.db_dir)
+        self.assertEqual(tokens, 240_000)
+
+        # 2. check_pillar_2_behavior with .db suffix
+        role = check_pillar_2_behavior(
+            {"force_pillar_2": True},
+            conversation_id=f"{conv_id}.db",
+            tokens=240_000,
+            db_dir=self.db_dir,
+        )
+        self.assertEqual(role, ROLE_DEEP_EXECUTION)
+
+        # 3. LOCKED_CONVERSATION_IDS normalization across .db and raw id
+        LOCKED_CONVERSATION_IDS.add(f"{conv_id}.db")
+        self.assertIn(conv_id, LOCKED_CONVERSATION_IDS)
+        self.assertIn(f"{conv_id}.db", LOCKED_CONVERSATION_IDS)
+        LOCKED_CONVERSATION_IDS.discard(conv_id)
+        self.assertNotIn(f"{conv_id}.db", LOCKED_CONVERSATION_IDS)
+
+    def test_crash_on_unreadable_or_permission_denied_directory(self):
+        """OPEN-7: Accessing unreadable directory fails open without raising PermissionError."""
+        restricted_dir = self.db_dir / "restricted"
+        restricted_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            restricted_dir.chmod(0o000)
+            # Must catch PermissionError / OSError and fail open safely
+            tokens = get_active_conversation_tokens("any-conv", db_dir=restricted_dir)
+            self.assertEqual(tokens, 0)
+
+            p1_res = check_pillar_1_intent({}, conversation_id="any-conv", db_dir=restricted_dir)
+            self.assertIsNone(p1_res)
+
+            p2_res = check_pillar_2_behavior({}, conversation_id="any-conv", db_dir=restricted_dir)
+            self.assertIsNone(p2_res)
+        finally:
+            restricted_dir.chmod(0o755)
+
+    def test_agyis_conversations_dir_env_var(self):
+        """OPEN-7: Resolves conversations dir from AGYIS_CONVERSATIONS_DIR env var."""
+        custom_path = "/tmp/agyis_test_conversations_dir"
+        with patch.dict(os.environ, {"AGYIS_CONVERSATIONS_DIR": custom_path}, clear=False):
+            resolved = get_conversations_dir()
+            self.assertEqual(resolved, Path(custom_path))
+
+    def test_ingress_payload_conversation_id_resolution(self):
+        """OPEN-11: Pillar 1 and 2 extract conversationId directly from ingress payload."""
+        conv_id = "test-payload-cid"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+            # Early step with coding intent
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                (1, json.dumps({"prompt": "implement bugfix in test suite"})),
+            )
+            # Behavioral step with edit_file
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                (2, json.dumps({"step_type": 132, "tool_name": "edit_file"})),
+            )
+        conn.close()
+
+        # Pillar 1 resolves from payload conversationId without kwarg
+        p1 = check_pillar_1_intent({"conversationId": conv_id}, db_dir=self.db_dir)
+        self.assertEqual(p1, ROLE_DEEP_EXECUTION)
+
+        # Pillar 2 resolves from payload conversationId without kwarg
+        p2 = check_pillar_2_behavior({"conversationId": conv_id, "force_pillar_2": True}, db_dir=self.db_dir)
+        self.assertEqual(p2, ROLE_DEEP_EXECUTION)
+
+    def test_token_burst_db_lag_uses_max_tokens(self):
+        """OPEN-9 / R3: When DB lags behind current turn payload, max(db, payload) triggers advisory."""
+        conv_id = "test-burst-lag-conv"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        # DB has 180,000 tokens from previous turn
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                (1, json.dumps({"step_type": 15, "token_count": 180_000})),
+            )
+        conn.close()
+
+        # Payload has 245,000 tokens from immediate burst
+        payload = json.dumps({
+            "conversationId": conv_id,
+            "tokens": 245_000,
+            "role": "deep_execution",
+        })
+        res = evaluate_pre_invocation(payload, db_dir=self.db_dir)
+        self.assertEqual(len(res.get("injectSteps", [])), 1)
+        msg = res["injectSteps"][0]["ephemeralMessage"]
+        self.assertIn("COMPACTION IMMINENT", msg)
+        self.assertIn("245,000 / 230,000 TOKENS", msg)
+
+    def test_sqlite_timeout_direct_argument_clamped(self):
+        """OPEN-10: Directly passed sqlite_timeout or timeout argument is clamped to <= 0.5s."""
+        self.assertEqual(get_compaction_sqlite_timeout(5.0), 0.5)
+        self.assertEqual(get_compaction_sqlite_timeout(100.0), 0.5)
+        self.assertEqual(get_compaction_sqlite_timeout(0.01), 0.01)
+        self.assertEqual(get_compaction_sqlite_timeout(-5.0), 0.5)
+
+        # Create dummy file so is_file() passes
+        (self.db_dir / "any-conv.db").touch()
+
+        # Verify get_active_conversation_tokens clamps timeout passed to sqlite3.connect
+        with patch("sqlite3.connect", side_effect=sqlite3.OperationalError("mock lock")) as mock_conn:
+            get_active_conversation_tokens("any-conv", db_dir=self.db_dir, timeout=10.0)
+            mock_conn.assert_called_once()
+            _, kwargs = mock_conn.call_args
+            self.assertLessEqual(kwargs.get("timeout", 1.0), 0.5)
+
+    def test_nfs_cifs_error_classification(self):
+        """OPEN-6: Classifies disk I/O and locking protocol errors as locked conversations."""
+        conv_id = "test-nfs-conv"
+        (self.db_dir / f"{conv_id}.db").touch()
+
+        # 1. disk I/O error
+        with patch("sqlite3.connect", side_effect=sqlite3.OperationalError("disk I/O error")):
+            tokens = get_active_conversation_tokens(conv_id, db_dir=self.db_dir)
+            self.assertEqual(tokens, 0)
+            self.assertIn(conv_id, LOCKED_CONVERSATION_IDS)
+
+        clear_locked_conversations()
+
+        # 2. locking protocol error
+        with patch("sqlite3.connect", side_effect=sqlite3.OperationalError("locking protocol")):
+            tokens = get_active_conversation_tokens(conv_id, db_dir=self.db_dir)
+            self.assertEqual(tokens, 0)
+            self.assertIn(conv_id, LOCKED_CONVERSATION_IDS)
+
+    def test_unbounded_stdin_payload_clamped(self):
+        """OPEN-2: Large payload (>512KB) is clamped safely without memory explosion."""
+        large_junk = "x" * 700_000
+        payload = json.dumps({"role": "flight_director", "junk": large_junk})
+        self.assertGreater(len(payload), 524_288)
+
+        # evaluate_pre_invocation clamps payload
+        res = evaluate_pre_invocation(payload)
+        self.assertIn("injectSteps", res)
+
+        # runner.run_hook clamps payload
+        with patch("sys.stdout", new_callable=io.StringIO):
+            res_code = runner.run_hook("compaction-advisory", payload_str=payload)
+            self.assertEqual(res_code, 0)
 
 
 if __name__ == "__main__":

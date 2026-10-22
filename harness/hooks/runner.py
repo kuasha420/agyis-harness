@@ -179,16 +179,16 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
             try:
                 if hasattr(sys.stdin, "isatty") and not sys.stdin.isatty():
                     if hasattr(sys.stdin, "buffer"):
-                        raw_bytes = sys.stdin.buffer.read()
+                        raw_bytes = sys.stdin.buffer.read(524_288)
                         payload_str = raw_bytes.decode("utf-8", errors="replace")
                     else:
-                        payload_str = sys.stdin.read()
+                        payload_str = sys.stdin.read(524_288)
                 elif not hasattr(sys.stdin, "isatty"):
                     if hasattr(sys.stdin, "buffer"):
-                        raw_bytes = sys.stdin.buffer.read()
+                        raw_bytes = sys.stdin.buffer.read(524_288)
                         payload_str = raw_bytes.decode("utf-8", errors="replace")
                     else:
-                        payload_str = sys.stdin.read()
+                        payload_str = sys.stdin.read(524_288)
                 else:
                     payload_str = ""
             except Exception:

@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from harness.hooks.token_proximity_guard import (
     LOCKED_CONVERSATION_IDS,
+    _normalize_cid,
     clear_locked_conversations,
     get_active_conversation_tokens,
     get_conversations_dir,
@@ -38,10 +39,18 @@ from harness.hooks.token_proximity_guard import (
 
 DEFAULT_COMPACTION_ADVISORY_THRESHOLD: int = 230_000
 DEFAULT_SQLITE_TIMEOUT: float = 0.5
+MAX_PAYLOAD_BYTES: int = 524_288  # 512KB clamp (OPEN-2)
 
 
-def get_compaction_sqlite_timeout() -> float:
+def get_compaction_sqlite_timeout(override: Optional[float] = None) -> float:
     """Returns the effective SQLite connection timeout in seconds (strictly <= 0.5s)."""
+    if override is not None:
+        try:
+            val = float(override)
+            if val > 0:
+                return min(val, DEFAULT_SQLITE_TIMEOUT)
+        except (ValueError, TypeError):
+            pass
     env_to = os.environ.get("AGYIS_SQLITE_TIMEOUT")
     if env_to:
         try:
@@ -500,23 +509,27 @@ def check_pillar_1_intent(
                 text_snippets.append(s.strip())
 
     # 3. Inspect early steps in SQLite steps table
-    effective_cid = conversation_id
+    effective_cid = _normalize_cid(conversation_id)
     if not effective_cid or effective_cid == "default":
-        for pk in ("transcriptPath", "transcript_path", "artifactDirectoryPath", "artifact_directory_path", "artifactDirectory"):
-            pv = payload.get(pk)
-            if isinstance(pv, str) and pv:
-                m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", pv)
-                if m:
-                    effective_cid = m.group(1).lower()
-                    break
+        cand = payload.get("conversationId") or payload.get("conversation_id")
+        if isinstance(cand, str) and cand.strip():
+            effective_cid = _normalize_cid(cand.strip())
+        if not effective_cid or effective_cid == "default":
+            for pk in ("transcriptPath", "transcript_path", "artifactDirectoryPath", "artifact_directory_path", "artifactDirectory"):
+                pv = payload.get(pk)
+                if isinstance(pv, str) and pv:
+                    m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", pv)
+                    if m:
+                        effective_cid = _normalize_cid(m.group(1).lower())
+                        break
 
     if effective_cid and effective_cid != "default" and effective_cid not in LOCKED_CONVERSATION_IDS:
-        base_dir = db_dir or get_conversations_dir()
-        db_path = base_dir / effective_cid if effective_cid.endswith(".db") else base_dir / f"{effective_cid}.db"
-        if db_path.is_file():
-            conn: Optional[sqlite3.Connection] = None
-            try:
-                to = timeout if timeout is not None else get_compaction_sqlite_timeout()
+        conn: Optional[sqlite3.Connection] = None
+        try:
+            base_dir = db_dir or get_conversations_dir()
+            db_path = base_dir / f"{effective_cid}.db"
+            if db_path.is_file():
+                to = get_compaction_sqlite_timeout(timeout)
                 uri_path = f"file:{db_path.resolve()}?mode=ro"
                 conn = sqlite3.connect(uri_path, uri=True, timeout=to)
                 cur = conn.cursor()
@@ -535,32 +548,33 @@ def check_pillar_1_intent(
                                 if isinstance(raw_val, str):
                                     if raw_val.startswith("{"):
                                         try:
-                                            parsed = json.loads(raw_val)
-                                            if isinstance(parsed, dict):
-                                                for rk in ("role", "archetype", "subagent_role"):
-                                                    if rk in parsed and isinstance(parsed[rk], str):
-                                                        m = _normalize_role_str(parsed[rk])
-                                                        if m:
-                                                            return m
-                                                for pk in ("prompt", "user_input", "userPrompt", "message", "text"):
-                                                    if pk in parsed and isinstance(parsed[pk], str):
-                                                        text_snippets.append(parsed[pk])
+                                             parsed = json.loads(raw_val)
+                                             if isinstance(parsed, dict):
+                                                 for rk in ("role", "archetype", "subagent_role"):
+                                                     if rk in parsed and isinstance(parsed[rk], str):
+                                                         m = _normalize_role_str(parsed[rk])
+                                                         if m:
+                                                             return m
+                                                 for pk in ("prompt", "user_input", "userPrompt", "message", "text"):
+                                                     if pk in parsed and isinstance(parsed[pk], str):
+                                                         text_snippets.append(parsed[pk])
                                         except Exception:
-                                            pass
+                                             pass
                                     text_snippets.append(raw_val)
                                 elif isinstance(raw_val, (bytes, bytearray, memoryview)):
                                     text_snippets.append(bytes(raw_val).decode("utf-8", errors="ignore"))
-            except sqlite3.OperationalError as oe:
-                if "lock" in str(oe).lower() or "busy" in str(oe).lower():
-                    LOCKED_CONVERSATION_IDS.add(effective_cid)
-            except Exception:
-                pass
-            finally:
-                if conn is not None:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
+        except sqlite3.OperationalError as oe:
+            err_msg = str(oe).lower()
+            if any(k in err_msg for k in ("lock", "busy", "io error", "disk i/o error", "protocol")):
+                LOCKED_CONVERSATION_IDS.add(effective_cid)
+        except Exception:
+            pass
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     if not text_snippets:
         return None
@@ -597,13 +611,13 @@ def check_pillar_2_behavior(
       -> Confirm ROLE_FORENSIC_AUDITOR.
     """
     try:
-        cur_tokens = tokens
-        if cur_tokens == 0:
-            for k in ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens"):
-                val = payload.get(k)
-                if isinstance(val, (int, float)) and val > 0:
-                    cur_tokens = int(val)
-                    break
+        payload_tokens = 0
+        for k in ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens"):
+            val = payload.get(k)
+            if isinstance(val, (int, float)) and val > 0:
+                payload_tokens = int(val)
+                break
+        cur_tokens = max(tokens, payload_tokens)
 
         step_count = (
             payload.get("step_count")
@@ -622,96 +636,96 @@ def check_pillar_2_behavior(
             step_count = 0
 
         # Resolve effective conversation ID
-        effective_cid = conversation_id
+        effective_cid = _normalize_cid(conversation_id)
         if not effective_cid or effective_cid == "default":
-            for pk in (
-                "transcriptPath",
-                "transcript_path",
-                "artifactDirectoryPath",
-                "artifact_directory_path",
-                "artifactDirectory",
-            ):
-                pv = payload.get(pk)
-                if isinstance(pv, str) and pv:
-                    m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", pv)
-                    if m:
-                        effective_cid = m.group(1).lower()
-                        break
+            cand = payload.get("conversationId") or payload.get("conversation_id")
+            if isinstance(cand, str) and cand.strip():
+                effective_cid = _normalize_cid(cand.strip())
+            if not effective_cid or effective_cid == "default":
+                for pk in (
+                    "transcriptPath",
+                    "transcript_path",
+                    "artifactDirectoryPath",
+                    "artifact_directory_path",
+                    "artifactDirectory",
+                ):
+                    pv = payload.get(pk)
+                    if isinstance(pv, str) and pv:
+                        m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", pv)
+                        if m:
+                            effective_cid = _normalize_cid(m.group(1).lower())
+                            break
 
-        if cur_tokens == 0 and effective_cid and effective_cid != "default" and effective_cid not in LOCKED_CONVERSATION_IDS:
-            cur_tokens = get_active_conversation_tokens(effective_cid, db_dir=db_dir, timeout=timeout)
+        if effective_cid and effective_cid != "default" and effective_cid not in LOCKED_CONVERSATION_IDS:
+            db_tokens = get_active_conversation_tokens(effective_cid, db_dir=db_dir, timeout=timeout)
+            cur_tokens = max(cur_tokens, db_tokens)
 
         db_steps_count = 0
         tool_calls: List[Tuple[str, str]] = []
-        db_path: Optional[Path] = None
-
-        if effective_cid and effective_cid != "default":
-            base_dir = db_dir or get_conversations_dir()
-            db_cand = base_dir / f"{effective_cid}.db"
-            if db_cand.is_file():
-                db_path = db_cand
 
         # Single read-only SQLite inspection for both step count and tool calls
-        if db_path is not None:
-            if effective_cid in LOCKED_CONVERSATION_IDS:
-                return None
+        if effective_cid and effective_cid != "default" and effective_cid not in LOCKED_CONVERSATION_IDS:
             conn: Optional[sqlite3.Connection] = None
             try:
-                uri_path = f"file:{db_path.resolve()}?mode=ro"
-                to = timeout if timeout is not None else get_compaction_sqlite_timeout()
-                conn = sqlite3.connect(uri_path, uri=True, timeout=to)
-                cur = conn.cursor()
-                cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                tables = {r[0] for r in cur.fetchall()}
+                base_dir = db_dir or get_conversations_dir()
+                db_path = base_dir / f"{effective_cid}.db"
+                if db_path.is_file():
+                    uri_path = f"file:{db_path.resolve()}?mode=ro"
+                    to = get_compaction_sqlite_timeout(timeout)
+                    conn = sqlite3.connect(uri_path, uri=True, timeout=to)
+                    cur = conn.cursor()
+                    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                    tables = {r[0] for r in cur.fetchall()}
 
-                if "steps" in tables:
-                    cur.execute("SELECT count(*) FROM steps")
-                    row = cur.fetchone()
-                    if row and row[0]:
-                        db_steps_count = int(row[0])
+                    if "steps" in tables:
+                        cur.execute("SELECT count(*) FROM steps")
+                        row = cur.fetchone()
+                        if row and row[0]:
+                            db_steps_count = int(row[0])
 
-                total_steps_eval = max(step_count, db_steps_count)
-                if cur_tokens >= 200_000 or total_steps_eval >= 100 or payload.get("force_pillar_2"):
-                    if "tool_calls" in tables:
-                        cur.execute("PRAGMA table_info(tool_calls)")
-                        t_cols = {r[1] for r in cur.fetchall()}
-                        name_col = "tool_name" if "tool_name" in t_cols else "name"
-                        arg_col = "arguments" if "arguments" in t_cols else ("command" if "command" in t_cols else "''")
-                        cur.execute(f"SELECT {name_col}, {arg_col} FROM tool_calls LIMIT 500")
-                        for r in cur.fetchall():
-                            tool_calls.append((str(r[0] or ""), str(r[1] or "")))
+                    total_steps_eval = max(step_count, db_steps_count)
+                    if cur_tokens >= 200_000 or total_steps_eval >= 100 or payload.get("force_pillar_2"):
+                        if "tool_calls" in tables:
+                            cur.execute("PRAGMA table_info(tool_calls)")
+                            t_cols = {r[1] for r in cur.fetchall()}
+                            name_col = "tool_name" if "tool_name" in t_cols else "name"
+                            arg_col = "arguments" if "arguments" in t_cols else ("command" if "command" in t_cols else "''")
+                            cur.execute(f"SELECT {name_col}, {arg_col} FROM tool_calls LIMIT 500")
+                            for r in cur.fetchall():
+                                tool_calls.append((str(r[0] or ""), str(r[1] or "")))
 
-                    elif "steps" in tables:
-                        cur.execute("PRAGMA table_info(steps)")
-                        s_cols = {r[1] for r in cur.fetchall()}
-                        target_cols = [c for c in ("tool_name", "step_data", "metadata", "step_payload") if c in s_cols]
-                        if target_cols:
-                            where_clause = "WHERE step_type = 132" if "step_type" in s_cols else ""
-                            order_clause = "ORDER BY idx DESC" if "idx" in s_cols else "ORDER BY rowid DESC"
-                            cur.execute(f"SELECT {', '.join(target_cols)} FROM steps {where_clause} {order_clause} LIMIT 500")
-                            for r_row in cur.fetchall():
-                                for cell in r_row:
-                                    if not cell:
-                                        continue
-                                    if isinstance(cell, str):
-                                        if cell.startswith("{"):
-                                            try:
-                                                d = json.loads(cell)
-                                                if isinstance(d, dict):
-                                                    tn = d.get("tool_name") or d.get("tool") or d.get("name")
-                                                    args = d.get("arguments") or d.get("command") or d.get("args") or ""
-                                                    if tn:
-                                                        tool_calls.append((str(tn), str(args)))
-                                            except Exception:
-                                                pass
-                                        else:
-                                            tool_calls.append((cell, ""))
-                                    elif isinstance(cell, (bytes, bytearray, memoryview)):
-                                        tn, args = _extract_tool_from_proto_bytes(bytes(cell))
-                                        if tn:
-                                            tool_calls.append((tn, args))
+                        elif "steps" in tables:
+                            cur.execute("PRAGMA table_info(steps)")
+                            s_cols = {r[1] for r in cur.fetchall()}
+                            target_cols = [c for c in ("tool_name", "step_data", "metadata", "step_payload") if c in s_cols]
+                            if target_cols:
+                                where_clause = "WHERE step_type = 132" if "step_type" in s_cols else ""
+                                order_clause = "ORDER BY idx DESC" if "idx" in s_cols else "ORDER BY rowid DESC"
+                                cur.execute(f"SELECT {', '.join(target_cols)} FROM steps {where_clause} {order_clause} LIMIT 500")
+                                for r_row in cur.fetchall():
+                                    for cell in r_row:
+                                        if not cell:
+                                            continue
+                                        if isinstance(cell, str):
+                                            if cell.startswith("{"):
+                                                try:
+                                                    d = json.loads(cell)
+                                                    if isinstance(d, dict):
+                                                        tn = d.get("tool_name") or d.get("tool") or d.get("name")
+                                                        args = d.get("arguments") or d.get("command") or d.get("args") or ""
+                                                        if tn:
+                                                            tool_calls.append((str(tn), str(args)))
+                                                except Exception:
+                                                    pass
+                                            else:
+                                                tool_calls.append((cell, ""))
+                                        elif isinstance(cell, (bytes, bytearray, memoryview)):
+                                            tn, args = _extract_tool_from_proto_bytes(bytes(cell))
+                                            if tn:
+                                                tool_calls.append((tn, args))
             except sqlite3.OperationalError as oe:
-                if "lock" in str(oe).lower() or "busy" in str(oe).lower():
+                err_msg = str(oe).lower()
+                if any(k in err_msg for k in ("lock", "busy", "io error", "disk i/o error", "protocol")):
                     LOCKED_CONVERSATION_IDS.add(effective_cid)
             except Exception:
                 pass
@@ -1034,7 +1048,7 @@ def build_compaction_advisory(
 
 
 def evaluate_pre_invocation(
-    payload_str: str,
+    payload_str: Union[str, bytes, bytearray, Dict[str, Any]] = "",
     threshold: Optional[int] = None,
     db_dir: Optional[Path] = None,
     workspace_dir: Optional[Path] = None,
@@ -1047,21 +1061,31 @@ def evaluate_pre_invocation(
     - {"injectSteps": [{"ephemeralMessage": advisory}]} if at or above threshold.
     """
     try:
-        if isinstance(payload_str, (bytes, bytearray)):
-            payload_str = payload_str.decode("utf-8", errors="replace")
-        elif not isinstance(payload_str, str):
-            payload_str = ""
+        if isinstance(payload_str, dict):
+            payload = payload_str
+        else:
+            if isinstance(payload_str, (bytes, bytearray)):
+                if len(payload_str) > MAX_PAYLOAD_BYTES:
+                    payload_str = payload_str[:MAX_PAYLOAD_BYTES]
+                payload_str = payload_str.decode("utf-8", errors="replace")
+            elif isinstance(payload_str, str):
+                if len(payload_str) > MAX_PAYLOAD_BYTES:
+                    payload_str = payload_str[:MAX_PAYLOAD_BYTES]
+            else:
+                payload_str = ""
 
-        payload = json.loads(payload_str) if payload_str and payload_str.strip() else {}
-        if not isinstance(payload, dict):
-            payload = {}
+            payload = json.loads(payload_str) if payload_str and payload_str.strip() else {}
+            if not isinstance(payload, dict):
+                payload = {}
     except Exception:
         payload = {}
 
     try:
         clear_locked_conversations()
-        conv_id = str(payload.get("conversationId") or payload.get("conversation_id") or "default")
-        if conv_id == "default":
+        conv_id = _normalize_cid(
+            str(payload.get("conversationId") or payload.get("conversation_id") or "default")
+        )
+        if not conv_id or conv_id == "default":
             for pk in (
                 "transcriptPath",
                 "transcript_path",
@@ -1073,7 +1097,7 @@ def evaluate_pre_invocation(
                 if isinstance(pv, str) and pv:
                     m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", pv)
                     if m:
-                        conv_id = m.group(1).lower()
+                        conv_id = _normalize_cid(m.group(1).lower())
                         break
 
         eff_ws = workspace_dir
@@ -1098,14 +1122,15 @@ def evaluate_pre_invocation(
             else get_compaction_advisory_threshold()
         )
 
-        to = sqlite_timeout if sqlite_timeout is not None else get_compaction_sqlite_timeout()
-        tokens = get_active_conversation_tokens(conv_id, db_dir=db_dir, timeout=to)
-        if tokens == 0:
-            for k in ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens"):
-                val = payload.get(k)
-                if isinstance(val, (int, float)) and val > 0:
-                    tokens = int(val)
-                    break
+        to = get_compaction_sqlite_timeout(sqlite_timeout)
+        db_tokens = get_active_conversation_tokens(conv_id, db_dir=db_dir, timeout=to)
+        payload_tokens = 0
+        for k in ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens"):
+            val = payload.get(k)
+            if isinstance(val, (int, float)) and val > 0:
+                payload_tokens = int(val)
+                break
+        tokens = max(db_tokens, payload_tokens)
 
         if tokens < effective_threshold:
             return {"injectSteps": []}
@@ -1130,10 +1155,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         if hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
             raw_stdin = ""
         elif hasattr(sys.stdin, "buffer"):
-            raw_bytes = sys.stdin.buffer.read()
+            raw_bytes = sys.stdin.buffer.read(MAX_PAYLOAD_BYTES)
             raw_stdin = raw_bytes.decode("utf-8", errors="replace")
         else:
-            raw_stdin = sys.stdin.read()
+            raw_stdin = sys.stdin.read(MAX_PAYLOAD_BYTES)
     except Exception:
         raw_stdin = ""
 

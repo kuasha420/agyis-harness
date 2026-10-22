@@ -38,23 +38,35 @@ _LOCKED_CONVERSATIONS: dict[str, float] = {}
 LOCK_EXPIRY_SECONDS: float = 2.0
 
 
+def _normalize_cid(cid: Any) -> str:
+    """Normalizes conversation identifier by stripping trailing .db suffix and whitespace."""
+    if not cid or not isinstance(cid, str):
+        return ""
+    norm = cid.strip()
+    if norm.endswith(".db"):
+        return norm[:-3]
+    return norm
+
+
 def is_conversation_locked(conversation_id: str) -> bool:
     """Returns True if the conversation database is currently marked as locked within the expiry window."""
-    if not conversation_id:
+    norm_cid = _normalize_cid(conversation_id)
+    if not norm_cid:
         return False
-    lock_time = _LOCKED_CONVERSATIONS.get(conversation_id)
+    lock_time = _LOCKED_CONVERSATIONS.get(norm_cid)
     if lock_time is None:
         return False
     if time.monotonic() - lock_time < LOCK_EXPIRY_SECONDS:
         return True
-    _LOCKED_CONVERSATIONS.pop(conversation_id, None)
+    _LOCKED_CONVERSATIONS.pop(norm_cid, None)
     return False
 
 
 def record_locked_conversation(conversation_id: str) -> None:
     """Records a conversation database as locked with current monotonic timestamp."""
-    if conversation_id:
-        _LOCKED_CONVERSATIONS[conversation_id] = time.monotonic()
+    norm_cid = _normalize_cid(conversation_id)
+    if norm_cid:
+        _LOCKED_CONVERSATIONS[norm_cid] = time.monotonic()
 
 
 def clear_locked_conversations() -> None:
@@ -73,17 +85,21 @@ class _LockedConversationsProxy(set):
 
     def add(self, element: Any) -> None:
         if isinstance(element, str):
-            record_locked_conversation(element)
-            super().add(element)
+            norm = _normalize_cid(element)
+            if norm:
+                record_locked_conversation(norm)
+                super().add(norm)
 
     def remove(self, element: Any) -> None:
-        _LOCKED_CONVERSATIONS.pop(str(element), None)
-        if element in self:
-            super().remove(element)
+        norm = _normalize_cid(element) if isinstance(element, str) else str(element)
+        _LOCKED_CONVERSATIONS.pop(norm, None)
+        if norm in self:
+            super().remove(norm)
 
     def discard(self, element: Any) -> None:
-        _LOCKED_CONVERSATIONS.pop(str(element), None)
-        super().discard(element)
+        norm = _normalize_cid(element) if isinstance(element, str) else str(element)
+        _LOCKED_CONVERSATIONS.pop(norm, None)
+        super().discard(norm)
 
     def clear(self) -> None:
         clear_locked_conversations()
@@ -106,7 +122,11 @@ def is_checkpoint_step(step_type: Any) -> bool:
 
 def get_conversations_dir() -> Path:
     """Resolves the directory containing Antigravity conversation SQLite databases."""
-    env_dir = os.environ.get("ANTIGRAVITY_CONVERSATIONS_DIR") or os.environ.get("GEMINI_CONVERSATIONS_DIR")
+    env_dir = (
+        os.environ.get("AGYIS_CONVERSATIONS_DIR")
+        or os.environ.get("ANTIGRAVITY_CONVERSATIONS_DIR")
+        or os.environ.get("GEMINI_CONVERSATIONS_DIR")
+    )
     if env_dir:
         return Path(env_dir)
     return Path.home() / ".gemini" / "antigravity" / "conversations"
@@ -198,18 +218,29 @@ def get_active_conversation_tokens(
     Guarantees fail-open, zero-crash execution: returns 0 on any missing file, locked
     database, schema mismatch, or read exception.
     """
-    if not conversation_id or conversation_id == "default":
+    norm_cid = _normalize_cid(conversation_id)
+    if not norm_cid or norm_cid == "default":
         return 0
 
-    base_dir = db_dir or get_conversations_dir()
-    db_path = base_dir / f"{conversation_id}.db"
-    if not db_path.is_file():
+    if norm_cid in LOCKED_CONVERSATION_IDS:
         return 0
 
     conn: Optional[sqlite3.Connection] = None
     try:
+        base_dir = db_dir or get_conversations_dir()
+        db_path = base_dir / f"{norm_cid}.db"
+        if not db_path.is_file():
+            return 0
+
         # Strict read-only mode with URI connection and bounded timeout (ADR-016)
-        eff_timeout = timeout if timeout is not None else 0.5
+        if timeout is not None:
+            try:
+                t_val = float(timeout)
+                eff_timeout = min(t_val, 0.5) if t_val > 0 else 0.5
+            except (ValueError, TypeError):
+                eff_timeout = 0.5
+        else:
+            eff_timeout = 0.5
         uri_path = f"file:{db_path.resolve()}?mode=ro"
         conn = sqlite3.connect(uri_path, uri=True, timeout=eff_timeout)
         cursor = conn.cursor()
@@ -362,8 +393,9 @@ def get_active_conversation_tokens(
 
         return tokens_found
     except sqlite3.OperationalError as oe:
-        if "lock" in str(oe).lower() or "busy" in str(oe).lower():
-            LOCKED_CONVERSATION_IDS.add(conversation_id)
+        err_msg = str(oe).lower()
+        if any(k in err_msg for k in ("lock", "busy", "io error", "disk i/o error", "protocol")):
+            LOCKED_CONVERSATION_IDS.add(norm_cid)
         return 0
     except Exception:
         return 0
