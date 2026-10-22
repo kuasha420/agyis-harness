@@ -38,6 +38,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from harness.hooks import pre_invocation_hook, runner
 from harness.hooks.pre_invocation_hook import (
+    CALIBRATION_METADATA,
     DEFAULT_COMPACTION_ADVISORY_THRESHOLD,
     ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR,
@@ -109,6 +110,17 @@ class TestThresholdCalibrationAndTrigger(unittest.TestCase):
 
         res_above = evaluate_pre_invocation(json.dumps({"tokens": 190_000}))
         self.assertEqual(len(res_above["injectSteps"]), 1)
+
+    def test_calibration_metadata_structure_and_values(self):
+        """AC1: Asserts CALIBRATION_METADATA is exported and contains empirical metrics."""
+        self.assertIsInstance(CALIBRATION_METADATA, dict)
+        self.assertEqual(CALIBRATION_METADATA["calibrated_threshold"], 230_000)
+        self.assertEqual(CALIBRATION_METADATA["compaction_trigger_min"], 227_529)
+        self.assertEqual(CALIBRATION_METADATA["compaction_trigger_max"], 262_127)
+        self.assertEqual(CALIBRATION_METADATA["compaction_trigger_avg"], 245_941)
+        self.assertEqual(CALIBRATION_METADATA["safety_runway_tokens"], 15_941)
+        self.assertIn("3-6 turns", CALIBRATION_METADATA["estimated_runway_turns"])
+        self.assertIn("2,500 - 4,800 tokens", CALIBRATION_METADATA["danger_zone_velocity_per_turn"])
 
 
 class TestRoleClassification(unittest.TestCase):
@@ -190,6 +202,27 @@ class TestRoleClassification(unittest.TestCase):
         self.assertEqual(classify_agent_role({}), ROLE_FLIGHT_DIRECTOR)
         self.assertEqual(classify_agent_role({"role": "unrecognized_unknown"}), ROLE_FLIGHT_DIRECTOR)
 
+    def test_classify_from_workspace_paths_official_schema(self):
+        """AC3: Classifies roles using official Antigravity camelCase 'workspacePaths' key."""
+        payload_str_list = {
+            "workspacePaths": ["/home/kuasha/worktrees/subagent-subagent-1-executioner-builder-8f776b9f"]
+        }
+        self.assertEqual(classify_agent_role(payload_str_list), ROLE_DEEP_EXECUTION)
+
+        payload_dict_list = {
+            "workspacePaths": [{"path": "/home/kuasha/worktrees/subagent-subagent-2-hammer-auditor-123"}]
+        }
+        self.assertEqual(classify_agent_role(payload_dict_list), ROLE_FORENSIC_AUDITOR)
+
+    def test_classify_custodian_role(self):
+        """AC3: Asserts SWE ladder custodian role maps to ROLE_DEEP_EXECUTION."""
+        self.assertEqual(classify_agent_role({"role": "custodian"}), ROLE_DEEP_EXECUTION)
+        self.assertEqual(classify_agent_role({"archetype": "custodian"}), ROLE_DEEP_EXECUTION)
+        self.assertEqual(
+            classify_agent_role({"workspace": "/worktrees/subagent-subagent-1-custodian-cleanup"}),
+            ROLE_DEEP_EXECUTION,
+        )
+
 
 class TestAdvisoryContracts(unittest.TestCase):
     """AC4, AC5, AC6: Work Preservation, Zero Repo Pollution, and Autonomous Continuation."""
@@ -257,6 +290,20 @@ class TestAdvisoryContracts(unittest.TestCase):
         self.assertIn("Forensic Auditor", adv)
         self.assertIn("re-execute verification suites on HEAD", adv)
         self.assertIn("verify exit codes", adv)
+
+    def test_dynamic_remaining_turns_in_advisory(self):
+        """AC3: Asserts dynamic runway and turns calculation is reflected in advisory text."""
+        # Tokens: 235,000 -> remaining: 11,000 -> turns: 3
+        adv_3 = build_compaction_advisory(ROLE_DEEP_EXECUTION, 235_000, 230_000)
+        self.assertIn("3 TURNS REMAINING", adv_3)
+
+        # Tokens: 245,000 -> remaining: 1,000 -> turns: 1
+        adv_1 = build_compaction_advisory(ROLE_DEEP_EXECUTION, 245_000, 230_000)
+        self.assertIn("1 TURNS REMAINING", adv_1)
+
+        # Tokens: 250,000 (>246,000) -> lower bound: 1 turn
+        adv_over = build_compaction_advisory(ROLE_DEEP_EXECUTION, 250_000, 230_000)
+        self.assertIn("1 TURNS REMAINING", adv_over)
 
 
 class TestEphemeralPayloadSchema(unittest.TestCase):
@@ -412,6 +459,34 @@ class TestRunnerIntegrationAndHooksJson(unittest.TestCase):
         self.assertEqual(len(res.get("injectSteps", [])), 1)
         self.assertIn("COMPACTION IMMINENT", res["injectSteps"][0]["ephemeralMessage"])
 
+    def test_runner_resolves_compaction_advisory_aliases(self):
+        """AC9: Asserts runner resolves 'compaction-advisory' and associated aliases."""
+        for alias in ("compaction-advisory", "compaction_advisory", "compaction", "advisory"):
+            with self.subTest(alias=alias):
+                self.assertEqual(
+                    runner.resolve_hook_module(alias),
+                    "harness.hooks.pre_invocation_hook",
+                )
+
+    def test_runner_dispatch_compaction_advisory_alias(self):
+        """AC9: Asserts runner.run_hook('compaction-advisory') dispatches correctly."""
+        payload = json.dumps({"tokens": 240_000, "role": "deep_execution"})
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = runner.run_hook("compaction-advisory", payload_str=payload)
+            self.assertEqual(code, 0)
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(len(res.get("injectSteps", [])), 1)
+            self.assertIn("COMPACTION IMMINENT", res["injectSteps"][0]["ephemeralMessage"])
+
+    def test_runner_compaction_advisory_fail_open_schema(self):
+        """AC8: Asserts runner compaction-advisory fail-open emits {'injectSteps': []} on corrupt input."""
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = runner.run_hook("compaction-advisory", payload_str="corrupt { json")
+            self.assertEqual(code, 0)
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res, {"injectSteps": []})
+            self.assertNotIn("decision", res)
+
 
 class TestSqliteIntegration(unittest.TestCase):
     """Verifies end-to-end token extraction from SQLite database."""
@@ -449,6 +524,30 @@ class TestSqliteIntegration(unittest.TestCase):
         msg = res["injectSteps"][0]["ephemeralMessage"]
         self.assertIn("245,000 / 230,000 TOKENS", msg)
         self.assertIn("Deep Execution", msg)
+
+    def test_post_compaction_token_reset_silence(self):
+        """AC2: Asserts hook falls silent ({'injectSteps': []}) after step_type 23 checkpoint."""
+        conv_id = "test-conv-post-compaction-silence"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_type INTEGER, step_data TEXT)"
+            )
+            # Pre-compaction step: 248,000 tokens
+            step_pre = json.dumps({"step_type": 15, "token_count": 248_000, "role": "deep_execution"})
+            conn.execute("INSERT INTO steps (idx, step_type, step_data) VALUES (1, 15, ?)", (step_pre,))
+
+            # Checkpoint step: 23 (compaction barrier)
+            conn.execute("INSERT INTO steps (idx, step_type, step_data) VALUES (2, 23, NULL)")
+
+            # Post-compaction model step: 28,000 tokens (well below 230k threshold)
+            step_post = json.dumps({"step_type": 15, "token_count": 28_000, "role": "deep_execution"})
+            conn.execute("INSERT INTO steps (idx, step_type, step_data) VALUES (3, 15, ?)", (step_post,))
+
+        payload = json.dumps({"conversationId": conv_id, "role": "deep_execution"})
+        res = evaluate_pre_invocation(payload, db_dir=self.db_dir)
+        self.assertEqual(res, {"injectSteps": []})
 
 
 if __name__ == "__main__":

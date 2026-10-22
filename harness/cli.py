@@ -120,6 +120,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
             "anti-drift", "drift", "anti_drift",
             "token-proximity", "token-proximity-guard", "token", "token_proximity_guard",
             "pre-invocation", "preinvocation",
+            "compaction-advisory", "compaction_advisory", "compaction", "advisory",
         ],
         help="Name of the lifecycle hook to invoke",
     )

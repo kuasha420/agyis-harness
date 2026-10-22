@@ -61,6 +61,10 @@ ALIASES: Dict[str, str] = {
     "pre-invocation": "pre-invocation",
     "pre_invocation": "pre-invocation",
     "preinvocation": "pre-invocation",
+    "compaction-advisory": "pre-invocation",
+    "compaction_advisory": "pre-invocation",
+    "compaction": "pre-invocation",
+    "advisory": "pre-invocation",
 }
 
 
@@ -82,7 +86,12 @@ def is_pre_invocation_context(hook_name: str, payload_str: Optional[str] = None)
     """
     normalized = (hook_name or "").strip().lower().replace("_", "-")
     canonical = ALIASES.get(normalized, normalized)
-    if canonical in ("pre-invocation", "preinvocation") or "invocation" in normalized:
+    if (
+        canonical in ("pre-invocation", "preinvocation")
+        or "invocation" in normalized
+        or "compaction" in normalized
+        or "advisory" in normalized
+    ):
         return True
 
     if payload_str:
@@ -90,7 +99,13 @@ def is_pre_invocation_context(hook_name: str, payload_str: Optional[str] = None)
             data = json.loads(payload_str)
             if isinstance(data, dict):
                 event = str(data.get("hookEvent") or data.get("hook_event") or data.get("event") or "").strip().lower()
-                if "invocation" in event or "pre-invocation" in event or "preinvocation" in event:
+                if (
+                    "invocation" in event
+                    or "pre-invocation" in event
+                    or "preinvocation" in event
+                    or "compaction" in event
+                    or "advisory" in event
+                ):
                     return True
                 if "invocationNum" in data or "invocation_num" in data:
                     return True

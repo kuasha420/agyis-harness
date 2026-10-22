@@ -34,6 +34,16 @@ from harness.hooks.token_proximity_guard import (
 
 DEFAULT_COMPACTION_ADVISORY_THRESHOLD: int = 230_000
 
+CALIBRATION_METADATA: Dict[str, Any] = {
+    "calibrated_threshold": 230_000,
+    "compaction_trigger_min": 227_529,
+    "compaction_trigger_max": 262_127,
+    "compaction_trigger_avg": 245_941,
+    "safety_runway_tokens": 15_941,
+    "estimated_runway_turns": "3-6 turns",
+    "danger_zone_velocity_per_turn": "2,500 - 4,800 tokens",
+}
+
 ROLE_FLIGHT_DIRECTOR: str = "flight_director"
 ROLE_SWARM_ORCHESTRATOR: str = "swarm_orchestrator"
 ROLE_DEEP_EXECUTION: str = "deep_execution"
@@ -63,6 +73,9 @@ def _normalize_role_str(val: Optional[str]) -> Optional[str]:
         ROLE_DEEP_EXECUTION,
         "executioner",
         "builder",
+        "custodian",
+        "harness_custodian",
+        "git_custodian",
         "harness_builder",
         "deep_coding",
         "deep_coder",
@@ -98,7 +111,13 @@ def _normalize_role_str(val: Optional[str]) -> Optional[str]:
         return ROLE_FLIGHT_DIRECTOR
 
     # Substring / pattern matching
-    if "executioner" in norm or "builder" in norm or "deep_execution" in norm or "deep_coding" in norm:
+    if (
+        "executioner" in norm
+        or "builder" in norm
+        or "custodian" in norm
+        or "deep_execution" in norm
+        or "deep_coding" in norm
+    ):
         return ROLE_DEEP_EXECUTION
     if "hammer" in norm or "auditor" in norm or "forensic" in norm:
         return ROLE_FORENSIC_AUDITOR
@@ -119,7 +138,7 @@ def classify_agent_role(
     Classifies the active agent role into one of the four canonical archetypes:
     - ROLE_FLIGHT_DIRECTOR: Root cockpit / plan coordinator.
     - ROLE_SWARM_ORCHESTRATOR: Multi-node mesh and strand coordinator.
-    - ROLE_DEEP_EXECUTION: Specialist builder / executioner.
+    - ROLE_DEEP_EXECUTION: Specialist builder / executioner / custodian.
     - ROLE_FORENSIC_AUDITOR: Hammer verification / auditor.
 
     Heuristics:
@@ -167,19 +186,31 @@ def classify_agent_role(
 
         # Heuristic 2: Workspace paths, worktree names, or cwd in payload
         ws_candidates: List[str] = []
-        for k in ("workspace", "worktree", "cwd", "workspacePath", "workspaceDir", "worktreePath", "path"):
+        for k in (
+            "workspace",
+            "worktree",
+            "cwd",
+            "workspacePath",
+            "workspacePaths",
+            "workspaceDir",
+            "worktreePath",
+            "path",
+            "activeWorkspaces",
+        ):
             v = payload.get(k)
             if isinstance(v, str):
                 ws_candidates.append(v)
             elif isinstance(v, dict) and "path" in v and isinstance(v["path"], str):
                 ws_candidates.append(v["path"])
 
-        if "activeWorkspaces" in payload and isinstance(payload["activeWorkspaces"], list):
-            for ws in payload["activeWorkspaces"]:
-                if isinstance(ws, str):
-                    ws_candidates.append(ws)
-                elif isinstance(ws, dict) and "path" in ws and isinstance(ws["path"], str):
-                    ws_candidates.append(ws["path"])
+        for ws_key in ("activeWorkspaces", "workspacePaths", "active_workspaces", "workspace_paths"):
+            ws_list = payload.get(ws_key)
+            if isinstance(ws_list, (list, tuple)):
+                for ws in ws_list:
+                    if isinstance(ws, str):
+                        ws_candidates.append(ws)
+                    elif isinstance(ws, dict) and "path" in ws and isinstance(ws["path"], str):
+                        ws_candidates.append(ws["path"])
 
         for ws_path in ws_candidates:
             matched = _normalize_role_str(ws_path)
@@ -210,11 +241,61 @@ def classify_agent_role(
                         if cur.fetchone():
                             cur.execute("PRAGMA table_info(steps)")
                             cols = {row[1] for row in cur.fetchall()}
-                            if "step_data" in cols:
-                                cur.execute("SELECT step_data FROM steps ORDER BY rowid ASC LIMIT 2")
-                                for (raw_step,) in cur.fetchall():
-                                    if raw_step:
-                                        matched = _normalize_role_str(str(raw_step))
+                            target_cols = [
+                                c for c in ("metadata", "step_payload", "step_data")
+                                if c in cols
+                            ]
+                            if target_cols:
+                                order_clause = "ORDER BY idx ASC" if "idx" in cols else "ORDER BY rowid ASC"
+                                cur.execute(
+                                    f"SELECT {', '.join(target_cols)} FROM steps {order_clause} LIMIT 2"
+                                )
+                                for row in cur.fetchall():
+                                    for raw_val in row:
+                                        if not raw_val:
+                                            continue
+                                        raw_str = (
+                                            raw_val.decode("utf-8", errors="ignore")
+                                            if isinstance(raw_val, (bytes, bytearray, memoryview))
+                                            else str(raw_val)
+                                        )
+                                        if raw_str.startswith("{") or raw_str.startswith("["):
+                                            try:
+                                                parsed = json.loads(raw_str)
+                                                if isinstance(parsed, dict):
+                                                    for rk in (
+                                                        "role",
+                                                        "archetype",
+                                                        "typeName",
+                                                        "agentName",
+                                                        "agent_name",
+                                                        "subagent_role",
+                                                        "subagentRole",
+                                                    ):
+                                                        if rk in parsed and isinstance(parsed[rk], str):
+                                                            matched = _normalize_role_str(parsed[rk])
+                                                            if matched:
+                                                                return matched
+                                                    for pk in ("agent", "subagent", "metadata", "context"):
+                                                        pdict = parsed.get(pk)
+                                                        if isinstance(pdict, dict):
+                                                            for rk in ("role", "archetype", "typeName", "agentName", "subagent_role"):
+                                                                if rk in pdict and isinstance(pdict[rk], str):
+                                                                    matched = _normalize_role_str(pdict[rk])
+                                                                    if matched:
+                                                                        return matched
+                                                    for wk in ("activeWorkspaces", "workspacePaths"):
+                                                        wlist = parsed.get(wk)
+                                                        if isinstance(wlist, list):
+                                                            for w in wlist:
+                                                                wpath = w.get("path") if isinstance(w, dict) else (w if isinstance(w, str) else None)
+                                                                if wpath and isinstance(wpath, str):
+                                                                    matched = _normalize_role_str(wpath)
+                                                                    if matched:
+                                                                        return matched
+                                            except Exception:
+                                                pass
+                                        matched = _normalize_role_str(raw_str)
                                         if matched:
                                             return matched
                 except Exception:
@@ -236,9 +317,12 @@ def build_compaction_advisory(
     Generates a role-tailored system advisory directive alerting the agent to imminent compaction.
     Codifies AC4 (Work Preservation Contract), AC5 (Zero Repo Pollution), and AC6 (Autonomous Continuation).
     """
+    remaining_tokens = max(0, 246_000 - tokens)
+    estimated_turns = max(1, remaining_tokens // 3500) if tokens < 246_000 else 1
+
     if role == ROLE_DEEP_EXECUTION:
         return (
-            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS)]\n"
+            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
             "ROLE: Deep Execution (Executioner / Builder)\n\n"
             "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
             "1. WORK PRESERVATION CONTRACT (MANDATORY):\n"
@@ -254,7 +338,7 @@ def build_compaction_advisory(
 
     elif role == ROLE_SWARM_ORCHESTRATOR:
         return (
-            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS)]\n"
+            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
             "ROLE: Swarm Orchestrator (Mesh Coordinator)\n\n"
             "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
             "1. SWARM STATE SURVIVAL & ZERO REPO POLLUTION:\n"
@@ -269,7 +353,7 @@ def build_compaction_advisory(
 
     elif role == ROLE_FORENSIC_AUDITOR:
         return (
-            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS)]\n"
+            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
             "ROLE: Forensic Auditor (Auditor / Hammer)\n\n"
             "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
             "1. EVIDENCE PRESERVATION & ZERO REPO POLLUTION:\n"
@@ -283,7 +367,7 @@ def build_compaction_advisory(
 
     elif role == ROLE_FLIGHT_DIRECTOR:
         return (
-            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS)]\n"
+            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
             "ROLE: Flight Director (Cockpit Coordinator)\n\n"
             "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
             "1. ZERO REPO DOCUMENT POLLUTION:\n"
@@ -297,7 +381,7 @@ def build_compaction_advisory(
         )
 
     return (
-        f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS)]\n"
+        f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
         "ROLE: General Agent\n\n"
         "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
         "1. WORK PRESERVATION CONTRACT: STRICTLY PROHIBIT 'git checkout -- .' and 'git reset --hard'. Keep all work on disk.\n"

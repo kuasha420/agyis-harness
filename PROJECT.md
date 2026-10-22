@@ -1,53 +1,61 @@
-# Project: 360-Degree Telemetry Audit & Emergent Pattern Mining
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
+<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
+
+# Project: Route C Swarm Hardening (Issue #83 Act 4)
 
 ## Architecture
-- **Data Layer (`data/`)**: SQLite telemetry databases (`data/telemetry.db`, `data/telemetry_hub.db`), intermediate analysis JSON caches (`data/*.json`).
-- **Telemetry Infrastructure (`harness/telemetry/`)**: Schema definition (`schema.py`), bidirectional multi-node sync engine (`sync/push.py`, `sync/pull.py`, `sync/coordinator.py`).
-- **Analytical Pipeline (`pipeline/`)**: Dedicated forensic modules (`extract_transcripts.py`, `classify_failures.py`, `analyze_ultra_deep_sessions.py`, `analyze_failure_clusters.py`, `analyze_volume_distributions.py`, `analyze_context_dynamics.py`, `summarize_interventions.py`, `audit_artifacts.py`, `audit_project_configs.py`).
-- **CLI Dispatcher (`harness/commands/audit.py`, `harness/cli.py`)**: `./agyis audit <stage>` and `python3 -m harness.cli audit <stage>`.
-- **Reporting Deliverables (`docs/reports/`)**: Permanent evidence-grounded report at `docs/reports/360_telemetry_audit_2026_10.md`.
+- **Hook Lifecycle**: Google Antigravity `PreInvocation` lifecycle hook invoked prior to every model turn.
+- **Ingress**: Receives JSON on `stdin` containing conversation context (`conversationId`, `workspacePaths`, `activeWorkspaces`, `tokens`, `token_count`, `role`).
+- **Runner & CLI**: `harness/cli.py` exposes `agyis hook <hook_name>`, dispatching to `harness/hooks/runner.py`. The runner resolves canonical aliases, invokes the target hook module, and enforces fail-open guarantees (`{"injectSteps": []}` with exit code 0).
+- **Advisory Engine**: `harness/hooks/pre_invocation_hook.py` evaluates token counts via direct payload inspection or read-only SQLite conversation database queries (`token_proximity_guard.py`). When tokens >= 230,000, classifies agent role and constructs ephemeral advisory with dynamic remaining turns runway.
+- **Egress**: Returns protojson `{"injectSteps": []}` (below threshold or fail-open) or `{"injectSteps": [{"ephemeralMessage": advisory}]}` (at/above threshold).
 
 ## Feature Inventory
+Every feature from the Survey phase is mapped to an assigned milestone:
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | Full Pipeline Ingestion & Execution | Run full audit pipeline (`extract`, `classify`, `dynamics`, `interventions`, `volume`, `deep`, `clusters`) with exit code 0 | M1 | Survey 1 / R1 |
-| 2 | Cache Reconciliation & Stale Cache Refresh | Refresh stale caches (`artifacts_audit_summary.json`, `project_configs_audit.json`, `top_100_cognitive_trajectories.json`) | M1 | Survey 1 / R1 |
-| 3 | Double-Ingestion Duplication Documentation | Document the 623-session duplication anomaly and provide mathematical dedup filters | M1 | Survey 1 / R1 |
-| 4 | Native `/teamwork-preview` Topology Dissection | Analyze evolution (prototype -> July 29-subagent swarm -> Oct resilient dual-gen) | M2 | Survey 2 / R2 |
-| 5 | High-Intensity `/boost` Modality Analysis | Dissect 346 `/boost` interventions, reasoning mode selection, and 4k char thinking spans | M2 | Survey 2 / R2 |
-| 6 | Agyis `/subagent-ladder` Pipeline Analysis | Trace historical inception (Session `4021bbec`, 101.5h) and 4-stage ladder protocol | M2 | Survey 2 / R2 |
-| 7 | Cognitive Cliff & Titan Session Dynamics | Quantify error/intervention escalation (<20k vs >100k vs >200k) and tool shift in titan sessions | M2 | Survey 2 / R2 |
-| 8 | Subagent Latency & Coordination Profiles | Profile subagent dispatch (0.05s) vs background task sync (1.26s) and blockage risks | M2 | Survey 2 / R2 |
-| 9 | Tool-Failure Disconnect Discovery | Document finding that only 26 of 3,270 (0.8%) interventions followed tool errors | M3 | Survey 3 / R3 |
-| 10 | Flight Director Steering & Drift Mitigation | Categorize 55 interventions for monorepo drift, generative overfit, and synthetic status | M3 | Survey 3 / R3 |
-| 11 | ADR Invariant Enforcement Analysis | Document 112 interventions enforcing ADR-012, ADR-013, ADR-015, ADR-028 | M3 | Survey 3 / R3 |
-| 12 | Pause & Resume Lifecycle Invariants | Analyze 222 pause/park alerts, 78 resumes, and the "Never Kill Subagents During Pause" rule | M3 | Survey 3 / R3 |
-| 13 | Disaster & Powerloss Recovery Signatures | Document 106 events: Bangladesh load shedding, `/powerloss-resume`, Linux OOM crashes | M3 | Survey 3 / R3 |
-| 14 | 360-Degree Comprehensive Synthesis Report Authoring | Compile complete evidence-grounded report at `docs/reports/360_telemetry_audit_2026_10.md` | M4 | Survey 1-3 / R4 |
-| 15 | Harness & Cockpit Strategic Recommendations | Codify 5 concrete recommendations (Anti-Kill Hook, Powerloss Resume Skill, Quota Burn Gauges, Memory Throttling, Dual Gate Auditor) | M4 | Survey 1-3 / R4 |
-| 16 | Comprehensive E2E Verification Suite | Automated verification of pipeline execution, report structure, and telemetry claims | E2E | R1-R4 / Acceptance |
+| 1 | F1: Runner Aliases | Register `"compaction-advisory"`, `"compaction_advisory"`, `"compaction"`, `"advisory"` in `runner.py:ALIASES` | M1 | COMPLETION_LEDGER.md §5 M1 |
+| 2 | F2: Runner Fail-Open Normalization | Update `is_pre_invocation_context()` to recognize `"compaction"` and `"advisory"`, guaranteeing `{"injectSteps": []}` on failure | M1 | COMPLETION_LEDGER.md §5 M1 |
+| 3 | F3: CLI Whitelist Registration | Add `"compaction-advisory"`, `"compaction_advisory"`, `"compaction"` to `harness/cli.py` argument choices | M1 | COMPLETION_LEDGER.md §5 M1 |
+| 4 | F4: Ingress Key Alignment | Support both `"activeWorkspaces"` and official camelCase `"workspacePaths"` in `classify_agent_role()` | M2 | COMPLETION_LEDGER.md §5 M2 |
+| 5 | F5: Custodian Role Mapping | Map `"custodian"` to `ROLE_DEEP_EXECUTION` in `_normalize_role_str()` for SWE ladder worktree safety | M2 | COMPLETION_LEDGER.md §5 M2 |
+| 6 | F6: Modern Protobuf Blob SQLite Inspection | Enhance Heuristic 4 to inspect `metadata` and `step_payload` binary blobs alongside legacy `step_data` | M2 | COMPLETION_LEDGER.md §5 M2 |
+| 7 | F7: Codified Fleet Calibration Metadata | Define and export `CALIBRATION_METADATA` in `harness/hooks/pre_invocation_hook.py` (230k threshold, 15.9k runway, 3-6 turns) | M3 | COMPLETION_LEDGER.md §5 M3 |
+| 8 | F8: Dynamic Runway & Turns Calculation | Compute dynamic remaining turns (`(246_000 - tokens) // 3500`) and embed in advisory header in `build_compaction_advisory()` | M3 | COMPLETION_LEDGER.md §5 M3 |
+| 9 | F9: Expanded Unit & Integration Tests | Author 8 new targeted tests in `tests/test_compaction_advisory.py` covering M1–M3 and post-compaction silence | M4 | COMPLETION_LEDGER.md §5 M4 |
+| 10 | F10: Final E2E Pass & Adversarial Hardening | Pass 100% of E2E tests, verify ADR-015 sub-second benchmark (<1.0s), and verify clean project test suite exit code 0 | M5 | Issue #83 AC9 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Pipeline Ingestion & Cache Reconciliation | Run all audit pipeline stages, reconcile DB records, update `data/*.json` | None | DONE |
-| M2 | Multi-Agent & Topology Dissection Verification | Validate multi-agent, boost, ladder, and cognitive cliff metrics | M1 | DONE |
-| M3 | Operator Steering & Resilience Dissection Verification | Validate steering, ADR invariants, pause/resume, and disaster recovery metrics | M1 | DONE |
-| M4 | 360-Degree Comprehensive Synthesis Report Authoring | Author `docs/reports/360_telemetry_audit_2026_10.md` | M2, M3 | DONE |
-| M5 | E2E Verification & Out-of-Band Audit Gate | Run E2E verification test suite, reviewer, challenger, and forensic auditor | M4 | DONE |
+| M1 | Runner Alias & Fail-Open Normalization | `harness/hooks/runner.py`, `harness/cli.py` (F1, F2, F3) | none | DONE |
+| M2 | Ingress Key Alignment & Custodian Role Mapping | `harness/hooks/pre_invocation_hook.py` (F4, F5, F6) | none | DONE |
+| M3 | Codified Calibration Metadata & Dynamic Runway | `harness/hooks/pre_invocation_hook.py` (F7, F8) | M2 | DONE |
+| M4 | Test Suite Expansion & Adversarial Verification | `tests/test_compaction_advisory.py` (F9) | M1, M2, M3 | DONE |
+| M5 | Final Milestone: 100% E2E Pass & Hardening | Full test suite verification & adversarial challenge (F10) | M1, M2, M3, M4 | PARKED (QUIESCENT) |
 
 ## Interface Contracts
-### Analytical Pipeline ↔ Data Caches
-- Pipeline scripts output clean, formatted JSON files in `data/*.json`.
-- Analytical caches record standard analytical keys and summary metrics (e.g. `overview`, `total_interventions`, `timestamp` / `generated_at`).
-- Database queries must handle double-ingested tool calls gracefully using deduplication keys or raw session counts.
+### CLI ↔ Runner
+- `python3 -m harness.cli hook <hook_name>` accepts `"compaction-advisory"`, `"compaction_advisory"`, `"compaction"` and invokes `harness.hooks.runner.run_hook(<hook_name>, ...)`.
 
-### Data Caches ↔ Comprehensive Synthesis Report
-- Every metric, table, and percentage in `docs/reports/360_telemetry_audit_2026_10.md` must link to a verified query in `data/telemetry.db` or a field in `data/*.json`.
-- Every cited session must include `session_id`, step index, timestamp, and context summary.
+### Runner ↔ PreInvocation Hook
+- Ingress: `stdin` json with `{"conversationId": "...", "tokenCount": ...}`.
+- Fail-Open Contract: Any exception under `pre-invocation`, `compaction-advisory`, or related aliases emits:
+  `{"injectSteps": []}` with exit code `0`.
+
+### PreInvocation Hook ↔ Antigravity Platform
+- Below threshold (< 230,000 tokens): `{"injectSteps": []}`.
+- At/above threshold (>= 230,000 tokens):
+  `{"injectSteps": [{"ephemeralMessage": "[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / 230,000 TOKENS | ~{estimated_turns} TURNS REMAINING)]\n..."}]}`.
 
 ## Code Layout
-- `pipeline/`: Analytical scripts. Owned by Worker M1.
-- `data/`: Database and cache files. Managed by Worker M1.
-- `docs/reports/360_telemetry_audit_2026_10.md`: Authoritative synthesis deliverable. Owned by Worker M4.
-- `tests/test_audit_report.py`: E2E verification suite. Owned by E2E Test Writer.
+- Product Code:
+  - `harness/hooks/runner.py` (Exclusive write ownership: Milestone 1 Worker)
+  - `harness/cli.py` (Exclusive write ownership: Milestone 1 Worker)
+  - `harness/hooks/pre_invocation_hook.py` (Exclusive write ownership: Milestone 2 & Milestone 3 Workers)
+- Test Code:
+  - `tests/test_compaction_advisory.py` (Exclusive write ownership: Milestone 4 Worker)
+- Agent Metadata:
+  - `.agents/teamwork/**` (Orchestrator, Workers, Reviewers, Challengers, Auditors metadata only)
