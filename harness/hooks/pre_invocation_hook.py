@@ -29,12 +29,28 @@ import traceback
 from typing import Any, Dict, List, Optional, Tuple
 
 from harness.hooks.token_proximity_guard import (
+    LOCKED_CONVERSATION_IDS,
+    clear_locked_conversations,
     get_active_conversation_tokens,
     get_conversations_dir,
     parse_protobuf_varint,
 )
 
 DEFAULT_COMPACTION_ADVISORY_THRESHOLD: int = 230_000
+DEFAULT_SQLITE_TIMEOUT: float = 0.5
+
+
+def get_compaction_sqlite_timeout() -> float:
+    """Returns the effective SQLite connection timeout in seconds (default <= 0.5s)."""
+    env_to = os.environ.get("AGYIS_SQLITE_TIMEOUT")
+    if env_to:
+        try:
+            val = float(env_to.strip())
+            if 0 < val <= 5.0:
+                return val
+        except (ValueError, TypeError):
+            pass
+    return DEFAULT_SQLITE_TIMEOUT
 
 CALIBRATION_METADATA: Dict[str, Any] = {
     "calibrated_threshold": 230_000,
@@ -328,14 +344,17 @@ def check_pillar_3_explicit_role(
             for cand in candidates:
                 if cand.is_file():
                     try:
+                        st_size = cand.stat().st_size
+                        if st_size == 0 or st_size > 65_536:
+                            continue
                         content = cand.read_text(encoding="utf-8", errors="ignore").strip()
                         if content:
                             data = json.loads(content)
                             if isinstance(data, dict):
                                 for rk in ("role", "agent_role", "session_role", "archetype"):
                                     val = data.get(rk)
-                                    if isinstance(val, str):
-                                        matched = _normalize_role_str(val)
+                                    if isinstance(val, str) and val.strip():
+                                        matched = _normalize_role_str(val.strip())
                                         if matched:
                                             return matched
                     except Exception:
@@ -363,14 +382,16 @@ def check_pillar_3_explicit_role(
             brain_cand = Path.home() / ".gemini" / "antigravity" / "brain" / str(effective_cid) / "session_role.json"
             if brain_cand.is_file():
                 try:
-                    data = json.loads(brain_cand.read_text(encoding="utf-8", errors="ignore"))
-                    if isinstance(data, dict):
-                        for rk in ("role", "agent_role", "session_role", "archetype"):
-                            val = data.get(rk)
-                            if isinstance(val, str):
-                                matched = _normalize_role_str(val)
-                                if matched:
-                                    return matched
+                    st_size = brain_cand.stat().st_size
+                    if 0 < st_size <= 65_536:
+                        data = json.loads(brain_cand.read_text(encoding="utf-8", errors="ignore"))
+                        if isinstance(data, dict):
+                            for rk in ("role", "agent_role", "session_role", "archetype"):
+                                val = data.get(rk)
+                                if isinstance(val, str) and val.strip():
+                                    matched = _normalize_role_str(val.strip())
+                                    if matched:
+                                        return matched
                 except Exception:
                     pass
 
@@ -390,30 +411,32 @@ def check_pillar_3_explicit_role(
                 brain_dir=art_brain_dir,
             )
             if plan_path and plan_path.is_file():
-                content = plan_path.read_text(encoding="utf-8", errors="ignore")[:8192]
-                if plan_path.suffix == ".json":
-                    try:
-                        d = json.loads(content)
-                        if isinstance(d, dict):
-                            for rk in ("role", "agent_role", "archetype"):
-                                val = d.get(rk)
-                                if isinstance(val, str):
-                                    matched = _normalize_role_str(val)
-                                    if matched:
-                                        return matched
-                    except Exception:
-                        pass
-                else:
-                    m = re.search(r"(?:^|\n)\s*(?:\*\*)?[Rr]ole(?:\*\*)?:\s*([a-zA-Z0-9_\-]+)", content)
-                    if m:
-                        matched = _normalize_role_str(m.group(1))
-                        if matched:
-                            return matched
-                    m_comment = re.search(r"<!--\s*role:\s*([a-zA-Z0-9_\-]+)\s*-->", content, re.IGNORECASE)
-                    if m_comment:
-                        matched = _normalize_role_str(m_comment.group(1))
-                        if matched:
-                            return matched
+                st_size = plan_path.stat().st_size
+                if 0 < st_size <= 65_536:
+                    content = plan_path.read_text(encoding="utf-8", errors="ignore")[:8192]
+                    if plan_path.suffix == ".json":
+                        try:
+                            d = json.loads(content)
+                            if isinstance(d, dict):
+                                for rk in ("role", "agent_role", "archetype"):
+                                    val = d.get(rk)
+                                    if isinstance(val, str) and val.strip():
+                                        matched = _normalize_role_str(val.strip())
+                                        if matched:
+                                            return matched
+                        except Exception:
+                            pass
+                    else:
+                        m = re.search(r"(?:^|\n)\s*(?:\*\*)?[Rr]ole(?:\*\*)?:\s*([a-zA-Z0-9_\-]+)", content)
+                        if m:
+                            matched = _normalize_role_str(m.group(1).strip())
+                            if matched:
+                                return matched
+                        m_comment = re.search(r"<!--\s*role:\s*([a-zA-Z0-9_\-]+)\s*-->", content, re.IGNORECASE)
+                        if m_comment:
+                            matched = _normalize_role_str(m_comment.group(1).strip())
+                            if matched:
+                                return matched
         except Exception:
             pass
 
@@ -438,6 +461,7 @@ def check_pillar_1_intent(
     payload: Dict[str, Any],
     conversation_id: str = "",
     db_dir: Optional[Path] = None,
+    timeout: Optional[float] = None,
 ) -> Optional[str]:
     """
     Pillar 1 (Early Turn Intent Interception):
@@ -486,46 +510,57 @@ def check_pillar_1_intent(
                     effective_cid = m.group(1).lower()
                     break
 
-    if effective_cid and effective_cid != "default":
+    if effective_cid and effective_cid != "default" and effective_cid not in LOCKED_CONVERSATION_IDS:
         base_dir = db_dir or get_conversations_dir()
         db_path = base_dir / f"{effective_cid}.db"
         if db_path.is_file():
+            conn: Optional[sqlite3.Connection] = None
             try:
+                to = timeout if timeout is not None else get_compaction_sqlite_timeout()
                 uri_path = f"file:{db_path.resolve()}?mode=ro"
-                with sqlite3.connect(uri_path, uri=True, timeout=0.5) as conn:
-                    cur = conn.cursor()
-                    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='steps'")
-                    if cur.fetchone():
-                        cur.execute("PRAGMA table_info(steps)")
-                        cols = {row[1] for row in cur.fetchall()}
-                        target_cols = [c for c in ("step_data", "metadata", "step_payload") if c in cols]
-                        if target_cols:
-                            order_clause = "ORDER BY idx ASC" if "idx" in cols else "ORDER BY rowid ASC"
-                            cur.execute(f"SELECT {', '.join(target_cols)} FROM steps {order_clause} LIMIT 4")
-                            for row in cur.fetchall():
-                                for raw_val in row:
-                                    if not raw_val:
-                                        continue
-                                    if isinstance(raw_val, str):
-                                        if raw_val.startswith("{"):
-                                            try:
-                                                parsed = json.loads(raw_val)
-                                                if isinstance(parsed, dict):
-                                                    for rk in ("role", "archetype", "subagent_role"):
-                                                        if rk in parsed and isinstance(parsed[rk], str):
-                                                            m = _normalize_role_str(parsed[rk])
-                                                            if m:
-                                                                return m
-                                                    for pk in ("prompt", "user_input", "userPrompt", "message", "text"):
-                                                        if pk in parsed and isinstance(parsed[pk], str):
-                                                            text_snippets.append(parsed[pk])
-                                            except Exception:
-                                                pass
-                                        text_snippets.append(raw_val)
-                                    elif isinstance(raw_val, (bytes, bytearray, memoryview)):
-                                        text_snippets.append(bytes(raw_val).decode("utf-8", errors="ignore"))
+                conn = sqlite3.connect(uri_path, uri=True, timeout=to)
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='steps'")
+                if cur.fetchone():
+                    cur.execute("PRAGMA table_info(steps)")
+                    cols = {row[1] for row in cur.fetchall()}
+                    target_cols = [c for c in ("step_data", "metadata", "step_payload") if c in cols]
+                    if target_cols:
+                        order_clause = "ORDER BY idx ASC" if "idx" in cols else "ORDER BY rowid ASC"
+                        cur.execute(f"SELECT {', '.join(target_cols)} FROM steps {order_clause} LIMIT 4")
+                        for row in cur.fetchall():
+                            for raw_val in row:
+                                if not raw_val:
+                                    continue
+                                if isinstance(raw_val, str):
+                                    if raw_val.startswith("{"):
+                                        try:
+                                            parsed = json.loads(raw_val)
+                                            if isinstance(parsed, dict):
+                                                for rk in ("role", "archetype", "subagent_role"):
+                                                    if rk in parsed and isinstance(parsed[rk], str):
+                                                        m = _normalize_role_str(parsed[rk])
+                                                        if m:
+                                                            return m
+                                                for pk in ("prompt", "user_input", "userPrompt", "message", "text"):
+                                                    if pk in parsed and isinstance(parsed[pk], str):
+                                                        text_snippets.append(parsed[pk])
+                                        except Exception:
+                                            pass
+                                    text_snippets.append(raw_val)
+                                elif isinstance(raw_val, (bytes, bytearray, memoryview)):
+                                    text_snippets.append(bytes(raw_val).decode("utf-8", errors="ignore"))
+            except sqlite3.OperationalError as oe:
+                if "lock" in str(oe).lower() or "busy" in str(oe).lower():
+                    LOCKED_CONVERSATION_IDS.add(effective_cid)
             except Exception:
                 pass
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
     if not text_snippets:
         return None
@@ -548,6 +583,7 @@ def check_pillar_2_behavior(
     conversation_id: str = "",
     tokens: int = 0,
     db_dir: Optional[Path] = None,
+    timeout: Optional[float] = None,
 ) -> Optional[str]:
     """
     Pillar 2 (Mid-Trajectory Behavioral Verification at Step 100 or 200k Tokens):
@@ -602,8 +638,8 @@ def check_pillar_2_behavior(
                         effective_cid = m.group(1).lower()
                         break
 
-        if cur_tokens == 0 and effective_cid and effective_cid != "default":
-            cur_tokens = get_active_conversation_tokens(effective_cid, db_dir=db_dir)
+        if cur_tokens == 0 and effective_cid and effective_cid != "default" and effective_cid not in LOCKED_CONVERSATION_IDS:
+            cur_tokens = get_active_conversation_tokens(effective_cid, db_dir=db_dir, timeout=timeout)
 
         db_steps_count = 0
         tool_calls: List[Tuple[str, str]] = []
@@ -617,61 +653,74 @@ def check_pillar_2_behavior(
 
         # Single read-only SQLite inspection for both step count and tool calls
         if db_path is not None:
+            if effective_cid in LOCKED_CONVERSATION_IDS:
+                return None
+            conn: Optional[sqlite3.Connection] = None
             try:
                 uri_path = f"file:{db_path.resolve()}?mode=ro"
-                with sqlite3.connect(uri_path, uri=True, timeout=0.5) as conn:
-                    cur = conn.cursor()
-                    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                    tables = {r[0] for r in cur.fetchall()}
+                to = timeout if timeout is not None else get_compaction_sqlite_timeout()
+                conn = sqlite3.connect(uri_path, uri=True, timeout=to)
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = {r[0] for r in cur.fetchall()}
 
-                    if "steps" in tables:
-                        cur.execute("SELECT count(*) FROM steps")
-                        row = cur.fetchone()
-                        if row and row[0]:
-                            db_steps_count = int(row[0])
+                if "steps" in tables:
+                    cur.execute("SELECT count(*) FROM steps")
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        db_steps_count = int(row[0])
 
-                    total_steps_eval = max(step_count, db_steps_count)
-                    if cur_tokens >= 200_000 or total_steps_eval >= 100 or payload.get("force_pillar_2"):
-                        if "tool_calls" in tables:
-                            cur.execute("PRAGMA table_info(tool_calls)")
-                            t_cols = {r[1] for r in cur.fetchall()}
-                            name_col = "tool_name" if "tool_name" in t_cols else "name"
-                            arg_col = "arguments" if "arguments" in t_cols else ("command" if "command" in t_cols else "''")
-                            cur.execute(f"SELECT {name_col}, {arg_col} FROM tool_calls LIMIT 500")
-                            for r in cur.fetchall():
-                                tool_calls.append((str(r[0] or ""), str(r[1] or "")))
+                total_steps_eval = max(step_count, db_steps_count)
+                if cur_tokens >= 200_000 or total_steps_eval >= 100 or payload.get("force_pillar_2"):
+                    if "tool_calls" in tables:
+                        cur.execute("PRAGMA table_info(tool_calls)")
+                        t_cols = {r[1] for r in cur.fetchall()}
+                        name_col = "tool_name" if "tool_name" in t_cols else "name"
+                        arg_col = "arguments" if "arguments" in t_cols else ("command" if "command" in t_cols else "''")
+                        cur.execute(f"SELECT {name_col}, {arg_col} FROM tool_calls LIMIT 500")
+                        for r in cur.fetchall():
+                            tool_calls.append((str(r[0] or ""), str(r[1] or "")))
 
-                        elif "steps" in tables:
-                            cur.execute("PRAGMA table_info(steps)")
-                            s_cols = {r[1] for r in cur.fetchall()}
-                            target_cols = [c for c in ("tool_name", "step_data", "metadata", "step_payload") if c in s_cols]
-                            if target_cols:
-                                where_clause = "WHERE step_type = 132" if "step_type" in s_cols else ""
-                                order_clause = "ORDER BY idx DESC" if "idx" in s_cols else "ORDER BY rowid DESC"
-                                cur.execute(f"SELECT {', '.join(target_cols)} FROM steps {where_clause} {order_clause} LIMIT 500")
-                                for r_row in cur.fetchall():
-                                    for cell in r_row:
-                                        if not cell:
-                                            continue
-                                        if isinstance(cell, str):
-                                            if cell.startswith("{"):
-                                                try:
-                                                    d = json.loads(cell)
-                                                    if isinstance(d, dict):
-                                                        tn = d.get("tool_name") or d.get("tool") or d.get("name")
-                                                        args = d.get("arguments") or d.get("command") or d.get("args") or ""
-                                                        if tn:
-                                                            tool_calls.append((str(tn), str(args)))
-                                                except Exception:
-                                                    pass
-                                            else:
-                                                tool_calls.append((cell, ""))
-                                        elif isinstance(cell, (bytes, bytearray, memoryview)):
-                                            tn, args = _extract_tool_from_proto_bytes(bytes(cell))
-                                            if tn:
-                                                tool_calls.append((tn, args))
+                    elif "steps" in tables:
+                        cur.execute("PRAGMA table_info(steps)")
+                        s_cols = {r[1] for r in cur.fetchall()}
+                        target_cols = [c for c in ("tool_name", "step_data", "metadata", "step_payload") if c in s_cols]
+                        if target_cols:
+                            where_clause = "WHERE step_type = 132" if "step_type" in s_cols else ""
+                            order_clause = "ORDER BY idx DESC" if "idx" in s_cols else "ORDER BY rowid DESC"
+                            cur.execute(f"SELECT {', '.join(target_cols)} FROM steps {where_clause} {order_clause} LIMIT 500")
+                            for r_row in cur.fetchall():
+                                for cell in r_row:
+                                    if not cell:
+                                        continue
+                                    if isinstance(cell, str):
+                                        if cell.startswith("{"):
+                                            try:
+                                                d = json.loads(cell)
+                                                if isinstance(d, dict):
+                                                    tn = d.get("tool_name") or d.get("tool") or d.get("name")
+                                                    args = d.get("arguments") or d.get("command") or d.get("args") or ""
+                                                    if tn:
+                                                        tool_calls.append((str(tn), str(args)))
+                                            except Exception:
+                                                pass
+                                        else:
+                                            tool_calls.append((cell, ""))
+                                    elif isinstance(cell, (bytes, bytearray, memoryview)):
+                                        tn, args = _extract_tool_from_proto_bytes(bytes(cell))
+                                        if tn:
+                                            tool_calls.append((tn, args))
+            except sqlite3.OperationalError as oe:
+                if "lock" in str(oe).lower() or "busy" in str(oe).lower():
+                    LOCKED_CONVERSATION_IDS.add(effective_cid)
             except Exception:
                 pass
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
         total_steps = max(step_count, db_steps_count)
 
@@ -774,6 +823,7 @@ def classify_agent_role(
     db_dir: Optional[Path] = None,
     workspace_dir: Optional[Path] = None,
     tokens: int = 0,
+    timeout: Optional[float] = None,
 ) -> str:
     """
     Classifies the active agent role into one of the four canonical archetypes:
@@ -846,6 +896,7 @@ def classify_agent_role(
             conversation_id=conversation_id,
             tokens=tokens,
             db_dir=db_dir,
+            timeout=timeout,
         )
         if p2_role:
             return p2_role
@@ -855,6 +906,7 @@ def classify_agent_role(
             payload,
             conversation_id=conversation_id,
             db_dir=db_dir,
+            timeout=timeout,
         )
         if p1_role:
             return p1_role
@@ -986,6 +1038,7 @@ def evaluate_pre_invocation(
     threshold: Optional[int] = None,
     db_dir: Optional[Path] = None,
     workspace_dir: Optional[Path] = None,
+    sqlite_timeout: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     Evaluates token proximity for a PreInvocation event.
@@ -994,6 +1047,11 @@ def evaluate_pre_invocation(
     - {"injectSteps": [{"ephemeralMessage": advisory}]} if at or above threshold.
     """
     try:
+        if isinstance(payload_str, (bytes, bytearray)):
+            payload_str = payload_str.decode("utf-8", errors="replace")
+        elif not isinstance(payload_str, str):
+            payload_str = ""
+
         payload = json.loads(payload_str) if payload_str and payload_str.strip() else {}
         if not isinstance(payload, dict):
             payload = {}
@@ -1001,6 +1059,7 @@ def evaluate_pre_invocation(
         payload = {}
 
     try:
+        clear_locked_conversations()
         conv_id = str(payload.get("conversationId") or payload.get("conversation_id") or "default")
         if conv_id == "default":
             for pk in (
@@ -1039,7 +1098,8 @@ def evaluate_pre_invocation(
             else get_compaction_advisory_threshold()
         )
 
-        tokens = get_active_conversation_tokens(conv_id, db_dir=db_dir)
+        to = sqlite_timeout if sqlite_timeout is not None else get_compaction_sqlite_timeout()
+        tokens = get_active_conversation_tokens(conv_id, db_dir=db_dir, timeout=to)
         if tokens == 0:
             for k in ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens"):
                 val = payload.get(k)
@@ -1056,6 +1116,7 @@ def evaluate_pre_invocation(
             db_dir=db_dir,
             workspace_dir=eff_ws,
             tokens=tokens,
+            timeout=to,
         )
         advisory = build_compaction_advisory(role, tokens, effective_threshold)
         return {"injectSteps": [{"ephemeralMessage": advisory}]}
@@ -1066,7 +1127,11 @@ def evaluate_pre_invocation(
 def main(argv: Optional[List[str]] = None) -> int:
     """Fail-open CLI entrypoint for PreInvocation lifecycle hook."""
     try:
-        raw_stdin = sys.stdin.read()
+        if hasattr(sys.stdin, "buffer"):
+            raw_bytes = sys.stdin.buffer.read()
+            raw_stdin = raw_bytes.decode("utf-8", errors="replace")
+        else:
+            raw_stdin = sys.stdin.read()
     except Exception:
         raw_stdin = ""
 

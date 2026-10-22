@@ -40,6 +40,7 @@ from harness.hooks import pre_invocation_hook, runner
 from harness.hooks.pre_invocation_hook import (
     CALIBRATION_METADATA,
     DEFAULT_COMPACTION_ADVISORY_THRESHOLD,
+    DEFAULT_SQLITE_TIMEOUT,
     ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR,
@@ -51,6 +52,7 @@ from harness.hooks.pre_invocation_hook import (
     classify_agent_role,
     evaluate_pre_invocation,
     get_compaction_advisory_threshold,
+    get_compaction_sqlite_timeout,
     main as hook_main,
 )
 
@@ -1030,6 +1032,380 @@ class TestClassifierEdgeCases(unittest.TestCase):
             tokens=220_000,
         )
         self.assertEqual(role, ROLE_FLIGHT_DIRECTOR)
+
+
+class TestAdversarialConcurrencyAndTimeoutResilience(unittest.TestCase):
+    """R1: Adversarial concurrency & timeout resilience under SQLite write-lock contention."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_dir = Path(self.temp_dir.name)
+        self.old_env = os.environ.copy()
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.old_env)
+        self.temp_dir.cleanup()
+
+    def test_sqlite_default_timeout_is_at_most_half_second(self):
+        """Asserts default SQLite timeout is <= 0.5s."""
+        self.assertLessEqual(DEFAULT_SQLITE_TIMEOUT, 0.5)
+        self.assertLessEqual(get_compaction_sqlite_timeout(), 0.5)
+
+    def test_sqlite_locked_concurrency_fail_open(self):
+        """R1: Concurrent SQLite write-lock contention respects <=0.5s timeout and fails open to empty injectSteps."""
+        conv_id = "test-locked-conv"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        # Initialize SQLite DB in WAL mode with steps
+        lock_conn = sqlite3.connect(str(db_path))
+        lock_conn.execute("PRAGMA journal_mode=WAL")
+        lock_conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+        for i in range(1, 105):
+            lock_conn.execute("INSERT INTO steps (idx, step_data) VALUES (?, ?)", (i, json.dumps({"tool_name": "edit_file"})))
+        lock_conn.commit()
+
+        # Acquire exclusive lock in lock_conn
+        lock_conn.execute("PRAGMA locking_mode = EXCLUSIVE")
+        lock_conn.execute("BEGIN EXCLUSIVE")
+        lock_conn.execute("INSERT INTO steps (idx, step_data) VALUES (999, 'locked')")
+
+        try:
+            # Under locked DB, evaluate_pre_invocation with 200k tokens or step 100 scan respects timeout <= 0.5s
+            payload = json.dumps({"conversationId": conv_id, "tokens": 200_000, "step_count": 105})
+            t0 = time.perf_counter()
+            res = evaluate_pre_invocation(payload, db_dir=self.db_dir, sqlite_timeout=0.005)
+            elapsed = time.perf_counter() - t0
+
+            self.assertLessEqual(elapsed, 0.5)
+            self.assertEqual(res, {"injectSteps": []})
+        finally:
+            lock_conn.close()
+
+    def test_check_pillar_2_behavior_locked_fail_open(self):
+        """R1: Pillar 2 scan under active write lock catches OperationalError and fails open cleanly."""
+        conv_id = "test-pillar2-locked"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        lock_conn = sqlite3.connect(str(db_path))
+        lock_conn.execute("PRAGMA journal_mode=WAL")
+        lock_conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+        lock_conn.commit()
+
+        lock_conn.execute("PRAGMA locking_mode = EXCLUSIVE")
+        lock_conn.execute("BEGIN EXCLUSIVE")
+        lock_conn.execute("INSERT INTO steps (idx, step_data) VALUES (1, 'locked')")
+
+        try:
+            payload = {"tokens": 210_000, "step_count": 105}
+            t0 = time.perf_counter()
+            role = check_pillar_2_behavior(payload, conversation_id=conv_id, tokens=210_000, db_dir=self.db_dir, timeout=0.005)
+            elapsed = time.perf_counter() - t0
+
+            self.assertLessEqual(elapsed, 0.5)
+            self.assertIsNone(role)
+        finally:
+            lock_conn.close()
+
+    def test_sqlite_locked_concurrency_tokens_in_db_fails_open(self):
+        """R1: When tokens reside in locked SQLite DB, token fetch fails open to 0 and returns empty injectSteps."""
+        conv_id = "test-tokens-locked"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        lock_conn = sqlite3.connect(str(db_path))
+        lock_conn.execute("PRAGMA journal_mode=WAL")
+        lock_conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+        lock_conn.commit()
+
+        lock_conn.execute("PRAGMA locking_mode = EXCLUSIVE")
+        lock_conn.execute("BEGIN EXCLUSIVE")
+        lock_conn.execute("INSERT INTO steps (idx, step_data) VALUES (1, 'locked')")
+
+        try:
+            # No tokens in payload; must query DB which is locked
+            payload = json.dumps({"conversationId": conv_id})
+            t0 = time.perf_counter()
+            res = evaluate_pre_invocation(payload, db_dir=self.db_dir, sqlite_timeout=0.005)
+            elapsed = time.perf_counter() - t0
+
+            self.assertLessEqual(elapsed, 0.5)
+            self.assertEqual(res, {"injectSteps": []})
+        finally:
+            lock_conn.close()
+
+
+class TestSessionRoleSchemaFuzzing(unittest.TestCase):
+    """R2: Schema fuzzing battery for .agents/session_role.json."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.workspace_dir = Path(self.temp_dir.name)
+        self.agents_dir = self.workspace_dir / ".agents"
+        self.agents_dir.mkdir(parents=True, exist_ok=True)
+        self.role_file = self.agents_dir / "session_role.json"
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_corrupt_or_truncated_json_syntax(self):
+        """R2: Truncated or syntactically invalid JSON fails open to heuristic classification."""
+        bad_syntax_cases = [
+            '{"role": "flight_dire',
+            '{role: flight_director}',
+            '{"role": }',
+            '<<<MALFORMED>>>',
+            '{"role": "deep_execution"',
+            '}{',
+        ]
+        for content in bad_syntax_cases:
+            with self.subTest(content=content):
+                self.role_file.write_text(content, encoding="utf-8")
+                # With prompt heuristic "fix bug in tests", should fall open to deep_execution
+                payload = {"prompt": "fix bug in test suite", "workspace": str(self.workspace_dir)}
+                self.assertIsNone(check_pillar_3_explicit_role(payload, workspace_dir=self.workspace_dir))
+                self.assertEqual(classify_agent_role(payload, workspace_dir=self.workspace_dir), ROLE_DEEP_EXECUTION)
+
+    def test_non_dictionary_json_payloads(self):
+        """R2: Non-dictionary JSON root (arrays, numbers, booleans, null, strings) fails open to heuristic classification."""
+        non_dict_cases = [
+            '["flight_director", "builder"]',
+            '42',
+            '3.14159',
+            'true',
+            'false',
+            'null',
+            '"deep_execution"',
+        ]
+        for content in non_dict_cases:
+            with self.subTest(content=content):
+                self.role_file.write_text(content, encoding="utf-8")
+                payload = {"prompt": "fix bug in test suite", "workspace": str(self.workspace_dir)}
+                self.assertIsNone(check_pillar_3_explicit_role(payload, workspace_dir=self.workspace_dir))
+                self.assertEqual(classify_agent_role(payload, workspace_dir=self.workspace_dir), ROLE_DEEP_EXECUTION)
+
+    def test_missing_role_keys_or_empty_role_strings(self):
+        """R2: Missing 'role' keys or empty/whitespace role strings fail open to heuristic classification."""
+        missing_or_empty_cases = [
+            '{}',
+            '{"other_key": "val", "data": 123}',
+            '{"role": ""}',
+            '{"role": "   "}',
+            '{"role": "\t\n"}',
+            '{"agent_role": ""}',
+        ]
+        for content in missing_or_empty_cases:
+            with self.subTest(content=content):
+                self.role_file.write_text(content, encoding="utf-8")
+                payload = {"prompt": "orchestrate multi-node swarm", "workspace": str(self.workspace_dir)}
+                self.assertIsNone(check_pillar_3_explicit_role(payload, workspace_dir=self.workspace_dir))
+                self.assertEqual(classify_agent_role(payload, workspace_dir=self.workspace_dir), ROLE_FLIGHT_DIRECTOR)
+
+    def test_non_string_role_values(self):
+        """R2: Non-string role values (integers, floats, dicts, lists, booleans) fail open."""
+        non_string_cases = [
+            '{"role": 123}',
+            '{"role": 45.67}',
+            '{"role": true}',
+            '{"role": false}',
+            '{"role": null}',
+            '{"role": {"nested": "deep_execution"}}',
+            '{"role": ["flight_director"]}',
+            '{"role": [{"name": "builder"}]}',
+        ]
+        for content in non_string_cases:
+            with self.subTest(content=content):
+                self.role_file.write_text(content, encoding="utf-8")
+                payload = {"prompt": "implement unit test", "workspace": str(self.workspace_dir)}
+                self.assertIsNone(check_pillar_3_explicit_role(payload, workspace_dir=self.workspace_dir))
+                self.assertEqual(classify_agent_role(payload, workspace_dir=self.workspace_dir), ROLE_DEEP_EXECUTION)
+
+    def test_oversized_json_files_rejected(self):
+        """R2: Oversized JSON files (>64KB) are skipped safely without parsing."""
+        padding = "x" * 70_000
+        content = json.dumps({"role": "flight_director", "pad": padding})
+        self.role_file.write_text(content, encoding="utf-8")
+        self.assertGreater(self.role_file.stat().st_size, 65_536)
+
+        payload = {"prompt": "implement bugfix", "workspace": str(self.workspace_dir)}
+        self.assertIsNone(check_pillar_3_explicit_role(payload, workspace_dir=self.workspace_dir))
+        self.assertEqual(classify_agent_role(payload, workspace_dir=self.workspace_dir), ROLE_DEEP_EXECUTION)
+
+    def test_fuzzing_emits_no_stdout_traces(self):
+        """R2: Schema fuzzing cases emit zero error traces to stdout."""
+        fuzz_samples = [
+            '{"role": [1, 2, 3]}',
+            '{corrupt',
+            'null',
+            '{"role": 9999}',
+        ]
+        for sample in fuzz_samples:
+            self.role_file.write_text(sample, encoding="utf-8")
+            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                payload = json.dumps({"tokens": 240_000, "workspace": str(self.workspace_dir), "prompt": "fix issue"})
+                res = evaluate_pre_invocation(payload, workspace_dir=self.workspace_dir)
+                self.assertEqual(mock_out.getvalue(), "")
+                self.assertIn("injectSteps", res)
+
+
+class TestTokenBurstBoundaryHardening(unittest.TestCase):
+    """R3: Rapid token burst boundary hardening (single-turn large token jumps)."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_sqlite_single_turn_token_burst_crosses_threshold_immediately(self):
+        """R3: SQLite token jump from 180,000 directly to 245,000 triggers advisory on that exact turn."""
+        conv_id = "test-token-burst-conv"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        # Turn 1: 180,000 tokens (below 230k threshold)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                (1, json.dumps({"step_type": 15, "token_count": 180_000, "role": "deep_execution"})),
+            )
+
+        payload = json.dumps({"conversationId": conv_id, "role": "deep_execution"})
+        res_turn1 = evaluate_pre_invocation(payload, db_dir=self.db_dir)
+        self.assertEqual(res_turn1, {"injectSteps": []})
+
+        # Turn 2: Abrupt 65,000 token burst -> 245,000 tokens
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                (2, json.dumps({"step_type": 15, "token_count": 245_000, "role": "deep_execution"})),
+            )
+
+        res_turn2 = evaluate_pre_invocation(payload, db_dir=self.db_dir)
+        self.assertEqual(len(res_turn2.get("injectSteps", [])), 1)
+        msg = res_turn2["injectSteps"][0]["ephemeralMessage"]
+        self.assertIn("COMPACTION IMMINENT", msg)
+        self.assertIn("245,000 / 230,000 TOKENS", msg)
+        self.assertIn("~1 TURNS REMAINING", msg)
+
+    def test_payload_single_turn_token_burst_crosses_threshold_immediately(self):
+        """R3: Payload token jump from 180k to 245k triggers immediately without intermediate turns."""
+        payload_turn1 = json.dumps({"tokens": 180_000, "role": "flight_director"})
+        self.assertEqual(evaluate_pre_invocation(payload_turn1), {"injectSteps": []})
+
+        payload_turn2 = json.dumps({"tokens": 245_000, "role": "flight_director"})
+        res_turn2 = evaluate_pre_invocation(payload_turn2)
+        self.assertEqual(len(res_turn2.get("injectSteps", [])), 1)
+        msg = res_turn2["injectSteps"][0]["ephemeralMessage"]
+        self.assertIn("COMPACTION IMMINENT", msg)
+        self.assertIn("245,000 / 230,000 TOKENS", msg)
+
+    def test_token_burst_crossing_200k_and_230k_triggers_pillar_2_and_advisory(self):
+        """R3: Burst leaping from 150,000 to 245,000 tokens triggers Pillar 2 behavioral scan and advisory."""
+        conv_id = "test-token-burst-pillar2"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+            # Turn 1: 150k tokens, 105 editing steps
+            for i in range(1, 106):
+                tool = "edit_file" if i % 2 == 0 else "replace_file_content"
+                conn.execute(
+                    "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                    (i, json.dumps({"step_type": 15, "token_count": 150_000, "tool_name": tool})),
+                )
+
+        payload = json.dumps({"conversationId": conv_id})
+        # Turn 1: 150k is below threshold
+        self.assertEqual(evaluate_pre_invocation(payload, db_dir=self.db_dir), {"injectSteps": []})
+
+        # Turn 2: Burst to 245,000 tokens
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                (106, json.dumps({"step_type": 15, "token_count": 245_000, "tool_name": "edit_file"})),
+            )
+
+        res_turn2 = evaluate_pre_invocation(payload, db_dir=self.db_dir)
+        self.assertEqual(len(res_turn2.get("injectSteps", [])), 1)
+        msg = res_turn2["injectSteps"][0]["ephemeralMessage"]
+        self.assertIn("ROLE: Deep Execution", msg)
+        self.assertIn("245,000 / 230,000 TOKENS", msg)
+
+
+class TestBinaryNoiseAndStdinStreamResilience(unittest.TestCase):
+    """R4: Binary noise, null bytes, malformed UTF-8, and unexpected ingress keys on stdin."""
+
+    def test_evaluate_pre_invocation_raw_bytes_and_null_bytes(self):
+        """R4: evaluate_pre_invocation handles raw bytes with null characters gracefully."""
+        raw_inputs = [
+            b"\x00\x00\x00",
+            b"\xff\xfe\x00\x80\x90",
+            b"{\"role\": \"\x00\xff\"}",
+            b"\x00{\"tokens\": 1000}\x00",
+            b"",
+        ]
+        for inp in raw_inputs:
+            with self.subTest(inp=inp):
+                res = evaluate_pre_invocation(inp)
+                self.assertEqual(res, {"injectSteps": []})
+
+    def test_hook_main_binary_noise_and_null_bytes(self):
+        """R4: hook_main() exits 0 and emits {'injectSteps': []} when reading binary noise with null bytes."""
+        binary_payload = b"\x00\xff\xfe\x00\x80\x90\r\n{corrupt"
+
+        class MockStdinWithBuffer:
+            def __init__(self, raw: bytes):
+                self.buffer = io.BytesIO(raw)
+            def read(self):
+                return self.buffer.read().decode("utf-8", errors="replace")
+
+        with patch("sys.stdin", MockStdinWithBuffer(binary_payload)), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = hook_main([])
+            self.assertEqual(code, 0)
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res, {"injectSteps": []})
+
+    def test_runner_binary_noise_and_null_bytes(self):
+        """R4: runner.run_hook() exits 0 and emits {'injectSteps': []} on binary noise."""
+        binary_payload = b"\x00\xff\xfe\x00\x80\x90{corrupt"
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = runner.run_hook("compaction-advisory", payload_str=binary_payload)
+            self.assertEqual(code, 0)
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res, {"injectSteps": []})
+
+    def test_unexpected_ingress_keys_and_structures(self):
+        """R4: Unexpected ingress keys, null values, and weird types do not crash or emit errors."""
+        bizarre_payload = json.dumps({
+            "unknown_top_level_field": 12345,
+            "nested_garbage": {"a": [None, True, False, -1]},
+            "tokens": None,
+            "conversationId": 42,
+            "role": ["unexpected", "list"],
+            "hookEvent": "PreInvocation",
+            "metadata": None,
+        })
+        res = evaluate_pre_invocation(bizarre_payload)
+        self.assertEqual(res, {"injectSteps": []})
+
+    def test_stdin_binary_noise_and_fuzz(self):
+        """R4: Binary noise, null bytes, and non-UTF8 on stdin exit code 0 and emit {'injectSteps': []}."""
+        binary_noise = b"\x00\xff\xfe\x00\x80\x90\r\n{\"corrupt\": true"
+
+        class MockStdinWithBuffer:
+            def __init__(self, raw: bytes):
+                self.buffer = io.BytesIO(raw)
+            def read(self):
+                return self.buffer.read().decode("utf-8", errors="replace")
+
+        with patch("sys.stdin", MockStdinWithBuffer(binary_noise)), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = runner.main(["compaction-advisory"])
+            self.assertEqual(code, 0)
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res, {"injectSteps": []})
 
 
 if __name__ == "__main__":

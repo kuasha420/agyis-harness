@@ -33,6 +33,13 @@ AMBER_THRESHOLD: int = 35000
 RED_THRESHOLD: int = 45000
 CHECKPOINT_STEP_TYPE: int = 23  # Google Antigravity compaction checkpoint enum (0x17)
 
+LOCKED_CONVERSATION_IDS: set[str] = set()
+
+
+def clear_locked_conversations() -> None:
+    """Clears recorded locked conversation identifiers."""
+    LOCKED_CONVERSATION_IDS.clear()
+
 
 def is_checkpoint_step(step_type: Any) -> bool:
     """Returns True if the step_type represents a compaction checkpoint (23 / 0x17)."""
@@ -129,6 +136,7 @@ def extract_tokens_from_protobuf_metadata(raw_bytes: bytes) -> int:
 def get_active_conversation_tokens(
     conversation_id: str,
     db_dir: Optional[Path] = None,
+    timeout: Optional[float] = None,
 ) -> int:
     """
     Reads the latest accumulated token count from the local Antigravity conversation DB.
@@ -146,8 +154,9 @@ def get_active_conversation_tokens(
     conn: Optional[sqlite3.Connection] = None
     try:
         # Strict read-only mode with URI connection and bounded timeout (ADR-016)
+        eff_timeout = timeout if timeout is not None else 0.5
         uri_path = f"file:{db_path.resolve()}?mode=ro"
-        conn = sqlite3.connect(uri_path, uri=True, timeout=1.0)
+        conn = sqlite3.connect(uri_path, uri=True, timeout=eff_timeout)
         cursor = conn.cursor()
 
         # Discover available tables
@@ -297,6 +306,10 @@ def get_active_conversation_tokens(
                             break
 
         return tokens_found
+    except sqlite3.OperationalError as oe:
+        if "lock" in str(oe).lower() or "busy" in str(oe).lower():
+            LOCKED_CONVERSATION_IDS.add(conversation_id)
+        return 0
     except Exception:
         return 0
     finally:

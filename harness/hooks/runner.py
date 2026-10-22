@@ -177,7 +177,10 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
 
         if payload_str is None:
             try:
-                if hasattr(sys.stdin, "isatty") and not sys.stdin.isatty():
+                if hasattr(sys.stdin, "buffer"):
+                    raw_bytes = sys.stdin.buffer.read()
+                    payload_str = raw_bytes.decode("utf-8", errors="replace")
+                elif hasattr(sys.stdin, "isatty") and not sys.stdin.isatty():
                     payload_str = sys.stdin.read()
                 elif not hasattr(sys.stdin, "isatty"):
                     payload_str = sys.stdin.read()
@@ -185,6 +188,8 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
                     payload_str = ""
             except Exception:
                 payload_str = ""
+        elif isinstance(payload_str, (bytes, bytearray)):
+            payload_str = payload_str.decode("utf-8", errors="replace")
 
         is_post = is_post_tool_use_context(hook_name, payload_str)
         if is_post:
