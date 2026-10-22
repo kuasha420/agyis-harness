@@ -351,8 +351,8 @@ def check_pillar_3_explicit_role(
                 root / "plan.json",
             ]
             for cand in candidates:
-                if cand.is_file():
-                    try:
+                try:
+                    if cand.is_file():
                         st_size = cand.stat().st_size
                         if st_size == 0 or st_size > 65_536:
                             continue
@@ -366,8 +366,8 @@ def check_pillar_3_explicit_role(
                                         matched = _normalize_role_str(val.strip())
                                         if matched:
                                             return matched
-                    except Exception:
-                        pass
+                except (OSError, Exception):
+                    continue
 
         # Resolve effective conversation ID
         effective_cid = conversation_id
@@ -388,9 +388,9 @@ def check_pillar_3_explicit_role(
 
         # Also check brain dir if conversation_id is resolved
         if effective_cid and effective_cid != "default":
-            brain_cand = Path.home() / ".gemini" / "antigravity" / "brain" / str(effective_cid) / "session_role.json"
-            if brain_cand.is_file():
-                try:
+            try:
+                brain_cand = Path.home() / ".gemini" / "antigravity" / "brain" / str(effective_cid) / "session_role.json"
+                if brain_cand.is_file():
                     st_size = brain_cand.stat().st_size
                     if 0 < st_size <= 65_536:
                         data = json.loads(brain_cand.read_text(encoding="utf-8", errors="ignore"))
@@ -401,8 +401,8 @@ def check_pillar_3_explicit_role(
                                     matched = _normalize_role_str(val.strip())
                                     if matched:
                                         return matched
-                except Exception:
-                    pass
+            except (OSError, Exception):
+                pass
 
         # 2. Inspect active plan for explicit role declaration
         try:
@@ -419,33 +419,37 @@ def check_pillar_3_explicit_role(
                 workspace_root=workspace_dir or (search_dirs[0] if search_dirs else None),
                 brain_dir=art_brain_dir,
             )
-            if plan_path and plan_path.is_file():
-                st_size = plan_path.stat().st_size
-                if 0 < st_size <= 65_536:
-                    content = plan_path.read_text(encoding="utf-8", errors="ignore")[:8192]
-                    if plan_path.suffix == ".json":
-                        try:
-                            d = json.loads(content)
-                            if isinstance(d, dict):
-                                for rk in ("role", "agent_role", "archetype"):
-                                    val = d.get(rk)
-                                    if isinstance(val, str) and val.strip():
-                                        matched = _normalize_role_str(val.strip())
-                                        if matched:
-                                            return matched
-                        except Exception:
-                            pass
-                    else:
-                        m = re.search(r"(?:^|\n)\s*(?:\*\*)?[Rr]ole(?:\*\*)?:\s*([a-zA-Z0-9_\-]+)", content)
-                        if m:
-                            matched = _normalize_role_str(m.group(1).strip())
-                            if matched:
-                                return matched
-                        m_comment = re.search(r"<!--\s*role:\s*([a-zA-Z0-9_\-]+)\s*-->", content, re.IGNORECASE)
-                        if m_comment:
-                            matched = _normalize_role_str(m_comment.group(1).strip())
-                            if matched:
-                                return matched
+            if plan_path:
+                try:
+                    if plan_path.is_file():
+                        st_size = plan_path.stat().st_size
+                        if 0 < st_size <= 65_536:
+                            content = plan_path.read_text(encoding="utf-8", errors="ignore")[:8192]
+                            if plan_path.suffix == ".json":
+                                try:
+                                    d = json.loads(content)
+                                    if isinstance(d, dict):
+                                        for rk in ("role", "agent_role", "archetype"):
+                                            val = d.get(rk)
+                                            if isinstance(val, str) and val.strip():
+                                                matched = _normalize_role_str(val.strip())
+                                                if matched:
+                                                    return matched
+                                except Exception:
+                                    pass
+                            else:
+                                m = re.search(r"(?:^|\n)\s*(?:\*\*)?[Rr]ole(?:\*\*)?:\s*([a-zA-Z0-9_\-]+)", content)
+                                if m:
+                                    matched = _normalize_role_str(m.group(1).strip())
+                                    if matched:
+                                        return matched
+                                m_comment = re.search(r"<!--\s*role:\s*([a-zA-Z0-9_\-]+)\s*-->", content, re.IGNORECASE)
+                                if m_comment:
+                                    matched = _normalize_role_str(m_comment.group(1).strip())
+                                    if matched:
+                                        return matched
+                except (OSError, Exception):
+                    pass
         except Exception:
             pass
 
@@ -564,9 +568,7 @@ def check_pillar_1_intent(
                                 elif isinstance(raw_val, (bytes, bytearray, memoryview)):
                                     text_snippets.append(bytes(raw_val).decode("utf-8", errors="ignore"))
         except sqlite3.OperationalError as oe:
-            err_msg = str(oe).lower()
-            if any(k in err_msg for k in ("lock", "busy", "io error", "disk i/o error", "protocol")):
-                LOCKED_CONVERSATION_IDS.add(effective_cid)
+            LOCKED_CONVERSATION_IDS.add(effective_cid)
         except Exception:
             pass
         finally:
@@ -724,9 +726,7 @@ def check_pillar_2_behavior(
                                             if tn:
                                                 tool_calls.append((tn, args))
             except sqlite3.OperationalError as oe:
-                err_msg = str(oe).lower()
-                if any(k in err_msg for k in ("lock", "busy", "io error", "disk i/o error", "protocol")):
-                    LOCKED_CONVERSATION_IDS.add(effective_cid)
+                LOCKED_CONVERSATION_IDS.add(effective_cid)
             except Exception:
                 pass
             finally:
@@ -1081,7 +1081,6 @@ def evaluate_pre_invocation(
         payload = {}
 
     try:
-        clear_locked_conversations()
         conv_id = _normalize_cid(
             str(payload.get("conversationId") or payload.get("conversation_id") or "default")
         )
@@ -1129,6 +1128,9 @@ def evaluate_pre_invocation(
             val = payload.get(k)
             if isinstance(val, (int, float)) and val > 0:
                 payload_tokens = int(val)
+                break
+            elif isinstance(val, str) and val.strip().isdigit() and int(val.strip()) > 0:
+                payload_tokens = int(val.strip())
                 break
         tokens = max(db_tokens, payload_tokens)
 

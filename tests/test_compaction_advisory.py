@@ -509,6 +509,7 @@ class TestSqliteIntegration(unittest.TestCase):
         self.db_dir = Path(self.temp_dir.name)
 
     def tearDown(self):
+        clear_locked_conversations()
         self.temp_dir.cleanup()
 
     def test_sqlite_token_reading_triggers_advisory(self):
@@ -677,6 +678,7 @@ class TestPillar1EarlyTurnIntent(unittest.TestCase):
         self.db_dir = Path(self.temp_dir.name)
 
     def tearDown(self):
+        clear_locked_conversations()
         self.temp_dir.cleanup()
 
     def test_orchestrator_keywords_in_prompt(self):
@@ -757,6 +759,7 @@ class TestPillar2MidTrajectoryBehavioralVerification(unittest.TestCase):
         self.db_dir = Path(self.temp_dir.name)
 
     def tearDown(self):
+        clear_locked_conversations()
         self.temp_dir.cleanup()
 
     def test_below_threshold_returns_none(self):
@@ -924,6 +927,7 @@ class TestClassifierEdgeCases(unittest.TestCase):
         self.db_dir = Path(self.temp_dir.name)
 
     def tearDown(self):
+        clear_locked_conversations()
         self.temp_dir.cleanup()
 
     def test_empty_inputs_return_none_or_default(self):
@@ -1166,7 +1170,7 @@ class TestAdversarialConcurrencyAndTimeoutResilience(unittest.TestCase):
             line = sub_proc.stdout.readline().decode().strip()
             self.assertEqual(line, "LOCKED")
 
-            os.environ["AGYIS_SQLITE_TIMEOUT"] = "0.01"
+            os.environ["AGYIS_SQLITE_TIMEOUT"] = "0.002"
             t0 = time.perf_counter()
             with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
                 payload = json.dumps({"conversationId": conv_id})
@@ -1205,7 +1209,7 @@ class TestAdversarialConcurrencyAndTimeoutResilience(unittest.TestCase):
             # Under locked DB, evaluate_pre_invocation with 200k tokens or step 100 scan respects timeout <= 0.5s
             payload = json.dumps({"conversationId": conv_id, "tokens": 200_000, "step_count": 105})
             t0 = time.perf_counter()
-            res = evaluate_pre_invocation(payload, db_dir=self.db_dir, sqlite_timeout=0.005)
+            res = evaluate_pre_invocation(payload, db_dir=self.db_dir, sqlite_timeout=0.002)
             elapsed = time.perf_counter() - t0
 
             self.assertLessEqual(elapsed, 0.5)
@@ -1230,7 +1234,7 @@ class TestAdversarialConcurrencyAndTimeoutResilience(unittest.TestCase):
         try:
             payload = {"tokens": 210_000, "step_count": 105}
             t0 = time.perf_counter()
-            role = check_pillar_2_behavior(payload, conversation_id=conv_id, tokens=210_000, db_dir=self.db_dir, timeout=0.005)
+            role = check_pillar_2_behavior(payload, conversation_id=conv_id, tokens=210_000, db_dir=self.db_dir, timeout=0.002)
             elapsed = time.perf_counter() - t0
 
             self.assertLessEqual(elapsed, 0.5)
@@ -1256,11 +1260,45 @@ class TestAdversarialConcurrencyAndTimeoutResilience(unittest.TestCase):
             # No tokens in payload; must query DB which is locked
             payload = json.dumps({"conversationId": conv_id})
             t0 = time.perf_counter()
-            res = evaluate_pre_invocation(payload, db_dir=self.db_dir, sqlite_timeout=0.005)
+            res = evaluate_pre_invocation(payload, db_dir=self.db_dir, sqlite_timeout=0.002)
             elapsed = time.perf_counter() - t0
 
             self.assertLessEqual(elapsed, 0.5)
             self.assertEqual(res, {"injectSteps": []})
+        finally:
+            lock_conn.close()
+
+    def test_consecutive_invocations_under_lock_use_ttl_cache_submillisecond(self):
+        """OPEN-14 / R1: Consecutive turns under lock contention use TTL cache and execute in <5ms without blocking."""
+        conv_id = "test-consecutive-locked-conv"
+        db_path = self.db_dir / f"{conv_id}.db"
+
+        lock_conn = sqlite3.connect(str(db_path))
+        lock_conn.execute("PRAGMA journal_mode=WAL")
+        lock_conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+        lock_conn.commit()
+
+        lock_conn.execute("PRAGMA locking_mode = EXCLUSIVE")
+        lock_conn.execute("BEGIN EXCLUSIVE")
+        lock_conn.execute("INSERT INTO steps (idx, step_data) VALUES (1, 'locked')")
+
+        try:
+            payload = json.dumps({"conversationId": conv_id, "tokens": 200_000, "step_count": 105})
+
+            # Turn 1: Hits lock, respects <= 0.5s timeout, records in LOCKED_CONVERSATION_IDS
+            t0 = time.perf_counter()
+            res1 = evaluate_pre_invocation(payload, db_dir=self.db_dir, sqlite_timeout=0.002)
+            dt1 = time.perf_counter() - t0
+            self.assertEqual(res1, {"injectSteps": []})
+            self.assertLessEqual(dt1, 0.5)
+            self.assertIn(conv_id, LOCKED_CONVERSATION_IDS)
+
+            # Turn 2: Uses TTL cache, returns in sub-millisecond benchmark without blocking
+            t0 = time.perf_counter()
+            res2 = evaluate_pre_invocation(payload, db_dir=self.db_dir, sqlite_timeout=0.002)
+            dt2 = time.perf_counter() - t0
+            self.assertEqual(res2, {"injectSteps": []})
+            self.assertLess(dt2, 0.005)  # <5ms, typically <0.1ms
         finally:
             lock_conn.close()
 
@@ -1377,6 +1415,19 @@ class TestSessionRoleSchemaFuzzing(unittest.TestCase):
                 self.assertEqual(mock_out.getvalue(), "")
                 self.assertIn("injectSteps", res)
 
+    def test_pillar_3_permission_denied_directory_falls_back_to_env(self):
+        """OPEN-15 / R2: Permission-denied candidate directories do not abort Pillar 3 env resolution."""
+        unreadable_dir = self.workspace_dir / "unreadable"
+        unreadable_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            unreadable_dir.chmod(0o000)
+            with patch.dict(os.environ, {"AGYIS_ROLE": "deep_execution"}, clear=False):
+                payload = {"workspace": str(unreadable_dir)}
+                role = check_pillar_3_explicit_role(payload, workspace_dir=unreadable_dir)
+                self.assertEqual(role, ROLE_DEEP_EXECUTION)
+        finally:
+            unreadable_dir.chmod(0o755)
+
 
 class TestTokenBurstBoundaryHardening(unittest.TestCase):
     """R3: Rapid token burst boundary hardening (single-turn large token jumps)."""
@@ -1386,6 +1437,7 @@ class TestTokenBurstBoundaryHardening(unittest.TestCase):
         self.db_dir = Path(self.temp_dir.name)
 
     def tearDown(self):
+        clear_locked_conversations()
         self.temp_dir.cleanup()
 
     def test_sqlite_single_turn_token_burst_crosses_threshold_immediately(self):
@@ -1704,7 +1756,7 @@ class TestDefectRemediesAndAdversarialEdgeCases(unittest.TestCase):
 
     def test_unbounded_stdin_payload_clamped(self):
         """OPEN-2: Large payload (>512KB) is clamped safely without memory explosion."""
-        large_junk = "x" * 700_000
+        large_junk = "x" * 530_000
         payload = json.dumps({"role": "flight_director", "junk": large_junk})
         self.assertGreater(len(payload), 524_288)
 
@@ -1716,6 +1768,23 @@ class TestDefectRemediesAndAdversarialEdgeCases(unittest.TestCase):
         with patch("sys.stdout", new_callable=io.StringIO):
             res_code = runner.run_hook("compaction-advisory", payload_str=payload)
             self.assertEqual(res_code, 0)
+
+    def test_cifs_unable_to_open_database_error_fails_open_and_caches_lock(self):
+        """OPEN-12 / OPEN-13: CIFS / EMFILE unable to open database error fails open and caches lock."""
+        conv_id = "test-cifs-cantopen-conv"
+        (self.db_dir / f"{conv_id}.db").touch()
+
+        with patch("sqlite3.connect", side_effect=sqlite3.OperationalError("unable to open database file")):
+            tokens = get_active_conversation_tokens(conv_id, db_dir=self.db_dir)
+            self.assertEqual(tokens, 0)
+            self.assertIn(conv_id, LOCKED_CONVERSATION_IDS)
+
+    def test_numeric_string_tokens_in_payload(self):
+        """String-encoded numeric tokens in payload trigger advisory deterministically."""
+        payload = json.dumps({"tokens": "245000", "role": "deep_execution"})
+        res = evaluate_pre_invocation(payload)
+        self.assertEqual(len(res.get("injectSteps", [])), 1)
+        self.assertIn("245,000 / 230,000 TOKENS", res["injectSteps"][0]["ephemeralMessage"])
 
 
 if __name__ == "__main__":

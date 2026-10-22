@@ -393,9 +393,7 @@ def get_active_conversation_tokens(
 
         return tokens_found
     except sqlite3.OperationalError as oe:
-        err_msg = str(oe).lower()
-        if any(k in err_msg for k in ("lock", "busy", "io error", "disk i/o error", "protocol")):
-            LOCKED_CONVERSATION_IDS.add(norm_cid)
+        LOCKED_CONVERSATION_IDS.add(norm_cid)
         return 0
     except Exception:
         return 0

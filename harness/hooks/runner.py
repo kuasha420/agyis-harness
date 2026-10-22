@@ -194,7 +194,12 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
             except Exception:
                 payload_str = ""
         elif isinstance(payload_str, (bytes, bytearray)):
+            if len(payload_str) > 524_288:
+                payload_str = payload_str[:524_288]
             payload_str = payload_str.decode("utf-8", errors="replace")
+        elif isinstance(payload_str, str):
+            if len(payload_str) > 524_288:
+                payload_str = payload_str[:524_288]
 
         is_post = is_post_tool_use_context(hook_name, payload_str)
         if is_post:
