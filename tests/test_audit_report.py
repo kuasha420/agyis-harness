@@ -42,6 +42,14 @@ REQUIRED_REPORT_SECTIONS = [
     "Recommendations",
 ]
 
+
+def setUpModule():
+    if not (REPO_ROOT / "data" / "classified_failures.json").exists():
+        raise unittest.SkipTest(
+            "Intermediate analysis caches not present in data/ (sanitized repository)"
+        )
+
+
 CANONICAL_SAMPLE_REPORT = """<!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->

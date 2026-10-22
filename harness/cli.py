@@ -119,6 +119,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
             "verification-fence", "fence", "stop-fence", "stop", "completion-fence",
             "anti-drift", "drift", "anti_drift",
             "token-proximity", "token-proximity-guard", "token", "token_proximity_guard",
+            "pre-invocation", "preinvocation",
         ],
         help="Name of the lifecycle hook to invoke",
     )
