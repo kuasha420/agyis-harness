@@ -101,5 +101,14 @@
         ]
       }
     ]
+  },
+  "psl-compaction-advisory": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 -m harness.hooks.runner pre-invocation",
+        "timeout": 5
+      }
+    ]
   }
 }

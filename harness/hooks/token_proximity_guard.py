@@ -26,12 +26,90 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
+import time
 from typing import Any, Dict, Optional, TextIO
 
 COMPACTION_THRESHOLD: int = 50000
 AMBER_THRESHOLD: int = 35000
 RED_THRESHOLD: int = 45000
 CHECKPOINT_STEP_TYPE: int = 23  # Google Antigravity compaction checkpoint enum (0x17)
+
+_LOCKED_CONVERSATIONS: dict[str, float] = {}
+LOCK_EXPIRY_SECONDS: float = 2.0
+
+
+def _normalize_cid(cid: Any) -> str:
+    """Normalizes conversation identifier by stripping trailing .db suffix and whitespace."""
+    if not cid or not isinstance(cid, str):
+        return ""
+    norm = cid.strip()
+    if norm.endswith(".db"):
+        return norm[:-3]
+    return norm
+
+
+def is_conversation_locked(conversation_id: str) -> bool:
+    """Returns True if the conversation database is currently marked as locked within the expiry window."""
+    norm_cid = _normalize_cid(conversation_id)
+    if not norm_cid:
+        return False
+    lock_time = _LOCKED_CONVERSATIONS.get(norm_cid)
+    if lock_time is None:
+        return False
+    if time.monotonic() - lock_time < LOCK_EXPIRY_SECONDS:
+        return True
+    _LOCKED_CONVERSATIONS.pop(norm_cid, None)
+    return False
+
+
+def record_locked_conversation(conversation_id: str) -> None:
+    """Records a conversation database as locked with current monotonic timestamp."""
+    norm_cid = _normalize_cid(conversation_id)
+    if norm_cid:
+        _LOCKED_CONVERSATIONS[norm_cid] = time.monotonic()
+
+
+def clear_locked_conversations() -> None:
+    """Clears recorded locked conversation identifiers."""
+    _LOCKED_CONVERSATIONS.clear()
+    LOCKED_CONVERSATION_IDS._clear_internal()
+
+
+class _LockedConversationsProxy(set):
+    """Set-compatible proxy providing transparent TTL-based expiration for locked conversation IDs."""
+
+    def __contains__(self, item: object) -> bool:
+        if isinstance(item, str):
+            return is_conversation_locked(item)
+        return False
+
+    def add(self, element: Any) -> None:
+        if isinstance(element, str):
+            norm = _normalize_cid(element)
+            if norm:
+                record_locked_conversation(norm)
+                super().add(norm)
+
+    def remove(self, element: Any) -> None:
+        norm = _normalize_cid(element) if isinstance(element, str) else str(element)
+        _LOCKED_CONVERSATIONS.pop(norm, None)
+        if norm in self:
+            super().remove(norm)
+
+    def discard(self, element: Any) -> None:
+        norm = _normalize_cid(element) if isinstance(element, str) else str(element)
+        _LOCKED_CONVERSATIONS.pop(norm, None)
+        super().discard(norm)
+
+    def clear(self) -> None:
+        clear_locked_conversations()
+        super().clear()
+
+    def _clear_internal(self) -> None:
+        super().clear()
+
+
+LOCKED_CONVERSATION_IDS: _LockedConversationsProxy = _LockedConversationsProxy()
 
 
 def is_checkpoint_step(step_type: Any) -> bool:
@@ -44,7 +122,11 @@ def is_checkpoint_step(step_type: Any) -> bool:
 
 def get_conversations_dir() -> Path:
     """Resolves the directory containing Antigravity conversation SQLite databases."""
-    env_dir = os.environ.get("ANTIGRAVITY_CONVERSATIONS_DIR") or os.environ.get("GEMINI_CONVERSATIONS_DIR")
+    env_dir = (
+        os.environ.get("AGYIS_CONVERSATIONS_DIR")
+        or os.environ.get("ANTIGRAVITY_CONVERSATIONS_DIR")
+        or os.environ.get("GEMINI_CONVERSATIONS_DIR")
+    )
     if env_dir:
         return Path(env_dir)
     return Path.home() / ".gemini" / "antigravity" / "conversations"
@@ -129,25 +211,38 @@ def extract_tokens_from_protobuf_metadata(raw_bytes: bytes) -> int:
 def get_active_conversation_tokens(
     conversation_id: str,
     db_dir: Optional[Path] = None,
+    timeout: Optional[float] = None,
 ) -> int:
     """
     Reads the latest accumulated token count from the local Antigravity conversation DB.
     Guarantees fail-open, zero-crash execution: returns 0 on any missing file, locked
     database, schema mismatch, or read exception.
     """
-    if not conversation_id or conversation_id == "default":
+    norm_cid = _normalize_cid(conversation_id)
+    if not norm_cid or norm_cid == "default":
         return 0
 
-    base_dir = db_dir or get_conversations_dir()
-    db_path = base_dir / f"{conversation_id}.db"
-    if not db_path.is_file():
+    if norm_cid in LOCKED_CONVERSATION_IDS:
         return 0
 
     conn: Optional[sqlite3.Connection] = None
     try:
+        base_dir = db_dir or get_conversations_dir()
+        db_path = base_dir / f"{norm_cid}.db"
+        if not db_path.is_file():
+            return 0
+
         # Strict read-only mode with URI connection and bounded timeout (ADR-016)
+        if timeout is not None:
+            try:
+                t_val = float(timeout)
+                eff_timeout = min(t_val, 0.5) if t_val > 0 else 0.5
+            except (ValueError, TypeError):
+                eff_timeout = 0.5
+        else:
+            eff_timeout = 0.5
         uri_path = f"file:{db_path.resolve()}?mode=ro"
-        conn = sqlite3.connect(uri_path, uri=True, timeout=1.0)
+        conn = sqlite3.connect(uri_path, uri=True, timeout=eff_timeout)
         cursor = conn.cursor()
 
         # Discover available tables
@@ -297,6 +392,9 @@ def get_active_conversation_tokens(
                             break
 
         return tokens_found
+    except sqlite3.OperationalError as oe:
+        LOCKED_CONVERSATION_IDS.add(norm_cid)
+        return 0
     except Exception:
         return 0
     finally:

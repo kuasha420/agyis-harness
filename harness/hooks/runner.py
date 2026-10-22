@@ -31,6 +31,7 @@ HOOK_MODULES: Dict[str, str] = {
     "compactor": "harness.hooks.output_compactor_hook",
     "verification-fence": "harness.hooks.completion_fence_hook",
     "token-proximity": "harness.hooks.token_proximity_guard",
+    "pre-invocation": "harness.hooks.pre_invocation_hook",
 }
 
 ALIASES: Dict[str, str] = {
@@ -60,6 +61,10 @@ ALIASES: Dict[str, str] = {
     "pre-invocation": "pre-invocation",
     "pre_invocation": "pre-invocation",
     "preinvocation": "pre-invocation",
+    "compaction-advisory": "pre-invocation",
+    "compaction_advisory": "pre-invocation",
+    "compaction": "pre-invocation",
+    "advisory": "pre-invocation",
 }
 
 
@@ -81,7 +86,12 @@ def is_pre_invocation_context(hook_name: str, payload_str: Optional[str] = None)
     """
     normalized = (hook_name or "").strip().lower().replace("_", "-")
     canonical = ALIASES.get(normalized, normalized)
-    if canonical in ("pre-invocation", "preinvocation") or "invocation" in normalized:
+    if (
+        canonical in ("pre-invocation", "preinvocation")
+        or "invocation" in normalized
+        or "compaction" in normalized
+        or "advisory" in normalized
+    ):
         return True
 
     if payload_str:
@@ -89,7 +99,13 @@ def is_pre_invocation_context(hook_name: str, payload_str: Optional[str] = None)
             data = json.loads(payload_str)
             if isinstance(data, dict):
                 event = str(data.get("hookEvent") or data.get("hook_event") or data.get("event") or "").strip().lower()
-                if "invocation" in event or "pre-invocation" in event or "preinvocation" in event:
+                if (
+                    "invocation" in event
+                    or "pre-invocation" in event
+                    or "preinvocation" in event
+                    or "compaction" in event
+                    or "advisory" in event
+                ):
                     return True
                 if "invocationNum" in data or "invocation_num" in data:
                     return True
@@ -162,13 +178,28 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
         if payload_str is None:
             try:
                 if hasattr(sys.stdin, "isatty") and not sys.stdin.isatty():
-                    payload_str = sys.stdin.read()
+                    if hasattr(sys.stdin, "buffer"):
+                        raw_bytes = sys.stdin.buffer.read(524_288)
+                        payload_str = raw_bytes.decode("utf-8", errors="replace")
+                    else:
+                        payload_str = sys.stdin.read(524_288)
                 elif not hasattr(sys.stdin, "isatty"):
-                    payload_str = sys.stdin.read()
+                    if hasattr(sys.stdin, "buffer"):
+                        raw_bytes = sys.stdin.buffer.read(524_288)
+                        payload_str = raw_bytes.decode("utf-8", errors="replace")
+                    else:
+                        payload_str = sys.stdin.read(524_288)
                 else:
                     payload_str = ""
             except Exception:
                 payload_str = ""
+        elif isinstance(payload_str, (bytes, bytearray)):
+            if len(payload_str) > 524_288:
+                payload_str = payload_str[:524_288]
+            payload_str = payload_str.decode("utf-8", errors="replace")
+        elif isinstance(payload_str, str):
+            if len(payload_str) > 524_288:
+                payload_str = payload_str[:524_288]
 
         is_post = is_post_tool_use_context(hook_name, payload_str)
         if is_post:
