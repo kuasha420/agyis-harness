@@ -171,11 +171,12 @@ def get_active_conversation_tokens(
                 order_clause = "ORDER BY rowid DESC"
 
             has_step_type = "step_type" in col_names
+            where_step_filter = "WHERE step_type IN (15, 23)" if has_step_type else ""
 
             # 1.1 JSON format: `step_data` column
             if "step_data" in col_names:
                 cols = "step_data, step_type" if has_step_type else "step_data"
-                cursor.execute(f"SELECT {cols} FROM steps {order_clause} LIMIT 10")
+                cursor.execute(f"SELECT {cols} FROM steps {where_step_filter} {order_clause} LIMIT 10")
                 for row in cursor.fetchall():
                     raw_step = row[0]
                     st = row[1] if has_step_type else None
@@ -222,7 +223,7 @@ def get_active_conversation_tokens(
             if not tokens_found and not checkpoint_hit and ("token_count" in col_names or "tokens" in col_names or "num_tokens" in col_names):
                 col = "token_count" if "token_count" in col_names else ("tokens" if "tokens" in col_names else "num_tokens")
                 cols = f"{col}, step_type" if has_step_type else col
-                cursor.execute(f"SELECT {cols} FROM steps {order_clause} LIMIT 10")
+                cursor.execute(f"SELECT {cols} FROM steps {where_step_filter} {order_clause} LIMIT 10")
                 for row in cursor.fetchall():
                     st = row[1] if has_step_type else None
                     if has_step_type and is_checkpoint_step(st):
@@ -241,7 +242,7 @@ def get_active_conversation_tokens(
             # 1.3 Check `metadata` column in steps (JSON or protobuf)
             if not tokens_found and not checkpoint_hit and "metadata" in col_names:
                 cols = "metadata, step_type" if has_step_type else "metadata"
-                cursor.execute(f"SELECT {cols} FROM steps {order_clause} LIMIT 10")
+                cursor.execute(f"SELECT {cols} FROM steps {where_step_filter} {order_clause} LIMIT 10")
                 for row in cursor.fetchall():
                     raw_meta = row[0]
                     st = row[1] if has_step_type else None

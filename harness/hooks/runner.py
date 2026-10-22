@@ -57,6 +57,9 @@ ALIASES: Dict[str, str] = {
     "post_verification_fence": "verification-fence",
     "post-fence": "verification-fence",
     "post_fence": "verification-fence",
+    "pre-invocation": "pre-invocation",
+    "pre_invocation": "pre-invocation",
+    "preinvocation": "pre-invocation",
 }
 
 
@@ -71,11 +74,39 @@ def resolve_hook_module(hook_name: str) -> str:
     )
 
 
+def is_pre_invocation_context(hook_name: str, payload_str: Optional[str] = None) -> bool:
+    """
+    Determines whether the execution context represents a PreInvocation event
+    where the protojson contract requires emitting {"injectSteps": []} instead of {"decision": "allow"}.
+    """
+    normalized = (hook_name or "").strip().lower().replace("_", "-")
+    canonical = ALIASES.get(normalized, normalized)
+    if canonical in ("pre-invocation", "preinvocation") or "invocation" in normalized:
+        return True
+
+    if payload_str:
+        try:
+            data = json.loads(payload_str)
+            if isinstance(data, dict):
+                event = str(data.get("hookEvent") or data.get("hook_event") or data.get("event") or "").strip().lower()
+                if "invocation" in event or "pre-invocation" in event or "preinvocation" in event:
+                    return True
+                if "invocationNum" in data or "invocation_num" in data:
+                    return True
+        except Exception:
+            pass
+
+    return False
+
+
 def is_post_tool_use_context(hook_name: str, payload_str: Optional[str] = None) -> bool:
     """
     Determines whether the execution context represents a PostToolUse event
     where the protojson contract requires emitting {} instead of {"decision": "allow"}.
     """
+    if is_pre_invocation_context(hook_name, payload_str):
+        return False
+
     normalized = (hook_name or "").strip().lower().replace("_", "-")
     canonical = ALIASES.get(normalized, normalized)
     if canonical == "compactor" or normalized.startswith("post-"):
@@ -187,7 +218,9 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
         sys.stderr.flush()
 
         # Emit fail-open response tailored to hook event type
-        if is_post_tool_use_context(hook_name, payload_str):
+        if is_pre_invocation_context(hook_name, payload_str):
+            sys.stdout.write(json.dumps({"injectSteps": []}) + "\n")
+        elif is_post_tool_use_context(hook_name, payload_str):
             sys.stdout.write(json.dumps({}) + "\n")
         else:
             sys.stdout.write(json.dumps({"decision": "allow"}) + "\n")

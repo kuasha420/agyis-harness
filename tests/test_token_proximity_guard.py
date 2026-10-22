@@ -761,6 +761,65 @@ class TestCheckpointStepTypeRecognition(unittest.TestCase):
         tokens = get_active_conversation_tokens(conv_id, db_dir=self.db_dir)
         self.assertEqual(tokens, 0, "Dedicated token column query must respect checkpoint barrier")
 
+    def test_tokens_resolved_with_many_intermediate_tool_steps(self):
+        """
+        Issue #82: Asserts token count is resolved even when >10 tool steps
+        (e.g. 19 tool steps of step_type=14 without token metadata) intervene
+        between the latest PLANNER_RESPONSE (step_type=15) and the latest step.
+        """
+        conv_id = "test-many-tool-steps"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, metadata BLOB)")
+
+        # Step 1: PLANNER_RESPONSE with 42,000 tokens
+        val = 42000
+        varint_bytes = bytearray()
+        while val > 0x7F:
+            varint_bytes.append((val & 0x7F) | 0x80)
+            val >>= 7
+        varint_bytes.append(val)
+        chunk = bytearray([0x10]) + varint_bytes
+        pb_tokens = bytearray([0x4A, len(chunk)]) + chunk
+
+        cur.execute("INSERT INTO steps (idx, step_type, metadata) VALUES (1, 15, ?)", (bytes(pb_tokens),))
+
+        # Steps 2 to 20: 19 intermediate tool steps (step_type=14, no token metadata)
+        for i in range(2, 21):
+            cur.execute("INSERT INTO steps (idx, step_type, metadata) VALUES (?, 14, NULL)", (i,))
+
+        conn.commit()
+        conn.close()
+
+        tokens = get_active_conversation_tokens(conv_id, db_dir=self.db_dir)
+        self.assertEqual(tokens, 42000, "Should resolve 42,000 tokens despite 19 intervening tool steps")
+
+    def test_checkpoint_barrier_respected_with_many_intermediate_tool_steps(self):
+        """
+        Issue #82: Asserts compaction checkpoint (step_type=23) barrier halts backward scan
+        even when >10 tool steps intervene after the checkpoint.
+        """
+        conv_id = "test-checkpoint-many-tool-steps"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, metadata BLOB)")
+
+        # Step 1: PLANNER_RESPONSE with 45,000 tokens (Pre-compaction)
+        cur.execute("INSERT INTO steps (idx, step_type, metadata) VALUES (1, 15, ?)", (b"dummy_meta",))
+        # Step 2: Compaction checkpoint
+        cur.execute("INSERT INTO steps (idx, step_type, metadata) VALUES (2, 23, NULL)")
+        # Steps 3 to 20: 18 tool steps after checkpoint
+        for i in range(3, 21):
+            cur.execute("INSERT INTO steps (idx, step_type, metadata) VALUES (?, 14, NULL)", (i,))
+
+        conn.commit()
+        conn.close()
+
+        tokens = get_active_conversation_tokens(conv_id, db_dir=self.db_dir)
+        self.assertEqual(tokens, 0, "Checkpoint barrier must return 0 despite 18 intervening tool steps")
+
 
 if __name__ == "__main__":
     unittest.main()

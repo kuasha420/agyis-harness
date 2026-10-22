@@ -393,6 +393,80 @@ class TestHookRunner(unittest.TestCase):
                 res = json.loads(mock_out.getvalue().strip())
                 self.assertEqual(res, {"decision": "allow"})
 
+    # --- PreInvocation Contract & Fail-Open Protection in Hook Runner (Issue #82) ---
+
+    def test_fail_open_pre_invocation_emits_inject_steps(self):
+        """
+        Issue #82 / AC1 & AC3: When a PreInvocation hook crashes (SyntaxError, ImportError, RuntimeError),
+        runner MUST emit fail-open JSON {"injectSteps": []} (NOT {"decision": "allow"}),
+        preventing language server protojson unmarshal errors.
+        """
+        for exc in (
+            SyntaxError("syntax error in pre_invocation"),
+            ImportError("missing module in pre_invocation"),
+            RuntimeError("pre_invocation runtime crash"),
+        ):
+            with self.subTest(exc=type(exc).__name__):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+                     patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+                    with patch("harness.hooks.runner.importlib.import_module", side_effect=exc):
+                        code = runner.run_hook("pre-invocation", payload_str="{}")
+                        self.assertEqual(code, 0)
+                        res = json.loads(mock_out.getvalue().strip())
+                        self.assertEqual(
+                            res,
+                            {"injectSteps": []},
+                            f"Fail-open PreInvocation must emit {{'injectSteps': []}}, got: {res}",
+                        )
+                        self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", mock_err.getvalue())
+
+    def test_fail_open_pre_invocation_from_payload_emits_inject_steps(self):
+        """
+        Issue #82: When hook_name is generic but payload indicates PreInvocation event,
+        runner MUST emit {"injectSteps": []} on crash.
+        """
+        payloads = [
+            json.dumps({"hookEvent": "PreInvocation"}),
+            json.dumps({"event": "pre-invocation"}),
+            json.dumps({"invocationNum": 42}),
+        ]
+        for payload_str in payloads:
+            with self.subTest(payload=payload_str):
+                mock_mod = MagicMock()
+                mock_mod.main.side_effect = RuntimeError("hook crashed")
+
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+                     patch("sys.stderr", new_callable=io.StringIO):
+                    with patch("harness.hooks.runner.importlib.import_module", return_value=mock_mod):
+                        code = runner.run_hook("token-proximity", payload_str=payload_str)
+                        self.assertEqual(code, 0)
+                        res = json.loads(mock_out.getvalue().strip())
+                        self.assertEqual(
+                            res,
+                            {"injectSteps": []},
+                            f"Fail-open PreInvocation payload must emit {{'injectSteps': []}}, got: {res}",
+                        )
+
+    def test_subprocess_smoke_pre_invocation_fail_open(self):
+        """
+        Issue #82: Real subprocess execution of runner with 'pre-invocation'
+        outputs {"injectSteps": []} with exit code 0.
+        """
+        sub_env = dict(os.environ)
+        sub_env["PSL_HARNESS_STATE_DIR"] = self.temp_dir.name
+        proc = subprocess.run(
+            [sys.executable, "-m", "harness.hooks.runner", "pre-invocation"],
+            input="{}",
+            capture_output=True,
+            text=True,
+            cwd=str(Path(__file__).parent.parent),
+            env=sub_env,
+            timeout=5,
+        )
+        self.assertEqual(proc.returncode, 0)
+        res = json.loads(proc.stdout.strip())
+        self.assertEqual(res, {"injectSteps": []})
+
 
 if __name__ == "__main__":
     unittest.main()
