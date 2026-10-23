@@ -284,11 +284,17 @@ class TestAdvisoryContracts(unittest.TestCase):
     def test_swarm_orchestrator_advisory_contracts(self):
         """
         Swarm orchestrator advisory must enforce:
-        - Swarm state survival & zero repo pollution (AC5): flush strand assignments to scratch.
-        - Autonomous Continuation (AC6): resume barrier joins without manual intervention.
+        - Swarm state survival & zero repo pollution (AC5): flush subagent task rosters to scratch.
+        - Autonomous Continuation (AC6): resume milestone gates / barrier joins without manual intervention.
         """
         adv = build_compaction_advisory(ROLE_SWARM_ORCHESTRATOR, 250_000, 230_000)
         self.assertIn("Swarm Orchestrator", adv)
+        self.assertIn("subagent task rosters", adv)
+        self.assertIn("worktree / stage status", adv)
+        self.assertIn("milestone gates / barrier joins", adv)
+        self.assertNotIn("strand assignments", adv)
+        self.assertNotIn("node statuses", adv)
+        self.assertNotIn("barrier join states", adv)
         self.assertIn("barrier join", adv)
         self.assertIn("git status", adv)
         self.assertIn("without manual intervention", adv)

@@ -12,7 +12,7 @@ description: >-
 
 # Subagent Ladder: Multi-Agent SWE Execution Protocol 🪜🤖
 
-The **Subagent Ladder** formalizes an autonomous, multi-agent pair-programming protocol for complex software engineering tasks, large-scale refactorings, and multi-phase milestones across the Knot mesh.
+The **Subagent Ladder** formalizes an autonomous, multi-agent pair-programming protocol for complex software engineering tasks, large-scale refactorings, and delivery across multi-phase software engineering milestones.
 
 > [!IMPORTANT]
 > **Strictly User-Invoked Activation Contract**:
@@ -75,7 +75,7 @@ Every milestone progresses through a strict 6-stage pipeline. All sequential sta
 │ (`subagent-X-auditor`)                           │   │                                            │
 │ - Audits the COMMITTED git revision on HEAD.     │   │                                            │
 │ - Executes automated test suites (<1.0s).        │   │                                            │
-│ - Probes remote nodes via SSH.                   │   │                                            │
+│ - Verifies clean builds and test invariants.     │   │                                            │
 │ - Verifies environment state and exit codes.     │   │                                            │
 │ - Verdict: PASS or FAIL with raw diagnostics.    │   │                                            │
 └──────────────────┬───────────────────────────────┘   │                                            │
@@ -125,26 +125,26 @@ Every milestone progresses through a strict 6-stage pipeline. All sequential sta
 
 ## 4. Multi-Node Swarm PR Ingestion Protocol
 
-When coordinating distributed campaigns across the Knot mesh (Desktop Anchor, Laptop CUDA Worker, Steam Deck):
+When coordinating distributed campaigns across parallel feature worktrees, multi-agent branches, or remote contributor PRs (with physical multi-device hardware coordination cleanly isolated as an opt-in delegation to `mesh-ops` and `knot-swarm`):
 
 ### 4.1 Distributed PR & Branch Discovery
-Strand workers push branches or open Pull Requests asynchronously. The Ladder coordinator discovers and ingests remote PRs using GitHub CLI (`gh`):
+Subagents or external contributors push branches or open Pull Requests asynchronously. The Ladder coordinator discovers and ingests remote PRs using GitHub CLI (`gh`):
 ```bash
 # Ingest open PRs across fleet
 gh pr list --state open --json number,title,headRefName,author,updatedAt
 
-# Inspect specific strand PR diff
+# Inspect specific PR diff
 gh pr diff <pr_number>
 ```
 
 ### 4.2 Swarm Ingestion Lifecycle
-1. **Branch Fetch & Isolation**: Coordinator fetches strand worktrees into dedicated tracking branches (`git fetch origin pull/<id>/head:pr-<id>`).
+1. **Branch Fetch & Isolation**: Coordinator fetches feature / subagent worktrees into dedicated tracking branches (`git fetch origin pull/<id>/head:pr-<id>`).
 2. **Phase Partitioning**: Coordinator maps ingested PR branches to Ladder milestones in `implementation_plan.md`.
 3. **Ladder Verification Sweep**:
-   - `subagent-X-executioner`: Integrates or rebases strand changes cleanly against upstream HEAD.
-   - `subagent-X-hammer`: Audits multi-node diffs against PSL invariants.
-   - `subagent-X-custodian`: Re-verifies clean staging and executes DRY deduplication check across merged strand modules.
-   - `subagent-X-auditor`: Executes local hermetic tests (`agyis test`) and dispatches SSH probes across physical nodes.
+   - `subagent-X-executioner`: Integrates or rebases branch changes cleanly against upstream HEAD.
+   - `subagent-X-hammer`: Audits multi-agent diffs against PSL invariants.
+   - `subagent-X-custodian`: Re-verifies clean staging and executes DRY deduplication check across merged modules.
+   - `subagent-X-auditor`: Executes local hermetic tests (`agyis test`) and verifies environment invariants (dispatches SSH probes across remote nodes when opted into `mesh-ops`).
 4. **Automated Review Approval**: On Auditor PASS, Coordinator approves or merges the PR via `gh pr merge --squash` or `gh pr review --approve`.
 
 ---
@@ -155,7 +155,7 @@ gh pr diff <pr_number>
 | :--- | :--- | :--- | :--- |
 | **Builder** | `subagent-X-executioner` | Implements exact tasks from approved phase plan. Strictly enforces `set -euo pipefail`. Zero scope creep. Delivers exact diffs and outputs. | Read & write tools, bash commands (`view_file`, `write_to_file`, `replace_file_content`, `run_command`). |
 | **Reviewer** | `subagent-X-hammer` | Assumes shortcuts were taken until proven otherwise. Ruthlessly scans modified files for forbidden patterns, missing type safety, or mock cheating. Issues formal PASS/REJECT report. | Read-only inspection tools (`view_file`, `grep_search`, `list_dir`). **No write or execution tools.** |
-| **Verifier** | `subagent-X-auditor` | Runs automated test suites, probes remote nodes via SSH, checks process states and exit codes, conducts leak detection. Issues formal PASS/FAIL report. | Read tools, test runner commands (`view_file`, `grep_search`, `run_command`). **No file modification tools.** |
+| **Verifier** | `subagent-X-auditor` | Verifies environment invariants, test suites, and clean builds (and dispatches remote SSH probes when opted into `mesh-ops`), checks process states and exit codes, conducts leak detection. Issues formal PASS/FAIL report. | Read tools, test runner commands (`view_file`, `grep_search`, `run_command`). **No file modification tools.** |
 | **Custodian** | `subagent-X-custodian` | Macro architectural review, DRY deduplication audit, workspace hygiene, and atomic git commit gate. | Read tools, git/task commands (`view_file`, `grep_search`, `list_dir`, `find_by_name`, `run_command`, `manage_task`). **No direct code file mutation.** |
 
 ---
@@ -182,7 +182,7 @@ To prevent subagents from wasting context and tool calls hunting for plan artifa
 
 ## 7. Remote Fleet Probing Safeguards
 
-When testing distributed multi-node mesh topologies:
+When testing remote staging hosts or distributed multi-node environments (when opted into `mesh-ops` or `knot-swarm`):
 1. **Mandatory Execution Ceilings**: All remote SSH checks must enforce hard timeouts and TCP keepalives:
    ```bash
    timeout 10 ssh -o ConnectTimeout=3 -o ServerAliveInterval=2 -o ServerAliveCountMax=2 <node> "<command>"

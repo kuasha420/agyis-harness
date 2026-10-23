@@ -1152,7 +1152,7 @@ def build_compaction_advisory(
             "ROLE: Swarm Orchestrator (Mesh Coordinator)\n\n"
             "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
             "1. SWARM STATE SURVIVAL & ZERO REPO POLLUTION:\n"
-            "   - Flush strand assignments, node statuses, worker branch names, and barrier join states strictly to local scratch or artifacts (.agents/artifacts/).\n"
+            "   - Flush subagent task rosters, worktree / stage status, worker branch names, and milestone gates / barrier joins strictly to local scratch or artifacts (.agents/artifacts/).\n"
             "   - Zero git commits for ephemeral coordinator markers.\n"
             "2. WORK PRESERVATION CONTRACT:\n"
             "   - Preserve all local worktree changes. STRICTLY PROHIBIT 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
