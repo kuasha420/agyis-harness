@@ -1149,16 +1149,16 @@ def build_compaction_advisory(
     elif role == ROLE_SWARM_ORCHESTRATOR:
         return (
             f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
-            "ROLE: Swarm Orchestrator (Mesh Coordinator)\n\n"
+            "ROLE: Swarm Orchestrator (Workstream Coordinator)\n\n"
             "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
             "1. SWARM STATE SURVIVAL & ZERO REPO POLLUTION:\n"
-            "   - Flush subagent task rosters, worktree / stage status, worker branch names, and milestone gates / barrier joins strictly to local scratch or artifacts (.agents/artifacts/).\n"
+            "   - Persist subagent task rosters, worktree / stage status, worker branch names, and milestone gates strictly to local scratch or artifacts (.agents/artifacts/).\n"
             "   - Zero git commits for ephemeral coordinator markers.\n"
             "2. WORK PRESERVATION CONTRACT:\n"
             "   - Preserve all local worktree changes. STRICTLY PROHIBIT 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
             "3. AUTONOMOUS POST-COMPACTION CONTINUATION:\n"
             "   - Post-compaction, verify worker branch status and in-flight worktrees via 'git status' and 'git diff'.\n"
-            "   - Resume swarm barrier joins and multi-node orchestration autonomously without manual intervention or operator re-prompting."
+            "   - Resume swarm milestone gates and multi-worktree orchestration autonomously without manual intervention or operator re-prompting."
         )
 
     elif role == ROLE_FORENSIC_AUDITOR:
@@ -1180,7 +1180,7 @@ def build_compaction_advisory(
             f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
             "ROLE: Flight Director (Cockpit Coordinator)\n\n"
             "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
-            "1. COGNITIVE STATE FLUSH INVARIANT & ZERO REPO DOCUMENT POLLUTION:\n"
+            "1. COGNITIVE STATE PRESERVATION INVARIANT & ZERO REPO DOCUMENT POLLUTION:\n"
             "   - Strongly direct coordinator to materialize working memory, active task decomposition, pending subagent assignments, and operator steering decisions into 'compaction_checkpoint.md' (.agents/artifacts/compaction_checkpoint.md or brain directory) before compaction strikes.\n"
             "   - Store current session state, remaining phase tasks, and open decisions strictly in local session artifacts (.agents/artifacts/ or brain directory) or scratch. Do NOT commit temporary state or session coordination files to git. Zero repository pollution.\n"
             "2. WORK PRESERVATION CONTRACT:\n"

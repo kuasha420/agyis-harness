@@ -275,6 +275,8 @@ class TestAdvisoryContracts(unittest.TestCase):
         """
         adv = build_compaction_advisory(ROLE_FLIGHT_DIRECTOR, 235_000, 230_000)
         self.assertIn("Flight Director", adv)
+        self.assertIn("COGNITIVE STATE PRESERVATION INVARIANT", adv)
+        self.assertNotIn("FLUSH", adv)
         self.assertIn(".agents/artifacts/", adv)
         self.assertIn("Zero repository pollution", adv)
         self.assertIn("git checkout -- .", adv)
@@ -284,18 +286,18 @@ class TestAdvisoryContracts(unittest.TestCase):
     def test_swarm_orchestrator_advisory_contracts(self):
         """
         Swarm orchestrator advisory must enforce:
-        - Swarm state survival & zero repo pollution (AC5): flush subagent task rosters to scratch.
-        - Autonomous Continuation (AC6): resume milestone gates / barrier joins without manual intervention.
+        - Swarm state survival & zero repo pollution (AC5): persist subagent task rosters to scratch.
+        - Autonomous Continuation (AC6): resume milestone gates without manual intervention.
         """
         adv = build_compaction_advisory(ROLE_SWARM_ORCHESTRATOR, 250_000, 230_000)
         self.assertIn("Swarm Orchestrator", adv)
-        self.assertIn("subagent task rosters", adv)
+        self.assertIn("Persist subagent task rosters", adv)
         self.assertIn("worktree / stage status", adv)
-        self.assertIn("milestone gates / barrier joins", adv)
+        self.assertIn("milestone gates", adv)
+        self.assertNotIn("Flush ", adv)
         self.assertNotIn("strand assignments", adv)
         self.assertNotIn("node statuses", adv)
         self.assertNotIn("barrier join states", adv)
-        self.assertIn("barrier join", adv)
         self.assertIn("git status", adv)
         self.assertIn("without manual intervention", adv)
 
@@ -889,11 +891,12 @@ class TestDualAdvisoriesDistinctText(unittest.TestCase):
     """Verifies distinct contract texts for Flight Director and Deep Execution dual advisories."""
 
     def test_flight_director_cognitive_state_flush_distinct_directives(self):
-        """Flight Director advisory mandates Cognitive State Flush Invariant into compaction_checkpoint.md."""
+        """Flight Director advisory mandates Cognitive State Preservation Invariant into compaction_checkpoint.md."""
         adv = build_compaction_advisory(ROLE_FLIGHT_DIRECTOR, 235_000, 230_000)
 
         # Mandatory Invariant Directives
-        self.assertIn("COGNITIVE STATE FLUSH INVARIANT", adv)
+        self.assertIn("COGNITIVE STATE PRESERVATION INVARIANT", adv)
+        self.assertNotIn("FLUSH", adv)
         self.assertIn("compaction_checkpoint.md", adv)
         self.assertIn("materialize working memory", adv)
         self.assertIn("active task decomposition", adv)
