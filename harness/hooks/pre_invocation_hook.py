@@ -251,6 +251,12 @@ def _normalize_role_str(val: Optional[str]) -> Optional[str]:
 
     if norm in (
         ROLE_DEEP_EXECUTION,
+        "agyis_builder",
+        "agyis_custodian",
+        "agyis_architect",
+        "architect",
+        "implementer",
+        "master_implementer",
         "executioner",
         "builder",
         "custodian",
@@ -271,9 +277,18 @@ def _normalize_role_str(val: Optional[str]) -> Optional[str]:
         return ROLE_DEEP_EXECUTION
     if norm in (
         ROLE_FORENSIC_AUDITOR,
+        "agyis_reviewer",
+        "agyis_auditor",
+        "agyis_investigator",
+        "reviewer",
+        "harness_reviewer",
+        "harness_auditor",
+        "investigator",
+        "detective",
+        "forensic",
+        "verifier",
         "auditor",
         "hammer",
-        "forensic",
         "forensics",
         "inspector",
     ):
@@ -288,10 +303,15 @@ def _normalize_role_str(val: Optional[str]) -> Optional[str]:
         return ROLE_SWARM_ORCHESTRATOR
     if norm in (
         ROLE_FLIGHT_DIRECTOR,
+        "agyis_coordinator",
+        "agyis_planner",
+        "planner",
+        "coordinator",
+        "cockpit_director",
+        "flight_director",
         "flight",
         "director",
         "cockpit",
-        "coordinator",
         "root",
     ):
         return ROLE_FLIGHT_DIRECTOR
@@ -305,13 +325,22 @@ def _normalize_role_str(val: Optional[str]) -> Optional[str]:
         or "deep_coding" in norm
         or "monolith" in norm
         or "swe_pairing" in norm
+        or "architect" in norm
     ):
         return ROLE_DEEP_EXECUTION
-    if "hammer" in norm or "auditor" in norm or "forensic" in norm:
+    if (
+        "hammer" in norm
+        or "auditor" in norm
+        or "forensic" in norm
+        or "reviewer" in norm
+        or "investigator" in norm
+        or "detective" in norm
+        or "verifier" in norm
+    ):
         return ROLE_FORENSIC_AUDITOR
     if "orchestrator" in norm or "swarm" in norm:
         return ROLE_SWARM_ORCHESTRATOR
-    if "flight" in norm or "cockpit" in norm:
+    if "flight" in norm or "cockpit" in norm or "planner" in norm:
         return ROLE_FLIGHT_DIRECTOR
 
     return None

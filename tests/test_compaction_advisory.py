@@ -45,6 +45,7 @@ from harness.hooks.pre_invocation_hook import (
     ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR,
     ROLE_SWARM_ORCHESTRATOR,
+    _normalize_role_str,
     build_compaction_advisory,
     check_pillar_1_intent,
     check_pillar_2_behavior,
@@ -2033,6 +2034,138 @@ class TestNativeSlashCommandBypass(unittest.TestCase):
         }))
         self.assertEqual(len(res_dev.get("injectSteps", [])), 1)
         self.assertIn("245,000 / 230,000 TOKENS", res_dev["injectSteps"][0]["ephemeralMessage"])
+
+
+
+class TestNormalizeRoleExpansion(unittest.TestCase):
+    """
+    Phase 2: Comprehensive classification engine expansion and backward compatibility tests.
+    Verifies deterministic normalization across modern agyis_* names, internal archetypes,
+    legacy aliases, and substring patterns into the 4 canonical runtime role buckets.
+    """
+
+    def test_modern_agent_names_normalization(self):
+        """Verifies all 9 modern agent names normalize to their canonical runtime buckets."""
+        expected_mappings = {
+            "agyis_coordinator": ROLE_FLIGHT_DIRECTOR,
+            "agyis_planner": ROLE_FLIGHT_DIRECTOR,
+            "agyis_investigator": ROLE_FORENSIC_AUDITOR,
+            "agyis_builder": ROLE_DEEP_EXECUTION,
+            "agyis_reviewer": ROLE_FORENSIC_AUDITOR,
+            "agyis_custodian": ROLE_DEEP_EXECUTION,
+            "agyis_auditor": ROLE_FORENSIC_AUDITOR,
+            "agyis_architect": ROLE_DEEP_EXECUTION,
+            "cockpit_director": ROLE_FLIGHT_DIRECTOR,
+        }
+        for name, expected_role in expected_mappings.items():
+            with self.subTest(name=name):
+                self.assertEqual(
+                    _normalize_role_str(name),
+                    expected_role,
+                    f"Modern agent name '{name}' should normalize to '{expected_role}'",
+                )
+
+    def test_internal_codenames_and_archetypes(self):
+        """Verifies internal archetypes and codenames normalize deterministically."""
+        expected_mappings = {
+            "hammer": ROLE_FORENSIC_AUDITOR,
+            "executioner": ROLE_DEEP_EXECUTION,
+            "detective": ROLE_FORENSIC_AUDITOR,
+            "investigator": ROLE_FORENSIC_AUDITOR,
+            "architect": ROLE_DEEP_EXECUTION,
+            "coordinator": ROLE_FLIGHT_DIRECTOR,
+            "planner": ROLE_FLIGHT_DIRECTOR,
+            "implementer": ROLE_DEEP_EXECUTION,
+            "master_implementer": ROLE_DEEP_EXECUTION,
+            "verifier": ROLE_FORENSIC_AUDITOR,
+        }
+        for name, expected_role in expected_mappings.items():
+            with self.subTest(archetype=name):
+                self.assertEqual(
+                    _normalize_role_str(name),
+                    expected_role,
+                    f"Archetype '{name}' should normalize to '{expected_role}'",
+                )
+
+    def test_legacy_aliases_backward_compatibility(self):
+        """Verifies 100% backward compatibility for all legacy harness agent names."""
+        expected_mappings = {
+            "harness_builder": ROLE_DEEP_EXECUTION,
+            "harness_reviewer": ROLE_FORENSIC_AUDITOR,
+            "harness_custodian": ROLE_DEEP_EXECUTION,
+            "harness_auditor": ROLE_FORENSIC_AUDITOR,
+            "coordinator": ROLE_FLIGHT_DIRECTOR,
+            "git_custodian": ROLE_DEEP_EXECUTION,
+        }
+        for name, expected_role in expected_mappings.items():
+            with self.subTest(legacy_alias=name):
+                self.assertEqual(
+                    _normalize_role_str(name),
+                    expected_role,
+                    f"Legacy alias '{name}' should normalize to '{expected_role}'",
+                )
+
+    def test_hyphen_and_case_insensitivity(self):
+        """Verifies robust normalization regardless of hyphenation, uppercase, or whitespace."""
+        test_cases = [
+            ("agyis-coordinator", ROLE_FLIGHT_DIRECTOR),
+            ("AGYIS_BUILDER", ROLE_DEEP_EXECUTION),
+            ("Agyis-Investigator", ROLE_FORENSIC_AUDITOR),
+            ("  agyis_architect  ", ROLE_DEEP_EXECUTION),
+            ("agyis-custodian", ROLE_DEEP_EXECUTION),
+            ("AGYIS-REVIEWER", ROLE_FORENSIC_AUDITOR),
+            ("agyis-auditor", ROLE_FORENSIC_AUDITOR),
+            ("agyis-planner", ROLE_FLIGHT_DIRECTOR),
+            ("COCKPIT-DIRECTOR", ROLE_FLIGHT_DIRECTOR),
+        ]
+        for val, expected_role in test_cases:
+            with self.subTest(input_val=val):
+                self.assertEqual(
+                    _normalize_role_str(val),
+                    expected_role,
+                    f"Value '{val}' should normalize to '{expected_role}'",
+                )
+
+    def test_substring_pattern_matching_expansion(self):
+        """Verifies expanded substring patterns for roles not matching exact keywords."""
+        substring_cases = [
+            ("lead_architect_specialist", ROLE_DEEP_EXECUTION),
+            ("system_architect", ROLE_DEEP_EXECUTION),
+            ("pr_diff_reviewer", ROLE_FORENSIC_AUDITOR),
+            ("root_cause_investigator", ROLE_FORENSIC_AUDITOR),
+            ("heisenbug_detective", ROLE_FORENSIC_AUDITOR),
+            ("cleanroom_spec_verifier", ROLE_FORENSIC_AUDITOR),
+            ("strategic_sprint_planner", ROLE_FLIGHT_DIRECTOR),
+        ]
+        for val, expected_role in substring_cases:
+            with self.subTest(substring_input=val):
+                self.assertEqual(
+                    _normalize_role_str(val),
+                    expected_role,
+                    f"Substring value '{val}' should normalize to '{expected_role}'",
+                )
+
+    def test_classify_agent_role_integration_with_expanded_names(self):
+        """Verifies classify_agent_role accurately maps expanded names across payloads."""
+        payloads_and_expected = [
+            ({"role": "agyis_architect"}, ROLE_DEEP_EXECUTION),
+            ({"typeName": "agyis_planner"}, ROLE_FLIGHT_DIRECTOR),
+            ({"agentName": "agyis_investigator"}, ROLE_FORENSIC_AUDITOR),
+            ({"agent": {"subagent_role": "agyis_reviewer"}}, ROLE_FORENSIC_AUDITOR),
+            ({"subagent": {"typeName": "agyis_builder"}}, ROLE_DEEP_EXECUTION),
+            ({"metadata": {"role": "agyis_custodian"}}, ROLE_DEEP_EXECUTION),
+            ({"role": "agyis_auditor"}, ROLE_FORENSIC_AUDITOR),
+            ({"role": "cockpit_director"}, ROLE_FLIGHT_DIRECTOR),
+            ({"role": "harness_reviewer"}, ROLE_FORENSIC_AUDITOR),
+            ({"role": "harness_auditor"}, ROLE_FORENSIC_AUDITOR),
+        ]
+        for payload, expected_role in payloads_and_expected:
+            with self.subTest(payload=payload):
+                self.assertEqual(
+                    classify_agent_role(payload),
+                    expected_role,
+                    f"Payload {payload} should classify as '{expected_role}'",
+                )
 
 
 if __name__ == "__main__":
