@@ -41,6 +41,10 @@ DEFAULT_COMPACTION_ADVISORY_THRESHOLD: int = 230_000
 DEFAULT_SQLITE_TIMEOUT: float = 0.5
 MAX_PAYLOAD_BYTES: int = 524_288  # 512KB clamp (OPEN-2)
 
+EXECUTIONER_HORIZON_STEPS: int = 50
+STEP_WARNING_THRESHOLD: int = 40
+STEP_INTERRUPT_THRESHOLD: int = 45
+
 
 def get_compaction_sqlite_timeout(override: Optional[float] = None) -> float:
     """Returns the effective SQLite connection timeout in seconds (strictly <= 0.5s)."""
@@ -1504,10 +1508,31 @@ def evaluate_pre_invocation(
 
         inject_steps: List[Dict[str, Any]] = []
 
+        is_executioner = (role == ROLE_DEEP_EXECUTION) or (
+            stage_role_data is not None and stage_role_data.get("stage") in (1, 3)
+        )
+
         # 1. Dual-anchor systemMessage: Turn 0 stage entry AND Turn 0 post-compaction
         if is_turn_zero or is_post_compaction:
             persona_prompt = build_role_persona_prompt(role)
             inject_steps.append({"systemMessage": persona_prompt})
+        elif is_executioner and step_count == STEP_WARNING_THRESHOLD:
+            horizon_warn = (
+                "[AGYIS HORIZON WARNING: THRASHING DETECTED / REMEDY MODE ACTIVE - 10 STEPS REMAINING] "
+                "You have 10 steps remaining in your convergence budget. Cease exploring new files, "
+                "complete active edits, run tests, and prepare stage handoff."
+            )
+            reanchor_msg = build_role_reanchor_advisory(role, step_count or 0, cadence)
+            combined_msg = f"{horizon_warn}\n\n{reanchor_msg}"
+            inject_steps.append({"ephemeralMessage": combined_msg})
+        elif is_executioner and step_count == STEP_INTERRUPT_THRESHOLD:
+            inject_steps.append({
+                "ephemeralMessage": (
+                    "[AGYIS HORIZON INTERRUPT: 5 STEPS REMAINING] "
+                    "Compulsory convergence active. You have 5 steps remaining. Open sweeps are blocked. "
+                    "Wrap up active diff and emit stage handoff."
+                )
+            })
         elif is_periodic_reanchor:
             # 2. Intra-epoch periodic re-anchor (turns 10, 20, 30...)
             reanchor_msg = build_role_reanchor_advisory(role, step_count or 0, cadence)

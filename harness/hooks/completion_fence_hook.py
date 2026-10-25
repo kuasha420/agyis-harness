@@ -62,6 +62,14 @@ __all__ = [
     "is_mutation_test_command",
     "check_has_mutable_code",
     "TIER_RANKS",
+    "ROLE_DEEP_EXECUTION",
+    "ROLE_FLIGHT_DIRECTOR",
+    "ROLE_FORENSIC_AUDITOR",
+    "EXECUTIONER_HORIZON_STEPS",
+    "CODE_MUTATION_TOOLS",
+    "normalize_role",
+    "check_pre_tool_use",
+    "check_completion_fence_pre_tool",
     "main",
 ]
 
@@ -96,6 +104,178 @@ TIER_RANKS: dict[str, int] = {
     "pkg": 3,
     "full": 4,
 }
+
+ROLE_FLIGHT_DIRECTOR: str = "flight_director"
+ROLE_SWARM_ORCHESTRATOR: str = "swarm_orchestrator"
+ROLE_DEEP_EXECUTION: str = "deep_execution"
+ROLE_FORENSIC_AUDITOR: str = "forensic_auditor"
+
+EXECUTIONER_HORIZON_STEPS: int = 50
+CODE_MUTATION_TOOLS: frozenset[str] = frozenset({
+    "write_to_file",
+    "replace_file_content",
+    "edit_file",
+})
+
+
+def normalize_role(val: str | None) -> str | None:
+    """Normalizes an agent role identifier to the canonical taxonomy."""
+    if not val or not isinstance(val, str):
+        return None
+    norm = val.strip().lower().replace("-", "_")
+    if norm in (
+        ROLE_DEEP_EXECUTION,
+        "agyis_builder",
+        "agyis_custodian",
+        "agyis_architect",
+        "architect",
+        "implementer",
+        "master_implementer",
+        "executioner",
+        "builder",
+        "custodian",
+        "harness_custodian",
+        "git_custodian",
+        "harness_builder",
+        "deep_coding",
+        "deep_coder",
+        "coder",
+        "execution",
+        "monolithic_swe_pairing",
+        "monolithic",
+        "monolith",
+        "swe_pairing",
+        "pairing",
+        "swe",
+    ):
+        return ROLE_DEEP_EXECUTION
+    if norm in (
+        ROLE_FORENSIC_AUDITOR,
+        "agyis_reviewer",
+        "agyis_auditor",
+        "agyis_investigator",
+        "reviewer",
+        "harness_reviewer",
+        "harness_auditor",
+        "investigator",
+        "detective",
+        "forensic",
+        "verifier",
+        "auditor",
+        "hammer",
+        "forensics",
+        "inspector",
+    ):
+        return ROLE_FORENSIC_AUDITOR
+    if norm in (
+        ROLE_SWARM_ORCHESTRATOR,
+        "orchestrator",
+        "swarm",
+        "mesh_coordinator",
+        "mesh",
+    ):
+        return ROLE_SWARM_ORCHESTRATOR
+    if norm in (
+        ROLE_FLIGHT_DIRECTOR,
+        "agyis_coordinator",
+        "agyis_planner",
+        "planner",
+        "coordinator",
+        "cockpit_director",
+        "flight_director",
+        "flight",
+        "director",
+        "cockpit",
+        "root",
+    ):
+        return ROLE_FLIGHT_DIRECTOR
+
+    if "executioner" in norm or "builder" in norm or "custodian" in norm or "deep_execution" in norm or "deep_coding" in norm:
+        return ROLE_DEEP_EXECUTION
+    if "hammer" in norm or "auditor" in norm or "forensic" in norm or "reviewer" in norm:
+        return ROLE_FORENSIC_AUDITOR
+    if "orchestrator" in norm or "swarm" in norm:
+        return ROLE_SWARM_ORCHESTRATOR
+    if "flight" in norm or "cockpit" in norm or "planner" in norm:
+        return ROLE_FLIGHT_DIRECTOR
+    return norm
+
+
+def check_pre_tool_use(
+    tool_name: str,
+    tool_args: dict,
+    payload: dict | None = None,
+    step_count: int | None = None,
+    role: str | None = None,
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+    cwd: Path | str | None = None,
+) -> dict:
+    """
+    Evaluates PreToolUse constraints including the Hard Horizon Fence (Issue #86).
+    When role is ROLE_DEEP_EXECUTION and step_count >= 50:
+    Blocks code mutation tools (write_to_file, replace_file_content, edit_file).
+    Permits verification grace (run_command test commands) and read-only tools.
+    Exempts non-executioner roles (flight_director, forensic_auditor).
+    """
+    effective_step = step_count
+    if effective_step is None and payload:
+        for k in (
+            "step_count",
+            "stepCount",
+            "step",
+            "current_step",
+            "currentStep",
+            "step_idx",
+            "stepIdx",
+            "initialNumSteps",
+            "initial_num_steps",
+            "invocationNum",
+            "invocation_num",
+        ):
+            if k in payload:
+                v = payload[k]
+                if isinstance(v, (int, float)):
+                    effective_step = int(v)
+                    break
+                elif isinstance(v, str) and v.strip().isdigit():
+                    effective_step = int(v.strip())
+                    break
+
+    effective_role = role
+    if effective_role is None and payload:
+        for rk in ("role", "agent_role", "subagent_role", "archetype", "agentType", "agent_type"):
+            rv = payload.get(rk)
+            if isinstance(rv, str) and rv.strip():
+                effective_role = rv.strip()
+                break
+    if not effective_role:
+        effective_role = os.environ.get("AGYIS_ROLE") or os.environ.get("PSL_AGENT_ROLE")
+
+    norm_role = normalize_role(effective_role)
+
+    # Exemption: Non-executioner roles are strictly exempt
+    if norm_role and norm_role != ROLE_DEEP_EXECUTION:
+        return {"decision": "allow"}
+
+    # Hard Horizon Fence at step >= 50
+    if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= EXECUTIONER_HORIZON_STEPS:
+        if tool_name in CODE_MUTATION_TOOLS:
+            return {
+                "decision": "deny",
+                "reason": (
+                    "HARD HORIZON FENCE TRIGGERED (20-Step Remedy Budget Exhausted / 50 Steps Reached). "
+                    "Further code mutation is strictly blocked to prevent cognitive cliff collapse. "
+                    "All local modifications are preserved intact on disk. You are granted 1 Verification Grace turn to run tests. "
+                    "You MUST immediately message the parent agent via send_message with your stage transition payload and STOP calling tools."
+                ),
+            }
+
+    return {"decision": "allow"}
+
+
+check_completion_fence_pre_tool = check_pre_tool_use
+
 
 
 def classify_test_tier(command: str) -> str:
@@ -1680,6 +1860,19 @@ def main() -> None:
             elif state.get("active_turn_id") is None:
                 state["active_turn_id"] = turn_id
                 save_state(state, conv_id=conv_id, state_dir=state_dir)
+
+        if not is_post_tool_use:
+            pre_check = check_pre_tool_use(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                payload=payload,
+                conv_id=conv_id,
+                state_dir=state_dir,
+                cwd=cwd,
+            )
+            if pre_check.get("decision") == "deny":
+                print(json.dumps(pre_check))
+                return
 
         if tool_name in ("write_to_file", "replace_file_content", "edit_file"):
             target_file = (

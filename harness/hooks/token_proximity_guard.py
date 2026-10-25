@@ -33,6 +33,53 @@ COMPACTION_THRESHOLD: int = 50000
 AMBER_THRESHOLD: int = 35000
 RED_THRESHOLD: int = 45000
 CHECKPOINT_STEP_TYPE: int = 23  # Google Antigravity compaction checkpoint enum (0x17)
+ROLE_DEEP_EXECUTION: str = "deep_execution"
+
+
+def _normalize_role_str(val: Optional[str]) -> Optional[str]:
+    """Normalizes role identifier to canonical taxonomy."""
+    if not val or not isinstance(val, str):
+        return None
+    norm = val.strip().lower().replace("-", "_")
+    if norm in (
+        ROLE_DEEP_EXECUTION,
+        "agyis_builder",
+        "agyis_custodian",
+        "agyis_architect",
+        "architect",
+        "implementer",
+        "master_implementer",
+        "executioner",
+        "builder",
+        "custodian",
+        "harness_custodian",
+        "git_custodian",
+        "harness_builder",
+        "deep_coding",
+        "deep_coder",
+        "coder",
+        "execution",
+        "monolithic_swe_pairing",
+        "monolithic",
+        "monolith",
+        "swe_pairing",
+        "pairing",
+        "swe",
+    ):
+        return ROLE_DEEP_EXECUTION
+    if (
+        "executioner" in norm
+        or "builder" in norm
+        or "custodian" in norm
+        or "deep_execution" in norm
+        or "deep_coding" in norm
+        or "monolith" in norm
+        or "swe_pairing" in norm
+        or "architect" in norm
+    ):
+        return ROLE_DEEP_EXECUTION
+    return norm
+
 
 _LOCKED_CONVERSATIONS: dict[str, float] = {}
 LOCK_EXPIRY_SECONDS: float = 2.0
@@ -414,7 +461,12 @@ def get_urgency_tier(tokens: int) -> str:
     return "SAFE"
 
 
-def format_terminal_gauge(tokens: int, threshold: int = COMPACTION_THRESHOLD) -> str:
+def format_terminal_gauge(
+    tokens: int,
+    threshold: int = COMPACTION_THRESHOLD,
+    step_count: Optional[int] = None,
+    role: Optional[str] = None,
+) -> str:
     """Generates an ANSI terminal progress gauge with dynamic urgency color and bell alert."""
     denom = threshold if threshold > 0 else COMPACTION_THRESHOLD
     percentage = min(100.0, (tokens / denom) * 100) if denom > 0 else 0.0
@@ -436,7 +488,12 @@ def format_terminal_gauge(tokens: int, threshold: int = COMPACTION_THRESHOLD) ->
         bell = ""
 
     reset = "\033[0m"
-    return f"{bell}{color}[AGYIS TOKEN GAUGE]{reset} [{bar}] {tokens:,} / {denom:,} ({percentage:.1f}%) - {color}{status}{reset}"
+    horizon_str = ""
+    if step_count is not None and step_count >= 40:
+        if _normalize_role_str(role) == ROLE_DEEP_EXECUTION:
+            horizon_str = f" [HORIZON: {step_count}/50 STEPS]"
+
+    return f"{bell}{color}[AGYIS TOKEN GAUGE]{reset} [{bar}] {tokens:,} / {denom:,} ({percentage:.1f}%) - {color}{status}{reset}{horizon_str}"
 
 
 def render_terminal_gauge(tokens: int) -> str:
@@ -448,18 +505,23 @@ def check_token_proximity(
     conversation_id: str,
     db_dir: Optional[Path] = None,
     emit_stderr: bool = True,
+    step_count: Optional[int] = None,
+    role: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Evaluates active conversation token proximity and emits an ANSI warning
-    to sys.stderr if tokens have reached or exceeded the amber threshold.
+    to sys.stderr if tokens have reached or exceeded the amber threshold
+    or if step horizon is active (step_count >= 40 for executioner).
     Always returns a decision dict {"decision": "allow"}.
     """
     tokens = get_active_conversation_tokens(conversation_id, db_dir=db_dir)
     tier = get_urgency_tier(tokens)
     warned = False
 
-    if tokens >= AMBER_THRESHOLD:
-        gauge = format_terminal_gauge(tokens)
+    horizon_active = (step_count is not None and step_count >= 40 and _normalize_role_str(role) == ROLE_DEEP_EXECUTION)
+
+    if tokens >= AMBER_THRESHOLD or horizon_active:
+        gauge = format_terminal_gauge(tokens, step_count=step_count, role=role)
         warned = True
         if emit_stderr:
             try:
@@ -482,8 +544,9 @@ def run_token_proximity_guard(
 ) -> Dict[str, Any]:
     """
     Core functional dispatcher for token proximity lifecycle hook.
-    Parses turn payload from stdin or argument, monitors tokens, emits warning
-    to stderr if >= 35,000 tokens, and returns allow decision.
+    Parses turn payload from stdin or argument, monitors tokens and step horizon,
+    emits warning to stderr if >= 35,000 tokens or step_count >= 40 for executioner,
+    and returns allow decision.
     """
     if isinstance(payload, str):
         try:
@@ -498,8 +561,37 @@ def run_token_proximity_guard(
     conv_id = str(parsed.get("conversationId") or parsed.get("conversation_id") or "default")
     tokens = get_active_conversation_tokens(conv_id)
 
-    if tokens >= AMBER_THRESHOLD:
-        gauge = format_terminal_gauge(tokens)
+    step_count = None
+    for k in (
+        "step_count",
+        "stepCount",
+        "step",
+        "current_step",
+        "currentStep",
+        "step_idx",
+        "stepIdx",
+        "initialNumSteps",
+        "initial_num_steps",
+        "invocationNum",
+        "invocation_num",
+    ):
+        if k in parsed:
+            v = parsed[k]
+            if isinstance(v, (int, float)):
+                step_count = int(v)
+                break
+            elif isinstance(v, str) and v.strip().isdigit():
+                step_count = int(v.strip())
+                break
+
+    role = parsed.get("role") or parsed.get("agent_role") or parsed.get("subagent_role") or parsed.get("archetype")
+    if not role:
+        role = os.environ.get("AGYIS_ROLE") or os.environ.get("PSL_AGENT_ROLE")
+
+    horizon_active = (step_count is not None and step_count >= 40 and _normalize_role_str(role) == ROLE_DEEP_EXECUTION)
+
+    if tokens >= AMBER_THRESHOLD or horizon_active:
+        gauge = format_terminal_gauge(tokens, step_count=step_count, role=role)
         out_err = stderr if stderr is not None else sys.stderr
         try:
             out_err.write(f"\n{gauge}\n")
@@ -530,7 +622,10 @@ def main() -> None:
         return
     elif action == "render_gauge":
         tokens = int(payload.get("tokens", 0))
-        print(json.dumps({"status": "ok", "gauge": format_terminal_gauge(tokens)}))
+        sc = payload.get("step_count") or payload.get("stepCount")
+        sc_val = int(sc) if sc is not None else None
+        r_val = payload.get("role")
+        print(json.dumps({"status": "ok", "gauge": format_terminal_gauge(tokens, step_count=sc_val, role=r_val)}))
         return
 
     # PreToolUse token proximity check

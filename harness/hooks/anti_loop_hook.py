@@ -23,6 +23,99 @@ from harness.utils.state import get_state_dir, load_history, save_history
 
 
 
+ROLE_DEEP_EXECUTION: str = "deep_execution"
+ROLE_FLIGHT_DIRECTOR: str = "flight_director"
+ROLE_FORENSIC_AUDITOR: str = "forensic_auditor"
+ROLE_SWARM_ORCHESTRATOR: str = "swarm_orchestrator"
+
+EXPLORATORY_SWEEP_TOOLS: frozenset[str] = frozenset({"list_dir", "find_by_name"})
+STEP_INTERRUPT_THRESHOLD: int = 45
+EXECUTIONER_HORIZON_STEPS: int = 50
+
+
+def _normalize_role_str(val: str | None) -> str | None:
+    """Normalizes role identifier to canonical taxonomy."""
+    if not val or not isinstance(val, str):
+        return None
+    norm = val.strip().lower().replace("-", "_")
+    if norm in (
+        ROLE_DEEP_EXECUTION,
+        "agyis_builder",
+        "agyis_custodian",
+        "agyis_architect",
+        "architect",
+        "implementer",
+        "master_implementer",
+        "executioner",
+        "builder",
+        "custodian",
+        "harness_custodian",
+        "git_custodian",
+        "harness_builder",
+        "deep_coding",
+        "deep_coder",
+        "coder",
+        "execution",
+        "monolithic_swe_pairing",
+        "monolithic",
+        "monolith",
+        "swe_pairing",
+        "pairing",
+        "swe",
+    ):
+        return ROLE_DEEP_EXECUTION
+    if norm in (
+        ROLE_FORENSIC_AUDITOR,
+        "agyis_reviewer",
+        "agyis_auditor",
+        "agyis_investigator",
+        "reviewer",
+        "harness_reviewer",
+        "harness_auditor",
+        "investigator",
+        "detective",
+        "forensic",
+        "verifier",
+        "auditor",
+        "hammer",
+        "forensics",
+        "inspector",
+    ):
+        return ROLE_FORENSIC_AUDITOR
+    if norm in (
+        ROLE_SWARM_ORCHESTRATOR,
+        "orchestrator",
+        "swarm",
+        "mesh_coordinator",
+        "mesh",
+    ):
+        return ROLE_SWARM_ORCHESTRATOR
+    if norm in (
+        ROLE_FLIGHT_DIRECTOR,
+        "agyis_coordinator",
+        "agyis_planner",
+        "planner",
+        "coordinator",
+        "cockpit_director",
+        "flight_director",
+        "flight",
+        "director",
+        "cockpit",
+        "root",
+    ):
+        return ROLE_FLIGHT_DIRECTOR
+
+    if "executioner" in norm or "builder" in norm or "custodian" in norm or "deep_execution" in norm or "deep_coding" in norm:
+        return ROLE_DEEP_EXECUTION
+    if "hammer" in norm or "auditor" in norm or "forensic" in norm or "reviewer" in norm:
+        return ROLE_FORENSIC_AUDITOR
+    if "orchestrator" in norm or "swarm" in norm:
+        return ROLE_SWARM_ORCHESTRATOR
+    if "flight" in norm or "cockpit" in norm or "planner" in norm:
+        return ROLE_FLIGHT_DIRECTOR
+    return norm
+
+
 MAX_REPEATS = 3
 HISTORY_WINDOW = 30
 FREQUENCY_WINDOW = 15
@@ -204,6 +297,9 @@ def check_anti_loop(
     conv_id: str = "default",
     state_dir: Path | None = None,
     max_repeats: int = MAX_REPEATS,
+    step_count: int | None = None,
+    role: str | None = None,
+    payload: dict | None = None,
 ) -> dict:
     """
     Evaluates a tool call against recent history for the given conversation ID:
@@ -220,9 +316,61 @@ def check_anti_loop(
     - Idempotent Status Command Relaxation: git status, git branch, stat, pwd allow up to at least 8 executions.
     - Non-Blocking Advisory: manage_task(Action='status') returns non-blocking advisory allow.
 
+    Compulsory Convergence (Issue #86):
+    - When role is ROLE_DEEP_EXECUTION and step_count >= 45, exploratory sweep tools
+      (list_dir, find_by_name) are deterministically blocked.
+
     Returns:
         {"decision": "allow"} or {"decision": "deny", "reason": ...}
     """
+    effective_step = step_count
+    if effective_step is None and payload:
+        for k in (
+            "step_count",
+            "stepCount",
+            "step",
+            "current_step",
+            "currentStep",
+            "step_idx",
+            "stepIdx",
+            "initialNumSteps",
+            "initial_num_steps",
+            "invocationNum",
+            "invocation_num",
+        ):
+            if k in payload:
+                v = payload[k]
+                if isinstance(v, (int, float)):
+                    effective_step = int(v)
+                    break
+                elif isinstance(v, str) and v.strip().isdigit():
+                    effective_step = int(v.strip())
+                    break
+
+    effective_role = role
+    if effective_role is None and payload:
+        for rk in ("role", "agent_role", "subagent_role", "archetype", "agentType", "agent_type"):
+            rv = payload.get(rk)
+            if isinstance(rv, str) and rv.strip():
+                effective_role = rv.strip()
+                break
+    if not effective_role:
+        effective_role = os.environ.get("AGYIS_ROLE") or os.environ.get("PSL_AGENT_ROLE")
+
+    norm_role = _normalize_role_str(effective_role)
+
+    # Compulsory convergence check (Issue #86)
+    if tool_name in EXPLORATORY_SWEEP_TOOLS:
+        if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= STEP_INTERRUPT_THRESHOLD:
+            return {
+                "decision": "deny",
+                "reason": (
+                    "Compulsory convergence active (Step 45/50). "
+                    "Open-ended repository sweeps are blocked. "
+                    "Complete active edits, run tests, and emit stage handoff."
+                ),
+            }
+
     target_dir = state_dir or get_state_dir()
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -384,6 +532,47 @@ def check_anti_loop(
     return {"decision": "allow"}
 
 
+def evaluate_tool_call(
+    tool_name: str,
+    tool_args: dict,
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+    max_repeats: int = MAX_REPEATS,
+    step_count: int | None = None,
+    role: str | None = None,
+    payload: dict | None = None,
+) -> dict:
+    """Evaluates a tool call against anti-loop and compulsory convergence invariants."""
+    return check_anti_loop(
+        tool_name=tool_name,
+        tool_args=tool_args,
+        conv_id=conv_id,
+        state_dir=state_dir,
+        max_repeats=max_repeats,
+        step_count=step_count,
+        role=role,
+        payload=payload,
+    )
+
+
+def handle_pre_tool_use(payload: dict, state_dir: Path | None = None) -> dict:
+    """Handles PreToolUse hook payload, evaluating anti-loop and horizon convergence policies."""
+    if not isinstance(payload, dict):
+        return {"decision": "allow"}
+    conv_id = payload.get("conversationId") or payload.get("conversation_id") or "default"
+    tool_call = payload.get("toolCall") or {}
+    tool_name = tool_call.get("name") or payload.get("tool_name") or ""
+    tool_args = tool_call.get("args") or payload.get("tool_args") or {}
+
+    return check_anti_loop(
+        tool_name=tool_name,
+        tool_args=tool_args,
+        conv_id=conv_id,
+        state_dir=state_dir,
+        payload=payload,
+    )
+
+
 def main() -> None:
     try:
         raw_stdin = sys.stdin.read()
@@ -399,14 +588,10 @@ def main() -> None:
         print(json.dumps({"decision": "allow"}))
         return
 
-    conv_id = payload.get("conversationId") or "default"
-    tool_call = payload.get("toolCall") or {}
-    tool_name = tool_call.get("name", "")
-    tool_args = tool_call.get("args") or {}
-
-    result = check_anti_loop(tool_name, tool_args, conv_id=conv_id)
+    result = handle_pre_tool_use(payload)
     print(json.dumps(result))
 
 
 if __name__ == "__main__":
     main()
+
