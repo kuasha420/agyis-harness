@@ -127,13 +127,13 @@ class TestPslCli(unittest.TestCase):
             self.assertEqual(code, 0)
             out = mock_out.getvalue()
             self.assertTrue("Agyis Specialist Subagents" in out or "PSL Specialist Subagents" in out)
-            self.assertIn("harness_builder", out)
+            self.assertIn("agyis_builder", out)
 
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             code = main(["agents", "harness_reviewer"])
             self.assertEqual(code, 0)
             out = mock_out.getvalue()
-            self.assertIn("Agent:       harness_reviewer", out)
+            self.assertIn("Agent:       agyis_reviewer", out)
             self.assertIn("Archetype:   hammer", out)
 
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
@@ -141,7 +141,7 @@ class TestPslCli(unittest.TestCase):
             self.assertEqual(code, 0)
             data = json.loads(mock_out.getvalue().strip())
             self.assertIsInstance(data, list)
-            self.assertEqual(len(data), 7)
+            self.assertEqual(len(data), 8)
 
     def test_cli_agents_workspace_root_override(self):
         """Verifies `_get_repo_root()` and `psl agents` respect _TEST_WORKSPACE_ROOT."""
@@ -159,7 +159,7 @@ class TestPslCli(unittest.TestCase):
                 self.assertEqual(code, 0)
                 out = mock_out.getvalue()
                 self.assertIn(str(custom_root / ".agents" / "agents"), out)
-                self.assertTrue((custom_root / ".agents" / "agents" / "harness_builder.md").exists())
+                self.assertTrue((custom_root / ".agents" / "agents" / "agyis_builder.md").exists())
 
         self.assertNotEqual(_get_repo_root(), custom_root)
         self.assertIsNone(harness.cli._TEST_WORKSPACE_ROOT)

@@ -311,7 +311,7 @@ Current harness configuration relies on static Markdown text files replicated ac
 1. `.agents/rules/AGENTS.md:1-203` and `GLOBAL_AGENTS.md:1-97`: Deduplicate universal rules to establish a 3-tier precedence hierarchy.
 2. `harness/delivery/surfaces.py:95-170` & `harness/commands/skills.py:1-65`: Author single-source rule deduplication engine.
 3. `harness/hooks/anti_drift_hook.py:46-49, 75-114, 345-470`: Integrate canonical invariant anchor verification, monorepo contract boundary guards, and milestone ledger truth fences.
-4. `harness/agents/coordinator.md:50-75`, `planner.md`, `harness_reviewer.md`, `harness_auditor.md`: Codify the Anti-Code-Monkey Truth Invariant and canonical invariant citations.
+4. `harness/agents/agyis_coordinator.md:50-75`, `agyis_planner.md`, `agyis_reviewer.md`, `agyis_auditor.md`: Codify the Anti-Code-Monkey Truth Invariant and canonical invariant citations.
 
 #### System Architecture & Implementation Proposal
 Epic 2 establishes a four-part cognitive architecture overhaul:
@@ -402,7 +402,7 @@ To achieve generative immunity, `agyis-harness` must replace natural language ru
 
 #### Exact Code Targets in Repository
 1. `harness/hooks/anti_drift_hook.py:437-470`: Integrate `check_canonical_invariant_anchors` validator into `DRIFT_VALIDATORS` to inspect handover documents (`handoff.md`, `BRIEFING.md`) and verify stage sequence integrity.
-2. `harness/agents/coordinator.md:50-75`: Replace natural language summaries of canonical rules with structured canonical invariant anchor citations (`PSL-INV-001`..`008`).
+2. `harness/agents/agyis_coordinator.md:50-75`: Replace natural language summaries of canonical rules with structured canonical invariant anchor citations (`PSL-INV-001`..`008`).
 3. `tests/test_anti_drift.py:1-350`: Add unit tests validating invariant schema enforcement and pipeline transposition interception.
 
 #### System Architecture & Implementation Proposal
@@ -457,8 +457,8 @@ Currently, `harness/subagents/context.py` only tracks step counts and token esti
 #### Exact Code Targets in Repository
 1. `harness/subagents/context.py:23-45`: Add fields to `SubagentContextStatus`: `liveness_state` (`ACTIVE`, `IDLE_STALE`, `HANDOFF_READY`, `CRASHED`), `last_heartbeat_timestamp` (str), `heartbeat_age_seconds` (float), and `verified_handoff_path` (Optional[str]).
 2. `harness/commands/subagents.py:17-105`: Update `agyis subagents` and `agyis subagents --json` to render verified liveness status and handoff presence.
-3. `harness/agents/coordinator.md:61-75`: Add Section 2.1: **Anti-Code-Monkey Truth Invariant**: Strictly prohibit claiming subagents are completed, idle, or paused without citing verified filesystem evidence (`handoff.md`, `progress.md`, or message dispatch confirmation).
-4. `harness/agents/planner.md:1-120`, `harness_reviewer.md:1-120`, `harness_auditor.md:1-120`: Update persona system prompts with Anti-Synthetic Verification clauses.
+3. `harness/agents/agyis_coordinator.md:61-75`: Add Section 2.1: **Anti-Code-Monkey Truth Invariant**: Strictly prohibit claiming subagents are completed, idle, or paused without citing verified filesystem evidence (`handoff.md`, `progress.md`, or message dispatch confirmation).
+4. `harness/agents/agyis_planner.md:1-120`, `agyis_reviewer.md:1-120`, `agyis_auditor.md:1-120`: Update persona system prompts with Anti-Synthetic Verification clauses.
 5. `harness/hooks/anti_drift_hook.py:345-420`: Intercept writes to `operator_ledger.md` or milestone release checklists: block marking milestones `COMPLETE` if managed subagent directories lack verified `handoff.md` files.
 6. `tests/test_subagents.py:1-250`: Add unit tests verifying heartbeat calculation, staleness thresholds, and handoff detection.
 
@@ -476,7 +476,7 @@ Currently, `harness/subagents/context.py` only tracks step counts and token esti
 - [ ] `SubagentContextStatus` expanded with `liveness_state`, `heartbeat_age_seconds`, and `verified_handoff_path`.
 - [ ] Subagent heartbeat timestamps inspected in <2ms.
 - [ ] `agyis subagents` renders live table displaying subagent liveness and handoff status.
-- [ ] Anti-Code-Monkey Truth Invariant added to `coordinator.md`, `planner.md`, `harness_reviewer.md`, and `harness_auditor.md`.
+- [ ] Anti-Code-Monkey Truth Invariant added to `agyis_coordinator.md`, `agyis_planner.md`, `agyis_reviewer.md`, and `agyis_auditor.md`.
 - [ ] Anti-drift hook denies marking milestones complete in `operator_ledger.md` without verified subagent `handoff.md` files on disk.
 - [ ] Sub-second unit tests in `tests/test_subagents.py` pass cleanly in <0.5s.
 

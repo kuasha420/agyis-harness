@@ -550,7 +550,7 @@ class TestPluginDelivery(unittest.TestCase):
         fake_agents.mkdir(parents=True)
 
         # Standalone agent duplicate
-        dup_agent = fake_agents / "harness_builder.md"
+        dup_agent = fake_agents / "agyis_builder.md"
         dup_agent.write_text("# Duplicate Standalone Agent\n", encoding="utf-8")
 
         # Independent custom agent
@@ -571,7 +571,7 @@ class TestPluginDelivery(unittest.TestCase):
         # Non-colliding user agent remains intact
         self.assertTrue(user_agent.exists())
         # Single source exists inside plugin directory
-        self.assertTrue((self.target_dir / "agents" / "harness_builder.md").exists())
+        self.assertTrue((self.target_dir / "agents" / "agyis_builder.md").exists())
 
     def test_single_source_skill_delivery(self) -> None:
         """Plugin installation purges duplicate standalone skills in ~/.gemini/config/skills/ (Issue #52)."""
@@ -763,7 +763,7 @@ class TestPluginDelivery(unittest.TestCase):
         # 4. Opt-in local agents
         res4 = install_workspace(ws_dir, source_dir=REPO_ROOT, include_agents=True)
         self.assertTrue(res4.success)
-        self.assertTrue((ws_dir / ".agents" / "agents" / "harness_builder.md").is_file())
+        self.assertTrue((ws_dir / ".agents" / "agents" / "agyis_builder.md").is_file())
 
     def test_workspace_rust_and_go_stack_instantiation(self) -> None:
         """Rust (Cargo.toml) and Go (go.mod) workspaces install respective stack and test runner skills."""

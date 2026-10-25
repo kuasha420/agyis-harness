@@ -34,6 +34,7 @@ class AgentArchetype(str, Enum):
     COORDINATOR = "coordinator"
     MAIN = "main"
     CUSTODIAN = "custodian"
+    INVESTIGATOR = "investigator"
 
     @classmethod
     def from_string(cls, val: str) -> AgentArchetype:
@@ -53,20 +54,24 @@ class AgentArchetype(str, Enum):
             "lead",
             "general",
             "default",
+            "master_implementer",
+            "deep_hybrid",
         ):
             return cls.MAIN
-        elif norm in ("builder", "worker", "implementer", "executioner"):
+        elif norm in ("builder", "harness_builder", "agyis_builder", "worker", "implementer", "executioner"):
             return cls.EXECUTIONER
-        elif norm in ("reviewer", "inspector", "hammer"):
+        elif norm in ("reviewer", "harness_reviewer", "agyis_reviewer", "inspector", "hammer"):
             return cls.HAMMER
-        elif norm in ("qa", "verifier", "qa_verifier", "auditor"):
+        elif norm in ("qa", "verifier", "qa_verifier", "auditor", "harness_auditor", "agyis_auditor"):
             return cls.AUDITOR
-        elif norm in ("planner", "designer", "researcher"):
+        elif norm in ("planner", "agyis_planner", "designer", "researcher"):
             return cls.PLANNER
-        elif norm in ("coordinator", "orchestrator", "swarm_lead"):
+        elif norm in ("coordinator", "agyis_coordinator", "orchestrator", "swarm_lead"):
             return cls.COORDINATOR
-        elif norm in ("custodian", "harness_custodian", "git_custodian", "commit_gate", "subagent_x_custodian"):
+        elif norm in ("custodian", "harness_custodian", "agyis_custodian", "git_custodian", "commit_gate", "subagent_x_custodian"):
             return cls.CUSTODIAN
+        elif norm in ("investigator", "agyis_investigator", "detective", "forensic", "root_cause_analyst", "rca"):
+            return cls.INVESTIGATOR
         raise ValueError(f"Unknown AgentArchetype: {val}")
 
 
@@ -125,6 +130,19 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "send_message",
     ],
     "builder": [
+        "view_file",
+        "list_dir",
+        "grep_search",
+        "find_by_name",
+        "read_url_content",
+        "search_web",
+        "run_command",
+        "manage_task",
+        "write_to_file",
+        "replace_file_content",
+        "send_message",
+    ],
+    "investigator": [
         "view_file",
         "list_dir",
         "grep_search",
@@ -318,6 +336,8 @@ def get_agent_spec(
     name: str, agents_dir: Optional[Path] = None
 ) -> Optional[AgentSpec]:
     """Retrieve an agent specification by name, stem, or archetype alias."""
+    from harness.agents import resolve_agent_name
+
     norm = name.strip().lower().replace("-", "_")
     target_arch: Optional[AgentArchetype] = None
     try:
@@ -325,13 +345,22 @@ def get_agent_spec(
     except ValueError:
         target_arch = None
 
+    resolved = resolve_agent_name(norm)
+
     for spec in list_agent_specs(agents_dir):
+        spec_norm = spec.name.lower().replace("-", "_")
+        stem_norm = (
+            spec.source_file.stem.lower().replace("-", "_")
+            if spec.source_file
+            else ""
+        )
         if (
-            spec.name.lower().replace("-", "_") == norm
-            or (spec.source_file and spec.source_file.stem.lower().replace("-", "_") == norm)
+            spec_norm in (norm, resolved)
+            or stem_norm in (norm, resolved)
             or spec.archetype.value == norm
             or (target_arch is not None and spec.archetype == target_arch)
             or norm in spec.name.lower()
+            or resolved in spec.name.lower()
         ):
             return spec
     return None

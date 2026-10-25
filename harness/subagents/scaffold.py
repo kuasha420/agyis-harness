@@ -209,6 +209,8 @@ def scaffold_agent_markdown(
             resolved_bundle = "verifier"
         elif arch == AgentArchetype.COORDINATOR:
             resolved_bundle = "orchestrator"
+        elif arch == AgentArchetype.INVESTIGATOR:
+            resolved_bundle = "investigator"
         elif arch == AgentArchetype.PLANNER:
             tools = [
                 "view_file",
@@ -246,6 +248,8 @@ def scaffold_agent_markdown(
             role = "Software Architect & Solution Planner"
         elif arch == AgentArchetype.COORDINATOR:
             role = "Swarm Coordinator & Multi-Agent Lead"
+        elif arch == AgentArchetype.INVESTIGATOR:
+            role = "Agyis Root Cause Analyst & Forensic Investigator"
         else:
             role = f"{arch.value.capitalize()} Specialist"
 
@@ -272,6 +276,11 @@ def scaffold_agent_markdown(
             description = "Architectural research, dependency analysis, and artifact-first implementation plan synthesis."
         elif arch == AgentArchetype.COORDINATOR:
             description = "Multi-agent swarm orchestration, milestone decomposition, and project ledger governance."
+        elif arch == AgentArchetype.INVESTIGATOR:
+            description = (
+                "Hypothesis testing, minimal reproduction scripts in scratch, "
+                "and root cause analysis. Strictly read-only on product code."
+            )
         else:
             description = f"Specialized {arch.value} agent for codebase tasks."
 
@@ -391,6 +400,14 @@ def scaffold_agent_markdown(
         body_lines.append("1. **Artifact-First Planning (ADR-012)**: Synthesize codebase research and architecture analysis into interactive `implementation_plan.md` artifacts. You can write to exempt artifact paths for synthesis, but cannot mutate product code directly.")
     elif arch == AgentArchetype.COORDINATOR:
         body_lines.append("1. **Swarm Orchestration**: Decompose milestones into single-phase tasks, delegate to specialist subagents, and govern the project ledger.")
+    elif arch == AgentArchetype.INVESTIGATOR:
+        body_lines.append(
+            "1. **Hypothesis-Driven Root Cause Analysis (RCA)**: Formulate explicit, falsifiable hypotheses. "
+            "Author minimal standalone reproduction scripts in scratch (scratch/reproduce_issue.py) confirming "
+            "deterministic red failure before proposing fixes. Strictly read-only on product code: forbidden from "
+            "editing product source code or modifying existing test suites. Writes only to scratch and Tier 1 "
+            "rca_report.md with concrete fix specifications for agyis_builder."
+        )
 
     body_lines.extend([
         "2. **The 5 Ground Rules**:",

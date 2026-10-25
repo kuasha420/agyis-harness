@@ -48,7 +48,7 @@ class TestSpecialistSubagents(unittest.TestCase):
     def test_list_agents_discovers_all_archetypes(self) -> None:
         """Every specialist agent in harness/agents/ must be loaded and cataloged."""
         agents = list_agent_specs()
-        self.assertEqual(len(agents), 7)
+        self.assertEqual(len(agents), 8)
 
         archetypes = {a.archetype for a in agents}
         self.assertEqual(
@@ -61,6 +61,7 @@ class TestSpecialistSubagents(unittest.TestCase):
                 AgentArchetype.COORDINATOR,
                 AgentArchetype.MAIN,
                 AgentArchetype.CUSTODIAN,
+                AgentArchetype.INVESTIGATOR,
             },
         )
 
@@ -120,6 +121,23 @@ class TestSpecialistSubagents(unittest.TestCase):
         for et in self.EXEC_TOOLS:
             self.assertIn(et, tool_set, f"Builder must include exec tool '{et}'")
         self.assertIn("send_message", tool_set, "Builder must include 'send_message'")
+
+    def test_investigator_toolgroup_permissions(self) -> None:
+        """Investigator (Forensic Detective) must have write & exec tools (for scratch & RCA), but no subagents."""
+        investigator = get_agent_spec("agyis_investigator")
+        self.assertIsNotNone(investigator)
+        self.assertEqual(investigator.archetype, AgentArchetype.INVESTIGATOR)
+        self.assertTrue(investigator.can_write, "Investigator must have write permission for scratch reproduction")
+        self.assertTrue(investigator.can_execute, "Investigator must have exec permission to run reproduction scripts")
+        self.assertFalse(investigator.can_subagent, "Investigator must not spawn subagents")
+        self.assertTrue(investigator.permissions.enable_write_tools)
+
+        tool_set = set(investigator.allowed_tools)
+        self.assertIn("send_message", tool_set)
+        self.assertIn("run_command", tool_set)
+        self.assertIn("manage_task", tool_set)
+        self.assertIn("write_to_file", tool_set)
+        self.assertIn("replace_file_content", tool_set)
 
     def test_reviewer_toolgroup_permissions(self) -> None:
         """Reviewer (Hammer) must be strictly read-only: no write tools, no exec tools."""
@@ -269,27 +287,45 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIsNotNone(get_agent_spec("general"))
         self.assertIsNotNone(get_agent_spec("default"))
 
+        self.assertIsNotNone(get_agent_spec("agyis_builder"))
+        self.assertIsNotNone(get_agent_spec("agyis-builder"))
         self.assertIsNotNone(get_agent_spec("harness_builder"))
         self.assertIsNotNone(get_agent_spec("harness-builder"))
         self.assertIsNotNone(get_agent_spec("builder"))
         self.assertIsNotNone(get_agent_spec("executioner"))
 
+        self.assertIsNotNone(get_agent_spec("agyis_reviewer"))
+        self.assertIsNotNone(get_agent_spec("agyis-reviewer"))
         self.assertIsNotNone(get_agent_spec("harness_reviewer"))
         self.assertIsNotNone(get_agent_spec("reviewer"))
         self.assertIsNotNone(get_agent_spec("hammer"))
 
+        self.assertIsNotNone(get_agent_spec("agyis_auditor"))
+        self.assertIsNotNone(get_agent_spec("agyis-auditor"))
         self.assertIsNotNone(get_agent_spec("harness_auditor"))
         self.assertIsNotNone(get_agent_spec("auditor"))
         self.assertIsNotNone(get_agent_spec("qa"))
 
+        self.assertIsNotNone(get_agent_spec("agyis_planner"))
+        self.assertIsNotNone(get_agent_spec("agyis-planner"))
         self.assertIsNotNone(get_agent_spec("planner"))
         self.assertIsNotNone(get_agent_spec("architect"))
 
+        self.assertIsNotNone(get_agent_spec("agyis_coordinator"))
+        self.assertIsNotNone(get_agent_spec("agyis-coordinator"))
         self.assertIsNotNone(get_agent_spec("coordinator"))
         self.assertIsNotNone(get_agent_spec("orchestrator"))
 
+        self.assertIsNotNone(get_agent_spec("agyis_custodian"))
+        self.assertIsNotNone(get_agent_spec("agyis-custodian"))
         self.assertIsNotNone(get_agent_spec("harness_custodian"))
         self.assertIsNotNone(get_agent_spec("custodian"))
+
+        self.assertIsNotNone(get_agent_spec("agyis_investigator"))
+        self.assertIsNotNone(get_agent_spec("agyis-investigator"))
+        self.assertIsNotNone(get_agent_spec("investigator"))
+        self.assertIsNotNone(get_agent_spec("detective"))
+        self.assertIsNotNone(get_agent_spec("forensic"))
 
         self.assertIsNone(get_agent_spec("unknown_agent_spec"))
 
@@ -324,6 +360,10 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertEqual(AgentArchetype.from_string("git_custodian"), AgentArchetype.CUSTODIAN)
         self.assertEqual(AgentArchetype.from_string("commit_gate"), AgentArchetype.CUSTODIAN)
         self.assertEqual(AgentArchetype.from_string("subagent_x_custodian"), AgentArchetype.CUSTODIAN)
+        self.assertEqual(AgentArchetype.from_string("investigator"), AgentArchetype.INVESTIGATOR)
+        self.assertEqual(AgentArchetype.from_string("agyis_investigator"), AgentArchetype.INVESTIGATOR)
+        self.assertEqual(AgentArchetype.from_string("detective"), AgentArchetype.INVESTIGATOR)
+        self.assertEqual(AgentArchetype.from_string("forensic"), AgentArchetype.INVESTIGATOR)
 
         with self.assertRaises(ValueError):
             AgentArchetype.from_string("non_existent_archetype")
@@ -333,15 +373,16 @@ class TestSpecialistSubagents(unittest.TestCase):
         target = self.isolated_path / "agents_target"
         synced = sync_agent_definitions(target_dir=target)
 
-        self.assertEqual(len(synced), 7)
+        self.assertEqual(len(synced), 8)
         for expected_file in [
-            "harness_builder.md",
-            "harness_reviewer.md",
-            "harness_auditor.md",
-            "planner.md",
-            "coordinator.md",
+            "agyis_builder.md",
+            "agyis_reviewer.md",
+            "agyis_auditor.md",
+            "agyis_planner.md",
+            "agyis_coordinator.md",
             "agyis_architect.md",
-            "harness_custodian.md",
+            "agyis_custodian.md",
+            "agyis_investigator.md",
         ]:
             dest = target / expected_file
             self.assertTrue(dest.exists(), f"Expected synced file {dest} not found")
@@ -398,7 +439,7 @@ class TestSpecialistSubagents(unittest.TestCase):
         # 1. Sync specific agent
         synced = sync_agent_definitions(target_dir=target, agent_names=["executioner"])
         self.assertEqual(len(synced), 1)
-        self.assertEqual(synced[0].name, "harness_builder.md")
+        self.assertEqual(synced[0].name, "agyis_builder.md")
 
         # 2. Dedup skips identical file
         synced_dedup = sync_agent_definitions(target_dir=target, agent_names=["executioner"], dedup=True)

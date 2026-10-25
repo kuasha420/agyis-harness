@@ -43,6 +43,8 @@ pnpm-debug.log*
 # PSL Telemetry Data & Session History (Strictly Private)
 # All mined transcripts, sqlite databases, and extracted session JSONs
 data/*.db
+data/*.db-shm
+data/*.db-wal
 data/*.sqlite
 data/*.sqlite3
 data/*.jsonl
