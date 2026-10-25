@@ -10,7 +10,7 @@
 **Status**: APPROVED & LOCKED  
 **Date**: October 24, 2026  
 **System Target**: Google Antigravity & Agyis Harness (`psl-agy-harness`)  
-**Parent Orchestrator**: Cockpit Flight Director (`588a8cd9-cfc6-4349-91f0-667f0ce8fa0f`)  
+**Parent Orchestrator**: Cockpit Flight Director (`<parent-conversation-id>`)  
 **Lead Author**: `agyis_architect` (Agyis Lead Architect & Master Implementer)  
 
 ---

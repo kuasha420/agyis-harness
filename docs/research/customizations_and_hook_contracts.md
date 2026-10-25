@@ -107,10 +107,10 @@ Every hook payload passed on `stdin` includes common system metadata:
 
 ```json
 {
-  "conversationId": "80b6f59a-cd73-4d57-b07e-80f7902a84ae",
-  "workspacePaths": ["/home/kuasha/Dev/psl-agy-harness"],
-  "transcriptPath": "/home/kuasha/Dev/psl-agy-harness/.gemini/antigravity/transcript.jsonl",
-  "artifactDirectoryPath": "/home/kuasha/.gemini/antigravity/brain/80b6f59a-cd73-4d57-b07e-80f7902a84ae",
+  "conversationId": "<subagent-conversation-id>",
+  "workspacePaths": ["<workspaceRoot>"],
+  "transcriptPath": "<workspaceRoot>/.gemini/antigravity/transcript.jsonl",
+  "artifactDirectoryPath": "<appDataDir>/brain/<subagent-id>",
   "modelName": "auto"
 }
 ```

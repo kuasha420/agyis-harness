@@ -128,7 +128,7 @@ def discover_antigravity_rpc():
     for p in glob.glob("/proc/[0-9]*/cmdline"):
         try:
             with open(p, "rb") as f:
-                cmd = f.read().decode("utf-8", errors="ignore").split(" ")
+                cmd = f.read().decode("utf-8", errors="ignore").split("")
             if any("language_server" in c for c in cmd):
                 for i, arg in enumerate(cmd):
                     if "--csrf_token" in arg:

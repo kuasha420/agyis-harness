@@ -25,7 +25,7 @@ All three routes achieved **Unconditional Out-of-Band Victory Certification**. H
 
 | Metric | Route A: `/subagent-ladder` Solo | Route B: `/teamwork-preview` Solo | Route C: Hybrid Assembly Pipeline |
 | :--- | :---: | :---: | :---: |
-| **Sealed Git Commit** | [`523689e`](file:///home/kuasha/Dev/agyis-exp-ladder-83) | [`5416f6e`](file:///home/kuasha/Dev/agyis-exp-teamwork-83) | [`95283d2`](file:///home/kuasha/Dev/agyis-exp-route-c-83) |
+| **Sealed Git Commit** | [`523689e`](`worktree: exp-ladder-83`) | [`5416f6e`](`worktree: exp-teamwork-83`) | [`95283d2`](`worktree: exp-route-c-83`) |
 | **Working Tree State** | 100% Clean | 100% Clean | 100% Clean |
 | **Victory Audit Verdict** | 🏆 **CERTIFIED** (`a08eb603`) | 🏆 **CERTIFIED** (`c0fbeda0`) | 🏆 **CERTIFIED** (`98b71523`) |
 | **Net Code Changes (Total)** | **+852 lines** (6 files) | **+4,068 lines** (18 files) | **+1,153 lines** (9 files) |
@@ -82,7 +82,7 @@ All three routes achieved **Unconditional Out-of-Band Victory Certification**. H
 ## 3. The "Pink Elephant" Cognitive Intrusion Experiment
 
 During Act 4 prompt drafting, an accidental behavioral vector occurred: the swarm prompt explicitly commanded:
-> *"Maintain strict cleanroom isolation: zero cross-talk with `/home/kuasha/Dev/agyis-exp-teamwork-83` or external branches."*
+> *"Maintain strict cleanroom isolation: zero cross-talk with `<exp-worktree-teamwork-83>` or external branches."*
 
 We formulated and tested the **Pink Elephant Hypothesis**:
 > *Does explicitly naming a forbidden file path in an autonomous agent's initial prompt prime its semantic attention and tempt workers to inspect the forbidden path?*
@@ -91,7 +91,7 @@ We formulated and tested the **Pink Elephant Hypothesis**:
 We audited all 14 conversation SQLite databases across Route C's swarm lineage (`51d4c318`, `2a8001b0`, `dc00cb0c`, and all 11 child workers):
 - **Passive Prompt Context Matches**: **83** (the string was faithfully preserved in `.agents/teamwork/ORIGINAL_REQUEST.md` and inherited briefing prompts).
 - **Active Tool Invocations on Rival Worktree**: **0 (ZERO)**.
-- **Empirical Finding**: Across 3,416 trajectory steps and hundreds of tool calls (`read_file`, `grep_search`, `run_command`, `file_search`), **not a single agent ever attempted to read, list, grep, or access `/home/kuasha/Dev/agyis-exp-teamwork-83`**.
+- **Empirical Finding**: Across 3,416 trajectory steps and hundreds of tool calls (`read_file`, `grep_search`, `run_command`, `file_search`), **not a single agent ever attempted to read, list, grep, or access `<exp-worktree-teamwork-83>`**.
 - **Conclusion**: Goal-directed autonomous swarms governed by structured role prompts respect hard negative constraints with **100.0% cleanroom integrity**.
 
 ---
@@ -103,16 +103,16 @@ Route C achieves the highest architectural maturity, cleanest diff stat, lowest 
 1. **Repository Elegance**: Enhances `harness/hooks/pre_invocation_hook.py` contiguously without file bifurcation or dead code.
 2. **Defect-Free Execution**: Fully resolves runner aliases, fail-open schemas, `workspacePaths`, and `custodian` mappings.
 3. **Sub-Millisecond Speed**: 0.0078ms direct latency, 0.058s test suite runtime.
-4. **Clean Git Delivery**: Sealed at commit [`95283d2`](file:///home/kuasha/Dev/agyis-exp-route-c-83) on branch `exp/tri-route-c-83`.
+4. **Clean Git Delivery**: Sealed at commit [`95283d2`](`worktree: exp-route-c-83`) on branch `exp/tri-route-c-83`.
 
 ---
 
 ## 5. Next Operational Steps (Closing the Loop)
 
 1. **Merge Route C to Main**:
-   Fast-forward or merge branch `exp/tri-route-c-83` (`95283d2`) into `main` in `/home/kuasha/Dev/psl-agy-harness`.
+   Fast-forward or merge branch `exp/tri-route-c-83` (`95283d2`) into `main` in `<workspaceRoot>`.
 2. **Decommission Experimental Worktrees**:
    Safely remove experimental worktrees (`agyis-exp-ladder-83`, `agyis-exp-teamwork-83`, `agyis-exp-route-c-83`) using `git worktree remove`.
 3. **Queue Productization Backlog (Issue #87 & Model Decision Skill)**:
-   - Implement `harness/orchestration/native_protocols.py` based on [`autonomous_native_protocol_discovery.md`](file:///home/kuasha/.gemini/antigravity/brain/588a8cd9-cfc6-4349-91f0-667f0ce8fa0f/autonomous_native_protocol_discovery.md).
+   - Implement `harness/orchestration/native_protocols.py` based on [`autonomous_native_protocol_discovery.md`](autonomous_native_protocol_discovery.md).
    - Execute [Issue #87](https://github.com/kuasha420/agyis-harness/issues/87) (decoupling subagent-ladder from knot-mesh heritage).
