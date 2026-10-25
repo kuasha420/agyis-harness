@@ -82,6 +82,21 @@ from harness.delivery.release_notes import (
     parse_commits,
     sync_github_release,
 )
+from harness.delivery.compaction_checkpoint import (
+    ArtifactLink,
+    CheckpointResult,
+    GitState,
+    PlanState,
+    PlanStatus,
+    SubagentEntry,
+    SubagentState,
+    assemble_compaction_checkpoint,
+    collect_active_artifacts,
+    collect_active_subagents,
+    generate_compaction_checkpoint,
+    inspect_git_state,
+    parse_implementation_plan,
+)
 
 purge_build_caches = purge_workspace_build_caches
 
@@ -146,4 +161,17 @@ __all__ = [
     "parse_commit_record",
     "parse_commits",
     "sync_github_release",
+    "GitState",
+    "SubagentEntry",
+    "SubagentState",
+    "ArtifactLink",
+    "PlanStatus",
+    "PlanState",
+    "CheckpointResult",
+    "inspect_git_state",
+    "collect_active_subagents",
+    "collect_active_artifacts",
+    "parse_implementation_plan",
+    "generate_compaction_checkpoint",
+    "assemble_compaction_checkpoint",
 ]
