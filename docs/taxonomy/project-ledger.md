@@ -528,6 +528,28 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Tests: [tests/test_compaction_checkpoint.py](../../tests/test_compaction_checkpoint.py)
   - Deliverable Commits: `eb29e39`, `67c1187`, `5dcb215`, `e1de9b5` pushed to `origin/main`.
 
+---
+
+## [Phase 20] Harmonized Cockpit Director, Dynamic Subagent Router & File Management Hygiene (Issue #92 & #90)
+* **Status**: Completed | **Compaction Date**: 2026-10-26 | **Deliverables**: [GitHub Issue #92](https://github.com/kuasha420/agyis-harness/issues/92) & [GitHub Issue #90](https://github.com/kuasha420/agyis-harness/issues/90)
+* **Key Architectural Decisions & Discoveries**:
+  - **Dynamic Subagent Router (`harness/subagents/routing.py`)**: Elevated `subagent-ladder` into dynamic multi-mode router supporting 4 execution modes (`LADDER`, `PARALLEL_FANOUT`, `TEAMWORK_DAG`, `BOOST_TOURNAMENT`), 12 Canonical Routing Workflows (A–L), and typed transition payloads (`psl_stage_transition_payload.json`).
+  - **Single-Source Skill Deduplication Invariant**: Replaced redundant `.agents/skills/` mirrors with relative symlinks to `../../harness/skills/`, saving ~4,500 tokens/turn. Replaced `subagent-ladder` with a 27-line backward-compatible import shim referencing `subagent-router`.
+  - **Flight Director CLI Suite (`harness/commands/cockpit.py`)**: Codified `agyis cockpit status`, `agyis cockpit route <letter|alias>`, `agyis cockpit verify [--allow-dirty]`, and anti-drift write guard warnings on root edits > 3 files.
+  - **Automated Checkpoint Retention & Rotation (`harness/delivery/compaction_checkpoint.py`)**: Implemented `prune_stale_checkpoints()` retaining the 5 most recent historical epoch checkpoints + `latest.md`.
+  - **Workspace & File Hygiene Suite (`harness/commands/clean.py`)**: Added `agyis clean` CLI (`--checkpoints`, `--worktrees`, `--branches`, `--scratch`, `--all`, `--dry-run`, `--json`).
+  - **Custodian Living Hygiene Invariant (`agyis_custodian.md`)**: Codified Section 1.5 File Management Hygiene & Scratchpad Gate verifying zero uncommitted scratch files and zero orphaned worktrees before commit gates.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,637 hermetic tests passing in 15.08s** (100% green, exit code 0).
+  - Sub-second unit modules: `test_clean.py` in 0.038s, `test_cockpit_director.py` in 0.140s, `test_skills.py` in 0.106s, `test_anti_drift.py` in 0.015s, `test_compaction_checkpoint.py` in 0.503s.
+  - Closed & verified GitHub issues: #92, #90.
+* **Reference Assets Committed**:
+  - Core Modules: `harness/subagents/routing.py`, `harness/commands/cockpit.py`, `harness/commands/clean.py`, `harness/delivery/compaction_checkpoint.py`, `harness/hooks/anti_drift_hook.py`, `harness/cli.py`
+  - Skills & Agents: `harness/skills/cockpit-director/SKILL.md`, `harness/skills/subagent-router/SKILL.md`, `harness/skills/subagent-ladder/SKILL.md`, `harness/agents/agyis_custodian.md`
+  - Tests: `tests/test_cockpit_director.py`, `tests/test_clean.py`, `tests/test_compaction_checkpoint.py`
+  - Deliverable Commits: `73c155d`, `119420d`, `4c44c0a`, `586037b` pushed to `origin/main`.
+
+
 
 
 
