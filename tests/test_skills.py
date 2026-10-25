@@ -220,6 +220,36 @@ class TestModularSkills(unittest.TestCase):
         self.assertIn("Multi-Node Swarm PR Ingestion Protocol", body)
         self.assertIn("gh pr list", body)
 
+    def test_cockpit_director_skill_contract(self) -> None:
+        """cockpit-director skill must be discoverable and codify ATC tower mandate, 5 pillars, and 12 routes."""
+        cockpit = get_skill("cockpit-director")
+        self.assertIsNotNone(cockpit, "cockpit-director skill must be discoverable")
+        self.assertEqual(cockpit.name, "cockpit-director")
+        self.assertGreater(len(cockpit.description), 50)
+
+        body = cockpit.body
+        self.assertIn("Air Traffic Control Tower Mandate", body)
+        self.assertIn("Pillar 1: Zero-Code-Thrash Invariant", body)
+        self.assertIn("Pillar 2: The 12 Canonical Routing Workflows", body)
+        self.assertIn("Pillar 3: Dual-Plane Communication Contract", body)
+        self.assertIn("Pillar 4: Compaction Lifecycle", body)
+        self.assertIn("Pillar 5: 3-Tier Storage Hierarchy", body)
+        self.assertIn("psl_stage_transition_payload.json", body)
+
+    def test_subagent_router_skill_contract(self) -> None:
+        """subagent-router skill must be discoverable and codify 12 workflows, 4 execution modes, and swarm PR ingestion."""
+        router = get_skill("subagent-router")
+        self.assertIsNotNone(router, "subagent-router skill must be discoverable")
+        self.assertEqual(router.name, "subagent-router")
+        self.assertGreater(len(router.description), 50)
+
+        body = router.body
+        self.assertIn("The 4 Multi-Agent Execution Modes", body)
+        self.assertIn("6-Stage Pipeline", body)
+        self.assertIn("Anti-Bypass Invariant", body)
+        self.assertIn("Multi-Node Swarm PR Ingestion Protocol", body)
+        self.assertIn("gh pr list", body)
+
     def test_reverse_engineer_anything_dynamic_provisioning(self) -> None:
         """Verifies on-demand skill provisioner dynamically locates and links official REA skill without vendoring."""
         import json

@@ -67,6 +67,8 @@ __all__ = [
     "check_drift",
     "check_plan_mode_lock",
     "check_auditor_write_block",
+    "check_flight_director_write_guard",
+    "reset_flight_director_edits",
     "find_active_plan",
     "main",
 ]
@@ -361,6 +363,111 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
     return None
 
 
+def check_flight_director_write_guard(payload: dict) -> Optional[dict]:
+    """
+    Flight Director Anti-Thrash Guard (Issue #92 / PSL-SPEC-2026-COCKPIT-DIRECTOR-001 Pillar 1).
+
+    When the active role is ROLE_FLIGHT_DIRECTOR, cockpit_director, or root cockpit,
+    tracks continuous direct product code file modifications. If >3 product files
+    are modified without specialist subagent delegation, emits an advisory warning
+    (or blocks if PSL_STRICT_FLIGHT_DIRECTOR=1).
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    role = (
+        payload.get("agent_role")
+        or payload.get("agentRole")
+        or payload.get("role")
+        or payload.get("agent_name")
+        or payload.get("agentName")
+        or payload.get("agent")
+        or os.environ.get("PSL_SUBAGENT_ROLE")
+        or os.environ.get("PSL_AGENT_ROLE")
+        or os.environ.get("AGYIS_ROLE")
+        or ""
+    )
+    r_lower = role.strip().lower().replace("-", "_")
+    is_flight_director = (
+        r_lower in ("flight_director", "cockpit_director", "cockpit", "role_flight_director")
+        or "flight_director" in r_lower
+        or "cockpit_director" in r_lower
+    )
+    if not is_flight_director:
+        return None
+
+    tool_call = payload.get("toolCall", {})
+    tool_name = tool_call.get("name") if isinstance(tool_call, dict) else ""
+    if not tool_name:
+        tool_name = payload.get("tool_name") or payload.get("action") or ""
+    tool_lower = tool_name.strip().lower()
+
+    if tool_lower not in ("write_to_file", "replace_file_content", "edit_file"):
+        return None
+
+    target_path = _extract_target_file(payload)
+    if not target_path or is_exempt_file(target_path):
+        return None
+
+    # Track direct product code modifications
+    conv_id = str(payload.get("conversationId") or payload.get("conversation_id") or "default")
+    state_dir = get_state_dir()
+    edits_file = state_dir / f"cockpit_direct_edits_{conv_id}.json"
+
+    files_modified = set()
+    if edits_file.exists():
+        try:
+            content = edits_file.read_text(encoding="utf-8")
+            data = json.loads(content)
+            if isinstance(data, dict):
+                files_modified = set(data.get("files", []))
+        except Exception:
+            files_modified = set()
+
+    files_modified.add(target_path)
+    try:
+        edits_file.write_text(json.dumps({"files": sorted(list(files_modified))}), encoding="utf-8")
+    except Exception:
+        pass
+
+    count = len(files_modified)
+    if count > 3:
+        strict = os.environ.get("PSL_STRICT_FLIGHT_DIRECTOR", "").strip().lower() in ("1", "true", "yes")
+        reason = (
+            f"PSL Flight Director Advisory: Root cockpit has modified {count} product code files "
+            f"directly without delegating to an agyis_builder or specialist subagent. "
+            f"The root cockpit is an Air Traffic Control Tower, not a construction site. "
+            f"Delegate execution downstream to subagent-router to prevent context thrash."
+        )
+        if strict:
+            return {
+                "decision": "deny",
+                "reason": reason,
+                "advisory": reason,
+                "direct_edits_count": count,
+            }
+        else:
+            return {
+                "decision": "allow",
+                "warning": reason,
+                "advisory": reason,
+                "direct_edits_count": count,
+            }
+
+    return None
+
+
+def reset_flight_director_edits(conv_id: str = "default") -> None:
+    """Resets the direct edit counter for a given conversation when subagent delegation occurs."""
+    state_dir = get_state_dir()
+    edits_file = state_dir / f"cockpit_direct_edits_{conv_id}.json"
+    if edits_file.exists():
+        try:
+            edits_file.unlink()
+        except OSError:
+            pass
+
+
 
 
 def main() -> None:
@@ -384,6 +491,15 @@ def main() -> None:
     if action == "check_auditor_write_block":
         result = check_auditor_write_block(payload)
         print(json.dumps(result or {"decision": "allow"}))
+        return
+    if action == "check_flight_director_write_guard":
+        result = check_flight_director_write_guard(payload)
+        print(json.dumps(result or {"decision": "allow"}))
+        return
+    if action == "reset_flight_director_edits":
+        conv_id = str(payload.get("conversationId") or payload.get("conversation_id") or "default")
+        reset_flight_director_edits(conv_id=conv_id)
+        print(json.dumps({"status": "ok", "reset": True}))
         return
     if action == "check_drift":
         target = payload.get("target_file", "")
@@ -421,6 +537,12 @@ def main() -> None:
     write_block = check_auditor_write_block(payload)
     if write_block:
         print(json.dumps(write_block))
+        return
+
+    # Phase 0.6: PSL Flight Director Anti-Thrash Guard (Issue #92)
+    fd_guard = check_flight_director_write_guard(payload)
+    if fd_guard and fd_guard.get("decision") == "deny":
+        print(json.dumps(fd_guard))
         return
 
     conv_id = payload.get("conversationId") or payload.get("conversation_id")
@@ -468,24 +590,27 @@ def main() -> None:
 
     plan_path = find_active_plan(conv_id=conv_id, workspace_root=workspace_root, brain_dir=artifact_dir)
     if not plan_path or not plan_path.is_file():
-        print(json.dumps({"decision": "allow"}))
+        print(json.dumps(fd_guard or {"decision": "allow"}))
         return
 
     try:
         plan_content = plan_path.read_text(encoding="utf-8")
     except OSError:
-        print(json.dumps({"decision": "allow"}))
+        print(json.dumps(fd_guard or {"decision": "allow"}))
         return
 
     try:
         plan_files = parse_plan_files(plan_content)
     except Exception as exc:
         print(f"PSL Anti-Drift: Error parsing plan files: {exc}", file=sys.stderr)
-        print(json.dumps({"decision": "allow"}))
+        print(json.dumps(fd_guard or {"decision": "allow"}))
         return
 
     strict = os.environ.get("PSL_STRICT_ANTI_DRIFT", "").strip().lower() in ("1", "true", "yes")
     result = check_drift(target_file, plan_files, strict=strict)
+    if fd_guard and "warning" in fd_guard and result.get("decision") == "allow":
+        result["warning"] = fd_guard["warning"]
+        result["advisory"] = fd_guard.get("advisory", "")
     print(json.dumps(result))
 
 

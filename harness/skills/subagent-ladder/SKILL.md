@@ -12,6 +12,10 @@ description: >-
 
 # Subagent Ladder: Multi-Agent SWE Execution Protocol 🪜🤖
 
+> [!NOTE]
+> **Promoted to `subagent-router`**:
+> The linear Subagent Ladder has been elevated into the dynamic [**`subagent-router`**](../subagent-router/SKILL.md) protocol, providing dynamic routing across the 12 Canonical Workflows, native Antigravity teamwork graphs (`/teamwork-preview`), and tournament boosts (`/boost`). This document is maintained for full backwards-compatibility.
+
 The **Subagent Ladder** formalizes an autonomous, multi-agent pair-programming protocol for complex software engineering tasks, large-scale refactorings, and delivery across multi-phase software engineering milestones in Agyis Harness.
 
 > [!IMPORTANT]

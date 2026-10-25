@@ -22,6 +22,8 @@ from unittest.mock import MagicMock, patch
 
 from harness.hooks.anti_drift_hook import (
     check_auditor_write_block,
+    check_flight_director_write_guard,
+    reset_flight_director_edits,
     check_drift,
     check_ledger_cluster_tables,
     check_plan_mode_lock,
@@ -432,6 +434,74 @@ class TestAntiDriftHook(unittest.TestCase):
             res = check_auditor_write_block(payload)
             self.assertIsNotNone(res)
             self.assertEqual(res["decision"], "deny")
+
+    def test_flight_director_write_guard_threshold(self):
+        """Flight director emits advisory warning after >3 direct product code files."""
+        conv_id = "test_fd_conv_1"
+        reset_flight_director_edits(conv_id)
+
+        # 1. Non-flight director is not tracked
+        builder_payload = {
+            "role": "harness_builder",
+            "conversation_id": conv_id,
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": "src/app1.py"}},
+        }
+        self.assertIsNone(check_flight_director_write_guard(builder_payload))
+
+        # 2. Flight director modifying exempt file returns None
+        fd_exempt_payload = {
+            "role": "cockpit_director",
+            "conversation_id": conv_id,
+            "toolCall": {"name": "write_to_file", "args": {"TargetFile": ".agents/artifacts/plan.md"}},
+        }
+        self.assertIsNone(check_flight_director_write_guard(fd_exempt_payload))
+
+        # 3. Direct edits 1, 2, 3 return None (allowed)
+        for i in (1, 2, 3):
+            payload = {
+                "role": "flight_director",
+                "conversation_id": conv_id,
+                "toolCall": {"name": "replace_file_content", "args": {"TargetFile": f"src/mod_{i}.py"}},
+            }
+            res = check_flight_director_write_guard(payload)
+            self.assertIsNone(res, f"Expected allow without warning for file {i}")
+
+        # 4. Direct edit 4 triggers advisory warning
+        payload4 = {
+            "role": "flight_director",
+            "conversation_id": conv_id,
+            "toolCall": {"name": "replace_file_content", "args": {"TargetFile": "src/mod_4.py"}},
+        }
+        res4 = check_flight_director_write_guard(payload4)
+        self.assertIsNotNone(res4)
+        self.assertEqual(res4["decision"], "allow")
+        self.assertIn("PSL Flight Director Advisory", res4["warning"])
+        self.assertEqual(res4["direct_edits_count"], 4)
+
+        # 5. Clean up
+        reset_flight_director_edits(conv_id)
+
+    def test_flight_director_write_guard_strict_mode(self):
+        """When PSL_STRICT_FLIGHT_DIRECTOR=1, guard blocks >3 product files with deny."""
+        conv_id = "test_fd_conv_strict"
+        reset_flight_director_edits(conv_id)
+
+        with patch.dict(os.environ, {"PSL_STRICT_FLIGHT_DIRECTOR": "1"}):
+            for i in (1, 2, 3, 4):
+                payload = {
+                    "role": "ROLE_FLIGHT_DIRECTOR",
+                    "conversation_id": conv_id,
+                    "toolCall": {"name": "write_to_file", "args": {"TargetFile": f"lib/comp_{i}.py"}},
+                }
+                res = check_flight_director_write_guard(payload)
+                if i <= 3:
+                    self.assertIsNone(res)
+                else:
+                    self.assertIsNotNone(res)
+                    self.assertEqual(res["decision"], "deny")
+                    self.assertIn("PSL Flight Director Advisory", res["reason"])
+
+        reset_flight_director_edits(conv_id)
 
     def test_cli_hook_main_auditor_write_block(self):
         """main() intercepts auditor file mutation and outputs block response."""

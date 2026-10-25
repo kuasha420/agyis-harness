@@ -47,6 +47,7 @@ from harness.commands import (
     cmd_verify,
     cmd_release_notes,
     cmd_checkpoint,
+    cmd_cockpit,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -890,6 +891,131 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Output result in JSON format",
     )
 
+    # cockpit
+    p_cockpit = subparsers.add_parser(
+        "cockpit",
+        help="Flight deck pairing, workflow routing, and invariant audit (Issue #92)",
+        description="Agyis Cockpit Flight Director Suite",
+    )
+    p_cockpit.add_argument(
+        "--workspace", "-w",
+        type=Path,
+        default=None,
+        help="Path to workspace directory (default: current directory)",
+    )
+    p_cockpit.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result in JSON format",
+    )
+    cockpit_subparsers = p_cockpit.add_subparsers(
+        dest="cockpit_action",
+        title="actions",
+        description="Flight director commands",
+    )
+
+    # cockpit status
+    p_cp_stat_cmd = cockpit_subparsers.add_parser(
+        "status",
+        help="Display flight deck status, attention horizon, git, and subagents",
+        description="Display runtime status overview of flight deck parameters",
+    )
+    p_cp_stat_cmd.add_argument(
+        "--workspace", "-w",
+        type=Path,
+        default=None,
+        help="Path to workspace directory (default: current directory)",
+    )
+    p_cp_stat_cmd.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result in JSON format",
+    )
+
+    # cockpit route
+    p_cp_route = cockpit_subparsers.add_parser(
+        "route",
+        help="Display dispatch briefing & payload template for a canonical workflow",
+        description="Display dispatch briefing and psl_stage_transition_payload.json template",
+    )
+    p_cp_route.add_argument(
+        "workflow",
+        type=str,
+        help="Workflow route letter (A-L) or alias (e.g. rca, feature, builder, overhaul, victory)",
+    )
+    p_cp_route.add_argument(
+        "--task-id",
+        type=str,
+        default="TASK-001",
+        help="Task or phase identifier (default: TASK-001)",
+    )
+    p_cp_route.add_argument(
+        "--workspace", "-w",
+        type=Path,
+        default=None,
+        help="Path to workspace directory (default: current directory)",
+    )
+    p_cp_route.add_argument(
+        "--json",
+        action="store_true",
+        help="Output dispatch briefing in JSON format",
+    )
+
+    # cockpit verify
+    p_cp_verify = cockpit_subparsers.add_parser(
+        "verify",
+        help="Audit active session against the 5 flight director invariants",
+        description="Audit flight deck invariants (clean product code, clean scratchpads, no orphaned worktrees)",
+    )
+    p_cp_verify.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="Permit in-flight uncommitted product code modifications",
+    )
+    p_cp_verify.add_argument(
+        "--workspace", "-w",
+        type=Path,
+        default=None,
+        help="Path to workspace directory (default: current directory)",
+    )
+    p_cp_verify.add_argument(
+        "--json",
+        action="store_true",
+        help="Output audit result in JSON format",
+    )
+
+    # router / ladder aliases
+    for alias_name in ("router", "ladder"):
+        p_alias = subparsers.add_parser(
+            alias_name,
+            help=f"Dynamic subagent router (alias for 'cockpit route')",
+            description="Dynamic subagent router & execution pipeline",
+        )
+        p_alias.add_argument(
+            "workflow",
+            type=str,
+            nargs="?",
+            default="status",
+            help="Workflow route letter (A-L) or alias (e.g. rca, feature, builder, overhaul, victory)",
+        )
+        p_alias.add_argument(
+            "--task-id",
+            type=str,
+            default="TASK-001",
+            help="Task or phase identifier (default: TASK-001)",
+        )
+        p_alias.add_argument(
+            "--workspace", "-w",
+            type=Path,
+            default=None,
+            help="Path to workspace directory (default: current directory)",
+        )
+        p_alias.add_argument(
+            "--json",
+            action="store_true",
+            help="Output in JSON format",
+        )
+
     return parser
 
 
@@ -946,6 +1072,9 @@ def main(
         "gui": cmd_gui,
         "release-notes": cmd_release_notes,
         "checkpoint": cmd_checkpoint,
+        "cockpit": cmd_cockpit,
+        "router": cmd_cockpit,
+        "ladder": cmd_cockpit,
     }
 
     handler = commands.get(args.subcommand)

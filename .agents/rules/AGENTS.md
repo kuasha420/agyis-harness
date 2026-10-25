@@ -68,11 +68,20 @@ agyis gui --devtools                           # Inspect DevToolsActivePort and 
 agyis gui --no-popup                           # Prime DevTools flags and hotkeys (F12, Ctrl+Shift+T) without auto-popup
 agyis gui --toggle                             # Toggle Trajectory Debug View open/closed
 
+# 🛫 Cockpit Flight Director & Subagent Router (PSL-SPEC-2026-COCKPIT-DIRECTOR-001)
+agyis cockpit status                           # Print flight deck health, tokens, active subagents & git state
+agyis cockpit route <letter|alias>             # Print dispatch briefing & transition payload (e.g. agyis cockpit route A / rca)
+agyis cockpit verify [--allow-dirty]           # Audit active session against the 5 flight director invariants
+agyis router <letter|alias>                    # Dynamic subagent router CLI alias (e.g. agyis router victory)
+agyis ladder <letter|alias>                    # Backwards-compatible router CLI alias (e.g. agyis ladder builder)
+
 # 🧹 Multi-Branch Workspace & Cache Hygiene
 rm -rf .next/ .turbo/ node_modules/.cache      # Invalidate stale build caches prior to verification gates
 python3 -c "from harness.delivery import purge_build_caches; purge_build_caches('.')" # Standalone cache purge
 
 # 🛠️ Workstation & Remote Modular Skills
+# cockpit-director: Air Traffic Control Tower runbook, root flight deck pairing, 12 routing workflows, compaction thresholds
+# subagent-router:  Dynamic subagent routing, 12 workflows, 4 execution modes (Ladder, Fan-Out, Teamwork, Boost), swarm PRs
 # storage-ops:      Bounded disk triage (`du -h -d 1`), pacman cache (`paccache -r`), journalctl vacuum, Docker prune, Btrfs, ntfs3
 # audio-ops:        PipeWire/WirePlumber user diagnostics (`wpctl status`), sink recovery, bluetoothctl, loudnorm, VLC split-package
 # display-ops:      Wayland probe (`kscreen-doctor -o`), portal restart (no -9), Electron Ozone/PipeWire flags, Sunshine KMS capture

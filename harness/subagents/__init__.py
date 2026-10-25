@@ -64,6 +64,16 @@ from harness.subagents.succession import (
     resolve_self_alias,
     scaffold_successor_generation,
 )
+from harness.subagents.routing import (
+    CANONICAL_ROUTES,
+    WorkflowMode,
+    WorkflowRoute,
+    build_stage_transition_payload,
+    format_route_briefing,
+    get_route,
+    list_routes,
+    validate_stage_transition_payload,
+)
 
 __all__ = [
     "DEFAULT_AGENTS_DIR",
@@ -107,5 +117,13 @@ __all__ = [
     "build_succession_prompt",
     "build_custody_transfer_payload",
     "scaffold_successor_generation",
+    "CANONICAL_ROUTES",
+    "WorkflowMode",
+    "WorkflowRoute",
+    "build_stage_transition_payload",
+    "format_route_briefing",
+    "get_route",
+    "list_routes",
+    "validate_stage_transition_payload",
 ]
 
