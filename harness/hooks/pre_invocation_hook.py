@@ -76,6 +76,29 @@ ROLE_SWARM_ORCHESTRATOR: str = "swarm_orchestrator"
 ROLE_DEEP_EXECUTION: str = "deep_execution"
 ROLE_FORENSIC_AUDITOR: str = "forensic_auditor"
 
+DEFAULT_ROLE_PINNING_CADENCE: int = 10
+
+
+def get_role_pinning_cadence(override: Optional[int] = None) -> int:
+    """Returns effective cadence for intra-epoch periodic role re-anchors (default 10)."""
+    if override is not None:
+        try:
+            val = int(override)
+            if val > 0:
+                return val
+        except (ValueError, TypeError):
+            pass
+    env_val = os.environ.get("AGYIS_ROLE_PINNING_CADENCE")
+    if env_val:
+        try:
+            val = int(env_val.strip())
+            if val > 0:
+                return val
+        except (ValueError, TypeError):
+            pass
+    return DEFAULT_ROLE_PINNING_CADENCE
+
+
 NATIVE_SYSTEM_SLASH_COMMANDS: frozenset[str] = frozenset({
     "compact",
     "clear",
@@ -1229,6 +1252,97 @@ def build_compaction_advisory(
     )
 
 
+ROLE_PERSONA_PROMPTS: Dict[str, str] = {
+    ROLE_FLIGHT_DIRECTOR: (
+        "[AGYIS ROLE PINNING: FLIGHT DIRECTOR / COORDINATOR]\n"
+        "You are operating as the Flight Director / Swarm Coordinator (Stage 0: COORDINATION).\n\n"
+        "CORE OPERATIONAL INVARIANTS:\n"
+        "1. ANTI-CHATBOT SEDUCTION & COGNITIVE STATE FLUSH:\n"
+        "   - Never execute multi-component refactorings in raw conversational chat turns.\n"
+        "   - Immediately crystallize execution plans into interactive implementation plans in .agents/artifacts/.\n"
+        "   - Flush working memory, task rosters, and steering decisions to artifacts; zero repository document pollution.\n"
+        "2. ZERO COORDINATOR REMEDIATION:\n"
+        "   - You are strictly forbidden from modifying product code, patching files directly, or self-resolving review defects.\n"
+        "   - Route all implementation and remediation tasks to specialist subagents (agyis_builder).\n"
+        "3. WORK PRESERVATION CONTRACT:\n"
+        "   - Preserve all local worktree changes. Strictly prohibit 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
+        "4. NON-POLLING REACTIVE DISCIPLINE:\n"
+        "   - Never poll task status in loops. Emit a concise notification and await reactive wakeup."
+    ),
+    ROLE_DEEP_EXECUTION: (
+        "[AGYIS ROLE PINNING: DEEP EXECUTION / EXECUTIONER]\n"
+        "You are operating as the Deep Execution Engineer (Stage 1: EXECUTION / Stage 3: GIT_CUSTODY).\n\n"
+        "CORE OPERATIONAL INVARIANTS:\n"
+        "1. WORK PRESERVATION CONTRACT:\n"
+        "   - Strictly prohibit destructive git commands ('git checkout -- .', 'git reset --hard', 'git clean -fd').\n"
+        "   - On session wake-up, inspect 'git status' and 'git diff' to verify in-flight modifications.\n"
+        "2. SURGICAL CONTIGUOUS EDITS INVARIANT:\n"
+        "   - Always make single contiguous block replacements (replace_file_content). Never overwrite whole files.\n"
+        "   - Preserve surrounding comments, docstrings, imports, and formatting.\n"
+        "3. ZERO SCOPE CREEP:\n"
+        "   - Implement ONLY the tasks specified in the approved implementation plan. Zero speculative expansions.\n"
+        "4. FAST & HERMETIC VERIFICATION:\n"
+        "   - Execute native test commands (./agyis test, python3 -m harness.cli test).\n"
+        "   - Preserve the sub-second benchmark invariant (<1.0s) and hermetic isolation."
+    ),
+    ROLE_FORENSIC_AUDITOR: (
+        "[AGYIS ROLE PINNING: FORENSIC AUDITOR / THE HAMMER]\n"
+        "You are operating as the Forensic Auditor / Victory Auditor (Stage 2: CODE_REVIEW / Stage 4: QA_AUDIT).\n\n"
+        "CORE OPERATIONAL INVARIANTS:\n"
+        "1. ANTI-FIXING & ZERO ERROR SWALLOWING:\n"
+        "   - Never patch code directly or swallow exceptions. Audit diffs line-by-line against the 8 Canonical Empirical Rules.\n"
+        "   - Emits definitive PASS or REJECT verdicts accompanied by a typed defect ledger.\n"
+        "2. DUAL-AUDITOR GATE & CLEAN REVISION INVARIANT:\n"
+        "   - Evaluate strictly the clean, committed revision on HEAD. Never evaluate dirty working trees.\n"
+        "3. FAST & HERMETIC VERIFICATION:\n"
+        "   - Run native test suites (./agyis test, python3 -m harness.cli test) and verify exit code 0.\n"
+        "   - Ensure tests run fast (<1.0s benchmark) without unbounded sleeps or external network dependencies.\n"
+        "4. CLEANROOM RIGOR:\n"
+        "   - Maintain dirty room vs clean room isolation. Derive implementations strictly from formal specifications."
+    ),
+    ROLE_SWARM_ORCHESTRATOR: (
+        "[AGYIS ROLE PINNING: SWARM ORCHESTRATOR]\n"
+        "You are operating as the Swarm Orchestrator coordinating distributed strands across the hardware mesh.\n\n"
+        "CORE OPERATIONAL INVARIANTS:\n"
+        "1. MESH COORDINATION & TOPOLOGY:\n"
+        "   - Coordinate tasks across nodes using non-blocking Linda Tuplespace or out-of-band Swarm Council.\n"
+        "2. WORK PRESERVATION CONTRACT:\n"
+        "   - Preserve local worktrees and branches. Strictly prohibit 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
+        "3. ZERO REPO POLLUTION:\n"
+        "   - Persist coordination state strictly to local artifacts or scratch spaces."
+    ),
+}
+
+
+def build_role_persona_prompt(role: str) -> str:
+    """Returns static role-only persona prompt (~250 tokens) for systemMessage injection."""
+    return ROLE_PERSONA_PROMPTS.get(
+        role,
+        (
+            f"[AGYIS ROLE PINNING: {role.upper()}]\n"
+            f"You are operating with role '{role}'.\n\n"
+            "CORE OPERATIONAL INVARIANTS:\n"
+            "1. WORK PRESERVATION CONTRACT: Strictly prohibit 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
+            "2. PLAN ADHERENCE: Implement only tasks specified in the approved plan. Zero speculative expansions.\n"
+            "3. HERMETIC VERIFICATION: Always run project verification commands and verify exit code 0.\n"
+            "4. NON-POLLING DISCIPLINE: Stop calling tools after launching async tasks and await reactive wakeup."
+        ),
+    )
+
+
+def build_role_reanchor_advisory(role: str, step_count: int, cadence: int) -> str:
+    """Returns intra-epoch periodic re-anchor ephemeralMessage directive."""
+    return (
+        f"[AGYIS ROLE RE-ANCHOR: {role.upper()} (STEP {step_count} | CADENCE {cadence})]\n"
+        "PERIODIC COGNITIVE ATTENTION AUDIT:\n"
+        f"Reinforcing active operational invariants for role '{role}':\n"
+        "1. Work Preservation: All in-flight edits must be preserved on disk. Destructive git commands are banned.\n"
+        "2. Role Fidelity: Adhere strictly to active stage boundaries. Zero scope creep or unauthorized remediation.\n"
+        "3. Empirical Verification: Validate all modifications with native test commands before concluding.\n"
+        "4. Non-Polling Discipline: Await reactive wakeup after background tasks."
+    )
+
+
 def evaluate_pre_invocation(
     payload_str: Union[str, bytes, bytearray, Dict[str, Any]] = "",
     threshold: Optional[int] = None,
@@ -1237,10 +1351,11 @@ def evaluate_pre_invocation(
     sqlite_timeout: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
-    Evaluates token proximity for a PreInvocation event.
+    Evaluates PreInvocation lifecycle event for role pinning and token compaction advisory (Issue #83, #85).
     Returns:
-    - {"injectSteps": []} if below threshold or on error.
-    - {"injectSteps": [{"ephemeralMessage": advisory}]} if at or above threshold.
+    - {"injectSteps": []} if no injection conditions met or on error.
+    - {"injectSteps": [{"systemMessage": ...}]} for Turn 0 stage entry or post-compaction re-anchor.
+    - {"injectSteps": [{"ephemeralMessage": ...}]} for intra-epoch periodic re-anchors or compaction advisory.
     """
     try:
         if isinstance(payload_str, dict):
@@ -1297,13 +1412,24 @@ def evaluate_pre_invocation(
                         eff_ws = Path(os.path.expanduser(first["path"].strip()))
                         break
 
+        to = get_compaction_sqlite_timeout(sqlite_timeout)
+
+        # Native slash command bypass (AC8 / Anti-Collision Invariant):
+        # Native platform slash commands (/compact, /plan, /goal, /boost, /teamwork-preview, etc.)
+        # must bypass PreInvocation advisory and role injection to prevent client-side interceptor collisions.
+        # Custom modular skills (/db-ops, /audio-ops) remain protected.
+        prompt_text = extract_prompt_text(
+            payload, conversation_id=conv_id, db_dir=db_dir, timeout=to
+        )
+        if is_native_slash_command(prompt_text):
+            return {"injectSteps": []}
+
         effective_threshold = (
             int(threshold)
             if threshold is not None
             else get_compaction_advisory_threshold()
         )
 
-        to = get_compaction_sqlite_timeout(sqlite_timeout)
         db_tokens = get_active_conversation_tokens(conv_id, db_dir=db_dir, timeout=to)
         payload_tokens = 0
         for k in ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens"):
@@ -1316,19 +1442,6 @@ def evaluate_pre_invocation(
                 break
         tokens = max(db_tokens, payload_tokens)
 
-        if tokens < effective_threshold:
-            return {"injectSteps": []}
-
-        # Native slash command bypass (AC8 / Anti-Collision Invariant):
-        # Native platform slash commands (/compact, /plan, /goal, /boost, /teamwork-preview, etc.)
-        # must bypass PreInvocation advisory injection to prevent client-side interceptor collisions.
-        # Custom modular skills (/db-ops, /audio-ops) remain protected.
-        prompt_text = extract_prompt_text(
-            payload, conversation_id=conv_id, db_dir=db_dir, timeout=to
-        )
-        if is_native_slash_command(prompt_text):
-            return {"injectSteps": []}
-
         role = classify_agent_role(
             payload,
             conversation_id=conv_id,
@@ -1337,10 +1450,78 @@ def evaluate_pre_invocation(
             tokens=tokens,
             timeout=to,
         )
-        advisory = build_compaction_advisory(role, tokens, effective_threshold)
-        return {"injectSteps": [{"ephemeralMessage": advisory}]}
+
+        # Step count resolution and stage role inspection
+        has_explicit_step = False
+        step_count: Optional[int] = None
+        for k in (
+            "step_count",
+            "stepCount",
+            "step",
+            "currentStep",
+            "initialNumSteps",
+            "initial_num_steps",
+            "stepIdx",
+            "step_idx",
+            "invocationNum",
+            "invocation_num",
+        ):
+            if k in payload:
+                v = payload[k]
+                if isinstance(v, (int, float)):
+                    step_count = int(v)
+                    has_explicit_step = True
+                    break
+                elif isinstance(v, str) and v.strip().isdigit():
+                    step_count = int(v.strip())
+                    has_explicit_step = True
+                    break
+
+        stage_role_data = None
+        try:
+            from harness.subagents.stage_role import read_stage_role
+            stage_role_data = read_stage_role(eff_ws)
+        except Exception:
+            stage_role_data = None
+
+        if not has_explicit_step and stage_role_data is not None:
+            # Active materialized ladder stage without step count passed -> Turn 0 stage entry
+            step_count = 0
+            has_explicit_step = True
+
+        is_post_compaction = bool(
+            re.search(r"#\s*Resuming from a compaction", prompt_text, re.IGNORECASE)
+        )
+
+        is_turn_zero = (has_explicit_step and step_count == 0)
+        cadence = get_role_pinning_cadence()
+        is_periodic_reanchor = (
+            has_explicit_step
+            and step_count is not None
+            and step_count > 0
+            and step_count % cadence == 0
+        )
+
+        inject_steps: List[Dict[str, Any]] = []
+
+        # 1. Dual-anchor systemMessage: Turn 0 stage entry AND Turn 0 post-compaction
+        if is_turn_zero or is_post_compaction:
+            persona_prompt = build_role_persona_prompt(role)
+            inject_steps.append({"systemMessage": persona_prompt})
+        elif is_periodic_reanchor:
+            # 2. Intra-epoch periodic re-anchor (turns 10, 20, 30...)
+            reanchor_msg = build_role_reanchor_advisory(role, step_count or 0, cadence)
+            inject_steps.append({"ephemeralMessage": reanchor_msg})
+
+        # 3. Compaction imminent advisory (tokens >= effective_threshold)
+        if tokens >= effective_threshold:
+            advisory = build_compaction_advisory(role, tokens, effective_threshold)
+            inject_steps.append({"ephemeralMessage": advisory})
+
+        return {"injectSteps": inject_steps}
     except Exception:
         return {"injectSteps": []}
+
 
 
 def main(argv: Optional[List[str]] = None) -> int:

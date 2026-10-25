@@ -39,6 +39,14 @@ from harness.subagents.rehydrate import (
     StepSummary,
     rehydrate_subagent_session,
 )
+from harness.subagents.stage_role import (
+    STAGE_NAME_MAP,
+    STAGE_ROLE_MAP,
+    clear_stage_role,
+    materialize_stage_role,
+    read_stage_role,
+    validate_stage_role_schema,
+)
 
 __all__ = [
     "DEFAULT_AGENTS_DIR",
@@ -63,4 +71,11 @@ __all__ = [
     "list_active_subagent_statuses",
     "StepSummary",
     "rehydrate_subagent_session",
+    "STAGE_NAME_MAP",
+    "STAGE_ROLE_MAP",
+    "clear_stage_role",
+    "materialize_stage_role",
+    "read_stage_role",
+    "validate_stage_role_schema",
 ]
+
