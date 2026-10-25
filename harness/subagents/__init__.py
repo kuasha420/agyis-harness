@@ -58,6 +58,12 @@ from harness.subagents.heartbeat import (
     read_stage_heartbeat,
     validate_heartbeat_schema,
 )
+from harness.subagents.succession import (
+    build_custody_transfer_payload,
+    build_succession_prompt,
+    resolve_self_alias,
+    scaffold_successor_generation,
+)
 
 __all__ = [
     "DEFAULT_AGENTS_DIR",
@@ -97,5 +103,9 @@ __all__ = [
     "pulse_stage_heartbeat",
     "read_stage_heartbeat",
     "validate_heartbeat_schema",
+    "resolve_self_alias",
+    "build_succession_prompt",
+    "build_custody_transfer_payload",
+    "scaffold_successor_generation",
 ]
 

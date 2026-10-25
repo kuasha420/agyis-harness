@@ -569,6 +569,150 @@ class TestPreInvocationHookCompaction(unittest.TestCase):
         self.assertIn("AUTONOMOUS CONTINUATION", sys_msg)
 
 
+class TestSuccessionProtocol(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.ws = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_subagents_succession_exports(self) -> None:
+        """Verify succession utilities are exported in harness.subagents."""
+        from harness.subagents import (
+            build_custody_transfer_payload,
+            build_succession_prompt,
+            resolve_self_alias,
+            scaffold_successor_generation,
+        )
+
+        self.assertTrue(callable(resolve_self_alias))
+        self.assertTrue(callable(build_succession_prompt))
+        self.assertTrue(callable(build_custody_transfer_payload))
+        self.assertTrue(callable(scaffold_successor_generation))
+
+    def test_resolve_self_alias(self) -> None:
+        """Verify self-alias resolution across 'self', case variants, env vars, and archetypes."""
+        from harness.subagents import resolve_self_alias
+
+        # Baseline mappings
+        self.assertEqual(resolve_self_alias("coordinator"), "agyis_coordinator")
+        self.assertEqual(resolve_self_alias("agyis_coordinator"), "agyis_coordinator")
+        self.assertEqual(resolve_self_alias("architect"), "agyis_architect")
+        self.assertEqual(resolve_self_alias("flight_director"), "agyis_coordinator")
+        self.assertEqual(resolve_self_alias("cockpit_director"), "agyis_coordinator")
+        self.assertEqual(resolve_self_alias("swarm_orchestrator"), "swarm_orchestrator")
+        self.assertEqual(resolve_self_alias("builder"), "agyis_builder")
+        self.assertEqual(resolve_self_alias("reviewer"), "agyis_reviewer")
+        self.assertEqual(resolve_self_alias("custodian"), "agyis_custodian")
+        self.assertEqual(resolve_self_alias("auditor"), "agyis_auditor")
+        self.assertEqual(resolve_self_alias("nonexistent_specialist"), "agyis_coordinator")
+
+        # Environment variable override test
+        old_role = os.environ.get("AGYIS_ROLE")
+        try:
+            os.environ["AGYIS_ROLE"] = "builder"
+            self.assertEqual(resolve_self_alias("self"), "agyis_builder")
+            self.assertEqual(resolve_self_alias("Self"), "agyis_builder")
+            self.assertEqual(resolve_self_alias("SELF"), "agyis_builder")
+            self.assertEqual(resolve_self_alias(None), "agyis_builder")
+            self.assertEqual(resolve_self_alias(""), "agyis_builder")
+
+            os.environ["AGYIS_ROLE"] = "architect"
+            self.assertEqual(resolve_self_alias("self"), "agyis_architect")
+        finally:
+            if old_role is not None:
+                os.environ["AGYIS_ROLE"] = old_role
+            else:
+                os.environ.pop("AGYIS_ROLE", None)
+
+    def test_build_succession_prompt_content_and_directives(self) -> None:
+        """Verify presence of all 6 boot directives, generations, and work preservation contract."""
+        from harness.subagents import build_succession_prompt
+
+        prompt = build_succession_prompt(
+            current_gen=1,
+            next_gen=2,
+            session_id="predecessor-conv-123",
+            tokens=231_500,
+            plan_path=".agents/artifacts/my_plan.md",
+            next_task="Deploy to cluster",
+            project_name="Agyis Swarm",
+            active_subagents=[{"conversation_id": "sub-1", "role": "builder"}],
+        )
+
+        self.assertIn("Generation 1 -> Generation 2", prompt)
+        self.assertIn("Generation 2 successor orchestrator", prompt)
+        self.assertIn("predecessor-conv-123", prompt)
+        self.assertIn("231,500", prompt)
+        self.assertIn("Agyis Swarm", prompt)
+
+        # 6 Mandatory Boot Directives
+        self.assertIn("1. [ ] **Read Pre-Compaction Checkpoint**", prompt)
+        self.assertIn(".agents/artifacts/compaction_checkpoint_latest.md", prompt)
+        self.assertIn("2. [ ] **Verify Repository Integrity (AC4 Work Preservation Contract)**", prompt)
+        self.assertIn("git checkout -- .", prompt)
+        self.assertIn("git reset --hard", prompt)
+        self.assertIn("git clean -fd", prompt)
+        self.assertIn("3. [ ] **Inspect Active Implementation Plan**", prompt)
+        self.assertIn(".agents/artifacts/my_plan.md", prompt)
+        self.assertIn("4. [ ] **Assume Subagent Custody**", prompt)
+        self.assertIn("In-Flight Subagents (1)", prompt)
+        self.assertIn("5. [ ] **Resume Active Phase Immediately**", prompt)
+        self.assertIn("Deploy to cluster", prompt)
+        self.assertIn("6. [ ] **Autonomous Continuation (Zero Operator Re-prompting)**", prompt)
+
+    def test_build_custody_transfer_payload(self) -> None:
+        """Verify structured custody transfer dictionary formatting."""
+        from harness.delivery import SubagentEntry
+        from harness.subagents import build_custody_transfer_payload
+
+        subagents = [
+            SubagentEntry(
+                conversation_id="conv-1",
+                role="builder",
+                step_count=10,
+                token_count=15000,
+                health_zone="HEALTHY",
+                recommendation="REUSE",
+            ),
+            {
+                "conversation_id": "conv-2",
+                "role": "custodian",
+                "step_count": 85,
+                "token_count": 82000,
+                "health_zone": "RED_ALERT",
+                "recommendation": "RETIRE",
+            },
+        ]
+
+        payload = build_custody_transfer_payload(
+            predecessor_id="pred-id-99",
+            successor_id="succ-id-100",
+            subagents=subagents,
+        )
+
+        self.assertEqual(payload["predecessor_id"], "pred-id-99")
+        self.assertEqual(payload["successor_id"], "succ-id-100")
+        self.assertEqual(payload["active_subagents_count"], 2)
+        self.assertEqual(len(payload["entries"]), 2)
+        self.assertEqual(payload["entries"][0]["conversation_id"], "conv-1")
+        self.assertEqual(payload["entries"][0]["health_zone"], "HEALTHY")
+        self.assertEqual(payload["entries"][1]["conversation_id"], "conv-2")
+        self.assertEqual(payload["entries"][1]["health_zone"], "RED_ALERT")
+        self.assertIn("instructions", payload)
+
+    def test_scaffold_successor_generation(self) -> None:
+        """Verify creation of .agents/teamwork/<orchestrator>_gen<next_gen>/ directory."""
+        from harness.subagents import scaffold_successor_generation
+
+        path = scaffold_successor_generation(self.ws, orchestrator_role="agyis_coordinator", next_gen=3)
+        self.assertTrue(path.is_dir())
+        self.assertEqual(path.name, "agyis_coordinator_gen3")
+        self.assertTrue(path.parent.is_dir())
+        self.assertEqual(path.parent.name, "teamwork")
+
+
 if __name__ == "__main__":
     unittest.main()
 
