@@ -48,6 +48,7 @@ from harness.commands import (
     cmd_release_notes,
     cmd_checkpoint,
     cmd_cockpit,
+    cmd_clean,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -1016,6 +1017,67 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
             help="Output in JSON format",
         )
 
+    # clean
+    p_clean = subparsers.add_parser(
+        "clean",
+        help="Clean workspace debris, stale checkpoints, worktrees, and scratchpads",
+        description="Agyis Workspace & File Management Hygiene (Issue #90)",
+    )
+    p_clean.add_argument(
+        "--checkpoints",
+        action="store_true",
+        help="Prune historical compaction checkpoints in .agents/artifacts/",
+    )
+    p_clean.add_argument(
+        "--worktrees",
+        action="store_true",
+        help="Prune dead git worktrees and orphaned subagent directories",
+    )
+    p_clean.add_argument(
+        "--branches",
+        action="store_true",
+        help="Delete merged ephemeral subagent-* git branches",
+    )
+    p_clean.add_argument(
+        "--scratch",
+        action="store_true",
+        help="Clean expired ephemeral files in scratch/ directories",
+    )
+    p_clean.add_argument(
+        "--all",
+        action="store_true",
+        help="Execute all cleanup actions (checkpoints, worktrees, branches, scratch)",
+    )
+    p_clean.add_argument(
+        "--retention",
+        type=int,
+        default=5,
+        help="Number of historical checkpoints to retain (default: 5)",
+    )
+    p_clean.add_argument(
+        "--scratch-hours",
+        type=float,
+        default=24.0,
+        help="Age threshold in hours for scratchpad expiration (default: 24.0)",
+    )
+    p_clean.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview files and branches to be removed without modifying disk",
+    )
+    p_clean.add_argument(
+        "--workspace",
+        "-w",
+        type=Path,
+        default=None,
+        help="Path to workspace root (default: current working directory)",
+    )
+    p_clean.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured cleanup report in JSON format",
+    )
+
     return parser
 
 
@@ -1075,6 +1137,7 @@ def main(
         "cockpit": cmd_cockpit,
         "router": cmd_cockpit,
         "ladder": cmd_cockpit,
+        "clean": cmd_clean,
     }
 
     handler = commands.get(args.subcommand)

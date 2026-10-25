@@ -32,6 +32,7 @@ from harness.delivery import (
     generate_compaction_checkpoint,
     inspect_git_state,
     parse_implementation_plan,
+    prune_stale_checkpoints,
 )
 
 
@@ -373,6 +374,111 @@ class TestCompactionCheckpoint(unittest.TestCase):
         self.assertEqual(status.completed_tasks, 2)
         self.assertEqual(status.pending_tasks, 2)
         self.assertEqual(status.next_pending_task, "Pending with star")
+
+    def test_prune_stale_checkpoints_default_retention(self) -> None:
+        """Prune historical checkpoints keeping top 5 and latest pointer."""
+        art_dir = self.ws / ".agents" / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create 8 sequential checkpoint files
+        for epoch in range(100, 108):
+            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        latest = art_dir / "compaction_checkpoint_latest.md"
+        latest.write_text("Latest content\n", encoding="utf-8")
+
+        pruned = prune_stale_checkpoints(art_dir, retention_limit=5)
+        self.assertEqual(len(pruned), 3)
+        pruned_names = {p.name for p in pruned}
+        self.assertEqual(
+            pruned_names,
+            {
+                "compaction_checkpoint_100.md",
+                "compaction_checkpoint_101.md",
+                "compaction_checkpoint_102.md",
+            },
+        )
+
+        remaining = {p.name for p in art_dir.glob("*.md")}
+        self.assertIn("compaction_checkpoint_latest.md", remaining)
+        self.assertIn("compaction_checkpoint_107.md", remaining)
+        self.assertIn("compaction_checkpoint_106.md", remaining)
+        self.assertIn("compaction_checkpoint_105.md", remaining)
+        self.assertIn("compaction_checkpoint_104.md", remaining)
+        self.assertIn("compaction_checkpoint_103.md", remaining)
+        self.assertNotIn("compaction_checkpoint_102.md", remaining)
+
+    def test_prune_stale_checkpoints_env_var_override(self) -> None:
+        """Test AGYIS_CHECKPOINT_RETENTION environment variable override."""
+        art_dir = self.ws / ".agents" / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+
+        for epoch in range(10, 16):
+            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+
+        old_val = os.environ.get("AGYIS_CHECKPOINT_RETENTION")
+        try:
+            os.environ["AGYIS_CHECKPOINT_RETENTION"] = "2"
+            pruned = prune_stale_checkpoints(art_dir)
+            self.assertEqual(len(pruned), 4)
+            remaining = [p.name for p in sorted(art_dir.glob("compaction_checkpoint_*.md"))]
+            self.assertEqual(
+                remaining,
+                ["compaction_checkpoint_14.md", "compaction_checkpoint_15.md"],
+            )
+        finally:
+            if old_val is not None:
+                os.environ["AGYIS_CHECKPOINT_RETENTION"] = old_val
+            else:
+                os.environ.pop("AGYIS_CHECKPOINT_RETENTION", None)
+
+    def test_generate_compaction_checkpoint_auto_rotation(self) -> None:
+        """Verify automatic checkpoint pruning during generate_compaction_checkpoint."""
+        art_dir = self.ws / ".agents" / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create 6 older checkpoints
+        for epoch in range(1000, 1006):
+            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Old {epoch}\n", encoding="utf-8")
+
+        # Generate a new checkpoint
+        res = generate_compaction_checkpoint(self.ws)
+        self.assertTrue(res.output_path.is_file())
+
+        # With default retention of 5, there should now be exactly 5 historical files + 1 latest.md
+        historical = [p for p in art_dir.glob("compaction_checkpoint_*.md") if p.name != "compaction_checkpoint_latest.md"]
+        self.assertEqual(len(historical), 5)
+
+    def test_collect_active_subagents_with_heartbeat_badge(self) -> None:
+        """Verify collect_active_subagents attaches active stage heartbeat metadata."""
+        from harness.subagents.heartbeat import arm_stage_heartbeat
+
+        brain_dir = self.ws / "mock_brain"
+        session_id = "test-agent-sess-42"
+        sess_dir = brain_dir / session_id
+        logs_dir = sess_dir / ".system_generated" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        transcript = logs_dir / "transcript.jsonl"
+        lines = [
+            json.dumps({"role": "user", "content": "You are agyis_builder. Build component."}),
+            json.dumps({"role": "assistant", "content": "Done."}),
+        ]
+        transcript.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        # Arm ladder heartbeat for this agent
+        arm_stage_heartbeat(
+            task_id="TASK-90",
+            stage="executioner",
+            agent_id=session_id,
+            role_title="Stage 1: Executioner (agyis_builder)",
+            workspace_dir=self.ws,
+        )
+
+        subagents = collect_active_subagents(self.ws, brain_dir=brain_dir)
+        self.assertEqual(len(subagents), 1)
+        sub = subagents[0]
+        self.assertEqual(sub.conversation_id, session_id)
+        self.assertIn("[EXECUTIONER]", sub.role)
 
 
 class TestCheckpointCLI(unittest.TestCase):

@@ -96,6 +96,7 @@ from harness.delivery.compaction_checkpoint import (
     generate_compaction_checkpoint,
     inspect_git_state,
     parse_implementation_plan,
+    prune_stale_checkpoints,
 )
 
 purge_build_caches = purge_workspace_build_caches
@@ -174,4 +175,5 @@ __all__ = [
     "parse_implementation_plan",
     "generate_compaction_checkpoint",
     "assemble_compaction_checkpoint",
+    "prune_stale_checkpoints",
 ]

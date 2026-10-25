@@ -146,6 +146,67 @@ def inspect_git_state(workspace_dir: Union[Path, str]) -> GitState:
     )
 
 
+def prune_stale_checkpoints(
+    artifacts_dir: Union[Path, str], retention_limit: Optional[int] = None
+) -> List[Path]:
+    """
+    Discovers all compaction_checkpoint_*.md files in artifacts_dir, excluding
+    compaction_checkpoint_latest.md. Retains the top retention_limit most recent
+    checkpoints (sorted descending by timestamp/epoch or mtime fallback) and unlinks older files.
+
+    Args:
+        artifacts_dir: Directory containing compaction checkpoints.
+        retention_limit: Number of historical checkpoints to retain (default: 5 or AGYIS_CHECKPOINT_RETENTION).
+
+    Returns:
+        List of unlinked / pruned checkpoint Paths.
+    """
+    art_dir = Path(artifacts_dir)
+    if not art_dir.is_dir():
+        return []
+
+    if retention_limit is None:
+        try:
+            retention_limit = int(os.environ.get("AGYIS_CHECKPOINT_RETENTION", "5"))
+        except ValueError:
+            retention_limit = 5
+    if retention_limit < 0:
+        retention_limit = 0
+
+    checkpoint_pattern = re.compile(r"^compaction_checkpoint_(\d+)\.md$")
+    candidates: List[Tuple[float, Path]] = []
+
+    try:
+        for entry in art_dir.glob("compaction_checkpoint_*.md"):
+            if not entry.is_file() or entry.name == "compaction_checkpoint_latest.md":
+                continue
+            m = checkpoint_pattern.match(entry.name)
+            if m:
+                sort_key = float(m.group(1))
+            else:
+                try:
+                    sort_key = entry.stat().st_mtime
+                except OSError:
+                    sort_key = 0.0
+            candidates.append((sort_key, entry))
+    except OSError:
+        return []
+
+    # Sort descending (newest first)
+    candidates.sort(key=lambda x: x[0], reverse=True)
+
+    pruned: List[Path] = []
+    to_prune = candidates[retention_limit:]
+    for _, file_path in to_prune:
+        try:
+            file_path.unlink()
+            pruned.append(file_path)
+        except OSError:
+            pass
+
+    return pruned
+
+
 def collect_active_subagents(
     workspace_dir: Union[Path, str], brain_dir: Optional[Union[Path, str]] = None
 ) -> List[SubagentEntry]:
@@ -154,6 +215,14 @@ def collect_active_subagents(
     ws = Path(workspace_dir)
     b_dir = Path(brain_dir) if brain_dir is not None else None
 
+    heartbeat_meta: Optional[Dict[str, Any]] = None
+    try:
+        from harness.subagents.heartbeat import read_stage_heartbeat
+
+        heartbeat_meta = read_stage_heartbeat(workspace_dir=ws)
+    except Exception:
+        pass
+
     try:
         if str(ws) not in sys.path:
             sys.path.insert(0, str(ws))
@@ -161,17 +230,29 @@ def collect_active_subagents(
 
         statuses = list_active_subagent_statuses(brain_dir=b_dir)
         for s in statuses:
+            role_display = s.role
+            if heartbeat_meta:
+                hb_stage = str(heartbeat_meta.get("stage") or "").strip()
+                hb_agent = str(heartbeat_meta.get("active_agent_id") or "").strip()
+                if hb_stage and (
+                    s.conversation_id == hb_agent or hb_stage.lower() in role_display.lower()
+                ):
+                    badge = f"[{hb_stage.upper()}]"
+                    if badge not in role_display.upper():
+                        role_display = f"{role_display} {badge}"
+
             subagents.append(
                 SubagentEntry(
                     conversation_id=s.conversation_id,
-                    role=s.role,
+                    role=role_display,
                     step_count=s.step_count,
                     token_count=s.token_count,
                     health_zone=s.health_zone,
                     recommendation=s.recommendation,
                 )
             )
-        return subagents
+        if subagents:
+            return subagents
     except Exception:
         pass
 
@@ -603,6 +684,11 @@ When waking up in a clean context or post-compaction epoch:
     tmp_latest = out_dir / f".compaction_checkpoint_latest.{os.getpid()}.tmp"
     tmp_latest.write_text(markdown, encoding="utf-8")
     os.replace(tmp_latest, latest_file)
+
+    try:
+        prune_stale_checkpoints(out_dir)
+    except Exception:
+        pass
 
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     return CheckpointResult(
