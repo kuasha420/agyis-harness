@@ -25,6 +25,7 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
+import time
 import traceback
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -1334,6 +1335,26 @@ def build_role_persona_prompt(role: str) -> str:
     )
 
 
+def build_post_compaction_persona_prompt(role: str) -> str:
+    """Returns post-compaction re-anchor prompt with latest checkpoint link and work preservation contract."""
+    base_persona = build_role_persona_prompt(role)
+    return (
+        f"{base_persona}\n\n"
+        "[AGYIS POST-COMPACTION SUCCESSION DIRECTIVE]\n"
+        "You have resumed execution following a context window compaction event.\n\n"
+        "1. GROUND TRUTH CHECKPOINT RESTORATION:\n"
+        "   - Read the pre-compaction ground truth checkpoint immediately:\n"
+        "     `.agents/artifacts/compaction_checkpoint_latest.md`\n"
+        "   - Restore situational awareness: active phase progress, pending tasks, active subagents, and git diff status.\n\n"
+        "2. WORK PRESERVATION CONTRACT:\n"
+        "   - In-flight modifications on disk represent intentional progress.\n"
+        "   - Strictly prohibit destructive git resets: NEVER execute 'git reset --hard', 'git checkout -- .', or 'git clean -fd'.\n\n"
+        "3. AUTONOMOUS CONTINUATION:\n"
+        "   - Proceed directly with the next actionable task identified in the checkpoint.\n"
+        "   - Do NOT ask the operator re-orientation questions ('What should I do next?' or 'Should I continue?'). Resume execution autonomously!"
+    )
+
+
 def build_role_reanchor_advisory(role: str, step_count: int, cadence: int) -> str:
     """Returns intra-epoch periodic re-anchor ephemeralMessage directive."""
     return (
@@ -1513,7 +1534,10 @@ def evaluate_pre_invocation(
         )
 
         # 1. Dual-anchor systemMessage: Turn 0 stage entry AND Turn 0 post-compaction
-        if is_turn_zero or is_post_compaction:
+        if is_post_compaction:
+            persona_prompt = build_post_compaction_persona_prompt(role)
+            inject_steps.append({"systemMessage": persona_prompt})
+        elif is_turn_zero:
             persona_prompt = build_role_persona_prompt(role)
             inject_steps.append({"systemMessage": persona_prompt})
         elif is_executioner and step_count == STEP_WARNING_THRESHOLD:
@@ -1538,8 +1562,36 @@ def evaluate_pre_invocation(
             reanchor_msg = build_role_reanchor_advisory(role, step_count or 0, cadence)
             inject_steps.append({"ephemeralMessage": reanchor_msg})
 
-        # 3. Compaction imminent advisory (tokens >= effective_threshold)
+        # 3. Compaction imminent advisory & automated checkpoint serialization (tokens >= effective_threshold)
         if tokens >= effective_threshold:
+            try:
+                from harness.delivery.compaction_checkpoint import generate_compaction_checkpoint
+
+                target_ws = eff_ws or Path.cwd()
+                latest_cp = target_ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
+                should_generate = True
+                if latest_cp.is_file():
+                    try:
+                        age = time.time() - latest_cp.stat().st_mtime
+                        if age < 5.0:
+                            should_generate = False
+                    except OSError:
+                        pass
+
+                if should_generate:
+                    generate_compaction_checkpoint(
+                        workspace_dir=target_ws,
+                        session_id=conv_id if conv_id and conv_id != "default" else None,
+                        orchestrator_role=role,
+                        trigger_tokens=effective_threshold,
+                    )
+            except Exception as exc:
+                sys.stderr.write(
+                    f"[AGYIS PRE-INVOCATION HOOK] Failed to serialize compaction checkpoint: {exc}\n"
+                )
+                traceback.print_exc(file=sys.stderr)
+                sys.stderr.flush()
+
             advisory = build_compaction_advisory(role, tokens, effective_threshold)
             inject_steps.append({"ephemeralMessage": advisory})
 

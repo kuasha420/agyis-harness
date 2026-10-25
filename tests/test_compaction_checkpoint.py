@@ -498,6 +498,77 @@ class TestCheckpointCLI(unittest.TestCase):
         self.assertLess(elapsed_ms, 50.0, f"CLI latency {elapsed_ms:.2f}ms exceeds 50ms benchmark")
 
 
+class TestPreInvocationHookCompaction(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.ws = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_hook_auto_trigger_at_230k(self) -> None:
+        """Invocations where tokens >= 230,000 automatically trigger generate_compaction_checkpoint."""
+        from harness.hooks.pre_invocation_hook import evaluate_pre_invocation
+
+        payload = {
+            "tokens": 235_000,
+            "step_count": 2,
+            "role": "deep_execution",
+            "prompt": "Continue working on task",
+        }
+        res = evaluate_pre_invocation(payload, workspace_dir=self.ws)
+        latest_file = self.ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
+        self.assertTrue(latest_file.is_file())
+        inject_steps = res.get("injectSteps", [])
+        self.assertTrue(any("ephemeralMessage" in s for s in inject_steps))
+
+    def test_hook_auto_trigger_fail_open(self) -> None:
+        """Mocking generate_compaction_checkpoint to raise does not crash evaluate_pre_invocation."""
+        from harness.hooks.pre_invocation_hook import evaluate_pre_invocation
+
+        payload = {
+            "tokens": 235_000,
+            "step_count": 2,
+            "role": "deep_execution",
+        }
+        with patch(
+            "harness.delivery.compaction_checkpoint.generate_compaction_checkpoint",
+            side_effect=RuntimeError("Disk write error"),
+        ):
+            res = evaluate_pre_invocation(payload, workspace_dir=self.ws)
+            inject_steps = res.get("injectSteps", [])
+            # Assert advisory is still injected without crashing
+            self.assertTrue(any("ephemeralMessage" in s for s in inject_steps))
+
+    def test_post_compaction_persona_anchor(self) -> None:
+        """Supplying '# Resuming from a compaction' in prompt triggers systemMessage with checkpoint link."""
+        from harness.hooks.pre_invocation_hook import (
+            build_post_compaction_persona_prompt,
+            evaluate_pre_invocation,
+        )
+
+        prompt = build_post_compaction_persona_prompt("deep_execution")
+        self.assertIn("compaction_checkpoint_latest.md", prompt)
+        self.assertIn("WORK PRESERVATION CONTRACT", prompt)
+        self.assertIn("git reset --hard", prompt)
+        self.assertIn("AUTONOMOUS CONTINUATION", prompt)
+
+        payload = {
+            "step_count": 5,
+            "prompt": "# Resuming from a compaction...\nPrevious context summarized.",
+            "role": "deep_execution",
+        }
+        res = evaluate_pre_invocation(payload, workspace_dir=self.ws)
+        inject_steps = res.get("injectSteps", [])
+        self.assertEqual(len(inject_steps), 1)
+        self.assertIn("systemMessage", inject_steps[0])
+        sys_msg = inject_steps[0]["systemMessage"]
+        self.assertIn("compaction_checkpoint_latest.md", sys_msg)
+        self.assertIn("WORK PRESERVATION CONTRACT", sys_msg)
+        self.assertIn("git reset --hard", sys_msg)
+        self.assertIn("AUTONOMOUS CONTINUATION", sys_msg)
+
+
 if __name__ == "__main__":
     unittest.main()
 
