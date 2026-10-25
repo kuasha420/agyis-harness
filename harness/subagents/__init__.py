@@ -47,6 +47,17 @@ from harness.subagents.stage_role import (
     read_stage_role,
     validate_stage_role_schema,
 )
+from harness.subagents.heartbeat import (
+    LADDER_HEARTBEAT_PATH,
+    VALID_STAGES,
+    VALID_STATUSES,
+    arm_stage_heartbeat,
+    clear_stage_heartbeat,
+    disarm_stage_heartbeat,
+    pulse_stage_heartbeat,
+    read_stage_heartbeat,
+    validate_heartbeat_schema,
+)
 
 __all__ = [
     "DEFAULT_AGENTS_DIR",
@@ -77,5 +88,14 @@ __all__ = [
     "materialize_stage_role",
     "read_stage_role",
     "validate_stage_role_schema",
+    "LADDER_HEARTBEAT_PATH",
+    "VALID_STAGES",
+    "VALID_STATUSES",
+    "arm_stage_heartbeat",
+    "clear_stage_heartbeat",
+    "disarm_stage_heartbeat",
+    "pulse_stage_heartbeat",
+    "read_stage_heartbeat",
+    "validate_heartbeat_schema",
 ]
 

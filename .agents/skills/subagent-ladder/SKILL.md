@@ -604,5 +604,63 @@ CORE OPERATIONAL INVARIANTS:
    - Counteracts context dilution and attention drift during extended trajectories (50+ steps) to enforce structural role boundaries.
    - Configurable via `AGYIS_ROLE_PINNING_CADENCE` environment variable (default: `10`).
 
+---
+
+## 11. Sequential Stage Heartbeat Crons & Two-Tier Telemetry (Issue #84)
+
+The Subagent Ladder enforces continuous execution visibility and stall detection across sequential stages via stage-aware heartbeat crons and two-tier upward telemetry without token inflation.
+
+### 11.1 PostToolUse Auto-Pulse (<0.05ms, Zero Token Overhead)
+1. **Lifecycle Hook Auto-Pulse**:
+   - At every tool invocation completion, the PostToolUse lifecycle hook automatically calls `pulse_stage_heartbeat(step_count, last_action)`.
+   - Atomic JSON writes to `.agents/artifacts/ladder_heartbeat.json` execute in sub-millisecond latency (<0.05ms) with zero LLM prompt token consumption.
+   - Records current `step_count`, latest tool invocation in `last_action`, cumulative `elapsed_s`, and ISO-8601 UTC `timestamp`.
+2. **Stage Arming & Disarming**:
+   - **Arm on Stage Entry**: Prior to stage dispatch, orchestrator invokes `arm_stage_heartbeat(task_id, stage, agent_id, role_title)` initializing status as `"dispatched"` and `step_count = 0`.
+   - **Disarm on Stage Exit**: Upon stage handoff, test completion, or error exit, `disarm_stage_heartbeat(status="complete")` seals the record and marks terminal status.
+
+### 11.2 Two-Tier Telemetry & Watchdog Architecture
+```mermaid
+flowchart TD
+    SUB["Active Specialist Subagent<br/>(agyis_builder / agyis_reviewer / agyis_auditor)"] -->|PostToolUse Auto-Pulse<br/><0.05ms| HB[".agents/artifacts/ladder_heartbeat.json"]
+    
+    HB -->|read_stage_heartbeat| WD{"Watchdog & Telemetry Engine"}
+    
+    WD -->|Age <= 240s| T0["Tier 0: Healthy Pulse<br/>🟢 IN_PROGRESS"]
+    WD -->|240s < Age <= 480s| T1["Tier 1: Internal Stall Watchdog (4m)<br/>🟡 AMBER Warning & Process Health Check"]
+    WD -->|Age > 480s| T2["Tier 2: Upward Telemetry Card (8m)<br/>🔴 Upward Flight Director Alert"]
+    WD -->|Age > 300s| STALE["Staleness Transition<br/>status: 'stale', is_stale: True"]
+```
+
+1. **Tier 1: 4m Internal Stall Watchdog (240s)**:
+   - Tracks intra-stage tool execution cadence.
+   - If no tool call or pulse is registered within 240 seconds (4 minutes), the internal stall watchdog flags warning state to inspect blocked background processes, hung terminal commands, or unhandled errors.
+2. **Tier 2: 8m Upward Flight Director Telemetry Card (480s)**:
+   - If an active stage remains in-flight beyond 480 seconds (8 minutes), an upward telemetry status card is emitted to the Flight Director / Coordinator:
+     * Task ID and active ladder stage.
+     * Cumulative step count and elapsed wall-clock time.
+     * Last recorded action and process diagnostic status.
+   - Enables early intervention before conversational attention collapse or command timeouts occur.
+3. **Staleness Detection (300s)**:
+   - `read_stage_heartbeat(stale_timeout_s=300.0)` automatically annotates `is_stale: True` and marks `status: "stale"` for non-terminal heartbeats older than 300 seconds.
+
+### 11.3 CLI Visualization & Real-Time Inspection
+1. **High-Level System Status (`agyis status`)**:
+   - Inspects `read_stage_heartbeat()`. If active, renders the dedicated `Active Subagent Ladder Stage` panel:
+   ```text
+   ----------------------------------------------------------------------
+    Active Subagent Ladder Stage:
+      Stage:         Stage 1: Executioner (agyis_builder)
+      Task ID:       ISSUE-84
+      Step Count:    32 steps
+      Elapsed Time:  142.5s (2m 22s)
+      Last Action:   python3 -m unittest ...
+      Status:        🟢 IN_PROGRESS (Heartbeat 4s ago)
+   ----------------------------------------------------------------------
+   ```
+2. **Subagents Inspection (`agyis subagents`)**:
+   - Dynamic stage attribution: automatically annotates active subagent roles with their ladder stage badge (e.g. `Role (Ladder Stage)`).
+   - In JSON mode (`agyis subagents --json`), appends `"ladder_stage"` attribute to matching active subagent records.
+
 
 
