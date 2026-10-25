@@ -17,6 +17,7 @@ description: >-
 
 ## Imported Protocols & Invariants
 This skill imports the complete dynamic routing specification from [**`subagent-router`**](../subagent-router/SKILL.md):
+- **Workspace Isolation**: All stages execute in the shared workspace (`Workspace: "share"`).
 - **6-Stage Pipeline Lifecycle**: Investigation $\rightarrow$ Planning $\rightarrow$ Execution $\rightarrow$ Review $\rightarrow$ Custody $\rightarrow$ Audit. See [6-Stage Pipeline Lifecycle](../subagent-router/SKILL.md#3-the-6-stage-pipeline-lifecycle).
 - **Anti-Bypass Invariant**: Under no circumstances may an Executioner remedy bypass Hammer review or Custodian commit gate.
 - **Multi-Node Swarm PR Ingestion Protocol**: Discovers and ingests remote PRs using `gh pr list`.
