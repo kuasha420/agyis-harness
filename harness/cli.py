@@ -46,6 +46,7 @@ from harness.commands import (
     cmd_uninstall,
     cmd_verify,
     cmd_release_notes,
+    cmd_checkpoint,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -746,6 +747,149 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Output release notes and structured categories in JSON format",
     )
 
+    # checkpoint
+    p_checkpoint = subparsers.add_parser(
+        "checkpoint",
+        help="Pre-compaction state capture, verification, and checkpoint status (ADR-031)",
+        description="Compaction Checkpoint Engine & Pre-Compaction Handoff Automation",
+    )
+    p_checkpoint.add_argument(
+        "--plan",
+        type=Path,
+        default=None,
+        help="Path to implementation plan markdown file",
+    )
+    p_checkpoint.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Custom output markdown file path",
+    )
+    p_checkpoint.add_argument(
+        "--workspace", "-w",
+        type=Path,
+        default=None,
+        help="Path to workspace directory (default: current directory)",
+    )
+    p_checkpoint.add_argument(
+        "--role",
+        type=str,
+        default=None,
+        help="Orchestrator role identifier (default: from env or agyis_coordinator)",
+    )
+    p_checkpoint.add_argument(
+        "--trigger-tokens",
+        type=int,
+        default=230_000,
+        help="Context tokens trigger threshold (default: 230,000)",
+    )
+    p_checkpoint.add_argument(
+        "--max-age-mins",
+        type=float,
+        default=60.0,
+        help="Maximum allowable checkpoint age in minutes for verify (default: 60)",
+    )
+    p_checkpoint.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result in JSON format",
+    )
+
+    cp_subparsers = p_checkpoint.add_subparsers(
+        dest="checkpoint_action",
+        help="Checkpoint action (default: generate)",
+    )
+
+    # checkpoint generate
+    p_cp_gen = cp_subparsers.add_parser(
+        "generate",
+        help="Generate compaction checkpoint artifact",
+        description="Capture runtime ground truth into compaction checkpoint artifact",
+    )
+    p_cp_gen.add_argument(
+        "--plan",
+        type=Path,
+        default=None,
+        help="Path to implementation plan markdown file",
+    )
+    p_cp_gen.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Custom output markdown file path",
+    )
+    p_cp_gen.add_argument(
+        "--workspace", "-w",
+        type=Path,
+        default=None,
+        help="Path to workspace directory (default: current directory)",
+    )
+    p_cp_gen.add_argument(
+        "--role",
+        type=str,
+        default=None,
+        help="Orchestrator role identifier",
+    )
+    p_cp_gen.add_argument(
+        "--trigger-tokens",
+        type=int,
+        default=230_000,
+        help="Context tokens trigger threshold (default: 230,000)",
+    )
+    p_cp_gen.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result in JSON format",
+    )
+
+    # checkpoint verify
+    p_cp_ver = cp_subparsers.add_parser(
+        "verify",
+        help="Verify latest checkpoint presence and freshness",
+        description="Assert compaction_checkpoint_latest.md exists and is within max-age",
+    )
+    p_cp_ver.add_argument(
+        "--max-age-mins",
+        type=float,
+        default=60.0,
+        help="Maximum allowable checkpoint age in minutes (default: 60)",
+    )
+    p_cp_ver.add_argument(
+        "--workspace", "-w",
+        type=Path,
+        default=None,
+        help="Path to workspace directory (default: current directory)",
+    )
+    p_cp_ver.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result in JSON format",
+    )
+
+    # checkpoint status
+    p_cp_stat = cp_subparsers.add_parser(
+        "status",
+        help="Display token, subagent, git, and checkpoint status",
+        description="Display runtime status overview of compaction checkpoint parameters",
+    )
+    p_cp_stat.add_argument(
+        "--workspace", "-w",
+        type=Path,
+        default=None,
+        help="Path to workspace directory (default: current directory)",
+    )
+    p_cp_stat.add_argument(
+        "--trigger-tokens",
+        type=int,
+        default=230_000,
+        help="Context tokens trigger threshold (default: 230,000)",
+    )
+    p_cp_stat.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result in JSON format",
+    )
+
     return parser
 
 
@@ -801,6 +945,7 @@ def main(
         "verify": cmd_verify,
         "gui": cmd_gui,
         "release-notes": cmd_release_notes,
+        "checkpoint": cmd_checkpoint,
     }
 
     handler = commands.get(args.subcommand)

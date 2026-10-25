@@ -9,12 +9,14 @@ Hermetic unit and benchmark tests for Automated Pre-Compaction Checkpoint Genera
 
 from __future__ import annotations
 
+import io
 import json
 import os
 from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from harness.delivery import (
     ArtifactLink,
@@ -371,6 +373,129 @@ class TestCompactionCheckpoint(unittest.TestCase):
         self.assertEqual(status.completed_tasks, 2)
         self.assertEqual(status.pending_tasks, 2)
         self.assertEqual(status.next_pending_task, "Pending with star")
+
+
+class TestCheckpointCLI(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.ws = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_generate_human(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        ret = cli_main(["checkpoint", "generate", "--workspace", str(self.ws)])
+        self.assertEqual(ret, 0)
+        out = mock_stdout.getvalue()
+        self.assertIn("✔ Compaction Checkpoint Generated", out)
+        self.assertIn("Artifact:", out)
+        self.assertIn("Latest:", out)
+        self.assertIn("Latency:", out)
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_generate_json(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        ret = cli_main(["checkpoint", "generate", "--workspace", str(self.ws), "--json"])
+        self.assertEqual(ret, 0)
+        data = json.loads(mock_stdout.getvalue())
+        self.assertEqual(data["status"], "ok")
+        self.assertIn("output_path", data)
+        self.assertIn("latest_path", data)
+        self.assertIn("elapsed_ms", data)
+        self.assertIn("content_bytes", data)
+        self.assertTrue(Path(data["latest_path"]).is_file())
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_default_action_generate(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        ret = cli_main(["checkpoint", "--workspace", str(self.ws), "--json"])
+        self.assertEqual(ret, 0)
+        data = json.loads(mock_stdout.getvalue())
+        self.assertEqual(data["status"], "ok")
+        self.assertTrue(Path(data["latest_path"]).is_file())
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_verify_missing(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        ret = cli_main(["checkpoint", "verify", "--workspace", str(self.ws), "--json"])
+        self.assertEqual(ret, 1)
+        data = json.loads(mock_stdout.getvalue())
+        self.assertEqual(data["status"], "missing")
+        self.assertFalse(data["valid"])
+        self.assertIsNone(data["checkpoint_path"])
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_verify_fresh(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        generate_compaction_checkpoint(self.ws)
+        ret = cli_main(
+            ["checkpoint", "verify", "--workspace", str(self.ws), "--max-age-mins", "10", "--json"]
+        )
+        self.assertEqual(ret, 0)
+        data = json.loads(mock_stdout.getvalue())
+        self.assertEqual(data["status"], "ok")
+        self.assertTrue(data["valid"])
+        self.assertIsNotNone(data["checkpoint_path"])
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_verify_stale(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        res = generate_compaction_checkpoint(self.ws)
+        stale_time = time.time() - 7200.0  # 2 hours old
+        os.utime(res.latest_path, (stale_time, stale_time))
+
+        ret = cli_main(
+            ["checkpoint", "verify", "--workspace", str(self.ws), "--max-age-mins", "30", "--json"]
+        )
+        self.assertEqual(ret, 1)
+        data = json.loads(mock_stdout.getvalue())
+        self.assertEqual(data["status"], "stale")
+        self.assertFalse(data["valid"])
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_status_json(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        generate_compaction_checkpoint(self.ws)
+        ret = cli_main(["checkpoint", "status", "--workspace", str(self.ws), "--json"])
+        self.assertEqual(ret, 0)
+        data = json.loads(mock_stdout.getvalue())
+        self.assertIn("tokens", data)
+        self.assertIn("subagents", data)
+        self.assertIn("git", data)
+        self.assertIn("checkpoint", data)
+        self.assertTrue(data["checkpoint"]["present"])
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_status_human(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        ret = cli_main(["checkpoint", "status", "--workspace", str(self.ws)])
+        self.assertEqual(ret, 0)
+        out = mock_stdout.getvalue()
+        self.assertIn("Agyis Compaction & Checkpoint Status", out)
+        self.assertIn("Git Working Tree:", out)
+        self.assertIn("Active Subagents:", out)
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_benchmark_latency(self, mock_stdout: Any) -> None:
+        """Assert CLI invocation completes within sub-second benchmark (<50ms)."""
+        from harness.cli import main as cli_main
+
+        t0 = time.perf_counter()
+        ret = cli_main(["checkpoint", "--workspace", str(self.ws), "--json"])
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+        self.assertEqual(ret, 0)
+        self.assertLess(elapsed_ms, 50.0, f"CLI latency {elapsed_ms:.2f}ms exceeds 50ms benchmark")
 
 
 if __name__ == "__main__":

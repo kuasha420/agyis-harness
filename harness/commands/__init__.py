@@ -26,6 +26,7 @@ from harness.commands.onboard import cmd_onboard
 from harness.commands.verify import cmd_verify
 from harness.commands.gui import cmd_gui
 from harness.commands.release_notes import cmd_release_notes
+from harness.commands.checkpoint import cmd_checkpoint
 
 __all__ = [
     "cmd_doctor",
@@ -47,4 +48,5 @@ __all__ = [
     "cmd_verify",
     "cmd_gui",
     "cmd_release_notes",
+    "cmd_checkpoint",
 ]
