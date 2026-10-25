@@ -231,7 +231,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_agents.add_argument("--id", type=str, default=None, help="Conversation ID to rehydrate")
     p_agents.add_argument("--recent-hours", type=int, default=4, help="Recent hours window for subagent discovery")
     p_agents.add_argument("--brain-dir", type=Path, default=None, help="Custom brain directory path")
-    p_agents.add_argument("--archetype", "-a", type=str, default=None, help="Agent archetype for creation (main, executioner, hammer, auditor, planner, coordinator)")
+    p_agents.add_argument("--archetype", "-a", type=str, default=None, help="Agent archetype for creation (main, executioner, hammer, auditor, planner, coordinator, custodian, investigator)")
     p_agents.add_argument("--bundle", "-b", type=str, default=None, help="Capability bundle (read_only, verifier, builder, orchestrator, full)")
     p_agents.add_argument("--scope", type=str, choices=["project", "global"], default="project", help="Target scope (project or global)")
     p_agents.add_argument("--model", "-m", type=str, default="inherit", help="Model specification (default: inherit)")

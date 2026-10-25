@@ -582,7 +582,7 @@ class TestAntiDriftHook(unittest.TestCase):
 
     def test_main_and_lead_not_blocked(self):
         """Main and lead agents are permitted to mutate files when explicit_write_false is not set."""
-        for role in ("main", "psl_main", "lead", "PSL Lead Architect & Master Implementer"):
+        for role in ("main", "psl_main", "lead", "PSL Lead Architect & Master Implementer", "agyis_architect"):
             payload = {
                 "role": role,
                 "toolCall": {
@@ -592,6 +592,55 @@ class TestAntiDriftHook(unittest.TestCase):
             }
             res = check_auditor_write_block(payload)
             self.assertIsNone(res, f"Expected no block for {role}")
+
+    def test_investigator_write_block_product_code(self):
+        """Investigator role is blocked from mutating product code files."""
+        for role in ("investigator", "agyis_investigator", "detective", "forensic"):
+            for tool in ("write_to_file", "replace_file_content", "edit_file"):
+                payload = {
+                    "role": role,
+                    "toolCall": {
+                        "name": tool,
+                        "args": {"TargetFile": "src/app.py", "CodeContent": "bad"},
+                    },
+                }
+                res = check_auditor_write_block(payload)
+                self.assertIsNotNone(res, f"Expected block for {role} using {tool}")
+                self.assertEqual(res["decision"], "deny")
+                self.assertIn("PSL Investigator Invariant", res["reason"])
+
+    def test_investigator_write_allowed_for_exempt_files(self):
+        """Investigator is allowed to write to scratch, artifacts, and brain exempt files."""
+        exempt_paths = [
+            "scratch/reproduce_issue.py",
+            ".agents/artifacts/rca_report.md",
+            "/brain/session_123/investigation_notes.txt",
+        ]
+        for role in ("investigator", "agyis_investigator", "detective", "forensic"):
+            for path in exempt_paths:
+                payload = {
+                    "role": role,
+                    "toolCall": {
+                        "name": "write_to_file",
+                        "args": {"TargetFile": path, "CodeContent": "# RCA notes"},
+                    },
+                }
+                res = check_auditor_write_block(payload)
+                self.assertIsNone(res, f"Expected allow for {role} writing to {path}")
+
+    def test_architect_and_builder_not_blocked(self):
+        """agyis_architect and agyis_builder are permitted to mutate code files without block."""
+        for role in ("agyis_architect", "agyis_builder", "harness_builder", "builder", "main"):
+            for tool in ("write_to_file", "replace_file_content", "edit_file"):
+                payload = {
+                    "role": role,
+                    "toolCall": {
+                        "name": tool,
+                        "args": {"TargetFile": "src/app.py", "CodeContent": "code"},
+                    },
+                }
+                res = check_auditor_write_block(payload)
+                self.assertIsNone(res, f"Expected no block for {role} using {tool}")
 
     def test_plan_mode_blocks_code_mutations(self):
         """When in plan mode, code file modifications are blocked (ADR-031)."""

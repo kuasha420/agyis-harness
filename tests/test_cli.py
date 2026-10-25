@@ -164,6 +164,34 @@ class TestPslCli(unittest.TestCase):
         self.assertNotEqual(_get_repo_root(), custom_root)
         self.assertIsNone(harness.cli._TEST_WORKSPACE_ROOT)
 
+    def test_cli_agents_archetype_help_and_create(self):
+        """Verifies `agyis agents --help` documents custodian and investigator archetypes."""
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            with self.assertRaises(SystemExit) as cm:
+                main(["agents", "--help"], prog="agyis")
+            self.assertEqual(cm.exception.code, 0)
+            out = mock_out.getvalue()
+            self.assertIn("custodian", out)
+            self.assertIn("investigator", out)
+
+        import harness.cli
+        custom_root = Path(self.temp_dir.name) / "create_ws"
+        custom_root.mkdir(parents=True)
+        with patch.object(harness.cli, "_TEST_WORKSPACE_ROOT", custom_root):
+            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                code = main(["agents", "create", "test_custodian", "--archetype", "custodian", "--bundle", "verifier"])
+                self.assertEqual(code, 0)
+                out = mock_out.getvalue()
+                self.assertIn("Created agent 'test_custodian'", out)
+                self.assertTrue((custom_root / ".agents" / "agents" / "test_custodian.md").exists())
+
+            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                code = main(["agents", "create", "test_investigator", "--archetype", "investigator", "--bundle", "verifier"])
+                self.assertEqual(code, 0)
+                out = mock_out.getvalue()
+                self.assertIn("Created agent 'test_investigator'", out)
+                self.assertTrue((custom_root / ".agents" / "agents" / "test_investigator.md").exists())
+
     def test_cli_hook_dispatch_safety(self):
         """Verifies `psl hook safety` dispatches to command_safety_hook."""
         payload = {

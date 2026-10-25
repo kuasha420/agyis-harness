@@ -108,8 +108,10 @@ def cmd_agents(args: argparse.Namespace) -> int:
                 print("  4) auditor      (QA Verifier)")
                 print("  5) planner      (Architect / Planner)")
                 print("  6) coordinator  (Swarm Coordinator)")
+                print("  7) custodian    (Git Commit Gate & Workspace Hygiene)")
+                print("  8) investigator (Root Cause Analyst & Forensic Investigator)")
                 try:
-                    choice = input("Select archetype [1-6 or name] (default: executioner): ").strip()
+                    choice = input("Select archetype [1-8 or name] (default: executioner): ").strip()
                 except (EOFError, KeyboardInterrupt):
                     sys.stderr.write("\nAborted.\n")
                     return 1
@@ -120,6 +122,8 @@ def cmd_agents(args: argparse.Namespace) -> int:
                     "4": "auditor",
                     "5": "planner",
                     "6": "coordinator",
+                    "7": "custodian",
+                    "8": "investigator",
                 }
                 arch_str = mapping.get(choice, choice) or "executioner"
             else:

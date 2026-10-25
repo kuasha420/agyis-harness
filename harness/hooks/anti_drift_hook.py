@@ -263,29 +263,35 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
         or ""
     )
     r_lower = role.strip().lower().replace("-", "_")
+    is_investigator = (
+        r_lower in ("investigator", "agyis_investigator", "detective", "forensic")
+        or "investigator" in r_lower
+        or "detective" in r_lower
+    )
     is_auditor = (
-        r_lower in ("auditor", "harness_auditor", "qa_verifier", "qa")
+        r_lower in ("auditor", "harness_auditor", "agyis_auditor", "qa_verifier", "qa")
         or "auditor" in r_lower
     )
     is_planner = (
-        r_lower in ("planner", "architect", "designer", "researcher")
+        r_lower in ("planner", "agyis_planner", "architect", "designer", "researcher")
         or "planner" in r_lower
     )
     is_coordinator = (
-        r_lower in ("coordinator", "orchestrator", "swarm_lead")
+        r_lower in ("coordinator", "agyis_coordinator", "orchestrator", "swarm_lead")
         or "coordinator" in r_lower
     )
     is_reviewer = (
-        r_lower in ("hammer", "reviewer", "inspector", "harness_reviewer")
+        r_lower in ("hammer", "reviewer", "inspector", "harness_reviewer", "agyis_reviewer")
         or "reviewer" in r_lower
     )
     is_custodian = (
-        r_lower in ("custodian", "harness_custodian", "git_custodian", "commit_gate")
+        r_lower in ("custodian", "harness_custodian", "agyis_custodian", "git_custodian", "commit_gate")
         or "custodian" in r_lower
     )
     is_main = (
-        r_lower in ("main", "psl_main", "lead")
+        r_lower in ("main", "psl_main", "lead", "agyis_architect")
         or "master" in r_lower
+        or "agyis_architect" in r_lower
     )
 
     perms = payload.get("permissions")
@@ -296,13 +302,21 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
     )
 
     is_builder = (
-        r_lower in ("builder", "worker", "implementer", "harness_builder", "executioner")
+        r_lower in ("builder", "worker", "implementer", "harness_builder", "agyis_builder", "executioner")
         or "builder" in r_lower
     )
     if (is_builder or is_main) and not explicit_write_false:
         return None
 
-    should_block = is_auditor or is_planner or is_coordinator or is_reviewer or is_custodian or explicit_write_false
+    should_block = (
+        is_investigator
+        or is_auditor
+        or is_planner
+        or is_coordinator
+        or is_reviewer
+        or is_custodian
+        or explicit_write_false
+    )
     if not should_block:
         return None
 
@@ -317,7 +331,14 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
     tool_lower = tool_name.strip().lower()
     if tool_lower in ("write_to_file", "replace_file_content", "edit_file"):
         target_path = _extract_target_file(payload)
-        if is_planner or is_coordinator:
+        if is_investigator:
+            if target_path and is_exempt_file(target_path):
+                return None
+            return {
+                "decision": "deny",
+                "reason": "PSL Investigator Invariant: agyis_investigator is strictly read-only on product code and can only write to scratch or artifacts.",
+            }
+        elif is_planner or is_coordinator:
             if target_path and is_exempt_file(target_path):
                 return None
             agent_type = "coordinator" if is_coordinator else "planner"
