@@ -657,3 +657,23 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Personas & Rules: `harness/agents/*.md`, `.agents/agents/*.md`
   - Tests: `tests/test_persona_truth.py`
   - Deliverable Commits: `c44673b`
+---
+
+## [Phase 26] Prevent Stale Plan Hijacking in find_active_plan & Checkpoint Engine (Issue #94 / Milestone v1.0.0-rc7)
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Deliverables**: [GitHub Issue #94](https://github.com/kuasha420/agyis-harness/issues/94)
+* **Key Architectural Decisions & Discoveries**:
+  - **Issue #94 Active Plan Completion Filtering & Mtime Sorting (`harness/utils/plan_parser.py`)**: Implemented `is_plan_completed(content: str) -> bool` using markdown checkbox scanning (`r"[-*+]\s*\[([ xX])\]"`). Refactored `find_active_plan()` into a 3-tier priority hierarchy (Tier 1: `PSL_PLAN_PATH` override -> Tier 2: Brain directories -> Tier 3: Workspace artifacts -> Fallback: Newest completed plan). Eradicated stale plan resurrection by sorting candidates by mtime descending and filtering out 100% completed plans (`is_plan_completed == False`).
+  - **Compaction Checkpoint Engine Unification (`harness/delivery/compaction_checkpoint.py`)**: Purged hardcoded candidate `implementation_plan_issue_77.md`. Unified `parse_implementation_plan()` to delegate directly to `find_active_plan()`. Enhanced `collect_active_artifacts()` to scan both workspace artifacts and active brain directory, deduplicating by filename with newer mtime preference, and sorting mtime descending.
+  - **Checkpoint CLI Parameter Discovery (`harness/commands/checkpoint.py` & `harness/cli.py`)**: Propagated `--brain-dir` and conversation ID auto-discovery into `cmd_checkpoint()`, passing them cleanly to `generate_compaction_checkpoint()`.
+  - **Anti-Drift Hook Re-Export (`harness/hooks/anti_drift_hook.py`)**: Re-exported `is_plan_completed` alongside `find_active_plan`.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,664 hermetic tests passing in 15.28s–17.18s** (100% green, exit code 0).
+  - Sub-second unit benchmarks: `tests/test_anti_drift.py` & `tests/test_compaction_checkpoint.py` (86 tests) passing in **0.758s** (<0.75s SLA).
+  - Compaction generation latency: **41.36 ms** (Strict SLA: <50ms).
+  - Cleanroom spec verification: 12/12 specifications verified (`./agyis verify --spec`).
+  - Runtime Doctor: 9 OK, 0 missing, 0 outdated.
+  - Closed & verified GitHub issues: #94.
+* **Reference Assets Committed**:
+  - Core Modules: `harness/utils/plan_parser.py`, `harness/delivery/compaction_checkpoint.py`, `harness/commands/checkpoint.py`, `harness/cli.py`, `harness/hooks/anti_drift_hook.py`
+  - Tests: `tests/test_anti_drift.py`, `tests/test_compaction_checkpoint.py`
+  - Deliverable Commits: `a4c2419`
