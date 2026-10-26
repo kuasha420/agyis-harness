@@ -3,6 +3,8 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
+<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-008 -->
+
 # Empirical Agent Rules: Agyis Harness Guidelines
 
 These operational rules govern cognitive behavior and human-in-the-loop alignment for **agyis-harness** (formerly `psl-agy-harness`). All deterministic environment guarantees (CPython >= 3.12 runtime injection, pager normalization, surgical grep exit sanitization, output compaction) are enforced transparently by harness hooks.
@@ -134,78 +136,4 @@ agyis doctor --experimental-rea --heal         # Safe zero-sudo auto-healing & R
    - Prior to executing verification gates (`python3 -m harness.cli test`, `pnpm test`, `cargo test`) in multi-branch PR rebase, migration, or onboarding workflows, stale build caches (`.next/`, `.turbo/`, `node_modules/.cache`) MUST be purged to prevent phantom build artifact regressions.
 
 ---
-
-## 4. Terminal Invariants & Grep Probing Exception (ADR-013)
-1. **Pre-flight Tool Availability (Mitigate Exit Code 127)**:
-   - Verify availability (`command -v <bin>`) or handle fallback paths gracefully.
-2. **Context Flood Prevention (The 200+ Step Cliff)**:
-   - Never execute unfiltered commands that dump thousands of lines. Pipe large outputs through `head -n <N>`, `tail -n <N>`, or `wc -l`.
-3. **Pattern Probing Exception**:
-   - Error swallowing is banned in production code, but standalone terminal pattern probes (`grep`, `diff`) without conditionals must use `|| [ $? -eq 1 ]` to avoid panicking on benign empty matches.
-4. **Multi-line Script Hygiene**:
-   - Write multi-line Python scripts to `<artifactDir>/scratch/script.py` rather than escaping complex bash `-c` one-liners.
-5. **Automated Database Port Collision Remediation**:
-   - When containerized services or database migrations fail with port binding or connection pool errors (e.g. Prisma P1000 on port 5432 occupied by foreign containers), execute automated collision discovery and rebinding (`python3 harness/skills/db-ops/scripts/detect_port_collision.py --find-free --rebind --env .env`) rather than manually terminating unrelated host processes.
-
----
-
-## 5. Surgical Contiguous Edits Invariant (99.9% Tool Success)
-*Audit revealed replace_file_content achieved 99.9% success (only 4 failures out of 4,650 calls):*
-1. Always make single contiguous block replacements for targeted edits.
-2. Do NOT overwrite whole files when modifying specific functions or blocks.
-3. Preserve surrounding comments, docstrings, and formatting.
-
----
-
-## 6. Context Preservation & Subagent Ladder
-*Trajectories <50 steps / <50k tokens maintain 0.8 errors/session; >200 steps suffer a 20x error spike:*
-1. **Keep Primary Context in the Healthy Zone (<50k tokens)**.
-2. **Anti-Loop Heuristics**:
-   - Do NOT repeatedly call `view_file` on the same file within consecutive steps.
-   - Evolve search queries; do not repeat identical `grep_search` patterns.
-   - **Strict Reactive Wait Invariant**: Never poll `manage_task(Action='status')` NOR repeatedly read background task logs (`tail`, `cat`, `grep`, `view_file` on `.system_generated/tasks/*.log`) to print manual progress updates. After launching a background task, output a single concise notification and stop calling tools. Await reactive wakeup.
-3. **Tool-Native Primacy (The Anti-Premature-Cognition Invariant)**:
-   - When an external CLI or tool fails, exhaust the tool's standard native options, configurations, and flag escalation ladders (e.g., `--impersonate`, `--concurrent-fragments`, retry/timeout flags, native formatting options) before reading internal tool source code, monkeypatching APIs, or constructing custom proxy scripts. Cognitive intervention is a last resort, not a first reflex.
-4. **Single-Source Skill Deduplication Invariant**:
-   - Never duplicate global plugin skills inside workspace-local `.agents/skills/` without specialized modifications. Duplicate skills bleed ~4,500 tokens/turn of redundant prompt context into every turn. Enforce single-source hygiene via `agyis skills --prune-duplicates` and strictly respect the 3-tier boundary (Layer 3: Project Specialist > Layer 2: User Environment > Layer 1: Global Plugin).
-5. **Subagent Delegation Protocol**:
-   - For multi-phase refactoring, test debugging, or massive build sweeps, delegate to subagents in shared worktrees (`Workspace: "share"`).
-
----
-
-## 7. The Artifact-First Planning Invariant (ADR-012) & Dynamic Aperture
-1. **Anti-Chatbot Seduction**:
-   - Never propose multi-component architectural changes or execution plans in raw conversational chat turns.
-   - All non-trivial proposals must immediately crystallize into an interactive `implementation_plan.md` artifact before requesting operator confirmation.
-2. **Dynamic Sliding Aperture**:
-   - High resolution for current task execution.
-   - Medium resolution for near-future milestones (macro boundaries; no speculative code).
-   - Low resolution for far-future vision.
-3. **Retroactive Horizon Compaction**:
-   - When completing a phase or milestone, compact findings into `docs/taxonomy/project-ledger.md` under 50 lines, update `roadmap.md`, commit clean code to git, and instruct the operator to reset session.
-
----
-
-## 8. Human-in-the-Loop & Steering Alignment
-1. **Anti-Drift Commitment**: Anchor all implementation decisions to the agreed plan. If novel obstacles arise, pause and present options.
-2. **Proactive Confirmation Gates**: When encountering destructive operations (file deletion, git branch force-push, node reboots), pause for explicit review.
-3. **Clear Error Reporting**: If a command fails twice, stop thrashing. State the error concisely and propose a concrete path forward.
-
----
-
-## 9. Cleanroom Reverse Engineering & Reconstruction Invariants (ADR-028)
-1. **Dirty Room vs. Clean Room Separation**:
-   - Maintain a strict boundary between binary inspection and cleanroom specification/implementation authoring.
-   - All disassembler execution, decompiler output inspection, and dynamic tracing (`.rea/**`, `decompiled/**`, `artifacts/rea/**`) occur strictly within the Dirty Room.
-   - Cleanroom specifications (`docs/specs/**`) and reconstructed source code are authored strictly within the Clean Room. Never copy decompiler output, proprietary strings, or raw binary artifacts into clean implementations.
-2. **Typed Obligation Ledgers (`.agents/ledger/**`)**:
-   - Reconstructions must derive from formal specifications backed by typed obligation ledgers (`.agents/ledger/obligations.json`).
-   - Retain immutable evidence records (`evidence_id`, subject, provider, digest) in `.agents/ledger/evidence_bundle.json`.
-   - Formal manifest clearance (`.agents/ledger/manifest.json`) requires a valid JSON schema with `"status": "verified"`, a 64-character SHA-256 `evidence_hash`, and all obligations marked `"satisfied"`.
-3. **Residual Unknowns Lifecycle**:
-   - Unresolved ambiguities, unobserved code paths, and missing specification authorities must be formally tracked using `record_unknown` and `list_unknowns`.
-   - Unknowns may only be transitioned to resolved via `verify_unknown_resolution` citing concrete, observed `evidence_id`s. Guessing, assuming, or silently dropping unknowns is strictly prohibited.
-4. **Formal Verification Before Exit**:
-   - Editing cleanroom specifications (`docs/specs/**`) or obligation ledgers (`.agents/ledger/**`) marks `spec_dirty = True`.
-   - The completion fence blocks termination until verified via `rea verify-reconstruction`, `rea evaluate-coverage`, `agyis verify --spec`, or a verified `manifest.json`.
 

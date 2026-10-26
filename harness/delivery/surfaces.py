@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import shutil
 from typing import Any, Dict, List, Optional, Set
 
@@ -290,3 +291,192 @@ def sync_surfaces(
 
     installer = PluginInstaller(config_dir=config_dir, surfaces=surfaces)
     return installer.sync_surfaces(surfaces=surfaces, config_dir=config_dir, dry_run=dry_run)
+
+
+# --- Single-Source Rule Deduplication Engine (Issues #70 & #71) ---
+
+UNIVERSAL_SECTION_KEYWORDS = [
+    "terminal invariants",
+    "surgical contiguous edits",
+    "context preservation",
+    "artifact-first planning",
+    "human-in-the-loop",
+    "cleanroom reverse engineering",
+    "cockpit flight direction",
+]
+
+VERBATIM_RULE_ECHO_SNIPPETS = [
+    "Universal Automated Verification Standard",
+    "Terminal Invariants & Grep Probing Exception",
+    "Surgical Contiguous Edits Invariant (99.9% Tool Success)",
+    "Audit revealed single contiguous block replacements achieve 99.9% tool success",
+    "Context Preservation, Reactive Wait & Anti-Loop Discipline",
+    "Trajectories <50 steps / <50k tokens maintain 0.8 errors/session",
+    "The Artifact-First Planning Invariant (ADR-012) & Dynamic Aperture",
+    "Human-in-the-Loop & Steering Alignment",
+    "Universal Cleanroom Reverse Engineering & Reconstruction Invariants",
+    "Cockpit Flight Direction & Dual-Auditor Gate",
+]
+
+
+def enforce_single_source_rules(
+    workspace_dir: Path | str,
+    config_dir: Optional[Path | str] = None,
+    dry_run: bool = False,
+    universal_rules_file: Optional[Path | str] = None,
+) -> Dict[str, Any]:
+    """
+    Enforces single-source rule delivery across global plugin and workspace (Issue #70).
+    Detects and strips duplicate universal rule blocks from <workspace>/.agents/rules/AGENTS.md
+    and <workspace>/rules/AGENTS.md to eliminate token bloat and rule numbering collisions.
+
+    Returns a dict with:
+        workspace: str path
+        pruned_files: List[str] of modified file paths
+        removed_sections: List[str] of stripped rule section titles
+        tokens_saved: int approximate token count saved
+        chars_removed: int characters removed
+        dry_run: bool
+    """
+    ws_root = Path(workspace_dir).resolve()
+    agents_rules = ws_root / ".agents" / "rules" / "AGENTS.md"
+    root_rules = ws_root / "rules" / "AGENTS.md"
+
+    pruned_files: List[str] = []
+    removed_sections: List[str] = []
+    chars_removed = 0
+
+    inheritance_notice = "<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-008 -->\n\n"
+    pruned_content: str = ""
+
+    if agents_rules.exists() and not agents_rules.is_symlink():
+        original_content = agents_rules.read_text(encoding="utf-8")
+        sections = re.split(r"(?m)(?=^## )", original_content)
+        kept_sections: List[str] = []
+        file_removed_sections: List[str] = []
+
+        preamble = sections[0]
+        if "<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-008 -->" not in preamble:
+            match = re.search(r"((?:<!--.*?-->\n*)+)", preamble, re.DOTALL)
+            if match and match.start() == 0:
+                preamble = match.group(0) + inheritance_notice + preamble[match.end():]
+            else:
+                preamble = inheritance_notice + preamble
+        kept_sections.append(preamble)
+
+        for sec in sections[1:]:
+            first_line = sec.split("\n", 1)[0].strip()
+            is_universal = any(kw in first_line.lower() for kw in UNIVERSAL_SECTION_KEYWORDS)
+            if is_universal:
+                file_removed_sections.append(first_line)
+            else:
+                kept_sections.append(sec)
+
+        pruned_content = "".join(kept_sections)
+        if not pruned_content.endswith("\n"):
+            pruned_content += "\n"
+
+        if file_removed_sections or pruned_content != original_content:
+            diff_chars = len(original_content) - len(pruned_content)
+            if diff_chars > 0:
+                chars_removed += diff_chars
+            removed_sections.extend(file_removed_sections)
+            pruned_files.append(str(agents_rules))
+            if not dry_run:
+                agents_rules.parent.mkdir(parents=True, exist_ok=True)
+                agents_rules.write_text(pruned_content, encoding="utf-8")
+    elif agents_rules.exists() and agents_rules.is_symlink():
+        try:
+            pruned_content = agents_rules.resolve().read_text(encoding="utf-8")
+        except OSError:
+            pruned_content = ""
+
+    from harness.utils.workspace import is_harness_workspace
+
+    if is_harness_workspace(ws_root):
+        harness_rules = ws_root / "harness" / "rules" / "AGENTS.md"
+        if harness_rules.is_symlink():
+            if not dry_run:
+                harness_rules.unlink()
+        if pruned_content and (not harness_rules.exists() or (harness_rules.is_file() and harness_rules.read_text(encoding="utf-8") != pruned_content)):
+            pruned_files.append(str(harness_rules))
+            if not dry_run:
+                harness_rules.parent.mkdir(parents=True, exist_ok=True)
+                harness_rules.write_text(pruned_content, encoding="utf-8")
+
+    else:
+        # Handle root_rules symlink pointing to ../.agents/rules/AGENTS.md in consumer repositories
+        target_link = Path("../.agents/rules/AGENTS.md")
+        symlink_needed = False
+
+        if root_rules.is_symlink():
+            try:
+                link_dst = os.readlink(root_rules)
+                if link_dst != str(target_link):
+                    symlink_needed = True
+            except (OSError, ValueError):
+                symlink_needed = True
+        elif root_rules.exists() or agents_rules.exists():
+            symlink_needed = True
+
+        if symlink_needed:
+            pruned_files.append(str(root_rules))
+            if not dry_run:
+                root_rules.parent.mkdir(parents=True, exist_ok=True)
+                if root_rules.is_symlink() or root_rules.is_file():
+                    root_rules.unlink()
+                elif root_rules.is_dir():
+                    shutil.rmtree(root_rules)
+                root_rules.symlink_to(target_link)
+
+
+    tokens_saved = chars_removed // 4
+    return {
+        "workspace": str(ws_root),
+        "pruned_files": sorted(list(set(pruned_files))),
+        "removed_sections": sorted(list(set(removed_sections))),
+        "tokens_saved": tokens_saved,
+        "chars_removed": chars_removed,
+        "dry_run": dry_run,
+    }
+
+
+def lint_rule_echo(workspace_dir: Path | str) -> Dict[str, Any]:
+    """
+    Scans workspace skills and agent personas for verbatim universal rule block repetition.
+    Returns findings summary.
+    """
+    ws_root = Path(workspace_dir).resolve()
+    findings: List[Dict[str, Any]] = []
+    scanned_files: List[str] = []
+
+    scan_dirs = [
+        ws_root / ".agents" / "skills",
+        ws_root / ".agents" / "agents",
+        ws_root / "harness" / "skills",
+        ws_root / "harness" / "agents",
+    ]
+
+    for sdir in scan_dirs:
+        if not sdir.is_dir():
+            continue
+        for md_file in sdir.glob("**/*.md"):
+            if md_file.is_file() and not md_file.is_symlink():
+                scanned_files.append(str(md_file))
+                try:
+                    text = md_file.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                matches = [snippet for snippet in VERBATIM_RULE_ECHO_SNIPPETS if snippet in text]
+                if matches:
+                    findings.append({
+                        "file": str(md_file),
+                        "matched_echoes": matches,
+                    })
+
+    return {
+        "workspace": str(ws_root),
+        "clean": len(findings) == 0,
+        "files_scanned": len(scanned_files),
+        "echoes": findings,
+    }

@@ -16,6 +16,7 @@ from harness.commands.audit import cmd_audit
 from harness.commands.auth import cmd_auth
 from harness.commands.sync import cmd_sync
 from harness.commands.skills import cmd_skills
+from harness.commands.rules import cmd_rules
 from harness.commands.agents import cmd_agents
 from harness.commands.subagents import cmd_subagents
 from harness.commands.remote import cmd_remote
@@ -38,6 +39,7 @@ __all__ = [
     "cmd_auth",
     "cmd_sync",
     "cmd_skills",
+    "cmd_rules",
     "cmd_agents",
     "cmd_subagents",
     "cmd_remote",

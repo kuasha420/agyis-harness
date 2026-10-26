@@ -9,7 +9,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 
 ---
 
-## 1. Universal Automated Verification Standard
+## 1. Universal Automated Verification Standard (PSL-INV-001)
 1. **Mandatory Project-Native Automated Verification**:
    - Always execute the active repository's native verification command (e.g., `pnpm test`, `cargo test`, `pytest`, `go test`, `make test`, `bash tests/*.sh`) before concluding a task. Verify exit code 0.
    - Never declare a task "complete", "fixed", or "verified" without automated verification.
@@ -22,7 +22,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 
 ---
 
-## 2. Terminal Invariants & Grep Probing Exception (ADR-013)
+## 2. Terminal Invariants & Grep Probing Exception (PSL-INV-002)
 1. **Pre-flight Tool Availability (Mitigate Exit Code 127)**:
    - Verify tool availability (`command -v <bin>`) or handle fallback paths gracefully.
 2. **Context Flood Prevention (The 200+ Step Cliff)**:
@@ -36,7 +36,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 
 ---
 
-## 3. Surgical Contiguous Edits Invariant (99.9% Tool Success)
+## 3. Surgical Contiguous Edits Invariant (PSL-INV-003)
 *Audit revealed single contiguous block replacements achieve 99.9% tool success (only 4 failures out of 4,650 calls):*
 1. Always make single contiguous block replacements for targeted edits (`replace_file_content`).
 2. Do NOT overwrite whole files when modifying specific functions, classes, or blocks.
@@ -44,7 +44,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 
 ---
 
-## 4. Context Preservation, Reactive Wait & Anti-Loop Discipline
+## 4. Context Preservation, Reactive Wait & Anti-Loop Discipline (PSL-INV-004)
 *Trajectories <50 steps / <50k tokens maintain 0.8 errors/session; >200 steps suffer a 20x error spike:*
 1. **Keep Primary Context in the Healthy Zone (<50k tokens)**.
 2. **Anti-Loop Heuristics**:
@@ -60,7 +60,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 
 ---
 
-## 5. The Artifact-First Planning Invariant (ADR-012) & Dynamic Aperture
+## 5. The Artifact-First Planning Invariant & Dynamic Aperture (PSL-INV-005)
 1. **Anti-Chatbot Seduction**:
    - Never propose multi-component architectural changes or execution plans in raw conversational chat turns.
    - All non-trivial proposals must immediately crystallize into an interactive `implementation_plan.md` artifact before requesting operator confirmation.
@@ -73,14 +73,14 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 
 ---
 
-## 6. Human-in-the-Loop & Steering Alignment
+## 6. Human-in-the-Loop & Steering Alignment (PSL-INV-006)
 1. **Anti-Drift Commitment**: Anchor all implementation decisions to the agreed plan. If novel obstacles arise, pause and present options.
 2. **Proactive Confirmation Gates**: When encountering destructive operations (file deletion, git branch force-push, node reboots), pause for explicit review.
 3. **Clear Error Reporting**: If a command fails twice, stop thrashing. State the error concisely and propose a concrete path forward.
 
 ---
 
-## 7. Universal Cleanroom Reverse Engineering & Reconstruction Invariants
+## 7. Universal Cleanroom Reverse Engineering & Reconstruction Invariants (PSL-INV-007)
 1. **Dirty Room vs. Clean Room Isolation**:
    - Maintain strict separation between binary inspection, disassembly analysis, or decompiler observation (dirty room) and specification or implementation authoring (clean room).
    - Never copy decompiled code, disassembly listings, proprietary symbol tables, or vendor assets directly into cleanroom source code.
@@ -94,3 +94,14 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 4. **Formal Cleanroom Verification**:
    - Before completing cleanroom reconstruction tasks, evaluate coverage against the obligation ledger and formally verify that all declared obligations are satisfied by evidence.
 
+---
+
+## 8. Cockpit Flight Direction & Dual-Auditor Gate (PSL-INV-008)
+1. **Zero-Code-Thrash Root Cockpit Flight Direction**:
+   - The root agent serves strictly as an Air Traffic Control Tower and flight director. Decompose milestones, evaluate operator trade-offs, and maintain governance without direct code thrashing.
+2. **12 Canonical Routing Workflows**:
+   - Route tasks dynamically across the 12 canonical subagent workflows and inject structured transition payloads (`mission_id`, `objective`, `deliverables`, `context_paths`, `verification_gate`).
+3. **Dual-Plane Communication Discipline**:
+   - Maintain clear separation between conversational parent flight deck pairing and child subagent ladder execution. Text outside `send_message` is not seen by callers in subagent mode.
+4. **Independent Dual-Auditor Gate**:
+   - Multi-phase engineering tasks must pass through an independent dual-auditor gate (`agyis_reviewer` + `agyis_auditor`) prior to release certification and merge.

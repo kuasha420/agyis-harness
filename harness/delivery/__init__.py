@@ -29,7 +29,9 @@ from harness.delivery.git_hygiene import (
     verify_zero_git_pollution,
 )
 from harness.delivery.surfaces import (
+    enforce_single_source_rules,
     enforce_single_source_skills,
+    lint_rule_echo,
     find_workspace_root,
     sync_surfaces,
 )
@@ -121,7 +123,9 @@ __all__ = [
     "verify_zero_git_pollution",
     "sync_surfaces",
     "find_workspace_root",
+    "enforce_single_source_rules",
     "enforce_single_source_skills",
+    "lint_rule_echo",
     "LEGACY_TAG_END",
     "LEGACY_TAG_START",
     "STACK_SKILL_PRESETS",

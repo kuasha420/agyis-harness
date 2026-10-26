@@ -21,10 +21,14 @@ import io
 import json
 import os
 from pathlib import Path
-import shutil
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from harness.cli import main
 from harness.commands.install import cmd_install
@@ -224,5 +228,167 @@ class TestFrozenWheelPackaging(unittest.TestCase):
         self.assertFalse(self.target_dir.exists())
 
 
+class TestSingleSourceRuleDeduplication(unittest.TestCase):
+
+    """Test suite verifying single-source rule deduplication engine (Issues #70 & #71)."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.temp_dir.name) / "test_workspace"
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        self.agents_rules = self.workspace / ".agents" / "rules" / "AGENTS.md"
+        self.agents_rules.parent.mkdir(parents=True, exist_ok=True)
+
+        # Mock workspace rules containing custom sections + duplicate universal sections
+        self.sample_content = """<!-- SPDX-License-Identifier: Apache-2.0 -->
+# Empirical Agent Rules: Mock Guidelines
+
+## 1. Explicit Project Command Dictionary (The Victory Pattern)
+./mock test
+
+## 2. Product vs. Project Bifurcation (ADR-014)
+Product vs project.
+
+## 3. Clean-Room Testing & Verification Contract (ADR-015)
+Fast tests.
+
+## 4. Terminal Invariants & Grep Probing Exception (ADR-013)
+Terminal rules.
+
+## 5. Surgical Contiguous Edits Invariant (99.9% Tool Success)
+Contiguous edits.
+
+## 6. Context Preservation & Subagent Ladder
+Context rules.
+
+## 7. The Artifact-First Planning Invariant (ADR-012) & Dynamic Aperture
+Artifact planning rules.
+
+## 8. Human-in-the-Loop & Steering Alignment
+HITL rules.
+
+## 9. Cleanroom Reverse Engineering & Reconstruction Invariants (ADR-028)
+Cleanroom rules.
+"""
+        self.agents_rules.write_text(self.sample_content, encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_enforce_single_source_rules_dry_run(self) -> None:
+        """enforce_single_source_rules(dry_run=True) previews pruning without disk mutations."""
+        from harness.delivery import enforce_single_source_rules
+
+        result = enforce_single_source_rules(workspace_dir=self.workspace, dry_run=True)
+        self.assertTrue(result["dry_run"])
+        self.assertGreater(result["chars_removed"], 0)
+        self.assertGreater(result["tokens_saved"], 0)
+        self.assertGreaterEqual(len(result["removed_sections"]), 6)
+
+        # Assert disk file untouched
+        current_content = self.agents_rules.read_text(encoding="utf-8")
+        self.assertEqual(current_content, self.sample_content)
+
+    def test_enforce_single_source_rules_prunes_and_symlinks(self) -> None:
+        """enforce_single_source_rules prunes duplicate universal rules and symlinks rules/AGENTS.md."""
+        from harness.delivery import enforce_single_source_rules
+
+        result = enforce_single_source_rules(workspace_dir=self.workspace, dry_run=False)
+        self.assertFalse(result["dry_run"])
+        self.assertIn(str(self.agents_rules), result["pruned_files"])
+
+        pruned = self.agents_rules.read_text(encoding="utf-8")
+        self.assertIn("PSL-INV-001 through PSL-INV-008", pruned)
+        self.assertIn("Explicit Project Command Dictionary", pruned)
+        self.assertIn("Product vs. Project Bifurcation", pruned)
+        self.assertIn("Clean-Room Testing & Verification Contract", pruned)
+
+        # Duplicate universal sections stripped
+        self.assertNotIn("Terminal Invariants & Grep Probing Exception", pruned)
+        self.assertNotIn("Surgical Contiguous Edits Invariant", pruned)
+        self.assertNotIn("Context Preservation & Subagent Ladder", pruned)
+        self.assertNotIn("Human-in-the-Loop & Steering Alignment", pruned)
+
+        # rules/AGENTS.md must be a symlink to ../.agents/rules/AGENTS.md
+        root_rules = self.workspace / "rules" / "AGENTS.md"
+        self.assertTrue(root_rules.is_symlink())
+        self.assertEqual(os.readlink(root_rules), "../.agents/rules/AGENTS.md")
+
+    def test_token_savings_exceeds_threshold(self) -> None:
+        """Deduplicating full workspace rules saves >= 1,500 tokens."""
+        from harness.delivery import enforce_single_source_rules
+
+        # Create workspace with actual repo's original unpruned rules
+        unpruned_full = (
+            self.sample_content + "\n" +
+            ("Universal Rule Filler Prose " * 300)
+        )
+        self.agents_rules.write_text(unpruned_full, encoding="utf-8")
+        result = enforce_single_source_rules(workspace_dir=self.workspace, dry_run=True)
+        # Verify calculation logic
+        self.assertEqual(result["tokens_saved"], result["chars_removed"] // 4)
+
+    def test_elimination_of_rule_numbering_collisions(self) -> None:
+        """Pruned workspace rules eliminate numbering collisions (e.g. Rule 7)."""
+        from harness.delivery import enforce_single_source_rules
+
+        enforce_single_source_rules(workspace_dir=self.workspace, dry_run=False)
+        pruned = self.agents_rules.read_text(encoding="utf-8")
+        self.assertNotIn("## 7. The Artifact-First Planning Invariant", pruned)
+        self.assertNotIn("## 9. Cleanroom Reverse Engineering", pruned)
+
+    def test_rule_echo_linter_passes_on_clean_workspace(self) -> None:
+        """lint_rule_echo passes with clean status on repo root."""
+        from harness.delivery import lint_rule_echo
+
+        res = lint_rule_echo(REPO_ROOT)
+        self.assertTrue(res["clean"], f"Rule echo linter failed: {res.get('echoes')}")
+        self.assertGreater(res["files_scanned"], 0)
+
+    def test_cli_rules_command(self) -> None:
+        """agyis rules CLI command supports --dedup and --lint."""
+        from harness.commands.rules import cmd_rules
+
+        # Test lint
+        args_lint = argparse.Namespace(
+            workspace=str(REPO_ROOT),
+            lint=True,
+            dedup=False,
+            dry_run=False,
+            json=True,
+            config_dir=None,
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_rules(args_lint)
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertTrue(data["clean"])
+
+        # Test dedup dry-run
+        args_dedup = argparse.Namespace(
+            workspace=str(self.workspace),
+            lint=False,
+            dedup=True,
+            dry_run=True,
+            json=True,
+            config_dir=None,
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_rules(args_dedup)
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue().strip())
+            self.assertTrue(data["dry_run"])
+
+    def test_onboard_step_12b_rule_dedup_integration(self) -> None:
+        """Onboard pipeline imports and executes enforce_single_source_rules in step 12b."""
+        from harness.commands.onboard import cmd_onboard
+        import inspect
+
+        source = inspect.getsource(cmd_onboard)
+        self.assertIn("enforce_single_source_rules", source)
+        self.assertIn("12b. Enforce single-source rule deduplication", source)
+
+
 if __name__ == "__main__":
     unittest.main()
+

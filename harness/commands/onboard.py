@@ -24,6 +24,7 @@ from harness.delivery import (
     RemoteInfo,
     configure_git_exclude,
     create_pull_request,
+    enforce_single_source_rules,
     enforce_single_source_skills,
     harmonize_workspace,
     install_workspace,
@@ -350,6 +351,13 @@ def cmd_onboard(
     pruned_skills = enforce_single_source_skills(
         config_dir=config_dir_path,
         workspace_dir=subproject_path,
+        dry_run=dry_run,
+    )
+
+    # 12b. Enforce single-source rule deduplication by default (Issue #70, v1.0.0-rc7)
+    rule_dedup_res = enforce_single_source_rules(
+        workspace_dir=subproject_path,
+        config_dir=config_dir_path,
         dry_run=dry_run,
     )
 

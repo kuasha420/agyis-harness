@@ -38,6 +38,7 @@ from harness.commands import (
     cmd_install,
     cmd_onboard,
     cmd_remote,
+    cmd_rules,
     cmd_skills,
     cmd_status,
     cmd_subagents,
@@ -205,6 +206,15 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_audit.add_argument("--output-json", type=Path, default=None, help="Export analysis JSON path")
     p_audit.add_argument("--output-report", type=Path, default=None, help="Export analysis report Markdown path")
     p_audit.add_argument("--quiet", action="store_true", help="Suppress verbose stdout in pipeline stages")
+
+    # rules (Issues #70 & #71)
+    p_rules = subparsers.add_parser("rules", help="Audit, deduplicate, and harmonize agent rules")
+    p_rules.add_argument("--dedup", action="store_true", help="Deduplicate workspace rules against global plugin")
+    p_rules.add_argument("--lint", action="store_true", help="Scan workspace skills and personas for verbatim rule repetition")
+    p_rules.add_argument("--dry-run", action="store_true", help="Simulate deduplicating rules without modifying disk")
+    p_rules.add_argument("--workspace", "-w", type=Path, default=None, help="Target workspace path")
+    p_rules.add_argument("--config-dir", type=Path, default=None, help="Target config directory")
+    p_rules.add_argument("--json", action="store_true", help="Output in JSON format")
 
     # skills
     p_skills = subparsers.add_parser("skills", help="List, inspect, and synchronize modular product skills")
@@ -1120,6 +1130,7 @@ def main(
         "audit": cmd_audit,
         "auth": cmd_auth,
         "sync": cmd_sync,
+        "rules": cmd_rules,
         "skills": cmd_skills,
         "agents": cmd_agents,
         "subagents": cmd_subagents,
