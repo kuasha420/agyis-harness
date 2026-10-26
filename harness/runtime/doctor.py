@@ -70,7 +70,13 @@ __all__ = [
     "parse_version",
     "print_cli_report",
     "run_doctor",
+    "audit_environment",
 ]
+
+
+def audit_environment(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    """Alias for run_doctor for backward-compatible environment auditing."""
+    return run_doctor(*args, **kwargs)
 
 
 def run_doctor(

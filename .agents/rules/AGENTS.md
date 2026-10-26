@@ -57,6 +57,8 @@ python3 -m harness.cli audit all               # Run full extraction, classifica
 python3 -m harness.cli audit extract           # Ingest ~/.gemini/antigravity transcripts to telemetry.db
 python3 -m harness.cli audit classify          # Categorize trajectories into WHAT_WORKED / WHAT_FAILED
 python3 -m harness.cli audit inventory         # Catalog plugins, skills, hooks & MCP servers
+agyis audit certify                            # Run full suite, doctor audit & issue signed audit_verdict.json (Gate 2)
+agyis audit verdict                            # Inspect active out-of-band auditor clearance status (Gate 2)
 
 # 🧩 Skills, Rules & Subagents Discovery & Deduplication
 agyis skills                                   # List installed modular skills & triggers

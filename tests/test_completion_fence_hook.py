@@ -1833,6 +1833,164 @@ class TestSyntheticSmellsAndMicroMutationFence(unittest.TestCase):
         self.assertTrue(check_has_mutable_code([str(func_file)], cwd=self.ws))
 
 
+class TestGate2AuditorFence(unittest.TestCase):
+    """Test suite verifying Dual-Gate Out-of-Band Auditor Verification Fence (Issue #66)."""
+
+    def setUp(self):
+        self.temp_state_dir = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temp_state_dir.name)
+        self.temp_ws_dir = tempfile.TemporaryDirectory()
+        self.ws = Path(self.temp_ws_dir.name)
+        self.env_patch = patch.dict(os.environ, {"AGYIS_SYNTHETIC_TEST": "1"})
+        self.env_patch.start()
+
+        # Set up a valid psl_stage_transition_payload.json in workspace so truth check passes
+        teamwork_dir = self.ws / ".agents" / "teamwork"
+        teamwork_dir.mkdir(parents=True, exist_ok=True)
+        (teamwork_dir / "subagent-1").mkdir(parents=True, exist_ok=True)
+        plan_file = self.ws / "plan.md"
+        plan_file.write_text("# Plan", encoding="utf-8")
+
+        from harness.subagents.routing import build_stage_transition_payload
+        payload = build_stage_transition_payload(
+            task_id="TASK-1",
+            phase="Phase 1",
+            stage="BUILD",
+            status="PASS",
+            plan_path=str(plan_file),
+            exit_code=0,
+            total_tests=10,
+            passed_tests=10,
+            failed_tests=0,
+        )
+        (self.ws / "psl_stage_transition_payload.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def tearDown(self):
+        self.env_patch.stop()
+        self.temp_state_dir.cleanup()
+        self.temp_ws_dir.cleanup()
+
+    def test_solo_developer_bypasses_gate2(self):
+        """Single-agent sessions without subagents bypass Gate 2."""
+        conv_id = "solo-dev-01"
+        empty_ws = tempfile.TemporaryDirectory()
+        try:
+            ws_path = Path(empty_ws.name)
+            res = evaluate_stop(
+                conv_id=conv_id,
+                state_dir=self.state_dir,
+                cwd=ws_path,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(res.get("decision"), "allow")
+        finally:
+            empty_ws.cleanup()
+
+    def test_exempt_subagents_bypass_gate2(self):
+        """Worker and auditor subagents are exempt from Gate 2."""
+        for exempt_role in ("agyis_builder", "agyis_reviewer", "agyis_custodian", "agyis_auditor"):
+            conv_id = f"exempt-{exempt_role}"
+            res = evaluate_stop(
+                conv_id=conv_id,
+                state_dir=self.state_dir,
+                cwd=self.ws,
+                payload={"role": exempt_role},
+            )
+            self.assertEqual(res.get("decision"), "allow")
+
+    def test_coordinator_strict_gate2_blocking_and_antideadlock(self):
+        """Coordinator with dispatched subagents requires valid audit_verdict.json."""
+        conv_id = "coord-test-01"
+        # 1. First block: missing verdict file
+        res1 = evaluate_stop(
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+            cwd=self.ws,
+            payload={"role": "agyis_coordinator"},
+        )
+        self.assertEqual(res1.get("decision"), "continue")
+        self.assertIn("Dual-Gate Verification Fence (Gate 2)", res1.get("reason", ""))
+        self.assertIn("Out-of-band auditor clearance missing", res1.get("reason", ""))
+
+        # 2. Second block: still missing
+        res2 = evaluate_stop(
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+            cwd=self.ws,
+            payload={"role": "agyis_coordinator"},
+        )
+        self.assertEqual(res2.get("decision"), "continue")
+        self.assertIn("Dual-Gate Verification Fence (Gate 2)", res2.get("reason", ""))
+
+        # 3. Third evaluation: anti-deadlock valve trips
+        res3 = evaluate_stop(
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+            cwd=self.ws,
+            payload={"role": "agyis_coordinator"},
+        )
+        self.assertEqual(res3.get("decision"), "allow")
+        self.assertIn("Anti-deadlock valve tripped after 2 Gate 2 verification blocks", res3.get("warning", ""))
+
+    def test_coordinator_gate2_rejected_verdict(self):
+        """Coordinator is blocked when auditor verdict is REJECTED."""
+        from harness.subagents.verdict import generate_audit_verdict
+        generate_audit_verdict(
+            workspace_dir=self.ws,
+            task_id="TEST-REJECT",
+            verdict="REJECTED",
+        )
+        conv_id = "coord-reject-01"
+        res = evaluate_stop(
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+            cwd=self.ws,
+            payload={"role": "agyis_coordinator"},
+        )
+        self.assertEqual(res.get("decision"), "continue")
+        self.assertIn("Auditor rejected victory (REJECTED)", res.get("reason", ""))
+
+    def test_coordinator_gate2_valid_verdict_allowance(self):
+        """Coordinator is allowed to stop when valid VICTORY CONFIRMED verdict exists."""
+        from harness.subagents.verdict import generate_audit_verdict
+        generate_audit_verdict(
+            workspace_dir=self.ws,
+            task_id="TEST-VICTORY",
+            verdict="VICTORY CONFIRMED",
+            test_suite_result={"exit_code": 0, "failed_tests": 0},
+        )
+        conv_id = "coord-valid-01"
+        res = evaluate_stop(
+            conv_id=conv_id,
+            state_dir=self.state_dir,
+            cwd=self.ws,
+            payload={"role": "agyis_coordinator"},
+        )
+        self.assertEqual(res.get("decision"), "allow")
+
+    def test_environment_bypass_flags(self):
+        """Gate 2 can be bypassed via PSL_AUDITOR_FENCE_DISABLED=1 or PSL_SOLO_MODE=1."""
+        conv_id = "coord-bypass-01"
+        with patch.dict(os.environ, {"PSL_AUDITOR_FENCE_DISABLED": "1"}):
+            res = evaluate_stop(
+                conv_id=conv_id,
+                state_dir=self.state_dir,
+                cwd=self.ws,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(res.get("decision"), "allow")
+
+        with patch.dict(os.environ, {"PSL_SOLO_MODE": "1"}):
+            res = evaluate_stop(
+                conv_id=conv_id,
+                state_dir=self.state_dir,
+                cwd=self.ws,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(res.get("decision"), "allow")
+
+
 if __name__ == "__main__":
     unittest.main()
+
 

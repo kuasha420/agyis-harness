@@ -79,6 +79,11 @@ from harness.subagents.routing import (
     validate_stage_transition_payload,
 )
 from harness.subagents.truth import validate_transition_payload_truth
+from harness.subagents.verdict import (
+    AuditVerdict,
+    generate_audit_verdict,
+    validate_audit_verdict,
+)
 
 __all__ = [
     "DEFAULT_AGENTS_DIR",
@@ -133,5 +138,8 @@ __all__ = [
     "list_routes",
     "validate_stage_transition_payload",
     "validate_transition_payload_truth",
+    "AuditVerdict",
+    "validate_audit_verdict",
+    "generate_audit_verdict",
 ]
 

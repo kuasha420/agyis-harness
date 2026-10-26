@@ -246,6 +246,9 @@ class TestCompletionFenceTruthGate(unittest.TestCase):
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         prog.write_text(f"- Last visited: {now_iso}\n", encoding="utf-8")
 
+        from harness.subagents.verdict import generate_audit_verdict
+        generate_audit_verdict(workspace_dir=self.workspace, task_id="TASK-1", verdict="VICTORY CONFIRMED")
+
         payload = {"role": "agyis_coordinator"}
         res = evaluate_stop(
             conv_id="test_truth_ok",

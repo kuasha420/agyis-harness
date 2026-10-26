@@ -645,6 +645,7 @@ def load_state(conv_id: str = "default", state_dir: Path | None = None) -> dict:
         "active_turn_id": None,
         "last_modified_files": [],
         "block_count": 0,
+        "gate2_block_count": 0,
         "last_verified_at": None,
         "last_dirtied_at": None,
         "cwd": None,
@@ -671,6 +672,7 @@ def load_state(conv_id: str = "default", state_dir: Path | None = None) -> dict:
                     "active_turn_id": data.get("active_turn_id"),
                     "last_modified_files": list(data.get("last_modified_files", [])),
                     "block_count": int(data.get("block_count", 0)),
+                    "gate2_block_count": int(data.get("gate2_block_count", 0)),
                     "last_verified_at": data.get("last_verified_at"),
                     "last_dirtied_at": data.get("last_dirtied_at"),
                     "cwd": data.get("cwd"),
@@ -877,6 +879,7 @@ def reset_state(
         "active_turn_id": None,
         "last_modified_files": [],
         "block_count": 0,
+        "gate2_block_count": 0,
         "last_verified_at": None,
         "last_dirtied_at": None,
         "cwd": None,
@@ -1299,7 +1302,10 @@ def evaluate_stop(
         or os.environ.get("AGYIS_ROLE", "")
         or os.environ.get("PSL_AGENT_ROLE", "")
     ).lower()
-    is_orchestrator = any(r in role for r in ("cockpit", "orchestrator", "flight_director", "sentinel", "coordinator", "main", "main_agent"))
+    is_orchestrator = (
+        any(r in role for r in ("cockpit", "orchestrator", "flight_director", "sentinel", "coordinator", "main", "main_agent"))
+        or normalize_role(role) in (ROLE_FLIGHT_DIRECTOR, ROLE_SWARM_ORCHESTRATOR)
+    ) and role not in ("agyis_builder", "agyis_reviewer", "agyis_custodian", "agyis_auditor")
 
     if is_orchestrator:
         # Check if subagents were dispatched during session (Anti-Code-Monkey Invariant)
@@ -1344,6 +1350,46 @@ def evaluate_stop(
                         "decision": "allow",
                         "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite persona truth violation.",
                     }
+
+            # Dual-Gate Verification Fence: Gate 2 (Auditor Verdict Fence)
+            auditor_fence_disabled = (
+                os.environ.get("PSL_AUDITOR_FENCE_DISABLED", "").lower() in ("1", "true", "yes")
+                or os.environ.get("PSL_SOLO_MODE", "").lower() in ("1", "true", "yes")
+            )
+            if not auditor_fence_disabled:
+                from harness.subagents.verdict import validate_audit_verdict
+                effective_brain_dir = get_brain_dir(conv_id=conv_id, payload=payload, brain_dir=brain_dir)
+                is_verdict_valid, verdict_reason, verdict_obj = validate_audit_verdict(
+                    Path(effective_cwd),
+                    brain_dir=effective_brain_dir,
+                    allow_synthetic=allow_synth,
+                )
+                if not is_verdict_valid:
+                    block_count = state.get("gate2_block_count", 0)
+                    if block_count < 2:
+                        state["gate2_block_count"] = block_count + 1
+                        save_state(state, conv_id=conv_id, state_dir=state_dir)
+                        return {
+                            "decision": "continue",
+                            "reason": (
+                                f"Dual-Gate Verification Fence (Gate 2): {verdict_reason}. "
+                                "Root orchestrators and coordinators require independent out-of-band auditor "
+                                "clearance (agyis audit certify) before claiming milestone completion."
+                            ),
+                        }
+                    else:
+                        state["gate2_block_count"] = 0
+                        save_state(state, conv_id=conv_id, state_dir=state_dir)
+                        return {
+                            "decision": "allow",
+                            "warning": (
+                                "Anti-deadlock valve tripped after 2 Gate 2 verification blocks. "
+                                "Exiting despite missing/rejected auditor verdict."
+                            ),
+                        }
+                else:
+                    state["gate2_block_count"] = 0
+                    save_state(state, conv_id=conv_id, state_dir=state_dir)
 
         return {"decision": "allow"}
 

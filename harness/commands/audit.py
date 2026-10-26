@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -287,6 +288,140 @@ def cmd_audit(args: argparse.Namespace) -> int:
         else:
             print_prune_summary(result, db_path)
         return 0
+    elif sub == "certify":
+        from harness.subagents.verdict import generate_audit_verdict
+        import re
+        import subprocess
+        import time
+
+        cwd = Path(getattr(args, "workspace", None) or Path.cwd()).resolve()
+        task_id = getattr(args, "task_id", "DEFAULT") or "DEFAULT"
+        verdict_str = getattr(args, "verdict", "VICTORY CONFIRMED") or "VICTORY CONFIRMED"
+        skip_tests = getattr(args, "skip_tests", False)
+        as_json = getattr(args, "json", False)
+
+        test_suite_result = {
+            "command": "./agyis test",
+            "exit_code": 0,
+            "total_tests": 0,
+            "passed_tests": 0,
+            "failed_tests": 0,
+            "benchmark_latency_s": 0.0,
+        }
+
+        if not skip_tests:
+            start_t = time.perf_counter()
+            test_cmd = [sys.executable, "-m", "unittest", "discover", "-s", "tests"]
+            proc = subprocess.run(test_cmd, capture_output=True, text=True, cwd=str(cwd))
+            elapsed = time.perf_counter() - start_t
+            test_suite_result["command"] = "./agyis test"
+            test_suite_result["exit_code"] = proc.returncode
+            test_suite_result["benchmark_latency_s"] = round(elapsed, 4)
+
+            combined_out = proc.stderr + "\n" + proc.stdout
+            m = re.search(r"Ran (\d+) tests", combined_out)
+            total = int(m.group(1)) if m else 0
+            test_suite_result["total_tests"] = total
+
+            if proc.returncode == 0:
+                test_suite_result["passed_tests"] = total
+                test_suite_result["failed_tests"] = 0
+            else:
+                mf = re.search(r"failures=(\d+)", combined_out)
+                me = re.search(r"errors=(\d+)", combined_out)
+                f_count = int(mf.group(1)) if mf else 0
+                e_count = int(me.group(1)) if me else 0
+                fail_total = f_count + e_count
+                if fail_total == 0:
+                    fail_total = 1
+                test_suite_result["failed_tests"] = fail_total
+                test_suite_result["passed_tests"] = max(0, total - fail_total)
+
+        # Doctor audit
+        doctor_result = {"ok_count": 0, "missing_count": 0, "outdated_count": 0}
+        try:
+            from harness.runtime.doctor import audit_environment
+            doc_res = audit_environment(workspace_root=cwd)
+            doc_summary = doc_res.get("summary", {})
+            doctor_result = {
+                "ok_count": doc_summary.get("ok", 0),
+                "missing_count": doc_summary.get("missing", 0),
+                "outdated_count": doc_summary.get("outdated", 0),
+            }
+        except Exception:
+            pass
+
+        verdict_obj = generate_audit_verdict(
+            workspace_dir=cwd,
+            task_id=task_id,
+            verdict=verdict_str,
+            test_suite_result=test_suite_result,
+            doctor_result=doctor_result,
+            auditor_role="agyis_auditor",
+        )
+
+        if as_json:
+            print(json.dumps(verdict_obj.to_dict(), indent=2))
+        else:
+            print("=" * 70)
+            print(f"🛡️  Agyis Victory Auditor Certification ({verdict_obj.protocol_version})")
+            print("=" * 70)
+            print(f"Task ID:        {verdict_obj.task_id}")
+            print(f"Verdict:        {verdict_obj.verdict}")
+            print(f"Auditor:        {verdict_obj.auditor_role}")
+            print(f"Timestamp:      {verdict_obj.timestamp}")
+            print(f"Artifact:       {verdict_obj.path}")
+            print("-" * 70)
+            print(
+                f"Test Suite:     {test_suite_result['passed_tests']}/{test_suite_result['total_tests']} passed "
+                f"(latency: {test_suite_result['benchmark_latency_s']}s, exit code: {test_suite_result['exit_code']})"
+            )
+            print(
+                f"Doctor Audit:   {doctor_result['ok_count']} ok, "
+                f"{doctor_result['missing_count']} missing, {doctor_result['outdated_count']} outdated"
+            )
+            print("=" * 70)
+
+        return 0 if (verdict_obj.verdict.upper() in ("VICTORY CONFIRMED", "PASS") and test_suite_result["exit_code"] == 0) else 1
+
+    elif sub == "verdict":
+        from harness.subagents.verdict import validate_audit_verdict
+        cwd = Path(getattr(args, "workspace", None) or Path.cwd()).resolve()
+        as_json = getattr(args, "json", False)
+        allow_synth = bool(os.environ.get("AGYIS_SYNTHETIC_TEST") == "1")
+
+        valid, reason, verdict_obj = validate_audit_verdict(
+            workspace_dir=cwd,
+            allow_synthetic=allow_synth,
+        )
+
+        if as_json:
+            out = {
+                "valid": valid,
+                "reason": reason,
+                "verdict": verdict_obj.to_dict() if verdict_obj else None,
+            }
+            print(json.dumps(out, indent=2))
+        else:
+            print("=" * 70)
+            print("🛡️  Agyis Out-of-Band Audit Verdict Status")
+            print("=" * 70)
+            if valid and verdict_obj:
+                print("Status:         CLEARANCE GRANTED (Valid Gate 2 Clearance)")
+                print(f"Task ID:        {verdict_obj.task_id}")
+                print(f"Verdict:        {verdict_obj.verdict}")
+                print(f"Auditor:        {verdict_obj.auditor_role}")
+                print(f"Timestamp:      {verdict_obj.timestamp}")
+                print(f"Artifact:       {verdict_obj.path}")
+            else:
+                print("Status:         CLEARANCE BLOCKED")
+                print(f"Reason:         {reason}")
+                if verdict_obj:
+                    print(f"Verdict:        {verdict_obj.verdict}")
+                    print(f"Artifact:       {verdict_obj.path}")
+            print("=" * 70)
+
+        return 0 if valid else 1
     else:
         sys.stderr.write(f"Error: Unknown audit stage '{sub}'.\n")
         return 1

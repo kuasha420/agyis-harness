@@ -193,6 +193,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
             "all", "extract", "benchmark", "classify", "inventory", "dynamics",
             "traces", "interventions", "volume", "deep", "session", "live", "clusters",
             "artifacts", "configs", "project_configs", "project-configs", "prune",
+            "certify", "verdict",
         ],
         help="Audit pipeline stage to run (default: all)",
     )
@@ -208,6 +209,10 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_audit.add_argument("--quiet", action="store_true", help="Suppress verbose stdout in pipeline stages")
     p_audit.add_argument("--days", type=int, default=90, help="Days threshold for historical argument pruning (default: 90)")
     p_audit.add_argument("--dry-run", action="store_true", help="Simulate pruning without modifying database")
+    p_audit.add_argument("--task-id", type=str, default="DEFAULT", help="Task or issue ID for audit certification")
+    p_audit.add_argument("--verdict", type=str, default="VICTORY CONFIRMED", help="Auditor verdict (VICTORY CONFIRMED, PASS, REJECTED)")
+    p_audit.add_argument("--skip-tests", action="store_true", help="Skip test suite execution during audit certification")
+    p_audit.add_argument("--workspace", "-w", type=Path, default=None, help="Target workspace path for audit certification")
 
 
     # rules (Issues #70 & #71)
