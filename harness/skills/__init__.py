@@ -215,6 +215,16 @@ GROUP_PRESETS: Dict[str, List[str]] = {
         "milestone-handoff",
         "code-review",
     ],
+    "resilience": [
+        "powerloss-resume",
+        "db-ops",
+        "storage-ops",
+    ],
+    "continuity": [
+        "graceful-parking",
+        "milestone-handoff",
+        "git-worktree-ops",
+    ],
 }
 
 

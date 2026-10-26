@@ -435,6 +435,86 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optio
     return ("allow", None, None)
 
 
+PAUSE_GATE_FILES = (
+    Path(".agents/artifacts/pause_gate.json"),
+    Path(".pause_gate"),
+    Path(".agents/artifacts/PARKED_STATE.md"),
+    Path(".agents/teamwork/PARKED_STATE.md"),
+)
+
+PAUSE_KILL_SHELL_REGEX = re.compile(r"\b(?:kill|pkill|killall)\s+-(?:9|SIGKILL|KILL)\b")
+
+
+def is_pause_gate_active(workspace_dir: Optional[Path] = None) -> bool:
+    """
+    Checks if an active pause gate exists in the workspace.
+    Fails open (returns False) on JSON parsing or OS read errors.
+    """
+    base_dir = workspace_dir or Path.cwd()
+    for rel_path in PAUSE_GATE_FILES:
+        target = base_dir / rel_path
+        if not target.is_file():
+            continue
+        try:
+            if target.name.endswith(".json"):
+                data = json.loads(target.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    status = str(data.get("status", "")).strip().lower()
+                    if status in ("paused", "pausing"):
+                        return True
+            elif target.name.endswith(".md"):
+                text = target.read_text(encoding="utf-8", errors="replace")
+                if re.search(r"status:\s*[\"']?(?:paused|pausing)[\"']?", text, re.IGNORECASE):
+                    return True
+            else:
+                return True
+        except Exception as e:
+            sys.stderr.write(f"PSL Command Safety Warning: Error reading pause gate '{target}': {e}\n")
+            continue
+    return False
+
+
+def check_pause_safety(
+    tool_name: str,
+    arguments: Dict[str, Any],
+    workspace_dir: Optional[Path] = None,
+) -> Tuple[str, Optional[str]]:
+    """
+    Evaluates whether the tool call violates the Zero-Kill Swarm Parking Invariant.
+    Returns: ("deny", reason) or ("allow", None).
+    """
+    try:
+        if not is_pause_gate_active(workspace_dir):
+            return ("allow", None)
+
+        prohibited_reason = (
+            "PSL Safety Gate (Zero-Kill Swarm Parking Invariant): "
+            "Subagent termination via 'kill' is prohibited while workspace is parked. "
+            "Dispatch a graceful resume message or remove .agents/artifacts/pause_gate.json after state handoff."
+        )
+
+        norm_tool = (tool_name or "").strip().lower()
+        if norm_tool == "manage_subagents":
+            action = str(arguments.get("Action") or arguments.get("action") or "").strip().lower()
+            if action in ("kill", "kill_all", "cancel"):
+                return ("deny", prohibited_reason)
+
+        elif norm_tool == "manage_task":
+            action = str(arguments.get("Action") or arguments.get("action") or "").strip().lower()
+            if action in ("kill", "cancel"):
+                return ("deny", prohibited_reason)
+
+        elif norm_tool == "run_command":
+            cmd = str(arguments.get("CommandLine") or arguments.get("command") or "").strip()
+            if PAUSE_KILL_SHELL_REGEX.search(cmd):
+                return ("deny", prohibited_reason)
+
+        return ("allow", None)
+    except Exception as e:
+        sys.stderr.write(f"PSL Command Safety Warning: Unexpected error in check_pause_safety: {e}\n")
+        return ("allow", None)
+
+
 def main() -> None:
     try:
         payload = json.load(sys.stdin)
@@ -442,13 +522,30 @@ def main() -> None:
         print(json.dumps({"decision": "allow"}))
         return
 
-    tool_call = payload.get("toolCall", {})
-    tool_args = tool_call.get("args", {})
+    tool_call = payload.get("toolCall") or {}
+    tool_name = tool_call.get("name") or payload.get("tool_name") or "run_command"
+    tool_args = tool_call.get("args") or payload.get("tool_args") or {}
+
     raw_cmd = (tool_args.get("CommandLine") or payload.get("command") or payload.get("CommandLine") or "").strip()
 
     if payload.get("check_preflight") or payload.get("action") == "check_preflight":
         preflight_info = check_preflight_tool_availability(raw_cmd)
         print(json.dumps(preflight_info))
+        return
+
+    pause_decision, pause_reason = check_pause_safety(
+        tool_name,
+        tool_args if tool_args else {"CommandLine": raw_cmd},
+    )
+    if pause_decision == "deny":
+        print(json.dumps({
+            "decision": "deny",
+            "reason": pause_reason
+        }))
+        return
+
+    if tool_name in ("manage_subagents", "manage_task"):
+        print(json.dumps({"decision": "allow"}))
         return
 
     decision, mod_cmd, reason = sanitize_command(raw_cmd)
