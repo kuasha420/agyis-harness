@@ -699,3 +699,22 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Tests: `tests/test_audit_verdict.py`, `tests/test_completion_fence_hook.py`
   - Deliverable Commits: `bee9d69`
 
+---
+
+## [Phase 28] Holistic Active Conversation Detection & Subagent Command Scoping Audit (Issue #95 / Milestone v1.0.0-rc7)
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Deliverables**: [GitHub Issue #95](https://github.com/kuasha420/agyis-harness/issues/95) (Parent Epic: #64)
+* **Key Architectural Decisions & Discoveries**:
+  - **Issue #95 Centralized Context Engine (`harness/utils/context.py`)**: Designed and implemented `get_active_conversation_id()`, `get_active_brain_dir()`, and `get_active_workspace()`. Established strict resolution hierarchies respecting official Antigravity platform environment variables (`ANTIGRAVITY_CONVERSATION_ID`, `ANTIGRAVITY_SOURCE_METADATA` JSON parsing for `tool.conversationId`, `ANTIGRAVITY_APP_DATA_DIR`) before falling back to `AGYIS_*` and `GEMINI_*`. Exported in `harness/utils/__init__.py`.
+  - **Scoped Subagent Liveness & Global Pause Trap Remediation (`harness/subagents/liveness.py`)**: Fixed the multi-agent global pause trap by adding a strict 24-hour expiration TTL (86,400s) on `PARKED_STATE.md` and `pause_gate.json`, preventing historical files from indefinitely freezing agents across the machine. Implemented active conversation child scoping (`_discover_active_session_subagents()`) such that `agyis subagents --liveness` defaults to displaying only delegates spawned by or attached to the active session.
+  - **CLI Parameter Scoping & Formatting (`harness/commands/subagents.py` & `harness/cli.py`)**: Added `--all` / `-a` flag to inspect machine-wide historical subagents and `--session` / `--conversation-id` to filter to a specific session. Implemented dynamic table headers distinguishing scoped active delegates from global historical rosters.
+  - **Checkpoint & Cockpit Context Wiring (`harness/delivery/compaction_checkpoint.py`, `harness/commands/checkpoint.py`, `harness/commands/cockpit.py`)**: Bound default session and brain directory to `get_active_conversation_id()` and `get_active_brain_dir()`. Scoped Cockpit Flight Director Invariant 5 (Subagent Cognitive Health) to active session delegates, preventing unrelated dead historical tasks from causing false negative verification failures.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,696 hermetic tests passing in 17.81s** (100% green, exit code 0).
+  - Sub-second unit benchmarks: `tests/test_context.py` (13 tests in 0.010s) and `tests/test_subagents_liveness.py` (14 tests in 0.054s) (<0.06s SLA benchmark invariant).
+  - Workstation Doctor: 9 OK, 0 missing, 0 outdated.
+  - Gate 2 Out-of-Band Auditor Clearance: Signed `audit_verdict.json` certified by `agyis_auditor`.
+  - Closed & verified GitHub issues: #95 (Parent Epic: #64).
+* **Reference Assets Committed**:
+  - Core Modules: `harness/utils/context.py`, `harness/utils/__init__.py`, `harness/subagents/liveness.py`, `harness/commands/subagents.py`, `harness/cli.py`, `harness/delivery/compaction_checkpoint.py`, `harness/commands/checkpoint.py`, `harness/commands/cockpit.py`
+  - Tests: `tests/test_context.py`, `tests/test_subagents_liveness.py`
+  - Deliverable Commits: `16ba444`
