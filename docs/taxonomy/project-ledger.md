@@ -549,6 +549,47 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Tests: `tests/test_cockpit_director.py`, `tests/test_clean.py`, `tests/test_compaction_checkpoint.py`
   - Deliverable Commits: `73c155d`, `119420d`, `4c44c0a`, `586037b` pushed to `origin/main`.
 
+---
+
+## [Phase 21] Single-Source Rule, Skill & Advisory Deduplication Engine & 3-Tier Precedence Hierarchy (Issue #70 & #71)
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Deliverables**: [GitHub Issue #70](https://github.com/kuasha420/agyis-harness/issues/70) & [GitHub Issue #71](https://github.com/kuasha420/agyis-harness/issues/71)
+* **Key Architectural Decisions & Discoveries**:
+  - **8 Canonical Invariant Anchors (`PSL-INV-001` through `PSL-INV-008`)**: Formally codified universal engineering rules with immutable identifiers across Layer 1 (`GLOBAL_AGENTS.md`, global plugin rules) and referenced concisely across all agent personas and skills. Eradicated cognitive collision where Rule 7 previously had conflicting definitions.
+  - **Single-Source Rule Engine (`harness/delivery/surfaces.py`)**: Implemented `enforce_single_source_rules()` and `lint_rule_echo()`, exported in `harness/delivery/__init__.py`. Detects and strips duplicate universal rule blocks from workspace rules, preserving project-specific command dictionaries and testing contracts.
+  - **Context Bloat Elimination**: Stripped 6,515 redundant characters (~1,630 tokens/turn saved), reducing context bloat by >38% per turn and exceeding the AC4 threshold of >=1,500 tokens.
+  - **3-Tier Precedence Hierarchy**: Tier 1 (Global Plugin Core Invariants) -> Tier 2 (Workspace Project Specialization) -> Tier 3 (Subagent Role Invariants).
+  - **CLI & Onboarding Integration**: Added `agyis rules` CLI command (`--dedup`, `--lint`) in `harness/commands/rules.py` and wired automatic rule deduplication into `agyis onboard` (step 12b).
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,623 hermetic tests passing in 15.52s** (100% green, exit code 0).
+  - Sub-second unit tests: `tests/test_rule_bifurcation_and_packaging.py` passes 14/14 tests in **0.039s** (<0.05s benchmark SLA).
+  - Rule Echo Linter: 69 files scanned, 0 echoes found.
+  - Runtime Doctor: 9 OK, 0 missing, 0 outdated.
+  - Closed & verified GitHub issues: #70, #71.
+* **Reference Assets Committed**:
+  - Core Modules: `harness/delivery/surfaces.py`, `harness/commands/rules.py`, `harness/commands/onboard.py`, `harness/cli.py`
+  - Rules & Prompts: `GLOBAL_AGENTS.md`, `harness/rules/GLOBAL_AGENTS.md`, `.agents/rules/AGENTS.md`, `harness/rules/AGENTS.md`, `rules/AGENTS.md`, `harness/agents/*.md`, `.agents/agents/*.md`
+  - Tests: `tests/test_rule_bifurcation_and_packaging.py`
+  - Primary Code Commit: `4960078d7ae3eec8ca5a504fde83d0b3dd485106`
+
+---
+
+## [Phase 22] Telemetry Database Compaction & Historical Raw Argument Pruning Policy (Issue #56)
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Deliverables**: [GitHub Issue #56](https://github.com/kuasha420/agyis-harness/issues/56)
+* **Key Architectural Decisions & Discoveries**:
+  - **Historical Raw Argument Pruning (`harness/telemetry/db.py`)**: Implemented `prune_historical_tool_arguments()` supporting SQLite files, `:memory:`, and live connections. Safely nullifies raw `arguments_json` and `arguments_snippet` strings for sessions older than $N$ days while retaining session durations, steps, tool names, error classifications, loop flags, and character length counters.
+  - **Physical Disk Reclamation**: Executes SQLite `VACUUM` and `PRAGMA wal_checkpoint(TRUNCATE)` post-pruning. Verified on real telemetry database: 195 sessions eligible, 19,842 rows affected, 14.93 MB pruned.
+  - **CLI Command Dispatcher (`harness/commands/audit.py`)**: Added `agyis audit prune --days <N> [--dry-run] [--json] [--db <path>]` with human-readable summary output and automated JSON reporting.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,650 hermetic tests passing in 16.39s** (100% green, exit code 0).
+  - Sub-second unit tests: `tests/test_audit_prune.py` passes 6/6 tests in **0.047s** (<0.20s benchmark SLA).
+  - Closed & verified GitHub issues: #56.
+* **Reference Assets Committed**:
+  - Core Modules: `harness/telemetry/db.py`, `harness/commands/audit.py`, `harness/cli.py`
+  - Tests: `tests/test_audit_prune.py`
+  - Primary Code Commit: `4312ed4bd5b6539afd1be57314e046297200b969` (Merged at `0503d66`)
+
+
+
 
 
 
