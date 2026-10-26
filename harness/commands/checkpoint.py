@@ -41,12 +41,30 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
         role = getattr(args, "role", None) or os.environ.get("AGYIS_ROLE", "agyis_coordinator")
         trigger_tokens = getattr(args, "trigger_tokens", 230_000)
 
+        conv_id = (
+            getattr(args, "session_id", None)
+            or os.environ.get("AGYIS_CONVERSATION_ID")
+            or os.environ.get("GEMINI_CONVERSATION_ID")
+        )
+        brain_dir_arg = getattr(args, "brain_dir", None)
+        brain_dir: Optional[Path] = None
+        if brain_dir_arg:
+            brain_dir = Path(brain_dir_arg)
+        elif os.environ.get("ANTIGRAVITY_BRAIN_DIR"):
+            brain_dir = Path(os.environ["ANTIGRAVITY_BRAIN_DIR"])
+        elif conv_id:
+            cand_brain = Path.home() / ".gemini" / "antigravity" / "brain" / str(conv_id)
+            if cand_brain.is_dir():
+                brain_dir = cand_brain
+
         res = generate_compaction_checkpoint(
             workspace_dir=workspace,
+            session_id=conv_id,
             orchestrator_role=role,
             trigger_tokens=trigger_tokens,
             plan_path=plan_path,
             output_path=out_path,
+            brain_dir=brain_dir,
         )
 
         if is_json:

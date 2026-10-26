@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Set
+from typing import Optional, Set
 
 COMMON_FILE_EXTENSIONS: frozenset[str] = frozenset({
     "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "cjs", "json", "md", "markdown",
@@ -151,95 +151,158 @@ def extract_plan_files(content: str) -> Set[str]:
 parse_plan_files = extract_plan_files
 
 
+def is_plan_completed(content: str) -> bool:
+    r"""
+    Determines if an implementation plan is 100% completed.
+    Scans for task checkboxes with regex r"[-*+]\s*\[([ xX])\]".
+    Returns True if total checkboxes > 0 and pending checkboxes (`[ ]`) == 0.
+    Returns False otherwise.
+    """
+    if not content or not isinstance(content, str):
+        return False
+    matches = re.findall(r"[-*+]\s*\[([ xX])\]", content)
+    if not matches:
+        return False
+    pending = sum(1 for m in matches if m == " ")
+    return len(matches) > 0 and pending == 0
+
+
 def find_active_plan(
     conv_id: Optional[str] = None,
     workspace_root: Optional[Path | str] = None,
     brain_dir: Optional[Path | str] = None,
+    ignore_completed: bool = True,
 ) -> Optional[Path]:
     """
     Locates the active implementation plan markdown file.
     Searches in priority order:
     1. PSL_PLAN_PATH override
-    2. Workspace root (.agents/artifacts/implementation_plan.md, plan.md, etc.)
-    3. Current working directory (when workspace_root is None)
-    4. Antigravity parent worktree discovery (when workspace_root is None)
-    5. Explicit brain_dir or ANTIGRAVITY_BRAIN_DIR
-    6. Conversation brain directory (~/.gemini/antigravity/brain/<conv_id>/)
-    7. Glob match for *plan*.md in workspace_root (or cwd), artifacts, or brain directory
+    2. Active Brain Directory (*plan*.md, *plan*.json, newest mtime first)
+    3. Workspace Artifacts (.agents/artifacts/, .agents/, docs/, workspace_root)
+    4. Fallback to newest completed plan overall if all candidates completed.
     """
     import os
 
+    # Tier 1 (Override): Respect PSL_PLAN_PATH if file exists
     env_plan = os.environ.get("PSL_PLAN_PATH")
     if env_plan:
         p = Path(env_plan)
         if p.is_file():
             return p
 
-    search_roots: list[Path] = []
-    if workspace_root:
-        search_roots.append(Path(workspace_root))
-    else:
-        search_roots.append(Path.cwd())
-        cwd = Path.cwd().resolve()
-        for parent in cwd.parents:
-            if (parent / ".git").exists() or (parent / ".agents").exists():
-                search_roots.append(parent)
+    def _safe_mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return 0.0
 
-    candidate_rel_paths = [
-        Path(".agents/artifacts/implementation_plan.md"),
-        Path(".agents/artifacts/plan.md"),
-        Path("implementation_plan.md"),
-        Path("plan.md"),
-        Path("docs/plan.md"),
-        Path("docs/implementation_plan.md"),
-        Path(".agents/plan.md"),
-    ]
+    def _safe_read(p: Path) -> str:
+        try:
+            return p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
 
-    for root in search_roots:
-        for rel in candidate_rel_paths:
-            cand = root / rel
-            if cand.is_file():
-                return cand
+    # Tier 2 (Active Brain Directory)
+    tier2_candidates: list[Path] = []
+    tier2_seen: set[Path] = set()
 
-    # Check brain directories
     brain_roots: list[Path] = []
     if brain_dir:
         brain_roots.append(Path(brain_dir))
     env_brain = os.environ.get("ANTIGRAVITY_BRAIN_DIR")
     if env_brain:
         brain_roots.append(Path(env_brain))
+
+    cids: list[str] = []
     if conv_id:
-        brain_roots.append(Path.home() / ".gemini" / "antigravity" / "brain" / str(conv_id))
+        cids.append(str(conv_id))
+    for env_k in ("AGYIS_CONVERSATION_ID", "GEMINI_CONVERSATION_ID"):
+        val = os.environ.get(env_k)
+        if val and val not in cids:
+            cids.append(val)
+
+    for cid in cids:
+        brain_roots.append(Path.home() / ".gemini" / "antigravity" / "brain" / cid)
 
     for b_root in brain_roots:
-        if b_root.is_dir():
-            for rel_name in ("implementation_plan.md", "plan.md"):
-                cand = b_root / rel_name
-                if cand.is_file():
-                    return cand
+        if not b_root.is_dir():
+            continue
+        try:
+            for match in b_root.iterdir():
+                if match.is_file() and not match.name.startswith("."):
+                    mname = match.name.lower()
+                    if "plan" in mname and (mname.endswith(".md") or mname.endswith(".json")):
+                        res = match.resolve()
+                        if res not in tier2_seen:
+                            tier2_seen.add(res)
+                            tier2_candidates.append(match)
+        except OSError:
+            pass
 
-    # Glob match
-    for root in search_roots:
-        if root.is_dir():
+    tier2_candidates.sort(key=_safe_mtime, reverse=True)
+
+    if not ignore_completed:
+        if tier2_candidates:
+            return tier2_candidates[0]
+    else:
+        for cand in tier2_candidates:
+            content = _safe_read(cand)
+            if not is_plan_completed(content):
+                return cand
+
+    # Tier 3 (Workspace Artifacts)
+    tier3_candidates: list[Path] = []
+    tier3_seen: set[Path] = set()
+
+    ws_roots: list[Path] = []
+    if workspace_root:
+        ws_roots.append(Path(workspace_root))
+    else:
+        ws_roots.append(Path.cwd())
+        cwd = Path.cwd().resolve()
+        for parent in cwd.parents:
+            if (parent / ".git").exists() or (parent / ".agents").exists():
+                ws_roots.append(parent)
+
+    for ws_root in ws_roots:
+        if not ws_root.is_dir():
+            continue
+        scan_subdirs = [
+            ws_root / ".agents" / "artifacts",
+            ws_root / ".agents",
+            ws_root / "docs",
+            ws_root,
+        ]
+        for s_dir in scan_subdirs:
+            if not s_dir.is_dir():
+                continue
             try:
-                for match in sorted(root.glob("*plan*.md")):
+                for match in s_dir.iterdir():
                     if match.is_file() and not match.name.startswith("."):
-                        return match
-                artifacts_dir = root / ".agents" / "artifacts"
-                if artifacts_dir.is_dir():
-                    for match in sorted(artifacts_dir.glob("*plan*.md")):
-                        if match.is_file():
-                            return match
+                        mname = match.name.lower()
+                        if "plan" in mname and (mname.endswith(".md") or mname.endswith(".json")):
+                            res = match.resolve()
+                            if res not in tier3_seen and res not in tier2_seen:
+                                tier3_seen.add(res)
+                                tier3_candidates.append(match)
             except OSError:
                 pass
 
-    for b_root in brain_roots:
-        if b_root.is_dir():
-            try:
-                for match in sorted(b_root.glob("*plan*.md")):
-                    if match.is_file():
-                        return match
-            except OSError:
-                pass
+    tier3_candidates.sort(key=_safe_mtime, reverse=True)
+
+    if not ignore_completed:
+        if tier3_candidates:
+            return tier3_candidates[0]
+    else:
+        for cand in tier3_candidates:
+            content = _safe_read(cand)
+            if not is_plan_completed(content):
+                return cand
+
+    # Fallback: newest completed candidate overall across Tier 2 and Tier 3
+    all_candidates = tier2_candidates + tier3_candidates
+    if all_candidates:
+        all_candidates.sort(key=_safe_mtime, reverse=True)
+        return all_candidates[0]
 
     return None

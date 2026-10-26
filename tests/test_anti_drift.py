@@ -31,6 +31,7 @@ from harness.hooks.anti_drift_hook import (
     has_cluster_status_table,
     has_telemetry_proof,
     is_exempt_file,
+    is_plan_completed,
     parse_plan_files,
     record_telemetry_proof,
 )
@@ -225,6 +226,70 @@ class TestAntiDriftHook(unittest.TestCase):
         empty_dir.mkdir()
         found = find_active_plan(workspace_root=empty_dir)
         self.assertIsNone(found)
+
+    def test_is_plan_completed(self):
+        """Verifies plan completion detection via checkbox parsing."""
+        # 1. 100% completed plan with various markers
+        completed_content = (
+            "# Plan\n"
+            "- [x] Task 1\n"
+            "* [X] Task 2\n"
+            "+ [x] Task 3\n"
+        )
+        self.assertTrue(is_plan_completed(completed_content))
+
+        # 2. In-flight plan with pending tasks
+        inflight_content = (
+            "# Plan\n"
+            "- [x] Task 1\n"
+            "- [ ] Task 2\n"
+        )
+        self.assertFalse(is_plan_completed(inflight_content))
+
+        # 3. No checkboxes (flat text)
+        no_checkboxes = "# Plan\nSome narrative without any task items."
+        self.assertFalse(is_plan_completed(no_checkboxes))
+
+        # 4. Empty or invalid content
+        self.assertFalse(is_plan_completed(""))
+        self.assertFalse(is_plan_completed(None))
+
+    def test_find_active_plan_mtime_and_completion_priority(self):
+        """Verifies mtime sorting, completed plan skipping, fallback, and brain directory priority."""
+        import time
+
+        artifacts_dir = self.workspace / ".agents" / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+        plan_old_completed = artifacts_dir / "plan_old_completed.md"
+        plan_old_completed.write_text("# Old Plan\n- [x] Task 1\n", encoding="utf-8")
+        os.utime(plan_old_completed, (time.time() - 100, time.time() - 100))
+
+        plan_newer_completed = artifacts_dir / "plan_newer_completed.md"
+        plan_newer_completed.write_text("# Newer Plan\n- [x] Task 1\n", encoding="utf-8")
+        os.utime(plan_newer_completed, (time.time() - 50, time.time() - 50))
+
+        # 1. Both completed -> fallback to newest completed
+        found = find_active_plan(workspace_root=self.workspace)
+        self.assertEqual(found, plan_newer_completed)
+
+        # 2. Add an in-flight plan that is older than newer_completed
+        plan_inflight = artifacts_dir / "plan_inflight.md"
+        plan_inflight.write_text("# In-flight Plan\n- [ ] Task In Progress\n", encoding="utf-8")
+        os.utime(plan_inflight, (time.time() - 80, time.time() - 80))
+
+        # In-flight plan must be chosen over completed plans even if completed plans have newer mtime
+        found = find_active_plan(workspace_root=self.workspace)
+        self.assertEqual(found, plan_inflight)
+
+        # 3. Brain directory takes priority over workspace
+        mock_brain = self.workspace / "mock_brain"
+        mock_brain.mkdir(parents=True, exist_ok=True)
+        brain_plan = mock_brain / "implementation_plan_active_brain.md"
+        brain_plan.write_text("# Brain Active Plan\n- [ ] Urgent Task\n", encoding="utf-8")
+
+        found = find_active_plan(workspace_root=self.workspace, brain_dir=mock_brain)
+        self.assertEqual(found, brain_plan)
 
     def test_cli_hook_contract_allow(self):
         """CLI hook consumes protojson and allows declared edits."""

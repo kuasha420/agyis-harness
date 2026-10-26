@@ -290,56 +290,83 @@ def collect_active_subagents(
     return subagents
 
 
-def collect_active_artifacts(workspace_dir: Union[Path, str]) -> List[ArtifactLink]:
-    """Scans .agents/artifacts/ and returns active markdown artifacts."""
-    artifacts: List[ArtifactLink] = []
+from harness.utils.plan_parser import find_active_plan
+
+
+def collect_active_artifacts(
+    workspace_dir: Union[Path, str],
+    brain_dir: Optional[Union[Path, str]] = None,
+) -> List[ArtifactLink]:
+    """Scans .agents/artifacts/ and active brain_dir, returning deduplicated active markdown artifacts."""
     ws = Path(workspace_dir)
+    scan_dirs: List[Path] = []
+
     art_dir = ws / ".agents" / "artifacts"
-    if not art_dir.is_dir():
-        return artifacts
+    if art_dir.is_dir():
+        scan_dirs.append(art_dir)
+    if brain_dir:
+        b_dir = Path(brain_dir)
+        if b_dir.is_dir():
+            scan_dirs.append(b_dir)
 
-    try:
-        for p in sorted(art_dir.glob("*.md")):
-            if not p.is_file():
-                continue
-            title = p.stem.replace("_", " ").title()
-            size_bytes = 0
-            try:
-                # Read first heading as title
-                with open(p, "r", encoding="utf-8", errors="replace") as f:
-                    for _ in range(10):
-                        line = f.readline()
-                        if not line:
-                            break
-                        line_s = line.strip()
-                        if line_s.startswith("# "):
-                            title = line_s[2:].strip()
-                            break
-                size_bytes = p.stat().st_size
-            except OSError:
-                pass
+    # Map filename -> (Path, mtime) to deduplicate, picking newer mtime
+    file_map: Dict[str, Tuple[Path, float]] = {}
+    for d in scan_dirs:
+        try:
+            for p in d.iterdir():
+                if not p.is_file() or p.name.startswith(".") or not p.name.endswith(".md"):
+                    continue
+                try:
+                    mtime = p.stat().st_mtime
+                except OSError:
+                    mtime = 0.0
+                if p.name not in file_map or mtime > file_map[p.name][1]:
+                    file_map[p.name] = (p, mtime)
+        except OSError:
+            pass
 
-            try:
-                rel_path = p.relative_to(ws).as_posix()
-            except ValueError:
-                rel_path = f".agents/artifacts/{p.name}"
+    sorted_files = sorted(file_map.values(), key=lambda item: item[1], reverse=True)
 
-            artifacts.append(
-                ArtifactLink(
-                    filename=p.name,
-                    title=title,
-                    path=rel_path,
-                    size_bytes=size_bytes,
-                )
+    artifacts: List[ArtifactLink] = []
+    for p, _ in sorted_files:
+        title = p.stem.replace("_", " ").title()
+        size_bytes = 0
+        try:
+            # Read first heading as title
+            with open(p, "r", encoding="utf-8", errors="replace") as f:
+                for _ in range(10):
+                    line = f.readline()
+                    if not line:
+                        break
+                    line_s = line.strip()
+                    if line_s.startswith("# "):
+                        title = line_s[2:].strip()
+                        break
+            size_bytes = p.stat().st_size
+        except OSError:
+            pass
+
+        try:
+            rel_path = p.relative_to(ws).as_posix()
+        except ValueError:
+            rel_path = str(p)
+
+        artifacts.append(
+            ArtifactLink(
+                filename=p.name,
+                title=title,
+                path=rel_path,
+                size_bytes=size_bytes,
             )
-    except OSError:
-        pass
+        )
     return artifacts
 
 
 def parse_implementation_plan(
     workspace_dir: Union[Path, str],
     plan_path: Optional[Union[Path, str]] = None,
+    brain_dir: Optional[Union[Path, str]] = None,
+    conv_id: Optional[str] = None,
 ) -> PlanStatus:
     """Parses implementation plan to extract phase progress and next actions."""
     ws = Path(workspace_dir)
@@ -352,23 +379,12 @@ def parse_implementation_plan(
         if p.is_file():
             resolved_path = p
     else:
-        candidates = [
-            ws / ".agents" / "artifacts" / "implementation_plan_issue_77.md",
-            ws / ".agents" / "artifacts" / "implementation_plan.md",
-            ws / ".agents" / "artifacts" / "plan.md",
-        ]
-        for cand in candidates:
-            if cand.is_file():
-                resolved_path = cand
-                break
-
-        if not resolved_path:
-            art_dir = ws / ".agents" / "artifacts"
-            if art_dir.is_dir():
-                for p in sorted(art_dir.glob("*plan*.md")):
-                    if p.is_file():
-                        resolved_path = p
-                        break
+        resolved_path = find_active_plan(
+            conv_id=conv_id,
+            workspace_root=ws,
+            brain_dir=brain_dir,
+            ignore_completed=True,
+        )
 
     if not resolved_path:
         return PlanStatus(
@@ -507,8 +523,13 @@ def generate_compaction_checkpoint(
 
     git_state = inspect_git_state(ws)
     subagents = collect_active_subagents(ws, brain_dir=brain_dir)
-    artifacts = collect_active_artifacts(ws)
-    plan_status = parse_implementation_plan(ws, plan_path=plan_path)
+    artifacts = collect_active_artifacts(ws, brain_dir=brain_dir)
+    plan_status = parse_implementation_plan(
+        ws,
+        plan_path=plan_path,
+        brain_dir=brain_dir,
+        conv_id=sess,
+    )
 
     # Calculate plan completion percentage
     pct = (

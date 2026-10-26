@@ -831,6 +831,12 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         action="store_true",
         help="Output result in JSON format",
     )
+    p_checkpoint.add_argument(
+        "--brain-dir",
+        type=Path,
+        default=None,
+        help="Path to conversation brain directory (default: from env or ~/.gemini/antigravity/brain/<conv_id>)",
+    )
 
     cp_subparsers = p_checkpoint.add_subparsers(
         dest="checkpoint_action",
@@ -872,6 +878,12 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         type=int,
         default=230_000,
         help="Context tokens trigger threshold (default: 230,000)",
+    )
+    p_cp_gen.add_argument(
+        "--brain-dir",
+        type=Path,
+        default=None,
+        help="Path to conversation brain directory (default: from env or ~/.gemini/antigravity/brain/<conv_id>)",
     )
     p_cp_gen.add_argument(
         "--json",

@@ -39,6 +39,7 @@ from harness.utils.plan_parser import (
     _is_candidate_filepath,
     extract_plan_files,
     find_active_plan,
+    is_plan_completed,
     parse_plan_files,
 )
 from harness.utils.state import get_state_dir
@@ -73,6 +74,7 @@ __all__ = [
     "check_flight_director_write_guard",
     "reset_flight_director_edits",
     "find_active_plan",
+    "is_plan_completed",
     "main",
 ]
 
