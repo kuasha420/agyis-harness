@@ -548,11 +548,21 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Skills & Agents: `harness/skills/cockpit-director/SKILL.md`, `harness/skills/subagent-router/SKILL.md`, `harness/skills/subagent-ladder/SKILL.md`, `harness/agents/agyis_custodian.md`
   - Tests: `tests/test_cockpit_director.py`, `tests/test_clean.py`, `tests/test_compaction_checkpoint.py`
   - Deliverable Commits: `73c155d`, `119420d`, `4c44c0a`, `586037b` pushed to `origin/main`.
+---
 
-
-
-
-
-
-
-
+## [Phase 22] Swarm Continuity, Zero-Kill Graceful Parking & Disaster Recovery (Issues #65, #76, #75)
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Milestone**: `v1.0.0-rc7` (Parent Epics: #64 & #74)
+* **Key Architectural Decisions & Discoveries**:
+  - **Issue #65 PreToolUse Anti-Kill Guard (`harness/hooks/command_safety_hook.py`)**: Expanded `psl-command-safety-guard` matcher in `hooks.json` to `run_command|manage_task|manage_subagents`. Implemented `check_pause_safety()` and `is_pause_gate_active()` to intercept and block destructive terminations (`manage_subagents(kill/kill_all/cancel)`, `manage_task(kill/cancel)`, shell `kill -9` / `pkill -9`) when pause gate is active (`.agents/artifacts/pause_gate.json` or `PARKED_STATE.md`). Built with strict fail-open safety on malformed JSON or OS read errors.
+  - **Issue #76 Zero-Kill Graceful Parking Protocol (`harness/skills/graceful-parking/SKILL.md`)**: Codified the Living Artifact standard and bilateral handshake protocol. Eliminates the "Phantom Pause" failure mode (Session `23c8e88c`) by mandating recursive `[PARK_ACK: <UUID>]` token verification from all active leaf subagents before confirming parked state.
+  - **Issue #75 Disaster Recovery Protocol (`harness/skills/powerloss-resume/SKILL.md`)**: Codified the 5-phase crash recovery sequence without destructive git commands (`git checkout .`, `git clean -fd`, `git reset --hard`). Features disk/lock forensics, subagent discovery, non-destructive reactive probing, uncommitted diff backup to `.agents/teamwork/backups/`, and `REPLACEMENT_BRIEF.md` resurrection.
+  - **Skills Registry Presets (`harness/skills/__init__.py`)**: Registered `resilience` preset (`powerloss-resume`, `db-ops`, `storage-ops`) and `continuity` preset (`graceful-parking`, `milestone-handoff`, `git-worktree-ops`) in `GROUP_PRESETS`.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,626 hermetic tests passing in 15.08s** (100% green, exit code 0).
+  - Sub-second unit benchmarks: `test_command_safety_hook.py` & `test_skills.py` (57 tests) passing in **0.131s** (<0.50s SLA).
+  - Closed & verified GitHub issues: #65, #76, #75.
+* **Reference Assets Committed**:
+  - Hooks & Core: `harness/hooks/command_safety_hook.py`, `harness/hooks/hooks.json`, `harness/skills/__init__.py`
+  - Skills: `harness/skills/graceful-parking/SKILL.md`, `harness/skills/powerloss-resume/SKILL.md`, `.agents/skills/graceful-parking/SKILL.md`, `.agents/skills/powerloss-resume/SKILL.md`
+  - Tests: `tests/test_command_safety_hook.py`, `tests/test_skills.py`, `tests/test_cognitive_resilience_manifest.py`
+  - Deliverable Commits: `76781f68fcea5c2c79f4c78b537d1b02da2761d5` on branch `subagent-Swarm-Continuity---Resilience-Coordinator-agyis-coordinator-fa5dc12a`.
