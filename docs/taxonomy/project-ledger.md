@@ -606,3 +606,32 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Skills: `harness/skills/graceful-parking/SKILL.md`, `harness/skills/powerloss-resume/SKILL.md`, `.agents/skills/graceful-parking/SKILL.md`, `.agents/skills/powerloss-resume/SKILL.md`
   - Tests: `tests/test_command_safety_hook.py`, `tests/test_skills.py`, `tests/test_cognitive_resilience_manifest.py`
   - Deliverable Commits: `76781f68fcea5c2c79f4c78b537d1b02da2761d5` (Merged at HEAD)
+
+---
+
+## [Phase 24] Root-to-Delegate Swarm Continuity Inspection & Liveness CLI (Issue #78 / Epic #74 Final Closure)
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Deliverables**: [GitHub Issue #78](https://github.com/kuasha420/agyis-harness/issues/78) (Parent Epic: #74)
+* **Key Architectural Decisions & Discoveries**:
+  - **Issue #78 Swarm Continuity Engine (`harness/subagents/liveness.py`)**: Designed and implemented `SubagentLivenessStatus` dataclass and `probe_subagent_liveness()` diagnostic engine. Eliminates the "Code Monkey Trap" (fabricating progress updates rather than inspecting disk state) by scanning delegate transcripts and teamwork ledgers (`progress.md`) in sub-second execution latency (<10ms across 25 subagents).
+  - **Temporal Classification & State Boundaries**: Classifies subagent liveness into 4 discrete states:
+    * `PARKED`: Quiescent subagents marked via `pause_gate.json`, `PARKED_STATE.md`, or per-worker `progress.md`.
+    * `ACTIVE`: Heartbeat age <= 300s (configurable via `--stale-threshold`).
+    * `STALE`: Heartbeat age 301s - 1800s (configurable via `--dead-threshold`).
+    * `DEAD`: Heartbeat age > 1800s or uncommunicative/crashed processes.
+  - **Liveness CLI Surface (`harness/commands/subagents.py` & `harness/cli.py`)**: Added `agyis subagents --liveness [--stale-threshold N] [--dead-threshold N] [--workspace W] [--json]` with ASCII table formatting, badge emojis (🟢 ACTIVE, 🟡 STALE, ⏸️ PARKED, 🔴 DEAD), relative age formatting (25s ago, 4m 10s ago), and structured JSON output.
+  - **Cockpit Flight Director Invariant 5 Integration (`harness/commands/cockpit.py`)**: Integrated `probe_subagent_liveness()` into Invariant 5 (Subagent Cognitive Health), failing `agyis cockpit verify` if any delegate subagents are stalled in `DEAD` state (unless `--allow-dirty`).
+  - **Deep Cognitive Wiring & Epic #74 Command Suite Audit**: Per operator directive, audited and integrated the full suite of Epic #74 and Cockpit Director CLI commands (`agyis subagents --liveness`, `agyis checkpoint`, `agyis clean`, `agyis cockpit`, `agyis router/ladder`, `agyis rules --dedup/--lint`, `agyis audit prune`, `agyis skills --prune-duplicates`) into operational skills (`cockpit-director`, `graceful-parking`, `powerloss-resume`, `subagent-router`), agent personas (`agyis_coordinator`, `agyis_architect`, `agyis_custodian`), and synchronized command dictionaries (`harness/rules/AGENTS.md` and `.agents/rules/AGENTS.md`).
+  - **Epic #74 100% Closure**: Completes the 4th and final child issue (#78) of Epic #74 (*Root-to-Delegate Operational Skills*), closing Epic #74 at 4/4 child issues resolved.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,649 hermetic tests passing in 15.57s** (100% green, exit code 0).
+  - Sub-second unit benchmarks: `tests/test_subagents_liveness.py` (10 tests) passing in **0.038s** (<0.05s SLA).
+  - Rule Echo Linter: 73 files scanned, 0 echoes found.
+  - Runtime Doctor: 9 OK, 2 warnings (pacman/paccache host-specific), 0 missing, 0 outdated.
+  - Closed & verified GitHub issues: #78 (Epic #74 formally closed at 4/4).
+* **Reference Assets Committed**:
+  - Core Modules: `harness/subagents/liveness.py`, `harness/subagents/__init__.py`, `harness/commands/subagents.py`, `harness/commands/cockpit.py`, `harness/cli.py`
+  - Skills: `harness/skills/cockpit-director/SKILL.md`, `harness/skills/graceful-parking/SKILL.md`, `harness/skills/powerloss-resume/SKILL.md`, `harness/skills/subagent-router/SKILL.md`
+  - Personas: `harness/agents/agyis_coordinator.md`, `harness/agents/agyis_architect.md`, `harness/agents/agyis_custodian.md` (and `.agents/agents/` mirrors)
+  - Rules: `harness/rules/AGENTS.md`, `.agents/rules/AGENTS.md`
+  - Tests: `tests/test_subagents_liveness.py`
+  - Deliverable Commits: `86ac80b`
