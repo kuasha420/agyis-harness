@@ -269,8 +269,64 @@ def cmd_audit(args: argparse.Namespace) -> int:
                 json.dump(report, f, indent=2)
             print(f"✔ Exported structured analysis to {out_path}")
         return 0
+    elif sub == "prune":
+        from harness.telemetry.db import prune_historical_tool_arguments
+        raw_db = getattr(args, "db", None)
+        db_path = Path(raw_db) if raw_db else DEFAULT_DB
+        days = getattr(args, "days", 90)
+        dry_run = getattr(args, "dry_run", False)
+        as_json = getattr(args, "json", False)
+
+        if not db_path.exists():
+            sys.stderr.write(f"Error: Database file not found at {db_path}\n")
+            return 1
+
+        result = prune_historical_tool_arguments(db_path, days=days, dry_run=dry_run)
+        if as_json:
+            print(json.dumps(result, indent=2))
+        else:
+            print_prune_summary(result, db_path)
+        return 0
     else:
         sys.stderr.write(f"Error: Unknown audit stage '{sub}'.\n")
         return 1
 
     return 0
+
+
+def print_prune_summary(result: dict, db_path: Path) -> None:
+    """Renders human-readable summary of database pruning and compaction."""
+    mode_str = "DRY RUN (no database modifications)" if result["dry_run"] else "ACTIVE PRUNING"
+    vacuum_str = (
+        "Completed successfully"
+        if result["vacuum_executed"]
+        else ("Skipped (dry-run)" if result["dry_run"] else "Not required (0 rows pruned)")
+    )
+
+    def format_bytes(n: int) -> str:
+        if n >= 1024 * 1024 * 1024:
+            return f"{n / (1024**3):.2f} GB"
+        if n >= 1024 * 1024:
+            return f"{n / (1024**2):.2f} MB"
+        if n >= 1024:
+            return f"{n / 1024:.2f} KB"
+        return f"{n} bytes"
+
+    print("=" * 70)
+    print("✂ PSL Telemetry Compaction & Argument Pruning Policy (Issue #56)")
+    print("=" * 70)
+    print(f"Database:        {db_path}")
+    print(f"Cutoff:          {result['days']} days (sessions completed before {result['cutoff_iso']})")
+    print(f"Mode:            {mode_str}")
+    print("-" * 70)
+    print(f"Sessions:        {result['sessions_affected']:,} eligible sessions")
+    print(f"Rows Affected:   {result['rows_affected']:,} tool_calls rows")
+    print(f"Bytes Pruned:    {format_bytes(result['bytes_pruned'])} ({result['bytes_pruned']:,} raw string bytes)")
+    if result.get("size_before_bytes", 0) > 0:
+        before_str = format_bytes(result["size_before_bytes"])
+        after_str = format_bytes(result["size_after_bytes"])
+        reclaimed_str = format_bytes(result["disk_bytes_reclaimed"])
+        print(f"Database Size:   {before_str} -> {after_str} (reclaimed: {reclaimed_str})")
+    print(f"Vacuum:          {vacuum_str}")
+    print("=" * 70)
+
