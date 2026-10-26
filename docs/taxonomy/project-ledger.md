@@ -677,3 +677,25 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Core Modules: `harness/utils/plan_parser.py`, `harness/delivery/compaction_checkpoint.py`, `harness/commands/checkpoint.py`, `harness/cli.py`, `harness/hooks/anti_drift_hook.py`
   - Tests: `tests/test_anti_drift.py`, `tests/test_compaction_checkpoint.py`
   - Deliverable Commits: `a4c2419`
+
+---
+
+## [Phase 27] Dual-Gate Out-of-Band Auditor Verification Fence (Issue #66 / Milestone v1.0.0-rc7)
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Deliverables**: [GitHub Issue #66](https://github.com/kuasha420/agyis-harness/issues/66) (Parent Epic: #64)
+* **Key Architectural Decisions & Discoveries**:
+  - **Issue #66 Dual-Gate Out-of-Band Auditor Verification Fence (`harness/subagents/verdict.py`)**: Operationalized Gate 2 out-of-band auditor clearance, preventing the "fox guarding the henhouse" loophole where workers running isolated unit tests could claim victory without full test suite or doctor audit certification. Authored `AuditVerdict` dataclass, `validate_audit_verdict()` with 5-tier discovery hierarchy (`AGYIS_AUDIT_VERDICT_PATH` -> `.agents/artifacts/` -> `.agents/teamwork/` -> `brain_dir` -> glob), and `generate_audit_verdict()`.
+  - **Completion Fence Role Fencing Matrix (`harness/hooks/completion_fence_hook.py`)**: Implemented Gate 2 inside `evaluate_stop()` with strict role differentiation: Solo developer sessions (`has_subagents == False`) bypass Gate 2; Worker personas (`agyis_builder`, `agyis_reviewer`, `agyis_custodian`, `agyis_auditor`) are exempt from Gate 2 to prevent circular deadlocks; Coordinators and root swarm orchestrators (`is_orchestrator == True` with `has_subagents == True`) are strictly blocked until a signed, valid, and fresh `audit_verdict.json` is certified. Integrated independent 2-block anti-deadlock safety valve (`gate2_block_count`).
+  - **Auditor Certification & Verdict CLI Surfaces (`harness/commands/audit.py` & `harness/cli.py`)**: Implemented `agyis audit certify [--task-id <id>] [--verdict PASS|REJECTED] [--skip-tests] [--json]` running full test suites and doctor diagnostics before signing `audit_verdict.json`. Added `agyis audit verdict [--json]` inspecting Gate 2 clearance status and returning exit code 0 or 1.
+  - **Auditor Persona & Rule Palette Synchronization (`harness/agents/agyis_auditor.md`, `rules/AGENTS.md`, and mirrors)**: Documented `agyis audit certify` as the canonical zero-write certification invocation for Stage 5 auditors, and added commands to the Explicit Command Dictionary.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,679 hermetic tests passing in 16.06s** (100% green, exit code 0).
+  - Sub-second unit benchmarks: `tests/test_audit_verdict.py` (9 tests) & `tests/test_completion_fence_hook.py` (82 tests) passing in **0.85s** (<1.0s benchmark SLA).
+  - Cleanroom spec verification: 12/12 specifications verified (`./agyis verify --spec`).
+  - Runtime Doctor: 9 OK, 0 missing, 0 outdated.
+  - Closed & verified GitHub issues: #66 (Parent Epic: #64).
+* **Reference Assets Committed**:
+  - Core Modules: `harness/subagents/verdict.py`, `harness/subagents/__init__.py`, `harness/commands/audit.py`, `harness/cli.py`, `harness/hooks/completion_fence_hook.py`
+  - Personas & Rules: `harness/agents/agyis_auditor.md`, `.agents/agents/agyis_auditor.md`, `rules/AGENTS.md`, `.agents/rules/AGENTS.md`
+  - Tests: `tests/test_audit_verdict.py`, `tests/test_completion_fence_hook.py`
+  - Deliverable Commits: `bee9d69`
+
