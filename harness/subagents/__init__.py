@@ -78,6 +78,7 @@ from harness.subagents.routing import (
     list_routes,
     validate_stage_transition_payload,
 )
+from harness.subagents.truth import validate_transition_payload_truth
 
 __all__ = [
     "DEFAULT_AGENTS_DIR",
@@ -131,5 +132,6 @@ __all__ = [
     "get_route",
     "list_routes",
     "validate_stage_transition_payload",
+    "validate_transition_payload_truth",
 ]
 

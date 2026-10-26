@@ -1,0 +1,44 @@
+{
+  "protocol_version": "2026.1",
+  "task_id": "TASK-ISSUE-72-PERSONA-TRUTH",
+  "phase": "Phase 25: Persona Truth Enforcement & Anti-Code-Monkey Invariant",
+  "stage": "EXECUTION",
+  "status": "PASS",
+  "sender_role": "agyis_builder",
+  "next_recommended_stage": "REVIEW",
+  "git_commit_hash": "42b4a87",
+  "diff_summary": {
+    "modified_files": [
+      ".agents/agents/agyis_architect.md",
+      ".agents/agents/agyis_coordinator.md",
+      ".agents/agents/agyis_planner.md",
+      "harness/agents/agyis_architect.md",
+      "harness/agents/agyis_coordinator.md",
+      "harness/agents/agyis_planner.md",
+      "harness/commands/cockpit.py",
+      "harness/hooks/anti_drift_hook.py",
+      "harness/hooks/completion_fence_hook.py",
+      "harness/hooks/drift_validators.py",
+      "harness/subagents/__init__.py",
+      "harness/subagents/truth.py",
+      "tests/test_persona_truth.py"
+    ],
+    "added_lines": 340,
+    "deleted_lines": 19,
+    "contiguous_chunks_count": 11
+  },
+  "verification": {
+    "command": "./agyis test",
+    "exit_code": 0,
+    "total_tests": 1660,
+    "passed_tests": 1660,
+    "failed_tests": 0,
+    "benchmark_latency_s": 15.829
+  },
+  "artifacts": {
+    "plan_path": "/home/kuasha/.gemini/antigravity/brain/13139289-06c3-4240-937f-f5bf3dbf6a01/implementation_plan_issue_72_truth.md",
+    "reproduction_script": null,
+    "report_path": null
+  },
+  "defect_ledger": []
+}

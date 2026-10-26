@@ -25,6 +25,7 @@ from typing import Callable, List, Optional
 from harness.hooks.drift_validators import (
     CLUSTER_TABLE_PATTERNS,
     check_ledger_cluster_tables,
+    check_ledger_persona_truth,
     get_proof_file,
     has_cluster_status_table,
     has_telemetry_proof,
@@ -45,6 +46,7 @@ from harness.utils.state import get_state_dir
 # Pluggable modular domain validators (ADR-014 / ADR-031)
 DRIFT_VALIDATORS: List[Callable[..., Optional[dict]]] = [
     check_ledger_cluster_tables,
+    check_ledger_persona_truth,
 ]
 
 __all__ = [
@@ -62,6 +64,7 @@ __all__ = [
     "has_telemetry_proof",
     "has_cluster_status_table",
     "check_ledger_cluster_tables",
+    "check_ledger_persona_truth",
     "DRIFT_VALIDATORS",
     "is_exempt_file",
     "check_drift",
@@ -582,6 +585,7 @@ def main() -> None:
             target_file,
             content,
             conv_id=str(conv_id or "default"),
+            workspace=workspace_root,
             payload=payload,
         )
         if block:

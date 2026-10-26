@@ -1276,17 +1276,6 @@ def evaluate_stop(
     if os.environ.get("PSL_COMPLETION_FENCE_DISABLED", "").lower() in ("1", "true", "yes"):
         return {"decision": "allow"}
 
-    # Orchestrator / Cockpit / Flight Director exemption (ADR-014 / ADR-022)
-    role = (
-        (payload.get("agent_role") if payload else "")
-        or (payload.get("agentRole") if payload else "")
-        or (payload.get("role") if payload else "")
-        or os.environ.get("AGYIS_ROLE", "")
-        or os.environ.get("PSL_AGENT_ROLE", "")
-    ).lower()
-    if any(r in role for r in ("cockpit", "orchestrator", "flight_director", "sentinel", "coordinator", "main", "main_agent")):
-        return {"decision": "allow"}
-
     # 1. Reconcile background tasks first
     sync_background_tasks(
         conv_id=conv_id,
@@ -1297,6 +1286,66 @@ def evaluate_stop(
     )
 
     state = load_state(conv_id=conv_id, state_dir=state_dir)
+
+    effective_cwd = cwd if cwd is not None else state.get("cwd")
+    if effective_cwd is None:
+        effective_cwd = Path.cwd()
+
+    # Orchestrator / Cockpit / Flight Director exemption & Persona Truth Gate (ADR-014 / ADR-022 / Issue #72)
+    role = (
+        (payload.get("agent_role") if payload else "")
+        or (payload.get("agentRole") if payload else "")
+        or (payload.get("role") if payload else "")
+        or os.environ.get("AGYIS_ROLE", "")
+        or os.environ.get("PSL_AGENT_ROLE", "")
+    ).lower()
+    is_orchestrator = any(r in role for r in ("cockpit", "orchestrator", "flight_director", "sentinel", "coordinator", "main", "main_agent"))
+
+    if is_orchestrator:
+        # Check if subagents were dispatched during session (Anti-Code-Monkey Invariant)
+        has_subagents = False
+        teamwork_dir = Path(effective_cwd) / ".agents" / "teamwork"
+        if teamwork_dir.is_dir():
+            try:
+                for child in teamwork_dir.iterdir():
+                    if child.is_dir() and not child.name.startswith("."):
+                        has_subagents = True
+                        break
+            except Exception:
+                pass
+
+        if not has_subagents and payload and (payload.get("subagents_dispatched") or payload.get("dispatched_subagents")):
+            has_subagents = True
+
+        if has_subagents:
+            from harness.subagents.truth import validate_transition_payload_truth
+            allow_synth = bool(os.environ.get("AGYIS_SYNTHETIC_TEST") == "1")
+            is_truth_valid, truth_errors = validate_transition_payload_truth(
+                Path(effective_cwd),
+                allow_synthetic=allow_synth,
+            )
+            if not is_truth_valid:
+                block_count = state.get("block_count", 0)
+                if block_count < 2:
+                    state["block_count"] = block_count + 1
+                    save_state(state, conv_id=conv_id, state_dir=state_dir)
+                    return {
+                        "decision": "continue",
+                        "reason": (
+                            "Persona Truth Violation: Subagents were dispatched in this session, but no verified "
+                            "psl_stage_transition_payload.json was found on disk. Root orchestrators cannot declare "
+                            "completion without verified delegate artifacts (Anti-Code-Monkey Invariant)."
+                        ),
+                    }
+                else:
+                    state["block_count"] = 0
+                    save_state(state, conv_id=conv_id, state_dir=state_dir)
+                    return {
+                        "decision": "allow",
+                        "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite persona truth violation.",
+                    }
+
+        return {"decision": "allow"}
 
     # Turn management: if turn_id is provided and differs from active_turn_id,
     # reset turn_mutated for the new turn

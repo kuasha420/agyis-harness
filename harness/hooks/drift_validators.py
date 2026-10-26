@@ -125,6 +125,8 @@ def check_ledger_cluster_tables(
     conv_id: str = "default",
     state_dir: Path | None = None,
     payload: dict | None = None,
+    workspace: Path | str | None = None,
+    **kwargs,
 ) -> Optional[dict]:
     """
     Intercepts modifications targeting operator_ledger.md containing cluster status or
@@ -158,3 +160,56 @@ def check_ledger_cluster_tables(
         }
 
     return None
+
+
+def check_ledger_persona_truth(
+    target_file: str,
+    content: str,
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+    workspace: Path | str | None = None,
+    payload: dict | None = None,
+    **kwargs,
+) -> Optional[dict]:
+    """
+    Intercepts modifications targeting project-ledger.md, verifying that no delegate
+    subagents are in STALE or DEAD state without an acknowledged handoff (ADR-031 / Issue #72).
+    """
+    if not target_file:
+        return None
+
+    target_name = Path(target_file).name.lower()
+    is_project_ledger = (
+        target_name == "project-ledger.md"
+        or target_file.endswith("project-ledger.md")
+        or bool(re.search(r"project[-_]ledger(?:\.md)?$", target_file, re.I))
+    )
+    if not is_project_ledger:
+        return None
+
+    workspace_dir = Path(workspace) if workspace else Path.cwd()
+    try:
+        teamwork_dir = workspace_dir / ".agents" / "teamwork"
+        if not teamwork_dir.is_dir():
+            return None
+
+        from harness.subagents.liveness import probe_subagent_liveness
+        statuses = probe_subagent_liveness(workspace_dir=workspace_dir)
+        stale_or_dead = [
+            s for s in statuses
+            if s.liveness_state in ("STALE", "DEAD")
+            and (s.progress_file is not None and str(workspace_dir) in s.progress_file)
+        ]
+        if stale_or_dead:
+            return {
+                "decision": "deny",
+                "reason": (
+                    "Persona Truth Violation: Cannot update project-ledger.md while delegate subagent(s) "
+                    "are STALE or DEAD without an acknowledged handoff (Anti-Code-Monkey Invariant)."
+                ),
+            }
+    except Exception:
+        pass
+
+    return None
+

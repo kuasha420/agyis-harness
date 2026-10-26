@@ -178,7 +178,7 @@ def _audit_flight_director_invariants(
         "violations": [] if inv4_passed else [cp_info["path"]],
     })
 
-    # Invariant 5: Subagent health and continuity liveness
+    # Invariant 5: Subagent health and continuity liveness & transition truth
     subagents = collect_active_subagents(workspace)
     red_subagents = [s for s in subagents if getattr(s, "health_zone", "") == "RED_ALERT"]
 
@@ -190,7 +190,32 @@ def _audit_flight_director_invariants(
     except Exception:
         dead_subagents = []
 
-    inv5_passed = len(red_subagents) == 0 and len(dead_subagents) == 0
+    truth_violations: list[str] = []
+    teamwork_dir = workspace / ".agents" / "teamwork"
+    has_subagents = len(subagents) > 0
+    if not has_subagents and teamwork_dir.is_dir():
+        try:
+            for child in teamwork_dir.iterdir():
+                if child.is_dir() and not child.name.startswith("."):
+                    has_subagents = True
+                    break
+        except Exception:
+            pass
+
+    if has_subagents:
+        try:
+            from harness.subagents.truth import validate_transition_payload_truth
+            allow_synth = bool(os.environ.get("AGYIS_SYNTHETIC_TEST") == "1")
+            is_truth_valid, truth_errors = validate_transition_payload_truth(
+                workspace,
+                allow_synthetic=allow_synth,
+            )
+            if not is_truth_valid:
+                truth_violations.extend(truth_errors)
+        except Exception as exc:
+            truth_violations.append(f"Transition truth check error: {exc}")
+
+    inv5_passed = len(red_subagents) == 0 and len(dead_subagents) == 0 and len(truth_violations) == 0
     if not inv5_passed and not allow_dirty:
         overall_pass = False
 
@@ -202,18 +227,23 @@ def _audit_flight_director_invariants(
         f"DEAD: {s.role} ({s.conversation_id[:8]}: age {int(s.heartbeat_age_seconds)}s)"
         for s in dead_subagents
     ])
+    violations.extend([
+        f"TRUTH: {v}" for v in truth_violations
+    ])
 
     details_parts = [f"{len(subagents)} active subagents"]
     if red_subagents:
         details_parts.append(f"{len(red_subagents)} red alert")
     if dead_subagents:
         details_parts.append(f"{len(dead_subagents)} dead")
-    if not red_subagents and not dead_subagents:
+    if truth_violations:
+        details_parts.append(f"{len(truth_violations)} truth violations")
+    if not red_subagents and not dead_subagents and not truth_violations:
         details_parts.append("all healthy")
 
     results.append({
         "invariant": "Subagent Cognitive Health",
-        "description": "Active subagents must not exceed the cognitive context cliff (>80k tokens or >80 steps) or stall into DEAD state.",
+        "description": "Active subagents must not exceed the cognitive context cliff (>80k tokens or >80 steps), stall into DEAD state, or lack verified transition payloads.",
         "passed": inv5_passed or allow_dirty,
         "details": f"{details_parts[0]} ({', '.join(details_parts[1:])})",
         "violations": violations,
