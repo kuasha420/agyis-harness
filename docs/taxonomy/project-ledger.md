@@ -635,3 +635,25 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Rules: `harness/rules/AGENTS.md`, `.agents/rules/AGENTS.md`
   - Tests: `tests/test_subagents_liveness.py`
   - Deliverable Commits: `86ac80b`
+
+---
+
+## [Phase 25] Persona Truth Enforcement & Anti-Code-Monkey Invariant (Issue #72 / Milestone v1.0.0-rc7)
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Deliverables**: [GitHub Issue #72](https://github.com/kuasha420/agyis-harness/issues/72) (Parent Epic: #69)
+* **Key Architectural Decisions & Discoveries**:
+  - **Issue #72 Core Truth Validation Engine (`harness/subagents/truth.py`)**: Codified `validate_transition_payload_truth()` providing deterministic on-disk verification of stage transition payloads (`psl_stage_transition_payload.json`). Eradicates the "Code Monkey Trap" (Sessions `8542796b` & `23c8e88c`) by strictly asserting payload existence, schema compliance (`2026.1`), `status == "PASS"`, exit code 0, 0 test failures, on-disk artifact existence, and delegate liveness via `probe_subagent_liveness()`.
+  - **Completion Fence Truth Gate (`harness/hooks/completion_fence_hook.py`)**: Wired truth validation directly into `evaluate_stop()`. Blocks root orchestrators and coordinators from claiming task completion when subagents were dispatched without an on-disk, fully verified stage transition payload. Preserves the 2-block anti-deadlock safety valve.
+  - **Anti-Drift Ledger Milestone Gate (`harness/hooks/drift_validators.py` & `anti_drift_hook.py`)**: Implemented and registered `check_ledger_persona_truth()` in `DRIFT_VALIDATORS`. Intercepts file modifications targeting `project-ledger.md`, hard-blocking ledger updates if any active delegate subagents are in `STALE` or `DEAD` state without an acknowledged handoff.
+  - **Cockpit Flight Director Invariant 5 Truth Audit (`harness/commands/cockpit.py`)**: Expanded Invariant 5 (Subagent Cognitive Health) in `_audit_flight_director_invariants()` to audit transition payload truth alongside context thresholds and dead delegate detection.
+  - **Persona Prompt Fortification (`harness/agents/` & `.agents/agents/`)**: Codified explicit Anti-Code-Monkey Invariants across `agyis_coordinator.md` (Section 2 Anti-Phantom Ledger Gate), `agyis_architect.md` (truth-grounded systems execution), and `agyis_planner.md` (verifiable exit gates in plans).
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,660 hermetic tests passing in 16.19s** (100% green, exit code 0).
+  - Sub-second unit benchmarks: `tests/test_persona_truth.py` (11 tests) passing in **0.012s** (<0.05s SLA benchmark invariant).
+  - Cleanroom spec verification: 12/12 specifications verified (`./agyis verify --spec`).
+  - Runtime Doctor: 9 OK, 0 missing, 0 outdated.
+  - Closed & verified GitHub issues: #72 (Parent Epic: #69).
+* **Reference Assets Committed**:
+  - Core Modules: `harness/subagents/truth.py`, `harness/subagents/__init__.py`, `harness/hooks/completion_fence_hook.py`, `harness/hooks/drift_validators.py`, `harness/hooks/anti_drift_hook.py`, `harness/commands/cockpit.py`
+  - Personas & Rules: `harness/agents/*.md`, `.agents/agents/*.md`
+  - Tests: `tests/test_persona_truth.py`
+  - Deliverable Commits: `c44673b`
