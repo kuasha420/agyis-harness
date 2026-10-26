@@ -14,6 +14,8 @@ import json
 from pathlib import Path
 from typing import Any, List, Optional
 
+from harness.utils.context import get_active_conversation_id
+
 
 def format_subagents_table(statuses: List[Any], heartbeat: Optional[dict] = None) -> str:
     """Format a list of SubagentContextStatus as an ASCII table."""
@@ -190,9 +192,13 @@ def cmd_subagents(args: argparse.Namespace) -> int:
         b_dir = getattr(args, "brain_dir", None)
         stale_th = getattr(args, "stale_threshold", 300)
         dead_th = getattr(args, "dead_threshold", 1800)
+        conv_id = getattr(args, "session", None) or getattr(args, "conversation_id", None)
+        show_all = bool(getattr(args, "all", False))
         liveness_statuses = probe_subagent_liveness(
             workspace_dir=ws_dir,
             brain_dir=b_dir,
+            conv_id=conv_id,
+            show_all=show_all,
             stale_threshold=stale_th,
             dead_threshold=dead_th,
         )
@@ -217,7 +223,15 @@ def cmd_subagents(args: argparse.Namespace) -> int:
             print("No active subagents found.")
             return 0
 
-        print(f"Agyis Subagent Liveness ({len(liveness_statuses)} subagents):")
+        if show_all:
+            print(f"Agyis Subagent Liveness (All Sessions: {len(liveness_statuses)} subagents):")
+        else:
+            resolved_id = get_active_conversation_id(conv_id)
+            if resolved_id:
+                print(f"Agyis Subagent Liveness (Session: {resolved_id[:12]}, {len(liveness_statuses)} active delegates):")
+            else:
+                print(f"Agyis Subagent Liveness ({len(liveness_statuses)} active subagents):")
+
         print(format_liveness_table(liveness_statuses))
         print()
         return 0

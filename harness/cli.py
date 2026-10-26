@@ -289,6 +289,19 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_subagents.add_argument(
         "--brain-dir", type=Path, default=None, help="Custom brain directory path"
     )
+    p_subagents.add_argument(
+        "-a",
+        "--all",
+        action="store_true",
+        help="Display all historical and cross-session subagents",
+    )
+    p_subagents.add_argument(
+        "--session",
+        "--conversation-id",
+        type=str,
+        default=None,
+        help="Filter subagents to specific conversation session",
+    )
 
     # status / info
     subparsers.add_parser("status", help="Print harness installation and health summary")

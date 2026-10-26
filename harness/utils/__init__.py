@@ -9,6 +9,11 @@ Zero-dependency shared primitives and utilities for PSL Harness.
 
 from __future__ import annotations
 
+from harness.utils.context import (
+    get_active_brain_dir,
+    get_active_conversation_id,
+    get_active_workspace,
+)
 from harness.utils.frontmatter import parse_frontmatter
 from harness.utils.plan_parser import extract_plan_files, parse_plan_files
 from harness.utils.state import get_state_dir
@@ -20,4 +25,7 @@ __all__ = [
     "get_state_dir",
     "extract_plan_files",
     "parse_plan_files",
+    "get_active_conversation_id",
+    "get_active_brain_dir",
+    "get_active_workspace",
 ]

@@ -416,5 +416,180 @@ class TestSubagentLivenessBenchmark(unittest.TestCase):
             )
 
 
+class TestSubagentLivenessScopingAndTTL(unittest.TestCase):
+    """Hermetic unit tests for active conversation scoping, --all flag, and 24h pause TTL (Issue #95)."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.workspace = self.root / "workspace"
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        self.brain = self.root / "brain"
+        self.brain.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_active_conversation_scoping(self) -> None:
+        """Only child subagents of the active conversation are shown when show_all=False."""
+        parent_id = "parent-sess-001"
+        child1_id = "child-builder-001"
+        child2_id = "child-reviewer-002"
+        unrelated_id = "unrelated-investigator-003"
+
+        # Create parent session that invoked child1 and child2
+        parent_dir = self.brain / parent_id / ".system_generated" / "logs"
+        parent_dir.mkdir(parents=True, exist_ok=True)
+        parent_t = parent_dir / "transcript.jsonl"
+        parent_t.write_text(
+            json.dumps({"conversation_id": parent_id, "role": "agyis_coordinator"}) + "\n"
+            + json.dumps({
+                "type": "MODEL",
+                "tool_calls": [
+                    {"name": "invoke_subagent", "args": {"TypeName": "agyis_builder", "conversationId": child1_id}},
+                    {"name": "invoke_subagent", "args": {"TypeName": "agyis_reviewer", "conversationId": child2_id}},
+                ],
+            }) + "\n",
+            encoding="utf-8",
+        )
+
+        # Create child 1 session
+        c1_dir = self.brain / child1_id / ".system_generated" / "logs"
+        c1_dir.mkdir(parents=True, exist_ok=True)
+        (c1_dir / "transcript.jsonl").write_text(
+            json.dumps({"conversation_id": child1_id, "role": "agyis_builder", "parent": parent_id}) + "\n",
+            encoding="utf-8",
+        )
+
+        # Create child 2 session
+        c2_dir = self.brain / child2_id / ".system_generated" / "logs"
+        c2_dir.mkdir(parents=True, exist_ok=True)
+        (c2_dir / "transcript.jsonl").write_text(
+            json.dumps({"conversation_id": child2_id, "role": "agyis_reviewer", "parent": parent_id}) + "\n",
+            encoding="utf-8",
+        )
+
+        # Create unrelated session
+        un_dir = self.brain / unrelated_id / ".system_generated" / "logs"
+        un_dir.mkdir(parents=True, exist_ok=True)
+        (un_dir / "transcript.jsonl").write_text(
+            json.dumps({"conversation_id": unrelated_id, "role": "agyis_investigator"}) + "\n",
+            encoding="utf-8",
+        )
+
+        # Create teamwork for child1 and unrelated worker
+        now = time.time()
+        iso_str = datetime.fromtimestamp(now - 30, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        tw_c1 = self.workspace / ".agents" / "teamwork" / child1_id
+        tw_c1.mkdir(parents=True, exist_ok=True)
+        (tw_c1 / "progress.md").write_text(f"- Last visited: {iso_str}\n", encoding="utf-8")
+
+        tw_un = self.workspace / ".agents" / "teamwork" / "unrelated_worker"
+        tw_un.mkdir(parents=True, exist_ok=True)
+        (tw_un / "progress.md").write_text(f"- Last visited: {iso_str}\n", encoding="utf-8")
+
+        # Probe with active conversation scoping (show_all=False)
+        statuses = probe_subagent_liveness(
+            workspace_dir=self.workspace,
+            brain_dir=self.brain,
+            conv_id=parent_id,
+            show_all=False,
+        )
+
+        status_ids = {s.conversation_id for s in statuses}
+        self.assertIn(child1_id, status_ids)
+        self.assertIn(child2_id, status_ids)
+        self.assertNotIn(unrelated_id, status_ids)
+        self.assertNotIn("unrelated_worker", status_ids)
+        self.assertNotIn(parent_id, status_ids)
+        self.assertEqual(len(statuses), 2)
+
+    def test_show_all_flag_displays_cross_session(self) -> None:
+        """When show_all=True, subagents from all sessions and teamwork are displayed."""
+        parent_id = "parent-sess-001"
+        child1_id = "child-builder-001"
+        unrelated_id = "unrelated-investigator-003"
+
+        p_dir = self.brain / parent_id / ".system_generated" / "logs"
+        p_dir.mkdir(parents=True, exist_ok=True)
+        (p_dir / "transcript.jsonl").write_text(
+            json.dumps({"conversation_id": parent_id, "role": "agyis_coordinator"}) + "\n"
+            + json.dumps({"tool_calls": [{"name": "invoke_subagent", "args": {"conversationId": child1_id}}]}) + "\n",
+            encoding="utf-8",
+        )
+
+        c1_dir = self.brain / child1_id / ".system_generated" / "logs"
+        c1_dir.mkdir(parents=True, exist_ok=True)
+        (c1_dir / "transcript.jsonl").write_text(
+            json.dumps({"conversation_id": child1_id, "role": "agyis_builder"}) + "\n",
+            encoding="utf-8",
+        )
+
+        un_dir = self.brain / unrelated_id / ".system_generated" / "logs"
+        un_dir.mkdir(parents=True, exist_ok=True)
+        (un_dir / "transcript.jsonl").write_text(
+            json.dumps({"conversation_id": unrelated_id, "role": "agyis_investigator"}) + "\n",
+            encoding="utf-8",
+        )
+
+        statuses_all = probe_subagent_liveness(
+            workspace_dir=self.workspace,
+            brain_dir=self.brain,
+            conv_id=parent_id,
+            show_all=True,
+        )
+
+        status_ids_all = {s.conversation_id for s in statuses_all}
+        self.assertIn(child1_id, status_ids_all)
+        self.assertIn(unrelated_id, status_ids_all)
+
+    def test_parked_state_ttl_expiration(self) -> None:
+        """PARKED_STATE.md older than 24 hours (86400s) is ignored, preventing global pause trap."""
+        artifacts_dir = self.workspace / ".agents" / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        parked_file = artifacts_dir / "PARKED_STATE.md"
+        parked_file.write_text("# Parked State\n\nstatus: paused\n", encoding="utf-8")
+
+        # Set mtime to 25 hours ago (expired)
+        expired_mtime = time.time() - 90000
+        os.utime(parked_file, (expired_mtime, expired_mtime))
+
+        sess_dir = self.brain / "sess-active-fresh" / ".system_generated" / "logs"
+        sess_dir.mkdir(parents=True, exist_ok=True)
+        (sess_dir / "transcript.jsonl").write_text(
+            json.dumps({"conversation_id": "sess-active-fresh", "role": "agyis_builder"}) + "\n",
+            encoding="utf-8",
+        )
+
+        statuses = probe_subagent_liveness(
+            workspace_dir=self.workspace,
+            brain_dir=self.brain,
+            show_all=True,
+        )
+        self.assertEqual(len(statuses), 1)
+        self.assertEqual(statuses[0].liveness_state, "ACTIVE")
+        self.assertFalse(statuses[0].is_parked)
+
+        # Now touch mtime to 1 hour ago (valid pause gate)
+        valid_mtime = time.time() - 3600
+        os.utime(parked_file, (valid_mtime, valid_mtime))
+
+        statuses_paused = probe_subagent_liveness(
+            workspace_dir=self.workspace,
+            brain_dir=self.brain,
+            show_all=True,
+        )
+        self.assertEqual(len(statuses_paused), 1)
+        self.assertEqual(statuses_paused[0].liveness_state, "PARKED")
+        self.assertTrue(statuses_paused[0].is_parked)
+
+    def test_cli_all_and_session_args(self) -> None:
+        """Verifies CLI accepts --all and --session arguments and filters output accordingly."""
+        parser = build_parser()
+        args = parser.parse_args(["subagents", "--liveness", "--all", "--session", "conv-test-123"])
+        self.assertTrue(args.all)
+        self.assertEqual(args.session, "conv-test-123")
+
+
 if __name__ == "__main__":
     unittest.main()

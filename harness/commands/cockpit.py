@@ -27,6 +27,10 @@ from harness.delivery import (
     collect_active_subagents,
     inspect_git_state,
 )
+from harness.utils.context import (
+    get_active_brain_dir,
+    get_active_conversation_id,
+)
 from harness.subagents.routing import (
     CANONICAL_ROUTES,
     build_stage_transition_payload,
@@ -185,7 +189,11 @@ def _audit_flight_director_invariants(
     dead_subagents = []
     try:
         from harness.subagents.liveness import probe_subagent_liveness
-        liveness_statuses = probe_subagent_liveness(workspace_dir=workspace)
+        active_conv = get_active_conversation_id()
+        brain_dir = get_active_brain_dir()
+        if active_conv and not (brain_dir / active_conv).is_dir():
+            active_conv = None
+        liveness_statuses = probe_subagent_liveness(workspace_dir=workspace, conv_id=active_conv)
         dead_subagents = [s for s in liveness_statuses if s.liveness_state == "DEAD"]
     except Exception:
         dead_subagents = []

@@ -28,6 +28,11 @@ import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from harness.utils.context import (
+    get_active_brain_dir,
+    get_active_conversation_id,
+)
+
 
 @dataclass
 class GitState:
@@ -257,22 +262,15 @@ def collect_active_subagents(
         pass
 
     # Fallback to direct directory scanning if harness module unavailable or returned empty
-    target_brain = b_dir or Path(
-        os.environ.get(
-            "ANTIGRAVITY_BRAIN_DIR",
-            os.environ.get(
-                "GEMINI_BRAIN_DIR", Path.home() / ".gemini" / "antigravity" / "brain"
-            ),
-        )
-    )
-    if target_brain.is_dir():
+    target_brain = b_dir or (Path(os.environ["ANTIGRAVITY_BRAIN_DIR"]) if "ANTIGRAVITY_BRAIN_DIR" in os.environ else None)
+    if target_brain and target_brain.is_dir():
         now = time.time()
         try:
             for entry in os.scandir(target_brain):
                 if entry.is_dir() and not entry.name.startswith("."):
                     try:
                         # Scan recent active sessions (<4 hours) or all if explicit brain_dir provided
-                        if b_dir is not None or (now - entry.stat().st_mtime < 14400):
+                        if brain_dir is not None or (now - entry.stat().st_mtime < 14400):
                             subagents.append(
                                 SubagentEntry(
                                     conversation_id=entry.name,
@@ -516,18 +514,18 @@ def generate_compaction_checkpoint(
     iso_time = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     ws = Path(workspace_dir)
-    sess = session_id or os.environ.get(
-        "AGYIS_CONVERSATION_ID",
-        os.environ.get("GEMINI_CONVERSATION_ID", "unknown_session"),
-    )
+    sess = get_active_conversation_id(session_id) or "unknown_session"
+    effective_brain = get_active_brain_dir(brain_dir)
+    cand_session_brain = effective_brain / sess if (sess and sess != "unknown_session") else None
+    active_artifact_brain = brain_dir or (cand_session_brain if cand_session_brain and cand_session_brain.is_dir() else None)
 
     git_state = inspect_git_state(ws)
     subagents = collect_active_subagents(ws, brain_dir=brain_dir)
-    artifacts = collect_active_artifacts(ws, brain_dir=brain_dir)
+    artifacts = collect_active_artifacts(ws, brain_dir=active_artifact_brain)
     plan_status = parse_implementation_plan(
         ws,
         plan_path=plan_path,
-        brain_dir=brain_dir,
+        brain_dir=active_artifact_brain,
         conv_id=sess,
     )
 
