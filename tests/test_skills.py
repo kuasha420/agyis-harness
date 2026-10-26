@@ -962,9 +962,53 @@ class TestPruneDuplicateSkills(unittest.TestCase):
             self.assertEqual(code, 0)
 
 
+
+class TestResilienceAndContinuitySkills(unittest.TestCase):
+    """Hermetic unit tests validating graceful-parking and powerloss-resume skills and presets."""
+
+    def test_resilience_and_continuity_skills_discovered(self) -> None:
+        """graceful-parking and powerloss-resume must be discovered by list_skills()."""
+        from harness.skills import list_skills, get_skill
+        skills = {s.name: s for s in list_skills()}
+        self.assertIn("graceful-parking", skills)
+        self.assertIn("powerloss-resume", skills)
+
+        parking = get_skill("graceful-parking")
+        self.assertIsNotNone(parking)
+        self.assertIn("zero-kill", parking.description.lower())
+        self.assertIn("Zero-Kill", parking.body)
+
+        powerloss = get_skill("powerloss-resume")
+        self.assertIsNotNone(powerloss)
+        self.assertIn("disaster recovery", powerloss.description.lower())
+        self.assertIn("5-Phase", powerloss.body)
+
+    def test_resilience_and_continuity_group_presets(self) -> None:
+        """GROUP_PRESETS must contain resilience and continuity preset groups."""
+        from harness.skills import GROUP_PRESETS, resolve_skills_to_sync
+        self.assertIn("resilience", GROUP_PRESETS)
+        self.assertIn("continuity", GROUP_PRESETS)
+
+        self.assertEqual(
+            GROUP_PRESETS["resilience"],
+            ["powerloss-resume", "db-ops", "storage-ops"],
+        )
+        self.assertEqual(
+            GROUP_PRESETS["continuity"],
+            ["graceful-parking", "milestone-handoff", "git-worktree-ops"],
+        )
+
+        resilience_synced = resolve_skills_to_sync(group="resilience")
+        self.assertEqual(resilience_synced, ["powerloss-resume", "db-ops", "storage-ops"])
+
+        continuity_synced = resolve_skills_to_sync(group="continuity")
+        self.assertEqual(continuity_synced, ["graceful-parking", "milestone-handoff", "git-worktree-ops"])
+
+
 SkillPruneDuplicatesTests = TestPruneDuplicateSkills
 
 
 if __name__ == "__main__":
     unittest.main()
+
 

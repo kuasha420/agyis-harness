@@ -18,6 +18,7 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -157,6 +158,106 @@ class TestCommandSafetyReaHarmonization(unittest.TestCase):
         decision, mod_cmd2, reason2 = sanitize_command("rizin -q -c 'pdf @main' /usr/bin/ls")
         self.assertEqual(decision, "allow")
         self.assertIsNone(mod_cmd2)
+
+
+
+class TestZeroKillPauseSafetyGuard(unittest.TestCase):
+    """Hermetic unit tests for Zero-Kill Swarm Parking PreToolUse safety guard."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.temp_dir.name)
+        self.artifacts_dir = self.workspace / ".agents" / "artifacts"
+        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_manage_subagents_kill_blocked_when_pause_gate_active(self):
+        pause_file = self.artifacts_dir / "pause_gate.json"
+        pause_file.write_text(json.dumps({"status": "paused", "reason": "token_fence"}))
+
+        from harness.hooks.command_safety_hook import check_pause_safety
+        decision, reason = check_pause_safety("manage_subagents", {"Action": "kill", "Target": "worker-1"}, self.workspace)
+        self.assertEqual(decision, "deny")
+        self.assertIn("Zero-Kill Swarm Parking Invariant", reason)
+
+    def test_manage_subagents_kill_all_and_cancel_blocked(self):
+        pause_file = self.artifacts_dir / "pause_gate.json"
+        pause_file.write_text(json.dumps({"status": "pausing"}))
+
+        from harness.hooks.command_safety_hook import check_pause_safety
+        for action in ["kill_all", "cancel"]:
+            decision, reason = check_pause_safety("manage_subagents", {"Action": action}, self.workspace)
+            self.assertEqual(decision, "deny")
+            self.assertIn("Zero-Kill Swarm Parking Invariant", reason)
+
+    def test_manage_task_kill_and_cancel_blocked(self):
+        pause_file = self.artifacts_dir / "pause_gate.json"
+        pause_file.write_text(json.dumps({"status": "paused"}))
+
+        from harness.hooks.command_safety_hook import check_pause_safety
+        for action in ["kill", "cancel"]:
+            decision, reason = check_pause_safety("manage_task", {"Action": action, "TaskId": "task-1"}, self.workspace)
+            self.assertEqual(decision, "deny")
+            self.assertIn("Zero-Kill Swarm Parking Invariant", reason)
+
+    def test_manage_task_status_and_subagents_list_allowed(self):
+        pause_file = self.artifacts_dir / "pause_gate.json"
+        pause_file.write_text(json.dumps({"status": "paused"}))
+
+        from harness.hooks.command_safety_hook import check_pause_safety
+        decision, reason = check_pause_safety("manage_task", {"Action": "status", "TaskId": "task-1"}, self.workspace)
+        self.assertEqual(decision, "allow")
+        self.assertIsNone(reason)
+
+        decision2, reason2 = check_pause_safety("manage_subagents", {"Action": "list"}, self.workspace)
+        self.assertEqual(decision2, "allow")
+        self.assertIsNone(reason2)
+
+    def test_shell_kill_9_and_pkill_9_blocked_when_pause_gate_active(self):
+        pause_file = self.artifacts_dir / "pause_gate.json"
+        pause_file.write_text(json.dumps({"status": "paused"}))
+
+        from harness.hooks.command_safety_hook import check_pause_safety
+        for cmd in ["kill -9 1234", "pkill -9 python", "killall -SIGKILL node", "kill -KILL 5678"]:
+            decision, reason = check_pause_safety("run_command", {"CommandLine": cmd}, self.workspace)
+            self.assertEqual(decision, "deny")
+            self.assertIn("Zero-Kill Swarm Parking Invariant", reason)
+
+    def test_fail_open_on_malformed_json_or_io_error(self):
+        pause_file = self.artifacts_dir / "pause_gate.json"
+        pause_file.write_text("{not-valid-json!!")
+
+        from harness.hooks.command_safety_hook import check_pause_safety
+        decision, reason = check_pause_safety("manage_subagents", {"Action": "kill"}, self.workspace)
+        self.assertEqual(decision, "allow")
+        self.assertIsNone(reason)
+
+    def test_execution_allowed_when_no_pause_gate(self):
+        from harness.hooks.command_safety_hook import check_pause_safety
+        decision, reason = check_pause_safety("manage_subagents", {"Action": "kill"}, self.workspace)
+        self.assertEqual(decision, "allow")
+        self.assertIsNone(reason)
+
+    def test_hook_main_integration_with_pause_gate(self):
+        pause_file = self.artifacts_dir / "pause_gate.json"
+        pause_file.write_text(json.dumps({"status": "paused"}))
+
+        from harness.hooks.command_safety_hook import main as safety_main
+        payload = {
+            "toolCall": {
+                "name": "manage_subagents",
+                "args": {"Action": "kill", "Target": "worker-1"},
+            }
+        }
+        with patch("harness.hooks.command_safety_hook.Path.cwd", return_value=self.workspace), \
+             patch("sys.stdin", io.StringIO(json.dumps(payload))), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            safety_main()
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res["decision"], "deny")
+            self.assertIn("Zero-Kill Swarm Parking Invariant", res["reason"])
 
 
 if __name__ == "__main__":
