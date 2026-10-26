@@ -202,6 +202,14 @@ def find_active_plan(
         except OSError:
             return ""
 
+    def _is_plan_filename(name: str) -> bool:
+        mname = name.lower()
+        if mname.startswith(".") or mname.endswith(".metadata.json"):
+            return False
+        if "plan" not in mname:
+            return False
+        return mname.endswith(".md") or mname == "plan.json" or mname.endswith(".plan.json")
+
     # Tier 2 (Active Brain Directory)
     tier2_candidates: list[Path] = []
     tier2_seen: set[Path] = set()
@@ -229,13 +237,11 @@ def find_active_plan(
             continue
         try:
             for match in b_root.iterdir():
-                if match.is_file() and not match.name.startswith("."):
-                    mname = match.name.lower()
-                    if "plan" in mname and (mname.endswith(".md") or mname.endswith(".json")):
-                        res = match.resolve()
-                        if res not in tier2_seen:
-                            tier2_seen.add(res)
-                            tier2_candidates.append(match)
+                if match.is_file() and _is_plan_filename(match.name):
+                    res = match.resolve()
+                    if res not in tier2_seen:
+                        tier2_seen.add(res)
+                        tier2_candidates.append(match)
         except OSError:
             pass
 
@@ -278,13 +284,11 @@ def find_active_plan(
                 continue
             try:
                 for match in s_dir.iterdir():
-                    if match.is_file() and not match.name.startswith("."):
-                        mname = match.name.lower()
-                        if "plan" in mname and (mname.endswith(".md") or mname.endswith(".json")):
-                            res = match.resolve()
-                            if res not in tier3_seen and res not in tier2_seen:
-                                tier3_seen.add(res)
-                                tier3_candidates.append(match)
+                    if match.is_file() and _is_plan_filename(match.name):
+                        res = match.resolve()
+                        if res not in tier3_seen and res not in tier2_seen:
+                            tier3_seen.add(res)
+                            tier3_candidates.append(match)
             except OSError:
                 pass
 

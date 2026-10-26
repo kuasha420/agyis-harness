@@ -291,6 +291,14 @@ class TestAntiDriftHook(unittest.TestCase):
         found = find_active_plan(workspace_root=self.workspace, brain_dir=mock_brain)
         self.assertEqual(found, brain_plan)
 
+        # 4. Antigravity metadata.json companion file must NOT be chosen as plan
+        metadata_file = mock_brain / "implementation_plan_active_brain.md.metadata.json"
+        metadata_file.write_text('{"Summary": "Metadata test"}', encoding="utf-8")
+        os.utime(metadata_file, (time.time() + 10, time.time() + 10))
+
+        found = find_active_plan(workspace_root=self.workspace, brain_dir=mock_brain)
+        self.assertEqual(found, brain_plan)
+
     def test_cli_hook_contract_allow(self):
         """CLI hook consumes protojson and allows declared edits."""
         import io
