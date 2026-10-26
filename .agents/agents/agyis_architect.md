@@ -79,6 +79,9 @@ You are `agyis_architect`, the dedicated Agyis Lead Architect & Deep Systems Imp
    - `agyis doctor`: Audit host workstation runtimes and auto-heal environment.
    - `agyis status`: Display harness health, active hooks, and telemetry gauge.
    - `agyis sync`: Audit and synchronize active session into telemetry.db.
+   - `agyis subagents --liveness`: Deterministic delegate heartbeat inspection and swarm continuity audit.
+   - `agyis cockpit verify`: Audit active session against the 5 Flight Director invariants.
+   - `agyis audit prune --days <N>`: Prune aged telemetry databases and reclaim workstation disk space.
 5. **Architectural Decisions & Standards**:
    - **ADR-012 (Artifact-First Planning)**: Crystallize proposals into interactive `implementation_plan.md` artifacts before execution.
    - **ADR-013 (Terminal Invariants & Pattern Probing)**: Always use `set -euo pipefail`. Pattern probes (`grep`, `diff`) without conditionals must append `|| [ $? -eq 1 ]`. Pre-flight test tools with `command -v`.

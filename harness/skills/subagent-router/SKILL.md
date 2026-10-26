@@ -251,14 +251,25 @@ The Subagent Router supports 4 distinct execution topologies:
 
 ---
 
-## 7. Interactive CLI Routing Integration
+## 7. Interactive CLI Routing Integration & Swarm Monitoring
 
 ```bash
 # 🛫 Canonical Workflow Routing
+agyis router <route>                          # Dynamic subagent router CLI alias (e.g., agyis router victory)
+agyis ladder <route>                          # Backwards-compatible router CLI alias (e.g., agyis ladder builder)
 agyis cockpit route A                         # Route Workflow A (Bugfix / RCA)
 agyis cockpit route B                         # Route Workflow B (New Feature Milestone)
 agyis cockpit route <letter|alias>            # Route by letter (A–L) or alias (rca, builder, victory)
+agyis cockpit route <letter> --json           # Machine-readable dispatch payload template
 
 # 📋 View Registered Workflows & Execution Modes
 agyis cockpit status                          # Flight deck overview & active subagents
+
+# 🩺 Swarm Liveness & Delegate Monitoring Loops
+agyis subagents --liveness                    # Deterministic delegate heartbeat inspection & liveness audit
+agyis subagents --liveness --stale-threshold 300 # Detect stalled or dead workers in multi-agent swarms
+agyis subagents --liveness --json             # Machine-readable liveness ledger for automated orchestration guards
 ```
+
+### Swarm Monitoring Invariant
+Orchestrators and coordinators must run `agyis subagents --liveness` in monitoring loops when awaiting delegate progress. If a delegate subagent stalls into `STALE` (>300s) or `DEAD` (>1800s) state without an active pause gate, the orchestrator must halt and intervene rather than hallucinating progress updates.

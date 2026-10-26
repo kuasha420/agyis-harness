@@ -35,6 +35,10 @@ from harness.subagents.context import (
     extract_role_from_text,
     list_active_subagent_statuses,
 )
+from harness.subagents.liveness import (
+    SubagentLivenessStatus,
+    probe_subagent_liveness,
+)
 from harness.subagents.rehydrate import (
     StepSummary,
     rehydrate_subagent_session,
@@ -96,6 +100,8 @@ __all__ = [
     "estimate_subagent_context",
     "extract_role_from_text",
     "list_active_subagent_statuses",
+    "SubagentLivenessStatus",
+    "probe_subagent_liveness",
     "StepSummary",
     "rehydrate_subagent_session",
     "STAGE_NAME_MAP",

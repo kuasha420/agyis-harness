@@ -92,16 +92,18 @@ sequenceDiagram
    ```
 3. **Collect Acknowledgment Tokens**:
    Inspect active subagent list via `manage_subagents(Action='list')`. Await reactive receipt of `[PARK_ACK: <UUID>]` from every child. If an intermediate orchestrator reports quiescence without acknowledging children, directly message the unacknowledged children.
-4. **Finalize Parked State**:
+4. **Finalize Parked State & Verify Quiescence**:
    Update `pause_gate.json` to `"status": "paused"` and finalize `PARKED_STATE.md`.
+   Capture a carrier-grade working memory snapshot via `agyis checkpoint create`.
+   Execute `agyis subagents --liveness` to deterministically verify that all active subagents report ⏸️ `PARKED` status before concluding.
 
 ---
 
 ## 4. Bilateral Resumption Protocol
 
 To resume a quiescent swarm:
-1. **Pre-flight Integrity Check**:
-   Verify worktrees with `git status -s` and inspect `.agents/artifacts/PARKED_STATE.md`.
+1. **Pre-flight Integrity & Liveness Check**:
+   Verify worktrees with `git status -s`, inspect `.agents/artifacts/PARKED_STATE.md`, and verify quiescence with `agyis subagents --liveness`.
 2. **Top-Down Resume Broadcast**:
    Message active subagents via `send_message`:
    ```markdown

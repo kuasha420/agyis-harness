@@ -182,20 +182,36 @@ flowchart TD
 
 ## 7. Interactive CLI Flight Control Palette
 
-The Cockpit Flight Director leverages deterministic CLI commands:
+The Cockpit Flight Director leverages deterministic CLI commands to govern the swarm:
 
 ```bash
-# 📊 Cockpit Flight Deck Status
+# 📊 Cockpit Flight Deck Status & Swarm Continuity (Anti-Code-Monkey Trap)
 agyis cockpit status                          # Print attention horizon, active stage, and subagent telemetry
 agyis cockpit status --json                   # Machine-readable flight deck status
+agyis subagents --liveness                    # Deterministic delegate heartbeat & liveness inspection
+agyis subagents --liveness --stale-threshold 180 # Custom staleness threshold (default: 300s)
+agyis subagents --liveness --json             # Machine-readable liveness ledger for automated audits
 
 # 🛫 Canonical Workflow Routing
 agyis cockpit route A                         # Briefing & transition payload for Bug Report (RCA)
 agyis cockpit route B                         # Briefing & transition payload for New Feature Milestone
 agyis cockpit route <letter|alias>            # Route by letter (A–L) or alias (rca, builder, overhaul, victory)
 agyis cockpit route <letter> --json           # Machine-readable dispatch payload template
+agyis router <route>                          # Direct subagent router alias (e.g., agyis router victory)
 
 # 🩺 Flight Deck Invariants Verification
 agyis cockpit verify                          # Audit active session against the 5 flight director invariants
 agyis cockpit verify --allow-dirty            # Audit invariants permitting active uncommitted in-flight diffs
+
+# 💾 Carrier-Grade Compaction & Succession (ADR-031)
+agyis checkpoint status                       # Inspect latest compaction checkpoint freshness and state
+agyis checkpoint create                       # Formally serialize pre-compaction working memory checkpoint
+agyis checkpoint prune --keep 3               # Prune historical checkpoints retaining recent revisions
+
+# 🧹 Workspace Clean & Hygiene
+agyis clean                                   # Safe interactive workspace debris and scratchpad cleanup
+agyis clean --all                             # Comprehensive purge of stale checkpoints, worktrees & scratchpads
 ```
+
+### Anti-Code-Monkey Governance Directive
+Flight Directors must **NEVER** fabricate delegate progress updates or assume subagents are executing without inspecting disk state. Before reporting progress on downstream delegates to the human operator, run `agyis subagents --liveness` to confirm delegate heartbeat freshness. If delegates are `DEAD` or `STALE`, pause and intervene rather than guessing progress.

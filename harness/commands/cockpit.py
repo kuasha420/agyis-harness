@@ -178,21 +178,45 @@ def _audit_flight_director_invariants(
         "violations": [] if inv4_passed else [cp_info["path"]],
     })
 
-    # Invariant 5: Subagent health
+    # Invariant 5: Subagent health and continuity liveness
     subagents = collect_active_subagents(workspace)
     red_subagents = [s for s in subagents if getattr(s, "health_zone", "") == "RED_ALERT"]
-    inv5_passed = len(red_subagents) == 0
+
+    dead_subagents = []
+    try:
+        from harness.subagents.liveness import probe_subagent_liveness
+        liveness_statuses = probe_subagent_liveness(workspace_dir=workspace)
+        dead_subagents = [s for s in liveness_statuses if s.liveness_state == "DEAD"]
+    except Exception:
+        dead_subagents = []
+
+    inv5_passed = len(red_subagents) == 0 and len(dead_subagents) == 0
     if not inv5_passed and not allow_dirty:
         overall_pass = False
+
+    violations = [
+        f"{getattr(s, 'role', 'subagent')} ({getattr(s, 'conversation_id', '')[:8]}: {getattr(s, 'step_count', 0)} steps, ~{getattr(s, 'token_count', 0)} tokens)"
+        for s in red_subagents
+    ]
+    violations.extend([
+        f"DEAD: {s.role} ({s.conversation_id[:8]}: age {int(s.heartbeat_age_seconds)}s)"
+        for s in dead_subagents
+    ])
+
+    details_parts = [f"{len(subagents)} active subagents"]
+    if red_subagents:
+        details_parts.append(f"{len(red_subagents)} red alert")
+    if dead_subagents:
+        details_parts.append(f"{len(dead_subagents)} dead")
+    if not red_subagents and not dead_subagents:
+        details_parts.append("all healthy")
+
     results.append({
         "invariant": "Subagent Cognitive Health",
-        "description": "Active subagents must not exceed the cognitive context cliff (>80k tokens or >80 steps).",
+        "description": "Active subagents must not exceed the cognitive context cliff (>80k tokens or >80 steps) or stall into DEAD state.",
         "passed": inv5_passed or allow_dirty,
-        "details": f"{len(subagents)} active subagents ({len(red_subagents)} red alert)",
-        "violations": [
-            f"{getattr(s, 'role', 'subagent')} ({getattr(s, 'conversation_id', '')[:8]}: {getattr(s, 'step_count', 0)} steps, ~{getattr(s, 'token_count', 0)} tokens)"
-            for s in red_subagents
-        ],
+        "details": f"{details_parts[0]} ({', '.join(details_parts[1:])})",
+        "violations": violations,
     })
 
     return overall_pass, results

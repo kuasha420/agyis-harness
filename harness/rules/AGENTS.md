@@ -52,17 +52,21 @@ agyis sync --service start                     # Start background telemetry sync
 agyis sync --service stop                      # Stop background telemetry sync daemon
 ./agyis audit deep                             # Dissect 30 titan sessions (>=1k steps) & Knot inception
 ./agyis audit volume                           # Analyze tool & command volume distributions
+./agyis audit prune --days <N> [--vacuum]      # Prune older telemetry sessions & reclaim disk space (Phase 22)
 python3 -m harness.cli audit all               # Run full extraction, classification & summary
 python3 -m harness.cli audit extract           # Ingest ~/.gemini/antigravity transcripts to telemetry.db
 python3 -m harness.cli audit classify          # Categorize trajectories into WHAT_WORKED / WHAT_FAILED
 python3 -m harness.cli audit inventory         # Catalog plugins, skills, hooks & MCP servers
 
-# 🧩 Skills & Subagents Discovery & Deduplication
+# 🧩 Skills, Rules & Subagents Discovery & Deduplication
 agyis skills                                   # List installed modular skills & triggers
 agyis skills --prune-duplicates                # Prune redundant workspace skills shadowing global plugin (~4,500 tokens/turn saved)
 agyis skills --prune-duplicates --dry-run      # Preview duplicate skill pruning without mutating disk
+agyis rules --lint                             # Lint agent rule files for duplicates & formatting issues (Phase 21)
+agyis rules --dedup                            # Harmonize & deduplicate redundant rule declarations (Phase 21)
 agyis agents                                   # List registered specialist subagents & tools
 agyis subagents [--json]                       # Live active subagents status table & context health gauges (<2ms query)
+agyis subagents --liveness [--stale-threshold N] # Sub-second delegate heartbeat liveness inspection & state audit
 
 # 🖥️ Electron GUI DevTools & Trajectory Debugging (ADR-014)
 agyis gui                                      # Unlock Trajectory Debug View via live CDP WebSocket
@@ -74,10 +78,12 @@ agyis gui --toggle                             # Toggle Trajectory Debug View op
 agyis cockpit status                           # Print flight deck health, tokens, active subagents & git state
 agyis cockpit route <letter|alias>             # Print dispatch briefing & transition payload (e.g. agyis cockpit route A / rca)
 agyis cockpit verify [--allow-dirty]           # Audit active session against the 5 flight director invariants
+agyis checkpoint [status|create|prune]         # Carrier-grade pre-compaction state capture & succession (ADR-031)
 agyis router <letter|alias>                    # Dynamic subagent router CLI alias (e.g. agyis router victory)
 agyis ladder <letter|alias>                    # Backwards-compatible router CLI alias (e.g. agyis ladder builder)
 
-# 🧹 Multi-Branch Workspace & Cache Hygiene
+# 🧹 Multi-Branch Workspace, Clean & Cache Hygiene
+agyis clean [--all] [--checkpoints] [--worktrees] # Purge stale checkpoints, orphaned worktrees & scratchpads (ADR-031)
 rm -rf .next/ .turbo/ node_modules/.cache      # Invalidate stale build caches prior to verification gates
 python3 -c "from harness.delivery import purge_build_caches; purge_build_caches('.')" # Standalone cache purge
 

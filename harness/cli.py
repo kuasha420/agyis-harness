@@ -260,6 +260,28 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         "--json", action="store_true", help="Output subagents in JSON format"
     )
     p_subagents.add_argument(
+        "--liveness", action="store_true", help="Switch output to subagent liveness and heartbeat table"
+    )
+    p_subagents.add_argument(
+        "--stale-threshold",
+        type=int,
+        default=300,
+        help="Staleness timeout in seconds (default: 300)",
+    )
+    p_subagents.add_argument(
+        "--dead-threshold",
+        type=int,
+        default=1800,
+        help="Dead timeout in seconds (default: 1800)",
+    )
+    p_subagents.add_argument(
+        "-w",
+        "--workspace",
+        type=Path,
+        default=None,
+        help="Path to workspace root",
+    )
+    p_subagents.add_argument(
         "--brain-dir", type=Path, default=None, help="Custom brain directory path"
     )
 

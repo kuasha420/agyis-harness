@@ -50,7 +50,9 @@ flowchart TD
 1. Discover active tasks and subagents:
    - Run `manage_subagents(Action='list')` to check if the agent orchestrator retained subagent IDs in memory.
    - Run `manage_task(Action='list')` to check running background processes.
-2. Inspect disk ledgers:
+   - Run `agyis subagents --liveness` to inspect heartbeat freshness and classify surviving subagents (ACTIVE, STALE, PARKED, or DEAD).
+2. Inspect disk ledgers & compaction checkpoints:
+   - Run `agyis checkpoint status` to determine whether a valid pre-crash checkpoint exists.
    - Scan `.agents/teamwork/**/progress.md`, `handoff.md`, or `DISPATCH.md`.
    - Inspect `.system_generated/logs/transcript.jsonl` to locate the last completed atomic step.
 
@@ -63,7 +65,7 @@ flowchart TD
 2. Await reactive wakeup. Do NOT terminate agents that may still be responding or writing state.
 
 ### Phase 4: State Snapshot & Replacement Backup
-If an agent is confirmed unreachable or unresponsive:
+If an agent is confirmed unreachable, DEAD, or unresponsive:
 1. Create backup directory:
    `mkdir -p .agents/teamwork/backups/powerloss_$(date +%Y%m%d_%H%M%S)/`
 2. Snapshot uncommitted diffs:
@@ -78,4 +80,5 @@ If an agent is confirmed unreachable or unresponsive:
 
 ### Phase 5: Resumption Briefing & Clean Resurrection
 1. Spawn a replacement worker only if necessary, providing `REPLACEMENT_BRIEF.md` as context.
-2. Report the complete disaster recovery status to the operator before resuming full execution.
+2. Run `agyis clean` to safely prune orphaned scratch debris without deleting critical working assets.
+3. Report the complete disaster recovery status to the operator before resuming full execution.

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 from typing import Any, List, Optional
 
 
@@ -102,8 +103,125 @@ def format_subagents_table(statuses: List[Any], heartbeat: Optional[dict] = None
     return "\n".join(table_lines)
 
 
+def _format_age_human(age_seconds: float) -> str:
+    """Format heartbeat age in seconds to human-readable string."""
+    age = int(round(age_seconds))
+    if age < 60:
+        return f"{age}s ago"
+    elif age < 3600:
+        mins = age // 60
+        secs = age % 60
+        return f"{mins}m {secs}s ago"
+    else:
+        hours = age // 3600
+        mins = (age % 3600) // 60
+        return f"{hours}h {mins}m ago"
+
+
+def format_liveness_table(statuses: List[Any]) -> str:
+    """Format a list of SubagentLivenessStatus as an ASCII table."""
+    if not statuses:
+        return "No active subagents found."
+
+    headers = [
+        "Conversation ID",
+        "Role",
+        "Heartbeat Age",
+        "Liveness State",
+        "Progress Source",
+    ]
+    rows = []
+    for s in statuses:
+        cid = s.conversation_id[:12] if len(s.conversation_id) > 12 else s.conversation_id
+        st = s.liveness_state
+        if st == "ACTIVE":
+            badge = "🟢 ACTIVE"
+        elif st == "STALE":
+            badge = "🟡 STALE"
+        elif st == "PARKED":
+            badge = "⏸️ PARKED"
+        elif st == "DEAD":
+            badge = "🔴 DEAD"
+        else:
+            badge = st
+
+        age_display = _format_age_human(s.heartbeat_age_seconds)
+        src = "transcript"
+        if s.progress_file:
+            src = Path(s.progress_file).name
+
+        rows.append([
+            cid,
+            s.role[:28],
+            age_display,
+            badge,
+            src,
+        ])
+
+    col_widths = [len(h) for h in headers]
+    for row in rows:
+        for i, val in enumerate(row):
+            col_widths[i] = max(col_widths[i], len(val))
+
+    sep = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"
+    header_str = (
+        "| "
+        + " | ".join(f"{h:<{col_widths[i]}}" for i, h in enumerate(headers))
+        + " |"
+    )
+
+    table_lines = [sep, header_str, sep]
+    for row in rows:
+        line = (
+            "| "
+            + " | ".join(f"{val:<{col_widths[i]}}" for i, val in enumerate(row))
+            + " |"
+        )
+        table_lines.append(line)
+    table_lines.append(sep)
+    return "\n".join(table_lines)
+
+
 def cmd_subagents(args: argparse.Namespace) -> int:
     """Renders active subagents table and zero-token context health gauge."""
+    if getattr(args, "liveness", False):
+        from harness.subagents.liveness import probe_subagent_liveness
+        ws_dir = getattr(args, "workspace", None) or getattr(args, "workspace_dir", None)
+        b_dir = getattr(args, "brain_dir", None)
+        stale_th = getattr(args, "stale_threshold", 300)
+        dead_th = getattr(args, "dead_threshold", 1800)
+        liveness_statuses = probe_subagent_liveness(
+            workspace_dir=ws_dir,
+            brain_dir=b_dir,
+            stale_threshold=stale_th,
+            dead_threshold=dead_th,
+        )
+
+        if getattr(args, "json", False):
+            data = [
+                {
+                    "conversation_id": s.conversation_id,
+                    "role": s.role,
+                    "last_heartbeat_iso": s.last_heartbeat_iso,
+                    "heartbeat_age_seconds": s.heartbeat_age_seconds,
+                    "liveness_state": s.liveness_state,
+                    "progress_file": s.progress_file,
+                    "is_parked": s.is_parked,
+                }
+                for s in liveness_statuses
+            ]
+            print(json.dumps(data, indent=2))
+            return 0
+
+        if not liveness_statuses:
+            print("No active subagents found.")
+            return 0
+
+        print(f"Agyis Subagent Liveness ({len(liveness_statuses)} subagents):")
+        print(format_liveness_table(liveness_statuses))
+        print()
+        return 0
+
     from harness.subagents import list_active_subagent_statuses
     try:
         from harness.subagents.heartbeat import read_stage_heartbeat
