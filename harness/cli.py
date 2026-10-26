@@ -192,7 +192,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         choices=[
             "all", "extract", "benchmark", "classify", "inventory", "dynamics",
             "traces", "interventions", "volume", "deep", "session", "live", "clusters",
-            "artifacts", "configs", "project_configs", "project-configs",
+            "artifacts", "configs", "project_configs", "project-configs", "prune",
         ],
         help="Audit pipeline stage to run (default: all)",
     )
@@ -206,6 +206,9 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_audit.add_argument("--output-json", type=Path, default=None, help="Export analysis JSON path")
     p_audit.add_argument("--output-report", type=Path, default=None, help="Export analysis report Markdown path")
     p_audit.add_argument("--quiet", action="store_true", help="Suppress verbose stdout in pipeline stages")
+    p_audit.add_argument("--days", type=int, default=90, help="Days threshold for historical argument pruning (default: 90)")
+    p_audit.add_argument("--dry-run", action="store_true", help="Simulate pruning without modifying database")
+
 
     # rules (Issues #70 & #71)
     p_rules = subparsers.add_parser("rules", help="Audit, deduplicate, and harmonize agent rules")
