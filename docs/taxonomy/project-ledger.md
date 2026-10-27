@@ -802,3 +802,26 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Tests: `tests/test_subagents_mcp_scoping.py`, `tests/test_command_safety_hook.py`
   - Deliverable Commits: `62edc94`
 
+---
+
+## [Phase 33] Release Candidate 8: Cleanroom REA Architecture & Immortal Sortie Verification (Release v1.0.0-rc8)
+* **Status**: Completed | **Compaction Date**: 2026-10-28 | **Release**: `v1.0.0-rc8` | **Milestone**: Project Immortal & Cleanroom Hardening
+* **Key Architectural Decisions & Deliverables**:
+  - **Empirical Multi-Target Reverse Engineering Verification**:
+    * *Option 2B (GNU coreutils `/usr/bin/true` vs `/usr/bin/false`)*: Empirically verified REA Ghidra disassembly and `read_bytes` inspection of `.bss` (0) vs `.data` (1 `01 00 00 00`) exit status logic.
+    * *Option 1 (Rust ELF `immortal_server-f2efe87ce172c2a7`)*: Decompiled 1.86MB debug binary under cleanroom read-only isolation; mapped 1,480 procedures, demangled Rust v0 symbols (`immortal_server::main`, `std::rt::lang_start<()>` trampoline), CRT `_start` entrypoint, and unit test terminal panics to `core::panicking::assert_failed`.
+    * *Option 3 (Project Immortal Cleanroom Specifications & Obligation Ledgers)*: Validated 3 formal cleanroom specs in `docs/specs/` (`CLEANROOM_POLICY.md`, `G1_ASSET_PIPELINE.md`, `G2_SERVER_PROTOCOL.md`) with zero code leaks, verified `.agents/ledger/manifest.json` (Exit 0, 100% obligations satisfied), and documented REA 6.8.0 CLI AST contracts.
+  - **Universal Git Ignore & Workspace Hygiene (AC5 Zero Pollution)**:
+    * Codified permanent exclusions in `.gitignore` and `harness/delivery/constants.py` for all subagent and cockpit runtime artifacts (`*stage_transition*.json`, `audit_verdict.json`, `PARKED_STATE.md`, `COMPLETION_LEDGER.md`, `implementation_plan*.md`, `ladder_heartbeat.json`, `*.patch`).
+    * Automated `agyis clean --worktrees` to invoke `git worktree remove --force` across orphaned subagent branches, reclaiming 508MB of disk space across 57 dead worktrees.
+  - **Version Harmonization to `1.0.0-rc8`**: Synchronized `1.0.0-rc8` across `pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`, `tests/test_cli.py`, and `tests/test_delivery.py`.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,770 hermetic tests passing in 18.39s** (100% green, exit code 0).
+  - Cleanroom spec verification: 3/3 specifications verified (`./agyis verify --spec --workspace /home/kuasha/Dev/immortal`).
+  - Workstation Doctor: 9 OK, 0 missing, 0 outdated (`./agyis doctor --experimental-rea`).
+  - Gate 2 Out-of-Band Auditor Clearance: Signed `audit_verdict.json` certified by `agyis_auditor` (`VICTORY CONFIRMED`).
+* **Reference Assets Committed**:
+  - Core & Manifests: `pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`
+  - Tests: `tests/test_cli.py`, `tests/test_delivery.py`
+  - Delivery Commits: Tag `v1.0.0-rc8`
+
