@@ -71,7 +71,7 @@ def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
                     if not cline:
                         i += 1
                         continue
-                    if cline.startswith("- "):
+                    if cline.startswith("- ") and not is_dict:
                         is_list = True
                         child_list.append(cline[2:].strip())
                     elif ":" in cline:
@@ -79,7 +79,37 @@ def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
                         ck, cv = cline.split(":", 1)
                         ck = ck.strip()
                         cv = cv.strip()
-                        if cv.lower() == "true":
+                        if cv == "":
+                            sub_list: List[str] = []
+                            j = i + 1
+                            while j < len(lines) and (
+                                lines[j].startswith("    ")
+                                or lines[j].startswith("\t\t")
+                                or (lines[j].startswith("  ") and lines[j].strip().startswith("- "))
+                            ):
+                                scline = lines[j].strip()
+                                if scline.startswith("- "):
+                                    val_entry = scline[2:].strip()
+                                    if (
+                                        val_entry.startswith(('"', "'"))
+                                        and val_entry.endswith(('"', "'"))
+                                        and len(val_entry) >= 2
+                                    ):
+                                        val_entry = val_entry[1:-1]
+                                    sub_list.append(val_entry)
+                                j += 1
+                            if sub_list:
+                                child_dict[ck] = sub_list
+                                i = j - 1
+                            else:
+                                child_dict[ck] = ""
+                        elif cv.startswith("[") and cv.endswith("]"):
+                            child_dict[ck] = [
+                                x.strip().strip("'\"")
+                                for x in cv[1:-1].split(",")
+                                if x.strip()
+                            ]
+                        elif cv.lower() == "true":
                             child_dict[ck] = True
                         elif cv.lower() == "false":
                             child_dict[ck] = False

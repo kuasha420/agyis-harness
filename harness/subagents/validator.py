@@ -78,6 +78,20 @@ def validate_agent_spec(file_path: Path | str) -> List[str]:
     raw_perms = fm.get("permissions", {})
     if isinstance(raw_perms, dict):
         perms = ToolPermissions.from_dict(raw_perms)
+        raw_mcp = raw_perms.get("mcp")
+        if isinstance(raw_mcp, (list, tuple)):
+            for item in raw_mcp:
+                if not isinstance(item, str) or not item.strip():
+                    errors.append(
+                        f"Invalid entry in permissions.mcp: expected non-empty string server name, got {item!r}"
+                    )
+        raw_servers = raw_perms.get("mcp_servers")
+        if isinstance(raw_servers, (list, tuple)):
+            for item in raw_servers:
+                if not isinstance(item, str) or not item.strip():
+                    errors.append(
+                        f"Invalid entry in permissions.mcp_servers: expected non-empty string server name, got {item!r}"
+                    )
     else:
         perms = ToolPermissions()
 

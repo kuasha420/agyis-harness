@@ -15,7 +15,7 @@ import json
 import os
 from pathlib import Path
 import shutil
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from harness.utils.frontmatter import parse_frontmatter
 
@@ -198,19 +198,59 @@ class ToolPermissions:
     write: bool = False
     execute: bool = False
     subagent: bool = False
-    mcp: bool = False
+    mcp: Union[bool, List[str], Tuple[str, ...]] = False
+    mcp_servers: Tuple[str, ...] = ()
     enable_write_tools: bool = False
+
+    @property
+    def can_mcp(self) -> bool:
+        """Whether the agent has MCP server access."""
+        return bool(self.mcp) or bool(self.mcp_servers)
+
+    @property
+    def allowed_mcp_servers(self) -> Tuple[str, ...]:
+        """Tuple of allowed MCP server names, or empty tuple if unrestricted or none."""
+        if isinstance(self.mcp, (list, tuple)):
+            return tuple(str(s).strip() for s in self.mcp if str(s).strip())
+        if self.mcp_servers:
+            return tuple(str(s).strip() for s in self.mcp_servers if str(s).strip())
+        return ()
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ToolPermissions:
         """Construct permissions from frontmatter dictionary."""
         subagent = bool(data.get("subagent", data.get("subagents", False)))
+
+        raw_mcp = data.get("mcp", False)
+        mcp: Union[bool, Tuple[str, ...]]
+        if isinstance(raw_mcp, (list, tuple)):
+            mcp = tuple(str(s).strip() for s in raw_mcp if str(s).strip())
+        elif isinstance(raw_mcp, str):
+            norm_str = raw_mcp.strip().lower()
+            if norm_str in ("true", "1", "yes"):
+                mcp = True
+            elif norm_str in ("false", "0", "no", ""):
+                mcp = False
+            else:
+                mcp = tuple(s.strip() for s in raw_mcp.split(",") if s.strip())
+        else:
+            mcp = bool(raw_mcp)
+
+        raw_servers = data.get("mcp_servers", ())
+        if isinstance(raw_servers, (list, tuple)):
+            mcp_servers = tuple(str(s).strip() for s in raw_servers if str(s).strip())
+        elif isinstance(raw_servers, str):
+            mcp_servers = tuple(s.strip() for s in raw_servers.split(",") if s.strip())
+        else:
+            mcp_servers = ()
+
         return cls(
             read=bool(data.get("read", True)),
             write=bool(data.get("write", False)),
             execute=bool(data.get("execute", False)),
             subagent=subagent,
-            mcp=bool(data.get("mcp", False)),
+            mcp=mcp,
+            mcp_servers=mcp_servers,
             enable_write_tools=bool(data.get("enable_write_tools", False)),
         )
 
@@ -251,7 +291,12 @@ class AgentSpec:
     @property
     def can_mcp(self) -> bool:
         """Whether the agent has MCP server access."""
-        return self.permissions.mcp
+        return self.permissions.can_mcp
+
+    @property
+    def allowed_mcp_servers(self) -> Tuple[str, ...]:
+        """Allowed MCP server names if restricted, or empty tuple."""
+        return self.permissions.allowed_mcp_servers
 
 
 def load_agent_spec(file_path: Path) -> AgentSpec:

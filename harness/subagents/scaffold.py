@@ -299,7 +299,7 @@ def scaffold_agent_markdown(
             can_w = any(t in tools for t in ("write_to_file", "replace_file_content", "edit_file"))
             can_e = any(t in tools for t in ("run_command",))
             can_s = any(t in tools for t in ("invoke_subagent", "manage_subagents", "define_subagent")) or arch == AgentArchetype.COORDINATOR
-            can_m = arch in (AgentArchetype.PLANNER, AgentArchetype.MAIN) or bool(skills)
+            can_m = arch in (AgentArchetype.PLANNER, AgentArchetype.MAIN, AgentArchetype.INVESTIGATOR) or bool(skills)
             enable_w = can_w
             perms = ToolPermissions(
                 read=True,
@@ -330,8 +330,13 @@ def scaffold_agent_markdown(
         f"  write: {'true' if perms.write else 'false'}",
         f"  execute: {'true' if perms.execute else 'false'}",
         f"  subagents: {'true' if perms.subagent else 'false'}",
-        f"  mcp: {'true' if perms.mcp else 'false'}",
     ]
+    if perms.allowed_mcp_servers:
+        fm_lines.append("  mcp:")
+        for s in perms.allowed_mcp_servers:
+            fm_lines.append(f"    - {s}")
+    else:
+        fm_lines.append(f"  mcp: {'true' if perms.can_mcp else 'false'}")
     if perms.enable_write_tools:
         fm_lines.append("  enable_write_tools: true")
 

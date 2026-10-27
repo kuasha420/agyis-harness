@@ -225,6 +225,49 @@ def is_inline_python_command(cmd: str) -> bool:
     return bool(re.search(r"\b(?:python3?)\s+-c\b", cmd))
 
 
+INLINE_INTERPRETER_PATTERNS = [
+    re.compile(r"\bpython[3]?(?:\.\d+)?\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
+    re.compile(r"\bnode\s+(?:-[^\s]+\s+)*-e\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
+    re.compile(r"\bbash\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
+    re.compile(r"\bsh\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
+]
+
+INLINE_SCRIPT_DENY_REASON = (
+    "[PSL-INV-002 VIOLATION] Multi-line or complex inline script detected (>100 chars or newlines). "
+    "In accordance with PSL-INV-002 §4, write multi-line scripts to a temporary scratch file "
+    "('scratch/probe.py' or 'scratch/probe.sh') and execute the script file instead of fragile "
+    "multi-line shell escaping."
+)
+
+
+def check_inline_script_hygiene(cmd: str) -> Tuple[str, Optional[str]]:
+    """
+    Validates inline script hygiene per PSL-INV-002 §4.
+    Blocks complex or multi-line inline scripts in python, node, bash, or sh
+    exceeding 100 chars or containing newlines, steering towards temporary scratch files.
+    """
+    if not cmd or not cmd.strip():
+        return ("allow", None)
+
+    # 1. Environment bypass
+    if os.environ.get("PSL_ALLOW_INLINE_SCRIPTS") == "1":
+        return ("allow", None)
+
+    # 2. Inline directive bypass
+    cmd_lower = cmd.lower()
+    if "# agyis: allow-inline-script" in cmd_lower or "# allow-inline" in cmd_lower:
+        return ("allow", None)
+
+    for pattern in INLINE_INTERPRETER_PATTERNS:
+        for match in pattern.finditer(cmd):
+            body = match.group(2)
+            stripped = body.strip()
+            if "\n" in body or "\r" in body or "\\n" in body or len(stripped) > 100:
+                return ("deny", INLINE_SCRIPT_DENY_REASON)
+
+    return ("allow", None)
+
+
 def split_shell_pipes(cmd: str) -> Tuple[List[str], bool]:
     """
     Splits command line into pipeline segments, respecting single and double quotes.
@@ -391,6 +434,11 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optio
                 None,
                 pf.get("warning") or f"PSL Safety Gate: Binary '{pf.get('binary')}' not found."
             )
+
+    # 0b. Inline script hygiene check (PSL-INV-002 §4)
+    hygiene_decision, hygiene_reason = check_inline_script_hygiene(cmd)
+    if hygiene_decision == "deny":
+        return ("deny", None, hygiene_reason)
 
     # 1. Dangerous pattern check
     for pattern in DANGEROUS_PATTERNS:

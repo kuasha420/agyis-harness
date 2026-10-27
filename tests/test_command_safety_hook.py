@@ -260,5 +260,99 @@ class TestZeroKillPauseSafetyGuard(unittest.TestCase):
             self.assertIn("Zero-Kill Swarm Parking Invariant", res["reason"])
 
 
+class TestInlineScriptHygieneHook(unittest.TestCase):
+    """Hermetic unit tests for PSL-INV-002 §4 inline script hygiene hook (<0.05s SLA)."""
+
+    def test_short_safe_inline_script_allowed(self):
+        """Short safe one-liners without newlines or excessive length are allowed."""
+        from harness.hooks.command_safety_hook import check_inline_script_hygiene
+        decision, reason = check_inline_script_hygiene("python3 -c \"print('ok')\"")
+        self.assertEqual(decision, "allow")
+        self.assertIsNone(reason)
+
+        decision2, reason2 = check_inline_script_hygiene("node -e \"console.log('ok')\"")
+        self.assertEqual(decision2, "allow")
+        self.assertIsNone(reason2)
+
+        decision3, reason3 = check_inline_script_hygiene("bash -c \"echo ok\"")
+        self.assertEqual(decision3, "allow")
+        self.assertIsNone(reason3)
+
+    def test_multiline_script_literal_or_escaped_newline_denied(self):
+        """Multi-line inline script with literal newline or \\n escape is denied."""
+        from harness.hooks.command_safety_hook import check_inline_script_hygiene
+        # Literal newline
+        literal_cmd = "python3 -c \"import os\nprint(os.getcwd())\""
+        decision, reason = check_inline_script_hygiene(literal_cmd)
+        self.assertEqual(decision, "deny")
+        self.assertIn("PSL-INV-002 VIOLATION", reason)
+        self.assertIn("scratch/probe.py", reason)
+
+        # Escaped newline (\n in command string)
+        escaped_cmd = r'python3 -c "import os\nprint(os.getcwd())"'
+        decision2, reason2 = check_inline_script_hygiene(escaped_cmd)
+        self.assertEqual(decision2, "deny")
+        self.assertIn("PSL-INV-002 VIOLATION", reason2)
+
+    def test_long_script_exceeding_100_chars_denied(self):
+        """Inline script with body exceeding 100 characters is denied."""
+        from harness.hooks.command_safety_hook import check_inline_script_hygiene
+        long_body = "x = '" + ("a" * 120) + "'; print(x)"
+        cmd = f'python3 -c "{long_body}"'
+        decision, reason = check_inline_script_hygiene(cmd)
+        self.assertEqual(decision, "deny")
+        self.assertIn("PSL-INV-002 VIOLATION", reason)
+        self.assertIn(">100 chars or newlines", reason)
+
+    def test_node_and_bash_multiline_and_long_scripts_denied(self):
+        """node -e, bash -c, and sh -c multi-line scripts are denied."""
+        from harness.hooks.command_safety_hook import check_inline_script_hygiene
+        node_cmd = "node -e \"const fs = require('fs')\nconsole.log(fs.readdirSync('.'))\""
+        decision_node, reason_node = check_inline_script_hygiene(node_cmd)
+        self.assertEqual(decision_node, "deny")
+        self.assertIn("PSL-INV-002 VIOLATION", reason_node)
+
+        bash_cmd = "bash -c \"echo line1\necho line2\""
+        decision_bash, reason_bash = check_inline_script_hygiene(bash_cmd)
+        self.assertEqual(decision_bash, "deny")
+        self.assertIn("PSL-INV-002 VIOLATION", reason_bash)
+
+        sh_cmd = "sh -c \"echo line1\necho line2\""
+        decision_sh, reason_sh = check_inline_script_hygiene(sh_cmd)
+        self.assertEqual(decision_sh, "deny")
+        self.assertIn("PSL-INV-002 VIOLATION", reason_sh)
+
+    def test_inline_comment_bypass(self):
+        """Directive comments (# agyis: allow-inline-script / # allow-inline) bypass hygiene deny."""
+        from harness.hooks.command_safety_hook import check_inline_script_hygiene
+        cmd1 = "python3 -c \"import os\nprint(os.getcwd())\" # agyis: allow-inline-script"
+        decision1, reason1 = check_inline_script_hygiene(cmd1)
+        self.assertEqual(decision1, "allow")
+        self.assertIsNone(reason1)
+
+        cmd2 = "python3 -c \"import os\nprint(os.getcwd())\" # allow-inline"
+        decision2, reason2 = check_inline_script_hygiene(cmd2)
+        self.assertEqual(decision2, "allow")
+        self.assertIsNone(reason2)
+
+    def test_env_var_bypass(self):
+        """Setting PSL_ALLOW_INLINE_SCRIPTS=1 environment variable bypasses hygiene deny."""
+        from harness.hooks.command_safety_hook import check_inline_script_hygiene
+        cmd = "python3 -c \"import os\nprint(os.getcwd())\""
+        with patch.dict("os.environ", {"PSL_ALLOW_INLINE_SCRIPTS": "1"}):
+            decision, reason = check_inline_script_hygiene(cmd)
+            self.assertEqual(decision, "allow")
+            self.assertIsNone(reason)
+
+    def test_sanitize_command_integration(self):
+        """sanitize_command integrates hygiene check and returns deny."""
+        from harness.hooks.command_safety_hook import sanitize_command
+        cmd = "python3 -c \"import os\nprint(os.getcwd())\""
+        decision, mod_cmd, reason = sanitize_command(cmd)
+        self.assertEqual(decision, "deny")
+        self.assertIsNone(mod_cmd)
+        self.assertIn("PSL-INV-002 VIOLATION", reason)
+
+
 if __name__ == "__main__":
     unittest.main()
