@@ -419,7 +419,11 @@ class TestCompactionCheckpoint(unittest.TestCase):
         self.assertEqual(status.total_tasks, 0)
         self.assertEqual(status.next_pending_task, "Execute Phase 1: Planning")
 
-        res = generate_compaction_checkpoint(workspace_dir=self.ws)
+        res = generate_compaction_checkpoint(
+            workspace_dir=self.ws,
+            session_id="test_empty_session",
+            brain_dir=self.ws / "empty_brain",
+        )
         self.assertIn("0 / 0 Tasks (0.0%)", res.content)
 
     def test_standard_list_markers(self) -> None:

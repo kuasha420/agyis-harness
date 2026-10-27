@@ -470,6 +470,10 @@ def scaffold_agent_markdown(
             body_lines.append("5. **Zero-Exploration Invariant**:")
             body_lines.append("   - Prohibit blind `list_dir` / `find_by_name` sweeps across the repository. Open target files directly from instructions, or communicate back and halt immediately.")
 
+        if arch == AgentArchetype.INVESTIGATOR:
+            body_lines.append("6. **Tool-Native Reverse Engineering Invariant (PSL-INV-004 §3)**:")
+            body_lines.append("   - When reverse engineering compiled binaries (PE, ELF, Mach-O), you must use native REA tooling (`rea analyze`, `rea decompile`, `rea search`). Custom python binary parsers are prohibited.")
+
     if custom_instructions and custom_instructions.strip():
         body_lines.append("")
         body_lines.append("## Custom Directives")
