@@ -782,3 +782,23 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Core Modules: `harness/runtime/tool_checks.py`, `harness/runtime/healing.py`, `harness/hooks/command_safety_hook.py`, `harness/cleanroom/obligation.py`, `harness/cleanroom/__init__.py`, `harness/hooks/completion_fence_hook.py`, `harness/commands/verify.py`, `harness/cli.py`
   - Tests: `tests/test_rea_cleanroom.py`
   - Deliverable Commits: `a9111f9`
+
+---
+
+## [Phase 32] Dynamic MCP Tool Scoping & Multi-Line Shell Script Hygiene Hook (Issue #97 / Milestone v1.1.0-research)
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Deliverables**: [GitHub Issue #97](https://github.com/kuasha420/agyis-harness/issues/97)
+* **Key Architectural Decisions & Deliverables**:
+  - **Granular MCP Server Scoping (`harness/subagents/spec.py`)**: Extended `ToolPermissions` to support both boolean (`mcp: bool`) and granular server name scoping (`mcp: List[str]`, `mcp_servers: List[str]`). Exposes `.can_mcp: bool` and `.allowed_mcp_servers: Tuple[str, ...]`. Delegated properties directly to `AgentSpec`. Enhanced `ToolPermissions.from_dict()` with normalization for boolean states, lists, tuples, and comma-separated strings.
+  - **Investigator Persona & Scaffolding Alignment (`harness/agents/agyis_investigator.md` & `scaffold.py`)**: Enabled `permissions.mcp: true` for `agyis_investigator` across `harness/agents/` and `.agents/agents/`, empowering read-only diagnostic MCP servers (REA cleanroom disassembly, schema introspection, Chrome DevTools) while strictly preserving read-only file invariants. Updated `scaffold_agent_markdown()` to cleanly serialize server lists and boolean states in frontmatter. Updated `validator.py` to validate non-empty MCP server strings. Enhanced `harness/utils/frontmatter.py` zero-dependency parser to handle nested dictionary lists.
+  - **Multi-Line Shell Script Hygiene Interceptor (`harness/hooks/command_safety_hook.py`)**: Implemented `check_inline_script_hygiene()` enforcing `PSL-INV-002 §4` by intercepting fragile `python[3]? -c`, `node -e`, `bash -c`, and `sh -c` one-liners containing newlines (`\n`, `\r`, `\\n`) or length $> 100$ characters. Hard blocks execution with actionable guidance directing subagents to execute scratch files (`scratch/probe.py` or `scratch/probe.sh`). Added `# agyis: allow-inline-script` / `# allow-inline` comment directive and `PSL_ALLOW_INLINE_SCRIPTS=1` environment variable bypasses. Integrated into `sanitize_command()` before dangerous pattern evaluation.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,749 hermetic tests passing in 18.86s** (100% green, exit code 0).
+  - Sub-second unit benchmarks: `tests/test_subagents_mcp_scoping.py` (10 tests in 0.001s) and `tests/test_command_safety_hook.py` (24 tests in 0.007s) (<0.01s SLA benchmark invariant).
+  - Runtime Doctor: 9 OK, 0 missing, 0 outdated (`agyis doctor`).
+  - Gate 2 Out-of-Band Auditor Clearance: Signed `audit_verdict.json` certified by `agyis_auditor` (`VICTORY CONFIRMED`).
+  - Closed & verified GitHub issues: #97.
+* **Reference Assets Committed**:
+  - Core Modules: `harness/subagents/spec.py`, `harness/agents/agyis_investigator.md`, `.agents/agents/agyis_investigator.md`, `harness/subagents/scaffold.py`, `harness/subagents/validator.py`, `harness/utils/frontmatter.py`, `harness/hooks/command_safety_hook.py`
+  - Tests: `tests/test_subagents_mcp_scoping.py`, `tests/test_command_safety_hook.py`
+  - Deliverable Commits: `62edc94`
+
