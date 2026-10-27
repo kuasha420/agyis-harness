@@ -166,4 +166,10 @@ def validate_agent_spec(file_path: Path | str) -> List[str]:
         if "list_dir" not in prompt or "find_by_name" not in prompt:
             errors.append("System prompt exploration invariant must explicitly reference 'list_dir' and 'find_by_name'")
 
+        if raw_arch in ("investigator", "rca", "root_cause_analyst") or name == "agyis_investigator":
+            if "Tool-Native Reverse Engineering Invariant" not in prompt:
+                errors.append(
+                    "Investigator system prompt must declare 'Tool-Native Reverse Engineering Invariant' and reference 'rea'"
+                )
+
     return errors
