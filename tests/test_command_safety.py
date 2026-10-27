@@ -9,6 +9,7 @@ Unit and integration tests for harness/hooks/command_safety_hook.py
 """
 
 import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -305,16 +306,30 @@ class TestCommandSafety(unittest.TestCase):
 
         for (raw_cmd,) in rows:
             cmd = json.loads(raw_cmd) if raw_cmd.startswith('"') else raw_cmd
+            # Under PSL-INV-002 §4 (Issue #97), this complex multi-line command is denied by default
             decision, mod_cmd, reason = sanitize_command(cmd)
-            self.assertEqual(decision, "allow")
-            self.assertIsNotNone(mod_cmd)
-            self.assertIn("cpython-3.12", mod_cmd)
-            self.assertIn("PATH=", mod_cmd)
+            self.assertEqual(decision, "deny")
+            self.assertIn("PSL-INV-002 VIOLATION", reason or "")
 
-            # Under PSL-SPEC-2026-DRA-001 Section 6.2.1, naive regex substitution was eliminated
-            # from command_safety_hook to preserve bash quoting. Verify hermetic Python injection
-            # occurred without mutating raw script syntax.
-            self.assertIn("python3 -c", mod_cmd)
+            # When bypassed via PSL_ALLOW_INLINE_SCRIPTS=1, verify hermetic Python injection occurs
+            old_bypass = os.environ.get("PSL_ALLOW_INLINE_SCRIPTS")
+            try:
+                os.environ["PSL_ALLOW_INLINE_SCRIPTS"] = "1"
+                decision, mod_cmd, reason = sanitize_command(cmd)
+                self.assertEqual(decision, "allow")
+                self.assertIsNotNone(mod_cmd)
+                self.assertIn("cpython-3.12", mod_cmd)
+                self.assertIn("PATH=", mod_cmd)
+
+                # Under PSL-SPEC-2026-DRA-001 Section 6.2.1, naive regex substitution was eliminated
+                # from command_safety_hook to preserve bash quoting. Verify hermetic Python injection
+                # occurred without mutating raw script syntax.
+                self.assertIn("python3 -c", mod_cmd)
+            finally:
+                if old_bypass is not None:
+                    os.environ["PSL_ALLOW_INLINE_SCRIPTS"] = old_bypass
+                else:
+                    os.environ.pop("PSL_ALLOW_INLINE_SCRIPTS", None)
 
     def test_knot_exec_and_psl_remote_exec_ssh_pattern_matching(self):
         """Verifies SSH_PATTERN regex matches knot exec, agyis remote exec, and psl remote exec."""
