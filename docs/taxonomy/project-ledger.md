@@ -761,3 +761,24 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Manifests: `pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`
   - Documentation: `README.md`, `roadmap.md`, `docs/taxonomy/project-ledger.md`
   - Tests: `tests/test_cli.py`, `tests/test_delivery.py`, `tests/test_completion_fence_hook.py`
+
+---
+
+## [Phase 31] Native REA Integration, Automated Runtime Healing & Typed Obligation Schemas (Issue #96 / Milestone v1.1.0-research)
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Deliverables**: [GitHub Issue #96](https://github.com/kuasha420/agyis-harness/issues/96)
+* **Key Architectural Decisions & Deliverables**:
+  - **Node.js Semver Compatibility & User-Space Healing (`harness/runtime/tool_checks.py` & `healing.py`)**: Implemented `is_rea_node_compatible()` adhering strictly to REA 6.8.0 semver specifications (`22.x >= 22.23.4`, `24.x >= 24.22.1`, or `>= 26.12.1`). Wired checks into `check_node_toolchain()` and `check_rea_tooling()`. Implemented user-space non-sudo auto-healing via `pnpm env use --global 24` in `heal_rea_tooling()`.
+  - **JDK 21+ Discovery Ladder & Zero-Empty-String `JAVA_HOME` Hygiene (`tool_checks.py`)**: Implemented `find_jdk21_path()` scanning `$JAVA_HOME`, Arch (`/usr/lib/jvm/java-21-openjdk`, `/usr/lib/jvm/default`), Ubuntu/Debian (`temurin-21`, `java-21-openjdk-amd64`), and macOS JVM locations. Refactored `configure_rea_mcp_server()` to omit `JAVA_HOME` entirely from `env` when absent, eliminating the fatal Ghidra startup crash (`JAVA_HOME: Too small: expected string to have >=1 characters`).
+  - **Non-Interactive CLI Invariant `--yes` (`harness/hooks/command_safety_hook.py`)**: Added `inject_rea_setup_flags()` to transparently intercept any `rea setup` invocation lacking `--yes` or `-y` and append `--yes`, eradicating interactive stdin hangs in automated subagent and daemon workflows.
+  - **Strict REA 6.8.0 Typed Obligation Schemas (`harness/cleanroom/obligation.py`)**: Authored typed dataclasses (`EvidenceBundle`, `ReviewedObligation`, `ObligationManifest`), validation engine (`validate_obligation_ledger()`), and scaffolding generator (`scaffold_obligation_ledger()`). Exported in `harness/cleanroom/__init__.py`. Integrated strict schema validation and disposition checks into `is_manifest_verified()` in `completion_fence_hook.py`.
+  - **Scaffolding CLI & REA 6.8.0 Command Delegation (`harness/commands/verify.py` & `cli.py`)**: Added `--scaffold` argument to `agyis verify` to generate `.agents/ledger/obligation_ledger.json`. Replaced obsolete `rea verify-reconstruction` with `rea build-reconstruction-obligation-ledger` and `rea evaluate-reconstruction-coverage`.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,732 hermetic tests passing in 18.41s** (100% green, exit code 0).
+  - Sub-second unit benchmarks: `tests/test_rea_cleanroom.py` (24 tests) passing in **0.013s** (strict SLA < 0.10s).
+  - Runtime Doctor: 9 OK, 0 missing, 0 outdated (`agyis doctor --experimental-rea`).
+  - Gate 2 Out-of-Band Auditor Clearance: Signed `audit_verdict.json` certified by `agyis_auditor` (`VICTORY CONFIRMED`).
+  - Closed & verified GitHub issues: #96.
+* **Reference Assets Committed**:
+  - Core Modules: `harness/runtime/tool_checks.py`, `harness/runtime/healing.py`, `harness/hooks/command_safety_hook.py`, `harness/cleanroom/obligation.py`, `harness/cleanroom/__init__.py`, `harness/hooks/completion_fence_hook.py`, `harness/commands/verify.py`, `harness/cli.py`
+  - Tests: `tests/test_rea_cleanroom.py`
+  - Deliverable Commits: `a9111f9`
