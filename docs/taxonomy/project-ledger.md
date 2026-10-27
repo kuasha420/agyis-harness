@@ -718,3 +718,23 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Core Modules: `harness/utils/context.py`, `harness/utils/__init__.py`, `harness/subagents/liveness.py`, `harness/commands/subagents.py`, `harness/cli.py`, `harness/delivery/compaction_checkpoint.py`, `harness/commands/checkpoint.py`, `harness/commands/cockpit.py`
   - Tests: `tests/test_context.py`, `tests/test_subagents_liveness.py`
   - Deliverable Commits: `16ba444`
+
+---
+
+## [Phase 29] Real-Time Attention Horizon & Token Burn Rate Velocity Gauges (Issue #68 / Milestone v1.0.0-rc7)
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Deliverables**: [GitHub Issue #68](https://github.com/kuasha420/agyis-harness/issues/68) (Parent Epic: #64)
+* **Key Architectural Decisions & Discoveries**:
+  - **Issue #68 Differential Token Velocity Engine (`harness/hooks/token_proximity_guard.py`)**: Implemented `get_active_conversation_token_velocity()` providing real-time `tokens/min` calculation, compaction horizon projection (`mins_to_50k` and `mins_to_100k`), and velocity tier classification (`SAFE`, `ELEVATED`, `CRITICAL` with `MAX_SAFE_BURN_RATE_PER_MIN = 2000.0` and `CRITICAL_BURN_RATE_PER_MIN = 4000.0`). Zero-crash fail-open read-only SQLite inspection (`mode=ro`, timeout=0.5s) with multi-format timestamp parser handling epochs (s, ms, us) and ISO 8601 strings across columns or `step_data`/`metadata` JSON.
+  - **Dynamic Attention Horizon Gauges (`token_proximity_guard.py` & `harness/commands/status.py`)**: Enhanced `format_terminal_gauge()` to render differential rate badges `(+X tok/min | ~Ym to 50k)` and proactive urgency warnings when burn rate exceeds 2,000 tok/min even if total tokens are below 35,000. Wired velocity telemetry into `agyis status` under Cognitive Attention Horizon.
+  - **CDP Telemetry HUD Controller & Electron Badge (`harness/commands/gui.py` & `harness/cli.py`)**: Implemented `inject_telemetry_hud()` using CDP WebSocket `Runtime.evaluate` to inject or update an unobtrusive, floating `#agyis-telemetry-hud` badge in Antigravity's upper-right corner with color-coded tier borders and clean removal (`remove=True`). Added `--hud` and `--hud-remove` CLI flags to `agyis gui`.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,708 hermetic tests passing in 17.14s** (100% green, exit code 0).
+  - Sub-second unit benchmarks: `tests/test_token_proximity_guard.py` (60 tests) & `tests/test_gui_hud.py` (5 tests) passing in **0.027s** (<0.05s SLA benchmark invariant).
+  - Cleanroom spec verification: 12/12 specifications verified (`./agyis verify --spec`).
+  - Workstation Doctor: 9 OK, 0 missing, 0 outdated.
+  - Gate 2 Out-of-Band Auditor Clearance: Signed `audit_verdict.json` certified by `agyis_auditor` (`VICTORY CONFIRMED`).
+  - Closed & verified GitHub issues: #68 (Parent Epic: #64 - Final blocker for Milestone v1.0.0-rc7).
+* **Reference Assets Committed**:
+  - Core Modules: `harness/hooks/token_proximity_guard.py`, `harness/commands/status.py`, `harness/commands/gui.py`, `harness/cli.py`
+  - Tests: `tests/test_token_proximity_guard.py`, `tests/test_gui_hud.py`
+  - Deliverable Commits: `e1270f2`
