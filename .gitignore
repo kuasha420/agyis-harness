@@ -64,6 +64,7 @@ scratch/
 *.token
 *.key
 *.pem
+*.patch
 
 # OS & Editor
 .DS_Store
@@ -71,9 +72,27 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+.agents/artifacts/
 .agents/artifacts
 .agents/teamwork/
+.agents/archive/
+
+# Operational & In-Between Artifacts (Cockpit Director, Subagent Router, Graceful Parking)
 ORIGINAL_REQUEST.md
+COMPLETION_LEDGER.md
+PARKED_STATE.md
+pause_gate.json
+psl_stage_transition_payload.json
+*stage_transition*.json
+audit_verdict.json
+*verdict*.json
+implementation_plan*.md
+victory_audit_report*.md
+rca_report*.md
+heisenbug_rca*.md
+research_synthesis*.md
+ladder_heartbeat.json
+ladder_telemetry.log
 
 # Top-level plugin delivery symlinks
 /skills

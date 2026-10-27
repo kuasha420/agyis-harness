@@ -9,6 +9,7 @@ Git hygiene and exclusion configuration (ADR-030).
 
 from __future__ import annotations
 
+import fnmatch
 import os
 from pathlib import Path
 import re
@@ -109,6 +110,20 @@ def verify_zero_git_pollution(workspace_root: Path) -> List[str]:
         ".pytest_cache",
         "*.patch",
         "*.tar.gz",
+        "psl_stage_transition_payload.json",
+        "*stage_transition*.json",
+        "audit_verdict.json",
+        "PARKED_STATE.md",
+        "pause_gate.json",
+        "COMPLETION_LEDGER.md",
+        "implementation_plan*.md",
+        "victory_audit_report*.md",
+        "rca_report*.md",
+        "heisenbug_rca*.md",
+        "research_synthesis*.md",
+        "ORIGINAL_REQUEST.md",
+        "ladder_heartbeat.json",
+        "ladder_telemetry.log",
     ]
 
     polluting_files: List[str] = []
@@ -133,11 +148,7 @@ def verify_zero_git_pollution(workspace_root: Path) -> List[str]:
                         rel_path = entry[2:].strip().strip('"')
                         base_name = Path(rel_path).name
                         if (
-                            "telemetry.db" in base_name
-                            or "verification_state_" in base_name
-                            or base_name.endswith(".pyc")
-                            or base_name in ("__pycache__", ".coverage", ".pytest_cache")
-                            or base_name.endswith(".patch")
+                            any(fnmatch.fnmatch(base_name, p) for p in polluting_patterns)
                             or "legacy-agent-backup-" in base_name
                         ):
                             polluting_files.append(rel_path)

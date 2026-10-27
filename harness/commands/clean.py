@@ -33,11 +33,38 @@ def clean_checkpoints(
     retention: int = 5,
     dry_run: bool = False,
 ) -> List[str]:
-    """Prunes historical compaction checkpoints exceeding retention limit."""
+    """Prunes historical compaction checkpoints exceeding retention limit and stale ephemeral artifacts."""
     art_dir = workspace_dir / ".agents" / "artifacts"
     if not art_dir.is_dir():
         return []
 
+    pruned_files: List[str] = []
+
+    # 1. Prune stale non-checkpoint artifacts (plans, patches, victory reports, logs)
+    stale_patterns = (
+        "*.patch",
+        "*plan*.md",
+        "*victory*.md",
+        "COMPLETION_LEDGER.md",
+        "master_artifact_*.md",
+        "design_compaction_*.md",
+        "ladder_*.json",
+        "ladder_*.log",
+    )
+    for pat in stale_patterns:
+        try:
+            for entry in art_dir.glob(pat):
+                if entry.is_file() and entry.name != "compaction_checkpoint_latest.md" and not entry.name.startswith("compaction_checkpoint_"):
+                    pruned_files.append(str(entry))
+                    if not dry_run:
+                        try:
+                            entry.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+        except OSError:
+            pass
+
+    # 2. Prune compaction checkpoints
     if dry_run:
         checkpoint_pattern = re.compile(r"^compaction_checkpoint_(\d+)\.md$")
         sortable: List[tuple[float, Path]] = []
@@ -49,14 +76,18 @@ def clean_checkpoints(
                 sort_key = float(m.group(1)) if m else entry.stat().st_mtime
                 sortable.append((sort_key, entry))
         except OSError:
-            return []
+            return pruned_files
 
         sortable.sort(key=lambda x: x[0], reverse=True)
         to_prune = sortable[retention:]
-        return [str(p) for _, p in to_prune]
+        for _, p in to_prune:
+            pruned_files.append(str(p))
+        return pruned_files
 
     pruned = prune_stale_checkpoints(art_dir, retention_limit=retention)
-    return [str(p) for p in pruned]
+    for p in pruned:
+        pruned_files.append(str(p))
+    return pruned_files
 
 
 def clean_worktrees(
@@ -79,6 +110,18 @@ def clean_worktrees(
             return res.stdout.strip()
         except Exception:
             return ""
+
+    # 1. Prune registered subagent worktrees
+    wt_out = _run_git(["worktree", "list", "--porcelain"])
+    for line in wt_out.splitlines():
+        if line.startswith("worktree "):
+            p = line.split("worktree ", 1)[1].strip()
+            if ".gemini/antigravity/worktrees" in p or "/subagent-" in p:
+                pruned_worktrees.append(p)
+                if not dry_run:
+                    _run_git(["worktree", "remove", "--force", p])
+                    if Path(p).is_dir():
+                        shutil.rmtree(p, ignore_errors=True)
 
     if dry_run:
         out = _run_git(["worktree", "prune", "--dry-run", "-v"])
@@ -183,6 +226,7 @@ def clean_scratchpads(
     scratch_dirs = [
         workspace_dir / "scratch",
         workspace_dir / ".agents" / "artifacts" / "scratch",
+        workspace_dir / ".agents" / "teamwork",
     ]
 
     for s_dir in scratch_dirs:
