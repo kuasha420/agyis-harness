@@ -490,6 +490,136 @@ def inject_trajectory_debug(
     raise CDPError(f"Failed to inject trajectory debug flags: {res}")
 
 
+def inject_telemetry_hud(
+    client: CDPWebSocketClient,
+    tokens: int,
+    burn_rate: float = 0.0,
+    mins_to_compaction: Optional[float] = None,
+    velocity_tier: Optional[str] = None,
+    remove: bool = False,
+) -> Dict[str, Any]:
+    """
+    Injects or removes a real-time floating token velocity telemetry HUD in Google Antigravity GUI.
+    """
+    if remove:
+        expr = """
+        (() => {
+            const el = document.getElementById("agyis-telemetry-hud");
+            if (el) {
+                el.remove();
+                return { success: true, removed: true, injected: false };
+            }
+            return { success: true, removed: false, injected: false };
+        })()
+        """
+        res = client.evaluate(expr)
+        if isinstance(res, dict):
+            return res
+        return {"success": True, "removed": bool(res), "injected": False}
+
+    tier = (velocity_tier or "SAFE").upper()
+    if not velocity_tier:
+        if burn_rate >= 4000.0:
+            tier = "CRITICAL"
+        elif burn_rate >= 2000.0:
+            tier = "ELEVATED"
+        else:
+            tier = "SAFE"
+
+    if tier == "CRITICAL":
+        border_color = "#ef4444"
+        bg_color = "rgba(40, 16, 16, 0.92)"
+        text_color = "#f87171"
+        badge_bg = "rgba(239, 68, 68, 0.25)"
+    elif tier == "ELEVATED":
+        border_color = "#f59e0b"
+        bg_color = "rgba(40, 30, 16, 0.92)"
+        text_color = "#fbbf24"
+        badge_bg = "rgba(245, 158, 11, 0.25)"
+    else:
+        border_color = "#22c55e"
+        bg_color = "rgba(15, 23, 42, 0.92)"
+        text_color = "#4ade80"
+        badge_bg = "rgba(34, 197, 94, 0.2)"
+
+    rate_str = f"+{int(round(burn_rate)):,} tok/min" if burn_rate > 0 else "+0 tok/min"
+    horizon_str = f"~{int(round(mins_to_compaction))}m to 50k" if mins_to_compaction is not None else "Nominal"
+
+    hud_data = {
+        "tokens": f"{tokens:,}",
+        "burn_rate": rate_str,
+        "horizon": horizon_str,
+        "tier": tier,
+        "border_color": border_color,
+        "bg_color": bg_color,
+        "text_color": text_color,
+        "badge_bg": badge_bg,
+    }
+    hud_json = json.dumps(hud_data)
+
+    expr = f"""
+    (() => {{
+        try {{
+            const data = {hud_json};
+            let hud = document.getElementById("agyis-telemetry-hud");
+            if (!hud) {{
+                hud = document.createElement("div");
+                hud.id = "agyis-telemetry-hud";
+                hud.style.position = "fixed";
+                hud.style.top = "12px";
+                hud.style.right = "16px";
+                hud.style.zIndex = "999999";
+                hud.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace";
+                hud.style.fontSize = "11px";
+                hud.style.fontWeight = "600";
+                hud.style.borderRadius = "8px";
+                hud.style.padding = "6px 12px";
+                hud.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.4)";
+                hud.style.display = "flex";
+                hud.style.alignItems = "center";
+                hud.style.gap = "8px";
+                hud.style.pointerEvents = "auto";
+                hud.style.cursor = "default";
+                hud.style.backdropFilter = "blur(8px)";
+                hud.style.transition = "all 0.3s ease";
+                document.body.appendChild(hud);
+            }}
+            hud.style.border = "1px solid " + data.border_color;
+            hud.style.backgroundColor = data.bg_color;
+            hud.style.color = "#f1f5f9";
+            hud.innerHTML = `
+                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background-color:${{data.border_color}};"></span>
+                <span>${{data.tokens}} tok</span>
+                <span style="color:#94a3b8;">|</span>
+                <span style="color:${{data.text_color}};">${{data.burn_rate}}</span>
+                <span style="color:#94a3b8;">|</span>
+                <span style="color:#cbd5e1;">${{data.horizon}}</span>
+                <span style="background-color:${{data.badge_bg}}; color:${{data.text_color}}; padding:2px 6px; border-radius:4px; font-size:10px; text-transform:uppercase;">${{data.tier}}</span>
+            `;
+            return {{
+                success: true,
+                removed: false,
+                injected: true,
+                tokens: data.tokens,
+                burn_rate: data.burn_rate,
+                tier: data.tier
+            }};
+        }} catch (err) {{
+            return {{
+                success: false,
+                error: (err && err.toString) ? err.toString() : String(err)
+            }};
+        }}
+    }})()
+    """
+    res = client.evaluate(expr)
+    if isinstance(res, dict) and res.get("success"):
+        return res
+    if isinstance(res, dict) and "error" in res:
+        raise CDPError(f"Failed to inject telemetry HUD: {res['error']}")
+    return {"success": True, "removed": False, "injected": True, "tokens": tokens, "burn_rate": burn_rate, "tier": tier}
+
+
 def cmd_gui(args: argparse.Namespace) -> int:
     """Primary handler for 'agyis gui' subcommand."""
     port_file: Optional[Path] = getattr(args, "port_file", None)
@@ -501,9 +631,15 @@ def cmd_gui(args: argparse.Namespace) -> int:
     do_toggle: bool = getattr(args, "toggle", False)
     no_popup: bool = getattr(args, "no_popup", False)
     verbose: bool = getattr(args, "verbose", False)
+    do_hud: bool = getattr(args, "hud", False)
+    do_hud_remove: bool = getattr(args, "hud_remove", False)
+    hud_result: Optional[Dict[str, Any]] = None
 
-    # Bare default action: if no action flags provided, default to opening trajectory debug
-    if no_popup and not do_devtools:
+    # Determine default trajectory action
+    hud_only = (do_hud or do_hud_remove) and not getattr(args, "trajectory_debug", False) and not getattr(args, "toggle", False)
+    if hud_only:
+        do_trajectory = False
+    elif no_popup and not do_devtools:
         do_trajectory = True
     elif not do_devtools and not do_trajectory and not do_toggle:
         do_trajectory = True
@@ -559,6 +695,44 @@ def cmd_gui(args: argparse.Namespace) -> int:
                 finally:
                     client.close()
 
+            # 3. HUD Injection / Removal
+            if do_hud or do_hud_remove:
+                last_phase = "injection"
+                ws_url = target["webSocketDebuggerUrl"]
+                client = CDPWebSocketClient(timeout=timeout)
+                try:
+                    client.connect(ws_url)
+                    if do_hud_remove:
+                        hud_result = inject_telemetry_hud(client, tokens=0, remove=True)
+                    else:
+                        from harness.hooks.token_proximity_guard import (
+                            get_active_conversation_token_velocity,
+                            get_active_conversation_tokens,
+                            get_conversations_dir,
+                        )
+                        c_id = os.environ.get("ANTIGRAVITY_CONVERSATION_ID") or os.environ.get("CONVERSATION_ID")
+                        if not c_id:
+                            c_dir = get_conversations_dir()
+                            if c_dir.is_dir():
+                                dbs = sorted([f for f in c_dir.glob("*.db") if not f.name.endswith(".tmp")], key=lambda f: f.stat().st_mtime, reverse=True)
+                                if dbs:
+                                    c_id = dbs[0].stem
+                        c_id = c_id or "default"
+                        vel = get_active_conversation_token_velocity(c_id)
+                        t_cnt = vel.get("tokens", 0)
+                        if t_cnt <= 0:
+                            t_cnt = get_active_conversation_tokens(c_id)
+                        hud_result = inject_telemetry_hud(
+                            client,
+                            tokens=t_cnt,
+                            burn_rate=vel.get("burn_rate_tokens_per_min", 0.0),
+                            mins_to_compaction=vel.get("mins_to_50k"),
+                            velocity_tier=vel.get("velocity_tier"),
+                            remove=False,
+                        )
+                finally:
+                    client.close()
+
             # Successfully completed required actions
             break
         except Exception as exc:
@@ -571,7 +745,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
                 continue
             break
 
-    success = (trajectory_result is not None) if do_trajectory else (target is not None and bool(target.get("webSocketDebuggerUrl")))
+    success = (trajectory_result is not None) if do_trajectory else ((hud_result is not None) if (do_hud or do_hud_remove) else (target is not None and bool(target.get("webSocketDebuggerUrl"))))
 
     # Report failure if target not found or injection failed
     if not success or target is None:
@@ -638,6 +812,8 @@ def cmd_gui(args: argparse.Namespace) -> int:
         }
         if trajectory_result is not None:
             payload["trajectory_debug"] = trajectory_result
+        if hud_result is not None:
+            payload["hud"] = hud_result
         print(json.dumps(payload, indent=2))
         return 0
 
@@ -648,6 +824,13 @@ def cmd_gui(args: argparse.Namespace) -> int:
     print(f" Active Window:      {target.get('title')}")
     print(f" Webview URL:        {target.get('url')}")
     print(f" WebSocket Endpoint: {target.get('webSocketDebuggerUrl')}")
+
+    if hud_result is not None:
+        print("-" * 70)
+        if do_hud_remove:
+            print(" ✔ Real-time telemetry HUD removed from Antigravity GUI.")
+        else:
+            print(f" ✔ Real-time telemetry HUD injected into Antigravity GUI ({hud_result.get('tokens', '0')} tokens, {hud_result.get('burn_rate', '0 tok/min')}, tier: {hud_result.get('tier', 'SAFE')})")
 
     if trajectory_result is not None:
         print("-" * 70)

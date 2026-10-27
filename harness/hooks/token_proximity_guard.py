@@ -34,6 +34,8 @@ AMBER_THRESHOLD: int = 35000
 RED_THRESHOLD: int = 45000
 CHECKPOINT_STEP_TYPE: int = 23  # Google Antigravity compaction checkpoint enum (0x17)
 ROLE_DEEP_EXECUTION: str = "deep_execution"
+MAX_SAFE_BURN_RATE_PER_MIN: float = 2000.0
+CRITICAL_BURN_RATE_PER_MIN: float = 4000.0
 
 
 def _normalize_role_str(val: Optional[str]) -> Optional[str]:
@@ -452,6 +454,333 @@ def get_active_conversation_tokens(
                 pass
 
 
+def _parse_step_timestamp(val: Any) -> Optional[float]:
+    """Parses epoch or ISO string timestamp into seconds float."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        fval = float(val)
+        if fval > 1e14:
+            return fval / 1e6
+        if fval > 1e11:
+            return fval / 1e3
+        return fval if fval > 0 else None
+    if isinstance(val, str):
+        s = val.strip()
+        if not s:
+            return None
+        try:
+            f = float(s)
+            if f > 1e14:
+                return f / 1e6
+            if f > 1e11:
+                return f / 1e3
+            return f if f > 0 else None
+        except ValueError:
+            pass
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            return dt.timestamp()
+        except Exception:
+            pass
+        try:
+            from datetime import datetime
+            dt = datetime.strptime(s.split(".")[0], "%Y-%m-%d %H:%M:%S")
+            return dt.timestamp()
+        except Exception:
+            pass
+    return None
+
+
+def get_active_conversation_token_velocity(
+    conversation_id: str,
+    db_dir: Optional[Path] = None,
+    window_seconds: int = 900,
+) -> Dict[str, Any]:
+    """
+    Computes real-time differential token burn rate velocity (tokens/min) and
+    time-to-compaction projections from active conversation step history.
+    Guarantees zero-crash fail-open execution: returns nominal SAFE tier on any error.
+    """
+    default_res: Dict[str, Any] = {
+        "tokens": 0,
+        "burn_rate_tokens_per_min": 0.0,
+        "mins_to_50k": None,
+        "mins_to_100k": None,
+        "velocity_tier": "SAFE",
+        "sample_count": 0,
+        "window_seconds": window_seconds,
+    }
+
+    norm_cid = _normalize_cid(conversation_id)
+    if not norm_cid or norm_cid == "default":
+        return default_res
+
+    if norm_cid in LOCKED_CONVERSATION_IDS:
+        return default_res
+
+    base_dir = db_dir or get_conversations_dir()
+    db_path = base_dir / f"{norm_cid}.db"
+    if not db_path.is_file():
+        # Check if conversation_id was already a direct path
+        cand = Path(conversation_id)
+        if cand.is_file():
+            db_path = cand
+        else:
+            # Check fallback to telemetry.db
+            telem_path = None
+            try:
+                from harness.telemetry.config import get_telemetry_db_path
+                t_cand = get_telemetry_db_path()
+                if t_cand and t_cand.is_file():
+                    telem_path = t_cand
+            except Exception:
+                pass
+            if telem_path is None:
+                repo_telem = Path(__file__).resolve().parent.parent.parent / "data" / "telemetry.db"
+                if repo_telem.is_file():
+                    telem_path = repo_telem
+            if telem_path is not None:
+                db_path = telem_path
+            else:
+                return default_res
+
+    conn: Optional[sqlite3.Connection] = None
+    try:
+        uri_path = f"file:{db_path.resolve()}?mode=ro"
+        conn = sqlite3.connect(uri_path, uri=True, timeout=0.5)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = {row[0] for row in cursor.fetchall()}
+        if "steps" not in tables:
+            tokens = get_active_conversation_tokens(conversation_id, db_dir=db_dir)
+            default_res["tokens"] = tokens
+            return default_res
+
+        cursor.execute("PRAGMA table_info(steps)")
+        step_cols = {row[1] for row in cursor.fetchall()}
+
+        if "idx" in step_cols:
+            order_col = "idx"
+        elif "step_index" in step_cols:
+            order_col = "step_index"
+        elif "id" in step_cols:
+            order_col = "id"
+        else:
+            order_col = "rowid"
+
+        select_cols = [order_col]
+        for col in (
+            "step_type",
+            "created_at",
+            "timestamp",
+            "time",
+            "ts",
+            "token_count",
+            "tokens",
+            "num_tokens",
+            "numTokens",
+            "step_data",
+            "metadata",
+        ):
+            if col in step_cols and col not in select_cols:
+                select_cols.append(col)
+
+        query = f"SELECT {', '.join(select_cols)} FROM steps"
+        params = []
+        if "session_id" in step_cols and db_path.name == "telemetry.db":
+            query += " WHERE session_id = ?"
+            params.append(norm_cid)
+        query += f" ORDER BY {order_col} DESC LIMIT 200"
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        col_map = {col: idx for idx, col in enumerate(select_cols)}
+
+        # Collect step samples: newest to oldest
+        raw_samples: list[tuple[Optional[float], int, Any]] = []
+
+        for row in rows:
+            # 1. Compaction checkpoint check
+            st = row[col_map["step_type"]] if "step_type" in col_map else None
+            if is_checkpoint_step(st):
+                break
+
+            # 2. Extract step data JSON if present
+            data: dict[str, Any] = {}
+            if "step_data" in col_map:
+                raw_sd = row[col_map["step_data"]]
+                if raw_sd and isinstance(raw_sd, str):
+                    try:
+                        data = json.loads(raw_sd)
+                        if is_checkpoint_step(data.get("step_type")):
+                            break
+                    except Exception:
+                        data = {}
+
+            # 3. Extract tokens
+            step_tokens = 0
+            for tk_col in ("token_count", "tokens", "num_tokens", "numTokens"):
+                if tk_col in col_map and row[col_map[tk_col]] is not None:
+                    try:
+                        val = int(row[col_map[tk_col]])
+                        if val > 0:
+                            step_tokens = val
+                            break
+                    except (ValueError, TypeError):
+                        pass
+
+            if not step_tokens and data:
+                gen_meta = data.get("generator_metadata", {})
+                if isinstance(gen_meta, dict):
+                    val = gen_meta.get("metadata", {}).get("value", {})
+                    if isinstance(val, dict):
+                        prompts = val.get("message_prompts", [])
+                        if prompts and isinstance(prompts, list) and isinstance(prompts[0], dict):
+                            num_t = prompts[0].get("num_tokens") or prompts[0].get("numTokens")
+                            if isinstance(num_t, (int, float)) and num_t > 0:
+                                step_tokens = int(num_t)
+                if not step_tokens:
+                    direct_t = (
+                        data.get("token_count")
+                        or data.get("tokens")
+                        or data.get("num_tokens")
+                        or data.get("numTokens")
+                    )
+                    if isinstance(direct_t, (int, float)) and direct_t > 0:
+                        step_tokens = int(direct_t)
+
+            if not step_tokens and "metadata" in col_map:
+                raw_meta = row[col_map["metadata"]]
+                if raw_meta:
+                    if isinstance(raw_meta, str):
+                        try:
+                            d = json.loads(raw_meta)
+                            if is_checkpoint_step(d.get("step_type")):
+                                break
+                            t = d.get("num_tokens") or d.get("numTokens") or d.get("tokens") or d.get("token_count")
+                            if isinstance(t, (int, float)) and t > 0:
+                                step_tokens = int(t)
+                        except Exception:
+                            pass
+                    elif isinstance(raw_meta, bytes):
+                        pb_tokens = extract_tokens_from_protobuf_metadata(raw_meta)
+                        if pb_tokens > 0:
+                            step_tokens = pb_tokens
+
+            # 4. Extract timestamp
+            raw_ts = None
+            for ts_col in ("created_at", "timestamp", "time", "ts"):
+                if ts_col in col_map and row[col_map[ts_col]] is not None:
+                    raw_ts = row[col_map[ts_col]]
+                    break
+
+            if raw_ts is None and data:
+                raw_ts = (
+                    data.get("timestamp")
+                    or data.get("created_at")
+                    or data.get("time")
+                    or data.get("createdAt")
+                )
+
+            if raw_ts is None and "metadata" in col_map and isinstance(row[col_map["metadata"]], str):
+                try:
+                    d = json.loads(row[col_map["metadata"]])
+                    raw_ts = d.get("timestamp") or d.get("created_at") or d.get("time")
+                except Exception:
+                    pass
+
+            parsed_ts = _parse_step_timestamp(raw_ts)
+
+            if step_tokens > 0:
+                raw_samples.append((parsed_ts, step_tokens, row[col_map[order_col]]))
+
+        if not raw_samples:
+            tokens = get_active_conversation_tokens(conversation_id, db_dir=db_dir)
+            default_res["tokens"] = tokens
+            return default_res
+
+        chrono = list(reversed(raw_samples))
+        latest_step = chrono[-1]
+        active_tokens = latest_step[1]
+
+        valid_ts_samples = [s for s in chrono if s[0] is not None]
+
+        if len(valid_ts_samples) < 2:
+            return {
+                "tokens": active_tokens,
+                "burn_rate_tokens_per_min": 0.0,
+                "mins_to_50k": None,
+                "mins_to_100k": None,
+                "velocity_tier": "SAFE",
+                "sample_count": len(chrono),
+                "window_seconds": window_seconds,
+            }
+
+        latest_ts = valid_ts_samples[-1][0]
+        window_start = latest_ts - float(window_seconds)
+        windowed = [s for s in valid_ts_samples if s[0] >= window_start]
+
+        if len(windowed) < 2:
+            windowed = valid_ts_samples
+
+        earliest = windowed[0]
+        latest = windowed[-1]
+
+        delta_tokens = latest[1] - earliest[1]
+        delta_time_s = latest[0] - earliest[0]
+
+        if delta_tokens > 0 and delta_time_s > 0:
+            burn_rate = (float(delta_tokens) / float(delta_time_s)) * 60.0
+        else:
+            burn_rate = 0.0
+
+        mins_to_50k: Optional[float] = None
+        mins_to_100k: Optional[float] = None
+
+        if burn_rate > 0:
+            if active_tokens >= COMPACTION_THRESHOLD:
+                mins_to_50k = 0.0
+            else:
+                mins_to_50k = max(0.0, (COMPACTION_THRESHOLD - active_tokens) / burn_rate)
+
+            if active_tokens >= 100000:
+                mins_to_100k = 0.0
+            else:
+                mins_to_100k = max(0.0, (100000 - active_tokens) / burn_rate)
+
+        if burn_rate >= CRITICAL_BURN_RATE_PER_MIN:
+            vel_tier = "CRITICAL"
+        elif burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN:
+            vel_tier = "ELEVATED"
+        else:
+            vel_tier = "SAFE"
+
+        return {
+            "tokens": active_tokens,
+            "burn_rate_tokens_per_min": burn_rate,
+            "mins_to_50k": mins_to_50k,
+            "mins_to_100k": mins_to_100k,
+            "velocity_tier": vel_tier,
+            "sample_count": len(windowed),
+            "window_seconds": window_seconds,
+        }
+    except sqlite3.OperationalError:
+        LOCKED_CONVERSATION_IDS.add(norm_cid)
+        return default_res
+    except Exception:
+        return default_res
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def get_urgency_tier(tokens: int) -> str:
     """Classifies token count into 3-tier urgency category."""
     if tokens >= RED_THRESHOLD:
@@ -466,21 +795,47 @@ def format_terminal_gauge(
     threshold: int = COMPACTION_THRESHOLD,
     step_count: Optional[int] = None,
     role: Optional[str] = None,
+    burn_rate: Optional[float] = None,
+    mins_to_compaction: Optional[float] = None,
+    velocity_tier: Optional[str] = None,
 ) -> str:
-    """Generates an ANSI terminal progress gauge with dynamic urgency color and bell alert."""
+    """Generates an ANSI terminal progress gauge with dynamic urgency color, burn velocity, and bell alert."""
     denom = threshold if threshold > 0 else COMPACTION_THRESHOLD
     percentage = min(100.0, (tokens / denom) * 100) if denom > 0 else 0.0
     filled_blocks = int((tokens / denom) * 20) if denom > 0 else 0
     filled_blocks = max(0, min(20, filled_blocks))
     bar = "█" * filled_blocks + "░" * (20 - filled_blocks)
 
-    if tokens >= RED_THRESHOLD:
+    vel_badge = ""
+    if burn_rate is not None and burn_rate > 0:
+        rate_int = int(round(burn_rate))
+        if mins_to_compaction is not None:
+            mins_int = int(round(mins_to_compaction))
+            vel_badge = f" (+{rate_int:,} tok/min | ~{mins_int}m to 50k)"
+        else:
+            vel_badge = f" (+{rate_int:,} tok/min)"
+
+    if velocity_tier:
+        v_upper = velocity_tier.upper()
+        if "CRITICAL" in v_upper:
+            color = "\033[1;31m"  # Bold Red
+            status = velocity_tier
+            bell = "\a"
+        elif "ELEVATED" in v_upper:
+            color = "\033[1;33m"  # Bold Yellow/Amber
+            status = velocity_tier
+            bell = ""
+        else:
+            color = "\033[1;32m"  # Bold Green
+            status = velocity_tier
+            bell = ""
+    elif tokens >= RED_THRESHOLD or (burn_rate is not None and burn_rate >= CRITICAL_BURN_RATE_PER_MIN):
         color = "\033[1;31m"  # Bold Red
-        status = "CRITICAL (COMPACTION IMMINENT)"
+        status = "CRITICAL (COMPACTION IMMINENT)" if tokens >= RED_THRESHOLD else "CRITICAL"
         bell = "\a"
-    elif tokens >= AMBER_THRESHOLD:
+    elif tokens >= AMBER_THRESHOLD or (burn_rate is not None and burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN):
         color = "\033[1;33m"  # Bold Yellow/Amber
-        status = "ELEVATED (APPROACHING THRESHOLD)"
+        status = "ELEVATED (APPROACHING THRESHOLD)" if tokens >= AMBER_THRESHOLD else "ELEVATED"
         bell = ""
     else:
         color = "\033[1;32m"  # Bold Green
@@ -493,7 +848,7 @@ def format_terminal_gauge(
         if _normalize_role_str(role) == ROLE_DEEP_EXECUTION:
             horizon_str = f" [HORIZON: {step_count}/50 STEPS]"
 
-    return f"{bell}{color}[AGYIS TOKEN GAUGE]{reset} [{bar}] {tokens:,} / {denom:,} ({percentage:.1f}%) - {color}{status}{reset}{horizon_str}"
+    return f"{bell}{color}[AGYIS TOKEN GAUGE]{reset} [{bar}] {tokens:,} / {denom:,} ({percentage:.1f}%){vel_badge} - {color}{status}{reset}{horizon_str}"
 
 
 def render_terminal_gauge(tokens: int) -> str:
@@ -509,19 +864,36 @@ def check_token_proximity(
     role: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Evaluates active conversation token proximity and emits an ANSI warning
-    to sys.stderr if tokens have reached or exceeded the amber threshold
-    or if step horizon is active (step_count >= 40 for executioner).
+    Evaluates active conversation token proximity and velocity, emitting an ANSI warning
+    to sys.stderr if tokens have reached or exceeded the amber threshold,
+    if step horizon is active (step_count >= 40 for executioner),
+    or if token burn rate velocity is elevated/critical (>= MAX_SAFE_BURN_RATE_PER_MIN).
     Always returns a decision dict {"decision": "allow"}.
     """
-    tokens = get_active_conversation_tokens(conversation_id, db_dir=db_dir)
+    velocity = get_active_conversation_token_velocity(conversation_id, db_dir=db_dir)
+    tokens = velocity.get("tokens", 0)
+    if tokens <= 0:
+        tokens = get_active_conversation_tokens(conversation_id, db_dir=db_dir)
+        velocity["tokens"] = tokens
+
+    burn_rate = velocity.get("burn_rate_tokens_per_min", 0.0)
+    mins_to_50k = velocity.get("mins_to_50k")
+    vel_tier = velocity.get("velocity_tier", "SAFE")
     tier = get_urgency_tier(tokens)
+
     warned = False
-
     horizon_active = (step_count is not None and step_count >= 40 and _normalize_role_str(role) == ROLE_DEEP_EXECUTION)
+    rapid_burn = burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN
 
-    if tokens >= AMBER_THRESHOLD or horizon_active:
-        gauge = format_terminal_gauge(tokens, step_count=step_count, role=role)
+    if tokens >= AMBER_THRESHOLD or horizon_active or rapid_burn:
+        gauge = format_terminal_gauge(
+            tokens,
+            step_count=step_count,
+            role=role,
+            burn_rate=burn_rate,
+            mins_to_compaction=mins_to_50k,
+            velocity_tier=vel_tier if rapid_burn and tokens < AMBER_THRESHOLD else None,
+        )
         warned = True
         if emit_stderr:
             try:
@@ -535,6 +907,7 @@ def check_token_proximity(
         "tokens": tokens,
         "tier": tier,
         "warned": warned,
+        "velocity": velocity,
     }
 
 
@@ -544,8 +917,8 @@ def run_token_proximity_guard(
 ) -> Dict[str, Any]:
     """
     Core functional dispatcher for token proximity lifecycle hook.
-    Parses turn payload from stdin or argument, monitors tokens and step horizon,
-    emits warning to stderr if >= 35,000 tokens or step_count >= 40 for executioner,
+    Parses turn payload from stdin or argument, monitors tokens, burn velocity, and step horizon,
+    emits warning to stderr if >= 35,000 tokens, burn_rate >= 2,000 tok/min, or step_count >= 40 for executioner,
     and returns allow decision.
     """
     if isinstance(payload, str):
@@ -559,7 +932,15 @@ def run_token_proximity_guard(
         parsed = {}
 
     conv_id = str(parsed.get("conversationId") or parsed.get("conversation_id") or "default")
-    tokens = get_active_conversation_tokens(conv_id)
+    velocity = get_active_conversation_token_velocity(conv_id)
+    tokens = velocity.get("tokens", 0)
+    if tokens <= 0:
+        tokens = get_active_conversation_tokens(conv_id)
+        velocity["tokens"] = tokens
+
+    burn_rate = velocity.get("burn_rate_tokens_per_min", 0.0)
+    mins_to_50k = velocity.get("mins_to_50k")
+    vel_tier = velocity.get("velocity_tier", "SAFE")
 
     step_count = None
     for k in (
@@ -589,9 +970,17 @@ def run_token_proximity_guard(
         role = os.environ.get("AGYIS_ROLE") or os.environ.get("PSL_AGENT_ROLE")
 
     horizon_active = (step_count is not None and step_count >= 40 and _normalize_role_str(role) == ROLE_DEEP_EXECUTION)
+    rapid_burn = burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN
 
-    if tokens >= AMBER_THRESHOLD or horizon_active:
-        gauge = format_terminal_gauge(tokens, step_count=step_count, role=role)
+    if tokens >= AMBER_THRESHOLD or horizon_active or rapid_burn:
+        gauge = format_terminal_gauge(
+            tokens,
+            step_count=step_count,
+            role=role,
+            burn_rate=burn_rate,
+            mins_to_compaction=mins_to_50k,
+            velocity_tier=vel_tier if rapid_burn and tokens < AMBER_THRESHOLD else None,
+        )
         out_err = stderr if stderr is not None else sys.stderr
         try:
             out_err.write(f"\n{gauge}\n")
@@ -620,12 +1009,31 @@ def main() -> None:
         tokens = get_active_conversation_tokens(conv_id)
         print(json.dumps({"status": "ok", "tokens": tokens, "tier": get_urgency_tier(tokens)}))
         return
+    elif action == "get_velocity":
+        vel = get_active_conversation_token_velocity(conv_id)
+        print(json.dumps({"status": "ok", "velocity": vel}))
+        return
     elif action == "render_gauge":
         tokens = int(payload.get("tokens", 0))
         sc = payload.get("step_count") or payload.get("stepCount")
         sc_val = int(sc) if sc is not None else None
         r_val = payload.get("role")
-        print(json.dumps({"status": "ok", "gauge": format_terminal_gauge(tokens, step_count=sc_val, role=r_val)}))
+        br_val = payload.get("burn_rate")
+        br = float(br_val) if br_val is not None else None
+        mc_val = payload.get("mins_to_compaction")
+        mc = float(mc_val) if mc_val is not None else None
+        vt_val = payload.get("velocity_tier")
+        print(json.dumps({
+            "status": "ok",
+            "gauge": format_terminal_gauge(
+                tokens,
+                step_count=sc_val,
+                role=r_val,
+                burn_rate=br,
+                mins_to_compaction=mc,
+                velocity_tier=vt_val,
+            )
+        }))
         return
 
     # PreToolUse token proximity check

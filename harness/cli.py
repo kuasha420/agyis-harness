@@ -744,6 +744,16 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Connection timeout in seconds (default: 5.0)",
     )
     p_gui.add_argument(
+        "--hud",
+        action="store_true",
+        help="Inject or update real-time token burn velocity HUD badge in Google Antigravity GUI",
+    )
+    p_gui.add_argument(
+        "--hud-remove",
+        action="store_true",
+        help="Remove real-time token burn velocity HUD badge from Google Antigravity GUI",
+    )
+    p_gui.add_argument(
         "--json",
         action="store_true",
         help="Output result in JSON format",

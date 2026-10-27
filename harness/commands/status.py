@@ -80,22 +80,35 @@ def cmd_status(args: argparse.Namespace) -> int:
     try:
         import os
         from harness.hooks.token_proximity_guard import (
+            MAX_SAFE_BURN_RATE_PER_MIN,
             format_terminal_gauge,
+            get_active_conversation_token_velocity,
             get_active_conversation_tokens,
             get_conversations_dir,
         )
         conv_id = os.environ.get("ANTIGRAVITY_CONVERSATION_ID") or os.environ.get("CONVERSATION_ID")
-        tokens = 0
-        if conv_id:
-            tokens = get_active_conversation_tokens(conv_id)
-        else:
+        if not conv_id:
             conv_dir = get_conversations_dir()
             if conv_dir.is_dir():
                 dbs = sorted([f for f in conv_dir.glob("*.db") if not f.name.endswith(".tmp")], key=lambda f: f.stat().st_mtime, reverse=True)
                 if dbs:
-                    tokens = get_active_conversation_tokens(dbs[0].stem)
-        if tokens > 0:
-            print(f"   📊 Active Session: {format_terminal_gauge(tokens)}")
+                    conv_id = dbs[0].stem
+        if conv_id:
+            vel = get_active_conversation_token_velocity(conv_id)
+            tokens = vel.get("tokens", 0)
+            if tokens <= 0:
+                tokens = get_active_conversation_tokens(conv_id)
+            burn_rate = vel.get("burn_rate_tokens_per_min", 0.0)
+            mins_to_50k = vel.get("mins_to_50k")
+            vel_tier = vel.get("velocity_tier", "SAFE")
+            if tokens > 0 or burn_rate > 0:
+                gauge = format_terminal_gauge(
+                    tokens,
+                    burn_rate=burn_rate,
+                    mins_to_compaction=mins_to_50k,
+                    velocity_tier=vel_tier if burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN else None,
+                )
+                print(f"   📊 Active Session: {gauge}")
     except Exception:
         pass
     print("-" * 70)

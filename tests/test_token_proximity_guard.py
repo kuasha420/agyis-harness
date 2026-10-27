@@ -31,10 +31,13 @@ from harness.hooks.token_proximity_guard import (
     AMBER_THRESHOLD,
     CHECKPOINT_STEP_TYPE,
     COMPACTION_THRESHOLD,
+    CRITICAL_BURN_RATE_PER_MIN,
+    MAX_SAFE_BURN_RATE_PER_MIN,
     RED_THRESHOLD,
     check_token_proximity,
     extract_tokens_from_protobuf_metadata,
     format_terminal_gauge,
+    get_active_conversation_token_velocity,
     get_active_conversation_tokens,
     get_urgency_tier,
     is_checkpoint_step,
@@ -819,6 +822,148 @@ class TestCheckpointStepTypeRecognition(unittest.TestCase):
 
         tokens = get_active_conversation_tokens(conv_id, db_dir=self.db_dir)
         self.assertEqual(tokens, 0, "Checkpoint barrier must return 0 despite 18 intervening tool steps")
+
+
+class TestTokenBurnVelocity(unittest.TestCase):
+    """Hermetic unit tests for differential token burn rate velocity and compaction projection (Issue #68)."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_multi_step_timestamp_burn_rate_calculation(self):
+        """Verifies (delta_tokens / delta_time_s) * 60 calculation across timestamped steps."""
+        conv_id = "test-velocity-multistep"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, token_count INTEGER, created_at TEXT)")
+        # Step 1: at t=0s, 10,000 tokens
+        # Step 2: at t=60s, 12,000 tokens (diff: 2,000 tokens over 60s -> 2,000 tok/min)
+        cur.execute("INSERT INTO steps VALUES (1, 10000, '2026-10-27 12:00:00')")
+        cur.execute("INSERT INTO steps VALUES (2, 12000, '2026-10-27 12:01:00')")
+        conn.commit()
+        conn.close()
+
+        vel = get_active_conversation_token_velocity(conv_id, db_dir=self.db_dir)
+        self.assertEqual(vel["tokens"], 12000)
+        self.assertAlmostEqual(vel["burn_rate_tokens_per_min"], 2000.0, places=1)
+        self.assertEqual(vel["velocity_tier"], "ELEVATED")
+        # mins_to_50k = (50000 - 12000) / 2000 = 19.0
+        self.assertIsNotNone(vel["mins_to_50k"])
+        self.assertAlmostEqual(vel["mins_to_50k"], 19.0, places=1)
+        # mins_to_100k = (100000 - 12000) / 2000 = 44.0
+        self.assertIsNotNone(vel["mins_to_100k"])
+        self.assertAlmostEqual(vel["mins_to_100k"], 44.0, places=1)
+
+    def test_single_step_fallback(self):
+        """Single step yields 0.0 burn rate, None projections, and SAFE tier."""
+        conv_id = "test-velocity-single"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, token_count INTEGER, created_at TEXT)")
+        cur.execute("INSERT INTO steps VALUES (1, 25000, '2026-10-27 12:00:00')")
+        conn.commit()
+        conn.close()
+
+        vel = get_active_conversation_token_velocity(conv_id, db_dir=self.db_dir)
+        self.assertEqual(vel["tokens"], 25000)
+        self.assertEqual(vel["burn_rate_tokens_per_min"], 0.0)
+        self.assertIsNone(vel["mins_to_50k"])
+        self.assertIsNone(vel["mins_to_100k"])
+        self.assertEqual(vel["velocity_tier"], "SAFE")
+
+    def test_missing_timestamp_fallback(self):
+        """Multiple steps with missing timestamps yield 0.0 burn rate and SAFE tier."""
+        conv_id = "test-velocity-no-ts"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, token_count INTEGER, created_at TEXT)")
+        cur.execute("INSERT INTO steps VALUES (1, 10000, NULL)")
+        cur.execute("INSERT INTO steps VALUES (2, 20000, NULL)")
+        conn.commit()
+        conn.close()
+
+        vel = get_active_conversation_token_velocity(conv_id, db_dir=self.db_dir)
+        self.assertEqual(vel["tokens"], 20000)
+        self.assertEqual(vel["burn_rate_tokens_per_min"], 0.0)
+        self.assertIsNone(vel["mins_to_50k"])
+        self.assertEqual(vel["velocity_tier"], "SAFE")
+
+    def test_threshold_classifications(self):
+        """Validates velocity tier classification boundaries: <2000 SAFE, 2000-4000 ELEVATED, >=4000 CRITICAL."""
+        self.assertEqual(MAX_SAFE_BURN_RATE_PER_MIN, 2000.0)
+        self.assertEqual(CRITICAL_BURN_RATE_PER_MIN, 4000.0)
+
+        # Critical: 4500 tok/min
+        conv_crit = "test-velocity-crit"
+        db_path = self.db_dir / f"{conv_crit}.db"
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, token_count INTEGER, created_at TEXT)")
+        cur.execute("INSERT INTO steps VALUES (1, 10000, '2026-10-27 12:00:00')")
+        cur.execute("INSERT INTO steps VALUES (2, 14500, '2026-10-27 12:01:00')")
+        conn.commit()
+        conn.close()
+
+        vel = get_active_conversation_token_velocity(conv_crit, db_dir=self.db_dir)
+        self.assertAlmostEqual(vel["burn_rate_tokens_per_min"], 4500.0, places=1)
+        self.assertEqual(vel["velocity_tier"], "CRITICAL")
+
+    def test_compaction_projection_clamping(self):
+        """Tokens >= 50,000 clamp mins_to_50k to 0.0, and tokens >= 100,000 clamp mins_to_100k to 0.0."""
+        conv_id = "test-velocity-clamped"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, token_count INTEGER, created_at TEXT)")
+        cur.execute("INSERT INTO steps VALUES (1, 50000, '2026-10-27 12:00:00')")
+        cur.execute("INSERT INTO steps VALUES (2, 53000, '2026-10-27 12:01:00')")
+        conn.commit()
+        conn.close()
+
+        vel = get_active_conversation_token_velocity(conv_id, db_dir=self.db_dir)
+        self.assertEqual(vel["tokens"], 53000)
+        self.assertEqual(vel["mins_to_50k"], 0.0)
+        # mins_to_100k = (100000 - 53000) / 3000 = 15.666...
+        self.assertIsNotNone(vel["mins_to_100k"])
+        self.assertAlmostEqual(vel["mins_to_100k"], 47000 / 3000.0, places=1)
+
+    def test_gauge_formatting_with_velocity(self):
+        """Asserts velocity badge is rendered in format_terminal_gauge."""
+        gauge = format_terminal_gauge(
+            38420,
+            burn_rate=1850.0,
+            mins_to_compaction=6.2,
+            velocity_tier="ELEVATED",
+        )
+        self.assertIn("38,420 / 50,000 (76.8%)", gauge)
+        self.assertIn("(+1,850 tok/min | ~6m to 50k)", gauge)
+        self.assertIn("ELEVATED", gauge)
+
+    def test_urgency_warning_triggered_by_rapid_burn(self):
+        """Tokens below amber (<35,000) trigger warning when burn rate >= 2000."""
+        conv_id = "test-rapid-burn-warning"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, token_count INTEGER, created_at TEXT)")
+        # 15,000 tokens growing to 18,000 in 60s (3,000 tok/min)
+        cur.execute("INSERT INTO steps VALUES (1, 15000, '2026-10-27 12:00:00')")
+        cur.execute("INSERT INTO steps VALUES (2, 18000, '2026-10-27 12:01:00')")
+        conn.commit()
+        conn.close()
+
+        res = check_token_proximity(conv_id, db_dir=self.db_dir, emit_stderr=False)
+        self.assertEqual(res["decision"], "allow")
+        self.assertEqual(res["tokens"], 18000)
+        self.assertTrue(res["warned"], "Rapid burn (3000 tok/min) must trigger warning despite tokens < 35k")
+        self.assertEqual(res["velocity"]["velocity_tier"], "ELEVATED")
 
 
 if __name__ == "__main__":
