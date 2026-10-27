@@ -738,3 +738,26 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Core Modules: `harness/hooks/token_proximity_guard.py`, `harness/commands/status.py`, `harness/commands/gui.py`, `harness/cli.py`
   - Tests: `tests/test_token_proximity_guard.py`, `tests/test_gui_hud.py`
   - Deliverable Commits: `e1270f2`
+
+---
+
+## [Phase 30] Milestone v1.0.0-rc7 Release: Deterministic Safety, Single-Source Rules & Swarm Resilience
+* **Status**: Completed | **Compaction Date**: 2026-10-27 | **Release**: `v1.0.0-rc7` | **Parent Epics**: [#74](https://github.com/kuasha420/agyis-harness/issues/74), [#69](https://github.com/kuasha420/agyis-harness/issues/69), [#64](https://github.com/kuasha420/agyis-harness/issues/64)
+* **Key Architectural Decisions & Deliverables**:
+  - **Milestone v1.0.0-rc7 Closure (19/19 Closed)**: 100% completion across all three parent epics:
+    1. *Epic #74 (Root-to-Delegate Operational Skills - 4/4)*: `/powerloss-resume` crash recovery (#75), zero-kill graceful parking & bilateral handshake (#76), compaction pre-serialization & succession protocol (#77), and subagent liveness CLI `agyis subagents --liveness` (#78).
+    2. *Epic #69 (Cognitive Architecture & Personas - 4/4)*: Single-source rule deduplication engine saving ~1,800 tokens/turn (#70), canonical invariant anchors `PSL-INV-001` through `PSL-INV-008` (#71), and Persona Truth Enforcement with the Anti-Code-Monkey Invariant (#72).
+    3. *Epic #64 (Deterministic Safety & Lifecycle Hooks - 4/4)*: PreToolUse Anti-Kill Pause Hook (#65), Dual-Gate Out-of-Band Auditor Verification Fence (#66), holistic active conversation detection and subagent scoping (#95), and real-time token burn rate velocity gauges (#68).
+    4. *Maintenance & Pruning*: Prevent stale plan hijacking in `find_active_plan` & checkpoint generation (#94), and telemetry database compaction & argument pruning policy `agyis audit prune --days <N>` (#56).
+  - **Version Harmonization to `1.0.0-rc7`**: Synchronized version across all 9 manifest and documentation files (`pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`, `tests/test_cli.py`, `tests/test_delivery.py`, `README.md`, `roadmap.md`, `docs/taxonomy/project-ledger.md`).
+  - **Hermetic Test Suite Benchmark Expansion**: Expanded test suite to **1,729 hermetic tests passing in 17.18s** (100% green, exit code 0).
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,729 hermetic tests passing in 17.18s** (100% green, exit code 0).
+  - Cleanroom spec verification: 12/12 specifications verified (`./agyis verify --spec`).
+  - Workstation Doctor: 9 OK, 0 missing, 0 outdated (`./agyis doctor`).
+  - Gate 2 Out-of-Band Auditor Clearance: Signed `audit_verdict.json` certified by `agyis_auditor` (`VICTORY CONFIRMED`).
+  - Release artifacts: Wheel and source distribution built via `uv build` (`agyis_harness-1.0.0rc7-py3-none-any.whl`, `agyis_harness-1.0.0rc7.tar.gz`).
+* **Reference Assets Committed**:
+  - Manifests: `pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`
+  - Documentation: `README.md`, `roadmap.md`, `docs/taxonomy/project-ledger.md`
+  - Tests: `tests/test_cli.py`, `tests/test_delivery.py`, `tests/test_completion_fence_hook.py`

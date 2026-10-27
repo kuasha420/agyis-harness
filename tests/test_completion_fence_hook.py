@@ -1383,7 +1383,7 @@ class TestTierGatedCompletionFence(unittest.TestCase):
         save_state(st, conv_id=conv_id, state_dir=self.state_dir)
 
         payload = {"role": "Cockpit Flight Director"}
-        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, payload=payload)
+        res = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws, payload=payload)
         self.assertEqual(res.get("decision"), "allow")
 
     def test_evaluate_stop_reconciles_empty_modified_files_with_clean_git(self):

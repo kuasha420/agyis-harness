@@ -297,6 +297,14 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - **Version Synchronization & Manifest Harmonization**: Synchronized version `1.0.0-rc6` across `pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`, `tests/test_cli.py`, `tests/test_delivery.py`, and `README.md`.
     - **Hermetic Testing & Verification**: Authored unit test suite in `tests/test_release_notes.py` with sub-second execution, achieving 100% green exit code 0 across all 1,090 repository tests.
 
+  - [x] **Milestone v1.0.0-rc7 Release: Deterministic Safety, Single-Source Rules & Swarm Resilience (Phase 30 - Horizon 1.9)**:
+    - **Epic #74 (Root-to-Delegate Operational Skills - 4/4 Closed)**: Delivered `/powerloss-resume` crash recovery (#75), zero-kill graceful parking & bilateral handshake (#76), carrier-grade compaction pre-serialization & succession protocol (#77), and subagent liveness CLI `agyis subagents --liveness` (#78).
+    - **Epic #69 (Cognitive Architecture & Personas - 4/4 Closed)**: Implemented single-source rule deduplication engine saving ~1,800 tokens/turn (#70), codified canonical invariant anchors `PSL-INV-001` through `PSL-INV-008` (#71), and operationalized Persona Truth Enforcement with the Anti-Code-Monkey Invariant (#72).
+    - **Epic #64 (Deterministic Safety & Lifecycle Hooks - 4/4 Closed)**: PreToolUse Anti-Kill Pause Hook (#65), Dual-Gate Out-of-Band Auditor Verification Fence with signed `audit_verdict.json` (#66), holistic active conversation detection and subagent scoping (#95), and real-time token burn rate velocity gauges (#68).
+    - **Critical Maintenance & Bug Fixes**: Prevented stale plan hijacking in `find_active_plan` & checkpoint generation (#94), and implemented telemetry database compaction & pruning policy `agyis audit prune --days <N>` (#56).
+    - **Harmonized Version 1.0.0-rc7**: Synchronized version `1.0.0-rc7` across `pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`, `tests/test_cli.py`, `tests/test_delivery.py`, and `README.md`.
+    - **Hermetic Verification Standard**: 1,729 hermetic tests passing with 100% green exit code 0, 12 cleanroom specifications verified, and out-of-band Victory Auditor clearance certified.
+
 ---
 
 ### ⚪ Horizon 2: Fleet Scaling & Knot Hardware Mesh (FUTURE)

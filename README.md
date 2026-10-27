@@ -7,8 +7,8 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity-4285F4.svg)](https://antigravity.google)
-[![Version](https://img.shields.io/badge/Version-v1.0.0--rc6-orange.svg)](roadmap.md)
-[![Tests](https://img.shields.io/badge/Tests-1065%2F1065_Passing_(100%25)-brightgreen.svg)](docs/official-specs/testing-contracts.md)
+[![Version](https://img.shields.io/badge/Version-v1.0.0--rc7-orange.svg)](roadmap.md)
+[![Tests](https://img.shields.io/badge/Tests-1729%2F1729_Passing_(100%25)-brightgreen.svg)](docs/official-specs/testing-contracts.md)
 
 > **The enterprise extension harness and developer CLI for Google Antigravity™.**  
 > Eliminates context cliffs, runaway loops, terminal command panics, and prompt bloat through deterministic lifecycle hooks, hermetic runtime guarantees, and turnkey repository onboarding.

@@ -80,7 +80,7 @@ class TestPslCli(unittest.TestCase):
                 main(["--version"], prog="agyis")
             self.assertEqual(cm.exception.code, 0)
             self.assertEqual(mock_err.getvalue(), "")
-            self.assertIn("agyis-harness 1.0.0-rc6", mock_out.getvalue())
+            self.assertIn("agyis-harness 1.0.0-rc7", mock_out.getvalue())
 
     def test_cli_status(self):
         """Verifies `psl status` prints repository, skills, agents, and hook status."""
@@ -1081,7 +1081,7 @@ class TestCliDualExecutionMatrix(unittest.TestCase):
                 main(["--version"], prog="agyis")
             self.assertEqual(cm1.exception.code, 0)
             self.assertEqual(agyis_err.getvalue(), "")
-            self.assertIn("agyis-harness 1.0.0-rc6", agyis_out.getvalue())
+            self.assertIn("agyis-harness 1.0.0-rc7", agyis_out.getvalue())
 
         # psl --version
         with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
@@ -1090,7 +1090,7 @@ class TestCliDualExecutionMatrix(unittest.TestCase):
                 deprecated_psl_main(["--version"])
             self.assertEqual(cm2.exception.code, 0)
             self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
-            self.assertIn("agyis-harness 1.0.0-rc6", psl_out.getvalue())
+            self.assertIn("agyis-harness 1.0.0-rc7", psl_out.getvalue())
 
     def test_dual_bare_cli_help(self):
         """Verifies bare 'agyis' and 'psl' with no arguments print help with proper stderr isolation."""
