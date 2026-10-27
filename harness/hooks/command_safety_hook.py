@@ -352,6 +352,27 @@ def inject_disassembler_batch_flags(cmd: str) -> Tuple[str, bool, List[str]]:
     return modified, changed, reasons
 
 
+def inject_rea_setup_flags(cmd: str) -> Tuple[str, bool, List[str]]:
+    """
+    Ensures non-interactive execution for 'rea setup' by injecting '--yes' flag
+    if neither '--yes' nor '-y' is present.
+    """
+    if not re.search(r"\b(?:[^\s]+/)?rea\s+setup\b", cmd):
+        return cmd, False, []
+
+    if re.search(r"(?:^|\s)(?:--yes|-y)(?:\s|$)", cmd):
+        return cmd, False, []
+
+    reasons = ["enforced non-interactive rea setup --yes"]
+    modified = re.sub(
+        r"(\b(?:[^\s]+/)?rea\s+setup\b)",
+        r"\1 --yes",
+        cmd,
+        count=1,
+    )
+    return modified, True, reasons
+
+
 def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Evaluates and sanitizes a raw command line string.
@@ -399,6 +420,12 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optio
         modified_cmd = mod_disasm
         reasons.extend(disasm_reasons)
 
+    # 3b. REA non-interactive setup optimization
+    mod_rea, rea_injected, rea_reasons = inject_rea_setup_flags(modified_cmd)
+    if rea_injected:
+        modified_cmd = mod_rea
+        reasons.extend(rea_reasons)
+
     # 4. Pager / non-interactive optimization
     if first_token in ("git", "gh") and not re.search(r"--no-pager|\bPAGER=", modified_cmd):
         modified_cmd = f"PAGER=cat {modified_cmd}"
@@ -433,6 +460,9 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optio
         return ("allow", modified_cmd, "PSL PreToolUse: " + "; ".join(reasons))
 
     return ("allow", None, None)
+
+
+check_command_safety = sanitize_command
 
 
 PAUSE_GATE_FILES = (

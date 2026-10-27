@@ -892,14 +892,32 @@ def reset_state(
 
 def is_manifest_verified(cwd: Path | str | None = None) -> bool:
     """
-    Validates .agents/ledger/manifest.json against the formal cleanroom schema:
-    1. Valid JSON object.
-    2. 'status': 'verified'.
-    3. 'evidence_hash': 64-char lowercase hexadecimal string.
-    4. 'obligations': non-empty array where every obligation has 'status': 'satisfied'.
+    Validates cleanroom obligation ledger or manifest against formal schema:
+    1. If .agents/ledger/obligation_ledger.json exists, enforces strict REA 6.8.0
+       schema via validate_obligation_ledger() and verifies all obligations are satisfied.
+    2. Fallback: validates .agents/ledger/manifest.json against REA 6.8.0 or legacy schema.
     """
     effective_cwd = Path(cwd).resolve() if cwd else Path.cwd().resolve()
+    ledger_path = effective_cwd / ".agents" / "ledger" / "obligation_ledger.json"
     manifest_path = effective_cwd / ".agents" / "ledger" / "manifest.json"
+
+    # 1. Prefer typed obligation_ledger.json adhering to REA 6.8.0
+    if ledger_path.is_file():
+        try:
+            from harness.cleanroom.obligation import validate_obligation_ledger
+            valid, errors = validate_obligation_ledger(ledger_path)
+            if not valid:
+                return False
+            data = json.loads(ledger_path.read_text(encoding="utf-8"))
+            reviewed = data.get("reviewed_obligations", [])
+            for ob in reviewed:
+                if ob.get("disposition") not in ("satisfied", "verified", "waived"):
+                    return False
+            return True
+        except Exception:
+            return False
+
+    # 2. Check manifest.json
     if not manifest_path.is_file():
         return False
 
@@ -908,6 +926,19 @@ def is_manifest_verified(cwd: Path | str | None = None) -> bool:
         if not isinstance(data, dict):
             return False
 
+        # If manifest.json is in REA 6.8.0 typed format:
+        if "evidence_bundle" in data and "reviewed_obligations" in data:
+            from harness.cleanroom.obligation import validate_obligation_ledger
+            valid, errors = validate_obligation_ledger(manifest_path)
+            if not valid:
+                return False
+            reviewed = data.get("reviewed_obligations", [])
+            for ob in reviewed:
+                if ob.get("disposition") not in ("satisfied", "verified", "waived"):
+                    return False
+            return True
+
+        # Legacy manifest validation:
         if data.get("status") != "verified":
             return False
 

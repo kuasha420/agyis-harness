@@ -685,6 +685,11 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Verify cleanroom specifications in docs/specs/**",
     )
     p_verify.add_argument(
+        "--scaffold",
+        action="store_true",
+        help="Scaffold a typed .agents/ledger/obligation_ledger.json adhering to REA 6.8.0 schema",
+    )
+    p_verify.add_argument(
         "--workspace",
         "-w",
         type=Path,

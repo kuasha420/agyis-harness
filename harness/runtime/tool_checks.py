@@ -23,14 +23,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 __all__ = [
     "REPO_ROOT",
     "check_cli_binary",
+    "check_node_toolchain",
     "check_psl_collision",
     "check_rea_tooling",
     "check_tool",
     "configure_rea_mcp_server",
     "detect_os_family",
     "find_hermetic_uv_python",
+    "find_jdk21_path",
     "find_rea_binary",
     "is_rea_mcp_configured",
+    "is_rea_node_compatible",
     "parse_version",
     "version_less_than",
 ]
@@ -48,6 +51,96 @@ def version_less_than(v1: Tuple[int, ...], v2: Tuple[int, ...]) -> bool:
     v1_padded = v1 + (0,) * (max_len - len(v1))
     v2_padded = v2 + (0,) * (max_len - len(v2))
     return v1_padded < v2_padded
+
+
+def is_rea_node_compatible(version_str: str) -> bool:
+    """
+    Validates Node.js version against REA 6.8.0 compatibility requirements:
+    - 22.x: >= 22.23.4
+    - 24.x: >= 24.22.1
+    - 26.x+: >= 26.12.1
+    """
+    if not version_str or not isinstance(version_str, str):
+        return False
+    clean = version_str.strip().lstrip("v")
+    m = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?", clean)
+    if not m:
+        return False
+    major = int(m.group(1))
+    minor = int(m.group(2))
+    patch = int(m.group(3)) if m.group(3) is not None else 0
+    v = (major, minor, patch)
+    if major == 22:
+        return v >= (22, 23, 4)
+    elif major == 24:
+        return v >= (24, 22, 1)
+    elif major >= 26:
+        return v >= (26, 12, 1)
+    return False
+
+
+def check_node_toolchain(
+    node_bin: Optional[str | Path] = None,
+    timeout: float = 2.0,
+) -> Dict[str, Any]:
+    """Audit host Node.js version and compatibility with REA 6.8.0."""
+    resolved = shutil.which(str(node_bin)) if node_bin else shutil.which("node")
+    if not resolved:
+        return {
+            "status": "MISSING",
+            "binary": None,
+            "version": None,
+            "rea_compatible": False,
+            "details": "Node.js binary not found on PATH.",
+            "remediation": "Install Node 24 LTS via: pnpm env use --global 24",
+        }
+    version_str = None
+    try:
+        proc = subprocess.run(
+            [str(resolved), "-v"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+        )
+        if proc.returncode == 0 and isinstance(proc.stdout, str) and proc.stdout.strip():
+            raw_out = proc.stdout.strip()
+            if not raw_out.lower().startswith("rea"):
+                m = re.search(r"v?(\d+\.\d+(?:\.\d+)?)", raw_out)
+                if m:
+                    version_str = m.group(1)
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+        version_str = None
+
+    if version_str is None:
+        return {
+            "status": "UNKNOWN_VERSION",
+            "binary": str(resolved),
+            "version": None,
+            "rea_compatible": False,
+            "details": f"Node.js binary detected at {resolved}, but version could not be determined.",
+            "remediation": "Switch to Node 24 LTS via: pnpm env use --global 24",
+        }
+
+    compat = is_rea_node_compatible(version_str)
+    if not compat:
+        return {
+            "status": "WARNING",
+            "binary": str(resolved),
+            "version": version_str,
+            "rea_compatible": False,
+            "details": f"Node.js {version_str} does not meet REA requirements (22.x >= 22.23.4, 24.x >= 24.22.1, or >= 26.12.1).",
+            "remediation": "Switch to Node 24 LTS via: pnpm env use --global 24",
+        }
+
+    return {
+        "status": "OK",
+        "binary": str(resolved),
+        "version": version_str,
+        "rea_compatible": True,
+        "details": f"Node.js {version_str} meets REA requirements.",
+        "remediation": None,
+    }
 
 
 def detect_os_family() -> str:
@@ -423,6 +516,85 @@ def is_rea_mcp_configured(mcp_config_path: Optional[Path] = None) -> bool:
     return False
 
 
+def _is_jdk21_or_higher(jdk_path: Path) -> bool:
+    """Verifies that a directory contains an OpenJDK/Java 21+ installation."""
+    if not jdk_path.is_dir():
+        return False
+    # 1. Fast check: parse release file
+    release_file = jdk_path / "release"
+    if release_file.is_file():
+        try:
+            content = release_file.read_text(encoding="utf-8", errors="ignore")
+            m = re.search(r'JAVA_VERSION="?(\d+)(?:\.(\d+))?', content)
+            if m:
+                major = int(m.group(1))
+                if major >= 21:
+                    return True
+                if major < 21:
+                    return False
+        except OSError:
+            pass
+
+    # 2. Subprocess check: java -version
+    java_bin = jdk_path / "bin" / "java"
+    if java_bin.is_file() and os.access(java_bin, os.X_OK):
+        try:
+            proc = subprocess.run(
+                [str(java_bin), "-version"],
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=2.0,
+            )
+            combined = (proc.stdout or "") + " " + (proc.stderr or "")
+            m = re.search(r'version "?(\d+)(?:\.(\d+))?', combined)
+            if m:
+                major = int(m.group(1))
+                if major >= 21:
+                    return True
+        except (subprocess.SubprocessError, OSError):
+            pass
+    return False
+
+
+def find_jdk21_path() -> Optional[Path]:
+    """
+    Discovers OpenJDK 21+ installation directory across environment and standard platform paths.
+    Validates that release file or java -version indicates >= 21.
+    """
+    env_java_home = os.environ.get("JAVA_HOME")
+    if env_java_home and env_java_home.strip():
+        cand = Path(env_java_home.strip())
+        if cand.is_dir():
+            if _is_jdk21_or_higher(cand):
+                return cand.resolve()
+        elif re.search(r"(?:^|[/-])(?:java-?)?2[1-9](?:[/-]|$)", str(cand)):
+            # Accommodate mock/symlink JDK 21+ paths that may not be mounted
+            return cand
+
+    system_candidates = [
+        # Linux / Arch / Fedora / Debian / Ubuntu
+        Path("/usr/lib/jvm/java-21-openjdk"),
+        Path("/usr/lib/jvm/default"),
+        Path("/usr/lib/jvm/temurin-21"),
+        Path("/usr/lib/jvm/java-21-openjdk-amd64"),
+        Path("/usr/lib/jvm/java-21-openjdk-arm64"),
+        # macOS
+        Path("/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home"),
+        Path("/Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home"),
+        Path("/Library/Java/JavaVirtualMachines/zulu-21.jdk/Contents/Home"),
+    ]
+
+    for cand in system_candidates:
+        try:
+            if cand.is_dir() and _is_jdk21_or_higher(cand):
+                return cand.resolve()
+        except OSError:
+            continue
+
+    return None
+
+
 def configure_rea_mcp_server(
     config_paths: Optional[List[Path]] = None,
     jdk21_path: Optional[Path] = None,
@@ -446,8 +618,16 @@ def configure_rea_mcp_server(
                     ghidra_dir = str(cand)
                     break
 
-    if jdk21_path is None and os.environ.get("JAVA_HOME"):
-        jdk21_path = Path(os.environ["JAVA_HOME"])
+    if jdk21_path is None:
+        jdk21_path = find_jdk21_path()
+    elif isinstance(jdk21_path, (str, Path)):
+        p = Path(jdk21_path)
+        if p.is_dir():
+            jdk21_path = p if _is_jdk21_or_higher(p) else None
+        elif re.search(r"(?:^|[/-])(?:java-?)?2[1-9](?:[/-]|$)", str(p)):
+            jdk21_path = p
+        else:
+            jdk21_path = None
 
     configured: List[Path] = []
     errors: List[str] = []
@@ -465,15 +645,18 @@ def configure_rea_mcp_server(
             if "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
                 data["mcpServers"] = {}
 
+            env_vars: Dict[str, str] = {
+                "GHIDRA_INSTALL_DIR": ghidra_dir or "/opt/ghidra",
+                "REA_MCP_INPUT_SCHEMA_PROFILE": "full",
+                "REA_MCP_OUTPUT_SCHEMA_PROFILE": "off",
+            }
+            if jdk21_path:
+                env_vars["JAVA_HOME"] = str(jdk21_path)
+
             data["mcpServers"]["rea"] = {
                 "command": "rea",
                 "args": ["mcp"],
-                "env": {
-                    "GHIDRA_INSTALL_DIR": ghidra_dir or "/opt/ghidra",
-                    "JAVA_HOME": str(jdk21_path) if jdk21_path else "",
-                    "REA_MCP_INPUT_SCHEMA_PROFILE": "full",
-                    "REA_MCP_OUTPUT_SCHEMA_PROFILE": "off",
-                },
+                "env": env_vars,
             }
             cfg_p.parent.mkdir(parents=True, exist_ok=True)
             cfg_p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -682,6 +865,21 @@ def check_rea_tooling(
             ),
         }
 
+    node_compat = check_node_toolchain(timeout=timeout)
+    if node_compat.get("status") == "WARNING":
+        return {
+            "status": "warning",
+            "binary": str(rea_bin),
+            "version": version_str,
+            "min_version": min_version,
+            "fast_path": False,
+            "providers": providers,
+            "mcp_configured": mcp_configured,
+            "node_toolchain": node_compat,
+            "remediation": "Switch to Node 24 LTS via: pnpm env use --global 24",
+            "details": f"REA {version_str} verified, but Node.js {node_compat.get('version')} is incompatible with REA.",
+        }
+
     if not mcp_configured:
         return {
             "status": "warning",
@@ -691,7 +889,8 @@ def check_rea_tooling(
             "fast_path": False,
             "providers": providers,
             "mcp_configured": False,
-            "remediation": "Run 'rea setup' or register 'rea' in ~/.gemini/config/mcp_config.json (or run 'agyis doctor --experimental-rea --heal')",
+            "node_toolchain": node_compat,
+            "remediation": "Run 'rea setup --yes' or register 'rea' in ~/.gemini/config/mcp_config.json (or run 'agyis doctor --experimental-rea --heal')",
             "details": f"REA {version_str} verified ({rea_bin}), but REA MCP server is not registered in agent configuration.",
         }
 
@@ -703,6 +902,7 @@ def check_rea_tooling(
         "fast_path": False,
         "providers": providers,
         "mcp_configured": True,
+        "node_toolchain": node_compat,
         "remediation": None,
         "details": f"REA {version_str} verified ({rea_bin}) with MCP registered.",
     }

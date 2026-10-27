@@ -128,6 +128,22 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
     actions: List[str] = []
     rea_info = audit.get("rea_tooling", {})
 
+    # 0. Check and heal Node.js semver compatibility for REA
+    from harness.runtime.tool_checks import check_node_toolchain, configure_rea_mcp_server, find_jdk21_path
+
+    node_info = check_node_toolchain()
+    if not node_info.get("rea_compatible", False):
+        pnpm = shutil.which("pnpm")
+        if pnpm:
+            print("[*] Switching to Node 24 LTS via pnpm env use --global 24...")
+            proc = subprocess.run([pnpm, "env", "use", "--global", "24"], capture_output=True, text=True)
+            if proc.returncode == 0:
+                actions.append("Auto-healed Node.js runtime: switched to Node 24 LTS globally via 'pnpm env use --global 24'.")
+            else:
+                actions.append(f"Failed to auto-heal Node.js via pnpm: {proc.stderr.strip()}")
+        else:
+            actions.append("Node.js is incompatible with REA, but pnpm is not available to auto-switch to Node 24.")
+
     # 1. Install or update rea-agents in user space if missing or outdated
     bin_path = rea_info.get("binary")
     status = rea_info.get("status")
@@ -155,9 +171,7 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
             actions.append("Package manager (pnpm/npm) not found to install rea-agents in user-space.")
 
     # 2. Configure mcpServers.rea in ~/.gemini/config/mcp_config.json via shared helper
-    from harness.runtime.tool_checks import configure_rea_mcp_server
-
-    jdk21_path = Path(os.environ["JAVA_HOME"]) if "JAVA_HOME" in os.environ else None
+    discovered_jdk = find_jdk21_path()
     ghidra_dir = os.environ.get("GHIDRA_INSTALL_DIR")
     if not ghidra_dir:
         for cand in [Path("/opt/ghidra"), Path("/usr/local/opt/ghidra"), Path.home() / "ghidra"]:
@@ -166,12 +180,12 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
                 break
 
     configured_paths, config_errors = configure_rea_mcp_server(
-        jdk21_path=jdk21_path,
+        jdk21_path=discovered_jdk,
         ghidra_dir=ghidra_dir,
     )
     for cfg_p in configured_paths:
         actions.append(
-            f"Wired 'rea' MCP server in {cfg_p} (JDK 21: {jdk21_path or 'unresolved'}, Ghidra: {ghidra_dir or '/opt/ghidra'})."
+            f"Wired 'rea' MCP server in {cfg_p} (JDK 21: {discovered_jdk or 'omitted'}, Ghidra: {ghidra_dir or '/opt/ghidra'})."
         )
     for err in config_errors:
         actions.append(err)
