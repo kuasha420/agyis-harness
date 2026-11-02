@@ -222,12 +222,23 @@ def cmd_find(args: argparse.Namespace) -> int:
                 results["strings"].append({"value": row[0], "address": row[1], "length": row[2]})
 
         if filter_type in ("all", "rtti"):
-            cursor.execute(
-                "SELECT name, vtable_address FROM rtti_classes WHERE name LIKE ? LIMIT ?",
-                (query, limit),
-            )
-            for row in cursor.fetchall():
-                results["rtti_classes"].append({"name": row[0], "vtable": row[1]})
+            cols = [col[1] for col in cursor.execute("PRAGMA table_info(rtti_classes)").fetchall()]
+            if "class_name" in cols:
+                vt_col = "vtable_addr" if "vtable_addr" in cols else "vtable_address"
+                cursor.execute(
+                    f"SELECT demangled_name, class_name, {vt_col} FROM rtti_classes WHERE demangled_name LIKE ? OR class_name LIKE ? LIMIT ?",
+                    (query, query, limit),
+                )
+                for row in cursor.fetchall():
+                    results["rtti_classes"].append({"name": row[0] or row[1], "vtable": row[2]})
+            elif "name" in cols:
+                vt_col = "vtable_address" if "vtable_address" in cols else "vtable_addr"
+                cursor.execute(
+                    f"SELECT name, {vt_col} FROM rtti_classes WHERE name LIKE ? LIMIT ?",
+                    (query, limit),
+                )
+                for row in cursor.fetchall():
+                    results["rtti_classes"].append({"name": row[0], "vtable": row[1]})
     finally:
         conn.close()
 
@@ -237,18 +248,23 @@ def cmd_find(args: argparse.Namespace) -> int:
 
     total_hits = len(results["functions"]) + len(results["strings"]) + len(results["rtti_classes"])
     print(f"=== Query '{args.pattern}' ({total_hits} matches) ===")
+    def fmt_addr(val: Any) -> str:
+        if isinstance(val, int):
+            return f"0x{val:016x}"
+        return str(val) if val is not None else "-"
+
     if results["functions"]:
         print("\nFunctions:")
         for fn in results["functions"]:
-            print(f"  {fn['address']:<18} {fn['name']}")
+            print(f"  {fmt_addr(fn['address']):<18} {fn['name']}")
     if results["strings"]:
         print("\nStrings:")
         for s in results["strings"]:
-            print(f"  {s['address']:<18} {s['value']}")
+            print(f"  {fmt_addr(s['address']):<18} {s['value']}")
     if results["rtti_classes"]:
         print("\nRTTI Classes:")
         for r in results["rtti_classes"]:
-            print(f"  {r['vtable']:<18} {r['name']}")
+            print(f"  {fmt_addr(r['vtable']):<18} {r['name']}")
 
     return 0
 
