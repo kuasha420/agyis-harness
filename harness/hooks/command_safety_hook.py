@@ -593,6 +593,79 @@ def check_pause_safety(
         return ("allow", None)
 
 
+def normalize_rea_mcp_tool_call(
+    tool_name: str,
+    tool_args: Dict[str, Any],
+) -> Tuple[str, Optional[Dict[str, Any]], Optional[str]]:
+    """
+    Normalizes REA MCP tool arguments and enforces PSL-INV-009 cache check.
+    Returns: (decision, modified_args_or_none, reason_or_none)
+    """
+    if tool_name != "call_mcp_tool":
+        return ("allow", None, None)
+
+    server_name = str(tool_args.get("ServerName") or "").strip().lower()
+    if server_name != "rea":
+        return ("allow", None, None)
+
+    subtool = str(tool_args.get("ToolName") or "").strip()
+    raw_arguments = tool_args.get("Arguments")
+    if not isinstance(raw_arguments, dict):
+        return ("allow", None, None)
+
+    modified_args = dict(raw_arguments)
+    reasons = []
+
+    # 1. Normalize PascalCase and known aliases
+    mapping = {
+        "Address": "procedure" if subtool in ("procedure_assembly", "procedure_pseudo_code") else "address",
+        "Length": "length",
+        "file_path": "path",
+        "filePath": "path",
+        "query": "pattern",
+    }
+    for old_k, new_k in mapping.items():
+        if old_k in modified_args and new_k not in modified_args:
+            modified_args[new_k] = modified_args.pop(old_k)
+            reasons.append(f"normalized argument '{old_k}' -> '{new_k}'")
+
+    # 2. PSL-INV-009 check: target binary > 10MB without cached project
+    target_path_str = modified_args.get("path") or modified_args.get("binary_path") or modified_args.get("binary")
+    if target_path_str:
+        try:
+            target_p = Path(target_path_str)
+            if target_p.is_file():
+                size_mb = target_p.stat().st_size / (1024 * 1024)
+                if size_mb > 10.0:
+                    from harness.re.scaffold import get_dirtyroom_root
+                    dr = get_dirtyroom_root(target_p.parent)
+                    has_gpr = False
+                    if dr and (dr / "ghidra").is_dir():
+                        has_gpr = any((dr / "ghidra").glob("*.gpr"))
+                    if not has_gpr:
+                        env_gpr_dir = os.environ.get("REA_GHIDRA_PROJECT_DIR")
+                        if env_gpr_dir and Path(env_gpr_dir).is_dir():
+                            has_gpr = any(Path(env_gpr_dir).glob("*.gpr"))
+
+                    if not has_gpr:
+                        return (
+                            "deny",
+                            None,
+                            f"[PSL-INV-009 VIOLATION] Target binary '{target_p.name}' is {size_mb:.1f} MB (>10 MB) "
+                            f"without a pre-analyzed Ghidra project cache. Ad-hoc decompiler analysis will exceed 180s timeout. "
+                            f"Run 'agyis re pre-analyze {target_p.name}' or set REA_GHIDRA_PROJECT_DIR first."
+                        )
+        except Exception:
+            pass
+
+    if reasons:
+        overwrite_payload = dict(tool_args)
+        overwrite_payload["Arguments"] = modified_args
+        return ("allow", overwrite_payload, "; ".join(reasons))
+
+    return ("allow", None, None)
+
+
 def main() -> None:
     try:
         payload = json.load(sys.stdin)
@@ -623,6 +696,17 @@ def main() -> None:
         return
 
     if tool_name in ("manage_subagents", "manage_task"):
+        print(json.dumps({"decision": "allow"}))
+        return
+
+    if tool_name == "call_mcp_tool":
+        mcp_dec, mcp_overwrite, mcp_reason = normalize_rea_mcp_tool_call(tool_name, tool_args)
+        if mcp_dec == "deny":
+            print(json.dumps({"decision": "deny", "reason": mcp_reason}))
+            return
+        if mcp_overwrite is not None:
+            print(json.dumps({"decision": "allow", "overwrite": mcp_overwrite, "reason": mcp_reason}))
+            return
         print(json.dumps({"decision": "allow"}))
         return
 

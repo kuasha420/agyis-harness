@@ -3,7 +3,7 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-008 -->
+<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-009 -->
 
 # Empirical Agent Rules: Agyis Harness Guidelines
 

@@ -31,6 +31,7 @@ from harness.hooks.token_proximity_guard import (
     AMBER_THRESHOLD,
     CHECKPOINT_STEP_TYPE,
     COMPACTION_THRESHOLD,
+    CONTEXT_WINDOW_TOKENS,
     CRITICAL_BURN_RATE_PER_MIN,
     MAX_SAFE_BURN_RATE_PER_MIN,
     RED_THRESHOLD,
@@ -52,21 +53,22 @@ class TestTokenProximityThresholds(unittest.TestCase):
 
     def test_threshold_constants(self):
         """Asserts canonical threshold values match specification."""
-        self.assertEqual(COMPACTION_THRESHOLD, 50000)
-        self.assertEqual(AMBER_THRESHOLD, 35000)
-        self.assertEqual(RED_THRESHOLD, 45000)
+        self.assertEqual(COMPACTION_THRESHOLD, 230000)
+        self.assertEqual(AMBER_THRESHOLD, 180000)
+        self.assertEqual(RED_THRESHOLD, 230000)
+        self.assertEqual(CONTEXT_WINDOW_TOKENS, 256000)
 
     def test_get_urgency_tier(self):
         """Tests boundary transitions for Safe, Elevated, and Critical tiers."""
         self.assertEqual(get_urgency_tier(0), "SAFE")
         self.assertEqual(get_urgency_tier(15000), "SAFE")
-        self.assertEqual(get_urgency_tier(34999), "SAFE")
-        self.assertEqual(get_urgency_tier(35000), "ELEVATED")
-        self.assertEqual(get_urgency_tier(40000), "ELEVATED")
-        self.assertEqual(get_urgency_tier(44999), "ELEVATED")
-        self.assertEqual(get_urgency_tier(45000), "CRITICAL")
-        self.assertEqual(get_urgency_tier(50000), "CRITICAL")
-        self.assertEqual(get_urgency_tier(75000), "CRITICAL")
+        self.assertEqual(get_urgency_tier(179999), "SAFE")
+        self.assertEqual(get_urgency_tier(180000), "ELEVATED")
+        self.assertEqual(get_urgency_tier(200000), "ELEVATED")
+        self.assertEqual(get_urgency_tier(229999), "ELEVATED")
+        self.assertEqual(get_urgency_tier(230000), "CRITICAL")
+        self.assertEqual(get_urgency_tier(250000), "CRITICAL")
+        self.assertEqual(get_urgency_tier(260000), "CRITICAL")
 
 
 class TestRenderTerminalGauge(unittest.TestCase):
@@ -76,23 +78,23 @@ class TestRenderTerminalGauge(unittest.TestCase):
         """Safe tier outputs green styling and does not emit terminal bell."""
         gauge = render_terminal_gauge(20000)
         self.assertIn("SAFE", gauge)
-        self.assertIn("20,000 / 50,000 (40.0%)", gauge)
+        self.assertIn("20,000 / 256,000 (7.8%)", gauge)
         self.assertIn("\033[1;32m", gauge)
         self.assertNotIn("\a", gauge)
 
     def test_render_amber_gauge(self):
         """Elevated tier outputs amber/yellow styling and does not emit terminal bell."""
-        gauge = render_terminal_gauge(38500)
+        gauge = render_terminal_gauge(195000)
         self.assertIn("ELEVATED", gauge)
-        self.assertIn("38,500 / 50,000 (77.0%)", gauge)
+        self.assertIn("195,000 / 256,000 (76.2%)", gauge)
         self.assertIn("\033[1;33m", gauge)
         self.assertNotIn("\a", gauge)
 
     def test_render_critical_gauge(self):
         """Critical tier outputs bold red styling and emits terminal bell (\\a)."""
-        gauge = render_terminal_gauge(47500)
+        gauge = render_terminal_gauge(240000)
         self.assertIn("CRITICAL", gauge)
-        self.assertIn("47,500 / 50,000 (95.0%)", gauge)
+        self.assertIn("240,000 / 256,000 (93.8%)", gauge)
         self.assertIn("\033[1;31m", gauge)
         self.assertTrue(gauge.startswith("\a"), "Critical gauge must begin with terminal bell")
 
@@ -272,9 +274,9 @@ class TestCheckTokenProximityLogic(unittest.TestCase):
             self.assertEqual(mock_err.getvalue(), "")
 
     def test_amber_zone_emits_stderr(self):
-        """Amber zone (35k–45k) emits warning gauge to stderr without bell."""
+        """Amber zone (180k–230k) emits warning gauge to stderr without bell."""
         conv_id = "amber-conv"
-        self._create_db_with_tokens(conv_id, 39000)
+        self._create_db_with_tokens(conv_id, 190000)
 
         with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
             res = check_token_proximity(conv_id, db_dir=self.db_dir)
@@ -286,9 +288,9 @@ class TestCheckTokenProximityLogic(unittest.TestCase):
             self.assertNotIn("\a", err_out)
 
     def test_critical_zone_emits_bell_and_red_pulse(self):
-        """Critical zone (>=45k) emits warning gauge with terminal bell (\\a)."""
+        """Critical zone (>=230k) emits warning gauge with terminal bell (\\a)."""
         conv_id = "critical-conv"
-        self._create_db_with_tokens(conv_id, 47000)
+        self._create_db_with_tokens(conv_id, 235000)
 
         with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
             res = check_token_proximity(conv_id, db_dir=self.db_dir)
@@ -302,7 +304,7 @@ class TestCheckTokenProximityLogic(unittest.TestCase):
     def test_run_token_proximity_guard_functional(self):
         """Tests run_token_proximity_guard directly with custom stderr."""
         conv_id = "amber-direct"
-        self._create_db_with_tokens(conv_id, 41000)
+        self._create_db_with_tokens(conv_id, 195000)
         custom_err = io.StringIO()
 
         with patch.dict(os.environ, {"ANTIGRAVITY_CONVERSATIONS_DIR": str(self.db_dir)}):
@@ -352,7 +354,7 @@ class TestHookMainExecution(unittest.TestCase):
 
     def test_main_action_render_gauge(self):
         """Tests testing action 'render_gauge'."""
-        payload = {"action": "render_gauge", "tokens": 46000}
+        payload = {"action": "render_gauge", "tokens": 235000}
         with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             guard_main()
             data = json.loads(mock_out.getvalue().strip())
@@ -610,15 +612,15 @@ class TestVertexContextCacheProtobuf(unittest.TestCase):
             cur = conn.cursor()
             cur.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, metadata BLOB)")
 
-            # 2,879 uncached + 94,046 cached = 96,925 total tokens
-            pb = build_usage_metadata_protobuf(prompt_tokens=2879, cached_tokens=94046)
+            # 2,879 uncached + 232,000 cached = 234,879 total tokens (>230k CRITICAL)
+            pb = build_usage_metadata_protobuf(prompt_tokens=2879, cached_tokens=232000)
             cur.execute("INSERT INTO steps (idx, metadata) VALUES (1, ?)", (pb,))
             conn.commit()
             conn.close()
 
             res = check_token_proximity(conv_id, db_dir=db_dir, emit_stderr=False)
             self.assertEqual(res["decision"], "allow")
-            self.assertEqual(res["tokens"], 96925)
+            self.assertEqual(res["tokens"], 234879)
             self.assertEqual(res["tier"], "CRITICAL")
             self.assertTrue(res["warned"])
 
@@ -852,9 +854,10 @@ class TestTokenBurnVelocity(unittest.TestCase):
         self.assertEqual(vel["tokens"], 12000)
         self.assertAlmostEqual(vel["burn_rate_tokens_per_min"], 2000.0, places=1)
         self.assertEqual(vel["velocity_tier"], "ELEVATED")
-        # mins_to_50k = (50000 - 12000) / 2000 = 19.0
-        self.assertIsNotNone(vel["mins_to_50k"])
-        self.assertAlmostEqual(vel["mins_to_50k"], 19.0, places=1)
+        # mins_to_compaction = (230000 - 12000) / 2000 = 109.0
+        self.assertIsNotNone(vel["mins_to_compaction"])
+        self.assertAlmostEqual(vel["mins_to_compaction"], 109.0, places=1)
+        self.assertAlmostEqual(vel["mins_to_50k"], 109.0, places=1)
         # mins_to_100k = (100000 - 12000) / 2000 = 44.0
         self.assertIsNotNone(vel["mins_to_100k"])
         self.assertAlmostEqual(vel["mins_to_100k"], 44.0, places=1)
@@ -916,23 +919,22 @@ class TestTokenBurnVelocity(unittest.TestCase):
         self.assertEqual(vel["velocity_tier"], "CRITICAL")
 
     def test_compaction_projection_clamping(self):
-        """Tokens >= 50,000 clamp mins_to_50k to 0.0, and tokens >= 100,000 clamp mins_to_100k to 0.0."""
+        """Tokens >= 230,000 clamp mins_to_compaction to 0.0, and tokens >= 100,000 clamp mins_to_100k to 0.0."""
         conv_id = "test-velocity-clamped"
         db_path = self.db_dir / f"{conv_id}.db"
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
         cur.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, token_count INTEGER, created_at TEXT)")
-        cur.execute("INSERT INTO steps VALUES (1, 50000, '2026-10-27 12:00:00')")
-        cur.execute("INSERT INTO steps VALUES (2, 53000, '2026-10-27 12:01:00')")
+        cur.execute("INSERT INTO steps VALUES (1, 230000, '2026-10-27 12:00:00')")
+        cur.execute("INSERT INTO steps VALUES (2, 233000, '2026-10-27 12:01:00')")
         conn.commit()
         conn.close()
 
         vel = get_active_conversation_token_velocity(conv_id, db_dir=self.db_dir)
-        self.assertEqual(vel["tokens"], 53000)
+        self.assertEqual(vel["tokens"], 233000)
+        self.assertEqual(vel["mins_to_compaction"], 0.0)
         self.assertEqual(vel["mins_to_50k"], 0.0)
-        # mins_to_100k = (100000 - 53000) / 3000 = 15.666...
-        self.assertIsNotNone(vel["mins_to_100k"])
-        self.assertAlmostEqual(vel["mins_to_100k"], 47000 / 3000.0, places=1)
+        self.assertEqual(vel["mins_to_100k"], 0.0)
 
     def test_gauge_formatting_with_velocity(self):
         """Asserts velocity badge is rendered in format_terminal_gauge."""
@@ -942,8 +944,8 @@ class TestTokenBurnVelocity(unittest.TestCase):
             mins_to_compaction=6.2,
             velocity_tier="ELEVATED",
         )
-        self.assertIn("38,420 / 50,000 (76.8%)", gauge)
-        self.assertIn("(+1,850 tok/min | ~6m to 50k)", gauge)
+        self.assertIn("38,420 / 256,000 (15.0%)", gauge)
+        self.assertIn("(+1,850 tok/min | ~6m to 230k)", gauge)
         self.assertIn("ELEVATED", gauge)
 
     def test_urgency_warning_triggered_by_rapid_burn(self):

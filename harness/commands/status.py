@@ -73,13 +73,14 @@ def cmd_status(args: argparse.Namespace) -> int:
     print("   ✔ anti-drift       (PreToolUse: plan boundary & cognitive anchor gate)")
     print("   ✔ token-proximity (PreToolUse: proactive token urgency monitor & alert)")
     print("-" * 70)
-    print(" Cognitive Attention Horizon Gauge:")
-    print("   🟢 Healthy Zone: <50k tokens / <50 steps (High Attention Aperture)")
-    print("   🟡 Amber Zone:   50k–100k tokens / 50–100 steps (Attention Compaction Advised)")
-    print("   🔴 Red Alert:    >100k tokens / >100 steps (Context Cliff Active)")
+    print(" Cognitive Attention Horizon Gauge (256k Model Context Window):")
+    print("   🟢 Healthy Zone: <180k tokens (Nominal / High Attention Aperture)")
+    print("   🟡 Amber Zone:   180k–230k tokens (Attention Compaction Advised)")
+    print("   🔴 Red Alert:    >=230k tokens (Compaction Imminent, 256k Context Window)")
     try:
         import os
         from harness.hooks.token_proximity_guard import (
+            CONTEXT_WINDOW_TOKENS,
             MAX_SAFE_BURN_RATE_PER_MIN,
             format_terminal_gauge,
             get_active_conversation_token_velocity,
@@ -99,13 +100,14 @@ def cmd_status(args: argparse.Namespace) -> int:
             if tokens <= 0:
                 tokens = get_active_conversation_tokens(conv_id)
             burn_rate = vel.get("burn_rate_tokens_per_min", 0.0)
-            mins_to_50k = vel.get("mins_to_50k")
+            mins_to_comp = vel.get("mins_to_compaction") or vel.get("mins_to_50k")
             vel_tier = vel.get("velocity_tier", "SAFE")
             if tokens > 0 or burn_rate > 0:
                 gauge = format_terminal_gauge(
                     tokens,
+                    threshold=CONTEXT_WINDOW_TOKENS,
                     burn_rate=burn_rate,
-                    mins_to_compaction=mins_to_50k,
+                    mins_to_compaction=mins_to_comp,
                     velocity_tier=vel_tier if burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN else None,
                 )
                 print(f"   📊 Active Session: {gauge}")

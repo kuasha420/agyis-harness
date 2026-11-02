@@ -693,9 +693,11 @@ When waking up in a clean context or post-compaction epoch:
             out_file = ws / out_file
         out_dir = out_file.parent
         latest_file = out_dir / "compaction_checkpoint_latest.md"
+        canonical_cp = out_dir / "cockpit_checkpoint.md"
     else:
         out_dir = ws / ".agents" / "artifacts"
-        out_file = out_dir / f"compaction_checkpoint_{epoch}.md"
+        canonical_cp = out_dir / "cockpit_checkpoint.md"
+        out_file = canonical_cp
         latest_file = out_dir / "compaction_checkpoint_latest.md"
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -703,6 +705,20 @@ When waking up in a clean context or post-compaction epoch:
     tmp_latest = out_dir / f".compaction_checkpoint_latest.{os.getpid()}.tmp"
     tmp_latest.write_text(markdown, encoding="utf-8")
     os.replace(tmp_latest, latest_file)
+    if canonical_cp != out_file:
+        tmp_canon = out_dir / f".cockpit_checkpoint.{os.getpid()}.tmp"
+        tmp_canon.write_text(markdown, encoding="utf-8")
+        os.replace(tmp_canon, canonical_cp)
+
+    # Mirror active implementation plan to workspace artifacts so it survives conversation resets
+    if plan_status and plan_status.plan_path:
+        try:
+            active_plan_dst = out_dir / "active_plan.md"
+            src_plan = Path(plan_status.plan_path)
+            if src_plan.is_file() and src_plan.resolve() != active_plan_dst.resolve():
+                active_plan_dst.write_text(src_plan.read_text(encoding="utf-8"), encoding="utf-8")
+        except Exception:
+            pass
 
     try:
         prune_stale_checkpoints(out_dir)

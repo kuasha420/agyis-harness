@@ -196,6 +196,19 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
     if prov_path:
         actions.append(f"Provisioned 'reverse-engineer-anything' skill dynamically in {prov_path}.")
 
+    # 4. Apply REA Ghidra acceleration patch (PSL-INV-009)
+    try:
+        from harness.re.patcher import check_patch, apply_patch
+        patch_info = check_patch()
+        if patch_info.get("status") in ("unapplied", "partial"):
+            p_res = apply_patch()
+            if p_res.get("success"):
+                actions.append(f"Applied REA Ghidra acceleration patch ({len(p_res.get('applied_files', []))} files).")
+            else:
+                actions.append(f"Failed to apply REA Ghidra patch: {p_res.get('error')}")
+    except Exception as e:
+        actions.append(f"Could not audit/apply REA patch: {e}")
+
     return actions
 
 

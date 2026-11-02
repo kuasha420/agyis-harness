@@ -894,6 +894,13 @@ def check_rea_tooling(
             "details": f"REA {version_str} verified ({rea_bin}), but REA MCP server is not registered in agent configuration.",
         }
 
+    rea_patch_info = None
+    try:
+        from harness.re.patcher import check_patch
+        rea_patch_info = check_patch()
+    except Exception:
+        pass
+
     return {
         "status": "ok",
         "binary": str(rea_bin),
@@ -903,6 +910,7 @@ def check_rea_tooling(
         "providers": providers,
         "mcp_configured": True,
         "node_toolchain": node_compat,
+        "rea_patch": rea_patch_info,
         "remediation": None,
         "details": f"REA {version_str} verified ({rea_bin}) with MCP registered.",
     }

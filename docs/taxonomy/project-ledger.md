@@ -825,3 +825,38 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Tests: `tests/test_cli.py`, `tests/test_delivery.py`
   - Delivery Commits: Tag `v1.0.0-rc8`
 
+---
+
+## [Phase 34] Release Candidate 9: Long-Horizon Cockpit Succession, Cleanroom RE Toolsuite & Extensible CLI Architecture (Release v1.0.0-rc9)
+* **Status**: Completed | **Compaction Date**: 2026-11-03 | **Release**: `v1.0.0-rc9` | **Milestone**: Cockpit Succession, Cleanroom RE & CLI Extensions
+* **Key Architectural Decisions & Deliverables**:
+  - **Token Threshold Standardization & De-Spammed Advisory (ADR-033)**:
+    * Standardized active context constants in `harness/hooks/token_proximity_guard.py`: 256,000 window, 230,000 compaction trigger, 180,000 amber alert.
+    * Implemented state-gated de-spammed advisory in `harness/hooks/pre_invocation_hook.py`: 40-line directive fires once per session crossing; subsequent turns emit a single-line gauge badge.
+    * Standardized checkpoint output to `.agents/artifacts/cockpit_checkpoint.md` with active plan mirroring to `.agents/artifacts/active_plan.md`.
+    * Purged AI-generated mock fallbacks in `harness/commands/cockpit.py`, connecting real SQLite token counters and live session discovery.
+  - **Cleanroom RE Toolsuite & Pre-Analyzed Ghidra Acceleration (`PSL-INV-009`, ADR-028, Issues #99 & #100)**:
+    * Codified invariant `PSL-INV-009: Pre-Analyzed Decompiler Cache Invariant` across global rules, workspace rules, and all specialist agent system prompts.
+    * Implemented `harness/re/patcher.py` and CLI `agyis re patch-rea [--check|--apply|--revert]` to idempotently patch `rea-agents` (`GhidraLauncher.js`, `binary-*.js`) for sub-2s decompilation on $>10\text{ MB}$ binaries via `-noanalysis -readOnly`.
+    * Implemented turnkey dirtyroom scaffolding in `harness/re/scaffold.py` (`agyis re init [path]`), provisioning `.dirtyroom/{ghidra,symbols,logs,pcaps}`, `dirtyroom.env`, and `.dirtyroom/symbols/dirtyroom.db`.
+    * Implemented headless Ghidra pre-analysis in `harness/re/preanalyze.py` (`agyis re pre-analyze <bin>`), automating `analyzeHeadless` execution and fast symbol/string indexing into SQLite.
+    * Implemented unified `agyis re` CLI palette (`harness/commands/re.py`) supporting `status`, `init`, `patch-rea`, `pre-analyze`, `find` ($<2\text{ms}$ query), `decompile`, and `pcap`.
+    * Added PreToolUse REA schema normalizer in `harness/hooks/command_safety_hook.py` (PascalCase and alias normalization; fail-fast check on $>10\text{ MB}$ un-cached binaries).
+    * Integrated REA patch detection and auto-healing into `agyis doctor --heal`.
+  - **Extensible Workspace CLI Command Architecture (ADR-034)**:
+    * Implemented workspace discovery engine in `harness/runtime/extensions.py` scanning `.agents/commands/` (`*.py`, `*.sh`, executables) and `.agents/commands.json`.
+    * Integrated seamless dispatch in `harness/cli.py`: `./agyis <command>` automatically dispatches to discovered workspace commands with execution lifecycle tracking.
+    * Implemented management CLI in `harness/commands/ext.py` (`agyis ext list`, `run`, `init`).
+    * Established Project Immortal migration runway: retire `scripts/dirtyroom/dirty` (1,630 lines) by migrating RE operations to `agyis re` and bespoke game loops to `.agents/commands/`.
+  - **Version Harmonization to `1.0.0-rc9`**:
+    * Synchronized `1.0.0-rc9` across `pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`, `tests/test_cli.py`, and `tests/test_delivery.py`.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,782 hermetic tests passing in 17.4s** (100% green, exit code 0).
+  - Sub-second RE & Extensions test benchmarks: `tests/test_re_toolchain.py` (7 tests in 0.006s) and `tests/test_extensions.py` (5 tests in 0.031s).
+  - Workstation Doctor: 9 OK, 0 missing, 0 outdated (`./agyis doctor --experimental-rea`).
+* **Reference Assets Committed**:
+  - Core Modules: `harness/hooks/token_proximity_guard.py`, `harness/hooks/pre_invocation_hook.py`, `harness/delivery/compaction_checkpoint.py`, `harness/commands/cockpit.py`, `harness/commands/status.py`, `harness/re/`, `harness/commands/re.py`, `harness/runtime/extensions.py`, `harness/commands/ext.py`, `harness/hooks/command_safety_hook.py`
+  - Tests: `tests/test_token_proximity_guard.py`, `tests/test_re_toolchain.py`, `tests/test_extensions.py`, `tests/test_cli.py`, `tests/test_delivery.py`
+  - Delivery Commits: Tag `v1.0.0-rc9`
+
+

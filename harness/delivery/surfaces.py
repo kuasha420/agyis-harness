@@ -346,7 +346,7 @@ def enforce_single_source_rules(
     removed_sections: List[str] = []
     chars_removed = 0
 
-    inheritance_notice = "<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-008 -->\n\n"
+    inheritance_notice = "<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-009 -->\n\n"
     pruned_content: str = ""
 
     if agents_rules.exists() and not agents_rules.is_symlink():
@@ -356,7 +356,7 @@ def enforce_single_source_rules(
         file_removed_sections: List[str] = []
 
         preamble = sections[0]
-        if "<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-008 -->" not in preamble:
+        if "<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-00" not in preamble:
             match = re.search(r"((?:<!--.*?-->\n*)+)", preamble, re.DOTALL)
             if match and match.start() == 0:
                 preamble = match.group(0) + inheritance_notice + preamble[match.end():]

@@ -51,6 +51,9 @@ from harness.commands import (
     cmd_cockpit,
     cmd_clean,
 )
+from harness.commands.re import main as cmd_re
+from harness.commands.ext import main as cmd_ext
+from harness.runtime.extensions import discover_workspace_commands, execute_extension_command
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MATRIX = Path(__file__).resolve().parent / "runtime" / "matrix.json"
@@ -1158,6 +1161,22 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Output structured cleanup report in JSON format",
     )
 
+    # re
+    p_re = subparsers.add_parser(
+        "re",
+        help="Cleanroom reverse engineering & dirty-room toolsuite (ADR-028, PSL-INV-009)",
+        description="Unified RE pipeline, sub-2s Ghidra project acceleration, and dirtyroom governance",
+    )
+    p_re.add_argument("re_args", nargs=argparse.REMAINDER, help="Arguments passed to 'agyis re'")
+
+    # ext
+    p_ext = subparsers.add_parser(
+        "ext",
+        help="Workspace CLI command extensions (ADR-034)",
+        description="Run, list, or scaffold project-specific CLI extension commands",
+    )
+    p_ext.add_argument("ext_args", nargs=argparse.REMAINDER, help="Arguments passed to 'agyis ext'")
+
     return parser
 
 
@@ -1185,6 +1204,14 @@ def main(
 
     if prog == "psl" and not _warned:
         emit_psl_deprecation_warning()
+
+    raw_argv = sys.argv[1:] if argv is None else list(argv)
+    if raw_argv and not raw_argv[0].startswith("-"):
+        first_tok = raw_argv[0]
+        # Check if first token matches a workspace extension command before argparse
+        exts = discover_workspace_commands()
+        if first_tok in exts:
+            return execute_extension_command(exts[first_tok], raw_argv[1:])
 
     parser = build_parser(prog=prog)
     args = parser.parse_args(argv)
@@ -1220,6 +1247,12 @@ def main(
         "ladder": cmd_cockpit,
         "clean": cmd_clean,
     }
+
+    if args.subcommand == "re":
+        return cmd_re(getattr(args, "re_args", []))
+
+    if args.subcommand == "ext":
+        return cmd_ext(getattr(args, "ext_args", []))
 
     handler = commands.get(args.subcommand)
     if handler:

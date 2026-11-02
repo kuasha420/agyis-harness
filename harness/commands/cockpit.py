@@ -53,29 +53,31 @@ def _classify_token_horizon(tokens: int) -> Tuple[str, str]:
 
 
 def _get_active_checkpoint_info(workspace: Path) -> Dict[str, Any]:
-    """Inspects .agents/artifacts/compaction_checkpoint_latest.md freshness."""
+    """Inspects .agents/artifacts/cockpit_checkpoint.md or compaction_checkpoint_latest.md freshness."""
+    cp_canon = workspace / ".agents" / "artifacts" / "cockpit_checkpoint.md"
     cp_latest = workspace / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
-    if not cp_latest.exists():
+    target_cp = cp_canon if cp_canon.exists() else cp_latest
+    if not target_cp.exists():
         return {
             "exists": False,
-            "path": str(cp_latest),
+            "path": str(target_cp),
             "age_seconds": None,
             "is_fresh": False,
         }
 
     try:
-        mtime = cp_latest.stat().st_mtime
+        mtime = target_cp.stat().st_mtime
         age_s = max(0.0, time.time() - mtime)
         return {
             "exists": True,
-            "path": str(cp_latest),
+            "path": str(target_cp),
             "age_seconds": round(age_s, 1),
             "is_fresh": age_s <= 3600.0,  # fresh within 60 mins
         }
     except Exception:
         return {
             "exists": False,
-            "path": str(cp_latest),
+            "path": str(target_cp),
             "age_seconds": None,
             "is_fresh": False,
         }
@@ -284,11 +286,36 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
     is_json = bool(getattr(args, "json", False))
 
     if action == "status":
-        raw_tokens_env = os.environ.get("AGYIS_TOKEN_COUNT") or os.environ.get("PSL_TOKEN_COUNT")
-        try:
-            tokens = int(raw_tokens_env) if raw_tokens_env else 45_000
-        except ValueError:
-            tokens = 45_000
+        raw_tokens_env = os.environ.get("AGYIS_TOKEN_COUNT") or os.environ.get("PSL_TOKEN_COUNT") or os.environ.get("AGYIS_CURRENT_TOKENS")
+        tokens = 0
+        if raw_tokens_env:
+            try:
+                tokens = int(raw_tokens_env)
+            except ValueError:
+                tokens = 0
+
+        if tokens <= 0:
+            try:
+                from harness.hooks.token_proximity_guard import (
+                    get_active_conversation_tokens,
+                    get_conversations_dir,
+                )
+                conv_id = (
+                    os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+                    or os.environ.get("CONVERSATION_ID")
+                    or os.environ.get("AGYIS_CONVERSATION_ID")
+                    or get_active_conversation_id()
+                )
+                if not conv_id:
+                    conv_dir = get_conversations_dir()
+                    if conv_dir.is_dir():
+                        dbs = sorted([f for f in conv_dir.glob("*.db") if not f.name.endswith(".tmp")], key=lambda f: f.stat().st_mtime, reverse=True)
+                        if dbs:
+                            conv_id = dbs[0].stem
+                if conv_id:
+                    tokens = get_active_conversation_tokens(conv_id)
+            except Exception:
+                tokens = 0
 
         zone_code, zone_label = _classify_token_horizon(tokens)
         git_state = inspect_git_state(workspace)

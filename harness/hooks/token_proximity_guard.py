@@ -29,9 +29,10 @@ import sys
 import time
 from typing import Any, Dict, Optional, TextIO
 
-COMPACTION_THRESHOLD: int = 50000
-AMBER_THRESHOLD: int = 35000
-RED_THRESHOLD: int = 45000
+CONTEXT_WINDOW_TOKENS: int = 256000
+COMPACTION_THRESHOLD: int = 230000
+AMBER_THRESHOLD: int = 180000
+RED_THRESHOLD: int = 230000
 CHECKPOINT_STEP_TYPE: int = 23  # Google Antigravity compaction checkpoint enum (0x17)
 ROLE_DEEP_EXECUTION: str = "deep_execution"
 MAX_SAFE_BURN_RATE_PER_MIN: float = 2000.0
@@ -506,6 +507,7 @@ def get_active_conversation_token_velocity(
     default_res: Dict[str, Any] = {
         "tokens": 0,
         "burn_rate_tokens_per_min": 0.0,
+        "mins_to_compaction": None,
         "mins_to_50k": None,
         "mins_to_100k": None,
         "velocity_tier": "SAFE",
@@ -738,14 +740,14 @@ def get_active_conversation_token_velocity(
         else:
             burn_rate = 0.0
 
-        mins_to_50k: Optional[float] = None
+        mins_to_compaction: Optional[float] = None
         mins_to_100k: Optional[float] = None
 
         if burn_rate > 0:
             if active_tokens >= COMPACTION_THRESHOLD:
-                mins_to_50k = 0.0
+                mins_to_compaction = 0.0
             else:
-                mins_to_50k = max(0.0, (COMPACTION_THRESHOLD - active_tokens) / burn_rate)
+                mins_to_compaction = max(0.0, (COMPACTION_THRESHOLD - active_tokens) / burn_rate)
 
             if active_tokens >= 100000:
                 mins_to_100k = 0.0
@@ -762,7 +764,8 @@ def get_active_conversation_token_velocity(
         return {
             "tokens": active_tokens,
             "burn_rate_tokens_per_min": burn_rate,
-            "mins_to_50k": mins_to_50k,
+            "mins_to_compaction": mins_to_compaction,
+            "mins_to_50k": mins_to_compaction,  # backward compatibility alias
             "mins_to_100k": mins_to_100k,
             "velocity_tier": vel_tier,
             "sample_count": len(windowed),
@@ -792,7 +795,7 @@ def get_urgency_tier(tokens: int) -> str:
 
 def format_terminal_gauge(
     tokens: int,
-    threshold: int = COMPACTION_THRESHOLD,
+    threshold: int = CONTEXT_WINDOW_TOKENS,
     step_count: Optional[int] = None,
     role: Optional[str] = None,
     burn_rate: Optional[float] = None,
@@ -800,7 +803,7 @@ def format_terminal_gauge(
     velocity_tier: Optional[str] = None,
 ) -> str:
     """Generates an ANSI terminal progress gauge with dynamic urgency color, burn velocity, and bell alert."""
-    denom = threshold if threshold > 0 else COMPACTION_THRESHOLD
+    denom = threshold if threshold > 0 else CONTEXT_WINDOW_TOKENS
     percentage = min(100.0, (tokens / denom) * 100) if denom > 0 else 0.0
     filled_blocks = int((tokens / denom) * 20) if denom > 0 else 0
     filled_blocks = max(0, min(20, filled_blocks))
@@ -811,7 +814,7 @@ def format_terminal_gauge(
         rate_int = int(round(burn_rate))
         if mins_to_compaction is not None:
             mins_int = int(round(mins_to_compaction))
-            vel_badge = f" (+{rate_int:,} tok/min | ~{mins_int}m to 50k)"
+            vel_badge = f" (+{rate_int:,} tok/min | ~{mins_int}m to 230k)"
         else:
             vel_badge = f" (+{rate_int:,} tok/min)"
 
@@ -852,8 +855,8 @@ def format_terminal_gauge(
 
 
 def render_terminal_gauge(tokens: int) -> str:
-    """Convenience alias for format_terminal_gauge(tokens, COMPACTION_THRESHOLD)."""
-    return format_terminal_gauge(tokens, COMPACTION_THRESHOLD)
+    """Convenience alias for format_terminal_gauge(tokens, CONTEXT_WINDOW_TOKENS)."""
+    return format_terminal_gauge(tokens, CONTEXT_WINDOW_TOKENS)
 
 
 def check_token_proximity(

@@ -1564,10 +1564,21 @@ def evaluate_pre_invocation(
 
         # 3. Compaction imminent advisory & automated checkpoint serialization (tokens >= effective_threshold)
         if tokens >= effective_threshold:
+            target_ws = eff_ws or Path.cwd()
+            is_real_session = bool(conv_id and re.match(r'^[0-9a-fA-F-]{8,}$', conv_id) and conv_id not in ("default", "test", "conv_test"))
+            state_file = target_ws / ".agents" / "artifacts" / f".compaction_alert_{conv_id}.json" if is_real_session else None
+            already_alerted = False
+            if state_file and state_file.is_file():
+                try:
+                    sdata = json.loads(state_file.read_text(encoding="utf-8"))
+                    if sdata.get("session_id") == conv_id and (time.time() - sdata.get("timestamp", 0) < 900):
+                        already_alerted = True
+                except Exception:
+                    already_alerted = False
+
             try:
                 from harness.delivery.compaction_checkpoint import generate_compaction_checkpoint
 
-                target_ws = eff_ws or Path.cwd()
                 latest_cp = target_ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
                 should_generate = True
                 if latest_cp.is_file():
@@ -1592,8 +1603,34 @@ def evaluate_pre_invocation(
                 traceback.print_exc(file=sys.stderr)
                 sys.stderr.flush()
 
-            advisory = build_compaction_advisory(role, tokens, effective_threshold)
-            inject_steps.append({"ephemeralMessage": advisory})
+            if not already_alerted:
+                advisory = build_compaction_advisory(role, tokens, effective_threshold)
+                inject_steps.append({"ephemeralMessage": advisory})
+                if state_file:
+                    try:
+                        state_file.parent.mkdir(parents=True, exist_ok=True)
+                        state_file.write_text(json.dumps({
+                            "session_id": conv_id,
+                            "tokens": tokens,
+                            "threshold": effective_threshold,
+                            "timestamp": time.time(),
+                        }), encoding="utf-8")
+                    except Exception:
+                        pass
+            else:
+                # Deduplicate: emit compact single-line gauge on subsequent turns instead of 40-line directive
+                badge = f"[AGYIS TOKEN GAUGE: ~{tokens:,} / 256,000 TOKENS | Compaction Checkpoint Active]"
+                inject_steps.append({"ephemeralMessage": badge})
+        else:
+            # Below threshold: reset alert state so future threshold crossings fire cleanly
+            try:
+                target_ws = eff_ws or Path.cwd()
+                if conv_id and conv_id != "default":
+                    sf = target_ws / ".agents" / "artifacts" / f".compaction_alert_{conv_id}.json"
+                    if sf.is_file():
+                        sf.unlink(missing_ok=True)
+            except Exception:
+                pass
 
         return {"injectSteps": inject_steps}
     except Exception:
