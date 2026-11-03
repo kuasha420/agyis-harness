@@ -330,6 +330,153 @@ def cmd_pcap(args: argparse.Namespace) -> int:
         return 1
 
 
+def resolve_binary_path(binary_name: str) -> Optional[Path]:
+    """Resolves a target binary in the dirtyroom environment or game install directory."""
+    paladins_bin_dir = os.environ.get(
+        "PALADINS_BIN_DIR",
+        "/mnt/fast_data/games/SteamLibrary/steamapps/common/Paladins/Binaries/Win64",
+    )
+    steam_cand = Path(paladins_bin_dir) / binary_name
+    if steam_cand.is_file():
+        return steam_cand
+
+    root = get_dirtyroom_root()
+    if not root:
+        return None
+    candidates = [
+        root / "binaries" / binary_name,
+        root / binary_name,
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    for match in root.rglob(binary_name):
+        if match.is_file():
+            return match
+    return None
+
+
+def cmd_disasm(args: argparse.Namespace) -> int:
+    """Disassembles instructions at symbol or virtual address via native objdump."""
+    objdump = shutil.which("objdump")
+    if not objdump:
+        print("[!] 'objdump' not found in PATH.", file=sys.stderr)
+        return 1
+
+    binary = getattr(args, "binary", None) or "ShippingPC-ChaosGame.exe"
+    bin_path = resolve_binary_path(binary)
+    if not bin_path:
+        print(f"[!] Error: Binary '{binary}' not found in dirtyroom.", file=sys.stderr)
+        return 1
+
+    target = args.target
+    try:
+        addr = int(target, 0)
+    except ValueError:
+        conn = get_dirtyroom_db()
+        addr = None
+        if conn:
+            c = conn.cursor()
+            c.execute("SELECT address FROM functions WHERE name = ? LIMIT 1", (target,))
+            row = c.fetchone()
+            if row:
+                addr = row[0]
+            conn.close()
+        if addr is None:
+            print(f"[!] Error: Could not resolve target symbol/address: {target}", file=sys.stderr)
+            return 1
+
+    start_addr = addr
+    stop_addr = addr + (getattr(args, "bytes", 128) or 128)
+    limit = getattr(args, "limit", 50) or 50
+
+    cmd = [
+        objdump,
+        "-d",
+        "-M",
+        "intel",
+        f"--start-address={hex(start_addr)}",
+        f"--stop-address={hex(stop_addr)}",
+        str(bin_path),
+    ]
+    try:
+        proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        lines = proc.stdout.splitlines()
+        code_lines = [
+            l
+            for l in lines
+            if l.strip()
+            and not l.startswith("Disassembly of section")
+            and not l.endswith(":")
+        ]
+        print(f"[*] Disassembly for {binary} at {hex(start_addr)}..{hex(stop_addr)}:")
+        for l in code_lines[:limit]:
+            print(l)
+        return 0
+    except Exception as e:
+        print(f"[!] Error executing objdump: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_xrefs(args: argparse.Namespace) -> int:
+    """Scans binary code sections for cross-references to a virtual address."""
+    target = args.target
+    try:
+        target_va = int(target, 0)
+    except ValueError:
+        print(f"[!] Error: Target must be a hex address (0x...): {target}", file=sys.stderr)
+        return 1
+
+    binary = getattr(args, "binary", None) or "MctsInterface.dll"
+    bin_path = resolve_binary_path(binary)
+    if not bin_path:
+        print(f"[!] Error: Binary '{binary}' not found in dirtyroom.", file=sys.stderr)
+        return 1
+
+    import struct
+
+    with open(bin_path, "rb") as f:
+        buf = f.read()
+
+    e_lfanew = struct.unpack_from("<I", buf, 0x3C)[0]
+    num_sections = struct.unpack_from("<H", buf, e_lfanew + 6)[0]
+    opt_hdr_size = struct.unpack_from("<H", buf, e_lfanew + 20)[0]
+    image_base = struct.unpack_from("<Q", buf, e_lfanew + 24 + 24)[0]
+
+    sec_offset = e_lfanew + 24 + opt_hdr_size
+    found_xrefs = []
+    for s in range(num_sections):
+        sec_hdr = buf[sec_offset + s * 40 : sec_offset + (s + 1) * 40]
+        sec_name = sec_hdr[:8].rstrip(b"\x00").decode("latin-1")
+        vsize, vaddr, raw_size, raw_offset = struct.unpack_from("<IIII", sec_hdr, 8)
+        if sec_name in (".text", "code"):
+            sec_data = buf[raw_offset : raw_offset + raw_size]
+            base_va = image_base + vaddr
+            for i in range(len(sec_data) - 4):
+                disp = struct.unpack_from("<i", sec_data, i)[0]
+                curr_va = base_va + i + 4
+                if curr_va + disp == target_va:
+                    found_xrefs.append(base_va + i)
+
+    conn = get_dirtyroom_db()
+    print(f"[*] Found {len(found_xrefs)} cross-reference(s) to {hex(target_va)} in {binary}:")
+    for xref in found_xrefs:
+        func_name = "unknown"
+        if conn:
+            c = conn.cursor()
+            c.execute(
+                "SELECT name, address FROM functions WHERE binary_id = (SELECT id FROM binaries WHERE name=?) AND address <= ? ORDER BY address DESC LIMIT 1",
+                (binary, xref),
+            )
+            r = c.fetchone()
+            if r:
+                func_name = f"{r[0]} + {hex(xref - r[1])}"
+        print(f"  {hex(xref)}  ({func_name})")
+    if conn:
+        conn.close()
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """CLI dispatcher for 'agyis re'."""
     parser = argparse.ArgumentParser(
@@ -380,6 +527,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_pcap.add_argument("--limit", type=int, default=50)
     p_pcap.add_argument("--filter", help="Wireshark display filter expression")
 
+    # disasm
+    p_disasm = sub.add_parser("disasm", help="Disassemble instructions via native objdump")
+    p_disasm.add_argument("target", help="Virtual address (hex) or function name")
+    p_disasm.add_argument("--binary", help="Target binary filename (default: ShippingPC-ChaosGame.exe)")
+    p_disasm.add_argument("--bytes", type=int, default=128, help="Number of bytes to disassemble")
+    p_disasm.add_argument("--limit", type=int, default=50, help="Max assembly lines to display")
+
+    # xrefs
+    p_xrefs = sub.add_parser("xrefs", help="Find cross-references to a virtual address")
+    p_xrefs.add_argument("target", help="Target virtual address (hex 0x...)")
+    p_xrefs.add_argument("--binary", help="Target binary filename (default: MctsInterface.dll)")
+
     args = parser.parse_args(argv)
     if not args.re_cmd or args.re_cmd == "status":
         return cmd_status(args)
@@ -395,6 +554,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_decompile(args)
     if args.re_cmd == "pcap":
         return cmd_pcap(args)
+    if args.re_cmd == "disasm":
+        return cmd_disasm(args)
+    if args.re_cmd == "xrefs":
+        return cmd_xrefs(args)
 
     parser.print_help()
     return 1
