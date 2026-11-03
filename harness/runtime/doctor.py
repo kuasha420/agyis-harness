@@ -35,6 +35,7 @@ from harness.runtime.hygiene_checks import (
     check_hooks_health,
     check_node_script_hygiene,
 )
+from harness.runtime.re_checks import audit_forensic_toolchain, is_re_workspace
 from harness.runtime.tool_checks import (
     REPO_ROOT,
     check_cli_binary,
@@ -52,6 +53,8 @@ DEFAULT_MATRIX = Path(__file__).resolve().parent / "matrix.json"
 __all__ = [
     "DEFAULT_MATRIX",
     "REPO_ROOT",
+    "audit_environment",
+    "audit_forensic_toolchain",
     "check_cli_binary",
     "check_database_port_conflicts",
     "check_duplicate_agents",
@@ -66,11 +69,11 @@ __all__ = [
     "find_hermetic_uv_python",
     "find_rea_binary",
     "heal_environment",
+    "is_re_workspace",
     "main",
     "parse_version",
     "print_cli_report",
     "run_doctor",
-    "audit_environment",
 ]
 
 
@@ -87,6 +90,7 @@ def run_doctor(
     mcp_config_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
     experimental_rea: bool = False,
+    re_toolchain: bool = False,
 ) -> Dict[str, Any]:
     """Perform complete workstation runtime audit."""
     eff_matrix = matrix_path if matrix_path is not None else DEFAULT_MATRIX
@@ -108,6 +112,13 @@ def run_doctor(
     database_port_conflicts = check_database_port_conflicts(workspace_root=effective_workspace)
     rea_tooling = check_rea_tooling(mcp_config_path=mcp_config_path, experimental_rea=experimental_rea)
 
+    # Reverse engineering and dirtyroom forensic toolchain audit (ADR-028, Issue #100)
+    is_re = is_re_workspace(effective_workspace)
+    re_active = re_toolchain or is_re
+    forensic_toolchain = None
+    if re_active:
+        forensic_toolchain = audit_forensic_toolchain(workspace_dir=effective_workspace)
+
     results: Dict[str, Any] = {
         "os_family": os_family,
         "hermetic_python_available": str(hermetic_python) if hermetic_python else None,
@@ -121,6 +132,8 @@ def run_doctor(
         "database_port_conflicts": database_port_conflicts,
         "rea_tooling": rea_tooling,
         "experimental_rea": experimental_rea,
+        "re_toolchain": re_active,
+        "forensic_toolchain": forensic_toolchain,
         "tiers": {},
         "summary": {
             "total_tools": 0,
@@ -156,6 +169,13 @@ def run_doctor(
         # Fast path (experimental_rea=False): strictly 0 warnings added
         if rea_tooling.get("status") == "optional_missing":
             results["summary"]["optional_missing"] += 1
+
+    if forensic_toolchain:
+        ft_summ = forensic_toolchain.get("summary", {})
+        results["summary"]["ok"] += ft_summ.get("pass", 0)
+        results["summary"]["optional_missing"] += ft_summ.get("info", 0)
+        if re_active:
+            results["summary"]["warning"] += ft_summ.get("warn", 0)
 
     for tier_key, tier_data in matrix.get("tiers", {}).items():
         tier_results = []
@@ -338,10 +358,13 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
 
     symbols = {
         "OK": "[\033[32mPASS\033[0m]",
+        "PASS": "[\033[32mPASS\033[0m]",
         "WARNING": "[\033[33mWARN\033[0m]",
+        "WARN": "[\033[33mWARN\033[0m]",
         "OUTDATED": "[\033[31mFAIL\033[0m]",
         "MISSING": "[\033[31mMISS\033[0m]",
         "OPTIONAL_MISSING": "[\033[34mINFO\033[0m]",
+        "INFO": "[\033[34mINFO\033[0m]",
         "UNKNOWN_VERSION": "[\033[33mUNKN\033[0m]",
     }
 
@@ -354,6 +377,23 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
             req_info = f"(min: {tool['min_version']})" if tool["min_version"] else ""
             shim_note = f" ⚠️  {tool['shim_details']}" if tool["is_shim"] else ""
             print(f"  {sym:16} {tool['name']:10} {v_info:12} {req_info:14} -> {tool['path'] or 'NOT FOUND'}{shim_note}")
+
+    ft = audit.get("forensic_toolchain")
+    if ft:
+        prof = ft.get("profile", "static-cleanroom")
+        print(f"\n▶ REVERSE ENGINEERING & DIRTYROOM TOOLCHAIN (Profile: {prof})")
+        for tool in ft.get("tools", []):
+            st = tool.get("status", "INFO")
+            sym = symbols.get(st, f"[{st:^4}]")
+            t_name = tool.get("name", "tool")
+            v_info = tool.get("version") or "N/A"
+            p_info = tool.get("path") or "NOT FOUND"
+            cat = f"[{tool.get('category', 'core')}]"
+            print(f"  {sym:16} {t_name:20} {cat:10} {v_info:14} -> {p_info}")
+        if ft.get("remediation"):
+            print("    Remediation:")
+            for rem in ft.get("remediation"):
+                print(f"      • {rem}")
 
     summ = audit["summary"]
     print("\n" + "-" * 70)
@@ -378,9 +418,17 @@ def main() -> int:
         action="store_true",
         help="Enable experimental Reverse Engineer Anything (REA) diagnostics and provider audit",
     )
+    parser.add_argument(
+        "--re",
+        dest="re_toolchain",
+        action="store_true",
+        help="Audit reverse engineering & dirtyroom forensic toolchain (Ghidra, objdump, tshark, ydotool)",
+    )
     args = parser.parse_args()
 
-    audit = run_doctor(args.matrix, experimental_rea=getattr(args, "experimental_rea", False))
+    exp_rea = getattr(args, "experimental_rea", False)
+    re_tool = getattr(args, "re_toolchain", False)
+    audit = run_doctor(args.matrix, experimental_rea=exp_rea, re_toolchain=re_tool)
 
     if args.json:
         print(json.dumps(audit, indent=2))
@@ -390,7 +438,12 @@ def main() -> int:
 
     if args.heal:
         print("\n🔧 Executing Auto-Healing...")
-        actions = heal_environment(audit, args.matrix, experimental_rea=getattr(args, "experimental_rea", False))
+        actions = heal_environment(
+            audit,
+            args.matrix,
+            experimental_rea=exp_rea,
+            re_toolchain=re_tool,
+        )
         for act in actions:
             print(f"  ✔ {act}")
         print()

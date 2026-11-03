@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def provision_rea_skill(
@@ -212,8 +212,78 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
     return actions
 
 
+def heal_forensic_toolchain(
+    audit: Dict[str, Any],
+    workspace_dir: Optional[Path] = None,
+) -> List[str]:
+    """Auto-heals the reverse engineering and dirtyroom toolchain in user-space without sudo."""
+    actions: List[str] = []
+    ft = audit.get("forensic_toolchain")
+    if not ft:
+        return actions
+
+    # 1. Auto-apply REA Ghidra acceleration patch (PSL-INV-009)
+    try:
+        from harness.re.patcher import apply_patch, check_patch
+
+        p_info = check_patch()
+        if p_info.get("status") in ("unapplied", "partial"):
+            p_res = apply_patch()
+            if p_res.get("success"):
+                actions.append(
+                    f"Auto-applied REA Ghidra acceleration patch (PSL-INV-009) to {len(p_res.get('applied_files', []))} files."
+                )
+            else:
+                actions.append(f"Failed to auto-apply REA Ghidra patch: {p_res.get('error')}")
+    except Exception as e:
+        actions.append(f"Could not auto-apply REA patch: {e}")
+
+    # 2. Auto-initialize dirtyroom SQLite symbols cache if directory exists
+    try:
+        from harness.re.scaffold import get_dirtyroom_root, init_dirtyroom_db
+
+        dr_root = get_dirtyroom_root(workspace_dir)
+        if dr_root and (dr_root / "symbols").is_dir() and not (dr_root / "symbols" / "dirtyroom.db").exists():
+            db_path = dr_root / "symbols" / "dirtyroom.db"
+            init_dirtyroom_db(db_path)
+            actions.append(f"Auto-initialized dirty-room SQLite symbols cache at {db_path}")
+    except Exception as e:
+        actions.append(f"Could not auto-init dirtyroom db: {e}")
+
+    # 3. Generate distro package remediation for missing native forensic tools
+    missing_pkgs = ft.get("missing_packages", [])
+    if missing_pkgs:
+        from harness.runtime.re_checks import FORENSIC_PACKAGE_MAP
+
+        os_family = audit.get("os_family", "linux")
+        distro_pkgs: List[str] = []
+        for pkg in missing_pkgs:
+            mapped = FORENSIC_PACKAGE_MAP.get(os_family, {}).get(pkg, pkg)
+            if mapped not in distro_pkgs:
+                distro_pkgs.append(mapped)
+
+        if distro_pkgs:
+            if os_family == "arch":
+                cmd = f"sudo pacman -S {' '.join(distro_pkgs)}"
+            elif os_family == "debian":
+                cmd = f"sudo apt update && sudo apt install -y {' '.join(distro_pkgs)}"
+            elif os_family == "fedora":
+                cmd = f"sudo dnf install -y {' '.join(distro_pkgs)}"
+            elif os_family == "darwin":
+                cmd = f"brew install {' '.join(distro_pkgs)}"
+            else:
+                cmd = f"# Install forensic packages: {' '.join(distro_pkgs)}"
+            actions.append(f"Forensic toolchain distro package install required:\n    {cmd}")
+
+    return actions
+
+
 def heal_environment(
-    audit: Dict[str, Any], matrix_path: Path, experimental_rea: bool = False
+    audit: Dict[str, Any],
+    matrix_path: Path,
+    experimental_rea: bool = False,
+    re_toolchain: bool = False,
+    workspace_dir: Optional[Path] = None,
 ) -> List[str]:
     """Execute non-destructive user-space repairs and return manual instructions."""
     actions_taken: List[str] = []
@@ -302,5 +372,9 @@ def heal_environment(
     if experimental_rea or audit.get("experimental_rea"):
         rea_actions = heal_rea_tooling(audit)
         actions_taken.extend(rea_actions)
+
+    if re_toolchain or audit.get("re_toolchain") or audit.get("forensic_toolchain"):
+        re_actions = heal_forensic_toolchain(audit, workspace_dir=workspace_dir)
+        actions_taken.extend(re_actions)
 
     return actions_taken

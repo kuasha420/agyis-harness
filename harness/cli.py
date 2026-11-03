@@ -103,6 +103,12 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Enable experimental Reverse Engineer Anything (REA) diagnostics and provider audit",
     )
     p_doc.add_argument(
+        "--re",
+        dest="re_toolchain",
+        action="store_true",
+        help="Audit reverse engineering & dirtyroom forensic toolchain (Ghidra, objdump, tshark, ydotool)",
+    )
+    p_doc.add_argument(
         "--anti-synthetic",
         action="store_true",
         help="Audit test files for synthetic, tautological, and fake test smells (Epic #51 R1)",
