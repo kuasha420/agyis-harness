@@ -97,12 +97,13 @@ TIERS = [
     {"model": "gemini-3.8-flash-high", "effort": "high"}
 ]
 
-def run_probe(model: str, effort: str, prompt: str) -> Dict[str, Any]:
+def run_probe(model: str, effort: str, prompt: str, print_timeout: int = 120) -> Dict[str, Any]:
     cmd = [
         "agy",
         "--model", model,
         "--effort", effort,
         "--output-format", "json",
+        "--print-timeout", str(print_timeout),
         "--print", prompt
     ]
     start = time.time()
@@ -110,8 +111,19 @@ def run_probe(model: str, effort: str, prompt: str) -> Dict[str, Any]:
     wall_duration = time.time() - start
 
     if proc.returncode != 0:
+        finished_reason = "error"
+        if proc.returncode == 3:
+            finished_reason = "print_timeout"
+        if proc.stdout:
+            try:
+                err_data = json.loads(proc.stdout)
+                finished_reason = err_data.get("finished_reason") or err_data.get("finishedReason") or finished_reason
+            except Exception:
+                pass
         return {
             "error": proc.stderr or proc.stdout,
+            "returncode": proc.returncode,
+            "finished_reason": finished_reason,
             "wall_duration": wall_duration
         }
 
@@ -131,6 +143,7 @@ def run_probe(model: str, effort: str, prompt: str) -> Dict[str, Any]:
         return {
             "parsed": parsed_json,
             "raw_response": resp_text,
+            "finished_reason": data.get("finished_reason") or data.get("finishedReason") or "complete",
             "duration_seconds": data.get("duration_seconds", wall_duration),
             "usage": data.get("usage", {}),
             "error": None

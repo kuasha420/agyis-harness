@@ -53,6 +53,7 @@ class SubagentEntry:
     token_count: int
     health_zone: str
     recommendation: str
+    parent_conversation_id: Optional[str] = None
 
 
 SubagentState = SubagentEntry
@@ -254,6 +255,7 @@ def collect_active_subagents(
                     token_count=s.token_count,
                     health_zone=s.health_zone,
                     recommendation=s.recommendation,
+                    parent_conversation_id=getattr(s, "parent_conversation_id", None),
                 )
             )
         if subagents:

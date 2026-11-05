@@ -1813,7 +1813,7 @@ class TestNativeSlashCommandBypass(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_native_slash_commands_recognized(self):
-        """All 13 native system slash commands are recognized regardless of flags or args."""
+        """All 14 native system slash commands are recognized regardless of flags or args."""
         from harness.hooks.pre_invocation_hook import is_native_slash_command, NATIVE_SYSTEM_SLASH_COMMANDS
 
         expected_cmds = [
@@ -1823,6 +1823,7 @@ class TestNativeSlashCommandBypass(unittest.TestCase):
             "goal",
             "plan",
             "boost",
+            "teamwork",
             "teamwork-preview",
             "grill-me",
             "browser",
@@ -1959,6 +1960,31 @@ class TestNativeSlashCommandBypass(unittest.TestCase):
 
         extracted_non_cmd = extract_prompt_text({}, conversation_id=cid_non_cmd, db_dir=self.db_dir)
         self.assertEqual(extracted_non_cmd, "")
+
+    def test_extract_prompt_text_fast_path_last_user_input(self):
+        """extract_prompt_text prioritizes lastUserInput from Antigravity 1.4.11+ hook stdin payload."""
+        from harness.hooks.pre_invocation_hook import extract_prompt_text
+
+        # 1. CamelCase lastUserInput
+        payload1 = {"lastUserInput": "/teamwork design multi-agent system"}
+        self.assertEqual(
+            extract_prompt_text(payload1, conversation_id="nonexistent-db"),
+            "/teamwork design multi-agent system",
+        )
+
+        # 2. Snake_case last_user_input
+        payload2 = {"last_user_input": "/compact"}
+        self.assertEqual(
+            extract_prompt_text(payload2, conversation_id="nonexistent-db"),
+            "/compact",
+        )
+
+        # 3. Inside steps list
+        payload3 = {"steps": [{"lastUserInput": "/plan milestone 1"}]}
+        self.assertEqual(
+            extract_prompt_text(payload3, conversation_id="nonexistent-db"),
+            "/plan milestone 1",
+        )
 
     def test_extract_prompt_text_records_locked_cid_on_operational_error(self):
         """extract_prompt_text records conversation_id into LOCKED_CONVERSATION_IDS on sqlite3.OperationalError."""

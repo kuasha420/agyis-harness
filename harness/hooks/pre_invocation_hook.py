@@ -111,6 +111,7 @@ NATIVE_SYSTEM_SLASH_COMMANDS: frozenset[str] = frozenset({
     "goal",
     "plan",
     "boost",
+    "teamwork",
     "teamwork-preview",
     "grill-me",
     "browser",
@@ -153,6 +154,8 @@ def extract_prompt_text(
 ) -> str:
     """Extracts raw user prompt or command text from incoming hook payload or SQLite steps."""
     for k in (
+        "lastUserInput",
+        "last_user_input",
         "prompt",
         "user_prompt",
         "userPrompt",
@@ -174,7 +177,18 @@ def extract_prompt_text(
     if isinstance(steps, list) and steps:
         for s in reversed(steps):
             if isinstance(s, dict):
-                for sk in ("prompt", "user_input", "userPrompt", "message", "text", "query", "input", "content"):
+                for sk in (
+                    "lastUserInput",
+                    "last_user_input",
+                    "prompt",
+                    "user_input",
+                    "userPrompt",
+                    "message",
+                    "text",
+                    "query",
+                    "input",
+                    "content",
+                ):
                     sv = s.get(sk)
                     if isinstance(sv, str) and sv.strip():
                         return sv.strip()

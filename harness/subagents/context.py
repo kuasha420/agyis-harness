@@ -31,6 +31,7 @@ class SubagentContextStatus:
     health_zone: str  # "HEALTHY" | "AMBER" | "RED_ALERT"
     recommendation: str  # "REUSE" | "COMPACT_RECREATE" | "RETIRE"
     latency_ms: float
+    parent_conversation_id: Optional[str] = None
 
 
 def classify_context_health(token_count: int, step_count: int) -> Tuple[str, str]:
@@ -120,6 +121,7 @@ def estimate_subagent_context(transcript_path: Path | str) -> SubagentContextSta
 
     detected_role = ""
     detected_id = ""
+    detected_parent_id = ""
 
     # Size-heuristic fallback for runaway / titan files (>2MB)
     if file_size > 2 * 1024 * 1024:
@@ -133,6 +135,11 @@ def estimate_subagent_context(transcript_path: Path | str) -> SubagentContextSta
                         detected_id = (
                             obj1.get("conversation_id")
                             or obj1.get("conversationId")
+                            or ""
+                        )
+                        detected_parent_id = (
+                            obj1.get("parent_conversation_id")
+                            or obj1.get("parentConversationId")
                             or ""
                         )
                         raw_role = obj1.get("role") or obj1.get("Role") or ""
@@ -150,6 +157,10 @@ def estimate_subagent_context(transcript_path: Path | str) -> SubagentContextSta
                     m_id = re.search(r'"conversation(?:_i|I)d":\s*"([^"]+)"', sample)
                     if m_id:
                         detected_id = m_id.group(1).strip()
+                if not detected_parent_id:
+                    m_pid = re.search(r'"parent(?:_c|C)onversation(?:_i|I)d":\s*"([^"]+)"', sample)
+                    if m_pid:
+                        detected_parent_id = m_pid.group(1).strip()
                 if not detected_role:
                     detected_role = extract_role_from_text(sample) or ""
         except OSError:
@@ -169,6 +180,7 @@ def estimate_subagent_context(transcript_path: Path | str) -> SubagentContextSta
             health_zone=health_zone,
             recommendation=rec,
             latency_ms=latency_ms,
+            parent_conversation_id=detected_parent_id or None,
         )
 
     # Exact JSON streaming for <= 2MB
@@ -190,6 +202,15 @@ def estimate_subagent_context(transcript_path: Path | str) -> SubagentContextSta
                             detected_id = (
                                 obj.get("conversation_id")
                                 or obj.get("conversationId")
+                                or ""
+                            )
+                        if not detected_parent_id:
+                            meta = obj.get("_meta") if isinstance(obj.get("_meta"), dict) else {}
+                            detected_parent_id = (
+                                obj.get("parent_conversation_id")
+                                or obj.get("parentConversationId")
+                                or meta.get("antigravity.google/root_conversation_id")
+                                or obj.get("root_conversation_id")
                                 or ""
                             )
                         if not detected_role:
@@ -236,6 +257,7 @@ def estimate_subagent_context(transcript_path: Path | str) -> SubagentContextSta
         health_zone=health_zone,
         recommendation=rec,
         latency_ms=latency_ms,
+        parent_conversation_id=detected_parent_id or None,
     )
 
 

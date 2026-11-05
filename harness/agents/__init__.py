@@ -87,8 +87,15 @@ def resolve_agent_name(name: str) -> str:
     """
     Resolve an agent name, alias, or legacy moniker to its canonical agyis_* name.
     If the name is already canonical or unrecognized, it is returned normalized.
+    Supports variant suffixes via colon notation (e.g. 'builder:fast' -> 'agyis_builder:fast').
     """
     norm = name.strip().lower().replace("-", "_")
+    if ":" in norm:
+        base, variant = norm.split(":", 1)
+        base = base.strip()
+        variant = variant.strip().replace("-", "_").replace(":", "_")
+        resolved_base = LEGACY_AGENT_ALIASES.get(base, base)
+        return f"{resolved_base}:{variant}"
     return LEGACY_AGENT_ALIASES.get(norm, norm)
 
 

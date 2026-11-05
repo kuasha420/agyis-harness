@@ -38,40 +38,43 @@ class AgentArchetype(str, Enum):
 
     @classmethod
     def from_string(cls, val: str) -> AgentArchetype:
-        """Parse string to archetype enum safely."""
-        norm = val.strip().lower().replace("-", "_")
+        """Parse string to archetype enum safely, handling colons, dashes, and variant suffixes (ADR-014)."""
+        val_clean = val.strip().lower()
+        base = val_clean.split(":")[0].strip().replace("-", "_")
+        norm = val_clean.replace("-", "_").replace(":", "_")
         for member in cls:
-            if member.value == norm or member.name.lower() == norm:
+            if member.value in (norm, base) or member.name.lower() in (norm, base):
                 return member
         # Fallback aliases
-        if norm in (
-            "agyis_architect",
-            "agyis-architect",
-            "architect",
-            "main",
-            "psl_main",
-            "psl-main",
-            "lead",
-            "general",
-            "default",
-            "master_implementer",
-            "deep_hybrid",
-        ):
-            return cls.MAIN
-        elif norm in ("builder", "harness_builder", "agyis_builder", "worker", "implementer", "executioner"):
-            return cls.EXECUTIONER
-        elif norm in ("reviewer", "harness_reviewer", "agyis_reviewer", "inspector", "hammer"):
-            return cls.HAMMER
-        elif norm in ("qa", "verifier", "qa_verifier", "auditor", "harness_auditor", "agyis_auditor"):
-            return cls.AUDITOR
-        elif norm in ("planner", "agyis_planner", "designer", "researcher"):
-            return cls.PLANNER
-        elif norm in ("coordinator", "agyis_coordinator", "orchestrator", "swarm_lead"):
-            return cls.COORDINATOR
-        elif norm in ("custodian", "harness_custodian", "agyis_custodian", "git_custodian", "commit_gate", "subagent_x_custodian"):
-            return cls.CUSTODIAN
-        elif norm in ("investigator", "agyis_investigator", "detective", "forensic", "root_cause_analyst", "rca"):
-            return cls.INVESTIGATOR
+        for check in (norm, base):
+            if check in (
+                "agyis_architect",
+                "agyis-architect",
+                "architect",
+                "main",
+                "psl_main",
+                "psl-main",
+                "lead",
+                "general",
+                "default",
+                "master_implementer",
+                "deep_hybrid",
+            ):
+                return cls.MAIN
+            elif check in ("builder", "harness_builder", "agyis_builder", "worker", "implementer", "executioner"):
+                return cls.EXECUTIONER
+            elif check in ("reviewer", "harness_reviewer", "agyis_reviewer", "inspector", "hammer"):
+                return cls.HAMMER
+            elif check in ("qa", "verifier", "qa_verifier", "auditor", "harness_auditor", "agyis_auditor"):
+                return cls.AUDITOR
+            elif check in ("planner", "agyis_planner", "designer", "researcher"):
+                return cls.PLANNER
+            elif check in ("coordinator", "agyis_coordinator", "orchestrator", "swarm_lead"):
+                return cls.COORDINATOR
+            elif check in ("custodian", "harness_custodian", "agyis_custodian", "git_custodian", "commit_gate", "subagent_x_custodian"):
+                return cls.CUSTODIAN
+            elif check in ("investigator", "agyis_investigator", "detective", "forensic", "root_cause_analyst", "rca"):
+                return cls.INVESTIGATOR
         raise ValueError(f"Unknown AgentArchetype: {val}")
 
 

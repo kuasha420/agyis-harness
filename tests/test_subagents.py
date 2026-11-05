@@ -365,6 +365,17 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertEqual(AgentArchetype.from_string("detective"), AgentArchetype.INVESTIGATOR)
         self.assertEqual(AgentArchetype.from_string("forensic"), AgentArchetype.INVESTIGATOR)
 
+        # Colon variant notation (Antigravity 1.4.8+)
+        self.assertEqual(AgentArchetype.from_string("builder:fast"), AgentArchetype.EXECUTIONER)
+        self.assertEqual(AgentArchetype.from_string("agyis_builder:worker"), AgentArchetype.EXECUTIONER)
+        self.assertEqual(AgentArchetype.from_string("investigator:rca"), AgentArchetype.INVESTIGATOR)
+        self.assertEqual(AgentArchetype.from_string("planner:architecture"), AgentArchetype.PLANNER)
+
+        from harness.agents import resolve_agent_name
+        self.assertEqual(resolve_agent_name("builder:fast"), "agyis_builder:fast")
+        self.assertEqual(resolve_agent_name("reviewer:strict"), "agyis_reviewer:strict")
+        self.assertEqual(resolve_agent_name("agyis_auditor:strict"), "agyis_auditor:strict")
+
         with self.assertRaises(ValueError):
             AgentArchetype.from_string("non_existent_archetype")
 

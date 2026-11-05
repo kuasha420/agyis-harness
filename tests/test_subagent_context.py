@@ -248,6 +248,32 @@ class TestSubagentContext(unittest.TestCase):
         self.assertIn("HEALTHY", zones)
         self.assertIn("AMBER", zones)
 
+    def test_parent_conversation_id_extraction(self) -> None:
+        """estimate_subagent_context extracts parent_conversation_id from transcript."""
+        # 1. Direct parent_conversation_id
+        t_path = self.tmp / "subagent_parent.jsonl"
+        line1 = json.dumps({
+            "conversation_id": "child-conv-123",
+            "parent_conversation_id": "parent-root-456",
+            "content": "You are agyis_builder executing plan",
+        })
+        t_path.write_text(line1, encoding="utf-8")
+        status = estimate_subagent_context(t_path)
+        self.assertEqual(status.conversation_id, "child-conv-123")
+        self.assertEqual(status.parent_conversation_id, "parent-root-456")
+
+        # 2. _meta root_conversation_id
+        t_path_meta = self.tmp / "subagent_meta.jsonl"
+        line2 = json.dumps({
+            "conversation_id": "child-conv-789",
+            "_meta": {"antigravity.google/root_conversation_id": "root-meta-999"},
+            "content": "You are agyis_reviewer auditing code",
+        })
+        t_path_meta.write_text(line2, encoding="utf-8")
+        status_meta = estimate_subagent_context(t_path_meta)
+        self.assertEqual(status_meta.conversation_id, "child-conv-789")
+        self.assertEqual(status_meta.parent_conversation_id, "root-meta-999")
+
 
 if __name__ == "__main__":
     unittest.main()
