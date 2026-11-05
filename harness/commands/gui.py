@@ -61,7 +61,7 @@ class CDPTargetNotFoundError(CDPError):
     pass
 
 
-def get_devtools_active_port(port_file: Optional[Path] = None) -> Tuple[int, str]:
+def get_devtools_active_port(port_file: Optional[Path] = None, verify_listening: bool = False) -> Tuple[int, str]:
     """
     Reads and parses the active DevTools port file written by Antigravity Electron shell.
 
@@ -84,6 +84,15 @@ def get_devtools_active_port(port_file: Optional[Path] = None) -> Tuple[int, str
 
     if not (1 <= port <= 65535):
         raise ValueError(f"Port number out of valid TCP range [1-65535]: {port}")
+
+    if verify_listening:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                pass
+        except (OSError, TimeoutError) as exc:
+            raise CDPConnectionError(
+                f"DevTools port {port} in {target_file} is not actively listening (stale process or closed): {exc}"
+            ) from exc
 
     browser_path = content[1].strip() if len(content) > 1 else ""
     return port, browser_path
@@ -371,7 +380,7 @@ def format_devtools_urls(port: int, target: Dict[str, Any]) -> Dict[str, str]:
 def build_hotkey_script() -> str:
     """
     Builds the JavaScript snippet to listen for F12 and Ctrl+Shift+T hotkeys
-    and toggle the trajectoryDebugOpen URL parameter.
+    and toggle DevTools / Trajectory debug view via electronNative and URL state.
     """
     return (
         "(() => {\n"
@@ -384,15 +393,20 @@ def build_hotkey_script() -> str:
         "      e.preventDefault();\n"
         "      e.stopPropagation();\n"
         "      try {\n"
+        "        if (window.electronNative && typeof window.electronNative.toggleDevTools === 'function') {\n"
+        "          window.electronNative.toggleDevTools();\n"
+        "        }\n"
+        "      } catch (err) {\n"
+        "        console.error('Failed to toggle DevTools via electronNative:', err);\n"
+        "      }\n"
+        "      try {\n"
         "        const url = new URL(window.location.href);\n"
         "        const current = url.searchParams.get('trajectoryDebugOpen');\n"
         "        const nextState = current === 'true' ? 'false' : 'true';\n"
         "        url.searchParams.set('trajectoryDebugOpen', nextState);\n"
         "        window.history.pushState({}, '', url.toString());\n"
         "        window.dispatchEvent(new PopStateEvent('popstate'));\n"
-        "      } catch (err) {\n"
-        "        console.error('Failed to toggle trajectory debug view:', err);\n"
-        "      }\n"
+        "      } catch (_) {}\n"
         "    }\n"
         "  }, true);\n"
         "})();"
@@ -459,6 +473,11 @@ def inject_trajectory_debug(
             let isOpen = currentVal === "true";
 
             if (openView) {{
+                try {{
+                    if (window.electronNative && typeof window.electronNative.toggleDevTools === "function") {{
+                        window.electronNative.toggleDevTools();
+                    }}
+                }} catch (_) {{}}
                 const nextState = isToggle ? (currentVal === "true" ? "false" : "true") : "true";
                 url.searchParams.set("trajectoryDebugOpen", nextState);
                 window.history.pushState({{}}, "", url.toString());

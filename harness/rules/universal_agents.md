@@ -1,3 +1,7 @@
+---
+trigger: manual
+description: Universal agent rules template for target workspace onboarding
+---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->

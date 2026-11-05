@@ -1,3 +1,7 @@
+---
+trigger: always_on
+description: Universal empirical agent rules and invariants (PSL-INV-001 through PSL-INV-009)
+---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
@@ -105,3 +109,15 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
    - Maintain clear separation between conversational parent flight deck pairing and child subagent ladder execution. Text outside `send_message` is not seen by callers in subagent mode.
 4. **Independent Dual-Auditor Gate**:
    - Multi-phase engineering tasks must pass through an independent dual-auditor gate (`agyis_reviewer` + `agyis_auditor`) prior to release certification and merge.
+
+---
+
+## 9. Pre-Analyzed Decompiler Cache Invariant (PSL-INV-009)
+1. **Mandatory Pre-Analyzed Project Cache**:
+   - For target binaries >10 MB, decompiler tools (Ghidra, REA) must NEVER execute full background analysis passes inside temporary session roots on ad-hoc tool calls.
+   - All disassembler/decompiler calls must point to a pre-analyzed Ghidra project repository (`REA_GHIDRA_PROJECT_DIR` / `.dirtyroom/ghidra`) executed with `-noanalysis` and `-readOnly` flags.
+2. **Sub-2-Second Decompilation Benchmark**:
+   - Targeted function decompilation and cross-reference queries must return within <2.0 seconds. Any decompiler invocation exceeding 10 seconds indicates cache bypass or missing pre-analysis and must fail fast rather than stalling agent turns.
+3. **Hermetic Dirty-Room Isolation**:
+   - Dirty-room caches, project databases (`.gpr`, `.rep`), raw symbol tables, and disassembler logs must remain quarantined within `.dirtyroom/` and `.gitignore`.
+   - Only typed cleanroom specifications, obligation ledgers, and formal evidence artifacts may transition across the cleanroom membrane into version control.
