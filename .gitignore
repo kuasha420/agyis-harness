@@ -58,6 +58,7 @@ data/cache/
 
 # Local agent artifacts, scratchpads, and sidecars
 scratch/
+.dirtyroom/
 .system_generated/
 *.env
 *.env.*
