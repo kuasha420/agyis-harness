@@ -41,6 +41,21 @@ def generate_systemd_service(
     agyis_bin: Optional[str] = None,
 ) -> str:
     """Generates the systemd user service unit definition for agyis-sync.service."""
+    resolved_work_dir: Path
+    if working_dir:
+        resolved_work_dir = Path(working_dir).resolve()
+    else:
+        # Detect repo root
+        cand = Path(__file__).resolve().parents[3]
+        if (cand / "harness").is_dir():
+            resolved_work_dir = cand
+        elif (Path.cwd() / "harness").is_dir():
+            resolved_work_dir = Path.cwd().resolve()
+        else:
+            resolved_work_dir = Path.home()
+
+    work_dir = str(resolved_work_dir)
+
     if python_bin:
         exec_cmd = f"{python_bin} -m harness.cli sync --watch --interval {interval_sec}"
     elif agyis_bin:
@@ -53,7 +68,6 @@ def generate_systemd_service(
             py_path = sys.executable or "/usr/bin/python3"
             exec_cmd = f"{py_path} -m harness.cli sync --watch --interval {interval_sec}"
 
-    work_dir = str(working_dir) if working_dir else str(Path.home())
     return f"""[Unit]
 Description=Agyis Telemetry Background Sync Service
 Documentation=https://github.com/kuasha420/agyis-harness
@@ -66,6 +80,8 @@ WorkingDirectory={work_dir}
 ExecStart={exec_cmd}
 Restart=on-failure
 RestartSec=10s
+MemoryMax=500M
+MemoryHigh=300M
 Environment=PYTHONUNBUFFERED=1
 
 [Install]
