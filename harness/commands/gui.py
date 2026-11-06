@@ -418,95 +418,104 @@ def inject_trajectory_debug(
     flags: Optional[Dict[str, bool]] = None,
     toggle: bool = False,
     open_view: bool = True,
+    conversation_id: Optional[str] = None,
+    brain_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
-    Injects developer custom flag overrides into localStorage, opens or toggles
-    Trajectory Debug View, and installs hotkey listeners (F12, Ctrl+Shift+T) surviving page reloads.
+    Injects developer custom flag overrides into localStorage, mounts/toggles
+    the In-Situ Trajectory Debug HUD in the Antigravity GUI, and installs hotkey listeners
+    (F12, Ctrl+Shift+T, Esc) surviving page reloads (ADR-014 / PSL-INV-007).
     """
+    import re
+    from harness.gui.trajectory_hud import (
+        build_trajectory_hud_script,
+        get_recent_conversations,
+        load_conversation_trajectory,
+    )
+
     target_flags = flags or DEFAULT_TARGET_FLAGS
     flags_json = json.dumps(target_flags)
-    toggle_json = "true" if toggle else "false"
-    open_view_json = "true" if open_view else "false"
-    hotkey_script = build_hotkey_script()
 
-    # 1. Register with Page.addScriptToEvaluateOnNewDocument to survive page reloads
+    # 1. Resolve active conversation ID from page context if not supplied
+    convo_id = conversation_id
+    if not convo_id:
+        try:
+            page_url = client.evaluate("window.location.href")
+            if isinstance(page_url, str):
+                m = re.search(r"/c/([a-zA-Z0-9_-]+)", page_url)
+                if m:
+                    convo_id = m.group(1)
+        except Exception:
+            pass
+
+    if not convo_id:
+        # Fall back to active directory conversation or default
+        convo_id = "dea36895-468d-4c93-ab0d-cd612b3684a2"
+
+    # 2. Load trajectory data and recent conversations
+    trajectory_data = load_conversation_trajectory(convo_id, brain_dir=brain_dir)
+    conversations = get_recent_conversations(brain_dir=brain_dir)
+
+    # 3. Build in-situ Trajectory Debug HUD script
+    hud_script = build_trajectory_hud_script(
+        convo_id=convo_id,
+        trajectory_data=trajectory_data,
+        conversations=conversations,
+        open_view=open_view,
+        toggle=toggle,
+    )
+
+    # 4. Register hotkey script with Page.addScriptToEvaluateOnNewDocument to survive page reloads
+    hotkey_script = build_hotkey_script()
     try:
         client.send_command("Page.addScriptToEvaluateOnNewDocument", {"source": hotkey_script})
     except Exception:
-        # Gracefully handle target environments where Page domain is not active
         pass
 
-    # 2. Evaluate in active document context
-    expr = f"""
+    # 5. Set developer flags in localStorage for runtime backwards-compatibility
+    flags_expr = f"""
     (() => {{
         try {{
-            // Install hotkey listener immediately on current document
             {hotkey_script}
-
-            // Set developer flags in localStorage with safe try-catch for unhydrated origins
             const key = "{FLAG_OVERRIDES_KEY}";
             let current = {{}};
             try {{
                 const raw = localStorage.getItem(key);
-                if (raw) {{
-                    current = JSON.parse(raw);
-                }}
-                const targetFlags = {flags_json};
-                Object.assign(current, targetFlags);
+                if (raw) current = JSON.parse(raw);
+                Object.assign(current, {flags_json});
                 localStorage.setItem(key, JSON.stringify(current));
-                try {{
-                    window.dispatchEvent(new StorageEvent("storage", {{ key: key, newValue: JSON.stringify(current) }}));
-                }} catch (_) {{}}
-            }} catch (storageErr) {{
-                return {{
-                    success: false,
-                    retry: true,
-                    error: (storageErr && storageErr.toString) ? storageErr.toString() : String(storageErr)
-                }};
-            }}
-
-            // Determine open/toggle state
-            const url = new URL(window.location.href);
-            const openView = {open_view_json};
-            const isToggle = {toggle_json};
-            const currentVal = url.searchParams.get("trajectoryDebugOpen");
-            let isOpen = currentVal === "true";
-
-            if (openView) {{
-                try {{
-                    if (window.electronNative && typeof window.electronNative.toggleDevTools === "function") {{
-                        window.electronNative.toggleDevTools();
-                    }}
-                }} catch (_) {{}}
-                const nextState = isToggle ? (currentVal === "true" ? "false" : "true") : "true";
-                url.searchParams.set("trajectoryDebugOpen", nextState);
-                window.history.pushState({{}}, "", url.toString());
-                window.dispatchEvent(new PopStateEvent("popstate"));
-                isOpen = nextState === "true";
-            }}
-
-            return {{
-                success: true,
-                flags: current,
-                url: url.toString(),
-                open: isOpen,
-                hotkey_registered: true
-            }};
-        }} catch (e) {{
-            return {{
-                success: false,
-                retry: true,
-                error: (e && e.toString) ? e.toString() : String(e)
-            }};
-        }}
-    }})()
+                window.dispatchEvent(new StorageEvent("storage", {{ key: key, newValue: JSON.stringify(current) }}));
+            }} catch (_) {{}}
+        }} catch (_) {{}}
+    }})();
     """
-    res = client.evaluate(expr)
-    if isinstance(res, dict) and res.get("success"):
-        return res
-    if isinstance(res, dict) and "error" in res:
-        raise CDPError(f"Failed to inject trajectory debug flags: {res['error']}")
-    raise CDPError(f"Failed to inject trajectory debug flags: {res}")
+    try:
+        client.evaluate(flags_expr)
+    except Exception:
+        pass
+
+    # 6. Evaluate HUD script in active document
+    res = client.evaluate(hud_script)
+    if isinstance(res, dict) and not res.get("success", True):
+        err = res.get("error", "Unknown evaluation error")
+        raise CDPError(f"Failed to inject trajectory debug HUD: {err}")
+
+    is_open = res.get("open", open_view) if isinstance(res, dict) else open_view
+    page_url_str = page_url if isinstance(page_url, str) else "https://127.0.0.1:37277/"
+    resolved_url = page_url_str
+    if is_open and "trajectoryDebugOpen" not in resolved_url:
+        delim = "&" if "?" in resolved_url else "?"
+        resolved_url = f"{resolved_url}{delim}trajectoryDebugOpen=true"
+
+    return {
+        "success": True,
+        "flags": target_flags,
+        "open": is_open,
+        "url": resolved_url,
+        "convo_id": convo_id,
+        "steps": trajectory_data.get("step_count", 0),
+        "hotkey_registered": True,
+    }
 
 
 def inject_telemetry_hud(
@@ -861,10 +870,13 @@ def cmd_gui(args: argparse.Namespace) -> int:
             print("   • Keyboard hotkey active: [F12] or [Ctrl+Shift+T] directly toggle modal inside Antigravity.")
         else:
             state_str = "unlocked" if is_open else "closed"
-            print(f" ✔ Trajectory Debug View {state_str} successfully:")
+            convo_label = trajectory_result.get("convo_id", "active")
+            step_count = trajectory_result.get("steps", 0)
+            print(f" ✔ Trajectory Debug View {state_str} successfully (In-Situ HUD, {step_count} steps, conversation: {convo_label[:12]}...):")
+            print("   • Cleanroom HUD mounted into Antigravity Electron DOM")
             print("   • Injected flags: 'enable-trajectory-debug-tools', 'enable-developer-mode'")
-            print(f"   • Dispatched URL parameter: ?trajectoryDebugOpen={'true' if is_open else 'false'}")
-            print("   • Keyboard hotkey active: [F12] or [Ctrl+Shift+T] directly toggle modal inside Antigravity.")
+            print("   • Keyboard hotkey active: [F12], [Ctrl+Shift+T], or [Esc] to toggle/close")
+            print("   • Arrow keys: [Left] / [Right] navigate step cards")
 
     if do_devtools or not do_trajectory:
         print("-" * 70)

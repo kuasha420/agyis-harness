@@ -408,7 +408,7 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
         self.assertFalse(res["open"])
         expr = mock_client.evaluate.call_args[0][0]
         self.assertIn("const isToggle = true;", expr)
-        self.assertIn('const nextState = isToggle ? (currentVal === "true" ? "false" : "true") : "true";', expr)
+        self.assertIn("agyis-trajectory-hud", expr)
 
     def test_inject_trajectory_debug_open_view_false(self) -> None:
         mock_client = MagicMock()
@@ -425,10 +425,10 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
         self.assertEqual(res["url"], "https://127.0.0.1:37277/")
         self.assertTrue(res["hotkey_registered"])
 
-        # Verify evaluate expression contains openView = false
+        # Verify evaluate expression contains shouldOpen = false
         expr = mock_client.evaluate.call_args[0][0]
-        self.assertIn("const openView = false;", expr)
-        self.assertIn("if (openView)", expr)
+        self.assertIn("const shouldOpen = false;", expr)
+        self.assertIn("agyis-trajectory-hud", expr)
         # Verify Page.addScriptToEvaluateOnNewDocument was still called
         mock_client.send_command.assert_called_once()
         method, params = mock_client.send_command.call_args[0]
