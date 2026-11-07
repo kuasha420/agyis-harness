@@ -1752,6 +1752,243 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertIn("agyis-copy-code-btn", script)
         self.assertIn("JSON.parse", script)
 
+    def test_hud_script_cleanroom_parity_features(self) -> None:
+        sample_data = {
+            "conversation_id": "test-parity",
+            "steps": [
+                {
+                    "step_index": 0,
+                    "type": "RUN_COMMAND",
+                    "command": "python3 test.py",
+                    "exitCode": 0,
+                    "output": "PASS",
+                },
+                {
+                    "step_index": 1,
+                    "type": "CHECKPOINT",
+                    "sessionSummary": "Compacted 10k tokens",
+                    "cacheReadTokens": 10000,
+                    "checkpointInputTokens": 2000,
+                },
+            ],
+            "system_prompt_slices": [
+                {"name": "Identity", "tokens": 400, "color": "#6366f1"},
+                {"name": "Guidelines", "tokens": 300, "color": "#e879f9"},
+            ],
+            "tool_def_slices": [
+                {"name": "Filesystem Tools", "tokens": 200, "color": "#06b6d4"},
+                {"name": "Terminal Tools", "tokens": 150, "color": "#0891b2"},
+            ],
+        }
+        script = build_trajectory_hud_script("test-parity", sample_data, [], open_view=True)
+
+        # Context Window Granular Slices
+        self.assertIn("system_prompt_slices", script)
+        self.assertIn("tool_def_slices", script)
+        self.assertIn("Filesystem Tools", script)
+        self.assertIn("Terminal Tools", script)
+        self.assertIn("#06b6d4", script)
+        self.assertIn("#0891b2", script)
+
+        # Step Inspector Specialized Cards
+        self.assertIn("agyis-terminal-card", script)
+        self.assertIn("agyis-file-card", script)
+        self.assertIn("agyis-diff-card", script)
+        self.assertIn("agyis-subagent-card", script)
+        self.assertIn("agyis-checkpoint-card", script)
+        self.assertIn("Compaction Checkpoint", script)
+        self.assertIn("Jump to Previous Epoch", script)
+        self.assertIn("agyis-jump-prev-epoch", script)
+
+        # Timing Header Guard
+        self.assertIn("isModelStep && totalDurationMs > 0", script)
+
+        # Invocation & Execution Polish
+        self.assertIn("No tool calls executed in this step", script)
+        self.assertIn("Status Transitions", script)
+        self.assertIn("Model Usage Metrics", script)
+
+
+class TestCleanroomAntigravityParityUpgrades(unittest.TestCase):
+    """Hermetic tests for Cleanroom Antigravity Trajectory Debug View parity upgrades."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.brain_dir = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_native_tool_step_unpacking(self) -> None:
+        convo_id = "test-cortex-unpacking"
+        convo_dir = self.brain_dir / convo_id / ".system_generated" / "logs"
+        convo_dir.mkdir(parents=True, exist_ok=True)
+        transcript = convo_dir / "transcript.jsonl"
+
+        steps_data = [
+            # 1. runCommand step
+            {
+                "step_index": 0,
+                "runCommand": {
+                    "commandLine": "ls -la",
+                    "exitCode": 0,
+                    "combinedOutput": {"full": "total 42\ndrwxr-xr-x"},
+                    "cwd": "/workspace",
+                },
+            },
+            # 2. viewFile step
+            {
+                "step_index": 1,
+                "viewFile": {
+                    "absolutePathUri": "/workspace/main.py",
+                    "content": "def main():\n    pass\n",
+                    "endLine": 2,
+                },
+            },
+            # 3. codeAction step
+            {
+                "step_index": 2,
+                "codeAction": {
+                    "actionSpec": {
+                        "editFile": {"path": {"absoluteUri": "/workspace/lib.py"}}
+                    },
+                    "actionResult": {
+                        "edit": {
+                            "diff": {
+                                "unifiedDiff": {
+                                    "lines": [
+                                        {"text": "--- a/lib.py", "type": "NORMAL"},
+                                        {"text": "+++ b/lib.py", "type": "NORMAL"},
+                                        {"text": "+def foo():", "type": "INSERTION"},
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                },
+            },
+            # 4. invokeSubagent step
+            {
+                "step_index": 3,
+                "invokeSubagent": {
+                    "subagents": [
+                        {
+                            "typeName": "SecurityAuditor",
+                            "role": "Auditor",
+                            "initialPrompt": "Audit authentication token handling",
+                        }
+                    ]
+                },
+            },
+            # 5. checkpoint step
+            {
+                "step_index": 4,
+                "checkpoint": {
+                    "sessionSummary": "Compacted 50 steps into high-density state",
+                },
+                "metadata": {
+                    "retryInfos": [
+                        {
+                            "usage": {
+                                "cacheReadTokens": 185000,
+                                "inputTokens": 12000,
+                            }
+                        }
+                    ]
+                },
+            },
+            # 6. toolCall step with argumentsJson
+            {
+                "step_index": 5,
+                "metadata": {
+                    "toolCall": {
+                        "id": "tc-call-1",
+                        "name": "run_command",
+                        "argumentsJson": json.dumps({"command": "cargo test", "timeout": 30}),
+                    }
+                },
+            },
+        ]
+
+        with open(transcript, "w", encoding="utf-8") as f:
+            for s in steps_data:
+                f.write(json.dumps(s) + "\n")
+
+        traj = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        steps = traj["steps"]
+        self.assertEqual(len(steps), 6)
+
+        # Assert runCommand unpacking
+        s0 = steps[0]
+        self.assertEqual(s0["type"], "RUN_COMMAND")
+        self.assertEqual(s0["command"], "ls -la")
+        self.assertEqual(s0["exitCode"], 0)
+        self.assertIn("total 42", s0["output"])
+        self.assertEqual(s0["cwd"], "/workspace")
+
+        # Assert viewFile unpacking
+        s1 = steps[1]
+        self.assertEqual(s1["type"], "VIEW_FILE")
+        self.assertEqual(s1["filePath"], "/workspace/main.py")
+        self.assertIn("def main():", s1["fileContent"])
+        self.assertEqual(s1["endLine"], 2)
+
+        # Assert codeAction unpacking
+        s2 = steps[2]
+        self.assertEqual(s2["type"], "CODE_ACTION")
+        self.assertEqual(s2["filePath"], "/workspace/lib.py")
+        self.assertEqual(len(s2["diffLines"]), 3)
+        self.assertEqual(s2["diffLines"][2]["text"], "+def foo():")
+
+        # Assert invokeSubagent unpacking
+        s3 = steps[3]
+        self.assertEqual(s3["type"], "INVOKE_SUBAGENT")
+        self.assertIsNotNone(s3["subagent"])
+        self.assertEqual(s3["subagent"]["typeName"], "SecurityAuditor")
+        self.assertEqual(s3["subagent"]["role"], "Auditor")
+
+        # Assert checkpoint unpacking
+        s4 = steps[4]
+        self.assertEqual(s4["type"], "CHECKPOINT")
+        self.assertIn("Compacted 50 steps", s4["sessionSummary"])
+        self.assertEqual(s4["cacheReadTokens"], 185000)
+        self.assertEqual(s4["checkpointInputTokens"], 12000)
+
+        # Assert toolCall argumentsJson unpacking
+        s5 = steps[5]
+        self.assertEqual(len(s5["tool_calls"]), 1)
+        self.assertEqual(s5["tool_calls"][0]["name"], "run_command")
+        self.assertEqual(s5["tool_calls"][0]["args"]["command"], "cargo test")
+        self.assertEqual(s5["tool_calls"][0]["args"]["timeout"], 30)
+
+    def test_granular_slices_generation(self) -> None:
+        convo_id = "test-slices"
+        convo_dir = self.brain_dir / convo_id / ".system_generated" / "logs"
+        convo_dir.mkdir(parents=True, exist_ok=True)
+        transcript = convo_dir / "transcript.jsonl"
+
+        with open(transcript, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"source": "user", "content": "Test prompt"}) + "\n")
+
+        traj = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+
+        # Assert granular system prompt slices
+        sys_slices = traj.get("system_prompt_slices", [])
+        self.assertTrue(len(sys_slices) >= 4)
+        slice_names = [sl["name"] for sl in sys_slices]
+        self.assertIn("Identity", slice_names)
+        self.assertIn("Guidelines", slice_names)
+        self.assertIn("Messaging", slice_names)
+
+        # Assert granular tool def slices
+        tool_slices = traj.get("tool_def_slices", [])
+        self.assertEqual(len(tool_slices), 4)
+        tool_names = [sl["name"] for sl in tool_slices]
+        self.assertIn("Filesystem Tools", tool_names)
+        self.assertIn("Terminal Tools", tool_names)
+        self.assertIn("Subagents", tool_names)
+        self.assertIn("Automation & Tasks", tool_names)
+
 
 if __name__ == "__main__":
     unittest.main()

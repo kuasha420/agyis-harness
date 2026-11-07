@@ -43,9 +43,18 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
         "PLANNER_RESPONSE", "USER_INPUT", "RUN_COMMAND", "VIEW_FILE",
         "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES",
         "SEND_MESSAGE", "INVOKE_SUBAGENT", "MODEL_OUTPUT", "SYSTEM", "TOOL_CALL",
-        "CHECKPOINT",
+        "CHECKPOINT", "CODE_ACTION",
     ):
         return existing_type
+
+    if step.get("runCommand") is not None or step_case == "runcommand":
+        return "RUN_COMMAND"
+    if step.get("viewFile") is not None or step_case == "viewfile":
+        return "VIEW_FILE"
+    if step.get("codeAction") is not None or step_case == "codeaction":
+        return "CODE_ACTION"
+    if step.get("invokeSubagent") is not None or step_case == "invokesubagent":
+        return "INVOKE_SUBAGENT"
 
     if source == "user" or role == "user":
         return "USER_INPUT"
@@ -424,6 +433,52 @@ def load_conversation_trajectory(
         meta = s.get("metadata", {}) if isinstance(s.get("metadata"), dict) else {}
         model_usage = meta.get("modelUsage", {}) if isinstance(meta.get("modelUsage"), dict) else {}
 
+        # Unpack ConnectRPC typed tool call & sub-objects (ADR-014 / Cleanroom Parity)
+        raw_tc = s.get("toolCall") or meta.get("toolCall")
+        if raw_tc and isinstance(raw_tc, dict) and not s.get("tool_calls"):
+            parsed_args = raw_tc.get("args") or raw_tc.get("arguments") or {}
+            if raw_tc.get("argumentsJson"):
+                try:
+                    parsed_args = json.loads(raw_tc["argumentsJson"])
+                except (json.JSONDecodeError, ValueError):
+                    parsed_args = {"raw": raw_tc["argumentsJson"]}
+            s["tool_calls"] = [{"id": raw_tc.get("id"), "name": raw_tc.get("name"), "args": parsed_args}]
+
+        if isinstance(s.get("runCommand"), dict):
+            rc = s["runCommand"]
+            s["command"] = rc.get("commandLine")
+            s["exitCode"] = rc.get("exitCode")
+            comb = rc.get("combinedOutput")
+            s["output"] = comb.get("full") if isinstance(comb, dict) else str(comb or "")
+            s["cwd"] = rc.get("cwd")
+
+        if isinstance(s.get("viewFile"), dict):
+            vf = s["viewFile"]
+            s["filePath"] = vf.get("absolutePathUri")
+            s["fileContent"] = vf.get("content")
+            s["endLine"] = vf.get("endLine")
+
+        if isinstance(s.get("codeAction"), dict):
+            ca = s["codeAction"]
+            edit_diff = (ca.get("actionResult") or {}).get("edit", {}).get("diff", {}).get("unifiedDiff", {})
+            s["diffLines"] = edit_diff.get("lines", []) if isinstance(edit_diff, dict) else []
+            spec = ca.get("actionSpec") or {}
+            cr = spec.get("createFile") or {}
+            ed = spec.get("editFile") or {}
+            s["filePath"] = (cr.get("path") or {}).get("absoluteUri") or (ed.get("path") or {}).get("absoluteUri") or ""
+
+        if isinstance(s.get("invokeSubagent"), dict):
+            subs = s["invokeSubagent"].get("subagents", [])
+            s["subagent"] = subs[0] if (isinstance(subs, list) and subs) else None
+
+        if isinstance(s.get("checkpoint"), dict):
+            cp = s["checkpoint"]
+            s["sessionSummary"] = cp.get("sessionSummary", "")
+            retries = meta.get("retryInfos", [])
+            usage = retries[0].get("usage", {}) if (isinstance(retries, list) and retries and isinstance(retries[0], dict)) else {}
+            s["cacheReadTokens"] = int(usage.get("cacheReadTokens", 0) or 0)
+            s["checkpointInputTokens"] = int(usage.get("inputTokens", 0) or 0)
+
         thinking_ms = s.get("thinking_duration_ms")
         if thinking_ms is None:
             thinking_ms = meta.get("thinking_duration_ms") or meta.get("ttft_ms")
@@ -638,6 +693,29 @@ def load_conversation_trajectory(
 
     summary = _extract_conversation_summary(convo_dir, transcript_path)
 
+    sys_prompt_slices = [
+        {"name": "Identity", "tokens": int(sys_prompt_tok * 0.15), "color": "#6366f1"},
+        {"name": "Sandbox", "tokens": int(sys_prompt_tok * 0.05), "color": "#818cf8"},
+        {"name": "Artifacts", "tokens": int(sys_prompt_tok * 0.08), "color": "#a78bfa"},
+        {"name": "Transcript", "tokens": int(sys_prompt_tok * 0.07), "color": "#c084fc"},
+        {"name": "Guidelines", "tokens": int(sys_prompt_tok * 0.12), "color": "#e879f9"},
+        {"name": "Style", "tokens": int(sys_prompt_tok * 0.05), "color": "#f472b6"},
+        {"name": "Commands", "tokens": int(sys_prompt_tok * 0.06), "color": "#fb7185"},
+        {"name": "Messaging", "tokens": int(sys_prompt_tok * 0.07), "color": "#9333ea"},
+        {"name": "MCP Servers", "tokens": int(sys_prompt_tok * 0.05), "color": "#7c3aed"},
+        {"name": "Subagents", "tokens": int(sys_prompt_tok * 0.06), "color": "#6d28d9"},
+        {"name": "User Rules", "tokens": int(sys_prompt_tok * 0.08), "color": "#5b21b6"},
+        {"name": "Skills", "tokens": int(sys_prompt_tok * 0.08), "color": "#4c1d95"},
+        {"name": "Plugins", "tokens": int(sys_prompt_tok * 0.04), "color": "#8b5cf6"},
+        {"name": "UserInfo", "tokens": max(0, sys_prompt_tok - sum(int(sys_prompt_tok * f) for f in [0.15, 0.05, 0.08, 0.07, 0.12, 0.05, 0.06, 0.07, 0.05, 0.06, 0.08, 0.08, 0.04])), "color": "#a855f7"},
+    ]
+    tool_def_slices = [
+        {"name": "Filesystem Tools", "tokens": int(tool_defs_tok * 0.25), "color": "#06b6d4"},
+        {"name": "Terminal Tools", "tokens": int(tool_defs_tok * 0.20), "color": "#0891b2"},
+        {"name": "Subagents", "tokens": int(tool_defs_tok * 0.25), "color": "#0e7490"},
+        {"name": "Automation & Tasks", "tokens": max(0, tool_defs_tok - (int(tool_defs_tok * 0.25) + int(tool_defs_tok * 0.20) + int(tool_defs_tok * 0.25))), "color": "#14b8a6"},
+    ]
+
     return {
         "conversation_id": conversation_id,
         "transcript_path": str(transcript_path),
@@ -653,6 +731,8 @@ def load_conversation_trajectory(
         "max_context_tokens": max_context_tokens,
         "cache_tokens": cache_tokens,
         "token_breakdown": token_breakdown,
+        "system_prompt_slices": sys_prompt_slices,
+        "tool_def_slices": tool_def_slices,
     }
 
 
@@ -1373,10 +1453,12 @@ _HUD_TEMPLATE = r"""
             }
 
             let genMetas = [];
+            let chatModelData = null;
             if (genRes && genRes.ok) {
                 const genJson = await genRes.json().catch(() => null);
                 if (genJson) {
                     genMetas = genJson.generatorMetadata || genJson.generatorMetadatas || genJson.metadatas || [];
+                    chatModelData = genJson.chatModel || (genMetas[0] && genMetas[0].chatModel) || null;
                 }
             }
 
@@ -1422,7 +1504,11 @@ _HUD_TEMPLATE = r"""
                     if (rawStep.userInput) cortexType = "USER_INPUT";
                     else if (rawStep.checkpoint) cortexType = "CHECKPOINT";
                     else if (rawStep.plannerResponse) cortexType = "PLANNER_RESPONSE";
-                    else if (rawStep.toolCalls || rawStep.toolCall) cortexType = "TOOL_CALL";
+                    else if (rawStep.runCommand) cortexType = "RUN_COMMAND";
+                    else if (rawStep.viewFile) cortexType = "VIEW_FILE";
+                    else if (rawStep.codeAction) cortexType = "CODE_ACTION";
+                    else if (rawStep.invokeSubagent) cortexType = "INVOKE_SUBAGENT";
+                    else if (rawStep.toolCalls || rawStep.toolCall || (rawStep.metadata && rawStep.metadata.toolCall)) cortexType = "TOOL_CALL";
                     else {
                         const src = String(rawStep.source || rawStep.role || "").toLowerCase();
                         if (src === "user") cortexType = "USER_INPUT";
@@ -1446,6 +1532,18 @@ _HUD_TEMPLATE = r"""
                 let toolCalls = rawStep.tool_calls || rawStep.toolCalls || [];
                 if (!Array.isArray(toolCalls) && rawStep.toolCall) {
                     toolCalls = [rawStep.toolCall];
+                }
+                const rawTc = rawStep.toolCall || (rawStep.metadata && rawStep.metadata.toolCall);
+                if (toolCalls.length === 0 && rawTc) {
+                    let parsedArgs = rawTc.arguments || rawTc.args || {};
+                    if (rawTc.argumentsJson) {
+                        try {
+                            parsedArgs = JSON.parse(rawTc.argumentsJson);
+                        } catch (_) {
+                            parsedArgs = { raw: rawTc.argumentsJson };
+                        }
+                    }
+                    toolCalls = [{ id: rawTc.id, name: rawTc.name, args: parsedArgs }];
                 }
 
                 let compSummary = null;
@@ -1538,7 +1636,7 @@ _HUD_TEMPLATE = r"""
                 }
                 if (stepTok > 0) cumulativeCtx += stepTok;
 
-                steps.push({
+                const stepObj = {
                     step_index: idx,
                     exec_index: rawStep.exec_index || 1,
                     inv_index: rawStep.inv_index || 1,
@@ -1560,7 +1658,35 @@ _HUD_TEMPLATE = r"""
                     response_model: (gm && (gm.responseModel || gm.model)) || "",
                     generator_metadata: gm,
                     executor_metadata: em,
-                });
+                };
+
+                if (rawStep.runCommand) {
+                    stepObj.command = rawStep.runCommand.commandLine;
+                    stepObj.exitCode = rawStep.runCommand.exitCode;
+                    stepObj.output = (rawStep.runCommand.combinedOutput && rawStep.runCommand.combinedOutput.full) || "";
+                    stepObj.cwd = rawStep.runCommand.cwd;
+                }
+                if (rawStep.viewFile) {
+                    stepObj.filePath = rawStep.viewFile.absolutePathUri;
+                    stepObj.fileContent = rawStep.viewFile.content;
+                    stepObj.endLine = rawStep.viewFile.endLine;
+                }
+                if (rawStep.codeAction) {
+                    stepObj.diffLines = (rawStep.codeAction.actionResult && rawStep.codeAction.actionResult.edit && rawStep.codeAction.actionResult.edit.diff && rawStep.codeAction.actionResult.edit.diff.unifiedDiff && rawStep.codeAction.actionResult.edit.diff.unifiedDiff.lines) || [];
+                    const actSpec = rawStep.codeAction.actionSpec || {};
+                    stepObj.filePath = (actSpec.createFile && actSpec.createFile.path && actSpec.createFile.path.absoluteUri) || (actSpec.editFile && actSpec.editFile.path && actSpec.editFile.path.absoluteUri) || "";
+                }
+                if (rawStep.invokeSubagent) {
+                    stepObj.subagent = (rawStep.invokeSubagent.subagents && rawStep.invokeSubagent.subagents[0]) || null;
+                }
+                if (rawStep.checkpoint) {
+                    stepObj.sessionSummary = rawStep.checkpoint.sessionSummary || "";
+                    const retryUsage = (rawStep.metadata && rawStep.metadata.retryInfos && rawStep.metadata.retryInfos[0] && rawStep.metadata.retryInfos[0].usage) || {};
+                    stepObj.cacheReadTokens = parseInt(retryUsage.cacheReadTokens || 0) || 0;
+                    stepObj.checkpointInputTokens = parseInt(retryUsage.inputTokens || 0) || 0;
+                }
+
+                steps.push(stepObj);
             });
 
             const checkpoints = [];
@@ -1675,6 +1801,124 @@ _HUD_TEMPLATE = r"""
                 tokenBreakdown.model += diff;
             }
 
+            // Granular System Prompt & Tool Def Slices (ADR-014 / Cleanroom Parity)
+            const rawSysPrompt = (chatModelData && chatModelData.systemPrompt) || "";
+            const rawChatTools = (chatModelData && chatModelData.tools) || [];
+            const promptSections = (chatModelData && chatModelData.promptSections) ||
+                (genMetas[0] && genMetas[0].plannerConfig && genMetas[0].plannerConfig.declarativeMixinConfig && genMetas[0].plannerConfig.declarativeMixinConfig.promptSections) ||
+                (rawSteps[0] && rawSteps[0].declarativeMixinConfig && rawSteps[0].declarativeMixinConfig.promptSections) || [];
+
+            const sysTagDefs = [
+                { tag: "identity", name: "Identity", color: "#6366f1" },
+                { tag: "sandbox", name: "Sandbox", color: "#818cf8" },
+                { tag: "artifacts", name: "Artifacts", color: "#a78bfa" },
+                { tag: "conversation_transcript", name: "Transcript", color: "#c084fc" },
+                { tag: "guidelines", name: "Guidelines", color: "#e879f9" },
+                { tag: "communication_style", name: "Style", color: "#f472b6" },
+                { tag: "slash_commands", name: "Commands", color: "#fb7185" },
+                { tag: "messaging", name: "Messaging", color: "#9333ea" },
+                { tag: "mcp_servers", name: "MCP Servers", color: "#7c3aed" },
+                { tag: "subagents", name: "Subagents", color: "#6d28d9" },
+                { tag: "user_rules", name: "User Rules", color: "#5b21b6" },
+                { tag: "skills", name: "Skills", color: "#4c1d95" },
+                { tag: "featured_plugins", name: "Plugins", color: "#8b5cf6" },
+                { tag: "user_information", name: "UserInfo", color: "#a855f7" },
+                { tag: "subagent_reminder", name: "Reminders", color: "#d946ef" },
+            ];
+
+            let systemPromptSlices = [];
+            if (rawSysPrompt) {
+                sysTagDefs.forEach(def => {
+                    const re = new RegExp(`<${def.tag}>([\\s\\S]*?)</${def.tag}>`, "i");
+                    const m = rawSysPrompt.match(re);
+                    if (m && m[1]) {
+                        systemPromptSlices.push({
+                            name: def.name,
+                            tag: def.tag,
+                            tokens: Math.max(10, Math.round(m[1].length / 3.5)),
+                            color: def.color,
+                        });
+                    }
+                });
+            } else if (promptSections && promptSections.length > 0) {
+                promptSections.forEach((sec, sidx) => {
+                    const sName = sec.name || sec.title || `Section #${sidx + 1}`;
+                    const sContent = sec.content || sec.text || "";
+                    const tok = Math.max(10, Math.round((sContent.length || 350) / 3.5));
+                    const palette = ["#6366f1", "#818cf8", "#a78bfa", "#c084fc", "#e879f9", "#f472b6", "#fb7185", "#9333ea", "#7c3aed", "#6d28d9", "#5b21b6", "#4c1d95", "#8b5cf6", "#a855f7", "#d946ef"];
+                    systemPromptSlices.push({
+                        name: sName,
+                        tokens: tok,
+                        color: palette[sidx % palette.length],
+                    });
+                });
+            }
+
+            if (systemPromptSlices.length === 0) {
+                systemPromptSlices = [
+                    { name: "Identity", tokens: Math.round(sysPromptTok * 0.15), color: "#6366f1" },
+                    { name: "Sandbox", tokens: Math.round(sysPromptTok * 0.05), color: "#818cf8" },
+                    { name: "Artifacts", tokens: Math.round(sysPromptTok * 0.08), color: "#a78bfa" },
+                    { name: "Transcript", tokens: Math.round(sysPromptTok * 0.07), color: "#c084fc" },
+                    { name: "Guidelines", tokens: Math.round(sysPromptTok * 0.12), color: "#e879f9" },
+                    { name: "Style", tokens: Math.round(sysPromptTok * 0.05), color: "#f472b6" },
+                    { name: "Commands", tokens: Math.round(sysPromptTok * 0.06), color: "#fb7185" },
+                    { name: "Messaging", tokens: Math.round(sysPromptTok * 0.07), color: "#9333ea" },
+                    { name: "MCP Servers", tokens: Math.round(sysPromptTok * 0.05), color: "#7c3aed" },
+                    { name: "Subagents", tokens: Math.round(sysPromptTok * 0.06), color: "#6d28d9" },
+                    { name: "User Rules", tokens: Math.round(sysPromptTok * 0.08), color: "#5b21b6" },
+                    { name: "Skills", tokens: Math.round(sysPromptTok * 0.08), color: "#4c1d95" },
+                    { name: "Plugins", tokens: Math.round(sysPromptTok * 0.04), color: "#8b5cf6" },
+                    { name: "UserInfo", tokens: Math.max(10, sysPromptTok - Math.round(sysPromptTok * 0.96)), color: "#a855f7" },
+                ];
+            } else {
+                const sliceSum = systemPromptSlices.reduce((acc, sl) => acc + sl.tokens, 0);
+                if (sliceSum > 0) {
+                    systemPromptSlices.forEach(sl => {
+                        sl.tokens = Math.max(1, Math.round((sl.tokens / sliceSum) * sysPromptTok));
+                    });
+                }
+            }
+
+            const toolCatMap = {
+                filesystem: { name: "Filesystem Tools", color: "#06b6d4", tokens: 0, tools: ["read_file", "write_file", "edit_file", "replace_file_content", "write_to_file", "view_file"] },
+                terminal: { name: "Terminal Tools", color: "#0891b2", tokens: 0, tools: ["run_command", "bash"] },
+                subagents: { name: "Subagents", color: "#0e7490", tokens: 0, tools: ["invoke_subagent", "define_subagent", "manage_subagents", "send_message"] },
+                automation: { name: "Automation & Tasks", color: "#14b8a6", tokens: 0, tools: ["schedule", "manage_task", "call_mcp_tool", "list_resources", "read_resource", "search_web", "search_marketplace", "list_plugin_accounts", "ask_question"] },
+            };
+
+            if (rawChatTools && rawChatTools.length > 0) {
+                rawChatTools.forEach(t => {
+                    const tName = (t.name || "").toLowerCase();
+                    const tok = Math.max(15, Math.round(JSON.stringify(t).length / 3.5));
+                    if (toolCatMap.filesystem.tools.some(k => tName.includes(k))) {
+                        toolCatMap.filesystem.tokens += tok;
+                    } else if (toolCatMap.terminal.tools.some(k => tName.includes(k))) {
+                        toolCatMap.terminal.tokens += tok;
+                    } else if (toolCatMap.subagents.tools.some(k => tName.includes(k))) {
+                        toolCatMap.subagents.tokens += tok;
+                    } else {
+                        toolCatMap.automation.tokens += tok;
+                    }
+                });
+            }
+
+            let toolDefSlices = [
+                { name: "Filesystem Tools", tokens: toolCatMap.filesystem.tokens || Math.round(toolDefsTok * 0.25), color: "#06b6d4" },
+                { name: "Terminal Tools", tokens: toolCatMap.terminal.tokens || Math.round(toolDefsTok * 0.20), color: "#0891b2" },
+                { name: "Subagents", tokens: toolCatMap.subagents.tokens || Math.round(toolDefsTok * 0.25), color: "#0e7490" },
+                { name: "Automation & Tasks", tokens: toolCatMap.automation.tokens || Math.max(10, toolDefsTok - Math.round(toolDefsTok * 0.70)), color: "#14b8a6" },
+            ];
+            const toolSliceSum = toolDefSlices.reduce((acc, sl) => acc + sl.tokens, 0);
+            if (toolSliceSum > 0) {
+                toolDefSlices.forEach(sl => {
+                    sl.tokens = Math.max(1, Math.round((sl.tokens / toolSliceSum) * toolDefsTok));
+                });
+            }
+
+            tokenBreakdown.system_prompt_slices = systemPromptSlices;
+            tokenBreakdown.tool_def_slices = toolDefSlices;
+
             const subagents = [];
             const subagentInfos = [];
             steps.forEach(s => {
@@ -1714,6 +1958,8 @@ _HUD_TEMPLATE = r"""
                 max_context_tokens: maxContextTokens,
                 cache_tokens: 0,
                 token_breakdown: tokenBreakdown,
+                system_prompt_slices: systemPromptSlices,
+                tool_def_slices: toolDefSlices,
             };
 
             const state = window.__agyis_hud_state;
@@ -1934,7 +2180,23 @@ _HUD_TEMPLATE = r"""
         };
 
         const segments = [];
-        if ((breakdown.system_prompt || 0) > 0) {
+        const sysSlices = cur.system_prompt_slices || (breakdown.system_prompt_slices) || [];
+        if (sysSlices.length > 0) {
+            sysSlices.forEach((sl, sidx) => {
+                if ((sl.tokens || 0) > 0) {
+                    segments.push({
+                        id: `sys-${(sl.name || 'sec').toLowerCase().replace(/[^a-z0-9]/g, '-')}-${sidx}`,
+                        type: "system_prompt",
+                        label: `System: ${sl.name}`,
+                        tokens: sl.tokens,
+                        color: sl.color || "#6366f1",
+                        colorKey: "bg-indigo-500",
+                        titleColorClass: "text-indigo-400",
+                        tooltipContent: `${sl.name} (${sl.tokens.toLocaleString()} tokens)`,
+                    });
+                }
+            });
+        } else if ((breakdown.system_prompt || 0) > 0) {
             segments.push({
                 id: "sys-prompt",
                 type: "system_prompt",
@@ -1946,7 +2208,24 @@ _HUD_TEMPLATE = r"""
                 tooltipContent: "System instructions and role configuration",
             });
         }
-        if ((breakdown.tool_defs || 0) > 0) {
+
+        const toolSlices = cur.tool_def_slices || (breakdown.tool_def_slices) || [];
+        if (toolSlices.length > 0) {
+            toolSlices.forEach((sl, tidx) => {
+                if ((sl.tokens || 0) > 0) {
+                    segments.push({
+                        id: `tool-${(sl.name || 'tool').toLowerCase().replace(/[^a-z0-9]/g, '-')}-${tidx}`,
+                        type: "tool_definition",
+                        label: `Tools: ${sl.name}`,
+                        tokens: sl.tokens,
+                        color: sl.color || "#06b6d4",
+                        colorKey: "bg-cyan-500",
+                        titleColorClass: "text-cyan-400",
+                        tooltipContent: `${sl.name} (${sl.tokens.toLocaleString()} tokens)`,
+                    });
+                }
+            });
+        } else if ((breakdown.tool_defs || 0) > 0) {
             segments.push({
                 id: "tool-defs",
                 type: "tool_definition",
@@ -2271,25 +2550,29 @@ _HUD_TEMPLATE = r"""
         let inspectorContentHtml = "";
         let timingBarHtml = "";
         if (currentStep) {
-            const ttftSec = ((currentStep.thinking_duration_ms || 0) / 1000).toFixed(2);
-            const streamSec = ((currentStep.streaming_duration_ms || 0) / 1000).toFixed(2);
-            const totalSec = ((currentStep.total_duration_ms || 0) / 1000).toFixed(2);
-            const totalMs = Math.max(1, (currentStep.total_duration_ms || 1));
-            const ttftPct = Math.round(((currentStep.thinking_duration_ms || 0) / totalMs) * 100);
-            const streamPct = 100 - ttftPct;
+            const isModelStep = (currentStep.type === "PLANNER_RESPONSE" || currentStep.type === "MODEL_OUTPUT");
+            const totalDurationMs = currentStep.total_duration_ms || 0;
+            if (isModelStep && totalDurationMs > 0) {
+                const ttftSec = ((currentStep.thinking_duration_ms || 0) / 1000).toFixed(2);
+                const streamSec = ((currentStep.streaming_duration_ms || 0) / 1000).toFixed(2);
+                const totalSec = (totalDurationMs / 1000).toFixed(2);
+                const totalMs = Math.max(1, totalDurationMs);
+                const ttftPct = Math.round(((currentStep.thinking_duration_ms || 0) / totalMs) * 100);
+                const streamPct = 100 - ttftPct;
 
-            timingBarHtml = `
-                <div class="agyis-timing-bar-wrap">
-                    <div style="display: flex; justify-content: space-between; font-size: 11px;">
-                        <span><b style="color: #f59e0b;">TTFT:</b> ${ttftSec}s (${ttftPct}%) &nbsp;|&nbsp; <b style="color: #6366f1;">STREAMING:</b> ${streamSec}s (${streamPct}%)</span>
-                        <span style="font-weight: 700; color: #cbd5e1;">Total: ${totalSec}s</span>
+                timingBarHtml = `
+                    <div class="agyis-timing-bar-wrap">
+                        <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                            <span><b style="color: #f59e0b;">TTFT:</b> ${ttftSec}s (${ttftPct}%) &nbsp;|&nbsp; <b style="color: #6366f1;">STREAMING:</b> ${streamSec}s (${streamPct}%)</span>
+                            <span style="font-weight: 700; color: #cbd5e1;">Total: ${totalSec}s</span>
+                        </div>
+                        <div class="agyis-timing-bar">
+                            <div style="width: ${ttftPct}%; background: #f59e0b;" title="TTFT / Thinking"></div>
+                            <div style="width: ${streamPct}%; background: #6366f1;" title="Streaming / Output"></div>
+                        </div>
                     </div>
-                    <div class="agyis-timing-bar">
-                        <div style="width: ${ttftPct}%; background: #f59e0b;" title="TTFT / Thinking"></div>
-                        <div style="width: ${streamPct}%; background: #6366f1;" title="Streaming / Output"></div>
-                    </div>
-                </div>
-            `;
+                `;
+            }
 
             // Tool calls summary strip
             let toolStripHtml = "";
@@ -2325,25 +2608,191 @@ _HUD_TEMPLATE = r"""
             }
 
             if (state.activeTab === "step") {
-                const text = currentStep.content || (!currentStep.thinking ? JSON.stringify(currentStep, null, 2) : "");
+                const cType = currentStep.type || "STEP";
+                let stepBodyHtml = "";
+
+                if (cType === "RUN_COMMAND" || currentStep.command !== undefined) {
+                    const cmd = currentStep.command || (currentStep.tool_calls?.[0]?.args?.CommandLine || currentStep.tool_calls?.[0]?.args?.command || "");
+                    const exitCode = currentStep.exitCode !== undefined ? currentStep.exitCode : (currentStep.tool_calls?.[0]?.args?.exitCode ?? 0);
+                    const exitBadgeClass = exitCode === 0 ? "agyis-hud-pill-green" : "agyis-hud-pill-red";
+                    const outputRaw = currentStep.output || (currentStep.tool_calls?.[0]?.output || "");
+                    const cleanOutput = String(outputRaw).replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '');
+                    const lineCount = cleanOutput ? cleanOutput.split(/\r?\n/).length : 0;
+
+                    stepBodyHtml = `
+                        <div class="agyis-terminal-card" style="background: #141416; border: 1px solid #27272a; border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #1c1c1f; border-bottom: 1px solid #27272a;">
+                                <div style="font-family: monospace; font-size: 11px; color: #f4f4f5; display: flex; align-items: center; gap: 6px;">
+                                    <span style="color: #38bdf8;">$</span>
+                                    <span>${String(cmd).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>
+                                </div>
+                                <span class="agyis-hud-pill ${exitBadgeClass}">exit ${exitCode}</span>
+                            </div>
+                            <div style="padding: 4px 10px; font-size: 10px; color: #71717a; border-bottom: 1px solid #202023; display: flex; justify-content: space-between;">
+                                <span>Terminal Output (${lineCount} lines)</span>
+                                <span>${currentStep.cwd ? `cwd: ${currentStep.cwd}` : ''}</span>
+                            </div>
+                            <pre class="agyis-codeblock" style="border: none; margin: 0; padding: 10px; max-height: 380px; overflow-y: auto;"><code class="language-bash">${cleanOutput.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>
+                        </div>
+                    `;
+                } else if (cType === "VIEW_FILE" || (currentStep.filePath && currentStep.fileContent !== undefined)) {
+                    const fPath = currentStep.filePath || (currentStep.tool_calls?.[0]?.args?.AbsolutePath || currentStep.tool_calls?.[0]?.args?.filePath || "");
+                    const fContent = currentStep.fileContent || (currentStep.tool_calls?.[0]?.output || currentStep.content || "");
+                    const lineCount = fContent ? fContent.split(/\r?\n/).length : 0;
+
+                    stepBodyHtml = `
+                        <div class="agyis-file-card" style="background: #141416; border: 1px solid #27272a; border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #1c1c1f; border-bottom: 1px solid #27272a;">
+                                <a href="file://${fPath}" target="_blank" style="font-family: monospace; font-size: 11px; color: #38bdf8; text-decoration: none;">
+                                    📄 ${String(fPath).replace(/</g, "&lt;").replace(/>/g, "&gt;")}
+                                </a>
+                                <span style="font-size: 10px; color: #a1a1aa;">${lineCount} lines</span>
+                            </div>
+                            <pre class="agyis-codeblock" style="border: none; margin: 0; padding: 10px; max-height: 400px; overflow-y: auto;"><code>${String(fContent).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>
+                        </div>
+                    `;
+                } else if (cType === "CODE_ACTION" || currentStep.diffLines !== undefined) {
+                    const fPath = currentStep.filePath || (currentStep.tool_calls?.[0]?.args?.TargetFile || "");
+                    const diffLines = currentStep.diffLines || [];
+
+                    let diffHtml = "";
+                    if (Array.isArray(diffLines) && diffLines.length > 0) {
+                        diffHtml = diffLines.map(dl => {
+                            const txt = (dl && dl.text !== undefined) ? dl.text : (typeof dl === "string" ? dl : JSON.stringify(dl));
+                            const type = (dl && dl.type) ? String(dl.type).toUpperCase() : (txt.startsWith("+") ? "INSERTION" : (txt.startsWith("-") ? "DELETION" : "NORMAL"));
+                            let lineBg = "transparent";
+                            let lineCol = "#cbd5e1";
+                            if (type === "INSERTION" || type === "ADD" || txt.startsWith("+")) {
+                                lineBg = "rgba(16, 185, 129, 0.15)";
+                                lineCol = "#6ee7b7";
+                            } else if (type === "DELETION" || type === "DELETE" || txt.startsWith("-")) {
+                                lineBg = "rgba(239, 68, 68, 0.15)";
+                                lineCol = "#fca5a5";
+                            }
+                            return `<div style="background: ${lineBg}; color: ${lineCol}; padding: 1px 8px; font-family: monospace; font-size: 11px; white-space: pre-wrap;">${String(txt).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`;
+                        }).join("");
+                    } else {
+                        diffHtml = `<div style="padding: 10px; color: #71717a; font-family: monospace; font-size: 11px;">No unified diff lines available</div>`;
+                    }
+
+                    stepBodyHtml = `
+                        <div class="agyis-diff-card" style="background: #141416; border: 1px solid #27272a; border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #1c1c1f; border-bottom: 1px solid #27272a;">
+                                <span style="font-family: monospace; font-size: 11px; color: #38bdf8;">
+                                    📝 ${String(fPath).replace(/</g, "&lt;").replace(/>/g, "&gt;")}
+                                </span>
+                                <span class="agyis-hud-pill agyis-hud-pill-green">Unified Diff</span>
+                            </div>
+                            <div style="max-height: 400px; overflow-y: auto; background: #09090b;">
+                                ${diffHtml}
+                            </div>
+                        </div>
+                    `;
+                } else if (cType === "INVOKE_SUBAGENT" || currentStep.subagent !== undefined) {
+                    const sub = currentStep.subagent || (currentStep.tool_calls?.[0]?.args || {});
+                    const typeName = sub.typeName || sub.agent_name || sub.name || "Specialist Subagent";
+                    const role = sub.role || sub.agent_role || "Subagent Worker";
+                    const prompt = sub.initialPrompt || sub.prompt || sub.objective || "";
+
+                    stepBodyHtml = `
+                        <div class="agyis-subagent-card" style="background: #18181b; border: 1px solid #7c3aed; border-radius: 6px; padding: 12px; margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 16px;">🤖</span>
+                                    <span style="font-weight: 700; color: #c084fc; font-size: 12px;">${String(typeName).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>
+                                    <span class="agyis-hud-pill agyis-hud-pill-purple">${String(role).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>
+                                </div>
+                                <span class="agyis-hud-pill agyis-hud-pill-green">Delegate Invoked</span>
+                            </div>
+                            <div style="font-size: 10px; color: #a1a1aa; margin-bottom: 4px; text-transform: uppercase;">Initial Prompt:</div>
+                            <div style="background: #141416; border: 1px solid #27272a; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 11px; color: #cbd5e1; max-height: 240px; overflow-y: auto;">
+                                ${String(prompt).replace(/</g, "&lt;").replace(/>/g, "&gt;")}
+                            </div>
+                        </div>
+                    `;
+                } else if (cType === "CHECKPOINT") {
+                    const cpSummary = currentStep.sessionSummary || currentStep.compaction_summary || currentStep.content || "";
+                    const cacheRead = currentStep.cacheReadTokens || 0;
+                    const inTokens = currentStep.checkpointInputTokens || currentStep.input_tokens || 0;
+                    let reclaimedMetric = "Compacted Context Milestone";
+                    if (cacheRead > 0 && inTokens > 0) {
+                        const reclaimedPct = Math.round(((cacheRead - inTokens) / cacheRead) * 100);
+                        reclaimedMetric = `Compacted ${(cacheRead/1000).toFixed(0)}k -> ${(inTokens/1000).toFixed(1)}k tokens (${reclaimedPct}% reduction)`;
+                    }
+
+                    stepBodyHtml = `
+                        <div class="agyis-checkpoint-card" style="background: #142e1d; border: 1px solid #16a34a; border-radius: 6px; padding: 14px; margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span class="agyis-hud-pill agyis-hud-pill-green" style="font-size: 12px; font-weight: 700;">
+                                        🛡️ Compaction Checkpoint #${currentStep.checkpoint_index || currentStep.step_index || state.selectedIndex}
+                                    </span>
+                                </div>
+                                <button id="agyis-jump-prev-epoch" class="agyis-hud-btn" style="padding: 3px 8px; font-size: 11px; background: #166534; border: 1px solid #22c55e; cursor: pointer;">
+                                    Jump to Previous Epoch ◀
+                                </button>
+                            </div>
+                            <div style="font-family: monospace; font-size: 12px; color: #86efac; margin-bottom: 10px; font-weight: 600;">
+                                📊 ${reclaimedMetric}
+                            </div>
+                            <div style="font-size: 10px; color: #86efac; margin-bottom: 4px; text-transform: uppercase;">Compacted Session Summary:</div>
+                            <div style="background: #0d1f14; border: 1px solid #166534; border-radius: 4px; padding: 10px; max-height: 280px; overflow-y: auto;">
+                                ${renderMarkdownPreview(cpSummary)}
+                            </div>
+                        </div>
+                    `;
+                } else if (cType === "USER_INPUT") {
+                    stepBodyHtml = `
+                        <div class="agyis-user-request-card" style="background: #1e293b; border: 1px solid #3b82f6; border-left: 4px solid #3b82f6; border-radius: 6px; padding: 12px; margin-bottom: 10px;">
+                            <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 11px; color: #38bdf8; margin-bottom: 6px;">
+                                <span>👤</span>
+                                <span>&lt;USER_REQUEST&gt;</span>
+                            </div>
+                            <div style="font-size: 12px; color: #f1f5f9; line-height: 1.5; white-space: pre-wrap;">${String(currentStep.content || "").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+                        </div>
+                    `;
+                } else if (cType === "PLANNER_RESPONSE" || cType === "MODEL_OUTPUT") {
+                    stepBodyHtml = `
+                        ${thinkingBlockHtml}
+                        ${currentStep.content ? `
+                            <h4 style="margin: 0 0 6px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Response Preview</h4>
+                            ${renderMarkdownPreview(currentStep.content)}
+                        ` : ""}
+                    `;
+                } else if (cType.includes("SYSTEM") || cType.includes("EPHEMERAL")) {
+                    stepBodyHtml = `
+                        <div class="agyis-system-card" style="background: #27272a; border: 1px solid #71717a; border-left: 4px solid #a855f7; border-radius: 6px; padding: 12px; margin-bottom: 10px;">
+                            <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 11px; color: #c084fc; margin-bottom: 6px;">
+                                <span>⚙️</span>
+                                <span>SYSTEM MESSAGE</span>
+                            </div>
+                            <div style="font-size: 12px; color: #e4e4e7; line-height: 1.5;">${renderMarkdownPreview(currentStep.content || "")}</div>
+                        </div>
+                    `;
+                } else {
+                    stepBodyHtml = `
+                        ${toolStripHtml}
+                        ${thinkingBlockHtml}
+                        ${currentStep.content ? `
+                            <h4 style="margin: 0 0 6px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Step Preview</h4>
+                            ${renderMarkdownPreview(currentStep.content)}
+                        ` : ""}
+                    `;
+                }
+
                 inspectorContentHtml = `
                     ${timingBarHtml}
-                    ${toolStripHtml}
-                    ${thinkingBlockHtml}
-                    ${text ? `
-                        <h4 style="margin: 0 0 6px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Step Preview</h4>
-                        ${renderMarkdownPreview(text)}
-                    ` : ""}
+                    ${stepBodyHtml}
                 `;
             } else if (state.activeTab === "invocation") {
                 const tools = currentStep.tool_calls || [];
                 inspectorContentHtml = `
                     ${timingBarHtml}
                     <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Tool Invocations (${tools.length})</h4>
-                    ${tools.length === 0 ? "<div style='color: #71717a;'>No tool calls executed in this step.</div>" : tools.map((t, tidx) => `
+                    ${tools.length === 0 ? "<div style='color: #71717a;'>No tool calls executed in this step</div>" : tools.map((t, tidx) => `
                         <div style="background: #202023; border: 1px solid #3f3f46; border-radius: 6px; padding: 10px; margin-bottom: 8px;">
                             <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                                <span style="font-weight: 700; color: #22d3ee; font-family: monospace;">#${tidx + 1} ${t.name}</span>
+                                <span style="font-weight: 700; color: #22d3ee; font-family: monospace;">#${tidx + 1} ${t.name || 'tool'}</span>
                                 <span class="agyis-hud-pill agyis-hud-pill-green">${t.status || "DONE"}</span>
                             </div>
                             <div style="font-size: 10px; color: #a1a1aa; margin-bottom: 4px;">Arguments:</div>
@@ -2353,18 +2802,38 @@ _HUD_TEMPLATE = r"""
                     `).join("")}
                 `;
             } else if (state.activeTab === "execution") {
+                const gm = currentStep.generator_metadata || {};
+                const em = currentStep.executor_metadata || {};
+                const modelUsage = gm.usage || (currentStep.metadata && currentStep.metadata.modelUsage) || {};
+                const statusTransitions = (em.statusTransitions) || (currentStep.metadata && currentStep.metadata.statusTransitions) || [
+                    { timestamp: new Date().toISOString(), status: currentStep.status || "STATUS_COMPLETED", executionId: `exec-${currentStep.step_index ?? state.selectedIndex}` }
+                ];
+
                 inspectorContentHtml = `
                     ${timingBarHtml}
-                    <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Execution Metadata</h4>
+                    <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Status Transitions</h4>
+                    <table class="agyis-markdown-table" style="margin-bottom: 12px;">
+                        <tr><th>Timestamp</th><th>Status</th><th>Execution ID</th></tr>
+                        ${statusTransitions.map(st => `
+                            <tr>
+                                <td style="font-family: monospace; font-size: 10px;">${st.timestamp || '-'}</td>
+                                <td><span class="agyis-hud-pill agyis-hud-pill-green">${st.status || '-'}</span></td>
+                                <td style="font-family: monospace; font-size: 10px;">${st.executionId || '-'}</td>
+                            </tr>
+                        `).join("")}
+                    </table>
+
+                    <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Model Usage Metrics</h4>
                     <table class="agyis-markdown-table">
-                        <tr><th>Field</th><th>Value</th></tr>
-                        <tr><td>Step Index</td><td>#${currentStep.step_index ?? state.selectedIndex}</td></tr>
-                        <tr><td>Type</td><td>${currentStep.type || "N/A"}</td></tr>
-                        <tr><td>Status</td><td>${currentStep.status || "DONE"}</td></tr>
-                        <tr><td>Input Tokens</td><td>${(currentStep.input_tokens || 0).toLocaleString()}</td></tr>
-                        <tr><td>Output Tokens</td><td>${(currentStep.output_tokens || 0).toLocaleString()}</td></tr>
+                        <tr><th>Metric</th><th>Value</th></tr>
+                        <tr><td>Model</td><td>${currentStep.response_model || gm.responseModel || gm.model || "gemini-2.5-pro"}</td></tr>
+                        <tr><td>Input Tokens</td><td>${(currentStep.input_tokens || modelUsage.inputTokens || 0).toLocaleString()}</td></tr>
+                        <tr><td>Output Tokens</td><td>${(currentStep.output_tokens || modelUsage.outputTokens || 0).toLocaleString()}</td></tr>
+                        <tr><td>Thinking Tokens</td><td>${(modelUsage.thinkingOutputTokens || 0).toLocaleString()}</td></tr>
+                        <tr><td>Cache Read Tokens</td><td>${(currentStep.cacheReadTokens || modelUsage.cacheReadTokens || 0).toLocaleString()}</td></tr>
+                        <tr><td>TTFT</td><td>${((currentStep.thinking_duration_ms || 0) / 1000).toFixed(2)}s</td></tr>
+                        <tr><td>Streaming Duration</td><td>${((currentStep.streaming_duration_ms || 0) / 1000).toFixed(2)}s</td></tr>
                         <tr><td>Cumulative Context</td><td>${(currentStep.cumulative_tokens || 0).toLocaleString()} tokens</td></tr>
-                        <tr><td>Payload Size</td><td>${formatBytes(currentStep.size_bytes)}</td></tr>
                     </table>
                 `;
             } else { // trajectory / raw
@@ -2661,6 +3130,17 @@ _HUD_TEMPLATE = r"""
         hud.querySelector("#agyis-epoch-next")?.addEventListener("click", () => {
             if (state.activeEpochIndex < epochs.length - 1) {
                 state.activeEpochIndex += 1;
+                const targetEp = epochs[state.activeEpochIndex];
+                if (targetEp) {
+                    state.selectedIndex = targetEp.start_index;
+                }
+                renderHud();
+            }
+        });
+
+        hud.querySelector("#agyis-jump-prev-epoch")?.addEventListener("click", () => {
+            if (state.activeEpochIndex > 0) {
+                state.activeEpochIndex -= 1;
                 const targetEp = epochs[state.activeEpochIndex];
                 if (targetEp) {
                     state.selectedIndex = targetEp.start_index;
