@@ -371,8 +371,27 @@ _HUD_TEMPLATE = r"""
     const shouldOpen = __PAYLOAD__.shouldOpen;
     const isToggle = __PAYLOAD__.isToggle;
 
-    if (!document.getElementById(STYLES_ID)) {
-        const styleEl = document.createElement("style");
+    let existingHud = document.getElementById(HUD_ID);
+    if (existingHud && isToggle) {
+        const isHidden = existingHud.style.display === "none";
+        if (isHidden) {
+            const match = window.location.pathname.match(/\/c\/([a-f0-9\-]+)/);
+            const focusedConvoId = match ? match[1] : null;
+            const state = window.__agyis_hud_state;
+            if (focusedConvoId && state && focusedConvoId !== state.convoId && typeof window.__agyis_hud_load_convo === "function") {
+                window.__agyis_hud_load_convo(focusedConvoId);
+            }
+        }
+        existingHud.style.display = isHidden ? "flex" : "none";
+        return { success: true, open: isHidden, toggled: true };
+    }
+
+    // Stale DOM Replacement: Purge existing HUD and styles on re-injection (PSL-INV-010)
+    if (existingHud) existingHud.remove();
+    const existingStyles = document.getElementById(STYLES_ID);
+    if (existingStyles) existingStyles.remove();
+
+    const styleEl = document.createElement("style");
         styleEl.id = STYLES_ID;
         styleEl.textContent = `
             #agyis-trajectory-hud {
@@ -706,28 +725,6 @@ _HUD_TEMPLATE = r"""
             .agyis-markdown-table th { background: #202023; color: #fbbf24; }
         `;
         document.head.appendChild(styleEl);
-    }
-
-    let existingHud = document.getElementById(HUD_ID);
-    if (existingHud) {
-        if (isToggle) {
-            const isHidden = existingHud.style.display === "none";
-            if (isHidden) {
-                const match = window.location.pathname.match(/\/c\/([a-f0-9\-]+)/);
-                const focusedConvoId = match ? match[1] : null;
-                const state = window.__agyis_hud_state;
-                if (focusedConvoId && state && focusedConvoId !== state.convoId && typeof window.__agyis_hud_load_convo === "function") {
-                    window.__agyis_hud_load_convo(focusedConvoId);
-                }
-            }
-            existingHud.style.display = isHidden ? "flex" : "none";
-            return { success: true, open: isHidden, toggled: true };
-        }
-        // Stale DOM Replacement: Purge existing HUD and styles on re-injection (PSL-INV-010)
-        existingHud.remove();
-        const existingStyles = document.getElementById(STYLES_ID);
-        if (existingStyles) existingStyles.remove();
-    }
 
     const hud = document.createElement("div");
     hud.id = HUD_ID;
@@ -1317,6 +1314,7 @@ _HUD_TEMPLATE = r"""
         }
     }
 
+    window.__agyis_hud_render = renderHud;
     renderHud();
     document.body.appendChild(hud);
 
@@ -1336,15 +1334,20 @@ _HUD_TEMPLATE = r"""
         }
     });
 
-    if (!window.__agyis_hud_hotkey_registered) {
-        window.__agyis_hud_hotkey_registered = true;
-        window.addEventListener("keydown", (e) => {
-            const isF12 = e.key === "F12";
-            const isCtrlShiftT = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "T" || e.key === "t");
-            if (isF12 || isCtrlShiftT) {
-                e.preventDefault();
-                e.stopPropagation();
-                const isHidden = hud.style.display === "none";
+    // Keydown listener with dynamic element lookup and re-injection cleanup
+    window.__agyis_hud_hotkey_registered = true;
+    if (window.__agyis_hud_active_listener) {
+        window.removeEventListener("keydown", window.__agyis_hud_active_listener, true);
+    }
+    window.__agyis_hud_active_listener = (e) => {
+        const isF12 = e.key === "F12";
+        const isCtrlShiftT = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "T" || e.key === "t");
+        const currentHud = document.getElementById(HUD_ID);
+        if (isF12 || isCtrlShiftT) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (currentHud) {
+                const isHidden = (currentHud.style.display === "none");
                 if (isHidden) {
                     const match = window.location.pathname.match(/\/c\/([a-f0-9\-]+)/);
                     const focusedConvoId = match ? match[1] : null;
@@ -1353,26 +1356,27 @@ _HUD_TEMPLATE = r"""
                         window.__agyis_hud_load_convo(focusedConvoId);
                     }
                 }
-                hud.style.display = isHidden ? "flex" : "none";
+                currentHud.style.display = isHidden ? "flex" : "none";
             }
-            if (e.key === "Escape" && hud.style.display !== "none") {
-                hud.style.display = "none";
+        }
+        if (e.key === "Escape" && currentHud && currentHud.style.display !== "none") {
+            currentHud.style.display = "none";
+        }
+        if (currentHud && currentHud.style.display !== "none" && (e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA")) {
+            const state = window.__agyis_hud_state;
+            if (!state) return;
+            const steps = (state.currentData && state.currentData.steps) ? state.currentData.steps : [];
+            if (e.key === "ArrowLeft" && state.selectedIndex > 0) {
+                state.selectedIndex -= 1;
+                renderHud();
             }
-            if (hud.style.display !== "none" && (e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA")) {
-                const state = window.__agyis_hud_state;
-                if (!state) return;
-                const steps = (state.currentData && state.currentData.steps) ? state.currentData.steps : [];
-                if (e.key === "ArrowLeft" && state.selectedIndex > 0) {
-                    state.selectedIndex -= 1;
-                    renderHud();
-                }
-                if (e.key === "ArrowRight" && state.selectedIndex < steps.length - 1) {
-                    state.selectedIndex += 1;
-                    renderHud();
-                }
+            if (e.key === "ArrowRight" && state.selectedIndex < steps.length - 1) {
+                state.selectedIndex += 1;
+                renderHud();
             }
-        }, true);
-    }
+        }
+    };
+    window.addEventListener("keydown", window.__agyis_hud_active_listener, true);
 
     return {
         success: true,

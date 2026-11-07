@@ -386,8 +386,8 @@ def build_hotkey_script() -> str:
     """
     return (
         "(() => {\n"
-        "  if (window.__agyis_hotkey_installed) return;\n"
-        "  window.__agyis_hotkey_installed = true;\n"
+        "  if (window.__agyis_hud_active_listener || window.__agyis_hud_hotkey_registered) return;\n"
+        "  window.__agyis_hud_hotkey_registered = true;\n"
         "  window.addEventListener('keydown', (e) => {\n"
         "    const isF12 = e.key === 'F12';\n"
         "    const isCtrlShiftT = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't');\n"
@@ -412,6 +412,21 @@ def build_hotkey_script() -> str:
         "      const hud = document.getElementById('agyis-trajectory-hud');\n"
         "      if (hud && hud.style.display !== 'none') {\n"
         "        hud.style.display = 'none';\n"
+        "      }\n"
+        "    }\n"
+        "    const hud = document.getElementById('agyis-trajectory-hud');\n"
+        "    if (hud && hud.style.display !== 'none' && (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA')) {\n"
+        "      const state = window.__agyis_hud_state;\n"
+        "      if (state) {\n"
+        "        const steps = (state.currentData && state.currentData.steps) ? state.currentData.steps : [];\n"
+        "        if (e.key === 'ArrowLeft' && state.selectedIndex > 0) {\n"
+        "          state.selectedIndex -= 1;\n"
+        "          if (typeof window.__agyis_hud_render === 'function') window.__agyis_hud_render();\n"
+        "        }\n"
+        "        if (e.key === 'ArrowRight' && state.selectedIndex < steps.length - 1) {\n"
+        "          state.selectedIndex += 1;\n"
+        "          if (typeof window.__agyis_hud_render === 'function') window.__agyis_hud_render();\n"
+        "        }\n"
         "      }\n"
         "    }\n"
         "  }, true);\n"
@@ -488,7 +503,7 @@ def inject_trajectory_debug(
         const observer = new MutationObserver(() => {{
             if (window.location.href !== lastUrl) {{
                 lastUrl = window.location.href;
-                if (!window.__agyis_hotkey_installed) {{
+                if (!window.__agyis_hud_hotkey_registered) {{
                     {hotkey_script}
                 }}
             }}

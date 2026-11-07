@@ -382,6 +382,7 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
         self.assertIn("keydown", script)
         self.assertIn("__agyis_hud_load_convo", script)
         self.assertIn("location.pathname.match", script)
+        self.assertIn("__agyis_hud_hotkey_registered", script)
 
     def test_inject_trajectory_debug_emits_page_add_script_and_hotkey(self) -> None:
         mock_client = MagicMock()

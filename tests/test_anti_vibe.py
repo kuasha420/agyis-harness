@@ -17,6 +17,7 @@ import socket
 import tempfile
 import time
 import unittest
+import unittest.mock
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,6 +25,7 @@ import urllib.request
 from harness.gui.server import (
     TrajectoryRequestHandler,
     TrajectoryServer,
+    ensure_trajectory_server,
     is_server_alive,
     start_trajectory_server,
 )
@@ -140,6 +142,22 @@ class TestTrajectoryServerEndpoints(unittest.TestCase):
         unused_port = _get_free_port()
         self.assertFalse(is_server_alive("127.0.0.1", unused_port))
 
+    @unittest.mock.patch("harness.gui.server.subprocess.Popen")
+    @unittest.mock.patch("harness.gui.server.is_server_alive")
+    def test_ensure_trajectory_server_spawns_background_process(
+        self, mock_alive: unittest.mock.MagicMock, mock_popen: unittest.mock.MagicMock
+    ) -> None:
+        # First call False (not alive), second call True (became alive after spawn)
+        mock_alive.side_effect = [False, True]
+        res = ensure_trajectory_server(port=40624)
+        self.assertIsNone(res)
+        mock_popen.assert_called_once()
+        cmd = mock_popen.call_args[0][0]
+        self.assertIn("--server", cmd)
+        self.assertIn("--server-port", cmd)
+        self.assertIn("40624", cmd)
+        self.assertTrue(mock_popen.call_args[1].get("start_new_session"))
+
 
 class TestMultiSessionDynamicTraversal(unittest.TestCase):
     """Tests multi-session trajectory retrieval and route switching (PSL-INV-010)."""
@@ -193,6 +211,11 @@ class TestAntiVibeScriptDOMReplacement(unittest.TestCase):
         self.assertIn("existingHud.remove()", script)
         self.assertIn("existingStyles.remove()", script)
 
+        # Stale styles must be purged BEFORE fresh styles are created
+        idx_stale_remove = script.index("existingStyles.remove()")
+        idx_style_create = script.index("document.createElement(\"style\")")
+        self.assertLess(idx_stale_remove, idx_style_create, "Stale styles must be purged BEFORE fresh styles are created")
+
         # 2. Dynamic loader definition
         self.assertIn("window.__agyis_hud_load_convo = async function", script)
         self.assertIn("http://127.0.0.1:40624/api/trajectory?id=", script)
@@ -203,6 +226,9 @@ class TestAntiVibeScriptDOMReplacement(unittest.TestCase):
         # 4. Refresh button and event listener
         self.assertIn("agyis-refresh-btn", script)
         self.assertIn("agyis-convo-select", script)
+
+        # 5. Hotkey registration check (unified flag)
+        self.assertIn("window.__agyis_hud_hotkey_registered", script)
 
 
 class TestPSLINV010RuleCodification(unittest.TestCase):

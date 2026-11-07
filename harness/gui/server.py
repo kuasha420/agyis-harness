@@ -17,7 +17,10 @@ import logging
 import os
 from pathlib import Path
 import socket
+import subprocess
+import sys
 import threading
+import time
 from typing import Any, Dict, List, Optional
 import urllib.parse
 import urllib.request
@@ -160,9 +163,20 @@ def ensure_trajectory_server(
     port: int = DEFAULT_TRAJECTORY_PORT,
     brain_dir: Optional[Path] = None,
 ) -> Optional[TrajectoryServer]:
-    """Ensures that the trajectory server is alive; starts one if not."""
+    """Ensures that the trajectory server is alive; starts one as detached background process if not."""
     if is_server_alive(host=host, port=port):
         return None
+
+    cmd = [sys.executable, "-m", "harness.cli", "gui", "--server", "--server-port", str(port)]
+    try:
+        subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(10):
+            time.sleep(0.05)
+            if is_server_alive(host=host, port=port):
+                return None
+    except Exception as exc:
+        logger.warning(f"Failed to spawn detached background trajectory server: {exc}")
+
     try:
         return start_trajectory_server(host=host, port=port, brain_dir=brain_dir)
     except OSError:
