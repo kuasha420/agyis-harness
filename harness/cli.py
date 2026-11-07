@@ -768,6 +768,12 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Remove real-time token burn velocity HUD badge from Google Antigravity GUI",
     )
     p_gui.add_argument(
+        "--service",
+        choices=["install", "status", "start", "stop", "uninstall"],
+        default=None,
+        help="Manage automatic GUI HUD unlock systemd user service (install, status, start, stop, uninstall)",
+    )
+    p_gui.add_argument(
         "--json",
         action="store_true",
         help="Output result in JSON format",

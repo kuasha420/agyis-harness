@@ -31,9 +31,17 @@ from harness.commands.gui import (
     cmd_gui,
     find_page_target,
     format_devtools_urls,
+    generate_gui_systemd_path_unit,
+    generate_gui_systemd_service_unit,
     get_cdp_targets,
     get_devtools_active_port,
+    handle_gui_service_command,
     inject_trajectory_debug,
+)
+from harness.gui.trajectory_hud import (
+    build_trajectory_hud_script,
+    get_recent_conversations,
+    load_conversation_trajectory,
 )
 
 
@@ -369,8 +377,8 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
         script = build_hotkey_script()
         self.assertIn("F12", script)
         self.assertIn("isCtrlShiftT", script)
-        self.assertIn("trajectoryDebugOpen", script)
-        self.assertIn("popstate", script)
+        self.assertIn("agyis-trajectory-hud", script)
+        self.assertIn("Escape", script)
         self.assertIn("keydown", script)
 
     def test_inject_trajectory_debug_emits_page_add_script_and_hotkey(self) -> None:
@@ -393,7 +401,8 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
         self.assertEqual(method, "Page.addScriptToEvaluateOnNewDocument")
         self.assertIn("source", params)
         self.assertIn("F12", params["source"])
-        self.assertIn("trajectoryDebugOpen", params["source"])
+        self.assertIn("agyis-trajectory-hud", params["source"])
+        self.assertIn("MutationObserver", params["source"])
 
     def test_inject_trajectory_debug_toggle_expression(self) -> None:
         mock_client = MagicMock()
@@ -434,6 +443,21 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
         method, params = mock_client.send_command.call_args[0]
         self.assertEqual(method, "Page.addScriptToEvaluateOnNewDocument")
         self.assertIn("F12", params["source"])
+
+    def test_inject_trajectory_debug_with_explicit_convo_id(self) -> None:
+        mock_client = MagicMock()
+        mock_client.evaluate.return_value = {
+            "success": True,
+            "flags": {"enable-trajectory-debug-tools": True, "enable-developer-mode": True},
+            "url": "https://127.0.0.1:37277/",
+            "open": True,
+            "hotkey_registered": True,
+        }
+        # Explicit convo_id supplied: must not raise UnboundLocalError on page_url
+        res = inject_trajectory_debug(mock_client, conversation_id="explicit-convo-12345")
+        self.assertTrue(res["success"])
+        self.assertEqual(res["convo_id"], "explicit-convo-12345")
+        self.assertIn("https://127.0.0.1:37277/", res["url"])
 
 
 class TestFormatDevToolsUrls(unittest.TestCase):
@@ -1150,6 +1174,234 @@ class TestGuiCommandCLI(unittest.TestCase):
             self.assertEqual(data["status"], "error")
             self.assertEqual(data["error"], "injection_failed")
             self.assertIn("SecurityError", data["message"])
+
+
+class TestTrajectoryHUDDataModel(unittest.TestCase):
+    """Tests data modeling, timing metrics extraction, and subagent pre-bundling."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.brain_dir = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_subagent_prebundling_and_parent_traversal(self) -> None:
+        parent_id = "parent-1111-2222-3333-444444444444"
+        child_id = "child-aaaa-bbbb-cccc-dddddddddddd"
+
+        parent_dir = self.brain_dir / parent_id
+        parent_logs = parent_dir / ".system_generated" / "logs"
+        parent_logs.mkdir(parents=True, exist_ok=True)
+
+        child_dir = self.brain_dir / child_id
+        child_logs = child_dir / ".system_generated" / "logs"
+        child_logs.mkdir(parents=True, exist_ok=True)
+
+        # Parent transcript invokes child
+        parent_transcript = parent_logs / "transcript.jsonl"
+        parent_steps = [
+            {"source": "user", "content": "Start task"},
+            {
+                "source": "model",
+                "thinking": "Invoking specialist subagent...",
+                "tool_calls": [{
+                    "name": "invoke_subagent",
+                    "args": {"agent_role": "builder", "objective": "Build feature"},
+                    "output": f"Spawned child conversationId: {child_id}",
+                }],
+            },
+        ]
+        with open(parent_transcript, "w", encoding="utf-8") as f:
+            for s in parent_steps:
+                f.write(json.dumps(s) + "\n")
+
+        # Child transcript has steps
+        child_transcript = child_logs / "transcript.jsonl"
+        child_steps = [
+            {"source": "user", "content": f"Execute child task for {parent_id}"},
+            {
+                "source": "model",
+                "content": "Child execution complete",
+                "thinking": "Analyzing codebase...",
+                "tool_calls": [{"name": "run_command", "args": {"CommandLine": "ls"}}],
+            },
+        ]
+        with open(child_transcript, "w", encoding="utf-8") as f:
+            for s in child_steps:
+                f.write(json.dumps(s) + "\n")
+
+        # Load parent trajectory
+        parent_data = load_conversation_trajectory(parent_id, brain_dir=self.brain_dir)
+        self.assertEqual(parent_data["conversation_id"], parent_id)
+        self.assertIn(child_id, parent_data["subagents"])
+        self.assertIn(child_id, parent_data["subagent_trajectories"])
+
+        # Child trajectory pre-bundled in-memory
+        child_prebundled = parent_data["subagent_trajectories"][child_id]
+        self.assertEqual(child_prebundled["conversation_id"], child_id)
+        self.assertEqual(len(child_prebundled["steps"]), 2)
+
+        # Load child trajectory directly and check parent traversal
+        child_data = load_conversation_trajectory(child_id, brain_dir=self.brain_dir)
+        self.assertEqual(child_data["parent_id"], parent_id)
+
+    def test_step_timing_metrics_and_cortex_types(self) -> None:
+        convo_id = "test-timing-1234"
+        convo_dir = self.brain_dir / convo_id / ".system_generated" / "logs"
+        convo_dir.mkdir(parents=True, exist_ok=True)
+        transcript = convo_dir / "transcript.jsonl"
+
+        steps = [
+            {"source": "user", "content": "Please implement feature"},
+            {"source": "model", "thinking": "Thinking deeply about architecture...", "content": "Here is the plan"},
+            {"source": "model", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "pytest"}}]},
+            {"source": "model", "tool_calls": [{"name": "view_file", "args": {"AbsolutePath": "/file.py"}}]},
+            {"source": "model", "tool_calls": [{"name": "replace_file_content", "args": {"TargetFile": "/file.py"}}]},
+        ]
+        with open(transcript, "w", encoding="utf-8") as f:
+            for s in steps:
+                f.write(json.dumps(s) + "\n")
+
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        enriched = data["steps"]
+        self.assertEqual(len(enriched), 5)
+
+        # Assert Cortex type mapping
+        self.assertEqual(enriched[0]["type"], "USER_INPUT")
+        self.assertEqual(enriched[1]["type"], "PLANNER_RESPONSE")
+        self.assertEqual(enriched[2]["type"], "RUN_COMMAND")
+        self.assertEqual(enriched[3]["type"], "VIEW_FILE")
+        self.assertEqual(enriched[4]["type"], "REPLACE_FILE_CONTENT")
+
+        # Assert timing and size metrics
+        for s in enriched:
+            self.assertIn("thinking_duration_ms", s)
+            self.assertIn("streaming_duration_ms", s)
+            self.assertIn("total_duration_ms", s)
+            self.assertIn("size_bytes", s)
+            self.assertTrue(s["size_bytes"] > 0)
+
+        # Step 1 has thinking text, so TTFT > 0
+        self.assertTrue(enriched[1]["thinking_duration_ms"] > 0)
+
+    def test_context_window_token_breakdown(self) -> None:
+        convo_id = "test-tokens-5678"
+        convo_dir = self.brain_dir / convo_id / ".system_generated" / "logs"
+        convo_dir.mkdir(parents=True, exist_ok=True)
+        transcript = convo_dir / "transcript.jsonl"
+
+        steps = [
+            {"source": "user", "content": "Hello", "input_tokens": 1500, "output_tokens": 200},
+            {"source": "model", "content": "Response", "input_tokens": 2500, "output_tokens": 300},
+        ]
+        with open(transcript, "w", encoding="utf-8") as f:
+            for s in steps:
+                f.write(json.dumps(s) + "\n")
+
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        breakdown = data["token_breakdown"]
+        self.assertIn("system_prompt", breakdown)
+        self.assertIn("tool_defs", breakdown)
+        self.assertIn("checkpoint", breakdown)
+        self.assertIn("user", breakdown)
+        self.assertIn("model", breakdown)
+        self.assertIn("tool", breakdown)
+        self.assertIn("system", breakdown)
+
+    def test_build_trajectory_hud_script_generation(self) -> None:
+        script = build_trajectory_hud_script(
+            convo_id="convo-abc",
+            trajectory_data={"conversation_id": "convo-abc", "steps": []},
+            conversations=[{"id": "convo-abc", "mtime": 1700000000}],
+            open_view=True,
+            toggle=False,
+        )
+        self.assertIn("agyis-trajectory-hud", script)
+        self.assertIn("convo-abc", script)
+        self.assertIn("Side-by-Side", script)
+        self.assertIn("Stacked", script)
+        self.assertIn("context-cell-selected", script)
+        self.assertIn("EXEC", script)
+        self.assertIn("INV", script)
+        self.assertIn("SIZE", script)
+
+
+class TestGUISystemdService(unittest.TestCase):
+    """Tests systemd user path and service management for 'agyis gui --service'."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.unit_dir = Path(self.temp_dir.name) / "systemd" / "user"
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_generate_gui_systemd_units_content(self) -> None:
+        path_unit = generate_gui_systemd_path_unit()
+        self.assertIn("PathChanged=%h/.config/Antigravity/DevToolsActivePort", path_unit)
+        self.assertIn("Unit=antigravity-trajectory.service", path_unit)
+
+        service_unit = generate_gui_systemd_service_unit()
+        self.assertIn("MemoryMax=500M", service_unit)
+        self.assertIn("MemoryHigh=300M", service_unit)
+        self.assertIn("gui --no-popup --wait 15.0", service_unit)
+
+    @patch("harness.commands.gui._run_gui_systemctl")
+    def test_handle_gui_service_lifecycle(self, mock_systemctl: MagicMock) -> None:
+        mock_systemctl.return_value = MagicMock(returncode=0, stdout="active", stderr="")
+
+        # 1. Install
+        code = handle_gui_service_command(action="install", unit_dir=self.unit_dir)
+        self.assertEqual(code, 0)
+        path_file = self.unit_dir / "antigravity-trajectory.path"
+        service_file = self.unit_dir / "antigravity-trajectory.service"
+        self.assertTrue(path_file.exists())
+        self.assertTrue(service_file.exists())
+
+        # 2. Status
+        code_status = handle_gui_service_command(action="status", unit_dir=self.unit_dir)
+        self.assertEqual(code_status, 0)
+
+        # 3. Start
+        code_start = handle_gui_service_command(action="start", unit_dir=self.unit_dir)
+        self.assertEqual(code_start, 0)
+
+        # 4. Stop
+        code_stop = handle_gui_service_command(action="stop", unit_dir=self.unit_dir)
+        self.assertEqual(code_stop, 0)
+
+        # 5. Uninstall
+        code_uninstall = handle_gui_service_command(action="uninstall", unit_dir=self.unit_dir)
+        self.assertEqual(code_uninstall, 0)
+        self.assertFalse(path_file.exists())
+        self.assertFalse(service_file.exists())
+
+    def test_handle_gui_service_status_when_not_installed(self) -> None:
+        empty_dir = Path(self.temp_dir.name) / "empty"
+        code = handle_gui_service_command(action="status", unit_dir=empty_dir)
+        self.assertEqual(code, 1)
+
+    @patch("harness.commands.gui._run_gui_systemctl")
+    def test_handle_gui_service_fails_when_systemctl_fails(self, mock_systemctl: MagicMock) -> None:
+        mock_systemctl.return_value = MagicMock(returncode=1, stdout="", stderr="Access denied")
+        # Install should fail and return 1 when systemctl fails
+        code = handle_gui_service_command(action="install", unit_dir=self.unit_dir)
+        self.assertEqual(code, 1)
+
+    @patch("shutil.which")
+    def test_handle_gui_service_fails_when_systemctl_missing(self, mock_which: MagicMock) -> None:
+        mock_which.return_value = None
+        code = handle_gui_service_command(action="install", unit_dir=self.unit_dir)
+        self.assertEqual(code, 1)
+
+    def test_cli_parser_gui_service_option(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["gui", "--service", "install"])
+        self.assertEqual(args.service, "install")
+
+        args_status = parser.parse_args(["gui", "--service", "status"])
+        self.assertEqual(args_status.service, "status")
 
 
 if __name__ == "__main__":

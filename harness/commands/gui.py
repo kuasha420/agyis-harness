@@ -24,11 +24,13 @@ import base64
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import struct
+import subprocess
 import sys
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -379,8 +381,8 @@ def format_devtools_urls(port: int, target: Dict[str, Any]) -> Dict[str, str]:
 
 def build_hotkey_script() -> str:
     """
-    Builds the JavaScript snippet to listen for F12 and Ctrl+Shift+T hotkeys
-    and toggle DevTools / Trajectory debug view via electronNative and URL state.
+    Builds the JavaScript snippet to listen for F12, Ctrl+Shift+T, and Esc hotkeys
+    and directly toggle the In-Situ Trajectory Debug HUD element ('agyis-trajectory-hud').
     """
     return (
         "(() => {\n"
@@ -392,21 +394,17 @@ def build_hotkey_script() -> str:
         "    if (isF12 || isCtrlShiftT) {\n"
         "      e.preventDefault();\n"
         "      e.stopPropagation();\n"
-        "      try {\n"
-        "        if (window.electronNative && typeof window.electronNative.toggleDevTools === 'function') {\n"
-        "          window.electronNative.toggleDevTools();\n"
-        "        }\n"
-        "      } catch (err) {\n"
-        "        console.error('Failed to toggle DevTools via electronNative:', err);\n"
+        "      const hud = document.getElementById('agyis-trajectory-hud');\n"
+        "      if (hud) {\n"
+        "        const isHidden = (hud.style.display === 'none');\n"
+        "        hud.style.display = isHidden ? 'flex' : 'none';\n"
         "      }\n"
-        "      try {\n"
-        "        const url = new URL(window.location.href);\n"
-        "        const current = url.searchParams.get('trajectoryDebugOpen');\n"
-        "        const nextState = current === 'true' ? 'false' : 'true';\n"
-        "        url.searchParams.set('trajectoryDebugOpen', nextState);\n"
-        "        window.history.pushState({}, '', url.toString());\n"
-        "        window.dispatchEvent(new PopStateEvent('popstate'));\n"
-        "      } catch (_) {}\n"
+        "    }\n"
+        "    if (e.key === 'Escape') {\n"
+        "      const hud = document.getElementById('agyis-trajectory-hud');\n"
+        "      if (hud && hud.style.display !== 'none') {\n"
+        "        hud.style.display = 'none';\n"
+        "      }\n"
         "    }\n"
         "  }, true);\n"
         "})();"
@@ -438,6 +436,7 @@ def inject_trajectory_debug(
 
     # 1. Resolve active conversation ID from page context if not supplied
     convo_id = conversation_id
+    page_url: Optional[str] = None
     if not convo_id:
         try:
             page_url = client.evaluate("window.location.href")
@@ -445,7 +444,7 @@ def inject_trajectory_debug(
                 m = re.search(r"/c/([a-zA-Z0-9_-]+)", page_url)
                 if m:
                     convo_id = m.group(1)
-        except Exception:
+        except (CDPError, TimeoutError, OSError):
             pass
 
     if not convo_id:
@@ -465,10 +464,33 @@ def inject_trajectory_debug(
         toggle=toggle,
     )
 
-    # 4. Register hotkey script with Page.addScriptToEvaluateOnNewDocument to survive page reloads
+    # 4. Register hotkey and persistent navigation script with Page.addScriptToEvaluateOnNewDocument
     hotkey_script = build_hotkey_script()
+    persistent_script = f"""
+    (() => {{
+        {hotkey_script}
+        let lastUrl = window.location.href;
+        const observer = new MutationObserver(() => {{
+            if (window.location.href !== lastUrl) {{
+                lastUrl = window.location.href;
+                if (!window.__agyis_hotkey_installed) {{
+                    {hotkey_script}
+                }}
+            }}
+        }});
+        if (document.body) {{
+            observer.observe(document.body, {{ childList: true, subtree: true }});
+        }} else {{
+            document.addEventListener("DOMContentLoaded", () => {{
+                if (document.body) {{
+                    observer.observe(document.body, {{ childList: true, subtree: true }});
+                }}
+            }});
+        }}
+    }})();
+    """
     try:
-        client.send_command("Page.addScriptToEvaluateOnNewDocument", {"source": hotkey_script})
+        client.send_command("Page.addScriptToEvaluateOnNewDocument", {"source": persistent_script})
     except Exception:
         pass
 
@@ -648,8 +670,302 @@ def inject_telemetry_hud(
     return {"success": True, "removed": False, "injected": True, "tokens": tokens, "burn_rate": burn_rate, "tier": tier}
 
 
+GUI_PATH_UNIT = "antigravity-trajectory.path"
+GUI_SERVICE_UNIT = "antigravity-trajectory.service"
+
+
+def get_gui_systemd_unit_dir(custom_dir: Optional[Union[str, Path]] = None) -> Path:
+    """Returns destination directory for user systemd units."""
+    if custom_dir:
+        return Path(custom_dir)
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    base_dir = Path(xdg_config) if xdg_config else Path.home() / ".config"
+    return base_dir / "systemd" / "user"
+
+
+def generate_gui_systemd_path_unit() -> str:
+    """Generates the systemd user path unit definition to monitor DevToolsActivePort creation."""
+    return """[Unit]
+Description=Watch for Antigravity DevToolsActivePort Creation
+Documentation=https://github.com/kuasha420/agyis-harness
+
+[Path]
+PathChanged=%h/.config/Antigravity/DevToolsActivePort
+Unit=antigravity-trajectory.service
+
+[Install]
+WantedBy=default.target
+"""
+
+
+def generate_gui_systemd_service_unit(working_dir: Optional[Union[str, Path]] = None) -> str:
+    """Generates the systemd user service unit definition to auto-unlock Trajectory Debug HUD."""
+    resolved_work_dir: Path
+    if working_dir:
+        resolved_work_dir = Path(working_dir).resolve()
+    else:
+        cand = Path(__file__).resolve().parents[2]
+        if (cand / "harness").is_dir():
+            resolved_work_dir = cand
+        elif (Path.cwd() / "harness").is_dir():
+            resolved_work_dir = Path.cwd().resolve()
+        else:
+            resolved_work_dir = Path.home()
+
+    work_dir = str(resolved_work_dir)
+    discovered_agyis = shutil.which("agyis")
+    if discovered_agyis:
+        exec_cmd = f"{discovered_agyis} gui --no-popup --wait 15.0"
+    else:
+        py_path = sys.executable or "/usr/bin/python3"
+        exec_cmd = f"{py_path} -m harness.cli gui --no-popup --wait 15.0"
+
+    return f"""[Unit]
+Description=Antigravity In-Situ Trajectory Debug HUD Auto-Unlock
+Documentation=https://github.com/kuasha420/agyis-harness
+After=default.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={work_dir}
+ExecStart={exec_cmd}
+MemoryMax=500M
+MemoryHigh=300M
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
+"""
+
+
+def _run_gui_systemctl(args: List[str], timeout: float = 15.0) -> subprocess.CompletedProcess:
+    """Invokes systemctl with standard arguments and error trapping."""
+    systemctl_bin = shutil.which("systemctl")
+    if not systemctl_bin:
+        raise FileNotFoundError("systemctl executable not found in PATH")
+    cmd = ["systemctl", "--user"] + args
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+
+def handle_gui_service_command(
+    action: str,
+    json_output: bool = False,
+    unit_dir: Optional[Union[str, Path]] = None,
+    working_dir: Optional[Union[str, Path]] = None,
+) -> int:
+    """Manages systemd user path and service units for automatic Trajectory Debug HUD unlocking."""
+    action = (action or "").strip().lower()
+    udir = get_gui_systemd_unit_dir(unit_dir)
+    path_file = udir / GUI_PATH_UNIT
+    service_file = udir / GUI_SERVICE_UNIT
+
+    systemctl_bin = shutil.which("systemctl")
+    if not systemctl_bin:
+        err_msg = "systemctl command not found. Systemd user services are not available on this system."
+        if json_output:
+            print(json.dumps({"service": "antigravity-trajectory", "action": action, "success": False, "error": err_msg}, indent=2))
+        else:
+            sys.stderr.write(f"✘ {err_msg}\n")
+        return 1
+
+    if action == "install":
+        try:
+            udir.mkdir(parents=True, exist_ok=True)
+            path_file.write_text(generate_gui_systemd_path_unit(), encoding="utf-8")
+            service_file.write_text(generate_gui_systemd_service_unit(working_dir=working_dir), encoding="utf-8")
+
+            res_reload = _run_gui_systemctl(["daemon-reload"])
+            if res_reload.returncode != 0:
+                err = res_reload.stderr.strip() or f"daemon-reload failed with exit code {res_reload.returncode}"
+                if json_output:
+                    print(json.dumps({"service": "antigravity-trajectory", "action": "install", "success": False, "error": err}, indent=2))
+                else:
+                    sys.stderr.write(f"✘ Failed to reload systemd daemon: {err}\n")
+                return 1
+
+            res_enable = _run_gui_systemctl(["enable", GUI_PATH_UNIT])
+            if res_enable.returncode != 0:
+                err = res_enable.stderr.strip() or f"enable failed with exit code {res_enable.returncode}"
+                if json_output:
+                    print(json.dumps({"service": "antigravity-trajectory", "action": "install", "success": False, "error": err}, indent=2))
+                else:
+                    sys.stderr.write(f"✘ Failed to enable {GUI_PATH_UNIT}: {err}\n")
+                return 1
+
+            res_start = _run_gui_systemctl(["start", GUI_PATH_UNIT])
+            if res_start.returncode != 0:
+                err = res_start.stderr.strip() or f"start failed with exit code {res_start.returncode}"
+                if json_output:
+                    print(json.dumps({"service": "antigravity-trajectory", "action": "install", "success": False, "error": err}, indent=2))
+                else:
+                    sys.stderr.write(f"✘ Failed to start {GUI_PATH_UNIT}: {err}\n")
+                return 1
+
+        except (FileNotFoundError, subprocess.SubprocessError, OSError) as exc:
+            if json_output:
+                print(json.dumps({"service": "antigravity-trajectory", "action": "install", "success": False, "error": str(exc)}, indent=2))
+            else:
+                sys.stderr.write(f"✘ Failed to install systemd service: {exc}\n")
+            return 1
+
+        if json_output:
+            print(json.dumps({
+                "service": "antigravity-trajectory",
+                "action": "install",
+                "success": True,
+                "path_unit": str(path_file),
+                "service_unit": str(service_file),
+            }, indent=2))
+        else:
+            print(f"✔ Installed systemd user path unit: {path_file}")
+            print(f"✔ Installed systemd user service unit: {service_file}")
+            print("✔ Enabled and started antigravity-trajectory.path monitor")
+        return 0
+
+    elif action == "status":
+        if not path_file.exists() and not service_file.exists():
+            if json_output:
+                print(json.dumps({"service": "antigravity-trajectory", "installed": False, "active": False, "status": "not_installed"}, indent=2))
+            else:
+                sys.stderr.write(f"✘ Antigravity GUI trajectory service is not installed in {udir}.\n")
+            return 1
+
+        is_active = False
+        out = ""
+        try:
+            res = _run_gui_systemctl(["status", GUI_PATH_UNIT])
+            is_active = (res.returncode == 0)
+            out = res.stdout or res.stderr
+            if res.returncode not in (0, 3):
+                err = res.stderr.strip() or f"systemctl status returned code {res.returncode}"
+                if json_output:
+                    print(json.dumps({"service": "antigravity-trajectory", "installed": True, "active": False, "error": err}, indent=2))
+                else:
+                    sys.stderr.write(f"✘ Failed to get status: {err}\n")
+                return 1
+        except (FileNotFoundError, subprocess.SubprocessError, OSError) as exc:
+            if json_output:
+                print(json.dumps({"service": "antigravity-trajectory", "installed": True, "active": False, "error": str(exc)}, indent=2))
+            else:
+                sys.stderr.write(f"✘ Failed to query systemctl: {exc}\n")
+            return 1
+
+        if json_output:
+            print(json.dumps({
+                "service": "antigravity-trajectory",
+                "installed": True,
+                "active": is_active,
+                "output": out.strip(),
+            }, indent=2))
+        else:
+            print(f"● antigravity-trajectory.path (active={is_active})")
+            if out:
+                print(out.strip())
+        return 0
+
+    elif action == "start":
+        if not path_file.exists():
+            sys.stderr.write(f"✘ Service not installed at {path_file}. Run 'agyis gui --service install' first.\n")
+            return 1
+        try:
+            res = _run_gui_systemctl(["start", GUI_PATH_UNIT])
+            if res.returncode != 0:
+                err = res.stderr.strip() or f"start failed with exit code {res.returncode}"
+                if json_output:
+                    print(json.dumps({"service": "antigravity-trajectory", "action": "start", "success": False, "error": err}, indent=2))
+                else:
+                    sys.stderr.write(f"✘ Failed to start service: {err}\n")
+                return 1
+        except (FileNotFoundError, subprocess.SubprocessError, OSError) as exc:
+            if json_output:
+                print(json.dumps({"service": "antigravity-trajectory", "action": "start", "success": False, "error": str(exc)}, indent=2))
+            else:
+                sys.stderr.write(f"✘ Failed to start service: {exc}\n")
+            return 1
+
+        if json_output:
+            print(json.dumps({"service": "antigravity-trajectory", "action": "start", "success": True}, indent=2))
+        else:
+            print("✔ Started antigravity-trajectory.path monitor")
+        return 0
+
+    elif action == "stop":
+        try:
+            res = _run_gui_systemctl(["stop", GUI_PATH_UNIT])
+            if res.returncode != 0:
+                err = res.stderr.strip() or f"stop failed with exit code {res.returncode}"
+                if json_output:
+                    print(json.dumps({"service": "antigravity-trajectory", "action": "stop", "success": False, "error": err}, indent=2))
+                else:
+                    sys.stderr.write(f"✘ Failed to stop service: {err}\n")
+                return 1
+        except (FileNotFoundError, subprocess.SubprocessError, OSError) as exc:
+            if json_output:
+                print(json.dumps({"service": "antigravity-trajectory", "action": "stop", "success": False, "error": str(exc)}, indent=2))
+            else:
+                sys.stderr.write(f"✘ Failed to stop service: {exc}\n")
+            return 1
+
+        if json_output:
+            print(json.dumps({"service": "antigravity-trajectory", "action": "stop", "success": True}, indent=2))
+        else:
+            print("✔ Stopped antigravity-trajectory.path monitor")
+        return 0
+
+    elif action == "uninstall":
+        try:
+            res_stop = _run_gui_systemctl(["stop", GUI_PATH_UNIT])
+            if res_stop.returncode != 0 and "not loaded" not in res_stop.stderr:
+                pass
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            pass
+
+        try:
+            _run_gui_systemctl(["disable", GUI_PATH_UNIT])
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            pass
+
+        if path_file.exists():
+            path_file.unlink()
+        if service_file.exists():
+            service_file.unlink()
+
+        try:
+            res_reload = _run_gui_systemctl(["daemon-reload"])
+            if res_reload.returncode != 0:
+                err = res_reload.stderr.strip() or f"daemon-reload failed with exit code {res_reload.returncode}"
+                if json_output:
+                    print(json.dumps({"service": "antigravity-trajectory", "action": "uninstall", "success": False, "error": err}, indent=2))
+                else:
+                    sys.stderr.write(f"✘ Failed to reload systemd daemon: {err}\n")
+                return 1
+        except (FileNotFoundError, subprocess.SubprocessError, OSError) as exc:
+            if json_output:
+                print(json.dumps({"service": "antigravity-trajectory", "action": "uninstall", "success": False, "error": str(exc)}, indent=2))
+            else:
+                sys.stderr.write(f"✘ Failed to reload systemd daemon: {exc}\n")
+            return 1
+
+        if json_output:
+            print(json.dumps({"service": "antigravity-trajectory", "action": "uninstall", "success": True}, indent=2))
+        else:
+            print("✔ Uninstalled antigravity-trajectory systemd units")
+        return 0
+
+    else:
+        sys.stderr.write(f"✘ Unknown service action '{action}'. Choose from: install, status, start, stop, uninstall.\n")
+        return 1
+
+
 def cmd_gui(args: argparse.Namespace) -> int:
     """Primary handler for 'agyis gui' subcommand."""
+    service_action: Optional[str] = getattr(args, "service", None)
+    if service_action:
+        return handle_gui_service_command(
+            action=service_action,
+            json_output=getattr(args, "json", False),
+        )
+
     port_file: Optional[Path] = getattr(args, "port_file", None)
     timeout: float = getattr(args, "timeout", 5.0)
     wait: Optional[float] = getattr(args, "wait", None)
