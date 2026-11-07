@@ -121,3 +121,15 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 3. **Hermetic Dirty-Room Isolation**:
    - Dirty-room caches, project databases (`.gpr`, `.rep`), raw symbol tables, and disassembler logs must remain quarantined within `.dirtyroom/` and `.gitignore`.
    - Only typed cleanroom specifications, obligation ledgers, and formal evidence artifacts may transition across the cleanroom membrane into version control.
+
+---
+
+## 10. Anti-Vibe-Coding & Dynamic Lifecycle Invariant (PSL-INV-010)
+1. **Zero Static Snapshot Faking**:
+   - Never bake static, point-in-time runtime state or hardcoded fixtures into tools, views, or user interfaces that represent dynamic entities. Persistent diagnostic components must provide dynamic query pathways or live data bindings.
+2. **SPA Route Sensitivity & Focused Context Tracking**:
+   - In-situ browser tools, HUDs, and overlays operating inside Single-Page Applications (SPAs) must continuously track active routes (e.g. `/c/:id`), route transitions, and focused context. When navigation occurs or hotkeys are triggered, views must dynamically synchronize to the active route entity rather than retaining stale session data.
+3. **Mandatory Stale State & DOM Replacement**:
+   - Re-injection or mounting of updated tooling must purge stale singleton state, existing DOM elements, and superseded style sheets (`element.remove()`). Never merely unhide hours-old cached nodes when fresh code or runtime state is being supplied.
+4. **Multi-Session & Dynamic Traversal Verification**:
+   - Verification suites must validate multi-session switching, route transitions, and dynamic refresh paths across multiple distinct fixtures or live API responses. Green test passes on a single hardcoded fixture do not substantiate dynamic features.

@@ -712,15 +712,21 @@ _HUD_TEMPLATE = r"""
     if (existingHud) {
         if (isToggle) {
             const isHidden = existingHud.style.display === "none";
+            if (isHidden) {
+                const match = window.location.pathname.match(/\/c\/([a-f0-9\-]+)/);
+                const focusedConvoId = match ? match[1] : null;
+                const state = window.__agyis_hud_state;
+                if (focusedConvoId && state && focusedConvoId !== state.convoId && typeof window.__agyis_hud_load_convo === "function") {
+                    window.__agyis_hud_load_convo(focusedConvoId);
+                }
+            }
             existingHud.style.display = isHidden ? "flex" : "none";
             return { success: true, open: isHidden, toggled: true };
-        } else if (shouldOpen) {
-            existingHud.style.display = "flex";
-            return { success: true, open: true, toggled: false };
-        } else {
-            existingHud.style.display = "none";
-            return { success: true, open: false, toggled: false };
         }
+        // Stale DOM Replacement: Purge existing HUD and styles on re-injection (PSL-INV-010)
+        existingHud.remove();
+        const existingStyles = document.getElementById(STYLES_ID);
+        if (existingStyles) existingStyles.remove();
     }
 
     const hud = document.createElement("div");
@@ -740,6 +746,29 @@ _HUD_TEMPLATE = r"""
         isMaximized: false,
         subagentsDropdownOpen: false,
         hoveredContextSegment: null,
+    };
+
+    window.__agyis_hud_load_convo = async function(convoId) {
+        if (!convoId) return null;
+        try {
+            const resp = await fetch("http://127.0.0.1:40624/api/trajectory?id=" + encodeURIComponent(convoId));
+            if (resp.ok) {
+                const data = await resp.json();
+                const state = window.__agyis_hud_state;
+                if (state) {
+                    state.rootData = data;
+                    state.currentData = data;
+                    state.convoId = data.conversation_id || convoId;
+                    state.selectedIndex = Math.max(0, (data.steps || []).length - 1);
+                    state.subagentsDropdownOpen = false;
+                    renderHud();
+                }
+                return data;
+            }
+        } catch (err) {
+            console.warn("[agyis] Trajectory server fetch failed, using local fallback data:", err);
+        }
+        return null;
     };
 
     function formatBytes(bytes) {
@@ -1026,6 +1055,7 @@ _HUD_TEMPLATE = r"""
                                 </option>
                             `).join("")}
                         </select>
+                        <button id="agyis-refresh-btn" class="agyis-hud-btn" title="Refresh Trajectory from Server">🔄 Refresh</button>
                         ${isChildView ? `
                             <button id="agyis-parent-btn" class="agyis-hud-pill agyis-hud-pill-blue" style="cursor: pointer;" title="Back to parent conversation">
                                 ↑ Parent
@@ -1126,6 +1156,24 @@ _HUD_TEMPLATE = r"""
         `;
 
         // Event Listeners
+        hud.querySelector("#agyis-convo-select")?.addEventListener("change", (e) => {
+            const selectedId = e.target.value;
+            if (selectedId && typeof window.__agyis_hud_load_convo === "function") {
+                window.__agyis_hud_load_convo(selectedId);
+            }
+        });
+
+        hud.querySelector("#agyis-refresh-btn")?.addEventListener("click", () => {
+            const state = window.__agyis_hud_state;
+            if (state && state.convoId && typeof window.__agyis_hud_load_convo === "function") {
+                const btn = hud.querySelector("#agyis-refresh-btn");
+                if (btn) btn.textContent = "⏳...";
+                window.__agyis_hud_load_convo(state.convoId).finally(() => {
+                    if (btn) btn.textContent = "🔄 Refresh";
+                });
+            }
+        });
+
         hud.querySelector("#agyis-close-btn")?.addEventListener("click", () => {
             hud.style.display = "none";
         });
@@ -1272,6 +1320,13 @@ _HUD_TEMPLATE = r"""
     renderHud();
     document.body.appendChild(hud);
 
+    // Initial check for focused conversation route mismatch (PSL-INV-010)
+    const initialRouteMatch = window.location.pathname.match(/\/c\/([a-f0-9\-]+)/);
+    const initialFocusedConvo = initialRouteMatch ? initialRouteMatch[1] : null;
+    if (initialFocusedConvo && initialFocusedConvo !== initialData.conversation_id && typeof window.__agyis_hud_load_convo === "function") {
+        window.__agyis_hud_load_convo(initialFocusedConvo);
+    }
+
     // Global click listener to dismiss subagent dropdown
     document.addEventListener("click", () => {
         if (window.__agyis_hud_state && window.__agyis_hud_state.subagentsDropdownOpen) {
@@ -1290,6 +1345,14 @@ _HUD_TEMPLATE = r"""
                 e.preventDefault();
                 e.stopPropagation();
                 const isHidden = hud.style.display === "none";
+                if (isHidden) {
+                    const match = window.location.pathname.match(/\/c\/([a-f0-9\-]+)/);
+                    const focusedConvoId = match ? match[1] : null;
+                    const state = window.__agyis_hud_state;
+                    if (focusedConvoId && state && focusedConvoId !== state.convoId && typeof window.__agyis_hud_load_convo === "function") {
+                        window.__agyis_hud_load_convo(focusedConvoId);
+                    }
+                }
                 hud.style.display = isHidden ? "flex" : "none";
             }
             if (e.key === "Escape" && hud.style.display !== "none") {

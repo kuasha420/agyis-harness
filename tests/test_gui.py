@@ -380,6 +380,8 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
         self.assertIn("agyis-trajectory-hud", script)
         self.assertIn("Escape", script)
         self.assertIn("keydown", script)
+        self.assertIn("__agyis_hud_load_convo", script)
+        self.assertIn("location.pathname.match", script)
 
     def test_inject_trajectory_debug_emits_page_add_script_and_hotkey(self) -> None:
         mock_client = MagicMock()
@@ -1325,6 +1327,9 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
         self.assertIn("EXEC", script)
         self.assertIn("INV", script)
         self.assertIn("SIZE", script)
+        self.assertIn("existingHud.remove()", script)
+        self.assertIn("window.__agyis_hud_load_convo", script)
+        self.assertIn("agyis-refresh-btn", script)
 
 
 class TestGUISystemdService(unittest.TestCase):

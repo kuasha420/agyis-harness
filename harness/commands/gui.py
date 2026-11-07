@@ -397,6 +397,14 @@ def build_hotkey_script() -> str:
         "      const hud = document.getElementById('agyis-trajectory-hud');\n"
         "      if (hud) {\n"
         "        const isHidden = (hud.style.display === 'none');\n"
+        "        if (isHidden) {\n"
+        "          const match = window.location.pathname.match(/\\/c\\/([a-f0-9\\-]+)/);\n"
+        "          const focusedConvoId = match ? match[1] : null;\n"
+        "          const state = window.__agyis_hud_state;\n"
+        "          if (focusedConvoId && state && focusedConvoId !== state.convoId && typeof window.__agyis_hud_load_convo === 'function') {\n"
+        "            window.__agyis_hud_load_convo(focusedConvoId);\n"
+        "          }\n"
+        "        }\n"
         "        hud.style.display = isHidden ? 'flex' : 'none';\n"
         "      }\n"
         "    }\n"
@@ -433,6 +441,13 @@ def inject_trajectory_debug(
 
     target_flags = flags or DEFAULT_TARGET_FLAGS
     flags_json = json.dumps(target_flags)
+
+    # 0. Ensure Trajectory HTTP API server is active (PSL-INV-010)
+    try:
+        from harness.gui.server import ensure_trajectory_server
+        ensure_trajectory_server(brain_dir=brain_dir)
+    except Exception:
+        pass
 
     # 1. Resolve active conversation ID from page context if not supplied
     convo_id = conversation_id
@@ -959,6 +974,22 @@ def handle_gui_service_command(
 
 def cmd_gui(args: argparse.Namespace) -> int:
     """Primary handler for 'agyis gui' subcommand."""
+    if getattr(args, "server", False):
+        from harness.gui.server import TrajectoryServer, TrajectoryRequestHandler, DEFAULT_TRAJECTORY_PORT, DEFAULT_HOST
+        server_port = getattr(args, "server_port", None) or DEFAULT_TRAJECTORY_PORT
+        server = TrajectoryServer((DEFAULT_HOST, server_port), RequestHandlerClass=TrajectoryRequestHandler)
+        if not getattr(args, "json", False):
+            print(f"● Trajectory API server listening on http://{DEFAULT_HOST}:{server_port}")
+        else:
+            print(json.dumps({"status": "running", "host": DEFAULT_HOST, "port": server_port}))
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
+        return 0
+
     service_action: Optional[str] = getattr(args, "service", None)
     if service_action:
         return handle_gui_service_command(

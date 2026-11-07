@@ -3,7 +3,7 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-009 -->
+<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-010 -->
 
 # Empirical Agent Rules: Agyis Harness Guidelines
 
@@ -142,6 +142,18 @@ agyis doctor --experimental-rea --heal         # Safe zero-sudo auto-healing & R
    - All state-persisting components must support `PSL_HARNESS_STATE_DIR` and use `tempfile.TemporaryDirectory()`.
 4. **Mandatory Build Cache Invalidation**:
    - Prior to executing verification gates (`python3 -m harness.cli test`, `pnpm test`, `cargo test`) in multi-branch PR rebase, migration, or onboarding workflows, stale build caches (`.next/`, `.turbo/`, `node_modules/.cache`) MUST be purged to prevent phantom build artifact regressions.
+
+---
+
+## 4. Anti-Vibe-Coding & Dynamic Lifecycle Contract (PSL-INV-010)
+1. **Zero Static Snapshot Faking**:
+   - Diagnostic tools and in-situ HUDs must never bake point-in-time runtime state or hardcoded mock fixtures. They must provide live dynamic query APIs or real-time event synchronization.
+2. **SPA Route Sensitivity & Focused Session Tracking**:
+   - In-situ browser tools operating within Antigravity must inspect active SPA routes (`/c/:id`) and hotkey triggers, dynamically switching context to the currently active conversation.
+3. **Mandatory Stale DOM & State Invalidation**:
+   - Re-injection or mounting of updated HUD components must purge stale DOM nodes and styles (`#agyis-trajectory-hud`, `#agyis-trajectory-hud-styles`) to ensure code and data changes apply immediately without application reboots.
+4. **Dynamic Traversal Testing Requirement**:
+   - Multi-session switching, API failure fallbacks, and DOM replacement contracts must be formally tested. Single-fixture visual passes are strictly prohibited.
 
 ---
 

@@ -768,6 +768,17 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Remove real-time token burn velocity HUD badge from Google Antigravity GUI",
     )
     p_gui.add_argument(
+        "--server",
+        action="store_true",
+        help="Start background Trajectory HTTP API server and keep alive",
+    )
+    p_gui.add_argument(
+        "--server-port",
+        type=int,
+        default=40624,
+        help="Port for Trajectory HTTP API server (default: 40624)",
+    )
+    p_gui.add_argument(
         "--service",
         choices=["install", "status", "start", "stop", "uninstall"],
         default=None,
