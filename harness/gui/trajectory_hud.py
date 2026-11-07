@@ -126,10 +126,11 @@ _HUD_TEMPLATE = """
 (() => {
     const HUD_ID = "agyis-trajectory-hud";
     const STYLES_ID = "agyis-trajectory-hud-styles";
-    const initialData = __DATA_JSON__;
-    const conversationList = __CONVOS_JSON__;
-    const shouldOpen = __OPEN_JSON__;
-    const isToggle = __TOGGLE_JSON__;
+    const __PAYLOAD__ = null;
+    const initialData = __PAYLOAD__.initialData;
+    const conversationList = __PAYLOAD__.conversationList;
+    const shouldOpen = __PAYLOAD__.shouldOpen;
+    const isToggle = __PAYLOAD__.isToggle;
 
     if (!document.getElementById(STYLES_ID)) {
         const styleEl = document.createElement("style");
@@ -727,14 +728,14 @@ def build_trajectory_hud_script(
     toggle: bool = False,
 ) -> str:
     """Builds the complete self-contained in-situ DOM injection script for the Trajectory Debug View HUD."""
-    data_json = json.dumps(trajectory_data)
-    convos_json = json.dumps(conversations)
-    open_json = "true" if open_view else "false"
-    toggle_json = "true" if toggle else "false"
+    payload = {
+        "initialData": trajectory_data,
+        "conversationList": conversations,
+        "shouldOpen": open_view,
+        "isToggle": toggle,
+    }
+    payload_json = json.dumps(payload)
 
-    script = _HUD_TEMPLATE
-    script = script.replace("__DATA_JSON__", data_json)
-    script = script.replace("__CONVOS_JSON__", convos_json)
-    script = script.replace("__OPEN_JSON__", open_json)
-    script = script.replace("__TOGGLE_JSON__", toggle_json)
-    return script
+    target_token = "const __PAYLOAD__ = null;"
+    replacement = f"const __PAYLOAD__ = {payload_json};"
+    return _HUD_TEMPLATE.replace(target_token, replacement, 1)

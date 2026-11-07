@@ -407,7 +407,7 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
         self.assertTrue(res["success"])
         self.assertFalse(res["open"])
         expr = mock_client.evaluate.call_args[0][0]
-        self.assertIn("const isToggle = true;", expr)
+        self.assertIn('"isToggle": true', expr)
         self.assertIn("agyis-trajectory-hud", expr)
 
     def test_inject_trajectory_debug_open_view_false(self) -> None:
@@ -427,7 +427,7 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
 
         # Verify evaluate expression contains shouldOpen = false
         expr = mock_client.evaluate.call_args[0][0]
-        self.assertIn("const shouldOpen = false;", expr)
+        self.assertIn('"shouldOpen": false', expr)
         self.assertIn("agyis-trajectory-hud", expr)
         # Verify Page.addScriptToEvaluateOnNewDocument was still called
         mock_client.send_command.assert_called_once()
