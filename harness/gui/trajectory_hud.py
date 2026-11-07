@@ -778,18 +778,41 @@ _HUD_TEMPLATE = r"""
     const shouldOpen = __PAYLOAD__.shouldOpen;
     const isToggle = __PAYLOAD__.isToggle;
 
+    function syncToLatestState(state) {
+        if (!state || !state.currentData) return;
+        const steps = state.currentData.steps || [];
+        const epochs = state.currentData.epochs || [];
+
+        // 1. Show latest epoch
+        state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
+
+        // 2. Select latest step
+        state.selectedIndex = Math.max(0, steps.length - 1);
+
+        // 3. Show latest 50 steps on steps list (last table page)
+        const totalSteps = steps.length;
+        const pageSize = 50;
+        const totalPages = Math.max(1, Math.ceil(totalSteps / pageSize));
+        state.tablePage = totalPages - 1;
+    }
+
     let existingHud = document.getElementById(HUD_ID);
     if (existingHud && isToggle) {
         const isHidden = existingHud.style.display === "none";
+        existingHud.style.display = isHidden ? "flex" : "none";
         if (isHidden) {
             const match = window.location.pathname.match(/\/c\/([a-f0-9\-]+)/);
             const focusedConvoId = match ? match[1] : null;
             const state = window.__agyis_hud_state;
             if (focusedConvoId && state && focusedConvoId !== state.convoId && typeof window.__agyis_hud_load_convo === "function") {
                 window.__agyis_hud_load_convo(focusedConvoId);
+            } else if (state) {
+                syncToLatestState(state);
+                if (typeof renderHud === "function") renderHud();
+                const selEl = document.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
+                if (selEl) selEl.scrollIntoView({ block: "nearest" });
             }
         }
-        existingHud.style.display = isHidden ? "flex" : "none";
         return { success: true, open: isHidden, toggled: true };
     }
 
@@ -1265,13 +1288,15 @@ _HUD_TEMPLATE = r"""
     hud.id = HUD_ID;
     hud.style.display = shouldOpen ? "flex" : "none";
 
+    const steps = initialData.steps || [];
+    const epochs = initialData.epochs || [];
     window.__agyis_hud_state = {
         rootData: initialData,
         currentData: initialData,
         convoId: initialData.conversation_id,
-        selectedIndex: Math.max(0, (initialData.steps || []).length - 1),
-        activeEpochIndex: -1,
-        tablePage: 0,
+        selectedIndex: Math.max(0, steps.length - 1),
+        activeEpochIndex: epochs.length > 0 ? epochs.length - 1 : -1,
+        tablePage: Math.max(0, Math.ceil(steps.length / 50) - 1),
         pageSize: 50,
         filterQuery: "",
         searchMatchIndices: [],
@@ -1283,6 +1308,7 @@ _HUD_TEMPLATE = r"""
         subagentsDropdownOpen: false,
         hoveredContextSegment: null,
     };
+    syncToLatestState(window.__agyis_hud_state);
 
     function xtc(segment, pxPerToken, minSegmentPx) {
         const tokens = segment && segment.tokens > 0 ? segment.tokens : 0;
@@ -1443,9 +1469,11 @@ _HUD_TEMPLATE = r"""
                         state.rootData = fallbackData;
                         state.currentData = fallbackData;
                         state.convoId = fallbackData.conversation_id || convoId;
-                        state.selectedIndex = Math.max(0, (fallbackData.steps || []).length - 1);
+                        syncToLatestState(state);
                         state.subagentsDropdownOpen = false;
                         renderHud();
+                        const selEl = document.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
+                        if (selEl) selEl.scrollIntoView({ block: "nearest" });
                     }
                     return fallbackData;
                 }
@@ -1967,10 +1995,11 @@ _HUD_TEMPLATE = r"""
                 state.rootData = data;
                 state.currentData = data;
                 state.convoId = convoId;
-                state.selectedIndex = Math.max(0, steps.length - 1);
-                state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
+                syncToLatestState(state);
                 state.subagentsDropdownOpen = false;
                 renderHud();
+                const selEl = document.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
+                if (selEl) selEl.scrollIntoView({ block: "nearest" });
             }
             return data;
         } catch (err) {
@@ -1982,9 +2011,11 @@ _HUD_TEMPLATE = r"""
                     state.rootData = fallbackData;
                     state.currentData = fallbackData;
                     state.convoId = fallbackData.conversation_id || convoId;
-                    state.selectedIndex = Math.max(0, (fallbackData.steps || []).length - 1);
+                    syncToLatestState(state);
                     state.subagentsDropdownOpen = false;
                     renderHud();
+                    const selEl = document.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
+                    if (selEl) selEl.scrollIntoView({ block: "nearest" });
                 }
                 return fallbackData;
             }
@@ -3322,6 +3353,8 @@ _HUD_TEMPLATE = r"""
     window.__agyis_hud_render = renderHud;
     renderHud();
     document.body.appendChild(hud);
+    const initialSelEl = document.querySelector(`.agyis-step-grid-item[data-index="${window.__agyis_hud_state.selectedIndex}"]`);
+    if (initialSelEl) initialSelEl.scrollIntoView({ block: "nearest" });
 
     // Initial check for focused conversation route mismatch (PSL-INV-010)
     const initialRouteMatch = window.location.pathname.match(/\/c\/([a-f0-9\-]+)/);
@@ -3353,15 +3386,20 @@ _HUD_TEMPLATE = r"""
             e.stopPropagation();
             if (currentHud) {
                 const isHidden = (currentHud.style.display === "none");
+                currentHud.style.display = isHidden ? "flex" : "none";
                 if (isHidden) {
                     const match = window.location.pathname.match(/\/c\/([a-f0-9\-]+)/);
                     const focusedConvoId = match ? match[1] : null;
                     const state = window.__agyis_hud_state;
                     if (focusedConvoId && state && focusedConvoId !== state.convoId && typeof window.__agyis_hud_load_convo === "function") {
                         window.__agyis_hud_load_convo(focusedConvoId);
+                    } else if (state) {
+                        syncToLatestState(state);
+                        if (typeof renderHud === "function") renderHud();
+                        const selEl = document.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
+                        if (selEl) selEl.scrollIntoView({ block: "nearest" });
                     }
                 }
-                currentHud.style.display = isHidden ? "flex" : "none";
             }
         }
         if (e.key === "Escape" && currentHud && currentHud.style.display !== "none") {

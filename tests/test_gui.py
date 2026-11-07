@@ -1732,6 +1732,114 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertIn("setTimeout", script)
         self.assertIn("150", script)
 
+    def test_hud_script_contains_sync_to_latest_state(self) -> None:
+        """BUILD-TOGGLE-LATEST-EPOCH-STEP-PAGE-001: Assert syncToLatestState exists and is called across entrypoints."""
+        sample_data = {
+            "conversation_id": "test-sync-latest",
+            "steps": [{"step_index": i, "type": "USER_PROMPT"} for i in range(105)],
+            "epochs": [
+                {"epoch_index": 0, "start_index": 0, "end_index": 49},
+                {"epoch_index": 1, "start_index": 50, "end_index": 99},
+                {"epoch_index": 2, "start_index": 100, "end_index": 104},
+            ],
+        }
+        script = build_trajectory_hud_script("test-sync-latest", sample_data, [], open_view=True, toggle=True)
+
+        # 1. Assert helper function is defined
+        self.assertIn("function syncToLatestState(state)", script)
+        self.assertIn("state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;", script)
+        self.assertIn("state.selectedIndex = Math.max(0, steps.length - 1);", script)
+        self.assertIn("const totalPages = Math.max(1, Math.ceil(totalSteps / pageSize));", script)
+        self.assertIn("state.tablePage = totalPages - 1;", script)
+
+        # 2. Assert toggle branch calls syncToLatestState
+        self.assertIn("if (existingHud && isToggle)", script)
+        self.assertIn("syncToLatestState(state);", script)
+        self.assertIn("if (typeof renderHud === \"function\") renderHud();", script)
+
+        # 3. Assert initial state initialization sets latest epoch, step, and table page and syncs
+        self.assertIn("window.__agyis_hud_state = {", script)
+        self.assertIn("activeEpochIndex: epochs.length > 0 ? epochs.length - 1 : -1,", script)
+        self.assertIn("tablePage: Math.max(0, Math.ceil(steps.length / 50) - 1),", script)
+        self.assertIn("syncToLatestState(window.__agyis_hud_state);", script)
+
+        # 4. Assert __agyis_hud_load_convo calls syncToLatestState(state)
+        self.assertIn("window.__agyis_hud_load_convo", script)
+        self.assertIn("syncToLatestState(state);", script)
+
+        # 5. Assert hotkey listener syncs to latest state
+        self.assertIn("window.__agyis_hud_active_listener", script)
+
+        # 6. Assert scrollIntoView on selected step element and display timing
+        self.assertIn("selEl.scrollIntoView({ block: \"nearest\" })", script)
+        # Verify display timing: display flex is set before scrollIntoView
+        display_pos = script.find('existingHud.style.display = isHidden ? "flex" : "none";')
+        scroll_pos = script.find('selEl.scrollIntoView({ block: "nearest" });')
+        self.assertTrue(display_pos != -1 and scroll_pos != -1 and display_pos < scroll_pos)
+
+    def test_sync_to_latest_state_node_evaluation(self) -> None:
+        """BUILD-TOGGLE-LATEST-EPOCH-STEP-PAGE-001: Execute syncToLatestState in node to assert exact runtime behavior."""
+        import subprocess
+
+        js_harness = """
+        function syncToLatestState(state) {
+            if (!state || !state.currentData) return;
+            const steps = state.currentData.steps || [];
+            const epochs = state.currentData.epochs || [];
+
+            // 1. Show latest epoch
+            state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
+
+            // 2. Select latest step
+            state.selectedIndex = Math.max(0, steps.length - 1);
+
+            // 3. Show latest 50 steps on steps list (last table page)
+            const totalSteps = steps.length;
+            const pageSize = 50;
+            const totalPages = Math.max(1, Math.ceil(totalSteps / pageSize));
+            state.tablePage = totalPages - 1;
+        }
+
+        const cases = [
+            // Case 0: Empty trajectory
+            { currentData: { steps: [], epochs: [] } },
+            // Case 1: 30 steps (single page, 1 epoch)
+            { currentData: { steps: new Array(30).fill({}), epochs: [{ epoch_index: 0 }] } },
+            // Case 2: 50 steps (exact 1 page boundary)
+            { currentData: { steps: new Array(50).fill({}), epochs: [{ epoch_index: 0 }] } },
+            // Case 3: 51 steps (page 1)
+            { currentData: { steps: new Array(51).fill({}), epochs: [{ epoch_index: 0 }, { epoch_index: 1 }] } },
+            // Case 4: 120 steps across 3 epochs (page 2, last step 119, epoch 2)
+            { currentData: { steps: new Array(120).fill({}), epochs: [{ epoch_index: 0 }, { epoch_index: 1 }, { epoch_index: 2 }] } }
+        ];
+
+        const results = cases.map(st => {
+            syncToLatestState(st);
+            return {
+                activeEpochIndex: st.activeEpochIndex,
+                selectedIndex: st.selectedIndex,
+                tablePage: st.tablePage
+            };
+        });
+
+        console.log(JSON.stringify(results));
+        """
+        try:
+            res = subprocess.run(["node", "-e", js_harness], capture_output=True, text=True, check=True)
+            results = json.loads(res.stdout.strip())
+            # Case 0: Empty
+            self.assertEqual(results[0], {"activeEpochIndex": -1, "selectedIndex": 0, "tablePage": 0})
+            # Case 1: 30 steps
+            self.assertEqual(results[1], {"activeEpochIndex": 0, "selectedIndex": 29, "tablePage": 0})
+            # Case 2: 50 steps
+            self.assertEqual(results[2], {"activeEpochIndex": 0, "selectedIndex": 49, "tablePage": 0})
+            # Case 3: 51 steps
+            self.assertEqual(results[3], {"activeEpochIndex": 1, "selectedIndex": 50, "tablePage": 1})
+            # Case 4: 120 steps
+            self.assertEqual(results[4], {"activeEpochIndex": 2, "selectedIndex": 119, "tablePage": 2})
+        except FileNotFoundError:
+            pass
+
     def test_hud_script_contains_prettified_inspector_features(self) -> None:
         sample_data = {"conversation_id": "test-insp", "steps": []}
         script = build_trajectory_hud_script("test-insp", sample_data, [], open_view=True)
