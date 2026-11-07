@@ -230,6 +230,22 @@ class TestAntiVibeScriptDOMReplacement(unittest.TestCase):
         # 5. Hotkey registration check (unified flag)
         self.assertIn("window.__agyis_hud_hotkey_registered", script)
 
+    def test_script_contains_dynamic_atc_and_main_deck_tabs(self) -> None:
+        script = build_trajectory_hud_script(
+            convo_id="test-session-256k",
+            trajectory_data={"conversation_id": "test-session-256k", "steps": []},
+            conversations=[],
+            open_view=True,
+            toggle=False,
+        )
+        # Anti-vibe check: dynamic sizing functions must be defined rather than static hardcoding
+        self.assertIn("function Atc", script)
+        self.assertIn("function xtc", script)
+        self.assertIn("function ytc", script)
+        self.assertIn("Context Window", script)
+        self.assertIn("Timeline", script)
+        self.assertIn("minSegmentPx", script)
+
 
 class TestPSLINV010RuleCodification(unittest.TestCase):
     """Tests that PSL-INV-010 is formally codified across all rules and agent personas."""

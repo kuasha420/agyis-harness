@@ -24,11 +24,26 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
     tool_calls = step.get("tool_calls", [])
     source = str(step.get("source") or "").lower()
     role = str(step.get("role") or "").lower()
+    content = str(step.get("content") or "")
+    step_case = str(step.get("case") or step.get("step", {}).get("case") or "").lower()
+
+    # Checkpoint detection from compaction summaries or step cases
+    if (
+        existing_type == "CHECKPOINT"
+        or step_case == "checkpoint"
+        or "<context_summary>" in content.lower()
+        or "<summary>" in content.lower()
+        or step.get("checkpoint") is not None
+        or step.get("sessionSummary") is not None
+        or step.get("userIntent") is not None
+    ):
+        return "CHECKPOINT"
 
     if existing_type and existing_type in (
         "PLANNER_RESPONSE", "USER_INPUT", "RUN_COMMAND", "VIEW_FILE",
         "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES",
-        "SEND_MESSAGE", "INVOKE_SUBAGENT", "MODEL_OUTPUT", "SYSTEM", "TOOL_CALL"
+        "SEND_MESSAGE", "INVOKE_SUBAGENT", "MODEL_OUTPUT", "SYSTEM", "TOOL_CALL",
+        "CHECKPOINT",
     ):
         return existing_type
 
@@ -62,6 +77,157 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
     if source in ("model", "assistant") or role in ("model", "assistant"):
         return "MODEL_OUTPUT"
     return existing_type or "STEP"
+
+
+def _extract_compaction_summary(step: Dict[str, Any]) -> Optional[str]:
+    """Extracts compaction summary from checkpoint step or xml summary blocks."""
+    if step.get("checkpoint"):
+        cp = step["checkpoint"]
+        if isinstance(cp, dict):
+            s = cp.get("sessionSummary") or cp.get("userIntent") or cp.get("summary")
+            if s:
+                return str(s).strip()
+        elif isinstance(cp, str):
+            return cp.strip()
+    if step.get("sessionSummary"):
+        return str(step["sessionSummary"]).strip()
+    if step.get("userIntent"):
+        return str(step["userIntent"]).strip()
+
+    step_obj = step.get("step")
+    if isinstance(step_obj, dict):
+        val = step_obj.get("value")
+        if isinstance(val, dict):
+            s = val.get("sessionSummary") or val.get("userIntent") or val.get("summary")
+            if s:
+                return str(s).strip()
+
+    for field in ("content", "thinking"):
+        val = str(step.get(field) or "")
+        m = re.search(r"<(?:CONTEXT_SUMMARY|summary)>([\s\S]*?)</(?:CONTEXT_SUMMARY|summary)>", val, re.I)
+        if m:
+            return m.group(1).strip()
+
+    return None
+
+
+def estimate_tokens(char_count: int) -> int:
+    """Estimates token count from character count using authoritative 2.26.0 ratio (char_count / 3.5)."""
+    return round(char_count / 3.5) if char_count > 0 else 0
+
+
+def xtc_segment_width(segment_tokens: int, px_per_token: float, min_segment_px: float = 2.0) -> float:
+    """Calculates pixel width for a segment with minimum pixel clamp (cleanroom xtc)."""
+    tok = max(0, segment_tokens)
+    return max(tok * px_per_token, min_segment_px) if tok > 0 else 0.0
+
+
+def ytc_layout_pass(
+    segments: List[Dict[str, Any]],
+    capacity_tokens: int,
+    container_width: float,
+    min_segment_px: float = 2.0,
+    rows_count: int = 1,
+) -> Dict[str, float]:
+    """Calculates layout metrics and inflation for a given row count (cleanroom ytc)."""
+    capacity_px = container_width * rows_count
+    px_per_token = capacity_px / capacity_tokens if capacity_tokens > 0 else 0.0
+    used_px = 0.0
+    true_used_px = 0.0
+    for s in segments:
+        tok = s.get("tokens", 0)
+        used_px += xtc_segment_width(tok, px_per_token, min_segment_px)
+        true_used_px += max(0, tok) * px_per_token
+    return {
+        "capacity_px": capacity_px,
+        "px_per_token": px_per_token,
+        "used_px": used_px,
+        "true_used_px": true_used_px,
+        "inflation_px": used_px - true_used_px,
+    }
+
+
+def ztc_row_count(
+    segments: List[Dict[str, Any]],
+    capacity_tokens: int,
+    container_width: float,
+    min_segment_px: float = 2.0,
+    max_rows: int = 8,
+) -> int:
+    """Determines optimal row count to minimize inflation (cleanroom ztc)."""
+    current = ytc_layout_pass(segments, capacity_tokens, container_width, min_segment_px, 1)
+    for r in range(1, max_rows):
+        if current["inflation_px"] <= 0.1 * current["true_used_px"]:
+            return r
+        next_pass = ytc_layout_pass(segments, capacity_tokens, container_width, min_segment_px, r + 1)
+        if current["inflation_px"] - next_pass["inflation_px"] < 0.02 * container_width:
+            return r
+        current = next_pass
+    return max_rows
+
+
+def atc_context_layout(
+    segments: List[Dict[str, Any]],
+    capacity_tokens: int,
+    container_width: float,
+    min_segment_px: float = 2.0,
+    max_rows: int = 8,
+) -> Dict[str, Any]:
+    """Authoritative dynamic context bar sizing and multi-row layout algorithm (cleanroom Atc)."""
+    if not segments or capacity_tokens <= 0 or container_width <= 0:
+        return {"rows": [], "inflation_px": 0.0}
+
+    row_count = ztc_row_count(segments, capacity_tokens, container_width, min_segment_px, max_rows)
+    layout = ytc_layout_pass(segments, capacity_tokens, container_width, min_segment_px, row_count)
+    scale_factor = layout["capacity_px"] / layout["used_px"] if layout["used_px"] > layout["capacity_px"] else 1.0
+
+    segment_widths = [
+        xtc_segment_width(s.get("tokens", 0), layout["px_per_token"], min_segment_px) * scale_factor
+        for s in segments
+    ]
+    unused_px = max(0.0, layout["capacity_px"] - layout["used_px"] * scale_factor)
+
+    rows: List[List[Dict[str, Any]]] = [[] for _ in range(row_count)]
+    cursor_px = 0.0
+
+    def place_cell(seg: Optional[Dict[str, Any]], width_px: float, key_prefix: str, show_divider: bool) -> None:
+        nonlocal cursor_px
+        rem_width = width_px
+        sub_idx = 0
+        while rem_width > 1e-6:
+            row_idx = min(len(rows) - 1, int((cursor_px + 1e-6) // container_width))
+            row_start_px = cursor_px - row_idx * container_width
+            avail_in_row = container_width - row_start_px
+            if avail_in_row <= 1e-6:
+                break
+
+            slice_width = min(rem_width, avail_in_row)
+            rem_width -= slice_width
+            cursor_px += slice_width
+
+            is_done = rem_width <= 1e-6
+            fills_row = slice_width >= avail_in_row - 1e-6
+
+            rows[row_idx].append({
+                "key": f"{key_prefix}#{sub_idx}",
+                "segment": seg,
+                "start_fraction": row_start_px / container_width,
+                "width_fraction": slice_width / container_width,
+                "continues_from_previous_row": sub_idx > 0,
+                "continues_on_next_row": not is_done,
+                "show_divider_after": show_divider and is_done and not fills_row,
+            })
+            sub_idx += 1
+
+    for idx, seg in enumerate(segments):
+        next_seg = segments[idx + 1] if idx + 1 < len(segments) else None
+        show_div = next_seg is not None and next_seg.get("color_key") == seg.get("color_key")
+        place_cell(seg, segment_widths[idx], f"{idx}:{seg.get('id', idx)}", show_div)
+
+    if unused_px > 1e-6:
+        place_cell(None, unused_px, "unused", False)
+
+    return {"rows": rows, "inflation_px": layout["inflation_px"] * scale_factor}
 
 
 def _extract_conversation_summary(convo_dir: Path, transcript_path: Path) -> str:
@@ -193,21 +359,41 @@ def load_conversation_trajectory(
                 except OSError:
                     pass
 
+    # 1. Authoritative Max Context Tokens (256k default parity with 2.26.0)
+    max_context_tokens = 256000
+    for raw in raw_steps:
+        cwm = (
+            raw.get("contextWindowMetadata")
+            or raw.get("chatStartMetadata", {}).get("contextWindowMetadata")
+            or raw.get("metadata", {}).get("chatStartMetadata", {}).get("contextWindowMetadata")
+            or raw.get("metadata", {}).get("contextWindowMetadata")
+        )
+        if isinstance(cwm, dict):
+            mct = cwm.get("maxContextTokens")
+            if mct and isinstance(mct, (int, float)) and mct > 0:
+                max_context_tokens = int(mct)
+                break
+
+    if max_context_tokens == 256000:
+        meta_path = convo_dir / "meta.json"
+        if meta_path.is_file():
+            try:
+                with open(meta_path, "r", encoding="utf-8", errors="replace") as f:
+                    meta_data = json.load(f)
+                    mct = (
+                        meta_data.get("maxContextTokens")
+                        or meta_data.get("contextWindowMetadata", {}).get("maxContextTokens")
+                    )
+                    if mct and isinstance(mct, (int, float)) and mct > 0:
+                        max_context_tokens = int(mct)
+            except (json.JSONDecodeError, OSError, ValueError):
+                pass
+
     # Enrich steps: timing metrics, byte sizes, cortex types, cumulative context tokens
     steps: List[Dict[str, Any]] = []
     total_tokens = 0
     cache_tokens = 0
     cumulative_ctx = 0
-
-    token_breakdown = {
-        "system_prompt": 3800,
-        "tool_defs": 3200,
-        "checkpoint": 0,
-        "user": 0,
-        "model": 0,
-        "tool": 0,
-        "system": 0,
-    }
 
     for idx, raw in enumerate(raw_steps):
         s = dict(raw)
@@ -217,20 +403,26 @@ def load_conversation_trajectory(
         cortex_type = _map_to_cortex_type(s)
         s["type"] = cortex_type
 
+        # Extract compaction summary if present
+        comp_summary = _extract_compaction_summary(s)
+        if comp_summary:
+            s["compaction_summary"] = comp_summary
+
         # Payload byte size calculation (SIZE column)
         try:
             s["size_bytes"] = len(json.dumps(s).encode("utf-8"))
         except (TypeError, ValueError):
             s["size_bytes"] = 0
 
-        # Step timing metrics: thinking_duration_ms (TTFT) and streaming_duration_ms
-        meta = s.get("metadata", {})
+        # Authoritative step timing metrics
+        meta = s.get("metadata", {}) if isinstance(s.get("metadata"), dict) else {}
+        model_usage = meta.get("modelUsage", {}) if isinstance(meta.get("modelUsage"), dict) else {}
+
         thinking_ms = s.get("thinking_duration_ms")
         if thinking_ms is None:
             thinking_ms = meta.get("thinking_duration_ms") or meta.get("ttft_ms")
             if thinking_ms is None:
                 if s.get("thinking"):
-                    # Derive empirical TTFT estimate based on thinking tokens length
                     thinking_ms = min(20000, max(600, int(len(str(s["thinking"])) * 1.6)))
                 else:
                     thinking_ms = 0
@@ -246,13 +438,43 @@ def load_conversation_trajectory(
         s["streaming_duration_ms"] = int(streaming_ms or 0)
         s["total_duration_ms"] = s["thinking_duration_ms"] + s["streaming_duration_ms"]
 
-        # Tokens metrics
-        in_tok = int(s.get("input_tokens") or 0)
-        out_tok = int(s.get("output_tokens") or 0)
+        # Authoritative token metrics extraction
+        in_tok = s.get("input_tokens")
+        if in_tok is None:
+            in_tok = model_usage.get("inputTokens") or meta.get("input_tokens")
+        in_tok = int(in_tok or 0)
+
+        out_tok = s.get("output_tokens")
+        if out_tok is None:
+            out_tok = model_usage.get("outputTokens") or meta.get("toolCallOutputTokens") or meta.get("output_tokens")
+        out_tok = int(out_tok or 0)
+
+        cache_tok = s.get("cache_read_tokens")
+        if cache_tok is None:
+            cache_tok = model_usage.get("cacheReadTokens") or meta.get("cache_read_tokens")
+        s["cache_read_tokens"] = int(cache_tok or 0)
+
         step_tok = in_tok + out_tok
+        if step_tok <= 0:
+            explicit_tok = int(s.get("tokens") or 0)
+            if explicit_tok > 0:
+                step_tok = explicit_tok
+            else:
+                # Fallback token estimation: round(char_count / 3.5)
+                char_count = len(str(s.get("content") or "")) + len(str(s.get("thinking") or ""))
+                for tc in s.get("tool_calls", []):
+                    char_count += len(str(tc.get("name") or ""))
+                    tc_args = tc.get("args")
+                    if tc_args:
+                        char_count += len(json.dumps(tc_args) if isinstance(tc_args, (dict, list)) else str(tc_args))
+                    char_count += len(str(tc.get("output") or ""))
+                step_tok = estimate_tokens(char_count)
+
+        s["input_tokens"] = in_tok
+        s["output_tokens"] = out_tok
+        s["tokens"] = step_tok
         if step_tok > 0:
-            cumulative_ctx = in_tok + out_tok
-        s["tokens"] = step_tok or int(s.get("tokens") or 0)
+            cumulative_ctx += step_tok
         s["cumulative_tokens"] = cumulative_ctx
         steps.append(s)
 
@@ -262,26 +484,43 @@ def load_conversation_trajectory(
             cache_tokens = s.get("cache_read_tokens") or 0
             break
 
-    if total_tokens <= 0:
-        total_tokens = max(1000, len(steps) * 150)
+    actual_user_tok = sum(s["tokens"] for s in steps if s.get("type") == "USER_INPUT")
+    actual_model_tok = sum(s["tokens"] for s in steps if s.get("type") in ("PLANNER_RESPONSE", "MODEL_OUTPUT"))
+    actual_tool_tok = sum(s["tokens"] for s in steps if s.get("type") in ("TOOL_CALL", "RUN_COMMAND", "VIEW_FILE", "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES"))
+    actual_checkpoint_tok = sum(s["tokens"] for s in steps if s.get("type") == "CHECKPOINT")
+    actual_system_tok = sum(s["tokens"] for s in steps if s.get("type") == "SYSTEM")
 
-    # Proportional token breakdown normalized to exactly total_tokens (sum == total_tokens)
+    if total_tokens <= 0:
+        total_tokens = actual_user_tok + actual_model_tok + actual_tool_tok + actual_checkpoint_tok + actual_system_tok
+        if total_tokens <= 0:
+            total_tokens = max(1000, len(steps) * 150)
+
+    # Checkpoint accounting
+    checkpoint_tok = actual_checkpoint_tok
+
+    # Proportional system prompt & tool defs
     sys_prompt_tok = min(4000, max(400, int(total_tokens * 0.15))) if total_tokens >= 4000 else min(total_tokens // 4, 1000)
     tool_defs_tok = min(3500, max(300, int(total_tokens * 0.12))) if total_tokens >= 4000 else min(total_tokens // 4, 800)
-    checkpoint_tok = 0
 
     remaining = max(0, total_tokens - (sys_prompt_tok + tool_defs_tok + checkpoint_tok))
 
-    user_weight = sum(1 for s in steps if s.get("type") == "USER_INPUT") or 1
-    model_weight = sum(1 for s in steps if s.get("type") in ("PLANNER_RESPONSE", "MODEL_OUTPUT")) or 1
-    tool_weight = sum(1 for s in steps if s.get("type") in ("TOOL_CALL", "RUN_COMMAND", "VIEW_FILE", "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES")) or 1
-    system_weight = sum(1 for s in steps if s.get("type") == "SYSTEM") or 0
-    total_weight = user_weight + model_weight + tool_weight + system_weight or 1
+    step_sum = actual_user_tok + actual_model_tok + actual_tool_tok + actual_system_tok
+    if step_sum > 0:
+        user_tok = int(remaining * (actual_user_tok / step_sum))
+        model_tok = int(remaining * (actual_model_tok / step_sum))
+        tool_tok = int(remaining * (actual_tool_tok / step_sum))
+        system_tok = max(0, remaining - (user_tok + model_tok + tool_tok))
+    else:
+        user_weight = sum(1 for s in steps if s.get("type") == "USER_INPUT") or 1
+        model_weight = sum(1 for s in steps if s.get("type") in ("PLANNER_RESPONSE", "MODEL_OUTPUT")) or 1
+        tool_weight = sum(1 for s in steps if s.get("type") in ("TOOL_CALL", "RUN_COMMAND", "VIEW_FILE", "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES")) or 1
+        system_weight = sum(1 for s in steps if s.get("type") == "SYSTEM") or 0
+        total_weight = user_weight + model_weight + tool_weight + system_weight or 1
 
-    user_tok = int(remaining * (user_weight / total_weight))
-    model_tok = int(remaining * (model_weight / total_weight))
-    tool_tok = int(remaining * (tool_weight / total_weight))
-    system_tok = max(0, remaining - (user_tok + model_tok + tool_tok))
+        user_tok = int(remaining * (user_weight / total_weight))
+        model_tok = int(remaining * (model_weight / total_weight))
+        tool_tok = int(remaining * (tool_weight / total_weight))
+        system_tok = max(0, remaining - (user_tok + model_tok + tool_tok))
 
     token_breakdown = {
         "system_prompt": sys_prompt_tok,
@@ -324,6 +563,7 @@ def load_conversation_trajectory(
         "subagent_infos": subagent_infos,
         "subagent_trajectories": subagent_trajectories,
         "total_tokens": total_tokens,
+        "max_context_tokens": max_context_tokens,
         "cache_tokens": cache_tokens,
         "token_breakdown": token_breakdown,
     }
@@ -518,6 +758,10 @@ _HUD_TEMPLATE = r"""
             .context-cell-unused:hover {
                 box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.8) !important;
             }
+            .context-cell-unused {
+                background: #27272a !important;
+                opacity: 0.6;
+            }
             .context-tooltip {
                 border-color: rgba(234, 179, 8, 0.8) !important;
             }
@@ -533,22 +777,90 @@ _HUD_TEMPLATE = r"""
             }
             .agyis-context-track {
                 width: 100%;
-                height: 18px;
                 background: #27272a;
                 border-radius: 4px;
                 border: 1px solid #3f3f46;
                 position: relative;
                 overflow: hidden;
                 display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .agyis-context-row {
+                position: relative;
+                width: 100%;
+                overflow: hidden;
             }
             .agyis-context-segment {
                 height: 100%;
                 cursor: pointer;
                 transition: filter 0.15s, opacity 0.15s;
                 position: relative;
-                border-right: 1px solid rgba(0, 0, 0, 0.35);
+                border: none;
+                padding: 0;
+                margin: 0;
             }
             .agyis-context-segment:hover { filter: brightness(1.25); z-index: 20; }
+
+            /* Main Deck Tabs: Context Window vs Timeline (2.26.0 Parity) */
+            .agyis-main-deck-tabs {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                padding: 0 10px;
+                background: #141416;
+                border-bottom: 1px solid #27272a;
+                user-select: none;
+                flex-shrink: 0;
+            }
+            .agyis-main-tab-btn {
+                padding: 6px 12px;
+                font-size: 11px;
+                font-weight: 600;
+                color: #a1a1aa;
+                background: transparent;
+                border: none;
+                border-bottom: 2px solid transparent;
+                margin-bottom: -1px;
+                cursor: pointer;
+                transition: color 0.15s, border-color 0.15s;
+            }
+            .agyis-main-tab-btn:hover {
+                color: #f4f4f5;
+            }
+            .agyis-main-tab-btn.active {
+                color: #fbbf24;
+                border-bottom: 2px solid #eab308;
+            }
+
+            /* Timeline View ('lvc' Parity) */
+            .agyis-timeline-pane {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                overflow-y: auto;
+                background: #18181b;
+                padding: 12px;
+                gap: 8px;
+            }
+            .agyis-timeline-card {
+                background: #202023;
+                border: 1px solid #3f3f46;
+                border-radius: 6px;
+                padding: 8px 12px;
+                cursor: pointer;
+                transition: background 0.1s, border-color 0.15s;
+                font-family: ui-monospace, monospace;
+            }
+            .agyis-timeline-card:hover {
+                background: #27272c;
+                border-color: #52525b;
+            }
+            .agyis-timeline-card.selected {
+                background: #27241d;
+                border-color: #eab308;
+                box-shadow: 0 0 0 1px #eab308;
+            }
             .agyis-context-tooltip {
                 position: absolute;
                 top: 100%;
@@ -739,11 +1051,108 @@ _HUD_TEMPLATE = r"""
         searchMatchIndices: [],
         currentMatchIdx: -1,
         activeTab: "step", // step, invocation, execution, trajectory
+        mainDeckTab: "context", // context vs timeline
         layoutOrientation: "horizontal", // horizontal (side-by-side) vs vertical (stacked)
         isMaximized: false,
         subagentsDropdownOpen: false,
         hoveredContextSegment: null,
     };
+
+    function xtc(segment, pxPerToken, minSegmentPx) {
+        const tokens = segment && segment.tokens > 0 ? segment.tokens : 0;
+        return tokens > 0 ? Math.max(tokens * pxPerToken, minSegmentPx) : 0;
+    }
+
+    function ytc(segments, capacityTokens, containerWidth, minSegmentPx, rowsCount) {
+        const capacityPx = containerWidth * rowsCount;
+        const pxPerToken = capacityTokens > 0 ? capacityPx / capacityTokens : 0;
+        let usedPx = 0;
+        let trueUsedPx = 0;
+        for (let i = 0; i < segments.length; i++) {
+            const tok = segments[i].tokens || 0;
+            usedPx += xtc(segments[i], pxPerToken, minSegmentPx);
+            trueUsedPx += (tok > 0 ? tok : 0) * pxPerToken;
+        }
+        return {
+            capacityPx: capacityPx,
+            pxPerToken: pxPerToken,
+            usedPx: usedPx,
+            trueUsedPx: trueUsedPx,
+            inflationPx: usedPx - trueUsedPx,
+        };
+    }
+
+    function ztc(segments, capacityTokens, containerWidth, minSegmentPx, maxRows) {
+        let current = ytc(segments, capacityTokens, containerWidth, minSegmentPx, 1);
+        for (let r = 1; r < maxRows; r++) {
+            if (current.inflationPx <= 0.1 * current.trueUsedPx) return r;
+            const next = ytc(segments, capacityTokens, containerWidth, minSegmentPx, r + 1);
+            if (current.inflationPx - next.inflationPx < 0.02 * containerWidth) return r;
+            current = next;
+        }
+        return maxRows;
+    }
+
+    function Atc(segments, capacityTokens, containerWidth, options) {
+        const opts = options || {};
+        const minSegmentPx = opts.minSegmentPx ?? 2;
+        const maxRows = Math.min(8, Math.max(1, opts.maxRows ?? 8));
+        const emptyResult = { rows: [], inflationPx: 0 };
+        if (!segments || segments.length === 0 || !Number.isFinite(containerWidth) || !Number.isFinite(capacityTokens) || containerWidth <= 0 || capacityTokens <= 0) {
+            return emptyResult;
+        }
+
+        const rowCount = ztc(segments, capacityTokens, containerWidth, minSegmentPx, maxRows);
+        const layout = ytc(segments, capacityTokens, containerWidth, minSegmentPx, rowCount);
+        const scaleFactor = layout.usedPx > layout.capacityPx ? layout.capacityPx / layout.usedPx : 1;
+        const segmentWidths = segments.map(s => xtc(s, layout.pxPerToken, minSegmentPx) * scaleFactor);
+        const unusedPx = Math.max(0, layout.capacityPx - layout.usedPx * scaleFactor);
+
+        const rows = [];
+        for (let r = 0; r < rowCount; r++) rows.push([]);
+
+        let cursorPx = 0;
+        const placeCell = (seg, widthPx, keyPrefix, showDivider) => {
+            let remainingWidth = widthPx;
+            let subIndex = 0;
+            while (remainingWidth > 1e-6) {
+                const rowIndex = Math.min(rows.length - 1, Math.floor((cursorPx + 1e-6) / containerWidth));
+                const rowStartPx = cursorPx - rowIndex * containerWidth;
+                const availableInRow = containerWidth - rowStartPx;
+                if (availableInRow <= 1e-6) break;
+
+                const sliceWidth = Math.min(remainingWidth, availableInRow);
+                remainingWidth -= sliceWidth;
+                cursorPx += sliceWidth;
+
+                const isDone = remainingWidth <= 1e-6;
+                const fillsRow = sliceWidth >= availableInRow - 1e-6;
+
+                rows[rowIndex].push({
+                    key: `${keyPrefix}#${subIndex}`,
+                    segment: seg,
+                    startFraction: rowStartPx / containerWidth,
+                    widthFraction: sliceWidth / containerWidth,
+                    continuesFromPreviousRow: subIndex > 0,
+                    continuesOnNextRow: !isDone,
+                    showDividerAfter: showDivider && isDone && !fillsRow,
+                });
+                subIndex++;
+            }
+        };
+
+        segments.forEach((seg, idx) => {
+            const nextSeg = segments[idx + 1];
+            const showDivider = nextSeg !== undefined && nextSeg.colorKey === seg.colorKey;
+            placeCell(seg, segmentWidths[idx], `${idx}:${seg.id}`, showDivider);
+        });
+
+        if (unusedPx > 1e-6) {
+            placeCell(null, unusedPx, "unused", false);
+        }
+
+        return { rows: rows, inflationPx: layout.inflationPx * scaleFactor };
+    }
 
     window.__agyis_hud_load_convo = async function(convoId) {
         if (!convoId) return null;
@@ -850,9 +1259,9 @@ _HUD_TEMPLATE = r"""
         }
         state.searchMatchIndices = filteredIndices;
 
-        // Context Window Bar Calculations ('Dlc' Parity)
+        // Context Window Bar Calculations (Authoritative 256k Parity & Atc Layout)
         const totalTokens = cur.total_tokens || 0;
-        const maxTokens = 200000;
+        const maxTokens = cur.max_context_tokens || 256000;
         const unusedTokens = Math.max(0, maxTokens - totalTokens);
         const breakdown = cur.token_breakdown || {
             system_prompt: 3800,
@@ -864,31 +1273,140 @@ _HUD_TEMPLATE = r"""
             system: 0,
         };
 
-        const segmentsDef = [
-            { id: "sys-prompt", name: "System Prompt", tokens: breakdown.system_prompt || 3800, color: "#6366f1", bgClass: "bg-indigo-500" },
-            { id: "tool-defs", name: "Tool Defs", tokens: breakdown.tool_defs || 3200, color: "#06b6d4", bgClass: "bg-cyan-500" },
-            { id: "checkpoint", name: "Checkpoint", tokens: breakdown.checkpoint || 0, color: "#16a34a", bgClass: "bg-green-600" },
-            { id: "user", name: "User", tokens: breakdown.user || 0, color: "#3b82f6", bgClass: "bg-blue-500" },
-            { id: "model", name: "Model", tokens: breakdown.model || 0, color: "#f59e0b", bgClass: "bg-amber-500" },
-            { id: "tool", name: "Tool", tokens: breakdown.tool || 0, color: "#14b8a6", bgClass: "bg-teal-500" },
-            { id: "system", name: "System", tokens: breakdown.system || 0, color: "#a855f7", bgClass: "bg-purple-500" },
-            { id: "unused", name: "Unused", tokens: unusedTokens, color: "#27272a", bgClass: "bg-muted/60" },
-        ];
+        const segments = [];
+        if ((breakdown.system_prompt || 0) > 0) {
+            segments.push({
+                id: "sys-prompt",
+                type: "system_prompt",
+                label: "System Prompt",
+                tokens: breakdown.system_prompt,
+                color: "#6366f1",
+                colorKey: "bg-indigo-500",
+                titleColorClass: "text-indigo-400",
+                tooltipContent: "System instructions and role configuration",
+            });
+        }
+        if ((breakdown.tool_defs || 0) > 0) {
+            segments.push({
+                id: "tool-defs",
+                type: "tool_definition",
+                label: "Tool Defs",
+                tokens: breakdown.tool_defs,
+                color: "#06b6d4",
+                colorKey: "bg-cyan-500",
+                titleColorClass: "text-cyan-400",
+                tooltipContent: "Tool definitions and schemas",
+            });
+        }
 
+        let hasCheckpointInSteps = false;
+        for (let i = 0; i < steps.length; i++) {
+            if (steps[i].type === "CHECKPOINT") {
+                hasCheckpointInSteps = true;
+                break;
+            }
+        }
+        if (!hasCheckpointInSteps && (breakdown.checkpoint || 0) > 0) {
+            segments.push({
+                id: "checkpoint-summary",
+                type: "checkpoint",
+                label: "Checkpoint",
+                tokens: breakdown.checkpoint,
+                color: "#16a34a",
+                colorKey: "bg-green-600",
+                titleColorClass: "text-green-400",
+                tooltipContent: "Compacted context summary",
+            });
+        }
+
+        if (steps.length > 0) {
+            steps.forEach((s, idx) => {
+                const sTok = s.tokens || Math.round((s.size_bytes || 100) / 3.5);
+                let segColor = "#3b82f6";
+                let segColorKey = "bg-blue-600";
+                let segTitleColor = "text-blue-400";
+                let segLabel = `Step #${s.step_index ?? idx}: ${s.type || 'STEP'}`;
+
+                if (s.type === "PLANNER_RESPONSE" || s.type === "MODEL_OUTPUT") {
+                    segColor = "#f59e0b";
+                    segColorKey = "bg-amber-600";
+                    segTitleColor = "text-amber-400";
+                } else if (s.type === "CHECKPOINT") {
+                    segColor = "#16a34a";
+                    segColorKey = "bg-green-600";
+                    segTitleColor = "text-green-400";
+                } else if (s.type.includes("COMMAND") || s.type.includes("TOOL") || s.type.includes("FILE") || s.type.includes("WRITE") || s.type.includes("REPLACE") || s.type.includes("SEARCH")) {
+                    segColor = "#14b8a6";
+                    segColorKey = "bg-teal-600";
+                    segTitleColor = "text-teal-400";
+                } else if (s.type === "SYSTEM") {
+                    segColor = "#a855f7";
+                    segColorKey = "bg-purple-600";
+                    segTitleColor = "text-purple-400";
+                }
+
+                let tip = s.thinking ? s.thinking : (s.content ? s.content : "");
+                if (s.type === "CHECKPOINT") {
+                    tip = s.compaction_summary || s.summary || s.sessionSummary || tip || "Checkpoint";
+                }
+                if (!tip && (s.tool_calls || []).length > 0) {
+                    tip = s.tool_calls.map(tc => tc.name).join(", ");
+                }
+                tip = tip.replace(/\n/g, " ").slice(0, 160);
+
+                segments.push({
+                    id: `step-${idx}`,
+                    type: "step",
+                    stepIndex: idx,
+                    label: segLabel,
+                    tokens: sTok,
+                    color: segColor,
+                    colorKey: segColorKey,
+                    titleColorClass: segTitleColor,
+                    tooltipContent: tip,
+                });
+            });
+        } else {
+            if ((breakdown.checkpoint || 0) > 0) segments.push({ id: "checkpoint", type: "checkpoint", label: "Checkpoint", tokens: breakdown.checkpoint, color: "#16a34a", colorKey: "bg-green-600", titleColorClass: "text-green-400", tooltipContent: "Compacted context" });
+            if ((breakdown.user || 0) > 0) segments.push({ id: "user", type: "user", label: "User", tokens: breakdown.user, color: "#3b82f6", colorKey: "bg-blue-500", titleColorClass: "text-blue-400", tooltipContent: "User messages" });
+            if ((breakdown.model || 0) > 0) segments.push({ id: "model", type: "model", label: "Model", tokens: breakdown.model, color: "#f59e0b", colorKey: "bg-amber-500", titleColorClass: "text-amber-400", tooltipContent: "Model responses" });
+            if ((breakdown.tool || 0) > 0) segments.push({ id: "tool", type: "tool", label: "Tool", tokens: breakdown.tool, color: "#14b8a6", colorKey: "bg-teal-500", titleColorClass: "text-teal-400", tooltipContent: "Tool calls" });
+            if ((breakdown.system || 0) > 0) segments.push({ id: "system", type: "system", label: "System", tokens: breakdown.system, color: "#a855f7", colorKey: "bg-purple-500", titleColorClass: "text-purple-400", tooltipContent: "System messages" });
+        }
+
+        const atcLayout = Atc(segments, maxTokens, 1200, { minSegmentPx: 2, maxRows: 8 });
         let barSegmentsHtml = "";
-        segmentsDef.forEach(seg => {
-            if (seg.tokens <= 0 && seg.id !== "unused") return;
-            const pct = Math.max(0.2, (seg.tokens / maxTokens) * 100);
-            const isUnused = seg.id === "unused";
-            barSegmentsHtml += `
-                <div class="agyis-context-segment ${isUnused ? 'context-cell-unused' : ''}"
-                     data-seg-id="${seg.id}"
-                     data-seg-name="${seg.name}"
-                     data-seg-tokens="${seg.tokens}"
-                     data-seg-pct="${((seg.tokens / maxTokens) * 100).toFixed(1)}"
-                     style="width: ${pct}%; background: ${seg.color};">
-                </div>
-            `;
+        atcLayout.rows.forEach(row => {
+            let cellsHtml = "";
+            row.forEach(cell => {
+                const seg = cell.segment;
+                const isUnused = seg === null;
+                const isSelected = (!isUnused && seg.stepIndex !== undefined && seg.stepIndex === state.selectedIndex);
+                const cellClass = isUnused ? "context-cell-unused" : "";
+                const selClass = isSelected ? "context-cell-selected" : "";
+                const colorStyle = isUnused ? "background: #27272a;" : `background: ${seg.color};`;
+                const borderRight = cell.showDividerAfter ? "border-right: 1px solid rgba(0, 0, 0, 0.35);" : "";
+                const ariaLabel = isUnused ? `Unused capacity: ${unusedTokens.toLocaleString()} tokens` : `${seg.label}: ${seg.tokens.toLocaleString()} tokens`;
+                const leftPct = (cell.startFraction * 100).toFixed(4);
+                const widthPct = (cell.widthFraction * 100).toFixed(4);
+                const stepIdxAttr = (!isUnused && seg.stepIndex !== undefined) ? `data-step-index="${seg.stepIndex}"` : "";
+
+                cellsHtml += `
+                    <button type="button"
+                            class="agyis-context-segment ${cellClass} ${selClass}"
+                            ${stepIdxAttr}
+                            data-seg-id="${isUnused ? 'unused' : seg.id}"
+                            data-seg-name="${isUnused ? 'Unused Capacity' : seg.label}"
+                            data-seg-tokens="${isUnused ? unusedTokens : seg.tokens}"
+                            data-seg-pct="${(((isUnused ? unusedTokens : seg.tokens) / maxTokens) * 100).toFixed(1)}"
+                            data-tooltip="${isUnused ? '' : (seg.tooltipContent || '').replace(/"/g, '&quot;')}"
+                            aria-label="${ariaLabel}"
+                            style="position: absolute; top: 0; bottom: 0; left: ${leftPct}%; width: ${widthPct}%; ${colorStyle} ${borderRight}">
+                    </button>
+                `;
+            });
+            const rowHeight = atcLayout.rows.length <= 1 ? 20 : 12;
+            barSegmentsHtml += `<div class="agyis-context-row" style="height: ${rowHeight}px;">${cellsHtml}</div>`;
         });
 
         // Subagents Map & Dropdown
@@ -927,6 +1445,7 @@ _HUD_TEMPLATE = r"""
             const type = s.type || "STEP";
             let pillClass = "agyis-hud-pill-blue";
             if (type === "PLANNER_RESPONSE") pillClass = "agyis-hud-pill-amber";
+            else if (type === "CHECKPOINT") pillClass = "agyis-hud-pill-green";
             else if (type.includes("COMMAND") || type.includes("TOOL")) pillClass = "agyis-hud-pill-teal";
             else if (type.includes("FILE") || type.includes("WRITE") || type.includes("REPLACE")) pillClass = "agyis-hud-pill-green";
             else if (type === "INVOKE_SUBAGENT") pillClass = "agyis-hud-pill-purple";
@@ -939,6 +1458,9 @@ _HUD_TEMPLATE = r"""
             else if (status === "WAITING") statusPillClass = "agyis-hud-pill-amber";
 
             let details = s.thinking ? s.thinking : (s.content ? s.content : "");
+            if (type === "CHECKPOINT") {
+                details = s.compaction_summary || s.summary || s.sessionSummary || details || "Checkpoint";
+            }
             if (!details && (s.tool_calls || []).length > 0) {
                 details = s.tool_calls.map(tc => tc.name + "(" + JSON.stringify(tc.args || {}) + ")").join("; ");
             }
@@ -957,6 +1479,58 @@ _HUD_TEMPLATE = r"""
                     <div><span class="agyis-hud-pill ${statusPillClass}">${status}</span></div>
                     <div style="text-align: right; color: #cbd5e1;">${tokensStr}</div>
                     <div style="text-align: right; color: #71717a;">${sizeStr}</div>
+                </div>
+            `;
+        }).join("");
+
+        // Timeline View Body ('lvc' Parity)
+        const timelineCardsHtml = steps.map((s, idx) => {
+            const isSel = idx === state.selectedIndex;
+            const type = s.type || "STEP";
+            let pillClass = "agyis-hud-pill-blue";
+            if (type === "PLANNER_RESPONSE") pillClass = "agyis-hud-pill-amber";
+            else if (type === "CHECKPOINT") pillClass = "agyis-hud-pill-green";
+            else if (type.includes("COMMAND") || type.includes("TOOL")) pillClass = "agyis-hud-pill-teal";
+            else if (type.includes("FILE") || type.includes("WRITE") || type.includes("REPLACE")) pillClass = "agyis-hud-pill-green";
+            else if (type === "INVOKE_SUBAGENT") pillClass = "agyis-hud-pill-purple";
+            else if (type === "SYSTEM") pillClass = "agyis-hud-pill-zinc";
+
+            let details = s.thinking ? s.thinking : (s.content ? s.content : "");
+            if (type === "CHECKPOINT") {
+                details = s.compaction_summary || s.summary || s.sessionSummary || details || "Checkpoint";
+            }
+            if (!details && (s.tool_calls || []).length > 0) {
+                details = s.tool_calls.map(tc => tc.name).join("; ");
+            }
+            details = details.replace(/\n/g, " ").slice(0, 140).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+            const ttftSec = ((s.thinking_duration_ms || 0) / 1000).toFixed(2);
+            const streamSec = ((s.streaming_duration_ms || 0) / 1000).toFixed(2);
+            const totalSec = ((s.total_duration_ms || 0) / 1000).toFixed(2);
+            const totalMs = Math.max(1, (s.total_duration_ms || 1));
+            const ttftPct = Math.round(((s.thinking_duration_ms || 0) / totalMs) * 100);
+            const streamPct = 100 - ttftPct;
+
+            return `
+                <div class="agyis-timeline-card ${isSel ? 'selected' : ''}" data-index="${idx}">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-weight: 700; color: #fbbf24;">#${s.step_index ?? idx}</span>
+                            <span class="agyis-hud-pill ${pillClass}">${type}</span>
+                        </div>
+                        <span style="font-size: 10px; color: #a1a1aa;">${(s.tokens || 0).toLocaleString()} tok &bull; ${formatBytes(s.size_bytes)}</span>
+                    </div>
+                    <div style="font-size: 11px; color: #cbd5e1; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        ${details || "—"}
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 10px; color: #71717a; margin-bottom: 2px;">
+                        <span>TTFT: ${ttftSec}s | Stream: ${streamSec}s</span>
+                        <span style="font-weight: 700;">${totalSec}s</span>
+                    </div>
+                    <div style="height: 4px; background: #27272a; border-radius: 2px; overflow: hidden; display: flex;">
+                        <div style="width: ${ttftPct}%; background: #f59e0b;"></div>
+                        <div style="width: ${streamPct}%; background: #6366f1;"></div>
+                    </div>
                 </div>
             `;
         }).join("");
@@ -1077,46 +1651,63 @@ _HUD_TEMPLATE = r"""
                     </div>
                 </div>
 
-                <!-- Context Window Bar ('Dlc' Parity) -->
-                <div class="agyis-context-bar-wrap">
-                    <div class="agyis-context-track">
-                        ${barSegmentsHtml}
-                    </div>
-                    <div id="agyis-hover-tooltip" class="agyis-context-tooltip" style="display: none;"></div>
-                    <div class="agyis-context-legend">
-                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #6366f1;"></span> System Prompt</span>
-                            <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #06b6d4;"></span> Tool Defs</span>
-                            <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #16a34a;"></span> Checkpoint</span>
-                            <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #3b82f6;"></span> User</span>
-                            <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #f59e0b;"></span> Model</span>
-                            <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #14b8a6;"></span> Tool</span>
-                            <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #a855f7;"></span> System</span>
-                            <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #3f3f46;"></span> Unused</span>
-                        </div>
-                        <div style="font-family: monospace; font-weight: 700; color: #cbd5e1;">
-                            ${totalTokens.toLocaleString()} / 200,000 tokens
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Deck Deck Splitter Layout -->
+                <!-- Main Deck Splitter Layout -->
                 <div id="agyis-hud-deck" class="agyis-hud-main-deck ${state.layoutOrientation}">
-                    <!-- History Table Grid ('rmc' Parity) -->
+                    <!-- Left Deck Pane with Sub-Tabs ('Context Window' vs 'Timeline') -->
                     <div class="agyis-grid-pane">
-                        <div class="agyis-step-grid-row agyis-step-grid-header">
-                            <div>EXEC</div>
-                            <div>INV</div>
-                            <div>STEP</div>
-                            <div>TYPE</div>
-                            <div>DETAILS</div>
-                            <div>STATUS</div>
-                            <div style="text-align: right;">TOKENS</div>
-                            <div style="text-align: right;">SIZE</div>
+                        <div class="agyis-main-deck-tabs">
+                            <button class="agyis-main-tab-btn ${state.mainDeckTab === 'context' ? 'active' : ''}" data-main-tab="context">[ Context Window ]</button>
+                            <button class="agyis-main-tab-btn ${state.mainDeckTab === 'timeline' ? 'active' : ''}" data-main-tab="timeline">[ Timeline ]</button>
                         </div>
-                        <div class="agyis-step-grid-body">
-                            ${gridRowsHtml || "<div style='padding: 20px; text-align: center; color: #71717a;'>No steps match current search query</div>"}
-                        </div>
+
+                        ${state.mainDeckTab === 'context' ? `
+                            <!-- Context Window Bar ('Dlc' / Atc Parity) -->
+                            <div class="agyis-context-bar-wrap">
+                                <div class="agyis-context-track">
+                                    ${barSegmentsHtml}
+                                </div>
+                                <div id="agyis-hover-tooltip" class="agyis-context-tooltip" style="display: none;"></div>
+                                <div class="agyis-context-legend">
+                                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #6366f1;"></span> System Prompt</span>
+                                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #06b6d4;"></span> Tool Defs</span>
+                                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #16a34a;"></span> Checkpoint</span>
+                                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #3b82f6;"></span> User</span>
+                                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #f59e0b;"></span> Model</span>
+                                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #14b8a6;"></span> Tool</span>
+                                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #a855f7;"></span> System</span>
+                                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #3f3f46;"></span> Unused</span>
+                                    </div>
+                                    <div style="font-family: monospace; font-weight: 700; color: #cbd5e1;">
+                                        ${totalTokens.toLocaleString()} / ${maxTokens.toLocaleString()} tokens
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- History Table Grid Header ('rmc' Parity) -->
+                            <div class="agyis-step-grid-row agyis-step-grid-header">
+                                <div>EXEC</div>
+                                <div>INV</div>
+                                <div>STEP</div>
+                                <div>TYPE</div>
+                                <div>DETAILS</div>
+                                <div>STATUS</div>
+                                <div style="text-align: right;">TOKENS</div>
+                                <div style="text-align: right;">SIZE</div>
+                            </div>
+                            <div class="agyis-step-grid-body">
+                                ${gridRowsHtml || "<div style='padding: 20px; text-align: center; color: #71717a;'>No steps match current search query</div>"}
+                            </div>
+                        ` : `
+                            <!-- Timeline View Pane ('lvc' Parity) -->
+                            <div class="agyis-timeline-pane">
+                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #141416; border: 1px solid #27272a; border-radius: 6px; font-size: 11px; color: #a1a1aa;">
+                                    <span><b>Trajectory Timeline:</b> ${steps.length} steps (${totalTokens.toLocaleString()} tokens)</span>
+                                    <span style="font-family: monospace;">256k Context Parity &bull; Live Trace</span>
+                                </div>
+                                ${timelineCardsHtml || "<div style='padding: 20px; text-align: center; color: #71717a;'>No timeline steps available</div>"}
+                            </div>
+                        `}
                     </div>
 
                     <div id="agyis-splitter" class="agyis-splitter"></div>
@@ -1246,20 +1837,54 @@ _HUD_TEMPLATE = r"""
             renderHud();
         });
 
-        // Context segment tooltips
+        // Context segment tooltips & interactive step selection
         const tooltipEl = hud.querySelector("#agyis-hover-tooltip");
         hud.querySelectorAll(".agyis-context-segment").forEach(el => {
             el.addEventListener("mouseenter", () => {
                 const sName = el.getAttribute("data-seg-name");
                 const sTok = parseInt(el.getAttribute("data-seg-tokens") || "0", 10);
                 const sPct = el.getAttribute("data-seg-pct");
+                const sTip = el.getAttribute("data-tooltip") || "";
                 if (tooltipEl) {
                     tooltipEl.style.display = "block";
-                    tooltipEl.innerHTML = `<b style="color: #fbbf24;">${sName}</b><br>Tokens: ${sTok.toLocaleString()} (${sPct}%)`;
+                    tooltipEl.innerHTML = `<b style="color: #fbbf24;">${sName}</b><br>Tokens: ${sTok.toLocaleString()} (${sPct}%)${sTip ? `<br><span style="color: #a1a1aa; font-style: italic;">${sTip}</span>` : ''}`;
                 }
             });
             el.addEventListener("mouseleave", () => {
                 if (tooltipEl) tooltipEl.style.display = "none";
+            });
+            el.addEventListener("click", () => {
+                const stepIdxAttr = el.getAttribute("data-step-index");
+                if (stepIdxAttr !== null && stepIdxAttr !== undefined && stepIdxAttr !== "") {
+                    const sIdx = parseInt(stepIdxAttr, 10);
+                    if (!isNaN(sIdx)) {
+                        state.selectedIndex = sIdx;
+                        renderHud();
+                        const rowEl = hud.querySelector(`.agyis-step-grid-item[data-index="${sIdx}"]`);
+                        if (rowEl) {
+                            rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                        }
+                    }
+                }
+            });
+        });
+
+        // Main deck sub-tabs
+        hud.querySelectorAll(".agyis-main-tab-btn").forEach(el => {
+            el.addEventListener("click", () => {
+                state.mainDeckTab = el.getAttribute("data-main-tab");
+                renderHud();
+            });
+        });
+
+        // Timeline cards click
+        hud.querySelectorAll(".agyis-timeline-card[data-index]").forEach(el => {
+            el.addEventListener("click", () => {
+                const sIdx = parseInt(el.getAttribute("data-index"), 10);
+                if (!isNaN(sIdx)) {
+                    state.selectedIndex = sIdx;
+                    renderHud();
+                }
             });
         });
 

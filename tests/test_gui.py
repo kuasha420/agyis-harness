@@ -39,9 +39,14 @@ from harness.commands.gui import (
     inject_trajectory_debug,
 )
 from harness.gui.trajectory_hud import (
+    atc_context_layout,
     build_trajectory_hud_script,
+    estimate_tokens,
     get_recent_conversations,
     load_conversation_trajectory,
+    xtc_segment_width,
+    ytc_layout_pass,
+    ztc_row_count,
 )
 
 
@@ -1331,6 +1336,109 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
         self.assertIn("existingHud.remove()", script)
         self.assertIn("window.__agyis_hud_load_convo", script)
         self.assertIn("agyis-refresh-btn", script)
+
+    def test_default_256k_context_capacity(self) -> None:
+        convo_id = "test-256k-cap"
+        convo_dir = self.brain_dir / convo_id / ".system_generated" / "logs"
+        convo_dir.mkdir(parents=True, exist_ok=True)
+        transcript = convo_dir / "transcript.jsonl"
+        transcript.write_text(json.dumps({"source": "user", "content": "hi"}) + "\n", encoding="utf-8")
+
+        # Default 256k
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        self.assertEqual(data["max_context_tokens"], 256000)
+
+        # Explicit in transcript
+        convo_meta_id = "test-meta-cap"
+        meta_dir = self.brain_dir / convo_meta_id / ".system_generated" / "logs"
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        meta_transcript = meta_dir / "transcript.jsonl"
+        meta_transcript.write_text(
+            json.dumps({
+                "source": "system",
+                "chatStartMetadata": {"contextWindowMetadata": {"maxContextTokens": 1000000}},
+            }) + "\n",
+            encoding="utf-8",
+        )
+        data_meta = load_conversation_trajectory(convo_meta_id, brain_dir=self.brain_dir)
+        self.assertEqual(data_meta["max_context_tokens"], 1000000)
+
+    def test_character_token_estimation_ratio(self) -> None:
+        self.assertEqual(estimate_tokens(35), 10)
+        self.assertEqual(estimate_tokens(7), 2)
+        self.assertEqual(estimate_tokens(0), 0)
+
+        convo_id = "test-token-est"
+        convo_dir = self.brain_dir / convo_id / ".system_generated" / "logs"
+        convo_dir.mkdir(parents=True, exist_ok=True)
+        transcript = convo_dir / "transcript.jsonl"
+        text_70 = "a" * 70
+        transcript.write_text(json.dumps({"source": "user", "content": text_70}) + "\n", encoding="utf-8")
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        self.assertEqual(data["steps"][0]["tokens"], 20)
+
+    def test_compaction_summary_extraction_and_checkpoint_accounting(self) -> None:
+        convo_id = "test-compaction"
+        convo_dir = self.brain_dir / convo_id / ".system_generated" / "logs"
+        convo_dir.mkdir(parents=True, exist_ok=True)
+        transcript = convo_dir / "transcript.jsonl"
+        steps = [
+            {"source": "user", "content": "Initial prompt"},
+            {
+                "source": "system",
+                "content": "<CONTEXT_SUMMARY>Compacted memory state from prior turns</CONTEXT_SUMMARY>",
+                "input_tokens": 500,
+                "output_tokens": 100,
+            },
+        ]
+        with open(transcript, "w", encoding="utf-8") as f:
+            for s in steps:
+                f.write(json.dumps(s) + "\n")
+
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        self.assertEqual(data["steps"][1]["type"], "CHECKPOINT")
+        self.assertEqual(data["steps"][1]["compaction_summary"], "Compacted memory state from prior turns")
+        self.assertGreater(data["token_breakdown"]["checkpoint"], 0)
+
+    def test_cleanroom_atc_sizing_math(self) -> None:
+        # 1. Minimum segment clamp (xtc)
+        w = xtc_segment_width(segment_tokens=1, px_per_token=0.001, min_segment_px=2.0)
+        self.assertEqual(w, 2.0)
+
+        # 2. Layout pass metrics (ytc)
+        segments = [
+            {"id": "sys", "tokens": 1000},
+            {"id": "user", "tokens": 500},
+            {"id": "step-1", "tokens": 10},
+        ]
+        metrics = ytc_layout_pass(segments, capacity_tokens=10000, container_width=1000.0, min_segment_px=2.0)
+        self.assertAlmostEqual(metrics["px_per_token"], 0.1)
+        self.assertGreater(metrics["capacity_px"], 0)
+
+        # 3. Dynamic multi-row layout (Atc)
+        layout = atc_context_layout(segments, capacity_tokens=10000, container_width=1000.0, min_segment_px=2.0)
+        self.assertIn("rows", layout)
+        self.assertGreater(len(layout["rows"]), 0)
+        first_row = layout["rows"][0]
+        self.assertTrue(any(c["segment"] is None for c in first_row))
+        for cell in first_row:
+            self.assertGreaterEqual(cell["start_fraction"], 0.0)
+            self.assertLessEqual(cell["start_fraction"] + cell["width_fraction"], 1.0001)
+
+    def test_build_trajectory_hud_script_2_26_0_parity(self) -> None:
+        script = build_trajectory_hud_script(
+            convo_id="convo-abc",
+            trajectory_data={"conversation_id": "convo-abc", "steps": []},
+            conversations=[{"id": "convo-abc", "mtime": 1700000000}],
+            open_view=True,
+            toggle=False,
+        )
+        self.assertIn("Context Window", script)
+        self.assertIn("Timeline", script)
+        self.assertIn("256000", script)
+        self.assertIn("Unused capacity:", script)
+        self.assertIn("scrollIntoView", script)
+        self.assertIn("function Atc", script)
 
 
 class TestGUISystemdService(unittest.TestCase):
