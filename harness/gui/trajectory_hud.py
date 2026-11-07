@@ -285,14 +285,17 @@ def load_conversation_trajectory(
         transcript_path = convo_dir / "transcript.jsonl"
 
     raw_steps: List[Dict[str, Any]] = []
+    raw_line_sizes: List[int] = []
     if transcript_path.is_file():
         try:
             with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
                 for line in f:
-                    line = line.strip()
-                    if line:
+                    line_str = line.strip()
+                    if line_str:
                         try:
-                            raw_steps.append(json.loads(line))
+                            parsed = json.loads(line_str)
+                            raw_steps.append(parsed)
+                            raw_line_sizes.append(len(line.encode("utf-8")))
                         except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
                             continue
         except OSError:
@@ -409,10 +412,13 @@ def load_conversation_trajectory(
             s["compaction_summary"] = comp_summary
 
         # Payload byte size calculation (SIZE column)
-        try:
-            s["size_bytes"] = len(json.dumps(s).encode("utf-8"))
-        except (TypeError, ValueError):
-            s["size_bytes"] = 0
+        if idx < len(raw_line_sizes):
+            s["size_bytes"] = raw_line_sizes[idx]
+        else:
+            try:
+                s["size_bytes"] = len(json.dumps(s).encode("utf-8"))
+            except (TypeError, ValueError):
+                s["size_bytes"] = 0
 
         # Authoritative step timing metrics
         meta = s.get("metadata", {}) if isinstance(s.get("metadata"), dict) else {}
@@ -547,6 +553,51 @@ def load_conversation_trajectory(
             except (OSError, ValueError, KeyError, json.JSONDecodeError):
                 continue
 
+    # Partition trajectory into Epochs based on CHECKPOINT steps (ADR-014 / PSL-INV-010)
+    checkpoints = [i for i, s in enumerate(steps) if s.get("type") == "CHECKPOINT"]
+    epochs: List[Dict[str, Any]] = []
+    if not checkpoints:
+        if steps:
+            epochs.append({
+                "epoch_index": 0,
+                "start_index": 0,
+                "end_index": len(steps) - 1,
+                "step_count": len(steps),
+                "has_checkpoint": False,
+                "summary": "Initial Trajectory",
+            })
+    else:
+        c0 = checkpoints[0]
+        epochs.append({
+            "epoch_index": 0,
+            "start_index": 0,
+            "end_index": c0,
+            "step_count": c0 + 1,
+            "has_checkpoint": True,
+            "summary": steps[c0].get("compaction_summary") or f"Checkpoint #{c0}",
+        })
+        for k in range(len(checkpoints)):
+            cur_cp = checkpoints[k]
+            if k + 1 < len(checkpoints):
+                next_cp = checkpoints[k + 1]
+                epochs.append({
+                    "epoch_index": len(epochs),
+                    "start_index": cur_cp,
+                    "end_index": next_cp,
+                    "step_count": next_cp - cur_cp + 1,
+                    "has_checkpoint": True,
+                    "summary": steps[cur_cp].get("compaction_summary") or f"Checkpoint #{cur_cp}",
+                })
+            elif cur_cp < len(steps) - 1:
+                epochs.append({
+                    "epoch_index": len(epochs),
+                    "start_index": cur_cp,
+                    "end_index": len(steps) - 1,
+                    "step_count": (len(steps) - 1) - cur_cp + 1,
+                    "has_checkpoint": True,
+                    "summary": steps[cur_cp].get("compaction_summary") or f"Checkpoint #{cur_cp}",
+                })
+
     summary = _extract_conversation_summary(convo_dir, transcript_path)
 
     return {
@@ -555,6 +606,7 @@ def load_conversation_trajectory(
         "summary": summary,
         "steps": steps,
         "step_count": len(steps),
+        "epochs": epochs,
         "parent_id": resolved_parent_id,
         "subagents": subagents,
         "subagent_infos": subagent_infos,
@@ -1039,6 +1091,55 @@ _HUD_TEMPLATE = r"""
                 text-align: left;
             }
             .agyis-markdown-table th { background: #202023; color: #fbbf24; }
+            .agyis-context-row-wrap {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .agyis-context-row-label {
+                font-family: ui-monospace, monospace;
+                font-size: 10px;
+                color: #a1a1aa;
+                width: 34px;
+                text-align: right;
+                flex-shrink: 0;
+                user-select: none;
+            }
+            .agyis-context-row-track {
+                flex: 1;
+                height: 18px;
+                position: relative;
+                background: #27272a;
+                border-radius: 4px;
+                overflow: hidden;
+                border: 1px solid #3f3f46;
+            }
+            .agyis-codeblock-wrap {
+                position: relative;
+                margin: 8px 0;
+                background: #0d0d0f;
+                border: 1px solid #27272a;
+                border-radius: 6px;
+            }
+            .agyis-thinking-block {
+                background: rgba(245, 158, 11, 0.08);
+                border: 1px solid rgba(245, 158, 11, 0.3);
+                border-radius: 6px;
+                margin-bottom: 12px;
+                padding: 8px 12px;
+            }
+            .agyis-xml-callout {
+                background: rgba(24, 24, 27, 0.9);
+                border-radius: 6px;
+                padding: 10px 12px;
+                margin: 8px 0;
+            }
+            .agyis-github-alert {
+                background: rgba(30, 30, 36, 0.85);
+                border-radius: 6px;
+                padding: 10px 12px;
+                margin: 8px 0;
+            }
         `;
         document.head.appendChild(styleEl);
 
@@ -1051,6 +1152,9 @@ _HUD_TEMPLATE = r"""
         currentData: initialData,
         convoId: initialData.conversation_id,
         selectedIndex: Math.max(0, (initialData.steps || []).length - 1),
+        activeEpochIndex: -1,
+        tablePage: 0,
+        pageSize: 50,
         filterQuery: "",
         searchMatchIndices: [],
         currentMatchIdx: -1,
@@ -1192,15 +1296,90 @@ _HUD_TEMPLATE = r"""
 
     function renderMarkdownPreview(rawText) {
         if (!rawText) return "<div style='color: #71717a;'>No preview content</div>";
-        let escaped = rawText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-        // Code blocks
+        // Auto-formatted JSON detection
+        let trimmed = String(rawText).trim();
+        if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+            try {
+                const parsedJson = JSON.parse(trimmed);
+                trimmed = JSON.stringify(parsedJson, null, 2);
+                rawText = "```json\n" + trimmed + "\n```";
+            } catch (_) {}
+        }
+
+        let escaped = String(rawText).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+        // Code blocks with syntax badge and copy button
         escaped = escaped.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (m, lang, code) => {
-            return `<pre class="agyis-codeblock"><code class="language-${lang || 'none'}">${code.trim()}</code></pre>`;
+            const badge = lang ? `<span style="font-size: 10px; color: #a1a1aa; font-family: monospace; text-transform: uppercase;">${lang}</span>` : "<span></span>";
+            const codeId = "code-" + Math.random().toString(36).substr(2, 9);
+            return `
+                <div class="agyis-codeblock-wrap">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; background: #141416; border-bottom: 1px solid #27272a; border-top-left-radius: 6px; border-top-right-radius: 6px;">
+                        ${badge}
+                        <button class="agyis-hud-btn agyis-copy-code-btn" data-code-id="${codeId}" style="padding: 2px 6px; font-size: 10px;">📋 Copy</button>
+                    </div>
+                    <pre id="${codeId}" class="agyis-codeblock" style="border: none; border-radius: 0 0 6px 6px; margin: 0; padding: 10px;"><code class="language-${lang || 'none'}">${code.trim()}</code></pre>
+                </div>
+            `;
         });
 
         // Inline code
         escaped = escaped.replace(/`([^`]+)`/g, "<code style='background: #27272a; padding: 2px 4px; border-radius: 4px; font-family: monospace;'>$1</code>");
+
+        // GitHub alerts (> [!NOTE], > [!WARNING], > [!TIP], > [!IMPORTANT], > [!CAUTION])
+        escaped = escaped.replace(/(?:^|\n)&gt;\s*\[!(NOTE|WARNING|TIP|IMPORTANT|CAUTION)\]([\s\S]*?)(?=(?:\n\n|\n&gt;\s*\[!|$))/gi, (m, alertType, body) => {
+            const typeUpper = alertType.toUpperCase();
+            let alertColor = "#3b82f6";
+            let alertIcon = "ℹ️";
+            if (typeUpper === "WARNING") { alertColor = "#f59e0b"; alertIcon = "⚠️"; }
+            else if (typeUpper === "TIP") { alertColor = "#10b981"; alertIcon = "💡"; }
+            else if (typeUpper === "IMPORTANT") { alertColor = "#a855f7"; alertIcon = "❗"; }
+            else if (typeUpper === "CAUTION") { alertColor = "#ef4444"; alertIcon = "🛑"; }
+
+            const alertContent = body.replace(/^\s*&gt;\s?/gm, "").trim().replace(/\n/g, "<br>");
+            return `
+                <div class="agyis-github-alert" style="border: 1px solid ${alertColor}; border-left: 4px solid ${alertColor};">
+                    <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 11px; color: ${alertColor}; margin-bottom: 4px;">
+                        <span>${alertIcon}</span>
+                        <span>${typeUpper}</span>
+                    </div>
+                    <div style="font-size: 11px; color: #e4e4e7; line-height: 1.5;">${alertContent}</div>
+                </div>
+            `;
+        });
+
+        // XML Callouts (&lt;USER_REQUEST&gt;, &lt;CONTEXT_SUMMARY&gt;, &lt;SYSTEM_MESSAGE&gt;)
+        escaped = escaped.replace(/&lt;([A-Z0-9_\-]+)&gt;([\s\S]*?)&lt;\/\1&gt;/g, (m, tag, body) => {
+            let tagColor = "#f59e0b";
+            let tagIcon = "📌";
+            if (tag === "USER_REQUEST") { tagColor = "#3b82f6"; tagIcon = "👤"; }
+            else if (tag === "CONTEXT_SUMMARY" || tag === "SUMMARY") { tagColor = "#10b981"; tagIcon = "🧠"; }
+            else if (tag === "SYSTEM_MESSAGE") { tagColor = "#a855f7"; tagIcon = "⚙️"; }
+
+            const content = body.trim().replace(/\n/g, "<br>");
+            return `
+                <div class="agyis-xml-callout" style="border: 1px solid ${tagColor}; border-left: 4px solid ${tagColor};">
+                    <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 11px; color: ${tagColor}; margin-bottom: 4px; text-transform: uppercase;">
+                        <span>${tagIcon}</span>
+                        <span>&lt;${tag}&gt;</span>
+                    </div>
+                    <div style="font-size: 11px; color: #e4e4e7; line-height: 1.5;">${content}</div>
+                </div>
+            `;
+        });
+
+        // Headings (#, ##, ###)
+        escaped = escaped.replace(/(?:^|\n)###\s+([^\n]+)/g, '<h3 style="font-size: 12px; font-weight: 700; color: #fbbf24; margin: 8px 0 4px 0;">$1</h3>');
+        escaped = escaped.replace(/(?:^|\n)##\s+([^\n]+)/g, '<h2 style="font-size: 13px; font-weight: 700; color: #f59e0b; margin: 10px 0 6px 0;">$1</h2>');
+        escaped = escaped.replace(/(?:^|\n)#\s+([^\n]+)/g, '<h1 style="font-size: 14px; font-weight: 700; color: #f59e0b; margin: 12px 0 8px 0;">$1</h1>');
+
+        // Bold and Italic
+        escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong style="color: #f4f4f5;">$1</strong>');
+        escaped = escaped.replace(/\*([^*]+)\*/g, '<em style="color: #cbd5e1;">$1</em>');
+
+        // Lists (- or * or 1.)
+        escaped = escaped.replace(/(?:^|\n)(?:[-*]|\d+\.)\s+([^\n]+)/g, '<div style="padding-left: 12px; margin: 2px 0; color: #e4e4e7;">&bull; $1</div>');
 
         // Simple Markdown Tables
         if (escaped.includes("|") && escaped.includes("\n")) {
@@ -1263,7 +1442,25 @@ _HUD_TEMPLATE = r"""
         }
         state.searchMatchIndices = filteredIndices;
 
-        // Context Window Bar Calculations (Authoritative 256k Parity & Atc Layout)
+        // Epoch Detection & Slicing (PSL-INV-010 / ADR-014)
+        const epochs = (cur.epochs && cur.epochs.length > 0) ? cur.epochs : [{
+            epoch_index: 0,
+            start_index: 0,
+            end_index: Math.max(0, steps.length - 1),
+            step_count: steps.length,
+            has_checkpoint: false,
+            summary: "Initial Trajectory",
+        }];
+
+        if (state.activeEpochIndex === undefined || state.activeEpochIndex < 0 || state.activeEpochIndex >= epochs.length) {
+            const foundEp = epochs.find(ep => state.selectedIndex >= ep.start_index && state.selectedIndex <= ep.end_index);
+            state.activeEpochIndex = foundEp ? foundEp.epoch_index : (epochs.length - 1);
+        }
+
+        const activeEpoch = epochs[state.activeEpochIndex] || epochs[epochs.length - 1];
+        const epochSteps = steps.slice(activeEpoch.start_index, activeEpoch.end_index + 1);
+
+        // Context Window Bar Calculations (Dynamic 4-Row 64k Scoping)
         const maxTokens = cur.max_context_tokens || 256000;
         const breakdown = cur.token_breakdown || {
             system_prompt: 3800,
@@ -1301,14 +1498,14 @@ _HUD_TEMPLATE = r"""
             });
         }
 
-        let hasCheckpointInSteps = false;
-        for (let i = 0; i < steps.length; i++) {
-            if (steps[i].type === "CHECKPOINT") {
-                hasCheckpointInSteps = true;
+        let hasCheckpointInEpoch = false;
+        for (let i = 0; i < epochSteps.length; i++) {
+            if (epochSteps[i].type === "CHECKPOINT") {
+                hasCheckpointInEpoch = true;
                 break;
             }
         }
-        if (!hasCheckpointInSteps && (breakdown.checkpoint || 0) > 0) {
+        if (!hasCheckpointInEpoch && activeEpoch.has_checkpoint && (breakdown.checkpoint || 0) > 0) {
             segments.push({
                 id: "checkpoint-summary",
                 type: "checkpoint",
@@ -1317,17 +1514,18 @@ _HUD_TEMPLATE = r"""
                 color: "#16a34a",
                 colorKey: "bg-green-600",
                 titleColorClass: "text-green-400",
-                tooltipContent: "Compacted context summary",
+                tooltipContent: activeEpoch.summary || "Compacted context summary",
             });
         }
 
-        if (steps.length > 0) {
-            steps.forEach((s, idx) => {
+        if (epochSteps.length > 0) {
+            epochSteps.forEach((s) => {
+                const actualIdx = s.step_index !== undefined ? s.step_index : steps.indexOf(s);
                 const sTok = s.tokens || Math.round((s.size_bytes || 100) / 3.5);
                 let segColor = "#3b82f6";
                 let segColorKey = "bg-blue-600";
                 let segTitleColor = "text-blue-400";
-                let segLabel = `Step #${s.step_index ?? idx}: ${s.type || 'STEP'}`;
+                let segLabel = `Step #${actualIdx}: ${s.type || 'STEP'}`;
 
                 if (s.type === "PLANNER_RESPONSE" || s.type === "MODEL_OUTPUT") {
                     segColor = "#f59e0b";
@@ -1337,6 +1535,7 @@ _HUD_TEMPLATE = r"""
                     segColor = "#16a34a";
                     segColorKey = "bg-green-600";
                     segTitleColor = "text-green-400";
+                    segLabel = `Step #${actualIdx}: Checkpoint`;
                 } else if (s.type.includes("COMMAND") || s.type.includes("TOOL") || s.type.includes("FILE") || s.type.includes("WRITE") || s.type.includes("REPLACE") || s.type.includes("SEARCH")) {
                     segColor = "#14b8a6";
                     segColorKey = "bg-teal-600";
@@ -1357,9 +1556,9 @@ _HUD_TEMPLATE = r"""
                 tip = tip.replace(/\n/g, " ").slice(0, 160);
 
                 segments.push({
-                    id: `step-${idx}`,
+                    id: `step-${actualIdx}`,
                     type: "step",
-                    stepIndex: idx,
+                    stepIndex: actualIdx,
                     label: segLabel,
                     tokens: sTok,
                     color: segColor,
@@ -1368,21 +1567,71 @@ _HUD_TEMPLATE = r"""
                     tooltipContent: tip,
                 });
             });
-        } else {
-            if ((breakdown.checkpoint || 0) > 0) segments.push({ id: "checkpoint", type: "checkpoint", label: "Checkpoint", tokens: breakdown.checkpoint, color: "#16a34a", colorKey: "bg-green-600", titleColorClass: "text-green-400", tooltipContent: "Compacted context" });
-            if ((breakdown.user || 0) > 0) segments.push({ id: "user", type: "user", label: "User", tokens: breakdown.user, color: "#3b82f6", colorKey: "bg-blue-500", titleColorClass: "text-blue-400", tooltipContent: "User messages" });
-            if ((breakdown.model || 0) > 0) segments.push({ id: "model", type: "model", label: "Model", tokens: breakdown.model, color: "#f59e0b", colorKey: "bg-amber-500", titleColorClass: "text-amber-400", tooltipContent: "Model responses" });
-            if ((breakdown.tool || 0) > 0) segments.push({ id: "tool", type: "tool", label: "Tool", tokens: breakdown.tool, color: "#14b8a6", colorKey: "bg-teal-500", titleColorClass: "text-teal-400", tooltipContent: "Tool calls" });
-            if ((breakdown.system || 0) > 0) segments.push({ id: "system", type: "system", label: "System", tokens: breakdown.system, color: "#a855f7", colorKey: "bg-purple-500", titleColorClass: "text-purple-400", tooltipContent: "System messages" });
         }
 
         const activeTokensSum = segments.reduce((acc, seg) => acc + (seg.tokens || 0), 0);
         const totalTokens = Math.max(cur.total_tokens || 0, activeTokensSum);
-        const unusedTokens = Math.max(0, maxTokens - totalTokens);
+        const ROW_CAPACITY = 64000;
+        const rowCount = Math.min(4, Math.max(1, Math.ceil(activeTokensSum / ROW_CAPACITY)));
+        const totalActiveCapacity = rowCount * ROW_CAPACITY;
 
-        const atcLayout = Atc(segments, maxTokens, 1200, { minSegmentPx: 2, maxRows: 8 });
+        const rows = [];
+        for (let r = 0; r < rowCount; r++) rows.push([]);
+
+        let tCursor = 0;
+        segments.forEach((seg) => {
+            const segTokens = Math.max(0, seg.tokens || 0);
+            const segStart = tCursor;
+            const segEnd = tCursor + segTokens;
+            tCursor = segEnd;
+
+            let sliceCursor = segStart;
+            while (sliceCursor < segEnd) {
+                const r = Math.min(rowCount - 1, Math.floor(sliceCursor / ROW_CAPACITY));
+                const rowEndTokens = (r + 1) * ROW_CAPACITY;
+                const sliceEnd = Math.min(segEnd, rowEndTokens);
+                const sliceTokens = sliceEnd - sliceCursor;
+
+                const startFraction = (sliceCursor - r * ROW_CAPACITY) / ROW_CAPACITY;
+                const widthFraction = sliceTokens / ROW_CAPACITY;
+
+                rows[r].push({
+                    segment: seg,
+                    startFraction: startFraction,
+                    widthFraction: widthFraction,
+                    sliceTokens: sliceTokens,
+                });
+
+                sliceCursor = sliceEnd;
+                if (r === rowCount - 1 && sliceEnd >= rowEndTokens) {
+                    break;
+                }
+            }
+        });
+
+        // Unused capacity in active rows up to totalActiveCapacity
+        let uCursor = Math.min(tCursor, totalActiveCapacity);
+        while (uCursor < totalActiveCapacity) {
+            const r = Math.min(rowCount - 1, Math.floor(uCursor / ROW_CAPACITY));
+            const rowEndTokens = (r + 1) * ROW_CAPACITY;
+            const sliceEnd = Math.min(totalActiveCapacity, rowEndTokens);
+            const sliceTokens = sliceEnd - uCursor;
+
+            const startFraction = (uCursor - r * ROW_CAPACITY) / ROW_CAPACITY;
+            const widthFraction = sliceTokens / ROW_CAPACITY;
+
+            rows[r].push({
+                segment: null,
+                startFraction: startFraction,
+                widthFraction: widthFraction,
+                sliceTokens: sliceTokens,
+            });
+
+            uCursor = sliceEnd;
+        }
+
         let barSegmentsHtml = "";
-        atcLayout.rows.forEach(row => {
+        rows.forEach((row, rIdx) => {
             let cellsHtml = "";
             row.forEach(cell => {
                 const seg = cell.segment;
@@ -1391,8 +1640,8 @@ _HUD_TEMPLATE = r"""
                 const cellClass = isUnused ? "context-cell-unused" : "";
                 const selClass = isSelected ? "context-cell-selected" : "";
                 const colorStyle = isUnused ? "background: #27272a;" : `background: ${seg.color};`;
-                const borderRight = cell.showDividerAfter ? "border-right: 1px solid rgba(0, 0, 0, 0.35);" : "";
-                const ariaLabel = isUnused ? `Unused capacity: ${unusedTokens.toLocaleString()} tokens` : `${seg.label}: ${seg.tokens.toLocaleString()} tokens`;
+                const borderRight = isUnused ? "" : "border-right: 1px solid rgba(0, 0, 0, 0.35);";
+                const ariaLabel = isUnused ? `Unused capacity: ${cell.sliceTokens.toLocaleString()} tokens` : `${seg.label}: ${seg.tokens.toLocaleString()} tokens`;
                 const leftPct = (cell.startFraction * 100).toFixed(4);
                 const widthPct = (cell.widthFraction * 100).toFixed(4);
                 const stepIdxAttr = (!isUnused && seg.stepIndex !== undefined) ? `data-step-index="${seg.stepIndex}"` : "";
@@ -1403,16 +1652,22 @@ _HUD_TEMPLATE = r"""
                             ${stepIdxAttr}
                             data-seg-id="${isUnused ? 'unused' : seg.id}"
                             data-seg-name="${isUnused ? 'Unused Capacity' : seg.label}"
-                            data-seg-tokens="${isUnused ? unusedTokens : seg.tokens}"
-                            data-seg-pct="${(((isUnused ? unusedTokens : seg.tokens) / maxTokens) * 100).toFixed(1)}"
+                            data-seg-tokens="${isUnused ? cell.sliceTokens : seg.tokens}"
+                            data-seg-pct="${(((isUnused ? cell.sliceTokens : seg.tokens) / maxTokens) * 100).toFixed(1)}"
                             data-tooltip="${isUnused ? '' : (seg.tooltipContent || '').replace(/"/g, '&quot;')}"
                             aria-label="${ariaLabel}"
                             style="position: absolute; top: 0; bottom: 0; left: ${leftPct}%; width: ${widthPct}%; ${colorStyle} ${borderRight}">
                     </button>
                 `;
             });
-            const rowHeight = atcLayout.rows.length <= 1 ? 20 : 12;
-            barSegmentsHtml += `<div class="agyis-context-row" style="height: ${rowHeight}px;">${cellsHtml}</div>`;
+            barSegmentsHtml += `
+                <div class="agyis-context-row-wrap" style="display: flex; align-items: center; gap: 8px;">
+                    <span class="agyis-context-row-label" style="font-family: ui-monospace, monospace; font-size: 10px; color: #a1a1aa; width: 34px; text-align: right; flex-shrink: 0; user-select: none;">${rIdx * 64}k</span>
+                    <div class="agyis-context-row-track" style="flex: 1; height: 18px; position: relative; background: #27272a; border-radius: 4px; overflow: hidden; border: 1px solid #3f3f46;">
+                        ${cellsHtml}
+                    </div>
+                </div>
+            `;
         });
 
         // Subagents Map & Dropdown
@@ -1444,8 +1699,18 @@ _HUD_TEMPLATE = r"""
             `;
         }
 
-        // History Table Grid Rows ('rmc' Parity)
-        const gridRowsHtml = filteredIndices.map(idx => {
+        // History Table Grid Rows with 50-step pagination ('rmc' Parity)
+        const pageSize = 50;
+        const totalFiltered = filteredIndices.length;
+        const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+        if (state.tablePage === undefined || state.tablePage < 0) state.tablePage = 0;
+        if (state.tablePage >= totalPages) state.tablePage = totalPages - 1;
+
+        const pageStart = state.tablePage * pageSize;
+        const pageEnd = Math.min(totalFiltered, pageStart + pageSize);
+        const pagedIndices = filteredIndices.slice(pageStart, pageEnd);
+
+        const gridRowsHtml = pagedIndices.map(idx => {
             const s = steps[idx];
             const isSel = idx === state.selectedIndex;
             const type = s.type || "STEP";
@@ -1565,12 +1830,49 @@ _HUD_TEMPLATE = r"""
                 </div>
             `;
 
+            // Tool calls summary strip
+            let toolStripHtml = "";
+            const tCalls = currentStep.tool_calls || [];
+            if (tCalls.length > 0) {
+                toolStripHtml = `
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; align-items: center;">
+                        <span style="font-size: 10px; font-weight: 700; color: #a1a1aa; text-transform: uppercase;">Tool Calls:</span>
+                        ${tCalls.map(tc => `
+                            <span class="agyis-hud-pill agyis-hud-pill-teal" style="font-family: monospace; font-size: 10px;">
+                                ${tc.name || 'tool'} <span style="opacity: 0.7;">(${tc.status || 'DONE'})</span>
+                            </span>
+                        `).join("")}
+                    </div>
+                `;
+            }
+
+            // Dedicated collapsible thinking disclosure block
+            let thinkingBlockHtml = "";
+            if (currentStep.thinking) {
+                const tLen = currentStep.thinking.length;
+                const tMs = currentStep.thinking_duration_ms || 0;
+                thinkingBlockHtml = `
+                    <details class="agyis-thinking-block" open>
+                        <summary style="cursor: pointer; font-weight: 600; color: #fbbf24; font-size: 11px; user-select: none;">
+                            💭 Thought Process (${tLen.toLocaleString()} chars &bull; ${tMs}ms)
+                        </summary>
+                        <div style="margin-top: 8px; font-size: 11px; color: #fef3c7; line-height: 1.5; font-family: ui-monospace, monospace; max-height: 320px; overflow-y: auto;">
+                            ${renderMarkdownPreview(currentStep.thinking)}
+                        </div>
+                    </details>
+                `;
+            }
+
             if (state.activeTab === "step") {
-                const text = currentStep.content || currentStep.thinking || JSON.stringify(currentStep, null, 2);
+                const text = currentStep.content || (!currentStep.thinking ? JSON.stringify(currentStep, null, 2) : "");
                 inspectorContentHtml = `
                     ${timingBarHtml}
-                    <h4 style="margin: 0 0 6px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Step Preview</h4>
-                    ${renderMarkdownPreview(text)}
+                    ${toolStripHtml}
+                    ${thinkingBlockHtml}
+                    ${text ? `
+                        <h4 style="margin: 0 0 6px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Step Preview</h4>
+                        ${renderMarkdownPreview(text)}
+                    ` : ""}
                 `;
             } else if (state.activeTab === "invocation") {
                 const tools = currentStep.tool_calls || [];
@@ -1669,7 +1971,22 @@ _HUD_TEMPLATE = r"""
                         ${state.mainDeckTab === 'context' ? `
                             <!-- Context Window Bar ('Dlc' / Atc Parity) -->
                             <div class="agyis-context-bar-wrap">
-                                <div class="agyis-context-track">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 8px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span style="font-size: 11px; font-weight: 700; color: #fbbf24;">Context Window (${rowCount} row${rowCount > 1 ? 's' : ''})</span>
+                                        <div style="display: inline-flex; align-items: center; gap: 4px; background: #202023; border: 1px solid #3f3f46; border-radius: 6px; padding: 2px 6px;">
+                                            <button id="agyis-epoch-prev" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${state.activeEpochIndex <= 0 ? 'disabled style="opacity:0.4; cursor:default;"' : ''}>◀ Prev Epoch</button>
+                                            <span style="font-size: 10px; font-family: monospace; color: #cbd5e1; padding: 0 4px;">
+                                                Epoch ${state.activeEpochIndex + 1} of ${epochs.length} (Steps #${activeEpoch.start_index}-#${activeEpoch.end_index})
+                                            </span>
+                                            <button id="agyis-epoch-next" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${state.activeEpochIndex >= epochs.length - 1 ? 'disabled style="opacity:0.4; cursor:default;"' : ''}>Next Epoch ▶</button>
+                                        </div>
+                                    </div>
+                                    <div style="font-family: monospace; font-size: 11px; color: #a1a1aa;">
+                                        Active Context: <b style="color: #38bdf8;">${activeTokensSum.toLocaleString()}</b> / ${(maxTokens).toLocaleString()} max (${((activeTokensSum / maxTokens) * 100).toFixed(1)}%)
+                                    </div>
+                                </div>
+                                <div class="agyis-context-track" style="display: flex; flex-direction: column; gap: 3px; background: transparent; border: none;">
                                     ${barSegmentsHtml}
                                 </div>
                                 <div id="agyis-hover-tooltip" class="agyis-context-tooltip" style="display: none;"></div>
@@ -1685,7 +2002,7 @@ _HUD_TEMPLATE = r"""
                                         <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #3f3f46;"></span> Unused</span>
                                     </div>
                                     <div style="font-family: monospace; font-weight: 700; color: #cbd5e1;">
-                                        ${totalTokens.toLocaleString()} / ${maxTokens.toLocaleString()} tokens
+                                        ${activeTokensSum.toLocaleString()} / ${totalActiveCapacity.toLocaleString()} tokens
                                     </div>
                                 </div>
                             </div>
@@ -1703,6 +2020,16 @@ _HUD_TEMPLATE = r"""
                             </div>
                             <div class="agyis-step-grid-body">
                                 ${gridRowsHtml || "<div style='padding: 20px; text-align: center; color: #71717a;'>No steps match current search query</div>"}
+                            </div>
+                            <div class="agyis-step-grid-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #141416; border-top: 1px solid #27272a; font-size: 11px;">
+                                <div style="display: flex; gap: 4px; align-items: center;">
+                                    <button id="agyis-page-prev" class="agyis-hud-btn" ${state.tablePage <= 0 ? 'disabled style="opacity:0.4; cursor:default;"' : ''}>◀ Prev 50</button>
+                                    <span style="font-family: monospace; color: #cbd5e1; padding: 0 6px;">
+                                        Page ${state.tablePage + 1} of ${totalPages} (${totalFiltered > 0 ? pageStart + 1 : 0}-${pageEnd} of ${totalFiltered})
+                                    </span>
+                                    <button id="agyis-page-next" class="agyis-hud-btn" ${state.tablePage >= totalPages - 1 ? 'disabled style="opacity:0.4; cursor:default;"' : ''}>Next 50 ▶</button>
+                                </div>
+                                <button id="agyis-page-jump-selected" class="agyis-hud-btn" title="Jump to selected step">Jump to Selected</button>
                             </div>
                         ` : `
                             <!-- Timeline View Pane ('lvc' Parity) -->
@@ -1814,10 +2141,21 @@ _HUD_TEMPLATE = r"""
             renderHud();
         });
 
+        let searchDebounceTimer = null;
         hud.querySelector("#agyis-search-input")?.addEventListener("input", (e) => {
-            state.filterQuery = e.target.value;
-            state.currentMatchIdx = 0;
-            renderHud();
+            const val = e.target.value;
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                state.filterQuery = val;
+                state.currentMatchIdx = 0;
+                state.tablePage = 0;
+                renderHud();
+                const inputEl = hud.querySelector("#agyis-search-input");
+                if (inputEl) {
+                    inputEl.focus();
+                    inputEl.setSelectionRange(val.length, val.length);
+                }
+            }, 150);
         });
 
         hud.querySelector("#agyis-search-input")?.addEventListener("keydown", (e) => {
@@ -1830,17 +2168,71 @@ _HUD_TEMPLATE = r"""
                         state.currentMatchIdx = (state.currentMatchIdx + 1) % state.searchMatchIndices.length;
                     }
                     state.selectedIndex = state.searchMatchIndices[state.currentMatchIdx];
+                    const containingEp = epochs.find(ep => state.selectedIndex >= ep.start_index && state.selectedIndex <= ep.end_index);
+                    if (containingEp) state.activeEpochIndex = containingEp.epoch_index;
                     renderHud();
                 }
             } else if (e.key === "Escape") {
                 state.filterQuery = "";
+                state.tablePage = 0;
                 renderHud();
             }
         });
 
         hud.querySelector("#agyis-search-clear")?.addEventListener("click", () => {
             state.filterQuery = "";
+            state.tablePage = 0;
             renderHud();
+        });
+
+        // Epoch Switcher Listeners
+        hud.querySelector("#agyis-epoch-prev")?.addEventListener("click", () => {
+            if (state.activeEpochIndex > 0) {
+                state.activeEpochIndex -= 1;
+                const targetEp = epochs[state.activeEpochIndex];
+                if (targetEp) {
+                    state.selectedIndex = targetEp.start_index;
+                }
+                renderHud();
+            }
+        });
+
+        hud.querySelector("#agyis-epoch-next")?.addEventListener("click", () => {
+            if (state.activeEpochIndex < epochs.length - 1) {
+                state.activeEpochIndex += 1;
+                const targetEp = epochs[state.activeEpochIndex];
+                if (targetEp) {
+                    state.selectedIndex = targetEp.start_index;
+                }
+                renderHud();
+            }
+        });
+
+        // Pagination Listeners
+        hud.querySelector("#agyis-page-prev")?.addEventListener("click", () => {
+            if (state.tablePage > 0) {
+                state.tablePage -= 1;
+                renderHud();
+            }
+        });
+
+        hud.querySelector("#agyis-page-next")?.addEventListener("click", () => {
+            if (state.tablePage < totalPages - 1) {
+                state.tablePage += 1;
+                renderHud();
+            }
+        });
+
+        hud.querySelector("#agyis-page-jump-selected")?.addEventListener("click", () => {
+            const fIdx = filteredIndices.indexOf(state.selectedIndex);
+            if (fIdx >= 0) {
+                state.tablePage = Math.floor(fIdx / pageSize);
+                renderHud();
+                const rowEl = hud.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
+                if (rowEl) {
+                    rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                }
+            }
         });
 
         // Context segment tooltips & interactive step selection
@@ -1864,6 +2256,8 @@ _HUD_TEMPLATE = r"""
                 if (stepIdxAttr !== null && stepIdxAttr !== undefined && stepIdxAttr !== "") {
                     const sIdx = parseInt(stepIdxAttr, 10);
                     if (!isNaN(sIdx)) {
+                        const containingEp = epochs.find(ep => sIdx >= ep.start_index && sIdx <= ep.end_index);
+                        if (containingEp) state.activeEpochIndex = containingEp.epoch_index;
                         state.selectedIndex = sIdx;
                         renderHud();
                         const rowEl = hud.querySelector(`.agyis-step-grid-item[data-index="${sIdx}"]`);
@@ -1888,6 +2282,8 @@ _HUD_TEMPLATE = r"""
             el.addEventListener("click", () => {
                 const sIdx = parseInt(el.getAttribute("data-index"), 10);
                 if (!isNaN(sIdx)) {
+                    const containingEp = epochs.find(ep => sIdx >= ep.start_index && sIdx <= ep.end_index);
+                    if (containingEp) state.activeEpochIndex = containingEp.epoch_index;
                     state.selectedIndex = sIdx;
                     renderHud();
                 }
@@ -1896,16 +2292,36 @@ _HUD_TEMPLATE = r"""
 
         // Stepper buttons
         hud.querySelector("#agyis-step-first")?.addEventListener("click", () => {
-            if (steps.length > 0) { state.selectedIndex = 0; renderHud(); }
+            if (steps.length > 0) {
+                state.selectedIndex = 0;
+                const containingEp = epochs.find(ep => 0 >= ep.start_index && 0 <= ep.end_index);
+                if (containingEp) state.activeEpochIndex = containingEp.epoch_index;
+                renderHud();
+            }
         });
         hud.querySelector("#agyis-step-prev")?.addEventListener("click", () => {
-            if (state.selectedIndex > 0) { state.selectedIndex -= 1; renderHud(); }
+            if (state.selectedIndex > 0) {
+                state.selectedIndex -= 1;
+                const containingEp = epochs.find(ep => state.selectedIndex >= ep.start_index && state.selectedIndex <= ep.end_index);
+                if (containingEp) state.activeEpochIndex = containingEp.epoch_index;
+                renderHud();
+            }
         });
         hud.querySelector("#agyis-step-next")?.addEventListener("click", () => {
-            if (state.selectedIndex < steps.length - 1) { state.selectedIndex += 1; renderHud(); }
+            if (state.selectedIndex < steps.length - 1) {
+                state.selectedIndex += 1;
+                const containingEp = epochs.find(ep => state.selectedIndex >= ep.start_index && state.selectedIndex <= ep.end_index);
+                if (containingEp) state.activeEpochIndex = containingEp.epoch_index;
+                renderHud();
+            }
         });
         hud.querySelector("#agyis-step-last")?.addEventListener("click", () => {
-            if (steps.length > 0) { state.selectedIndex = steps.length - 1; renderHud(); }
+            if (steps.length > 0) {
+                state.selectedIndex = steps.length - 1;
+                const containingEp = epochs.find(ep => state.selectedIndex >= ep.start_index && state.selectedIndex <= ep.end_index);
+                if (containingEp) state.activeEpochIndex = containingEp.epoch_index;
+                renderHud();
+            }
         });
 
         // Inspector tabs
@@ -1920,6 +2336,8 @@ _HUD_TEMPLATE = r"""
         hud.querySelectorAll(".agyis-step-grid-item").forEach(el => {
             el.addEventListener("click", () => {
                 const idx = parseInt(el.getAttribute("data-index"), 10);
+                const containingEp = epochs.find(ep => idx >= ep.start_index && idx <= ep.end_index);
+                if (containingEp) state.activeEpochIndex = containingEp.epoch_index;
                 state.selectedIndex = idx;
                 renderHud();
             });
@@ -1934,6 +2352,21 @@ _HUD_TEMPLATE = r"""
                     setTimeout(() => { if (btn) btn.textContent = "📋 Copy"; }, 1500);
                 });
             }
+        });
+
+        // Code block copy buttons
+        hud.querySelectorAll(".agyis-copy-code-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const codeId = btn.getAttribute("data-code-id");
+                const codeEl = hud.querySelector("#" + codeId);
+                if (codeEl) {
+                    navigator.clipboard.writeText(codeEl.innerText).then(() => {
+                        btn.textContent = "✔ Copied!";
+                        setTimeout(() => { if (btn) btn.textContent = "📋 Copy"; }, 1500);
+                    });
+                }
+            });
         });
 
         // Syntax highlighting integration with window.Prism if available
@@ -1999,10 +2432,16 @@ _HUD_TEMPLATE = r"""
             const steps = (state.currentData && state.currentData.steps) ? state.currentData.steps : [];
             if (e.key === "ArrowLeft" && state.selectedIndex > 0) {
                 state.selectedIndex -= 1;
+                const epochs = (state.currentData && state.currentData.epochs) || [];
+                const foundEp = epochs.find(ep => state.selectedIndex >= ep.start_index && state.selectedIndex <= ep.end_index);
+                if (foundEp) state.activeEpochIndex = foundEp.epoch_index;
                 renderHud();
             }
             if (e.key === "ArrowRight" && state.selectedIndex < steps.length - 1) {
                 state.selectedIndex += 1;
+                const epochs = (state.currentData && state.currentData.epochs) || [];
+                const foundEp = epochs.find(ep => state.selectedIndex >= ep.start_index && state.selectedIndex <= ep.end_index);
+                if (foundEp) state.activeEpochIndex = foundEp.epoch_index;
                 renderHud();
             }
         }

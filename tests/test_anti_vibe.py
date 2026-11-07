@@ -25,7 +25,9 @@ import urllib.request
 from harness.gui.server import (
     TrajectoryRequestHandler,
     TrajectoryServer,
+    _TRAJECTORY_CACHE,
     ensure_trajectory_server,
+    get_cached_trajectory,
     is_server_alive,
     start_trajectory_server,
 )
@@ -141,6 +143,34 @@ class TestTrajectoryServerEndpoints(unittest.TestCase):
         # Non-listening port returns False
         unused_port = _get_free_port()
         self.assertFalse(is_server_alive("127.0.0.1", unused_port))
+
+    def test_trajectory_server_mtime_caching(self) -> None:
+        _TRAJECTORY_CACHE.clear()
+        t_file = self.brain_dir / self.convo_a / ".system_generated" / "logs" / "transcript.jsonl"
+        t_str = str(t_file)
+
+        # 1. First fetch populates cache
+        t0 = time.perf_counter()
+        data1 = get_cached_trajectory(self.convo_a, brain_dir=self.brain_dir)
+        d1_time = time.perf_counter() - t0
+        self.assertIn(t_str, _TRAJECTORY_CACHE)
+        self.assertEqual(len(data1.get("steps", [])), 3)
+
+        # 2. Second fetch hits in-memory cache (<0.1ms benchmark)
+        t1 = time.perf_counter()
+        data2 = get_cached_trajectory(self.convo_a, brain_dir=self.brain_dir)
+        d2_time = time.perf_counter() - t1
+        self.assertIs(data1, data2)
+        self.assertLess(d2_time, 0.001)
+
+        # 3. Cache invalidation on transcript modification
+        time.sleep(0.01)
+        with open(t_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"source": "user", "content": "Appended step"}) + "\n")
+
+        data3 = get_cached_trajectory(self.convo_a, brain_dir=self.brain_dir)
+        self.assertEqual(len(data3.get("steps", [])), 4)
+        self.assertIsNot(data1, data3)
 
     @unittest.mock.patch("harness.gui.server.subprocess.Popen")
     @unittest.mock.patch("harness.gui.server.is_server_alive")

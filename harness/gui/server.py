@@ -21,7 +21,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import urllib.parse
 import urllib.request
 
@@ -34,6 +34,41 @@ DEFAULT_TRAJECTORY_PORT = 40624
 DEFAULT_HOST = "127.0.0.1"
 
 logger = logging.getLogger("harness.gui.server")
+
+# In-memory trajectory cache: transcript_path -> (st_mtime_ns, st_size, trajectory_data)
+_TRAJECTORY_CACHE: Dict[str, Tuple[int, int, Dict[str, Any]]] = {}
+
+
+def get_cached_trajectory(
+    convo_id: str,
+    brain_dir: Optional[Path] = None,
+    parent_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Loads trajectory using in-memory mtime/size caching (ADR-014 / PSL-INV-010)."""
+    base_brain = brain_dir or (Path.home() / ".gemini" / "antigravity" / "brain")
+    convo_dir = base_brain / convo_id
+    transcript_path = convo_dir / ".system_generated" / "logs" / "transcript.jsonl"
+    if not transcript_path.is_file():
+        transcript_path = convo_dir / "transcript.jsonl"
+
+    t_path_str = str(transcript_path)
+    if transcript_path.is_file():
+        try:
+            st = os.stat(transcript_path)
+            cached = _TRAJECTORY_CACHE.get(t_path_str)
+            if cached is not None:
+                cached_mtime, cached_size, cached_data = cached
+                if cached_mtime == st.st_mtime_ns and cached_size == st.st_size:
+                    return cached_data
+
+            data = load_conversation_trajectory(convo_id, brain_dir=brain_dir, parent_id=parent_id)
+            _TRAJECTORY_CACHE[t_path_str] = (st.st_mtime_ns, st.st_size, data)
+            return data
+        except OSError:
+            pass
+
+    return load_conversation_trajectory(convo_id, brain_dir=brain_dir, parent_id=parent_id)
+
 
 
 class TrajectoryRequestHandler(http.server.BaseHTTPRequestHandler):
@@ -76,7 +111,7 @@ class TrajectoryRequestHandler(http.server.BaseHTTPRequestHandler):
             parent_id = parent_ids[0].strip() if parent_ids else None
 
             try:
-                data = load_conversation_trajectory(
+                data = get_cached_trajectory(
                     convo_id,
                     brain_dir=self.brain_dir,
                     parent_id=parent_id,

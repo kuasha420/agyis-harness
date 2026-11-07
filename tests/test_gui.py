@@ -1565,6 +1565,195 @@ class TestGUISystemdService(unittest.TestCase):
         self.assertEqual(args_status.service, "status")
 
 
+class TestCheckpointEpochPartitioning(unittest.TestCase):
+    """Tests trajectory partitioning into epochs based on CHECKPOINT steps (ADR-014 / PSL-INV-010)."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.brain_dir = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _create_convo_transcript(self, convo_id: str, steps: list[dict]) -> None:
+        log_dir = self.brain_dir / convo_id / ".system_generated" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        t_file = log_dir / "transcript.jsonl"
+        with open(t_file, "w", encoding="utf-8") as f:
+            for s in steps:
+                f.write(json.dumps(s) + "\n")
+
+    def test_epoch_partitioning_no_checkpoints(self) -> None:
+        convo_id = "convo-no-cp"
+        steps = [{"source": "user", "content": f"msg {i}"} for i in range(5)]
+        self._create_convo_transcript(convo_id, steps)
+
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        epochs = data.get("epochs", [])
+        self.assertEqual(len(epochs), 1)
+        self.assertEqual(epochs[0]["epoch_index"], 0)
+        self.assertEqual(epochs[0]["start_index"], 0)
+        self.assertEqual(epochs[0]["end_index"], 4)
+        self.assertEqual(epochs[0]["step_count"], 5)
+        self.assertFalse(epochs[0]["has_checkpoint"])
+
+    def test_epoch_partitioning_single_checkpoint(self) -> None:
+        convo_id = "convo-single-cp"
+        steps = []
+        for i in range(10):
+            if i == 4:
+                steps.append({"type": "CHECKPOINT", "compaction_summary": "Compacted at 4"})
+            else:
+                steps.append({"source": "model", "content": f"Step {i}"})
+        self._create_convo_transcript(convo_id, steps)
+
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        epochs = data.get("epochs", [])
+        self.assertEqual(len(epochs), 2)
+
+        # Epoch 0: step 0 to step 4 (inclusive)
+        self.assertEqual(epochs[0]["epoch_index"], 0)
+        self.assertEqual(epochs[0]["start_index"], 0)
+        self.assertEqual(epochs[0]["end_index"], 4)
+        self.assertEqual(epochs[0]["step_count"], 5)
+        self.assertTrue(epochs[0]["has_checkpoint"])
+        self.assertEqual(epochs[0]["summary"], "Compacted at 4")
+
+        # Epoch 1: step 4 to step 9 (inclusive)
+        self.assertEqual(epochs[1]["epoch_index"], 1)
+        self.assertEqual(epochs[1]["start_index"], 4)
+        self.assertEqual(epochs[1]["end_index"], 9)
+        self.assertEqual(epochs[1]["step_count"], 6)
+        self.assertTrue(epochs[1]["has_checkpoint"])
+
+    def test_epoch_partitioning_multiple_checkpoints(self) -> None:
+        convo_id = "convo-multi-cp"
+        steps = []
+        for i in range(12):
+            if i == 3:
+                steps.append({"type": "CHECKPOINT", "compaction_summary": "First summary"})
+            elif i == 7:
+                steps.append({"type": "CHECKPOINT", "compaction_summary": "Second summary"})
+            else:
+                steps.append({"source": "model", "content": f"Step {i}"})
+        self._create_convo_transcript(convo_id, steps)
+
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        epochs = data.get("epochs", [])
+        self.assertEqual(len(epochs), 3)
+
+        self.assertEqual(epochs[0]["start_index"], 0)
+        self.assertEqual(epochs[0]["end_index"], 3)
+        self.assertEqual(epochs[0]["step_count"], 4)
+
+        self.assertEqual(epochs[1]["start_index"], 3)
+        self.assertEqual(epochs[1]["end_index"], 7)
+        self.assertEqual(epochs[1]["step_count"], 5)
+
+        self.assertEqual(epochs[2]["start_index"], 7)
+        self.assertEqual(epochs[2]["end_index"], 11)
+        self.assertEqual(epochs[2]["step_count"], 5)
+
+    def test_epoch_partitioning_last_step_checkpoint(self) -> None:
+        convo_id = "convo-last-cp"
+        steps = []
+        for i in range(5):
+            if i == 4:
+                steps.append({"type": "CHECKPOINT", "compaction_summary": "Summary at end"})
+            else:
+                steps.append({"source": "user", "content": f"msg {i}"})
+        self._create_convo_transcript(convo_id, steps)
+
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        epochs = data.get("epochs", [])
+        self.assertEqual(len(epochs), 1)
+        self.assertEqual(epochs[0]["start_index"], 0)
+        self.assertEqual(epochs[0]["end_index"], 4)
+        self.assertEqual(epochs[0]["step_count"], 5)
+        self.assertTrue(epochs[0]["has_checkpoint"])
+
+    def test_epoch_partitioning_empty(self) -> None:
+        convo_id = "convo-empty"
+        self._create_convo_transcript(convo_id, [])
+
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        self.assertEqual(data.get("epochs", []), [])
+
+
+class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
+    """Tests dynamic 4-row 64k context bar and upgraded markdown inspector in HUD script."""
+
+    def test_hud_script_contains_dynamic_4_row_logic(self) -> None:
+        sample_data = {
+            "conversation_id": "test-4row",
+            "steps": [
+                {"step_index": 0, "type": "USER_INPUT", "tokens": 4000, "content": "Hello"},
+                {"step_index": 1, "type": "MODEL_OUTPUT", "tokens": 12000, "content": "World"},
+            ],
+            "max_context_tokens": 256000,
+            "epochs": [
+                {"epoch_index": 0, "start_index": 0, "end_index": 1, "step_count": 2, "has_checkpoint": False, "summary": "Initial"}
+            ],
+        }
+        script = build_trajectory_hud_script(
+            convo_id="test-4row",
+            trajectory_data=sample_data,
+            conversations=[],
+            open_view=True,
+            toggle=False,
+        )
+
+        # 4-row dynamic calculation & capacity definitions
+        self.assertIn("ROW_CAPACITY = 64000", script)
+        self.assertIn("Math.min(4, Math.max(1, Math.ceil(activeTokensSum / ROW_CAPACITY)))", script)
+        self.assertIn("agyis-context-row-wrap", script)
+        self.assertIn("agyis-context-row-label", script)
+        self.assertIn("agyis-context-row-track", script)
+        self.assertIn("rIdx * 64", script)
+
+    def test_hud_script_contains_epoch_switcher(self) -> None:
+        sample_data = {"conversation_id": "test-ep", "steps": []}
+        script = build_trajectory_hud_script("test-ep", sample_data, [], open_view=True)
+
+        self.assertIn("agyis-epoch-prev", script)
+        self.assertIn("agyis-epoch-next", script)
+        self.assertIn("Prev Epoch", script)
+        self.assertIn("Next Epoch", script)
+
+    def test_hud_script_contains_pagination_and_debouncing(self) -> None:
+        sample_data = {"conversation_id": "test-page", "steps": []}
+        script = build_trajectory_hud_script("test-page", sample_data, [], open_view=True)
+
+        self.assertIn("pageSize = 50", script)
+        self.assertIn("agyis-page-prev", script)
+        self.assertIn("agyis-page-next", script)
+        self.assertIn("agyis-page-jump-selected", script)
+        self.assertIn("searchDebounceTimer", script)
+        self.assertIn("setTimeout", script)
+        self.assertIn("150", script)
+
+    def test_hud_script_contains_prettified_inspector_features(self) -> None:
+        sample_data = {"conversation_id": "test-insp", "steps": []}
+        script = build_trajectory_hud_script("test-insp", sample_data, [], open_view=True)
+
+        # Thought Process disclosure block
+        self.assertIn("Thought Process", script)
+        self.assertIn("agyis-thinking-block", script)
+        # XML Callouts
+        self.assertIn("agyis-xml-callout", script)
+        self.assertIn("USER_REQUEST", script)
+        self.assertIn("CONTEXT_SUMMARY", script)
+        self.assertIn("SYSTEM_MESSAGE", script)
+        # GitHub Alerts
+        self.assertIn("agyis-github-alert", script)
+        self.assertIn("NOTE", script)
+        self.assertIn("WARNING", script)
+        # Code Copy Buttons & JSON parsing
+        self.assertIn("agyis-copy-code-btn", script)
+        self.assertIn("JSON.parse", script)
+
+
 if __name__ == "__main__":
     unittest.main()
+
 
