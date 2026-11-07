@@ -457,13 +457,6 @@ def inject_trajectory_debug(
     target_flags = flags or DEFAULT_TARGET_FLAGS
     flags_json = json.dumps(target_flags)
 
-    # 0. Ensure Trajectory HTTP API server is active (PSL-INV-010)
-    try:
-        from harness.gui.server import ensure_trajectory_server
-        ensure_trajectory_server(brain_dir=brain_dir)
-    except Exception:
-        pass
-
     # 1. Resolve active conversation ID from page context if not supplied
     convo_id = conversation_id
     page_url: Optional[str] = None

@@ -460,20 +460,48 @@ def load_conversation_trajectory(
             cache_tok = model_usage.get("cacheReadTokens") or meta.get("cache_read_tokens")
         s["cache_read_tokens"] = int(cache_tok or 0)
 
-        step_tok = in_tok + out_tok
-        if step_tok <= 0:
-            explicit_tok = int(s.get("tokens") or 0)
-            if explicit_tok > 0:
-                step_tok = explicit_tok
+        explicit_tok = int(s.get("tokens") or 0)
+        if explicit_tok > 0:
+            step_tok = explicit_tok
+        elif cortex_type in ("PLANNER_RESPONSE", "MODEL_OUTPUT"):
+            if out_tok > 0:
+                step_tok = out_tok
             else:
-                # Fallback token estimation: round(char_count / 3.5)
                 char_count = len(str(s.get("content") or "")) + len(str(s.get("thinking") or ""))
+                step_tok = estimate_tokens(char_count)
+        elif cortex_type == "USER_INPUT":
+            if in_tok > 0:
+                step_tok = in_tok
+            elif out_tok > 0:
+                step_tok = out_tok
+            else:
+                char_count = len(str(s.get("content") or ""))
+                step_tok = estimate_tokens(char_count)
+            if in_tok <= 0:
+                in_tok = step_tok
+        elif cortex_type == "CHECKPOINT":
+            if out_tok > 0:
+                step_tok = out_tok
+            elif in_tok > 0:
+                step_tok = in_tok
+            else:
+                char_count = len(str(s.get("compaction_summary") or s.get("content") or ""))
+                step_tok = estimate_tokens(char_count)
+        else:
+            if out_tok > 0:
+                step_tok = out_tok
+            elif in_tok > 0:
+                step_tok = in_tok
+            else:
+                char_count = 0
                 for tc in s.get("tool_calls", []):
                     char_count += len(str(tc.get("name") or ""))
                     tc_args = tc.get("args")
                     if tc_args:
                         char_count += len(json.dumps(tc_args) if isinstance(tc_args, (dict, list)) else str(tc_args))
                     char_count += len(str(tc.get("output") or ""))
+                if char_count == 0:
+                    char_count = len(str(s.get("content") or ""))
                 step_tok = estimate_tokens(char_count)
 
         s["input_tokens"] = in_tok
@@ -492,6 +520,16 @@ def load_conversation_trajectory(
             cache_tokens = s.get("cache_read_tokens") or 0
         meta = s.get("metadata", {}) if isinstance(s.get("metadata"), dict) else {}
         model_usage = meta.get("modelUsage", {}) if isinstance(meta.get("modelUsage"), dict) else {}
+        cwm = (
+            meta.get("contextWindowMetadata")
+            or s.get("contextWindowMetadata")
+            or meta.get("chatStartMetadata", {}).get("contextWindowMetadata")
+            or s.get("chatStartMetadata", {}).get("contextWindowMetadata")
+        )
+        if isinstance(cwm, dict):
+            etu = cwm.get("estimatedTokensUsed")
+            if etu and isinstance(etu, (int, float)) and int(etu) > explicit_cum_tokens:
+                explicit_cum_tokens = int(etu)
         cum = (
             meta.get("cumulative_context_tokens")
             or meta.get("cumulative_tokens")
@@ -1265,24 +1303,447 @@ _HUD_TEMPLATE = r"""
     window.__agyis_hud_load_convo = async function(convoId) {
         if (!convoId) return null;
         try {
-            const resp = await fetch("http://127.0.0.1:40624/api/trajectory?id=" + encodeURIComponent(convoId));
-            if (resp.ok) {
-                const data = await resp.json();
+            const csrfToken = (window.__APP_CONFIG__ && window.__APP_CONFIG__.csrfToken) || "";
+            const baseUrl = (window.location && window.location.origin && window.location.origin.startsWith("http"))
+                ? window.location.origin
+                : "https://127.0.0.1:40623";
+
+            const headers = {
+                "Content-Type": "application/json",
+                "Connect-Protocol-Version": "1",
+            };
+            if (csrfToken) {
+                headers["x-codeium-csrf-token"] = csrfToken;
+            }
+
+            const reqBody = JSON.stringify({ cascadeId: convoId });
+            const [trajRes, stepsRes, genRes, execRes] = await Promise.all([
+                fetch(`${baseUrl}/exa.language_server_pb.LanguageServerService/GetCascadeTrajectory`, {
+                    method: "POST",
+                    headers: headers,
+                    body: reqBody,
+                }).catch(() => null),
+                fetch(`${baseUrl}/exa.language_server_pb.LanguageServerService/GetCascadeTrajectorySteps`, {
+                    method: "POST",
+                    headers: headers,
+                    body: reqBody,
+                }).catch(() => null),
+                fetch(`${baseUrl}/exa.language_server_pb.LanguageServerService/GetCascadeTrajectoryGeneratorMetadata`, {
+                    method: "POST",
+                    headers: headers,
+                    body: reqBody,
+                }).catch(() => null),
+                fetch(`${baseUrl}/exa.language_server_pb.LanguageServerService/GetCascadeTrajectoryExecutorMetadatas`, {
+                    method: "POST",
+                    headers: headers,
+                    body: reqBody,
+                }).catch(() => null),
+            ]);
+
+            let rawSteps = null;
+            if (stepsRes && stepsRes.ok) {
+                const stepsJson = await stepsRes.json().catch(() => null);
+                if (stepsJson && Array.isArray(stepsJson.steps)) {
+                    rawSteps = stepsJson.steps;
+                }
+            }
+
+            if (!rawSteps && trajRes && trajRes.ok) {
+                const trajJson = await trajRes.json().catch(() => null);
+                if (trajJson && trajJson.trajectory && Array.isArray(trajJson.trajectory.steps)) {
+                    rawSteps = trajJson.trajectory.steps;
+                }
+            }
+
+            if (!rawSteps || rawSteps.length === 0) {
+                if (__PAYLOAD__ && __PAYLOAD__.initialData) {
+                    const fallbackData = __PAYLOAD__.initialData;
+                    const state = window.__agyis_hud_state;
+                    if (state) {
+                        state.rootData = fallbackData;
+                        state.currentData = fallbackData;
+                        state.convoId = fallbackData.conversation_id || convoId;
+                        state.selectedIndex = Math.max(0, (fallbackData.steps || []).length - 1);
+                        state.subagentsDropdownOpen = false;
+                        renderHud();
+                    }
+                    return fallbackData;
+                }
+                return null;
+            }
+
+            let genMetas = [];
+            if (genRes && genRes.ok) {
+                const genJson = await genRes.json().catch(() => null);
+                if (genJson) {
+                    genMetas = genJson.generatorMetadata || genJson.generatorMetadatas || genJson.metadatas || [];
+                }
+            }
+
+            let execMetas = [];
+            if (execRes && execRes.ok) {
+                const execJson = await execRes.json().catch(() => null);
+                if (execJson) {
+                    execMetas = execJson.executorMetadatas || execJson.metadatas || [];
+                }
+            }
+
+            const genMetaByStep = {};
+            const genMetaList = [];
+            genMetas.forEach(gm => {
+                if (gm && gm.stepIndex !== undefined && gm.stepIndex !== null) {
+                    genMetaByStep[gm.stepIndex] = gm;
+                } else if (gm) {
+                    genMetaList.push(gm);
+                }
+            });
+
+            const execMetaByStep = {};
+            const execMetaList = [];
+            execMetas.forEach(em => {
+                if (em && em.stepIndex !== undefined && em.stepIndex !== null) {
+                    execMetaByStep[em.stepIndex] = em;
+                } else if (em) {
+                    execMetaList.push(em);
+                }
+            });
+
+            let plannerIdx = 0;
+            let toolIdx = 0;
+            let cumulativeCtx = 0;
+            const steps = [];
+
+            rawSteps.forEach((rawStep, idx) => {
+                let cortexType = rawStep.type || rawStep.stepType || "";
+                if (typeof cortexType === "string" && cortexType.startsWith("CORTEX_STEP_TYPE_")) {
+                    cortexType = cortexType.replace("CORTEX_STEP_TYPE_", "");
+                }
+                if (!cortexType) {
+                    if (rawStep.userInput) cortexType = "USER_INPUT";
+                    else if (rawStep.checkpoint) cortexType = "CHECKPOINT";
+                    else if (rawStep.plannerResponse) cortexType = "PLANNER_RESPONSE";
+                    else if (rawStep.toolCalls || rawStep.toolCall) cortexType = "TOOL_CALL";
+                    else {
+                        const src = String(rawStep.source || rawStep.role || "").toLowerCase();
+                        if (src === "user") cortexType = "USER_INPUT";
+                        else if (src === "system") cortexType = "SYSTEM";
+                        else if (src === "model" || src === "assistant") cortexType = "MODEL_OUTPUT";
+                        else cortexType = "STEP";
+                    }
+                }
+
+                let content = rawStep.content || "";
+                if (!content && rawStep.userInput) {
+                    content = rawStep.userInput.userResponse ||
+                        (rawStep.userInput.items && rawStep.userInput.items[0] && (rawStep.userInput.items[0].text || rawStep.userInput.items[0].content)) || "";
+                }
+                if (!content && rawStep.plannerResponse) {
+                    content = rawStep.plannerResponse.response || rawStep.plannerResponse.text || rawStep.plannerResponse.content || "";
+                }
+
+                let thinking = rawStep.thinking || (rawStep.plannerResponse && rawStep.plannerResponse.thinking) || "";
+
+                let toolCalls = rawStep.tool_calls || rawStep.toolCalls || [];
+                if (!Array.isArray(toolCalls) && rawStep.toolCall) {
+                    toolCalls = [rawStep.toolCall];
+                }
+
+                let compSummary = null;
+                let checkpointIndex = null;
+                if (rawStep.checkpoint) {
+                    const cp = rawStep.checkpoint;
+                    if (typeof cp === "object" && cp !== null) {
+                        compSummary = cp.sessionSummary || cp.userIntent || cp.summary || null;
+                        if (cp.checkpointIndex !== undefined) checkpointIndex = cp.checkpointIndex;
+                    } else if (typeof cp === "string") {
+                        compSummary = cp;
+                    }
+                }
+                if (!compSummary && rawStep.sessionSummary) compSummary = String(rawStep.sessionSummary).trim();
+                if (!compSummary && rawStep.userIntent) compSummary = String(rawStep.userIntent).trim();
+                if (!compSummary && content) {
+                    const m = String(content).match(/<(?:CONTEXT_SUMMARY|summary)>([\s\S]*?)<\/(?:CONTEXT_SUMMARY|summary)>/i);
+                    if (m) compSummary = m[1].trim();
+                }
+                if (compSummary && cortexType !== "CHECKPOINT") {
+                    cortexType = "CHECKPOINT";
+                }
+
+                const isModelStep = (cortexType === "PLANNER_RESPONSE" || cortexType === "MODEL_OUTPUT");
+                let gm = genMetaByStep[idx] || null;
+                if (!gm && isModelStep && plannerIdx < genMetaList.length) {
+                    gm = genMetaList[plannerIdx++];
+                }
+                if (gm && gm.chatStartMetadata && gm.chatStartMetadata.checkpointIndex !== undefined) {
+                    checkpointIndex = gm.chatStartMetadata.checkpointIndex;
+                }
+
+                const isToolStep = (cortexType === "TOOL_CALL" || cortexType.includes("COMMAND") || cortexType.includes("FILE") || cortexType.includes("SEARCH"));
+                let em = execMetaByStep[idx] || null;
+                if (!em && isToolStep && toolIdx < execMetaList.length) {
+                    em = execMetaList[toolIdx++];
+                }
+
+                let thinkingMs = 0;
+                let streamingMs = 0;
+                if (gm) {
+                    if (gm.timeToFirstToken) thinkingMs = parseInt(gm.timeToFirstToken) || 0;
+                    if (gm.streamingDuration) streamingMs = parseInt(gm.streamingDuration) || 0;
+                }
+                if (!thinkingMs && thinking) {
+                    thinkingMs = Math.min(20000, Math.max(600, Math.floor(thinking.length * 1.6)));
+                }
+                if (!streamingMs && isModelStep) {
+                    streamingMs = Math.min(45000, Math.max(400, Math.floor(content.length * 1.8)));
+                }
+                if (em && em.executionDurationMs) {
+                    streamingMs = parseInt(em.executionDurationMs) || 0;
+                }
+                const totalDurationMs = thinkingMs + streamingMs;
+
+                let inTok = 0;
+                let outTok = 0;
+                let stepTok = 0;
+
+                if (isModelStep) {
+                    if (gm && gm.usage) {
+                        inTok = parseInt(gm.usage.inputTokens || 0) || 0;
+                        const respOut = parseInt(gm.usage.responseOutputTokens || 0) || 0;
+                        const thinkOut = parseInt(gm.usage.thinkingOutputTokens || 0) || 0;
+                        outTok = respOut + thinkOut;
+                    }
+                    stepTok = outTok;
+                    if (stepTok <= 0) {
+                        stepTok = Math.round((content.length + thinking.length) / 3.5);
+                        outTok = stepTok;
+                    }
+                } else if (cortexType === "USER_INPUT") {
+                    stepTok = Math.round(content.length / 3.5);
+                    inTok = stepTok;
+                } else if (cortexType === "CHECKPOINT") {
+                    const charCount = (compSummary ? compSummary.length : content.length) || 100;
+                    stepTok = Math.round(charCount / 3.5);
+                } else {
+                    let charCount = 0;
+                    toolCalls.forEach(tc => {
+                        charCount += (tc.name || "").length + JSON.stringify(tc.args || {}).length + String(tc.output || "").length;
+                    });
+                    if (charCount === 0) charCount = content.length;
+                    stepTok = Math.round(charCount / 3.5);
+                    outTok = stepTok;
+                }
+
+                if (stepTok <= 0 && rawStep.tokens) {
+                    stepTok = parseInt(rawStep.tokens) || 0;
+                }
+                if (stepTok > 0) cumulativeCtx += stepTok;
+
+                steps.push({
+                    step_index: idx,
+                    exec_index: rawStep.exec_index || 1,
+                    inv_index: rawStep.inv_index || 1,
+                    type: cortexType,
+                    content: content,
+                    thinking: thinking,
+                    tool_calls: toolCalls,
+                    status: rawStep.status || "STATUS_COMPLETED",
+                    size_bytes: JSON.stringify(rawStep).length,
+                    thinking_duration_ms: thinkingMs,
+                    streaming_duration_ms: streamingMs,
+                    total_duration_ms: totalDurationMs,
+                    input_tokens: inTok,
+                    output_tokens: outTok,
+                    tokens: stepTok,
+                    cumulative_tokens: cumulativeCtx,
+                    compaction_summary: compSummary,
+                    checkpoint_index: checkpointIndex,
+                    response_model: (gm && (gm.responseModel || gm.model)) || "",
+                    generator_metadata: gm,
+                    executor_metadata: em,
+                });
+            });
+
+            const checkpoints = [];
+            steps.forEach((s, i) => {
+                if (s.type === "CHECKPOINT" || s.checkpoint_index !== null || s.compaction_summary !== null) {
+                    checkpoints.push(i);
+                }
+            });
+
+            const epochs = [];
+            if (checkpoints.length === 0) {
+                if (steps.length > 0) {
+                    epochs.push({
+                        epoch_index: 0,
+                        start_index: 0,
+                        end_index: steps.length - 1,
+                        step_count: steps.length,
+                        has_checkpoint: false,
+                        summary: "Initial Trajectory",
+                    });
+                }
+            } else {
+                const c0 = checkpoints[0];
+                epochs.push({
+                    epoch_index: 0,
+                    start_index: 0,
+                    end_index: c0,
+                    step_count: c0 + 1,
+                    has_checkpoint: true,
+                    summary: steps[c0].compaction_summary || `Checkpoint #${c0}`,
+                });
+                for (let k = 0; k < checkpoints.length; k++) {
+                    const curCp = checkpoints[k];
+                    if (k + 1 < checkpoints.length) {
+                        const nextCp = checkpoints[k + 1];
+                        epochs.push({
+                            epoch_index: epochs.length,
+                            start_index: curCp,
+                            end_index: nextCp,
+                            step_count: nextCp - curCp + 1,
+                            has_checkpoint: true,
+                            summary: steps[curCp].compaction_summary || `Checkpoint #${curCp}`,
+                        });
+                    } else if (curCp < steps.length - 1) {
+                        epochs.push({
+                            epoch_index: epochs.length,
+                            start_index: curCp,
+                            end_index: steps.length - 1,
+                            step_count: (steps.length - 1) - curCp + 1,
+                            has_checkpoint: true,
+                            summary: steps[curCp].compaction_summary || `Checkpoint #${curCp}`,
+                        });
+                    }
+                }
+            }
+
+            let maxContextTokens = 256000;
+            let latestEstimatedTokens = 0;
+            for (let i = genMetas.length - 1; i >= 0; i--) {
+                const cwm = genMetas[i].contextWindowMetadata;
+                if (cwm) {
+                    if (cwm.estimatedTokensUsed && !latestEstimatedTokens) {
+                        latestEstimatedTokens = parseInt(cwm.estimatedTokensUsed) || 0;
+                    }
+                    if (cwm.maxContextTokens) {
+                        maxContextTokens = parseInt(cwm.maxContextTokens) || 256000;
+                    }
+                }
+            }
+
+            const stepSum = steps.reduce((acc, s) => acc + (s.tokens || 0), 0);
+            const lastEpoch = epochs.length > 0 ? epochs[epochs.length - 1] : null;
+            const activeEpochSteps = lastEpoch ? steps.slice(lastEpoch.start_index, lastEpoch.end_index + 1) : steps;
+            const activeEpochTokens = activeEpochSteps.reduce((acc, s) => acc + (s.tokens || 0), 0);
+
+            const sysPromptTok = stepSum > 0 ? Math.min(4000, Math.max(400, Math.floor(stepSum * 0.05))) : 3800;
+            const toolDefsTok = stepSum > 0 ? Math.min(3500, Math.max(300, Math.floor(stepSum * 0.04))) : 3200;
+
+            const totalTokens = latestEstimatedTokens > 0
+                ? latestEstimatedTokens
+                : Math.max(activeEpochTokens + sysPromptTok + toolDefsTok, stepSum + sysPromptTok + toolDefsTok);
+
+            let actualUserTok = 0;
+            let actualModelTok = 0;
+            let actualToolTok = 0;
+            let actualCheckpointTok = 0;
+            let actualSystemTok = 0;
+
+            steps.forEach(s => {
+                const t = s.type;
+                const tok = s.tokens || 0;
+                if (t === "USER_INPUT") actualUserTok += tok;
+                else if (t === "PLANNER_RESPONSE" || t === "MODEL_OUTPUT") actualModelTok += tok;
+                else if (t === "CHECKPOINT") actualCheckpointTok += tok;
+                else if (t === "SYSTEM") actualSystemTok += tok;
+                else actualToolTok += tok;
+            });
+
+            const tokenBreakdown = {
+                system_prompt: sysPromptTok,
+                tool_defs: toolDefsTok,
+                checkpoint: actualCheckpointTok,
+                user: actualUserTok,
+                model: actualModelTok,
+                tool: actualToolTok,
+                system: actualSystemTok,
+            };
+
+            const breakdownSum = sysPromptTok + toolDefsTok + actualCheckpointTok + actualUserTok + actualModelTok + actualToolTok + actualSystemTok;
+            const diff = totalTokens - breakdownSum;
+            if (diff > 0) {
+                tokenBreakdown.model += diff;
+            }
+
+            const subagents = [];
+            const subagentInfos = [];
+            steps.forEach(s => {
+                (s.tool_calls || []).forEach(tc => {
+                    const combined = JSON.stringify(tc.args || {}) + " " + String(tc.output || "");
+                    const uuids = combined.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g) || [];
+                    uuids.forEach(uid => {
+                        if (uid !== convoId && !subagents.includes(uid)) {
+                            subagents.push(uid);
+                            subagentInfos.push({
+                                id: uid,
+                                name: (tc.args && (tc.args.name || tc.args.agent_role)) || `Subagent ${uid.slice(0, 8)}`,
+                                summary: String((tc.args && (tc.args.objective || tc.args.prompt)) || "").slice(0, 80),
+                            });
+                        }
+                    });
+                });
+            });
+
+            let convoSummary = `Session ${convoId.slice(0, 8)}`;
+            const firstUserStep = steps.find(s => s.type === "USER_INPUT");
+            if (firstUserStep && firstUserStep.content) {
+                convoSummary = String(firstUserStep.content).slice(0, 80).replace(/\r?\n/g, " ");
+            }
+
+            const data = {
+                conversation_id: convoId,
+                summary: convoSummary,
+                steps: steps,
+                step_count: steps.length,
+                epochs: epochs,
+                parent_id: null,
+                subagents: subagents,
+                subagent_infos: subagentInfos,
+                subagent_trajectories: {},
+                total_tokens: totalTokens,
+                max_context_tokens: maxContextTokens,
+                cache_tokens: 0,
+                token_breakdown: tokenBreakdown,
+            };
+
+            const state = window.__agyis_hud_state;
+            if (state) {
+                state.rootData = data;
+                state.currentData = data;
+                state.convoId = convoId;
+                state.selectedIndex = Math.max(0, steps.length - 1);
+                state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
+                state.subagentsDropdownOpen = false;
+                renderHud();
+            }
+            return data;
+        } catch (err) {
+            console.warn("[agyis] ConnectRPC trajectory fetch failed, using fallback:", err);
+            if (__PAYLOAD__ && __PAYLOAD__.initialData) {
+                const fallbackData = __PAYLOAD__.initialData;
                 const state = window.__agyis_hud_state;
                 if (state) {
-                    state.rootData = data;
-                    state.currentData = data;
-                    state.convoId = data.conversation_id || convoId;
-                    state.selectedIndex = Math.max(0, (data.steps || []).length - 1);
+                    state.rootData = fallbackData;
+                    state.currentData = fallbackData;
+                    state.convoId = fallbackData.conversation_id || convoId;
+                    state.selectedIndex = Math.max(0, (fallbackData.steps || []).length - 1);
                     state.subagentsDropdownOpen = false;
                     renderHud();
                 }
-                return data;
+                return fallbackData;
             }
-        } catch (err) {
-            console.warn("[agyis] Trajectory server fetch failed, using local fallback data:", err);
+            return null;
         }
-        return null;
     };
 
     function formatBytes(bytes) {

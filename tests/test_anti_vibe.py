@@ -246,9 +246,10 @@ class TestAntiVibeScriptDOMReplacement(unittest.TestCase):
         idx_style_create = script.index("document.createElement(\"style\")")
         self.assertLess(idx_stale_remove, idx_style_create, "Stale styles must be purged BEFORE fresh styles are created")
 
-        # 2. Dynamic loader definition
+        # 2. Dynamic ConnectRPC loader definition
         self.assertIn("window.__agyis_hud_load_convo = async function", script)
-        self.assertIn("http://127.0.0.1:40624/api/trajectory?id=", script)
+        self.assertIn("GetCascadeTrajectorySteps", script)
+        self.assertIn("GetCascadeTrajectoryGeneratorMetadata", script)
 
         # 3. Route sensitivity
         self.assertIn("window.location.pathname.match", script)
@@ -278,6 +279,24 @@ class TestAntiVibeScriptDOMReplacement(unittest.TestCase):
         self.assertIn("activeTokensSum = segments.reduce", script)
         self.assertIn("-webkit-app-region: no-drag;", script)
         self.assertIn("height: calc(100vh - 38px)", script)
+
+    def test_script_contains_native_connectrpc_services(self) -> None:
+        script = build_trajectory_hud_script(
+            convo_id="test-connectrpc",
+            trajectory_data={"conversation_id": "test-connectrpc", "steps": []},
+            conversations=[],
+            open_view=True,
+            toggle=False,
+        )
+        # Authoritative ConnectRPC services & headers
+        self.assertIn("LanguageServerService/GetCascadeTrajectory", script)
+        self.assertIn("LanguageServerService/GetCascadeTrajectorySteps", script)
+        self.assertIn("LanguageServerService/GetCascadeTrajectoryGeneratorMetadata", script)
+        self.assertIn("LanguageServerService/GetCascadeTrajectoryExecutorMetadatas", script)
+        self.assertIn("x-codeium-csrf-token", script)
+        self.assertIn("Connect-Protocol-Version", script)
+        self.assertIn("CORTEX_STEP_TYPE_", script)
+        self.assertIn("fallbackData", script)
 
 
 class TestPSLINV010RuleCodification(unittest.TestCase):
