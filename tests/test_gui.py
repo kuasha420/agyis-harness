@@ -1440,6 +1440,53 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
         self.assertIn("scrollIntoView", script)
         self.assertIn("function Atc", script)
 
+    def test_cumulative_context_token_accounting(self) -> None:
+        convo_id = "test-cumulative-tokens"
+        convo_dir = self.brain_dir / convo_id / ".system_generated" / "logs"
+        convo_dir.mkdir(parents=True, exist_ok=True)
+        transcript = convo_dir / "transcript.jsonl"
+        steps = [
+            {"source": "user", "content": "Question 1", "tokens": 1200},
+            {"source": "model", "content": "Answer 1", "tokens": 3000},
+            {"source": "model", "type": "TOOL_CALL", "tool_calls": [{"name": "run_command"}], "tokens": 1500},
+            {"source": "system", "content": "<summary>Compact</summary>", "type": "CHECKPOINT", "tokens": 2000},
+            {"source": "user", "content": "Question 2", "output_tokens": 500},  # delta only
+        ]
+        with open(transcript, "w", encoding="utf-8") as f:
+            for s in steps:
+                f.write(json.dumps(s) + "\n")
+
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        total_tokens = data["total_tokens"]
+        breakdown = data["token_breakdown"]
+
+        # Cumulative context must exceed individual step deltas
+        step_sum = 1200 + 3000 + 1500 + 2000 + 500
+        self.assertGreaterEqual(total_tokens, step_sum)
+        # Sum of breakdown must match total_tokens exactly
+        self.assertEqual(sum(breakdown.values()), total_tokens)
+        self.assertEqual(breakdown["checkpoint"], 2000)
+        self.assertEqual(breakdown["user"], 1700)
+        self.assertEqual(breakdown["tool"], 1500)
+        self.assertGreater(breakdown["system_prompt"], 0)
+        self.assertGreater(breakdown["tool_defs"], 0)
+
+    def test_hud_css_titlebar_offset_and_no_drag(self) -> None:
+        script = build_trajectory_hud_script(
+            convo_id="convo-hud-fix",
+            trajectory_data={"conversation_id": "convo-hud-fix", "steps": []},
+            conversations=[],
+            open_view=True,
+            toggle=False,
+        )
+        # Titlebar clipping fix assertions
+        self.assertIn("top: 38px;", script)
+        self.assertIn("height: calc(100vh - 38px) !important;", script)
+        self.assertIn("-webkit-app-region: no-drag;", script)
+        # Cumulative token sync in JS
+        self.assertIn("activeTokensSum = segments.reduce", script)
+        self.assertIn("Math.max(cur.total_tokens || 0, activeTokensSum)", script)
+
 
 class TestGUISystemdService(unittest.TestCase):
     """Tests systemd user path and service management for 'agyis gui --service'."""
@@ -1520,3 +1567,4 @@ class TestGUISystemdService(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

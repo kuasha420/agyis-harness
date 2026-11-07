@@ -478,58 +478,55 @@ def load_conversation_trajectory(
         s["cumulative_tokens"] = cumulative_ctx
         steps.append(s)
 
+    step_sum = sum(s.get("tokens", 0) for s in steps)
+
+    explicit_cum_tokens = 0
     for s in reversed(steps):
-        if s.get("input_tokens") or s.get("output_tokens") or s.get("cache_read_tokens"):
-            total_tokens = (s.get("input_tokens") or 0) + (s.get("output_tokens") or 0)
+        if cache_tokens == 0 and s.get("cache_read_tokens"):
             cache_tokens = s.get("cache_read_tokens") or 0
-            break
+        meta = s.get("metadata", {}) if isinstance(s.get("metadata"), dict) else {}
+        model_usage = meta.get("modelUsage", {}) if isinstance(meta.get("modelUsage"), dict) else {}
+        cum = (
+            meta.get("cumulative_context_tokens")
+            or meta.get("cumulative_tokens")
+            or meta.get("contextTokens")
+            or model_usage.get("totalTokens")
+        )
+        if cum and isinstance(cum, (int, float)) and int(cum) > explicit_cum_tokens:
+            explicit_cum_tokens = int(cum)
+
+    # Proportional or standard system prompt & tool defs
+    if step_sum > 0:
+        sys_prompt_tok = min(4000, max(400, int(step_sum * 0.05)))
+        tool_defs_tok = min(3500, max(300, int(step_sum * 0.04)))
+    else:
+        sys_prompt_tok = 3800
+        tool_defs_tok = 3200
+
+    computed_total = step_sum + sys_prompt_tok + tool_defs_tok
+    total_tokens = max(computed_total, explicit_cum_tokens)
 
     actual_user_tok = sum(s["tokens"] for s in steps if s.get("type") == "USER_INPUT")
     actual_model_tok = sum(s["tokens"] for s in steps if s.get("type") in ("PLANNER_RESPONSE", "MODEL_OUTPUT"))
-    actual_tool_tok = sum(s["tokens"] for s in steps if s.get("type") in ("TOOL_CALL", "RUN_COMMAND", "VIEW_FILE", "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES"))
+    actual_tool_tok = sum(s["tokens"] for s in steps if (
+        s.get("type") in ("TOOL_CALL", "RUN_COMMAND", "VIEW_FILE", "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES", "SEND_MESSAGE", "INVOKE_SUBAGENT")
+        or any(k in str(s.get("type", "")) for k in ("COMMAND", "TOOL", "FILE", "WRITE", "REPLACE", "SEARCH", "MESSAGE", "SUBAGENT"))
+    ))
     actual_checkpoint_tok = sum(s["tokens"] for s in steps if s.get("type") == "CHECKPOINT")
     actual_system_tok = sum(s["tokens"] for s in steps if s.get("type") == "SYSTEM")
 
-    if total_tokens <= 0:
-        total_tokens = actual_user_tok + actual_model_tok + actual_tool_tok + actual_checkpoint_tok + actual_system_tok
-        if total_tokens <= 0:
-            total_tokens = max(1000, len(steps) * 150)
-
-    # Checkpoint accounting
-    checkpoint_tok = actual_checkpoint_tok
-
-    # Proportional system prompt & tool defs
-    sys_prompt_tok = min(4000, max(400, int(total_tokens * 0.15))) if total_tokens >= 4000 else min(total_tokens // 4, 1000)
-    tool_defs_tok = min(3500, max(300, int(total_tokens * 0.12))) if total_tokens >= 4000 else min(total_tokens // 4, 800)
-
-    remaining = max(0, total_tokens - (sys_prompt_tok + tool_defs_tok + checkpoint_tok))
-
-    step_sum = actual_user_tok + actual_model_tok + actual_tool_tok + actual_system_tok
-    if step_sum > 0:
-        user_tok = int(remaining * (actual_user_tok / step_sum))
-        model_tok = int(remaining * (actual_model_tok / step_sum))
-        tool_tok = int(remaining * (actual_tool_tok / step_sum))
-        system_tok = max(0, remaining - (user_tok + model_tok + tool_tok))
-    else:
-        user_weight = sum(1 for s in steps if s.get("type") == "USER_INPUT") or 1
-        model_weight = sum(1 for s in steps if s.get("type") in ("PLANNER_RESPONSE", "MODEL_OUTPUT")) or 1
-        tool_weight = sum(1 for s in steps if s.get("type") in ("TOOL_CALL", "RUN_COMMAND", "VIEW_FILE", "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES")) or 1
-        system_weight = sum(1 for s in steps if s.get("type") == "SYSTEM") or 0
-        total_weight = user_weight + model_weight + tool_weight + system_weight or 1
-
-        user_tok = int(remaining * (user_weight / total_weight))
-        model_tok = int(remaining * (model_weight / total_weight))
-        tool_tok = int(remaining * (tool_weight / total_weight))
-        system_tok = max(0, remaining - (user_tok + model_tok + tool_tok))
+    categorized_sum = actual_user_tok + actual_model_tok + actual_tool_tok + actual_checkpoint_tok + actual_system_tok
+    if step_sum > categorized_sum:
+        actual_model_tok += (step_sum - categorized_sum)
 
     token_breakdown = {
         "system_prompt": sys_prompt_tok,
         "tool_defs": tool_defs_tok,
-        "checkpoint": checkpoint_tok,
-        "user": user_tok,
-        "model": model_tok,
-        "tool": tool_tok,
-        "system": system_tok,
+        "checkpoint": actual_checkpoint_tok,
+        "user": actual_user_tok,
+        "model": actual_model_tok,
+        "tool": actual_tool_tok,
+        "system": actual_system_tok,
     }
     # Guarantee sum(token_breakdown.values()) == total_tokens exactly
     diff = total_tokens - sum(token_breakdown.values())
@@ -636,7 +633,10 @@ _HUD_TEMPLATE = r"""
         styleEl.textContent = `
             #agyis-trajectory-hud {
                 position: fixed;
-                inset: 0;
+                top: 38px;
+                left: 0;
+                right: 0;
+                bottom: 0;
                 z-index: 99999;
                 display: flex;
                 align-items: center;
@@ -660,11 +660,12 @@ _HUD_TEMPLATE = r"""
                 flex-direction: column;
                 overflow: hidden;
                 transition: all 0.2s ease-in-out;
+                -webkit-app-region: no-drag;
             }
             .agyis-hud-box.maximized {
                 width: 100vw !important;
                 max-width: 100vw !important;
-                height: 100vh !important;
+                height: calc(100vh - 38px) !important;
                 border-radius: 0 !important;
                 border: none !important;
             }
@@ -679,6 +680,7 @@ _HUD_TEMPLATE = r"""
                 flex-wrap: wrap;
                 position: relative;
                 z-index: 100;
+                -webkit-app-region: no-drag;
             }
             .agyis-hud-header-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
             .agyis-hud-header-right { display: flex; align-items: center; gap: 8px; }
@@ -714,6 +716,7 @@ _HUD_TEMPLATE = r"""
                 gap: 5px;
                 transition: background 0.15s, border-color 0.15s;
                 user-select: none;
+                -webkit-app-region: no-drag;
             }
             .agyis-hud-btn:hover { background: #3f3f46; border-color: #52525b; }
             .agyis-hud-btn.active { background: #3f3f46; border-color: #f59e0b; color: #fbbf24; font-weight: 600; }
@@ -799,6 +802,7 @@ _HUD_TEMPLATE = r"""
                 border: none;
                 padding: 0;
                 margin: 0;
+                -webkit-app-region: no-drag;
             }
             .agyis-context-segment:hover { filter: brightness(1.25); z-index: 20; }
 
@@ -1260,9 +1264,7 @@ _HUD_TEMPLATE = r"""
         state.searchMatchIndices = filteredIndices;
 
         // Context Window Bar Calculations (Authoritative 256k Parity & Atc Layout)
-        const totalTokens = cur.total_tokens || 0;
         const maxTokens = cur.max_context_tokens || 256000;
-        const unusedTokens = Math.max(0, maxTokens - totalTokens);
         const breakdown = cur.token_breakdown || {
             system_prompt: 3800,
             tool_defs: 3200,
@@ -1373,6 +1375,10 @@ _HUD_TEMPLATE = r"""
             if ((breakdown.tool || 0) > 0) segments.push({ id: "tool", type: "tool", label: "Tool", tokens: breakdown.tool, color: "#14b8a6", colorKey: "bg-teal-500", titleColorClass: "text-teal-400", tooltipContent: "Tool calls" });
             if ((breakdown.system || 0) > 0) segments.push({ id: "system", type: "system", label: "System", tokens: breakdown.system, color: "#a855f7", colorKey: "bg-purple-500", titleColorClass: "text-purple-400", tooltipContent: "System messages" });
         }
+
+        const activeTokensSum = segments.reduce((acc, seg) => acc + (seg.tokens || 0), 0);
+        const totalTokens = Math.max(cur.total_tokens || 0, activeTokensSum);
+        const unusedTokens = Math.max(0, maxTokens - totalTokens);
 
         const atcLayout = Atc(segments, maxTokens, 1200, { minSegmentPx: 2, maxRows: 8 });
         let barSegmentsHtml = "";
