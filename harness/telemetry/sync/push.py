@@ -324,14 +324,18 @@ def push_local_sessions(
                 # Retry on 502, 503, 504
                 if err.code in (502, 503, 504) and attempt < max_attempts - 1:
                     if eff_backoff > 0:
-                        time.sleep(eff_backoff)
+                        import random
+                        backoff_sec = min(30.0, (2 ** attempt) + random.uniform(0.1, 1.0))
+                        time.sleep(backoff_sec)
                     continue
                 raise
             except urllib.error.URLError as err:
                 # Retry transient network errors
                 if attempt < max_attempts - 1:
                     if eff_backoff > 0:
-                        time.sleep(eff_backoff)
+                        import random
+                        backoff_sec = min(30.0, (2 ** attempt) + random.uniform(0.1, 1.0))
+                        time.sleep(backoff_sec)
                     continue
                 raise
 

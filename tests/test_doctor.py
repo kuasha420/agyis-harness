@@ -26,8 +26,10 @@ from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main, main
 from harness.commands.doctor import DEFAULT_MATRIX, cmd_doctor
 from harness.runtime.doctor import (
     check_duplicate_skills,
+    check_telemetry_daemon,
     print_cli_report,
     run_doctor,
+    run_doctor_checks,
 )
 from harness.runtime.tool_checks import (
     _parse_rea_providers,
@@ -1244,6 +1246,124 @@ class TestDuplicateSkillsHygiene(unittest.TestCase):
             output = mock_out.getvalue()
             self.assertIn("Duplicate Skills:", output)
             self.assertIn("PASS", output)
+
+
+class TestTelemetryDaemonDoctor(unittest.TestCase):
+    """Verifies check_telemetry_daemon across active, inactive, failed, and non-systemd states (Issue #55)."""
+
+    def test_check_telemetry_daemon_no_systemctl(self):
+        """Returns None when systemctl binary is not available in PATH."""
+        with patch("shutil.which", return_value=None):
+            result = check_telemetry_daemon()
+            self.assertIsNone(result)
+
+    def test_check_telemetry_daemon_active(self):
+        """Returns OK when agyis-sync.service is active."""
+        proc = MagicMock(stdout="active\n", stderr="", returncode=0)
+        with patch("shutil.which", return_value="/usr/bin/systemctl"), \
+             patch("subprocess.run", return_value=proc):
+            result = check_telemetry_daemon()
+            self.assertIsNotNone(result)
+            self.assertEqual(result["status"], "OK")
+            self.assertEqual(result["state"], "active")
+            self.assertEqual(result["message"], "Telemetry Sync Service (agyis-sync.service is active)")
+
+    def test_check_telemetry_daemon_inactive(self):
+        """Returns WARNING with remediation guidance when agyis-sync.service is inactive."""
+        proc = MagicMock(stdout="inactive\n", stderr="", returncode=3)
+        with patch("shutil.which", return_value="/usr/bin/systemctl"), \
+             patch("subprocess.run", return_value=proc):
+            result = check_telemetry_daemon()
+            self.assertIsNotNone(result)
+            self.assertEqual(result["status"], "WARNING")
+            self.assertEqual(result["state"], "inactive")
+            self.assertEqual(
+                result["remediation"],
+                "agyis-sync.service is inactive. Run 'agyis sync --service install' / 'start' to enable background sync.",
+            )
+
+    def test_check_telemetry_daemon_failed(self):
+        """Returns WARNING with status inspection guidance when agyis-sync.service is failed."""
+        proc = MagicMock(stdout="failed\n", stderr="", returncode=3)
+        with patch("shutil.which", return_value="/usr/bin/systemctl"), \
+             patch("subprocess.run", return_value=proc):
+            result = check_telemetry_daemon()
+            self.assertIsNotNone(result)
+            self.assertEqual(result["status"], "WARNING")
+            self.assertEqual(result["state"], "failed")
+            self.assertEqual(
+                result["remediation"],
+                "agyis-sync.service in failed state. Run 'agyis sync --service status' for logs.",
+            )
+
+    def test_check_telemetry_daemon_unknown(self):
+        """Returns WARNING when state is unknown or command times out."""
+        proc = MagicMock(stdout="unknown\n", stderr="", returncode=4)
+        with patch("shutil.which", return_value="/usr/bin/systemctl"), \
+             patch("subprocess.run", return_value=proc):
+            result = check_telemetry_daemon()
+            self.assertIsNotNone(result)
+            self.assertEqual(result["status"], "WARNING")
+            self.assertEqual(result["state"], "unknown")
+            self.assertIn("Run 'agyis sync --service install' / 'start'", result["remediation"])
+
+    def test_check_telemetry_daemon_timeout_exception(self):
+        """Handles subprocess TimeoutExpired safely returning WARNING."""
+        with patch("shutil.which", return_value="/usr/bin/systemctl"), \
+             patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="systemctl", timeout=0.5)):
+            result = check_telemetry_daemon()
+            self.assertIsNotNone(result)
+            self.assertEqual(result["status"], "WARNING")
+
+    def test_run_doctor_checks_includes_telemetry_daemon(self):
+        """Verifies run_doctor_checks registers telemetry_daemon in output."""
+        mock_cli = {
+            "status": "OK",
+            "path": "/usr/local/bin/agyis",
+            "collision": False,
+            "agyis_status": "OK",
+            "agyis_path": "/usr/local/bin/agyis",
+            "psl_details": {"status": "OK", "collision": False, "path": "/usr/local/bin/psl"},
+            "psl_collision": {"status": "OK", "collision": False, "path": "/usr/local/bin/psl"},
+            "details": "Agyis launcher OK",
+            "remediation": None,
+        }
+        with patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
+             patch("harness.runtime.doctor.check_telemetry_daemon", return_value={"status": "OK", "message": "Telemetry Sync Service (agyis-sync.service is active)"}):
+            audit = run_doctor_checks()
+            self.assertIn("telemetry_daemon", audit)
+            self.assertEqual(audit["telemetry_daemon"]["status"], "OK")
+
+    def test_print_cli_report_renders_telemetry_daemon(self):
+        """Verifies print_cli_report renders active and warning telemetry daemon status."""
+        active_audit = {
+            "os_family": "linux",
+            "telemetry_daemon": {
+                "status": "OK",
+                "message": "Telemetry Sync Service (agyis-sync.service is active)",
+            },
+            "tiers": {},
+            "summary": {"ok": 1, "warning": 0, "outdated": 0, "missing": 0},
+        }
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            print_cli_report(active_audit)
+            self.assertIn("Telemetry Daemon:", mock_out.getvalue())
+            self.assertIn("Telemetry Sync Service (agyis-sync.service is active)", mock_out.getvalue())
+
+        warn_audit = {
+            "os_family": "linux",
+            "telemetry_daemon": {
+                "status": "WARNING",
+                "message": "agyis-sync.service is inactive.",
+                "remediation": "Run 'agyis sync --service install'",
+            },
+            "tiers": {},
+            "summary": {"ok": 0, "warning": 1, "outdated": 0, "missing": 0},
+        }
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            print_cli_report(warn_audit)
+            self.assertIn("Telemetry Daemon:", mock_out.getvalue())
+            self.assertIn("Run 'agyis sync --service install'", mock_out.getvalue())
 
 
 if __name__ == "__main__":

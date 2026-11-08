@@ -24,6 +24,8 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -64,6 +66,7 @@ __all__ = [
     "check_node_script_hygiene",
     "check_psl_collision",
     "check_rea_tooling",
+    "check_telemetry_daemon",
     "check_tool",
     "deprecated_psl_doctor_main",
     "detect_os_family",
@@ -75,6 +78,7 @@ __all__ = [
     "parse_version",
     "print_cli_report",
     "run_doctor",
+    "run_doctor_checks",
 ]
 
 
@@ -99,6 +103,67 @@ def check_architectural_fitness(workspace_root: Optional[Path] = None) -> Option
             "scanned_files_count": 0,
             "benchmark_latency_s": 0.0,
         }
+
+
+def check_telemetry_daemon() -> Optional[Dict[str, Any]]:
+    """Checks the status of the background telemetry sync systemd user daemon (Issue #55)."""
+    if not shutil.which("systemctl"):
+        return None
+
+    try:
+        proc = subprocess.run(
+            ["systemctl", "--user", "is-active", "agyis-sync.service"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+        output = (proc.stdout or proc.stderr or "").strip().lower()
+    except Exception:
+        output = "unknown"
+
+    if output == "active":
+        return {
+            "status": "OK",
+            "service": "agyis-sync.service",
+            "state": "active",
+            "message": "Telemetry Sync Service (agyis-sync.service is active)",
+            "details": "Telemetry Sync Service (agyis-sync.service is active)",
+        }
+    elif output == "failed":
+        remediation = "agyis-sync.service in failed state. Run 'agyis sync --service status' for logs."
+        return {
+            "status": "WARNING",
+            "service": "agyis-sync.service",
+            "state": "failed",
+            "message": remediation,
+            "details": remediation,
+            "remediation": remediation,
+        }
+    elif output == "inactive":
+        remediation = "agyis-sync.service is inactive. Run 'agyis sync --service install' / 'start' to enable background sync."
+        return {
+            "status": "WARNING",
+            "service": "agyis-sync.service",
+            "state": "inactive",
+            "message": remediation,
+            "details": remediation,
+            "remediation": remediation,
+        }
+    else:
+        remediation = f"agyis-sync.service is {output}. Run 'agyis sync --service install' / 'start' to enable background sync."
+        return {
+            "status": "WARNING",
+            "service": "agyis-sync.service",
+            "state": output,
+            "message": remediation,
+            "details": remediation,
+            "remediation": remediation,
+        }
+
+
+def run_doctor_checks(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    """Runs all doctor checks and returns audit results dictionary."""
+    return run_doctor(*args, **kwargs)
 
 
 def audit_environment(*args: Any, **kwargs: Any) -> Dict[str, Any]:
@@ -134,6 +199,7 @@ def run_doctor(
     node_script_hygiene = check_node_script_hygiene(workspace_root=effective_workspace)
     hooks_health = check_hooks_health(hooks_path=hooks_path)
     database_port_conflicts = check_database_port_conflicts(workspace_root=effective_workspace)
+    telemetry_daemon = check_telemetry_daemon()
     rea_tooling = check_rea_tooling(mcp_config_path=mcp_config_path, experimental_rea=experimental_rea)
     architectural_fitness = check_architectural_fitness(effective_workspace)
 
@@ -155,6 +221,7 @@ def run_doctor(
         "node_script_hygiene": node_script_hygiene,
         "hooks_health": hooks_health,
         "database_port_conflicts": database_port_conflicts,
+        "telemetry_daemon": telemetry_daemon,
         "rea_tooling": rea_tooling,
         "architectural_fitness": architectural_fitness,
         "experimental_rea": experimental_rea,
@@ -340,6 +407,19 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
             print(f" Database Port ({port}): [\033[32mPASS\033[0m] -> {db_conflict.get('details')}")
         else:
             print(f" Database Port ({port}): [\033[34mINFO\033[0m] -> {db_conflict.get('details')}")
+
+    telem_d = audit.get("telemetry_daemon")
+    if telem_d:
+        st = telem_d.get("status")
+        msg = telem_d.get("message") or telem_d.get("details", "")
+        if st in ("OK", "PASS"):
+            print(f" Telemetry Daemon:    [\033[32mPASS\033[0m] -> {msg}")
+        elif st == "WARNING":
+            print(f" Telemetry Daemon:    [\033[33mWARN\033[0m] -> {msg}")
+            if telem_d.get("remediation"):
+                print(f"    Remediation:\n      {telem_d.get('remediation')}")
+        else:
+            print(f" Telemetry Daemon:    [\033[34mINFO\033[0m] -> {msg}")
 
     aff_data = audit.get("architectural_fitness")
     if aff_data:
