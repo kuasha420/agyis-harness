@@ -1569,18 +1569,40 @@
             });
         }
 
-        const activeTokensSum = segments.reduce((acc, seg) => acc + (seg.tokens || 0), 0);
+        const rawSegmentsSum = segments.reduce((acc, seg) => acc + (seg.tokens || 0), 0);
+        let activeTokensSum = segments.reduce((acc, seg) => acc + (seg.tokens || 0), 0);
+        activeTokensSum = Math.max(cur.total_tokens || 0, activeTokensSum);
         const totalTokens = Math.max(cur.total_tokens || 0, activeTokensSum);
         const ROW_CAPACITY = 64000;
         const rowCount = Math.min(4, Math.max(1, Math.ceil(activeTokensSum / ROW_CAPACITY)));
         const totalActiveCapacity = rowCount * ROW_CAPACITY;
 
+        const scaleFactor = (cur.total_tokens > 0 && rawSegmentsSum > 0 && cur.total_tokens > rawSegmentsSum)
+            ? (activeTokensSum / rawSegmentsSum)
+            : 1.0;
+
+        if (rawSegmentsSum === 0 && activeTokensSum > 0) {
+            segments.push({
+                id: "context-gap",
+                type: "system",
+                label: "Active Context",
+                tokens: activeTokensSum,
+                color: "#6366f1",
+                colorKey: "bg-indigo-500",
+                titleColorClass: "text-indigo-400",
+                tooltipContent: `Active Context (${activeTokensSum.toLocaleString()} tokens)`,
+            });
+        }
+
         const rows = [];
         for (let r = 0; r < rowCount; r++) rows.push([]);
 
         let tCursor = 0;
-        segments.forEach((seg) => {
-            const segTokens = Math.max(0, seg.tokens || 0);
+        segments.forEach((seg, sIdx) => {
+            let segTokens = Math.max(0, Math.round((seg.tokens || 0) * scaleFactor));
+            if (scaleFactor > 1.0 && sIdx === segments.length - 1) {
+                segTokens = Math.max(0, activeTokensSum - tCursor);
+            }
             const segStart = tCursor;
             const segEnd = tCursor + segTokens;
             tCursor = segEnd;

@@ -574,37 +574,56 @@ def load_conversation_trajectory(
     for s in reversed(steps):
         if cache_tokens == 0 and s.get("cache_read_tokens"):
             cache_tokens = s.get("cache_read_tokens") or 0
-        meta = s.get("metadata", {}) if isinstance(s.get("metadata"), dict) else {}
-        model_usage = meta.get("modelUsage", {}) if isinstance(meta.get("modelUsage"), dict) else {}
-        cwm = (
-            meta.get("contextWindowMetadata")
-            or s.get("contextWindowMetadata")
-            or meta.get("chatStartMetadata", {}).get("contextWindowMetadata")
-            or s.get("chatStartMetadata", {}).get("contextWindowMetadata")
-        )
-        if isinstance(cwm, dict):
-            etu = cwm.get("estimatedTokensUsed")
-            if etu and isinstance(etu, (int, float)) and int(etu) > explicit_cum_tokens:
-                explicit_cum_tokens = int(etu)
-        cum = (
-            meta.get("cumulative_context_tokens")
-            or meta.get("cumulative_tokens")
-            or meta.get("contextTokens")
-            or model_usage.get("totalTokens")
-        )
-        if cum and isinstance(cum, (int, float)) and int(cum) > explicit_cum_tokens:
-            explicit_cum_tokens = int(cum)
+        in_tok_val = int(s.get("input_tokens") or 0)
+        cache_tok_val = int(s.get("cache_read_tokens") or 0)
+        if in_tok_val + cache_tok_val > 0:
+            explicit_cum_tokens = in_tok_val + cache_tok_val
+            break
 
-    # Proportional or standard system prompt & tool defs
-    if step_sum > 0:
+    if explicit_cum_tokens == 0:
+        for s in reversed(steps):
+            meta = s.get("metadata", {}) if isinstance(s.get("metadata"), dict) else {}
+            model_usage = meta.get("modelUsage", {}) if isinstance(meta.get("modelUsage"), dict) else {}
+            cwm = (
+                meta.get("contextWindowMetadata")
+                or s.get("contextWindowMetadata")
+                or meta.get("chatStartMetadata", {}).get("contextWindowMetadata")
+                or s.get("chatStartMetadata", {}).get("contextWindowMetadata")
+            )
+            if isinstance(cwm, dict):
+                etu = cwm.get("estimatedTokensUsed")
+                if etu and isinstance(etu, (int, float)) and int(etu) > explicit_cum_tokens:
+                    explicit_cum_tokens = int(etu)
+            cum = (
+                meta.get("cumulative_context_tokens")
+                or meta.get("cumulative_tokens")
+                or meta.get("contextTokens")
+                or model_usage.get("totalTokens")
+            )
+            if cum and isinstance(cum, (int, float)) and int(cum) > explicit_cum_tokens:
+                explicit_cum_tokens = int(cum)
+
+    if explicit_cum_tokens == 0:
+        try:
+            from harness.hooks.token_proximity_guard import get_active_conversation_tokens
+            explicit_cum_tokens = get_active_conversation_tokens(conversation_id)
+        except Exception:
+            explicit_cum_tokens = 0
+
+    # Native Upc context allocation (Google Antigravity Parity)
+    if explicit_cum_tokens > 0 and step_sum > 0:
+        instruction_tok = max(7000, explicit_cum_tokens - step_sum)
+        sys_prompt_tok = int(instruction_tok * 0.40)
+        tool_defs_tok = instruction_tok - sys_prompt_tok
+        total_tokens = max(step_sum + instruction_tok, explicit_cum_tokens)
+    elif step_sum > 0:
         sys_prompt_tok = min(4000, max(400, int(step_sum * 0.05)))
         tool_defs_tok = min(3500, max(300, int(step_sum * 0.04)))
+        total_tokens = step_sum + sys_prompt_tok + tool_defs_tok
     else:
         sys_prompt_tok = 3800
         tool_defs_tok = 3200
-
-    computed_total = step_sum + sys_prompt_tok + tool_defs_tok
-    total_tokens = max(computed_total, explicit_cum_tokens)
+        total_tokens = max(sys_prompt_tok + tool_defs_tok, explicit_cum_tokens)
 
     actual_user_tok = sum(s["tokens"] for s in steps if s.get("type") == "USER_INPUT")
     actual_model_tok = sum(s["tokens"] for s in steps if s.get("type") in ("PLANNER_RESPONSE", "MODEL_OUTPUT"))
