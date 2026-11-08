@@ -41,7 +41,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     exp_rea = bool(getattr(args, "experimental_rea", False))
     re_tool = bool(getattr(args, "re_toolchain", False) or getattr(args, "re", False))
-    audit = psl_doctor.run_doctor(matrix_path, experimental_rea=exp_rea, re_toolchain=re_tool)
+    ws_root = Path(args.workspace).resolve() if getattr(args, "workspace", None) else None
+    audit = psl_doctor.run_doctor(
+        matrix_path,
+        workspace_root=ws_root,
+        experimental_rea=exp_rea,
+        re_toolchain=re_tool,
+    )
 
     if getattr(args, "json", False):
         print(json.dumps(audit, indent=2))

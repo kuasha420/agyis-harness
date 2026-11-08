@@ -55,6 +55,7 @@ __all__ = [
     "REPO_ROOT",
     "audit_environment",
     "audit_forensic_toolchain",
+    "check_architectural_fitness",
     "check_cli_binary",
     "check_database_port_conflicts",
     "check_duplicate_agents",
@@ -75,6 +76,29 @@ __all__ = [
     "print_cli_report",
     "run_doctor",
 ]
+
+
+def check_architectural_fitness(workspace_root: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    """Audits workspace structural invariants and architectural fitness (ADR-014 / Phase 1)."""
+    if not workspace_root:
+        return None
+    target_ws = Path(workspace_root).resolve()
+    if not (target_ws / "harness").is_dir():
+        return None
+    try:
+        from harness.runtime.aff import audit_architectural_fitness
+
+        rep = audit_architectural_fitness(workspace_root=target_ws)
+        return rep.to_dict()
+    except Exception as exc:
+        return {
+            "status": "FAIL",
+            "score": 0.0,
+            "error": str(exc),
+            "details": f"AFF evaluation crashed: {exc}",
+            "scanned_files_count": 0,
+            "benchmark_latency_s": 0.0,
+        }
 
 
 def audit_environment(*args: Any, **kwargs: Any) -> Dict[str, Any]:
@@ -111,6 +135,7 @@ def run_doctor(
     hooks_health = check_hooks_health(hooks_path=hooks_path)
     database_port_conflicts = check_database_port_conflicts(workspace_root=effective_workspace)
     rea_tooling = check_rea_tooling(mcp_config_path=mcp_config_path, experimental_rea=experimental_rea)
+    architectural_fitness = check_architectural_fitness(effective_workspace)
 
     # Reverse engineering and dirtyroom forensic toolchain audit (ADR-028, Issue #100)
     is_re = is_re_workspace(effective_workspace)
@@ -131,6 +156,7 @@ def run_doctor(
         "hooks_health": hooks_health,
         "database_port_conflicts": database_port_conflicts,
         "rea_tooling": rea_tooling,
+        "architectural_fitness": architectural_fitness,
         "experimental_rea": experimental_rea,
         "re_toolchain": re_active,
         "forensic_toolchain": forensic_toolchain,
@@ -158,6 +184,8 @@ def run_doctor(
     if hooks_health.get("status") != "OK":
         results["summary"]["warning"] += 1
     if database_port_conflicts.get("status") == "WARNING":
+        results["summary"]["warning"] += 1
+    if architectural_fitness and architectural_fitness.get("status") in ("WARNING", "FAIL"):
         results["summary"]["warning"] += 1
 
     if experimental_rea:
@@ -312,6 +340,19 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
             print(f" Database Port ({port}): [\033[32mPASS\033[0m] -> {db_conflict.get('details')}")
         else:
             print(f" Database Port ({port}): [\033[34mINFO\033[0m] -> {db_conflict.get('details')}")
+
+    aff_data = audit.get("architectural_fitness")
+    if aff_data:
+        st = aff_data.get("status", "PASS")
+        score = aff_data.get("score", 100.0)
+        scanned = aff_data.get("scanned_files_count", 0)
+        lat = aff_data.get("benchmark_latency_s", 0.0)
+        if st in ("PASS", "OK"):
+            print(f" Architectural Fitness (AFF): [\033[32mPASS\033[0m] -> Score: {score:.1f}/100 ({scanned} files in {lat:.3f}s)")
+        elif st == "WARNING":
+            print(f" Architectural Fitness (AFF): [\033[33mWARN\033[0m] -> Score: {score:.1f}/100 ({scanned} files in {lat:.3f}s)")
+        else:
+            print(f" Architectural Fitness (AFF): [\033[31mFAIL\033[0m] -> Score: {score:.1f}/100 ({scanned} files in {lat:.3f}s)")
 
     rea_t = audit.get("rea_tooling")
     if rea_t:

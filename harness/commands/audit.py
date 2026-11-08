@@ -422,11 +422,83 @@ def cmd_audit(args: argparse.Namespace) -> int:
             print("=" * 70)
 
         return 0 if valid else 1
+    elif sub in ("aff", "macro", "fitness"):
+        from harness.runtime.aff import audit_architectural_fitness
+
+        cwd = Path(getattr(args, "workspace", None) or Path.cwd()).resolve()
+        as_json = getattr(args, "json", False)
+
+        report = audit_architectural_fitness(workspace_root=cwd)
+
+        if as_json:
+            print(json.dumps(report.to_dict(), indent=2))
+        else:
+            print_aff_report(report, cwd)
+
+        has_critical_or_major = any(
+            d.severity in ("CRITICAL", "MAJOR")
+            for d in (report.boundary_defects + report.cycle_defects + report.smell_defects)
+        )
+        return 1 if (report.status == "FAIL" or has_critical_or_major) else 0
     else:
         sys.stderr.write(f"Error: Unknown audit stage '{sub}'.\n")
         return 1
 
     return 0
+
+
+def print_aff_report(report: Any, cwd: Path) -> None:
+    """Renders beautifully styled terminal report for Architectural Fitness Functions."""
+    badge = (
+        "\033[32mPASS\033[0m"
+        if report.status == "PASS"
+        else ("\033[33mWARN\033[0m" if report.status == "WARNING" else "\033[31mFAIL\033[0m")
+    )
+    print("=" * 75)
+    print(f" 🏛️  Agyis Architectural Fitness Function (AFF) Report [{badge}]")
+    print("    Macro Governance & Structural Invariant Verification")
+    print("=" * 75)
+    print(f" Status:          {report.status}")
+    print(f" Fitness Score:   {report.score:.1f}/100")
+    print(f" Scanned Files:   {report.scanned_files_count} Python files")
+    print(f" Latency:         {report.benchmark_latency_s:.4f}s (<0.25s benchmark)")
+    print(f" Workspace Root:  {cwd}")
+    print("-" * 75)
+
+    total_defects = len(report.boundary_defects) + len(report.cycle_defects) + len(report.smell_defects)
+    if total_defects == 0:
+        print(" ✔ Zero architectural defects detected. Invariants strictly satisfied.")
+    else:
+        if report.boundary_defects:
+            print(f"\n▶ BOUNDARY DEFECTS ({len(report.boundary_defects)}):")
+            for d in report.boundary_defects:
+                sev_color = "\033[31mCRIT\033[0m" if d.severity == "CRITICAL" else "\033[33mWARN\033[0m"
+                print(f"  [{sev_color}] {d.source_file}:{d.line_number} -> Forbidden import '{d.imported_module}' [{d.rule_name}]")
+                if d.remediation:
+                    print(f"         Remediation: {d.remediation}")
+
+        if report.cycle_defects:
+            print(f"\n▶ DEPENDENCY CYCLE DEFECTS ({len(report.cycle_defects)}):")
+            for c in report.cycle_defects:
+                cycle_str = " -> ".join(c.cycle_path)
+                print(f"  [\033[31mCRIT\033[0m] Circular Loop: {cycle_str}")
+                if c.remediation:
+                    print(f"         Remediation: {c.remediation}")
+
+        if report.smell_defects:
+            print(f"\n▶ STRUCTURAL SMELLS ({len(report.smell_defects)}):")
+            for s in report.smell_defects:
+                sev_color = (
+                    "\033[31mCRIT\033[0m"
+                    if s.severity == "CRITICAL"
+                    else ("\033[33mMAJR\033[0m" if s.severity == "MAJOR" else "\033[34mWARN\033[0m")
+                )
+                print(f"  [{sev_color}] {s.file}:{s.line_number} -> {s.smell_type}: {s.description}")
+                if s.remediation:
+                    print(f"         Remediation: {s.remediation}")
+
+    print("=" * 75)
+
 
 
 def print_prune_summary(result: dict, db_path: Path) -> None:

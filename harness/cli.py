@@ -202,7 +202,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
             "all", "extract", "benchmark", "classify", "inventory", "dynamics",
             "traces", "interventions", "volume", "deep", "session", "live", "clusters",
             "artifacts", "configs", "project_configs", "project-configs", "prune",
-            "certify", "verdict",
+            "certify", "verdict", "aff", "macro", "fitness",
         ],
         help="Audit pipeline stage to run (default: all)",
     )
