@@ -378,6 +378,7 @@ class TestNativeSlashCommandsBypass(unittest.TestCase):
             "/compact",
             "/plan refactor backend",
             "/boost optimize query",
+            "/teamwork",
             "/teamwork-preview",
             "/clear",
             "/reset",
@@ -457,6 +458,31 @@ class TestSubSecondExecutionBenchmark(unittest.TestCase):
             elapsed,
             0.20,
             f"50 evaluate_pre_invocation iterations took {elapsed:.4f}s (SLA: <0.20s)",
+        )
+
+
+class TestPluginNamespacedAgentLookups(unittest.TestCase):
+    """Verifies MAJ-D2-01: plugin namespaced agent lookups (e.g. psl-agy-harness:agyis_builder)."""
+
+    def test_archetype_from_string_with_plugin_namespace(self) -> None:
+        from harness.subagents.spec import AgentArchetype
+        from harness.agents import resolve_agent_name
+
+        self.assertEqual(
+            AgentArchetype.from_string("psl-agy-harness:agyis_builder"),
+            AgentArchetype.EXECUTIONER,
+        )
+        self.assertEqual(
+            AgentArchetype.from_string("agyis-harness:agyis_planner"),
+            AgentArchetype.PLANNER,
+        )
+        self.assertEqual(
+            resolve_agent_name("psl-agy-harness:agyis_builder"),
+            "agyis_builder",
+        )
+        self.assertEqual(
+            resolve_agent_name("psl-agy-harness:builder:fast"),
+            "agyis_builder:fast",
         )
 
 

@@ -28,7 +28,7 @@ def harvest_local_transcripts(
 
     Uses mtime & size stat cache for sub-millisecond change detection.
     """
-    from pipeline.extract_transcripts import (
+    from harness.telemetry.extractor import (
         SCHEMA_SQL,
         ensure_sync_columns,
         ensure_volume_columns,
@@ -44,7 +44,7 @@ def harvest_local_transcripts(
     legacy_pattern = str(b_dir / "*" / "transcript.jsonl")
     paths.extend(glob.glob(legacy_pattern))
 
-    modified_paths: List[Path] = []
+    modified_items: List[Tuple[Path, str, float, int]] = []
     for p_str in paths:
         try:
             st = os.stat(p_str)
@@ -52,17 +52,17 @@ def harvest_local_transcripts(
             size = st.st_size
             cached = mtime_cache.get(p_str)
             if cached is None or cached[0] < mtime or cached[1] != size:
-                modified_paths.append(Path(p_str))
-                mtime_cache[p_str] = (mtime, size)
+                modified_items.append((Path(p_str), p_str, mtime, size))
         except OSError:
             continue
 
-    if not modified_paths:
+    if not modified_items:
         return 0
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     try:
+        conn.execute("PRAGMA journal_mode=WAL;")
         cur = conn.cursor()
         cur.executescript(SCHEMA_SQL)
         ensure_volume_columns(conn)
@@ -72,7 +72,7 @@ def harvest_local_transcripts(
         conn.close()
 
     stored = 0
-    for p in modified_paths:
+    for p, p_str, mtime, size in modified_items:
         try:
             res = extract_session(p)
             if not res:
@@ -80,8 +80,9 @@ def harvest_local_transcripts(
             session_row, step_rows, tool_rows, interv_rows = res
             s_id = session_row["session_id"]
 
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(db_path, timeout=30.0)
             try:
+                conn.execute("PRAGMA journal_mode=WAL;")
                 cur = conn.cursor()
                 cur.execute("DELETE FROM steps WHERE session_id = ?", (s_id,))
                 cur.execute("DELETE FROM tool_calls WHERE session_id = ?", (s_id,))
@@ -204,6 +205,20 @@ def harvest_local_transcripts(
                     )
                 conn.commit()
                 stored += 1
+
+                # Update mtime_cache only after commit succeeds (D3-MAJ-02)
+                # Bounded capacity guard and periodic dead-key eviction (D3-MAJ-03)
+                if len(mtime_cache) >= 5000:
+                    dead_keys = [k for k in mtime_cache if not os.path.exists(k)]
+                    for k in dead_keys:
+                        mtime_cache.pop(k, None)
+                    while len(mtime_cache) >= 5000:
+                        try:
+                            first_key = next(iter(mtime_cache))
+                            mtime_cache.pop(first_key, None)
+                        except (StopIteration, KeyError):
+                            break
+                mtime_cache[p_str] = (mtime, size)
             finally:
                 conn.close()
         except Exception:

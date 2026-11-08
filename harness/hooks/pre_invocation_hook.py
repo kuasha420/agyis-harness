@@ -239,6 +239,8 @@ def extract_prompt_text(
                                         for sk in (
                                             "prompt",
                                             "user_input",
+                                            "lastUserInput",
+                                            "last_user_input",
                                             "userPrompt",
                                             "message",
                                             "text",

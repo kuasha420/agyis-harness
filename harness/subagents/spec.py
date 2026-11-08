@@ -40,6 +40,10 @@ class AgentArchetype(str, Enum):
     def from_string(cls, val: str) -> AgentArchetype:
         """Parse string to archetype enum safely, handling colons, dashes, and variant suffixes (ADR-014)."""
         val_clean = val.strip().lower()
+        for pfx in ("psl-agy-harness:", "agyis-harness:", "psl_agy_harness:", "agyis_harness:", "psl:", "plugin:"):
+            if val_clean.startswith(pfx):
+                val_clean = val_clean[len(pfx):].strip()
+                break
         base = val_clean.split(":")[0].strip().replace("-", "_")
         norm = val_clean.replace("-", "_").replace(":", "_")
         for member in cls:

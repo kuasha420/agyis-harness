@@ -330,29 +330,36 @@ def cmd_pcap(args: argparse.Namespace) -> int:
         return 1
 
 
-def resolve_binary_path(binary_name: str) -> Optional[Path]:
-    """Resolves a target binary in the dirtyroom environment or game install directory."""
-    paladins_bin_dir = os.environ.get(
-        "PALADINS_BIN_DIR",
-        "/mnt/fast_data/games/SteamLibrary/steamapps/common/Paladins/Binaries/Win64",
-    )
-    steam_cand = Path(paladins_bin_dir) / binary_name
-    if steam_cand.is_file():
-        return steam_cand
-
+def resolve_binary_path(binary_name: Optional[str] = None) -> Optional[Path]:
+    """Resolves a target binary in the dirtyroom environment or direct filesystem path (ADR-014, ADR-028)."""
     root = get_dirtyroom_root()
-    if not root:
+    if binary_name:
+        direct = Path(binary_name)
+        if direct.is_file():
+            return direct
+        if root:
+            candidates = [
+                root / "binaries" / binary_name,
+                root / binary_name,
+            ]
+            for c in candidates:
+                if c.is_file():
+                    return c
+            for match in root.rglob(binary_name):
+                if match.is_file():
+                    return match
         return None
-    candidates = [
-        root / "binaries" / binary_name,
-        root / binary_name,
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
-    for match in root.rglob(binary_name):
-        if match.is_file():
-            return match
+
+    # Auto-detect binary from dirtyroom if binary_name not provided
+    if root:
+        bin_dir = root / "binaries"
+        if bin_dir.is_dir():
+            for c in sorted(bin_dir.iterdir()):
+                if c.is_file() and not c.name.startswith("."):
+                    return c
+        for c in sorted(root.iterdir()):
+            if c.is_file() and not c.name.startswith(".") and c.suffix.lower() in (".exe", ".dll", ".so", ".dylib", ".bin"):
+                return c
     return None
 
 
@@ -363,10 +370,11 @@ def cmd_disasm(args: argparse.Namespace) -> int:
         print("[!] 'objdump' not found in PATH.", file=sys.stderr)
         return 1
 
-    binary = getattr(args, "binary", None) or "ShippingPC-ChaosGame.exe"
+    binary = getattr(args, "binary", None)
     bin_path = resolve_binary_path(binary)
     if not bin_path:
-        print(f"[!] Error: Binary '{binary}' not found in dirtyroom.", file=sys.stderr)
+        target_name = binary or "target binary"
+        print(f"[!] Error: Binary '{target_name}' not found. Specify --binary or place in .dirtyroom/binaries/.", file=sys.stderr)
         return 1
 
     target = args.target
@@ -427,10 +435,11 @@ def cmd_xrefs(args: argparse.Namespace) -> int:
         print(f"[!] Error: Target must be a hex address (0x...): {target}", file=sys.stderr)
         return 1
 
-    binary = getattr(args, "binary", None) or "MctsInterface.dll"
+    binary = getattr(args, "binary", None)
     bin_path = resolve_binary_path(binary)
     if not bin_path:
-        print(f"[!] Error: Binary '{binary}' not found in dirtyroom.", file=sys.stderr)
+        target_name = binary or "target binary"
+        print(f"[!] Error: Binary '{target_name}' not found. Specify --binary or place in .dirtyroom/binaries/.", file=sys.stderr)
         return 1
 
     import struct
@@ -441,7 +450,19 @@ def cmd_xrefs(args: argparse.Namespace) -> int:
     e_lfanew = struct.unpack_from("<I", buf, 0x3C)[0]
     num_sections = struct.unpack_from("<H", buf, e_lfanew + 6)[0]
     opt_hdr_size = struct.unpack_from("<H", buf, e_lfanew + 20)[0]
-    image_base = struct.unpack_from("<Q", buf, e_lfanew + 24 + 24)[0]
+
+    # Inspect PE Optional Header magic (DOM5-MAJ-02):
+    # 0x10b for PE32 (32-bit), 0x20b for PE32+ (64-bit)
+    opt_hdr_offset = e_lfanew + 24
+    opt_magic = struct.unpack_from("<H", buf, opt_hdr_offset)[0]
+    if opt_magic == 0x10B:
+        # PE32: 4-byte ImageBase at offset 28 in Optional Header
+        image_base = struct.unpack_from("<I", buf, opt_hdr_offset + 28)[0]
+    elif opt_magic == 0x20B:
+        # PE32+: 8-byte ImageBase at offset 24 in Optional Header
+        image_base = struct.unpack_from("<Q", buf, opt_hdr_offset + 24)[0]
+    else:
+        image_base = struct.unpack_from("<Q", buf, opt_hdr_offset + 24)[0]
 
     sec_offset = e_lfanew + 24 + opt_hdr_size
     found_xrefs = []
@@ -452,21 +473,26 @@ def cmd_xrefs(args: argparse.Namespace) -> int:
         if sec_name in (".text", "code"):
             sec_data = buf[raw_offset : raw_offset + raw_size]
             base_va = image_base + vaddr
-            for i in range(len(sec_data) - 4):
+            for i in range(1, len(sec_data) - 4):
+                # Verify preceding opcode is CALL (0xE8) or JMP (0xE9)
+                opcode = sec_data[i - 1]
+                if opcode not in (0xE8, 0xE9):
+                    continue
                 disp = struct.unpack_from("<i", sec_data, i)[0]
                 curr_va = base_va + i + 4
                 if curr_va + disp == target_va:
-                    found_xrefs.append(base_va + i)
+                    found_xrefs.append(base_va + i - 1)
 
     conn = get_dirtyroom_db()
-    print(f"[*] Found {len(found_xrefs)} cross-reference(s) to {hex(target_va)} in {binary}:")
+    binary_label = bin_path.name
+    print(f"[*] Found {len(found_xrefs)} cross-reference(s) to {hex(target_va)} in {binary_label}:")
     for xref in found_xrefs:
         func_name = "unknown"
         if conn:
             c = conn.cursor()
             c.execute(
                 "SELECT name, address FROM functions WHERE binary_id = (SELECT id FROM binaries WHERE name=?) AND address <= ? ORDER BY address DESC LIMIT 1",
-                (binary, xref),
+                (binary_label, xref),
             )
             r = c.fetchone()
             if r:
@@ -530,14 +556,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     # disasm
     p_disasm = sub.add_parser("disasm", help="Disassemble instructions via native objdump")
     p_disasm.add_argument("target", help="Virtual address (hex) or function name")
-    p_disasm.add_argument("--binary", help="Target binary filename (default: ShippingPC-ChaosGame.exe)")
+    p_disasm.add_argument("--binary", help="Target binary filename or path (auto-detects from .dirtyroom/binaries/ if omitted)")
     p_disasm.add_argument("--bytes", type=int, default=128, help="Number of bytes to disassemble")
     p_disasm.add_argument("--limit", type=int, default=50, help="Max assembly lines to display")
 
     # xrefs
     p_xrefs = sub.add_parser("xrefs", help="Find cross-references to a virtual address")
     p_xrefs.add_argument("target", help="Target virtual address (hex 0x...)")
-    p_xrefs.add_argument("--binary", help="Target binary filename (default: MctsInterface.dll)")
+    p_xrefs.add_argument("--binary", help="Target binary filename or path (auto-detects from .dirtyroom/binaries/ if omitted)")
 
     args = parser.parse_args(argv)
     if not args.re_cmd or args.re_cmd == "status":

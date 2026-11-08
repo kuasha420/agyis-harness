@@ -183,10 +183,18 @@ def audit_forensic_toolchain(
         # Check standard java binary
         j_bin, j_ver = probe_binary_with_version("java", "-version", timeout=timeout)
         if j_bin:
+            java_major = 0
+            if j_ver:
+                try:
+                    java_major = int(j_ver.split(".")[0])
+                except (ValueError, IndexError):
+                    m_num = re.search(r"\d+", j_ver)
+                    if m_num:
+                        java_major = int(m_num.group(0))
             tools.append({
                 "name": "java",
                 "category": "core",
-                "status": "PASS" if j_ver and int(j_ver.split(".")[0]) >= 17 else "WARN",
+                "status": "PASS" if java_major >= 17 else "WARN",
                 "path": str(j_bin),
                 "version": j_ver,
                 "details": f"Java runtime verified at {j_bin} (version {j_ver})",

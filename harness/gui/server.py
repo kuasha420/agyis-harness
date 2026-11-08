@@ -6,7 +6,10 @@
 """
 Dynamic Trajectory HTTP Server (ADR-014 / PSL-INV-010).
 Serves live conversation trajectory data and recent conversation lists over HTTP
-to decouple the In-Situ Trajectory HUD from static point-in-time snapshots.
+for offline/headless trajectory playback and external browser inspection.
+
+Note (D1-MIN-01): Port 40624 HTTP server is reserved for offline/headless playback only;
+the live in-situ Electron HUD connects to ConnectRPC port 40623 directly.
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ DEFAULT_HOST = "127.0.0.1"
 logger = logging.getLogger("harness.gui.server")
 
 # In-memory trajectory cache: transcript_path -> (st_mtime_ns, st_size, trajectory_data)
+_MAX_TRAJECTORY_CACHE_SIZE = 1000
 _TRAJECTORY_CACHE: Dict[str, Tuple[int, int, Dict[str, Any]]] = {}
 
 
@@ -62,6 +66,8 @@ def get_cached_trajectory(
                     return cached_data
 
             data = load_conversation_trajectory(convo_id, brain_dir=brain_dir, parent_id=parent_id)
+            if len(_TRAJECTORY_CACHE) >= _MAX_TRAJECTORY_CACHE_SIZE:
+                _TRAJECTORY_CACHE.clear()
             _TRAJECTORY_CACHE[t_path_str] = (st.st_mtime_ns, st.st_size, data)
             return data
         except OSError:

@@ -403,6 +403,11 @@ def build_hotkey_script() -> str:
         "          const state = window.__agyis_hud_state;\n"
         "          if (focusedConvoId && state && focusedConvoId !== state.convoId && typeof window.__agyis_hud_load_convo === 'function') {\n"
         "            window.__agyis_hud_load_convo(focusedConvoId);\n"
+        "          } else if (state) {\n"
+        "            if (typeof window.__agyis_hud_sync === 'function') window.__agyis_hud_sync(state);\n"
+        "            if (typeof window.__agyis_hud_render === 'function') window.__agyis_hud_render();\n"
+        "            const selEl = document.querySelector('.agyis-step-grid-item[data-index=\"' + state.selectedIndex + '\"]');\n"
+        "            if (selEl) selEl.scrollIntoView({ block: 'nearest' });\n"
         "          }\n"
         "        }\n"
         "        hud.style.display = isHidden ? 'flex' : 'none';\n"
@@ -981,15 +986,20 @@ def handle_gui_service_command(
 
 
 def cmd_gui(args: argparse.Namespace) -> int:
-    """Primary handler for 'agyis gui' subcommand."""
+    """Primary handler for 'agyis gui' subcommand.
+    
+    Note (D1-MIN-01): The --server option (port 40624) starts an HTTP API server
+    reserved for offline/headless playback and external browser inspection.
+    The in-situ Electron HUD operates via ConnectRPC port 40623 directly.
+    """
     if getattr(args, "server", False):
         from harness.gui.server import TrajectoryServer, TrajectoryRequestHandler, DEFAULT_TRAJECTORY_PORT, DEFAULT_HOST
         server_port = getattr(args, "server_port", None) or DEFAULT_TRAJECTORY_PORT
         server = TrajectoryServer((DEFAULT_HOST, server_port), RequestHandlerClass=TrajectoryRequestHandler)
         if not getattr(args, "json", False):
-            print(f"● Trajectory API server listening on http://{DEFAULT_HOST}:{server_port}")
+            print(f"● Trajectory API server (offline/headless playback) listening on http://{DEFAULT_HOST}:{server_port}")
         else:
-            print(json.dumps({"status": "running", "host": DEFAULT_HOST, "port": server_port}))
+            print(json.dumps({"status": "running", "host": DEFAULT_HOST, "port": server_port, "mode": "offline_playback"}))
         try:
             server.serve_forever()
         except KeyboardInterrupt:

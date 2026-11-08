@@ -89,7 +89,12 @@ def resolve_agent_name(name: str) -> str:
     If the name is already canonical or unrecognized, it is returned normalized.
     Supports variant suffixes via colon notation (e.g. 'builder:fast' -> 'agyis_builder:fast').
     """
-    norm = name.strip().lower().replace("-", "_")
+    norm = name.strip().lower()
+    for pfx in ("psl-agy-harness:", "agyis-harness:", "psl_agy_harness:", "agyis_harness:", "psl:", "plugin:"):
+        if norm.startswith(pfx):
+            norm = norm[len(pfx):].strip()
+            break
+    norm = norm.replace("-", "_")
     if ":" in norm:
         base, variant = norm.split(":", 1)
         base = base.strip()

@@ -28,6 +28,7 @@ from harness.telemetry.redaction import (
     strip_secrets,
 )
 from harness.telemetry.db import get_db_connection
+from harness.telemetry.extractor import extract_session
 from harness.telemetry.sync import (
     ensure_sync_columns,
     pull_remote_sessions,
@@ -53,6 +54,7 @@ __all__ = [
     "add_to_denylist",
     "remove_from_denylist",
     "ensure_sync_columns",
+    "extract_session",
     "push_local_sessions",
     "pull_remote_sessions",
 ]

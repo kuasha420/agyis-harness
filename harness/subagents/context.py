@@ -57,7 +57,7 @@ def extract_role_from_text(text: str) -> Optional[str]:
     if m_stage:
         return m_stage.group(1).strip()
     m = re.search(
-        r"You are\s+(?:a\s+|an\s+|the\s+)?['`\"]?([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)['`\"]?", text
+        r"You are\s+(?:a\s+|an\s+|the\s+)?['`\"]?([A-Za-z0-9_:]+(?:-[A-Za-z0-9_:]+)*)['`\"]?", text
     )
     if m:
         cand = m.group(1).strip()

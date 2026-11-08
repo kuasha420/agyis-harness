@@ -127,7 +127,6 @@ DEFAULT_BOUNDARY_RULES: List[BoundaryRule] = [
         exemptions=[
             "harness/commands/audit.py",
             "harness/commands/sync.py",
-            "harness/telemetry/sync/daemon.py",
         ],
     ),
     BoundaryRule(
@@ -304,6 +303,8 @@ def _parse_module(
         res = (None, None, defect)
 
     if parsed_cache is not None:
+        if len(parsed_cache) >= 10000:
+            parsed_cache.clear()
         parsed_cache[py_file] = res
     return res
 
