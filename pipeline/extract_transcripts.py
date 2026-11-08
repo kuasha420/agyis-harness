@@ -34,6 +34,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 
+from harness.telemetry.db import get_db_connection
 from harness.telemetry.extractor import (
     SCHEMA_SQL,
     calculate_duration,
@@ -50,7 +51,7 @@ def extract_and_store(paths: List[Path], db_path: Path) -> int:
     """Ingests transcript JSONLs and conversation SQLite DBs into db_path."""
     from pipeline.harvest_conversations import harvest_conversation_db
 
-    conn = sqlite3.connect(db_path)
+    conn = get_db_connection(db_path, row_factory=False)
     cur = conn.cursor()
     cur.executescript(SCHEMA_SQL)
     ensure_volume_columns(conn)
@@ -70,7 +71,7 @@ def extract_and_store(paths: List[Path], db_path: Path) -> int:
                 continue
             session_row, step_rows, tool_rows, interv_rows = res
             s_id = session_row["session_id"]
-            conn = sqlite3.connect(db_path)
+            conn = get_db_connection(db_path, row_factory=False)
             cur = conn.cursor()
             cur.execute("DELETE FROM steps WHERE session_id = ?", (s_id,))
             cur.execute("DELETE FROM tool_calls WHERE session_id = ?", (s_id,))
@@ -162,7 +163,7 @@ def backfill_tool_volumes(db_path: Path, verbose: bool = True) -> Dict[str, int]
     """Backfills output_length_chars, output_lines, arguments_length_chars, command_category,
     and is_truncated for all existing rows in tool_calls that lack volume data.
     """
-    conn = sqlite3.connect(db_path)
+    conn = get_db_connection(db_path, row_factory=False)
     ensure_volume_columns(conn)
     cur = conn.cursor()
 
@@ -269,7 +270,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     if args.reset and db_path.exists():
         db_path.unlink()
 
-    conn = sqlite3.connect(db_path)
+    conn = get_db_connection(db_path, row_factory=False)
     cur = conn.cursor()
     cur.executescript(SCHEMA_SQL)
     ensure_volume_columns(conn)

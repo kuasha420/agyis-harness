@@ -137,15 +137,18 @@ def ensure_sync_columns(conn: sqlite3.Connection) -> None:
     cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
     existing_tables = {row[0] for row in cur.fetchall()}
 
-    if "steps" in existing_tables:
+    cur.execute("SELECT name FROM sqlite_master WHERE type='index'")
+    existing_indexes = {row[0] for row in cur.fetchall()}
+
+    if "steps" in existing_tables and "idx_steps_uniq" not in existing_indexes:
         cur.execute("DELETE FROM steps WHERE id NOT IN (SELECT MIN(id) FROM steps GROUP BY session_id, step_index)")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_steps_uniq ON steps(session_id, step_index)")
 
-    if "user_interventions" in existing_tables:
+    if "user_interventions" in existing_tables and "idx_interventions_uniq" not in existing_indexes:
         cur.execute("DELETE FROM user_interventions WHERE id NOT IN (SELECT MIN(id) FROM user_interventions GROUP BY session_id, step_index)")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_interventions_uniq ON user_interventions(session_id, step_index)")
 
-    if "tool_calls" in existing_tables:
+    if "tool_calls" in existing_tables and "idx_tool_calls_uniq" not in existing_indexes:
         cur.execute("DELETE FROM tool_calls WHERE id NOT IN (SELECT MIN(id) FROM tool_calls GROUP BY session_id, step_index, tool_name, started_at, arguments_snippet)")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_calls_uniq ON tool_calls(session_id, step_index, tool_name, started_at, arguments_snippet)")
 
