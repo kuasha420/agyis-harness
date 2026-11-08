@@ -3,7 +3,7 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-010 -->
+<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-011 -->
 
 # Empirical Agent Rules: Agyis Harness Guidelines
 
@@ -59,6 +59,7 @@ python3 -m harness.cli audit classify          # Categorize trajectories into WH
 python3 -m harness.cli audit inventory         # Catalog plugins, skills, hooks & MCP servers
 agyis audit certify                            # Run full suite, doctor audit & issue signed audit_verdict.json (Gate 2)
 agyis audit verdict                            # Inspect active out-of-band auditor clearance status (Gate 2)
+agyis audit aff                                # Audit architectural fitness, boundary violations & structural debt
 
 # 🧩 Skills, Rules & Subagents Discovery & Deduplication
 agyis skills                                   # List installed modular skills & triggers
@@ -154,6 +155,20 @@ agyis doctor --experimental-rea --heal         # Safe zero-sudo auto-healing & R
    - Re-injection or mounting of updated HUD components must purge stale DOM nodes and styles (`#agyis-trajectory-hud`, `#agyis-trajectory-hud-styles`) to ensure code and data changes apply immediately without application reboots.
 4. **Dynamic Traversal Testing Requirement**:
    - Multi-session switching, API failure fallbacks, and DOM replacement contracts must be formally tested. Single-fixture visual passes are strictly prohibited.
+
+---
+
+## 5. Universal Architectural Fitness Contract (PSL-INV-011)
+1. **Automated Architectural Fitness Gates**:
+   - Production software systems must satisfy automated architectural fitness functions (`agyis audit aff` / `python3 -m harness.cli audit aff`). Fitness functions must continuously evaluate module boundary compliance, dependency acyclicity, and structural complexity metrics.
+2. **Zero Cross-Layer Boundary Breaches**:
+   - Systems must maintain strict physical and logical layer boundaries (e.g. ADR-014 Product vs. Project bifurcation, cleanroom vs. dirtyroom membrane). Lower-level or distributable core libraries (`harness/`) must never import from higher-level experimental pipelines (`pipeline/`), scratchpads, or application drivers.
+3. **Zero Unseparated Foreign Language Monoliths**:
+   - Non-native programming languages, markup, styles, or queries (e.g. multi-hundred-line JavaScript, HTML templates, CSS stylesheets, SQL queries) must NOT be embedded as raw multiline string constants inside core application code. Non-native assets must be cleanly decoupled into dedicated external files under `assets/` and loaded dynamically via package resource mechanisms (`importlib.resources`).
+4. **Bounded State & Cache Capacity**:
+   - In-memory data structures, trajectory caches, session mappings, and AST parses must have explicit capacity limits (maximum item counts, LRU eviction, or TTL expiration). Unbounded dictionary or list growth in persistent runtime processes is strictly prohibited.
+5. **Dependency Cycle Prohibition**:
+   - Import graphs must form a Directed Acyclic Graph (DAG). Circular dependencies across modules or packages are strictly prohibited and must be eliminated via dependency inversion or interface segregation.
 
 ---
 

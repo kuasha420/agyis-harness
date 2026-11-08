@@ -27,6 +27,13 @@ This skill codifies the delta-focused review workflow derived from high-performi
    - Use `replace_file_content` to apply focused contiguous edits addressing specific feedback items.
 4. **Mandatory Post-Fix Verification**:
    - After addressing review comments, immediately run the project test suite (`agyis test`, `pnpm test`, `pytest`, etc.) to prove the fix introduces zero regressions.
+5. **Delta-Aware Macro Smell Sensing**:
+   - While maintaining strict delta focus on modified lines (`git diff -U3`), reviewers must actively evaluate whether an incoming diff compounds existing structural debt or introduces macro architectural smells:
+     * **Foreign Language Monoliths**: Does the diff append more inline HTML/CSS/JS/SQL strings to an already monolithic string template instead of extracting to `assets/`?
+     * **Cross-Boundary Coupling**: Does the diff introduce illegal cross-layer or cross-package imports (e.g. core distributable code importing experimental pipelines, or cleanroom leaking dirtyroom)?
+     * **Unbounded State Caching**: Does the diff introduce dictionary or collection caches without explicit capacity bounds, LRU eviction, or TTL limits?
+     * **Compounding Complexity**: Does the diff add complexity to an existing God Component (>2,000 lines) without submodule decomposition?
+   - If any macro smell is compounded, Hammer flags the line in the defect ledger with concrete refactoring recommendations before approving the diff.
 
 ---
 

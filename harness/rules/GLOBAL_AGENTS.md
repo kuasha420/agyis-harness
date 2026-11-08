@@ -1,6 +1,6 @@
 ---
 trigger: always_on
-description: Universal empirical agent rules and invariants (PSL-INV-001 through PSL-INV-009)
+description: Universal empirical agent rules and invariants (PSL-INV-001 through PSL-INV-011)
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
@@ -133,3 +133,17 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
    - Re-injection or mounting of updated tooling must purge stale singleton state, existing DOM elements, and superseded style sheets (`element.remove()`). Never merely unhide hours-old cached nodes when fresh code or runtime state is being supplied.
 4. **Multi-Session & Dynamic Traversal Verification**:
    - Verification suites must validate multi-session switching, route transitions, and dynamic refresh paths across multiple distinct fixtures or live API responses. Green test passes on a single hardcoded fixture do not substantiate dynamic features.
+
+---
+
+## 11. Universal Architectural Fitness Invariant (PSL-INV-011)
+1. **Automated Architectural Fitness Gates**:
+   - Production software systems must satisfy automated architectural fitness functions (e.g. `agyis audit aff`). Automated fitness functions must continuously evaluate module boundary compliance, dependency acyclicity, and structural complexity metrics.
+2. **Zero Cross-Layer Boundary Breaches**:
+   - Systems must maintain strict physical and logical layer boundaries (e.g. ADR-014 Product vs. Project bifurcation, cleanroom vs. dirtyroom membrane). Lower-level or distributable core libraries must never import from higher-level experimental pipelines, scratchpads, or application drivers.
+3. **Zero Unseparated Foreign Language Monoliths**:
+   - Non-native programming languages, markup, styles, or queries (e.g. multi-hundred-line JavaScript, HTML templates, CSS stylesheets, SQL queries) must NOT be embedded as raw multiline string constants inside core application code. Non-native assets must be cleanly decoupled into dedicated external files under `assets/` and loaded dynamically via package resource mechanisms (`importlib.resources`).
+4. **Bounded State & Cache Capacity**:
+   - In-memory data structures, trajectory caches, session mappings, and AST parses must have explicit capacity limits (maximum item counts, LRU eviction, or TTL expiration). Unbounded dictionary or list growth in persistent runtime processes is strictly prohibited.
+5. **Dependency Cycle Prohibition**:
+   - Import graphs must form a Directed Acyclic Graph (DAG). Circular dependencies across modules or packages are strictly prohibited and must be eliminated via dependency inversion or interface segregation.

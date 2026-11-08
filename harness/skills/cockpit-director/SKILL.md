@@ -73,7 +73,7 @@ The Cockpit Flight Director is bound by an absolute prohibition against continuo
 Root pairing context is preserved strictly for:
 1. **Strategic Direction & Milestone Decomposition**: Requirements clarification, domain modeling, and user journey synthesis.
 2. **Human-in-the-Loop Steering**: Reviewing architectural options, evaluating trade-offs, and seeking explicit confirmation on irreversible operations.
-3. **Subagent Ladder Dispatch & Governance**: Invoking specialized subagent pipelines via `subagent-router`, monitoring milestone progress via reactive wakeups, and enforcing the Dual-Auditor Gate.
+3. **Subagent Ladder Dispatch & Governance**: Invoking specialized subagent pipelines via `subagent-router`, monitoring milestone progress via reactive wakeups, enforcing the Architectural Fitness Gate (`agyis audit aff`), and enforcing the Dual-Auditor Gate.
 4. **Living Artifact Maintenance**: Updating `implementation_plan.md`, `project_ledger.md`, and `roadmap.md` (<50 lines retroactive compaction).
 
 ---
@@ -199,9 +199,10 @@ agyis cockpit route <letter|alias>            # Route by letter (A–L) or alias
 agyis cockpit route <letter> --json           # Machine-readable dispatch payload template
 agyis router <route>                          # Direct subagent router alias (e.g., agyis router victory)
 
-# 🩺 Flight Deck Invariants Verification
+# 🩺 Flight Deck & Macro Architectural Verification
 agyis cockpit verify                          # Audit active session against the 5 flight director invariants
 agyis cockpit verify --allow-dirty            # Audit invariants permitting active uncommitted in-flight diffs
+agyis audit aff                               # Audit architectural fitness, boundary violations & structural debt
 
 # 💾 Carrier-Grade Compaction & Succession (ADR-031)
 agyis checkpoint status                       # Inspect latest compaction checkpoint freshness and state

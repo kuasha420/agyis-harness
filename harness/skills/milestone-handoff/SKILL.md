@@ -34,6 +34,19 @@ agyis test
 ```
 *Rule*: If any test fails, STOP. Do not proceed to handoff until all tests pass.
 
+### Step 1.5: Architectural Fitness & Packaging Verification
+Execute the native Architectural Fitness Function audit to ensure the milestone introduces zero structural regressions or boundary defects:
+```bash
+# Execute Architectural Fitness Function audit
+agyis audit aff
+```
+*Verification Mandate*:
+1. **Zero Boundary Breaches**: Verify layer bifurcation (e.g. `harness/` never imports `pipeline/`, cleanroom never imports dirtyroom).
+2. **Zero Cycles**: Verify module import graphs are strictly acyclic (DAG).
+3. **Decoupled Assets**: Verify non-native assets (HTML/CSS/JS/SQL/templates) are decoupled into dedicated `assets/` directories and declared in packaging manifests.
+4. **Bounded Caches**: Verify in-memory state caches have capacity bounds, LRU eviction, or TTL limits.
+*Rule*: If `agyis audit aff` returns FAIL or identifies newly introduced critical architectural defects, resolve them before proceeding to ledger compaction or commit.
+
 ### Step 2: Retroactive Horizon Compaction (Project Ledger)
 Record the completed phase in the project ledger (e.g. `docs/taxonomy/project-ledger.md` or repository-configured ledger path):
 - Keep the entry **strictly under 50 lines**.

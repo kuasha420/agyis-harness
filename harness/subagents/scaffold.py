@@ -264,16 +264,16 @@ def scaffold_agent_markdown(
         elif arch == AgentArchetype.EXECUTIONER:
             description = "Surgical single-phase task execution following an approved implementation plan."
         elif arch == AgentArchetype.HAMMER:
-            description = "Delta-focused code review against the 5 Ground Rules and stack invariants."
+            description = "Delta-focused code review and architectural smell sensing against the 5 Ground Rules and stack invariants."
         elif arch == AgentArchetype.AUDITOR:
-            description = "Hermetic verification, doctor audit, and sub-second test suite benchmarking."
+            description = "Hermetic verification, architectural fitness gate, doctor audit, and sub-second test suite benchmarking."
         elif arch == AgentArchetype.CUSTODIAN:
             description = (
-                "Macro architectural review, DRY code deduplication audit, "
-                "workspace hygiene, and atomic git commit gate."
+                "Macro architectural review, 4-pillar architectural fitness gate, "
+                "DRY code deduplication audit, workspace hygiene, and atomic git commit gate."
             )
         elif arch == AgentArchetype.PLANNER:
-            description = "Architectural research, dependency analysis, and artifact-first implementation plan synthesis."
+            description = "Architectural research, aperture 1 topology probes, dependency analysis, and artifact-first implementation plan synthesis."
         elif arch == AgentArchetype.COORDINATOR:
             description = "Multi-agent swarm orchestration, milestone decomposition, and project ledger governance."
         elif arch == AgentArchetype.INVESTIGATOR:
@@ -388,21 +388,35 @@ def scaffold_agent_markdown(
         body_lines.append("1. **Lead Architecture & Governance**:")
         body_lines.append("   - Act as lead architect, systems engineer, and master implementer with end-to-end accountability.")
         body_lines.append("   - Enforce system invariants, clean-room testing, and bounded execution scopes across all tasks.")
+        body_lines.append("   - **Aperture 1 Topology Probes**: Execute pre-implementation topology probes (`agyis audit aff`) to assess boundary compliance and cycle-free import structures before implementing multi-module refactors.")
     elif arch == AgentArchetype.EXECUTIONER:
         body_lines.append("1. **Plan Adherence**: Read the approved implementation plan before making edits. Implement ONLY tasks specified in the plan. Zero speculative expansions.")
     elif arch == AgentArchetype.HAMMER:
-        body_lines.append("1. **Delta Focus**: Inspect ONLY modified files and contiguous diff lines (`git diff -U3`). Do not re-read entire repositories.")
+        body_lines.extend([
+            "1. **Delta Focus & Architectural Smell Sensing**:",
+            "   - Inspect ONLY modified files and contiguous diff lines (`git diff -U3`). Do not re-read entire repositories.",
+            "   - **Delta-Aware Smell Sensing**: While evaluating modified lines, actively verify that diffs do NOT compound existing architectural smells (e.g. adding raw HTML/JS/CSS/SQL strings to monolithic templates, introducing cross-boundary imports, or expanding unbounded caches).",
+        ])
     elif arch == AgentArchetype.AUDITOR:
-        body_lines.append("1. **Hermetic Verification**: Execute test suites, doctor audits, and runtime linters to establish deterministic ground truth.")
+        body_lines.extend([
+            "1. **Hermetic Verification & Architectural Fitness Gate**:",
+            "   - Execute test suites, doctor audits, and runtime linters to establish deterministic ground truth.",
+            "   - Gate 2 Victory Certification requires both green functional unit tests (`python3 -m harness.cli test`) AND green Architectural Fitness score (`agyis audit aff`).",
+        ])
     elif arch == AgentArchetype.CUSTODIAN:
         body_lines.extend([
-            "1. **Macro Review & Deduplication Mandate**:",
-            "   - **DRY & Code Deduplication Audit**: Before approving any commit gate, actively search the repository (`grep_search`, `find_by_name`) to ensure newly introduced helpers, utilities, constants, and test mocks do NOT duplicate existing logic elsewhere in the codebase. If duplicate logic is found, reject the commit gate with a DRY defect report instructing Executioner to reuse existing modules.",
-            "   - **Macro Architectural Review**: Evaluate repository-wide architectural integrity beyond Hammer's micro-diff: verify cross-module boundary compliance (e.g. ADR-014 Product vs. Project bifurcation: `harness/` must never import `pipeline/`), detect orphan files, dead code, leftover temporary scripts, and uncommitted working-tree residue.",
-            "   - **Git Commit Gate**: Verify clean porcelain tree status (`git status --porcelain`), stage strictly intended deliverables (never blind `git add .` or `git add -A`), and seal an atomic conventional commit on HEAD so Stage 5 Auditor audits an immutable revision.",
+            "1. **Macro Review & Deduplication Mandate (The 4-Pillar Architectural & Git Commit Gate)**:",
+            "   - **Pillar 4.1 (DRY & Deduplication Audit)**: Search repository (`grep_search`, `find_by_name`) to verify newly introduced helpers, utilities, constants, and test mocks do NOT duplicate existing logic. Reject with DRY defect report if duplicates found.",
+            "   - **Pillar 4.2 (Architectural Fitness Gate)**: Execute `agyis audit aff` (zero boundary breaches, zero cycles, zero foreign language monoliths, zero unbounded state caches). Reject commit gate if any architectural smell or boundary breach is detected.",
+            "   - **Pillar 4.3 (Packaging & Asset Decoupling Audit)**: Verify non-native assets (HTML, CSS, SQL, client JS scripts, templates) are decoupled into dedicated `assets/` directories and declared in manifests, rather than inlined as foreign code strings.",
+            "   - **Pillar 4.4 (Git Porcelain & Atomic Staging Gate)**: Verify clean porcelain tree status (`git status --porcelain`), stage strictly intended deliverables (never blind `git add .` or `git add -A`), and seal an atomic conventional commit on HEAD so Stage 5 Auditor audits an immutable revision.",
         ])
     elif arch == AgentArchetype.PLANNER:
-        body_lines.append("1. **Artifact-First Planning (ADR-012)**: Synthesize codebase research and architecture analysis into interactive `implementation_plan.md` artifacts. You can write to exempt artifact paths for synthesis, but cannot mutate product code directly.")
+        body_lines.extend([
+            "1. **Artifact-First Planning (ADR-012) & Aperture 1 Topology Probes**:",
+            "   - Synthesize codebase research and architecture analysis into interactive `implementation_plan.md` artifacts. You can write to exempt artifact paths for synthesis, but cannot mutate product code directly.",
+            "   - **Aperture 1 Topology Probes**: Run pre-implementation topology probes (`agyis audit aff` / dependency inspection) before drafting plans to prevent introducing cross-boundary imports, dependency cycles, or structural debt.",
+        ])
     elif arch == AgentArchetype.COORDINATOR:
         body_lines.append("1. **Swarm Orchestration**: Decompose milestones into single-phase tasks, delegate to specialist subagents, and govern the project ledger.")
     elif arch == AgentArchetype.INVESTIGATOR:
@@ -427,6 +441,7 @@ def scaffold_agent_markdown(
         body_lines.extend([
             "3. **Explicit Command Dictionary (The Victory Pattern)**:",
             "   - `agyis test`: Run complete hermetic test suite (sub-second benchmark invariant).",
+            "   - `agyis audit aff`: Audit architectural fitness, boundary compliance, and structural debt.",
             "   - `agyis doctor`: Audit host workstation runtimes and auto-heal environment.",
             "   - `agyis status`: Display harness health, active hooks, and telemetry gauge.",
             "   - `agyis sync`: Audit and synchronize active session into telemetry.db.",

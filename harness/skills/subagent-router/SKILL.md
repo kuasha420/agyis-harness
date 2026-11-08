@@ -95,8 +95,9 @@ Every engineering milestone progressing through the sequential execution path ad
          │ (Passed Code Review)                                  │ (Rejected: Defect Ledger)        │
          ▼                                                       └──────────────────────────────────┤
 ┌─────────────────────────────────────────────────────────────────────────┐                         │
-│ STAGE 4: GIT COMMIT GATE & REPOSITORY HYGIENE (`agyis_custodian`)       │                         │
-│ - DRY Deduplication Audit: sweeps repo to ensure no duplicated helpers. │                         │
+│ STAGE 4: MACRO ARCHITECTURAL AUDIT & GIT COMMIT GATE (`agyis_custodian`)│                         │
+│ - 4-Pillar Quality Gate (DRY, AFF, Asset Decoupling, Git Porcelain).     │                         │
+│ - Executes `agyis audit aff` (zero boundary breaches, cycles, monoliths)│                         │
 │ - Stages ONLY target files declared in approved plan (no blind `git add`).│                         │
 │ - Asserts working tree is 100% clean of scratch debris (AC5).           │                         │
 │ - Executes atomic commit on HEAD.                                       │                         │
@@ -145,14 +146,25 @@ When coordinating distributed campaigns across parallel feature worktrees, multi
 > - The Coordinator orchestrates the ladder, manages persistent artifacts, and routes diagnostics.
 > - Defect reports must be routed back to the designated `agyis_builder`.
 
-### 5.3 Git Commit Gate & Custodian Mandate
+### 5.3 Macro Architectural Audit & Git Commit Gate (The Custodian Mandate)
 > [!IMPORTANT]
-> The Custodian (`agyis_custodian`) is the sole entity authorized to stage and commit milestone deliverables.
-> - **DRY & Code Deduplication Audit**: Custodian sweeps repo to verify new helpers do NOT duplicate existing logic.
+> The Custodian (`agyis_custodian`) is the sole entity authorized to stage and commit milestone deliverables, operating as the **4-Pillar Architectural & Git Commit Gate**:
+> 1. **Pillar 4.1: DRY & Deduplication Audit**: Custodian sweeps repo (`grep_search`, `find_by_name`) to verify newly introduced helpers, utilities, and constants do NOT duplicate existing logic.
+> 2. **Pillar 4.2: Architectural Fitness Gate (`agyis audit aff`)**: Custodian executes the native AFF engine to assert zero boundary breaches (ADR-014 bifurcation), zero dependency cycles, zero foreign language monoliths, and zero unbounded state caches.
+> 3. **Pillar 4.3: Packaging & Asset Decoupling Audit**: Verify non-native assets (HTML, CSS, SQL, client JS scripts, templates, icons) are cleanly decoupled into dedicated `assets/` directories and declared in packaging manifests.
+> 4. **Pillar 4.4: Git Porcelain & Atomic Staging Gate**: Verify porcelain tree status (`git status --porcelain`), deliberately stage only files specified in the approved plan (never blind `git add .`), and seal an atomic conventional commit on HEAD.
 > - **Clean Revision Invariant**: The Auditor must certify a **committed git revision**, never a volatile, dirty working tree.
-> - **Atomic Staging**: Deliberately stage only files specified in the approved implementation plan. Blind `git add .` is prohibited.
 > - **Zero Scratch Debris (AC5)**: Telemetry databases, temporary logs, and scratch artifacts must never be staged into version control.
 > - **Zero Direct Code Mutation**: The Custodian cannot modify product or test code (`write: false`).
+
+### 5.4 Architectural Rejection Protocol
+> [!CAUTION]
+> If `agyis_custodian` detects a Pillar 4.1 duplication, a Pillar 4.2 architectural defect (`agyis audit aff` failure), or a Pillar 4.3 packaging coupling defect:
+> $$\text{Custodian REJECT} \longrightarrow \mathbf{Builder\ (Remediation)} \longrightarrow \mathbf{Reviewer\ (The\ Hammer\ Re\text{-}Review)} \longrightarrow \mathbf{Custodian\ (Re\text{-}Audit)}$$
+> - **Immediate Stage Rejection**: Custodian immediately halts the commit gate, aborts staging, and generates an Architectural Defect Report detailing exact boundary violations, cyclic imports, or embedded foreign language monoliths.
+> - **Mandatory Return to Stage 2**: Remediation must be performed by `agyis_builder`.
+> - **Hammer Re-Review Requirement**: Remediated diffs must re-traverse Hammer review (`agyis_reviewer`) before returning to Custodian.
+> - **Zero Bypass to Auditor**: Under no circumstances may an architectural failure or boundary violation be bypassed to Stage 5 Auditor.
 
 ---
 
