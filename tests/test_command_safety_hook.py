@@ -294,18 +294,37 @@ class TestInlineScriptHygieneHook(unittest.TestCase):
         self.assertEqual(decision2, "deny")
         self.assertIn("PSL-INV-002 VIOLATION", reason2)
 
-    def test_long_script_exceeding_100_chars_denied(self):
-        """Inline script with body exceeding 100 characters is denied."""
+    def test_single_line_up_to_250_chars_allowed_and_over_250_denied(self):
+        """Single-line inline script <= 250 chars is allowed; > 250 chars is denied (Issue #102)."""
         from harness.hooks.command_safety_hook import check_inline_script_hygiene
-        long_body = "x = '" + ("a" * 120) + "'; print(x)"
-        cmd = f'python3 -c "{long_body}"'
-        decision, reason = check_inline_script_hygiene(cmd)
+        # 1. 200 chars newline-free -> allowed
+        body_200 = "x = '" + ("a" * 180) + "'; print(x)"
+        cmd_200 = f'python3 -c "{body_200}"'
+        decision, reason = check_inline_script_hygiene(cmd_200)
+        self.assertEqual(decision, "allow")
+        self.assertIsNone(reason)
+
+        # 2. Exactly 250 chars stripped -> allowed
+        prefix = "x = '"
+        suffix = "'; print(x)"
+        body_250 = prefix + ("a" * (250 - len(prefix) - len(suffix))) + suffix
+        self.assertEqual(len(body_250.strip()), 250)
+        cmd_250 = f'python3 -c "{body_250}"'
+        decision, reason = check_inline_script_hygiene(cmd_250)
+        self.assertEqual(decision, "allow")
+        self.assertIsNone(reason)
+
+        # 3. 251 chars -> denied by hygiene validator
+        body_251 = prefix + ("a" * (251 - len(prefix) - len(suffix))) + suffix
+        self.assertEqual(len(body_251.strip()), 251)
+        cmd_251 = f'python3 -c "{body_251}"'
+        decision, reason = check_inline_script_hygiene(cmd_251)
         self.assertEqual(decision, "deny")
         self.assertIn("PSL-INV-002 VIOLATION", reason)
-        self.assertIn(">100 chars or newlines", reason)
+        self.assertIn(">250 chars or newlines", reason)
 
     def test_node_and_bash_multiline_and_long_scripts_denied(self):
-        """node -e, bash -c, and sh -c multi-line scripts are denied."""
+        """node -e, bash -c, and sh -c multi-line scripts are denied by hygiene validator."""
         from harness.hooks.command_safety_hook import check_inline_script_hygiene
         node_cmd = "node -e \"const fs = require('fs')\nconsole.log(fs.readdirSync('.'))\""
         decision_node, reason_node = check_inline_script_hygiene(node_cmd)
@@ -345,13 +364,20 @@ class TestInlineScriptHygieneHook(unittest.TestCase):
             self.assertIsNone(reason)
 
     def test_sanitize_command_integration(self):
-        """sanitize_command integrates hygiene check and returns deny."""
+        """sanitize_command integrates transparent promotion for multi-line scripts (Issue #101)."""
         from harness.hooks.command_safety_hook import sanitize_command
         cmd = "python3 -c \"import os\nprint(os.getcwd())\""
         decision, mod_cmd, reason = sanitize_command(cmd)
-        self.assertEqual(decision, "deny")
-        self.assertIsNone(mod_cmd)
-        self.assertIn("PSL-INV-002 VIOLATION", reason)
+        self.assertEqual(decision, "allow")
+        self.assertIsNotNone(mod_cmd)
+        self.assertIn(".agents/scratch/exec_", mod_cmd)
+        self.assertIn("[AGYIS COGNITIVE HINT]", reason)
+
+        # Fallback when promotion is disabled: returns deny
+        dec_fallback, mod_fallback, reason_fallback = sanitize_command(cmd, promote_scratch=False)
+        self.assertEqual(dec_fallback, "deny")
+        self.assertIsNone(mod_fallback)
+        self.assertIn("PSL-INV-002 VIOLATION", reason_fallback)
 
 
 if __name__ == "__main__":

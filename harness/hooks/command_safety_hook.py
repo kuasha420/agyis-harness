@@ -25,6 +25,7 @@ Audits and optimizes terminal commands before execution:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -225,47 +226,205 @@ def is_inline_python_command(cmd: str) -> bool:
     return bool(re.search(r"\b(?:python3?)\s+-c\b", cmd))
 
 
-INLINE_INTERPRETER_PATTERNS = [
-    re.compile(r"\bpython[3]?(?:\.\d+)?\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
-    re.compile(r"\bnode\s+(?:-[^\s]+\s+)*-e\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
-    re.compile(r"\bbash\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
-    re.compile(r"\bsh\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
+INLINE_INTERPRETER_CONFIGS: List[Tuple[str, Any, str, str]] = [
+    (
+        "python",
+        re.compile(r"\bpython[3]?(?:\.\d+)?\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
+        "-c",
+        ".py",
+    ),
+    (
+        "node",
+        re.compile(r"\bnode\s+(?:-[^\s]+\s+)*-e\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
+        "-e",
+        ".js",
+    ),
+    (
+        "bash",
+        re.compile(r"\bbash\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
+        "-c",
+        ".sh",
+    ),
+    (
+        "sh",
+        re.compile(r"\bsh\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL),
+        "-c",
+        ".sh",
+    ),
 ]
 
+INLINE_INTERPRETER_PATTERNS = [cfg[1] for cfg in INLINE_INTERPRETER_CONFIGS]
+
 INLINE_SCRIPT_DENY_REASON = (
-    "[PSL-INV-002 VIOLATION] Multi-line or complex inline script detected (>100 chars or newlines). "
+    "[PSL-INV-002 VIOLATION] Multi-line or complex inline script detected (>250 chars or newlines). "
     "In accordance with PSL-INV-002 §4, write multi-line scripts to a temporary scratch file "
     "('scratch/probe.py' or 'scratch/probe.sh') and execute the script file instead of fragile "
     "multi-line shell escaping."
 )
 
 
-def check_inline_script_hygiene(cmd: str) -> Tuple[str, Optional[str]]:
+def resolve_scratch_target_path(
+    ext: str,
+    script_hash: str,
+    workspace_dir: Optional[Path] = None,
+) -> Tuple[Path, str]:
     """
-    Validates inline script hygiene per PSL-INV-002 §4.
-    Blocks complex or multi-line inline scripts in python, node, bash, or sh
-    exceeding 100 chars or containing newlines, steering towards temporary scratch files.
+    Resolves the scratch target file path and execution reference string.
+    Prefers .agents/scratch/exec_<hash>.<ext> in workspace_dir (or cwd).
+    Falls back to /tmp/agyis_scratch/exec_<hash>.<ext> if workspace is unresolvable or unwritable.
+    """
+    base_dir = workspace_dir or Path.cwd()
+    workspace_scratch = base_dir / ".agents" / "scratch"
+    try:
+        workspace_scratch.mkdir(parents=True, exist_ok=True)
+        target_file = workspace_scratch / f"exec_{script_hash}{ext}"
+        target_file.touch(exist_ok=True)
+        return target_file, f".agents/scratch/exec_{script_hash}{ext}"
+    except (OSError, PermissionError):
+        pass
+
+    tmp_scratch = Path("/tmp/agyis_scratch")
+    tmp_scratch.mkdir(parents=True, exist_ok=True)
+    target_file = tmp_scratch / f"exec_{script_hash}{ext}"
+    return target_file, str(target_file)
+
+
+def promote_inline_script_to_scratch(
+    cmd: str,
+    workspace_dir: Optional[Path] = None,
+) -> Tuple[str, Optional[str], Optional[str]]:
+    """
+    Transparently promotes complex or multi-line inline scripts to temporary scratch files
+    under .agents/scratch/ per PSL-INV-002 §4 and Issue #101.
+    Returns: (decision, modified_command_or_none, reason_or_none)
     """
     if not cmd or not cmd.strip():
-        return ("allow", None)
+        return ("allow", None, None)
+
+    if os.environ.get("PSL_ALLOW_INLINE_SCRIPTS") == "1":
+        return ("allow", None, None)
+
+    cmd_lower = cmd.lower()
+    if "# agyis: allow-inline-script" in cmd_lower or "# allow-inline" in cmd_lower:
+        return ("allow", None, None)
+
+    matches_to_promote = []
+    for interp, pattern, flag, ext in INLINE_INTERPRETER_CONFIGS:
+        for match in pattern.finditer(cmd):
+            body = match.group(2)
+            stripped = body.strip()
+            has_newlines = "\n" in body or "\r" in body or "\\n" in body
+            if has_newlines or len(stripped) > 250:
+                matches_to_promote.append((match, interp, flag, ext, body))
+
+    if not matches_to_promote:
+        return ("allow", None, None)
+
+    try:
+        modified_cmd = cmd
+        promoted_paths = []
+
+        # Sort matches by start offset to guarantee strict right-to-left replacement on compound commands
+        matches_to_promote.sort(key=lambda item: item[0].start())
+
+        for match, interp, flag, ext, body in reversed(matches_to_promote):
+            quote_delim = match.group(1)
+            script_body = body
+
+            if quote_delim == '"':
+                script_body = script_body.replace(r'\"', '"')
+                script_body = script_body.replace(r'\$', '$')
+                script_body = script_body.replace(r'\\', '\\')
+
+            if "\n" not in script_body and r"\n" in script_body:
+                script_body = script_body.replace(r"\n", "\n")
+            if "\r" not in script_body and r"\r" in script_body:
+                script_body = script_body.replace(r"\r", "\r")
+
+            script_hash = hashlib.sha256(script_body.encode("utf-8")).hexdigest()[:8]
+            target_file, exec_path = resolve_scratch_target_path(ext, script_hash, workspace_dir)
+
+            header = (
+                "// Transparently promoted by PSL command_safety_hook (PSL-INV-002)\n"
+                if ext == ".js"
+                else "# Transparently promoted by PSL command_safety_hook (PSL-INV-002)\n"
+            )
+
+            file_content = f"{header}{script_body}\n"
+            target_file.write_text(file_content, encoding="utf-8")
+
+            if ext == ".sh":
+                target_file.chmod(target_file.stat().st_mode | 0o755)
+
+            promoted_paths.append(exec_path)
+
+            # Constrain flag search strictly to invocation header before opening quote delimiter
+            match_text = match.group(0)
+            header_prefix = match_text[: match.start(1) - match.start()]
+            flag_offset = header_prefix.rfind(flag)
+            replace_start = match.start() + flag_offset
+            replace_end = match.end()
+
+            modified_cmd = (
+                modified_cmd[:replace_start]
+                + exec_path
+                + modified_cmd[replace_end:]
+            )
+
+        primary_path = promoted_paths[-1] if promoted_paths else ".agents/scratch/exec_promoted"
+        hint = (
+            f"[AGYIS COGNITIVE HINT] In accordance with PSL-INV-002 §4, your inline script was "
+            f"transparently promoted to '{primary_path}' and executed. For subsequent complex scripts, "
+            f"author directly into temporary scratch files."
+        )
+        return ("allow", modified_cmd, hint)
+    except Exception as e:
+        sys.stderr.write(f"PSL Command Safety Warning: Error during scratch promotion: {e}\n")
+        return ("deny", None, INLINE_SCRIPT_DENY_REASON)
+
+
+def check_inline_script_hygiene(
+    cmd: str,
+    route_to_promotion: bool = False,
+    workspace_dir: Optional[Path] = None,
+) -> Tuple[str, Optional[str]] | Tuple[str, Optional[str], Optional[str]]:
+    """
+    Validates inline script hygiene per PSL-INV-002 §4 and Issues #101, #102:
+    1. Newline-free inline scripts up to 250 characters are permitted with ("allow", None).
+    2. Scripts containing newlines (\n, \r, literal \n) or exceeding 250 characters
+       are denied (or routed to scratch promotion when route_to_promotion=True).
+    """
+    if not cmd or not cmd.strip():
+        return ("allow", None) if not route_to_promotion else ("allow", None, None)
 
     # 1. Environment bypass
     if os.environ.get("PSL_ALLOW_INLINE_SCRIPTS") == "1":
-        return ("allow", None)
+        return ("allow", None) if not route_to_promotion else ("allow", None, None)
 
     # 2. Inline directive bypass
     cmd_lower = cmd.lower()
     if "# agyis: allow-inline-script" in cmd_lower or "# allow-inline" in cmd_lower:
-        return ("allow", None)
+        return ("allow", None) if not route_to_promotion else ("allow", None, None)
 
-    for pattern in INLINE_INTERPRETER_PATTERNS:
+    needs_promotion = False
+    for interp, pattern, flag, ext in INLINE_INTERPRETER_CONFIGS:
         for match in pattern.finditer(cmd):
             body = match.group(2)
             stripped = body.strip()
-            if "\n" in body or "\r" in body or "\\n" in body or len(stripped) > 100:
-                return ("deny", INLINE_SCRIPT_DENY_REASON)
+            has_newlines = "\n" in body or "\r" in body or "\\n" in body
+            if has_newlines or len(stripped) > 250:
+                needs_promotion = True
+                break
+        if needs_promotion:
+            break
 
-    return ("allow", None)
+    if not needs_promotion:
+        return ("allow", None) if not route_to_promotion else ("allow", None, None)
+
+    if route_to_promotion:
+        return promote_inline_script_to_scratch(cmd, workspace_dir=workspace_dir)
+
+    return ("deny", INLINE_SCRIPT_DENY_REASON)
 
 
 def split_shell_pipes(cmd: str) -> Tuple[List[str], bool]:
@@ -416,7 +575,12 @@ def inject_rea_setup_flags(cmd: str) -> Tuple[str, bool, List[str]]:
     return modified, True, reasons
 
 
-def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+def sanitize_command(
+    raw_cmd: str,
+    check_preflight: bool = False,
+    promote_scratch: bool = True,
+    workspace_dir: Optional[Path] = None,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Evaluates and sanitizes a raw command line string.
     Returns: (decision, modified_command_or_none, reason_or_none)
@@ -424,6 +588,8 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optio
     cmd = raw_cmd.strip()
     if not cmd:
         return ("allow", None, None)
+
+    original_cmd = cmd
 
     # 0. Preflight binary availability check (Exit 127 prevention per ADR-013 §1)
     if check_preflight:
@@ -435,10 +601,25 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optio
                 pf.get("warning") or f"PSL Safety Gate: Binary '{pf.get('binary')}' not found."
             )
 
-    # 0b. Inline script hygiene check (PSL-INV-002 §4)
+    modified_cmd = cmd
+    reasons = []
+
+    # 0b. Inline script hygiene check & transparent scratch promotion (PSL-INV-002 §4, Issues #101, #102)
     hygiene_decision, hygiene_reason = check_inline_script_hygiene(cmd)
     if hygiene_decision == "deny":
-        return ("deny", None, hygiene_reason)
+        if promote_scratch:
+            promo_decision, promo_cmd, promo_reason = promote_inline_script_to_scratch(
+                cmd, workspace_dir=workspace_dir
+            )
+            if promo_decision == "allow" and promo_cmd is not None:
+                modified_cmd = promo_cmd
+                cmd = promo_cmd
+                if promo_reason:
+                    reasons.append(promo_reason)
+            else:
+                return ("deny", None, promo_reason or hygiene_reason)
+        else:
+            return ("deny", None, hygiene_reason)
 
     # 1. Dangerous pattern check
     for pattern in DANGEROUS_PATTERNS:
@@ -458,9 +639,6 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optio
             f"PSL Safety Gate: Interactive command '{first_token}' blocked. "
             "Agent execution must be strictly non-interactive. Use batch or script alternatives."
         )
-
-    modified_cmd = cmd
-    reasons = []
 
     # 3. Disassembler batch mode optimization
     mod_disasm, disasm_injected, disasm_reasons = inject_disassembler_batch_flags(modified_cmd)
@@ -504,8 +682,15 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False) -> Tuple[Optio
             modified_cmd = f'PATH="{hermetic_bin}:$PATH" {modified_cmd}'
             reasons.append("injected hermetic CPython >= 3.12 for PEP 701 f-string safety")
 
-    if modified_cmd != cmd:
-        return ("allow", modified_cmd, "PSL PreToolUse: " + "; ".join(reasons))
+    if modified_cmd != original_cmd:
+        cognitive_hints = [r for r in reasons if r.startswith("[AGYIS COGNITIVE HINT]")]
+        other_reasons = [r for r in reasons if not r.startswith("[AGYIS COGNITIVE HINT]")]
+        out_parts = []
+        if other_reasons:
+            out_parts.append("PSL PreToolUse: " + "; ".join(other_reasons))
+        if cognitive_hints:
+            out_parts.extend(cognitive_hints)
+        return ("allow", modified_cmd, "; ".join(out_parts) if out_parts else None)
 
     return ("allow", None, None)
 
@@ -666,6 +851,72 @@ def normalize_rea_mcp_tool_call(
     return ("allow", None, None)
 
 
+RUN_COMMAND_ALLOWED_KEYS: frozenset[str] = frozenset({
+    "CommandLine",
+    "WaitMsBeforeAsync",
+    "IsDaemon",
+    "toolSummary",
+})
+
+
+def sanitize_run_command_args(
+    tool_args: Dict[str, Any],
+    fallback_cmd: str = "",
+) -> Tuple[Dict[str, Any], bool, List[str]]:
+    """
+    Sanitizes run_command tool arguments per Issue #104:
+    1. Detects foreign framework properties (Cwd, cwd, toolAction, timeout, etc.).
+    2. If Cwd or cwd is present: safely prefixes cd "<Cwd>" && to CommandLine and deletes Cwd/cwd.
+    3. Strips unrecognized properties not in the native Antigravity schema
+       (CommandLine, WaitMsBeforeAsync, IsDaemon, toolSummary) to prevent RPC validation rejections.
+    Returns: (cleaned_args, modified, reasons)
+    """
+    cleaned: Dict[str, Any] = {}
+    reasons: List[str] = []
+    modified = False
+
+    cwd_val = tool_args.get("Cwd") or tool_args.get("cwd")
+
+    base_cmd = (
+        tool_args.get("CommandLine")
+        or tool_args.get("command")
+        or tool_args.get("cmd")
+        or fallback_cmd
+        or ""
+    )
+    base_cmd = str(base_cmd).strip()
+
+    if cwd_val:
+        modified = True
+        cwd_str = str(cwd_val).strip()
+        if base_cmd:
+            base_cmd = f'cd "{cwd_str}" && {base_cmd}'
+        else:
+            base_cmd = f'cd "{cwd_str}"'
+        reasons.append(f'prepended directory navigation: cd "{cwd_str}" &&')
+
+    cleaned["CommandLine"] = base_cmd
+
+    for key, value in tool_args.items():
+        if key in ("Cwd", "cwd"):
+            modified = True
+            continue
+        if key in RUN_COMMAND_ALLOWED_KEYS:
+            if key != "CommandLine":
+                cleaned[key] = value
+        elif key in ("command", "cmd"):
+            modified = True
+            reasons.append(f"mapped foreign argument '{key}' -> 'CommandLine'")
+        else:
+            modified = True
+            reasons.append(f"stripped unrecognized foreign argument '{key}'")
+
+    if "CommandLine" in tool_args and tool_args["CommandLine"] != base_cmd:
+        modified = True
+
+    return cleaned, modified, reasons
+
+
 def main() -> None:
     try:
         payload = json.load(sys.stdin)
@@ -677,7 +928,16 @@ def main() -> None:
     tool_name = tool_call.get("name") or payload.get("tool_name") or "run_command"
     tool_args = tool_call.get("args") or payload.get("tool_args") or {}
 
-    raw_cmd = (tool_args.get("CommandLine") or payload.get("command") or payload.get("CommandLine") or "").strip()
+    args_modified = False
+    args_reasons: List[str] = []
+    sanitized_args: Dict[str, Any] = {}
+
+    if tool_name == "run_command":
+        fallback_cmd = str(payload.get("command") or payload.get("CommandLine") or "").strip()
+        sanitized_args, args_modified, args_reasons = sanitize_run_command_args(tool_args, fallback_cmd=fallback_cmd)
+        raw_cmd = sanitized_args.get("CommandLine", "")
+    else:
+        raw_cmd = (tool_args.get("CommandLine") or payload.get("command") or payload.get("CommandLine") or "").strip()
 
     if payload.get("check_preflight") or payload.get("action") == "check_preflight":
         preflight_info = check_preflight_tool_availability(raw_cmd)
@@ -686,7 +946,7 @@ def main() -> None:
 
     pause_decision, pause_reason = check_pause_safety(
         tool_name,
-        tool_args if tool_args else {"CommandLine": raw_cmd},
+        sanitized_args if tool_name == "run_command" else (tool_args if tool_args else {"CommandLine": raw_cmd}),
     )
     if pause_decision == "deny":
         print(json.dumps({
@@ -719,16 +979,36 @@ def main() -> None:
         }))
         return
 
+    effective_cmd = mod_cmd if mod_cmd is not None else raw_cmd
+    all_reasons = list(args_reasons)
+    if reason:
+        all_reasons.append(reason)
+
+    if tool_name == "run_command" and (args_modified or mod_cmd is not None):
+        overwrite_payload = dict(sanitized_args)
+        overwrite_payload["CommandLine"] = effective_cmd
+        resp: Dict[str, Any] = {
+            "decision": "allow",
+            "overwrite": overwrite_payload,
+        }
+        if all_reasons:
+            resp["reason"] = "; ".join(all_reasons)
+        print(json.dumps(resp))
+        return
+
     if mod_cmd is not None:
-        print(json.dumps({
+        resp = {
             "decision": "allow",
             "overwrite": {
                 "CommandLine": mod_cmd
             },
-            "reason": reason
-        }))
-    else:
-        print(json.dumps({"decision": "allow"}))
+        }
+        if reason:
+            resp["reason"] = reason
+        print(json.dumps(resp))
+        return
+
+    print(json.dumps({"decision": "allow"}))
 
 
 if __name__ == "__main__":
