@@ -16,7 +16,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from harness.hooks.command_safety_hook import normalize_rea_mcp_tool_call
+from harness.hooks.command_safety_hook import (
+    normalize_mcp_tool_call,
+    normalize_rea_mcp_tool_call,
+)
 from harness.re.patcher import (
     LAUNCHER_SNIPPET,
     PATCH_SIGNATURE,
@@ -248,6 +251,144 @@ class TestReaMcpSchemaNormalizerHook(unittest.TestCase):
         dec, mod_args, reason = normalize_rea_mcp_tool_call("call_mcp_tool", tool_args)
         self.assertEqual(dec, "allow")
 
+    def test_normalize_procedure_pseudo_code_aliases(self):
+        """Verifies Address, addr, target, procedure_name, and proc map to procedure."""
+        aliases = ["Address", "address", "addr", "procedure_name", "target", "proc"]
+        for alias in aliases:
+            tool_args = {
+                "ServerName": "rea",
+                "ToolName": "procedure_pseudo_code",
+                "Arguments": {
+                    alias: "0x140001000",
+                },
+            }
+            dec, mod_args, reason = normalize_mcp_tool_call("call_mcp_tool", tool_args)
+            self.assertEqual(dec, "allow")
+            self.assertIsNotNone(mod_args)
+            self.assertEqual(mod_args["Arguments"]["procedure"], "0x140001000")
+            if alias != "procedure":
+                self.assertNotIn(alias, mod_args["Arguments"])
+
+    def test_normalize_read_bytes_aliases(self):
+        """Verifies read_bytes normalizes Address/addr -> address and Length/size/count -> length."""
+        tool_args = {
+            "ServerName": "rea",
+            "ToolName": "read_bytes",
+            "Arguments": {
+                "Address": "0x401000",
+                "Length": 128,
+            },
+        }
+        dec, mod_args, reason = normalize_mcp_tool_call("call_mcp_tool", tool_args)
+        self.assertEqual(dec, "allow")
+        self.assertEqual(mod_args["Arguments"]["address"], "0x401000")
+        self.assertEqual(mod_args["Arguments"]["length"], 128)
+
+        # Test size / count synonyms
+        for size_alias in ["size", "count", "bytes", "len"]:
+            tool_args = {
+                "ServerName": "rea",
+                "ToolName": "read_bytes",
+                "Arguments": {
+                    "addr": "0x401000",
+                    size_alias: 32,
+                },
+            }
+            dec, mod_args, reason = normalize_mcp_tool_call("call_mcp_tool", tool_args)
+            self.assertEqual(dec, "allow")
+            self.assertEqual(mod_args["Arguments"]["address"], "0x401000")
+            self.assertEqual(mod_args["Arguments"]["length"], 32)
+            self.assertNotIn(size_alias, mod_args["Arguments"])
+
+    def test_normalize_context7_aliases_and_casing(self):
+        """Verifies Context7 query-docs normalizes library_id variants and preserves query."""
+        for lib_key in ["library_id", "LibraryId", "libraryID", "lib_id"]:
+            tool_args = {
+                "ServerName": "context7",
+                "ToolName": "query-docs",
+                "Arguments": {
+                    lib_key: "/mongodb/docs",
+                    "query": "authentication with jwt",
+                },
+            }
+            dec, mod_args, reason = normalize_mcp_tool_call("call_mcp_tool", tool_args)
+            self.assertEqual(dec, "allow")
+            self.assertIsNotNone(mod_args)
+            self.assertEqual(mod_args["Arguments"]["libraryId"], "/mongodb/docs")
+            self.assertEqual(mod_args["Arguments"]["query"], "authentication with jwt")
+            self.assertNotIn(lib_key, mod_args["Arguments"])
+
+    def test_zero_degradation_valid_payloads(self):
+        """Verifies that already-valid payloads are not mutated or degraded."""
+        # 1. Perfectly valid payload: no overwrite produced
+        tool_args = {
+            "ServerName": "rea",
+            "ToolName": "procedure_pseudo_code",
+            "Arguments": {
+                "procedure": "0x140001000",
+                "document": "app.exe",
+            },
+        }
+        dec, mod_args, reason = normalize_mcp_tool_call("call_mcp_tool", tool_args)
+        self.assertEqual(dec, "allow")
+        self.assertIsNone(mod_args)
+        self.assertIsNone(reason)
+
+        # 2. Both canonical key and alias provided: canonical takes precedence, alias dropped
+        conflict_args = {
+            "ServerName": "rea",
+            "ToolName": "procedure_pseudo_code",
+            "Arguments": {
+                "procedure": "0x140001000",
+                "Address": "0x999999999",
+            },
+        }
+        dec, mod_args, reason = normalize_mcp_tool_call("call_mcp_tool", conflict_args)
+        self.assertEqual(dec, "allow")
+        self.assertIsNotNone(mod_args)
+        self.assertEqual(mod_args["Arguments"]["procedure"], "0x140001000")
+        self.assertNotIn("Address", mod_args["Arguments"])
+        self.assertIn("removed redundant alias 'Address'", reason)
+
+    def test_generic_mcp_server_schema_normalization(self):
+        """Verifies schema-driven case-insensitive and snake-to-camel normalization for generic MCP server."""
+        # Hermetically create a schema under temp_dir
+        schema_dir = self.workspace / "schemas" / "custom_mcp"
+        schema_dir.mkdir(parents=True, exist_ok=True)
+        (schema_dir / "custom_tool.json").write_text(json.dumps({
+            "name": "custom_tool",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "apiKey": {"type": "string"},
+                    "maxResults": {"type": "integer"},
+                    "filterQuery": {"type": "string"},
+                },
+                "required": ["apiKey"]
+            }
+        }), encoding="utf-8")
+
+        with patch.dict(os.environ, {"AGYIS_MCP_SCHEMAS_DIR": str(self.workspace / "schemas")}):
+            tool_args = {
+                "ServerName": "custom_mcp",
+                "ToolName": "custom_tool",
+                "Arguments": {
+                    "api_key": "secret123",
+                    "MaxResults": 50,
+                    "filter_query": "status:active",
+                },
+            }
+            dec, mod_args, reason = normalize_mcp_tool_call("call_mcp_tool", tool_args)
+            self.assertEqual(dec, "allow")
+            self.assertIsNotNone(mod_args)
+            self.assertEqual(mod_args["Arguments"]["apiKey"], "secret123")
+            self.assertEqual(mod_args["Arguments"]["maxResults"], 50)
+            self.assertEqual(mod_args["Arguments"]["filterQuery"], "status:active")
+            self.assertNotIn("api_key", mod_args["Arguments"])
+            self.assertNotIn("MaxResults", mod_args["Arguments"])
+            self.assertNotIn("filter_query", mod_args["Arguments"])
+
 
 if __name__ == "__main__":
     unittest.main()
+

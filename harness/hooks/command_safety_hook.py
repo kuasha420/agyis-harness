@@ -778,77 +778,249 @@ def check_pause_safety(
         return ("allow", None)
 
 
-def normalize_rea_mcp_tool_call(
+REA_PROCEDURE_TOOLS: frozenset[str] = frozenset({
+    "procedure_pseudo_code",
+    "procedure_assembly",
+    "procedure_callers",
+    "procedure_callees",
+    "procedure_info",
+})
+
+REA_SEARCH_TOOLS: frozenset[str] = frozenset({
+    "search_strings",
+    "search_procedures",
+})
+
+REA_BYTE_TOOLS: frozenset[str] = frozenset({
+    "read_bytes",
+})
+
+REA_INSPECTION_TOOLS: frozenset[str] = frozenset({
+    "inspect_native_instruction",
+    "goto_address",
+    "address_name",
+    "address_to_file_offset",
+})
+
+FILE_PATH_TOOLS: frozenset[str] = frozenset({
+    "open_binary",
+    "binary_overview",
+})
+
+
+def load_mcp_tool_schema(server_name: str, tool_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Locates and loads tool schema JSON from ~/.gemini/antigravity/mcp/<server>/<tool>.json.
+    Returns parsed JSON dict or None if unavailable/invalid.
+    """
+    if not server_name or not tool_name:
+        return None
+
+    search_dirs: List[Path] = []
+    if "AGYIS_MCP_SCHEMAS_DIR" in os.environ:
+        search_dirs.append(Path(os.environ["AGYIS_MCP_SCHEMAS_DIR"]))
+    if "GEMINI_APP_DATA_DIR" in os.environ:
+        search_dirs.append(Path(os.environ["GEMINI_APP_DATA_DIR"]) / "mcp")
+    search_dirs.append(Path.home() / ".gemini" / "antigravity" / "mcp")
+
+    for base_dir in search_dirs:
+        try:
+            candidates = [
+                base_dir / server_name / f"{tool_name}.json",
+                base_dir / server_name.lower() / f"{tool_name}.json",
+            ]
+            for cand in candidates:
+                if cand.is_file():
+                    with open(cand, "r", encoding="utf-8") as f:
+                        return json.load(f)
+        except Exception:
+            continue
+    return None
+
+
+def get_schema_properties(schema: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Extracts property dictionary from tool JSON schema."""
+    if not isinstance(schema, dict):
+        return {}
+    if "properties" in schema and isinstance(schema["properties"], dict):
+        return schema["properties"]
+    params = schema.get("parameters")
+    if isinstance(params, dict) and "properties" in params and isinstance(params["properties"], dict):
+        return params["properties"]
+    return {}
+
+
+def normalize_mcp_tool_call(
     tool_name: str,
     tool_args: Dict[str, Any],
 ) -> Tuple[str, Optional[Dict[str, Any]], Optional[str]]:
     """
-    Normalizes REA MCP tool arguments and enforces PSL-INV-009 cache check.
+    Normalizes MCP tool arguments across servers (REA, Context7, generic MCP)
+    via schema inspection, case-insensitive mapping, snake_to_camel, domain aliases,
+    and enforces PSL-INV-009 cache check.
     Returns: (decision, modified_args_or_none, reason_or_none)
     """
     if tool_name != "call_mcp_tool":
         return ("allow", None, None)
 
-    server_name = str(tool_args.get("ServerName") or "").strip().lower()
-    if server_name != "rea":
+    if not isinstance(tool_args, dict):
         return ("allow", None, None)
 
-    subtool = str(tool_args.get("ToolName") or "").strip()
-    raw_arguments = tool_args.get("Arguments")
+    server_name = str(tool_args.get("ServerName") or tool_args.get("server_name") or tool_args.get("server") or "").strip()
+    subtool = str(tool_args.get("ToolName") or tool_args.get("tool_name") or tool_args.get("tool") or "").strip()
+
+    args_key = "Arguments" if "Arguments" in tool_args else ("arguments" if "arguments" in tool_args else "Arguments")
+    raw_arguments = tool_args.get(args_key)
     if not isinstance(raw_arguments, dict):
         return ("allow", None, None)
 
     modified_args = dict(raw_arguments)
-    reasons = []
+    reasons: List[str] = []
 
-    # 1. Normalize PascalCase and known aliases
-    mapping = {
-        "Address": "procedure" if subtool in ("procedure_assembly", "procedure_pseudo_code") else "address",
-        "Length": "length",
-        "file_path": "path",
-        "filePath": "path",
-        "query": "pattern",
-    }
-    for old_k, new_k in mapping.items():
-        if old_k in modified_args and new_k not in modified_args:
-            modified_args[new_k] = modified_args.pop(old_k)
-            reasons.append(f"normalized argument '{old_k}' -> '{new_k}'")
+    # 1. Inspect tool schema if present
+    schema = load_mcp_tool_schema(server_name, subtool)
+    schema_props = get_schema_properties(schema)
+    canonical_props = set(schema_props.keys()) if schema_props else set()
 
-    # 2. PSL-INV-009 check: target binary > 10MB without cached project
-    target_path_str = modified_args.get("path") or modified_args.get("binary_path") or modified_args.get("binary")
-    if target_path_str:
-        try:
-            target_p = Path(target_path_str)
-            if target_p.is_file():
-                size_mb = target_p.stat().st_size / (1024 * 1024)
-                if size_mb > 10.0:
-                    from harness.re.scaffold import get_dirtyroom_root
-                    dr = get_dirtyroom_root(target_p.parent)
-                    has_gpr = False
-                    if dr and (dr / "ghidra").is_dir():
-                        has_gpr = any((dr / "ghidra").glob("*.gpr"))
-                    if not has_gpr:
-                        env_gpr_dir = os.environ.get("REA_GHIDRA_PROJECT_DIR")
-                        if env_gpr_dir and Path(env_gpr_dir).is_dir():
-                            has_gpr = any(Path(env_gpr_dir).glob("*.gpr"))
+    srv_lower = server_name.lower()
 
-                    if not has_gpr:
-                        return (
-                            "deny",
-                            None,
-                            f"[PSL-INV-009 VIOLATION] Target binary '{target_p.name}' is {size_mb:.1f} MB (>10 MB) "
-                            f"without a pre-analyzed Ghidra project cache. Ad-hoc decompiler analysis will exceed 180s timeout. "
-                            f"Run 'agyis re pre-analyze {target_p.name}' or set REA_GHIDRA_PROJECT_DIR first."
-                        )
-        except Exception:
-            pass
+    # 2. Build domain alias map
+    alias_map: Dict[str, str] = {}
+
+    # REA Procedure Tools
+    if subtool in REA_PROCEDURE_TOOLS or (srv_lower == "rea" and "procedure" in canonical_props):
+        for k in ("Address", "address", "addr", "procedure_name", "target", "proc"):
+            alias_map[k] = "procedure"
+
+    # REA Search Tools
+    if subtool in REA_SEARCH_TOOLS:
+        for k in ("query", "search", "text", "pattern_str", "Query"):
+            alias_map[k] = "pattern"
+
+    # REA Byte Tools
+    if subtool in REA_BYTE_TOOLS:
+        for k in ("Address", "addr"):
+            alias_map[k] = "address"
+        for k in ("Length", "size", "count", "bytes", "len"):
+            alias_map[k] = "length"
+
+    # REA Inspection Tools
+    if subtool in REA_INSPECTION_TOOLS:
+        for k in ("Address", "addr"):
+            alias_map[k] = "address"
+
+    # Context7 Tools
+    if srv_lower == "context7" or subtool in ("query-docs", "resolve-library-id") or "libraryId" in canonical_props:
+        for k in ("library_id", "LibraryId", "libraryID", "lib_id"):
+            alias_map[k] = "libraryId"
+
+    # File tools & REA backwards-compatibility
+    if subtool in FILE_PATH_TOOLS or srv_lower == "rea" or "path" in canonical_props:
+        for k in ("file_path", "filePath", "binary_path"):
+            alias_map[k] = "path"
+    if subtool in FILE_PATH_TOOLS:
+        alias_map["binary"] = "path"
+
+    # General REA fallback aliases (preserving existing test expectations)
+    if srv_lower == "rea":
+        if "Address" not in alias_map:
+            alias_map["Address"] = "procedure" if subtool in ("procedure_assembly", "procedure_pseudo_code") else "address"
+        if "Length" not in alias_map:
+            alias_map["Length"] = "length"
+        if "query" not in alias_map and subtool in REA_SEARCH_TOOLS:
+            alias_map["query"] = "pattern"
+
+    # 3. Argument normalization pass
+    for old_k in list(modified_args.keys()):
+        # AC3: Zero-degradation contract - if already valid canonical schema property, leave untouched
+        if canonical_props and old_k in canonical_props:
+            continue
+
+        target_k: Optional[str] = None
+
+        # AC2: Domain alias table lookup
+        if old_k in alias_map:
+            target_k = alias_map[old_k]
+
+        # AC1: Schema-driven case-insensitive & snake/camel normalization
+        if target_k is None and canonical_props:
+            old_k_lower = old_k.lower()
+            for prop in canonical_props:
+                if old_k_lower == prop.lower():
+                    target_k = prop
+                    break
+
+            if target_k is None:
+                old_k_norm = re.sub(r"[_\-]", "", old_k).lower()
+                for prop in canonical_props:
+                    if old_k_norm == re.sub(r"[_\-]", "", prop).lower():
+                        target_k = prop
+                        break
+
+        # Fallback when schema is not on disk
+        if target_k is None and not canonical_props:
+            if srv_lower == "context7" and "_" in old_k:
+                parts = old_k.split("_")
+                target_k = parts[0].lower() + "".join(p.capitalize() for p in parts[1:])
+            elif old_k in ("Address", "Length", "Pattern", "Query"):
+                target_k = old_k.lower()
+
+        # Apply transformation if target_k found and distinct
+        if target_k and target_k != old_k:
+            if target_k in modified_args:
+                modified_args.pop(old_k, None)
+                reasons.append(f"removed redundant alias '{old_k}' in favor of '{target_k}'")
+            else:
+                modified_args[target_k] = modified_args.pop(old_k)
+                reasons.append(f"normalized argument '{old_k}' -> '{target_k}'")
+
+    # 4. PSL-INV-009 check: target binary > 10MB without cached project (REA)
+    if srv_lower == "rea":
+        target_path_str = modified_args.get("path") or modified_args.get("binary_path") or modified_args.get("binary")
+        if target_path_str:
+            try:
+                target_p = Path(target_path_str)
+                if target_p.is_file():
+                    size_mb = target_p.stat().st_size / (1024 * 1024)
+                    if size_mb > 10.0:
+                        from harness.re.scaffold import get_dirtyroom_root
+                        dr = get_dirtyroom_root(target_p.parent)
+                        has_gpr = False
+                        if dr and (dr / "ghidra").is_dir():
+                            has_gpr = any((dr / "ghidra").glob("*.gpr"))
+                        if not has_gpr:
+                            env_gpr_dir = os.environ.get("REA_GHIDRA_PROJECT_DIR")
+                            if env_gpr_dir and Path(env_gpr_dir).is_dir():
+                                has_gpr = any(Path(env_gpr_dir).glob("*.gpr"))
+
+                        if not has_gpr:
+                            return (
+                                "deny",
+                                None,
+                                f"[PSL-INV-009 VIOLATION] Target binary '{target_p.name}' is {size_mb:.1f} MB (>10 MB) "
+                                f"without a pre-analyzed Ghidra project cache. Ad-hoc decompiler analysis will exceed 180s timeout. "
+                                f"Run 'agyis re pre-analyze {target_p.name}' or set REA_GHIDRA_PROJECT_DIR first."
+                            )
+            except Exception:
+                pass
 
     if reasons:
         overwrite_payload = dict(tool_args)
-        overwrite_payload["Arguments"] = modified_args
+        overwrite_payload[args_key] = modified_args
         return ("allow", overwrite_payload, "; ".join(reasons))
 
     return ("allow", None, None)
+
+
+def normalize_rea_mcp_tool_call(
+    tool_name: str,
+    tool_args: Dict[str, Any],
+) -> Tuple[str, Optional[Dict[str, Any]], Optional[str]]:
+    """
+    Backwards-compatible alias forwarding to normalize_mcp_tool_call.
+    """
+    return normalize_mcp_tool_call(tool_name, tool_args)
+
 
 
 RUN_COMMAND_ALLOWED_KEYS: frozenset[str] = frozenset({
@@ -960,7 +1132,7 @@ def main() -> None:
         return
 
     if tool_name == "call_mcp_tool":
-        mcp_dec, mcp_overwrite, mcp_reason = normalize_rea_mcp_tool_call(tool_name, tool_args)
+        mcp_dec, mcp_overwrite, mcp_reason = normalize_mcp_tool_call(tool_name, tool_args)
         if mcp_dec == "deny":
             print(json.dumps({"decision": "deny", "reason": mcp_reason}))
             return
