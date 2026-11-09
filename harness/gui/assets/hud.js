@@ -523,6 +523,7 @@
     window.__agyis_hud_state = {
         rootData: initialData,
         currentData: initialData,
+        sessionModel: (initialData && initialData.model) || "",
         convoId: initialData.conversation_id,
         selectedIndex: Math.max(0, steps.length - 1),
         activeEpochIndex: epochs.length > 0 ? epochs.length - 1 : -1,
@@ -539,6 +540,27 @@
         hoveredContextSegment: null,
     };
     syncToLatestState(window.__agyis_hud_state);
+
+    function syntaxHighlightJson(jsonObj) {
+        let jsonStr = typeof jsonObj !== "string" ? JSON.stringify(jsonObj, null, 2) : jsonObj;
+        if (!jsonStr) return "";
+        jsonStr = jsonStr.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return jsonStr.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+            let clsColor = "#f59e0b"; // number (amber)
+            if (/^"/.test(match)) {
+                if (/:$/.test(match)) {
+                    clsColor = "#38bdf8"; // key (cyan)
+                } else {
+                    clsColor = "#a3e635"; // string (green)
+                }
+            } else if (/true|false/.test(match)) {
+                clsColor = "#c084fc"; // boolean (purple)
+            } else if (/null/.test(match)) {
+                clsColor = "#71717a"; // null (muted gray)
+            }
+            return `<span style="color: ${clsColor};">${match}</span>`;
+        });
+    }
 
     function xtc(segment, pxPerToken, minSegmentPx) {
         const tokens = segment && segment.tokens > 0 ? segment.tokens : 0;
@@ -784,6 +806,16 @@
                 if (!content && rawStep.plannerResponse) {
                     content = rawStep.plannerResponse.response || rawStep.plannerResponse.text || rawStep.plannerResponse.content || "";
                 }
+                if (!content) {
+                    const sysCandidate = rawStep.systemMessage || rawStep.system_message || rawStep.message || rawStep.task_details || rawStep.error_details || rawStep.render_info;
+                    if (sysCandidate) {
+                        if (typeof sysCandidate === "object") {
+                            content = sysCandidate.content || sysCandidate.message || sysCandidate.text || JSON.stringify(sysCandidate, null, 2);
+                        } else {
+                            content = String(sysCandidate);
+                        }
+                    }
+                }
 
                 let thinking = rawStep.thinking || (rawStep.plannerResponse && rawStep.plannerResponse.thinking) || "";
 
@@ -863,8 +895,8 @@
 
                 if (isModelStep) {
                     if (gm && gm.usage) {
-                        inTok = parseInt(gm.usage.inputTokens || 0) || 0;
-                        const respOut = parseInt(gm.usage.responseOutputTokens || 0) || 0;
+                        inTok = parseInt(gm.usage.inputTokens || gm.usage.promptTokenCount || gm.usage.inputTokenCount || 0) || 0;
+                        const respOut = parseInt(gm.usage.outputTokens || gm.usage.candidatesTokenCount || gm.usage.responseOutputTokens || 0) || 0;
                         const thinkOut = parseInt(gm.usage.thinkingOutputTokens || 0) || 0;
                         outTok = respOut + thinkOut;
                     }
@@ -1202,9 +1234,15 @@
                 convoSummary = String(firstUserStep.content).slice(0, 80).replace(/\r?\n/g, " ");
             }
 
+            const resolvedModel = (chatModelData && (chatModelData.model || chatModelData.modelName)) ||
+                (genMetas[0] && (genMetas[0].responseModel || genMetas[0].model)) ||
+                (steps.find(s => s.response_model) && steps.find(s => s.response_model).response_model) ||
+                (window.__agyis_hud_state && window.__agyis_hud_state.sessionModel) || "";
+
             const data = {
                 conversation_id: convoId,
                 summary: convoSummary,
+                model: resolvedModel,
                 steps: steps,
                 step_count: steps.length,
                 epochs: epochs,
@@ -1225,6 +1263,7 @@
                 state.rootData = data;
                 state.currentData = data;
                 state.convoId = convoId;
+                if (resolvedModel) state.sessionModel = resolvedModel;
                 syncToLatestState(state);
                 state.subagentsDropdownOpen = false;
                 renderHud();
@@ -2043,13 +2082,15 @@
                         ` : ""}
                     `;
                 } else if (cType.includes("SYSTEM") || cType.includes("EPHEMERAL")) {
+                    const sysContent = currentStep.content || currentStep.systemMessage || currentStep.system_message || currentStep.message || currentStep.task_details || currentStep.error_details || currentStep.render_info || "";
+                    const displaySysContent = typeof sysContent === "object" ? (sysContent.content || sysContent.message || sysContent.text || JSON.stringify(sysContent, null, 2)) : String(sysContent);
                     stepBodyHtml = `
                         <div class="agyis-system-card" style="background: #27272a; border: 1px solid #71717a; border-left: 4px solid #a855f7; border-radius: 6px; padding: 12px; margin-bottom: 10px;">
                             <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 11px; color: #c084fc; margin-bottom: 6px;">
                                 <span>⚙️</span>
                                 <span>SYSTEM MESSAGE</span>
                             </div>
-                            <div style="font-size: 12px; color: #e4e4e7; line-height: 1.5;">${renderMarkdownPreview(currentStep.content || "")}</div>
+                            <div style="font-size: 12px; color: #e4e4e7; line-height: 1.5;">${renderMarkdownPreview(displaySysContent || "")}</div>
                         </div>
                     `;
                 } else {
@@ -2092,6 +2133,22 @@
                     { timestamp: new Date().toISOString(), status: currentStep.status || "STATUS_COMPLETED", executionId: `exec-${currentStep.step_index ?? state.selectedIndex}` }
                 ];
 
+                let modelDisplay = "—";
+                if (cType === "USER_INPUT") {
+                    modelDisplay = "N/A (User Input)";
+                } else if (cType.includes("SYSTEM") || cType.includes("EPHEMERAL")) {
+                    modelDisplay = "N/A (System Event)";
+                } else if (cType === "CHECKPOINT") {
+                    modelDisplay = "N/A (Compaction Event)";
+                } else {
+                    modelDisplay = currentStep.response_model || gm.responseModel || gm.model || state.sessionModel || (state.currentData && state.currentData.model) || "—";
+                }
+
+                const inTokVal = currentStep.input_tokens || modelUsage.inputTokens || modelUsage.promptTokenCount || modelUsage.inputTokenCount || (currentStep.metadata && (currentStep.metadata.input_tokens || currentStep.metadata.promptTokenCount)) || 0;
+                const outTokVal = currentStep.output_tokens || modelUsage.outputTokens || modelUsage.candidatesTokenCount || modelUsage.responseOutputTokens || (currentStep.metadata && (currentStep.metadata.toolCallOutputTokens || currentStep.metadata.output_tokens)) || 0;
+                const thinkTokVal = modelUsage.thinkingOutputTokens || 0;
+                const cacheTokVal = currentStep.cacheReadTokens || currentStep.cache_read_tokens || modelUsage.cacheReadTokens || modelUsage.cachedContentTokenCount || (currentStep.metadata && (currentStep.metadata.cache_read_tokens || currentStep.metadata.cachedContentTokenCount)) || 0;
+
                 inspectorContentHtml = `
                     ${timingBarHtml}
                     <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Status Transitions</h4>
@@ -2109,24 +2166,24 @@
                     <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Model Usage Metrics</h4>
                     <table class="agyis-markdown-table">
                         <tr><th>Metric</th><th>Value</th></tr>
-                        <tr><td>Model</td><td>${currentStep.response_model || gm.responseModel || gm.model || "gemini-2.5-pro"}</td></tr>
-                        <tr><td>Input Tokens</td><td>${(currentStep.input_tokens || modelUsage.inputTokens || 0).toLocaleString()}</td></tr>
-                        <tr><td>Output Tokens</td><td>${(currentStep.output_tokens || modelUsage.outputTokens || 0).toLocaleString()}</td></tr>
-                        <tr><td>Thinking Tokens</td><td>${(modelUsage.thinkingOutputTokens || 0).toLocaleString()}</td></tr>
-                        <tr><td>Cache Read Tokens</td><td>${(currentStep.cacheReadTokens || modelUsage.cacheReadTokens || 0).toLocaleString()}</td></tr>
+                        <tr><td>Model</td><td>${modelDisplay}</td></tr>
+                        <tr><td>Input Tokens</td><td>${inTokVal.toLocaleString()}</td></tr>
+                        <tr><td>Output Tokens</td><td>${outTokVal.toLocaleString()}</td></tr>
+                        <tr><td>Thinking Tokens</td><td>${thinkTokVal.toLocaleString()}</td></tr>
+                        <tr><td>Cache Read Tokens</td><td>${cacheTokVal.toLocaleString()}</td></tr>
                         <tr><td>TTFT</td><td>${((currentStep.thinking_duration_ms || 0) / 1000).toFixed(2)}s</td></tr>
                         <tr><td>Streaming Duration</td><td>${((currentStep.streaming_duration_ms || 0) / 1000).toFixed(2)}s</td></tr>
                         <tr><td>Cumulative Context</td><td>${(currentStep.cumulative_tokens || 0).toLocaleString()} tokens</td></tr>
                     </table>
                 `;
             } else { // trajectory / raw
-                const rawJson = JSON.stringify(currentStep, null, 2).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                const highlightedJson = syntaxHighlightJson(currentStep);
                 inspectorContentHtml = `
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                         <h4 style="margin: 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Raw Step JSON</h4>
                         <button id="agyis-copy-btn" class="agyis-hud-btn">📋 Copy</button>
                     </div>
-                    <pre class="agyis-codeblock" style="max-height: 450px;"><code>${rawJson}</code></pre>
+                    <pre class="agyis-codeblock" style="max-height: 450px;"><code>${highlightedJson}</code></pre>
                 `;
             }
         }

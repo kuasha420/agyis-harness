@@ -411,6 +411,37 @@ def load_conversation_trajectory(
                 except OSError:
                     pass
 
+    # Dynamic session model resolution from steps, headers, or settings
+    session_model = ""
+    meta_path = convo_dir / "meta.json"
+    if meta_path.is_file():
+        try:
+            with open(meta_path, "r", encoding="utf-8", errors="replace") as f:
+                meta_json = json.load(f)
+                session_model = meta_json.get("model") or meta_json.get("responseModel") or ""
+        except (json.JSONDecodeError, OSError, ValueError):
+            pass
+
+    for raw in raw_steps:
+        raw_meta = raw.get("metadata", {}) if isinstance(raw.get("metadata"), dict) else {}
+        content_str = str(raw.get("content") or "")
+        if "<USER_SETTINGS_CHANGE>" in content_str:
+            m_set = re.search(r"(?:Model Selection|Model)[:\s]+([a-zA-Z0-9_\-\.]+)", content_str, re.I)
+            if m_set:
+                session_model = m_set.group(1).strip()
+        m_cand = (
+            raw.get("model")
+            or raw.get("response_model")
+            or raw.get("responseModel")
+            or raw_meta.get("model")
+            or raw_meta.get("responseModel")
+            or (raw.get("chatStartMetadata", {}) if isinstance(raw.get("chatStartMetadata"), dict) else {}).get("model")
+            or (raw_meta.get("chatStartMetadata", {}) if isinstance(raw_meta.get("chatStartMetadata"), dict) else {}).get("model")
+            or (raw_meta.get("modelUsage", {}) if isinstance(raw_meta.get("modelUsage"), dict) else {}).get("model")
+        )
+        if m_cand and isinstance(m_cand, str):
+            session_model = m_cand.strip()
+
     # 1. Authoritative Max Context Tokens (256k default parity with 2.26.0)
     max_context_tokens = 256000
     for raw in raw_steps:
@@ -454,6 +485,22 @@ def load_conversation_trajectory(
         s["inv_index"] = s.get("inv_index", 1)
         cortex_type = _map_to_cortex_type(s)
         s["type"] = cortex_type
+
+        # Extract system message or task details if content is missing
+        if not s.get("content"):
+            sys_cand = (
+                s.get("systemMessage")
+                or s.get("system_message")
+                or s.get("message")
+                or s.get("task_details")
+                or s.get("error_details")
+                or s.get("render_info")
+            )
+            if sys_cand:
+                if isinstance(sys_cand, dict):
+                    s["content"] = sys_cand.get("content") or sys_cand.get("message") or sys_cand.get("text") or json.dumps(sys_cand, indent=2)
+                else:
+                    s["content"] = str(sys_cand)
 
         # Extract compaction summary if present
         comp_summary = _extract_compaction_summary(s)
@@ -539,20 +586,53 @@ def load_conversation_trajectory(
         s["streaming_duration_ms"] = int(streaming_ms or 0)
         s["total_duration_ms"] = s["thinking_duration_ms"] + s["streaming_duration_ms"]
 
+        # Step model resolution
+        step_model = (
+            s.get("response_model")
+            or s.get("model")
+            or s.get("responseModel")
+            or meta.get("responseModel")
+            or meta.get("model")
+            or model_usage.get("model")
+        )
+        if step_model and isinstance(step_model, str):
+            s["response_model"] = step_model.strip()
+        elif cortex_type in ("PLANNER_RESPONSE", "MODEL_OUTPUT") and session_model:
+            s["response_model"] = session_model
+        else:
+            s["response_model"] = s.get("response_model") or ""
+
         # Authoritative token metrics extraction
         in_tok = s.get("input_tokens")
         if in_tok is None:
-            in_tok = model_usage.get("inputTokens") or meta.get("input_tokens")
+            in_tok = (
+                model_usage.get("inputTokens")
+                or model_usage.get("promptTokenCount")
+                or model_usage.get("inputTokenCount")
+                or meta.get("input_tokens")
+                or meta.get("promptTokenCount")
+            )
         in_tok = int(in_tok or 0)
 
         out_tok = s.get("output_tokens")
         if out_tok is None:
-            out_tok = model_usage.get("outputTokens") or meta.get("toolCallOutputTokens") or meta.get("output_tokens")
+            out_tok = (
+                model_usage.get("outputTokens")
+                or model_usage.get("candidatesTokenCount")
+                or model_usage.get("responseOutputTokens")
+                or meta.get("toolCallOutputTokens")
+                or meta.get("output_tokens")
+            )
         out_tok = int(out_tok or 0)
 
         cache_tok = s.get("cache_read_tokens")
         if cache_tok is None:
-            cache_tok = model_usage.get("cacheReadTokens") or meta.get("cache_read_tokens")
+            cache_tok = (
+                model_usage.get("cacheReadTokens")
+                or model_usage.get("cachedContentTokenCount")
+                or meta.get("cache_read_tokens")
+                or meta.get("cachedContentTokenCount")
+            )
         s["cache_read_tokens"] = int(cache_tok or 0)
 
         explicit_tok = int(s.get("tokens") or 0)
@@ -780,6 +860,7 @@ def load_conversation_trajectory(
         "conversation_id": conversation_id,
         "transcript_path": str(transcript_path),
         "summary": summary,
+        "model": session_model,
         "steps": steps,
         "step_count": len(steps),
         "epochs": epochs,

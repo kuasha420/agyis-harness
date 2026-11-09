@@ -162,6 +162,106 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
                 self.assertEqual(traj["token_breakdown"]["system_prompt"], int(59000 * 0.40))
                 self.assertEqual(traj["token_breakdown"]["tool_defs"], 59000 - int(59000 * 0.40))
 
+    def test_model_resolution_and_no_hardcoded_gemini(self):
+        """Verifies session model resolution and asserts hud.js contains zero occurrences of 'gemini-2.5-pro'."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_brain = Path(tmpdir)
+            convo_id = "test-convo-model-res"
+            convo_dir = base_brain / convo_id
+            convo_dir.mkdir(parents=True, exist_ok=True)
+
+            steps_data = [
+                {
+                    "role": "user",
+                    "content": "<USER_SETTINGS_CHANGE>\nModel Selection: gemini-3.8-flash-high",
+                    "type": "USER_INPUT",
+                },
+                {
+                    "role": "assistant",
+                    "content": "Executing with chosen model",
+                    "type": "PLANNER_RESPONSE",
+                },
+                {
+                    "role": "assistant",
+                    "content": "Step with explicit model",
+                    "type": "MODEL_OUTPUT",
+                    "model": "claude-3-7-sonnet",
+                },
+            ]
+
+            with open(convo_dir / "transcript.jsonl", "w", encoding="utf-8") as f:
+                for s in steps_data:
+                    f.write(json.dumps(s) + "\n")
+
+            traj = load_conversation_trajectory(convo_id, brain_dir=base_brain)
+            self.assertEqual(traj["model"], "claude-3-7-sonnet")
+            self.assertEqual(traj["steps"][1]["response_model"], "claude-3-7-sonnet")
+            self.assertEqual(traj["steps"][2]["response_model"], "claude-3-7-sonnet")
+
+        # Zero occurrences of gemini-2.5-pro in hud.js (PSL-INV-010)
+        from harness.gui.trajectory_hud import _load_hud_template
+        template = _load_hud_template()
+        self.assertNotIn("gemini-2.5-pro", template)
+
+    def test_multi_schema_protobuf_token_extraction(self):
+        """Verifies multi-schema token extraction for promptTokenCount, candidatesTokenCount, and cachedContentTokenCount."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_brain = Path(tmpdir)
+            convo_id = "test-convo-tokens-schema"
+            convo_dir = base_brain / convo_id
+            convo_dir.mkdir(parents=True, exist_ok=True)
+
+            steps_data = [
+                {
+                    "role": "assistant",
+                    "type": "MODEL_OUTPUT",
+                    "metadata": {
+                        "modelUsage": {
+                            "promptTokenCount": 15420,
+                            "candidatesTokenCount": 850,
+                            "cachedContentTokenCount": 9200,
+                        }
+                    },
+                }
+            ]
+
+            with open(convo_dir / "transcript.jsonl", "w", encoding="utf-8") as f:
+                for s in steps_data:
+                    f.write(json.dumps(s) + "\n")
+
+            traj = load_conversation_trajectory(convo_id, brain_dir=base_brain)
+            step = traj["steps"][0]
+            self.assertEqual(step["input_tokens"], 15420)
+            self.assertEqual(step["output_tokens"], 850)
+            self.assertEqual(step["cache_read_tokens"], 9200)
+
+    def test_system_message_content_extraction(self):
+        """Verifies systemMessage, message, task_details are cleanly extracted when content is absent."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_brain = Path(tmpdir)
+            convo_id = "test-convo-sys-msg"
+            convo_dir = base_brain / convo_id
+            convo_dir.mkdir(parents=True, exist_ok=True)
+
+            steps_data = [
+                {
+                    "source": "system",
+                    "systemMessage": "System event occurred: sandbox primed.",
+                },
+                {
+                    "source": "system",
+                    "task_details": {"task": "Build", "status": "Ready"},
+                },
+            ]
+
+            with open(convo_dir / "transcript.jsonl", "w", encoding="utf-8") as f:
+                for s in steps_data:
+                    f.write(json.dumps(s) + "\n")
+
+            traj = load_conversation_trajectory(convo_id, brain_dir=base_brain)
+            self.assertEqual(traj["steps"][0]["content"], "System event occurred: sandbox primed.")
+            self.assertIn('"task": "Build"', traj["steps"][1]["content"])
+
 
 if __name__ == "__main__":
     unittest.main()
