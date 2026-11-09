@@ -386,14 +386,20 @@ def build_hotkey_script() -> str:
     """
     return (
         "(() => {\n"
-        "  if (window.__agyis_hud_active_listener || window.__agyis_hud_hotkey_registered) return;\n"
+        "  if (window.__agyis_hud_active_listener) {\n"
+        "    window.removeEventListener('keydown', window.__agyis_hud_active_listener, true);\n"
+        "  }\n"
         "  window.__agyis_hud_hotkey_registered = true;\n"
-        "  window.addEventListener('keydown', (e) => {\n"
+        "  window.__agyis_hud_last_toggle = window.__agyis_hud_last_toggle || 0;\n"
+        "  window.__agyis_hud_active_listener = (e) => {\n"
         "    const isF12 = e.key === 'F12';\n"
         "    const isCtrlShiftT = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't');\n"
         "    if (isF12 || isCtrlShiftT) {\n"
         "      e.preventDefault();\n"
-        "      e.stopPropagation();\n"
+        "      e.stopImmediatePropagation();\n"
+        "      const now = Date.now();\n"
+        "      if (now - (window.__agyis_hud_last_toggle || 0) < 250) return;\n"
+        "      window.__agyis_hud_last_toggle = now;\n"
         "      const hud = document.getElementById('agyis-trajectory-hud');\n"
         "      if (hud) {\n"
         "        const isHidden = (hud.style.display === 'none');\n"
@@ -420,7 +426,7 @@ def build_hotkey_script() -> str:
         "      }\n"
         "    }\n"
         "    const hud = document.getElementById('agyis-trajectory-hud');\n"
-        "    if (hud && hud.style.display !== 'none' && (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA')) {\n"
+        "    if (hud && hud.style.display !== 'none' && e.target && (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA')) {\n"
         "      const state = window.__agyis_hud_state;\n"
         "      if (state) {\n"
         "        const steps = (state.currentData && state.currentData.steps) ? state.currentData.steps : [];\n"
@@ -434,7 +440,8 @@ def build_hotkey_script() -> str:
         "        }\n"
         "      }\n"
         "    }\n"
-        "  }, true);\n"
+        "  };\n"
+        "  window.addEventListener('keydown', window.__agyis_hud_active_listener, true);\n"
         "})();"
     )
 
@@ -526,7 +533,6 @@ def inject_trajectory_debug(
     flags_expr = f"""
     (() => {{
         try {{
-            {hotkey_script}
             const key = "{FLAG_OVERRIDES_KEY}";
             let current = {{}};
             try {{

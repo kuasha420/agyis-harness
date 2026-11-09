@@ -6,6 +6,7 @@
     const conversationList = __PAYLOAD__.conversationList;
     const shouldOpen = __PAYLOAD__.shouldOpen;
     const isToggle = __PAYLOAD__.isToggle;
+    let hud = document.getElementById(HUD_ID);
 
     function syncToLatestState(state) {
         if (!state || !state.currentData) return;
@@ -513,7 +514,7 @@
         `;
         document.head.appendChild(styleEl);
 
-    const hud = document.createElement("div");
+    hud = document.createElement("div");
     hud.id = HUD_ID;
     hud.style.display = shouldOpen ? "flex" : "none";
 
@@ -2133,6 +2134,9 @@
         const matchCount = state.searchMatchIndices.length;
         const matchDisplay = q ? `${matchCount > 0 ? (state.currentMatchIdx + 1) : 0}/${matchCount}` : `${steps.length}/${steps.length}`;
 
+        if (!hud) hud = document.getElementById(HUD_ID);
+        if (!hud) return;
+
         hud.innerHTML = `
             <div class="agyis-hud-box ${state.isMaximized ? 'maximized' : ''}">
                 <!-- Header ('Avc' Parity) -->
@@ -2626,6 +2630,7 @@
 
     // Keydown listener with dynamic element lookup and re-injection cleanup
     window.__agyis_hud_hotkey_registered = true;
+    window.__agyis_hud_last_toggle = window.__agyis_hud_last_toggle || 0;
     if (window.__agyis_hud_active_listener) {
         window.removeEventListener("keydown", window.__agyis_hud_active_listener, true);
     }
@@ -2635,7 +2640,10 @@
         const currentHud = document.getElementById(HUD_ID);
         if (isF12 || isCtrlShiftT) {
             e.preventDefault();
-            e.stopPropagation();
+            e.stopImmediatePropagation();
+            const now = Date.now();
+            if (now - (window.__agyis_hud_last_toggle || 0) < 250) return;
+            window.__agyis_hud_last_toggle = now;
             if (currentHud) {
                 const isHidden = (currentHud.style.display === "none");
                 currentHud.style.display = isHidden ? "flex" : "none";
@@ -2657,7 +2665,7 @@
         if (e.key === "Escape" && currentHud && currentHud.style.display !== "none") {
             currentHud.style.display = "none";
         }
-        if (currentHud && currentHud.style.display !== "none" && (e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA")) {
+        if (currentHud && currentHud.style.display !== "none" && e.target && (e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA")) {
             const state = window.__agyis_hud_state;
             if (!state) return;
             const steps = (state.currentData && state.currentData.steps) ? state.currentData.steps : [];

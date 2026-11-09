@@ -315,32 +315,71 @@ def load_conversation_trajectory(
     subagents: List[str] = []
     subagent_infos: List[Dict[str, Any]] = []
 
-    # Check for direct child subagent invocations
-    for step in raw_steps:
+    # Check for direct child subagent invocations (strictly invoke_subagent calls)
+    for idx, step in enumerate(raw_steps):
+        # 1. Standard tool_calls: inspect invoke_subagent calls
         tool_calls = step.get("tool_calls", [])
         for tc in tool_calls:
             tc_name = str(tc.get("name", ""))
-            output_str = str(tc.get("output", ""))
-            args_str = str(tc.get("args", ""))
-            combined = output_str + " " + args_str
+            if tc_name == "invoke_subagent":
+                output_str = str(tc.get("output", ""))
+                args_dict = tc.get("args") if isinstance(tc.get("args"), dict) else {}
+                args_str = json.dumps(args_dict) if args_dict else str(tc.get("args", ""))
+                
+                # Also check adjacent step if this step has no inline output
+                next_content = ""
+                if idx + 1 < len(raw_steps):
+                    next_s = raw_steps[idx + 1]
+                    if next_s.get("type") in ("GENERIC", "TOOL_OUTPUT") or next_s.get("source") in ("SYSTEM", "SYSTEM_SDK"):
+                        next_content = str(next_s.get("content", ""))
 
-            found_ids: List[str] = []
-            m_convo = re.search(r"conversation[_-]?id[\"':\s]+([a-zA-Z0-9_\-]+)", combined, re.I)
-            if m_convo:
-                found_ids.append(m_convo.group(1))
-            uuids = re.findall(r"[0-9a-zA-Z]{8}-[0-9a-zA-Z]{4}-[0-9a-zA-Z]{4}-[0-9a-zA-Z]{4}-[0-9a-zA-Z]{12}", combined)
-            for u in uuids:
-                if u not in found_ids:
-                    found_ids.append(u)
+                combined = output_str + " " + args_str + " " + next_content
+                m_convos = re.findall(
+                    r"(?:conversation[_-]?id|conversationId)[\"':\s=]+([a-zA-Z0-9_\-]{8,64})",
+                    combined,
+                    re.I,
+                )
+                for sid in m_convos:
+                    sid = sid.strip("\"' \t\r\n")
+                    if sid != conversation_id and (base_brain / sid).is_dir() and sid not in subagents:
+                        subagents.append(sid)
+                        subagent_infos.append({
+                            "id": sid,
+                            "name": args_dict.get("Role") or args_dict.get("TypeName") or f"Subagent {sid[:8]}",
+                            "summary": str(args_dict.get("Prompt") or args_dict.get("objective") or "")[:80],
+                        })
 
-            for sid in found_ids:
-                if sid != conversation_id and sid not in subagents:
+        # 2. Check for "Created the following subagent" in generic steps
+        content_str = str(step.get("content") or "")
+        if "Created the following subagent" in content_str:
+            m_convos = re.findall(
+                r"(?:conversation[_-]?id|conversationId)[\"':\s=]+([a-zA-Z0-9_\-]{8,64})",
+                content_str,
+                re.I,
+            )
+            for sid in m_convos:
+                sid = sid.strip("\"' \t\r\n")
+                if sid != conversation_id and (base_brain / sid).is_dir() and sid not in subagents:
                     subagents.append(sid)
                     subagent_infos.append({
                         "id": sid,
-                        "name": tc.get("args", {}).get("name") or tc.get("args", {}).get("agent_role") or f"Subagent {sid[:8]}",
-                        "summary": str(tc.get("args", {}).get("objective") or tc.get("args", {}).get("prompt") or "")[:80],
+                        "name": f"Subagent {sid[:8]}",
+                        "summary": "",
                     })
+
+        # 3. Protobuf invokeSubagent
+        if isinstance(step.get("invokeSubagent"), dict):
+            for sub in step["invokeSubagent"].get("subagents", []):
+                sid = sub.get("conversationId") or sub.get("id")
+                if sid:
+                    sid = str(sid).strip("\"' \t\r\n")
+                    if sid != conversation_id and (base_brain / sid).is_dir() and sid not in subagents:
+                        subagents.append(sid)
+                        subagent_infos.append({
+                            "id": sid,
+                            "name": sub.get("role") or sub.get("name") or f"Subagent {sid[:8]}",
+                            "summary": str(sub.get("objective") or "")[:80],
+                        })
 
     # Check if this conversation itself is a subagent of another conversation (bounded to top 30 recent)
     if resolved_parent_id is None and base_brain.is_dir():
@@ -651,20 +690,21 @@ def load_conversation_trajectory(
     diff = total_tokens - sum(token_breakdown.values())
     token_breakdown["model"] += diff
 
-    # Pre-bundle direct child subagents recursively into subagent_trajectories map
+    # Pre-bundle direct child subagents into subagent_trajectories map (depth 1 only)
     subagent_trajectories: Dict[str, Any] = {}
-    for sid in subagents:
-        if sid not in _visited:
-            try:
-                sub_traj = load_conversation_trajectory(
-                    sid,
-                    brain_dir=base_brain,
-                    _visited=_visited,
-                    parent_id=conversation_id,
-                )
-                subagent_trajectories[sid] = sub_traj
-            except (OSError, ValueError, KeyError, json.JSONDecodeError):
-                continue
+    if parent_id is None:
+        for sid in subagents:
+            if sid not in _visited:
+                try:
+                    sub_traj = load_conversation_trajectory(
+                        sid,
+                        brain_dir=base_brain,
+                        _visited=_visited,
+                        parent_id=conversation_id,
+                    )
+                    subagent_trajectories[sid] = sub_traj
+                except (OSError, ValueError, KeyError, json.JSONDecodeError):
+                    continue
 
     # Partition trajectory into Epochs based on CHECKPOINT steps (ADR-014 / PSL-INV-010)
     checkpoints = [i for i, s in enumerate(steps) if s.get("type") == "CHECKPOINT"]
