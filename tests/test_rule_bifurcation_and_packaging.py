@@ -237,7 +237,7 @@ class TestFrozenWheelPackaging(unittest.TestCase):
     def test_pyproject_packaging_config_matches_manifest(self) -> None:
         """pyproject.toml pins explicit sdist only-include and wheel force-include mappings (ADR-014)."""
         pyproject_data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-        self.assertEqual(pyproject_data["project"]["version"], "1.0.0-rc9")
+        self.assertEqual(pyproject_data["project"]["version"], "1.0.0-rc10")
 
         sdist_only_include = pyproject_data["tool"]["hatch"]["build"]["targets"]["sdist"]["only-include"]
         for expected in (

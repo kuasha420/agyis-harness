@@ -95,6 +95,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0-rc10] - 2026-11-10
+
+### Features & Architecture
+- feat(context): propagate dynamic maxContextTokens and fix hud.js epoch boundaries
+- feat(cli): align checkpoint create/prune subcommands and add opt-in clean --dist
+- feat(release): harden release-notes and add native Keep-a-Changelog engine
+- feat(mcp): Resilient schema key normalization & aliasing in MCP gateway bridge (#103)
+- feat(hooks): Transparent scratch promotion, 250-char threshold, and run_command argument sanitization (#101, #102, #104)
+- feat(telemetry): systemd daemon health inspection in doctor and exponential jitter gateway backoff (#55)
+- feat(gui): align context window bar with native Upc algorithm and exact inference usage metadata
+- feat(gui): decouple in-situ HUD SPA into assets and resolve audit defect ledger
+  - extracted 2,666-line client SPA into harness/gui/assets/hud.js loaded via importlib.resources
+  - relocated transcript extraction into harness/telemetry/extractor.py resolving ADR-014 packaging breach
+  - fixed subagent colon parsing for plugin namespaces (psl-agy-harness:builder)
+  - hardened telemetry daemon with post-commit mtime cache, capacity limits, and WAL mode
+  - removed hardcoded paths and guarded 32-bit PE header parsing in RE commands
+  - fixed HUD token fallback calculation inflation and aligned hotkey toggle sync
+- feat(arch): codify 4-pillar AFF gate, macro smell sensing, and PSL-INV-011
+  - upgraded all 8 agent personas and dynamic archetype scaffold
+  - elevated subagent router Stage 4 to macro architectural audit and git commit gate
+  - added delta-aware macro smell sensing to code review and milestone handoff
+  - codified PSL-INV-011 Universal Architectural Fitness Invariant across all rule files
+- feat(aff): native architectural fitness function and macro governance engine
+  - zero-dependency AST import boundary, cycle, and structural smell analyzer
+  - registered agyis audit aff/macro/fitness CLI commands
+  - integrated architectural fitness diagnostics into agyis doctor
+  - 21 hermetic unit and contract tests in tests/test_architectural_fitness.py
+- feat(gui): auto-focus latest epoch, step, and last 50-step page on toggle
+  - Implement centralized syncToLatestState() helper in trajectory HUD template
+  - Auto-select latest epoch (state.activeEpochIndex = epochs.length - 1) on toggle and load
+  - Auto-select latest step (state.selectedIndex = steps.length - 1) on toggle and load
+  - Auto-navigate tablePage to totalPages - 1 to display the latest 50 steps
+  - Ensure style.display = "flex" runs before scrollIntoView() to prevent silent scroll no-ops
+  - Wire syncToLatestState() into initial mount, ConnectRPC resolution, fallbacks, and hotkeys
+  - Add comprehensive unit tests in tests/test_gui.py asserting order and state invariants
+- feat(gui): granular context slices, native tool step unpacking, and checkpoint parity
+  - Parse system prompt XML sections into 15 granular context bar slices
+  - Partition tool definitions into Filesystem, Terminal, Subagents, and Automation slices
+  - Unpack native ConnectRPC tool payloads: runCommand, viewFile, codeAction diffs, invokeSubagent, checkpoint
+  - Render compaction milestone card with tokens reclaimed metric and epoch jump handler
+  - Suppress TTFT/streaming bar on non-model steps (USER_INPUT, CHECKPOINT, SYSTEM)
+  - Add unit tests in tests/test_gui.py asserting cleanroom parity and sub-second latency
+- feat(gui): direct native ConnectRPC trajectory HUD and daemon deprecation
+- feat(gui): dynamic 4-row context bar, checkpoint scoping, and prettified step inspector
+- feat(gui): implement authoritative 256k context capacity, Atc dynamic sizing, and compaction summary parity
+- feat(gui): implement dynamic trajectory server and codify PSL-INV-010 anti-vibe invariant
+- feat(gui): upgrade in-situ trajectory debug HUD to 2.26.0 parity and add systemd CLI service manager
+- feat(gui): reimplement in-situ trajectory debug HUD from reverse-engineered 2.24.0 architecture
+- feat(plugin): add SVG plugin logo and register in plugin.json
+- feat(upstream): support lastUserInput hook payload, teamwork slash command, colon agent variants, and print-timeout
+- feat(doctor): context-aware forensic reverse-engineering & dirtyroom diagnostics (Fixes #100)
+  - Add harness/runtime/re_checks.py with fast-path binary probes (<0.001s which, bounded 0.2s version extraction)
+  - Implement is_re_workspace() auto-detecting .dirtyroom/ and docs/specs/ cleanroom policies
+  - Support profile selection via dirtyroom.env (static-cleanroom vs dynamic-game-harness)
+  - Audit Ghidra analyzeHeadless, OpenJDK 21+, objdump, REA patch (PSL-INV-009), dirtyroom.db, tshark, gpu-screen-recorder, ydotoold, xdotool
+  - Integrate into run_doctor() and register --re flag on doctor CLI
+  - Implement heal_forensic_toolchain() in harness/runtime/healing.py for zero-sudo REA patch & dirtyroom db auto-healing
+  - Author comprehensive hermetic tests in tests/test_re_doctor.py (20 tests, sub-second benchmark)
+- feat(re): add native disasm and xrefs subcommands to agyis re
+
+### Bug Fixes & Hardening
+- fix(gui): harden CDP target hydration, skip data URIs, and restore hotkey re-render
+- fix(liveness): skip trailing ephemeral messages and classify terminal system messages as completed
+- fix(quality-gates): decompose completion fence, harden liveness/cockpit, and clean ledger
+- fix(gui): Trajectory HUD model fallbacks, multi-schema tokens, system previews, and syntax-highlighted JSON (#105)
+- fix(gui): resolve double keydown cancelation on F12 and eliminate unbounded subagent pre-bundling slowness
+- fix(telemetry): guard unique index deduplication in schema and use WAL connection factory in extractor
+- fix(gui): correct cumulative context token accounting and resolve maximize titlebar clipping
+- fix(gui): unify keydown listener, fix stylesheet order, and enable detached trajectory server
+- fix(gui): eliminate template substitution token collision in trajectory HUD payload
+- fix(telemetry): harvest local transcripts in daemon and prevent unbounded memory leak
+- fix(hygiene): exclude .dirtyroom from node script hygiene audit and git tracking
+- fix(upstream): remediate 24kb skill truncation, rule frontmatter validation, and cdp gui devtools
+- fix(re): support legacy class_name/demangled_name schema and integer addresses in cmd_find
+
+### Documentation & Usability
+- docs(changelog): update Unreleased entries with gui hydration fix
+- docs(changelog): update Unreleased entries with liveness fix
+- docs(changelog): update Unreleased entries for RC10 preparation
+
+### Maintenance & Release
+- build(release): harden release CI workflow, packaging assets, and uv lockfile
+
+---
+
 ## [1.0.0-rc9] - 2026-11-03
 
 ### Features & Architecture
@@ -407,7 +492,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release candidate for Agyis Harness for Google Antigravity™.
 - Autonomous agent runtime harness, empirical audit telemetry pipeline, and lifecycle hooks immune system.
 
-[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc9...HEAD
+[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc10...HEAD
+[1.0.0-rc10]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc9...v1.0.0-rc10
 [1.0.0-rc9]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc8...v1.0.0-rc9
 [1.0.0-rc8]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc7...v1.0.0-rc8
 [1.0.0-rc7]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc6...v1.0.0-rc7
