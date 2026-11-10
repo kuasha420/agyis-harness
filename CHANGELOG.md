@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(re): add native disasm and xrefs subcommands to agyis re
 
 ### Bug Fixes & Hardening
+- fix(liveness): skip trailing ephemeral messages and classify terminal system messages as completed
 - fix(quality-gates): decompose completion fence, harden liveness/cockpit, and clean ledger
 - fix(gui): Trajectory HUD model fallbacks, multi-schema tokens, system previews, and syntax-highlighted JSON (#105)
 - fix(gui): resolve double keydown cancelation on F12 and eliminate unbounded subagent pre-bundling slowness
@@ -83,6 +84,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(hygiene): exclude .dirtyroom from node script hygiene audit and git tracking
 - fix(upstream): remediate 24kb skill truncation, rule frontmatter validation, and cdp gui devtools
 - fix(re): support legacy class_name/demangled_name schema and integer addresses in cmd_find
+
+### Documentation & Usability
+- docs(changelog): update Unreleased entries for RC10 preparation
 
 ### Maintenance & Release
 - build(release): harden release CI workflow, packaging assets, and uv lockfile
