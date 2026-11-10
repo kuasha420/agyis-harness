@@ -169,6 +169,24 @@ class TestCDPTargetDiscovery(unittest.TestCase):
         page = find_page_target(targets)
         self.assertIsNone(page)
 
+    def test_find_page_target_skips_data_urls(self) -> None:
+        targets = [
+            {"id": "1", "type": "page", "title": "", "url": "data:text/html;charset=utf-8,%3Csvg%20class=%22logo%22%3E"},
+            {"id": "2", "type": "page", "title": "Antigravity Main", "url": "https://127.0.0.1:37277/"},
+        ]
+        page = find_page_target(targets)
+        self.assertIsNotNone(page)
+        self.assertEqual(page["id"], "2")
+
+    def test_find_page_target_prefers_conversation_route_over_root(self) -> None:
+        targets = [
+            {"id": "1", "type": "page", "title": "Antigravity Splash", "url": "https://127.0.0.1:37277/"},
+            {"id": "2", "type": "page", "title": "Project - Antigravity", "url": "https://127.0.0.1:37277/c/test-convo-123"},
+        ]
+        page = find_page_target(targets)
+        self.assertIsNotNone(page)
+        self.assertEqual(page["id"], "2")
+
 
 class TestCDPWebSocketClientFraming(unittest.TestCase):
     """Tests RFC 6455 client framing and JSON-RPC dispatch with mocked sockets."""
@@ -1035,6 +1053,57 @@ class TestGuiCommandCLI(unittest.TestCase):
             port_file=self.port_file,
             timeout=5.0,
             wait=3.0,
+            json=False,
+            devtools=False,
+            trajectory_debug=False,
+            toggle=False,
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = cmd_gui(args)
+            self.assertEqual(code, 0)
+            self.assertEqual(mock_targets.call_count, 2)
+            out = mock_out.getvalue()
+            self.assertIn("Trajectory Debug View unlocked successfully", out)
+
+    @patch("time.sleep")
+    @patch("harness.commands.gui.inject_trajectory_debug")
+    @patch.object(CDPWebSocketClient, "connect")
+    @patch.object(CDPWebSocketClient, "close")
+    @patch("harness.commands.gui.get_cdp_targets")
+    def test_cmd_gui_wait_skips_empty_title_splash_until_hydrated(
+        self,
+        mock_targets: MagicMock,
+        mock_close: MagicMock,
+        mock_connect: MagicMock,
+        mock_inject: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        # First poll: empty title splash target. Second poll: hydrated Antigravity window.
+        mock_targets.side_effect = [
+            [{
+                "id": "SPLASH",
+                "type": "page",
+                "title": "",
+                "url": "https://127.0.0.1:37277/",
+                "webSocketDebuggerUrl": "ws://127.0.0.1:46391/devtools/page/SPLASH",
+            }],
+            [{
+                "id": "WORKSPACE",
+                "type": "page",
+                "title": "Project - Antigravity",
+                "url": "https://127.0.0.1:37277/c/test-session-42",
+                "webSocketDebuggerUrl": "ws://127.0.0.1:46391/devtools/page/WORKSPACE",
+            }],
+        ]
+        mock_inject.return_value = {
+            "success": True,
+            "url": "https://127.0.0.1:37277/c/test-session-42?trajectoryDebugOpen=true",
+            "open": True,
+        }
+        args = argparse.Namespace(
+            port_file=self.port_file,
+            timeout=5.0,
+            wait=5.0,
             json=False,
             devtools=False,
             trajectory_debug=False,

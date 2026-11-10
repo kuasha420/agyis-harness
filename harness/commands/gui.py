@@ -116,15 +116,23 @@ def get_cdp_targets(port: int, host: str = "127.0.0.1", timeout: float = 5.0) ->
 
 
 def find_page_target(targets: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Identifies the active Antigravity main application page target, skipping about:blank."""
+    """Identifies the active Antigravity main application page target, skipping about:blank and data: URIs."""
     pages = [
         t for t in targets
-        if t.get("type") == "page" and not (t.get("url") or "").startswith("about:blank")
+        if t.get("type") == "page"
+        and not (t.get("url") or "").startswith("about:blank")
+        and not (t.get("url") or "").startswith("data:")
     ]
     if not pages:
         return None
 
-    # Prefer window with Antigravity title or active webview URL
+    # 1. Prefer window with active conversation route (/c/ in url)
+    for p in pages:
+        url = p.get("url", "")
+        if "/c/" in url and "127.0.0.1" in url and not url.startswith("devtools://"):
+            return p
+
+    # 2. Prefer window with Antigravity title or active webview URL
     for p in pages:
         title = p.get("title", "")
         url = p.get("url", "")
@@ -400,7 +408,11 @@ def build_hotkey_script() -> str:
         "      const now = Date.now();\n"
         "      if (now - (window.__agyis_hud_last_toggle || 0) < 250) return;\n"
         "      window.__agyis_hud_last_toggle = now;\n"
-        "      const hud = document.getElementById('agyis-trajectory-hud');\n"
+        "      let hud = document.getElementById('agyis-trajectory-hud');\n"
+        "      if (!hud && typeof window.__agyis_hud_render === 'function') {\n"
+        "        window.__agyis_hud_render();\n"
+        "        hud = document.getElementById('agyis-trajectory-hud');\n"
+        "      }\n"
         "      if (hud) {\n"
         "        const isHidden = (hud.style.display === 'none');\n"
         "        if (isHidden) {\n"
@@ -1076,6 +1088,13 @@ def cmd_gui(args: argparse.Namespace) -> int:
                 target_url = cur_target.get("url", "")
                 if target_url.startswith("about:blank") or "127.0.0.1:" not in target_url:
                     raise CDPTargetNotFoundError(f"Page target not fully hydrated ({target_url})")
+
+                # If waiting and page title is still empty (splash phase), await window hydration
+                target_title = (cur_target.get("title") or "").strip()
+                if not target_title and (deadline - time.time()) > 2.0:
+                    raise CDPTargetNotFoundError(
+                        f"Page target title not yet populated ({target_url}), awaiting window hydration"
+                    )
 
             target = cur_target
 
