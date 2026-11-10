@@ -1007,48 +1007,50 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     # checkpoint generate
     p_cp_gen = cp_subparsers.add_parser(
         "generate",
+        aliases=["create"],
         help="Generate compaction checkpoint artifact",
         description="Capture runtime ground truth into compaction checkpoint artifact",
     )
     p_cp_gen.add_argument(
         "--plan",
         type=Path,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Path to implementation plan markdown file",
     )
     p_cp_gen.add_argument(
         "--out",
         type=Path,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Custom output markdown file path",
     )
     p_cp_gen.add_argument(
         "--workspace", "-w",
         type=Path,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Path to workspace directory (default: current directory)",
     )
     p_cp_gen.add_argument(
         "--role",
         type=str,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Orchestrator role identifier",
     )
     p_cp_gen.add_argument(
         "--trigger-tokens",
         type=int,
-        default=230_000,
+        default=argparse.SUPPRESS,
         help="Context tokens trigger threshold (default: 230,000)",
     )
     p_cp_gen.add_argument(
         "--brain-dir",
         type=Path,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Path to conversation brain directory (default: from env or ~/.gemini/antigravity/brain/<conv_id>)",
     )
     p_cp_gen.add_argument(
         "--json",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Output result in JSON format",
     )
 
@@ -1061,18 +1063,19 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_cp_ver.add_argument(
         "--max-age-mins",
         type=float,
-        default=60.0,
+        default=argparse.SUPPRESS,
         help="Maximum allowable checkpoint age in minutes (default: 60)",
     )
     p_cp_ver.add_argument(
         "--workspace", "-w",
         type=Path,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Path to workspace directory (default: current directory)",
     )
     p_cp_ver.add_argument(
         "--json",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Output result in JSON format",
     )
 
@@ -1085,18 +1088,51 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_cp_stat.add_argument(
         "--workspace", "-w",
         type=Path,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Path to workspace directory (default: current directory)",
     )
     p_cp_stat.add_argument(
         "--trigger-tokens",
         type=int,
-        default=230_000,
+        default=argparse.SUPPRESS,
         help="Context tokens trigger threshold (default: 230,000)",
     )
     p_cp_stat.add_argument(
         "--json",
         action="store_true",
+        default=argparse.SUPPRESS,
+        help="Output result in JSON format",
+    )
+
+    # checkpoint prune
+    p_cp_prune = cp_subparsers.add_parser(
+        "prune",
+        help="Prune stale historical compaction checkpoints",
+        description="Retain top N historical checkpoints while preserving compaction_checkpoint_latest.md",
+    )
+    p_cp_prune.add_argument(
+        "--retention",
+        "--keep",
+        dest="retention",
+        type=int,
+        default=None,
+        help="Number of historical checkpoints to retain (default: AGYIS_CHECKPOINT_RETENTION or 5)",
+    )
+    p_cp_prune.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview candidate stale checkpoints without deleting files",
+    )
+    p_cp_prune.add_argument(
+        "--workspace", "-w",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Path to workspace directory (default: current directory)",
+    )
+    p_cp_prune.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
         help="Output result in JSON format",
     )
 
@@ -1252,9 +1288,14 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Clean expired ephemeral files in scratch/ directories",
     )
     p_clean.add_argument(
+        "--dist",
+        action="store_true",
+        help="Remove build/distribution artifacts in dist/ (opt-in; preserves .git*)",
+    )
+    p_clean.add_argument(
         "--all",
         action="store_true",
-        help="Execute all cleanup actions (checkpoints, worktrees, branches, scratch)",
+        help="Execute all standard cleanup actions (checkpoints, worktrees, branches, scratch; excludes dist/ unless --dist is passed)",
     )
     p_clean.add_argument(
         "--retention",

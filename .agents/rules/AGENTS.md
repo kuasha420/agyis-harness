@@ -81,12 +81,12 @@ agyis gui --toggle                             # Toggle Trajectory Debug View op
 agyis cockpit status                           # Print flight deck health, tokens, active subagents & git state
 agyis cockpit route <letter|alias>             # Print dispatch briefing & transition payload (e.g. agyis cockpit route A / rca)
 agyis cockpit verify [--allow-dirty]           # Audit active session against the 5 flight director invariants
-agyis checkpoint [status|create|prune]         # Carrier-grade pre-compaction state capture & succession (ADR-031)
+agyis checkpoint [status|generate|create|verify|prune] # Carrier-grade pre-compaction state capture & succession (ADR-031)
 agyis router <letter|alias>                    # Dynamic subagent router CLI alias (e.g. agyis router victory)
 agyis ladder <letter|alias>                    # Backwards-compatible router CLI alias (e.g. agyis ladder builder)
 
 # 🧹 Multi-Branch Workspace, Clean & Cache Hygiene
-agyis clean [--all] [--checkpoints] [--worktrees] # Purge stale checkpoints, orphaned worktrees & scratchpads (ADR-031)
+agyis clean [--all] [--checkpoints] [--worktrees] [--dist] # Purge stale checkpoints, worktrees, scratchpads & opt-in dist/ (ADR-031)
 rm -rf .next/ .turbo/ node_modules/.cache      # Invalidate stale build caches prior to verification gates
 python3 -c "from harness.delivery import purge_build_caches; purge_build_caches('.')" # Standalone cache purge
 

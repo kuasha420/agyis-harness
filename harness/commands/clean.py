@@ -4,13 +4,14 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Agyis Clean CLI: Workspace, Checkpoint, Worktree, Branch & Scratchpad Hygiene (ADR-014 / Issue #90).
+Agyis Clean CLI: Workspace, Checkpoint, Worktree, Branch, Scratchpad & Opt-In Dist Hygiene (ADR-014 / Issue #90).
 
 Provides automated hygiene and garbage collection across long-running sessions:
 - Checkpoints: Rotates and prunes stale compaction checkpoints in .agents/artifacts/
 - Worktrees: Prunes dead worktrees and cleans orphaned subagent worktree directories
 - Branches: Deletes safely merged ephemeral subagent-* git branches
 - Scratch: Cleans expired ephemeral scratchpad files older than TTL window (default 24h)
+- Dist: Opt-in cleanup of dist/ build/distribution artifacts (--dist; preserves .git* files)
 """
 
 from __future__ import annotations
@@ -19,9 +20,9 @@ import argparse
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
+import sys
 import time
 from typing import Any, Dict, List, Optional, Set
 
@@ -66,27 +67,8 @@ def clean_checkpoints(
         except OSError:
             pass
 
-    # 2. Prune compaction checkpoints
-    if dry_run:
-        checkpoint_pattern = re.compile(r"^compaction_checkpoint_(\d+)\.md$")
-        sortable: List[tuple[float, Path]] = []
-        try:
-            for entry in art_dir.glob("compaction_checkpoint_*.md"):
-                if not entry.is_file() or entry.name == "compaction_checkpoint_latest.md":
-                    continue
-                m = checkpoint_pattern.match(entry.name)
-                sort_key = float(m.group(1)) if m else entry.stat().st_mtime
-                sortable.append((sort_key, entry))
-        except OSError:
-            return pruned_files
-
-        sortable.sort(key=lambda x: x[0], reverse=True)
-        to_prune = sortable[retention:]
-        for _, p in to_prune:
-            pruned_files.append(str(p))
-        return pruned_files
-
-    pruned = prune_stale_checkpoints(art_dir, retention_limit=retention)
+    # 2. Prune compaction checkpoints (DRY delegation to prune_stale_checkpoints)
+    pruned = prune_stale_checkpoints(art_dir, retention_limit=retention, dry_run=dry_run)
     for p in pruned:
         pruned_files.append(str(p))
     return pruned_files
@@ -337,6 +319,31 @@ def clean_scratchpads(
     return pruned_scratch
 
 
+def clean_dist(
+    workspace_dir: Path,
+    dry_run: bool = False,
+) -> List[str]:
+    """Removes stale build/distribution artifacts inside dist/, preserving .git* entries."""
+    dist_dir = workspace_dir / "dist"
+    if dist_dir.is_symlink() or not dist_dir.is_dir():
+        return []
+
+    pruned_dist: List[str] = []
+    for entry in sorted(dist_dir.iterdir(), key=lambda p: p.name):
+        if entry.name.startswith(".git"):
+            continue
+        if dry_run:
+            pruned_dist.append(str(entry))
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+        pruned_dist.append(str(entry))
+
+    return pruned_dist
+
+
 def cmd_clean(args: argparse.Namespace) -> int:
     """Entry point for `agyis clean` CLI."""
     t0 = time.perf_counter()
@@ -351,10 +358,11 @@ def cmd_clean(args: argparse.Namespace) -> int:
     do_worktrees = getattr(args, "worktrees", False)
     do_branches = getattr(args, "branches", False)
     do_scratch = getattr(args, "scratch", False)
+    do_dist = bool(getattr(args, "dist", False))
     do_all = getattr(args, "all", False)
 
     # Default to --all if no specific category is selected
-    if not (do_checkpoints or do_worktrees or do_branches or do_scratch or do_all):
+    if not (do_checkpoints or do_worktrees or do_branches or do_scratch or do_dist or do_all):
         do_all = True
 
     if do_all:
@@ -381,6 +389,8 @@ def cmd_clean(args: argparse.Namespace) -> int:
     deleted_brs: List[str] = []
     pruned_scrs: List[str] = []
     pruned_scr_dirs: List[str] = []
+    pruned_dist: List[str] = []
+    dist_error: Optional[str] = None
 
     if do_checkpoints:
         pruned_cps = clean_checkpoints(ws, retention=retention, dry_run=dry_run)
@@ -395,6 +405,11 @@ def cmd_clean(args: argparse.Namespace) -> int:
             dry_run=dry_run,
             pruned_dirs_out=pruned_scr_dirs,
         )
+    if do_dist:
+        try:
+            pruned_dist = clean_dist(ws, dry_run=dry_run)
+        except OSError as exc:
+            dist_error = str(exc)
 
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     total_pruned = (
@@ -403,11 +418,12 @@ def cmd_clean(args: argparse.Namespace) -> int:
         + len(deleted_brs)
         + len(pruned_scrs)
         + len(pruned_scr_dirs)
+        + len(pruned_dist)
     )
 
     if json_output:
         report: Dict[str, Any] = {
-            "status": "ok",
+            "status": "error" if dist_error is not None else "ok",
             "dry_run": dry_run,
             "workspace": str(ws),
             "checkpoints": {"pruned": pruned_cps, "count": len(pruned_cps)},
@@ -419,11 +435,18 @@ def cmd_clean(args: argparse.Namespace) -> int:
                 "pruned_dirs": pruned_scr_dirs,
                 "dirs_count": len(pruned_scr_dirs),
             },
+            "dist": {"pruned": pruned_dist, "count": len(pruned_dist)},
             "total_pruned": total_pruned,
             "elapsed_ms": elapsed_ms,
         }
+        if dist_error is not None:
+            report["error"] = dist_error
         print(json.dumps(report, indent=2))
-        return 0
+        return 1 if dist_error is not None else 0
+
+    if dist_error is not None:
+        print(f"❌ Failed to clean dist/: {dist_error}", file=sys.stderr)
+        return 1
 
     mode_label = "[DRY-RUN] " if dry_run else ""
     print(f"=== Agyis Hygiene & Workspace Cleanup {mode_label}===")
@@ -452,6 +475,11 @@ def cmd_clean(args: argparse.Namespace) -> int:
             print(f"  - {Path(scr).name}")
         for d in pruned_scr_dirs:
             print(f"  - [dir] {Path(d).name}")
+
+    if do_dist:
+        print(f"Dist:        {len(pruned_dist)} build artifacts removed")
+        for d_item in pruned_dist:
+            print(f"  - {Path(d_item).name}")
 
     print(f"✔ Completed in {elapsed_ms:.2f} ms (Total items cleaned: {total_pruned})")
     return 0

@@ -24,6 +24,7 @@ from harness.cli import main as cli_main
 from harness.commands.clean import (
     clean_branches,
     clean_checkpoints,
+    clean_dist,
     clean_scratchpads,
     clean_worktrees,
     cmd_clean,
@@ -215,6 +216,95 @@ class TestCleanHygiene(unittest.TestCase):
         self.assertTrue(keep_subdir.is_dir())
         self.assertTrue(teamwork_dir.is_dir())
 
+    def test_clean_dist_missing_dir(self) -> None:
+        """clean_dist returns [] when dist/ does not exist."""
+        self.assertEqual(clean_dist(self.ws, dry_run=False), [])
+        self.assertEqual(clean_dist(self.ws, dry_run=True), [])
+
+    def test_clean_dist_preserves_git_and_cleans_files_subdirs_symlinks(self) -> None:
+        """clean_dist removes files, subdirs, and symlinks while preserving .git* entries and honoring dry_run."""
+        dist_dir = self.ws / "dist"
+        dist_dir.mkdir(parents=True, exist_ok=True)
+        gitignore = dist_dir / ".gitignore"
+        gitignore.write_text("*\n!.gitignore\n", encoding="utf-8")
+        gitkeep = dist_dir / ".gitkeep"
+        gitkeep.write_text("", encoding="utf-8")
+
+        pkg_file = dist_dir / "agyis_harness-1.0.0-py3-none-any.whl"
+        pkg_file.write_text("wheel-bytes", encoding="utf-8")
+        sub_dir = dist_dir / "unpacked_build"
+        (sub_dir / "nested").mkdir(parents=True)
+        (sub_dir / "nested" / "artifact.txt").write_text("nested", encoding="utf-8")
+
+        outside_target = self.ws / "outside_keep_dir"
+        outside_target.mkdir()
+        outside_file = outside_target / "important.txt"
+        outside_file.write_text("keep me", encoding="utf-8")
+        sym_dir = dist_dir / "link_to_outside"
+        sym_dir.symlink_to(outside_target, target_is_directory=True)
+
+        dry_candidates = clean_dist(self.ws, dry_run=True)
+        self.assertEqual(
+            dry_candidates,
+            [str(pkg_file), str(sym_dir), str(sub_dir)],
+        )
+        self.assertTrue(pkg_file.is_file())
+        self.assertTrue(sub_dir.is_dir())
+        self.assertTrue(sym_dir.is_symlink())
+        self.assertTrue(gitignore.is_file())
+        self.assertTrue(gitkeep.is_file())
+
+        pruned = clean_dist(self.ws, dry_run=False)
+        self.assertEqual(
+            pruned,
+            [str(pkg_file), str(sym_dir), str(sub_dir)],
+        )
+        self.assertFalse(pkg_file.exists())
+        self.assertFalse(sub_dir.exists())
+        self.assertFalse(sym_dir.exists())
+        self.assertFalse(sym_dir.is_symlink())
+        # Symlink target must NOT be deleted when unlinking symlink
+        self.assertTrue(outside_target.is_dir())
+        self.assertTrue(outside_file.is_file())
+        # .git* files in dist/ must be preserved
+        self.assertTrue(gitignore.is_file())
+        self.assertTrue(gitkeep.is_file())
+
+    def test_clean_dist_skips_symlinked_dist_root(self) -> None:
+        """clean_dist must never traverse or clean a symlinked dist/ directory."""
+        outside_dir = self.ws / "outside_release"
+        outside_dir.mkdir()
+        keep_file = outside_dir / "keep.whl"
+        keep_file.write_text("do-not-delete", encoding="utf-8")
+
+        dist_link = self.ws / "dist"
+        dist_link.symlink_to(outside_dir, target_is_directory=True)
+
+        self.assertEqual(clean_dist(self.ws, dry_run=True), [])
+        self.assertEqual(clean_dist(self.ws, dry_run=False), [])
+        self.assertTrue(dist_link.is_symlink())
+        self.assertTrue(keep_file.is_file())
+
+    def test_clean_dist_propagates_oserror_on_unremovable_entries(self) -> None:
+        """clean_dist must propagate OSError from unlink/rmtree without swallowing errors."""
+        dist_dir = self.ws / "dist"
+        dist_dir.mkdir(parents=True, exist_ok=True)
+        bad_file = dist_dir / "locked.whl"
+        bad_file.write_text("locked", encoding="utf-8")
+
+        with patch.object(Path, "unlink", side_effect=PermissionError("denied file")):
+            with self.assertRaises(PermissionError):
+                clean_dist(self.ws, dry_run=False)
+        self.assertTrue(bad_file.is_file())
+
+        bad_file.unlink()
+        bad_dir = dist_dir / "locked_dir"
+        bad_dir.mkdir()
+        with patch("harness.commands.clean.shutil.rmtree", side_effect=PermissionError("denied dir")):
+            with self.assertRaises(PermissionError):
+                clean_dist(self.ws, dry_run=False)
+        self.assertTrue(bad_dir.is_dir())
+
 
 
 class TestCleanCLI(unittest.TestCase):
@@ -314,6 +404,139 @@ class TestCleanCLI(unittest.TestCase):
         self.assertEqual(data["scratch"]["count"], 1)
         self.assertEqual(list(art_dir.glob("compaction_checkpoint_*.md")), [latest_cp])
         self.assertFalse(recent_scratch.exists())
+
+    def test_cli_clean_default_and_all_do_not_touch_dist(self) -> None:
+        """agyis clean and agyis clean --all must leave dist/ untouched unless --dist is passed."""
+        dist_dir = self.ws / "dist"
+        dist_dir.mkdir(parents=True, exist_ok=True)
+        (dist_dir / ".gitignore").write_text("*\n!.gitignore\n", encoding="utf-8")
+        wheel = dist_dir / "pkg-1.0.0.whl"
+        wheel.write_text("wheel", encoding="utf-8")
+        tarball = dist_dir / "pkg-1.0.0.tar.gz"
+        tarball.write_text("tar", encoding="utf-8")
+
+        with patch("pathlib.Path.home", return_value=self.ws):
+            with patch("sys.stdout", new_callable=io.StringIO) as out_default:
+                ret_default = cli_main(["clean", "--workspace", str(self.ws)])
+                self.assertEqual(ret_default, 0)
+                self.assertNotIn("Dist:", out_default.getvalue())
+            self.assertTrue(wheel.is_file())
+            self.assertTrue(tarball.is_file())
+
+            with patch("sys.stdout", new_callable=io.StringIO) as out_all:
+                ret_all = cli_main(["clean", "--all", "--workspace", str(self.ws), "--json"])
+                self.assertEqual(ret_all, 0)
+                data = json.loads(out_all.getvalue())
+                self.assertEqual(data["dist"]["count"], 0)
+                self.assertEqual(data["dist"]["pruned"], [])
+            self.assertTrue(wheel.is_file())
+            self.assertTrue(tarball.is_file())
+
+    def test_cli_clean_dist_dry_run_and_real(self) -> None:
+        """agyis clean --dist cleans dist/ (preserving .git*) without touching other categories."""
+        art_dir = self.ws / ".agents" / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(7):
+            (art_dir / f"compaction_checkpoint_{800 + i}.md").write_text(f"epoch {i}\n", encoding="utf-8")
+
+        dist_dir = self.ws / "dist"
+        dist_dir.mkdir(parents=True, exist_ok=True)
+        gitignore = dist_dir / ".gitignore"
+        gitignore.write_text("*\n!.gitignore\n", encoding="utf-8")
+        wheel = dist_dir / "pkg-1.0.0.whl"
+        wheel.write_text("wheel", encoding="utf-8")
+        build_sub = dist_dir / "build_tmp"
+        build_sub.mkdir()
+        (build_sub / "temp.bin").write_text("bin", encoding="utf-8")
+
+        # 1. Dry run + JSON
+        with patch("sys.stdout", new_callable=io.StringIO) as out_dry:
+            t0 = time.perf_counter()
+            ret_dry = cli_main(["clean", "--dist", "--dry-run", "--workspace", str(self.ws), "--json"])
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            self.assertEqual(ret_dry, 0)
+            self.assertLess(elapsed_ms, 200.0)
+            data_dry = json.loads(out_dry.getvalue())
+            self.assertTrue(data_dry["dry_run"])
+            self.assertEqual(data_dry["dist"]["count"], 2)
+            self.assertEqual(data_dry["total_pruned"], 2)
+            self.assertEqual(data_dry["checkpoints"]["count"], 0)
+        self.assertTrue(wheel.is_file())
+        self.assertTrue(build_sub.is_dir())
+
+        # 2. Real run + JSON
+        with patch("sys.stdout", new_callable=io.StringIO) as out_real:
+            t1 = time.perf_counter()
+            ret_real = cli_main(["clean", "--dist", "--workspace", str(self.ws), "--json"])
+            elapsed_real_ms = (time.perf_counter() - t1) * 1000.0
+            self.assertEqual(ret_real, 0)
+            self.assertLess(elapsed_real_ms, 200.0)
+            data_real = json.loads(out_real.getvalue())
+            self.assertFalse(data_real["dry_run"])
+            self.assertEqual(data_real["dist"]["count"], 2)
+            self.assertEqual(data_real["total_pruned"], 2)
+        self.assertFalse(wheel.exists())
+        self.assertFalse(build_sub.exists())
+        self.assertTrue(gitignore.is_file())
+        # Checkpoints must remain untouched when only --dist was requested
+        self.assertEqual(len(list(art_dir.glob("compaction_checkpoint_*.md"))), 7)
+
+        # 3. Human output verification on fresh dist artifact
+        extra_artifact = dist_dir / "pkg-2.0.0.tar.gz"
+        extra_artifact.write_text("tar2", encoding="utf-8")
+        with patch("sys.stdout", new_callable=io.StringIO) as out_human:
+            ret_human = cli_main(["clean", "--dist", "--workspace", str(self.ws)])
+            self.assertEqual(ret_human, 0)
+            human_text = out_human.getvalue()
+            self.assertIn("Dist:", human_text)
+            self.assertIn("1 build artifacts removed", human_text)
+            self.assertIn("pkg-2.0.0.tar.gz", human_text)
+            self.assertNotIn("Checkpoints:", human_text)
+        self.assertFalse(extra_artifact.exists())
+        self.assertTrue(gitignore.is_file())
+
+    def test_cli_clean_dist_symlink_and_error_exit_code(self) -> None:
+        """agyis clean --dist ignores symlinked dist/ and exits 1 with explicit error on OSError."""
+        outside_dir = self.ws / "outside_dist"
+        outside_dir.mkdir()
+        keep_file = outside_dir / "keep.whl"
+        keep_file.write_text("keep", encoding="utf-8")
+        dist_link = self.ws / "dist"
+        dist_link.symlink_to(outside_dir, target_is_directory=True)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as out_sym:
+            ret_sym = cli_main(["clean", "--dist", "--workspace", str(self.ws), "--json"])
+            self.assertEqual(ret_sym, 0)
+            data_sym = json.loads(out_sym.getvalue())
+            self.assertEqual(data_sym["dist"]["count"], 0)
+        self.assertTrue(keep_file.is_file())
+        self.assertTrue(dist_link.is_symlink())
+
+        # Replace symlink with real dist/ containing an unremovable file
+        dist_link.unlink()
+        dist_link.mkdir()
+        locked_file = dist_link / "locked.whl"
+        locked_file.write_text("locked", encoding="utf-8")
+
+        with patch.object(Path, "unlink", side_effect=PermissionError("Permission denied")):
+            with (
+                patch("sys.stdout", new_callable=io.StringIO) as out_err_human,
+                patch("sys.stderr", new_callable=io.StringIO) as err_human,
+            ):
+                ret_err_human = cli_main(["clean", "--dist", "--workspace", str(self.ws)])
+                self.assertEqual(ret_err_human, 1)
+                self.assertIn("Failed to clean dist/", err_human.getvalue())
+                self.assertIn("Permission denied", err_human.getvalue())
+                self.assertNotIn("✔ Completed", out_err_human.getvalue())
+
+            with patch("sys.stdout", new_callable=io.StringIO) as out_err_json:
+                ret_err_json = cli_main(["clean", "--dist", "--workspace", str(self.ws), "--json"])
+                self.assertEqual(ret_err_json, 1)
+                data_err = json.loads(out_err_json.getvalue())
+                self.assertEqual(data_err["status"], "error")
+                self.assertIn("Permission denied", data_err["error"])
+                self.assertEqual(data_err["dist"]["count"], 0)
+        self.assertTrue(locked_file.is_file())
 
 
 if __name__ == "__main__":

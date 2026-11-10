@@ -152,8 +152,27 @@ def inspect_git_state(workspace_dir: Union[Path, str]) -> GitState:
     )
 
 
+def resolve_checkpoint_retention(retention_limit: Optional[int] = None) -> int:
+    """
+    Resolves the historical checkpoint retention limit from an explicit value or
+    AGYIS_CHECKPOINT_RETENTION (defaulting to 5 on missing/invalid values and
+    clamping negative values to 0).
+    """
+    if retention_limit is None:
+        raw: Any = os.environ.get("AGYIS_CHECKPOINT_RETENTION", "5")
+    else:
+        raw = retention_limit
+    try:
+        resolved = int(raw)
+    except (TypeError, ValueError):
+        resolved = 5
+    return max(0, resolved)
+
+
 def prune_stale_checkpoints(
-    artifacts_dir: Union[Path, str], retention_limit: Optional[int] = None
+    artifacts_dir: Union[Path, str],
+    retention_limit: Optional[int] = None,
+    dry_run: bool = False,
 ) -> List[Path]:
     """
     Discovers all compaction_checkpoint_*.md files in artifacts_dir, excluding
@@ -163,21 +182,16 @@ def prune_stale_checkpoints(
     Args:
         artifacts_dir: Directory containing compaction checkpoints.
         retention_limit: Number of historical checkpoints to retain (default: 5 or AGYIS_CHECKPOINT_RETENTION).
+        dry_run: When True, return candidate stale checkpoint Paths without unlinking them.
 
     Returns:
-        List of unlinked / pruned checkpoint Paths.
+        List of unlinked / pruned checkpoint Paths (or candidate stale Paths when dry_run=True).
     """
     art_dir = Path(artifacts_dir)
     if not art_dir.is_dir():
         return []
 
-    if retention_limit is None:
-        try:
-            retention_limit = int(os.environ.get("AGYIS_CHECKPOINT_RETENTION", "5"))
-        except ValueError:
-            retention_limit = 5
-    if retention_limit < 0:
-        retention_limit = 0
+    retention_limit = resolve_checkpoint_retention(retention_limit)
 
     checkpoint_pattern = re.compile(r"^compaction_checkpoint_(\d+)\.md$")
     candidates: List[Tuple[float, Path]] = []
@@ -204,6 +218,9 @@ def prune_stale_checkpoints(
     pruned: List[Path] = []
     to_prune = candidates[retention_limit:]
     for _, file_path in to_prune:
+        if dry_run:
+            pruned.append(file_path)
+            continue
         try:
             file_path.unlink()
             pruned.append(file_path)

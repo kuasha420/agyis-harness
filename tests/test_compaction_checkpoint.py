@@ -33,6 +33,7 @@ from harness.delivery import (
     inspect_git_state,
     parse_implementation_plan,
     prune_stale_checkpoints,
+    resolve_checkpoint_retention,
 )
 
 
@@ -54,6 +55,8 @@ class TestCompactionCheckpoint(unittest.TestCase):
         self.assertTrue(callable(parse_implementation_plan))
         self.assertTrue(callable(generate_compaction_checkpoint))
         self.assertTrue(callable(assemble_compaction_checkpoint))
+        self.assertTrue(callable(prune_stale_checkpoints))
+        self.assertTrue(callable(resolve_checkpoint_retention))
 
     def test_parse_plan_with_explicit_path(self) -> None:
         """Parse implementation plan by providing an explicit plan path."""
@@ -504,6 +507,57 @@ class TestCompactionCheckpoint(unittest.TestCase):
             else:
                 os.environ.pop("AGYIS_CHECKPOINT_RETENTION", None)
 
+    def test_prune_stale_checkpoints_dry_run(self) -> None:
+        """Verify prune_stale_checkpoints(dry_run=True) returns candidates without deleting files."""
+        art_dir = self.ws / ".agents" / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+
+        for epoch in range(200, 206):
+            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        latest = art_dir / "compaction_checkpoint_latest.md"
+        latest.write_text("Latest content\n", encoding="utf-8")
+
+        candidates = prune_stale_checkpoints(art_dir, retention_limit=3, dry_run=True)
+        self.assertEqual(
+            {p.name for p in candidates},
+            {
+                "compaction_checkpoint_200.md",
+                "compaction_checkpoint_201.md",
+                "compaction_checkpoint_202.md",
+            },
+        )
+        # All files including latest must still exist on disk
+        for p in candidates:
+            self.assertTrue(p.is_file())
+        self.assertTrue(latest.is_file())
+        self.assertEqual(len(list(art_dir.glob("compaction_checkpoint_*.md"))), 7)
+
+    def test_resolve_checkpoint_retention_and_negative_clamping(self) -> None:
+        """Verify resolve_checkpoint_retention and negative retention clamping in prune_stale_checkpoints."""
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(resolve_checkpoint_retention(None), 5)
+            self.assertEqual(resolve_checkpoint_retention(-3), 0)
+            self.assertEqual(resolve_checkpoint_retention(0), 0)
+            self.assertEqual(resolve_checkpoint_retention(7), 7)
+
+        with patch.dict(os.environ, {"AGYIS_CHECKPOINT_RETENTION": "3"}, clear=True):
+            self.assertEqual(resolve_checkpoint_retention(None), 3)
+        with patch.dict(os.environ, {"AGYIS_CHECKPOINT_RETENTION": "-4"}, clear=True):
+            self.assertEqual(resolve_checkpoint_retention(None), 0)
+        with patch.dict(os.environ, {"AGYIS_CHECKPOINT_RETENTION": "invalid"}, clear=True):
+            self.assertEqual(resolve_checkpoint_retention(None), 5)
+
+        art_dir = self.ws / ".agents" / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+        for epoch in range(300, 304):
+            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        latest = art_dir / "compaction_checkpoint_latest.md"
+        latest.write_text("Latest\n", encoding="utf-8")
+
+        pruned = prune_stale_checkpoints(art_dir, retention_limit=-3)
+        self.assertEqual(len(pruned), 4)
+        self.assertEqual(list(art_dir.glob("compaction_checkpoint_*.md")), [latest])
+
     def test_generate_compaction_checkpoint_auto_rotation(self) -> None:
         """Verify automatic checkpoint pruning during generate_compaction_checkpoint."""
         art_dir = self.ws / ".agents" / "artifacts"
@@ -675,6 +729,280 @@ class TestCheckpointCLI(unittest.TestCase):
 
         self.assertEqual(ret, 0)
         self.assertLess(elapsed_ms, 250.0, f"CLI latency {elapsed_ms:.2f}ms exceeds sub-second benchmark")
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_create_alias_human(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        ret = cli_main(["checkpoint", "create", "--workspace", str(self.ws)])
+        self.assertEqual(ret, 0)
+        out = mock_stdout.getvalue()
+        self.assertIn("✔ Compaction Checkpoint Generated", out)
+        self.assertTrue((self.ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md").is_file())
+
+    def test_cli_checkpoint_create_alias_json_pre_and_post_flags(self) -> None:
+        from harness.cli import main as cli_main
+
+        with patch("sys.stdout", new_callable=io.StringIO) as out_post:
+            ret_post = cli_main(["checkpoint", "create", "--workspace", str(self.ws), "--json"])
+            self.assertEqual(ret_post, 0)
+            data_post = json.loads(out_post.getvalue())
+            self.assertEqual(data_post["status"], "ok")
+            self.assertTrue(Path(data_post["latest_path"]).is_file())
+
+        with patch("sys.stdout", new_callable=io.StringIO) as out_pre:
+            ret_pre = cli_main(["checkpoint", "--workspace", str(self.ws), "--json", "create"])
+            self.assertEqual(ret_pre, 0)
+            data_pre = json.loads(out_pre.getvalue())
+            self.assertEqual(data_pre["status"], "ok")
+            self.assertTrue(Path(data_pre["latest_path"]).is_file())
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_prune_dry_run_json(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        art_dir = self.ws / ".agents" / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+        for epoch in range(500, 507):
+            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        latest = art_dir / "compaction_checkpoint_latest.md"
+        latest.write_text("Latest\n", encoding="utf-8")
+
+        ret = cli_main(
+            [
+                "checkpoint",
+                "prune",
+                "--retention",
+                "3",
+                "--dry-run",
+                "--workspace",
+                str(self.ws),
+                "--json",
+            ]
+        )
+        self.assertEqual(ret, 0)
+        data = json.loads(mock_stdout.getvalue())
+        self.assertEqual(data["status"], "ok")
+        self.assertTrue(data["dry_run"])
+        self.assertEqual(Path(data["artifacts_dir"]), art_dir.resolve())
+        self.assertEqual(data["retention_limit"], 3)
+        self.assertEqual(data["pruned_count"], 4)
+        self.assertEqual(len(data["pruned"]), 4)
+        self.assertEqual(
+            {Path(p).name for p in data["pruned"]},
+            {
+                "compaction_checkpoint_500.md",
+                "compaction_checkpoint_501.md",
+                "compaction_checkpoint_502.md",
+                "compaction_checkpoint_503.md",
+            },
+        )
+        # Dry run must preserve all 7 historical files + latest
+        self.assertEqual(len(list(art_dir.glob("compaction_checkpoint_*.md"))), 8)
+        self.assertTrue(latest.is_file())
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_prune_keep_alias_pre_flags_json(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        art_dir = self.ws / ".agents" / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+        for epoch in range(600, 606):
+            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        latest = art_dir / "compaction_checkpoint_latest.md"
+        latest.write_text("Latest\n", encoding="utf-8")
+
+        ret = cli_main(
+            [
+                "checkpoint",
+                "--workspace",
+                str(self.ws),
+                "--json",
+                "prune",
+                "--keep",
+                "2",
+            ]
+        )
+        self.assertEqual(ret, 0)
+        data = json.loads(mock_stdout.getvalue())
+        self.assertEqual(data["status"], "ok")
+        self.assertFalse(data["dry_run"])
+        self.assertEqual(data["retention_limit"], 2)
+        self.assertEqual(data["pruned_count"], 4)
+        remaining = {p.name for p in art_dir.glob("compaction_checkpoint_*.md")}
+        self.assertEqual(
+            remaining,
+            {
+                "compaction_checkpoint_latest.md",
+                "compaction_checkpoint_604.md",
+                "compaction_checkpoint_605.md",
+            },
+        )
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_prune_human_output(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        art_dir = self.ws / ".agents" / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+        for epoch in range(700, 707):
+            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        latest = art_dir / "compaction_checkpoint_latest.md"
+        latest.write_text("Latest\n", encoding="utf-8")
+
+        env_copy = os.environ.copy()
+        env_copy.pop("AGYIS_CHECKPOINT_RETENTION", None)
+        with patch.dict(os.environ, env_copy, clear=True):
+            ret = cli_main(["checkpoint", "prune", "--workspace", str(self.ws)])
+        self.assertEqual(ret, 0)
+        out = mock_stdout.getvalue()
+        self.assertIn("✔ Checkpoint Prune: Pruned 2 stale checkpoint(s)", out)
+        self.assertIn("retained top 5", out)
+        self.assertIn("compaction_checkpoint_700.md", out)
+        self.assertIn("compaction_checkpoint_701.md", out)
+        self.assertTrue(latest.is_file())
+        self.assertEqual(len(list(art_dir.glob("compaction_checkpoint_*.md"))), 6)
+
+    def test_cli_checkpoint_prune_negative_retention_clamping(self) -> None:
+        from harness.cli import main as cli_main
+
+        art_dir = self.ws / ".agents" / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+        for epoch in range(800, 803):
+            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        latest = art_dir / "compaction_checkpoint_latest.md"
+        latest.write_text("Latest\n", encoding="utf-8")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as out_neg_ret:
+            ret = cli_main(
+                ["checkpoint", "prune", "--retention", "-3", "--dry-run", "--workspace", str(self.ws), "--json"]
+            )
+            self.assertEqual(ret, 0)
+            data_dry = json.loads(out_neg_ret.getvalue())
+            self.assertEqual(data_dry["retention_limit"], 0)
+            self.assertEqual(data_dry["pruned_count"], 3)
+        self.assertEqual(len(list(art_dir.glob("compaction_checkpoint_*.md"))), 4)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as out_neg_keep:
+            ret = cli_main(
+                ["checkpoint", "prune", "--keep", "-1", "--workspace", str(self.ws), "--json"]
+            )
+            self.assertEqual(ret, 0)
+            data_real = json.loads(out_neg_keep.getvalue())
+            self.assertEqual(data_real["retention_limit"], 0)
+            self.assertEqual(data_real["pruned_count"], 3)
+        self.assertEqual(list(art_dir.glob("compaction_checkpoint_*.md")), [latest])
+
+    @patch("sys.stdout", new_callable=io.StringIO)
+    def test_cli_checkpoint_prune_env_var_override(self, mock_stdout: Any) -> None:
+        from harness.cli import main as cli_main
+
+        art_dir = self.ws / ".agents" / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+        for epoch in range(900, 906):
+            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        latest = art_dir / "compaction_checkpoint_latest.md"
+        latest.write_text("Latest\n", encoding="utf-8")
+
+        with patch.dict(os.environ, {"AGYIS_CHECKPOINT_RETENTION": "2"}):
+            ret = cli_main(["checkpoint", "prune", "--workspace", str(self.ws), "--json"])
+        self.assertEqual(ret, 0)
+        data = json.loads(mock_stdout.getvalue())
+        self.assertEqual(data["retention_limit"], 2)
+        self.assertEqual(data["pruned_count"], 4)
+        self.assertEqual(
+            {p.name for p in art_dir.glob("compaction_checkpoint_*.md")},
+            {
+                "compaction_checkpoint_latest.md",
+                "compaction_checkpoint_904.md",
+                "compaction_checkpoint_905.md",
+            },
+        )
+
+    def test_cli_pre_subcommand_flags_create_verify_status(self) -> None:
+        """Verify parent-parser flags placed before create/verify/status are never clobbered."""
+        from harness.cli import main as cli_main
+
+        custom_plan = self.ws / "docs" / "pre_plan.md"
+        custom_plan.parent.mkdir(parents=True, exist_ok=True)
+        custom_plan.write_text(
+            "# Pre-Subcommand Plan\n\n"
+            "### Phase 1: Seal\n"
+            "- [ ] Finish Track 5\n",
+            encoding="utf-8",
+        )
+        custom_out = self.ws / "custom_reports" / "cp_pre.md"
+        brain_dir = self.ws / "custom_brain"
+        logs_dir = brain_dir / "sess-pre-1" / ".system_generated" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        (logs_dir / "transcript.jsonl").write_text(
+            json.dumps({"role": "user", "content": "You are agyis_reviewer."}) + "\n",
+            encoding="utf-8",
+        )
+
+        # 1. Pre-subcommand flags on `create`
+        with patch("sys.stdout", new_callable=io.StringIO) as out_create:
+            ret_create = cli_main(
+                [
+                    "checkpoint",
+                    "--workspace",
+                    str(self.ws),
+                    "--plan",
+                    str(custom_plan),
+                    "--out",
+                    str(custom_out),
+                    "--role",
+                    "custom_pre_role",
+                    "--trigger-tokens",
+                    "185000",
+                    "--brain-dir",
+                    str(brain_dir),
+                    "--json",
+                    "create",
+                ]
+            )
+            self.assertEqual(ret_create, 0)
+            data_create = json.loads(out_create.getvalue())
+            self.assertEqual(Path(data_create["output_path"]), custom_out)
+        content = custom_out.read_text(encoding="utf-8")
+        self.assertIn("Pre-Subcommand Plan", content)
+        self.assertIn("custom_pre_role", content)
+        self.assertIn("185,000", content)
+        self.assertIn("sess-pre-1", content)
+
+        # 2. Pre-subcommand flags on `verify`
+        latest = self.ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
+        latest.parent.mkdir(parents=True, exist_ok=True)
+        latest.write_text("checkpoint\n", encoding="utf-8")
+        aged = time.time() - (45 * 60.0)
+        os.utime(latest, (aged, aged))
+
+        with patch("sys.stdout", new_callable=io.StringIO) as out_ver_stale:
+            ret_ver_stale = cli_main(
+                ["checkpoint", "--workspace", str(self.ws), "--max-age-mins", "30", "--json", "verify"]
+            )
+            self.assertEqual(ret_ver_stale, 1)
+            data_ver_stale = json.loads(out_ver_stale.getvalue())
+            self.assertEqual(data_ver_stale["status"], "stale")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as out_ver_ok:
+            ret_ver_ok = cli_main(
+                ["checkpoint", "--workspace", str(self.ws), "--max-age-mins", "60", "--json", "verify"]
+            )
+            self.assertEqual(ret_ver_ok, 0)
+            data_ver_ok = json.loads(out_ver_ok.getvalue())
+            self.assertEqual(data_ver_ok["status"], "ok")
+
+        # 3. Pre-subcommand flags on `status`
+        with patch("sys.stdout", new_callable=io.StringIO) as out_status:
+            ret_status = cli_main(
+                ["checkpoint", "--workspace", str(self.ws), "--trigger-tokens", "123456", "--json", "status"]
+            )
+            self.assertEqual(ret_status, 0)
+            data_status = json.loads(out_status.getvalue())
+            self.assertEqual(data_status["tokens"]["trigger_threshold"], 123456)
+            self.assertTrue(data_status["checkpoint"]["present"])
+
 
 
 class TestPreInvocationHookCompaction(unittest.TestCase):

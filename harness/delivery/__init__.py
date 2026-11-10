@@ -120,6 +120,7 @@ from harness.delivery.compaction_checkpoint import (
     inspect_git_state,
     parse_implementation_plan,
     prune_stale_checkpoints,
+    resolve_checkpoint_retention,
 )
 
 purge_build_caches = purge_workspace_build_caches
@@ -220,4 +221,5 @@ __all__ = [
     "generate_compaction_checkpoint",
     "assemble_compaction_checkpoint",
     "prune_stale_checkpoints",
+    "resolve_checkpoint_retention",
 ]

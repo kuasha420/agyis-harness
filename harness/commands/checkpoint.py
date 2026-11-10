@@ -20,6 +20,8 @@ from harness.delivery import (
     collect_active_subagents,
     generate_compaction_checkpoint,
     inspect_git_state,
+    prune_stale_checkpoints,
+    resolve_checkpoint_retention,
 )
 from harness.utils.context import (
     get_active_brain_dir,
@@ -30,16 +32,17 @@ from harness.utils.context import (
 def cmd_checkpoint(args: argparse.Namespace) -> int:
     """
     Handles `agyis checkpoint` subcommands:
-    - generate (default): Assembles and writes pre-compaction checkpoint artifact.
+    - generate / create (default): Assembles and writes pre-compaction checkpoint artifact.
     - verify: Asserts latest checkpoint presence and freshness within --max-age-mins.
     - status: Reports token proximity, active subagents, git dirty status, and latest checkpoint.
+    - prune: Prunes stale historical compaction checkpoints while preserving latest.
     """
     action = getattr(args, "checkpoint_action", None) or "generate"
     ws_val = getattr(args, "workspace", None)
     workspace = Path(ws_val).resolve() if ws_val else Path.cwd().resolve()
     is_json = bool(getattr(args, "json", False))
 
-    if action == "generate":
+    if action in ("generate", "create"):
         plan_path = getattr(args, "plan", None)
         out_path = getattr(args, "out", None)
         role = getattr(args, "role", None) or os.environ.get("AGYIS_ROLE", "agyis_coordinator")
@@ -225,6 +228,43 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
                     " Latest Checkpoint: None found (.agents/artifacts/compaction_checkpoint_latest.md)"
                 )
             print("=" * 60)
+        return 0
+
+    elif action == "prune":
+        art_dir = workspace / ".agents" / "artifacts"
+        raw_retention = getattr(args, "retention", None)
+        resolved_retention = resolve_checkpoint_retention(raw_retention)
+
+        dry_run = bool(getattr(args, "dry_run", False))
+        pruned = prune_stale_checkpoints(
+            art_dir,
+            retention_limit=resolved_retention,
+            dry_run=dry_run,
+        )
+
+        if is_json:
+            print(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "dry_run": dry_run,
+                        "artifacts_dir": str(art_dir),
+                        "retention_limit": resolved_retention,
+                        "pruned": [str(p) for p in pruned],
+                        "pruned_count": len(pruned),
+                    }
+                )
+            )
+        else:
+            mode_prefix = "[DRY-RUN] " if dry_run else ""
+            action_word = "Would prune" if dry_run else "Pruned"
+            print(
+                f"✔ {mode_prefix}Checkpoint Prune: {action_word} {len(pruned)} stale checkpoint(s) "
+                f"(retained top {resolved_retention})"
+            )
+            print(f"  Artifacts:  {art_dir}")
+            for p in pruned:
+                print(f"  - {p.name}")
         return 0
 
     return 0
