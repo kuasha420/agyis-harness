@@ -591,5 +591,279 @@ class TestSubagentLivenessScopingAndTTL(unittest.TestCase):
         self.assertEqual(args.session, "conv-test-123")
 
 
+class TestSubagentCompletedState(unittest.TestCase):
+    """Hermetic unit tests for COMPLETED state classification and Cockpit Invariant 5 scoping."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.workspace = self.root / "workspace"
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        self.brain = self.root / "brain"
+        self.brain.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _write_transcript(self, session_id: str, entries: list[dict], age_seconds: float) -> Path:
+        log_dir = self.brain / session_id / ".system_generated" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        t_path = log_dir / "transcript.jsonl"
+        t_path.write_text("\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8")
+        mtime = time.time() - age_seconds
+        os.utime(t_path, (mtime, mtime))
+        os.utime(self.brain / session_id, (mtime, mtime))
+        return t_path
+
+    def test_completed_transcript_tail_vs_crashed_and_midflight_tails(self) -> None:
+        """Finished PLANNER_RESPONSE+DONE without tool_calls -> COMPLETED; crashed/midflight -> STALE/DEAD."""
+        # 1. Clean completion (even with old mtime > 1800s and empty tool_calls list)
+        self._write_transcript(
+            "sess-done-01",
+            [
+                {"conversation_id": "sess-done-01", "role": "agyis_builder"},
+                {"type": "PLANNER_RESPONSE", "status": "DONE", "tool_calls": []},
+            ],
+            age_seconds=3600,
+        )
+        # 2. Mid-flight PLANNER_RESPONSE with pending tool_calls -> DEAD
+        self._write_transcript(
+            "sess-pending-tc-02",
+            [
+                {"conversation_id": "sess-pending-tc-02", "role": "agyis_builder"},
+                {"type": "PLANNER_RESPONSE", "status": "DONE", "tool_calls": [{"name": "run_command"}]},
+            ],
+            age_seconds=3600,
+        )
+        # 3. Mid-flight PLANNER_RESPONSE with camelCase toolCalls -> STALE
+        self._write_transcript(
+            "sess-pending-camel-03",
+            [
+                {"conversation_id": "sess-pending-camel-03", "role": "agyis_reviewer"},
+                {"type": "PLANNER_RESPONSE", "status": "DONE", "toolCalls": [{"name": "view_file"}]},
+            ],
+            age_seconds=600,
+        )
+        # 4. Crashed GENERIC ERROR -> DEAD
+        self._write_transcript(
+            "sess-gen-err-04",
+            [
+                {"conversation_id": "sess-gen-err-04", "role": "agyis_investigator"},
+                {"type": "GENERIC", "status": "ERROR"},
+            ],
+            age_seconds=3600,
+        )
+        # 5. Mid-loop GENERIC DONE -> STALE
+        self._write_transcript(
+            "sess-gen-done-05",
+            [
+                {"conversation_id": "sess-gen-done-05", "role": "agyis_custodian"},
+                {"type": "GENERIC", "status": "DONE"},
+            ],
+            age_seconds=600,
+        )
+        # 6. SYSTEM_MESSAGE tail -> DEAD
+        self._write_transcript(
+            "sess-sys-msg-06",
+            [
+                {"conversation_id": "sess-sys-msg-06", "role": "agyis_auditor"},
+                {"type": "SYSTEM_MESSAGE", "status": "DONE"},
+            ],
+            age_seconds=3600,
+        )
+
+        statuses = probe_subagent_liveness(workspace_dir=self.workspace, brain_dir=self.brain)
+        by_id = {s.conversation_id: s for s in statuses}
+
+        self.assertEqual(by_id["sess-done-01"].liveness_state, "COMPLETED")
+        self.assertFalse(by_id["sess-done-01"].is_parked)
+        self.assertEqual(by_id["sess-pending-tc-02"].liveness_state, "DEAD")
+        self.assertEqual(by_id["sess-pending-camel-03"].liveness_state, "STALE")
+        self.assertEqual(by_id["sess-gen-err-04"].liveness_state, "DEAD")
+        self.assertEqual(by_id["sess-gen-done-05"].liveness_state, "STALE")
+        self.assertEqual(by_id["sess-sys-msg-06"].liveness_state, "DEAD")
+
+    def test_progress_md_complete_marker_and_precedence_and_badge(self) -> None:
+        """progress.md Status: Complete -> COMPLETED; explicit PARKED > COMPLETED > global pause."""
+        tw = self.workspace / ".agents" / "teamwork"
+        (tw / "worker_done").mkdir(parents=True)
+        (tw / "worker_done" / "progress.md").write_text(
+            "- Status: Complete\n- Last visited: 2026-01-01T00:00:00Z\n",
+            encoding="utf-8",
+        )
+        (tw / "worker_explicit_parked").mkdir(parents=True)
+        (tw / "worker_explicit_parked" / "progress.md").write_text(
+            "- Status: Complete\nPARKED by operator\n- Last visited: 2026-01-01T00:00:00Z\n",
+            encoding="utf-8",
+        )
+        (tw / "worker_in_progress").mkdir(parents=True)
+        (tw / "worker_in_progress" / "progress.md").write_text(
+            "- Status: IN_PROGRESS\n- Last visited: 2026-01-01T00:00:00Z\n",
+            encoding="utf-8",
+        )
+
+        # Global pause gate should NOT override COMPLETED unless explicitly parked
+        art = self.workspace / ".agents" / "artifacts"
+        art.mkdir(parents=True, exist_ok=True)
+        (art / "pause_gate.json").write_text(json.dumps({"status": "paused"}), encoding="utf-8")
+
+        statuses = probe_subagent_liveness(workspace_dir=self.workspace, brain_dir=self.brain)
+        by_id = {s.conversation_id: s for s in statuses}
+
+        self.assertEqual(by_id["worker_done"].liveness_state, "COMPLETED")
+        self.assertFalse(by_id["worker_done"].is_parked)
+        self.assertEqual(by_id["worker_explicit_parked"].liveness_state, "PARKED")
+        self.assertTrue(by_id["worker_explicit_parked"].is_parked)
+        self.assertEqual(by_id["worker_in_progress"].liveness_state, "PARKED")
+
+        table = format_liveness_table([by_id["worker_done"]])
+        self.assertIn("✅ COMPLETED", table)
+
+    def test_cockpit_invariants_ignore_completed_and_active_conv_sessions(self) -> None:
+        """Cockpit Invariant 5 passes with COMPLETED >80-step brain sessions and fails on DEAD workers."""
+        cp_dir = self.workspace / ".agents" / "artifacts"
+        cp_dir.mkdir(parents=True, exist_ok=True)
+        (cp_dir / "compaction_checkpoint_latest.md").write_text("# Checkpoint", encoding="utf-8")
+
+        # Create active orchestrator session with >80 lines (RED_ALERT if not excluded)
+        active_id = "active-coord-999"
+        completed_id = "hist-completed-888"
+        active_lines = (
+            [{"conversation_id": active_id, "role": "agyis_coordinator"}]
+            + [
+                {
+                    "type": "MODEL",
+                    "tool_calls": [
+                        {"name": "invoke_subagent", "args": {"TypeName": "agyis_builder", "conversationId": completed_id}}
+                    ],
+                }
+            ]
+            + [{"type": "GENERIC", "content": f"turn {i}"} for i in range(90)]
+        )
+        self._write_transcript(active_id, active_lines, age_seconds=10)
+
+        # Create historical COMPLETED session <4h with >80 lines (RED_ALERT if not excluded)
+        comp_lines = [{"conversation_id": completed_id, "role": "agyis_builder"}] + [
+            {"type": "GENERIC", "content": f"step {i}"} for i in range(85)
+        ] + [{"type": "PLANNER_RESPONSE", "status": "DONE"}]
+        self._write_transcript(completed_id, comp_lines, age_seconds=300)
+
+        with patch.dict(
+            os.environ,
+            {
+                "ANTIGRAVITY_BRAIN_DIR": str(self.brain),
+                "ANTIGRAVITY_CONVERSATION_ID": active_id,
+            },
+        ):
+            _, results = _audit_flight_director_invariants(self.workspace, allow_dirty=False)
+            inv5 = next(r for r in results if r["invariant"] == "Subagent Cognitive Health")
+            self.assertTrue(inv5["passed"], f"Unexpected Invariant 5 failure: {inv5}")
+            self.assertIn("0 active subagents", inv5["details"])
+
+            # Adding a DEAD teamwork worker linked to active session still fails Invariant 5
+            dead_prog = self.workspace / ".agents" / "teamwork" / "dead_worker" / "progress.md"
+            dead_prog.parent.mkdir(parents=True, exist_ok=True)
+            dead_prog.write_text(
+                f"Parent: {active_id}\n- Last visited: 2026-01-01T00:00:00Z\n",
+                encoding="utf-8",
+            )
+            _, results_dead = _audit_flight_director_invariants(self.workspace, allow_dirty=False)
+            inv5_dead = next(r for r in results_dead if r["invariant"] == "Subagent Cognitive Health")
+            self.assertFalse(inv5_dead["passed"])
+            self.assertTrue(any("DEAD: dead_worker" in v for v in inv5_dead["violations"]))
+
+    def test_empty_and_malformed_trailing_transcripts_not_completed(self) -> None:
+        """0-byte empty transcripts and malformed trailing JSON lines must not classify as COMPLETED."""
+        # 1. 0-byte empty transcripts (aged >1800s -> DEAD; aged 600s -> STALE)
+        for sid, age in (
+            ("sess-empty-dead", 3600),
+            ("sess-empty-stale", 600),
+        ):
+            log_dir = self.brain / sid / ".system_generated" / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            t_path = log_dir / "transcript.jsonl"
+            t_path.write_text("", encoding="utf-8")
+            mtime = time.time() - age
+            os.utime(t_path, (mtime, mtime))
+            os.utime(self.brain / sid, (mtime, mtime))
+
+        # 2. Malformed trailing JSON line transcripts (aged >1800s -> DEAD; aged 600s -> STALE)
+        for sid, age, tail in (
+            ("sess-malformed-dead", 3600, "{truncated json"),
+            ("sess-malformed-stale", 600, '{"type": "PLANNER_RESPONSE", "status":'),
+        ):
+            log_dir = self.brain / sid / ".system_generated" / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            t_path = log_dir / "transcript.jsonl"
+            t_path.write_text(
+                json.dumps({"conversation_id": sid, "role": "agyis_builder"}) + "\n" + tail + "\n",
+                encoding="utf-8",
+            )
+            mtime = time.time() - age
+            os.utime(t_path, (mtime, mtime))
+            os.utime(self.brain / sid, (mtime, mtime))
+
+        statuses = probe_subagent_liveness(workspace_dir=self.workspace, brain_dir=self.brain)
+        by_id = {s.conversation_id: s for s in statuses}
+
+        self.assertEqual(by_id["sess-empty-dead"].liveness_state, "DEAD")
+        self.assertEqual(by_id["sess-empty-stale"].liveness_state, "STALE")
+        self.assertEqual(by_id["sess-malformed-dead"].liveness_state, "DEAD")
+        self.assertEqual(by_id["sess-malformed-stale"].liveness_state, "STALE")
+
+    def test_cockpit_invariants_exclude_stale_active_conv_from_dead_subagents(self) -> None:
+        """_audit_flight_director_invariants excludes active_conv even when >1800s old without PLANNER_RESPONSE+DONE."""
+        cp_dir = self.workspace / ".agents" / "artifacts"
+        cp_dir.mkdir(parents=True, exist_ok=True)
+        (cp_dir / "compaction_checkpoint_latest.md").write_text("# Checkpoint", encoding="utf-8")
+
+        active_id = "active-coord-stale-777"
+        self._write_transcript(
+            active_id,
+            [
+                {"conversation_id": active_id, "role": "agyis_coordinator"},
+                {"type": "GENERIC", "content": "long running parent without DONE tail"},
+            ],
+            age_seconds=3600,
+        )
+
+        # Confirm probe_subagent_liveness solo fallback classifies aged active_id as DEAD
+        solo_probe = probe_subagent_liveness(
+            workspace_dir=self.workspace,
+            brain_dir=self.brain,
+            conv_id=active_id,
+        )
+        self.assertEqual(len(solo_probe), 1)
+        self.assertEqual(solo_probe[0].conversation_id, active_id)
+        self.assertEqual(solo_probe[0].liveness_state, "DEAD")
+
+        with patch.dict(
+            os.environ,
+            {
+                "ANTIGRAVITY_BRAIN_DIR": str(self.brain),
+                "ANTIGRAVITY_CONVERSATION_ID": active_id,
+            },
+        ):
+            _, results = _audit_flight_director_invariants(self.workspace, allow_dirty=False)
+            inv5 = next(r for r in results if r["invariant"] == "Subagent Cognitive Health")
+            self.assertTrue(inv5["passed"], f"active_conv should be excluded from dead_subagents: {inv5}")
+            self.assertEqual(inv5["violations"], [])
+
+            # Adding an actual DEAD child/worker still fails Invariant 5 while excluding active_conv
+            dead_prog = self.workspace / ".agents" / "teamwork" / "dead_worker" / "progress.md"
+            dead_prog.parent.mkdir(parents=True, exist_ok=True)
+            dead_prog.write_text(
+                f"Parent: {active_id}\n- Last visited: 2026-01-01T00:00:00Z\n",
+                encoding="utf-8",
+            )
+            _, results_dead = _audit_flight_director_invariants(self.workspace, allow_dirty=False)
+            inv5_dead = next(r for r in results_dead if r["invariant"] == "Subagent Cognitive Health")
+            self.assertFalse(inv5_dead["passed"])
+            self.assertTrue(any("DEAD: dead_worker" in v for v in inv5_dead["violations"]))
+            self.assertFalse(any(active_id[:8] in v for v in inv5_dead["violations"]))
+
+
+
 if __name__ == "__main__":
     unittest.main()
+

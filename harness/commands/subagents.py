@@ -142,6 +142,8 @@ def format_liveness_table(statuses: List[Any]) -> str:
             badge = "🟡 STALE"
         elif st == "PARKED":
             badge = "⏸️ PARKED"
+        elif st == "COMPLETED":
+            badge = "✅ COMPLETED"
         elif st == "DEAD":
             badge = "🔴 DEAD"
         else:

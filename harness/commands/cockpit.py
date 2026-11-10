@@ -185,34 +185,67 @@ def _audit_flight_director_invariants(
     })
 
     # Invariant 5: Subagent health and continuity liveness & transition truth
-    subagents = collect_active_subagents(workspace)
+    active_conv = get_active_conversation_id()
+    brain_dir = get_active_brain_dir()
+    if active_conv and not (brain_dir / active_conv).is_dir():
+        active_conv = None
+
+    raw_subagents = collect_active_subagents(workspace)
+    from harness.subagents.liveness import is_conversation_completed, probe_subagent_liveness
+
+    subagents = []
+    for s in raw_subagents:
+        cid = getattr(s, "conversation_id", "")
+        if active_conv and cid == active_conv:
+            continue
+        if is_conversation_completed(cid, brain_dir=brain_dir):
+            continue
+        subagents.append(s)
+
     red_subagents = [s for s in subagents if getattr(s, "health_zone", "") == "RED_ALERT"]
 
     dead_subagents = []
     try:
-        from harness.subagents.liveness import probe_subagent_liveness
-        active_conv = get_active_conversation_id()
-        brain_dir = get_active_brain_dir()
-        if active_conv and not (brain_dir / active_conv).is_dir():
-            active_conv = None
         liveness_statuses = probe_subagent_liveness(workspace_dir=workspace, conv_id=active_conv)
-        dead_subagents = [s for s in liveness_statuses if s.liveness_state == "DEAD"]
+        dead_subagents = [
+            s for s in liveness_statuses
+            if s.liveness_state == "DEAD" and (not active_conv or s.conversation_id != active_conv)
+        ]
     except Exception:
         dead_subagents = []
 
     truth_violations: list[str] = []
     teamwork_dir = workspace / ".agents" / "teamwork"
-    has_subagents = len(subagents) > 0
-    if not has_subagents and teamwork_dir.is_dir():
+    has_teamwork_subagents = False
+    if teamwork_dir.is_dir():
         try:
             for child in teamwork_dir.iterdir():
                 if child.is_dir() and not child.name.startswith("."):
-                    has_subagents = True
-                    break
+                    if any(p.is_file() for p in child.rglob("*")):
+                        has_teamwork_subagents = True
+                        break
         except Exception:
             pass
 
-    if has_subagents:
+    if not has_teamwork_subagents:
+        transition_candidates = [
+            workspace / "psl_stage_transition_payload.json",
+            workspace / ".agents" / "artifacts" / "psl_stage_transition_payload.json",
+            teamwork_dir / "psl_stage_transition_payload.json",
+        ]
+        if any(c.is_file() for c in transition_candidates):
+            has_teamwork_subagents = True
+        else:
+            for search_dir in (workspace, workspace / ".agents" / "artifacts", teamwork_dir):
+                if search_dir.is_dir():
+                    try:
+                        if any(search_dir.glob("psl_stage_transition_*.json")):
+                            has_teamwork_subagents = True
+                            break
+                    except Exception:
+                        pass
+
+    if has_teamwork_subagents:
         try:
             from harness.subagents.truth import validate_transition_payload_truth
             allow_synth = bool(os.environ.get("AGYIS_SYNTHETIC_TEST") == "1")

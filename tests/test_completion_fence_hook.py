@@ -22,6 +22,7 @@ import io
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import time
 import unittest
@@ -1990,7 +1991,110 @@ class TestGate2AuditorFence(unittest.TestCase):
             self.assertEqual(res.get("decision"), "allow")
 
 
+class TestCompletionFenceDecomposition(unittest.TestCase):
+    """Verifies decomposed completion_fence_hook facade compatibility and AFF health."""
+
+    def test_all_48_exports_match_submodules(self):
+        from harness.discovery import detect_project_test_runner, get_git_modified_files
+        from harness.hooks import fence_classifiers, fence_gates, fence_state, fence_tasks
+        from harness.utils.state import get_state_dir
+        from harness.utils.workspace import is_harness_workspace
+
+        self.assertEqual(len(completion_fence_hook.__all__), 48)
+        self.assertEqual(len(set(completion_fence_hook.__all__)), 48)
+
+        submodules = (fence_classifiers, fence_state, fence_tasks, fence_gates)
+        utilities = {
+            "get_state_dir": get_state_dir,
+            "detect_project_test_runner": detect_project_test_runner,
+            "get_git_modified_files": get_git_modified_files,
+            "is_harness_workspace": is_harness_workspace,
+        }
+
+        for name in completion_fence_hook.__all__:
+            self.assertTrue(hasattr(completion_fence_hook, name), f"Missing export: {name}")
+            facade_obj = getattr(completion_fence_hook, name)
+            if name == "main":
+                self.assertTrue(callable(facade_obj))
+            elif name in utilities:
+                self.assertIs(facade_obj, utilities[name])
+            else:
+                matches = [getattr(mod, name) for mod in submodules if hasattr(mod, name)]
+                self.assertTrue(matches, f"{name} not found in decomposed submodules")
+                self.assertIs(facade_obj, matches[0], f"{name} identity mismatch")
+
+    def test_get_state_dir_monkeypatch_propagates_to_load_save_and_main(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            patched_dir = Path(tmp) / "patched_state"
+            conv_id = "monkeypatch-compat-01"
+            with patch("harness.hooks.completion_fence_hook.get_state_dir", return_value=patched_dir):
+                save_state({"conversation_id": conv_id, "code_dirty": True, "turn_mutated": True, "last_modified_files": ["a.py"]}, conv_id=conv_id)
+                loaded = load_state(conv_id=conv_id)
+                self.assertTrue(loaded["code_dirty"])
+                self.assertTrue((patched_dir / f"verification_state_{conv_id}.json").is_file())
+
+                payload = {
+                    "hookEvent": "PreToolUse",
+                    "conversationId": conv_id,
+                    "toolCall": {
+                        "name": "write_to_file",
+                        "args": {"TargetFile": "src/new_file.py"},
+                    },
+                }
+                buf = io.StringIO()
+                with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+                    completion_fence_hook.main()
+                out = json.loads(buf.getvalue().strip())
+                self.assertEqual(out["decision"], "allow")
+                reloaded = load_state(conv_id=conv_id)
+                self.assertIn("src/new_file.py", reloaded["last_modified_files"])
+
+    def test_direct_fence_state_get_state_dir_monkeypatch_with_facade_loaded(self):
+        self.assertIn("harness.hooks.completion_fence_hook", sys.modules)
+        with tempfile.TemporaryDirectory() as tmp:
+            patched_dir = Path(tmp) / "direct_fence_state"
+            conv_id = "direct-fence-state-patch-01"
+            with patch("harness.hooks.fence_state.get_state_dir", return_value=patched_dir):
+                save_state(
+                    {
+                        "conversation_id": conv_id,
+                        "code_dirty": True,
+                        "turn_mutated": True,
+                        "last_modified_files": ["direct.py"],
+                    },
+                    conv_id=conv_id,
+                )
+                loaded = load_state(conv_id=conv_id)
+                self.assertTrue(loaded["code_dirty"])
+                self.assertTrue((patched_dir / f"verification_state_{conv_id}.json").is_file())
+
+                payload = {
+                    "hookEvent": "PreToolUse",
+                    "conversationId": conv_id,
+                    "toolCall": {
+                        "name": "write_to_file",
+                        "args": {"TargetFile": "src/direct_new.py"},
+                    },
+                }
+                buf = io.StringIO()
+                with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", buf):
+                    completion_fence_hook.main()
+                out = json.loads(buf.getvalue().strip())
+                self.assertEqual(out["decision"], "allow")
+                reloaded = load_state(conv_id=conv_id)
+                self.assertIn("src/direct_new.py", reloaded["last_modified_files"])
+
+    def test_architectural_fitness_passes_after_decomposition(self):
+        from harness.runtime.aff import audit_architectural_fitness
+
+        repo_root = Path(__file__).resolve().parent.parent
+        report = audit_architectural_fitness(workspace_root=repo_root)
+        self.assertEqual(report.status, "PASS", f"AFF defects: cycles={report.cycle_defects}, smells={report.smell_defects}, boundaries={report.boundary_defects}")
+        self.assertEqual(report.score, 100.0)
+
+
 if __name__ == "__main__":
     unittest.main()
+
 
 

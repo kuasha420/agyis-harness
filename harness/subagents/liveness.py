@@ -34,7 +34,7 @@ class SubagentLivenessStatus:
     role: str
     last_heartbeat_iso: Optional[str]
     heartbeat_age_seconds: float
-    liveness_state: str  # "ACTIVE" | "STALE" | "PARKED" | "DEAD"
+    liveness_state: str  # "ACTIVE" | "STALE" | "PARKED" | "COMPLETED" | "DEAD"
     progress_file: Optional[str]
     is_parked: bool
 
@@ -56,6 +56,63 @@ def _format_epoch_to_iso(epoch: float) -> str:
     """Format UNIX epoch seconds to ISO8601 UTC string."""
     dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
     return dt.isoformat().replace("+00:00", "Z")
+
+
+def _is_transcript_completed(t_path: Path) -> bool:
+    """
+    O(1) tail reader (last 64KB) checking if the final non-empty JSONL object
+    in transcript.jsonl is a completed PLANNER_RESPONSE without pending tool calls.
+    """
+    if not t_path.is_file():
+        return False
+    try:
+        with open(t_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            file_size = f.tell()
+            if file_size == 0:
+                return False
+            f.seek(max(0, file_size - 65536), os.SEEK_SET)
+            chunk = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+
+    last_line = ""
+    for raw_line in reversed(chunk.splitlines()):
+        stripped = raw_line.strip()
+        if stripped:
+            last_line = stripped
+            break
+    if not last_line:
+        return False
+
+    try:
+        obj = json.loads(last_line)
+    except (json.JSONDecodeError, ValueError):
+        return False
+
+    if not isinstance(obj, dict):
+        return False
+    if obj.get("type") != "PLANNER_RESPONSE" or obj.get("status") != "DONE":
+        return False
+    if obj.get("tool_calls") or obj.get("toolCalls"):
+        return False
+    return True
+
+
+def is_conversation_completed(conv_id: str, brain_dir: Optional[Path] = None) -> bool:
+    """Checks in <1ms whether a conversation transcript ended cleanly in brain_dir."""
+    if not conv_id or not str(conv_id).strip():
+        return False
+    b_dir = get_active_brain_dir(brain_dir)
+    conv_dir = b_dir / str(conv_id).strip()
+    if not conv_dir.is_dir():
+        return False
+    t_path = conv_dir / ".system_generated" / "logs" / "transcript.jsonl"
+    if not t_path.is_file():
+        t_path = conv_dir / "transcript.jsonl"
+    if not t_path.is_file():
+        return False
+    return _is_transcript_completed(t_path)
 
 
 def _is_globally_parked(workspace: Path) -> Tuple[bool, Set[str]]:
@@ -147,6 +204,28 @@ def _discover_active_session_subagents(b_dir: Path, active_conv_id: str) -> Set[
     return child_ids
 
 
+def _classify_liveness_state(
+    is_explicit_parked: bool,
+    is_completed: bool,
+    is_paused_global: bool,
+    age_seconds: float,
+    stale_threshold: int,
+    dead_threshold: int,
+) -> str:
+    """Applies canonical precedence: explicit PARKED -> COMPLETED -> global PARKED -> ACTIVE -> STALE -> DEAD."""
+    if is_explicit_parked:
+        return "PARKED"
+    if is_completed:
+        return "COMPLETED"
+    if is_paused_global:
+        return "PARKED"
+    if age_seconds <= stale_threshold:
+        return "ACTIVE"
+    if age_seconds <= dead_threshold:
+        return "STALE"
+    return "DEAD"
+
+
 def probe_subagent_liveness(
     workspace_dir: Optional[Path] = None,
     brain_dir: Optional[Path] = None,
@@ -160,6 +239,7 @@ def probe_subagent_liveness(
 
     State Classifications:
     - PARKED: Explicitly marked parked in PARKED_STATE.md, pause_gate.json, or progress file.
+    - COMPLETED: Cleanly finished transcript tail or progress completion status.
     - ACTIVE: Heartbeat age <= stale_threshold (default 300s).
     - STALE: stale_threshold < Heartbeat age <= dead_threshold (default 1800s).
     - DEAD: Heartbeat age > dead_threshold or missing.
@@ -186,7 +266,7 @@ def probe_subagent_liveness(
         active_child_tokens = _discover_active_session_subagents(b_dir, active_conv_id)
 
     teamwork_dir = ws / ".agents" / "teamwork"
-    teamwork_map: Dict[str, Tuple[float, str, Optional[str], bool]] = {}
+    teamwork_map: Dict[str, Tuple[float, str, Optional[str], bool, bool]] = {}
 
     if teamwork_dir.is_dir():
         try:
@@ -201,12 +281,23 @@ def probe_subagent_liveness(
                 iso_str: Optional[str] = None
                 epoch = mtime
                 is_file_parked = False
+                is_file_completed = False
                 file_content = ""
 
                 try:
                     file_content = prog_file.read_text(encoding="utf-8", errors="replace")
                     if "PARKED" in file_content or "status: parked" in file_content.lower():
                         is_file_parked = True
+                    has_in_progress = bool(
+                        re.search(r"^\s*[-*]?\s*Status:\s*IN[_ ]PROGRESS\b", file_content, re.I | re.M)
+                    )
+                    if not is_file_parked and not has_in_progress:
+                        if re.search(
+                            r"^\s*[-*]?\s*Status:\s*(?:Complete|Completed|Done)\b",
+                            file_content,
+                            re.I | re.M,
+                        ):
+                            is_file_completed = True
                     m_visit = re.search(r"Last visited:\s*([0-9T:\-\+Z\.]+)", file_content)
                     if m_visit:
                         parsed_epoch = _parse_iso_to_epoch(m_visit.group(1).strip())
@@ -239,7 +330,8 @@ def probe_subagent_liveness(
                     epoch,
                     iso_str,
                     str(prog_file),
-                    is_file_parked or is_paused_global or (agent_folder.name in parked_tokens),
+                    is_file_parked or (agent_folder.name in parked_tokens),
+                    is_file_completed,
                 )
         except Exception:
             pass
@@ -318,11 +410,12 @@ def probe_subagent_liveness(
                     continue
 
             prog_path: Optional[str] = None
-            is_subagent_parked = is_paused_global or (conv_id_str in parked_tokens) or (role in parked_tokens)
+            is_explicit_parked = (conv_id_str in parked_tokens) or (role in parked_tokens)
+            is_tw_completed = False
 
             # Link with teamwork directory if matching
             matched_key = None
-            for tw_key, (tw_epoch, tw_iso, tw_path, tw_parked) in teamwork_map.items():
+            for tw_key, (tw_epoch, tw_iso, tw_path, tw_parked, tw_completed) in teamwork_map.items():
                 if tw_key in conv_id_str or conv_id_str in tw_key or tw_key.lower() in role.lower():
                     matched_key = tw_key
                     if tw_epoch > last_timestamp:
@@ -330,7 +423,9 @@ def probe_subagent_liveness(
                         iso_timestamp = tw_iso
                     prog_path = tw_path
                     if tw_parked:
-                        is_subagent_parked = True
+                        is_explicit_parked = True
+                    if tw_completed:
+                        is_tw_completed = True
                     break
 
             if matched_key:
@@ -340,15 +435,15 @@ def probe_subagent_liveness(
                 iso_timestamp = _format_epoch_to_iso(last_timestamp)
 
             age_seconds = max(0.0, round(now - last_timestamp, 1))
-
-            if is_subagent_parked:
-                state = "PARKED"
-            elif age_seconds <= stale_threshold:
-                state = "ACTIVE"
-            elif age_seconds <= dead_threshold:
-                state = "STALE"
-            else:
-                state = "DEAD"
+            is_completed = _is_transcript_completed(t_path) or is_tw_completed
+            state = _classify_liveness_state(
+                is_explicit_parked=is_explicit_parked,
+                is_completed=is_completed,
+                is_paused_global=is_paused_global,
+                age_seconds=age_seconds,
+                stale_threshold=stale_threshold,
+                dead_threshold=dead_threshold,
+            )
 
             seen_ids.add(conv_id_str)
             seen_ids.add(item.name)
@@ -360,12 +455,12 @@ def probe_subagent_liveness(
                     heartbeat_age_seconds=age_seconds,
                     liveness_state=state,
                     progress_file=prog_path,
-                    is_parked=is_subagent_parked,
+                    is_parked=(state == "PARKED"),
                 )
             )
 
     # Any remaining teamwork progress files not attached to a brain transcript
-    for tw_name, (tw_epoch, tw_iso, tw_path, tw_parked) in teamwork_map.items():
+    for tw_name, (tw_epoch, tw_iso, tw_path, tw_parked, tw_completed) in teamwork_map.items():
         if tw_name in seen_ids:
             continue
         age_seconds = max(0.0, round(now - tw_epoch, 1))
@@ -388,16 +483,15 @@ def probe_subagent_liveness(
             if age_seconds > dead_threshold:
                 continue
 
-        is_subagent_parked = tw_parked or is_paused_global or (tw_name in parked_tokens)
-
-        if is_subagent_parked:
-            state = "PARKED"
-        elif age_seconds <= stale_threshold:
-            state = "ACTIVE"
-        elif age_seconds <= dead_threshold:
-            state = "STALE"
-        else:
-            state = "DEAD"
+        is_explicit_parked = tw_parked or (tw_name in parked_tokens)
+        state = _classify_liveness_state(
+            is_explicit_parked=is_explicit_parked,
+            is_completed=tw_completed,
+            is_paused_global=is_paused_global,
+            age_seconds=age_seconds,
+            stale_threshold=stale_threshold,
+            dead_threshold=dead_threshold,
+        )
 
         seen_ids.add(tw_name)
         statuses.append(
@@ -408,7 +502,7 @@ def probe_subagent_liveness(
                 heartbeat_age_seconds=age_seconds,
                 liveness_state=state,
                 progress_file=tw_path,
-                is_parked=is_subagent_parked,
+                is_parked=(state == "PARKED"),
             )
         )
 
@@ -442,10 +536,13 @@ def probe_subagent_liveness(
                 except Exception:
                     pass
                 age_seconds = max(0.0, round(now - last_timestamp, 1))
-                state = "PARKED" if (active_conv_id in parked_tokens or is_paused_global) else (
-                    "ACTIVE" if age_seconds <= stale_threshold else (
-                        "STALE" if age_seconds <= dead_threshold else "DEAD"
-                    )
+                state = _classify_liveness_state(
+                    is_explicit_parked=(active_conv_id in parked_tokens),
+                    is_completed=_is_transcript_completed(t_path),
+                    is_paused_global=is_paused_global,
+                    age_seconds=age_seconds,
+                    stale_threshold=stale_threshold,
+                    dead_threshold=dead_threshold,
                 )
                 statuses.append(
                     SubagentLivenessStatus(
@@ -455,7 +552,7 @@ def probe_subagent_liveness(
                         heartbeat_age_seconds=age_seconds,
                         liveness_state=state,
                         progress_file=None,
-                        is_parked=is_paused_global or (active_conv_id in parked_tokens),
+                        is_parked=(state == "PARKED"),
                     )
                 )
                 break
