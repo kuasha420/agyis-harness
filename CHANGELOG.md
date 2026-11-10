@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Features & Architecture
+- feat(context): propagate dynamic maxContextTokens and fix hud.js epoch boundaries
+- feat(cli): align checkpoint create/prune subcommands and add opt-in clean --dist
+- feat(release): harden release-notes and add native Keep-a-Changelog engine
 - feat(mcp): Resilient schema key normalization & aliasing in MCP gateway bridge (#103)
 - feat(hooks): Transparent scratch promotion, 250-char threshold, and run_command argument sanitization (#101, #102, #104)
 - feat(telemetry): systemd daemon health inspection in doctor and exponential jitter gateway backoff (#55)
@@ -69,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(re): add native disasm and xrefs subcommands to agyis re
 
 ### Bug Fixes & Hardening
+- fix(quality-gates): decompose completion fence, harden liveness/cockpit, and clean ledger
 - fix(gui): Trajectory HUD model fallbacks, multi-schema tokens, system previews, and syntax-highlighted JSON (#105)
 - fix(gui): resolve double keydown cancelation on F12 and eliminate unbounded subagent pre-bundling slowness
 - fix(telemetry): guard unique index deduplication in schema and use WAL connection factory in extractor
@@ -79,6 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(hygiene): exclude .dirtyroom from node script hygiene audit and git tracking
 - fix(upstream): remediate 24kb skill truncation, rule frontmatter validation, and cdp gui devtools
 - fix(re): support legacy class_name/demangled_name schema and integer addresses in cmd_find
+
+### Maintenance & Release
+- build(release): harden release CI workflow, packaging assets, and uv lockfile
 
 ---
 
