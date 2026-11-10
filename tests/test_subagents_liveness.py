@@ -811,6 +811,42 @@ class TestSubagentCompletedState(unittest.TestCase):
         self.assertEqual(by_id["sess-malformed-dead"].liveness_state, "DEAD")
         self.assertEqual(by_id["sess-malformed-stale"].liveness_state, "STALE")
 
+    def test_transcript_completed_with_trailing_ephemeral_or_system_message(self) -> None:
+        """Trailing ephemeral messages or system termination notices must classify as COMPLETED."""
+        # 1. Trailing EPHEMERAL_MESSAGE after PLANNER_RESPONSE
+        ephem_id = "sess-trailing-ephemeral"
+        self._write_transcript(
+            ephem_id,
+            [
+                {"conversation_id": ephem_id, "role": "agyis_builder"},
+                {"type": "PLANNER_RESPONSE", "status": "DONE", "content": "All tasks finished."},
+                {"type": "EPHEMERAL_MESSAGE", "content": "[AGYIS TOKEN GAUGE: ~258k / 512k]"},
+            ],
+            age_seconds=3600,
+        )
+
+        # 2. Trailing SYSTEM_MESSAGE with RESOURCE_EXHAUSTED / stopped
+        sys_id = "sess-trailing-system-exhausted"
+        self._write_transcript(
+            sys_id,
+            [
+                {"conversation_id": sys_id, "role": "agyis_coordinator"},
+                {"type": "PLANNER_RESPONSE", "status": "DONE", "content": "Awaiting reactive wakeup."},
+                {"type": "EPHEMERAL_MESSAGE", "content": "[AGYIS TOKEN GAUGE: ~260k / 512k]"},
+                {
+                    "type": "SYSTEM_MESSAGE",
+                    "content": "RESOURCE_EXHAUSTED (code 429): Individual quota reached.",
+                },
+            ],
+            age_seconds=3600,
+        )
+
+        statuses = probe_subagent_liveness(workspace_dir=self.workspace, brain_dir=self.brain)
+        by_id = {s.conversation_id: s for s in statuses}
+
+        self.assertEqual(by_id[ephem_id].liveness_state, "COMPLETED")
+        self.assertEqual(by_id[sys_id].liveness_state, "COMPLETED")
+
     def test_cockpit_invariants_exclude_stale_active_conv_from_dead_subagents(self) -> None:
         """_audit_flight_director_invariants excludes active_conv even when >1800s old without PLANNER_RESPONSE+DONE."""
         cp_dir = self.workspace / ".agents" / "artifacts"

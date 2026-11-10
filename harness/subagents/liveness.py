@@ -76,27 +76,30 @@ def _is_transcript_completed(t_path: Path) -> bool:
     except OSError:
         return False
 
-    last_line = ""
     for raw_line in reversed(chunk.splitlines()):
         stripped = raw_line.strip()
-        if stripped:
-            last_line = stripped
-            break
-    if not last_line:
+        if not stripped:
+            continue
+        try:
+            obj = json.loads(stripped)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(obj, dict):
+            continue
+        obj_type = obj.get("type")
+        if obj_type == "EPHEMERAL_MESSAGE":
+            continue
+        if obj_type == "SYSTEM_MESSAGE":
+            content_str = str(obj.get("content") or "")
+            if any(k in content_str for k in ("RESOURCE_EXHAUSTED", "stopped", "killed", "failed", "execution error")):
+                return True
+            continue
+        if obj_type == "PLANNER_RESPONSE":
+            if obj.get("status") == "DONE" and not (obj.get("tool_calls") or obj.get("toolCalls")):
+                return True
+            return False
         return False
-
-    try:
-        obj = json.loads(last_line)
-    except (json.JSONDecodeError, ValueError):
-        return False
-
-    if not isinstance(obj, dict):
-        return False
-    if obj.get("type") != "PLANNER_RESPONSE" or obj.get("status") != "DONE":
-        return False
-    if obj.get("tool_calls") or obj.get("toolCalls"):
-        return False
-    return True
+    return False
 
 
 def is_conversation_completed(conv_id: str, brain_dir: Optional[Path] = None) -> bool:
