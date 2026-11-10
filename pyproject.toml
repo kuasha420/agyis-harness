@@ -53,5 +53,23 @@ psl = "harness.cli:deprecated_psl_main"
 agyis-doctor = "harness.runtime.doctor:main"
 psl-doctor = "harness.runtime.doctor:deprecated_psl_doctor_main"
 
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "harness",
+    "assets",
+    "plugin.json",
+    "GLOBAL_AGENTS.md",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["harness"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"plugin.json" = "harness/plugin.json"
+"assets/logo.svg" = "harness/assets/logo.svg"
+"GLOBAL_AGENTS.md" = "harness/GLOBAL_AGENTS.md"

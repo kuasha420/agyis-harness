@@ -21,10 +21,15 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
+import tarfile
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
+import zipfile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -200,9 +205,11 @@ class TestFrozenWheelPackaging(unittest.TestCase):
         self.assertTrue(self.target_dir.is_dir())
 
         # Expected packaged contents
+        self.assertIn("assets", result.items_installed)
         self.assertTrue((self.target_dir / "harness" / "__init__.py").exists())
         self.assertTrue((self.target_dir / "dist" / fake_wheel.name).exists())
         self.assertTrue((self.target_dir / "plugin.json").exists())
+        self.assertTrue((self.target_dir / "assets" / "logo.svg").is_file())
         self.assertTrue((self.target_dir / "matrix.json").exists())
         self.assertTrue((self.target_dir / "hooks.json").exists())
         self.assertTrue((self.target_dir / "skills").is_dir())
@@ -226,6 +233,242 @@ class TestFrozenWheelPackaging(unittest.TestCase):
         self.assertTrue(uninst.success)
         self.assertEqual(uninst.mode, "wheel")
         self.assertFalse(self.target_dir.exists())
+
+    def test_pyproject_packaging_config_matches_manifest(self) -> None:
+        """pyproject.toml pins explicit sdist only-include and wheel force-include mappings (ADR-014)."""
+        pyproject_data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertEqual(pyproject_data["project"]["version"], "1.0.0-rc9")
+
+        sdist_only_include = pyproject_data["tool"]["hatch"]["build"]["targets"]["sdist"]["only-include"]
+        for expected in (
+            "harness",
+            "assets",
+            "plugin.json",
+            "GLOBAL_AGENTS.md",
+            "pyproject.toml",
+            "README.md",
+            "LICENSE",
+            "NOTICE",
+            "CHANGELOG.md",
+        ):
+            self.assertIn(expected, sdist_only_include)
+        for excluded in (".agents", "pipeline", "tests", "data", "scratch"):
+            self.assertNotIn(excluded, sdist_only_include)
+
+        wheel_cfg = pyproject_data["tool"]["hatch"]["build"]["targets"]["wheel"]
+        self.assertEqual(wheel_cfg["packages"], ["harness"])
+        self.assertEqual(
+            wheel_cfg["force-include"],
+            {
+                "plugin.json": "harness/plugin.json",
+                "assets/logo.svg": "harness/assets/logo.svg",
+                "GLOBAL_AGENTS.md": "harness/GLOBAL_AGENTS.md",
+            },
+        )
+
+    def test_hatchling_sdist_and_wheel_completeness_and_importlib_resources(self) -> None:
+        """Hatchling SdistBuilder -> WheelBuilder includes all tracked harness/ files, plugin.json, assets/logo.svg, zero .agents/."""
+        tracked_harness = set(
+            subprocess.check_output(
+                ["git", "ls-files", "harness/"],
+                cwd=REPO_ROOT,
+                text=True,
+            ).splitlines()
+        )
+        self.assertGreater(len(tracked_harness), 150)
+
+        build_and_verify_script = r"""
+import importlib.resources as ir
+import subprocess
+import sys
+import tarfile
+import tempfile
+import zipfile
+from pathlib import Path
+from hatchling.builders.sdist import SdistBuilder
+from hatchling.builders.wheel import WheelBuilder
+
+repo = Path(sys.argv[1])
+tracked = set(
+    subprocess.check_output(["git", "ls-files", "harness/"], cwd=repo, text=True).splitlines()
+)
+agent_mds = {p for p in tracked if p.startswith("harness/agents/") and p.endswith(".md")}
+assert len(agent_mds) == 8, sorted(agent_mds)
+
+with tempfile.TemporaryDirectory() as tmp:
+    out = Path(tmp) / "out"
+    out.mkdir()
+    sdist_path = Path(next(SdistBuilder(str(repo)).build(directory=str(out))))
+    sdist_extract = Path(tmp) / "sdist_src"
+    sdist_extract.mkdir()
+    with tarfile.open(sdist_path, "r:gz") as tf:
+        tf.extractall(sdist_extract, filter="data")
+        sdist_names = {m.name.split("/", 1)[1] for m in tf.getmembers() if m.isfile() and "/" in m.name}
+
+    sdist_root = next(sdist_extract.iterdir())
+    whl_path = Path(next(WheelBuilder(str(sdist_root)).build(directory=str(out))))
+    whl_extract = Path(tmp) / "whl_site"
+    whl_extract.mkdir()
+    with zipfile.ZipFile(whl_path) as zf:
+        whl_names = set(zf.namelist())
+        zf.extractall(whl_extract)
+
+    missing_sdist = sorted(tracked - sdist_names)
+    missing_whl = sorted(tracked - whl_names)
+    assert not missing_sdist, f"Sdist missing tracked harness/ files: {missing_sdist}"
+    assert not missing_whl, f"Wheel missing tracked harness/ files: {missing_whl}"
+    assert "harness/plugin.json" in whl_names
+    assert "harness/assets/logo.svg" in whl_names
+    assert "harness/GLOBAL_AGENTS.md" in whl_names
+    assert "plugin.json" in sdist_names
+    assert "assets/logo.svg" in sdist_names
+    assert "GLOBAL_AGENTS.md" in sdist_names
+    for label, names in (("wheel", whl_names), ("sdist", sdist_names)):
+        leaks = [n for n in names if n.startswith(".agents/") or "/.agents/" in n]
+        assert not leaks, f"{label} leaked .agents/: {leaks}"
+
+    empty_cwd = Path(tmp) / "empty"
+    empty_cwd.mkdir()
+    base_py = getattr(sys, "_base_executable", sys.executable)
+    check = (
+        "import importlib.resources as ir, sys; "
+        "from pathlib import Path; "
+        "import harness; "
+        "from harness.agents import resolve_agent_name; "
+        "repo_p = Path(sys.argv[1]).resolve(); "
+        "site_p = Path(sys.argv[2]).resolve(); "
+        "assert not any(Path(p).resolve() == repo_p for p in sys.path if p), sys.path; "
+        "assert Path(harness.__file__).resolve().is_relative_to(site_p), harness.__file__; "
+        "assert resolve_agent_name('builder') == 'agyis_builder'; "
+        "assert (ir.files('harness.gui.assets') / 'hud.js').is_file(); "
+        "assert (ir.files('harness.hooks') / 'hooks.json').is_file(); "
+        "assert (ir.files('harness.runtime') / 'matrix.json').is_file(); "
+        "assert (ir.files('harness.agents') / 'agyis_builder.md').is_file(); "
+        "assert (ir.files('harness.skills') / 'cockpit-director' / 'SKILL.md').is_file(); "
+        "assert (ir.files('harness.skills') / 'subagent-router' / 'SKILL.md').is_file(); "
+        "assert (ir.files('harness.skills') / 'subagent-ladder' / 'SKILL.md').is_file(); "
+        "assert (ir.files('harness') / 'plugin.json').is_file(); "
+        "assert (ir.files('harness') / 'assets' / 'logo.svg').is_file(); "
+        "assert (ir.files('harness.assets') / 'logo.svg').is_file(); "
+        "assert (ir.files('harness') / 'GLOBAL_AGENTS.md').is_file(); "
+        "print('HATCHLING_WHEEL_OK')"
+    )
+    subprocess.run(
+        [base_py, "-c", check, str(repo), str(whl_extract)],
+        cwd=empty_cwd,
+        env={"PATH": "", "PYTHONPATH": str(whl_extract)},
+        check=True,
+    )
+"""
+        try:
+            import hatchling  # noqa: F401
+            cmd = [sys.executable, "-c", build_and_verify_script, str(REPO_ROOT)]
+        except ImportError:
+            uv_bin = shutil.which("uv")
+            if not uv_bin:
+                self.skipTest("hatchling is not installed and uv binary is unavailable")
+            cmd = [
+                uv_bin,
+                "run",
+                "--no-project",
+                "--isolated",
+                "--offline",
+                "--with",
+                "hatchling",
+                "python3",
+                "-c",
+                build_and_verify_script,
+                str(REPO_ROOT),
+            ]
+
+        proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+        if proc.returncode != 0 and "No cached" in proc.stderr:
+            self.skipTest(f"hatchling not cached for offline test execution: {proc.stderr.strip()}")
+        self.assertEqual(proc.returncode, 0, f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+        self.assertIn("HATCHLING_WHEEL_OK", proc.stdout)
+
+
+class TestReleaseWorkflowAndLockHygiene(unittest.TestCase):
+    """Contract assertions for .python-version pinning and hardened release.yml pipeline."""
+
+    def test_python_version_pinned_to_3_12(self) -> None:
+        """.python-version must pin 3.12 instead of unsupported 'system'."""
+        pv_path = REPO_ROOT / ".python-version"
+        self.assertTrue(pv_path.is_file(), f"Missing {pv_path}")
+        self.assertEqual(pv_path.read_text(encoding="utf-8").strip(), "3.12")
+
+    def test_release_workflow_hardened_contracts(self) -> None:
+        """.github/workflows/release.yml enforces lockfile hygiene, deterministic tag validation, gates, smoke test, and race-safe publish."""
+        wf_path = REPO_ROOT / ".github" / "workflows" / "release.yml"
+        self.assertTrue(wf_path.is_file(), f"Missing {wf_path}")
+        wf_text = wf_path.read_text(encoding="utf-8")
+
+        # Stale rc5 fallback must be completely eliminated
+        self.assertNotIn("v1.0.0-rc5", wf_text)
+
+        # Triggers, inputs, concurrency, checkout tags
+        self.assertIn("workflow_dispatch:", wf_text)
+        self.assertIn("type: string", wf_text)
+        self.assertIn("${{ github.workflow }}-${{ github.event.inputs.tag || github.ref }}", wf_text)
+        self.assertIn("fetch-tags: true", wf_text)
+
+        # Lockfile & frozen sync
+        self.assertIn("uv lock --check", wf_text)
+        self.assertIn("uv sync --frozen --extra dev", wf_text)
+
+        # Deterministic tag resolution + pyproject.toml validation + outputs
+        self.assertIn("id: meta", wf_text)
+        self.assertIn("tomllib", wf_text)
+        self.assertIn("pyproject.toml", wf_text)
+        self.assertIn("is_prerelease", wf_text)
+        self.assertIn("refs/tags/$TAG", wf_text)
+
+        # Pre-build CI verification gates
+        for gate in (
+            "uv run --frozen python3 -m harness.cli verify --spec",
+            "uv run --frozen python3 -m harness.cli verify",
+            "uv run --frozen python3 -m harness.cli rules --lint",
+            "uv run --frozen python3 -m harness.cli audit aff",
+            "uv run --frozen python3 -m harness.cli test",
+        ):
+            self.assertIn(gate, wf_text)
+
+        # Build & archive content verification
+        self.assertIn("uv build --clear", wf_text)
+        self.assertIn("WHL_FILES=(dist/agyis_harness-*.whl)", wf_text)
+        self.assertIn("SDIST_FILES=(dist/agyis_harness-*.tar.gz)", wf_text)
+        self.assertIn("sha256sum", wf_text)
+        for required_entry in (
+            "git ls-files",
+            "harness/gui/assets/hud.js",
+            "harness/hooks/hooks.json",
+            "harness/runtime/matrix.json",
+            "harness/agents/__init__.py",
+            "harness/skills/cockpit-director/SKILL.md",
+            "harness/skills/subagent-router/SKILL.md",
+            "harness/skills/subagent-ladder/SKILL.md",
+            "harness/rules/GLOBAL_AGENTS.md",
+            "harness/plugin.json",
+            "harness/assets/logo.svg",
+            ".agents/",
+        ):
+            self.assertIn(required_entry, wf_text)
+
+        # Isolated wheel smoke verification
+        self.assertIn("uv run --no-project --isolated --with \"$ABS_WHL\"", wf_text)
+        self.assertIn("importlib.resources", wf_text)
+        self.assertIn("agyis --version", wf_text)
+
+        # Release notes & race-safe GitHub release publish
+        self.assertIn('uv run --frozen python3 -m harness.cli release-notes --tag "$TAG" --output dist/RELEASE_NOTES.md', wf_text)
+        self.assertIn('gh release view "$TAG"', wf_text)
+        self.assertIn('gh release create "$TAG"', wf_text)
+        self.assertIn('gh release edit "$TAG"', wf_text)
+        self.assertIn("gh release upload", wf_text)
+        self.assertIn("--clobber", wf_text)
+        self.assertIn('--title "$TAG"', wf_text)
+        self.assertIn("--prerelease=false", wf_text)
+
 
 
 class TestSingleSourceRuleDeduplication(unittest.TestCase):

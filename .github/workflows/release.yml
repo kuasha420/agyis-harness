@@ -10,9 +10,14 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing git release tag to build and publish (defaults to HEAD/latest v* tag)'
+        required: false
+        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.inputs.tag || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -30,6 +35,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up Python 3.12 and uv
         uses: astral-sh/setup-uv@v5
@@ -37,57 +43,298 @@ jobs:
           python-version: "3.12"
           enable-cache: true
 
-      - name: Install dependencies
+      - name: Verify lockfile and install frozen dependencies
         run: |
-          uv sync --extra dev
+          set -euo pipefail
+          uv lock --check
+          uv sync --frozen --extra dev
 
-      - name: Execute hermetic test suite
+      - name: Resolve and validate release tag
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          uv run python3 -m harness.cli test
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ -n "${INPUT_TAG:-}" ]]; then
+              TAG="$INPUT_TAG"
+            else
+              TAG="$(git describe --tags --exact-match HEAD 2>/dev/null || git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+            fi
+          else
+            TAG="$REF_NAME"
+          fi
+
+          if [[ -z "$TAG" ]]; then
+            echo "::error::Failed to resolve release tag (no tag provided or reachable from HEAD)."
+            exit 1
+          fi
+
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-]?[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid release tag format '$TAG' (expected vMAJOR.MINOR.PATCH...)."
+            exit 1
+          fi
+
+          if ! git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
+            echo "::error::Tag '$TAG' does not exist in git refs/tags."
+            exit 1
+          fi
+
+          TAG="$TAG" uv run --frozen python3 - <<'PY'
+          import os
+          import re
+          import sys
+          import tomllib
+
+          tag = os.environ["TAG"].strip()
+          with open("pyproject.toml", "rb") as f:
+              pyproject_version = str(tomllib.load(f)["project"]["version"]).strip()
+
+          def normalize_pep440(raw: str) -> str:
+              cleaned = raw.strip()
+              if cleaned.startswith(("v", "V")):
+                  cleaned = cleaned[1:]
+              try:
+                  from packaging.version import Version
+                  return str(Version(cleaned))
+              except ImportError:
+                  s = cleaned.lower()
+                  s = re.sub(r"[._-]+(alpha|a)[._-]*", "a", s)
+                  s = re.sub(r"[._-]+(beta|b)[._-]*", "b", s)
+                  s = re.sub(r"[._-]+rc[._-]*", "rc", s)
+                  s = re.sub(r"[._-]+dev[._-]*", ".dev", s)
+                  return s
+
+          try:
+              from packaging.version import InvalidVersion, Version
+              Version(tag[1:])
+          except ImportError:
+              pass
+          except InvalidVersion as exc:
+              print(f"::error::Tag '{tag}' is not a valid PEP 440 version: {exc}", file=sys.stderr)
+              sys.exit(1)
+
+          norm_tag = normalize_pep440(tag)
+          norm_proj = normalize_pep440(pyproject_version)
+          if norm_tag != norm_proj:
+              print(
+                  f"::error::Tag '{tag}' (normalized '{norm_tag}') does not match "
+                  f"pyproject.toml [project].version '{pyproject_version}' (normalized '{norm_proj}').",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          is_pre = bool(re.search(r"(rc|alpha|beta|dev)", tag, re.IGNORECASE))
+          try:
+              from packaging.version import Version
+              v_obj = Version(tag[1:])
+              if v_obj.is_prerelease or v_obj.is_devrelease:
+                  is_pre = True
+          except ImportError:
+              pass
+
+          github_output = os.environ.get("GITHUB_OUTPUT")
+          if github_output:
+              with open(github_output, "a", encoding="utf-8") as out:
+                  out.write(f"tag={tag}\n")
+                  out.write(f"is_prerelease={'true' if is_pre else 'false'}\n")
+          print(f"Resolved tag={tag} (pyproject={pyproject_version}, is_prerelease={is_pre})")
+          PY
+
+      - name: Run pre-build CI verification gates
+        run: |
+          set -euo pipefail
+          uv run --frozen python3 -m harness.cli verify --spec
+          uv run --frozen python3 -m harness.cli verify
+          uv run --frozen python3 -m harness.cli rules --lint
+          uv run --frozen python3 -m harness.cli audit aff
+          uv run --frozen python3 -m harness.cli test
 
       - name: Build wheel and source distribution
         run: |
+          set -euo pipefail
           uv build --clear
 
-      - name: Verify build artifacts
+      - name: Verify build artifacts and archive completeness
         run: |
-          ls -lh dist/
-          test -f dist/agyis_harness-*.whl
-          test -f dist/agyis_harness-*.tar.gz
-          sha256sum dist/*
+          set -euo pipefail
+          shopt -s nullglob
+          WHL_FILES=(dist/agyis_harness-*.whl)
+          SDIST_FILES=(dist/agyis_harness-*.tar.gz)
+          if [[ ${#WHL_FILES[@]} -ne 1 ]]; then
+            echo "::error::Expected exactly 1 wheel in dist/, found ${#WHL_FILES[@]}"
+            exit 1
+          fi
+          if [[ ${#SDIST_FILES[@]} -ne 1 ]]; then
+            echo "::error::Expected exactly 1 sdist in dist/, found ${#SDIST_FILES[@]}"
+            exit 1
+          fi
+          WHL_PATH="${WHL_FILES[0]}"
+          SDIST_PATH="${SDIST_FILES[0]}"
+          test -f "$WHL_PATH"
+          test -f "$SDIST_PATH"
+          ls -lh "$WHL_PATH" "$SDIST_PATH"
+          sha256sum "$WHL_PATH" "$SDIST_PATH"
+
+          uv run --frozen python3 - "$WHL_PATH" "$SDIST_PATH" <<'PY'
+          import subprocess
+          import sys
+          import tarfile
+          import zipfile
+
+          whl_path, sdist_path = sys.argv[1], sys.argv[2]
+          tracked_harness = set(
+              subprocess.check_output(
+                  ["git", "ls-files", "harness/"], text=True
+              ).splitlines()
+          )
+          if not tracked_harness:
+              raise SystemExit("git ls-files harness/ returned empty set")
+
+          with zipfile.ZipFile(whl_path) as zf:
+              whl_names = set(zf.namelist())
+          with tarfile.open(sdist_path, "r:gz") as tf:
+              sdist_names = {
+                  m.name.split("/", 1)[1]
+                  for m in tf.getmembers()
+                  if m.isfile() and "/" in m.name
+              }
+
+          missing_whl = sorted(tracked_harness - whl_names)
+          missing_sdist = sorted(tracked_harness - sdist_names)
+          if missing_whl:
+              raise SystemExit(f"Wheel missing tracked harness/ files: {missing_whl}")
+          if missing_sdist:
+              raise SystemExit(f"Sdist missing tracked harness/ files: {missing_sdist}")
+
+          required_harness = {
+              "harness/gui/assets/hud.js",
+              "harness/hooks/hooks.json",
+              "harness/runtime/matrix.json",
+              "harness/agents/__init__.py",
+              "harness/skills/cockpit-director/SKILL.md",
+              "harness/skills/subagent-router/SKILL.md",
+              "harness/skills/subagent-ladder/SKILL.md",
+              "harness/rules/GLOBAL_AGENTS.md",
+          }
+          agent_mds = {
+              p for p in tracked_harness
+              if p.startswith("harness/agents/") and p.endswith(".md")
+          }
+          if len(agent_mds) != 8:
+              raise SystemExit(
+                  f"Expected 8 agent markdown files, got {len(agent_mds)}: {sorted(agent_mds)}"
+              )
+          required_harness |= agent_mds
+
+          for archive_label, names in (("wheel", whl_names), ("sdist", sdist_names)):
+              missing_req = sorted(required_harness - names)
+              if missing_req:
+                  raise SystemExit(f"{archive_label} missing required entries: {missing_req}")
+              leaked_agents_dir = sorted(
+                  n for n in names if n.startswith(".agents/") or "/.agents/" in n
+              )
+              if leaked_agents_dir:
+                  raise SystemExit(f"{archive_label} leaked .agents/ entries: {leaked_agents_dir}")
+
+          for req_whl in ("harness/plugin.json", "harness/assets/logo.svg", "harness/GLOBAL_AGENTS.md"):
+              if req_whl not in whl_names:
+                  raise SystemExit(f"Wheel missing required asset: {req_whl}")
+          for req_sdist in ("plugin.json", "assets/logo.svg", "GLOBAL_AGENTS.md"):
+              if req_sdist not in sdist_names:
+                  raise SystemExit(f"Sdist missing required asset: {req_sdist}")
+
+          print(
+              f"Archive verification passed: {len(tracked_harness)} tracked harness/ files "
+              f"({len(agent_mds)} agent markdown files), plugin.json, assets/logo.svg, zero .agents/ leaks."
+          )
+          PY
+
+      - name: Smoke-test installed wheel in isolated environment
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          WHL_FILES=(dist/agyis_harness-*.whl)
+          test "${#WHL_FILES[@]}" -eq 1
+          ABS_WHL="$(realpath "${WHL_FILES[0]}")"
+          TMP_SMOKE="$(mktemp -d)"
+          trap 'rm -rf "$TMP_SMOKE"' EXIT
+          cd "$TMP_SMOKE"
+          uv run --no-project --isolated --with "$ABS_WHL" python3 - <<'PY'
+          import importlib.resources as ir
+          from pathlib import Path
+          import harness
+          from harness.agents import resolve_agent_name
+
+          assert "site-packages" in str(Path(harness.__file__).resolve()), harness.__file__
+          assert resolve_agent_name("builder") == "agyis_builder"
+          assert (ir.files("harness.gui.assets") / "hud.js").is_file()
+          assert (ir.files("harness.hooks") / "hooks.json").is_file()
+          assert (ir.files("harness.runtime") / "matrix.json").is_file()
+          assert (ir.files("harness.agents") / "agyis_builder.md").is_file()
+          assert (ir.files("harness.skills") / "cockpit-director" / "SKILL.md").is_file()
+          assert (ir.files("harness.skills") / "subagent-router" / "SKILL.md").is_file()
+          assert (ir.files("harness.skills") / "subagent-ladder" / "SKILL.md").is_file()
+          assert (ir.files("harness") / "plugin.json").is_file()
+          assert (ir.files("harness") / "assets" / "logo.svg").is_file()
+          assert (ir.files("harness.assets") / "logo.svg").is_file()
+          print("Isolated wheel importlib.resources verification passed.")
+          PY
+          uv run --no-project --isolated --with "$ABS_WHL" agyis --version
 
       - name: Generate conventional release notes
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
         run: |
-          TAG="${{ github.ref_name }}"
-          if [[ "$TAG" == "main" || "$TAG" == "master" ]]; then
-            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0-rc5")
-          fi
+          set -euo pipefail
           echo "Generating release notes for $TAG..."
-          uv run python3 -m harness.cli release-notes --tag "$TAG" --output dist/RELEASE_NOTES.md
-          cat dist/RELEASE_NOTES.md
+          uv run --frozen python3 -m harness.cli release-notes --tag "$TAG" --output dist/RELEASE_NOTES.md
+          head -n 80 dist/RELEASE_NOTES.md
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.meta.outputs.is_prerelease }}
         run: |
-          TAG="${{ github.ref_name }}"
-          if [[ "$TAG" == "main" || "$TAG" == "master" ]]; then
-            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0-rc5")
+          set -euo pipefail
+          shopt -s nullglob
+          WHL_FILES=(dist/agyis_harness-*.whl)
+          SDIST_FILES=(dist/agyis_harness-*.tar.gz)
+          if [[ ${#WHL_FILES[@]} -ne 1 || ${#SDIST_FILES[@]} -ne 1 ]]; then
+            echo "::error::Expected exactly 1 wheel and 1 sdist in dist/"
+            exit 1
           fi
-          echo "Target release tag: $TAG"
-          PRERELEASE_FLAG=""
-          if [[ "$TAG" =~ (rc|alpha|beta|dev) ]]; then
+          ASSETS=("${WHL_FILES[0]}" "${SDIST_FILES[0]}")
+
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
             PRERELEASE_FLAG="--prerelease"
+          else
+            PRERELEASE_FLAG="--prerelease=false"
           fi
 
+          echo "Target release tag: $TAG (prerelease=$IS_PRERELEASE)"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; uploading artifacts and updating release notes..."
-            gh release upload "$TAG" dist/agyis_harness-*.whl dist/agyis_harness-*.tar.gz --clobber
-            gh release edit "$TAG" --notes-file dist/RELEASE_NOTES.md
+            echo "Release $TAG already exists; uploading artifacts and updating release metadata..."
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
+            gh release edit "$TAG" \
+              --title "$TAG" \
+              --notes-file dist/RELEASE_NOTES.md \
+              "$PRERELEASE_FLAG"
           else
             echo "Creating GitHub Release for $TAG ($PRERELEASE_FLAG)..."
-            gh release create "$TAG" dist/agyis_harness-*.whl dist/agyis_harness-*.tar.gz \
-              --title "${{ github.ref_name }}" \
+            if ! gh release create "$TAG" "${ASSETS[@]}" \
+              --title "$TAG" \
               --notes-file dist/RELEASE_NOTES.md \
-              $PRERELEASE_FLAG
+              "$PRERELEASE_FLAG"; then
+              echo "Release creation raced with an existing release for $TAG; verifying and updating..."
+              gh release view "$TAG" >/dev/null
+              gh release upload "$TAG" "${ASSETS[@]}" --clobber
+              gh release edit "$TAG" \
+                --title "$TAG" \
+                --notes-file dist/RELEASE_NOTES.md \
+                "$PRERELEASE_FLAG"
+            fi
           fi

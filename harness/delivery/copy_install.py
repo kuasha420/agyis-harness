@@ -29,6 +29,21 @@ def copy_distributable_tree(
         shutil.copy2(plugin_src, target / "plugin.json")
         installed_items.append("plugin.json")
 
+    # 1b. assets/
+    assets_src = find_distributable_item("assets")
+    if assets_src and assets_src.is_dir():
+        assets_dst = target / "assets"
+        if assets_dst.is_symlink():
+            assets_dst.unlink()
+        elif assets_dst.exists():
+            shutil.rmtree(assets_dst)
+        shutil.copytree(
+            assets_src,
+            assets_dst,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
+        installed_items.append("assets")
+
     # 2. harness/ package directory
     if not skip_harness_package:
         harness_src = source_dir / "harness"

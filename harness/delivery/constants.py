@@ -79,6 +79,7 @@ GIT_EXCLUDE_PATTERNS: tuple[str, ...] = (
 
 DISTRIBUTABLE_ITEMS: frozenset[str] = frozenset({
     "plugin.json",
+    "assets",
     "harness",
     "matrix.json",
     "hooks.json",

@@ -157,36 +157,27 @@ class PluginInstaller:
         if resolved_target == resolved_source or resolved_source.is_relative_to(resolved_target):
             raise ValueError("Target cannot be or contain source repository root")
 
+    _HARNESS_FALLBACKS: Dict[str, tuple[str, ...]] = {
+        "plugin.json": ("harness", "plugin.json"),
+        "assets": ("harness", "assets"),
+        "matrix.json": ("harness", "runtime", "matrix.json"),
+        "hooks.json": ("harness", "hooks", "hooks.json"),
+        "skills": ("harness", "skills"),
+        "agents": ("harness", "agents"),
+        "rules": ("harness", "rules"),
+    }
+
     def _find_distributable_item(self, item_name: str) -> Optional[Path]:
         """Locates canonical source for a distributable item."""
         direct = self.source_dir / item_name
         if direct.exists():
             return direct
 
-        if item_name == "matrix.json":
-            runtime_matrix = self.source_dir / "harness" / "runtime" / "matrix.json"
-            if runtime_matrix.exists():
-                return runtime_matrix
-
-        if item_name == "hooks.json":
-            runtime_hooks = self.source_dir / "harness" / "hooks" / "hooks.json"
-            if runtime_hooks.exists():
-                return runtime_hooks
-
-        if item_name == "skills":
-            skills_dir = self.source_dir / "harness" / "skills"
-            if skills_dir.exists():
-                return skills_dir
-
-        if item_name == "agents":
-            agents_dir = self.source_dir / "harness" / "agents"
-            if agents_dir.exists():
-                return agents_dir
-
-        if item_name == "rules":
-            rules_dir = self.source_dir / "harness" / "rules"
-            if rules_dir.exists():
-                return rules_dir
+        fallback_parts = self._HARNESS_FALLBACKS.get(item_name)
+        if fallback_parts is not None:
+            fallback = self.source_dir.joinpath(*fallback_parts)
+            if fallback.exists():
+                return fallback
 
         return None
 
@@ -314,7 +305,16 @@ class PluginInstaller:
 
         # Distributables discovery
         distributables: List[str] = []
-        for item in ("plugin.json", "harness", "matrix.json", "hooks.json"):
+        for item in (
+            "plugin.json",
+            "assets",
+            "harness",
+            "matrix.json",
+            "hooks.json",
+            "skills",
+            "agents",
+            "rules",
+        ):
             if self._find_distributable_item(item) is not None:
                 distributables.append(item)
 
@@ -425,15 +425,6 @@ class PluginInstaller:
             )
             installed_items.append("wheel")
             installed_items.append("harness")
-
-            # Scoped rule isolation: global plugin must install GLOBAL_AGENTS.md into rules/AGENTS.md (Issue #53)
-            global_rules_src = self.source_dir / "GLOBAL_AGENTS.md"
-            if not global_rules_src.exists():
-                global_rules_src = self.source_dir / "harness" / "rules" / "GLOBAL_AGENTS.md"
-            if global_rules_src.exists():
-                (target / "rules").mkdir(parents=True, exist_ok=True)
-                shutil.copy2(global_rules_src, target / "rules" / "AGENTS.md")
-                shutil.copy2(global_rules_src, target / "rules" / "GLOBAL_AGENTS.md")
 
             self._install_bin(target)
             self._enable_in_config(target.name)

@@ -33,6 +33,7 @@ import argparse
 from harness.cli import main
 from harness.commands.init import cmd_init
 from harness.delivery import (
+    DISTRIBUTABLE_ITEMS,
     GIT_EXCLUDE_PATTERNS,
     REPO_ROOT,
     SYNC_SURFACE_ITEMS,
@@ -89,6 +90,12 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertEqual(result.mode, "symlink")
         self.assertTrue(self.target_dir.is_symlink())
         self.assertEqual(self.target_dir.resolve(), REPO_ROOT.resolve())
+        for item in ("plugin.json", "assets", "harness", "matrix.json", "hooks.json", "skills", "agents", "rules"):
+            self.assertIn(item, result.items_installed)
+        self.assertTrue((self.target_dir / "assets" / "logo.svg").is_file())
+        self.assertTrue((self.target_dir / "harness" / "gui" / "assets" / "hud.js").is_file())
+        self.assertTrue((self.target_dir / "skills" / "cockpit-director" / "SKILL.md").is_file())
+        self.assertTrue((self.target_dir / "agents" / "agyis_builder.md").is_file())
 
         # Validation
         self.assertTrue(installer.is_installed(self.target_dir))
@@ -106,21 +113,108 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertEqual(result.mode, "copy")
         self.assertFalse(self.target_dir.is_symlink())
         self.assertTrue(self.target_dir.is_dir())
+        self.assertIn("assets", DISTRIBUTABLE_ITEMS)
+        self.assertIn("assets", result.items_installed)
 
         # Distributables present
         self.assertTrue((self.target_dir / "plugin.json").is_file())
+        self.assertTrue((self.target_dir / "assets" / "logo.svg").is_file())
         self.assertTrue((self.target_dir / "harness").is_dir())
+        self.assertTrue((self.target_dir / "harness" / "gui" / "assets" / "hud.js").is_file())
         self.assertTrue((self.target_dir / "matrix.json").is_file())
         self.assertTrue((self.target_dir / "hooks.json").is_file())
-        self.assertTrue((self.target_dir / "skills").is_dir())
-        self.assertTrue((self.target_dir / "agents").is_dir())
-        self.assertTrue((self.target_dir / "rules").is_dir())
+        self.assertTrue((self.target_dir / "skills" / "cockpit-director" / "SKILL.md").is_file())
+        self.assertTrue((self.target_dir / "agents" / "agyis_builder.md").is_file())
+        self.assertTrue((self.target_dir / "rules" / "AGENTS.md").is_file())
 
         self.assertTrue(installer.is_installed(self.target_dir))
         info = installer.get_install_info(self.target_dir)
         self.assertTrue(info["installed"])
         self.assertEqual(info["mode"], "copy")
         self.assertEqual(info["version"], "1.0.0-rc9")
+
+    def test_wheel_extracted_source_fallback_and_full_assets(self) -> None:
+        """PluginInstaller resolves assets/plugin.json from harness/ fallback and delivers full assets in wheel mode."""
+        import zipfile
+
+        # 1. Wheel-extracted site-packages layout (only harness/ exists at source_dir root)
+        wheel_site = self.isolated_base / "wheel_site"
+        for rel in (
+            "harness/__init__.py",
+            "harness/plugin.json",
+            "harness/assets/logo.svg",
+            "harness/gui/assets/hud.js",
+            "harness/hooks/hooks.json",
+            "harness/runtime/matrix.json",
+            "harness/agents/agyis_builder.md",
+            "harness/skills/cockpit-director/SKILL.md",
+            "harness/rules/GLOBAL_AGENTS.md",
+        ):
+            dst = wheel_site / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if rel == "harness/plugin.json":
+                dst.write_text((REPO_ROOT / "plugin.json").read_text(encoding="utf-8"), encoding="utf-8")
+            elif rel == "harness/assets/logo.svg":
+                dst.write_text((REPO_ROOT / "assets" / "logo.svg").read_text(encoding="utf-8"), encoding="utf-8")
+            else:
+                dst.write_text((REPO_ROOT / rel).read_text(encoding="utf-8"), encoding="utf-8")
+
+        copy_target = self.isolated_base / "copy_from_wheel_site"
+        fallback_installer = PluginInstaller(
+            source_dir=wheel_site,
+            default_target_dir=copy_target,
+            bin_dir=self.bin_dir,
+        )
+        res_copy = fallback_installer.install(mode=DeliveryMode.COPY)
+        self.assertTrue(res_copy.success)
+        self.assertIn("assets", res_copy.items_installed)
+        self.assertIn("plugin.json", res_copy.items_installed)
+        self.assertTrue((copy_target / "assets" / "logo.svg").is_file())
+        self.assertTrue((copy_target / "plugin.json").is_file())
+        self.assertTrue((copy_target / "harness" / "gui" / "assets" / "hud.js").is_file())
+        self.assertTrue((copy_target / "hooks.json").is_file())
+        self.assertTrue((copy_target / "matrix.json").is_file())
+        self.assertTrue((copy_target / "agents" / "agyis_builder.md").is_file())
+        self.assertTrue((copy_target / "skills" / "cockpit-director" / "SKILL.md").is_file())
+        self.assertTrue((copy_target / "rules" / "AGENTS.md").is_file())
+        self.assertIn(
+            "Universal Automated Verification Standard",
+            (copy_target / "rules" / "AGENTS.md").read_text(encoding="utf-8"),
+        )
+
+        # 2. DeliveryMode.WHEEL from REPO_ROOT delivers full assets (mocked wheel zip for sub-second isolation)
+        fake_wheel = self.isolated_base / "agyis_harness-1.0.0rc9-py3-none-any.whl"
+        with zipfile.ZipFile(fake_wheel, "w") as zf:
+            zf.writestr("harness/__init__.py", (REPO_ROOT / "harness" / "__init__.py").read_text(encoding="utf-8"))
+            zf.writestr(
+                "harness/gui/assets/hud.js",
+                (REPO_ROOT / "harness" / "gui" / "assets" / "hud.js").read_text(encoding="utf-8"),
+            )
+            zf.writestr("harness/plugin.json", (REPO_ROOT / "plugin.json").read_text(encoding="utf-8"))
+            zf.writestr("harness/assets/logo.svg", (REPO_ROOT / "assets" / "logo.svg").read_text(encoding="utf-8"))
+            zf.writestr("agyis_harness-1.0.0rc9.dist-info/METADATA", "Name: agyis-harness\n")
+
+        wheel_target = self.isolated_base / "wheel_target"
+        wheel_installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=wheel_target,
+            bin_dir=self.bin_dir,
+        )
+        with patch.object(wheel_installer, "_build_frozen_wheel", return_value=fake_wheel):
+            res_wheel = wheel_installer.install(mode=DeliveryMode.WHEEL)
+        self.assertTrue(res_wheel.success)
+        self.assertIn("assets", res_wheel.items_installed)
+        self.assertTrue((wheel_target / "assets" / "logo.svg").is_file())
+        self.assertTrue((wheel_target / "plugin.json").is_file())
+        self.assertTrue((wheel_target / "harness" / "gui" / "assets" / "hud.js").is_file())
+        self.assertTrue((wheel_target / "harness" / "plugin.json").is_file())
+        self.assertTrue((wheel_target / "harness" / "assets" / "logo.svg").is_file())
+        self.assertTrue((wheel_target / "hooks.json").is_file())
+        self.assertTrue((wheel_target / "matrix.json").is_file())
+        self.assertTrue((wheel_target / "agents" / "agyis_builder.md").is_file())
+        self.assertTrue((wheel_target / "skills" / "cockpit-director" / "SKILL.md").is_file())
+        self.assertTrue((wheel_target / "rules" / "AGENTS.md").is_file())
+        self.assertTrue((wheel_target / "rules" / "GLOBAL_AGENTS.md").is_file())
 
     def test_dry_run_mode(self) -> None:
         """Dry-run mode does not mutate disk for install or uninstall."""
