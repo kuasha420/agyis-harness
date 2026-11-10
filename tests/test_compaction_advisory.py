@@ -2194,6 +2194,155 @@ class TestNormalizeRoleExpansion(unittest.TestCase):
                 )
 
 
+class TestDynamicContextWindowPropagation(unittest.TestCase):
+    """Track 6: Dynamic maxContextTokens scaling across pre_invocation_hook and CLI gauges."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.db_dir = self.root / "convs"
+        self.ws = self.root / "ws"
+        self.db_dir.mkdir(parents=True, exist_ok=True)
+        self.ws.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _write_512k_db(self, conv_id: str, estimated_tokens: int, max_ctx: int = 512000) -> None:
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data TEXT)")
+        conn.execute(
+            "INSERT INTO gen_metadata VALUES (1, ?)",
+            (
+                json.dumps(
+                    {
+                        "chatStartMetadata": {
+                            "contextWindowMetadata": {
+                                "estimatedTokensUsed": estimated_tokens,
+                                "maxContextTokens": max_ctx,
+                            }
+                        }
+                    }
+                ),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+    def test_get_compaction_advisory_threshold_dynamic_scaling(self):
+        """Scales advisory threshold proportionally when max_context_tokens != 256000 and respects env override."""
+        env_clean = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("AGYIS_COMPACTION_THRESHOLD", "PSL_COMPACTION_THRESHOLD")
+        }
+        with patch.dict(os.environ, env_clean, clear=True):
+            self.assertEqual(get_compaction_advisory_threshold(), 230_000)
+            self.assertEqual(get_compaction_advisory_threshold(max_context_tokens=512_000), 460_000)
+            os.environ["AGYIS_COMPACTION_THRESHOLD"] = "300000"
+            self.assertEqual(get_compaction_advisory_threshold(max_context_tokens=512_000), 300_000)
+
+    def test_pre_invocation_512k_threshold_and_badge(self):
+        """374,475 / 512,000 does not false-trigger compaction; 470,000 / 512,000 emits scaled advisory and badge."""
+        conv_mid = "11111111-1111-1111-1111-111111111111"
+        self._write_512k_db(conv_mid, 374475, 512000)
+        res_mid = evaluate_pre_invocation(
+            {"conversationId": conv_mid, "role": "deep_execution"},
+            db_dir=self.db_dir,
+            workspace_dir=self.ws,
+        )
+        self.assertEqual(res_mid, {"injectSteps": []})
+
+        conv_high = "22222222-2222-2222-2222-222222222222"
+        self._write_512k_db(conv_high, 470000, 512000)
+        res_first = evaluate_pre_invocation(
+            {"conversationId": conv_high, "role": "deep_execution"},
+            db_dir=self.db_dir,
+            workspace_dir=self.ws,
+        )
+        self.assertEqual(len(res_first["injectSteps"]), 1)
+        self.assertIn("470,000 / 460,000 TOKENS", res_first["injectSteps"][0]["ephemeralMessage"])
+
+        res_second = evaluate_pre_invocation(
+            {"conversationId": conv_high, "role": "deep_execution"},
+            db_dir=self.db_dir,
+            workspace_dir=self.ws,
+        )
+        self.assertEqual(len(res_second["injectSteps"]), 1)
+        self.assertIn(
+            "[AGYIS TOKEN GAUGE: ~470,000 / 512,000 TOKENS | Compaction Checkpoint Active]",
+            res_second["injectSteps"][0]["ephemeralMessage"],
+        )
+
+    def test_status_cockpit_and_checkpoint_512k_cli_integration(self):
+        """Verifies status, cockpit status, and checkpoint status/create auto-scale to 512k context."""
+        import argparse
+        from harness.cli import build_parser
+        from harness.commands.checkpoint import cmd_checkpoint
+        from harness.commands.cockpit import cmd_cockpit
+        from harness.commands.status import cmd_status
+
+        conv_id = "33333333-3333-3333-3333-333333333333"
+        self._write_512k_db(conv_id, 374475, 512000)
+
+        env_patch = {
+            "AGYIS_CONVERSATIONS_DIR": str(self.db_dir),
+            "ANTIGRAVITY_CONVERSATION_ID": conv_id,
+            "AGYIS_CONVERSATION_ID": conv_id,
+        }
+        with patch.dict(os.environ, env_patch):
+            # 1. status
+            status_out = io.StringIO()
+            with patch("sys.stdout", status_out):
+                ret_status = cmd_status(argparse.Namespace(workspace_dir=self.ws))
+            self.assertEqual(ret_status, 0)
+            s_txt = status_out.getvalue()
+            self.assertIn("512k Model Context Window", s_txt)
+            self.assertIn("<360k tokens", s_txt)
+            self.assertIn("360k–460k tokens", s_txt)
+            self.assertIn(">=460k tokens", s_txt)
+            self.assertIn("374,475 / 512,000", s_txt)
+
+            # 2. cockpit status --json & plain text
+            parser = build_parser()
+            args_json = parser.parse_args(["cockpit", "status", "--workspace", str(self.ws), "--json"])
+            cockpit_json_out = io.StringIO()
+            with patch("sys.stdout", cockpit_json_out):
+                self.assertEqual(cmd_cockpit(args_json), 0)
+            cp_json = json.loads(cockpit_json_out.getvalue())
+            fd = cp_json["flight_director"]
+            self.assertEqual(fd["tokens_estimated"], 374475)
+            self.assertEqual(fd["max_context_tokens"], 512000)
+            self.assertEqual(fd["amber_threshold"], 360000)
+            self.assertEqual(fd["red_threshold"], 460000)
+            self.assertEqual(fd["proximity_zone"], "AMBER")
+
+            args_txt = parser.parse_args(["cockpit", "status", "--workspace", str(self.ws)])
+            cockpit_txt_out = io.StringIO()
+            with patch("sys.stdout", cockpit_txt_out):
+                self.assertEqual(cmd_cockpit(args_txt), 0)
+            self.assertIn("~374,475 / 512,000 tokens", cockpit_txt_out.getvalue())
+
+            # 3. checkpoint status --json (omitted --trigger-tokens auto-scales to 460k)
+            args_cp_status = parser.parse_args(["checkpoint", "status", "--workspace", str(self.ws), "--json"])
+            cp_status_out = io.StringIO()
+            with patch("sys.stdout", cp_status_out):
+                self.assertEqual(cmd_checkpoint(args_cp_status), 0)
+            cp_stat_data = json.loads(cp_status_out.getvalue())
+            self.assertEqual(cp_stat_data["tokens"]["current"], 374475)
+            self.assertEqual(cp_stat_data["tokens"]["max_context_tokens"], 512000)
+            self.assertEqual(cp_stat_data["tokens"]["trigger_threshold"], 460000)
+
+            # 4. checkpoint create (omitted --trigger-tokens writes 460,000 into artifact)
+            args_cp_create = parser.parse_args(["checkpoint", "create", "--workspace", str(self.ws), "--json"])
+            cp_create_out = io.StringIO()
+            with patch("sys.stdout", cp_create_out):
+                self.assertEqual(cmd_checkpoint(args_cp_create), 0)
+            cp_create_data = json.loads(cp_create_out.getvalue())
+            self.assertIn("460,000", Path(cp_create_data["output_path"]).read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
 

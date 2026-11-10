@@ -46,10 +46,23 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
         plan_path = getattr(args, "plan", None)
         out_path = getattr(args, "out", None)
         role = getattr(args, "role", None) or os.environ.get("AGYIS_ROLE", "agyis_coordinator")
-        trigger_tokens = getattr(args, "trigger_tokens", 230_000)
 
         conv_id = get_active_conversation_id(getattr(args, "session_id", None))
         brain_dir = Path(args.brain_dir) if getattr(args, "brain_dir", None) else None
+
+        raw_trigger = getattr(args, "trigger_tokens", None)
+        if raw_trigger is not None:
+            trigger_tokens = int(raw_trigger)
+        else:
+            trigger_tokens = 230_000
+            if conv_id:
+                try:
+                    from harness.hooks.token_proximity_guard import get_active_conversation_context_window
+
+                    ctx_win = get_active_conversation_context_window(conv_id)
+                    trigger_tokens = int(ctx_win.get("compaction_threshold") or 230_000)
+                except Exception:
+                    trigger_tokens = 230_000
 
         res = generate_compaction_checkpoint(
             workspace_dir=workspace,
@@ -158,6 +171,19 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
         session_id = (
             get_active_conversation_id(getattr(args, "session_id", None)) or ""
         )
+        ctx_win: Dict[str, Any] = {
+            "tokens": 0,
+            "max_context_tokens": 256_000,
+            "compaction_threshold": 230_000,
+        }
+        if session_id:
+            try:
+                from harness.hooks.token_proximity_guard import get_active_conversation_context_window
+
+                ctx_win = get_active_conversation_context_window(session_id)
+            except Exception:
+                pass
+
         tokens = 0
         if os.environ.get("AGYIS_CURRENT_TOKENS"):
             try:
@@ -165,14 +191,22 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
             except ValueError:
                 tokens = 0
         elif session_id:
-            try:
-                from harness.hooks.token_proximity_guard import get_active_conversation_tokens
+            tokens = int(ctx_win.get("tokens") or 0)
+            if tokens <= 0:
+                try:
+                    from harness.hooks.token_proximity_guard import get_active_conversation_tokens
 
-                tokens = get_active_conversation_tokens(session_id)
-            except Exception:
-                tokens = 0
+                    tokens = get_active_conversation_tokens(session_id)
+                except Exception:
+                    tokens = 0
 
-        trigger_threshold = getattr(args, "trigger_tokens", 230_000)
+        max_ctx = int(ctx_win.get("max_context_tokens") or 256_000)
+        raw_trigger = getattr(args, "trigger_tokens", None)
+        trigger_threshold = (
+            int(raw_trigger)
+            if raw_trigger is not None
+            else int(ctx_win.get("compaction_threshold") or 230_000)
+        )
         proximity_pct = (
             round((tokens / trigger_threshold * 100.0), 2) if trigger_threshold > 0 else 0.0
         )
@@ -181,6 +215,7 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
             data: Dict[str, Any] = {
                 "tokens": {
                     "current": tokens,
+                    "max_context_tokens": max_ctx,
                     "trigger_threshold": trigger_threshold,
                     "proximity_pct": proximity_pct,
                 },

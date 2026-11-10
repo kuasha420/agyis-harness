@@ -444,20 +444,27 @@ def load_conversation_trajectory(
 
     # 1. Authoritative Max Context Tokens (256k default parity with 2.26.0)
     max_context_tokens = 256000
-    for raw in raw_steps:
+    found_explicit_max_ctx = False
+    for raw in reversed(raw_steps):
+        if not isinstance(raw, dict):
+            continue
+        meta_d = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+        csm_d = raw.get("chatStartMetadata") if isinstance(raw.get("chatStartMetadata"), dict) else {}
+        meta_csm_d = meta_d.get("chatStartMetadata") if isinstance(meta_d.get("chatStartMetadata"), dict) else {}
         cwm = (
             raw.get("contextWindowMetadata")
-            or raw.get("chatStartMetadata", {}).get("contextWindowMetadata")
-            or raw.get("metadata", {}).get("chatStartMetadata", {}).get("contextWindowMetadata")
-            or raw.get("metadata", {}).get("contextWindowMetadata")
+            or csm_d.get("contextWindowMetadata")
+            or meta_csm_d.get("contextWindowMetadata")
+            or meta_d.get("contextWindowMetadata")
         )
         if isinstance(cwm, dict):
-            mct = cwm.get("maxContextTokens")
+            mct = cwm.get("maxContextTokens") or cwm.get("max_context_tokens")
             if mct and isinstance(mct, (int, float)) and mct > 0:
                 max_context_tokens = int(mct)
+                found_explicit_max_ctx = True
                 break
 
-    if max_context_tokens == 256000:
+    if not found_explicit_max_ctx:
         meta_path = convo_dir / "meta.json"
         if meta_path.is_file():
             try:
@@ -465,15 +472,27 @@ def load_conversation_trajectory(
                     meta_data = json.load(f)
                     mct = (
                         meta_data.get("maxContextTokens")
-                        or meta_data.get("contextWindowMetadata", {}).get("maxContextTokens")
+                        or (meta_data.get("contextWindowMetadata") if isinstance(meta_data.get("contextWindowMetadata"), dict) else {}).get("maxContextTokens")
                     )
                     if mct and isinstance(mct, (int, float)) and mct > 0:
                         max_context_tokens = int(mct)
+                        found_explicit_max_ctx = True
             except (json.JSONDecodeError, OSError, ValueError):
                 pass
 
+    if not found_explicit_max_ctx:
+        try:
+            from harness.hooks.token_proximity_guard import get_active_conversation_context_window
+            ctx_win = get_active_conversation_context_window(conversation_id)
+            db_mct = int(ctx_win.get("max_context_tokens") or 0)
+            if db_mct > 0:
+                max_context_tokens = db_mct
+        except Exception:
+            pass
+
     # Enrich steps: timing metrics, byte sizes, cortex types, cumulative context tokens
     steps: List[Dict[str, Any]] = []
+    explicit_input_step_indices: Set[int] = set()
     total_tokens = 0
     cache_tokens = 0
     cumulative_ctx = 0
@@ -603,16 +622,19 @@ def load_conversation_trajectory(
             s["response_model"] = s.get("response_model") or ""
 
         # Authoritative token metrics extraction
-        in_tok = s.get("input_tokens")
-        if in_tok is None:
-            in_tok = (
+        raw_in_tok = s.get("input_tokens")
+        if raw_in_tok is None:
+            raw_in_tok = (
                 model_usage.get("inputTokens")
                 or model_usage.get("promptTokenCount")
                 or model_usage.get("inputTokenCount")
                 or meta.get("input_tokens")
                 or meta.get("promptTokenCount")
             )
-        in_tok = int(in_tok or 0)
+        has_explicit_in_tok = raw_in_tok is not None
+        in_tok = int(raw_in_tok or 0)
+        if has_explicit_in_tok and in_tok > 0:
+            explicit_input_step_indices.add(idx)
 
         out_tok = s.get("output_tokens")
         if out_tok is None:
@@ -687,15 +709,15 @@ def load_conversation_trajectory(
         s["cumulative_tokens"] = cumulative_ctx
         steps.append(s)
 
-    step_sum = sum(s.get("tokens", 0) for s in steps)
-
     explicit_cum_tokens = 0
-    for s in reversed(steps):
+    for step_pos in range(len(steps) - 1, -1, -1):
+        s = steps[step_pos]
         if cache_tokens == 0 and s.get("cache_read_tokens"):
             cache_tokens = s.get("cache_read_tokens") or 0
         in_tok_val = int(s.get("input_tokens") or 0)
         cache_tok_val = int(s.get("cache_read_tokens") or 0)
-        if in_tok_val + cache_tok_val > 0:
+        is_explicit_input = step_pos in explicit_input_step_indices
+        if (s.get("type") != "USER_INPUT" or is_explicit_input or cache_tok_val > 0) and (in_tok_val + cache_tok_val > 0):
             explicit_cum_tokens = in_tok_val + cache_tok_val
             break
 
@@ -703,14 +725,16 @@ def load_conversation_trajectory(
         for s in reversed(steps):
             meta = s.get("metadata", {}) if isinstance(s.get("metadata"), dict) else {}
             model_usage = meta.get("modelUsage", {}) if isinstance(meta.get("modelUsage"), dict) else {}
+            meta_csm = meta.get("chatStartMetadata") if isinstance(meta.get("chatStartMetadata"), dict) else {}
+            step_csm = s.get("chatStartMetadata") if isinstance(s.get("chatStartMetadata"), dict) else {}
             cwm = (
                 meta.get("contextWindowMetadata")
                 or s.get("contextWindowMetadata")
-                or meta.get("chatStartMetadata", {}).get("contextWindowMetadata")
-                or s.get("chatStartMetadata", {}).get("contextWindowMetadata")
+                or meta_csm.get("contextWindowMetadata")
+                or step_csm.get("contextWindowMetadata")
             )
             if isinstance(cwm, dict):
-                etu = cwm.get("estimatedTokensUsed")
+                etu = cwm.get("estimatedTokensUsed") or cwm.get("estimated_tokens_used")
                 if etu and isinstance(etu, (int, float)) and int(etu) > explicit_cum_tokens:
                     explicit_cum_tokens = int(etu)
             cum = (
@@ -729,33 +753,38 @@ def load_conversation_trajectory(
         except Exception:
             explicit_cum_tokens = 0
 
+    # Partition checkpoints first so active-epoch token breakdown avoids pre-checkpoint inflation
+    checkpoints = [i for i, s in enumerate(steps) if s.get("type") == "CHECKPOINT"]
+    breakdown_steps = (steps[checkpoints[-1]:] if checkpoints else steps) if explicit_cum_tokens > 0 else steps
+    breakdown_step_sum = sum(s.get("tokens", 0) for s in breakdown_steps)
+
     # Native Upc context allocation (Google Antigravity Parity)
-    if explicit_cum_tokens > 0 and step_sum > 0:
-        instruction_tok = max(7000, explicit_cum_tokens - step_sum)
+    if explicit_cum_tokens > 0 and breakdown_step_sum > 0:
+        instruction_tok = max(7000, explicit_cum_tokens - breakdown_step_sum)
         sys_prompt_tok = int(instruction_tok * 0.40)
         tool_defs_tok = instruction_tok - sys_prompt_tok
-        total_tokens = max(step_sum + instruction_tok, explicit_cum_tokens)
-    elif step_sum > 0:
-        sys_prompt_tok = min(4000, max(400, int(step_sum * 0.05)))
-        tool_defs_tok = min(3500, max(300, int(step_sum * 0.04)))
-        total_tokens = step_sum + sys_prompt_tok + tool_defs_tok
+        total_tokens = max(breakdown_step_sum + instruction_tok, explicit_cum_tokens)
+    elif breakdown_step_sum > 0:
+        sys_prompt_tok = min(4000, max(400, int(breakdown_step_sum * 0.05)))
+        tool_defs_tok = min(3500, max(300, int(breakdown_step_sum * 0.04)))
+        total_tokens = breakdown_step_sum + sys_prompt_tok + tool_defs_tok
     else:
         sys_prompt_tok = 3800
         tool_defs_tok = 3200
         total_tokens = max(sys_prompt_tok + tool_defs_tok, explicit_cum_tokens)
 
-    actual_user_tok = sum(s["tokens"] for s in steps if s.get("type") == "USER_INPUT")
-    actual_model_tok = sum(s["tokens"] for s in steps if s.get("type") in ("PLANNER_RESPONSE", "MODEL_OUTPUT"))
-    actual_tool_tok = sum(s["tokens"] for s in steps if (
+    actual_user_tok = sum(s["tokens"] for s in breakdown_steps if s.get("type") == "USER_INPUT")
+    actual_model_tok = sum(s["tokens"] for s in breakdown_steps if s.get("type") in ("PLANNER_RESPONSE", "MODEL_OUTPUT"))
+    actual_tool_tok = sum(s["tokens"] for s in breakdown_steps if (
         s.get("type") in ("TOOL_CALL", "RUN_COMMAND", "VIEW_FILE", "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES", "SEND_MESSAGE", "INVOKE_SUBAGENT")
         or any(k in str(s.get("type", "")) for k in ("COMMAND", "TOOL", "FILE", "WRITE", "REPLACE", "SEARCH", "MESSAGE", "SUBAGENT"))
     ))
-    actual_checkpoint_tok = sum(s["tokens"] for s in steps if s.get("type") == "CHECKPOINT")
-    actual_system_tok = sum(s["tokens"] for s in steps if s.get("type") == "SYSTEM")
+    actual_checkpoint_tok = sum(s["tokens"] for s in breakdown_steps if s.get("type") == "CHECKPOINT")
+    actual_system_tok = sum(s["tokens"] for s in breakdown_steps if s.get("type") == "SYSTEM")
 
     categorized_sum = actual_user_tok + actual_model_tok + actual_tool_tok + actual_checkpoint_tok + actual_system_tok
-    if step_sum > categorized_sum:
-        actual_model_tok += (step_sum - categorized_sum)
+    if breakdown_step_sum > categorized_sum:
+        actual_model_tok += (breakdown_step_sum - categorized_sum)
 
     token_breakdown = {
         "system_prompt": sys_prompt_tok,
@@ -787,7 +816,6 @@ def load_conversation_trajectory(
                     continue
 
     # Partition trajectory into Epochs based on CHECKPOINT steps (ADR-014 / PSL-INV-010)
-    checkpoints = [i for i, s in enumerate(steps) if s.get("type") == "CHECKPOINT"]
     epochs: List[Dict[str, Any]] = []
     if not checkpoints:
         if steps:

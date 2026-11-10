@@ -1704,12 +1704,12 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         )
 
         # 4-row dynamic calculation & capacity definitions
-        self.assertIn("ROW_CAPACITY = 64000", script)
+        self.assertIn("ROW_CAPACITY = Math.max(64000, Math.ceil(maxTokens / 4))", script)
         self.assertIn("Math.min(4, Math.max(1, Math.ceil(activeTokensSum / ROW_CAPACITY)))", script)
         self.assertIn("agyis-context-row-wrap", script)
         self.assertIn("agyis-context-row-label", script)
         self.assertIn("agyis-context-row-track", script)
-        self.assertIn("rIdx * 64", script)
+        self.assertIn("Math.round((rIdx * ROW_CAPACITY) / 1000)", script)
 
     def test_hud_script_contains_epoch_switcher(self) -> None:
         sample_data = {"conversation_id": "test-ep", "steps": []}
@@ -2096,6 +2096,240 @@ class TestCleanroomAntigravityParityUpgrades(unittest.TestCase):
         self.assertIn("Terminal Tools", tool_names)
         self.assertIn("Subagents", tool_names)
         self.assertIn("Automation & Tasks", tool_names)
+
+
+class TestHudJsDynamicContextAndEpochs(unittest.TestCase):
+    """Track 6: End-to-end Node.js evaluation of hud.js epoch boundaries and dynamic context capacity."""
+
+    def test_hud_js_epoch_splitting_nested_cwm_and_dynamic_rows_in_node(self) -> None:
+        import shutil
+        import subprocess
+
+        if not shutil.which("node"):
+            self.skipTest("node binary unavailable")
+
+        script = build_trajectory_hud_script(
+            convo_id="init-convo",
+            trajectory_data={"conversation_id": "init-convo", "steps": []},
+            conversations=[],
+            open_view=True,
+            toggle=False,
+        )
+
+        # Build a hermetic Node DOM/fetch harness that runs the actual compiled hud.js script
+        harness_prefix = """
+const createdEls = [];
+function mkEl(tag) {
+    return {
+        tagName: String(tag || "div").toUpperCase(),
+        id: "",
+        style: {},
+        innerHTML: "",
+        innerText: "",
+        textContent: "",
+        children: [],
+        value: "",
+        addEventListener() {},
+        removeEventListener() {},
+        appendChild(c) { this.children.push(c); return c; },
+        remove() {},
+        querySelector() { return null; },
+        querySelectorAll() { return []; },
+        scrollIntoView() {},
+        getAttribute() { return null; },
+        setAttribute() {},
+    };
+}
+const hudContainer = mkEl("div");
+let capturedHudDiv = null;
+const document = {
+    getElementById(id) { return null; },
+    createElement(tag) {
+        if (tag === "div" && capturedHudDiv === null) {
+            capturedHudDiv = hudContainer;
+            return hudContainer;
+        }
+        const el = mkEl(tag);
+        createdEls.push(el);
+        return el;
+    },
+    head: { appendChild() {} },
+    body: { appendChild() {} },
+    querySelector() { return null; },
+    addEventListener() {},
+};
+const window = {
+    location: { origin: "https://127.0.0.1:40623", pathname: "/c/init-convo" },
+    addEventListener() {},
+    removeEventListener() {},
+    __APP_CONFIG__: { csrfToken: "test-csrf" },
+};
+let mockScenario = null;
+async function fetch(url) {
+    return {
+        ok: true,
+        async json() {
+            if (url.endsWith("/GetCascadeTrajectorySteps")) {
+                return { steps: mockScenario.steps };
+            }
+            if (url.endsWith("/GetCascadeTrajectoryGeneratorMetadata")) {
+                return { generatorMetadata: mockScenario.genMetas };
+            }
+            if (url.endsWith("/GetCascadeTrajectoryExecutorMetadatas")) {
+                return { executorMetadatas: [] };
+            }
+            return {};
+        },
+    };
+}
+"""
+
+        harness_suffix = """
+(async () => {
+    // Scenario 1: 512k model with chatStartMetadata.checkpointIndex back-references (must NOT split epochs)
+    mockScenario = {
+        steps: [
+            { type: "CORTEX_STEP_TYPE_USER_INPUT", userInput: { userResponse: "Fix context window" } },
+            { type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE", plannerResponse: { response: "Inspecting files", thinking: "plan" } },
+            { type: "CORTEX_STEP_TYPE_RUN_COMMAND", runCommand: { commandLine: "pytest", exitCode: 0 } },
+            { type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE", plannerResponse: { response: "All tests pass" } },
+        ],
+        genMetas: [
+            {
+                stepIndex: 1,
+                chatStartMetadata: {
+                    checkpointIndex: 0,
+                    contextWindowMetadata: { estimatedTokensUsed: 120000, maxContextTokens: 512000 },
+                },
+            },
+            {
+                stepIndex: 3,
+                chatStartMetadata: {
+                    checkpointIndex: 0,
+                    contextWindowMetadata: { estimatedTokensUsed: 374475, maxContextTokens: 512000 },
+                },
+            },
+        ],
+    };
+    const data512 = await window.__agyis_hud_load_convo("convo-512k");
+    const html512 = hudContainer.innerHTML;
+    window.__agyis_hud_state.mainDeckTab = "timeline";
+    window.__agyis_hud_render();
+    const timelineHtml512 = hudContainer.innerHTML;
+
+    // Scenario 2: Real CHECKPOINT + 1M context via metadata.chatStartMetadata.contextWindowMetadata (>750k -> 4 rows)
+    window.__agyis_hud_state.mainDeckTab = "context";
+    mockScenario = {
+        steps: [
+            { type: "CORTEX_STEP_TYPE_USER_INPUT", content: "A".repeat(70000) },
+            { type: "CORTEX_STEP_TYPE_CHECKPOINT", checkpoint: { checkpointIndex: 1, sessionSummary: "Compacted turn 1" } },
+            { type: "CORTEX_STEP_TYPE_USER_INPUT", userInput: { userResponse: "Continue" } },
+            { type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE", plannerResponse: { response: "Continuing on 1M window" } },
+        ],
+        genMetas: [
+            {
+                stepIndex: 3,
+                chatStartMetadata: { checkpointIndex: 1 },
+                metadata: {
+                    chatStartMetadata: {
+                        contextWindowMetadata: { estimatedTokensUsed: 800000, maxContextTokens: 1000000 },
+                    },
+                },
+            },
+        ],
+    };
+    const data1m = await window.__agyis_hud_load_convo("convo-1m");
+    const html1m = hudContainer.innerHTML;
+    window.__agyis_hud_state.mainDeckTab = "timeline";
+    window.__agyis_hud_render();
+    const timelineHtml1m = hudContainer.innerHTML;
+
+    // Scenario 3: Small estimatedTokensUsed (< activeEpochTokens + 7000) keeps total_tokens == sum(token_breakdown)
+    mockScenario = {
+        steps: [
+            { type: "CORTEX_STEP_TYPE_USER_INPUT", content: "A".repeat(35000) },
+            { type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE", plannerResponse: { response: "B".repeat(3500) } },
+        ],
+        genMetas: [
+            {
+                stepIndex: 1,
+                chatStartMetadata: {
+                    contextWindowMetadata: { estimatedTokensUsed: 5000, maxContextTokens: 256000 },
+                },
+            },
+        ],
+    };
+    const dataSmall = await window.__agyis_hud_load_convo("convo-small-est");
+
+    console.log(JSON.stringify({
+        s1_epochs: data512.epochs.length,
+        s1_has_cp: data512.epochs[0].has_checkpoint,
+        s1_max_ctx: data512.max_context_tokens,
+        s1_total_tok: data512.total_tokens,
+        s1_html: html512,
+        s1_timeline: timelineHtml512,
+        s2_epochs: data1m.epochs.length,
+        s2_max_ctx: data1m.max_context_tokens,
+        s2_total_tok: data1m.total_tokens,
+        s2_user_tok: data1m.token_breakdown.user,
+        s2_breakdown_sum: (
+            data1m.token_breakdown.system_prompt +
+            data1m.token_breakdown.tool_defs +
+            data1m.token_breakdown.checkpoint +
+            data1m.token_breakdown.user +
+            data1m.token_breakdown.model +
+            data1m.token_breakdown.tool +
+            data1m.token_breakdown.system
+        ),
+        s2_html: html1m,
+        s2_timeline: timelineHtml1m,
+        s3_total_tok: dataSmall.total_tokens,
+        s3_breakdown_sum: (
+            dataSmall.token_breakdown.system_prompt +
+            dataSmall.token_breakdown.tool_defs +
+            dataSmall.token_breakdown.checkpoint +
+            dataSmall.token_breakdown.user +
+            dataSmall.token_breakdown.model +
+            dataSmall.token_breakdown.tool +
+            dataSmall.token_breakdown.system
+        ),
+    }));
+})();
+"""
+        res = subprocess.run(
+            ["node", "-"],
+            input=harness_prefix + "\n" + script + "\n" + harness_suffix,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        out = json.loads(res.stdout.strip())
+
+        # Scenario 1 assertions (374,475 / 512,000 -> ceil(374475 / 128000) = 3 rows: 0k, 128k, 256k)
+        self.assertEqual(out["s1_epochs"], 1, "chatStartMetadata.checkpointIndex must NOT split epochs")
+        self.assertFalse(out["s1_has_cp"])
+        self.assertEqual(out["s1_max_ctx"], 512000)
+        self.assertEqual(out["s1_total_tok"], 374475)
+        for label in ("0k", "128k", "256k"):
+            self.assertIn(f">{label}</span>", out["s1_html"])
+        self.assertNotIn(">384k</span>", out["s1_html"])
+        self.assertIn("512k Context &bull; Live Trace", out["s1_timeline"])
+        self.assertNotIn("256k Context Parity", out["s1_timeline"])
+
+        # Scenario 2 assertions (800,000 / 1,000,000 -> ceil(800000 / 250000) = 4 rows: 0k, 250k, 500k, 750k)
+        self.assertEqual(out["s2_epochs"], 2)
+        self.assertEqual(out["s2_max_ctx"], 1000000)
+        self.assertEqual(out["s2_total_tok"], 800000)
+        # Pre-checkpoint step had 20,000 tokens ("A"*70000 / 3.5); active epoch user step ("Continue") is ~2 tokens
+        self.assertLess(out["s2_user_tok"], 100, "Pre-checkpoint user tokens must NOT inflate active epoch breakdown")
+        self.assertEqual(out["s2_breakdown_sum"], 800000)
+        for label in ("0k", "250k", "500k", "750k"):
+            self.assertIn(f">{label}</span>", out["s2_html"])
+        self.assertIn("1M Context &bull; Live Trace", out["s2_timeline"])
+
+        # Scenario 3 assertion: total_tokens matches sum(token_breakdown) even when estimatedTokensUsed < stepSum + 7000
+        self.assertEqual(out["s3_total_tok"], out["s3_breakdown_sum"])
+        self.assertGreater(out["s3_total_tok"], 5000)
 
 
 if __name__ == "__main__":

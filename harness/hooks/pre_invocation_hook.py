@@ -30,9 +30,11 @@ import traceback
 from typing import Any, Dict, List, Optional, Tuple
 
 from harness.hooks.token_proximity_guard import (
+    CONTEXT_WINDOW_TOKENS,
     LOCKED_CONVERSATION_IDS,
     _normalize_cid,
     clear_locked_conversations,
+    get_active_conversation_context_window,
     get_active_conversation_tokens,
     get_conversations_dir,
     parse_protobuf_varint,
@@ -274,8 +276,8 @@ def extract_prompt_text(
     return ""
 
 
-def get_compaction_advisory_threshold() -> int:
-    """Returns the effective compaction advisory threshold with env override support."""
+def get_compaction_advisory_threshold(max_context_tokens: Optional[int] = None) -> int:
+    """Returns the effective compaction advisory threshold with env override and dynamic window scaling."""
     env_thresh = os.environ.get("AGYIS_COMPACTION_THRESHOLD") or os.environ.get("PSL_COMPACTION_THRESHOLD")
     if env_thresh:
         try:
@@ -284,6 +286,8 @@ def get_compaction_advisory_threshold() -> int:
                 return val
         except (ValueError, TypeError):
             pass
+    if max_context_tokens is not None and max_context_tokens > 0 and max_context_tokens != CONTEXT_WINDOW_TOKENS:
+        return int(round(max_context_tokens * DEFAULT_COMPACTION_ADVISORY_THRESHOLD / CONTEXT_WINDOW_TOKENS))
     return DEFAULT_COMPACTION_ADVISORY_THRESHOLD
 
 
@@ -1195,13 +1199,17 @@ def build_compaction_advisory(
     role: str,
     tokens: int,
     threshold: int = DEFAULT_COMPACTION_ADVISORY_THRESHOLD,
+    max_context_tokens: Optional[int] = None,
 ) -> str:
     """
     Generates a role-tailored system advisory directive alerting the agent to imminent compaction.
     Codifies AC4 (Work Preservation Contract), AC5 (Zero Repo Pollution), and AC6 (Autonomous Continuation).
     """
-    remaining_tokens = max(0, 246_000 - tokens)
-    estimated_turns = max(1, remaining_tokens // 3500) if tokens < 246_000 else 1
+    runway_cap = 246_000
+    if max_context_tokens is not None and max_context_tokens > 0 and max_context_tokens != CONTEXT_WINDOW_TOKENS:
+        runway_cap = int(round(max_context_tokens * 246_000 / CONTEXT_WINDOW_TOKENS))
+    remaining_tokens = max(0, runway_cap - tokens)
+    estimated_turns = max(1, remaining_tokens // 3500) if tokens < runway_cap else 1
 
     if role == ROLE_DEEP_EXECUTION:
         return (
@@ -1465,13 +1473,43 @@ def evaluate_pre_invocation(
         if is_native_slash_command(prompt_text):
             return {"injectSteps": []}
 
+        ctx_win = get_active_conversation_context_window(conv_id, db_dir=db_dir, timeout=to)
+        db_tokens = max(
+            int(ctx_win.get("tokens", 0) or 0),
+            int(get_active_conversation_tokens(conv_id, db_dir=db_dir, timeout=to) or 0),
+        )
+        payload_max_ctx = 0
+        for mk in ("maxContextTokens", "max_context_tokens"):
+            mv = payload.get(mk)
+            if isinstance(mv, (int, float)) and int(mv) > 0:
+                payload_max_ctx = int(mv)
+                break
+            elif isinstance(mv, str) and mv.strip().isdigit() and int(mv.strip()) > 0:
+                payload_max_ctx = int(mv.strip())
+                break
+        if payload_max_ctx <= 0:
+            csm_obj = payload.get("chatStartMetadata")
+            for cwm_cand in (
+                payload.get("contextWindowMetadata"),
+                csm_obj.get("contextWindowMetadata") if isinstance(csm_obj, dict) else None,
+            ):
+                if isinstance(cwm_cand, dict):
+                    mv = cwm_cand.get("maxContextTokens") or cwm_cand.get("max_context_tokens")
+                    if isinstance(mv, (int, float)) and int(mv) > 0:
+                        payload_max_ctx = int(mv)
+                        break
+
+        max_context_tokens = (
+            payload_max_ctx
+            if payload_max_ctx > 0
+            else int(ctx_win.get("max_context_tokens") or CONTEXT_WINDOW_TOKENS)
+        )
         effective_threshold = (
             int(threshold)
             if threshold is not None
-            else get_compaction_advisory_threshold()
+            else get_compaction_advisory_threshold(max_context_tokens=max_context_tokens)
         )
 
-        db_tokens = get_active_conversation_tokens(conv_id, db_dir=db_dir, timeout=to)
         payload_tokens = 0
         for k in ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens"):
             val = payload.get(k)
@@ -1620,7 +1658,12 @@ def evaluate_pre_invocation(
                 sys.stderr.flush()
 
             if not already_alerted:
-                advisory = build_compaction_advisory(role, tokens, effective_threshold)
+                advisory = build_compaction_advisory(
+                    role,
+                    tokens,
+                    effective_threshold,
+                    max_context_tokens=max_context_tokens,
+                )
                 inject_steps.append({"ephemeralMessage": advisory})
                 if state_file:
                     try:
@@ -1635,7 +1678,7 @@ def evaluate_pre_invocation(
                         pass
             else:
                 # Deduplicate: emit compact single-line gauge on subsequent turns instead of 40-line directive
-                badge = f"[AGYIS TOKEN GAUGE: ~{tokens:,} / 256,000 TOKENS | Compaction Checkpoint Active]"
+                badge = f"[AGYIS TOKEN GAUGE: ~{tokens:,} / {max_context_tokens:,} TOKENS | Compaction Checkpoint Active]"
                 inject_steps.append({"ephemeralMessage": badge})
         else:
             # Below threshold: reset alert state so future threshold crossings fire cleanly

@@ -862,9 +862,6 @@
                 if (!gm && isModelStep && plannerIdx < genMetaList.length) {
                     gm = genMetaList[plannerIdx++];
                 }
-                if (gm && gm.chatStartMetadata && gm.chatStartMetadata.checkpointIndex !== undefined) {
-                    checkpointIndex = gm.chatStartMetadata.checkpointIndex;
-                }
 
                 const isToolStep = (cortexType === "TOOL_CALL" || cortexType.includes("COMMAND") || cortexType.includes("FILE") || cortexType.includes("SEARCH"));
                 let em = execMetaByStep[idx] || null;
@@ -981,7 +978,7 @@
 
             const checkpoints = [];
             steps.forEach((s, i) => {
-                if (s.type === "CHECKPOINT" || s.checkpoint_index !== null || s.compaction_summary !== null) {
+                if (s.type === "CHECKPOINT" || Boolean(rawSteps[i] && rawSteps[i].checkpoint) || s.compaction_summary !== null) {
                     checkpoints.push(i);
                 }
             });
@@ -1034,29 +1031,60 @@
             }
 
             let maxContextTokens = 256000;
+            let foundMaxContext = false;
             let latestEstimatedTokens = 0;
-            for (let i = genMetas.length - 1; i >= 0; i--) {
-                const cwm = genMetas[i].contextWindowMetadata;
-                if (cwm) {
+            const extractCwmFromObj = (obj) => {
+                if (!obj || typeof obj !== "object") return;
+                const cwmCandidates = [
+                    obj.contextWindowMetadata,
+                    obj.chatStartMetadata && obj.chatStartMetadata.contextWindowMetadata,
+                    obj.metadata && obj.metadata.contextWindowMetadata,
+                    obj.metadata && obj.metadata.chatStartMetadata && obj.metadata.chatStartMetadata.contextWindowMetadata,
+                ];
+                for (let cIdx = 0; cIdx < cwmCandidates.length; cIdx++) {
+                    const cwm = cwmCandidates[cIdx];
+                    if (!cwm || typeof cwm !== "object") continue;
                     if (cwm.estimatedTokensUsed && !latestEstimatedTokens) {
-                        latestEstimatedTokens = parseInt(cwm.estimatedTokensUsed) || 0;
+                        const est = parseInt(cwm.estimatedTokensUsed, 10) || 0;
+                        if (est > 0) latestEstimatedTokens = est;
                     }
-                    if (cwm.maxContextTokens) {
-                        maxContextTokens = parseInt(cwm.maxContextTokens) || 256000;
+                    if (cwm.maxContextTokens && !foundMaxContext) {
+                        const mct = parseInt(cwm.maxContextTokens, 10) || 0;
+                        if (mct > 0) {
+                            maxContextTokens = mct;
+                            foundMaxContext = true;
+                        }
                     }
+                }
+            };
+            for (let i = genMetas.length - 1; i >= 0; i--) {
+                extractCwmFromObj(genMetas[i]);
+                if (latestEstimatedTokens > 0 && foundMaxContext) break;
+            }
+            if (!foundMaxContext || latestEstimatedTokens === 0) {
+                for (let i = rawSteps.length - 1; i >= 0; i--) {
+                    extractCwmFromObj(rawSteps[i]);
+                    if (latestEstimatedTokens > 0 && foundMaxContext) break;
                 }
             }
 
-            const stepSum = steps.reduce((acc, s) => acc + (s.tokens || 0), 0);
             const lastEpoch = epochs.length > 0 ? epochs[epochs.length - 1] : null;
             const activeEpochSteps = lastEpoch ? steps.slice(lastEpoch.start_index, lastEpoch.end_index + 1) : steps;
             const activeEpochTokens = activeEpochSteps.reduce((acc, s) => acc + (s.tokens || 0), 0);
 
-            const sysPromptTok = stepSum > 0 ? Math.min(4000, Math.max(400, Math.floor(stepSum * 0.05))) : 3800;
-            const toolDefsTok = stepSum > 0 ? Math.min(3500, Math.max(300, Math.floor(stepSum * 0.04))) : 3200;
+            let sysPromptTok = 3800;
+            let toolDefsTok = 3200;
+            if (latestEstimatedTokens > 0 && activeEpochTokens > 0) {
+                const instructionTok = Math.max(7000, latestEstimatedTokens - activeEpochTokens);
+                sysPromptTok = Math.floor(instructionTok * 0.40);
+                toolDefsTok = instructionTok - sysPromptTok;
+            } else if (activeEpochTokens > 0) {
+                sysPromptTok = Math.min(4000, Math.max(400, Math.floor(activeEpochTokens * 0.05)));
+                toolDefsTok = Math.min(3500, Math.max(300, Math.floor(activeEpochTokens * 0.04)));
+            }
 
             const totalTokens = latestEstimatedTokens > 0
-                ? latestEstimatedTokens
+                ? Math.max(latestEstimatedTokens, activeEpochTokens + sysPromptTok + toolDefsTok)
                 : (activeEpochTokens + sysPromptTok + toolDefsTok);
 
             let actualUserTok = 0;
@@ -1065,7 +1093,7 @@
             let actualCheckpointTok = 0;
             let actualSystemTok = 0;
 
-            steps.forEach(s => {
+            activeEpochSteps.forEach(s => {
                 const t = s.type;
                 const tok = s.tokens || 0;
                 if (t === "USER_INPUT") actualUserTok += tok;
@@ -1613,7 +1641,7 @@
         let activeTokensSum = segments.reduce((acc, seg) => acc + (seg.tokens || 0), 0);
         activeTokensSum = Math.max(cur.total_tokens || 0, activeTokensSum);
         const totalTokens = Math.max(cur.total_tokens || 0, activeTokensSum);
-        const ROW_CAPACITY = 64000;
+        const ROW_CAPACITY = Math.max(64000, Math.ceil(maxTokens / 4));
         const rowCount = Math.min(4, Math.max(1, Math.ceil(activeTokensSum / ROW_CAPACITY)));
         const totalActiveCapacity = rowCount * ROW_CAPACITY;
 
@@ -1724,7 +1752,7 @@
             });
             barSegmentsHtml += `
                 <div class="agyis-context-row-wrap" style="display: flex; align-items: center; gap: 8px;">
-                    <span class="agyis-context-row-label" style="font-family: ui-monospace, monospace; font-size: 10px; color: #a1a1aa; width: 34px; text-align: right; flex-shrink: 0; user-select: none;">${rIdx * 64}k</span>
+                    <span class="agyis-context-row-label" style="font-family: ui-monospace, monospace; font-size: 10px; color: #a1a1aa; width: 34px; text-align: right; flex-shrink: 0; user-select: none;">${Math.round((rIdx * ROW_CAPACITY) / 1000)}k</span>
                     <div class="agyis-context-row-track" style="flex: 1; height: 18px; position: relative; background: #27272a; border-radius: 4px; overflow: hidden; border: 1px solid #3f3f46;">
                         ${cellsHtml}
                     </div>
@@ -2309,7 +2337,7 @@
                             <div class="agyis-timeline-pane">
                                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #141416; border: 1px solid #27272a; border-radius: 6px; font-size: 11px; color: #a1a1aa;">
                                     <span><b>Trajectory Timeline:</b> ${steps.length} steps (${totalTokens.toLocaleString()} tokens)</span>
-                                    <span style="font-family: monospace;">256k Context Parity &bull; Live Trace</span>
+                                    <span style="font-family: monospace;">${maxTokens >= 1000000 && maxTokens % 1000000 === 0 ? (maxTokens / 1000000) + 'M' : Math.round(maxTokens / 1000) + 'k'} Context &bull; Live Trace</span>
                                 </div>
                                 ${timelineCardsHtml || "<div style='padding: 20px; text-align: center; color: #71717a;'>No timeline steps available</div>"}
                             </div>

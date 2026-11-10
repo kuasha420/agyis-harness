@@ -262,6 +262,118 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
             self.assertEqual(traj["steps"][0]["content"], "System event occurred: sandbox primed.")
             self.assertIn('"task": "Build"', traj["steps"][1]["content"])
 
+    def test_db_fallback_max_context_tokens_512k(self):
+        """Falls back to get_active_conversation_context_window when transcript lacks maxContextTokens."""
+        import os
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            base_brain = root / "brain"
+            db_dir = root / "convs"
+            db_dir.mkdir(parents=True, exist_ok=True)
+            convo_id = "convo-db-512k-fallback"
+            convo_dir = base_brain / convo_id
+            convo_dir.mkdir(parents=True, exist_ok=True)
+
+            with open(convo_dir / "transcript.jsonl", "w", encoding="utf-8") as f:
+                f.write(json.dumps({"role": "user", "content": "Hello", "tokens": 500}) + "\n")
+                f.write(json.dumps({"role": "assistant", "content": "Hi", "tokens": 1000}) + "\n")
+
+            db_path = db_dir / f"{convo_id}.db"
+            conn = sqlite3.connect(db_path)
+            conn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data TEXT)")
+            conn.execute(
+                "INSERT INTO gen_metadata VALUES (1, ?)",
+                (
+                    json.dumps(
+                        {
+                            "chatStartMetadata": {
+                                "contextWindowMetadata": {
+                                    "estimatedTokensUsed": 374475,
+                                    "maxContextTokens": 512000,
+                                }
+                            }
+                        }
+                    ),
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            with patch.dict(os.environ, {"AGYIS_CONVERSATIONS_DIR": str(db_dir)}):
+                traj = load_conversation_trajectory(convo_id, brain_dir=base_brain)
+
+            self.assertEqual(traj["max_context_tokens"], 512000)
+            self.assertEqual(traj["total_tokens"], 374475)
+
+    def test_active_epoch_breakdown_excludes_pre_checkpoint_inflation(self):
+        """When explicit_cum_tokens > 0 and checkpoints exist, token_breakdown only counts active epoch steps."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_brain = Path(tmpdir)
+            convo_id = "convo-active-epoch-breakdown"
+            convo_dir = base_brain / convo_id
+            convo_dir.mkdir(parents=True, exist_ok=True)
+
+            steps_data = [
+                # Historical pre-checkpoint epoch (must NOT inflate active epoch breakdown)
+                {"role": "user", "type": "USER_INPUT", "content": "Old prompt", "tokens": 150000},
+                {"role": "assistant", "type": "TOOL_CALL", "tool_calls": [{"name": "run_command"}], "tokens": 80000},
+                # Checkpoint
+                {"role": "system", "type": "CHECKPOINT", "content": "<summary>Compacted</summary>", "tokens": 4000},
+                # Active post-checkpoint epoch
+                {"role": "user", "type": "USER_INPUT", "content": "New question", "tokens": 1000},
+                {
+                    "role": "assistant",
+                    "type": "PLANNER_RESPONSE",
+                    "content": "New answer",
+                    "tokens": 2000,
+                    "input_tokens": 20000,
+                    "cache_read_tokens": 30000,
+                },
+            ]
+            with open(convo_dir / "transcript.jsonl", "w", encoding="utf-8") as f:
+                for s in steps_data:
+                    f.write(json.dumps(s) + "\n")
+
+            traj = load_conversation_trajectory(convo_id, brain_dir=base_brain)
+            breakdown = traj["token_breakdown"]
+            self.assertEqual(traj["total_tokens"], 50000)
+            self.assertEqual(sum(breakdown.values()), 50000)
+            self.assertEqual(breakdown["user"], 1000)
+            self.assertEqual(breakdown["tool"], 0)
+            self.assertEqual(breakdown["checkpoint"], 4000)
+            self.assertEqual(breakdown["model"], 2000)
+            self.assertEqual(breakdown["system_prompt"] + breakdown["tool_defs"], 43000)
+
+    def test_cold_cache_explicit_user_input_tokens_honored(self):
+        """USER_INPUT with explicit input_tokens > 0 and cache_read_tokens == 0 still populates total_tokens cleanly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_brain = Path(tmpdir)
+            convo_id = "convo-cold-cache-user-input"
+            convo_dir = base_brain / convo_id
+            convo_dir.mkdir(parents=True, exist_ok=True)
+
+            steps_data = [
+                {
+                    "role": "user",
+                    "type": "USER_INPUT",
+                    "content": "Hi",
+                    "tokens": 50,
+                    "input_tokens": 25000,
+                    "cache_read_tokens": 0,
+                },
+            ]
+            with open(convo_dir / "transcript.jsonl", "w", encoding="utf-8") as f:
+                for s in steps_data:
+                    f.write(json.dumps(s) + "\n")
+
+            traj = load_conversation_trajectory(convo_id, brain_dir=base_brain)
+            self.assertEqual(traj["total_tokens"], 25000)
+            self.assertEqual(traj["token_breakdown"]["user"], 50)
+            self.assertEqual(sum(traj["token_breakdown"].values()), 25000)
+            self.assertNotIn("_has_explicit_input_tokens", traj["steps"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -73,30 +73,50 @@ def cmd_status(args: argparse.Namespace) -> int:
     print("   ✔ anti-drift       (PreToolUse: plan boundary & cognitive anchor gate)")
     print("   ✔ token-proximity (PreToolUse: proactive token urgency monitor & alert)")
     print("-" * 70)
-    print(" Cognitive Attention Horizon Gauge (256k Model Context Window):")
-    print("   🟢 Healthy Zone: <180k tokens (Nominal / High Attention Aperture)")
-    print("   🟡 Amber Zone:   180k–230k tokens (Attention Compaction Advised)")
-    print("   🔴 Red Alert:    >=230k tokens (Compaction Imminent, 256k Context Window)")
     try:
         import os
         from harness.hooks.token_proximity_guard import (
+            AMBER_THRESHOLD,
+            COMPACTION_THRESHOLD,
             CONTEXT_WINDOW_TOKENS,
             MAX_SAFE_BURN_RATE_PER_MIN,
+            RED_THRESHOLD,
             format_terminal_gauge,
+            get_active_conversation_context_window,
             get_active_conversation_token_velocity,
             get_active_conversation_tokens,
             get_conversations_dir,
         )
-        conv_id = os.environ.get("ANTIGRAVITY_CONVERSATION_ID") or os.environ.get("CONVERSATION_ID")
+        conv_id = os.environ.get("ANTIGRAVITY_CONVERSATION_ID") or os.environ.get("CONVERSATION_ID") or os.environ.get("AGYIS_CONVERSATION_ID")
         if not conv_id:
             conv_dir = get_conversations_dir()
             if conv_dir.is_dir():
                 dbs = sorted([f for f in conv_dir.glob("*.db") if not f.name.endswith(".tmp")], key=lambda f: f.stat().st_mtime, reverse=True)
                 if dbs:
                     conv_id = dbs[0].stem
+        ctx_win = get_active_conversation_context_window(conv_id) if conv_id else {
+            "tokens": 0,
+            "max_context_tokens": CONTEXT_WINDOW_TOKENS,
+            "amber_threshold": AMBER_THRESHOLD,
+            "red_threshold": RED_THRESHOLD,
+            "compaction_threshold": COMPACTION_THRESHOLD,
+        }
+        max_ctx = int(ctx_win.get("max_context_tokens") or CONTEXT_WINDOW_TOKENS)
+        amber_t = int(ctx_win.get("amber_threshold") or AMBER_THRESHOLD)
+        red_t = int(ctx_win.get("red_threshold") or RED_THRESHOLD)
+        comp_t = int(ctx_win.get("compaction_threshold") or COMPACTION_THRESHOLD)
+        win_label = f"{max_ctx // 1_000_000}M" if (max_ctx >= 1_000_000 and max_ctx % 1_000_000 == 0) else f"{int(round(max_ctx / 1000))}k"
+        amber_k = int(round(amber_t / 1000))
+        red_k = int(round(red_t / 1000))
+
+        print(f" Cognitive Attention Horizon Gauge ({win_label} Model Context Window):")
+        print(f"   🟢 Healthy Zone: <{amber_k}k tokens (Nominal / High Attention Aperture)")
+        print(f"   🟡 Amber Zone:   {amber_k}k–{red_k}k tokens (Attention Compaction Advised)")
+        print(f"   🔴 Red Alert:    >={red_k}k tokens (Compaction Imminent, {win_label} Context Window)")
+
         if conv_id:
             vel = get_active_conversation_token_velocity(conv_id)
-            tokens = vel.get("tokens", 0)
+            tokens = vel.get("tokens", 0) or ctx_win.get("tokens", 0)
             if tokens <= 0:
                 tokens = get_active_conversation_tokens(conv_id)
             burn_rate = vel.get("burn_rate_tokens_per_min", 0.0)
@@ -105,14 +125,20 @@ def cmd_status(args: argparse.Namespace) -> int:
             if tokens > 0 or burn_rate > 0:
                 gauge = format_terminal_gauge(
                     tokens,
-                    threshold=CONTEXT_WINDOW_TOKENS,
+                    threshold=max_ctx,
                     burn_rate=burn_rate,
                     mins_to_compaction=mins_to_comp,
                     velocity_tier=vel_tier if burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN else None,
+                    amber_threshold=amber_t,
+                    red_threshold=red_t,
+                    compaction_threshold=comp_t,
                 )
                 print(f"   📊 Active Session: {gauge}")
     except Exception:
-        pass
+        print(" Cognitive Attention Horizon Gauge (256k Model Context Window):")
+        print("   🟢 Healthy Zone: <180k tokens (Nominal / High Attention Aperture)")
+        print("   🟡 Amber Zone:   180k–230k tokens (Attention Compaction Advised)")
+        print("   🔴 Red Alert:    >=230k tokens (Compaction Imminent, 256k Context Window)")
     print("-" * 70)
     print(" Specialist Subagents:")
     for ag in agents:

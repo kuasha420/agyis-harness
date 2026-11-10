@@ -968,5 +968,222 @@ class TestTokenBurnVelocity(unittest.TestCase):
         self.assertEqual(res["velocity"]["velocity_tier"], "ELEVATED")
 
 
+class TestDynamicContextWindowScaling(unittest.TestCase):
+    """Track 6: Dynamic maxContextTokens protobuf/JSON probing and threshold scaling."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    @staticmethod
+    def _build_gen_metadata_cwm_protobuf(
+        estimated_tokens: Optional[int] = None,
+        max_context_tokens: Optional[int] = None,
+        outer_mode: str = "canonical",
+    ) -> bytes:
+        cwm = bytearray()
+        if estimated_tokens is not None:
+            cwm.extend(_encode_field(1, 0, estimated_tokens))
+        if max_context_tokens is not None:
+            cwm.extend(_encode_field(4, 0, max_context_tokens))
+        f10 = _encode_field(10, 2, bytes(cwm))
+        if outer_mode == "direct_10":
+            return f10
+        f9 = _encode_field(9, 2, f10)
+        if outer_mode == "f9_f10":
+            return f9
+        return _encode_field(1, 2, f9)
+
+    def test_extract_context_window_from_protobuf_metadata_variants(self):
+        """Decodes field 1 -> field 9 -> field 10, field 9 -> field 10, direct field 10, and avoids UsageMetadata collision."""
+        from harness.hooks.token_proximity_guard import extract_context_window_from_protobuf_metadata
+
+        # 1. Canonical gen_metadata protobuf (field 1 -> field 9 -> field 10)
+        pb_512k = self._build_gen_metadata_cwm_protobuf(estimated_tokens=374475, max_context_tokens=512000)
+        self.assertEqual(extract_context_window_from_protobuf_metadata(pb_512k), (374475, 512000))
+        self.assertEqual(extract_tokens_from_protobuf_metadata(pb_512k), 374475)
+
+        # 2. Direct field 9 -> field 10 and direct field 10
+        pb_f9 = self._build_gen_metadata_cwm_protobuf(estimated_tokens=450000, max_context_tokens=1000000, outer_mode="f9_f10")
+        self.assertEqual(extract_context_window_from_protobuf_metadata(pb_f9), (450000, 1000000))
+
+        pb_f10 = self._build_gen_metadata_cwm_protobuf(estimated_tokens=120000, max_context_tokens=512000, outer_mode="direct_10")
+        self.assertEqual(extract_context_window_from_protobuf_metadata(pb_f10), (120000, 512000))
+
+        # 3. Non-message field 1 bytes (e.g. b"\xff\xff") + UsageMetadata field 9 -> {2, 5}
+        usage_pb = build_usage_metadata_protobuf(prompt_tokens=10000, prefix_bytes=_encode_field(1, 2, b"\xff\xff"))
+        self.assertEqual(extract_context_window_from_protobuf_metadata(usage_pb), (0, 0))
+        self.assertEqual(extract_tokens_from_protobuf_metadata(usage_pb), 10000)
+
+    def test_scaled_thresholds_and_urgency_tier(self):
+        """512k scales to (360k, 460k) so 374,475 tokens is ELEVATED, not CRITICAL."""
+        from harness.hooks.token_proximity_guard import get_scaled_thresholds
+
+        self.assertEqual(get_scaled_thresholds(None), (180000, 230000))
+        self.assertEqual(get_scaled_thresholds(256000), (180000, 230000))
+        self.assertEqual(get_scaled_thresholds(512000), (360000, 460000))
+        amber_1m, red_1m = get_scaled_thresholds(1000000)
+        self.assertEqual(amber_1m, int(round(1000000 * 180000 / 256000)))
+        self.assertEqual(red_1m, int(round(1000000 * 230000 / 256000)))
+
+        # 374,475 on 256k is CRITICAL, but on 512k is ELEVATED
+        self.assertEqual(get_urgency_tier(374475), "CRITICAL")
+        self.assertEqual(get_urgency_tier(374475, max_context_tokens=512000), "ELEVATED")
+        self.assertEqual(get_urgency_tier(460000, max_context_tokens=512000), "CRITICAL")
+
+    def test_db_reads_both_steps_and_gen_metadata_protobuf_512k(self):
+        """Inspects gen_metadata even when steps yielded tokens, preserving 512k capacity."""
+        from harness.hooks.token_proximity_guard import get_active_conversation_context_window
+
+        conv_id = "test-512k-steps-plus-gen-meta"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, metadata BLOB)")
+        conn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)")
+        # steps has 370k UsageMetadata
+        conn.execute("INSERT INTO steps VALUES (1, 15, ?)", (build_usage_metadata_protobuf(prompt_tokens=370000),))
+        # gen_metadata has 374,475 / 512,000
+        conn.execute(
+            "INSERT INTO gen_metadata VALUES (1, ?)",
+            (self._build_gen_metadata_cwm_protobuf(estimated_tokens=374475, max_context_tokens=512000),),
+        )
+        conn.commit()
+        conn.close()
+
+        ctx_win = get_active_conversation_context_window(conv_id, db_dir=self.db_dir)
+        self.assertEqual(ctx_win["tokens"], 374475)
+        self.assertEqual(ctx_win["max_context_tokens"], 512000)
+        self.assertEqual(ctx_win["amber_threshold"], 360000)
+        self.assertEqual(ctx_win["red_threshold"], 460000)
+        self.assertEqual(ctx_win["compaction_threshold"], 460000)
+        self.assertTrue(ctx_win["has_explicit_max_context"])
+
+        res = check_token_proximity(conv_id, db_dir=self.db_dir, emit_stderr=False)
+        self.assertEqual(res["tier"], "ELEVATED")
+        self.assertEqual(res["max_context_tokens"], 512000)
+
+    def test_checkpoint_barrier_resets_tokens_but_keeps_max_context(self):
+        """When steps hit CHECKPOINT (23), active tokens reset to 0 while max_context_tokens remains 512000."""
+        from harness.hooks.token_proximity_guard import get_active_conversation_context_window
+
+        conv_id = "test-512k-checkpoint-barrier"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, metadata BLOB)")
+        conn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)")
+        conn.execute("INSERT INTO steps VALUES (1, 15, ?)", (build_usage_metadata_protobuf(prompt_tokens=370000),))
+        conn.execute("INSERT INTO steps VALUES (2, 23, NULL)")
+        conn.execute(
+            "INSERT INTO gen_metadata VALUES (1, ?)",
+            (self._build_gen_metadata_cwm_protobuf(estimated_tokens=374475, max_context_tokens=512000),),
+        )
+        conn.commit()
+        conn.close()
+
+        ctx_win = get_active_conversation_context_window(conv_id, db_dir=self.db_dir)
+        self.assertEqual(ctx_win["tokens"], 0)
+        self.assertEqual(ctx_win["max_context_tokens"], 512000)
+        self.assertEqual(ctx_win["compaction_threshold"], 460000)
+
+    def test_velocity_and_gauge_scale_to_512k(self):
+        """Velocity compaction ETA and terminal gauge render against 460k / 512,000."""
+        conv_id = "test-velocity-512k"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, token_count INTEGER, created_at TEXT)")
+        conn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data TEXT)")
+        conn.execute("INSERT INTO steps VALUES (1, 360000, '2026-10-27 12:00:00')")
+        conn.execute("INSERT INTO steps VALUES (2, 370000, '2026-10-27 12:05:00')")
+        conn.execute(
+            "INSERT INTO gen_metadata VALUES (1, ?)",
+            (json.dumps({"chatStartMetadata": {"contextWindowMetadata": {"estimatedTokensUsed": 370000, "maxContextTokens": 512000}}}),),
+        )
+        conn.commit()
+        conn.close()
+
+        vel = get_active_conversation_token_velocity(conv_id, db_dir=self.db_dir)
+        self.assertEqual(vel["max_context_tokens"], 512000)
+        self.assertEqual(vel["compaction_threshold"], 460000)
+        # burn_rate = 10000 / 5min = 2000 tok/min; (460000 - 370000) / 2000 = 45.0 mins
+        self.assertAlmostEqual(vel["burn_rate_tokens_per_min"], 2000.0, places=1)
+        self.assertAlmostEqual(vel["mins_to_compaction"], 45.0, places=1)
+
+        gauge = format_terminal_gauge(
+            370000,
+            threshold=512000,
+            burn_rate=vel["burn_rate_tokens_per_min"],
+            mins_to_compaction=vel["mins_to_compaction"],
+        )
+        self.assertIn("370,000 / 512,000", gauge)
+        self.assertIn("~45m to 460k", gauge)
+        self.assertIn("ELEVATED", gauge)
+        self.assertNotIn("\a", gauge)
+
+    def test_main_and_run_guard_scale_to_512k(self):
+        """run_token_proximity_guard and main() actions (get_tokens, render_gauge) honor 512k window."""
+        conv_id = "test-main-512k"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data TEXT)")
+        conn.execute(
+            "INSERT INTO gen_metadata VALUES (1, ?)",
+            (json.dumps({"chatStartMetadata": {"contextWindowMetadata": {"estimatedTokensUsed": 374475, "maxContextTokens": 512000}}}),),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch.dict(os.environ, {"AGYIS_CONVERSATIONS_DIR": str(self.db_dir)}):
+            err_buf = io.StringIO()
+            res = run_token_proximity_guard({"conversationId": conv_id}, stderr=err_buf)
+            self.assertEqual(res, {"decision": "allow"})
+            self.assertIn("374,475 / 512,000", err_buf.getvalue())
+            self.assertIn("ELEVATED", err_buf.getvalue())
+            self.assertNotIn("\a", err_buf.getvalue())
+
+            with patch("sys.stdin", io.StringIO(json.dumps({"action": "get_tokens", "conversationId": conv_id}))), patch(
+                "sys.stdout", new_callable=io.StringIO
+            ) as mock_out:
+                guard_main()
+                data = json.loads(mock_out.getvalue().strip())
+                self.assertEqual(data["tokens"], 374475)
+                self.assertEqual(data["max_context_tokens"], 512000)
+                self.assertEqual(data["tier"], "ELEVATED")
+
+        with patch(
+            "sys.stdin",
+            io.StringIO(json.dumps({"action": "render_gauge", "tokens": 374475, "max_context_tokens": 512000})),
+        ), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            guard_main()
+            gdata = json.loads(mock_out.getvalue().strip())
+            self.assertIn("374,475 / 512,000", gdata["gauge"])
+            self.assertIn("ELEVATED", gdata["gauge"])
+
+    def test_post_compaction_step_data_tokens_not_cleared_by_metadata_scan(self):
+        """Block 1.3 metadata scan for maxContextTokens must not set checkpoint_hit when tokens_found > 0 from Block 1.1."""
+        from harness.hooks.token_proximity_guard import get_active_conversation_context_window
+
+        conv_id = "test-512k-post-compaction-step-data"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, step_data TEXT, metadata BLOB)")
+        conn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)")
+        conn.execute("INSERT INTO steps VALUES (1, 15, ?, NULL)", (json.dumps({"tokens": 450000}),))
+        conn.execute("INSERT INTO steps VALUES (2, 23, NULL, NULL)")
+        conn.execute("INSERT INTO steps VALUES (3, 15, ?, NULL)", (json.dumps({"tokens": 25000}),))
+        conn.execute(
+            "INSERT INTO gen_metadata VALUES (1, ?)",
+            (self._build_gen_metadata_cwm_protobuf(estimated_tokens=None, max_context_tokens=512000),),
+        )
+        conn.commit()
+        conn.close()
+
+        ctx_win = get_active_conversation_context_window(conv_id, db_dir=self.db_dir)
+        self.assertEqual(ctx_win["tokens"], 25000)
+        self.assertEqual(ctx_win["max_context_tokens"], 512000)
+
+
 if __name__ == "__main__":
     unittest.main()

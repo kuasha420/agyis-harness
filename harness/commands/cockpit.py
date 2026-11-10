@@ -42,14 +42,19 @@ from harness.subagents.stage_role import read_stage_role
 from harness.utils.plan_parser import find_active_plan
 
 
-def _classify_token_horizon(tokens: int) -> Tuple[str, str]:
+def _classify_token_horizon(tokens: int, max_context_tokens: int = 256_000) -> Tuple[str, str]:
     """Classifies token count into Healthy, Amber, or Red Alert proximity zones."""
-    if tokens < 180_000:
-        return "HEALTHY", "🟢 Healthy Zone (<180k tokens)"
-    elif tokens < 230_000:
-        return "AMBER", "🟡 Amber Warning Zone (180k–229k tokens)"
+    from harness.hooks.token_proximity_guard import get_scaled_thresholds
+
+    amber_t, red_t = get_scaled_thresholds(max_context_tokens)
+    amber_k = int(round(amber_t / 1000))
+    red_k = int(round(red_t / 1000))
+    if tokens < amber_t:
+        return "HEALTHY", f"🟢 Healthy Zone (<{amber_k}k tokens)"
+    elif tokens < red_t:
+        return "AMBER", f"🟡 Amber Warning Zone ({amber_k}k–{red_k - 1}k tokens)"
     else:
-        return "RED_ALERT", "🔴 Compaction Imminent (>=230k tokens)"
+        return "RED_ALERT", f"🔴 Compaction Imminent (>={red_k}k tokens)"
 
 
 def _get_active_checkpoint_info(workspace: Path) -> Dict[str, Any]:
@@ -327,30 +332,57 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
             except ValueError:
                 tokens = 0
 
-        if tokens <= 0:
-            try:
-                from harness.hooks.token_proximity_guard import (
-                    get_active_conversation_tokens,
-                    get_conversations_dir,
-                )
-                conv_id = (
-                    os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
-                    or os.environ.get("CONVERSATION_ID")
-                    or os.environ.get("AGYIS_CONVERSATION_ID")
-                    or get_active_conversation_id()
-                )
-                if not conv_id:
-                    conv_dir = get_conversations_dir()
-                    if conv_dir.is_dir():
-                        dbs = sorted([f for f in conv_dir.glob("*.db") if not f.name.endswith(".tmp")], key=lambda f: f.stat().st_mtime, reverse=True)
-                        if dbs:
-                            conv_id = dbs[0].stem
-                if conv_id:
+        max_ctx = 256_000
+        has_explicit_max = False
+        scaled_fn = None
+        try:
+            from harness.hooks.token_proximity_guard import (
+                get_active_conversation_context_window,
+                get_active_conversation_tokens,
+                get_conversations_dir,
+                get_scaled_thresholds,
+            )
+            scaled_fn = get_scaled_thresholds
+            conv_id = (
+                os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+                or os.environ.get("CONVERSATION_ID")
+                or os.environ.get("AGYIS_CONVERSATION_ID")
+                or get_active_conversation_id()
+            )
+            if not conv_id:
+                conv_dir = get_conversations_dir()
+                if conv_dir.is_dir():
+                    dbs = sorted([f for f in conv_dir.glob("*.db") if not f.name.endswith(".tmp")], key=lambda f: f.stat().st_mtime, reverse=True)
+                    if dbs:
+                        conv_id = dbs[0].stem
+            if conv_id:
+                ctx_win = get_active_conversation_context_window(conv_id)
+                has_explicit_max = bool(ctx_win.get("has_explicit_max_context", False))
+                max_ctx = int(ctx_win.get("max_context_tokens") or 256_000)
+                if tokens <= 0:
+                    tokens = int(ctx_win.get("tokens") or 0)
+                if tokens <= 0:
                     tokens = get_active_conversation_tokens(conv_id)
-            except Exception:
-                tokens = 0
+        except Exception:
+            pass
 
-        zone_code, zone_label = _classify_token_horizon(tokens)
+        if not has_explicit_max:
+            env_max = os.environ.get("AGYIS_MAX_CONTEXT_TOKENS")
+            if env_max:
+                try:
+                    parsed_max = int(env_max.strip())
+                    if parsed_max > 0:
+                        max_ctx = parsed_max
+                except ValueError:
+                    pass
+
+        if scaled_fn is not None:
+            amber_t, red_t = scaled_fn(max_ctx)
+        else:
+            amber_t = int(round(max_ctx * 180_000 / 256_000))
+            red_t = int(round(max_ctx * 230_000 / 256_000))
+
+        zone_code, zone_label = _classify_token_horizon(tokens, max_context_tokens=max_ctx)
         git_state = inspect_git_state(workspace)
         subagents = collect_active_subagents(workspace)
         stage_role = read_stage_role(workspace)
@@ -364,6 +396,9 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
             "flight_director": {
                 "role": "ROLE_FLIGHT_DIRECTOR",
                 "tokens_estimated": tokens,
+                "max_context_tokens": max_ctx,
+                "amber_threshold": amber_t,
+                "red_threshold": red_t,
                 "proximity_zone": zone_code,
                 "proximity_label": zone_label,
             },
@@ -398,7 +433,7 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("🛫 AGYIS COCKPIT FLIGHT DECK STATUS")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print(f"• Proximity Zone     : {zone_label} (~{tokens:,} tokens)")
+        print(f"• Proximity Zone     : {zone_label} (~{tokens:,} / {max_ctx:,} tokens)")
         print(f"• Active Stage Role  : {stage_role.get('stage_name', 'None') if stage_role else 'ROOT_ATC'} ({stage_role.get('specialist_agent', 'cockpit_director') if stage_role else 'cockpit_director'})")
         print(f"• Active Plan        : {plan_path.name if plan_path else 'None declared'}")
         print(f"• Git State          : Branch '{git_state.branch}' @ {git_state.commit_short} ({'DIRTY' if git_state.is_dirty else 'CLEAN'})")

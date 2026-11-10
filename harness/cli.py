@@ -978,8 +978,8 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     p_checkpoint.add_argument(
         "--trigger-tokens",
         type=int,
-        default=230_000,
-        help="Context tokens trigger threshold (default: 230,000)",
+        default=None,
+        help="Context tokens trigger threshold (default: auto-scaled from active context window or 230,000)",
     )
     p_checkpoint.add_argument(
         "--max-age-mins",
@@ -1039,7 +1039,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         "--trigger-tokens",
         type=int,
         default=argparse.SUPPRESS,
-        help="Context tokens trigger threshold (default: 230,000)",
+        help="Context tokens trigger threshold (default: auto-scaled from active context window or 230,000)",
     )
     p_cp_gen.add_argument(
         "--brain-dir",
@@ -1095,7 +1095,7 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         "--trigger-tokens",
         type=int,
         default=argparse.SUPPRESS,
-        help="Context tokens trigger threshold (default: 230,000)",
+        help="Context tokens trigger threshold (default: auto-scaled from active context window or 230,000)",
     )
     p_cp_stat.add_argument(
         "--json",
