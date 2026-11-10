@@ -27,6 +27,7 @@ from harness.commands.onboard import cmd_onboard
 from harness.commands.verify import cmd_verify
 from harness.commands.gui import cmd_gui
 from harness.commands.release_notes import cmd_release_notes
+from harness.commands.changelog import cmd_changelog
 from harness.commands.checkpoint import cmd_checkpoint
 from harness.commands.cockpit import cmd_cockpit
 from harness.commands.clean import cmd_clean
@@ -52,6 +53,7 @@ __all__ = [
     "cmd_verify",
     "cmd_gui",
     "cmd_release_notes",
+    "cmd_changelog",
     "cmd_checkpoint",
     "cmd_cockpit",
     "cmd_clean",

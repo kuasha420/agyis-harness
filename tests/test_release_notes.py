@@ -21,20 +21,27 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from harness.cli import main
+import harness.delivery as delivery_pkg
 from harness.delivery.release_notes import (
+    CATEGORY_BREAKING,
     CATEGORY_DOCS,
     CATEGORY_FEATURES,
     CATEGORY_FIXES,
     CATEGORY_MAINTENANCE,
     DEFAULT_REPO_URL,
     categorize_commits,
+    collect_release_notes,
     extract_issue_references,
     find_previous_tag,
     format_markdown,
     generate_release_notes,
     get_repo_remote_url,
+    get_tag_date,
+    list_release_tags,
     parse_commit_record,
     parse_commits,
+    parse_semver_tag,
+    resolve_git_ref,
     sync_github_release,
 )
 
@@ -382,6 +389,240 @@ class TestReleaseNotesIntegration(unittest.TestCase):
 
         duration = time.perf_counter() - t0
         self.assertLess(duration, 1.0, f"Benchmark exceeded 1.0s: {duration:.3f}s")
+
+
+class TestBreakingChangesAndPublicExports(unittest.TestCase):
+    """Tests for breaking footer variants, section placement, and backwards-compatible exports."""
+
+    def test_hyphen_and_non_conventional_breaking_footers(self):
+        hyphen_rec = "1111111\x1ffix(auth): rotate tokens\x1fBREAKING-CHANGE: old token rejected\x1e"
+        non_conv_rec = "2222222\x1fDrop legacy sync endpoint\x1fBREAKING CHANGE: endpoint removed\x1e"
+        non_conv_hyphen = "3333333\x1fRemove v1 config\x1fBREAKING-CHANGE: v1 config ignored\x1e"
+
+        commits = parse_commits(hyphen_rec + non_conv_rec + non_conv_hyphen)
+        self.assertEqual(len(commits), 3)
+        self.assertTrue(all(c["breaking"] for c in commits))
+
+        cats = categorize_commits(commits)
+        self.assertEqual(set(cats.keys()), {
+            CATEGORY_FEATURES,
+            CATEGORY_FIXES,
+            CATEGORY_DOCS,
+            CATEGORY_MAINTENANCE,
+        })
+
+        # Deduplication when commit appears in both CATEGORY_BREAKING and SECTION_ORDER
+        cats_with_extra = dict(cats)
+        cats_with_extra[CATEGORY_BREAKING] = [commits[0]]
+        md = format_markdown(cats_with_extra, base_tag="v1.0.0", target_tag="v2.0.0")
+
+        self.assertIn("### Breaking Changes", md)
+        idx_changed = md.index("## What's Changed")
+        idx_breaking = md.index("### Breaking Changes")
+        idx_fixes = md.index("### Bug Fixes & Hardening")
+        idx_maint = md.index("### Maintenance & Release")
+        self.assertTrue(idx_changed < idx_breaking < idx_fixes < idx_maint)
+        # Breaking commit remains in its primary SECTION_ORDER bucket too and is deduplicated in Breaking Changes
+        self.assertEqual(md.count("- fix(auth): rotate tokens"), 2)
+
+    def test_non_breaking_markdown_unchanged(self):
+        cats = {
+            CATEGORY_FEATURES: [{"subject": "feat: clean addition", "breaking": False}],
+            CATEGORY_FIXES: [],
+            CATEGORY_DOCS: [],
+            CATEGORY_MAINTENANCE: [],
+        }
+        md = format_markdown(cats, base_tag="v1.0.0", target_tag="v1.1.0")
+        expected = (
+            "# Release v1.1.0\n\n"
+            "## What's Changed\n\n"
+            "### Features & Architecture\n"
+            "- feat: clean addition\n\n"
+            "**Full Changelog**: https://github.com/kuasha420/agyis-harness/compare/v1.0.0...v1.1.0\n"
+        )
+        self.assertEqual(md, expected)
+
+    def test_backwards_compatible_20_exports(self):
+        expected_20 = {
+            "CATEGORY_DOCS",
+            "CATEGORY_FEATURES",
+            "CATEGORY_FIXES",
+            "CATEGORY_MAINTENANCE",
+            "CONVENTIONAL_COMMIT_REGEX",
+            "CommitInfo",
+            "DEFAULT_REPO_URL",
+            "ISSUE_EXTRACTION_REGEX",
+            "ReleaseNotesResult",
+            "SECTION_ORDER",
+            "TYPE_TO_CATEGORY",
+            "categorize_commits",
+            "extract_issue_references",
+            "find_previous_tag",
+            "format_markdown",
+            "generate_release_notes",
+            "get_repo_remote_url",
+            "parse_commit_record",
+            "parse_commits",
+            "sync_github_release",
+        }
+        import harness.delivery.release_notes as rn_mod
+
+        self.assertTrue(expected_20.issubset(set(rn_mod.__all__)))
+        self.assertTrue(expected_20.issubset(set(delivery_pkg.__all__)))
+
+
+class TestTagOrderingAndRefValidation(unittest.TestCase):
+    """Tests for SemVer numeric ordering, lightweight/annotated tags, and ref validation."""
+
+    def test_semver_ordering_rc2_rc9_rc10_stable(self):
+        tags = ["v1.0.0", "v1.0.0-rc10", "v1.0.0-rc2", "v1.0.0-rc9", "v1.0.0-alpha.1", "v1.0.0-rc0"]
+        ordered = sorted(tags, key=lambda t: parse_semver_tag(t))
+        self.assertEqual(
+            ordered,
+            ["v1.0.0-alpha.1", "v1.0.0-rc0", "v1.0.0-rc2", "v1.0.0-rc9", "v1.0.0-rc10", "v1.0.0"],
+        )
+
+    def test_lightweight_annotated_tags_and_find_previous_tag(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["git", "config", "user.name", "Tester"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "tester@example.com"], cwd=repo, check=True)
+
+            # Unborn repo returns empty ReleaseNotesResult when base_tag is None
+            unborn_res = collect_release_notes(repo, target_ref="v0.1.0")
+            self.assertEqual(unborn_res.commits_count, 0)
+            self.assertIn("*No changes.*", unborn_res.markdown)
+
+            def commit_and_tag(msg: str, tag: str, ts: str, annotated: bool) -> None:
+                env = os.environ | {"GIT_AUTHOR_DATE": ts, "GIT_COMMITTER_DATE": ts}
+                subprocess.run(
+                    ["git", "commit", "--allow-empty", "-m", msg],
+                    cwd=repo,
+                    env=env,
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                if annotated:
+                    subprocess.run(["git", "tag", "-a", tag, "-m", tag], cwd=repo, env=env, check=True)
+                else:
+                    subprocess.run(["git", "tag", tag], cwd=repo, env=env, check=True)
+
+            commit_and_tag("feat: rc2", "v1.0.0-rc2", "2026-10-02T10:00:00Z", annotated=False)
+            commit_and_tag("feat: rc9", "v1.0.0-rc9", "2026-10-09T10:00:00Z", annotated=True)
+            commit_and_tag("feat: rc10", "v1.0.0-rc10", "2026-10-10T10:00:00Z", annotated=False)
+            # Co-locate v1.0.0 with v1.0.0-rc10 on the same commit
+            subprocess.run(["git", "tag", "-a", "v1.0.0", "-m", "v1.0.0"], cwd=repo, env=os.environ | {"GIT_COMMITTER_DATE": "2026-10-11T10:00:00Z"}, check=True)
+
+            self.assertEqual(
+                list_release_tags(repo),
+                ["v1.0.0-rc2", "v1.0.0-rc9", "v1.0.0-rc10", "v1.0.0"],
+            )
+            self.assertEqual(get_tag_date(repo, "v1.0.0-rc9"), "2026-10-09")
+            self.assertEqual(get_tag_date(repo, "v1.0.0-rc2"), "2026-10-02")
+
+            self.assertEqual(find_previous_tag(repo, "v1.0.0-rc10"), "v1.0.0-rc9")
+            self.assertEqual(find_previous_tag(repo, "v1.0.0"), "v1.0.0-rc10")
+            # HEAD sitting on co-located tags excludes all co-located tags
+            self.assertEqual(find_previous_tag(repo, "HEAD"), "v1.0.0-rc9")
+
+            # Add commit ahead of v1.0.0
+            env_next = os.environ | {"GIT_AUTHOR_DATE": "2026-10-12T10:00:00Z", "GIT_COMMITTER_DATE": "2026-10-12T10:00:00Z"}
+            subprocess.run(["git", "commit", "--allow-empty", "-m", "feat: next release"], cwd=repo, env=env_next, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            head_sha = resolve_git_ref(repo, "HEAD")
+            self.assertIsNotNone(head_sha)
+            self.assertEqual(find_previous_tag(repo, "HEAD"), "v1.0.0")
+
+            # Untagged future tag defaults --rev to HEAD
+            future_res = collect_release_notes(repo, target_ref="v1.0.1")
+            self.assertEqual(future_res.base_tag, "v1.0.0")
+            self.assertEqual(future_res.target_tag, "v1.0.1")
+            self.assertEqual(future_res.commits_count, 1)
+            self.assertIn("feat: next release", future_res.markdown)
+
+            # Explicit --rev works and invalid --base / --rev fail loudly
+            rev_res = collect_release_notes(repo, base_tag="v1.0.0-rc9", target_ref="v1.0.0-rc10", target_rev="v1.0.0-rc10")
+            self.assertEqual(rev_res.commits_count, 1)
+            with self.assertRaises(ValueError):
+                collect_release_notes(repo, base_tag="invalid-ref")
+            with self.assertRaises(ValueError):
+                collect_release_notes(repo, target_rev="invalid-ref")
+
+            with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+                self.assertEqual(main(["release-notes", "-w", str(repo), "--base", "bad-ref"]), 1)
+                self.assertIn("Invalid base ref", mock_err.getvalue())
+            with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+                self.assertEqual(main(["release-notes", "-w", str(repo), "--rev", "bad-ref"]), 1)
+                self.assertIn("Invalid target revision ref", mock_err.getvalue())
+
+
+class TestHardenedSyncAndCliFlags(unittest.TestCase):
+    """Tests for hardened sync_github_release() and new CLI release-notes flags."""
+
+    @patch("subprocess.run")
+    def test_sync_edit_with_title_prerelease_and_assets(self, mock_run):
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="", stderr=""),  # view
+            MagicMock(returncode=0, stdout="", stderr=""),  # upload --clobber
+            MagicMock(returncode=0, stdout="", stderr=""),  # edit
+        ]
+        ok, msg = sync_github_release(
+            "v1.0.0",
+            "# Notes",
+            prerelease=False,
+            title="Release 1.0.0",
+            assets=["dist/pkg.whl"],
+        )
+        self.assertTrue(ok)
+        self.assertIn("Successfully updated", msg)
+        upload_cmd = mock_run.call_args_list[1].args[0]
+        edit_cmd = mock_run.call_args_list[2].args[0]
+        self.assertEqual(upload_cmd, ["gh", "release", "upload", "v1.0.0", "dist/pkg.whl", "--clobber"])
+        self.assertIn("--title", edit_cmd)
+        self.assertIn("Release 1.0.0", edit_cmd)
+        self.assertIn("--prerelease=false", edit_cmd)
+
+    @patch("subprocess.run")
+    def test_sync_collision_fallback_uploads_and_edits(self, mock_run):
+        mock_run.side_effect = [
+            MagicMock(returncode=1, stdout="", stderr="release not found"),  # view
+            MagicMock(returncode=1, stdout="", stderr="HTTP 422 release_already_exists"),  # create fails
+            MagicMock(returncode=0, stdout="", stderr=""),  # upload --clobber
+            MagicMock(returncode=0, stdout="", stderr=""),  # edit fallback
+        ]
+        ok, msg = sync_github_release(
+            "v1.0.0-rc10",
+            "# Notes",
+            prerelease=True,
+            title="RC10",
+            assets=["dist/a.whl", "dist/b.tar.gz"],
+        )
+        self.assertTrue(ok)
+        self.assertIn("Successfully updated", msg)
+        upload_cmd = mock_run.call_args_list[2].args[0]
+        edit_cmd = mock_run.call_args_list[3].args[0]
+        self.assertEqual(upload_cmd, ["gh", "release", "upload", "v1.0.0-rc10", "dist/a.whl", "dist/b.tar.gz", "--clobber"])
+        self.assertIn("--title", edit_cmd)
+        self.assertIn("RC10", edit_cmd)
+        self.assertIn("--prerelease", edit_cmd)
+
+    @patch("harness.commands.release_notes.sync_github_release")
+    def test_cli_forwards_title_prerelease_and_no_prerelease(self, mock_sync):
+        mock_sync.return_value = (True, "ok")
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = main([
+                "release-notes",
+                "--base", "v1.0.0-rc4",
+                "--tag", "v1.0.0-rc5",
+                "--rev", "v1.0.0-rc5",
+                "--gh-release", "v1.0.0-rc5",
+                "--title", "Custom RC5",
+                "--no-prerelease",
+            ])
+        self.assertEqual(code, 0)
+        self.assertEqual(mock_sync.call_args.kwargs["title"], "Custom RC5")
+        self.assertFalse(mock_sync.call_args.kwargs["prerelease"])
 
 
 if __name__ == "__main__":

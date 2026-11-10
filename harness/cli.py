@@ -47,6 +47,7 @@ from harness.commands import (
     cmd_uninstall,
     cmd_verify,
     cmd_release_notes,
+    cmd_changelog,
     cmd_checkpoint,
     cmd_cockpit,
     cmd_clean,
@@ -814,6 +815,12 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         help="Base release tag or ref to compare against (default: auto-detected predecessor tag)",
     )
     p_relnotes.add_argument(
+        "--rev",
+        type=str,
+        default=None,
+        help="Target git revision to inspect (defaults to --tag if valid ref, else HEAD)",
+    )
+    p_relnotes.add_argument(
         "--output", "-o",
         type=str,
         default=None,
@@ -825,6 +832,28 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         default=None,
         help="Create or edit GitHub release using gh CLI",
     )
+    p_relnotes.add_argument(
+        "--title",
+        type=str,
+        default=None,
+        help="GitHub release title override when syncing via --gh-release",
+    )
+    rel_pre_group = p_relnotes.add_mutually_exclusive_group()
+    rel_pre_group.add_argument(
+        "--prerelease",
+        dest="prerelease",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Mark GitHub release as prerelease when syncing via --gh-release",
+    )
+    rel_pre_group.add_argument(
+        "--no-prerelease",
+        dest="prerelease",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="Mark GitHub release as stable (non-prerelease) when syncing via --gh-release",
+    )
+    p_relnotes.set_defaults(prerelease=None)
     p_relnotes.add_argument(
         "--workspace", "-w",
         type=Path,
@@ -841,6 +870,79 @@ def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Output release notes and structured categories in JSON format",
+    )
+
+    # changelog (alias: changelogs)
+    p_changelog = subparsers.add_parser(
+        "changelog",
+        aliases=["changelogs"],
+        help="Generate, update, or backfill Keep-a-Changelog entries in CHANGELOG.md",
+        description="Native Keep-a-Changelog Generator & Idempotent CHANGELOG.md Manager",
+    )
+    p_changelog.add_argument(
+        "--tag",
+        "--version",
+        dest="tag",
+        type=str,
+        default=None,
+        help="Target release tag or version (default: Unreleased)",
+    )
+    p_changelog.add_argument(
+        "--base",
+        type=str,
+        default=None,
+        help="Base release tag or ref to compare against (default: latest/predecessor tag)",
+    )
+    p_changelog.add_argument(
+        "--rev",
+        type=str,
+        default=None,
+        help="Target git revision to inspect (defaults to --tag if valid ref, else HEAD)",
+    )
+    p_changelog.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        help="Release date override in YYYY-MM-DD format (default: git tag date or today UTC)",
+    )
+    p_changelog.add_argument(
+        "--file", "-f",
+        type=Path,
+        default=Path("CHANGELOG.md"),
+        help="Target changelog file path (default: CHANGELOG.md)",
+    )
+    p_changelog.add_argument(
+        "--write",
+        action="store_true",
+        help="Write/upsert the generated changelog into --file",
+    )
+    p_changelog.add_argument(
+        "--backfill",
+        action="store_true",
+        help="Backfill missing SemVer release tags plus [Unreleased] into --file",
+    )
+    p_changelog.add_argument(
+        "--style",
+        choices=["canonical", "keepachangelog"],
+        default="canonical",
+        help="Section heading style (default: canonical)",
+    )
+    p_changelog.add_argument(
+        "--workspace", "-w",
+        type=Path,
+        default=None,
+        help="Path to git repository workspace (default: current directory)",
+    )
+    p_changelog.add_argument(
+        "--repo-url",
+        type=str,
+        default=None,
+        help="GitHub repository URL override for compare reference links",
+    )
+    p_changelog.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured changelog result in JSON format",
     )
 
     # checkpoint
@@ -1264,6 +1366,8 @@ def main(
         "verify": cmd_verify,
         "gui": cmd_gui,
         "release-notes": cmd_release_notes,
+        "changelog": cmd_changelog,
+        "changelogs": cmd_changelog,
         "checkpoint": cmd_checkpoint,
         "cockpit": cmd_cockpit,
         "router": cmd_cockpit,
