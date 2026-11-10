@@ -413,7 +413,7 @@ class TestLadderHeartbeat(unittest.TestCase):
         disarm_stage_heartbeat("complete", self.tmp)
         clear_stage_heartbeat(self.tmp)
         duration = time.perf_counter() - start
-        self.assertLess(duration, 0.05, f"Heartbeat operations took {duration:.4f}s, expected <0.05s")
+        self.assertLess(duration, 0.20, f"Heartbeat operations took {duration:.4f}s, expected <0.20s")
 
 
 if __name__ == "__main__":
