@@ -29,6 +29,32 @@ from harness.utils.context import (
 )
 
 
+def _resolve_latest_checkpoint(workspace: Path, session_id: Optional[str] = None) -> tuple[Optional[Path], Path]:
+    """Resolves active CID-scoped checkpoint first, then newest checkpoint, then legacy fallback."""
+    conv_id = get_active_conversation_id(session_id)
+    cp_dir = workspace / ".agents" / "artifacts" / "checkpoints"
+    if conv_id:
+        expected = cp_dir / f"{conv_id}.md"
+        if expected.is_file():
+            return expected, expected
+    session_cp = cp_dir / "session.md"
+    if session_cp.is_file() and not conv_id:
+        return session_cp, session_cp
+    if cp_dir.is_dir():
+        cands = sorted(
+            (p for p in cp_dir.glob("*.md") if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if cands:
+            return cands[0], cands[0]
+    legacy = workspace / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
+    default_expected = cp_dir / f"{conv_id}.md" if conv_id else session_cp
+    if legacy.is_file():
+        return legacy, default_expected
+    return None, default_expected
+
+
 def cmd_checkpoint(args: argparse.Namespace) -> int:
     """
     Handles `agyis checkpoint` subcommands:
@@ -66,7 +92,7 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
 
         res = generate_compaction_checkpoint(
             workspace_dir=workspace,
-            session_id=conv_id,
+            session_id=getattr(args, "session_id", None) if brain_dir is not None else conv_id,
             orchestrator_role=role,
             trigger_tokens=trigger_tokens,
             plan_path=plan_path,
@@ -101,9 +127,9 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
             max_age_mins_val = 60.0
 
         max_age_seconds = max_age_mins_val * 60.0
-        latest_file = workspace / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
+        latest_file, expected_file = _resolve_latest_checkpoint(workspace, getattr(args, "session_id", None))
 
-        if not latest_file.is_file():
+        if latest_file is None or not latest_file.is_file():
             if is_json:
                 print(
                     json.dumps(
@@ -117,7 +143,7 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
                     )
                 )
             else:
-                print(f"❌ No latest checkpoint found at: {latest_file}")
+                print(f"❌ No latest checkpoint found at: {expected_file}")
             return 1
 
         try:
@@ -153,14 +179,14 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
         return 0 if valid else 1
 
     elif action == "status":
-        latest_file = workspace / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
-        checkpoint_present = latest_file.is_file()
+        resolved_cp, expected_cp = _resolve_latest_checkpoint(workspace, getattr(args, "session_id", None))
+        checkpoint_present = resolved_cp is not None and resolved_cp.is_file()
         checkpoint_age_seconds: Optional[float] = None
         checkpoint_path: Optional[str] = None
-        if checkpoint_present:
-            checkpoint_path = str(latest_file)
+        if checkpoint_present and resolved_cp is not None:
+            checkpoint_path = str(resolved_cp)
             try:
-                checkpoint_age_seconds = round(time.time() - latest_file.stat().st_mtime, 2)
+                checkpoint_age_seconds = round(time.time() - resolved_cp.stat().st_mtime, 2)
             except OSError:
                 checkpoint_age_seconds = 0.0
 

@@ -17,12 +17,14 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
-# Mainline Role Taxonomy constants
-ROLE_FLIGHT_DIRECTOR: str = "flight_director"
-ROLE_DEEP_EXECUTION: str = "deep_execution"
-ROLE_FORENSIC_AUDITOR: str = "forensic_auditor"
+from harness.trajectory.health import (
+    ROLE_DEEP_EXECUTION,
+    ROLE_FLIGHT_DIRECTOR,
+    ROLE_FORENSIC_AUDITOR,
+)
+from harness.utils.context import get_active_conversation_id
 
 STAGE_ROLE_MAP: Dict[int, str] = {
     0: ROLE_FLIGHT_DIRECTOR,
@@ -76,27 +78,26 @@ def validate_stage_role_schema(data: Any) -> bool:
     return True
 
 
+def _resolve_stage_role_file(
+    ws: Path,
+    conversation_id: Optional[str] = None,
+) -> Tuple[Path, Optional[str]]:
+    """Resolves isolated per-conversation session_role.json path (never global shared root)."""
+    cid = get_active_conversation_id(conversation_id)
+    folder = cid if cid else "session"
+    return ws / ".agents" / "artifacts" / "checkpoints" / folder / "session_role.json", cid
+
+
 def materialize_stage_role(
     stage: int,
     agent_name: str,
     task_id: str,
     workspace_dir: Optional[Union[str, Path]] = None,
+    conversation_id: Optional[str] = None,
 ) -> Path:
     """
-    Atomically writes .agents/session_role.json to anchor the active specialist's
-    explicit cognitive role under Pillar 3.
-
-    Args:
-        stage: Ladder stage index (0-4).
-        agent_name: Specialist agent name (e.g. 'agyis_builder', 'agyis_reviewer').
-        task_id: Identifier for the current task/phase.
-        workspace_dir: Optional workspace root path (defaults to Path.cwd()).
-
-    Returns:
-        Path to the materialized .agents/session_role.json file.
-
-    Raises:
-        ValueError: If stage, agent_name, or task_id are invalid.
+    Atomically writes CID-scoped `.agents/artifacts/checkpoints/<cid>/session_role.json`
+    to anchor the active specialist's explicit cognitive role under Pillar 3.
     """
     if not isinstance(stage, int) or stage not in STAGE_ROLE_MAP:
         raise ValueError(
@@ -108,10 +109,9 @@ def materialize_stage_role(
         raise ValueError("task_id must be a non-empty string")
 
     ws = Path(workspace_dir).resolve() if workspace_dir else Path.cwd().resolve()
-    target_dir = ws / ".agents"
+    target_file, cid = _resolve_stage_role_file(ws, conversation_id)
+    target_dir = target_file.parent
     target_dir.mkdir(parents=True, exist_ok=True)
-
-    target_file = target_dir / "session_role.json"
     tmp_file = target_dir / f".session_role.json.tmp.{os.getpid()}"
 
     payload: Dict[str, Any] = {
@@ -123,6 +123,8 @@ def materialize_stage_role(
         "task_id": task_id.strip(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if cid:
+        payload["conversation_id"] = cid
 
     try:
         tmp_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -140,29 +142,39 @@ def materialize_stage_role(
 
 def read_stage_role(
     workspace_dir: Optional[Union[str, Path]] = None,
+    conversation_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
-    Reads and validates .agents/session_role.json from the specified workspace directory.
-
-    Returns:
-        Parsed and validated role dictionary if present and valid, otherwise None.
+    Reads and validates CID-scoped `session_role.json` (with non-clobbering fallback
+    when legacy `.agents/session_role.json` belongs to no conflicting conversation).
     """
     try:
         ws = Path(workspace_dir).resolve() if workspace_dir else Path.cwd().resolve()
-        target_file = ws / ".agents" / "session_role.json"
-        if not target_file.is_file():
-            return None
+        scoped_file, cid = _resolve_stage_role_file(ws, conversation_id)
+        candidates = [scoped_file]
+        if conversation_id is None:
+            session_fallback = (
+                ws / ".agents" / "artifacts" / "checkpoints" / "session" / "session_role.json"
+            )
+            if session_fallback != scoped_file:
+                candidates.append(session_fallback)
+            candidates.append(ws / ".agents" / "session_role.json")
 
-        size = target_file.stat().st_size
-        if size == 0 or size > 65_536:
-            return None
-
-        content = target_file.read_text(encoding="utf-8", errors="ignore").strip()
-        if not content:
-            return None
-
-        data = json.loads(content)
-        if validate_stage_role_schema(data):
+        for target_file in candidates:
+            if not target_file.is_file():
+                continue
+            size = target_file.stat().st_size
+            if size == 0 or size > 65_536:
+                continue
+            content = target_file.read_text(encoding="utf-8", errors="ignore").strip()
+            if not content:
+                continue
+            data = json.loads(content)
+            if not validate_stage_role_schema(data):
+                continue
+            file_cid = str(data.get("conversation_id") or "").strip()
+            if cid and file_cid and file_cid != cid:
+                continue
             return data
         return None
     except Exception:
@@ -171,19 +183,20 @@ def read_stage_role(
 
 def clear_stage_role(
     workspace_dir: Optional[Union[str, Path]] = None,
+    conversation_id: Optional[str] = None,
 ) -> bool:
-    """
-    Safely removes .agents/session_role.json upon stage completion or handoff.
-
-    Returns:
-        True if the file was deleted, False if it did not exist or could not be removed.
-    """
+    """Safely removes CID-scoped `session_role.json` upon stage completion or handoff."""
+    removed = False
     try:
         ws = Path(workspace_dir).resolve() if workspace_dir else Path.cwd().resolve()
-        target_file = ws / ".agents" / "session_role.json"
-        if target_file.is_file() or target_file.is_symlink():
-            target_file.unlink()
-            return True
-        return False
+        scoped_file, _ = _resolve_stage_role_file(ws, conversation_id)
+        targets = [scoped_file]
+        if conversation_id is None:
+            targets.append(ws / ".agents" / "session_role.json")
+        for target_file in targets:
+            if target_file.is_file() or target_file.is_symlink():
+                target_file.unlink()
+                removed = True
     except OSError:
-        return False
+        return removed
+    return removed

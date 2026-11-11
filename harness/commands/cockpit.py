@@ -58,10 +58,17 @@ def _classify_token_horizon(tokens: int, max_context_tokens: int = 256_000) -> T
 
 
 def _get_active_checkpoint_info(workspace: Path) -> Dict[str, Any]:
-    """Inspects .agents/artifacts/cockpit_checkpoint.md or compaction_checkpoint_latest.md freshness."""
-    cp_canon = workspace / ".agents" / "artifacts" / "cockpit_checkpoint.md"
-    cp_latest = workspace / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
-    target_cp = cp_canon if cp_canon.exists() else cp_latest
+    """Inspects CID-scoped checkpoint under .agents/artifacts/checkpoints/ with legacy fallback."""
+    conv_id = get_active_conversation_id()
+    cp_dir = workspace / ".agents" / "artifacts" / "checkpoints"
+    candidates: List[Path] = []
+    if conv_id:
+        candidates.append(cp_dir / f"{conv_id}.md")
+    candidates.append(cp_dir / "session.md")
+    if cp_dir.is_dir():
+        candidates.extend(sorted((p for p in cp_dir.glob("*.md") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True))
+    candidates.extend([workspace / ".agents" / "artifacts" / "cockpit_checkpoint.md", workspace / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"])
+    target_cp = next((c for c in candidates if c.exists()), candidates[0])
     if not target_cp.exists():
         return {
             "exists": False,
@@ -291,7 +298,7 @@ def _audit_flight_director_invariants(
 
     results.append({
         "invariant": "Subagent Cognitive Health",
-        "description": "Active subagents must not exceed the cognitive context cliff (>80k tokens or >80 steps), stall into DEAD state, or lack verified transition payloads.",
+        "description": "Active subagents must stay below RED_ALERT context thresholds (>=80% scaled context window), avoid DEAD liveness stalls, and carry verified transition payloads.",
         "passed": inv5_passed or allow_dirty,
         "details": f"{details_parts[0]} ({', '.join(details_parts[1:])})",
         "violations": violations,

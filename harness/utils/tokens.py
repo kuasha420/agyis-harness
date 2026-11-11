@@ -10,24 +10,33 @@ Zero-dependency token estimation utility (ADR-014 / ADR-015).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 
-def estimate_tokens(content: Union[str, int, float, bytes, Path, None]) -> int:
+def estimate_tokens(
+    content: Union[str, int, float, bytes, Path, None],
+    chars_per_token: Optional[float] = None,
+) -> int:
     """
-    Canonical zero-token token estimation (4 characters per token heuristic).
+    Canonical zero-token token estimation (default 4 chars/token; optional 3.5 HUD ratio).
     Supports strings, raw character counts (int/float), bytes, and Path objects.
     """
     if content is None:
         return 0
     if isinstance(content, Path):
         try:
-            return max(1, content.stat().st_size // 4)
+            char_len = int(content.stat().st_size)
         except OSError:
             return 0
-    if isinstance(content, (int, float)):
-        return max(1, int(content) // 4) if content > 0 else 0
-    if isinstance(content, bytes):
-        return max(1, len(content) // 4) if content else 0
-    s = str(content)
-    return max(1, len(s) // 4) if s else 0
+    elif isinstance(content, (int, float)):
+        char_len = int(content)
+    elif isinstance(content, bytes):
+        char_len = len(content)
+    else:
+        char_len = len(str(content))
+
+    if char_len <= 0:
+        return 0
+    if chars_per_token is not None and chars_per_token > 0:
+        return round(char_len / chars_per_token)
+    return max(1, char_len // 4)

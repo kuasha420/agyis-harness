@@ -326,15 +326,30 @@ class TestCompactionCheckpoint(unittest.TestCase):
         self.assertIn("1 / 2 Tasks (50.0%)", content)
 
     def test_custom_output_path(self) -> None:
-        """Verify passing a custom output path writes correctly."""
+        """Verify passing a custom output path writes correctly without polluting global files."""
         custom_out = self.ws / "reports" / "my_checkpoint.md"
         res = generate_compaction_checkpoint(
             workspace_dir=self.ws,
             output_path=custom_out,
         )
         self.assertEqual(res.output_path, custom_out)
+        self.assertEqual(res.latest_path, custom_out)
         self.assertTrue(custom_out.is_file())
-        self.assertTrue((custom_out.parent / "compaction_checkpoint_latest.md").is_file())
+        self.assertFalse((custom_out.parent / "compaction_checkpoint_latest.md").exists())
+
+    def test_concurrent_session_checkpoints_isolated(self) -> None:
+        """Issue #112: Independent session_ids write separate checkpoints without overwriting global artifacts."""
+        r1 = generate_compaction_checkpoint(workspace_dir=self.ws, session_id="sess-alpha-1", orchestrator_role="agyis_builder")
+        r2 = generate_compaction_checkpoint(workspace_dir=self.ws, session_id="sess-beta-2", orchestrator_role="agyis_reviewer")
+        self.assertEqual(r1.output_path, self.ws / ".agents" / "artifacts" / "checkpoints" / "sess-alpha-1.md")
+        self.assertEqual(r2.output_path, self.ws / ".agents" / "artifacts" / "checkpoints" / "sess-beta-2.md")
+        self.assertTrue(r1.output_path.is_file())
+        self.assertTrue(r2.output_path.is_file())
+        self.assertIn("sess-alpha-1", r1.output_path.read_text(encoding="utf-8"))
+        self.assertIn("sess-beta-2", r2.output_path.read_text(encoding="utf-8"))
+        art_root = self.ws / ".agents" / "artifacts"
+        for legacy in ("compaction_checkpoint_latest.md", "cockpit_checkpoint.md", "active_plan.md"):
+            self.assertFalse((art_root / legacy).exists())
 
     def test_assemble_alias_compatibility(self) -> None:
         """Verify assemble_compaction_checkpoint alias is compatible with prototype callers."""
@@ -567,11 +582,13 @@ class TestCompactionCheckpoint(unittest.TestCase):
         for epoch in range(1000, 1006):
             (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Old {epoch}\n", encoding="utf-8")
 
-        # Generate a new checkpoint
-        res = generate_compaction_checkpoint(self.ws)
+        # Generate a new CID-scoped checkpoint
+        res = generate_compaction_checkpoint(self.ws, session_id="rot-sess-1")
         self.assertTrue(res.output_path.is_file())
+        self.assertEqual(res.output_path.parent.name, "checkpoints")
+        self.assertFalse((art_dir / "compaction_checkpoint_latest.md").exists())
 
-        # With default retention of 5, there should now be exactly 5 historical files + 1 latest.md
+        # With default retention of 5, older legacy snapshots in .agents/artifacts/ are pruned to 5
         historical = [p for p in art_dir.glob("compaction_checkpoint_*.md") if p.name != "compaction_checkpoint_latest.md"]
         self.assertEqual(len(historical), 5)
 
@@ -734,11 +751,13 @@ class TestCheckpointCLI(unittest.TestCase):
     def test_cli_checkpoint_create_alias_human(self, mock_stdout: Any) -> None:
         from harness.cli import main as cli_main
 
-        ret = cli_main(["checkpoint", "create", "--workspace", str(self.ws)])
+        with patch.dict(os.environ, {"ANTIGRAVITY_CONVERSATION_ID": "cli-create-alias-1"}):
+            ret = cli_main(["checkpoint", "create", "--workspace", str(self.ws)])
         self.assertEqual(ret, 0)
         out = mock_stdout.getvalue()
         self.assertIn("✔ Compaction Checkpoint Generated", out)
-        self.assertTrue((self.ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md").is_file())
+        self.assertTrue((self.ws / ".agents" / "artifacts" / "checkpoints" / "cli-create-alias-1.md").is_file())
+        self.assertFalse((self.ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md").exists())
 
     def test_cli_checkpoint_create_alias_json_pre_and_post_flags(self) -> None:
         from harness.cli import main as cli_main
@@ -971,7 +990,7 @@ class TestCheckpointCLI(unittest.TestCase):
         self.assertIn("sess-pre-1", content)
 
         # 2. Pre-subcommand flags on `verify`
-        latest = self.ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
+        latest = self.ws / ".agents" / "artifacts" / "checkpoints" / "pre-verify.md"
         latest.parent.mkdir(parents=True, exist_ok=True)
         latest.write_text("checkpoint\n", encoding="utf-8")
         aged = time.time() - (45 * 60.0)
@@ -1014,18 +1033,20 @@ class TestPreInvocationHookCompaction(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_hook_auto_trigger_at_230k(self) -> None:
-        """Invocations where tokens >= 230,000 automatically trigger generate_compaction_checkpoint."""
+        """Invocations where tokens >= 230,000 automatically trigger CID-scoped checkpoint."""
         from harness.hooks.pre_invocation_hook import evaluate_pre_invocation
 
         payload = {
+            "conversationId": "conv-auto-cp-1",
             "tokens": 235_000,
             "step_count": 2,
             "role": "deep_execution",
             "prompt": "Continue working on task",
         }
         res = evaluate_pre_invocation(payload, workspace_dir=self.ws)
-        latest_file = self.ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
-        self.assertTrue(latest_file.is_file())
+        scoped_file = self.ws / ".agents" / "artifacts" / "checkpoints" / "conv-auto-cp-1.md"
+        self.assertTrue(scoped_file.is_file())
+        self.assertFalse((self.ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md").exists())
         inject_steps = res.get("injectSteps", [])
         self.assertTrue(any("ephemeralMessage" in s for s in inject_steps))
 
@@ -1048,19 +1069,20 @@ class TestPreInvocationHookCompaction(unittest.TestCase):
             self.assertTrue(any("ephemeralMessage" in s for s in inject_steps))
 
     def test_post_compaction_persona_anchor(self) -> None:
-        """Supplying '# Resuming from a compaction' in prompt triggers systemMessage with checkpoint link."""
+        """Supplying '# Resuming from a compaction' in prompt triggers systemMessage with CID-scoped checkpoint link."""
         from harness.hooks.pre_invocation_hook import (
             build_post_compaction_persona_prompt,
             evaluate_pre_invocation,
         )
 
         prompt = build_post_compaction_persona_prompt("deep_execution")
-        self.assertIn("compaction_checkpoint_latest.md", prompt)
+        self.assertIn(".agents/artifacts/checkpoints/", prompt)
         self.assertIn("WORK PRESERVATION CONTRACT", prompt)
         self.assertIn("git reset --hard", prompt)
         self.assertIn("AUTONOMOUS CONTINUATION", prompt)
 
         payload = {
+            "conversationId": "conv-resume-1",
             "step_count": 5,
             "prompt": "# Resuming from a compaction...\nPrevious context summarized.",
             "role": "deep_execution",
@@ -1069,8 +1091,9 @@ class TestPreInvocationHookCompaction(unittest.TestCase):
         inject_steps = res.get("injectSteps", [])
         self.assertEqual(len(inject_steps), 1)
         self.assertIn("systemMessage", inject_steps[0])
-        sys_msg = inject_steps[0]["systemMessage"]
-        self.assertIn("compaction_checkpoint_latest.md", sys_msg)
+        sys_env = inject_steps[0]["systemMessage"]
+        sys_msg = sys_env["systemMessage"] if isinstance(sys_env, dict) else sys_env
+        self.assertIn(".agents/artifacts/checkpoints/conv-resume-1.md", sys_msg)
         self.assertIn("WORK PRESERVATION CONTRACT", sys_msg)
         self.assertIn("git reset --hard", sys_msg)
         self.assertIn("AUTONOMOUS CONTINUATION", sys_msg)
@@ -1156,7 +1179,7 @@ class TestSuccessionProtocol(unittest.TestCase):
 
         # 6 Mandatory Boot Directives
         self.assertIn("1. [ ] **Read Pre-Compaction Checkpoint**", prompt)
-        self.assertIn(".agents/artifacts/compaction_checkpoint_latest.md", prompt)
+        self.assertIn(".agents/artifacts/checkpoints/predecessor-conv-123.md", prompt)
         self.assertIn("2. [ ] **Verify Repository Integrity (AC4 Work Preservation Contract)**", prompt)
         self.assertIn("git checkout -- .", prompt)
         self.assertIn("git reset --hard", prompt)

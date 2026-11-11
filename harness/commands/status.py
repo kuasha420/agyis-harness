@@ -45,24 +45,57 @@ def cmd_status(args: argparse.Namespace) -> int:
         f" Subagents:       {len(agents)} registered ({', '.join(a.archetype.value for a in agents)})"
     )
 
-    # Quick count of telemetry
-    if DEFAULT_DB.exists():
+    # Quick count of telemetry + daemon sync health/lag
+    from harness.telemetry.config import resolve_db_path
+    from harness.telemetry.sync.daemon import compute_telemetry_lag, read_sync_status
+
+    db_target = DEFAULT_DB if DEFAULT_DB.exists() else resolve_db_path(must_exist=False)
+    if db_target.exists():
         from harness.telemetry.db import get_db_connection
         import sqlite3
 
         try:
-            conn = get_db_connection(DEFAULT_DB)
+            conn = get_db_connection(db_target)
             c = conn.cursor()
-            c.execute("SELECT COUNT(*) FROM sessions")
-            sess_cnt = c.fetchone()[0]
+            c.execute("SELECT COUNT(*), MAX(end_time) FROM sessions")
+            sess_row = c.fetchone()
+            sess_cnt, last_end = (sess_row[0], sess_row[1]) if sess_row else (0, None)
             c.execute("SELECT COUNT(*) FROM steps")
             step_cnt = c.fetchone()[0]
+            try:
+                c.execute("SELECT COUNT(*) FROM tool_calls")
+                tc_cnt = c.fetchone()[0]
+            except sqlite3.Error:
+                tc_cnt = 0
             conn.close()
-            print(f" Telemetry DB:    {DEFAULT_DB.name} ({sess_cnt:,} sessions, {step_cnt:,} steps)")
+            end_part = f", last={str(last_end)[:19]}" if last_end else ""
+            print(f" Telemetry DB:    {db_target.name} ({sess_cnt:,} sessions, {step_cnt:,} steps, {tc_cnt:,} tools{end_part})")
         except (sqlite3.Error, OSError):
-            print(f" Telemetry DB:    {DEFAULT_DB.name} (present)")
+            print(f" Telemetry DB:    {db_target.name} (present)")
     else:
         print(" Telemetry DB:    Not initialized")
+
+    try:
+        sync_st = read_sync_status()
+        lag = compute_telemetry_lag(db_path=db_target)
+        lag_parts = []
+        if sync_st.get("status"):
+            lag_parts.append(f"state={sync_st['status']}")
+        if sync_st.get("last_harvest_at"):
+            lag_parts.append(f"last_harvest={str(sync_st['last_harvest_at'])[:19]}")
+        if sync_st.get("consecutive_failures"):
+            lag_parts.append(f"failures={sync_st['consecutive_failures']}")
+        unsynced, stale = lag.get("unsynced_local", 0), lag.get("stale_local", 0)
+        if unsynced or stale:
+            lag_parts.append(f"lag={unsynced} unsynced / {stale} stale")
+        elif lag.get("total_transcripts"):
+            lag_parts.append("lag=0 (up-to-date)")
+        if sync_st.get("last_error"):
+            lag_parts.append(f"last_err={str(sync_st['last_error'])[:60]}")
+        if lag_parts:
+            print(f" Telemetry Sync:  {', '.join(lag_parts)}")
+    except Exception:
+        pass
 
     print("-" * 70)
     print(" Active Lifecycle Hooks:")
@@ -87,7 +120,9 @@ def cmd_status(args: argparse.Namespace) -> int:
             get_active_conversation_tokens,
             get_conversations_dir,
         )
-        conv_id = os.environ.get("ANTIGRAVITY_CONVERSATION_ID") or os.environ.get("CONVERSATION_ID") or os.environ.get("AGYIS_CONVERSATION_ID")
+        from harness.utils.context import get_active_conversation_id
+
+        conv_id = get_active_conversation_id() or os.environ.get("CONVERSATION_ID")
         if not conv_id:
             conv_dir = get_conversations_dir()
             if conv_dir.is_dir():

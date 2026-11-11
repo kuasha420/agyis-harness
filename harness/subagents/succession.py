@@ -80,7 +80,7 @@ def build_succession_prompt(
     """
     Generates standardized succession prompt blueprint matching §3.4 of ADR-031 design spec.
     Enforces the 6 mandatory succession boot directives:
-    1. Read pre-compaction state checkpoint: view_file('.agents/artifacts/compaction_checkpoint_latest.md').
+    1. Read pre-compaction state checkpoint: view_file('.agents/artifacts/checkpoints/<session_id>.md').
     2. Verify repo integrity: git status. Strict AC4 Work Preservation Contract.
     3. Inspect active plan: plan_path.
     4. Assume custody of active background subagents.
@@ -88,6 +88,7 @@ def build_succession_prompt(
     6. Autonomous Continuation: zero operator re-prompting.
     """
     resolved_plan = plan_path or ".agents/artifacts/implementation_plan.md"
+    resolved_cp = f".agents/artifacts/checkpoints/{session_id}.md" if session_id else ".agents/artifacts/checkpoints/session.md"
     resolved_task = next_task or "Continue active milestone execution"
 
     subagents_note = ""
@@ -95,7 +96,7 @@ def build_succession_prompt(
         subagents_note = (
             f"\n- **In-Flight Subagents ({len(active_subagents)})**: Custody transfer records attached in checkpoint.\n"
             "  * Retain conversation IDs for HEALTHY/AMBER subagents.\n"
-            "  * Retire RED_ALERT subagents and respawn successors."
+            "  * Compact or replace RED_ALERT (>=80% window) subagents cleanly."
         )
 
     return f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
@@ -113,7 +114,7 @@ Your predecessor (Generation {current_gen}, Session `{session_id}`) transferred 
 You MUST execute the following sequence immediately upon awakening without pause or human prompting:
 
 1. [ ] **Read Pre-Compaction Checkpoint**:
-   Call `view_file('.agents/artifacts/compaction_checkpoint_latest.md')` to restore complete situational awareness, active phase, subagent roster, and git diff.
+   Call `view_file('{resolved_cp}')` to restore complete situational awareness, active phase, subagent roster, and git diff.
 
 2. [ ] **Verify Repository Integrity (AC4 Work Preservation Contract)**:
    Run `git status` and `git diff --stat`.
@@ -174,7 +175,7 @@ def build_custody_transfer_payload(
         "instructions": [
             "Retain conversation IDs for subagents marked HEALTHY or AMBER.",
             "Send status ping / custody claim via send_message(Recipient='<conv_id>') if awaiting direction.",
-            "Retire subagents marked RED_ALERT (>80k tokens) by spawning fresh successors.",
+            "Compact or hand off subagents marked RED_ALERT (>=80% context window) before spawning replacements.",
         ],
     }
 

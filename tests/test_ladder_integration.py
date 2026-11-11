@@ -64,9 +64,9 @@ from harness.hooks.pre_invocation_hook import (
     evaluate_pre_invocation,
     ROLE_DEEP_EXECUTION,
     ROLE_FORENSIC_AUDITOR,
-    STEP_WARNING_THRESHOLD,
-    STEP_INTERRUPT_THRESHOLD,
+    SOFT_EPOCH_STEP_ADVISORY,
 )
+from harness.hooks.anti_loop_hook import STEP_INTERRUPT_THRESHOLD
 from harness.subagents import (
     arm_stage_heartbeat,
     disarm_stage_heartbeat,
@@ -151,155 +151,117 @@ class TestSubagentLadderIntegration(unittest.TestCase):
         self.assertEqual(initial_role["stage_name"], "EXECUTION")
         self.assertEqual(initial_role["specialist_agent"], "agyis_builder")
 
-        # Turn 0 Pre-Invocation injection asserts ROLE_DEEP_EXECUTION persona
+        # Turn 0 Pre-Invocation injection asserts ROLE_DEEP_EXECUTION persona (nested systemMessage envelope)
         res_0 = evaluate_pre_invocation({"step_count": 0}, workspace_dir=self.workspace_dir)
         inject_steps_0 = res_0.get("injectSteps", [])
         self.assertEqual(len(inject_steps_0), 1)
         self.assertIn("systemMessage", inject_steps_0[0])
-        sys_msg_0 = inject_steps_0[0]["systemMessage"]
+        self.assertIsInstance(inject_steps_0[0]["systemMessage"], dict)
+        self.assertIn("metadata", inject_steps_0[0]["systemMessage"])
+        sys_msg_0 = inject_steps_0[0]["systemMessage"]["systemMessage"]
         self.assertIn("[AGYIS ROLE PINNING: DEEP EXECUTION / EXECUTIONER]", sys_msg_0)
         self.assertIn("SURGICAL CONTIGUOUS EDITS INVARIANT", sys_msg_0)
 
         # ---------------------------------------------------------------------
-        # 2. Step 40: Warning Ephemeral Message Injection
-        # ---------------------------------------------------------------------
-        pulse_ok_40 = pulse_stage_heartbeat(
-            step_count=STEP_WARNING_THRESHOLD,
-            last_action="editing test files",
-            status="in_progress",
-            workspace_dir=self.workspace_dir,
-        )
-        self.assertTrue(pulse_ok_40)
-
-        res_40 = evaluate_pre_invocation(
-            {"step_count": STEP_WARNING_THRESHOLD}, workspace_dir=self.workspace_dir
-        )
-        inject_steps_40 = res_40.get("injectSteps", [])
-        self.assertEqual(len(inject_steps_40), 1)
-        self.assertIn("ephemeralMessage", inject_steps_40[0])
-        msg_40 = inject_steps_40[0]["ephemeralMessage"]
-        self.assertIn(
-            "[AGYIS HORIZON WARNING: THRASHING DETECTED / REMEDY MODE ACTIVE - 10 STEPS REMAINING]",
-            msg_40,
-        )
-        self.assertIn("10 steps remaining in your convergence budget", msg_40)
-
-        # ---------------------------------------------------------------------
-        # 3. Step 45: Compulsory Convergence Horizon & Exploratory Sweep Denials
+        # 2. Cumulative Steps 45/50 Stay Unblocked for Healthy Worker
         # ---------------------------------------------------------------------
         pulse_ok_45 = pulse_stage_heartbeat(
-            step_count=STEP_INTERRUPT_THRESHOLD,
-            last_action="verifying local edits",
+            step_count=45,
+            last_action="editing test files",
             status="in_progress",
             workspace_dir=self.workspace_dir,
         )
         self.assertTrue(pulse_ok_45)
 
-        # Assert Tier 2 interrupt ephemeralMessage
-        res_45 = evaluate_pre_invocation(
-            {"step_count": STEP_INTERRUPT_THRESHOLD}, workspace_dir=self.workspace_dir
-        )
-        inject_steps_45 = res_45.get("injectSteps", [])
-        self.assertEqual(len(inject_steps_45), 1)
-        self.assertIn("ephemeralMessage", inject_steps_45[0])
-        msg_45 = inject_steps_45[0]["ephemeralMessage"]
-        self.assertIn("[AGYIS HORIZON INTERRUPT: 5 STEPS REMAINING]", msg_45)
-        self.assertIn("Compulsory convergence active. You have 5 steps remaining.", msg_45)
-
-        # Assert exploratory sweeps (list_dir, find_by_name) denied in anti_loop_hook
         conv_id = "test-ladder-stage1-lifecycle"
-        deny_list_dir = check_anti_loop(
-            "list_dir",
-            {"DirectoryPath": str(self.workspace_dir)},
-            conv_id=conv_id,
-            state_dir=self.workspace_dir,
-            step_count=STEP_INTERRUPT_THRESHOLD,
-            role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
+        self.assertEqual(
+            check_anti_loop(
+                "list_dir",
+                {"DirectoryPath": str(self.workspace_dir)},
+                conv_id=conv_id,
+                state_dir=self.workspace_dir,
+                step_count=45,
+                role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
+            ).get("decision"),
+            "allow",
         )
-        self.assertEqual(deny_list_dir.get("decision"), "deny")
-        self.assertIn("Compulsory convergence active", deny_list_dir.get("reason", ""))
-
-        deny_find_by_name = check_anti_loop(
-            "find_by_name",
-            {"Pattern": "*.py", "SearchDirectory": str(self.workspace_dir)},
-            conv_id=conv_id,
-            state_dir=self.workspace_dir,
-            step_count=STEP_INTERRUPT_THRESHOLD,
-            role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
+        target_src = self.workspace_dir / "target_module.py"
+        target_src.write_text("# clean production code\n", encoding="utf-8")
+        self.assertEqual(
+            check_pre_tool_use(
+                "edit_file",
+                {"TargetFile": str(target_src), "CodeContent": "# valid progress"},
+                conv_id=conv_id,
+                state_dir=self.workspace_dir,
+                step_count=50,
+                role=FENCE_ROLE_DEEP_EXECUTION,
+            ).get("decision"),
+            "allow",
         )
-        self.assertEqual(deny_find_by_name.get("decision"), "deny")
-        self.assertIn("Compulsory convergence active", deny_find_by_name.get("reason", ""))
 
-        # Assert handle_pre_tool_use with payload dictionary also blocks sweeps
+        # ---------------------------------------------------------------------
+        # 3. Epoch Step 80: Soft Epoch Horizon Advisory (Non-Blocking)
+        # ---------------------------------------------------------------------
+        pulse_ok_80 = pulse_stage_heartbeat(
+            step_count=SOFT_EPOCH_STEP_ADVISORY,
+            last_action="verifying local edits",
+            status="in_progress",
+            workspace_dir=self.workspace_dir,
+        )
+        self.assertTrue(pulse_ok_80)
+
+        res_80 = evaluate_pre_invocation(
+            {"step_count": SOFT_EPOCH_STEP_ADVISORY}, workspace_dir=self.workspace_dir
+        )
+        inject_steps_80 = res_80.get("injectSteps", [])
+        self.assertEqual(len(inject_steps_80), 1)
+        self.assertIn("ephemeralMessage", inject_steps_80[0])
+        msg_80 = inject_steps_80[0]["ephemeralMessage"]
+        self.assertIn(f"[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/{SOFT_EPOCH_STEP_ADVISORY}", msg_80)
+
+        # Assert exploratory sweeps and payload calls stay non-blocking (allow) at step 80
+        self.assertEqual(
+            check_anti_loop(
+                "list_dir",
+                {"DirectoryPath": str(self.workspace_dir)},
+                conv_id=conv_id,
+                state_dir=self.workspace_dir,
+                step_count=SOFT_EPOCH_STEP_ADVISORY,
+                role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
+            ).get("decision"),
+            "allow",
+        )
         payload_sweep = {
             "conversationId": conv_id,
             "toolCall": {"name": "list_dir", "args": {"DirectoryPath": str(self.workspace_dir)}},
-            "step_count": STEP_INTERRUPT_THRESHOLD,
+            "step_count": SOFT_EPOCH_STEP_ADVISORY,
             "role": ANTI_LOOP_ROLE_DEEP_EXECUTION,
         }
         self.assertEqual(
             handle_pre_tool_use(payload_sweep, state_dir=self.workspace_dir).get("decision"),
-            "deny",
+            "allow",
         )
-
-        # Assert view_file and test execution remain allowed at step 45
-        allow_view = check_anti_loop(
-            "view_file",
-            {"AbsolutePath": str(self.workspace_dir / "test.py")},
-            conv_id=conv_id,
-            state_dir=self.workspace_dir,
-            step_count=STEP_INTERRUPT_THRESHOLD,
-            role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
-        )
-        self.assertEqual(allow_view.get("decision"), "allow")
-
-        allow_cmd = check_anti_loop(
-            "run_command",
-            {"CommandLine": "./agyis test"},
-            conv_id=conv_id,
-            state_dir=self.workspace_dir,
-            step_count=STEP_INTERRUPT_THRESHOLD,
-            role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
-        )
-        self.assertEqual(allow_cmd.get("decision"), "allow")
 
         # ---------------------------------------------------------------------
-        # 4. Step 50: Hard Horizon Fence & Verification Grace Turn
+        # 4. Epoch Step 80: Non-Blocking Advisory on Edits + Tests/Reads Allowed
         # ---------------------------------------------------------------------
-        pulse_ok_50 = pulse_stage_heartbeat(
-            step_count=EXECUTIONER_HORIZON_STEPS,
-            last_action="running verification grace tests",
-            status="in_progress",
-            workspace_dir=self.workspace_dir,
-        )
-        self.assertTrue(pulse_ok_50)
-
-        # Work preservation: sample file on disk
-        target_src = self.workspace_dir / "target_module.py"
-        target_src.write_text("# clean production code\n", encoding="utf-8")
-
-        # Code mutation tools denied by hard horizon fence
         for tool in sorted(CODE_MUTATION_TOOLS):
             with self.subTest(fence_tool=tool):
                 res_fence = check_pre_tool_use(
                     tool,
-                    {"TargetFile": str(target_src), "CodeContent": "# unapproved mutation"},
+                    {"TargetFile": str(target_src), "CodeContent": "# progress"},
                     conv_id=conv_id,
                     state_dir=self.workspace_dir,
                     step_count=EXECUTIONER_HORIZON_STEPS,
                     role=FENCE_ROLE_DEEP_EXECUTION,
                 )
-                self.assertEqual(res_fence.get("decision"), "deny")
-                self.assertIn("HARD HORIZON FENCE TRIGGERED", res_fence.get("reason", ""))
-                self.assertIn(
-                    "20-Step Remedy Budget Exhausted / 50 Steps Reached",
-                    res_fence.get("reason", ""),
-                )
+                self.assertEqual(res_fence.get("decision"), "allow")
+                self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", res_fence.get("advisory", ""))
 
-        # Assert Work Preservation Invariant: File content remains unaltered
+        # Assert Work Preservation Invariant: File content remains unaltered by advisory hook
         self.assertEqual(target_src.read_text(encoding="utf-8"), "# clean production code\n")
 
-        # Assert Verification Grace allows test commands via run_command
+        # Assert test commands via run_command and read/messaging tools allowed
         test_commands = [
             "./agyis test",
             "python3 -m unittest discover -s tests -v",
@@ -319,7 +281,6 @@ class TestSubagentLadderIntegration(unittest.TestCase):
                 )
                 self.assertEqual(res_grace.get("decision"), "allow")
 
-        # Assert Read-Only and messaging tools allowed at step 50
         for read_tool in ("view_file", "grep_search", "send_message"):
             with self.subTest(read_tool=read_tool):
                 res_read = check_pre_tool_use(
@@ -422,12 +383,14 @@ class TestSubagentLadderIntegration(unittest.TestCase):
         self.assertEqual(stage2_role["stage_name"], "CODE_REVIEW")
         self.assertEqual(stage2_role["specialist_agent"], "agyis_reviewer")
 
-        # Evaluate Pre-Invocation for Stage 2 entry: asserts ROLE_FORENSIC_AUDITOR persona
+        # Evaluate Pre-Invocation for Stage 2 entry: asserts ROLE_FORENSIC_AUDITOR persona (nested systemMessage)
         res_stage2 = evaluate_pre_invocation({}, workspace_dir=self.workspace_dir)
         inject_steps_s2 = res_stage2.get("injectSteps", [])
         self.assertEqual(len(inject_steps_s2), 1)
         self.assertIn("systemMessage", inject_steps_s2[0])
-        sys_msg_s2 = inject_steps_s2[0]["systemMessage"]
+        self.assertIsInstance(inject_steps_s2[0]["systemMessage"], dict)
+        self.assertIn("metadata", inject_steps_s2[0]["systemMessage"])
+        sys_msg_s2 = inject_steps_s2[0]["systemMessage"]["systemMessage"]
         self.assertIn("[AGYIS ROLE PINNING: FORENSIC AUDITOR / THE HAMMER]", sys_msg_s2)
         self.assertIn("ANTI-FIXING & ZERO ERROR SWALLOWING", sys_msg_s2)
         self.assertIn("DUAL-AUDITOR GATE & CLEAN REVISION INVARIANT", sys_msg_s2)

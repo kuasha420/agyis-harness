@@ -1,0 +1,130 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
+"""
+Unified Antigravity Trajectory, Telemetry, and Context SSOT Engine (ADR-035).
+
+Consolidates protobuf decoding, read-only SQLite inspection, compaction epoch
+splitting, active-epoch burn rate velocity, streaming transcript parsing,
+per-conversation subagent lineage discovery, and honest token attribution.
+"""
+
+from __future__ import annotations
+
+from harness.trajectory.health import (
+    AMBER_THRESHOLD,
+    CHECKPOINT_STEP_TYPE,
+    CHECKPOINT_STEP_TYPES,
+    COMPACTION_THRESHOLD,
+    CONTEXT_WINDOW_TOKENS,
+    CRITICAL_BURN_RATE_PER_MIN,
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
+    MAX_SAFE_BURN_RATE_PER_MIN,
+    RED_THRESHOLD,
+    ROLE_DEEP_EXECUTION,
+    ROLE_FLIGHT_DIRECTOR,
+    ROLE_FORENSIC_AUDITOR,
+    ROLE_SWARM_ORCHESTRATOR,
+    SOFT_EPOCH_STEP_ADVISORY,
+    SUBAGENT_ELEVATED_PCT,
+    SUBAGENT_HIGH_PCT,
+    SubagentContextStatus,
+    TokenBreakdown,
+    TrajectoryMetrics,
+    classify_context_health,
+    get_scaled_thresholds,
+    get_urgency_tier,
+    infer_model_context_window,
+    is_checkpoint_step,
+    normalize_role_str,
+)
+from harness.trajectory.protobuf import (
+    ProtobufUsageMetrics,
+    extract_compaction_summary_from_protobuf,
+    extract_context_window_from_json,
+    extract_context_window_from_protobuf_metadata,
+    extract_timestamp_from_protobuf,
+    extract_tokens_from_protobuf_metadata,
+    extract_tool_from_protobuf,
+    extract_usage_from_protobuf,
+    iter_pb_strings,
+    parse_pb_fields,
+    parse_protobuf_varint,
+)
+from harness.trajectory.sqlite_reader import (
+    clear_locked_conversations,
+    get_conversations_dir,
+    is_conversation_locked,
+    normalize_cid,
+    parse_step_timestamp,
+    read_db_trajectory_state,
+    record_locked_conversation,
+    unlock_conversation,
+)
+from harness.trajectory.transcript_reader import (
+    build_measured_breakdown,
+    discover_active_subagents,
+    extract_role_from_text,
+    extract_spawned_subagents,
+    find_transcript_path,
+    is_conversation_completed,
+    is_transcript_completed,
+    load_transcript_steps,
+)
+
+__all__ = [
+    "AMBER_THRESHOLD",
+    "CHECKPOINT_STEP_TYPE",
+    "CHECKPOINT_STEP_TYPES",
+    "COMPACTION_THRESHOLD",
+    "CONTEXT_WINDOW_TOKENS",
+    "CRITICAL_BURN_RATE_PER_MIN",
+    "DEFAULT_CONTEXT_WINDOW_TOKENS",
+    "MAX_SAFE_BURN_RATE_PER_MIN",
+    "ProtobufUsageMetrics",
+    "RED_THRESHOLD",
+    "ROLE_DEEP_EXECUTION",
+    "ROLE_FLIGHT_DIRECTOR",
+    "ROLE_FORENSIC_AUDITOR",
+    "ROLE_SWARM_ORCHESTRATOR",
+    "SOFT_EPOCH_STEP_ADVISORY",
+    "SUBAGENT_ELEVATED_PCT",
+    "SUBAGENT_HIGH_PCT",
+    "SubagentContextStatus",
+    "TokenBreakdown",
+    "TrajectoryMetrics",
+    "build_measured_breakdown",
+    "classify_context_health",
+    "clear_locked_conversations",
+    "discover_active_subagents",
+    "extract_compaction_summary_from_protobuf",
+    "extract_context_window_from_json",
+    "extract_context_window_from_protobuf_metadata",
+    "extract_role_from_text",
+    "extract_spawned_subagents",
+    "extract_timestamp_from_protobuf",
+    "extract_tokens_from_protobuf_metadata",
+    "extract_tool_from_protobuf",
+    "extract_usage_from_protobuf",
+    "find_transcript_path",
+    "get_conversations_dir",
+    "get_scaled_thresholds",
+    "get_urgency_tier",
+    "infer_model_context_window",
+    "is_checkpoint_step",
+    "is_conversation_completed",
+    "is_conversation_locked",
+    "is_transcript_completed",
+    "iter_pb_strings",
+    "load_transcript_steps",
+    "normalize_cid",
+    "normalize_role_str",
+    "parse_pb_fields",
+    "parse_protobuf_varint",
+    "parse_step_timestamp",
+    "read_db_trajectory_state",
+    "record_locked_conversation",
+    "unlock_conversation",
+]

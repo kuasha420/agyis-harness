@@ -40,20 +40,25 @@ class TestSubagentContext(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_classify_context_health_boundaries(self) -> None:
-        """Assert exact boundary conditions for HEALTHY, AMBER, and RED_ALERT."""
-        # HEALTHY (<40k tokens AND <40 steps)
+        """Assert window-scaled boundary conditions for HEALTHY, AMBER, and RED_ALERT."""
+        # HEALTHY (<65% fill of 256k window AND <80 epoch steps)
         self.assertEqual(classify_context_health(0, 0), ("HEALTHY", "REUSE"))
         self.assertEqual(classify_context_health(39_999, 39), ("HEALTHY", "REUSE"))
+        self.assertEqual(classify_context_health(166_399, 79), ("HEALTHY", "REUSE"))
 
-        # AMBER (40k-80k tokens OR 40-80 steps)
-        self.assertEqual(classify_context_health(40_000, 10), ("AMBER", "COMPACT_RECREATE"))
-        self.assertEqual(classify_context_health(10_000, 40), ("AMBER", "COMPACT_RECREATE"))
-        self.assertEqual(classify_context_health(80_000, 80), ("AMBER", "COMPACT_RECREATE"))
+        # AMBER (65%-80% fill OR >=80 epoch steps while <80% fill)
+        self.assertEqual(classify_context_health(166_400, 10), ("AMBER", "COMPACT_SOON"))
+        self.assertEqual(classify_context_health(10_000, 80), ("AMBER", "COMPACT_SOON"))
+        self.assertEqual(classify_context_health(204_799, 95), ("AMBER", "COMPACT_SOON"))
 
-        # RED_ALERT (>80k tokens OR >80 steps)
-        self.assertEqual(classify_context_health(80_001, 10), ("RED_ALERT", "RETIRE"))
-        self.assertEqual(classify_context_health(10_000, 81), ("RED_ALERT", "RETIRE"))
-        self.assertEqual(classify_context_health(150_000, 150), ("RED_ALERT", "RETIRE"))
+        # RED_ALERT (>=80% fill of window, >=204,800 at 256k)
+        self.assertEqual(classify_context_health(204_800, 10), ("RED_ALERT", "HANDOFF_OR_COMPACT"))
+        self.assertEqual(classify_context_health(230_000, 150), ("RED_ALERT", "HANDOFF_OR_COMPACT"))
+
+        # Scales proportionally on 1M context windows
+        self.assertEqual(classify_context_health(500_000, 20, max_context_tokens=1_000_000), ("HEALTHY", "REUSE"))
+        self.assertEqual(classify_context_health(650_000, 20, max_context_tokens=1_000_000), ("AMBER", "COMPACT_SOON"))
+        self.assertEqual(classify_context_health(800_000, 20, max_context_tokens=1_000_000), ("RED_ALERT", "HANDOFF_OR_COMPACT"))
 
     def test_estimate_subagent_context_healthy(self) -> None:
         """Transcripts <40k tokens and <40 steps evaluate to HEALTHY and REUSE."""
@@ -77,77 +82,82 @@ class TestSubagentContext(unittest.TestCase):
         self.assertLess(status.latency_ms, 5.0)
 
     def test_estimate_subagent_context_amber_by_steps(self) -> None:
-        """Transcripts >=40 steps evaluate to AMBER and COMPACT_RECREATE."""
+        """Transcripts >=80 active-epoch steps evaluate to AMBER and COMPACT_SOON."""
         t_path = self.tmp / "transcript.jsonl"
         lines = [
             json.dumps({"step_index": i, "content": f"Brief step {i}"})
-            for i in range(45)
-        ]
-        t_path.write_text("\n".join(lines), encoding="utf-8")
-
-        status = estimate_subagent_context(t_path)
-        self.assertEqual(status.health_zone, "AMBER")
-        self.assertEqual(status.recommendation, "COMPACT_RECREATE")
-        self.assertEqual(status.step_count, 45)
-        self.assertLess(status.latency_ms, 5.0)
-
-    def test_estimate_subagent_context_amber_by_tokens(self) -> None:
-        """Transcripts >=40k tokens evaluate to AMBER and COMPACT_RECREATE."""
-        t_path = self.tmp / "transcript.jsonl"
-        lines = [
-            json.dumps({"step_index": i, "content": "a" * 20_000})
-            for i in range(10)
-        ]
-        t_path.write_text("\n".join(lines), encoding="utf-8")
-
-        status = estimate_subagent_context(t_path)
-        self.assertEqual(status.health_zone, "AMBER")
-        self.assertEqual(status.recommendation, "COMPACT_RECREATE")
-        self.assertGreaterEqual(status.token_count, 40_000)
-        self.assertLess(status.latency_ms, 5.0)
-
-    def test_estimate_subagent_context_red_alert_by_steps(self) -> None:
-        """Transcripts >80 steps evaluate to RED_ALERT and RETIRE."""
-        t_path = self.tmp / "transcript.jsonl"
-        lines = [
-            json.dumps({"step_index": i, "content": f"Step {i}"})
             for i in range(85)
         ]
         t_path.write_text("\n".join(lines), encoding="utf-8")
 
         status = estimate_subagent_context(t_path)
-        self.assertEqual(status.health_zone, "RED_ALERT")
-        self.assertEqual(status.recommendation, "RETIRE")
+        self.assertEqual(status.health_zone, "AMBER")
+        self.assertEqual(status.recommendation, "COMPACT_SOON")
         self.assertEqual(status.step_count, 85)
         self.assertLess(status.latency_ms, 5.0)
 
-    def test_estimate_subagent_context_red_alert_by_tokens(self) -> None:
-        """Transcripts >80k tokens evaluate to RED_ALERT and RETIRE."""
+    def test_estimate_subagent_context_amber_by_tokens(self) -> None:
+        """Transcripts >=65% and <80% window fill evaluate to AMBER and COMPACT_SOON."""
         t_path = self.tmp / "transcript.jsonl"
         lines = [
-            json.dumps({"step_index": i, "content": "z" * 36_000})
+            json.dumps({"step_index": i, "token_count": 17_000, "content": "ok"})
+            for i in range(10)
+        ]
+        t_path.write_text("\n".join(lines), encoding="utf-8")
+
+        status = estimate_subagent_context(t_path)
+        self.assertEqual(status.health_zone, "AMBER")
+        self.assertEqual(status.recommendation, "COMPACT_SOON")
+        self.assertEqual(status.token_count, 170_000)
+        self.assertLess(status.latency_ms, 5.0)
+
+    def test_estimate_subagent_context_below_horizon_remains_healthy(self) -> None:
+        """Transcripts at 45 steps and <65% tokens stay HEALTHY (no premature 40-step retirement)."""
+        t_path = self.tmp / "transcript.jsonl"
+        lines = [
+            json.dumps({"step_index": i, "content": f"Step {i}"})
+            for i in range(45)
+        ]
+        t_path.write_text("\n".join(lines), encoding="utf-8")
+
+        status = estimate_subagent_context(t_path)
+        self.assertEqual(status.health_zone, "HEALTHY")
+        self.assertEqual(status.recommendation, "REUSE")
+        self.assertEqual(status.step_count, 45)
+        self.assertLess(status.latency_ms, 5.0)
+
+    def test_estimate_subagent_context_red_alert_by_tokens(self) -> None:
+        """Transcripts >=80% window fill evaluate to RED_ALERT and HANDOFF_OR_COMPACT."""
+        t_path = self.tmp / "transcript.jsonl"
+        lines = [
+            json.dumps({"step_index": i, "token_count": 21_000, "content": "active"})
             for i in range(10)
         ]
         t_path.write_text("\n".join(lines), encoding="utf-8")
 
         status = estimate_subagent_context(t_path)
         self.assertEqual(status.health_zone, "RED_ALERT")
-        self.assertEqual(status.recommendation, "RETIRE")
-        self.assertGreater(status.token_count, 80_000)
+        self.assertEqual(status.recommendation, "HANDOFF_OR_COMPACT")
+        self.assertEqual(status.token_count, 210_000)
         self.assertLess(status.latency_ms, 5.0)
 
     def test_estimate_subagent_context_size_heuristic_fallback(self) -> None:
-        """Files >2MB trigger fast size-stat heuristic without full line parsing."""
+        """Files >2MB read bounded head/tail steps quickly without bogus file_size // 4 inflation."""
         t_path = self.tmp / "titan_transcript.jsonl"
         head_step = json.dumps({
             "step_index": 0,
             "conversation_id": "titan-conv-1234",
             "content": "You are ladder_executioner, titan session implementer",
         })
+        tail_step = json.dumps({
+            "step_index": 200,
+            "token_count": 215_000,
+            "content": "Final active tail step",
+        })
         with open(t_path, "w", encoding="utf-8") as f:
             f.write(head_step + "\n")
             f.seek(2 * 1024 * 1024 + 1024)
-            f.write("x\n")
+            f.write("\n" + tail_step + "\n")
 
         self.assertGreater(t_path.stat().st_size, 2 * 1024 * 1024)
 
@@ -158,11 +168,10 @@ class TestSubagentContext(unittest.TestCase):
         self.assertEqual(status.conversation_id, "titan-conv-1234")
         self.assertEqual(status.role, "ladder_executioner")
         self.assertEqual(status.health_zone, "RED_ALERT")
-        self.assertEqual(status.recommendation, "RETIRE")
-        self.assertGreater(status.token_count, 80_000)
-        self.assertGreater(status.step_count, 80)
-        self.assertLess(duration_ms, 5.0)
-        self.assertLess(status.latency_ms, 5.0)
+        self.assertEqual(status.recommendation, "HANDOFF_OR_COMPACT")
+        self.assertEqual(status.token_count, 215_000)
+        self.assertLess(duration_ms, 10.0)
+        self.assertLess(status.latency_ms, 10.0)
 
     def test_estimate_subagent_context_missing_or_empty_file(self) -> None:
         """Missing or empty files return safe default healthy status."""
@@ -235,7 +244,7 @@ class TestSubagentContext(unittest.TestCase):
         (sub2 / "transcript.jsonl").write_text(
             "\n".join([
                 json.dumps({"step_index": i, "content": f"You are harness_reviewer reviewing step {i}"})
-                for i in range(50)
+                for i in range(85)
             ])
         )
 
@@ -247,6 +256,46 @@ class TestSubagentContext(unittest.TestCase):
         zones = {s.health_zone for s in statuses}
         self.assertIn("HEALTHY", zones)
         self.assertIn("AMBER", zones)
+
+    def test_list_active_subagent_statuses_strict_parent_filtering(self) -> None:
+        """Issue #111: root_conv_id excludes other parents' children, orphans, and completed subagents."""
+        mock_brain = self.tmp / "scoped_brain"
+        mock_brain.mkdir()
+
+        def _write_child(cid: str, parent_cid: str | None, completed: bool = False) -> None:
+            logs = mock_brain / cid / ".system_generated" / "logs"
+            logs.mkdir(parents=True)
+            rows = [{"step_index": 0, "conversation_id": cid, "content": "You are agyis_builder"}]
+            if parent_cid is not None:
+                rows[0]["parent_conversation_id"] = parent_cid
+            if completed:
+                rows.append({"step_index": 1, "status": "DONE", "type": "PLANNER_RESPONSE", "content": "Done"})
+            (logs / "transcript.jsonl").write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+
+        _write_child("child-a-active", "parent-a", completed=False)
+        _write_child("child-a-done", "parent-a", completed=True)
+        _write_child("child-b-active", "parent-b", completed=False)
+        _write_child("orphan-active", None, completed=False)
+        _write_child("child-foreign", "parent-b", completed=False)
+
+        parent_logs = mock_brain / "parent-a" / ".system_generated" / "logs"
+        parent_logs.mkdir(parents=True)
+        (parent_logs / "transcript.jsonl").write_text(
+            json.dumps({
+                "step_index": 0,
+                "tool_calls": [{"name": "invoke_subagent", "args": {"Role": "agyis_builder"}}],
+                "content": "spawned child-foreign",
+            })
+            + "\n"
+            + json.dumps({
+                "step_index": 1,
+                "content": "Subagent conversationId: child-foreign",
+            }),
+            encoding="utf-8",
+        )
+
+        active = list_active_subagent_statuses(brain_dir=mock_brain, root_conv_id="parent-a")
+        self.assertEqual([s.conversation_id for s in active], ["child-a-active"])
 
     def test_parent_conversation_id_extraction(self) -> None:
         """estimate_subagent_context extracts parent_conversation_id from transcript."""

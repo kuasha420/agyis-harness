@@ -15,7 +15,11 @@ from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
 
-from harness.subagents.context import extract_role_from_text
+from harness.trajectory.transcript_reader import (
+    extract_role_from_text,
+    find_transcript_path,
+)
+from harness.utils.context import get_active_brain_dir
 
 
 class StepSummary(dict):
@@ -48,68 +52,8 @@ def rehydrate_subagent_session(
     Returns:
         Structured rehydration dictionary.
     """
-    b_dir = brain_dir or Path(
-        os.environ.get(
-            "ANTIGRAVITY_BRAIN_DIR",
-            os.environ.get(
-                "GEMINI_BRAIN_DIR", Path.home() / ".gemini" / "antigravity" / "brain"
-            ),
-        )
-    )
-
-    t_path: Optional[Path] = None
-    target_conv_id = conv_id
-
-    # 1. Check if conv_id is already a direct file path
-    direct_path = Path(conv_id)
-    if direct_path.is_file():
-        t_path = direct_path
-        target_conv_id = direct_path.parent.name
-        if target_conv_id in ("logs", ".system_generated"):
-            parts = direct_path.parts
-            if ".system_generated" in parts:
-                idx = parts.index(".system_generated")
-                if idx > 0:
-                    target_conv_id = parts[idx - 1]
-    elif direct_path.is_dir():
-        cand1 = direct_path / ".system_generated" / "logs" / "transcript.jsonl"
-        cand2 = direct_path / "transcript.jsonl"
-        cand3 = direct_path / ".system_generated" / "logs" / "transcript_full.jsonl"
-        if cand1.is_file():
-            t_path = cand1
-        elif cand2.is_file():
-            t_path = cand2
-        elif cand3.is_file():
-            t_path = cand3
-        target_conv_id = direct_path.name
-    else:
-        # Search within brain_dir
-        cand_dir = b_dir / conv_id
-        if cand_dir.is_dir():
-            cand1 = cand_dir / ".system_generated" / "logs" / "transcript.jsonl"
-            cand2 = cand_dir / "transcript.jsonl"
-            cand3 = cand_dir / ".system_generated" / "logs" / "transcript_full.jsonl"
-            if cand1.is_file():
-                t_path = cand1
-            elif cand2.is_file():
-                t_path = cand2
-            elif cand3.is_file():
-                t_path = cand3
-        else:
-            # Prefix or fuzzy search in b_dir
-            if b_dir.exists() and b_dir.is_dir():
-                for item in b_dir.iterdir():
-                    if item.is_dir() and item.name.startswith(conv_id):
-                        cand1 = item / ".system_generated" / "logs" / "transcript.jsonl"
-                        cand2 = item / "transcript.jsonl"
-                        if cand1.is_file():
-                            t_path = cand1
-                            target_conv_id = item.name
-                            break
-                        elif cand2.is_file():
-                            t_path = cand2
-                            target_conv_id = item.name
-                            break
+    b_dir = get_active_brain_dir(brain_dir)
+    t_path, target_conv_id = find_transcript_path(conv_id, brain_dir=b_dir)
 
     if not t_path or not t_path.is_file():
         raise FileNotFoundError(

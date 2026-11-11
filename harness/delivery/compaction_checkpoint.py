@@ -4,22 +4,16 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Agyis Harness: Automated Pre-Compaction Checkpoint Generator (ADR-031 / Issue #77 / Issue #83).
+Agyis Harness: Automated Pre-Compaction Checkpoint Generator (ADR-031, Issue #112).
 
-Assembles runtime ground truth before context exhaustion or compaction strikes:
-1. Active subagent conversation IDs, roles, step counts, and token health
-2. Git working tree state (branch, HEAD commit, dirty/untracked files)
-3. Active artifact links from .agents/artifacts/ and brain directories
-4. Next actionable phase and pending tasks from the active implementation plan
-
-Emits a standardized compaction_checkpoint_<epoch>.md artifact in sub-second latency (<50ms).
+Writes isolated per-conversation checkpoints (`.agents/artifacts/checkpoints/<cid>.md`)
+without clobbering shared workspace checkpoints or active plans across concurrent sessions.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 import datetime
-import json
 import os
 from pathlib import Path
 import re
@@ -28,10 +22,9 @@ import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from harness.utils.context import (
-    get_active_brain_dir,
-    get_active_conversation_id,
-)
+from harness.subagents.context import list_active_subagent_statuses
+from harness.utils.context import get_active_brain_dir, get_active_conversation_id
+from harness.utils.plan_parser import find_active_plan
 
 
 @dataclass
@@ -94,8 +87,7 @@ class CheckpointResult:
         return iter((self.content, self.output_path))
 
     def __getitem__(self, index: int) -> Any:
-        items = (self.content, self.output_path, self.latest_path, self.elapsed_ms)
-        return items[index]
+        return (self.content, self.output_path, self.latest_path, self.elapsed_ms)[index]
 
     def __len__(self) -> int:
         return 2
@@ -107,66 +99,38 @@ def inspect_git_state(workspace_dir: Union[Path, str]) -> GitState:
 
     def _run_git(args: List[str]) -> str:
         try:
-            res = subprocess.run(
-                ["git"] + args,
-                cwd=str(ws),
-                capture_output=True,
-                text=True,
-                timeout=1.5,
-                check=False,
-            )
+            res = subprocess.run(["git"] + args, cwd=str(ws), capture_output=True, text=True, timeout=1.5, check=False)
             return res.stdout.rstrip("\r\n")
         except Exception:
             return ""
 
-    branch = _run_git(["branch", "--show-current"]).strip() or "detached"
-    commit_hash = _run_git(["rev-parse", "HEAD"]).strip() or "unknown"
-    commit_short = _run_git(["rev-parse", "--short", "HEAD"]).strip() or "unknown"
-    status_raw = _run_git(["status", "--porcelain"])
-    diff_stat = _run_git(["diff", "--stat"]).strip()
-
     modified: List[str] = []
     untracked: List[str] = []
+    for line in (_run_git(["status", "--porcelain"]) or "").splitlines():
+        line = line.rstrip("\r\n")
+        if len(line) < 3:
+            continue
+        target_list = untracked if line[:2].startswith("??") else modified
+        target_list.append(line[3:].strip())
 
-    if status_raw:
-        for line in status_raw.splitlines():
-            line = line.rstrip("\r\n")
-            if not line or len(line) < 3:
-                continue
-            status_code = line[:2]
-            filename = line[3:].strip()
-            if status_code.startswith("??"):
-                untracked.append(filename)
-            else:
-                modified.append(filename)
-
-    is_dirty = bool(modified or untracked)
     return GitState(
-        branch=branch,
-        commit_hash=commit_hash,
-        commit_short=commit_short,
-        is_dirty=is_dirty,
+        branch=_run_git(["branch", "--show-current"]).strip() or "detached",
+        commit_hash=_run_git(["rev-parse", "HEAD"]).strip() or "unknown",
+        commit_short=_run_git(["rev-parse", "--short", "HEAD"]).strip() or "unknown",
+        is_dirty=bool(modified or untracked),
         modified_files=modified,
         untracked_files=untracked,
-        diff_stat=diff_stat,
+        diff_stat=_run_git(["diff", "--stat"]).strip(),
     )
 
 
 def resolve_checkpoint_retention(retention_limit: Optional[int] = None) -> int:
-    """
-    Resolves the historical checkpoint retention limit from an explicit value or
-    AGYIS_CHECKPOINT_RETENTION (defaulting to 5 on missing/invalid values and
-    clamping negative values to 0).
-    """
-    if retention_limit is None:
-        raw: Any = os.environ.get("AGYIS_CHECKPOINT_RETENTION", "5")
-    else:
-        raw = retention_limit
+    """Resolves checkpoint retention limit from arg or AGYIS_CHECKPOINT_RETENTION (default 5)."""
+    raw: Any = os.environ.get("AGYIS_CHECKPOINT_RETENTION", "5") if retention_limit is None else retention_limit
     try:
-        resolved = int(raw)
+        return max(0, int(raw))
     except (TypeError, ValueError):
-        resolved = 5
-    return max(0, resolved)
+        return 5
 
 
 def prune_stale_checkpoints(
@@ -174,50 +138,27 @@ def prune_stale_checkpoints(
     retention_limit: Optional[int] = None,
     dry_run: bool = False,
 ) -> List[Path]:
-    """
-    Discovers all compaction_checkpoint_*.md files in artifacts_dir, excluding
-    compaction_checkpoint_latest.md. Retains the top retention_limit most recent
-    checkpoints (sorted descending by timestamp/epoch or mtime fallback) and unlinks older files.
-
-    Args:
-        artifacts_dir: Directory containing compaction checkpoints.
-        retention_limit: Number of historical checkpoints to retain (default: 5 or AGYIS_CHECKPOINT_RETENTION).
-        dry_run: When True, return candidate stale checkpoint Paths without unlinking them.
-
-    Returns:
-        List of unlinked / pruned checkpoint Paths (or candidate stale Paths when dry_run=True).
-    """
+    """Prunes older compaction_checkpoint_<ts>.md snapshots while preserving active CID checkpoints."""
     art_dir = Path(artifacts_dir)
     if not art_dir.is_dir():
         return []
-
-    retention_limit = resolve_checkpoint_retention(retention_limit)
-
-    checkpoint_pattern = re.compile(r"^compaction_checkpoint_(\d+)\.md$")
+    limit = resolve_checkpoint_retention(retention_limit)
+    pattern = re.compile(r"^compaction_checkpoint_(\d+)\.md$")
     candidates: List[Tuple[float, Path]] = []
 
     try:
         for entry in art_dir.glob("compaction_checkpoint_*.md"):
             if not entry.is_file() or entry.name == "compaction_checkpoint_latest.md":
                 continue
-            m = checkpoint_pattern.match(entry.name)
-            if m:
-                sort_key = float(m.group(1))
-            else:
-                try:
-                    sort_key = entry.stat().st_mtime
-                except OSError:
-                    sort_key = 0.0
+            m = pattern.match(entry.name)
+            sort_key = float(m.group(1)) if m else (entry.stat().st_mtime if entry.exists() else 0.0)
             candidates.append((sort_key, entry))
     except OSError:
         return []
 
-    # Sort descending (newest first)
     candidates.sort(key=lambda x: x[0], reverse=True)
-
     pruned: List[Path] = []
-    to_prune = candidates[retention_limit:]
-    for _, file_path in to_prune:
+    for file_path in (item[1] for item in candidates[limit:]):
         if dry_run:
             pruned.append(file_path)
             continue
@@ -226,156 +167,96 @@ def prune_stale_checkpoints(
             pruned.append(file_path)
         except OSError:
             pass
-
     return pruned
 
 
 def collect_active_subagents(
-    workspace_dir: Union[Path, str], brain_dir: Optional[Union[Path, str]] = None
+    workspace_dir: Union[Path, str],
+    brain_dir: Optional[Union[Path, str]] = None,
+    session_id: Optional[str] = None,
 ) -> List[SubagentEntry]:
-    """Collects active subagent statuses using harness context estimator with robust fallback."""
-    subagents: List[SubagentEntry] = []
+    """Collects active subagent statuses strictly via SSOT trajectory discovery."""
     ws = Path(workspace_dir)
     b_dir = Path(brain_dir) if brain_dir is not None else None
+    eff_parent = session_id if b_dir is not None else get_active_conversation_id(session_id)
 
     heartbeat_meta: Optional[Dict[str, Any]] = None
     try:
         from harness.subagents.heartbeat import read_stage_heartbeat
-
         heartbeat_meta = read_stage_heartbeat(workspace_dir=ws)
     except Exception:
         pass
 
     try:
-        if str(ws) not in sys.path:
-            sys.path.insert(0, str(ws))
-        from harness.subagents.context import list_active_subagent_statuses
-
-        statuses = list_active_subagent_statuses(brain_dir=b_dir)
-        for s in statuses:
-            role_display = s.role
-            if heartbeat_meta:
-                hb_stage = str(heartbeat_meta.get("stage") or "").strip()
-                hb_agent = str(heartbeat_meta.get("active_agent_id") or "").strip()
-                if hb_stage and (
-                    s.conversation_id == hb_agent or hb_stage.lower() in role_display.lower()
-                ):
-                    badge = f"[{hb_stage.upper()}]"
-                    if badge not in role_display.upper():
-                        role_display = f"{role_display} {badge}"
-
-            subagents.append(
-                SubagentEntry(
-                    conversation_id=s.conversation_id,
-                    role=role_display,
-                    step_count=s.step_count,
-                    token_count=s.token_count,
-                    health_zone=s.health_zone,
-                    recommendation=s.recommendation,
-                    parent_conversation_id=getattr(s, "parent_conversation_id", None),
-                )
-            )
-        if subagents:
-            return subagents
+        statuses = list_active_subagent_statuses(brain_dir=b_dir, root_conv_id=eff_parent)
     except Exception:
-        pass
+        statuses = []
 
-    # Fallback to direct directory scanning if harness module unavailable or returned empty
-    target_brain = b_dir or (Path(os.environ["ANTIGRAVITY_BRAIN_DIR"]) if "ANTIGRAVITY_BRAIN_DIR" in os.environ else None)
-    if target_brain and target_brain.is_dir():
-        now = time.time()
-        try:
-            for entry in os.scandir(target_brain):
-                if entry.is_dir() and not entry.name.startswith("."):
-                    try:
-                        # Scan recent active sessions (<4 hours) or all if explicit brain_dir provided
-                        if brain_dir is not None or (now - entry.stat().st_mtime < 14400):
-                            subagents.append(
-                                SubagentEntry(
-                                    conversation_id=entry.name,
-                                    role="subagent",
-                                    step_count=0,
-                                    token_count=0,
-                                    health_zone="HEALTHY",
-                                    recommendation="REUSE",
-                                )
-                            )
-                    except OSError:
-                        pass
-        except OSError:
-            pass
-    return subagents
-
-
-from harness.utils.plan_parser import find_active_plan
+    entries: List[SubagentEntry] = []
+    for s in statuses:
+        role_display = s.role
+        if heartbeat_meta:
+            hb_stage = str(heartbeat_meta.get("stage") or "").strip()
+            hb_agent = str(heartbeat_meta.get("active_agent_id") or "").strip()
+            if hb_stage and (s.conversation_id == hb_agent or hb_stage.lower() in role_display.lower()):
+                badge = f"[{hb_stage.upper()}]"
+                if badge not in role_display.upper():
+                    role_display = f"{role_display} {badge}"
+        entries.append(
+            SubagentEntry(
+                conversation_id=s.conversation_id,
+                role=role_display,
+                step_count=s.step_count,
+                token_count=s.token_count,
+                health_zone=s.health_zone,
+                recommendation=s.recommendation,
+                parent_conversation_id=getattr(s, "parent_conversation_id", None),
+            )
+        )
+    return entries
 
 
 def collect_active_artifacts(
     workspace_dir: Union[Path, str],
     brain_dir: Optional[Union[Path, str]] = None,
 ) -> List[ArtifactLink]:
-    """Scans .agents/artifacts/ and active brain_dir, returning deduplicated active markdown artifacts."""
+    """Scans .agents/artifacts/ and active session brain_dir returning deduplicated markdown links."""
     ws = Path(workspace_dir)
-    scan_dirs: List[Path] = []
-
-    art_dir = ws / ".agents" / "artifacts"
-    if art_dir.is_dir():
-        scan_dirs.append(art_dir)
-    if brain_dir:
-        b_dir = Path(brain_dir)
-        if b_dir.is_dir():
-            scan_dirs.append(b_dir)
-
-    # Map filename -> (Path, mtime) to deduplicate, picking newer mtime
+    scan_dirs = [d for d in (ws / ".agents" / "artifacts", Path(brain_dir) if brain_dir else None) if d and d.is_dir()]
     file_map: Dict[str, Tuple[Path, float]] = {}
+
     for d in scan_dirs:
         try:
             for p in d.iterdir():
                 if not p.is_file() or p.name.startswith(".") or not p.name.endswith(".md"):
                     continue
-                try:
-                    mtime = p.stat().st_mtime
-                except OSError:
-                    mtime = 0.0
+                mtime = p.stat().st_mtime if p.exists() else 0.0
                 if p.name not in file_map or mtime > file_map[p.name][1]:
                     file_map[p.name] = (p, mtime)
         except OSError:
             pass
 
-    sorted_files = sorted(file_map.values(), key=lambda item: item[1], reverse=True)
-
     artifacts: List[ArtifactLink] = []
-    for p, _ in sorted_files:
+    for p, _ in sorted(file_map.values(), key=lambda item: item[1], reverse=True):
         title = p.stem.replace("_", " ").title()
         size_bytes = 0
         try:
-            # Read first heading as title
             with open(p, "r", encoding="utf-8", errors="replace") as f:
                 for _ in range(10):
                     line = f.readline()
                     if not line:
                         break
-                    line_s = line.strip()
-                    if line_s.startswith("# "):
-                        title = line_s[2:].strip()
+                    if line.strip().startswith("# "):
+                        title = line.strip()[2:].strip()
                         break
             size_bytes = p.stat().st_size
         except OSError:
             pass
-
         try:
             rel_path = p.relative_to(ws).as_posix()
         except ValueError:
             rel_path = str(p)
-
-        artifacts.append(
-            ArtifactLink(
-                filename=p.name,
-                title=title,
-                path=rel_path,
-                size_bytes=size_bytes,
-            )
-        )
+        artifacts.append(ArtifactLink(filename=p.name, title=title, path=rel_path, size_bytes=size_bytes))
     return artifacts
 
 
@@ -388,7 +269,6 @@ def parse_implementation_plan(
     """Parses implementation plan to extract phase progress and next actions."""
     ws = Path(workspace_dir)
     resolved_path: Optional[Path] = None
-
     if plan_path is not None:
         p = Path(plan_path)
         if not p.is_absolute():
@@ -396,92 +276,48 @@ def parse_implementation_plan(
         if p.is_file():
             resolved_path = p
     else:
-        resolved_path = find_active_plan(
-            conv_id=conv_id,
-            workspace_root=ws,
-            brain_dir=brain_dir,
-            ignore_completed=True,
-        )
+        resolved_path = find_active_plan(conv_id=conv_id, workspace_root=ws, brain_dir=brain_dir, ignore_completed=True)
 
     if not resolved_path:
-        return PlanStatus(
-            plan_path=None,
-            plan_title="No active implementation plan found",
-            total_tasks=0,
-            completed_tasks=0,
-            pending_tasks=0,
-            current_phase=None,
-            next_pending_phase=None,
-            next_pending_task=None,
-            phases_summary=[],
-        )
+        return PlanStatus(None, "No active implementation plan found", 0, 0, 0, None, None, None, [])
 
     try:
         rel_plan_path = str(resolved_path.relative_to(ws))
     except ValueError:
         rel_plan_path = str(resolved_path)
 
-    title = resolved_path.stem.replace("_", " ").title()
     content = ""
     try:
         content = resolved_path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         pass
-
-    # Extract title
     m_title = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
-    if m_title:
-        title = m_title.group(1).strip()
+    title = m_title.group(1).strip() if m_title else resolved_path.stem.replace("_", " ").title()
 
-    # Split into sections by Markdown headers (### Phase or ## Phase or Stage)
-    phase_pattern = re.compile(
-        r"^(#{2,3}\s+(?:(?:Phase|Stage)\s+\d+[^:\n]*:?[^\n]*))", re.MULTILINE
-    )
-    splits = phase_pattern.split(content)
-
+    splits = re.compile(r"^(#{2,3}\s+(?:(?:Phase|Stage)\s+\d+[^:\n]*:?[^\n]*))", re.MULTILINE).split(content)
     phases_summary: List[Dict[str, Any]] = []
-    total_tasks = 0
-    completed_tasks = 0
-
+    total_tasks = completed_tasks = 0
     current_phase: Optional[str] = None
     next_pending_phase: Optional[str] = None
     next_pending_task: Optional[str] = None
 
     if len(splits) > 1:
-        # splits alternate: [preamble, phase_header_1, phase_body_1, phase_header_2, phase_body_2, ...]
         for i in range(1, len(splits), 2):
-            p_header = splits[i].strip()
-            clean_header = re.sub(r"^#{2,3}\s+", "", p_header).strip()
+            clean_header = re.sub(r"^#{2,3}\s+", "", splits[i].strip()).strip()
             p_body = splits[i + 1] if i + 1 < len(splits) else ""
-
-            # Count checkboxes
             p_done = len(re.findall(r"^\s*[-*+]\s*\[[xX]\]", p_body, re.MULTILINE))
             p_pending = len(re.findall(r"^\s*[-*+]\s*\[\s*\]", p_body, re.MULTILINE))
             p_total = p_done + p_pending
-
             total_tasks += p_total
             completed_tasks += p_done
-
-            status = "PENDING"
-            if p_total > 0 and p_done == p_total:
-                status = "COMPLETED"
-            elif p_done > 0:
-                status = "IN_PROGRESS"
-
-            phases_summary.append({
-                "header": clean_header,
-                "completed": p_done,
-                "pending": p_pending,
-                "total": p_total,
-                "status": status,
-            })
+            status = "COMPLETED" if (p_total > 0 and p_done == p_total) else ("IN_PROGRESS" if p_done > 0 else "PENDING")
+            phases_summary.append({"header": clean_header, "completed": p_done, "pending": p_pending, "total": p_total, "status": status})
 
             if status == "IN_PROGRESS" and current_phase is None:
                 current_phase = clean_header
                 m_task = re.search(r"^\s*[-*+]\s*\[\s*\]\s+(.+)$", p_body, re.MULTILINE)
                 if m_task and next_pending_task is None:
                     next_pending_task = m_task.group(1).strip()
-
             if status in ("IN_PROGRESS", "PENDING") and next_pending_phase is None:
                 next_pending_phase = clean_header
                 if next_pending_task is None:
@@ -489,7 +325,6 @@ def parse_implementation_plan(
                     if m_task:
                         next_pending_task = m_task.group(1).strip()
     else:
-        # Fallback: scan whole document for checkboxes
         done_matches = len(re.findall(r"^\s*[-*+]\s*\[[xX]\]", content, re.MULTILINE))
         pending_matches = re.findall(r"^\s*[-*+]\s*\[\s*\]\s+(.+)$", content, re.MULTILINE)
         total_tasks = done_matches + len(pending_matches)
@@ -497,22 +332,10 @@ def parse_implementation_plan(
         if pending_matches:
             next_pending_task = pending_matches[0].strip()
 
-    pending_tasks = total_tasks - completed_tasks
     cur_phase = current_phase or next_pending_phase
     if next_pending_task is None and cur_phase:
         next_pending_task = f"Execute {cur_phase}"
-
-    return PlanStatus(
-        plan_path=rel_plan_path,
-        plan_title=title,
-        total_tasks=total_tasks,
-        completed_tasks=completed_tasks,
-        pending_tasks=pending_tasks,
-        current_phase=cur_phase,
-        next_pending_phase=next_pending_phase,
-        next_pending_task=next_pending_task,
-        phases_summary=phases_summary,
-    )
+    return PlanStatus(rel_plan_path, title, total_tasks, completed_tasks, total_tasks - completed_tasks, cur_phase, next_pending_phase, next_pending_task, phases_summary)
 
 
 def generate_compaction_checkpoint(
@@ -524,186 +347,99 @@ def generate_compaction_checkpoint(
     output_path: Optional[Union[Path, str]] = None,
     brain_dir: Optional[Union[Path, str]] = None,
 ) -> CheckpointResult:
-    """
-    Assembles complete pre-compaction state and writes standardized checkpoint artifact.
-    Returns CheckpointResult supporting tuple unpacking (content, out_path).
-    """
+    """Assembles pre-compaction state and writes isolated per-conversation checkpoint."""
     t0 = time.perf_counter()
     epoch = int(time.time())
     iso_time = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     ws = Path(workspace_dir)
-    sess = get_active_conversation_id(session_id) or "unknown_session"
+    raw_sess = get_active_conversation_id(session_id)
+    sess = raw_sess or "unknown_session"
     effective_brain = get_active_brain_dir(brain_dir)
-    cand_session_brain = effective_brain / sess if (sess and sess != "unknown_session") else None
+    cand_session_brain = effective_brain / sess if raw_sess else None
     active_artifact_brain = brain_dir or (cand_session_brain if cand_session_brain and cand_session_brain.is_dir() else None)
 
     git_state = inspect_git_state(ws)
-    subagents = collect_active_subagents(ws, brain_dir=brain_dir)
-    artifacts = collect_active_artifacts(ws, brain_dir=active_artifact_brain)
-    plan_status = parse_implementation_plan(
+    subagents = collect_active_subagents(
         ws,
-        plan_path=plan_path,
-        brain_dir=active_artifact_brain,
-        conv_id=sess,
+        brain_dir=brain_dir,
+        session_id=session_id if brain_dir is not None else raw_sess,
     )
+    artifacts = collect_active_artifacts(ws, brain_dir=active_artifact_brain)
+    plan_status = parse_implementation_plan(ws, plan_path=plan_path, brain_dir=active_artifact_brain, conv_id=sess)
+    pct = (plan_status.completed_tasks / plan_status.total_tasks * 100.0) if plan_status.total_tasks > 0 else 0.0
 
-    # Calculate plan completion percentage
-    pct = (
-        (plan_status.completed_tasks / plan_status.total_tasks * 100.0)
-        if plan_status.total_tasks > 0
-        else 0.0
-    )
-
-    # Subagents Markdown Table
     if subagents:
-        sub_rows = []
-        for s in subagents:
-            badge = (
-                "🟢 HEALTHY"
-                if s.health_zone == "HEALTHY"
-                else ("🟡 AMBER" if s.health_zone == "AMBER" else "🔴 RED_ALERT")
-            )
-            sub_rows.append(
-                f"| `{s.conversation_id}` | `{s.role}` | {s.step_count} | {s.token_count:,} | {badge} | `{s.recommendation}` |"
-            )
-        subagents_table = (
-            "| Conversation ID | Role | Steps | Tokens | Health Zone | Recommendation |\n"
-            "| :--- | :--- | :--- | :--- | :--- | :--- |\n"
-            + "\n".join(sub_rows)
-        )
+        sub_rows = [
+            f"| `{s.conversation_id}` | `{s.role}` | {s.step_count} | {s.token_count:,} | "
+            f"{'🟢 HEALTHY' if s.health_zone == 'HEALTHY' else ('🟡 AMBER' if s.health_zone == 'AMBER' else '🔴 RED_ALERT')} | `{s.recommendation}` |"
+            for s in subagents
+        ]
+        subagents_table = "| Conversation ID | Role | Steps | Tokens | Health Zone | Recommendation |\n| :--- | :--- | :--- | :--- | :--- | :--- |\n" + "\n".join(sub_rows)
     else:
-        subagents_table = "_No active background subagents recorded in brain directory._"
+        subagents_table = "_No active background subagents recorded for this session._"
 
-    # Artifacts Markdown Table
     if artifacts:
-        art_rows = []
-        for a in artifacts:
-            art_rows.append(f"| [{a.filename}]({a.path}) | {a.title} | {a.size_bytes:,} B |")
-        artifacts_table = (
-            "| Artifact File | Title / Header | Size |\n"
-            "| :--- | :--- | :--- |\n"
-            + "\n".join(art_rows)
+        artifacts_table = "| Artifact File | Title / Header | Size |\n| :--- | :--- | :--- |\n" + "\n".join(
+            f"| [{a.filename}]({a.path}) | {a.title} | {a.size_bytes:,} B |" for a in artifacts
         )
     else:
         artifacts_table = "_No artifacts found in `.agents/artifacts/`._"
 
-    # Phases Summary Table
     if plan_status.phases_summary:
-        phase_rows = []
-        for p in plan_status.phases_summary:
-            status_badge = (
-                "✅ COMPLETED"
-                if p["status"] == "COMPLETED"
-                else ("🔄 IN PROGRESS" if p["status"] == "IN_PROGRESS" else "⏳ PENDING")
-            )
-            phase_rows.append(
-                f"| {p['header']} | {p['completed']} / {p['total']} | {status_badge} |"
-            )
-        phases_table = (
-            "| Phase Breakdown | Completed Tasks | Status |\n"
-            "| :--- | :--- | :--- |\n"
-            + "\n".join(phase_rows)
+        phases_table = "| Phase Breakdown | Completed Tasks | Status |\n| :--- | :--- | :--- |\n" + "\n".join(
+            f"| {p['header']} | {p['completed']} / {p['total']} | {'✅ COMPLETED' if p['status'] == 'COMPLETED' else ('🔄 IN PROGRESS' if p['status'] == 'IN_PROGRESS' else '⏳ PENDING')} |"
+            for p in plan_status.phases_summary
         )
     else:
         phases_table = f"_Tasks: {plan_status.completed_tasks} completed, {plan_status.pending_tasks} pending._"
 
-    # Git Status Breakdown
-    git_dirty_badge = "🔴 DIRTY" if git_state.is_dirty else "🟢 CLEAN"
-    dirty_details = ""
+    dirty_parts: List[str] = []
     if git_state.is_dirty:
         if git_state.modified_files:
-            dirty_details += f"\n- **Modified Files ({len(git_state.modified_files)})**:\n" + "\n".join(
-                f"  * `{f}`" for f in git_state.modified_files
-            )
+            dirty_parts.append(f"\n- **Modified Files ({len(git_state.modified_files)})**:\n" + "\n".join(f"  * `{f}`" for f in git_state.modified_files))
         if git_state.untracked_files:
-            dirty_details += f"\n- **Untracked Files ({len(git_state.untracked_files)})**:\n" + "\n".join(
-                f"  * `{f}`" for f in git_state.untracked_files
-            )
+            dirty_parts.append(f"\n- **Untracked Files ({len(git_state.untracked_files)})**:\n" + "\n".join(f"  * `{f}`" for f in git_state.untracked_files))
         if git_state.diff_stat:
-            dirty_details += f"\n\n```\n{git_state.diff_stat}\n```"
-    else:
-        dirty_details = "\n_Working tree is completely clean on HEAD._"
+            dirty_parts.append(f"\n\n```\n{git_state.diff_stat}\n```")
+    dirty_details = "".join(dirty_parts) or "\n_Working tree is completely clean on HEAD._"
 
     t_preview_ms = (time.perf_counter() - t0) * 1000.0
-
     markdown = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
-<!-- Generated by Agyis Pre-Compaction Checkpoint Automation -->
-
 # 🧭 Compaction & Succession Checkpoint (Epoch `{epoch}`)
 
 > **Predecessor Session**: `{sess}`  
 > **Predecessor Role**: `{orchestrator_role}`  
 > **Generation Timestamp**: `{iso_time}`  
-> **Trigger Threshold**: `tokens >= {trigger_tokens:,}` (Proximity Alarm: Imminent Context Compaction / Succession)  
+> **Trigger Threshold**: `tokens >= {trigger_tokens:,}`  
 > **Checkpoint Latency**: `{t_preview_ms:.2f} ms`
 
----
-
 ## 1. Executive Succession Mandate & Handoff Summary
-
-This checkpoint was materialized automatically before context compaction or horizontal succession.
-The successor orchestrator or post-compaction model MUST adopt the following state immediately upon awakening.
-
-- **Primary Goal**: Zero knowledge loss and autonomous continuation of active SWE milestones.
 - **Active Implementation Plan**: `{plan_status.plan_path or "N/A"}` ({plan_status.plan_title})
 - **Overall Milestone Progress**: **{plan_status.completed_tasks} / {plan_status.total_tasks} Tasks ({pct:.1f}%)**
 - **Current / Resuming Phase**: **{plan_status.current_phase or "Phase Complete / Verification"}**
 - **Next Actionable Task**: `{plan_status.next_pending_task or "Final verification gate and release certification"}`
 
----
-
 ## 2. Git Working Tree & Repository State
-
-- **Active Branch**: `{git_state.branch}`
-- **HEAD Commit**: `{git_state.commit_short}` (`{git_state.commit_hash}`)
-- **Working Tree Status**: {git_dirty_badge}
+- **Active Branch**: `{git_state.branch}` | **HEAD**: `{git_state.commit_short}` (`{git_state.commit_hash}`) | **Status**: {'🔴 DIRTY' if git_state.is_dirty else '🟢 CLEAN'}
 {dirty_details}
-
-> [!IMPORTANT]
-> **Work Preservation Contract (AC4)**:
-> In-flight modifications must NOT be reverted or discarded with `git reset --hard` or `git checkout -- .`.
-> All work on disk represents intentional partial state.
-
----
+> [!IMPORTANT] Work Preservation Contract (AC4): NEVER run `git reset --hard` or `git checkout -- .`.
 
 ## 3. Active Implementation Plan & Milestone Progression
-
 {phases_table}
-
-- **Active Plan Reference**: `{plan_status.plan_path or "N/A"}`
-- **Next Pending Phase**: `{plan_status.next_pending_phase or "None (All phases satisfied)"}`
-- **Immediate Next Step**:
-  > {plan_status.next_pending_task or "Execute full project test suite (`python3 -m harness.cli test`) and seal release."}
-
----
+- **Active Plan Reference**: `{plan_status.plan_path or "N/A"}` | **Next Phase**: `{plan_status.next_pending_phase or "None"}`
 
 ## 4. Active Subagent Roster & Liveness Matrix
-
 {subagents_table}
-
-### Succession Custody Action:
 1. Retain conversation IDs for subagents marked `HEALTHY` or `AMBER`.
-2. Send status ping / custody claim via `send_message(Recipient='<conv_id>', Message='...')` if subagent is awaiting parent direction.
-3. Retire subagents marked `RED_ALERT` (>80k tokens) by spawning fresh successors.
-
----
+2. Compact or hand off subagents marked `RED_ALERT` (>=80% context window) before spawning replacements.
 
 ## 5. Active Workspace Artifact Bridge (`.agents/artifacts/`)
-
 {artifacts_table}
 
----
-
 ## 6. Successor Wake-Up Checklist (Autonomous Continuation Directive)
-
-When waking up in a clean context or post-compaction epoch:
-1. [ ] **Verify Working Tree**: Run `git status` and `git diff --stat` to confirm uncommitted changes survived intact.
-2. [ ] **Read Latest Plan**: View `{plan_status.plan_path or ".agents/artifacts/implementation_plan.md"}` to re-anchor milestones.
-3. [ ] **Resume Current Phase**: Immediately execute **{plan_status.current_phase or "Next Phase"}** starting at `{plan_status.next_pending_task or "pending task"}`.
-4. [ ] **Verify Tests**: Run `./agyis test` (or `python3 -m harness.cli test`) to assert baseline suite health before proceeding.
-5. [ ] **Zero Operator Prompting**: Do NOT ask the operator *"What was I doing?"* or *"Should I continue?"*. Resume execution autonomously!
+1. [ ] Verify tree via `git status` and inspect `{plan_status.plan_path or ".agents/artifacts/implementation_plan.md"}`.
+2. [ ] Resume **{plan_status.current_phase or "Next Phase"}** starting at `{plan_status.next_pending_task or "pending task"}` without re-prompting.
 """
 
     if output_path is not None:
@@ -711,46 +447,24 @@ When waking up in a clean context or post-compaction epoch:
         if not out_file.is_absolute():
             out_file = ws / out_file
         out_dir = out_file.parent
-        latest_file = out_dir / "compaction_checkpoint_latest.md"
-        canonical_cp = out_dir / "cockpit_checkpoint.md"
     else:
-        out_dir = ws / ".agents" / "artifacts"
-        canonical_cp = out_dir / "cockpit_checkpoint.md"
-        out_file = canonical_cp
-        latest_file = out_dir / "compaction_checkpoint_latest.md"
+        out_dir = ws / ".agents" / "artifacts" / "checkpoints"
+        cid_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_sess) if raw_sess else "session"
+        out_file = out_dir / f"{cid_slug}.md"
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_file.write_text(markdown, encoding="utf-8")
-    tmp_latest = out_dir / f".compaction_checkpoint_latest.{os.getpid()}.tmp"
-    tmp_latest.write_text(markdown, encoding="utf-8")
-    os.replace(tmp_latest, latest_file)
-    if canonical_cp != out_file:
-        tmp_canon = out_dir / f".cockpit_checkpoint.{os.getpid()}.tmp"
-        tmp_canon.write_text(markdown, encoding="utf-8")
-        os.replace(tmp_canon, canonical_cp)
-
-    # Mirror active implementation plan to workspace artifacts so it survives conversation resets
-    if plan_status and plan_status.plan_path:
-        try:
-            active_plan_dst = out_dir / "active_plan.md"
-            src_plan = Path(plan_status.plan_path)
-            if src_plan.is_file() and src_plan.resolve() != active_plan_dst.resolve():
-                active_plan_dst.write_text(src_plan.read_text(encoding="utf-8"), encoding="utf-8")
-        except Exception:
-            pass
+    tmp_file = out_dir / f".{out_file.name}.{os.getpid()}.tmp"
+    tmp_file.write_text(markdown, encoding="utf-8")
+    os.replace(tmp_file, out_file)
 
     try:
         prune_stale_checkpoints(out_dir)
+        if output_path is None:
+            prune_stale_checkpoints(ws / ".agents" / "artifacts")
     except Exception:
         pass
 
-    elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    return CheckpointResult(
-        content=markdown,
-        output_path=out_file,
-        latest_path=latest_file,
-        elapsed_ms=elapsed_ms,
-    )
+    return CheckpointResult(content=markdown, output_path=out_file, latest_path=out_file, elapsed_ms=(time.perf_counter() - t0) * 1000.0)
 
 
 def assemble_compaction_checkpoint(
@@ -763,39 +477,15 @@ def assemble_compaction_checkpoint(
     output_path: Optional[Union[Path, str]] = None,
 ) -> CheckpointResult:
     """Backwards-compatible alias for generate_compaction_checkpoint."""
-    return generate_compaction_checkpoint(
-        workspace_dir=workspace_dir,
-        session_id=session_id,
-        orchestrator_role=orchestrator_role,
-        trigger_tokens=trigger_tokens,
-        plan_path=plan_path,
-        output_path=output_path,
-        brain_dir=brain_dir,
-    )
+    return generate_compaction_checkpoint(workspace_dir=workspace_dir, session_id=session_id, orchestrator_role=orchestrator_role, trigger_tokens=trigger_tokens, plan_path=plan_path, output_path=output_path, brain_dir=brain_dir)
 
 
 def main() -> int:
-    t_start = time.perf_counter()
     workspace = Path(os.environ.get("AGYIS_WORKSPACE_DIR", Path.cwd()))
-    session_id = os.environ.get("AGYIS_CONVERSATION_ID", "78adab16-ecb6-453e-9d73-b8f4c7e76fa4")
+    session_id = get_active_conversation_id()
     role = os.environ.get("AGYIS_ROLE", "agyis_coordinator")
-
-    print(f"=== Agyis Compaction Checkpoint Generator ===")
-    print(f"Workspace: {workspace}")
-    print(f"Session:   {session_id}")
-    print(f"Role:      {role}")
-
-    res = generate_compaction_checkpoint(
-        workspace_dir=workspace,
-        session_id=session_id,
-        orchestrator_role=role,
-        trigger_tokens=230_000,
-    )
-
-    t_total_ms = (time.perf_counter() - t_start) * 1000.0
-    print(f"✔ Checkpoint written: {res.output_path} ({len(res.content):,} bytes)")
-    print(f"✔ Latest pointer:    {res.latest_path}")
-    print(f"✔ Execution latency: {t_total_ms:.2f} ms (<50ms benchmark invariant)")
+    res = generate_compaction_checkpoint(workspace_dir=workspace, session_id=session_id, orchestrator_role=role, trigger_tokens=230_000)
+    print(f"✔ Checkpoint written: {res.output_path} ({len(res.content):,} bytes, {res.elapsed_ms:.2f} ms)")
     return 0
 
 
