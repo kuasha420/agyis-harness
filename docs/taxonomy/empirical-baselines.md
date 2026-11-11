@@ -5,7 +5,7 @@
 
 # Empirical Telemetry Baselines (Reconciled Post-RC10)
 
-Authoritative ground-truth metrics compiled strictly from `data/*.json`, read-only `data/telemetry.db`, and controlled Issue #83 Route A/B/C experiments. Supersedes standalone legacy taxonomy drafts archived under [`docs/archive/taxonomy/`](../archive/taxonomy/).
+Authoritative ground-truth metrics compiled strictly from `data/*.json`, read-only `data/telemetry.db`, and controlled Issue #83 Route A/B/C experiments. Supersedes standalone legacy taxonomy drafts frozen at commit `0069329` (indexed under [`docs/archive/README.md#taxonomy`](../archive/README.md#taxonomy)).
 
 ---
 

@@ -14,7 +14,7 @@ Classifies workstation telemetry from data/telemetry.db into 4 buckets:
 3. OPERATOR_GUIDANCE (Human-in-the-loop steering, rescue prompts)
 4. HARNESS_OPPORTUNITY (Harness-level hooks, rules, and abstractions)
 
-Generates docs/archive/taxonomy/workstation-audit-report.md.
+Generates data/reports/workstation-audit-report.md.
 """
 
 from __future__ import annotations
@@ -377,7 +377,7 @@ The `psl-agy-harness` project will now systematically address each of these empi
 def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Classify failure modes and generate audit report.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
-    parser.add_argument("--output", "-o", default="docs/archive/taxonomy/workstation-audit-report.md", help="Path to output markdown report")
+    parser.add_argument("--output", "-o", default="data/reports/workstation-audit-report.md", help="Path to output markdown report")
     parser.add_argument("--json-out", default="data/classified_failures.json", help="Path to output structured JSON")
     args = parser.parse_args(argv)
 

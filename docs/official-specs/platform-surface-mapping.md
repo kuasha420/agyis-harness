@@ -24,7 +24,7 @@ Google Antigravity provides an extensible multi-tier agent execution runtime acr
 4. **The Lifecycle Hooks Engine (`hooks.json` & SDK Hooks)**: Deterministic `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, and `Stop` interception outside the token context window (detailed contracts in [`lifecycle-hooks.md`](lifecycle-hooks.md)).
 5. **Model Context Protocol (MCP) Boundaries & Extension Packaging**: Stdio vs. Streamable HTTP/SSE transports, tool filtering allowlists/denylists, official plugin manifests (`plugin.json`), 5-tier discovery precedence, and context budget caps.
 
-The empirical gap analysis in §7 matches these platform capabilities against audited failure distributions in [`../taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md) (with historical cohort context preserved in [`../archive/taxonomy/workstation-audit-report.md`](../archive/taxonomy/workstation-audit-report.md)).
+The empirical gap analysis in §7 matches these platform capabilities against audited failure distributions in [`../taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md) (with historical cohort context frozen at `0069329:docs/archive/taxonomy/workstation-audit-report.md` — indexed in [`../archive/README.md#taxonomy`](../archive/README.md#taxonomy)).
 
 ---
 
@@ -495,7 +495,7 @@ stdio_server = types.McpStdioServer(
 
 ## 7. Empirical Gap Analysis: Workstation Failures vs. Platform Capabilities
 
-Audited telemetry baselines in [`../taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md) (`1,734` classified sessions / `389,329` steps / `178,747` tool calls / `4,132` (`2.31%`) tool errors / `3,008` (`1.73/sess`) interventions; live `2026-11-11` corpus: `2,875` sessions / `598,911` steps / `424,817` calls / `11,510` (`2.71%`) errors / `5,604` interventions) establish four foundational empirical dynamics (historical cohort breakdowns are archived in [`../archive/taxonomy/workstation-audit-report.md`](../archive/taxonomy/workstation-audit-report.md)):
+Audited telemetry baselines in [`../taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md) (`1,734` classified sessions / `389,329` steps / `178,747` tool calls / `4,132` (`2.31%`) tool errors / `3,008` (`1.73/sess`) interventions; live `2026-11-11` corpus: `2,875` sessions / `598,911` steps / `424,817` calls / `11,510` (`2.71%`) errors / `5,604` interventions) establish four foundational empirical dynamics (historical cohort breakdowns are frozen at `0069329:docs/archive/taxonomy/workstation-audit-report.md` — indexed in [`../archive/README.md#taxonomy`](../archive/README.md#taxonomy)):
 
 1. **Tool Execution Succeeds Yet Sessions Still Stall**: Across `3,275` audited interventions (`operator_interventions_summary.json`), only `26` (`0.79%`) followed a failed tool call; `99.21%` followed technically succeeding tools due to drift, context bloat, polling inflation, or verification gaps.
 2. **Session Burden Surges with Depth While Per-Call Precision Remains Flat**:

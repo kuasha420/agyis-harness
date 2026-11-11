@@ -45,7 +45,7 @@ agyis-harness/
 │
 ├── pipeline/                 # [THE PROJECT] Telemetry extraction & empirical classification lab
 ├── data/                     # [THE PROJECT] Local empirical SQLite telemetry store (`telemetry.db`)
-├── docs/                     # [THE PROJECT] ADRs, 7 Official Specs, 3 RE Specs, 3 Runbooks, 2 Taxonomy, Archive
+├── docs/                     # [THE PROJECT] ADRs, 7 Official Specs, 3 RE Specs, 3 Runbooks, 2 Taxonomy, Archive Index (`0069329`)
 └── tests/                    # [THE PROJECT] Hermetic unit, integration, contract & E2E tests
 ```
 
@@ -125,5 +125,5 @@ agyis audit certify                  # Out-of-band Gate 2 certification (audit_v
 
 ### Contributor Rules
 1. **Surgical Contiguous Edits (`PSL-INV-003`)**: Prefer `replace_file_content` over whole-file rewrites on source files.
-2. **Product vs. Project Separation (`ADR-014`)**: Keep empirical data in `data/`, research/archives in `docs/archive/`, and scratch artifacts outside `harness/`.
+2. **Product vs. Project Separation (`ADR-014`)**: Keep empirical data in `data/`, the frozen archive index in [`docs/archive/README.md`](archive/README.md), and scratch artifacts outside `harness/`.
 3. **Hermetic Verification (`PSL-INV-001`)**: Add or update hermetic tests under `tests/` (`tempfile.TemporaryDirectory()`, zero network calls) and see [`testing-contracts.md`](official-specs/testing-contracts.md), [`empirical-baselines.md`](taxonomy/empirical-baselines.md), [`project-ledger.md`](taxonomy/project-ledger.md), [`docs/adr/README.md`](adr/README.md), and [`docs/runbooks/git-and-worktree-hygiene.md`](runbooks/git-and-worktree-hygiene.md).

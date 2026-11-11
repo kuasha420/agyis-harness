@@ -260,7 +260,7 @@ Agyis Harness is grounded in reconciled empirical audits (`data/*.json` and read
 
 Full reconciled tables and Issue #83 Route A/B/C scorecards:
 - 📑 **[docs/taxonomy/empirical-baselines.md](docs/taxonomy/empirical-baselines.md)**
-- 📑 **[docs/archive/taxonomy/](docs/archive/taxonomy/)** · **[360 Telemetry Audit (2026-10)](docs/archive/reports/360_telemetry_audit_2026_10.md)**
+- 📑 **[Archived Taxonomy Index (`0069329`)](docs/archive/README.md#taxonomy)** · **[360 Telemetry Audit (2026-10, frozen at `0069329`)](docs/archive/README.md#reports)**
 
 </details>
 
@@ -315,7 +315,7 @@ python3 -m harness.cli rules --lint  # Verify agent rules & zero echo duplicatio
 - **Architecture, Baselines & Archives**:
   - [Master ADR Registry (`ADR-001`–`ADR-034`)](docs/adr/README.md)
   - [Empirical Telemetry Baselines](docs/taxonomy/empirical-baselines.md) · [Active Project Ledger](docs/taxonomy/project-ledger.md)
-  - [Historical RC10 Ledger](docs/archive/ledger/project-ledger-rc10-historical.md) · [Archived Taxonomy](docs/archive/taxonomy/) · [Archived Research](docs/archive/research/) · [Rebrand Discussion](docs/archive/discussions/rebrand-agyis-epic.md)
+  - [Frozen Archive Index (`0069329`, 48 docs)](docs/archive/README.md): [Historical RC10 Ledger](docs/archive/README.md#ledger) · [Archived Taxonomy](docs/archive/README.md#taxonomy) · [Archived Research](docs/archive/README.md#research) · [Rebrand Discussion](docs/archive/README.md#discussions)
 
 ---
 

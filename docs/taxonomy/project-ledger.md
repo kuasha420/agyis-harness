@@ -5,7 +5,7 @@
 
 # Agyis Harness Project Ledger (Compacted Post-RC10 Horizon 0)
 
-> **Historical Archive**: Phases 1–35 (2026-10-02 through `v1.0.0-rc10`) live verbatim in [`docs/archive/ledger/project-ledger-rc10-historical.md`](../archive/ledger/project-ledger-rc10-historical.md).
+> **Historical Archive**: Phases 1–35 (2026-10-02 through `v1.0.0-rc10`) live verbatim at `0069329:docs/archive/ledger/project-ledger-rc10-historical.md` (indexed in [`docs/archive/README.md#ledger`](../archive/README.md#ledger)).
 > **Authoritative Baselines**: Reconciled empirical metrics and Route A/B/C scores live in [`docs/taxonomy/empirical-baselines.md`](empirical-baselines.md).
 > **Architecture Registry**: Decisions `ADR-001` through `ADR-034` are maintained in [`docs/adr/README.md`](../adr/README.md).
 
@@ -17,7 +17,7 @@
 - **Architectural Fitness Function**: **100.0/100 AFF score** (`python3 -m harness.cli audit aff`), enforcing Product vs. Project isolation (`ADR-014`), DAG import acyclicity, bounded caches, and external asset separation (`PSL-INV-011`).
 - **Cleanroom Specification Gate**: Typed obligation ledgers and immutable SHA-256 evidence records verified cleanly via `python3 -m harness.cli verify --spec` and `agyis verify`.
 - **Single-Source Hygiene Gate**: `tests/test_skills_dedup_gate.py` + `harness/runtime/hygiene_checks.py` require `.agents/skills/` mirrors of `harness/skills/` to be symlinks (`../../harness/skills/<name>`), saving `~4,500` prompt tokens/turn across Layer 1–3 precedence.
-- **Documentation Separation**: Legacy empirical reports (`docs/archive/taxonomy/`), RFCs (`docs/archive/discussions/`), telemetry audits (`docs/archive/reports/`), and discovery notes (`docs/archive/research/`) are compacted out of active context per `ADR-003`.
+- **Documentation Separation**: Legacy empirical reports, RFCs, telemetry audits, and discovery notes are compacted out of active context per `ADR-003` and frozen at commit `0069329` (indexed in [`docs/archive/README.md`](../archive/README.md)).
 
 ---
 

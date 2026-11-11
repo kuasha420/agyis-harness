@@ -213,17 +213,39 @@ class TestPipelineAuditSmoke(unittest.TestCase):
         self.assertIn("<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->", content)
         self.assertIn("<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->", content)
 
-    def test_pipeline_default_outputs_target_archive_taxonomy(self):
-        """Ensure telemetry pipeline scripts default markdown outputs to docs/archive/taxonomy/ rather than active docs/taxonomy/."""
+    def test_pipeline_default_outputs_target_data_reports(self):
+        """Ensure telemetry pipeline scripts default markdown outputs to data/reports/ rather than active docs/taxonomy/ or frozen docs/archive/."""
         repo_root = Path(__file__).resolve().parent.parent
         pipeline_dir = repo_root / "pipeline"
+        report_scripts = {
+            "analyze_context_dynamics.py",
+            "analyze_failure_clusters.py",
+            "analyze_ultra_deep_sessions.py",
+            "analyze_volume_distributions.py",
+            "audit_artifacts.py",
+            "audit_project_configs.py",
+            "benchmark_reasoning_tiers.py",
+            "classify_failures.py",
+            "extract_cognitive_traces.py",
+        }
         for py_file in sorted(pipeline_dir.glob("*.py")):
             text = py_file.read_text(encoding="utf-8")
             self.assertNotIn(
                 "docs/taxonomy/",
                 text,
-                f"{py_file.name} still references active docs/taxonomy/ instead of docs/archive/taxonomy/",
+                f"{py_file.name} still references active docs/taxonomy/ instead of data/reports/",
             )
+            self.assertNotIn(
+                "docs/archive/",
+                text,
+                f"{py_file.name} still references frozen docs/archive/ instead of data/reports/",
+            )
+            if py_file.name in report_scripts:
+                self.assertIn(
+                    "data/reports/",
+                    text,
+                    f"{py_file.name} must default markdown report outputs to data/reports/",
+                )
 
 
 if __name__ == "__main__":

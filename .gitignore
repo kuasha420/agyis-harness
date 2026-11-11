@@ -51,6 +51,7 @@ data/*.jsonl
 data/*.json
 data/extracted/
 data/cache/
+data/reports/
 *.log
 
 # Keep data directory structure and templates

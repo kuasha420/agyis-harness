@@ -134,7 +134,7 @@ In our empirical benchmark across multi-constraint deduction, Python mutable def
 - **Product Rule**: Default custom and specialist agents to `inherit` or `flash` for high-throughput operational velocity, reserving `pro` / high effort strictly for complex multi-file architectural planning.
 
 #### 3. Thinking Perseveration & Attention Sink Collapse
-Our cognitive trace deep-dive ([`docs/archive/taxonomy/cognitive-failure-taxonomy-deepdive.md`](../archive/taxonomy/cognitive-failure-taxonomy-deepdive.md), reconciled in [`docs/taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md) across `N=348` traces / `24,163` thinking blocks) demonstrated that under long context horizons (`>1,000` steps), unpruned thinking steps collapse into repetitive attractors:
+Our cognitive trace deep-dive (`0069329:docs/archive/taxonomy/cognitive-failure-taxonomy-deepdive.md`, indexed in [`docs/archive/README.md#taxonomy`](../archive/README.md#taxonomy), reconciled in [`docs/taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md) across `N=348` traces / `24,163` thinking blocks) demonstrated that under long context horizons (`>1,000` steps), unpruned thinking steps collapse into repetitive attractors:
 - In session `8d6608ca`, **85.5% (`1,829 / 2,138` thinking traces)** perseverated on the exact same generic mantra (*"Prioritizing Tool Usage..."*).
 - High thinking token generation without periodic context resets accelerates this attention sink collapse.
 - Custom entrypoint agents directly prevent this failure mode by resetting the conversation context to zero for each specialized task phase.

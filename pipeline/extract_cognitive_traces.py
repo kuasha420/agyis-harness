@@ -12,7 +12,7 @@ Extracts thinking traces preceding tool failures, loop traps, and operator rescu
 Tags cognitive patterns (awareness, rationalization, overconfidence, repetition).
 Compacts the Top 100 worst trajectories for Tier 2 LLM analysis.
 
-Outputs docs/archive/taxonomy/cognitive-traces-report.md and data/top_100_cognitive_trajectories.json.
+Outputs data/reports/cognitive-traces-report.md and data/top_100_cognitive_trajectories.json.
 """
 
 from __future__ import annotations
@@ -246,7 +246,7 @@ This compact JSON contains the exact pre-failure thinking snippets, tool calls, 
 def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Extract cognitive traces from telemetry.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
-    parser.add_argument("--output", "-o", default="docs/archive/taxonomy/cognitive-traces-report.md", help="Path to markdown output")
+    parser.add_argument("--output", "-o", default="data/reports/cognitive-traces-report.md", help="Path to markdown output")
     parser.add_argument("--json-out", default="data/top_100_cognitive_trajectories.json", help="Path to JSON output")
     args = parser.parse_args(argv)
 

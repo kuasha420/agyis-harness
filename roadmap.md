@@ -44,7 +44,7 @@ Phases 0.5 through 35 (`Horizon 0` empirical ground truth and `Horizon 1` produc
 - **Verified Surface**: **28** CLI subcommands (`router` & `ladder` separate), **30** modular skills (`>100` L ToC, `<24,576` B cap), **8** agent personas, **7** `hooks.json` blocks (**8** `doctor` hook checks), **3** cleanroom RE specifications (**19** verified empirical evidence rows: `10` SHA-256 `ev_*` digests + `9` `EV-20261017` runtime checks), **7** official specs, and **3** human runbooks.
 - **Verified Quality Gate**: **1,993** hermetic tests, **100.0/100 AFF** score (`agyis audit aff`), and **3** cleanroom RE specifications (`19` verified empirical evidence rows: `10` SHA-256 `ev_*` digests + `9` `EV-20261017` runtime checks; verified via `agyis verify --spec`).
 - **Release History**: [`CHANGELOG.md`](CHANGELOG.md)
-- **Full Historical Ledger (Phases 1–35)**: [`docs/archive/ledger/project-ledger-rc10-historical.md`](docs/archive/ledger/project-ledger-rc10-historical.md)
+- **Full Historical Ledger (Phases 1–35)**: [`0069329:docs/archive/ledger/project-ledger-rc10-historical.md`](docs/archive/README.md#ledger)
 - **Active Post-RC10 Summary & ADRs**: [`docs/taxonomy/project-ledger.md`](docs/taxonomy/project-ledger.md) · [`docs/adr/README.md`](docs/adr/README.md) (`ADR-001`–`ADR-034`)
 
 ---

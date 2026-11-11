@@ -12,7 +12,7 @@ Scans all artifacts in ~/.gemini/antigravity/brain/*/*.md
 Cross-correlates implementation plans, walkthroughs, review metadata,
 and measures plan-to-execution drift against actual tool modifications.
 
-Outputs docs/archive/taxonomy/planning-and-drift-report.md and data/artifacts_audit_summary.json.
+Outputs data/reports/planning-and-drift-report.md and data/artifacts_audit_summary.json.
 """
 
 from __future__ import annotations
@@ -253,7 +253,7 @@ We paired **{p_stats['paired_plan_walkthrough_sessions']} sessions** that genera
 
 def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Audit artifacts and plan drift.")
-    parser.add_argument("--output", "-o", default="docs/archive/taxonomy/planning-and-drift-report.md", help="Path to markdown output")
+    parser.add_argument("--output", "-o", default="data/reports/planning-and-drift-report.md", help="Path to markdown output")
     parser.add_argument("--json-out", default="data/artifacts_audit_summary.json", help="Path to JSON output")
     args = parser.parse_args(argv)
 

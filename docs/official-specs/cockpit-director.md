@@ -347,7 +347,7 @@ When waking up in a compacted session or successor context, the agent is bound b
   4. [ ] Autonomously resume execution of the current pending phase!
 
 ### 4.5 Native Platform Orchestration Alignment (`/plan`, `/boost`, `/teamwork-preview`)
-Agyis Flight Direction harmonizes deterministic PSL Subagent Ladders with Antigravity's native orchestration engines (ADR-031A; full archival reverse-engineering specification preserved in [`docs/archive/official-specs/antigravity-boost-and-plan.md`](../archive/official-specs/antigravity-boost-and-plan.md)):
+Agyis Flight Direction harmonizes deterministic PSL Subagent Ladders with Antigravity's native orchestration engines (ADR-031A; full archival reverse-engineering specification frozen at `0069329:docs/archive/official-specs/antigravity-boost-and-plan.md` — indexed in [`docs/archive/README.md#official-specs`](../archive/README.md#official-specs)):
 
 1. **`/plan` Modal Discipline & `check_plan_mode_lock` (`anti_drift_hook.py`)**:
    - Interactive mode cycles `default -> accept-edits -> plan` (`Shift+Tab`) and supports command stacking (e.g. `/plan /grill-me <task>`).

@@ -11,7 +11,7 @@ Context Cliff & Token Dynamics Analyzer
 Measures step-by-step context inflation, identifies top output bloaters,
 maps the token saturation cliff, and simulates compaction savings.
 
-Outputs docs/archive/taxonomy/context-cliff-dynamics.md and data/context_dynamics_summary.json.
+Outputs data/reports/context-cliff-dynamics.md and data/context_dynamics_summary.json.
 """
 
 from __future__ import annotations
@@ -279,7 +279,7 @@ What happens if the harness mechanically truncates or summarizes tool output pay
 def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Analyze context cliff and token dynamics.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
-    parser.add_argument("--output", "-o", default="docs/archive/taxonomy/context-cliff-dynamics.md", help="Path to markdown output")
+    parser.add_argument("--output", "-o", default="data/reports/context-cliff-dynamics.md", help="Path to markdown output")
     parser.add_argument("--json-out", default="data/context_dynamics_summary.json", help="Path to JSON output")
     args = parser.parse_args(argv)
 
