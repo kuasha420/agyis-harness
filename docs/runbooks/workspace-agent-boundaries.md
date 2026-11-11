@@ -4,7 +4,7 @@ description: Standards governing Global vs. Local subagent scoping to prevent re
 version: 1.0.0
 last_updated: 2026-10-13
 target_audience: [architect, developer, agent]
-related_adrs: [ADR-014, ADR-026, ADR-031]
+related_adrs: [ADR-014, ADR-026, ADR-031B]
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->

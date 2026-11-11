@@ -261,8 +261,8 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - Reached **847 hermetic tests passing in 12.7s**, doctor 9 OK / 0 missing, and federated 1,443 sessions (346k steps).
 
   - [x] **Fleet Harmonization, Multi-Repo Onboarding & Release Candidate v1.0.0-rc5 Preparation (Phase 12 - Horizon 1.5)**:
-    - Executed 18-repository fleet audit and rehydrated/rebased 16 active PRs across 5 highest-velocity repos (`sunshine-physio-webapp`, `knot-mesh`, `purrfectcore-001`, `psl-website`, `mm-website`), publishing [`docs/specs/rc4_rehydration_findings.md`](docs/specs/rc4_rehydration_findings.md).
-    - Staged 7 publication-grade GitHub issues (#57–#63) under milestone `v1.0.0-rc5` with 100% manifest parity (`docs/specs/rc5_github_issues_manifest.md`), dual-audited by `victory_auditor_16` and cockpit auditor `3402c677`.
+    - Executed 18-repository fleet audit and rehydrated/rebased 16 active PRs across 5 highest-velocity repos (`sunshine-physio-webapp`, `knot-mesh`, `purrfectcore-001`, `psl-website`, `mm-website`), publishing [`docs/archive/audits/rc4_rehydration_findings.md`](docs/archive/audits/rc4_rehydration_findings.md).
+    - Staged 7 publication-grade GitHub issues (#57–#63) under milestone `v1.0.0-rc5` with 100% manifest parity (`docs/archive/manifests/rc5_github_issues_manifest.md`), dual-audited by `victory_auditor_16` and cockpit auditor `3402c677`.
     - Delivered all 4 Category B core remediations in `harness/` (unified `agyis onboard` CLI, `.agents/archive/` backup lifecycle, Python test extraction GAP-07, and background sync service management #57), dual-audited by `victory_auditor_17` and cockpit auditor `e771d12d`.
     - Conducted 3 cleanroom REA investigations on Antigravity desktop: verified 50k token compaction window, located hidden native context visualizer (`j5b`), and unlocked Trajectory Debug View & DevTools via live CDP.
     - Expanded test suite to **903 hermetic tests passing in 14.107s** (exit code 0; <15s budget; sub-second unit benchmark <0.02s–0.75s). Doctor reports 9 OK / 0 missing; 0 external runtime dependencies.
@@ -304,6 +304,36 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - **Critical Maintenance & Bug Fixes**: Prevented stale plan hijacking in `find_active_plan` & checkpoint generation (#94), and implemented telemetry database compaction & pruning policy `agyis audit prune --days <N>` (#56).
     - **Harmonized Version 1.0.0-rc7**: Synchronized version `1.0.0-rc7` across `pyproject.toml`, `package.json`, `plugin.json`, `harness/__init__.py`, `docs/official-specs/plugin-manifest.md`, `tests/test_cli.py`, `tests/test_delivery.py`, and `README.md`.
     - **Hermetic Verification Standard**: 1,729 hermetic tests passing with 100% green exit code 0, 12 cleanroom specifications verified, and out-of-band Victory Auditor clearance certified.
+
+---
+
+
+  - [x] **Native REA Integration, Automated Runtime Healing & Typed Obligation Schemas (Phase 31 - Horizon 1.10 / Milestone v1.1.0-research)**:
+    - Integrated native Reverse Engineer Anything (REA) providers with sub-second doctor diagnostic fast-path.
+    - Automated runtime healing (`agyis doctor --heal`) for missing dependencies and shims.
+    - Delivered typed obligation ledger scaffolding adhering to REA 6.8.0 schema.
+
+  - [x] **Dynamic MCP Tool Scoping & Multi-Line Shell Script Hygiene Hook (Phase 32 - Horizon 1.10 / Milestone v1.1.0-research)**:
+    - Dynamically scoped MCP tool catalog validation preventing platform hanging bugs.
+    - Implemented Command Safety Guard hook auto-promoting multi-line shell commands to scratch scripts.
+    - Hermetic test discovery and execution optimizations.
+
+  - [x] **Release Candidate 8: Cleanroom REA Architecture & Immortal Sortie Verification (Phase 33 - Horizon 1.10 / Release v1.0.0-rc8)**:
+    - Multi-target reverse engineering verification across GNU coreutils and Rust ELF debug binaries.
+    - Verified cleanroom specs and obligation ledgers with zero code leaks.
+    - Delivered `agyis clean --worktrees` reclaiming disk space across orphaned subagent branches.
+
+  - [x] **Release Candidate 9: Long-Horizon Cockpit Succession, Cleanroom RE Toolsuite & Extensible CLI Architecture (Phase 34 - Horizon 1.10 / Release v1.0.0-rc9)**:
+    - Token threshold standardization (256k window, 230k compaction trigger, 180k amber alert) and state-gated de-spammed PreInvocation advisory (ADR-033).
+    - Cleanroom RE toolsuite & pre-analyzed Ghidra acceleration engine under `PSL-INV-009` (`agyis re`).
+    - Extensible workspace CLI architecture (`agyis ext` / ADR-034) delegating to `.agents/commands/`.
+
+  - [x] **General Availability (GA) & Enterprise Hardening (Phase 35 - Horizon 1.10 / Release v1.0.0 GA)**:
+    - **In-Tree Skills Deduplication Gate**: Implemented automated, hermetic verification gate (`tests/test_skills_dedup_gate.py` and `harness/runtime/hygiene_checks.py`) enforcing that `.agents/skills/` entries mirroring `harness/skills/` MUST be symlinks pointing to `../../harness/skills/<name>`.
+    - **ADR Disambiguation & Indexing**: Resolved filename collision by renaming to `ADR-031A` and `ADR-031B`; authored standalone records `ADR-033` (Dynamic Context Runway) and `ADR-034` (Extensible Workspace CLI); synchronized `docs/adr/README.md`.
+    - **27-Subcommand CLI Palette Alignment**: Synchronized `README.md` and `docs/official-specs/cli-palette.md` documenting all 27 canonical subcommands.
+    - **Lifecycle Hook Documentation**: Formalized `PreInvocation` hook (`psl-compaction-advisory`) in `docs/official-specs/lifecycle-hooks.md`.
+    - **Comprehensive Verification Standard**: 1,974+ hermetic tests passing with 100% green exit code 0, 100% AFF score, and cleanroom specification verification.
 
 ---
 

@@ -7,8 +7,8 @@
 
 **Document Identifier**: `PSL-SPEC-2026-COCKPIT-DIRECTOR-001`  
 **Classification**: Authoritative System Living Contract & Track C Standard  
-**Governing ADRs**: ADR-012 (Artifact-First Planning), ADR-013 (Terminal Invariants), ADR-014 (Product vs. Project Bifurcation), ADR-015 (Clean-Room Testing & Verification), ADR-028 (Cleanroom Reconstruction), ADR-031 (Native Orchestration Alignment), ADR-032 (Tool-Native Primacy & Anti-Polling)  
-**System Target**: Google Antigravity (Cortex/Jetski CL `951519500`, client v2.19.1+) & Agyis Harness (`psl-agy-harness`)  
+**Governing ADRs**: ADR-012 (Artifact-First Planning), ADR-013 (Terminal Invariants), ADR-014 (Product vs. Project Bifurcation), ADR-015 (Clean-Room Testing & Verification), ADR-028 (Cleanroom Reconstruction), ADR-031A (Native Orchestration Alignment), ADR-032 (Tool-Native Primacy & Anti-Polling)  
+**System Target**: Google Antigravity (Cortex/Jetski CL `951519500`, client v2.19.1+) & Agyis Harness (`agyis-harness`)  
 **Status**: APPROVED & LOCKED  
 **Date**: October 25, 2026  
 
@@ -281,7 +281,7 @@ All stage handoffs along the subagent ladder must conform to the following forma
 
 ---
 
-## Pillar 4: Compaction Lifecycle & Native Succession Protocol (ADR-031 / Issue #77)
+## Pillar 4: Compaction Lifecycle & Native Succession Protocol (ADR-031A / Issue #77)
 
 Context compaction is an inevitable reality in long-horizon engineering campaigns. Rather than treating compaction as an unpredictable amnesic trauma, Track C codifies a deterministic **Compaction Lifecycle & Native Succession Protocol**.
 

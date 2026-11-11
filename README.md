@@ -7,8 +7,8 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity-4285F4.svg)](https://antigravity.google)
-[![Version](https://img.shields.io/badge/Version-v1.0.0--rc7-orange.svg)](roadmap.md)
-[![Tests](https://img.shields.io/badge/Tests-1729%2F1729_Passing_(100%25)-brightgreen.svg)](docs/official-specs/testing-contracts.md)
+[![Version](https://img.shields.io/badge/Version-v1.0.0--rc10-orange.svg)](roadmap.md)
+[![Tests](https://img.shields.io/badge/Tests-1981%2F1981_Passing_(100%25)-brightgreen.svg)](docs/official-specs/testing-contracts.md)
 
 > **The enterprise extension harness and developer CLI for Google Antigravity™.**  
 > Eliminates context cliffs, runaway loops, terminal command panics, and prompt bloat through deterministic lifecycle hooks, hermetic runtime guarantees, and turnkey repository onboarding.
@@ -88,7 +88,7 @@ agyis onboard . --create-branch chore/agyis-onboard
 ### Step 4: Verify Hermetic Tests & Check Status
 
 ```bash
-# Run complete test suite (<25s suite, sub-second unit components)
+# Run complete test suite (~59s–65s suite, sub-second unit components)
 agyis test
 
 # Inspect active hooks, cognitive attention horizon, and live subagents
@@ -110,7 +110,7 @@ Once onboarded, your development lifecycle with Google Antigravity is protected 
 
 ## 📦 Turnkey Workspace Onboarding (`agyis onboard`)
 
-The flagship **`agyis onboard`** engine is the **Universal Golden Path** (ADR-031) for onboarding internal, client, or open-source repositories. It replaces multi-step manual setup with an atomic 10-phase pipeline:
+The flagship **`agyis onboard`** engine is the **Universal Golden Path** (ADR-031B) for onboarding internal, client, or open-source repositories. It replaces multi-step manual setup with an atomic 10-phase pipeline:
 
 ```mermaid
 flowchart TD
@@ -169,13 +169,14 @@ agyis onboard . --create-branch --pr
 
 ## 🛠️ Consolidated CLI Palette
 
-The unified `agyis` CLI exposes 18 modular subcommands ([`docs/official-specs/cli-palette.md`](docs/official-specs/cli-palette.md)) organized into 7 operational domains:
+The unified `agyis` CLI exposes 27 modular subcommands ([`docs/official-specs/cli-palette.md`](docs/official-specs/cli-palette.md)) organized into 8 operational domains:
 
 ```bash
 # 🚀 Workspace Onboarding & Scaffolding
 agyis onboard [path] [flags]     # Turnkey onboarding (branch, cache purge, dedup, PR)
 agyis init [path] [-s <stack>]   # Initialize workspace rules and tailored skills
 agyis harmonize [path] [--dry-run] # Harmonize legacy .agent/ directories into .agents/
+agyis clean [--all] [--checkpoints] [--worktrees] # Purge stale worktrees, checkpoints & caches
 
 # 🩺 Diagnostics, Auto-Healing & Status
 agyis doctor [--heal]            # Audit 3-tier runtime matrix & port 5432 collisions
@@ -186,11 +187,22 @@ agyis status                     # Dashboard: health, active hooks, attention ga
 agyis test [-v]                  # Run hermetic test suite (<1.0s benchmark, resets fences)
 agyis verify [--spec]            # Formally verify cleanroom specifications & obligations
 
-# 🧩 Modular Skills & Subagents Discovery
+# 🧩 Modular Skills, Subagents & Rules
 agyis skills [--sync]            # Inspect, synchronize, or tailor modular skills
 agyis skills --prune-duplicates  # Prune duplicate skills shadowing global plugin
+agyis rules [--lint] [--dedup]   # Audit, deduplicate, and harmonize agent rules
 agyis agents [name|create|sync]  # Catalog, scaffold, and validate specialist subagents
 agyis subagents [--json]         # Live subagent context health table (<2ms query)
+
+# 🛫 Cockpit Flight Direction & Routing
+agyis cockpit status             # Cockpit dashboard: tokens, active subagents, plan & git
+agyis cockpit route <A-L|alias>  # Structured dispatch briefed for 12 routing workflows
+agyis router / agyis ladder      # Dynamic subagent router & execution ladder
+agyis checkpoint [status|generate|create|verify|prune] # Pre-compaction state capture & succession
+
+# 🔬 Dirtyroom RE & Extensible Commands
+agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs} # Reverse engineering suite
+agyis ext {list,run,init}        # Project-specific workspace extension commands
 
 # 🪝 Deterministic Lifecycle Hooks Engine
 agyis hook command-safety        # Terminal command sanitization & python shim hook
@@ -199,6 +211,7 @@ agyis hook compactor             # Deterministic 2KB output compactor hook
 agyis hook completion-fence      # Stop gate verification fence (code vs spec dirty)
 agyis hook anti-drift            # Plan boundary & cognitive anchor hook
 agyis hook token-proximity-guard # Proactive token urgency monitor
+agyis hook pre-invocation        # Compaction advisory PreInvocation hook
 
 # 🌐 Remote Operations & Fleet Telemetry
 agyis remote exec <host> "<cmd>" # Multiplexed SSH execution with login-shell promotion
@@ -207,9 +220,11 @@ agyis remote triage <host>       # Compact (<2KB) multi-system health report
 agyis sync                       # Bi-directional telemetry synchronization
 agyis sync --service {install,status,start,stop} # Background sync systemd user daemon
 agyis auth <login|status|logout> # GitHub organization telemetry authentication
-agyis audit [stage]              # Empirical telemetry laboratory extraction (13 stages)
+agyis audit [stage]              # Empirical telemetry laboratory extraction (21 stages)
 
-# 🖥️ Developer Tooling & Antigravity GUI
+# 📦 Release Automation, GUI & Deployment
+agyis release-notes              # Conventional commit parser & structured release notes
+agyis changelog / changelogs     # Generate, update, or backfill Keep-a-Changelog entries in CHANGELOG.md
 agyis gui [--devtools] [--toggle] # Unlock Antigravity Electron GUI via live CDP WebSocket
 agyis install [--all-surfaces]   # Install harness plugin globally across surfaces
 agyis uninstall                  # Clean plugin uninstallation without collateral damage
@@ -241,6 +256,8 @@ Agyis intercepts and safeguards Antigravity agent tool calls through determinist
    - Prevents agents from drifting outside declared task boundaries or mutating sensitive project governance files.
 6. **PreToolUse: Token Proximity Guard (`token-proximity-guard`)**:
    - Monitors trajectory token consumption against attention horizons and emits proactive compaction warnings before hitting context degradation cliffs.
+7. **PreInvocation: Compaction Advisory (`pre-invocation`)**:
+   - Evaluates active transcript token runway prior to prompt dispatch, enforces the 50-step executioner horizon, auto-serializes compaction checkpoints, and injects de-spammed role-tailored advisories (ADR-033).
 
 > Read the full specification: 👉 **[docs/official-specs/lifecycle-hooks.md](docs/official-specs/lifecycle-hooks.md)**
 
@@ -297,7 +314,7 @@ For deep analytical reports, see:
 
 ## 🧪 Verification & Testing Contract
 
-All 1,065 unit, integration, and contract tests execute hermetically with zero external network dependencies:
+All 1,981 unit, integration, and contract tests execute hermetically with zero external network dependencies:
 
 ```bash
 ./agyis test
@@ -305,7 +322,7 @@ All 1,065 unit, integration, and contract tests execute hermetically with zero e
 ```
 
 ```text
-Ran 1065 tests in 17.875s
+Ran 1981 tests in 64.6s
 OK
 ```
 
@@ -320,7 +337,7 @@ OK
 ## 🗺️ Master Roadmap & Architectural Horizons
 
 - **Horizon 0 (Completed)**: Empirical Ground Truth, Telemetry Ingestion & Failure Taxonomy.
-- **Horizon 1 (Completed)**: Product Foundation, Deterministic Lifecycle Hooks, and 18-Command CLI Suite.
+- **Horizon 1 (Completed)**: Product Foundation, Deterministic Lifecycle Hooks, and 27-Command CLI Suite.
 - **Horizon 2 (Active)**: Turnkey Fleet Onboarding (`agyis onboard`), Knot Hardware Mesh Coordination, and Multi-Node Telemetry Replication.
 - **Horizon 3 (Planned)**: Autonomous Multi-Agent Councils and Spatial Trajectory Cockpits.
 
@@ -331,14 +348,18 @@ Permanent architectural decisions are recorded in the living ledger:
 
 ## 📚 Documentation Index
 
+- **Guides**:
+  - [Canonical User & Operator Guide](docs/user_guide.md)
+  - [Developer & Architecture Guide](docs/developer_guide.md)
 - **Runbooks**:
   - [Canonical Repository Onboarding (`agyis onboard`)](docs/runbooks/repo-onboarding.md)
   - [Workspace & Agent Boundaries](docs/runbooks/workspace-agent-boundaries.md)
   - [Fork-Aware PR Creation & Git Hygiene](docs/runbooks/fork-and-upstream-pr.md)
   - [Telemetry Fleet Synchronization Daemon](docs/runbooks/telemetry-sync.md)
 - **Official Specifications**:
-  - [Consolidated 18-Command CLI Palette](docs/official-specs/cli-palette.md)
+  - [Consolidated 27-Command CLI Palette](docs/official-specs/cli-palette.md)
   - [Deterministic Lifecycle Hooks Contract](docs/official-specs/lifecycle-hooks.md)
+  - [Cockpit Flight Director & Routing Spec](docs/official-specs/cockpit-director.md)
   - [Hermetic Testing Standards](docs/official-specs/testing-contracts.md)
   - [Opt-in REA & Cleanroom Architecture](docs/official-specs/rea-antigravity-architecture.md)
 

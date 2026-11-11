@@ -13,9 +13,9 @@ As Google Antigravity transitioned through versions **v1.1.0** to **v1.2.16**, t
 2. **`/plan` (Native Plan Mode)**: A first-class modal planning loop (`default` $\to$ `accept-edits` $\to$ `plan`) and slash-command prefix that mandates read-only exploration and an interactive artifact gate (`implementation_plan.md`) prior to workspace mutations.
 
 > [!NOTE] Architectural Decoupling: Native Primitives vs. Custom Agent Features
-> This specification and **ADR-031** focus exclusively on native Antigravity runtime orchestration primitives (`/boost` and `/plan`). Custom agent scaffolding and the `/agent-builder` skill are **PSL harness features**, governed and codified separately under **ADR-026** ([`docs/official-specs/custom-agents.md`](custom-agents.md) and [`.agents/skills/agent-builder/SKILL.md`](../../.agents/skills/agent-builder/SKILL.md)), completely decoupled from native orchestration alignment.
+> This specification and **ADR-031A** focus exclusively on native Antigravity runtime orchestration primitives (`/boost` and `/plan`). Custom agent scaffolding and the `/agent-builder` skill are **PSL harness features**, governed and codified separately under **ADR-026** ([`docs/official-specs/custom-agents.md`](custom-agents.md) and [`.agents/skills/agent-builder/SKILL.md`](../../.agents/skills/agent-builder/SKILL.md)), completely decoupled from native orchestration alignment.
 
-This specification reverse-engineers the internal Go binary implementations, protobuf definitions, stop hooks, and stigmergic coordination protocols behind `/boost` and `/plan`, and documents the verified integration contracts for **`psl-agy-harness`**.
+This specification reverse-engineers the internal Go binary implementations, protobuf definitions, stop hooks, and stigmergic coordination protocols behind `/boost` and `/plan`, and documents the verified integration contracts for **`agyis-harness`**.
 
 ```mermaid
 flowchart TD
@@ -24,8 +24,8 @@ flowchart TD
         BOOST["/boost (Deep Swarm)<br/>• Boost Multi-Agent Orchestrator<br/>• Stigmergic Blackboard File<br/>• Adversarial Verifier (Oracles)<br/>• High-Reliability Reviewer<br/>• Synthesizer Consolidation"]
     end
 
-    subgraph PSL Harness Integrations (ADR-031)
-        ADR012["PreToolUse Plan Lock (ADR-031)<br/>• Zero-write enforcement<br/>• Walkthrough artifact lifecycle"]
+    subgraph PSL Harness Integrations (ADR-031A)
+        ADR012["PreToolUse Plan Lock (ADR-031A)<br/>• Zero-write enforcement<br/>• Walkthrough artifact lifecycle"]
         LADDER["6-Stage Subagent Ladder<br/>• Deterministic ladder vs. Swarm<br/>• Custodian HEAD commit gate"]
         VERIFIER["Adversarial Verifier Bundle<br/>• Oracles, fuzzers, test generators<br/>• Scoped execute & isolated write"]
         TELEMETRY["Telemetry Laboratory<br/>• Ingest Boost traces into telemetry.db<br/>• Classify native slash commands"]
@@ -173,11 +173,11 @@ During the planning turn, the agent is strictly prohibited from mutating product
 ### A. PreToolUse Plan-Lock Enforcement (`anti_drift_hook.py`)
 Implemented `check_plan_mode_lock` in `harness/hooks/anti_drift_hook.py`:
 - Inspects session mode (`mode: "plan"` or `agent_mode: "plan"` or environment variables).
-- During active Plan Mode, any code-modifying tool call (`write_to_file`, `replace_file_content`, `edit_file`) is deterministically denied with a clear invariant message (`PSL Native Plan-Mode Lock (ADR-031)`).
+- During active Plan Mode, any code-modifying tool call (`write_to_file`, `replace_file_content`, `edit_file`) is deterministically denied with a clear invariant message (`PSL Native Plan-Mode Lock (ADR-031A)`).
 - Exempt paths (`is_exempt_file`) like `implementation_plan.md`, `walkthrough.md`, documentation, and scratch files remain writable for planning artifact authoring.
 
-### B. Dual Orchestration Taxonomy & Adversarial Verifier Bundle (`harness/subagents.py`)
-Implemented in `harness/subagents.py`:
+### B. Dual Orchestration Taxonomy & Adversarial Verifier Bundle (`harness/subagents/spec.py`)
+Implemented in `harness/subagents/spec.py`:
 - Added the `adversarial_verifier` capability bundle inspired by `/boost`'s test generator and oracle persona:
   - Allowed Tools: `view_file`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `search_web`, `run_command`, `manage_task`, `write_to_file`, `replace_file_content`.
   - Permissions: `read: true`, `write: true`, `execute: true`, `subagents: false`.

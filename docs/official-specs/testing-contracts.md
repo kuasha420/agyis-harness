@@ -22,8 +22,8 @@ Empirical telemetry across 722 sessions, 219,292 steps, and 160,226 tool calls d
 - **The Premature Convergence Trap**: Models frequently declare tasks "complete" after writing code without running tests, or after inspecting a single unrelated command.
 
 To eliminate this failure mode, this specification establishes two distinct tiers:
-1. **Tier 1: Project-Internal Testing Contract**: How PAH itself is tested, verified, and benchmarked.
-2. **Tier 2: Product-Delivered Testing Invariants**: How PAH will enforce verification contracts in client workspaces.
+1. **Tier 1: Project-Internal Testing Contract**: How Agyis Harness itself is tested, verified, and benchmarked.
+2. **Tier 2: Product-Delivered Testing Invariants**: How Agyis Harness will enforce verification contracts in client workspaces.
 
 ---
 
@@ -37,7 +37,7 @@ All unit, integration, and replay tests within the `agyis-harness` repository (`
 - Test fixtures must use `tempfile.TemporaryDirectory()` and clean up on teardown.
 
 ### B. The Sub-Second Benchmark Invariant
-- The entire test suite must execute in **less than 1.0 second** (currently verified at <0.97s across 401 tests).
+- Individual unit and contract test modules must execute in **less than 1.0 second** (sub-second component benchmark), while the complete suite (currently verified across **1,981 tests in ~65s**) runs hermetically with zero external dependencies.
 - Slow operations (such as long sleeps, heavy model invocations, or disk-heavy sweeps) are strictly prohibited in unit and integration test paths.
 - Micro-benchmark latency for individual hooks must remain under 1 ms (currently verified at <0.25 ms for the 2KB output compactor).
 
@@ -49,7 +49,7 @@ Every lifecycle hook must be tested against the official Antigravity protojson s
 
 ### D. The Telemetry Replay Invariant
 - Defensive hooks must include replay test cases derived directly from historical failure trajectories in `data/telemetry.db`.
-- Example: [test_command_safety.py](file:///home/kuasha/Dev/psl-agy-harness/tests/test_command_safety.py) replays the exact PEP 701 f-string syntax crash from session `270b7abc` to verify that hermetic Python injection and f-string sanitization neutralize the bug.
+- Example: [test_command_safety.py](../../tests/test_command_safety.py) replays the exact PEP 701 f-string syntax crash from session `270b7abc` to verify that hermetic Python injection and f-string sanitization neutralize the bug.
 
 ### E. Test File Mapping & Suite Execution
 ```text
@@ -92,7 +92,7 @@ python3 -m unittest discover -s tests -v
 
 ## 3. Tier 2: Product-Delivered Testing Invariants (The Roadmap Blueprint)
 
-As the harness transitions from Horizon 0 research into the Horizon 1 distributable product, PAH will deliver active testing intelligence to client workspaces through three mechanisms:
+As the harness transitions from Horizon 0 research into the Horizon 1 distributable product, Agyis Harness will deliver active testing intelligence to client workspaces through three mechanisms:
 
 ### A. The Harness Testing Rule (`rules/AGENTS.md`)
 The harness injects the **Clean-Room Verification Invariant** into the agent's active cognitive rules:
@@ -115,7 +115,7 @@ In Antigravity's lifecycle, the `Stop` event fires when the agent finishes its t
 - This deterministically prevents "Premature Convergence" where models hallucinate that their changes work without running verification.
 
 ### C. Standardized Test Runner Skills
-PAH will supply on-demand testing skills (`psl-test-runner`) that:
+Agyis Harness will supply on-demand testing skills (`psl-test-runner`) that:
 - Automatically parse output from standard test runners (pytest, vitest, cargo test, go test).
 - Extract only failing test cases, stack traces, and assertions.
 - Compact test outputs to prevent context flooding before the agent processes them.

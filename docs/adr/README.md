@@ -5,17 +5,17 @@
 
 # Architecture Decision Records (ADR) Catalog
 
-**Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
+**Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
-**Scope**: Complete Architectural Decision Records Index (ADR-001 through ADR-032)  
-**Last Updated**: 2026-10-15  
+**Scope**: Complete Architectural Decision Records Index (ADR-001 through ADR-034)  
+**Last Updated**: 2026-11-11  
 
 ---
 
 ## Executive Summary
 
-This catalog preserves the architectural history, design trade-offs, and behavioral invariants governing `psl-agy-harness`. Historical decisions across Horizons 0 and 1 are compacted in `../taxonomy/project-ledger.md` in accordance with ADR-003 (Dynamic Aperture Planning), while major standalone decision specifications are preserved as individual records.
+This catalog preserves the architectural history, design trade-offs, and behavioral invariants governing `agyis-harness`. Historical decisions across Horizons 0 and 1 are compacted in `../taxonomy/project-ledger.md` in accordance with ADR-003 (Dynamic Aperture Planning), while major standalone decision specifications are preserved as individual records.
 
 ---
 
@@ -53,6 +53,8 @@ This catalog preserves the architectural history, design trade-offs, and behavio
 | **ADR-028** | Opt-in REA Tooling and Cleanroom Reconstruction Harmonization | Accepted | 2026-10-15 | [ADR-028-opt-in-rea-cleanroom-harmonization.md](ADR-028-opt-in-rea-cleanroom-harmonization.md) | Opt-in `--experimental-rea` CLI flag, sub-second doctor invariant, non-interference lifecycle hooks, and phase-aware cleanroom completion fence gating. |
 | **ADR-029** | [Reserved: Spatial Terminal Multiplexing] | Deferred | 2026-10-04 | [roadmap.md](../../roadmap.md) (Horizon 2) | Reserved for Confluence mode spatial terminal multiplexing and out-of-band GitHub Discussion coordination. |
 | **ADR-030** | Global Plugin Delivery & Central Telemetry Hub | Accepted | 2026-10-05 | [delivery/](../../harness/delivery/), [server/](../../server/) | Three-tier resource precedence, Starlette telemetry gateway, GitHub Org authentication caching, chunked sync transport. |
-| **ADR-031A** | Native Orchestration Alignment (Boost & Plan) | Accepted | 2026-10-05 | [ADR-031-native-orchestration-alignment.md](ADR-031-native-orchestration-alignment.md) | PreToolUse Native Plan-Mode Lock, dual taxonomy (Boost Swarm vs Subagent Ladder), adversarial verifier capability bundle. |
-| **ADR-031B** | Unified Workspace Harmonization Lifecycle, Multi-Tier Presets & Delivery | Accepted | 2026-10-13 | [ADR-031-unified-workspace-harmonization.md](ADR-031-unified-workspace-harmonization.md) | Atomic 4-phase deprecation lifecycle (`--prune-legacy`), decoupled presets, monorepo scanner, fork-aware topology probe, and `onboard` CLI command. |
+| **ADR-031A** | Native Orchestration Alignment (Boost & Plan) | Accepted | 2026-10-05 | [ADR-031A-native-orchestration-alignment.md](ADR-031A-native-orchestration-alignment.md) | PreToolUse Native Plan-Mode Lock, dual taxonomy (Boost Swarm vs Subagent Ladder), adversarial verifier capability bundle. |
+| **ADR-031B** | Unified Workspace Harmonization Lifecycle, Multi-Tier Presets & Delivery | Accepted | 2026-10-13 | [ADR-031B-unified-workspace-harmonization.md](ADR-031B-unified-workspace-harmonization.md) | Atomic 4-phase deprecation lifecycle (`--prune-legacy`), decoupled presets, monorepo scanner, fork-aware topology probe, and `onboard` CLI command. |
 | **ADR-032** | Tool-Native Primacy & Task Log Anti-Polling | Accepted | 2026-10-10 | [ADR-032-tool-native-primacy-and-anti-polling.md](ADR-032-tool-native-primacy-and-anti-polling.md) | Strict Reactive Wait Invariant on `.system_generated/tasks/*.log`; Tool-Native Primacy rule; 8 modular ops runbooks. |
+| **ADR-033** | Dynamic Context Runway, Attention Horizon & Pre-Invocation Compaction Advisory | Accepted | 2026-10-25 | [ADR-033-dynamic-context-runway-and-compaction-advisory.md](ADR-033-dynamic-context-runway-and-compaction-advisory.md) | Standardized attention constants (256k/230k/180k), state-gated de-spammed PreInvocation hook, and carrier-grade checkpointing. |
+| **ADR-034** | Extensible Workspace CLI Architecture & Command Federation | Accepted | 2026-10-26 | [ADR-034-extensible-workspace-cli.md](ADR-034-extensible-workspace-cli.md) | Dynamic workspace command discovery in `.agents/commands/`, seamless top-level dispatch, and `ext` management CLI. |

@@ -3,7 +3,7 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# ADR-031: Unified Workspace Harmonization Lifecycle, Multi-Tier Stack Presets, and Fork-Aware Remote Delivery
+# ADR-031B: Unified Workspace Harmonization Lifecycle, Multi-Tier Stack Presets, and Fork-Aware Remote Delivery
 
 * **Status**: Accepted
 * **Date**: 2026-10-13

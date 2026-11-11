@@ -55,7 +55,7 @@ For human operators updating their current development machine.
 
 ### Step 1: Reconcile Codebase
 ```bash
-cd ~/Dev/psl-agy-harness
+cd ~/Dev/agyis-harness
 git checkout main
 git pull origin main
 ```
@@ -137,7 +137,7 @@ agyis sync --dry-run --json
 agyis sync --json
 
 # 3. Targeted database push
-agyis sync --db /home/kuasha/Dev/psl-agy-harness/data/telemetry.db --json
+agyis sync --db /home/kuasha/Dev/agyis-harness/data/telemetry.db --json
 
 # 4. Auth status check
 agyis auth status --json
@@ -182,7 +182,7 @@ Execute the synchronized update loop across strands with **0 token burn**:
 # 1. Synchronize the CUDA Compute Worker (@laptop)
 knot exec laptop '
   set -e
-  cd ~/Dev/psl-agy-harness
+  cd ~/Dev/agyis-harness
   git checkout main && git pull origin main
   ./agyis install --global
   agyis auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
@@ -194,7 +194,7 @@ knot exec laptop '
 # 2. Synchronize the Handheld Testbed (@steamdeck)
 knot exec steamdeck '
   set -e
-  cd ~/Dev/psl-agy-harness
+  cd ~/Dev/agyis-harness
   git checkout main && git pull origin main
   ./agyis install --global
   agyis auth login --gh --endpoint https://psl-harness.infra.purrfecthq.com
@@ -207,7 +207,7 @@ knot exec steamdeck '
 ### Option B: Parallel Fleet Broadcast
 ```bash
 # Broadcast git reconciliation across all online strands simultaneously
-knot exec --all "cd ~/Dev/psl-agy-harness && git pull origin main && ./agyis install --global && agyis sync"
+knot exec --all "cd ~/Dev/agyis-harness && git pull origin main && ./agyis install --global && agyis sync"
 ```
 
 ### Option C: OpenSSH Multiplexed Harness Execution (ADR-027)

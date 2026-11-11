@@ -46,7 +46,7 @@ Antigravity and Agyis harness standardize on `.agents/` for workspace-local cust
 agyis harmonize [path] --prune-legacy --backup
 ```
 
-**Automated Guarantees (ADR-031)**:
+**Automated Guarantees (ADR-031B)**:
 1. **Asset Migration**: Custom agents and legacy workflows are migrated safely into `.agents/agents/` and `.agents/skills/<name>/SKILL.md`.
 2. **Pre-Pruning Backup**: Legacy contents are archived to `.agents/archive/agent-backup-<timestamp>.tar.gz`.
 3. **Deterministic 2-Step Pruning**:

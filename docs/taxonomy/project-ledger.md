@@ -121,7 +121,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Subagent Ladder pipeline executed end-to-end with 100% first-pass Hammer and Auditor approvals.
 * **Reference Assets Committed**:
   - Skills Engine: [harness/skills/__init__.py](../../harness/skills/__init__.py), [harness/skills/psl-stack-shell/SKILL.md](../../harness/skills/psl-stack-shell/SKILL.md), [harness/skills/psl-stack-typescript/SKILL.md](../../harness/skills/psl-stack-typescript/SKILL.md), [harness/skills/psl-stack-python/SKILL.md](../../harness/skills/psl-stack-python/SKILL.md), [harness/skills/psl-stack-backend/SKILL.md](../../harness/skills/psl-stack-backend/SKILL.md), [harness/skills/psl-stack-systems/SKILL.md](../../harness/skills/psl-stack-systems/SKILL.md)
-  - Subagent Registry: [harness/subagents/](../../harness/subagents/), [harness/agents/harness_builder.md](../../harness/agents/harness_builder.md), [harness/agents/harness_reviewer.md](../../harness/agents/harness_reviewer.md), [harness/agents/harness_auditor.md](../../harness/agents/harness_auditor.md)
+  - Subagent Registry: [harness/subagents/](../../harness/subagents/), `harness/agents/harness_builder.md`, `harness/agents/harness_reviewer.md`, `harness/agents/harness_auditor.md`
   - CLI Discovery: [harness/cli.py](../../harness/cli.py) (`psl skills`, `psl agents`)
   - Test Suites: [tests/test_skills.py](../../tests/test_skills.py), [tests/test_subagents.py](../../tests/test_subagents.py)
 
@@ -208,7 +208,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
 * **Reference Assets Committed**:
   - Subagent Context & Health Engine: [harness/subagents/](../../harness/subagents/)
   - PreToolUse Write-Block Guard: [harness/hooks/anti_drift_hook.py](../../harness/hooks/anti_drift_hook.py)
-  - Specialist Agent Definitions: [harness/agents/harness_auditor.md](../../harness/agents/harness_auditor.md), [harness/agents/harness_builder.md](../../harness/agents/harness_builder.md), [harness/agents/harness_reviewer.md](../../harness/agents/harness_reviewer.md)
+  - Specialist Agent Definitions: `harness/agents/harness_auditor.md`, `harness/agents/harness_builder.md`, `harness/agents/harness_reviewer.md`
   - CLI Subagent Discovery: [harness/cli.py](../../harness/cli.py) (`psl subagents`)
   - Test Suites: [tests/test_subagent_context.py](../../tests/test_subagent_context.py), [tests/test_anti_drift.py](../../tests/test_anti_drift.py), [tests/test_subagents.py](../../tests/test_subagents.py), [tests/test_cli.py](../../tests/test_cli.py)
   - Specification: [docs/official-specs/lifecycle-hooks.md](../../docs/official-specs/lifecycle-hooks.md)
@@ -231,7 +231,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Subagent Ladder trajectory offloaded 64.4% of context volume (~201k tokens preserved) with 0 coordinator tool errors.
 * **Reference Assets Committed**:
   - Research Specification: [docs/official-specs/custom-agents.md](../../docs/official-specs/custom-agents.md)
-  - Expanded Catalog: [harness/agents/planner.md](../../harness/agents/planner.md), [harness/agents/coordinator.md](../../harness/agents/coordinator.md)
+  - Expanded Catalog: `harness/agents/planner.md`, `harness/agents/coordinator.md`
   - Registry, Context Scanner & Scaffolder: [harness/subagents/](../../harness/subagents/)
   - CLI Subcommands: [harness/cli.py](../../harness/cli.py) (`agents create`, `agents validate`, `agents --sync`)
   - Modular Skill: [harness/skills/agent-builder/SKILL.md](../../harness/skills/agent-builder/SKILL.md)
@@ -246,7 +246,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - **ADR-030 (Global Plugin Delivery & Coexistence Hierarchy)**:
     - **Product vs. Project Packaging Bifurcation**: Distributable package (`harness/`, `plugin.json`, `matrix.json`, `hooks.json`) is hermetically separated from dev pipelines (`pipeline/`, `data/`, `tests/`, `docs/`, `scratch/`).
     - **Path Safety Guard**: `PluginInstaller` strictly forbids deleting `REPO_ROOT` or parent directories; symlink uninstallations invoke `target.unlink()` and never `shutil.rmtree(target.resolve())`.
-    - **Three-Tier Precedence Hierarchy**: Layer 3 (Workspace Local `.agents/`) > Layer 2 (User Preferences `~/.gemini/antigravity/`) > Layer 1 (Global Plugin `~/.gemini/config/plugins/psl-agy-harness/`).
+    - **Three-Tier Precedence Hierarchy**: Layer 3 (Workspace Local `.agents/`) > Layer 2 (User Preferences `~/.gemini/antigravity/`) > Layer 1 (Global Plugin `~/.gemini/config/plugins/agyis-harness/`).
     - **Stage 4 Custodian Commit Gate**: Positioned between Hammer (Stage 3) and Auditor (Stage 5) to guarantee Stage 5 tests execute against an immutable committed git revision on HEAD, eliminating the tested-vs-uncommitted desync.
     - **Targeted Macro & Deduplication Sweep Invariant**: Custodian is explicitly mandated to perform targeted sweeps (`grep_search`, `find_by_name`) for DRY deduplication and cross-module architectural audits before staging commits.
 * **Empirical Baselines Established & Verified**:
@@ -257,7 +257,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
 * **Reference Assets Committed**:
   - Plugin Installer & Coexistence Subsystem: [harness/delivery/](../../harness/delivery/)
   - CLI Integration: [harness/cli.py](../../harness/cli.py) (`psl install`, `psl uninstall`)
-  - Custodian Archetype & Scaffolding: [harness/subagents/](../../harness/subagents/), [harness/agents/harness_custodian.md](../../harness/agents/harness_custodian.md), [.agents/agents/harness_custodian.md](../../.agents/agents/harness_custodian.md)
+  - Custodian Archetype & Scaffolding: [harness/subagents/](../../harness/subagents/), `harness/agents/harness_custodian.md`, `.agents/agents/harness_custodian.md`
   - PreToolUse Write-Block Guard: [harness/hooks/anti_drift_hook.py](../../harness/hooks/anti_drift_hook.py)
   - 6-Stage Subagent Ladder Specification: [harness/skills/subagent-ladder/SKILL.md](../../harness/skills/subagent-ladder/SKILL.md)
   - Test Suite: [tests/test_delivery.py](../../tests/test_delivery.py)
@@ -286,22 +286,22 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
 
 ---
 
-## [Phase 8] Native Orchestration Alignment: Boost Swarm & Plan Mode (ADR-031)
+## [Phase 8] Native Orchestration Alignment: Boost Swarm & Plan Mode (ADR-031A)
 * **Status**: Completed | **Compaction Date**: 2026-10-05 (Finalized 2026-10-06)
 * **Key Architectural Decisions (ADRs)**:
-  - **ADR-031 (Native Orchestration Alignment: Boost Swarm & Plan Mode)**:
+  - **ADR-031A (Native Orchestration Alignment: Boost Swarm & Plan Mode)**:
     - **Native Plan-Mode Lock Invariant**: PreToolUse Anti-Drift Guard (`anti_drift_hook.py`) intercepts active Plan Mode (`/plan` or `mode: "plan"`) and unapproved implementation plans as zero-mutation boundaries, deterministically blocking code edits outside `implementation_plan.md` and scratch directories.
     - **Dual Orchestration Taxonomy**: Bifurcated task execution into (1) Native `/boost` Stigmergic Swarm (probabilistic multi-worker parallel search, synthetic test oracles, and adversarial verification for hard concurrency/algorithmic problems) and (2) PSL 6-Stage Subagent Ladder (deterministic linear pipeline with Stage 4 Custodian Git commit gate on HEAD and Stage 5 clean-room testing).
     - **Adversarial Verifier Capability Bundle**: Codified `adversarial_verifier` bundle in `harness/subagents.py` to support fuzzer, property testing, and test generator personas inspired by the `/boost` verifier architecture.
     - **Telemetry Ingestion for Native Slash Commands**: `pipeline/extract_transcripts.py` classifies `BOOST_ORCHESTRATION` and `PLAN_INITIATION` native slash commands in `telemetry.db`.
-    - **Decoupled Architecture Note**: `/agent-builder` and custom agents remain strictly decoupled from ADR-031/ADR-030, anchored solely in ADR-026.
+    - **Decoupled Architecture Note**: `/agent-builder` and custom agents remain strictly decoupled from ADR-031A/ADR-030, anchored solely in ADR-026.
 * **Empirical Baselines Established & Verified**:
   - Full test suite expanded to **259 hermetic tests passing in 1.297s** (with 47 anti-drift and scaffolding tests passing in 0.028s).
   - 7/7 specialist subagent specifications validated and certified compliant.
   - Clean-room verification passed with zero regressions.
 * **Reference Assets Committed**:
   - Research Specification: [docs/official-specs/antigravity-boost-and-plan.md](../../docs/official-specs/antigravity-boost-and-plan.md)
-  - Formal Decision Record: [docs/adr/ADR-031-native-orchestration-alignment.md](../../docs/adr/ADR-031-native-orchestration-alignment.md)
+  - Formal Decision Record: [docs/adr/ADR-031A-native-orchestration-alignment.md](../../docs/adr/ADR-031A-native-orchestration-alignment.md)
   - PreToolUse Plan-Mode Lock: [harness/hooks/anti_drift_hook.py](../../harness/hooks/anti_drift_hook.py)
   - Subagent Registry & Capability Bundles: [harness/subagents/](../../harness/subagents/)
   - Telemetry Ingestion Classifier: [pipeline/extract_transcripts.py](../../pipeline/extract_transcripts.py)
@@ -367,7 +367,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Workstation doctor: **9 OK | 0 Outdated | 0 Missing** with clean hygiene across all tiers.
 * **Reference Assets Committed**:
   - Cleanroom Architecture: [docs/adr/ADR-028-opt-in-rea-cleanroom-harmonization.md](../adr/ADR-028-opt-in-rea-cleanroom-harmonization.md), [docs/official-specs/rea-antigravity-architecture.md](../official-specs/rea-antigravity-architecture.md)
-  - Release Notes & Specs: [docs/release-notes/v1.0.0-rc4.md](../release-notes/v1.0.0-rc4.md), [CHANGELOG.md](../../CHANGELOG.md)
+  - Release Notes & Specs: [docs/archive/releases/v1.0.0-rc4.md](../archive/releases/v1.0.0-rc4.md), [CHANGELOG.md](../../CHANGELOG.md)
   - Verification Subsystem: [harness/commands/verify.py](../../harness/commands/verify.py), [tests/test_verify.py](../../tests/test_verify.py)
 
 ---
@@ -388,7 +388,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Workstation doctor: **9 OK | 0 Outdated | 0 Missing** with zero external runtime dependencies.
 * **Reference Assets Committed**:
   - Remediations: `harness/commands/onboard.py`, `harness/delivery/harmonize.py`, `harness/delivery/workspace.py`, `harness/telemetry/sync/systemd.py`.
-  - Specs & Findings: `docs/specs/rc4_rehydration_findings.md`, `docs/specs/rc5_github_issues_manifest.md`.
+  - Specs & Findings: `docs/archive/audits/rc4_rehydration_findings.md`, `docs/archive/manifests/rc5_github_issues_manifest.md`.
 
 ---
 
@@ -403,7 +403,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
 * **Verified Baseline Metrics**:
   - Full test suite expanded to **1,006 hermetic tests passing in 15.16s** (100% green; GUI tests pass in 0.043s).
   - Doctor reports **9 OK | 0 Missing**; 7/7 specialist personas validated cleanly.
-  - Certified by Triple Auditor Gate and deployed globally to `~/.gemini/config/plugins/psl-agy-harness/`.
+  - Certified by Triple Auditor Gate and deployed globally to `~/.gemini/config/plugins/agyis-harness/`.
 * **Reference Assets Committed**:
   - GUI Controller & Persistence: [harness/commands/gui.py](../../harness/commands/gui.py), [tests/test_gui.py](../../tests/test_gui.py)
   - Subagents Engine: [harness/subagents/spec.py](../../harness/subagents/spec.py), [harness/agents/](../../harness/agents/)
@@ -430,7 +430,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
 * **Handover Status & Release Readiness**:
   - Certified ready for `v1.0.0-rc5` release tag and publication directly to `main`.
 * **Reference Assets Committed**:
-  - Documentation Bundle: `README.md`, `docs/official-specs/cli-palette.md`, `docs/official-specs/lifecycle-hooks.md`, `docs/runbooks/repo-onboarding.md`, `docs/runbooks/telemetry-sync.md`, `docs/release/fleet_audit_rc4.md`, `docs/release/root_sync_staging.md`.
+  - Documentation Bundle: `README.md`, `docs/official-specs/cli-palette.md`, `docs/official-specs/lifecycle-hooks.md`, `docs/runbooks/repo-onboarding.md`, `docs/runbooks/telemetry-sync.md`, `docs/archive/audits/fleet_audit_rc4.md`, `docs/archive/handoffs/root_sync_staging.md`.
   - Rules & Ledger: `GLOBAL_AGENTS.md`, `.agents/rules/AGENTS.md`, `harness/rules/AGENTS.md`, `harness/rules/GLOBAL_AGENTS.md`, `roadmap.md`, `docs/taxonomy/project-ledger.md`.
   - Test Suites: `tests/test_onboard.py`, `tests/test_verify.py`, `tests/test_anti_drift.py`, `tests/test_sync_service.py`, `tests/test_pipeline_audit_smoke.py`.
 
@@ -473,7 +473,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
 ---
 
 ## [Phase 17] Milestone v1.0.0-rc7 Issue Staging: Cognitive Resilience & Swarm Continuity
-* **Status**: Completed | **Compaction Date**: 2026-10-18 | **Deliverable**: `docs/specs/cognitive_resilience_github_issues_manifest.md`
+* **Status**: Completed | **Compaction Date**: 2026-10-18 | **Deliverable**: `docs/archive/manifests/cognitive_resilience_github_issues_manifest.md`
 * **Key Architectural Decisions & Scope Invariants**:
   - **Root-to-Delegate Scope Boundary**: Strictly quarantined all specifications to single root agent -> delegate subagent surface; excluded multi-node mesh networking (`knot-mesh`).
   - **Epic 1: Deterministic Safety & Hooks (Issues #64–#68)**: PreToolUse Anti-Kill pause hook, Dual-Gate out-of-band auditor verification fence, RAM throttling (<1.5 GB protection against Linux OOM killer), and real-time token burn velocity gauges.
@@ -484,7 +484,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Master staging manifest: **1,440 lines (103 KB)** with exact line-level code targets and verified empirical citations.
   - Full test suite: **1,120 hermetic tests passing in 21.0s** (100% green, exit code 0; 5/5 manifest tests in 0.78s).
 * **Reference Assets Committed**:
-  - Master Manifest: [cognitive_resilience_github_issues_manifest.md](../specs/cognitive_resilience_github_issues_manifest.md)
+  - Master Manifest: [cognitive_resilience_github_issues_manifest.md](../archive/manifests/cognitive_resilience_github_issues_manifest.md)
   - Manifest Test Suite: [tests/test_cognitive_resilience_manifest.py](../../tests/test_cognitive_resilience_manifest.py)
   - GitHub Milestone: [v1.0.0-rc7 (Node: MI_kwDOU4VZGs4BHUve)](https://github.com/kuasha420/agyis-harness/milestone/2)
 
@@ -505,15 +505,15 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Core Modules: `harness/subagents/stage_role.py`, `harness/subagents/heartbeat.py`, `harness/hooks/completion_fence_hook.py`, `harness/cli.py`
   - Skills: `skills/subagent-ladder/SKILL.md`, `skills/psl-test-harmonize/SKILL.md`
   - Tests: `tests/test_ladder_role_pinning.py`, `tests/test_executioner_step_horizon.py`, `tests/test_ladder_heartbeat.py`, `tests/test_ladder_integration.py`
-  - Master RFC: [epic_51_real_world_testing_rfc.md](../../docs/specs/RFC-051-real-world-testing-and-anti-synthetic-validation.md)
+  - Master RFC: `docs/specs/RFC-051-real-world-testing-and-anti-synthetic-validation.md` (`epic_51_real_world_testing_rfc.md`)
 
 ---
 
-## [Phase 19] Carrier-Grade Compaction Automation & Native Succession Protocol (ADR-031 / #77) & Cockpit Standard (#87)
-* **Status**: Completed | **Compaction Date**: 2026-10-26 | **Deliverable**: [GitHub Issue #77](https://github.com/kuasha420/agyis-harness/issues/77) & [docs/cockpit_director.md](../cockpit_director.md)
+## [Phase 19] Carrier-Grade Compaction Automation & Native Succession Protocol (ADR-031A / #77) & Cockpit Standard (#87)
+* **Status**: Completed | **Compaction Date**: 2026-10-26 | **Deliverable**: [GitHub Issue #77](https://github.com/kuasha420/agyis-harness/issues/77) & [docs/official-specs/cockpit-director.md](../official-specs/cockpit-director.md)
 * **Key Architectural Decisions & Discoveries**:
-  - **Issue #87 Cockpit Living Contract (`docs/cockpit_director.md`)**: Codified `PSL-SPEC-2026-COCKPIT-DIRECTOR-001` establishing Air Traffic Control pairing posture, 12-workflow autonomous routing matrix (A through L), dual-plane communication contract (`psl_stage_transition_payload.json`), and AC5 Zero Repo Document Pollution.
-  - **Issue #77 ADR-031 Compaction Paradigm Shift**: Formally proved that Antigravity native compaction is an active two-stage cognitive handoff (Micro-State Preservation -> Cognitive Model Compression -> Platform Checkpoint Step Generation -> Turn 0 Persona Re-Anchor).
+  - **Issue #87 Cockpit Living Contract (`docs/official-specs/cockpit-director.md`)**: Codified `PSL-SPEC-2026-COCKPIT-DIRECTOR-001` establishing Air Traffic Control pairing posture, 12-workflow autonomous routing matrix (A through L), dual-plane communication contract (`psl_stage_transition_payload.json`), and AC5 Zero Repo Document Pollution.
+  - **Issue #77 ADR-031A Compaction Paradigm Shift**: Formally proved that Antigravity native compaction is an active two-stage cognitive handoff (Micro-State Preservation -> Cognitive Model Compression -> Platform Checkpoint Step Generation -> Turn 0 Persona Re-Anchor).
   - **Two-Track Continuity Architecture**: Track A (In-Session Pre-Compaction Serialization at ≥ 230,000 tokens) vs. Track B (Horizontal Multi-Generation Succession via `invoke_subagent(TypeName='self', Workspace='inherit')`).
   - **Friction Vector 4 Elimination**: Dynamic `'self'` alias resolution ladder (`'self'` -> `<active_agent_role>` -> `'agyis_coordinator'`) preventing Cortex archetype lookup rejections.
   - **Zero Repo Document Pollution (AC5)**: Checkpoints reside strictly in `.agents/artifacts/` or brain directory; eliminated legacy multi-folder pollution (`_gen2/`, `_gen3/`).
@@ -524,7 +524,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Closed & verified GitHub issues: #87, #77.
 * **Reference Assets Committed**:
   - Core Modules: `harness/delivery/compaction_checkpoint.py`, `harness/commands/checkpoint.py`, `harness/subagents/succession.py`, `harness/hooks/pre_invocation_hook.py`, `harness/cli.py`
-  - Specification: [docs/cockpit_director.md](../cockpit_director.md)
+  - Specification: [docs/official-specs/cockpit-director.md](../official-specs/cockpit-director.md)
   - Tests: [tests/test_compaction_checkpoint.py](../../tests/test_compaction_checkpoint.py)
   - Deliverable Commits: `eb29e39`, `67c1187`, `5dcb215`, `e1de9b5` pushed to `origin/main`.
 
@@ -859,4 +859,29 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Tests: `tests/test_token_proximity_guard.py`, `tests/test_re_toolchain.py`, `tests/test_extensions.py`, `tests/test_cli.py`, `tests/test_delivery.py`
   - Delivery Commits: Tag `v1.0.0-rc9`
 
+---
 
+## [Phase 35] General Availability (GA) & Enterprise Hardening (Release v1.0.0 GA)
+* **Status**: Completed | **Compaction Date**: 2026-11-10 | **Release**: `v1.0.0 GA` | **Milestone**: General Availability & Hardening
+* **Key Architectural Decisions & Deliverables**:
+  - **In-Tree Skills Deduplication Verification Gate (PSL-INV-004)**:
+    * Codified automated, hermetic verification gate in `tests/test_skills_dedup_gate.py` and `harness/runtime/hygiene_checks.py`.
+    * Enforces that any skills in `.agents/skills/` that mirror `harness/skills/` MUST be symlinks pointing to `../../harness/skills/<name>` and cannot be independent directory copies, permanently preventing agent pollution.
+  - **ADR Disambiguation & Full Registration**:
+    * Disambiguated `ADR-031` collision by renaming files to `ADR-031A-native-orchestration-alignment.md` and `ADR-031B-unified-workspace-harmonization.md`.
+    * Authored standalone architecture decision records:
+      - `docs/adr/ADR-033-dynamic-context-runway-and-compaction-advisory.md`
+      - `docs/adr/ADR-034-extensible-workspace-cli.md`
+    * Synchronized `docs/adr/README.md` indexing ADR-001 through ADR-034.
+  - **Consolidated 27-Subcommand CLI Palette Alignment**:
+    * Synchronized `README.md` and `docs/official-specs/cli-palette.md` to document all 27 subcommands across 8 operational domains.
+  - **PreInvocation Hook Specification**:
+    * Formalized `psl-compaction-advisory` in `docs/official-specs/lifecycle-hooks.md`.
+* **Verified Baseline Metrics**:
+  - Full test suite: **1,974+ hermetic tests passing in <65s** (100% green, exit code 0).
+  - Cleanroom specifications: Verified cleanly via `python3 -m harness.cli verify --spec`.
+  - Architectural Fitness Function: **100.0/100 AFF score** with zero architectural defects.
+* **Reference Assets Committed**:
+  - Dedup Gate: `tests/test_skills_dedup_gate.py`, `harness/runtime/hygiene_checks.py`
+  - ADRs: `docs/adr/ADR-031A-*.md`, `docs/adr/ADR-031B-*.md`, `docs/adr/ADR-033-*.md`, `docs/adr/ADR-034-*.md`, `docs/adr/README.md`
+  - Specs & Docs: `README.md`, `roadmap.md`, `docs/official-specs/cli-palette.md`, `docs/official-specs/lifecycle-hooks.md`, `docs/taxonomy/project-ledger.md`

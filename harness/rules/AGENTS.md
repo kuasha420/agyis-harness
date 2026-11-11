@@ -15,8 +15,8 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 *Derived from purrmission & sunshine-physio: explicit CLI palettes yield 10x lower human intervention rates:*
 
 ```bash
-# 🧪 Verification & Testing (Hermetic, 1,065 tests, clean dots)
-./agyis test                                   # Run complete project test suite (<25s suite, sub-second components)
+# 🧪 Verification & Testing (Hermetic, 1,981 tests, clean dots)
+./agyis test                                   # Run complete project test suite (~65s suite, sub-second components)
 python3 -m harness.cli test                    # Run complete project test suite
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
 agyis verify                                   # Formally verify typed cleanroom obligations against evidence
@@ -81,12 +81,12 @@ agyis gui --toggle                             # Toggle Trajectory Debug View op
 agyis cockpit status                           # Print flight deck health, tokens, active subagents & git state
 agyis cockpit route <letter|alias>             # Print dispatch briefing & transition payload (e.g. agyis cockpit route A / rca)
 agyis cockpit verify [--allow-dirty]           # Audit active session against the 5 flight director invariants
-agyis checkpoint [status|generate|create|verify|prune] # Carrier-grade pre-compaction state capture & succession (ADR-031)
+agyis checkpoint [status|generate|create|verify|prune] # Carrier-grade pre-compaction state capture & succession (ADR-031A, ADR-033)
 agyis router <letter|alias>                    # Dynamic subagent router CLI alias (e.g. agyis router victory)
 agyis ladder <letter|alias>                    # Backwards-compatible router CLI alias (e.g. agyis ladder builder)
 
 # 🧹 Multi-Branch Workspace, Clean & Cache Hygiene
-agyis clean [--all] [--checkpoints] [--worktrees] [--dist] # Purge stale checkpoints, worktrees, scratchpads & opt-in dist/ (ADR-031)
+agyis clean [--all] [--checkpoints] [--worktrees] [--dist] # Purge stale checkpoints, worktrees, scratchpads & opt-in dist/ (ADR-031A, ADR-031B)
 rm -rf .next/ .turbo/ node_modules/.cache      # Invalidate stale build caches prior to verification gates
 python3 -c "from harness.delivery import purge_build_caches; purge_build_caches('.')" # Standalone cache purge
 

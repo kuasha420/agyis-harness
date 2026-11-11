@@ -22,7 +22,9 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MANIFEST_PATH = REPO_ROOT / "docs" / "specs" / "cognitive_resilience_github_issues_manifest.md"
+MANIFEST_PATH = REPO_ROOT / "docs" / "archive" / "manifests" / "cognitive_resilience_github_issues_manifest.md"
+if not MANIFEST_PATH.exists():
+    MANIFEST_PATH = REPO_ROOT / "docs" / "specs" / "cognitive_resilience_github_issues_manifest.md"
 TELEMETRY_DB_PATH = REPO_ROOT / "data" / "telemetry.db"
 
 EXPECTED_ISSUE_NUMBERS = [f"#{n}" for n in range(64, 79)]

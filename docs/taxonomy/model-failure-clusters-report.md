@@ -73,7 +73,7 @@
 Frequent failures when probing PostgreSQL or Docker services without non-interactive flags, missing environment credentials, or handling active connection locks:
 
 - **`"python3 -c '\nimport sqlite3\nconn = sqlite3.connect(\"data/telemetry.db\")\nc = conn.cursor()\nc.execute(\"\"\"\n    SELECT COUNT(*), AVG(total_steps), AVG(tool_call_count)\n    FROM sessions\n    WHERE tool_error_count = 0 AND total_steps > 15\n\"\"\")\nrow = c.fetchone()\nprint(f\"Clean sessions (>15 steps, 0 tool errors): {row[0]}\")\nprint(f\"  Average steps: {row[1]:.1f}, Average tool calls: {row[2]:.1f}\")\n\nc.execute(\"\"\"\n    SELECT session_id, total_steps, tool_call_count, model, SUBSTR(workspace_path, 1, 40)\n    FROM sessions\n    WHERE tool_error_count = 0 AND total_steps > 25\n    ORDER BY total_steps DESC\n    LIMIT 5\n\"\"\")\nprint(\"\\nTop Clean Sessions:\")\nfor r in c.fetchall():\n    print(f\"  {r[0]}: steps={r[1]}, tools={r[2]}, model={r[3]}, ws={r[4]}\")\n'"`** (Exit 1, count=3)
-  *Snippet*: `Created At: 2026-10-02T10:36:24+06:00 Completed At: 2026-10-02T10:36:24+06:00  The command exited with code 1. Output: Clean sessions (>15 steps, 0 tool errors): 0 Traceback (most recent call last):`
+  *Snippet*: `Created At: 2026-10-02T10:36:24+06:00 Completed At: 2026-10-02T10:36:24+06:00  The command exited with code 1. Output: Clean sessions (>15 steps, 0 tool errors): 0 Traceback (most recent call last):`
 - **`"ssh -o StrictHostKeyChecking=no root@sg.purrfectsoft.co.uk \"docker exec -i coolify-db psql -U coolify -d coolify -c 'SELECT id, key, value, \\\"applicationId\\\" FROM environment_variables WHERE \\\"applicationId\\\" = 3;'\""`** (Exit 1, count=3)
   *Snippet*: `Created At: 2026-06-07T12:58:32Z Completed At: 2026-06-07T12:58:33Z  				The command failed with exit code: 1 				Output: 				ERROR:  column "applicationId" does not exist LINE 1: SELECT id, key, valu`
 - **`"ssh root@sg.purrfectsoft.co.uk \"docker exec -i coolify-db psql -U coolify -d coolify -c \\\"SELECT id, status, log FROM application_deployments ORDER BY created_at DESC LIMIT 1;\\\"\""`** (Exit 1, count=3)
@@ -93,7 +93,7 @@ SSH connection dropouts (Exit Code 255), unverified Tailscale hostnames, and unp
 - **`"ssh purrfecthq-jasper-infra@jasper.infra.purrfecthq.com \"/home/purrfecthq-jasper-infra/htdocs/jasper.infra.purrfecthq.com/yt-dlp --js-runtimes node --extractor-args youtube:player-client=android -f bestaudio -o - \\\"https://www.youtube.com/watch?v=Ly0fz0T_lQE\\\" > /dev/null\""`** (Exit 1, count=5)
   *Snippet*: `Created At: 2026-06-23T19:22:05Z Completed At: 2026-06-23T19:22:08Z  				The command failed with exit code: 1 				Output: 				WARNING: Your yt-dlp version (2026.02.04) is older than 90 days!          `
 - **`"ssh -o BatchMode=yes kuasha@bd.purrfectsoft.co.uk \"sudo -u purrfecthq-jasper-infra pm2 logs --lines 100 --nostream\""`** (Exit 1, count=3)
-  *Snippet*: `Created At: 2026-09-02T00:52:05+06:00 Completed At: 2026-09-02T00:52:06+06:00  The command exited with code 1. Output: sudo: pm2: command not found  `
+  *Snippet*: `Created At: 2026-09-02T00:52:05+06:00 Completed At: 2026-09-02T00:52:06+06:00  The command exited with code 1. Output: sudo: pm2: command not found  `
 - **`"ssh -o StrictHostKeyChecking=no root@sg.purrfectsoft.co.uk \"docker exec -i coolify-db psql -U coolify -d coolify -c 'SELECT id, key, value, \\\"applicationId\\\" FROM environment_variables WHERE \\\"applicationId\\\" = 3;'\""`** (Exit 1, count=3)
   *Snippet*: `Created At: 2026-06-07T12:58:32Z Completed At: 2026-06-07T12:58:33Z  				The command failed with exit code: 1 				Output: 				ERROR:  column "applicationId" does not exist LINE 1: SELECT id, key, valu`
 - **`"ssh root@sg.purrfectsoft.co.uk \"docker exec -i coolify-db psql -U coolify -d coolify -c \\\"SELECT id, status, log FROM application_deployments ORDER BY created_at DESC LIMIT 1;\\\"\""`** (Exit 1, count=3)
@@ -105,7 +105,7 @@ SSH connection dropouts (Exit Code 255), unverified Tailscale hostnames, and unp
 Stale worktrees, unmerged index collisions, checkout conflicts with dirty state, and orphan worktree directories:
 
 - **`"GIT_EDITOR=true git rebase --continue"`** (Exit 1, count=5)
-  *Snippet*: `Created At: 2026-09-18T02:40:25+06:00 Completed At: 2026-09-18T02:40:25+06:00  The command exited with code 1. Output: hint: Waiting for your editor to close the file... [detached HEAD f2bac98] feat(`
+  *Snippet*: `Created At: 2026-09-18T02:40:25+06:00 Completed At: 2026-09-18T02:40:25+06:00  The command exited with code 1. Output: hint: Waiting for your editor to close the file... [detached HEAD f2bac98] feat(`
 - **`gh issue view 100`** (Exit 0, count=5)
   *Snippet*: `oerror executing cascade step: CORTEX_STEP_TYPE_RUN_COMMAND: read unix @ -> @: recvmsg: connection reset by peer � error executing cascade step: CORTEX_STEP_TYPE_RUN_COMMAND: read unix @ -> @: recvmsg`
 - **`gh secret set -f .env -R purrfectsoft/psl-website`** (Exit 1, count=3)

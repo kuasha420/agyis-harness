@@ -3,7 +3,7 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# ADR-031: Native Orchestration Alignment (Boost Swarm & Plan Mode)
+# ADR-031A: Native Orchestration Alignment (Boost Swarm & Plan Mode)
 
 * **Status**: Accepted (Finalized)
 * **Date**: 2026-10-05 (Finalized 2026-10-06)
@@ -20,10 +20,10 @@ Between versions **v1.1.0** and **v1.2.16**, Google Antigravity transitioned fro
 2. **Native `/boost` Mode**: An on-demand multi-agent swarm orchestrator utilizing stigmergic blackboard coordination (`.swarm_blackboard_<task>.md`), worker auto-retry (up to 4 retries), a succession handoff protocol (at 16 spawns), and specialized worker personas (Deep Coding Agent, High-Reliability Reviewer, and Code-Executing Adversarial Verifier).
 
 > [!NOTE] Architectural Decoupling: Native Primitives vs. Custom Agents
-> Custom codebase-aware agents and the `/agent-builder` skill are **PSL harness features**, governed and codified separately under **ADR-026** ([`docs/official-specs/custom-agents.md`](../official-specs/custom-agents.md) and [`.agents/skills/agent-builder/SKILL.md`](../../.agents/skills/agent-builder/SKILL.md)). They are completely decoupled from native orchestration alignment (ADR-031) and plugin delivery (ADR-030).
+> Custom codebase-aware agents and the `/agent-builder` skill are **PSL harness features**, governed and codified separately under **ADR-026** ([`docs/official-specs/custom-agents.md`](../official-specs/custom-agents.md) and [`.agents/skills/agent-builder/SKILL.md`](../../.agents/skills/agent-builder/SKILL.md)). They are completely decoupled from native orchestration alignment (ADR-031A) and plugin delivery (ADR-030).
 
-Prior to ADR-031:
-- `psl-agy-harness` enforced artifact planning (ADR-012) as a prompt convention, but `anti_drift_hook.py` did not hook directly into native Plan Mode (`mode: "plan"`) to halt premature file mutations at the PreToolUse layer.
+Prior to ADR-031A:
+- `agyis-harness` enforced artifact planning (ADR-012) as a prompt convention, but `anti_drift_hook.py` did not hook directly into native Plan Mode (`mode: "plan"`) to halt premature file mutations at the PreToolUse layer.
 - Our specialist catalog lacked the fuzzer/oracle capability bundle inspired by `/boost`'s adversarial verifier persona.
 - Our telemetry laboratory (`telemetry.db`) did not classify native slash commands (`/boost`, `/plan`) in user intervention traces.
 
@@ -38,8 +38,8 @@ flowchart TD
         BOOST["/boost (Deep Swarm)<br/>• Boost Multi-Agent Orchestrator<br/>• Stigmergic Blackboard File<br/>• Adversarial Verifier (Oracles)<br/>• High-Reliability Reviewer<br/>• Synthesizer Consolidation"]
     end
 
-    subgraph PSL Harness Integrations (ADR-031)
-        ADR012["PreToolUse Plan Lock (ADR-031)<br/>• Zero-write enforcement<br/>• Walkthrough artifact lifecycle"]
+    subgraph PSL Harness Integrations (ADR-031A)
+        ADR012["PreToolUse Plan Lock (ADR-031A)<br/>• Zero-write enforcement<br/>• Walkthrough artifact lifecycle"]
         LADDER["6-Stage Subagent Ladder<br/>• Deterministic ladder vs. Swarm<br/>• Custodian HEAD commit gate"]
         VERIFIER["Adversarial Verifier Bundle<br/>• Oracles, fuzzers, test generators<br/>• Scoped execute & isolated write"]
         TELEMETRY["Telemetry Laboratory<br/>• Ingest Boost traces into telemetry.db<br/>• Classify native slash commands"]
@@ -55,7 +55,7 @@ flowchart TD
 - **Decision**: The PreToolUse Anti-Drift Guard (`anti_drift_hook.py`) must treat any active `/plan` session (`mode: "plan"` or `agent_mode: "plan"`) or unapproved `implementation_plan.md` (where `RequestFeedback: true` has not yet received an explicit user confirmation) as a **zero-mutation boundary**.
 - **Implementation**: Implemented `check_plan_mode_lock(payload)` in `harness/hooks/anti_drift_hook.py`. Any call to `write_to_file`, `replace_file_content`, or `edit_file` targeting non-exempt production code is deterministically denied with exit code 2 and a descriptive invariant violation notice:
   ```
-  PSL Native Plan-Mode Lock (ADR-031): Session is in Plan Mode (/plan). Code modifications are locked until plan approval.
+  PSL Native Plan-Mode Lock (ADR-031A): Session is in Plan Mode (/plan). Code modifications are locked until plan approval.
   ```
 - **Exemptions**: Planning artifacts (`implementation_plan.md`, `walkthrough.md`), documentation (`.md`, `.txt`), and scratch files (`scratch/*`, `tmp/*`) remain writable via `is_exempt_file()`.
 
@@ -78,7 +78,7 @@ flowchart TD
 3. **Select PSL 6-Stage Subagent Ladder**: For deterministic production feature delivery, multi-module refactoring, and harness maintenance where strict stage boundaries, immutable Stage 4 Custodian Git commit gates on HEAD, and Stage 5 clean-room verification (<1.0s) are mandatory.
 
 ### 3. Adversarial Verifier Capability Bundle
-- **Decision**: Codify a new verified capability bundle `adversarial_verifier` in `harness/subagents.py`:
+- **Decision**: Codify a new verified capability bundle `adversarial_verifier` in `harness/subagents/spec.py`:
   - **Tools**: `view_file`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `search_web`, `run_command`, `manage_task`, `write_to_file`, `replace_file_content`.
   - **Permissions**: `read: true`, `write: true`, `execute: true`, `subagents: false`.
   - **Purpose**: Authoring dynamic test oracles, generative fuzzers, and stress benchmarks inspired by the `/boost` verifier persona, scoped to isolated test directories without granting full orchestrator subagent powers.

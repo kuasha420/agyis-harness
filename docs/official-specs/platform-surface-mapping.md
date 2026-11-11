@@ -126,7 +126,7 @@ When running batch automation via `agy -p`, the following flags govern agent beh
 - `--log-file <path>`: Directs raw CLI engine and trace logs to a designated filesystem destination.
 
 ### 2.3 The Structured Streaming Protocol (`stream-json`)
-For programmatic harnesses (including `psl-agy-harness` test runners), `stream-json` provides an NDJSON-based interface:
+For programmatic harnesses (including `agyis-harness` test runners), `stream-json` provides an NDJSON-based interface:
 ```bash
 # Bi-directional stream invocation
 agy --input-format stream-json --output-format stream-json --dangerously-skip-permissions
@@ -398,7 +398,7 @@ Every hook configured in `hooks.json` receives a JSON payload on `stdin` and mus
 ```json
 {
   "conversationId": "270b7abc-9b59-4f50-9c49-de3ed7e04f06",
-  "workspacePaths": ["/workspace/psl-agy-harness"],
+  "workspacePaths": ["/workspace/agyis-harness"],
   "transcriptPath": "~/.gemini/antigravity/brain/270b7abc.../transcript.jsonl",
   "artifactDirectoryPath": "~/.gemini/antigravity/brain/270b7abc.../",
   "modelName": "auto"
@@ -413,7 +413,7 @@ Every hook configured in `hooks.json` receives a JSON payload on `stdin` and mus
       "name": "run_command",
       "args": {
         "CommandLine": "git diff | grep TODO",
-        "Cwd": "/workspace/psl-agy-harness"
+        "Cwd": "/workspace/agyis-harness"
       }
     },
     "stepIdx": 42,
@@ -589,7 +589,7 @@ Below is the definitive gap analysis mapping these breakdowns against Antigravit
 
 ## 8. The Three Architectural Buckets: Where Capabilities Belong
 
-To establish clean engineering boundaries in `psl-agy-harness`, platform responsibilities are cleanly bifurcated across three implementation tiers:
+To establish clean engineering boundaries in `agyis-harness`, platform responsibilities are cleanly bifurcated across three implementation tiers:
 
 ```
 +----------------------------------------------------------------------------------------------------+
@@ -666,9 +666,9 @@ Complex, domain-specific state orchestration and procedural execution:
 
 ---
 
-## 10. Architectural Recommendations for `psl-agy-harness`
+## 10. Architectural Recommendations for `agyis-harness`
 
-Based on this surface mapping and empirical gap analysis, the `psl-agy-harness` project should adopt the following canonical architecture:
+Based on this surface mapping and empirical gap analysis, the `agyis-harness` project should adopt the following canonical architecture:
 
 1. **Standardize on `hooks.json` for Anti-Loop & Safety Invariants**:
    - Maintain `harness/hooks/anti_loop_hook.py` targeting `view_file|grep_search|run_command|manage_task` to prevent the 5,773 audited loop calls.

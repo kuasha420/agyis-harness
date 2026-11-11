@@ -4,7 +4,7 @@ description: Turnkey onboarding runbook promoting `agyis onboard` as the Univers
 version: 1.1.0
 last_updated: 2026-10-18
 target_audience: [developer, agent]
-related_adrs: [ADR-014, ADR-015, ADR-031, ADR-032]
+related_adrs: [ADR-014, ADR-015, ADR-031B, ADR-032]
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
@@ -81,7 +81,7 @@ agyis onboard --dry-run --json
    - With `--allow-dirty`: Captures uncommitted diff to `.agents/artifacts/wip-safety-pre-onboard.patch` and configures git exclude so the patch is never committed.
 4. **Branch Isolation**: Creates and checks out `chore/agyis-harness-onboarding` (or custom name via `--create-branch <name>`) tracked against the canonical upstream base branch.
 5. **Build Cache Invalidation**: Purges `.next/`, `.turbo/`, and `node_modules/.cache` (default: `--purge-caches`), guaranteeing subsequent test runs evaluate fresh build artifacts.
-6. **4-Phase Legacy Harmonization & Deterministic Pruning (ADR-031)**:
+6. **4-Phase Legacy Harmonization & Deterministic Pruning (ADR-031B)**:
    - Verifies legacy `.agent/` files against target `.agents/` files using SHA-256 checksums.
    - Archives `.agent/` contents to `.agents/archive/agent-backup-<timestamp>.tar.gz`.
    - Executes deterministic 2-step pruning (`git rm -rf .agent` + `shutil.rmtree()`) asserting `not Path(".agent").exists()`.
@@ -126,7 +126,7 @@ To prevent prompt token bloat and split-brain instructions, Agyis establishes a 
 
 | Tier | Directory Location | Scope & Governance | Example Skills |
 | :--- | :--- | :--- | :--- |
-| **Tier 1: Global Plugin** | `~/.gemini/config/plugins/psl-agy-harness/skills/` | Standard cross-workspace capabilities maintained by the harness platform. | `storage-ops`, `db-ops`, `audio-ops`, `display-ops`, `sec-forensics`, `git-worktree-ops`, `code-review` |
+| **Tier 1: Global Plugin** | `~/.gemini/config/plugins/agyis-harness/skills/` | Standard cross-workspace capabilities maintained by the harness platform. | `storage-ops`, `db-ops`, `audio-ops`, `display-ops`, `sec-forensics`, `git-worktree-ops`, `code-review` |
 | **Tier 2: Project Specialist** | `.agents/skills/` (in target repo) | Bespoke skills tailored exclusively to the local repository's domain or proprietary toolchain. | `custom-billing-engine`, `proprietary-codegen`, `domain-migration` |
 | **Tier 3: User Standalone** | `~/.gemini/config/skills/` | User-specific experimental or custom skills. | `knot-swarm`, `goal-with-lease` |
 

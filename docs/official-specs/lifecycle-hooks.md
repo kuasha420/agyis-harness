@@ -28,7 +28,7 @@ Antigravity lifecycle hooks allow execution of external shell commands or script
 ```json
 {
   "conversationId": "270b7abc-9b59-4f50-9c49-de3ed7e04f06",
-  "workspacePaths": ["/workspace/psl-agy-harness"],
+  "workspacePaths": ["/workspace/agyis-harness"],
   "transcriptPath": "~/.gemini/antigravity/brain/.../transcript.jsonl",
   "artifactDirectoryPath": "~/.gemini/antigravity/brain/.../",
   "modelName": "auto"
@@ -59,13 +59,14 @@ Antigravity lifecycle hooks allow execution of external shell commands or script
 
 ## 3. Reference Implementation: `agyis-harness` Hooks
 
-In `harness/hooks/`, we provide 6 deterministic hooks registered in `hooks.json`:
+In `harness/hooks/`, we provide 7 deterministic hooks registered in `hooks.json`:
 1. `command_safety_hook.py`: PreToolUse shell execution sanitizer, Python >= 3.12 uv runtime injector, and grep pattern probing exit normalizer (ADR-013).
 2. `anti_loop_hook.py`: PreToolUse repetitive call breaker and Strict Reactive Wait enforcer.
 3. `output_compactor_hook.py`: PostToolUse deterministic 2KB output compactor with DEF-04 pre-slice optimization for massive dumps.
 4. `completion_fence_hook.py`: PreToolUse/PostToolUse/Stop verification fence with ADR-028 decoupled dirty state (`code_dirty` vs `spec_dirty`).
 5. `token_proximity_guard.py`: PreToolUse context accumulation monitor decoding SQLite protobuf metadata and emitting ANSI threshold gauges.
 6. `anti_drift_hook.py`: PreToolUse plan adherence guard and Auditor write-block enforcer.
+7. `pre_invocation_hook.py`: PreInvocation dynamic attention runway evaluator and role-tailored compaction advisory (ADR-033).
 
 ### 3.1 The `psl-stop-verification-fence` Contract (ADR-022 / ADR-028)
 
@@ -77,7 +78,7 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
   "psl-stop-verification-fence": {
     "PreToolUse": [
       {
-        "matcher": "write_to_file|replace_file_content|edit_file",
+        "matcher": "write_to_file|replace_file_content|edit_file|run_command|execute_command|bash",
         "hooks": [
           {
             "type": "command",
@@ -93,7 +94,7 @@ The `psl-stop-verification-fence` hook enforces verification discipline by preve
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m harness.hooks.runner verification-fence",
+            "command": "python3 -m harness.hooks.runner post-verification-fence",
             "timeout": 5
           }
         ]
@@ -275,17 +276,17 @@ Non-code and operational files are never blocked by the anti-drift gate:
 
 * **Hook Name**: `anti-drift` (auditor write-block extension) & `harness.subagents`
 * **Trigger Event**: `PreToolUse` (interception) and programmatic telemetry
-* **File Location**: `harness/hooks/anti_drift_hook.py`, `harness/subagents.py`
+* **File Location**: `harness/hooks/anti_drift_hook.py`, `harness/subagents/`
 
 #### A. Auditor Permissions Paradox & Write-Block Guard
-In the PSL Subagent Ladder protocol, the **Auditor** (`harness_auditor`) requires command execution privileges (`run_command`) to run automated tests and doctor diagnostics, but must never mutate source files or test fixtures. Because granting platform execute permissions often surfaces editing tools in the agent's environment, `check_auditor_write_block()` enforces a deterministic software fence in `PreToolUse`.
+In the PSL Subagent Ladder protocol, the **Auditor** (`agyis_auditor`) requires command execution privileges (`run_command`) to run automated tests and doctor diagnostics, but must never mutate source files or test fixtures. Because granting platform execute permissions often surfaces editing tools in the agent's environment, `check_auditor_write_block()` enforces a deterministic software fence in `PreToolUse`.
 
-- **Interception Trigger**: Tool call is `write_to_file`, `replace_file_content`, or `edit_file`, AND calling agent role is `harness_auditor`, `auditor`, `qa_verifier`, or `PSL_SUBAGENT_ROLE=auditor`.
+- **Interception Trigger**: Tool call is `write_to_file`, `replace_file_content`, or `edit_file`, AND calling agent role is `agyis_auditor`, `auditor`, `qa_verifier`, or `PSL_SUBAGENT_ROLE=auditor`.
 - **Response Contract**:
   ```json
   {
     "decision": "deny",
-    "reason": "PSL Auditor Invariant: harness_auditor is strictly verification-only and cannot mutate files."
+    "reason": "PSL Auditor Invariant: agyis_auditor is strictly verification-only and cannot mutate files."
   }
   ```
 - **Allowed Tools**: Read and command execution tools (`run_command`, `view_file`, `list_dir`, `grep_search`, `manage_task`) remain fully available for hermetic verification.
@@ -300,7 +301,7 @@ In the PSL Subagent Ladder protocol, the **Auditor** (`harness_auditor`) require
   - 🔴 **RED ALERT** ($>80\text{k tokens}$ OR $>80\text{ steps}$): Context cliff active. Recommendation: `RETIRE`.
 
 #### C. Zero-Exploration Invariant
-All specialist subagent archetypes (`harness_builder`, `harness_reviewer`, `harness_auditor`) enforce the **Zero-Exploration Invariant**:
+All specialist subagent archetypes (`agyis_builder`, `agyis_reviewer`, `agyis_auditor`) enforce the **Zero-Exploration Invariant**:
 - Blind recursive exploration (`list_dir`, `find_by_name`) is prohibited.
 - Subagents open target files directly from the plan or prompt instructions, or communicate back to the coordinator and halt immediately.
 
@@ -308,3 +309,35 @@ All specialist subagent archetypes (`harness_builder`, `harness_reviewer`, `harn
 - `agyis subagents [--json] [--brain-dir <path>]`: Renders formatted ASCII table of live active subagents.
 - `agyis status`: Automatically embeds live active subagents health table when subagents are active.
 
+---
+
+### 3.6 The `psl-compaction-advisory` Contract (PreInvocation, ADR-033)
+
+The compaction advisory hook operates at the `PreInvocation` event boundary, evaluating model token runway *before* prompts are submitted to the underlying LLM.
+
+#### A. Registration in `hooks.json`
+```json
+{
+  "psl-compaction-advisory": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 -m harness.hooks.runner pre-invocation",
+        "timeout": 5
+      }
+    ]
+  }
+}
+```
+
+#### B. Architectural Behavior & Invariants
+1. **Dynamic Attention Runway Evaluation**:
+   - Reads active transcript SQLite database (`conversations/*.db`) in read-only URI mode.
+   - Decodes protobuf fields to inspect current token consumption against the 256k window.
+2. **De-Spammed Advisory Invariant**:
+   - When token consumption crosses the red alert threshold ($\ge 230,000$ tokens), injects a comprehensive 40-line compaction directive into the prompt **exactly once** per session crossing.
+   - On subsequent turns, injects a minimal 1-line badge to preserve attention runway without prompt bloat.
+3. **Carrier-Grade Pre-Compaction Checkpoint Auto-Serialization**:
+   - Automatically writes current mission state to `.agents/artifacts/cockpit_checkpoint.md` and active plan to `.agents/artifacts/active_plan.md`, ensuring seamless state succession across Antigravity turn compactions.
+4. **Hermetic Fail-Open Protocol**:
+   - In case of transcript access contention or syntax anomalies, the hook fails open with empty steps (`{"injectSteps": []}`), guaranteeing model prompt dispatch is never stalled.

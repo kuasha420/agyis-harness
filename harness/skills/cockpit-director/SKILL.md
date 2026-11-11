@@ -13,9 +13,9 @@ description: >-
 
 # Cockpit Flight Director: Air Traffic Control & Root Pairing Standard 🛫🕹️
 
-**Document Standard**: `PSL-SPEC-2026-COCKPIT-DIRECTOR-001` (`docs/cockpit_director.md`)  
+**Document Standard**: `PSL-SPEC-2026-COCKPIT-DIRECTOR-001` (`docs/official-specs/cockpit-director.md`)  
 **Operational Regime**: Track C (Long-Horizon Autonomous Engineering)  
-**Governing ADRs**: ADR-012 (Artifact-First Planning), ADR-013 (Terminal Invariants), ADR-014 (Product vs. Project Bifurcation), ADR-015 (Clean-Room Testing & Verification), ADR-028 (Cleanroom Reconstruction), ADR-031 (Native Orchestration Alignment), ADR-032 (Tool-Native Primacy & Anti-Polling)
+**Governing ADRs**: ADR-012 (Artifact-First Planning), ADR-013 (Terminal Invariants), ADR-014 (Product vs. Project Bifurcation), ADR-015 (Clean-Room Testing & Verification), ADR-028 (Cleanroom Reconstruction), ADR-031A (Native Orchestration Alignment), ADR-032 (Tool-Native Primacy & Anti-Polling)
 
 ---
 
@@ -134,7 +134,7 @@ All stage handoffs along the execution pipeline must conform to the formal schem
 
 ---
 
-## 5. Pillar 4: Compaction Lifecycle & Native Succession Protocol (ADR-031)
+## 5. Pillar 4: Compaction Lifecycle & Native Succession Protocol (ADR-031A)
 
 ### Context Proximity Thresholds
 1. **🟢 Healthy Zone (<180,000 tokens)**: Normal autonomous operations and subagent dispatches.
@@ -204,7 +204,7 @@ agyis cockpit verify                          # Audit active session against the
 agyis cockpit verify --allow-dirty            # Audit invariants permitting active uncommitted in-flight diffs
 agyis audit aff                               # Audit architectural fitness, boundary violations & structural debt
 
-# 💾 Carrier-Grade Compaction & Succession (ADR-031)
+# 💾 Carrier-Grade Compaction & Succession (ADR-031A)
 agyis checkpoint status                       # Inspect latest compaction checkpoint freshness and state
 agyis checkpoint create                       # Formally serialize pre-compaction working memory checkpoint
 agyis checkpoint prune --keep 3               # Prune historical checkpoints retaining recent revisions
