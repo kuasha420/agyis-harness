@@ -692,7 +692,8 @@ class TestReaToolingDiagnostics(unittest.TestCase):
         with patch("subprocess.run", side_effect=mock_run), \
              patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
              patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
-             patch("harness.runtime.doctor.check_rea_tooling", return_value=mock_rea):
+             patch("harness.runtime.doctor.check_rea_tooling", return_value=mock_rea), \
+             patch("harness.runtime.doctor.check_telemetry_daemon", return_value={"status": "OK"}):
             audit = run_doctor(DEFAULT_MATRIX)
             self.assertEqual(audit["rea_tooling"]["status"], "optional_missing")
             self.assertEqual(audit["summary"]["missing"], 0)
@@ -746,6 +747,7 @@ class TestReaToolingDiagnostics(unittest.TestCase):
              patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
              patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
              patch("harness.runtime.doctor.check_rea_tooling", return_value=mock_rea), \
+             patch("harness.runtime.doctor.check_telemetry_daemon", return_value={"status": "OK"}), \
              patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}):
             audit = run_doctor(DEFAULT_MATRIX, experimental_rea=True)
             self.assertEqual(audit["rea_tooling"]["status"], "warning")
@@ -1334,6 +1336,14 @@ class TestTelemetryDaemonDoctor(unittest.TestCase):
             self.assertIn("telemetry_daemon", audit)
             self.assertEqual(audit["telemetry_daemon"]["status"], "OK")
 
+        with patch("harness.runtime.doctor.check_tool", return_value={"name": "mock", "binary": "mock", "status": "OK", "path": "/bin/mock", "version": "99.0.0", "min_version": "1.0.0", "is_shim": False, "shim_details": None, "is_collision": False, "collision_details": None, "spec": {}}), \
+             patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
+             patch("harness.runtime.doctor.check_rea_tooling", return_value={"status": "optional_missing", "fast_path": True}), \
+             patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}), \
+             patch("harness.runtime.doctor.check_telemetry_daemon", return_value={"status": "WARNING", "message": "agyis-sync.service is inactive."}):
+            warn_audit = run_doctor(DEFAULT_MATRIX, experimental_rea=False)
+            self.assertGreaterEqual(warn_audit["summary"]["warning"], 1)
+
     def test_print_cli_report_renders_telemetry_daemon(self):
         """Verifies print_cli_report renders active and warning telemetry daemon status."""
         active_audit = {
@@ -1356,14 +1366,42 @@ class TestTelemetryDaemonDoctor(unittest.TestCase):
                 "status": "WARNING",
                 "message": "agyis-sync.service is inactive.",
                 "remediation": "Run 'agyis sync --service install'",
+                "sync_health": {"status": "error", "last_harvest_at": "2026-11-10T10:00:00Z"},
+                "telemetry_lag": {"unsynced_local": 3, "stale_local": 1},
             },
             "tiers": {},
             "summary": {"ok": 0, "warning": 1, "outdated": 0, "missing": 0},
         }
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             print_cli_report(warn_audit)
-            self.assertIn("Telemetry Daemon:", mock_out.getvalue())
-            self.assertIn("Run 'agyis sync --service install'", mock_out.getvalue())
+            out_txt = mock_out.getvalue()
+            self.assertIn("Telemetry Daemon:", out_txt)
+            self.assertIn("Run 'agyis sync --service install'", out_txt)
+            self.assertIn("Sync Health:", out_txt)
+            self.assertIn("lag=3 unsynced / 1 stale", out_txt)
+
+    def test_check_telemetry_daemon_active_with_failing_sync_status(self):
+        """Active systemd service must report WARNING when daemon sync health records failures."""
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = Path(td)
+            (state_dir / "telemetry_sync_status.json").write_text(
+                json.dumps({
+                    "status": "error",
+                    "consecutive_failures": 4,
+                    "last_error": "disk I/O error",
+                    "last_harvest_at": "2026-11-08T00:00:00Z",
+                }),
+                encoding="utf-8",
+            )
+            proc = MagicMock(stdout="active\n", stderr="", returncode=0)
+            with patch.dict(os.environ, {"AGYIS_HARNESS_STATE_DIR": td}), \
+                 patch("shutil.which", return_value="/usr/bin/systemctl"), \
+                 patch("subprocess.run", return_value=proc):
+                result = check_telemetry_daemon()
+            self.assertEqual(result["status"], "WARNING")
+            self.assertEqual(result["state"], "active_failing")
+            self.assertIn("disk I/O error", result["remediation"])
+            self.assertEqual(result["sync_health"]["consecutive_failures"], 4)
 
 
 if __name__ == "__main__":

@@ -587,6 +587,22 @@ class TestMicroProbeUnit(unittest.TestCase):
                 self.assertEqual(rep.errors, 1)
                 self.assertIn("Exceeded hard mutant cap", rep.report_text)
 
+    def test_generate_mutants_preserves_utf8_byte_offsets(self) -> None:
+        """Asserts _replace_source_segment handles multi-byte UTF-8 prefixes without syntax corruption."""
+        import ast
+        from harness.mutation.probe_diff import generate_mutants_for_file
+        with tempfile.TemporaryDirectory() as td:
+            py_file = Path(td) / "utf8_sample.py"
+            py_file.write_text(
+                'def classify(n):\n    badge = "🚀🔥" if n == 1 else "plain"\n    return badge\n',
+                encoding="utf-8",
+            )
+            mutants = generate_mutants_for_file(py_file, {2}, [0])
+            cmp_mutants = [m for m in mutants if m.operator == "condition_inversion"]
+            self.assertEqual(len(cmp_mutants), 1)
+            self.assertIn('badge = "🚀🔥" if n != 1 else "plain"', cmp_mutants[0].mutated_source)
+            ast.parse(cmp_mutants[0].mutated_source)
+
 
 if __name__ == "__main__":
     unittest.main()

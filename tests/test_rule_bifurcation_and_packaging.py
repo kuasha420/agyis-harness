@@ -541,7 +541,7 @@ Cleanroom rules.
         self.assertIn(str(self.agents_rules), result["pruned_files"])
 
         pruned = self.agents_rules.read_text(encoding="utf-8")
-        self.assertIn("PSL-INV-001 through PSL-INV-009", pruned)
+        self.assertIn("PSL-INV-001 through PSL-INV-011", pruned)
         self.assertIn("Explicit Project Command Dictionary", pruned)
         self.assertIn("Product vs. Project Bifurcation", pruned)
         self.assertIn("Clean-Room Testing & Verification Contract", pruned)

@@ -21,6 +21,7 @@ CLI binaries, and provides zero-sudo auto-healing via `--heal`.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -106,7 +107,7 @@ def check_architectural_fitness(workspace_root: Optional[Path] = None) -> Option
 
 
 def check_telemetry_daemon() -> Optional[Dict[str, Any]]:
-    """Checks the status of the background telemetry sync systemd user daemon (Issue #55)."""
+    """Checks the status and harvest/sync health of agyis-sync.service (Issue #55)."""
     if not shutil.which("systemctl"):
         return None
 
@@ -121,13 +122,41 @@ def check_telemetry_daemon() -> Optional[Dict[str, Any]]:
     except Exception:
         output = "unknown"
 
+    sync_health: Dict[str, Any] = {}
+    telemetry_lag: Dict[str, Any] = {}
+    try:
+        from harness.telemetry.sync.daemon import compute_telemetry_lag, read_sync_status
+        sync_health = read_sync_status()
+        telemetry_lag = compute_telemetry_lag()
+    except Exception:
+        pass
+
     if output == "active":
+        failures = int(sync_health.get("consecutive_failures") or 0)
+        if failures > 0 or sync_health.get("status") == "error":
+            last_err = sync_health.get("last_error") or "consecutive daemon failures"
+            remediation = (
+                f"agyis-sync.service is active but failing ({failures} consecutive failure(s): {last_err}). "
+                "Run 'agyis sync' or check 'agyis sync --service status'."
+            )
+            return {
+                "status": "WARNING",
+                "service": "agyis-sync.service",
+                "state": "active_failing",
+                "message": remediation,
+                "details": remediation,
+                "remediation": remediation,
+                "sync_health": sync_health,
+                "telemetry_lag": telemetry_lag,
+            }
         return {
             "status": "OK",
             "service": "agyis-sync.service",
             "state": "active",
             "message": "Telemetry Sync Service (agyis-sync.service is active)",
             "details": "Telemetry Sync Service (agyis-sync.service is active)",
+            "sync_health": sync_health,
+            "telemetry_lag": telemetry_lag,
         }
     elif output == "failed":
         remediation = "agyis-sync.service in failed state. Run 'agyis sync --service status' for logs."
@@ -138,6 +167,8 @@ def check_telemetry_daemon() -> Optional[Dict[str, Any]]:
             "message": remediation,
             "details": remediation,
             "remediation": remediation,
+            "sync_health": sync_health,
+            "telemetry_lag": telemetry_lag,
         }
     elif output == "inactive":
         remediation = "agyis-sync.service is inactive. Run 'agyis sync --service install' / 'start' to enable background sync."
@@ -148,6 +179,8 @@ def check_telemetry_daemon() -> Optional[Dict[str, Any]]:
             "message": remediation,
             "details": remediation,
             "remediation": remediation,
+            "sync_health": sync_health,
+            "telemetry_lag": telemetry_lag,
         }
     else:
         remediation = f"agyis-sync.service is {output}. Run 'agyis sync --service install' / 'start' to enable background sync."
@@ -158,6 +191,8 @@ def check_telemetry_daemon() -> Optional[Dict[str, Any]]:
             "message": remediation,
             "details": remediation,
             "remediation": remediation,
+            "sync_health": sync_health,
+            "telemetry_lag": telemetry_lag,
         }
 
 
@@ -198,17 +233,29 @@ def run_doctor(
     duplicate_skills = check_duplicate_skills(workspace_root=effective_workspace, config_dir=config_dir)
     node_script_hygiene = check_node_script_hygiene(workspace_root=effective_workspace)
     hooks_health = check_hooks_health(hooks_path=hooks_path)
-    database_port_conflicts = check_database_port_conflicts(workspace_root=effective_workspace)
-    telemetry_daemon = check_telemetry_daemon()
-    rea_tooling = check_rea_tooling(mcp_config_path=mcp_config_path, experimental_rea=experimental_rea)
     architectural_fitness = check_architectural_fitness(effective_workspace)
 
-    # Reverse engineering and dirtyroom forensic toolchain audit (ADR-028, Issue #100)
     is_re = is_re_workspace(effective_workspace)
     re_active = re_toolchain or is_re
-    forensic_toolchain = None
-    if re_active:
-        forensic_toolchain = audit_forensic_toolchain(workspace_dir=effective_workspace)
+
+    # Execute independent subprocess probes concurrently to keep fast-path doctor <1.0s.
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        fut_db = pool.submit(check_database_port_conflicts, workspace_root=effective_workspace)
+        fut_daemon = pool.submit(check_telemetry_daemon)
+        fut_rea = pool.submit(check_rea_tooling, mcp_config_path=mcp_config_path, experimental_rea=experimental_rea)
+        fut_ft = pool.submit(audit_forensic_toolchain, workspace_dir=effective_workspace) if re_active else None
+        tool_futures: Dict[Tuple[str, str], Any] = {}
+        for tier_key, tier_data in matrix.get("tiers", {}).items():
+            for tool_name, tool_spec in tier_data.get("tools", {}).items():
+                tool_futures[(tier_key, tool_name)] = pool.submit(
+                    check_tool, tool_name, tool_spec, hermetic_python
+                )
+
+        database_port_conflicts = fut_db.result()
+        telemetry_daemon = fut_daemon.result()
+        rea_tooling = fut_rea.result()
+        forensic_toolchain = fut_ft.result() if fut_ft else None
+        checked_tools = {k: fut.result() for k, fut in tool_futures.items()}
 
     results: Dict[str, Any] = {
         "os_family": os_family,
@@ -252,6 +299,8 @@ def run_doctor(
         results["summary"]["warning"] += 1
     if database_port_conflicts.get("status") == "WARNING":
         results["summary"]["warning"] += 1
+    if telemetry_daemon and telemetry_daemon.get("status") == "WARNING":
+        results["summary"]["warning"] += 1
     if architectural_fitness and architectural_fitness.get("status") in ("WARNING", "FAIL"):
         results["summary"]["warning"] += 1
 
@@ -274,8 +323,8 @@ def run_doctor(
 
     for tier_key, tier_data in matrix.get("tiers", {}).items():
         tier_results = []
-        for tool_name, tool_spec in tier_data.get("tools", {}).items():
-            check = check_tool(tool_name, tool_spec, hermetic_python)
+        for tool_name, _ in tier_data.get("tools", {}).items():
+            check = checked_tools[(tier_key, tool_name)]
             tier_results.append(check)
 
             st = check["status"]
@@ -420,6 +469,14 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
                 print(f"    Remediation:\n      {telem_d.get('remediation')}")
         else:
             print(f" Telemetry Daemon:    [\033[34mINFO\033[0m] -> {msg}")
+        lag = telem_d.get("telemetry_lag") or {}
+        sh = telem_d.get("sync_health") or {}
+        if sh.get("last_harvest_at") or lag.get("unsynced_local") or lag.get("stale_local"):
+            print(
+                f"    Sync Health:      state={sh.get('status', 'unknown')}, "
+                f"last_harvest={str(sh.get('last_harvest_at') or 'never')[:19]}, "
+                f"lag={lag.get('unsynced_local', 0)} unsynced / {lag.get('stale_local', 0)} stale"
+            )
 
     aff_data = audit.get("architectural_fitness")
     if aff_data:

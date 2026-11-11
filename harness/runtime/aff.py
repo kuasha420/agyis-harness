@@ -165,15 +165,27 @@ IGNORED_DIRS = {
 }
 
 
-def _discover_python_files(base_dir: Path) -> List[Path]:
-    """Fast directory traversal discovering python files while skipping ignored paths."""
-    py_files: List[Path] = []
+MAX_MODULE_LINES = 800
+MAX_TOP_LEVEL_DEFS = 25
+
+
+def _discover_files(base_dir: Path, suffix: str) -> List[Path]:
+    """Fast traversal discovering files matching suffix while skipping ignored paths."""
+    found: List[Path] = []
     for root, dirs, files in os.walk(base_dir):
         dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith(".")]
         for f in files:
-            if f.endswith(".py"):
-                py_files.append(Path(root) / f)
-    return sorted(py_files)
+            if f.endswith(suffix):
+                found.append(Path(root) / f)
+    return sorted(found)
+
+
+def _discover_python_files(base_dir: Path) -> List[Path]:
+    return _discover_files(base_dir, ".py")
+
+
+def _discover_asset_files(base_dir: Path) -> List[Path]:
+    return _discover_files(base_dir, ".js")
 
 
 def _match_source_pattern(rel_posix: str, pattern: str) -> bool:
@@ -201,25 +213,13 @@ def _normalize_target(target: str) -> str:
 def _matches_forbidden_target(imported: str, forbidden_target: str) -> bool:
     """Evaluates whether an imported module matches or resides within a forbidden target."""
     norm = _normalize_target(forbidden_target)
-    if not norm:
-        return False
-    if imported == norm or imported.startswith(f"{norm}."):
-        return True
-    return False
+    return bool(norm) and (imported == norm or imported.startswith(f"{norm}."))
 
 
 def _is_exempt_file(content: str) -> bool:
     """Detects file-level AFF exemption pragmas."""
-    first_lines = content[:2000].splitlines()
-    for line in first_lines[:30]:
-        stripped = line.strip()
-        if (
-            "# aff: exempt" in stripped
-            or "# aff_exempt" in stripped
-            or "__aff_exempt__ = True" in stripped
-        ):
-            return True
-    return False
+    markers = ("# aff: exempt", "# aff_exempt", "__aff_exempt__ = True", "// aff: exempt", "/* aff: exempt")
+    return any(any(m in line for m in markers) for line in content[:2000].splitlines()[:30])
 
 
 def _is_exempt_line(line: str) -> bool:
@@ -229,18 +229,14 @@ def _is_exempt_line(line: str) -> bool:
 
 def _is_exempt_node(node: ast.AST) -> bool:
     """Detects whether AST definition node carries @aff_exempt decorator."""
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        for dec in node.decorator_list:
-            if isinstance(dec, ast.Name) and dec.id == "aff_exempt":
-                return True
-            if isinstance(dec, ast.Attribute) and dec.attr == "aff_exempt":
-                return True
-            if isinstance(dec, ast.Call):
-                f = dec.func
-                if isinstance(f, ast.Name) and f.id == "aff_exempt":
-                    return True
-                if isinstance(f, ast.Attribute) and f.attr == "aff_exempt":
-                    return True
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return False
+    for dec in node.decorator_list:
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        if (isinstance(target, ast.Name) and target.id == "aff_exempt") or (
+            isinstance(target, ast.Attribute) and target.attr == "aff_exempt"
+        ):
+            return True
     return False
 
 
@@ -248,59 +244,29 @@ def _parse_module(
     py_file: Path,
     parsed_cache: Optional[Dict[Path, Tuple[Optional[str], Optional[ast.AST], Optional[SmellDefect]]]] = None,
 ) -> Tuple[Optional[str], Optional[ast.AST], Optional[SmellDefect]]:
-    """
-    Safely reads and parses a python file into AST.
-
-    Captures SyntaxError, UnicodeDecodeError, OSError, returning a SmellDefect on failure
-    rather than silently swallowing corrupted or unparseable source files (DEFECT-01).
-    """
+    """Reads and parses a Python file into AST, capturing syntax/encoding/IO defects (DEFECT-01)."""
     if parsed_cache is not None and py_file in parsed_cache:
         return parsed_cache[py_file]
 
+    line_no, desc, rem = 1, "", ""
     try:
         content = py_file.read_text(encoding="utf-8")
-        tree = ast.parse(content, filename=str(py_file))
-        res = (content, tree, None)
+        res: Tuple[Optional[str], Optional[ast.AST], Optional[SmellDefect]] = (
+            content, ast.parse(content, filename=str(py_file)), None
+        )
     except SyntaxError as e:
-        defect = SmellDefect(
-            file=str(py_file),
-            line_number=e.lineno or 1,
-            smell_type="SYNTAX_ERROR",
-            severity="CRITICAL",
-            description=f"SyntaxError in Python source: {e.msg}",
-            remediation="Fix syntax error so module can be parsed and analyzed.",
-        )
-        res = (None, None, defect)
+        line_no = e.lineno or 1
+        desc, rem = f"SyntaxError in Python source: {e.msg}", "Fix syntax error so module can be parsed and analyzed."
+        res = (None, None, SmellDefect(str(py_file), line_no, "SYNTAX_ERROR", "CRITICAL", desc, rem))
     except UnicodeDecodeError as e:
-        defect = SmellDefect(
-            file=str(py_file),
-            line_number=1,
-            smell_type="SYNTAX_ERROR",
-            severity="CRITICAL",
-            description=f"Encoding error: unable to decode UTF-8: {e}",
-            remediation="Ensure file is valid UTF-8 text.",
-        )
-        res = (None, None, defect)
+        desc, rem = f"Encoding error: unable to decode UTF-8: {e}", "Ensure file is valid UTF-8 text."
+        res = (None, None, SmellDefect(str(py_file), 1, "SYNTAX_ERROR", "CRITICAL", desc, rem))
     except OSError as e:
-        defect = SmellDefect(
-            file=str(py_file),
-            line_number=1,
-            smell_type="SYNTAX_ERROR",
-            severity="CRITICAL",
-            description=f"I/O error reading file: {e}",
-            remediation="Ensure file permissions and disk state are readable.",
-        )
-        res = (None, None, defect)
+        desc, rem = f"I/O error reading file: {e}", "Ensure file permissions and disk state are readable."
+        res = (None, None, SmellDefect(str(py_file), 1, "SYNTAX_ERROR", "CRITICAL", desc, rem))
     except Exception as e:
-        defect = SmellDefect(
-            file=str(py_file),
-            line_number=1,
-            smell_type="SYNTAX_ERROR",
-            severity="CRITICAL",
-            description=f"Failed to parse Python module: {e}",
-            remediation="Fix module so it can be parsed via ast.parse.",
-        )
-        res = (None, None, defect)
+        desc, rem = f"Failed to parse Python module: {e}", "Fix module so it can be parsed via ast.parse."
+        res = (None, None, SmellDefect(str(py_file), 1, "SYNTAX_ERROR", "CRITICAL", desc, rem))
 
     if parsed_cache is not None:
         if len(parsed_cache) >= 10000:
@@ -609,15 +575,14 @@ def audit_structural_smells(
     parsed_cache: Optional[Dict[Path, Tuple[Optional[str], Optional[ast.AST], Optional[SmellDefect]]]] = None,
 ) -> List[SmellDefect]:
     """
-    Audits python modules for AST structural code smells:
+    Audits Python modules and JS assets for structural code smells:
     1. SYNTAX_ERROR: Corrupted or unparseable Python modules (CRITICAL).
     2. FOREIGN_LANGUAGE_MONOLITH: Multiline strings (>100 lines) containing HTML/JS/CSS/SQL.
-    3. GOD_COMPONENT: Modules > 2,000 lines or > 30 top-level definitions without @aff_exempt.
+    3. GOD_COMPONENT: Modules/JS assets > 800 lines or Python modules > 25 top-level defs without @aff_exempt.
     4. UNBOUNDED_CACHE: Dict cache assignments without capacity bounds (len()), LRU, or eviction.
     """
     root_path = Path(root_dir).resolve()
     pkg_dir = root_path / target_pkg if (root_path / target_pkg).is_dir() else root_path
-
     py_files = _discover_python_files(pkg_dir)
     smells: List[SmellDefect] = []
 
@@ -639,118 +604,79 @@ def audit_structural_smells(
             parse_defect.file = rel_posix
             smells.append(parse_defect)
             continue
-
-        if tree is None or content is None:
-            continue
-
-        if _is_exempt_file(content):
+        if tree is None or content is None or _is_exempt_file(content):
             continue
 
         lines = content.splitlines()
         total_lines = len(lines)
-
-        # 1. GOD_COMPONENT Check (>2000 lines or >30 top-level definitions)
-        if total_lines > 2000:
-            smells.append(
-                SmellDefect(
-                    file=rel_posix,
-                    line_number=1,
-                    smell_type="GOD_COMPONENT",
-                    severity="MAJOR",
-                    description=f"Module exceeds 2,000 lines ({total_lines} lines). High structural complexity.",
-                    remediation="Decompose module into cohesive submodules or encapsulate into a dedicated subpackage.",
-                )
-            )
+        if total_lines > MAX_MODULE_LINES:
+            smells.append(SmellDefect(
+                file=rel_posix, line_number=1, smell_type="GOD_COMPONENT", severity="MAJOR",
+                description=f"Module exceeds {MAX_MODULE_LINES} lines ({total_lines} lines). High structural complexity.",
+                remediation="Decompose module into cohesive submodules or encapsulate into a dedicated subpackage.",
+            ))
 
         top_level_defs = [
-            n
-            for n in tree.body
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and not _is_exempt_node(n)
+            n for n in tree.body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and not _is_exempt_node(n)
         ]
-        if len(top_level_defs) > 30:
-            smells.append(
-                SmellDefect(
-                    file=rel_posix,
-                    line_number=1,
-                    smell_type="GOD_COMPONENT",
-                    severity="MAJOR",
-                    description=f"Module contains {len(top_level_defs)} top-level definitions (threshold: 30).",
-                    remediation="Refactor top-level procedures into cohesive domain classes or separate service modules.",
-                )
-            )
+        if len(top_level_defs) > MAX_TOP_LEVEL_DEFS:
+            smells.append(SmellDefect(
+                file=rel_posix, line_number=1, smell_type="GOD_COMPONENT", severity="MAJOR",
+                description=f"Module contains {len(top_level_defs)} top-level definitions (threshold: {MAX_TOP_LEVEL_DEFS}).",
+                remediation="Refactor top-level procedures into cohesive domain classes or separate service modules.",
+            ))
 
-        # 2. FOREIGN_LANGUAGE_MONOLITH & 3. UNBOUNDED_CACHE Check
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                s_val = node.value
-                val_lines = s_val.splitlines()
-                if len(val_lines) > 100:
-                    if any(pat.search(s_val) for pat in frontend_patterns):
-                        line_no = getattr(node, "lineno", 1)
-                        raw_line = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
-                        if not _is_exempt_line(raw_line):
-                            smells.append(
-                                SmellDefect(
-                                    file=rel_posix,
-                                    line_number=line_no,
-                                    smell_type="FOREIGN_LANGUAGE_MONOLITH",
-                                    severity="MAJOR",
-                                    description=(
-                                        f"Multiline string constant ({len(val_lines)} lines) contains "
-                                        "embedded foreign language markup/code (HTML/JS/CSS/SQL)."
-                                    ),
-                                    remediation=(
-                                        "Decouple foreign language code into external static assets under "
-                                        "assets/ and load dynamically via importlib.resources."
-                                    ),
-                                )
-                            )
+                val_lines = node.value.splitlines()
+                if len(val_lines) > 100 and any(pat.search(node.value) for pat in frontend_patterns):
+                    line_no = getattr(node, "lineno", 1)
+                    raw_line = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
+                    if not _is_exempt_line(raw_line):
+                        smells.append(SmellDefect(
+                            file=rel_posix, line_number=line_no, smell_type="FOREIGN_LANGUAGE_MONOLITH", severity="MAJOR",
+                            description=f"Multiline string constant ({len(val_lines)} lines) contains embedded HTML/JS/CSS/SQL.",
+                            remediation="Decouple foreign language code into external static assets under assets/ and load via importlib.resources.",
+                        ))
 
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if _is_exempt_node(node):
-                    continue
-
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not _is_exempt_node(node):
                 for inner in ast.walk(node):
                     if isinstance(inner, (ast.Assign, ast.AugAssign)):
                         targets = inner.targets if isinstance(inner, ast.Assign) else [inner.target]
                         for tgt in targets:
-                            if isinstance(tgt, ast.Subscript):
-                                cache_val = None
-                                cache_name = ""
-                                if isinstance(tgt.value, ast.Attribute):
-                                    attr_l = tgt.value.attr.lower()
-                                    if "cache" in attr_l or "memo" in attr_l:
-                                        cache_val = tgt.value
-                                        cache_name = tgt.value.attr
-                                elif isinstance(tgt.value, ast.Name):
-                                    name_l = tgt.value.id.lower()
-                                    if "cache" in name_l or "memo" in name_l:
-                                        cache_val = tgt.value
-                                        cache_name = tgt.value.id
+                            if not isinstance(tgt, ast.Subscript):
+                                continue
+                            cache_name = ""
+                            if isinstance(tgt.value, ast.Attribute) and ("cache" in tgt.value.attr.lower() or "memo" in tgt.value.attr.lower()):
+                                cache_name = tgt.value.attr
+                            elif isinstance(tgt.value, ast.Name) and ("cache" in tgt.value.id.lower() or "memo" in tgt.value.id.lower()):
+                                cache_name = tgt.value.id
+                            if cache_name and not _has_cache_bounds(node, tgt.value):
+                                line_no = getattr(inner, "lineno", node.lineno)
+                                raw_line = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
+                                if not _is_exempt_line(raw_line):
+                                    smells.append(SmellDefect(
+                                        file=rel_posix, line_number=line_no, smell_type="UNBOUNDED_CACHE", severity="MAJOR",
+                                        description=f"Assignment to cache '{cache_name}[...]' inside method '{node.name}' without capacity checks (len()), LRU, or eviction.",
+                                        remediation="Implement capacity guard (e.g. if len(cache) >= limit), use functools.lru_cache, or bounded OrderedDict.",
+                                    ))
 
-                                if cache_val is not None:
-                                    if not _has_cache_bounds(node, cache_val):
-                                        line_no = getattr(inner, "lineno", node.lineno)
-                                        raw_line = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
-                                        if not _is_exempt_line(raw_line):
-                                            smells.append(
-                                                SmellDefect(
-                                                    file=rel_posix,
-                                                    line_number=line_no,
-                                                    smell_type="UNBOUNDED_CACHE",
-                                                    severity="MAJOR",
-                                                    description=(
-                                                        f"Assignment to cache '{cache_name}[...]' inside "
-                                                        f"method '{node.name}' without capacity checks "
-                                                        "(len()), LRU, or eviction bounds."
-                                                    ),
-                                                    remediation=(
-                                                        "Implement capacity guard (e.g. if len(cache) >= limit), "
-                                                        "use functools.lru_cache, or bounded OrderedDict."
-                                                    ),
-                                                )
-                                            )
+    for js_file in _discover_asset_files(pkg_dir):
+        try:
+            rel_posix = js_file.relative_to(root_path).as_posix()
+            js_content = js_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if _is_exempt_file(js_content):
+            continue
+        js_lines = len(js_content.splitlines())
+        if js_lines > MAX_MODULE_LINES:
+            smells.append(SmellDefect(
+                file=rel_posix, line_number=1, smell_type="GOD_COMPONENT", severity="MAJOR",
+                description=f"JS asset exceeds {MAX_MODULE_LINES} lines ({js_lines} lines). High frontend complexity.",
+                remediation="Modularize frontend JS asset into focused ES submodules under assets/ <= 800 lines.",
+            ))
 
     return smells
 
@@ -762,25 +688,17 @@ def audit_architectural_fitness(
 ) -> ArchitecturalFitnessReport:
     """
     Orchestrates the complete Architectural Fitness Function (AFF) audit suite:
-    - Boundary defect analysis
-    - Dependency cycle detection
-    - Structural smell detection
-    - Benchmarking and overall scoring
+    - Boundary defect analysis, circular dependencies, structural smells, and benchmark scoring
     """
     start_t = time.perf_counter()
     root = (Path(workspace_root) if workspace_root else Path.cwd()).resolve()
-
     pkg_dir = root / target_pkg if (root / target_pkg).is_dir() else root
-    py_files = _discover_python_files(pkg_dir)
-    scanned_count = len(py_files)
-
-    # Shared parsed AST cache for single-pass performance
+    scanned_count = len(_discover_python_files(pkg_dir)) + len(_discover_asset_files(pkg_dir))
     parsed_cache: Dict[Path, Tuple[Optional[str], Optional[ast.AST], Optional[SmellDefect]]] = {}
 
     boundary_defects = audit_import_boundaries(root_dir=root, rules=rules, parsed_cache=parsed_cache)
     cycle_defects = audit_dependency_cycles(root_dir=root, target_pkg=target_pkg, parsed_cache=parsed_cache)
     smell_defects = audit_structural_smells(root_dir=root, target_pkg=target_pkg, parsed_cache=parsed_cache)
-
     elapsed = time.perf_counter() - start_t
 
     score = 100.0
@@ -790,31 +708,18 @@ def audit_architectural_fitness(
         score -= 25.0 if c.severity == "CRITICAL" else 10.0
     for s in smell_defects:
         score -= 25.0 if s.severity == "CRITICAL" else (10.0 if s.severity == "MAJOR" else 5.0)
-
     score = max(0.0, min(100.0, score))
 
-    has_critical = any(
-        d.severity == "CRITICAL"
-        for d in (boundary_defects + cycle_defects + smell_defects)
-    )
-    has_major = any(
-        d.severity == "MAJOR"
-        for d in (boundary_defects + cycle_defects + smell_defects)
-    )
-
-    if has_critical or has_major or score < 80.0:
+    all_defects = boundary_defects + cycle_defects + smell_defects
+    if any(d.severity in ("CRITICAL", "MAJOR") for d in all_defects) or score < 80.0:
         status = "FAIL"
-    elif boundary_defects or cycle_defects or smell_defects or score < 100.0:
+    elif all_defects or score < 100.0:
         status = "WARNING"
     else:
         status = "PASS"
 
     return ArchitecturalFitnessReport(
-        status=status,
-        score=score,
-        boundary_defects=boundary_defects,
-        cycle_defects=cycle_defects,
-        smell_defects=smell_defects,
-        benchmark_latency_s=elapsed,
-        scanned_files_count=scanned_count,
+        status=status, score=score,
+        boundary_defects=boundary_defects, cycle_defects=cycle_defects, smell_defects=smell_defects,
+        benchmark_latency_s=elapsed, scanned_files_count=scanned_count,
     )

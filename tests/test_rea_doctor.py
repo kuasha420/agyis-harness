@@ -70,6 +70,7 @@ class TestReaDoctorFastPath(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=None), \
              patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
              patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
+             patch("harness.runtime.doctor.check_telemetry_daemon", return_value={"status": "OK"}), \
              patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}), \
              patch("subprocess.run") as mock_run:
             t0 = time.perf_counter()
@@ -122,6 +123,7 @@ class TestReaDoctorFastPath(unittest.TestCase):
         with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
              patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
              patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
+             patch("harness.runtime.doctor.check_telemetry_daemon", return_value={"status": "OK"}), \
              patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}), \
              patch("subprocess.run") as mock_run:
             t0 = time.perf_counter()

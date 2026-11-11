@@ -17,7 +17,7 @@ from pathlib import Path
 import re
 import shlex
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -347,10 +347,18 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
             "compactor": "harness.hooks.output_compactor_hook",
             "verification-fence": "harness.hooks.completion_fence_hook",
             "token-proximity": "harness.hooks.token_proximity_guard",
+            "pre-invocation": "harness.hooks.pre_invocation_hook",
+        }
+        ALIASES = {
+            "compaction-advisory": "pre-invocation",
+            "compaction_advisory": "pre-invocation",
+            "pre_invocation": "pre-invocation",
+            "token-proximity-guard": "token-proximity",
         }
 
         def resolve_hook_module(name: str) -> str:
             clean = (name or "").strip().lower().replace("_", "-")
+            clean = ALIASES.get(clean, clean)
             if clean in HOOK_MODULES:
                 return HOOK_MODULES[clean]
             raise ValueError(f"Unknown hook '{name}'. Supported hooks: {', '.join(sorted(HOOK_MODULES.keys()))}")

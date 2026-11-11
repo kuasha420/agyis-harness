@@ -461,6 +461,29 @@ class TestCliAndDoctorAffIntegration(unittest.TestCase):
         self.assertEqual(len(cache_smells), 1)
         self.assertEqual(cache_smells[0].file, "cache_unrelated/handler.py")
 
+    def test_god_component_line_limit_and_js_asset_enforcement(self) -> None:
+        """Python modules and JS assets exceeding 800 lines or >25 defs trigger GOD_COMPONENT."""
+        pkg = self.workspace / "tight_pkg"
+        assets = pkg / "assets"
+        assets.mkdir(parents=True, exist_ok=True)
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+
+        # 26 top-level defs triggers (>25 threshold)
+        (pkg / "many_defs.py").write_text(
+            "\n".join(f"def fn_{i}():\n    return {i}" for i in range(26)) + "\n",
+            encoding="utf-8",
+        )
+        # 805 lines triggers (>800 line limit)
+        (pkg / "long_py.py").write_text("\n".join(f"X_{i} = {i}" for i in range(805)) + "\n", encoding="utf-8")
+        # 805-line JS asset triggers (>800 line limit)
+        (assets / "big_hud.js").write_text("\n".join(f"const v{i} = {i};" for i in range(805)) + "\n", encoding="utf-8")
+
+        smells = audit_structural_smells(root_dir=self.workspace, target_pkg="tight_pkg")
+        god_files = {s.file for s in smells if s.smell_type == "GOD_COMPONENT"}
+        self.assertIn("tight_pkg/many_defs.py", god_files)
+        self.assertIn("tight_pkg/long_py.py", god_files)
+        self.assertIn("tight_pkg/assets/big_hud.js", god_files)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -278,6 +278,30 @@ describe('VRT', () => {
         vrt_smells = [s for s in smells if s.rule_id == SmellType.FAKE_VRT.value]
         self.assertEqual(len(vrt_smells), 0)
 
+    def test_python_non_screenshot_svg_asset_passes(self):
+        code = """
+import unittest
+from pathlib import Path
+
+class TestPackaging(unittest.TestCase):
+    def test_wheel_install(self):
+        target = Path("/tmp/pkg")
+        self.assertTrue((target / "assets" / "logo.svg").is_file())
+"""
+        smells = audit_file_smells("test_pkg.py", content=code)
+        self.assertEqual([s for s in smells if s.rule_id == SmellType.FAKE_VRT.value], [])
+
+    def test_python_screenshot_svg_still_rejected(self):
+        code = """
+import os, unittest
+
+class TestSvgScreenshot(unittest.TestCase):
+    def test_home(self):
+        self.assertTrue(os.path.exists("artifacts/screenshot_home.svg"))
+"""
+        smells = audit_file_smells("test_svg_vrt.py", content=code)
+        self.assertTrue(any(s.rule_id == SmellType.FAKE_VRT.value for s in smells))
+
 
 class TestEchoAssertions(unittest.TestCase):
     """Tests detection of Echo Assertions (SM004)."""
@@ -1078,6 +1102,23 @@ class TestPragma(unittest.TestCase):
         smells = audit_file_smells("test_typo.py", content=code)
         sm001 = [s for s in smells if s.rule_id == SmellType.ZERO_STATE_TAUTOLOGY.value]
         self.assertEqual(len(sm001), 1)
+
+    def test_sm004_function_level_pragma_suppresses_echo_assertion(self):
+        code = """
+import unittest
+from unittest.mock import MagicMock
+
+class TestPragmaSM004(unittest.TestCase):
+    # agyis: no-smell SM004 intentional contract literal check
+    def test_echo_suppressed(self):
+        m = MagicMock()
+        m.get_status.return_value = "READY"
+        self.assertEqual(m.get_status(), "READY")
+        assert m.get_status() == "READY"
+"""
+        smells = audit_file_smells("test_sm004_pragma.py", content=code)
+        sm004 = [s for s in smells if s.rule_id == SmellType.ECHO_ASSERTION.value]
+        self.assertEqual(len(sm004), 0)
 
     def test_cli_nonexistent_test_path_exits_code_1(self):
         exit_code = run_anti_synthetic_doctor(target_path="/tmp/nonexistent_path_42")

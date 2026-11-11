@@ -98,6 +98,52 @@ class TestPslCli(unittest.TestCase):
             self.assertIn("Modular Skills:", out)
             self.assertIn("Specialist Subagents:", out)
 
+    def test_cli_status_renders_telemetry_sync_lag_and_health(self):
+        """Verifies `agyis status` surfaces daemon sync errors and unsynced transcript lag."""
+        import sqlite3
+        from harness.telemetry.schema import SCHEMA_SQL
+
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            fake_db = td_path / "telemetry.db"
+            conn = sqlite3.connect(fake_db)
+            conn.executescript(SCHEMA_SQL)
+            conn.commit()
+            conn.close()
+
+            brain_dir = td_path / "brain"
+            t_dir = brain_dir / "sess-lag-01" / ".system_generated" / "logs"
+            t_dir.mkdir(parents=True, exist_ok=True)
+            (t_dir / "transcript.jsonl").write_text('{"step_index": 0}\n', encoding="utf-8")
+
+            state_dir = td_path / "state"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            (state_dir / "telemetry_sync_status.json").write_text(
+                json.dumps({
+                    "status": "error",
+                    "last_harvest_at": "2026-11-08T00:00:00Z",
+                    "consecutive_failures": 2,
+                    "last_error": "no such column",
+                }),
+                encoding="utf-8",
+            )
+
+            env_patch = {
+                "AGYIS_HARNESS_STATE_DIR": str(state_dir),
+                "ANTIGRAVITY_BRAIN_DIR": str(brain_dir),
+            }
+            with patch.dict(os.environ, env_patch), \
+                 patch("harness.commands.status.DEFAULT_DB", fake_db), \
+                 patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                code = main(["status"])
+            self.assertEqual(code, 0)
+            out = mock_out.getvalue()
+            self.assertIn("Telemetry Sync:", out)
+            self.assertIn("state=error", out)
+            self.assertIn("failures=2", out)
+            self.assertIn("lag=1 unsynced / 0 stale", out)
+            self.assertIn("no such column", out)
+
     def test_cli_skills_subcommand(self):
         """Verifies `psl skills` lists skills and inspects details."""
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:

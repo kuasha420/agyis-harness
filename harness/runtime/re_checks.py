@@ -8,6 +8,7 @@ Forensic Reverse Engineering & Cleanroom Toolchain Diagnostics (Issue #100, ADR-
 Provides context-aware probing of decompilers, disassemblers, packet triage, and input daemons.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -168,8 +169,29 @@ def audit_forensic_toolchain(
         })
         remediation_lines.append("Install Ghidra 11+ and export GHIDRA_INSTALL_DIR=/opt/ghidra")
 
-    # 2. Java 21+ Runtime (Static Core)
+    # Probe binary versions concurrently to uphold the sub-second SLA.
     jdk_path = find_jdk21_path()
+    dynamic_specs = (
+        ("tshark", "tshark", "Wireshark CLI verified", "tshark not found (network frame triage)", "tshark", "Install Wireshark CLI: sudo pacman -S wireshark-cli (or sudo apt install tshark)"),
+        ("gpu-screen-recorder", "gpu-screen-recorder", "GPU screen recorder verified", "gpu-screen-recorder not found (Wayland KMS capture)", "gpu-screen-recorder", "Install gpu-screen-recorder: sudo pacman -S gpu-screen-recorder"),
+        ("ydotoold", "ydotool", "Wayland uinput automation verified", "ydotool/ydotoold not found in PATH", "ydotoold", "Install ydotool: sudo pacman -S ydotool (or sudo apt install ydotool)"),
+        ("xdotool", "xdotool", "X11 automation verified", "xdotool not found in PATH", "xdotool", "Install xdotool: sudo pacman -S xdotool (or sudo apt install xdotool)"),
+    )
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        fut_java = None if jdk_path else pool.submit(probe_binary_with_version, "java", "-version", timeout)
+        fut_objdump = pool.submit(probe_binary_with_version, "objdump", "--version", timeout)
+        fut_llvm_objdump = pool.submit(probe_binary_with_version, "llvm-objdump", "--version", timeout)
+        fut_dyn = {
+            dyn_name: pool.submit(probe_binary_with_version, dyn_bin, "--version", timeout)
+            for dyn_name, dyn_bin, *_ in dynamic_specs
+        }
+        java_probe = fut_java.result() if fut_java else (None, None)
+        objdump_bin, objdump_ver = fut_objdump.result()
+        if not objdump_bin:
+            objdump_bin, objdump_ver = fut_llvm_objdump.result()
+        dyn_probes = {name: fut.result() for name, fut in fut_dyn.items()}
+
+    # 2. Java 21+ Runtime (Static Core)
     if jdk_path:
         tools.append({
             "name": "java",
@@ -180,8 +202,7 @@ def audit_forensic_toolchain(
             "details": f"OpenJDK 21+ verified at {jdk_path}",
         })
     else:
-        # Check standard java binary
-        j_bin, j_ver = probe_binary_with_version("java", "-version", timeout=timeout)
+        j_bin, j_ver = java_probe
         if j_bin:
             java_major = 0
             if j_ver:
@@ -212,10 +233,6 @@ def audit_forensic_toolchain(
             remediation_lines.append("Install OpenJDK 21+ (e.g. sudo pacman -S jdk21-openjdk)")
 
     # 3. Disassembler: objdump / llvm-objdump (Static Core)
-    objdump_bin, objdump_ver = probe_binary_with_version("objdump", "--version", timeout=timeout)
-    if not objdump_bin:
-        objdump_bin, objdump_ver = probe_binary_with_version("llvm-objdump", "--version", timeout=timeout)
-
     if objdump_bin:
         tools.append({
             "name": "objdump",
@@ -305,65 +322,21 @@ def audit_forensic_toolchain(
         })
         remediation_lines.append("Scaffold dirty-room structure: agyis re init")
 
-    # 6. Packet Capture: tshark (Dynamic Forensics)
-    tshark_bin, tshark_ver = probe_binary_with_version("tshark", "--version", timeout=timeout)
-    t_status = "PASS" if tshark_bin else ("WARN" if dynamic_required else "INFO")
-    tools.append({
-        "name": "tshark",
-        "category": "dynamic",
-        "status": t_status,
-        "path": tshark_bin,
-        "version": tshark_ver,
-        "details": f"Wireshark CLI verified ({tshark_bin})" if tshark_bin else "tshark not found (network frame triage)",
-    })
-    if not tshark_bin and dynamic_required:
-        missing_packages.append("tshark")
-        remediation_lines.append("Install Wireshark CLI: sudo pacman -S wireshark-cli (or sudo apt install tshark)")
-
-    # 7. Hardware Screen Recording: gpu-screen-recorder (Dynamic Forensics)
-    gsr_bin, gsr_ver = probe_binary_with_version("gpu-screen-recorder", "--version", timeout=timeout)
-    gsr_status = "PASS" if gsr_bin else ("WARN" if dynamic_required else "INFO")
-    tools.append({
-        "name": "gpu-screen-recorder",
-        "category": "dynamic",
-        "status": gsr_status,
-        "path": gsr_bin,
-        "version": gsr_ver,
-        "details": f"GPU screen recorder verified ({gsr_bin})" if gsr_bin else "gpu-screen-recorder not found (Wayland KMS capture)",
-    })
-    if not gsr_bin and dynamic_required:
-        missing_packages.append("gpu-screen-recorder")
-        remediation_lines.append("Install gpu-screen-recorder: sudo pacman -S gpu-screen-recorder")
-
-    # 8. Wayland Input Daemon: ydotoold (Dynamic Forensics)
-    ydotool_bin, ydotool_ver = probe_binary_with_version("ydotool", "--version", timeout=timeout)
-    yd_status = "PASS" if ydotool_bin else ("WARN" if dynamic_required else "INFO")
-    tools.append({
-        "name": "ydotoold",
-        "category": "dynamic",
-        "status": yd_status,
-        "path": ydotool_bin,
-        "version": ydotool_ver,
-        "details": f"Wayland uinput automation verified ({ydotool_bin})" if ydotool_bin else "ydotool/ydotoold not found in PATH",
-    })
-    if not ydotool_bin and dynamic_required:
-        missing_packages.append("ydotoold")
-        remediation_lines.append("Install ydotool: sudo pacman -S ydotool (or sudo apt install ydotool)")
-
-    # 9. X11 Input Automation: xdotool (Dynamic Forensics)
-    xdotool_bin, xdotool_ver = probe_binary_with_version("xdotool", "--version", timeout=timeout)
-    xd_status = "PASS" if xdotool_bin else ("WARN" if dynamic_required else "INFO")
-    tools.append({
-        "name": "xdotool",
-        "category": "dynamic",
-        "status": xd_status,
-        "path": xdotool_bin,
-        "version": xdotool_ver,
-        "details": f"X11 automation verified ({xdotool_bin})" if xdotool_bin else "xdotool not found in PATH",
-    })
-    if not xdotool_bin and dynamic_required:
-        missing_packages.append("xdotool")
-        remediation_lines.append("Install xdotool: sudo pacman -S xdotool (or sudo apt install xdotool)")
+    # 6-9. Dynamic forensic & desktop automation tools
+    for dyn_name, _, ok_prefix, missing_msg, pkg_key, rem_cmd in dynamic_specs:
+        d_bin, d_ver = dyn_probes[dyn_name]
+        d_status = "PASS" if d_bin else ("WARN" if dynamic_required else "INFO")
+        tools.append({
+            "name": dyn_name,
+            "category": "dynamic",
+            "status": d_status,
+            "path": d_bin,
+            "version": d_ver,
+            "details": f"{ok_prefix} ({d_bin})" if d_bin else missing_msg,
+        })
+        if not d_bin and dynamic_required:
+            missing_packages.append(pkg_key)
+            remediation_lines.append(rem_cmd)
 
     pass_count = sum(1 for t in tools if t["status"] == "PASS")
     warn_count = sum(1 for t in tools if t["status"] == "WARN")
