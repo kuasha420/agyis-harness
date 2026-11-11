@@ -194,22 +194,31 @@
             })
             .map(item => item.raw);
 
-        const genMetaByStep = {};
-        const genMetaList = [];
-        genMetas.forEach(gm => {
-            if (gm && gm.stepIndex !== undefined && gm.stepIndex !== null) genMetaByStep[gm.stepIndex] = gm;
-            else if (gm) genMetaList.push(gm);
-        });
-
-        const execMetaByStep = {};
-        const execMetaList = [];
-        execMetas.forEach(em => {
-            if (em && em.stepIndex !== undefined && em.stepIndex !== null) execMetaByStep[em.stepIndex] = em;
-            else if (em) execMetaList.push(em);
-        });
-
-        let plannerIdx = 0;
-        let toolIdx = 0;
+        const indexMetaStream = (rawList) => {
+            const byStep = {};
+            const list = [];
+            (rawList || []).forEach(item => {
+                if (!item) return;
+                const idxs = Array.isArray(item.stepIndices) ? item.stepIndices.slice() : [];
+                if (item.stepIndex !== undefined && item.stepIndex !== null) idxs.push(item.stepIndex);
+                idxs.forEach(k => { byStep[k] = item; });
+                list.push({ item, keyed: idxs.length > 0 });
+            });
+            return { byStep, list, cursor: 0 };
+        };
+        const nextAlignedMeta = (stream, rawIdx, seqIdx, isEligible) => {
+            const hit = stream.byStep[rawIdx] || stream.byStep[seqIdx] || null;
+            if (hit) {
+                const pos = stream.list.findIndex(e => e.item === hit);
+                if (pos >= stream.cursor) stream.cursor = pos + 1;
+                return hit;
+            }
+            if (!isEligible) return null;
+            while (stream.cursor < stream.list.length && stream.list[stream.cursor].keyed) stream.cursor++;
+            return stream.cursor < stream.list.length ? stream.list[stream.cursor++].item : null;
+        };
+        const genStream = indexMetaStream(genMetas);
+        const execStream = indexMetaStream(execMetas);
         let cumulativeCtx = 0;
         const steps = [];
 
@@ -279,19 +288,27 @@
             }
             if (!compSummary && rawStep.sessionSummary) compSummary = String(rawStep.sessionSummary).trim();
             if (!compSummary && rawStep.userIntent) compSummary = String(rawStep.userIntent).trim();
-            if (!compSummary && content) {
+            const srcLow = String(rawStep.source || rawStep.role || "").toLowerCase();
+            const isNonCpType = [
+                "GENERIC", "TOOL_CALL", "RUN_COMMAND", "VIEW_FILE", "CODE_ACTION",
+                "GREP_SEARCH", "FIND_FILES", "PLANNER_RESPONSE", "MODEL_OUTPUT",
+                "REPLACE_FILE_CONTENT", "WRITE_FILE", "SEND_MESSAGE", "INVOKE_SUBAGENT",
+            ].includes(cortexType);
+            const hasToolData = Boolean(toolCalls.length > 0 || rawStep.runCommand || rawStep.viewFile || rawStep.codeAction || rawStep.invokeSubagent || thinking);
+            const isGenuineCtxSummary = !isNonCpType && !hasToolData && srcLow !== "model" && srcLow !== "assistant" && content.includes("<CONTEXT_SUMMARY>") && (srcLow === "system" || srcLow === "system_sdk" || /^\s*<CONTEXT_SUMMARY>/.test(content) || content.includes("RESUMING MY OWN TASK"));
+            if (cortexType !== "CHECKPOINT" && (rawStep.checkpoint || rawStep.sessionSummary || rawStep.userIntent || isGenuineCtxSummary)) {
+                cortexType = "CHECKPOINT";
+            }
+            if (!compSummary && cortexType === "CHECKPOINT" && content) {
                 const m = String(content).match(/<(?:CONTEXT_SUMMARY|summary)>([\s\S]*?)<\/(?:CONTEXT_SUMMARY|summary)>/i);
                 if (m) compSummary = m[1].trim();
             }
-            if (compSummary && cortexType !== "CHECKPOINT") cortexType = "CHECKPOINT";
 
             const isModelStep = (cortexType === "PLANNER_RESPONSE" || cortexType === "MODEL_OUTPUT");
-            let gm = genMetaByStep[rawStepIdx] || genMetaByStep[idx] || null;
-            if (!gm && isModelStep && plannerIdx < genMetaList.length) gm = genMetaList[plannerIdx++];
+            const gm = nextAlignedMeta(genStream, rawStepIdx, idx, isModelStep);
 
-            const isToolStep = (cortexType === "TOOL_CALL" || cortexType.includes("COMMAND") || cortexType.includes("FILE") || cortexType.includes("SEARCH"));
-            let em = execMetaByStep[rawStepIdx] || execMetaByStep[idx] || null;
-            if (!em && isToolStep && toolIdx < execMetaList.length) em = execMetaList[toolIdx++];
+            const isToolStep = (cortexType === "TOOL_CALL" || cortexType.includes("COMMAND") || cortexType.includes("FILE") || cortexType.includes("SEARCH") || cortexType === "CODE_ACTION");
+            const em = nextAlignedMeta(execStream, rawStepIdx, idx, isToolStep);
 
             let thinkingMs = (gm && parseInt(gm.timeToFirstToken || 0, 10)) || 0;
             let streamingMs = (gm && parseInt(gm.streamingDuration || 0, 10)) || 0;
@@ -300,10 +317,39 @@
             if (em && em.executionDurationMs) streamingMs = parseInt(em.executionDurationMs, 10) || 0;
             const totalDurationMs = thinkingMs + streamingMs;
 
+            const retryUsage = (rawStep.metadata && rawStep.metadata.retryInfos && rawStep.metadata.retryInfos[0] && rawStep.metadata.retryInfos[0].usage) || {};
+            const extraFields = {};
+            let extraToolText = "";
+            if (rawStep.runCommand) {
+                extraFields.command = rawStep.runCommand.commandLine || "";
+                extraFields.exitCode = rawStep.runCommand.exitCode;
+                extraFields.output = (rawStep.runCommand.combinedOutput && rawStep.runCommand.combinedOutput.full) || "";
+                extraFields.cwd = rawStep.runCommand.cwd;
+                extraToolText += extraFields.command + extraFields.output;
+            }
+            if (rawStep.viewFile) {
+                extraFields.filePath = rawStep.viewFile.absolutePathUri;
+                extraFields.fileContent = rawStep.viewFile.content || "";
+                extraFields.endLine = rawStep.viewFile.endLine;
+                extraToolText += extraFields.fileContent;
+            }
+            if (rawStep.codeAction) {
+                extraFields.diffLines = (rawStep.codeAction.actionResult && rawStep.codeAction.actionResult.edit && rawStep.codeAction.actionResult.edit.diff && rawStep.codeAction.actionResult.edit.diff.unifiedDiff && rawStep.codeAction.actionResult.edit.diff.unifiedDiff.lines) || [];
+                const actSpec = rawStep.codeAction.actionSpec || {};
+                extraFields.filePath = (actSpec.createFile && actSpec.createFile.path && actSpec.createFile.path.absoluteUri) || (actSpec.editFile && actSpec.editFile.path && actSpec.editFile.path.absoluteUri) || "";
+                extraToolText += extraFields.diffLines.join("\n");
+            }
+            if (rawStep.invokeSubagent) extraFields.subagent = (rawStep.invokeSubagent.subagents && rawStep.invokeSubagent.subagents[0]) || null;
+            if (rawStep.checkpoint) {
+                extraFields.sessionSummary = rawStep.checkpoint.sessionSummary || "";
+                extraFields.cacheReadTokens = parseInt(retryUsage.cacheReadTokens || 0, 10) || 0;
+                extraFields.checkpointInputTokens = parseInt(retryUsage.inputTokens || 0, 10) || 0;
+            }
+
             const gmUsage = (gm && gm.usage) || (rawStep.metadata && rawStep.metadata.modelUsage) || {};
-            let inTok = parseInt(rawStep.input_tokens || gmUsage.inputTokens || gmUsage.promptTokenCount || gmUsage.inputTokenCount || 0, 10) || 0;
+            let inTok = parseInt(rawStep.input_tokens || gmUsage.inputTokens || gmUsage.promptTokenCount || gmUsage.inputTokenCount || extraFields.checkpointInputTokens || 0, 10) || 0;
             let outTok = parseInt(rawStep.output_tokens || 0, 10) || 0;
-            let cacheTok = parseInt(rawStep.cache_read_tokens || rawStep.cacheReadTokens || gmUsage.cacheReadTokens || gmUsage.cachedContentTokenCount || 0, 10) || 0;
+            let cacheTok = parseInt(rawStep.cache_read_tokens || rawStep.cacheReadTokens || gmUsage.cacheReadTokens || gmUsage.cachedContentTokenCount || retryUsage.cacheReadTokens || 0, 10) || 0;
             let thinkOutTok = parseInt(gmUsage.thinkingOutputTokens || 0, 10) || 0;
             if (!outTok && (gmUsage.outputTokens || gmUsage.candidatesTokenCount || gmUsage.responseOutputTokens || thinkOutTok)) {
                 const respOut = parseInt(gmUsage.outputTokens || gmUsage.candidatesTokenCount || gmUsage.responseOutputTokens || 0, 10) || 0;
@@ -321,7 +367,7 @@
                 } else if (cortexType === "CHECKPOINT") {
                     stepTok = Math.round(((compSummary ? compSummary.length : content.length) || 100) / 3.5);
                 } else {
-                    let charCount = 0;
+                    let charCount = extraToolText.length;
                     toolCalls.forEach(tc => {
                         charCount += (tc.name || "").length + JSON.stringify(tc.args || {}).length + String(tc.output || "").length;
                     });
@@ -334,10 +380,7 @@
             if (cortexType === "CHECKPOINT") cumulativeCtx = stepTok;
             else if (stepTok > 0) cumulativeCtx += stepTok;
 
-            const retryUsage = (rawStep.metadata && rawStep.metadata.retryInfos && rawStep.metadata.retryInfos[0] && rawStep.metadata.retryInfos[0].usage) || {};
-            if (cacheTok === 0 && retryUsage.cacheReadTokens) cacheTok = parseInt(retryUsage.cacheReadTokens, 10) || 0;
-
-            const stepObj = {
+            const stepObj = Object.assign({
                 step_index: rawStepIdx,
                 exec_index: rawStep.exec_index || 1,
                 inv_index: rawStep.inv_index || 1,
@@ -362,38 +405,15 @@
                 generator_metadata: gm,
                 executor_metadata: em,
                 timestamp_ms: parseStepTimestampMs(rawStep, gm, em),
-                _hasExplicitInput: (rawStep.input_tokens !== undefined || Boolean(gmUsage.inputTokens || gmUsage.promptTokenCount || gmUsage.inputTokenCount)),
+                _hasExplicitInput: (rawStep.input_tokens !== undefined || Boolean(gmUsage.inputTokens || gmUsage.promptTokenCount || gmUsage.inputTokenCount || extraFields.checkpointInputTokens)),
                 _hasAuthUsage: (inTok + cacheTok > 0) && (cortexType !== "USER_INPUT" || rawStep.input_tokens !== undefined || Boolean(gmUsage.inputTokens || gmUsage.promptTokenCount || cacheTok > 0)),
-            };
-
-            if (rawStep.runCommand) {
-                stepObj.command = rawStep.runCommand.commandLine;
-                stepObj.exitCode = rawStep.runCommand.exitCode;
-                stepObj.output = (rawStep.runCommand.combinedOutput && rawStep.runCommand.combinedOutput.full) || "";
-                stepObj.cwd = rawStep.runCommand.cwd;
-            }
-            if (rawStep.viewFile) {
-                stepObj.filePath = rawStep.viewFile.absolutePathUri;
-                stepObj.fileContent = rawStep.viewFile.content;
-                stepObj.endLine = rawStep.viewFile.endLine;
-            }
-            if (rawStep.codeAction) {
-                stepObj.diffLines = (rawStep.codeAction.actionResult && rawStep.codeAction.actionResult.edit && rawStep.codeAction.actionResult.edit.diff && rawStep.codeAction.actionResult.edit.diff.unifiedDiff && rawStep.codeAction.actionResult.edit.diff.unifiedDiff.lines) || [];
-                const actSpec = rawStep.codeAction.actionSpec || {};
-                stepObj.filePath = (actSpec.createFile && actSpec.createFile.path && actSpec.createFile.path.absoluteUri) || (actSpec.editFile && actSpec.editFile.path && actSpec.editFile.path.absoluteUri) || "";
-            }
-            if (rawStep.invokeSubagent) stepObj.subagent = (rawStep.invokeSubagent.subagents && rawStep.invokeSubagent.subagents[0]) || null;
-            if (rawStep.checkpoint) {
-                stepObj.sessionSummary = rawStep.checkpoint.sessionSummary || "";
-                stepObj.cacheReadTokens = parseInt(retryUsage.cacheReadTokens || 0, 10) || 0;
-                stepObj.checkpointInputTokens = parseInt(retryUsage.inputTokens || 0, 10) || 0;
-            }
+            }, extraFields);
             steps.push(stepObj);
         });
 
         const checkpoints = [];
         steps.forEach((s, i) => {
-            if (s.type === "CHECKPOINT" || Boolean(orderedRaw[i] && orderedRaw[i].checkpoint) || s.compaction_summary !== null) {
+            if (s.type === "CHECKPOINT" || Boolean(orderedRaw[i] && orderedRaw[i].checkpoint)) {
                 checkpoints.push(i);
             }
         });

@@ -2434,6 +2434,53 @@ async function fetch(url, opts) {
     window.__agyis_hud_state.filterQuery = '" onfocus="alert(2)';
     window.__agyis_hud_render();
     const htmlEscaped = hudContainer.innerHTML;
+    const s5Subagents = (window.__agyis_hud_state.currentData && window.__agyis_hud_state.currentData.subagents) || [];
+
+    // Scenario 6: #107.1 / #108.2 / #108.4 / #108.5
+    mockScenario = {
+        steps: [
+            { type: "CORTEX_STEP_TYPE_GENERIC", generic: { text: "<summary>Harmless generic output</summary>" } },
+            {
+                type: "CORTEX_STEP_TYPE_VIEW_FILE",
+                viewFile: {
+                    absolutePathUri: "/workspace/README.md",
+                    content: "<CONTEXT_SUMMARY>false alarm inside view_file</CONTEXT_SUMMARY>\\n" + ("R".repeat(7000)),
+                },
+            },
+            {
+                type: "CORTEX_STEP_TYPE_RUN_COMMAND",
+                runCommand: {
+                    commandLine: "cat transcript.jsonl",
+                    exitCode: 0,
+                    combinedOutput: { full: ("C".repeat(7000)) + "\\n<summary>quoted stdout</summary>" },
+                },
+            },
+            { type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE", plannerResponse: { response: "Analyzing <summary> tag in markdown" } },
+            {
+                type: "CORTEX_STEP_TYPE_CHECKPOINT",
+                checkpoint: { sessionSummary: "Real epoch boundary checkpoint" },
+            },
+            {
+                type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+                plannerResponse: { response: "Epoch 2 resumed step" },
+                metadata: { modelUsage: { inputTokens: 8000, cacheReadTokens: 48000 } },
+            },
+        ],
+        genMetas: [
+            { stepIndex: 99, chatStartMetadata: { contextWindowMetadata: { maxContextTokens: 1000000 } } },
+            { stepIndices: [3], chatStartMetadata: { contextWindowMetadata: { maxContextTokens: 256000 } } },
+            { stepIndices: [4], chatStartMetadata: { contextWindowMetadata: { maxContextTokens: 256000 } } },
+            { chatStartMetadata: { contextWindowMetadata: { maxContextTokens: 512000 } } },
+        ],
+    };
+    window.__agyis_hud_state.filterQuery = "";
+    window.__agyis_hud_state.mainDeckTab = "context";
+    const dataS6 = await window.__agyis_hud_load_convo("convo-s6-epoch-and-tools");
+    window.__agyis_hud_render();
+    const htmlS6Ep1 = hudContainer.innerHTML;
+    window.__agyis_hud_state.activeEpochIndex = 0;
+    window.__agyis_hud_render();
+    const htmlS6Ep0 = hudContainer.innerHTML;
 
     console.log(JSON.stringify({
         s1_epochs: data512.epochs.length,
@@ -2459,8 +2506,16 @@ async function fetch(url, opts) {
         s4_total_tok: dataAuth.total_tokens,
         s4_html: htmlAuth,
         s5_loads: loadCalls,
-        s5_subagents: (window.__agyis_hud_state.currentData && window.__agyis_hud_state.currentData.subagents) || [],
+        s5_subagents: s5Subagents,
         s5_html: htmlEscaped,
+        s6_epochs: dataS6.epochs.length,
+        s6_view_tok: (dataS6.steps[1] && dataS6.steps[1].tokens) || 0,
+        s6_cmd_tok: (dataS6.steps[2] && dataS6.steps[2].tokens) || 0,
+        s6_ep1_cache: dataS6.epochs[1] ? dataS6.epochs[1].cache_tokens : -1,
+        s6_total_tok: dataS6.total_tokens,
+        s6_max_ctx: dataS6.max_context_tokens,
+        s6_ep0_html: htmlS6Ep0,
+        s6_ep1_html: htmlS6Ep1,
     }));
 })();
 """
@@ -2522,6 +2577,19 @@ async function fetch(url, opts) {
         self.assertNotIn('<b onclick="xss()">', out["s5_html"])
         self.assertNotIn('" onfocus="alert(2)', out["s5_html"])
         self.assertIn("&lt;img src=x", out["s5_html"])
+
+        # Scenario 6 assertions (#107.1, #108.2, #108.4, #108.5)
+        self.assertEqual(out["s6_epochs"], 2, "Fake <summary>/<CONTEXT_SUMMARY> inside non-checkpoint steps must NOT split epochs")
+        self.assertGreater(out["s6_view_tok"], 1500, "viewFile.content chars must be included in stepTok before breakdown")
+        self.assertGreater(out["s6_cmd_tok"], 1500, "runCommand.combinedOutput.full chars must be included in stepTok before breakdown")
+        self.assertEqual(out["s6_ep1_cache"], 48000)
+        self.assertEqual(out["s6_total_tok"], 56000)
+        self.assertEqual(out["s6_max_ctx"], 512000)
+        # Historical Epoch 0 vs Authoritative Epoch 1 header badges (#108.4)
+        self.assertIn("~est", out["s6_ep0_html"])
+        self.assertNotIn("Cache: 48.0k", out["s6_ep0_html"])
+        self.assertNotIn("~est", out["s6_ep1_html"])
+        self.assertIn("Cache: 48.0k", out["s6_ep1_html"])
 
 
 if __name__ == "__main__":

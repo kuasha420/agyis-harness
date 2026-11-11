@@ -334,10 +334,12 @@
 
         const rawFillPct = maxTokens > 0 ? (activeTokensSum / maxTokens) * 100 : 0;
         const clampedFillPct = Math.min(100, rawFillPct).toFixed(1);
-        const estBadge = cur.is_provisional ? ' <span class="agyis-hud-pill agyis-hud-pill-amber" title="Provisional estimate">~est</span>' : "";
+        const effProvisional = (activeEpoch && activeEpoch.is_provisional !== undefined) ? activeEpoch.is_provisional : cur.is_provisional;
+        const effCacheTokens = (activeEpoch && typeof activeEpoch.cache_tokens === "number") ? activeEpoch.cache_tokens : (cur.cache_tokens || 0);
+        const estBadge = effProvisional ? ' <span class="agyis-hud-pill agyis-hud-pill-amber" title="Provisional estimate">~est</span>' : "";
         const burnRate = cur.burn_rate_tokens_per_min || 0;
         const burnBadge = burnRate > 0 ? ` <span class="agyis-hud-pill agyis-hud-pill-teal">${burnRate.toFixed(0)} tok/m</span>` : "";
-        const cacheHitBadge = (cur.cache_tokens || 0) > 0 ? ` <span class="agyis-hud-pill agyis-hud-pill-green">Cache: ${(cur.cache_tokens / 1000).toFixed(1)}k</span>` : "";
+        const cacheHitBadge = effCacheTokens > 0 ? ` <span class="agyis-hud-pill agyis-hud-pill-green">Cache: ${(effCacheTokens / 1000).toFixed(1)}k</span>` : "";
 
         const subagents = cur.subagents || [];
         const subagentInfos = cur.subagent_infos || [];

@@ -480,6 +480,77 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
             self.assertEqual(traj["subagents"], [child_id])
             self.assertTrue(all("\\" not in sid for sid in traj["subagents"]))
 
+    def test_non_checkpoint_summary_tags_do_not_split_epochs(self):
+        """#107.1: <summary> and <CONTEXT_SUMMARY> inside tools/GENERIC/assistant prose do NOT split epochs."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_brain = Path(tmpdir)
+            cid = "test-non-checkpoint-tags"
+            (base_brain / cid).mkdir(parents=True, exist_ok=True)
+            steps = [
+                {"step_index": 0, "type": "USER_INPUT", "content": "Initial request", "tokens": 200},
+                {"step_index": 1, "type": "GENERIC", "content": "<summary>Tool output summary</summary>"},
+                {
+                    "step_index": 2,
+                    "type": "VIEW_FILE",
+                    "viewFile": {
+                        "absolutePathUri": "/tmp/doc.md",
+                        "content": "<CONTEXT_SUMMARY>fake prose inside read_file</CONTEXT_SUMMARY>",
+                    },
+                },
+                {
+                    "step_index": 3,
+                    "type": "RUN_COMMAND",
+                    "runCommand": {
+                        "commandLine": "cat transcript.jsonl",
+                        "exitCode": 0,
+                        "combinedOutput": {"full": "<CONTEXT_SUMMARY>\nquoted log line\n</CONTEXT_SUMMARY>"},
+                    },
+                },
+                {
+                    "step_index": 4,
+                    "type": "PLANNER_RESPONSE",
+                    "content": "Discussing <summary> and <CONTEXT_SUMMARY> tags in prose",
+                    "tool_calls": [{"name": "view_file", "args": {}, "output": "<summary>nested</summary>"}],
+                },
+                {"step_index": 5, "type": "CHECKPOINT", "content": "<summary>Actual compaction checkpoint</summary>"},
+                {"step_index": 6, "type": "PLANNER_RESPONSE", "content": "Resumed cleanly", "tokens": 350},
+            ]
+            (base_brain / cid / "transcript.jsonl").write_text(
+                "\n".join(json.dumps(s) for s in steps) + "\n",
+                encoding="utf-8",
+            )
+            traj = load_conversation_trajectory(cid, brain_dir=base_brain)
+            self.assertEqual(traj["checkpoint_count"], 1)
+            self.assertEqual(len(traj["epochs"]), 2)
+            self.assertEqual((traj["epochs"][0]["start_index"], traj["epochs"][0]["end_index"]), (0, 5))
+            self.assertEqual((traj["epochs"][1]["start_index"], traj["epochs"][1]["end_index"]), (5, 6))
+            self.assertEqual(traj["epoch_index"], 1)
+
+    def test_find_transcript_path_prefers_transcript_full(self):
+        """#108.3: find_transcript_path prefers transcript_full.jsonl over compact transcript.jsonl."""
+        from harness.trajectory.transcript_reader import find_transcript_path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_brain = Path(tmpdir)
+            cid = "test-prefer-full-transcript"
+            logs_dir = base_brain / cid / ".system_generated" / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            compact_path = logs_dir / "transcript.jsonl"
+            full_path = logs_dir / "transcript_full.jsonl"
+            compact_path.write_text(
+                json.dumps({"step_index": 0, "type": "PLANNER_RESPONSE", "content": "truncated", "truncated_fields": ["content"]}) + "\n",
+                encoding="utf-8",
+            )
+            full_path.write_text(
+                json.dumps({"step_index": 0, "type": "PLANNER_RESPONSE", "content": "FULL_UNTRUNCATED_" + ("z" * 400)}) + "\n",
+                encoding="utf-8",
+            )
+            resolved, _src = find_transcript_path(cid, brain_dir=base_brain)
+            self.assertEqual(resolved, full_path)
+            traj = load_conversation_trajectory(cid, brain_dir=base_brain)
+            self.assertEqual(Path(traj["transcript_path"]), full_path)
+            self.assertIn("FULL_UNTRUNCATED_", traj["steps"][0]["content"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,7 +19,11 @@ from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from harness.trajectory.health import DEFAULT_CONTEXT_WINDOW_TOKENS, TrajectoryMetrics
+from harness.trajectory.health import (
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
+    TrajectoryMetrics,
+    is_transcript_checkpoint_step,
+)
 from harness.trajectory.sqlite_reader import parse_step_timestamp, read_db_trajectory_state
 from harness.trajectory.transcript_reader import (
     _load_meta_parent,
@@ -73,15 +77,7 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
     content = str(step.get("content") or "")
     step_case = str(step.get("case") or step.get("step", {}).get("case") or "").lower()
 
-    if (
-        existing_type == "CHECKPOINT"
-        or step_case == "checkpoint"
-        or "<context_summary>" in content.lower()
-        or "<summary>" in content.lower()
-        or step.get("checkpoint") is not None
-        or step.get("sessionSummary") is not None
-        or step.get("userIntent") is not None
-    ):
+    if is_transcript_checkpoint_step(step):
         return "CHECKPOINT"
 
     if existing_type and existing_type in (
@@ -117,8 +113,8 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
     return existing_type or "STEP"
 
 
-def _extract_compaction_summary(step: Dict[str, Any]) -> Optional[str]:
-    """Extracts compaction summary from checkpoint step or XML summary blocks."""
+def _extract_compaction_summary(step: Dict[str, Any], is_checkpoint: Optional[bool] = None) -> Optional[str]:
+    """Extracts compaction summary strictly from checkpoint steps or structured summary fields."""
     cp = step.get("checkpoint")
     if isinstance(cp, dict):
         s = cp.get("sessionSummary") or cp.get("userIntent") or cp.get("summary")
@@ -138,6 +134,10 @@ def _extract_compaction_summary(step: Dict[str, Any]) -> Optional[str]:
         if s:
             return str(s).strip()
 
+    if is_checkpoint is None:
+        is_checkpoint = is_transcript_checkpoint_step(step)
+    if not is_checkpoint:
+        return None
     for field in ("content", "thinking"):
         val = str(step.get(field) or "")
         m = re.search(r"<(?:CONTEXT_SUMMARY|summary)>([\s\S]*?)</(?:CONTEXT_SUMMARY|summary)>", val, re.I)
@@ -418,7 +418,7 @@ def _enrich_and_sort_steps(
             if sys_cand:
                 s["content"] = sys_cand.get("content") or sys_cand.get("message") or sys_cand.get("text") or json.dumps(sys_cand, indent=2) if isinstance(sys_cand, dict) else str(sys_cand)
 
-        comp_summary = _extract_compaction_summary(s)
+        comp_summary = _extract_compaction_summary(s, is_checkpoint=(cortex_type == "CHECKPOINT"))
         if comp_summary:
             s["compaction_summary"] = comp_summary
 
@@ -475,7 +475,7 @@ def _enrich_and_sort_steps(
 
         raw_in = s.get("input_tokens")
         if raw_in is None:
-            raw_in = model_usage.get("inputTokens") or model_usage.get("promptTokenCount") or model_usage.get("inputTokenCount") or meta.get("input_tokens") or meta.get("promptTokenCount")
+            raw_in = model_usage.get("inputTokens") or model_usage.get("promptTokenCount") or model_usage.get("inputTokenCount") or meta.get("input_tokens") or meta.get("promptTokenCount") or s.get("checkpointInputTokens")
         in_tok = int(raw_in or 0)
         if raw_in is not None and in_tok > 0:
             explicit_in_positions.add(pos)
@@ -498,7 +498,8 @@ def _enrich_and_sort_steps(
             step_tok = out_tok or in_tok or estimate_tokens(len(str(s.get("compaction_summary") or s.get("content") or "")))
         else:
             tool_chars = sum(len(str(tc.get("name") or "")) + len(json.dumps(tc.get("args") or "") if tc.get("args") else "") + len(str(tc.get("output") or "")) for tc in s.get("tool_calls", []))
-            step_tok = out_tok or in_tok or estimate_tokens(tool_chars or len(str(s.get("content") or "")))
+            extra_chars = len(str(s.get("command") or "")) + len(str(s.get("output") or "")) + len(str(s.get("fileContent") or "")) + len("\n".join(str(x) for x in s.get("diffLines") or []))
+            step_tok = out_tok or in_tok or estimate_tokens(tool_chars + extra_chars or len(str(s.get("content") or "")))
 
         if cortex_type == "CHECKPOINT":
             cumulative_ctx = step_tok
