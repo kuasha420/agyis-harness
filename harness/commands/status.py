@@ -123,12 +123,14 @@ def cmd_status(args: argparse.Namespace) -> int:
         from harness.utils.context import get_active_conversation_id
 
         conv_id = get_active_conversation_id() or os.environ.get("CONVERSATION_ID")
+        conv_source = "env" if conv_id else ""
         if not conv_id:
             conv_dir = get_conversations_dir()
             if conv_dir.is_dir():
                 dbs = sorted([f for f in conv_dir.glob("*.db") if not f.name.endswith(".tmp")], key=lambda f: f.stat().st_mtime, reverse=True)
                 if dbs:
                     conv_id = dbs[0].stem
+                    conv_source = "fallback: newest mtime"
         ctx_win = get_active_conversation_context_window(conv_id) if conv_id else {
             "tokens": 0,
             "max_context_tokens": CONTEXT_WINDOW_TOKENS,
@@ -168,7 +170,8 @@ def cmd_status(args: argparse.Namespace) -> int:
                     red_threshold=red_t,
                     compaction_threshold=comp_t,
                 )
-                print(f"   📊 Active Session: {gauge}")
+                conv_label = f"{conv_id} | {conv_source}" if conv_source == "fallback: newest mtime" else conv_id
+                print(f"   📊 Active Session ({conv_label}): {gauge}")
     except Exception:
         print(" Cognitive Attention Horizon Gauge (256k Model Context Window):")
         print("   🟢 Healthy Zone: <180k tokens (Nominal / High Attention Aperture)")

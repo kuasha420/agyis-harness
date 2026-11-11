@@ -10,7 +10,7 @@ Canonical context window calibration, health grading, and breakdown models (ADR-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 CONTEXT_WINDOW_TOKENS: int = 256_000
 DEFAULT_CONTEXT_WINDOW_TOKENS: int = CONTEXT_WINDOW_TOKENS
@@ -121,12 +121,61 @@ class TokenBreakdown:
         }
 
 
+_NON_CHECKPOINT_STEP_TYPES = frozenset({
+    "GENERIC", "TOOL_CALL", "RUN_COMMAND", "VIEW_FILE", "CODE_ACTION",
+    "GREP_SEARCH", "FIND_FILES", "PLANNER_RESPONSE", "MODEL_OUTPUT",
+    "REPLACE_FILE_CONTENT", "WRITE_FILE", "SEND_MESSAGE", "INVOKE_SUBAGENT",
+})
+
+
 def is_checkpoint_step(step_type: object) -> bool:
     """Returns True if step_type denotes a compaction checkpoint (23 live)."""
     try:
         return int(step_type) in CHECKPOINT_STEP_TYPES  # type: ignore[arg-type]
     except (ValueError, TypeError):
         return False
+
+
+def is_transcript_checkpoint_step(step: Any) -> bool:
+    """Returns True only for genuine compaction CHECKPOINT transcript entries."""
+    if not isinstance(step, dict):
+        return False
+    raw_type = str(step.get("type") or step.get("stepType") or "").strip().upper()
+    if raw_type.startswith("CORTEX_STEP_TYPE_"):
+        raw_type = raw_type[len("CORTEX_STEP_TYPE_"):]
+    inner = step.get("step") if isinstance(step.get("step"), dict) else {}
+    step_case = str(step.get("case") or inner.get("case") or "").strip().lower()
+    if (
+        raw_type == "CHECKPOINT"
+        or step_case == "checkpoint"
+        or step.get("checkpoint") is not None
+        or step.get("sessionSummary") is not None
+        or step.get("userIntent") is not None
+    ):
+        return True
+    if (
+        raw_type in _NON_CHECKPOINT_STEP_TYPES
+        or step.get("tool_calls")
+        or step.get("toolCalls")
+        or step.get("runCommand") is not None
+        or step.get("viewFile") is not None
+        or step.get("codeAction") is not None
+        or step.get("invokeSubagent") is not None
+        or step.get("thinking")
+    ):
+        return False
+    source = str(step.get("source") or "").strip().lower()
+    role = str(step.get("role") or "").strip().lower()
+    if source in ("model", "assistant") or role in ("model", "assistant"):
+        return False
+    content = str(step.get("content") or "")
+    if "<CONTEXT_SUMMARY>" not in content:
+        return False
+    return (
+        source in ("system", "system_sdk")
+        or content.lstrip().startswith("<CONTEXT_SUMMARY>")
+        or "RESUMING MY OWN TASK" in content
+    )
 
 
 def infer_model_context_window(model_name: Optional[str]) -> int:

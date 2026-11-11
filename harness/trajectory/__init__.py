@@ -38,6 +38,7 @@ from harness.trajectory.health import (
     get_urgency_tier,
     infer_model_context_window,
     is_checkpoint_step,
+    is_transcript_checkpoint_step,
     normalize_role_str,
 )
 from harness.trajectory.protobuf import (
@@ -61,6 +62,7 @@ from harness.trajectory.sqlite_reader import (
     parse_step_timestamp,
     read_db_trajectory_state,
     record_locked_conversation,
+    resolve_epoch_step_count,
     unlock_conversation,
 )
 from harness.trajectory.transcript_reader import (
@@ -114,6 +116,7 @@ __all__ = [
     "get_urgency_tier",
     "infer_model_context_window",
     "is_checkpoint_step",
+    "is_transcript_checkpoint_step",
     "is_conversation_completed",
     "is_conversation_locked",
     "is_transcript_completed",
@@ -126,5 +129,6 @@ __all__ = [
     "parse_step_timestamp",
     "read_db_trajectory_state",
     "record_locked_conversation",
+    "resolve_epoch_step_count",
     "unlock_conversation",
 ]

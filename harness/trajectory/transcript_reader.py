@@ -26,6 +26,7 @@ from harness.trajectory.health import (
     SubagentContextStatus,
     TokenBreakdown,
     classify_context_health,
+    is_transcript_checkpoint_step,
 )
 from harness.trajectory.sqlite_reader import parse_step_timestamp, read_db_trajectory_state
 from harness.utils.context import get_active_brain_dir
@@ -81,9 +82,10 @@ def find_transcript_path(
     convo_dir = p if p.is_dir() else (b_dir / raw)
     cid = convo_dir.name
     for rel in (
+        convo_dir / ".system_generated" / "logs" / "transcript_full.jsonl",
+        convo_dir / "transcript_full.jsonl",
         convo_dir / ".system_generated" / "logs" / "transcript.jsonl",
         convo_dir / "transcript.jsonl",
-        convo_dir / ".system_generated" / "logs" / "transcript_full.jsonl",
     ):
         if rel.is_file():
             return rel, cid
@@ -308,7 +310,7 @@ def build_measured_breakdown(steps: List[Dict[str, Any]], total_tokens: int) -> 
         else:
             t_tok = 0
 
-        if stype == "CHECKPOINT" or "<CONTEXT_SUMMARY>" in content:
+        if is_transcript_checkpoint_step(s):
             cp_t += explicit_step_tok or estimate_tokens(content)
         elif stype == "USER_INPUT":
             user_t += explicit_step_tok or estimate_tokens(content)
@@ -408,7 +410,7 @@ def discover_active_subagents(
                 role = detected_role
 
         # Active-epoch token/step count: DB authoritative first, else transcript active-epoch text
-        cp_indices = [i for i, s in enumerate(steps) if s.get("type") == "CHECKPOINT" or "<CONTEXT_SUMMARY>" in str(s.get("content") or "")]
+        cp_indices = [i for i, s in enumerate(steps) if is_transcript_checkpoint_step(s)]
         active_slice = steps[cp_indices[-1] :] if cp_indices else steps
         epoch_steps = db_metrics.epoch_steps if db_metrics.total_steps > 0 else len(active_slice)
         max_ctx = db_metrics.max_context_tokens or DEFAULT_CONTEXT_WINDOW_TOKENS

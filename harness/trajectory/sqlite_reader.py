@@ -680,3 +680,52 @@ def read_db_trajectory_state(
                 conn.close()
             except Exception:
                 pass
+
+
+_CUMULATIVE_STEP_KEYS = (
+    "step_count", "stepCount", "step", "current_step", "currentStep",
+    "step_idx", "stepIdx", "initialNumSteps", "initial_num_steps",
+    "invocationNum", "invocation_num",
+)
+
+
+def resolve_epoch_step_count(
+    payload: Optional[Dict[str, Any]] = None,
+    conv_id: str = "default",
+    explicit_step: Optional[int] = None,
+    db_metrics: Optional[TrajectoryMetrics] = None,
+    db_dir: Optional[Path] = None,
+    timeout: Optional[float] = None,
+) -> Optional[int]:
+    """Resolves active-epoch step depth, replacing raw cumulative step counts across checkpoints."""
+    if explicit_step is not None:
+        return int(explicit_step)
+    epoch_step: Optional[int] = None
+    cum_step: Optional[int] = None
+    if isinstance(payload, dict):
+        for ek in ("epoch_steps", "epochSteps"):
+            val = payload.get(ek)
+            if isinstance(val, (int, float)):
+                epoch_step = int(val)
+                break
+            if isinstance(val, str) and val.strip().isdigit():
+                epoch_step = int(val.strip())
+                break
+        for k in _CUMULATIVE_STEP_KEYS:
+            val = payload.get(k)
+            if isinstance(val, (int, float)):
+                cum_step = int(val)
+                break
+            if isinstance(val, str) and val.strip().isdigit():
+                cum_step = int(val.strip())
+                break
+    if epoch_step is not None:
+        return epoch_step
+    norm_cid = normalize_cid(conv_id)
+    if norm_cid and norm_cid != "default":
+        metrics = db_metrics if db_metrics is not None else read_db_trajectory_state(norm_cid, db_dir=db_dir, timeout=timeout)
+        if metrics.checkpoint_count > 0:
+            return metrics.epoch_steps
+        if cum_step is None and metrics.total_steps > 0:
+            return metrics.epoch_steps
+    return cum_step

@@ -23,6 +23,7 @@ from harness.trajectory.health import (
     DEFAULT_CONTEXT_WINDOW_TOKENS,
     SubagentContextStatus,
     classify_context_health,
+    is_transcript_checkpoint_step,
 )
 from harness.trajectory.sqlite_reader import read_db_trajectory_state
 from harness.trajectory.transcript_reader import (
@@ -38,22 +39,9 @@ from harness.utils.tokens import estimate_tokens
 _GENERIC_MSG_ROLES = frozenset({"user", "assistant", "system", "tool", "model"})
 
 
-def _read_bounded_steps(p: Path, file_size: int) -> List[Dict[str, Any]]:
-    """Reads structured JSON lines hermetically within bounded memory/time even on >2MB files."""
-    if file_size <= 2 * 1024 * 1024:
-        steps, _, _ = load_transcript_steps(p)
-        return steps
-    chunks: List[str] = []
-    with open(p, "rb") as f:
-        chunks.extend(f.read(65536).decode("utf-8", errors="replace").splitlines())
-        if file_size > 327680:
-            f.seek(file_size - 262144)
-        tail_lines = f.read().decode("utf-8", errors="replace").splitlines()
-        if file_size > 327680 and len(tail_lines) > 1:
-            tail_lines = tail_lines[1:]
-        chunks.extend(tail_lines)
+def _parse_json_chunk(raw_lines: List[str]) -> List[Dict[str, Any]]:
     parsed: List[Dict[str, Any]] = []
-    for raw in chunks:
+    for raw in raw_lines:
         s = raw.strip("\x00 \t\r\n")
         if s.startswith("{"):
             try:
@@ -62,6 +50,41 @@ def _read_bounded_steps(p: Path, file_size: int) -> List[Dict[str, Any]]:
                     parsed.append(obj)
             except (json.JSONDecodeError, ValueError):
                 pass
+    return parsed
+
+
+def _read_bounded_steps(p: Path, file_size: int) -> List[Dict[str, Any]]:
+    """Reads head + reverse-scanned tail up to latest CHECKPOINT within bounded memory/time on >2MB files."""
+    if file_size <= 2 * 1024 * 1024:
+        steps, _, _ = load_transcript_steps(p)
+        return steps
+    chunk_size = 262_144
+    max_scan = 2 * 1024 * 1024
+    head_bytes = 65_536
+    tail_chunks: List[List[Dict[str, Any]]] = []
+    with open(p, "rb") as f:
+        head_steps = _parse_json_chunk(f.read(head_bytes).decode("utf-8", errors="replace").splitlines())
+        end_pos = file_size
+        scanned = 0
+        while end_pos > head_bytes and scanned < max_scan:
+            start_pos = max(head_bytes, end_pos - chunk_size)
+            f.seek(start_pos)
+            raw_chunk = f.read(end_pos - start_pos)
+            end_pos = start_pos
+            scanned += len(raw_chunk)
+            if b"{" not in raw_chunk:
+                continue
+            lines = raw_chunk.decode("utf-8", errors="replace").splitlines()
+            if start_pos > head_bytes and len(lines) > 1:
+                lines = lines[1:]
+            chunk_objs = _parse_json_chunk(lines)
+            if chunk_objs:
+                tail_chunks.append(chunk_objs)
+                if any(is_transcript_checkpoint_step(obj) for obj in chunk_objs):
+                    break
+    parsed = list(head_steps)
+    for chunk_objs in reversed(tail_chunks):
+        parsed.extend(chunk_objs)
     return parsed
 
 
@@ -100,7 +123,7 @@ def estimate_subagent_context(
     cp_idx = -1
 
     for idx, obj in enumerate(steps):
-        if obj.get("type") == "CHECKPOINT" or "<CONTEXT_SUMMARY>" in str(obj.get("content") or ""):
+        if is_transcript_checkpoint_step(obj):
             cp_idx = idx
         if not detected_id:
             detected_id = str(obj.get("conversation_id") or obj.get("conversationId") or "").strip()

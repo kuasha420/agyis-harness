@@ -324,5 +324,41 @@ class TestSubagentContext(unittest.TestCase):
         self.assertEqual(status_meta.parent_conversation_id, "root-meta-999")
 
 
+class TestSubagentLargeTranscriptBoundedScan(unittest.TestCase):
+    """#110.2: Reverse chunked scan locates checkpoints beyond 256 KB without loading full file."""
+
+    def test_reverse_chunk_scan_stops_at_checkpoint_beyond_256kb(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "transcript.jsonl"
+            pre_line = json.dumps({
+                "type": "PLANNER_RESPONSE",
+                "content": "OLD_PRE_COMPACT_" + ("x" * 10000),
+            }) + "\n"
+            cp_line = json.dumps({
+                "type": "CHECKPOINT",
+                "content": "<CONTEXT_SUMMARY>Compacted checkpoint</CONTEXT_SUMMARY>",
+            }) + "\n"
+            tail_line = json.dumps({
+                "type": "PLANNER_RESPONSE",
+                "content": "NEW_TAIL_" + ("y" * 2000),
+            }) + "\n"
+            with open(p, "w", encoding="utf-8") as f:
+                # Write ~2.0 MB pre-checkpoint padding, then checkpoint, then ~420 KB tail (> 256 KB chunk)
+                for _ in range(200):
+                    f.write(pre_line)
+                f.write(cp_line)
+                for _ in range(210):
+                    f.write(tail_line)
+
+            t0 = time.perf_counter()
+            status = estimate_subagent_context(p, max_context_tokens=256000)
+            elapsed = time.perf_counter() - t0
+            self.assertGreater(p.stat().st_size, 2 * 1024 * 1024)
+            self.assertEqual(status.epoch_step_count, 210)
+            self.assertLess(status.step_count, 250)
+            self.assertLess(status.token_count, 200_000)
+            self.assertLess(elapsed, 0.5)
+
+
 if __name__ == "__main__":
     unittest.main()
