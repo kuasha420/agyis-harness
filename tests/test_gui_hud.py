@@ -61,7 +61,7 @@ class TestGuiTelemetryHud(unittest.TestCase):
         self.assertIn("#22c55e", script, "SAFE tier must use green border (#22c55e)")
         self.assertIn("20,000", script)
         self.assertIn("+1,200 tok/min", script)
-        self.assertIn("~25m to 50k", script)
+        self.assertIn("~25m to compaction", script)
 
     def test_inject_hud_elevated_tier(self):
         """Verifies HUD injection with ELEVATED tier styling (#f59e0b)."""
@@ -95,7 +95,7 @@ class TestGuiTelemetryHud(unittest.TestCase):
         script = evaluated_scripts[0]
         self.assertIn("#f59e0b", script, "ELEVATED tier must use amber border (#f59e0b)")
         self.assertIn("+2,500 tok/min", script)
-        self.assertIn("~5m to 50k", script)
+        self.assertIn("~5m to compaction", script)
 
     def test_inject_hud_critical_tier(self):
         """Verifies HUD injection with CRITICAL tier styling (#ef4444)."""
@@ -129,7 +129,7 @@ class TestGuiTelemetryHud(unittest.TestCase):
         script = evaluated_scripts[0]
         self.assertIn("#ef4444", script, "CRITICAL tier must use red border (#ef4444)")
         self.assertIn("+4,200 tok/min", script)
-        self.assertIn("~1m to 50k", script)
+        self.assertIn("~1m to compaction", script)
 
     def test_remove_hud_element(self):
         """Verifies HUD removal script generation and execution."""

@@ -1,0 +1,361 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
+"""Standard-library Chromium DevTools Protocol (CDP) HTTP/WebSocket client."""
+
+from __future__ import annotations
+
+import base64
+import json
+import os
+from pathlib import Path
+import socket
+import struct
+from typing import Any, Dict, List, Optional, Tuple
+import urllib.error
+import urllib.parse
+import urllib.request
+
+DEFAULT_DEVTOOLS_PORT_FILE = Path.home() / ".config" / "Antigravity" / "DevToolsActivePort"
+
+
+class CDPError(Exception):
+    """Base exception for Chromium DevTools Protocol errors."""
+
+
+class CDPConnectionError(CDPError):
+    """Raised when connecting to CDP HTTP or WebSocket endpoint fails."""
+
+
+class CDPTimeoutError(CDPError):
+    """Raised when CDP socket or HTTP operation times out."""
+
+
+class CDPTargetNotFoundError(CDPError):
+    """Raised when no suitable browser target page is found."""
+
+
+def get_devtools_active_port(port_file: Optional[Path] = None, verify_listening: bool = False) -> Tuple[int, str]:
+    """
+    Reads and parses the active DevTools port file written by Antigravity Electron shell.
+
+    Format:
+      Line 1: Integer port (e.g. 46391)
+      Line 2: Browser target path (e.g. /devtools/browser/<uuid>)
+    """
+    target_file = port_file or DEFAULT_DEVTOOLS_PORT_FILE
+    if not target_file.exists():
+        raise FileNotFoundError(f"DevToolsActivePort file not found at: {target_file}")
+
+    content = target_file.read_text(encoding="utf-8").strip().splitlines()
+    if not content:
+        raise ValueError(f"DevToolsActivePort file is empty: {target_file}")
+
+    try:
+        port = int(content[0].strip())
+    except ValueError as exc:
+        raise ValueError(f"Invalid port number in {target_file}: {content[0]}") from exc
+
+    if not (1 <= port <= 65535):
+        raise ValueError(f"Port number out of valid TCP range [1-65535]: {port}")
+
+    if verify_listening:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                pass
+        except (OSError, TimeoutError) as exc:
+            raise CDPConnectionError(
+                f"DevTools port {port} in {target_file} is not actively listening (stale process or closed): {exc}"
+            ) from exc
+
+    browser_path = content[1].strip() if len(content) > 1 else ""
+    return port, browser_path
+
+
+def get_cdp_targets(port: int, host: str = "127.0.0.1", timeout: float = 5.0) -> List[Dict[str, Any]]:
+    """Queries http://<host>:<port>/json to retrieve active browser targets."""
+    url = f"http://{host}:{port}/json"
+    req = urllib.request.Request(url, headers={"User-Agent": "Agyis-CDP-Client"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read().decode("utf-8")
+            parsed = json.loads(data)
+            if isinstance(parsed, list):
+                return parsed
+            return []
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise CDPConnectionError(f"Failed to query CDP targets at {url}: {exc}") from exc
+
+
+def find_page_target(targets: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Identifies the active Antigravity main application page target, skipping about:blank and data: URIs."""
+    pages = [
+        t for t in targets
+        if t.get("type") == "page"
+        and not (t.get("url") or "").startswith("about:blank")
+        and not (t.get("url") or "").startswith("data:")
+    ]
+    if not pages:
+        return None
+
+    # 1. Prefer window with active conversation route (/c/ in url)
+    for p in pages:
+        url = p.get("url", "")
+        if "/c/" in url and "127.0.0.1" in url and not url.startswith("devtools://"):
+            return p
+
+    # 2. Prefer window with Antigravity title or active webview URL
+    for p in pages:
+        title = p.get("title", "")
+        url = p.get("url", "")
+        if "Antigravity" in title or ("127.0.0.1" in url and not url.startswith("devtools://")):
+            return p
+
+    return pages[0]
+
+
+class CDPWebSocketClient:
+    """
+    Minimal RFC 6455 WebSocket client using strictly Python standard library.
+    Implements client-to-server 4-byte masking, variable length encoding, and JSON-RPC over CDP.
+    """
+
+    def __init__(self, timeout: float = 5.0) -> None:
+        self.timeout = timeout
+        self.sock: Optional[socket.socket] = None
+        self._buffer = bytearray()
+        self._req_id = 0
+
+    def connect(self, ws_url: str) -> None:
+        """Establishes TCP connection and performs RFC 6455 WebSocket handshake."""
+        parsed = urllib.parse.urlparse(ws_url)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 80
+        path = parsed.path or "/"
+
+        try:
+            self.sock = socket.create_connection((host, port), timeout=self.timeout)
+        except (OSError, TimeoutError) as exc:
+            raise CDPConnectionError(f"Could not connect to WebSocket at {host}:{port}: {exc}") from exc
+
+        # RFC 6455 handshake
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        handshake_req = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host}:{port}\r\n"
+            f"Upgrade: websocket\r\n"
+            f"Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            f"Sec-WebSocket-Version: 13\r\n\r\n"
+        )
+        try:
+            self.sock.sendall(handshake_req.encode("ascii"))
+        except OSError as exc:
+            self.close()
+            raise CDPConnectionError(f"Failed to send WebSocket handshake: {exc}") from exc
+
+        # Read response headers until \r\n\r\n
+        buf = bytearray()
+        while b"\r\n\r\n" not in buf:
+            try:
+                chunk = self.sock.recv(4096)
+            except (socket.timeout, TimeoutError) as exc:
+                self.close()
+                raise CDPTimeoutError("Timeout waiting for WebSocket handshake response") from exc
+            except OSError as exc:
+                self.close()
+                raise CDPConnectionError(f"Error during WebSocket handshake: {exc}") from exc
+
+            if not chunk:
+                self.close()
+                raise CDPConnectionError("Socket closed prematurely during WebSocket handshake")
+            buf.extend(chunk)
+
+        header_bytes, _, remaining = buf.partition(b"\r\n\r\n")
+        self._buffer.extend(remaining)
+
+        status_line = header_bytes.split(b"\r\n")[0].decode("ascii", errors="replace")
+        # Validate status line has 101 status code (e.g. 'HTTP/1.1 101 WebSocket Protocol Handshake' or '101 Switching Protocols')
+        parts = status_line.split()
+        if len(parts) < 2 or parts[1] != "101":
+            self.close()
+            raise CDPConnectionError(f"WebSocket upgrade rejected by server: {status_line}")
+
+    def _recv_exact(self, num_bytes: int) -> bytes:
+        """Reads exactly num_bytes from internal buffer or socket."""
+        if self.sock is None:
+            raise CDPConnectionError("Socket is not connected")
+
+        while len(self._buffer) < num_bytes:
+            try:
+                chunk = self.sock.recv(max(4096, num_bytes - len(self._buffer)))
+            except (socket.timeout, TimeoutError) as exc:
+                raise CDPTimeoutError("Socket read timed out") from exc
+            except OSError as exc:
+                raise CDPConnectionError(f"Socket read error: {exc}") from exc
+
+            if not chunk:
+                raise CDPConnectionError("Socket connection closed by remote peer")
+            self._buffer.extend(chunk)
+
+        res = bytes(self._buffer[:num_bytes])
+        del self._buffer[:num_bytes]
+        return res
+
+    def send_frame(self, opcode: int, payload: bytes) -> None:
+        """Encodes and sends an RFC 6455 masked frame to the server."""
+        if self.sock is None:
+            raise CDPConnectionError("Socket is not connected")
+
+        length = len(payload)
+        mask = os.urandom(4)
+        masked_payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+
+        # FIN=1 (0x80) | opcode
+        b0 = 0x80 | (opcode & 0x0F)
+
+        # MASK=1 (0x80) | length
+        if length < 126:
+            header = bytes([b0, 0x80 | length]) + mask
+        elif length <= 0xFFFF:
+            header = bytes([b0, 0x80 | 126]) + struct.pack(">H", length) + mask
+        else:
+            header = bytes([b0, 0x80 | 127]) + struct.pack(">Q", length) + mask
+
+        try:
+            self.sock.sendall(header + masked_payload)
+        except OSError as exc:
+            raise CDPConnectionError(f"Failed to send WebSocket frame: {exc}") from exc
+
+    def send_json(self, payload: Dict[str, Any]) -> None:
+        """Serializes payload to JSON and sends as an RFC 6455 text frame (opcode 0x1)."""
+        data = json.dumps(payload).encode("utf-8")
+        self.send_frame(0x1, data)
+
+    def recv_message(self, expected_id: Optional[int] = None) -> Dict[str, Any]:
+        """Reads and decodes WebSocket frames until a JSON message matching expected_id arrives."""
+        message_payload = bytearray()
+        current_opcode: Optional[int] = None
+
+        while True:
+            hdr = self._recv_exact(2)
+            fin = bool(hdr[0] & 0x80)
+            opcode = hdr[0] & 0x0F
+            if opcode != 0x0:
+                current_opcode = opcode
+
+            has_mask = bool(hdr[1] & 0x80)
+            payload_len = hdr[1] & 0x7F
+
+            if payload_len == 126:
+                payload_len = struct.unpack(">H", self._recv_exact(2))[0]
+            elif payload_len == 127:
+                payload_len = struct.unpack(">Q", self._recv_exact(8))[0]
+
+            mask = self._recv_exact(4) if has_mask else None
+            raw_payload = self._recv_exact(payload_len)
+            if mask:
+                raw_payload = bytes(b ^ mask[i % 4] for i, b in enumerate(raw_payload))
+
+            if current_opcode == 0x8:  # Connection close
+                self.close()
+                raise CDPConnectionError("Remote server sent WebSocket close frame")
+            elif current_opcode == 0x9:  # Ping -> reply Pong
+                self.send_frame(0xA, raw_payload)
+                continue
+            elif current_opcode == 0xA:  # Pong
+                continue
+
+            message_payload.extend(raw_payload)
+            if fin:
+                if current_opcode == 0x1:  # Text frame
+                    try:
+                        msg = json.loads(message_payload.decode("utf-8"))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        message_payload.clear()
+                        current_opcode = None
+                        continue
+                    message_payload.clear()
+                    current_opcode = None
+
+                    if expected_id is None or msg.get("id") == expected_id:
+                        return msg
+                else:
+                    message_payload.clear()
+                    current_opcode = None
+
+    def send_command(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Sends a CDP JSON-RPC command and waits for its response."""
+        self._req_id += 1
+        payload: Dict[str, Any] = {
+            "id": self._req_id,
+            "method": method,
+        }
+        if params is not None:
+            payload["params"] = params
+        self.send_json(payload)
+        resp = self.recv_message(expected_id=self._req_id)
+
+        if "error" in resp:
+            err_msg = resp["error"].get("message", "Unknown CDP error")
+            raise CDPError(f"CDP {method} error: {err_msg}")
+
+        return resp.get("result", {})
+
+    def evaluate(self, expression: str, await_promise: bool = True, return_by_value: bool = True) -> Any:
+        """Executes a JavaScript expression in the target page context via Runtime.evaluate."""
+        result_obj = self.send_command(
+            "Runtime.evaluate",
+            {
+                "expression": expression,
+                "awaitPromise": await_promise,
+                "returnByValue": return_by_value,
+            },
+        )
+        if result_obj.get("exceptionDetails"):
+            details = result_obj["exceptionDetails"]
+            text = details.get("text", details) if isinstance(details, dict) else details
+            raise CDPError(f"JavaScript evaluation exception: {text}")
+
+        return result_obj.get("result", {}).get("value")
+
+    def close(self) -> None:
+        """Closes the active WebSocket connection."""
+        if self.sock is not None:
+            try:
+                self.send_frame(0x8, b"")
+            except (OSError, CDPError):
+                pass
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+            self.sock = None
+        self._buffer.clear()
+
+    def __enter__(self) -> "CDPWebSocketClient":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
+
+def format_devtools_urls(port: int, target: Dict[str, Any]) -> Dict[str, str]:
+    """Generates standardized inspection and debugging URLs for the active target."""
+    ws_url = target.get("webSocketDebuggerUrl", "")
+    ws_endpoint = ws_url.replace("ws://", "").replace("wss://", "")
+    frontend_path = target.get("devtoolsFrontendUrl", "")
+    frontend_url = f"http://127.0.0.1:{port}{frontend_path}" if frontend_path else ""
+
+    return {
+        "port": str(port),
+        "target_id": target.get("id", ""),
+        "title": target.get("title", ""),
+        "target_url": target.get("url", ""),
+        "websocket_debugger_url": ws_url,
+        "devtools_frontend_url": frontend_url,
+        "bundled_inspector_url": f"devtools://devtools/bundled/inspector.html?ws={ws_endpoint}" if ws_endpoint else "",
+        "chrome_inspect_url": f"chrome://inspect/#devices (configure network target 127.0.0.1:{port})",
+    }

@@ -4,23 +4,68 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Cleanroom In-Situ Trajectory Debug View HUD Generator (ADR-014 / PSL-INV-007).
-Reimplements the Trajectory Debug View reverse-engineered from Google Antigravity 2.26.0
-using in-situ DOM injection over the Chromium DevTools Protocol (CDP).
+Trajectory Debug View HUD Builder & Data Loader (ADR-014 / ADR-035 / PSL-INV-010).
+
+Reads live conversation transcripts, resolves subagent hierarchies, delegates SQLite
+metrics & lineage to `harness.trajectory`, and constructs a dynamic Chrome DevTools
+overlay script from modular `harness/gui/assets/` components.
 """
 
 from __future__ import annotations
 
 import importlib.resources
 import json
-import os
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+from harness.trajectory.health import DEFAULT_CONTEXT_WINDOW_TOKENS, TrajectoryMetrics
+from harness.trajectory.sqlite_reader import parse_step_timestamp, read_db_trajectory_state
+from harness.trajectory.transcript_reader import (
+    _load_meta_parent,
+    extract_spawned_subagents,
+    find_transcript_path,
+    load_transcript_steps,
+)
+from harness.utils.context import get_active_brain_dir
+from harness.utils.tokens import estimate_tokens as _ssot_estimate_tokens
+
+_SYS_TAG_DEFS: Tuple[Tuple[str, str, str], ...] = (
+    ("identity", "Identity", "#6366f1"), ("sandbox", "Sandbox", "#818cf8"), ("artifacts", "Artifacts", "#a78bfa"),
+    ("conversation_transcript", "Transcript", "#c084fc"), ("guidelines", "Guidelines", "#e879f9"), ("communication_style", "Style", "#f472b6"),
+    ("slash_commands", "Commands", "#fb7185"), ("messaging", "Messaging", "#9333ea"), ("mcp_servers", "MCP Servers", "#7c3aed"),
+    ("subagents", "Subagents", "#6d28d9"), ("user_rules", "User Rules", "#5b21b6"), ("skills", "Skills", "#4c1d95"),
+    ("featured_plugins", "Plugins", "#8b5cf6"), ("user_information", "UserInfo", "#a855f7"), ("subagent_reminder", "Reminders", "#d946ef"),
+)
+_TOOL_CATEGORY_SPEC: Tuple[Tuple[str, str, Tuple[str, ...]], ...] = (
+    ("Filesystem Tools", "#06b6d4", ("read_file", "write_file", "edit_file", "replace_file_content", "write_to_file", "view_file")),
+    ("Terminal Tools", "#0891b2", ("run_command", "bash")),
+    ("Subagents", "#0e7490", ("invoke_subagent", "define_subagent", "manage_subagents", "send_message")),
+)
+_TC_TYPE_NEEDLES: Tuple[Tuple[str, str], ...] = (
+    ("run_command", "RUN_COMMAND"), ("view_file", "VIEW_FILE"), ("replace_file_content", "REPLACE_FILE_CONTENT"),
+    ("write_to_file", "WRITE_FILE"), ("grep_search", "GREP_SEARCH"), ("find_by_name", "FIND_FILES"),
+    ("find_files", "FIND_FILES"), ("send_message", "SEND_MESSAGE"), ("invoke_subagent", "INVOKE_SUBAGENT"),
+    ("subagent", "INVOKE_SUBAGENT"),
+)
+
+
+def _extract_cwm(step: Dict[str, Any]) -> Dict[str, Any]:
+    """Returns contextWindowMetadata dict from top-level or nested step metadata."""
+    meta = step.get("metadata") if isinstance(step.get("metadata"), dict) else {}
+    for container in (
+        step,
+        step.get("chatStartMetadata"),
+        meta,
+        meta.get("chatStartMetadata"),
+    ):
+        if isinstance(container, dict) and isinstance(container.get("contextWindowMetadata"), dict):
+            return container["contextWindowMetadata"]
+    return {}
 
 
 def _map_to_cortex_type(step: Dict[str, Any]) -> str:
-    """Maps a transcript step to standard Google Antigravity Cortex step types."""
+    """Maps a transcript step to canonical Antigravity Cortex step types."""
     existing_type = step.get("type")
     tool_calls = step.get("tool_calls", [])
     source = str(step.get("source") or "").lower()
@@ -28,7 +73,6 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
     content = str(step.get("content") or "")
     step_case = str(step.get("case") or step.get("step", {}).get("case") or "").lower()
 
-    # Checkpoint detection from compaction summaries or step cases
     if (
         existing_type == "CHECKPOINT"
         or step_case == "checkpoint"
@@ -48,14 +92,14 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
     ):
         return existing_type
 
-    if step.get("runCommand") is not None or step_case == "runcommand":
-        return "RUN_COMMAND"
-    if step.get("viewFile") is not None or step_case == "viewfile":
-        return "VIEW_FILE"
-    if step.get("codeAction") is not None or step_case == "codeaction":
-        return "CODE_ACTION"
-    if step.get("invokeSubagent") is not None or step_case == "invokesubagent":
-        return "INVOKE_SUBAGENT"
+    for field_k, case_k, ctype in (
+        ("runCommand", "runcommand", "RUN_COMMAND"),
+        ("viewFile", "viewfile", "VIEW_FILE"),
+        ("codeAction", "codeaction", "CODE_ACTION"),
+        ("invokeSubagent", "invokesubagent", "INVOKE_SUBAGENT"),
+    ):
+        if step.get(field_k) is not None or step_case == case_k:
+            return ctype
 
     if source == "user" or role == "user":
         return "USER_INPUT"
@@ -64,23 +108,7 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
 
     if tool_calls:
         first_tc = str(tool_calls[0].get("name", "")).lower()
-        if "run_command" in first_tc:
-            return "RUN_COMMAND"
-        if "view_file" in first_tc:
-            return "VIEW_FILE"
-        if "replace_file_content" in first_tc:
-            return "REPLACE_FILE_CONTENT"
-        if "write_to_file" in first_tc:
-            return "WRITE_FILE"
-        if "grep_search" in first_tc:
-            return "GREP_SEARCH"
-        if "find_by_name" in first_tc or "find_files" in first_tc:
-            return "FIND_FILES"
-        if "send_message" in first_tc:
-            return "SEND_MESSAGE"
-        if "invoke_subagent" in first_tc or "subagent" in first_tc:
-            return "INVOKE_SUBAGENT"
-        return "TOOL_CALL"
+        return next((ctype for needle, ctype in _TC_TYPE_NEEDLES if needle in first_tc), "TOOL_CALL")
 
     if step.get("thinking"):
         return "PLANNER_RESPONSE"
@@ -90,40 +118,37 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
 
 
 def _extract_compaction_summary(step: Dict[str, Any]) -> Optional[str]:
-    """Extracts compaction summary from checkpoint step or xml summary blocks."""
-    if step.get("checkpoint"):
-        cp = step["checkpoint"]
-        if isinstance(cp, dict):
-            s = cp.get("sessionSummary") or cp.get("userIntent") or cp.get("summary")
-            if s:
-                return str(s).strip()
-        elif isinstance(cp, str):
-            return cp.strip()
-    if step.get("sessionSummary"):
-        return str(step["sessionSummary"]).strip()
-    if step.get("userIntent"):
-        return str(step["userIntent"]).strip()
+    """Extracts compaction summary from checkpoint step or XML summary blocks."""
+    cp = step.get("checkpoint")
+    if isinstance(cp, dict):
+        s = cp.get("sessionSummary") or cp.get("userIntent") or cp.get("summary")
+        if s:
+            return str(s).strip()
+    elif isinstance(cp, str):
+        return cp.strip()
+
+    for key in ("sessionSummary", "userIntent"):
+        if step.get(key):
+            return str(step[key]).strip()
 
     step_obj = step.get("step")
-    if isinstance(step_obj, dict):
-        val = step_obj.get("value")
-        if isinstance(val, dict):
-            s = val.get("sessionSummary") or val.get("userIntent") or val.get("summary")
-            if s:
-                return str(s).strip()
+    if isinstance(step_obj, dict) and isinstance(step_obj.get("value"), dict):
+        val = step_obj["value"]
+        s = val.get("sessionSummary") or val.get("userIntent") or val.get("summary")
+        if s:
+            return str(s).strip()
 
     for field in ("content", "thinking"):
         val = str(step.get(field) or "")
         m = re.search(r"<(?:CONTEXT_SUMMARY|summary)>([\s\S]*?)</(?:CONTEXT_SUMMARY|summary)>", val, re.I)
         if m:
             return m.group(1).strip()
-
     return None
 
 
 def estimate_tokens(char_count: int) -> int:
-    """Estimates token count from character count using authoritative 2.26.0 ratio (char_count / 3.5)."""
-    return round(char_count / 3.5) if char_count > 0 else 0
+    """Estimates token count using SSOT token helper at cleanroom HUD ratio (3.5 chars/token)."""
+    return _ssot_estimate_tokens(char_count, chars_per_token=3.5)
 
 
 def xtc_segment_width(segment_tokens: int, px_per_token: float, min_segment_px: float = 2.0) -> float:
@@ -133,11 +158,8 @@ def xtc_segment_width(segment_tokens: int, px_per_token: float, min_segment_px: 
 
 
 def ytc_layout_pass(
-    segments: List[Dict[str, Any]],
-    capacity_tokens: int,
-    container_width: float,
-    min_segment_px: float = 2.0,
-    rows_count: int = 1,
+    segments: List[Dict[str, Any]], capacity_tokens: int, container_width: float,
+    min_segment_px: float = 2.0, rows_count: int = 1,
 ) -> Dict[str, float]:
     """Calculates layout metrics and inflation for a given row count (cleanroom ytc)."""
     capacity_px = container_width * rows_count
@@ -158,11 +180,8 @@ def ytc_layout_pass(
 
 
 def ztc_row_count(
-    segments: List[Dict[str, Any]],
-    capacity_tokens: int,
-    container_width: float,
-    min_segment_px: float = 2.0,
-    max_rows: int = 8,
+    segments: List[Dict[str, Any]], capacity_tokens: int, container_width: float,
+    min_segment_px: float = 2.0, max_rows: int = 8,
 ) -> int:
     """Determines optimal row count to minimize inflation (cleanroom ztc)."""
     current = ytc_layout_pass(segments, capacity_tokens, container_width, min_segment_px, 1)
@@ -177,11 +196,8 @@ def ztc_row_count(
 
 
 def atc_context_layout(
-    segments: List[Dict[str, Any]],
-    capacity_tokens: int,
-    container_width: float,
-    min_segment_px: float = 2.0,
-    max_rows: int = 8,
+    segments: List[Dict[str, Any]], capacity_tokens: int, container_width: float,
+    min_segment_px: float = 2.0, max_rows: int = 8,
 ) -> Dict[str, Any]:
     """Authoritative dynamic context bar sizing and multi-row layout algorithm (cleanroom Atc)."""
     if not segments or capacity_tokens <= 0 or container_width <= 0:
@@ -190,11 +206,7 @@ def atc_context_layout(
     row_count = ztc_row_count(segments, capacity_tokens, container_width, min_segment_px, max_rows)
     layout = ytc_layout_pass(segments, capacity_tokens, container_width, min_segment_px, row_count)
     scale_factor = layout["capacity_px"] / layout["used_px"] if layout["used_px"] > layout["capacity_px"] else 1.0
-
-    segment_widths = [
-        xtc_segment_width(s.get("tokens", 0), layout["px_per_token"], min_segment_px) * scale_factor
-        for s in segments
-    ]
+    segment_widths = [xtc_segment_width(s.get("tokens", 0), layout["px_per_token"], min_segment_px) * scale_factor for s in segments]
     unused_px = max(0.0, layout["capacity_px"] - layout["used_px"] * scale_factor)
 
     rows: List[List[Dict[str, Any]]] = [[] for _ in range(row_count)]
@@ -210,14 +222,11 @@ def atc_context_layout(
             avail_in_row = container_width - row_start_px
             if avail_in_row <= 1e-6:
                 break
-
             slice_width = min(rem_width, avail_in_row)
             rem_width -= slice_width
             cursor_px += slice_width
-
             is_done = rem_width <= 1e-6
             fills_row = slice_width >= avail_in_row - 1e-6
-
             rows[row_idx].append({
                 "key": f"{key_prefix}#{sub_idx}",
                 "segment": seg,
@@ -231,9 +240,7 @@ def atc_context_layout(
 
     for idx, seg in enumerate(segments):
         next_seg = segments[idx + 1] if idx + 1 < len(segments) else None
-        show_div = next_seg is not None and next_seg.get("color_key") == seg.get("color_key")
-        place_cell(seg, segment_widths[idx], f"{idx}:{seg.get('id', idx)}", show_div)
-
+        place_cell(seg, segment_widths[idx], f"{idx}:{seg.get('id', idx)}", next_seg is not None and next_seg.get("color_key") == seg.get("color_key"))
     if unused_px > 1e-6:
         place_cell(None, unused_px, "unused", False)
 
@@ -245,303 +252,182 @@ def _extract_conversation_summary(convo_dir: Path, transcript_path: Path) -> str
     meta_path = convo_dir / "meta.json"
     if meta_path.is_file():
         try:
-            with open(meta_path, "r", encoding="utf-8", errors="replace") as f:
-                data = json.load(f)
-                summary = data.get("summary") or data.get("title")
-                if summary:
-                    return str(summary).strip()
+            data = json.loads(meta_path.read_text(encoding="utf-8", errors="replace"))
+            summary = data.get("summary") or data.get("title")
+            if summary:
+                return str(summary).strip()
         except (json.JSONDecodeError, OSError, ValueError, KeyError):
             pass
-
     if transcript_path.is_file():
         try:
             with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
                 for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            s = json.loads(line)
-                            source = str(s.get("source") or s.get("role") or "").lower()
-                            if source == "user" and s.get("content"):
-                                first_line = str(s["content"]).strip().splitlines()[0]
-                                return first_line[:60]
-                        except (json.JSONDecodeError, UnicodeDecodeError, ValueError, KeyError):
-                            continue
-        except OSError:
-            pass
-
-    return f"Session {convo_dir.name[:8]}"
-
-
-def load_conversation_trajectory(
-    conversation_id: str,
-    brain_dir: Optional[Path] = None,
-    _visited: Optional[Set[str]] = None,
-    parent_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Loads trajectory steps, timing metrics, and hierarchical direct child subagents directly from disk.
-    Enforces 0ms in-memory subagent pre-bundling and Cortex data parity with Antigravity 2.26.0.
-    """
-    if _visited is None:
-        _visited = set()
-    _visited.add(conversation_id)
-
-    base_brain = brain_dir or (Path.home() / ".gemini" / "antigravity" / "brain")
-    convo_dir = base_brain / conversation_id
-
-    transcript_path = convo_dir / ".system_generated" / "logs" / "transcript.jsonl"
-    if not transcript_path.is_file():
-        transcript_path = convo_dir / "transcript.jsonl"
-
-    raw_steps: List[Dict[str, Any]] = []
-    raw_line_sizes: List[int] = []
-    if transcript_path.is_file():
-        try:
-            with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    line_str = line.strip()
-                    if line_str:
-                        try:
-                            parsed = json.loads(line_str)
-                            raw_steps.append(parsed)
-                            raw_line_sizes.append(len(line.encode("utf-8")))
-                        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
-                            continue
-        except OSError:
-            pass
-
-    resolved_parent_id: Optional[str] = parent_id
-    subagents: List[str] = []
-    subagent_infos: List[Dict[str, Any]] = []
-
-    # Check for direct child subagent invocations (strictly invoke_subagent calls)
-    for idx, step in enumerate(raw_steps):
-        # 1. Standard tool_calls: inspect invoke_subagent calls
-        tool_calls = step.get("tool_calls", [])
-        for tc in tool_calls:
-            tc_name = str(tc.get("name", ""))
-            if tc_name == "invoke_subagent":
-                output_str = str(tc.get("output", ""))
-                args_dict = tc.get("args") if isinstance(tc.get("args"), dict) else {}
-                args_str = json.dumps(args_dict) if args_dict else str(tc.get("args", ""))
-                
-                # Also check adjacent step if this step has no inline output
-                next_content = ""
-                if idx + 1 < len(raw_steps):
-                    next_s = raw_steps[idx + 1]
-                    if next_s.get("type") in ("GENERIC", "TOOL_OUTPUT") or next_s.get("source") in ("SYSTEM", "SYSTEM_SDK"):
-                        next_content = str(next_s.get("content", ""))
-
-                combined = output_str + " " + args_str + " " + next_content
-                m_convos = re.findall(
-                    r"(?:conversation[_-]?id|conversationId)[\"':\s=]+([a-zA-Z0-9_\-]{8,64})",
-                    combined,
-                    re.I,
-                )
-                for sid in m_convos:
-                    sid = sid.strip("\"' \t\r\n")
-                    if sid != conversation_id and (base_brain / sid).is_dir() and sid not in subagents:
-                        subagents.append(sid)
-                        subagent_infos.append({
-                            "id": sid,
-                            "name": args_dict.get("Role") or args_dict.get("TypeName") or f"Subagent {sid[:8]}",
-                            "summary": str(args_dict.get("Prompt") or args_dict.get("objective") or "")[:80],
-                        })
-
-        # 2. Check for "Created the following subagent" in generic steps
-        content_str = str(step.get("content") or "")
-        if "Created the following subagent" in content_str:
-            m_convos = re.findall(
-                r"(?:conversation[_-]?id|conversationId)[\"':\s=]+([a-zA-Z0-9_\-]{8,64})",
-                content_str,
-                re.I,
-            )
-            for sid in m_convos:
-                sid = sid.strip("\"' \t\r\n")
-                if sid != conversation_id and (base_brain / sid).is_dir() and sid not in subagents:
-                    subagents.append(sid)
-                    subagent_infos.append({
-                        "id": sid,
-                        "name": f"Subagent {sid[:8]}",
-                        "summary": "",
-                    })
-
-        # 3. Protobuf invokeSubagent
-        if isinstance(step.get("invokeSubagent"), dict):
-            for sub in step["invokeSubagent"].get("subagents", []):
-                sid = sub.get("conversationId") or sub.get("id")
-                if sid:
-                    sid = str(sid).strip("\"' \t\r\n")
-                    if sid != conversation_id and (base_brain / sid).is_dir() and sid not in subagents:
-                        subagents.append(sid)
-                        subagent_infos.append({
-                            "id": sid,
-                            "name": sub.get("role") or sub.get("name") or f"Subagent {sid[:8]}",
-                            "summary": str(sub.get("objective") or "")[:80],
-                        })
-
-    # Check if this conversation itself is a subagent of another conversation (bounded to top 30 recent)
-    if resolved_parent_id is None and base_brain.is_dir():
-        cand_dirs = []
-        try:
-            for d in base_brain.iterdir():
-                if d.is_dir() and d.name != conversation_id and d.name != ".system_generated":
+                    if not line.strip():
+                        continue
                     try:
-                        cand_dirs.append((d, d.stat().st_mtime))
-                    except OSError:
+                        s = json.loads(line)
+                        if str(s.get("source") or s.get("role") or "").lower() == "user" and s.get("content"):
+                            return str(s["content"]).strip().splitlines()[0][:60]
+                    except (json.JSONDecodeError, ValueError, KeyError):
                         continue
         except OSError:
             pass
+    return f"Session {convo_dir.name[:8]}"
 
-        cand_dirs.sort(key=lambda x: x[1], reverse=True)
-        for d, _ in cand_dirs[:30]:
-            t_log = d / ".system_generated" / "logs" / "transcript.jsonl"
-            if not t_log.is_file():
-                t_log = d / "transcript.jsonl"
-            if t_log.is_file():
-                try:
-                    with open(t_log, "r", encoding="utf-8", errors="replace") as f:
-                        for line in f:
-                            if conversation_id in line:
-                                resolved_parent_id = d.name
-                                break
-                    if resolved_parent_id is not None:
-                        break
-                except OSError:
-                    pass
 
-    # Dynamic session model resolution from steps, headers, or settings
+def _resolve_lineage_and_subagents(
+    conversation_id: str,
+    raw_steps: List[Dict[str, Any]],
+    base_brain: Path,
+    parent_id: Optional[str],
+) -> Tuple[Optional[str], List[str], List[Dict[str, Any]]]:
+    """Resolves parent ID and backslash-free child subagent metadata via SSOT extractor."""
+    spawned = extract_spawned_subagents(raw_steps, parent_cid=conversation_id)
+    subagents: List[str] = []
+    subagent_infos: List[Dict[str, Any]] = []
+    details_by_sid: Dict[str, Tuple[str, str]] = {}
+
+    for step in raw_steps:
+        for tc in step.get("tool_calls", []):
+            args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
+            if tc.get("name") == "invoke_subagent":
+                combined = f"{tc.get('output', '')} {json.dumps(args)}"
+                for m_cid in re.findall(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[a-zA-Z0-9_-]{8,64})", combined):
+                    if m_cid in spawned:
+                        details_by_sid[m_cid] = (
+                            str(args.get("Role") or args.get("TypeName") or spawned[m_cid] or f"Subagent {m_cid[:8]}"),
+                            str(args.get("Prompt") or args.get("objective") or "")[:80],
+                        )
+        if isinstance(step.get("invokeSubagent"), dict):
+            for sub in step["invokeSubagent"].get("subagents", []):
+                sid = str(sub.get("conversationId") or sub.get("id") or "").strip("\"' \t\r\n")
+                if sid and sid != conversation_id and "\\" not in sid:
+                    spawned.setdefault(sid, str(sub.get("role") or sub.get("name") or "subagent"))
+                    details_by_sid.setdefault(
+                        sid,
+                        (str(sub.get("role") or sub.get("name") or f"Subagent {sid[:8]}"), str(sub.get("objective") or "")[:80]),
+                    )
+
+    for sid, default_role in spawned.items():
+        clean_sid = sid.strip("\"' \t\r\n")
+        if clean_sid != conversation_id and "\\" not in clean_sid and (base_brain / clean_sid).is_dir() and clean_sid not in subagents:
+            subagents.append(clean_sid)
+            name, summary = details_by_sid.get(clean_sid, (default_role or f"Subagent {clean_sid[:8]}", ""))
+            subagent_infos.append({"id": clean_sid, "name": name, "summary": summary})
+
+    meta_parent, _ = _load_meta_parent(base_brain / conversation_id)
+    resolved_parent = parent_id or meta_parent
+    if resolved_parent is None and base_brain.is_dir():
+        try:
+            cands = sorted(
+                (d for d in base_brain.iterdir() if d.is_dir() and d.name not in (conversation_id, ".system_generated")),
+                key=lambda d: d.stat().st_mtime,
+                reverse=True,
+            )[:30]
+            for d in cands:
+                t_log, _ = find_transcript_path(d)
+                if t_log and t_log.is_file() and conversation_id in t_log.read_text(encoding="utf-8", errors="replace"):
+                    resolved_parent = d.name
+                    break
+        except OSError:
+            pass
+    return resolved_parent, subagents, subagent_infos
+
+
+def _resolve_session_metadata(
+    convo_dir: Path,
+    raw_steps: List[Dict[str, Any]],
+    db_metrics: TrajectoryMetrics,
+) -> Tuple[str, int]:
+    """Resolves active model identifier and authoritative max context capacity."""
     session_model = ""
+    meta_json: Dict[str, Any] = {}
     meta_path = convo_dir / "meta.json"
     if meta_path.is_file():
         try:
-            with open(meta_path, "r", encoding="utf-8", errors="replace") as f:
-                meta_json = json.load(f)
-                session_model = meta_json.get("model") or meta_json.get("responseModel") or ""
+            parsed = json.loads(meta_path.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(parsed, dict):
+                meta_json = parsed
+                session_model = str(meta_json.get("model") or meta_json.get("responseModel") or "")
         except (json.JSONDecodeError, OSError, ValueError):
             pass
 
     for raw in raw_steps:
-        raw_meta = raw.get("metadata", {}) if isinstance(raw.get("metadata"), dict) else {}
+        raw_meta = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
         content_str = str(raw.get("content") or "")
         if "<USER_SETTINGS_CHANGE>" in content_str:
             m_set = re.search(r"(?:Model Selection|Model)[:\s]+([a-zA-Z0-9_\-\.]+)", content_str, re.I)
             if m_set:
                 session_model = m_set.group(1).strip()
         m_cand = (
-            raw.get("model")
-            or raw.get("response_model")
-            or raw.get("responseModel")
-            or raw_meta.get("model")
-            or raw_meta.get("responseModel")
-            or (raw.get("chatStartMetadata", {}) if isinstance(raw.get("chatStartMetadata"), dict) else {}).get("model")
-            or (raw_meta.get("chatStartMetadata", {}) if isinstance(raw_meta.get("chatStartMetadata"), dict) else {}).get("model")
-            or (raw_meta.get("modelUsage", {}) if isinstance(raw_meta.get("modelUsage"), dict) else {}).get("model")
+            raw.get("model") or raw.get("response_model") or raw.get("responseModel")
+            or raw_meta.get("model") or raw_meta.get("responseModel")
+            or (raw_meta.get("modelUsage") if isinstance(raw_meta.get("modelUsage"), dict) else {}).get("model")
         )
-        if m_cand and isinstance(m_cand, str):
+        if isinstance(m_cand, str) and m_cand.strip():
             session_model = m_cand.strip()
+    if not session_model and db_metrics.model_name:
+        session_model = db_metrics.model_name
 
-    # 1. Authoritative Max Context Tokens (256k default parity with 2.26.0)
-    max_context_tokens = 256000
-    found_explicit_max_ctx = False
+    max_ctx = DEFAULT_CONTEXT_WINDOW_TOKENS
     for raw in reversed(raw_steps):
-        if not isinstance(raw, dict):
-            continue
-        meta_d = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
-        csm_d = raw.get("chatStartMetadata") if isinstance(raw.get("chatStartMetadata"), dict) else {}
-        meta_csm_d = meta_d.get("chatStartMetadata") if isinstance(meta_d.get("chatStartMetadata"), dict) else {}
-        cwm = (
-            raw.get("contextWindowMetadata")
-            or csm_d.get("contextWindowMetadata")
-            or meta_csm_d.get("contextWindowMetadata")
-            or meta_d.get("contextWindowMetadata")
-        )
-        if isinstance(cwm, dict):
-            mct = cwm.get("maxContextTokens") or cwm.get("max_context_tokens")
-            if mct and isinstance(mct, (int, float)) and mct > 0:
-                max_context_tokens = int(mct)
-                found_explicit_max_ctx = True
-                break
+        if isinstance(raw, dict):
+            mct = _extract_cwm(raw).get("maxContextTokens") or _extract_cwm(raw).get("max_context_tokens")
+            if isinstance(mct, (int, float)) and mct > 0:
+                return session_model, int(mct)
 
-    if not found_explicit_max_ctx:
-        meta_path = convo_dir / "meta.json"
-        if meta_path.is_file():
-            try:
-                with open(meta_path, "r", encoding="utf-8", errors="replace") as f:
-                    meta_data = json.load(f)
-                    mct = (
-                        meta_data.get("maxContextTokens")
-                        or (meta_data.get("contextWindowMetadata") if isinstance(meta_data.get("contextWindowMetadata"), dict) else {}).get("maxContextTokens")
-                    )
-                    if mct and isinstance(mct, (int, float)) and mct > 0:
-                        max_context_tokens = int(mct)
-                        found_explicit_max_ctx = True
-            except (json.JSONDecodeError, OSError, ValueError):
-                pass
+    mct_meta = meta_json.get("maxContextTokens") or (
+        meta_json.get("contextWindowMetadata") if isinstance(meta_json.get("contextWindowMetadata"), dict) else {}
+    ).get("maxContextTokens")
+    if isinstance(mct_meta, (int, float)) and mct_meta > 0:
+        return session_model, int(mct_meta)
 
-    if not found_explicit_max_ctx:
-        try:
-            from harness.hooks.token_proximity_guard import get_active_conversation_context_window
-            ctx_win = get_active_conversation_context_window(conversation_id)
-            db_mct = int(ctx_win.get("max_context_tokens") or 0)
-            if db_mct > 0:
-                max_context_tokens = db_mct
-        except Exception:
-            pass
+    if db_metrics.max_context_tokens > 0:
+        max_ctx = int(db_metrics.max_context_tokens)
+    return session_model, max_ctx
 
-    # Enrich steps: timing metrics, byte sizes, cortex types, cumulative context tokens
+
+def _enrich_and_sort_steps(
+    raw_steps: List[Dict[str, Any]],
+    raw_line_sizes: List[int],
+    session_model: str,
+) -> Tuple[List[Dict[str, Any]], Set[int]]:
+    """Sorts steps chronologically by step_index, unpacks Cortex structures, and resets cumulative context per epoch."""
+    paired = sorted(
+        (
+            (raw, raw_line_sizes[i] if i < len(raw_line_sizes) else 0, int(raw.get("step_index", i) if isinstance(raw.get("step_index"), (int, float)) else i), i)
+            for i, raw in enumerate(raw_steps)
+        ),
+        key=lambda item: (item[2], item[3]),
+    )
+
     steps: List[Dict[str, Any]] = []
-    explicit_input_step_indices: Set[int] = set()
-    total_tokens = 0
-    cache_tokens = 0
+    explicit_in_positions: Set[int] = set()
     cumulative_ctx = 0
 
-    for idx, raw in enumerate(raw_steps):
+    for pos, (raw, line_size, norm_step_idx, _) in enumerate(paired):
         s = dict(raw)
-        s["step_index"] = s.get("step_index", idx)
+        s["step_index"] = raw.get("step_index", norm_step_idx)
         s["exec_index"] = s.get("exec_index", 1)
         s["inv_index"] = s.get("inv_index", 1)
         cortex_type = _map_to_cortex_type(s)
         s["type"] = cortex_type
 
-        # Extract system message or task details if content is missing
         if not s.get("content"):
-            sys_cand = (
-                s.get("systemMessage")
-                or s.get("system_message")
-                or s.get("message")
-                or s.get("task_details")
-                or s.get("error_details")
-                or s.get("render_info")
-            )
+            sys_cand = s.get("systemMessage") or s.get("system_message") or s.get("message") or s.get("task_details") or s.get("error_details") or s.get("render_info")
             if sys_cand:
-                if isinstance(sys_cand, dict):
-                    s["content"] = sys_cand.get("content") or sys_cand.get("message") or sys_cand.get("text") or json.dumps(sys_cand, indent=2)
-                else:
-                    s["content"] = str(sys_cand)
+                s["content"] = sys_cand.get("content") or sys_cand.get("message") or sys_cand.get("text") or json.dumps(sys_cand, indent=2) if isinstance(sys_cand, dict) else str(sys_cand)
 
-        # Extract compaction summary if present
         comp_summary = _extract_compaction_summary(s)
         if comp_summary:
             s["compaction_summary"] = comp_summary
 
-        # Payload byte size calculation (SIZE column)
-        if idx < len(raw_line_sizes):
-            s["size_bytes"] = raw_line_sizes[idx]
-        else:
-            try:
-                s["size_bytes"] = len(json.dumps(s).encode("utf-8"))
-            except (TypeError, ValueError):
-                s["size_bytes"] = 0
+        s["size_bytes"] = line_size if line_size > 0 else len(json.dumps(s, default=str).encode("utf-8"))
+        meta = s.get("metadata") if isinstance(s.get("metadata"), dict) else {}
+        model_usage = meta.get("modelUsage") if isinstance(meta.get("modelUsage"), dict) else {}
 
-        # Authoritative step timing metrics
-        meta = s.get("metadata", {}) if isinstance(s.get("metadata"), dict) else {}
-        model_usage = meta.get("modelUsage", {}) if isinstance(meta.get("modelUsage"), dict) else {}
-
-        # Unpack ConnectRPC typed tool call & sub-objects (ADR-014 / Cleanroom Parity)
         raw_tc = s.get("toolCall") or meta.get("toolCall")
-        if raw_tc and isinstance(raw_tc, dict) and not s.get("tool_calls"):
+        if isinstance(raw_tc, dict) and not s.get("tool_calls"):
             parsed_args = raw_tc.get("args") or raw_tc.get("arguments") or {}
             if raw_tc.get("argumentsJson"):
                 try:
@@ -552,346 +438,284 @@ def load_conversation_trajectory(
 
         if isinstance(s.get("runCommand"), dict):
             rc = s["runCommand"]
-            s["command"] = rc.get("commandLine")
-            s["exitCode"] = rc.get("exitCode")
             comb = rc.get("combinedOutput")
-            s["output"] = comb.get("full") if isinstance(comb, dict) else str(comb or "")
-            s["cwd"] = rc.get("cwd")
-
+            s.update({"command": rc.get("commandLine"), "exitCode": rc.get("exitCode"), "output": comb.get("full") if isinstance(comb, dict) else str(comb or ""), "cwd": rc.get("cwd")})
         if isinstance(s.get("viewFile"), dict):
             vf = s["viewFile"]
-            s["filePath"] = vf.get("absolutePathUri")
-            s["fileContent"] = vf.get("content")
-            s["endLine"] = vf.get("endLine")
-
+            s.update({"filePath": vf.get("absolutePathUri"), "fileContent": vf.get("content"), "endLine": vf.get("endLine")})
         if isinstance(s.get("codeAction"), dict):
             ca = s["codeAction"]
-            edit_diff = (ca.get("actionResult") or {}).get("edit", {}).get("diff", {}).get("unifiedDiff", {})
-            s["diffLines"] = edit_diff.get("lines", []) if isinstance(edit_diff, dict) else []
+            ediff = (ca.get("actionResult") or {}).get("edit", {}).get("diff", {}).get("unifiedDiff", {})
             spec = ca.get("actionSpec") or {}
-            cr = spec.get("createFile") or {}
-            ed = spec.get("editFile") or {}
-            s["filePath"] = (cr.get("path") or {}).get("absoluteUri") or (ed.get("path") or {}).get("absoluteUri") or ""
-
+            s["diffLines"] = ediff.get("lines", []) if isinstance(ediff, dict) else []
+            s["filePath"] = ((spec.get("createFile") or {}).get("path") or {}).get("absoluteUri") or ((spec.get("editFile") or {}).get("path") or {}).get("absoluteUri") or ""
         if isinstance(s.get("invokeSubagent"), dict):
             subs = s["invokeSubagent"].get("subagents", [])
             s["subagent"] = subs[0] if (isinstance(subs, list) and subs) else None
-
         if isinstance(s.get("checkpoint"), dict):
-            cp = s["checkpoint"]
-            s["sessionSummary"] = cp.get("sessionSummary", "")
+            s["sessionSummary"] = s["checkpoint"].get("sessionSummary", "")
             retries = meta.get("retryInfos", [])
             usage = retries[0].get("usage", {}) if (isinstance(retries, list) and retries and isinstance(retries[0], dict)) else {}
             s["cacheReadTokens"] = int(usage.get("cacheReadTokens", 0) or 0)
             s["checkpointInputTokens"] = int(usage.get("inputTokens", 0) or 0)
 
-        thinking_ms = s.get("thinking_duration_ms")
-        if thinking_ms is None:
-            thinking_ms = meta.get("thinking_duration_ms") or meta.get("ttft_ms")
-            if thinking_ms is None:
-                if s.get("thinking"):
-                    thinking_ms = min(20000, max(600, int(len(str(s["thinking"])) * 1.6)))
-                else:
-                    thinking_ms = 0
-        s["thinking_duration_ms"] = int(thinking_ms or 0)
-
-        streaming_ms = s.get("streaming_duration_ms")
-        if streaming_ms is None:
-            streaming_ms = meta.get("streaming_duration_ms")
-            if streaming_ms is None:
-                content_len = len(str(s.get("content") or ""))
-                tool_out_len = sum(len(str(tc.get("output") or "")) for tc in s.get("tool_calls", []))
-                streaming_ms = min(45000, max(400, int((content_len + tool_out_len) * 1.8)))
-        s["streaming_duration_ms"] = int(streaming_ms or 0)
+        t_ms = s.get("thinking_duration_ms") or meta.get("thinking_duration_ms") or meta.get("ttft_ms")
+        if t_ms is None:
+            t_ms = min(20000, max(600, int(len(str(s["thinking"])) * 1.6))) if s.get("thinking") else 0
+        s_ms = s.get("streaming_duration_ms") or meta.get("streaming_duration_ms")
+        if s_ms is None:
+            c_len = len(str(s.get("content") or "")) + sum(len(str(tc.get("output") or "")) for tc in s.get("tool_calls", []))
+            s_ms = min(45000, max(400, int(c_len * 1.8)))
+        s["thinking_duration_ms"] = int(t_ms or 0)
+        s["streaming_duration_ms"] = int(s_ms or 0)
         s["total_duration_ms"] = s["thinking_duration_ms"] + s["streaming_duration_ms"]
 
-        # Step model resolution
-        step_model = (
-            s.get("response_model")
-            or s.get("model")
-            or s.get("responseModel")
-            or meta.get("responseModel")
-            or meta.get("model")
-            or model_usage.get("model")
-        )
-        if step_model and isinstance(step_model, str):
-            s["response_model"] = step_model.strip()
-        elif cortex_type in ("PLANNER_RESPONSE", "MODEL_OUTPUT") and session_model:
-            s["response_model"] = session_model
-        else:
-            s["response_model"] = s.get("response_model") or ""
+        step_model = s.get("response_model") or s.get("model") or s.get("responseModel") or meta.get("responseModel") or meta.get("model") or model_usage.get("model")
+        s["response_model"] = step_model.strip() if isinstance(step_model, str) and step_model.strip() else (session_model if cortex_type in ("PLANNER_RESPONSE", "MODEL_OUTPUT") else "")
 
-        # Authoritative token metrics extraction
-        raw_in_tok = s.get("input_tokens")
-        if raw_in_tok is None:
-            raw_in_tok = (
-                model_usage.get("inputTokens")
-                or model_usage.get("promptTokenCount")
-                or model_usage.get("inputTokenCount")
-                or meta.get("input_tokens")
-                or meta.get("promptTokenCount")
-            )
-        has_explicit_in_tok = raw_in_tok is not None
-        in_tok = int(raw_in_tok or 0)
-        if has_explicit_in_tok and in_tok > 0:
-            explicit_input_step_indices.add(idx)
+        raw_in = s.get("input_tokens")
+        if raw_in is None:
+            raw_in = model_usage.get("inputTokens") or model_usage.get("promptTokenCount") or model_usage.get("inputTokenCount") or meta.get("input_tokens") or meta.get("promptTokenCount")
+        in_tok = int(raw_in or 0)
+        if raw_in is not None and in_tok > 0:
+            explicit_in_positions.add(pos)
 
-        out_tok = s.get("output_tokens")
-        if out_tok is None:
-            out_tok = (
-                model_usage.get("outputTokens")
-                or model_usage.get("candidatesTokenCount")
-                or model_usage.get("responseOutputTokens")
-                or meta.get("toolCallOutputTokens")
-                or meta.get("output_tokens")
-            )
-        out_tok = int(out_tok or 0)
-
-        cache_tok = s.get("cache_read_tokens")
-        if cache_tok is None:
-            cache_tok = (
-                model_usage.get("cacheReadTokens")
-                or model_usage.get("cachedContentTokenCount")
-                or meta.get("cache_read_tokens")
-                or meta.get("cachedContentTokenCount")
-            )
-        s["cache_read_tokens"] = int(cache_tok or 0)
+        raw_out = s.get("output_tokens")
+        if raw_out is None:
+            raw_out = model_usage.get("outputTokens") or model_usage.get("candidatesTokenCount") or model_usage.get("responseOutputTokens") or meta.get("toolCallOutputTokens") or meta.get("output_tokens")
+        out_tok = int(raw_out or 0)
+        cache_tok = int(s.get("cache_read_tokens") or s.get("cacheReadTokens") or model_usage.get("cacheReadTokens") or model_usage.get("cachedContentTokenCount") or meta.get("cache_read_tokens") or meta.get("cachedContentTokenCount") or 0)
 
         explicit_tok = int(s.get("tokens") or 0)
         if explicit_tok > 0:
             step_tok = explicit_tok
         elif cortex_type in ("PLANNER_RESPONSE", "MODEL_OUTPUT"):
-            if out_tok > 0:
-                step_tok = out_tok
-            else:
-                char_count = len(str(s.get("content") or "")) + len(str(s.get("thinking") or ""))
-                step_tok = estimate_tokens(char_count)
+            step_tok = out_tok if out_tok > 0 else estimate_tokens(len(str(s.get("content") or "")) + len(str(s.get("thinking") or "")))
         elif cortex_type == "USER_INPUT":
-            if in_tok > 0:
-                step_tok = in_tok
-            elif out_tok > 0:
-                step_tok = out_tok
-            else:
-                char_count = len(str(s.get("content") or ""))
-                step_tok = estimate_tokens(char_count)
-            if in_tok <= 0:
-                in_tok = step_tok
+            step_tok = in_tok or out_tok or estimate_tokens(len(str(s.get("content") or "")))
+            in_tok = in_tok or step_tok
         elif cortex_type == "CHECKPOINT":
-            if out_tok > 0:
-                step_tok = out_tok
-            elif in_tok > 0:
-                step_tok = in_tok
-            else:
-                char_count = len(str(s.get("compaction_summary") or s.get("content") or ""))
-                step_tok = estimate_tokens(char_count)
+            step_tok = out_tok or in_tok or estimate_tokens(len(str(s.get("compaction_summary") or s.get("content") or "")))
         else:
-            if out_tok > 0:
-                step_tok = out_tok
-            elif in_tok > 0:
-                step_tok = in_tok
-            else:
-                char_count = 0
-                for tc in s.get("tool_calls", []):
-                    char_count += len(str(tc.get("name") or ""))
-                    tc_args = tc.get("args")
-                    if tc_args:
-                        char_count += len(json.dumps(tc_args) if isinstance(tc_args, (dict, list)) else str(tc_args))
-                    char_count += len(str(tc.get("output") or ""))
-                if char_count == 0:
-                    char_count = len(str(s.get("content") or ""))
-                step_tok = estimate_tokens(char_count)
+            tool_chars = sum(len(str(tc.get("name") or "")) + len(json.dumps(tc.get("args") or "") if tc.get("args") else "") + len(str(tc.get("output") or "")) for tc in s.get("tool_calls", []))
+            step_tok = out_tok or in_tok or estimate_tokens(tool_chars or len(str(s.get("content") or "")))
 
-        s["input_tokens"] = in_tok
-        s["output_tokens"] = out_tok
-        s["tokens"] = step_tok
-        if step_tok > 0:
+        if cortex_type == "CHECKPOINT":
+            cumulative_ctx = step_tok
+        elif step_tok > 0:
             cumulative_ctx += step_tok
-        s["cumulative_tokens"] = cumulative_ctx
+
+        s.update({"input_tokens": in_tok, "output_tokens": out_tok, "cache_read_tokens": cache_tok, "tokens": step_tok, "cumulative_tokens": cumulative_ctx})
         steps.append(s)
 
-    explicit_cum_tokens = 0
-    for step_pos in range(len(steps) - 1, -1, -1):
-        s = steps[step_pos]
-        if cache_tokens == 0 and s.get("cache_read_tokens"):
-            cache_tokens = s.get("cache_read_tokens") or 0
-        in_tok_val = int(s.get("input_tokens") or 0)
-        cache_tok_val = int(s.get("cache_read_tokens") or 0)
-        is_explicit_input = step_pos in explicit_input_step_indices
-        if (s.get("type") != "USER_INPUT" or is_explicit_input or cache_tok_val > 0) and (in_tok_val + cache_tok_val > 0):
-            explicit_cum_tokens = in_tok_val + cache_tok_val
-            break
+    return steps, explicit_in_positions
 
-    if explicit_cum_tokens == 0:
-        for s in reversed(steps):
-            meta = s.get("metadata", {}) if isinstance(s.get("metadata"), dict) else {}
-            model_usage = meta.get("modelUsage", {}) if isinstance(meta.get("modelUsage"), dict) else {}
-            meta_csm = meta.get("chatStartMetadata") if isinstance(meta.get("chatStartMetadata"), dict) else {}
-            step_csm = s.get("chatStartMetadata") if isinstance(s.get("chatStartMetadata"), dict) else {}
-            cwm = (
-                meta.get("contextWindowMetadata")
-                or s.get("contextWindowMetadata")
-                or meta_csm.get("contextWindowMetadata")
-                or step_csm.get("contextWindowMetadata")
-            )
-            if isinstance(cwm, dict):
+
+def _partition_epochs(steps: List[Dict[str, Any]], checkpoints: List[int]) -> List[Dict[str, Any]]:
+    """Partitions steps into epochs delimited by compaction CHECKPOINT steps."""
+    if not checkpoints:
+        if not steps:
+            return []
+        return [{"epoch_index": 0, "start_index": 0, "end_index": len(steps) - 1, "step_count": len(steps), "has_checkpoint": False, "summary": "Initial Trajectory"}]
+
+    c0 = checkpoints[0]
+    epochs: List[Dict[str, Any]] = [{
+        "epoch_index": 0, "start_index": 0, "end_index": c0, "step_count": c0 + 1, "has_checkpoint": True,
+        "summary": steps[c0].get("compaction_summary") or f"Checkpoint #{c0}",
+    }]
+    for k, cur_cp in enumerate(checkpoints):
+        end_idx = checkpoints[k + 1] if k + 1 < len(checkpoints) else (len(steps) - 1 if cur_cp < len(steps) - 1 else -1)
+        if end_idx >= 0:
+            epochs.append({
+                "epoch_index": len(epochs), "start_index": cur_cp, "end_index": end_idx, "step_count": end_idx - cur_cp + 1,
+                "has_checkpoint": True, "summary": steps[cur_cp].get("compaction_summary") or f"Checkpoint #{cur_cp}",
+            })
+    return epochs
+
+
+def _extract_measured_slices(raw_steps: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Extracts ONLY genuine measured systemPrompt and tool schema slices when explicitly present."""
+    raw_sys = ""
+    raw_tools: List[Any] = []
+    prompt_sections: List[Any] = []
+    for raw in raw_steps:
+        meta = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+        chat_model = raw.get("chatModel") or meta.get("chatModel")
+        if isinstance(chat_model, dict):
+            raw_sys = raw_sys or str(chat_model.get("systemPrompt") or "")
+            if not raw_tools and isinstance(chat_model.get("tools"), list):
+                raw_tools = chat_model["tools"]
+            if not prompt_sections and isinstance(chat_model.get("promptSections"), list):
+                prompt_sections = chat_model["promptSections"]
+        if not prompt_sections:
+            dmc = raw.get("declarativeMixinConfig") or (meta.get("plannerConfig") or {}).get("declarativeMixinConfig") or {}
+            if isinstance(dmc, dict) and isinstance(dmc.get("promptSections"), list):
+                prompt_sections = dmc["promptSections"]
+
+    sys_slices: List[Dict[str, Any]] = []
+    if raw_sys:
+        for tag, name, color in _SYS_TAG_DEFS:
+            m = re.search(rf"<{tag}>([\s\S]*?)</{tag}>", raw_sys, re.I)
+            if m and m.group(1):
+                sys_slices.append({"name": name, "tag": tag, "tokens": max(1, estimate_tokens(len(m.group(1)))), "color": color})
+        if not sys_slices:
+            sys_slices.append({"name": "System Prompt", "tokens": max(1, estimate_tokens(len(raw_sys))), "color": "#6366f1"})
+    elif prompt_sections:
+        palette = [c for _, _, c in _SYS_TAG_DEFS]
+        for idx, sec in enumerate(prompt_sections):
+            if isinstance(sec, dict) and (sec.get("content") or sec.get("text")):
+                content_s = str(sec.get("content") or sec.get("text") or "")
+                sys_slices.append({"name": str(sec.get("name") or sec.get("title") or f"Section #{idx + 1}"), "tokens": max(1, estimate_tokens(len(content_s))), "color": palette[idx % len(palette)]})
+
+    tool_slices: List[Dict[str, Any]] = []
+    if raw_tools:
+        buckets: Dict[str, int] = {name: 0 for name, _, _ in _TOOL_CATEGORY_SPEC} | {"Automation & Tasks": 0}
+        colors = {name: col for name, col, _ in _TOOL_CATEGORY_SPEC} | {"Automation & Tasks": "#14b8a6"}
+        for tool in raw_tools:
+            tname = str((tool.get("name") if isinstance(tool, dict) else "") or "").lower()
+            matched = next((cname for cname, _, kws in _TOOL_CATEGORY_SPEC if any(k in tname for k in kws)), "Automation & Tasks")
+            buckets[matched] += max(15, estimate_tokens(len(json.dumps(tool))))
+        tool_slices = [{"name": cname, "tokens": tok, "color": colors[cname]} for cname, tok in buckets.items() if tok > 0]
+    return sys_slices, tool_slices
+
+
+def _compute_honest_breakdown(
+    steps: List[Dict[str, Any]],
+    checkpoints: List[int],
+    explicit_in_positions: Set[int],
+    raw_steps: List[Dict[str, Any]],
+    db_metrics: TrajectoryMetrics,
+    epochs: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[int, int, bool, Dict[str, int], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Computes per-epoch honest breakdowns (`unattributed` gap, zero synthetic 40/60 or `model += diff`)."""
+    sys_slices, tool_slices = _extract_measured_slices(raw_steps)
+    sys_prompt_tok = sum(sl["tokens"] for sl in sys_slices)
+    tool_defs_tok = sum(sl["tokens"] for sl in tool_slices)
+
+    def _score_slice(ep_start: int, ep_end: int, is_last: bool) -> Tuple[int, int, bool, Dict[str, int]]:
+        ep_steps = steps[ep_start:ep_end + 1] if ep_end >= ep_start else []
+        cache_tokens = explicit_usage = explicit_est = 0
+        for rev_pos in range(len(ep_steps) - 1, -1, -1):
+            s = ep_steps[rev_pos]
+            if cache_tokens == 0 and s.get("cache_read_tokens"):
+                cache_tokens = int(s["cache_read_tokens"] or 0)
+            in_val, ca_val = int(s.get("input_tokens") or 0), int(s.get("cache_read_tokens") or 0)
+            is_exp = (ep_start + rev_pos) in explicit_in_positions
+            if explicit_usage == 0 and (s.get("type") != "USER_INPUT" or is_exp or ca_val > 0) and (in_val + ca_val > 0):
+                explicit_usage = in_val + ca_val
+            meta = s.get("metadata") if isinstance(s.get("metadata"), dict) else {}
+            model_usage = meta.get("modelUsage") if isinstance(meta.get("modelUsage"), dict) else {}
+            cwm = _extract_cwm(s)
+            if cwm:
                 etu = cwm.get("estimatedTokensUsed") or cwm.get("estimated_tokens_used")
-                if etu and isinstance(etu, (int, float)) and int(etu) > explicit_cum_tokens:
-                    explicit_cum_tokens = int(etu)
-            cum = (
-                meta.get("cumulative_context_tokens")
-                or meta.get("cumulative_tokens")
-                or meta.get("contextTokens")
-                or model_usage.get("totalTokens")
-            )
-            if cum and isinstance(cum, (int, float)) and int(cum) > explicit_cum_tokens:
-                explicit_cum_tokens = int(cum)
+                if isinstance(etu, (int, float)) and int(etu) > explicit_est:
+                    explicit_est = int(etu)
+            cum = meta.get("cumulative_context_tokens") or meta.get("cumulative_tokens") or meta.get("contextTokens") or model_usage.get("totalTokens")
+            if isinstance(cum, (int, float)) and int(cum) > explicit_est:
+                explicit_est = int(cum)
+        if is_last:
+            if cache_tokens == 0 and db_metrics.cache_read_tokens > 0:
+                cache_tokens = int(db_metrics.cache_read_tokens)
+            if explicit_usage == 0 and db_metrics.tokens > 0 and not db_metrics.is_provisional:
+                explicit_usage = int(db_metrics.tokens)
+            if explicit_est == 0 and db_metrics.tokens > 0:
+                explicit_est = int(db_metrics.tokens)
+        user_t = model_t = thought_t = tool_t = cp_t = sys_t = 0
+        for s in ep_steps:
+            stype, tok = s.get("type", ""), int(s.get("tokens") or 0)
+            if stype == "USER_INPUT":
+                user_t += tok
+            elif stype == "CHECKPOINT":
+                cp_t += tok
+            elif stype == "SYSTEM":
+                sys_t += tok
+            elif stype in ("PLANNER_RESPONSE", "MODEL_OUTPUT"):
+                raw_think = estimate_tokens(len(str(s.get("thinking") or ""))) if s.get("thinking") else 0
+                raw_content = estimate_tokens(len(str(s.get("content") or "")))
+                t_part = min(tok, round(tok * raw_think / (raw_think + raw_content))) if (raw_think > 0 and raw_content > 0 and tok > 0) else min(tok, raw_think)
+                thought_t += t_part
+                model_t += max(0, tok - t_part)
+            else:
+                tool_t += tok
+        measured = sys_prompt_tok + tool_defs_tok + cp_t + user_t + model_t + thought_t + tool_t + sys_t
+        explicit_best = explicit_usage if explicit_usage > 0 else explicit_est
+        total_tokens = max(explicit_best, measured) if explicit_best > 0 else measured
+        is_provisional = (explicit_usage == 0) and (total_tokens > 0)
+        unattributed = max(0, total_tokens - measured)
+        bd = {
+            "system_prompt": sys_prompt_tok, "tool_defs": tool_defs_tok, "checkpoint": cp_t,
+            "user": user_t, "model": model_t, "thought": thought_t, "tool": tool_t, "system": sys_t, "unattributed": unattributed,
+        }
+        return total_tokens, cache_tokens, is_provisional, bd
 
-    if explicit_cum_tokens == 0:
-        try:
-            from harness.hooks.token_proximity_guard import get_active_conversation_tokens
-            explicit_cum_tokens = get_active_conversation_tokens(conversation_id)
-        except Exception:
-            explicit_cum_tokens = 0
+    target_epochs = epochs if epochs else [{"start_index": checkpoints[-1] if checkpoints else 0, "end_index": len(steps) - 1}]
+    last_res: Tuple[int, int, bool, Dict[str, int]] = (0, 0, False, {"system_prompt": sys_prompt_tok, "tool_defs": tool_defs_tok, "checkpoint": 0, "user": 0, "model": 0, "thought": 0, "tool": 0, "system": 0, "unattributed": 0})
+    for idx, ep in enumerate(target_epochs):
+        ep_res = _score_slice(int(ep.get("start_index", 0)), int(ep.get("end_index", -1)), idx == len(target_epochs) - 1)
+        if epochs is not None:
+            ep["total_tokens"], ep["cache_tokens"], ep["is_provisional"], ep["token_breakdown"] = ep_res
+            ep["unattributed"] = ep_res[3]["unattributed"]
+        last_res = ep_res
+    return last_res[0], last_res[1], last_res[2], last_res[3], sys_slices, tool_slices
 
-    # Partition checkpoints first so active-epoch token breakdown avoids pre-checkpoint inflation
+
+def load_conversation_trajectory(
+    conversation_id: str,
+    brain_dir: Optional[Path] = None,
+    _visited: Optional[Set[str]] = None,
+    parent_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Loads trajectory steps, SSOT metrics, and direct child subagents from disk & SQLite."""
+    visited = _visited if _visited is not None else set()
+    visited.add(conversation_id)
+
+    base_brain = get_active_brain_dir(brain_dir)
+    convo_dir = base_brain / conversation_id
+    transcript_path, _ = find_transcript_path(convo_dir)
+    raw_steps, raw_line_sizes, ts_map = load_transcript_steps(transcript_path) if transcript_path else ([], [], {})
+    db_metrics = read_db_trajectory_state(conversation_id, transcript_timestamps=ts_map)
+
+    resolved_parent_id, subagents, subagent_infos = _resolve_lineage_and_subagents(conversation_id, raw_steps, base_brain, parent_id)
+    session_model, max_context_tokens = _resolve_session_metadata(convo_dir, raw_steps, db_metrics)
+    steps, explicit_in_positions = _enrich_and_sort_steps(raw_steps, raw_line_sizes, session_model)
     checkpoints = [i for i, s in enumerate(steps) if s.get("type") == "CHECKPOINT"]
-    breakdown_steps = (steps[checkpoints[-1]:] if checkpoints else steps) if explicit_cum_tokens > 0 else steps
-    breakdown_step_sum = sum(s.get("tokens", 0) for s in breakdown_steps)
+    epochs = _partition_epochs(steps, checkpoints)
 
-    # Native Upc context allocation (Google Antigravity Parity)
-    if explicit_cum_tokens > 0 and breakdown_step_sum > 0:
-        instruction_tok = max(7000, explicit_cum_tokens - breakdown_step_sum)
-        sys_prompt_tok = int(instruction_tok * 0.40)
-        tool_defs_tok = instruction_tok - sys_prompt_tok
-        total_tokens = max(breakdown_step_sum + instruction_tok, explicit_cum_tokens)
-    elif breakdown_step_sum > 0:
-        sys_prompt_tok = min(4000, max(400, int(breakdown_step_sum * 0.05)))
-        tool_defs_tok = min(3500, max(300, int(breakdown_step_sum * 0.04)))
-        total_tokens = breakdown_step_sum + sys_prompt_tok + tool_defs_tok
-    else:
-        sys_prompt_tok = 3800
-        tool_defs_tok = 3200
-        total_tokens = max(sys_prompt_tok + tool_defs_tok, explicit_cum_tokens)
+    total_tokens, cache_tokens, is_provisional, breakdown, sys_slices, tool_slices = _compute_honest_breakdown(
+        steps, checkpoints, explicit_in_positions, raw_steps, db_metrics, epochs=epochs
+    )
 
-    actual_user_tok = sum(s["tokens"] for s in breakdown_steps if s.get("type") == "USER_INPUT")
-    actual_model_tok = sum(s["tokens"] for s in breakdown_steps if s.get("type") in ("PLANNER_RESPONSE", "MODEL_OUTPUT"))
-    actual_tool_tok = sum(s["tokens"] for s in breakdown_steps if (
-        s.get("type") in ("TOOL_CALL", "RUN_COMMAND", "VIEW_FILE", "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES", "SEND_MESSAGE", "INVOKE_SUBAGENT")
-        or any(k in str(s.get("type", "")) for k in ("COMMAND", "TOOL", "FILE", "WRITE", "REPLACE", "SEARCH", "MESSAGE", "SUBAGENT"))
-    ))
-    actual_checkpoint_tok = sum(s["tokens"] for s in breakdown_steps if s.get("type") == "CHECKPOINT")
-    actual_system_tok = sum(s["tokens"] for s in breakdown_steps if s.get("type") == "SYSTEM")
+    burn_rate = db_metrics.burn_rate_tokens_per_min
+    if burn_rate <= 0.0:
+        active_steps = steps[checkpoints[-1]:] if checkpoints else steps
+        samples = [
+            (parse_step_timestamp(s.get("created_at") or s.get("timestamp")) or ts_map.get(int(s["step_index"])), int(s.get("input_tokens", 0) + s.get("cache_read_tokens", 0)) or int(s.get("cumulative_tokens", 0)))
+            for s in active_steps
+        ]
+        valid = [(t, tok) for t, tok in samples if t is not None and tok > 0]
+        if len(valid) >= 2 and valid[-1][0] > valid[0][0] and valid[-1][1] > valid[0][1]:
+            burn_rate = ((valid[-1][1] - valid[0][1]) / (valid[-1][0] - valid[0][0])) * 60.0
 
-    categorized_sum = actual_user_tok + actual_model_tok + actual_tool_tok + actual_checkpoint_tok + actual_system_tok
-    if breakdown_step_sum > categorized_sum:
-        actual_model_tok += (breakdown_step_sum - categorized_sum)
-
-    token_breakdown = {
-        "system_prompt": sys_prompt_tok,
-        "tool_defs": tool_defs_tok,
-        "checkpoint": actual_checkpoint_tok,
-        "user": actual_user_tok,
-        "model": actual_model_tok,
-        "tool": actual_tool_tok,
-        "system": actual_system_tok,
-    }
-    # Guarantee sum(token_breakdown.values()) == total_tokens exactly
-    diff = total_tokens - sum(token_breakdown.values())
-    token_breakdown["model"] += diff
-
-    # Pre-bundle direct child subagents into subagent_trajectories map (depth 1 only)
     subagent_trajectories: Dict[str, Any] = {}
     if parent_id is None:
         for sid in subagents:
-            if sid not in _visited:
+            if sid not in visited:
                 try:
-                    sub_traj = load_conversation_trajectory(
-                        sid,
-                        brain_dir=base_brain,
-                        _visited=_visited,
-                        parent_id=conversation_id,
-                    )
-                    subagent_trajectories[sid] = sub_traj
+                    subagent_trajectories[sid] = load_conversation_trajectory(sid, brain_dir=base_brain, _visited=visited, parent_id=conversation_id)
                 except (OSError, ValueError, KeyError, json.JSONDecodeError):
                     continue
 
-    # Partition trajectory into Epochs based on CHECKPOINT steps (ADR-014 / PSL-INV-010)
-    epochs: List[Dict[str, Any]] = []
-    if not checkpoints:
-        if steps:
-            epochs.append({
-                "epoch_index": 0,
-                "start_index": 0,
-                "end_index": len(steps) - 1,
-                "step_count": len(steps),
-                "has_checkpoint": False,
-                "summary": "Initial Trajectory",
-            })
-    else:
-        c0 = checkpoints[0]
-        epochs.append({
-            "epoch_index": 0,
-            "start_index": 0,
-            "end_index": c0,
-            "step_count": c0 + 1,
-            "has_checkpoint": True,
-            "summary": steps[c0].get("compaction_summary") or f"Checkpoint #{c0}",
-        })
-        for k in range(len(checkpoints)):
-            cur_cp = checkpoints[k]
-            if k + 1 < len(checkpoints):
-                next_cp = checkpoints[k + 1]
-                epochs.append({
-                    "epoch_index": len(epochs),
-                    "start_index": cur_cp,
-                    "end_index": next_cp,
-                    "step_count": next_cp - cur_cp + 1,
-                    "has_checkpoint": True,
-                    "summary": steps[cur_cp].get("compaction_summary") or f"Checkpoint #{cur_cp}",
-                })
-            elif cur_cp < len(steps) - 1:
-                epochs.append({
-                    "epoch_index": len(epochs),
-                    "start_index": cur_cp,
-                    "end_index": len(steps) - 1,
-                    "step_count": (len(steps) - 1) - cur_cp + 1,
-                    "has_checkpoint": True,
-                    "summary": steps[cur_cp].get("compaction_summary") or f"Checkpoint #{cur_cp}",
-                })
-
-    summary = _extract_conversation_summary(convo_dir, transcript_path)
-
-    sys_prompt_slices = [
-        {"name": "Identity", "tokens": int(sys_prompt_tok * 0.15), "color": "#6366f1"},
-        {"name": "Sandbox", "tokens": int(sys_prompt_tok * 0.05), "color": "#818cf8"},
-        {"name": "Artifacts", "tokens": int(sys_prompt_tok * 0.08), "color": "#a78bfa"},
-        {"name": "Transcript", "tokens": int(sys_prompt_tok * 0.07), "color": "#c084fc"},
-        {"name": "Guidelines", "tokens": int(sys_prompt_tok * 0.12), "color": "#e879f9"},
-        {"name": "Style", "tokens": int(sys_prompt_tok * 0.05), "color": "#f472b6"},
-        {"name": "Commands", "tokens": int(sys_prompt_tok * 0.06), "color": "#fb7185"},
-        {"name": "Messaging", "tokens": int(sys_prompt_tok * 0.07), "color": "#9333ea"},
-        {"name": "MCP Servers", "tokens": int(sys_prompt_tok * 0.05), "color": "#7c3aed"},
-        {"name": "Subagents", "tokens": int(sys_prompt_tok * 0.06), "color": "#6d28d9"},
-        {"name": "User Rules", "tokens": int(sys_prompt_tok * 0.08), "color": "#5b21b6"},
-        {"name": "Skills", "tokens": int(sys_prompt_tok * 0.08), "color": "#4c1d95"},
-        {"name": "Plugins", "tokens": int(sys_prompt_tok * 0.04), "color": "#8b5cf6"},
-        {"name": "UserInfo", "tokens": max(0, sys_prompt_tok - sum(int(sys_prompt_tok * f) for f in [0.15, 0.05, 0.08, 0.07, 0.12, 0.05, 0.06, 0.07, 0.05, 0.06, 0.08, 0.08, 0.04])), "color": "#a855f7"},
-    ]
-    tool_def_slices = [
-        {"name": "Filesystem Tools", "tokens": int(tool_defs_tok * 0.25), "color": "#06b6d4"},
-        {"name": "Terminal Tools", "tokens": int(tool_defs_tok * 0.20), "color": "#0891b2"},
-        {"name": "Subagents", "tokens": int(tool_defs_tok * 0.25), "color": "#0e7490"},
-        {"name": "Automation & Tasks", "tokens": max(0, tool_defs_tok - (int(tool_defs_tok * 0.25) + int(tool_defs_tok * 0.20) + int(tool_defs_tok * 0.25))), "color": "#14b8a6"},
-    ]
-
     return {
         "conversation_id": conversation_id,
-        "transcript_path": str(transcript_path),
-        "summary": summary,
+        "transcript_path": str(transcript_path or (convo_dir / ".system_generated" / "logs" / "transcript.jsonl")),
+        "summary": _extract_conversation_summary(convo_dir, transcript_path or (convo_dir / "transcript.jsonl")),
         "model": session_model,
         "steps": steps,
         "step_count": len(steps),
         "epochs": epochs,
+        "epoch_index": len(checkpoints),
+        "epoch_steps": len(steps) - (checkpoints[-1] + 1 if checkpoints else 0),
+        "checkpoint_count": len(checkpoints),
         "parent_id": resolved_parent_id,
         "subagents": subagents,
         "subagent_infos": subagent_infos,
@@ -899,37 +723,28 @@ def load_conversation_trajectory(
         "total_tokens": total_tokens,
         "max_context_tokens": max_context_tokens,
         "cache_tokens": cache_tokens,
-        "token_breakdown": token_breakdown,
-        "system_prompt_slices": sys_prompt_slices,
-        "tool_def_slices": tool_def_slices,
+        "is_provisional": is_provisional,
+        "burn_rate_tokens_per_min": round(float(burn_rate), 1),
+        "velocity_tier": db_metrics.velocity_tier,
+        "token_breakdown": breakdown,
+        "system_prompt_slices": sys_slices,
+        "tool_def_slices": tool_slices,
     }
 
 
-def get_recent_conversations(
-    brain_dir: Optional[Path] = None,
-    limit: int = 30,
-) -> List[Dict[str, Any]]:
-    """Discovers and returns recent Antigravity conversations sorted by modification time."""
-    base_brain = brain_dir or (Path.home() / ".gemini" / "antigravity" / "brain")
+def get_recent_conversations(brain_dir: Optional[Path] = None, limit: int = 30) -> List[Dict[str, Any]]:
+    """Discovers recent Antigravity conversations sorted by modification time."""
+    base_brain = get_active_brain_dir(brain_dir)
     if not base_brain.is_dir():
         return []
 
     conversations: List[Dict[str, Any]] = []
     for d in base_brain.iterdir():
         if d.is_dir() and d.name != ".system_generated":
-            t_log = d / ".system_generated" / "logs" / "transcript.jsonl"
-            if not t_log.is_file():
-                t_log = d / "transcript.jsonl"
-
-            if t_log.is_file():
+            t_log, _ = find_transcript_path(d)
+            if t_log and t_log.is_file():
                 try:
-                    mtime = t_log.stat().st_mtime
-                    summary = _extract_conversation_summary(d, t_log)
-                    conversations.append({
-                        "id": d.name,
-                        "summary": summary,
-                        "mtime": mtime,
-                    })
+                    conversations.append({"id": d.name, "summary": _extract_conversation_summary(d, t_log), "mtime": t_log.stat().st_mtime})
                 except OSError:
                     continue
 
@@ -937,16 +752,16 @@ def get_recent_conversations(
     return conversations[:limit]
 
 
-_CACHED_HUD_TEMPLATE: Optional[str] = None
-
-
 def _load_hud_template() -> str:
-    """Loads the HUD in-situ JavaScript template from packaged assets (ADR-014, PSL-INV-011)."""
-    global _CACHED_HUD_TEMPLATE
-    if _CACHED_HUD_TEMPLATE is None:
-        ref = importlib.resources.files("harness.gui.assets").joinpath("hud.js")
-        _CACHED_HUD_TEMPLATE = ref.read_text(encoding="utf-8")
-    return _CACHED_HUD_TEMPLATE
+    """Dynamically composes the HUD in-situ JS/CSS template from modular assets (PSL-INV-011)."""
+    assets = importlib.resources.files("harness.gui.assets")
+    return (
+        assets.joinpath("hud.js").read_text(encoding="utf-8")
+        .replace("/* __HUD_STYLES__ */", assets.joinpath("hud_styles.css").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_RPC__ */", assets.joinpath("hud_rpc.js").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_VIEWS__ */", assets.joinpath("hud_views.js").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_INSPECTOR__ */", assets.joinpath("hud_inspector.js").read_text(encoding="utf-8"), 1)
+    )
 
 
 def build_trajectory_hud_script(
@@ -963,8 +778,4 @@ def build_trajectory_hud_script(
         "shouldOpen": open_view,
         "isToggle": toggle,
     }
-    payload_json = json.dumps(payload)
-
-    target_token = "const __PAYLOAD__ = null;"
-    replacement = f"const __PAYLOAD__ = {payload_json};"
-    return _load_hud_template().replace(target_token, replacement, 1)
+    return _load_hud_template().replace("const __PAYLOAD__ = null;", f"const __PAYLOAD__ = {json.dumps(payload)};", 1)

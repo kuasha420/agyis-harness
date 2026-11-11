@@ -91,11 +91,11 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
             traj = load_conversation_trajectory(convo_id, brain_dir=base_brain)
 
             self.assertEqual(traj["total_tokens"], 50000)
+            self.assertFalse(traj["is_provisional"])
             breakdown = traj["token_breakdown"]
-            self.assertEqual(breakdown["system_prompt"], 19600)
-            self.assertEqual(breakdown["tool_defs"], 29400)
-            self.assertGreater(breakdown["system_prompt"], 4000, "Must not be capped by legacy 4000 limit")
-            self.assertGreater(breakdown["tool_defs"], 3500, "Must not be capped by legacy 3500 limit")
+            self.assertEqual(breakdown["system_prompt"], 0)
+            self.assertEqual(breakdown["tool_defs"], 0)
+            self.assertEqual(breakdown["unattributed"], 49000)
             self.assertEqual(sum(breakdown.values()), 50000)
 
     def test_slices_well_formed_and_non_negative(self):
@@ -120,8 +120,8 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
             sys_slices = traj["system_prompt_slices"]
             tool_slices = traj["tool_def_slices"]
 
-            self.assertTrue(len(sys_slices) > 0)
-            self.assertTrue(len(tool_slices) > 0)
+            self.assertEqual(sys_slices, [])
+            self.assertEqual(tool_slices, [])
 
             total_sys = sum(s["tokens"] for s in sys_slices)
             total_tool = sum(s["tokens"] for s in tool_slices)
@@ -137,30 +137,56 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
             self.assertEqual(total_tool, traj["token_breakdown"]["tool_defs"])
             self.assertEqual(sum(traj["token_breakdown"].values()), traj["total_tokens"])
 
-    def test_fallback_to_token_proximity_guard_db(self):
-        """Verifies fallback to get_active_conversation_tokens when steps lack input_tokens/cache_read_tokens."""
+    def test_sqlite_ssot_fallback_when_transcript_lacks_usage(self):
+        """Falls back cleanly to SQLite SSOT metrics via AGYIS_CONVERSATIONS_DIR when transcript steps omit usage."""
+        import os
+        import sqlite3
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            base_brain = Path(tmpdir)
+            root = Path(tmpdir)
+            base_brain = root / "brain"
+            db_dir = root / "convs"
+            db_dir.mkdir(parents=True, exist_ok=True)
             convo_id = "test-convo-upc-fallback"
             convo_dir = base_brain / convo_id
             convo_dir.mkdir(parents=True, exist_ok=True)
 
-            # Steps without input_tokens or cache_read_tokens
             steps_data = [
                 {"role": "user", "content": "Simple message", "tokens": 500},
                 {"role": "assistant", "content": "Simple reply", "tokens": 500},
             ]
-
             with open(convo_dir / "transcript.jsonl", "w", encoding="utf-8") as f:
                 for s in steps_data:
                     f.write(json.dumps(s) + "\n")
 
-            with patch("harness.hooks.token_proximity_guard.get_active_conversation_tokens", return_value=60000):
+            conn = sqlite3.connect(db_dir / f"{convo_id}.db")
+            conn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data TEXT)")
+            conn.execute(
+                "INSERT INTO gen_metadata VALUES (1, ?)",
+                (
+                    json.dumps(
+                        {
+                            "chatStartMetadata": {
+                                "contextWindowMetadata": {
+                                    "estimatedTokensUsed": 60000,
+                                    "maxContextTokens": 256000,
+                                }
+                            }
+                        }
+                    ),
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            with patch.dict(os.environ, {"AGYIS_CONVERSATIONS_DIR": str(db_dir)}):
                 traj = load_conversation_trajectory(convo_id, brain_dir=base_brain)
-                self.assertEqual(traj["total_tokens"], 60000)
-                # instruction_tok = max(7000, 60000 - 1000) = 59000
-                self.assertEqual(traj["token_breakdown"]["system_prompt"], int(59000 * 0.40))
-                self.assertEqual(traj["token_breakdown"]["tool_defs"], 59000 - int(59000 * 0.40))
+
+            self.assertEqual(traj["total_tokens"], 60000)
+            self.assertTrue(traj["is_provisional"])
+            self.assertEqual(traj["token_breakdown"]["system_prompt"], 0)
+            self.assertEqual(traj["token_breakdown"]["tool_defs"], 0)
+            self.assertEqual(traj["token_breakdown"]["unattributed"], 59000)
 
     def test_model_resolution_and_no_hardcoded_gemini(self):
         """Verifies session model resolution and asserts hud.js contains zero occurrences of 'gemini-2.5-pro'."""
@@ -344,7 +370,8 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
             self.assertEqual(breakdown["tool"], 0)
             self.assertEqual(breakdown["checkpoint"], 4000)
             self.assertEqual(breakdown["model"], 2000)
-            self.assertEqual(breakdown["system_prompt"] + breakdown["tool_defs"], 43000)
+            self.assertEqual(breakdown["system_prompt"] + breakdown["tool_defs"], 0)
+            self.assertEqual(breakdown["unattributed"], 43000)
 
     def test_cold_cache_explicit_user_input_tokens_honored(self):
         """USER_INPUT with explicit input_tokens > 0 and cache_read_tokens == 0 still populates total_tokens cleanly."""
@@ -373,6 +400,85 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
             self.assertEqual(traj["token_breakdown"]["user"], 50)
             self.assertEqual(sum(traj["token_breakdown"].values()), 25000)
             self.assertNotIn("_has_explicit_input_tokens", traj["steps"][0])
+
+    def test_is_provisional_cache_tokens_and_chronological_sort(self):
+        """Verifies provisional flag, cache_tokens extraction, and out-of-order step_index chronological sort."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_brain = Path(tmpdir)
+
+            # Case A: estimatedTokensUsed only -> is_provisional == True
+            cid_est = "convo-provisional-only"
+            (base_brain / cid_est).mkdir(parents=True, exist_ok=True)
+            (base_brain / cid_est / "transcript.jsonl").write_text(
+                json.dumps(
+                    {
+                        "step_index": 0,
+                        "role": "user",
+                        "content": "Estimate check",
+                        "tokens": 200,
+                        "contextWindowMetadata": {"estimatedTokensUsed": 18000, "maxContextTokens": 256000},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            traj_est = load_conversation_trajectory(cid_est, brain_dir=base_brain)
+            self.assertEqual(traj_est["total_tokens"], 18000)
+            self.assertTrue(traj_est["is_provisional"])
+            self.assertEqual(traj_est["cache_tokens"], 0)
+
+            # Case B: authoritative inputTokens + cacheReadTokens + out-of-order step_index + checkpoint reset
+            cid_auth = "convo-auth-chronological"
+            (base_brain / cid_auth).mkdir(parents=True, exist_ok=True)
+            out_of_order = [
+                {
+                    "step_index": 2,
+                    "type": "PLANNER_RESPONSE",
+                    "content": "Post-checkpoint reply",
+                    "tokens": 600,
+                    "metadata": {"modelUsage": {"inputTokens": 4000, "cacheReadTokens": 12000}},
+                },
+                {"step_index": 0, "type": "USER_INPUT", "content": "Initial message", "tokens": 9000},
+                {"step_index": 1, "type": "CHECKPOINT", "content": "<summary>Compacted state</summary>", "tokens": 1500},
+            ]
+            (base_brain / cid_auth / "transcript.jsonl").write_text(
+                "\n".join(json.dumps(s) for s in out_of_order) + "\n", encoding="utf-8"
+            )
+            traj_auth = load_conversation_trajectory(cid_auth, brain_dir=base_brain)
+            self.assertEqual([s["step_index"] for s in traj_auth["steps"]], [0, 1, 2])
+            self.assertEqual([s["cumulative_tokens"] for s in traj_auth["steps"]], [9000, 1500, 2100])
+            self.assertFalse(traj_auth["is_provisional"])
+            self.assertEqual(traj_auth["cache_tokens"], 12000)
+            self.assertEqual(traj_auth["total_tokens"], 16000)
+
+    def test_backslash_free_subagent_ids_from_escaped_output(self):
+        """Escaped JSON inside tool output resolves clean child UUIDs without trailing backslashes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_brain = Path(tmpdir)
+            parent_id = "11111111-1111-4111-8111-111111111111"
+            child_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+            (base_brain / parent_id).mkdir(parents=True, exist_ok=True)
+            (base_brain / child_id).mkdir(parents=True, exist_ok=True)
+            (base_brain / child_id / "transcript.jsonl").write_text(
+                json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "Child task", "tokens": 100}) + "\n",
+                encoding="utf-8",
+            )
+            parent_step = {
+                "step_index": 0,
+                "type": "PLANNER_RESPONSE",
+                "tool_calls": [
+                    {
+                        "name": "invoke_subagent",
+                        "args": {"TypeName": "agyis_builder", "Role": "Builder"},
+                        "output": json.dumps({"conversationId": child_id}),
+                    }
+                ],
+            }
+            (base_brain / parent_id / "transcript.jsonl").write_text(json.dumps(parent_step) + "\n", encoding="utf-8")
+
+            traj = load_conversation_trajectory(parent_id, brain_dir=base_brain)
+            self.assertEqual(traj["subagents"], [child_id])
+            self.assertTrue(all("\\" not in sid for sid in traj["subagents"]))
 
 
 if __name__ == "__main__":

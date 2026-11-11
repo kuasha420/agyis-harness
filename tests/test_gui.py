@@ -1529,16 +1529,15 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
         total_tokens = data["total_tokens"]
         breakdown = data["token_breakdown"]
 
-        # Cumulative context must exceed individual step deltas
-        step_sum = 1200 + 3000 + 1500 + 2000 + 500
-        self.assertGreaterEqual(total_tokens, step_sum)
-        # Sum of breakdown must match total_tokens exactly
+        # Active epoch post-checkpoint only (excludes pre-checkpoint 1200+3000+1500 steps)
+        self.assertEqual(total_tokens, 2500)
         self.assertEqual(sum(breakdown.values()), total_tokens)
         self.assertEqual(breakdown["checkpoint"], 2000)
-        self.assertEqual(breakdown["user"], 1700)
-        self.assertEqual(breakdown["tool"], 1500)
-        self.assertGreater(breakdown["system_prompt"], 0)
-        self.assertGreater(breakdown["tool_defs"], 0)
+        self.assertEqual(breakdown["user"], 500)
+        self.assertEqual(breakdown["tool"], 0)
+        self.assertEqual(breakdown["system_prompt"], 0)
+        self.assertEqual(breakdown["tool_defs"], 0)
+        self.assertEqual(breakdown["unattributed"], 0)
 
     def test_hud_css_titlebar_offset_and_no_drag(self) -> None:
         script = build_trajectory_hud_script(
@@ -1554,7 +1553,7 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
         self.assertIn("-webkit-app-region: no-drag;", script)
         # Cumulative token sync in JS
         self.assertIn("activeTokensSum = segments.reduce", script)
-        self.assertIn("Math.max(cur.total_tokens || 0, activeTokensSum)", script)
+        self.assertIn("Math.max(selectedEpochTotal, activeTokensSum)", script)
 
 
 class TestGUISystemdService(unittest.TestCase):
@@ -2149,16 +2148,43 @@ class TestCleanroomAntigravityParityUpgrades(unittest.TestCase):
 
         traj = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
 
-        # Assert granular system prompt slices
-        sys_slices = traj.get("system_prompt_slices", [])
+        # Unmeasured transcripts must return empty slice lists rather than synthetic guesses
+        self.assertEqual(traj.get("system_prompt_slices", []), [])
+        self.assertEqual(traj.get("tool_def_slices", []), [])
+
+        # Measured chatModel prompt tags + tool definitions produce full granular slices
+        measured_id = f"{convo_id}_measured"
+        measured_dir = self.brain_dir / measured_id
+        measured_dir.mkdir(parents=True, exist_ok=True)
+        measured_step = {
+            "source": "model",
+            "content": "Measured response",
+            "chatModel": {
+                "systemPrompt": (
+                    "<identity>Agent ID system text</identity>"
+                    "<guidelines>Strict engineering rules</guidelines>"
+                    "<messaging>Inter-agent messaging spec</messaging>"
+                    "<artifacts>Artifact directory rules</artifacts>"
+                ),
+                "tools": [
+                    {"name": "read_file", "description": "Read disk files"},
+                    {"name": "run_command", "description": "Execute bash command"},
+                    {"name": "invoke_subagent", "description": "Spawn subagent"},
+                    {"name": "schedule", "description": "Cron timer"},
+                ],
+            },
+        }
+        (measured_dir / "transcript.jsonl").write_text(json.dumps(measured_step) + "\n", encoding="utf-8")
+        measured_traj = load_conversation_trajectory(measured_id, brain_dir=self.brain_dir)
+
+        sys_slices = measured_traj.get("system_prompt_slices", [])
         self.assertTrue(len(sys_slices) >= 4)
         slice_names = [sl["name"] for sl in sys_slices]
         self.assertIn("Identity", slice_names)
         self.assertIn("Guidelines", slice_names)
         self.assertIn("Messaging", slice_names)
 
-        # Assert granular tool def slices
-        tool_slices = traj.get("tool_def_slices", [])
+        tool_slices = measured_traj.get("tool_def_slices", [])
         self.assertEqual(len(tool_slices), 4)
         tool_names = [sl["name"] for sl in tool_slices]
         self.assertIn("Filesystem Tools", tool_names)
@@ -2180,7 +2206,7 @@ class TestHudJsDynamicContextAndEpochs(unittest.TestCase):
         script = build_trajectory_hud_script(
             convo_id="init-convo",
             trajectory_data={"conversation_id": "init-convo", "steps": []},
-            conversations=[],
+            conversations=[{"id": "route_test_1", "summary": '<img src=x onerror="alert(1)">', "mtime": 1700000000}],
             open_view=True,
             toggle=False,
         )
@@ -2212,7 +2238,10 @@ function mkEl(tag) {
 const hudContainer = mkEl("div");
 let capturedHudDiv = null;
 const document = {
-    getElementById(id) { return null; },
+    getElementById(id) {
+        if (id === "agyis-trajectory-hud" && capturedHudDiv !== null) return hudContainer;
+        return null;
+    },
     createElement(tag) {
         if (tag === "div" && capturedHudDiv === null) {
             capturedHudDiv = hudContainer;
@@ -2227,14 +2256,32 @@ const document = {
     querySelector() { return null; },
     addEventListener() {},
 };
+const winListeners = {};
+const loadCalls = [];
 const window = {
     location: { origin: "https://127.0.0.1:40623", pathname: "/c/init-convo" },
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(ev, fn) { (winListeners[ev] = winListeners[ev] || []).push(fn); },
+    removeEventListener(ev, fn) {
+        if (!winListeners[ev]) return;
+        winListeners[ev] = winListeners[ev].filter(f => f !== fn);
+    },
+    dispatchEvent(ev) {
+        const list = winListeners[ev && ev.type] || [];
+        for (const fn of list) fn(ev);
+    },
     __APP_CONFIG__: { csrfToken: "test-csrf" },
 };
+function Event(type) { this.type = type; }
 let mockScenario = null;
-async function fetch(url) {
+async function fetch(url, opts) {
+    if (opts && opts.body) {
+        try {
+            const parsed = JSON.parse(opts.body);
+            if (parsed.cascadeId && url.endsWith("/GetCascadeTrajectorySteps")) {
+                loadCalls.push(parsed.cascadeId);
+            }
+        } catch (_) {}
+    }
     return {
         ok: true,
         async json() {
@@ -2309,6 +2356,11 @@ async function fetch(url) {
     };
     const data1m = await window.__agyis_hud_load_convo("convo-1m");
     const html1m = hudContainer.innerHTML;
+    // Switch back to historical Epoch 0: must render Epoch 0's own ~20k tokens / 1 row, NOT Epoch 1's 800k / unattributed
+    window.__agyis_hud_state.activeEpochIndex = 0;
+    window.__agyis_hud_render();
+    const html1mEp0 = hudContainer.innerHTML;
+    window.__agyis_hud_state.activeEpochIndex = 1;
     window.__agyis_hud_state.mainDeckTab = "timeline";
     window.__agyis_hud_render();
     const timelineHtml1m = hudContainer.innerHTML;
@@ -2330,6 +2382,59 @@ async function fetch(url) {
     };
     const dataSmall = await window.__agyis_hud_load_convo("convo-small-est");
 
+    // Scenario 4: Out-of-order stepIndex + authoritative modelUsage (inputTokens + cacheReadTokens) + >100% fill clamping
+    mockScenario = {
+        steps: [
+            {
+                stepIndex: 2,
+                type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+                plannerResponse: { response: "Done" },
+                metadata: { modelUsage: { inputTokens: 20000, cacheReadTokens: 280000, outputTokens: 500 } },
+            },
+            { stepIndex: 0, type: "CORTEX_STEP_TYPE_USER_INPUT", userInput: { userResponse: "First message" } },
+            { stepIndex: 1, type: "CORTEX_STEP_TYPE_RUN_COMMAND", runCommand: { commandLine: "ls", exitCode: 0 } },
+        ],
+        genMetas: [
+            { stepIndex: 2, chatStartMetadata: { contextWindowMetadata: { maxContextTokens: 256000 } } },
+        ],
+    };
+    window.__agyis_hud_state.mainDeckTab = "context";
+    const dataAuth = await window.__agyis_hud_load_convo("convo-auth-oo-clamp");
+    window.__agyis_hud_render();
+    const htmlAuth = hudContainer.innerHTML;
+
+    // Scenario 5: SPA routechange/popstate with underscore slug + subagent UUID filtering + HTML escaping
+    mockScenario = {
+        steps: [
+            {
+                type: "CORTEX_STEP_TYPE_RUN_COMMAND",
+                runCommand: { commandLine: "echo ok", exitCode: 0, combinedOutput: { full: "unrelated 11111111-1111-1111-1111-111111111111" } },
+            },
+            {
+                type: "CORTEX_STEP_TYPE_INVOKE_SUBAGENT",
+                plannerResponse: {
+                    toolCalls: [{
+                        name: "invoke_subagent",
+                        argumentsJson: JSON.stringify({ Role: '<b onclick="xss()">Scout</b>', Prompt: "Check" }),
+                    }],
+                },
+                invokeSubagent: {
+                    subagents: [{ conversationId: "22222222-2222-2222-2222-222222222222", role: '<b onclick="xss()">Scout</b>' }],
+                },
+            },
+        ],
+        genMetas: [],
+    };
+    window.location.pathname = "/c/route_test_1";
+    window.dispatchEvent(new Event("agyis:routechange"));
+    await new Promise(r => setTimeout(r, 15));
+    window.location.pathname = "/c/route-test-2";
+    window.dispatchEvent(new Event("popstate"));
+    await new Promise(r => setTimeout(r, 15));
+    window.__agyis_hud_state.filterQuery = '" onfocus="alert(2)';
+    window.__agyis_hud_render();
+    const htmlEscaped = hudContainer.innerHTML;
+
     console.log(JSON.stringify({
         s1_epochs: data512.epochs.length,
         s1_has_cp: data512.epochs[0].has_checkpoint,
@@ -2341,27 +2446,21 @@ async function fetch(url) {
         s2_max_ctx: data1m.max_context_tokens,
         s2_total_tok: data1m.total_tokens,
         s2_user_tok: data1m.token_breakdown.user,
-        s2_breakdown_sum: (
-            data1m.token_breakdown.system_prompt +
-            data1m.token_breakdown.tool_defs +
-            data1m.token_breakdown.checkpoint +
-            data1m.token_breakdown.user +
-            data1m.token_breakdown.model +
-            data1m.token_breakdown.tool +
-            data1m.token_breakdown.system
-        ),
+        s2_breakdown_sum: Object.values(data1m.token_breakdown || {}).reduce((a, b) => a + b, 0),
         s2_html: html1m,
+        s2_ep0_html: html1mEp0,
         s2_timeline: timelineHtml1m,
         s3_total_tok: dataSmall.total_tokens,
-        s3_breakdown_sum: (
-            dataSmall.token_breakdown.system_prompt +
-            dataSmall.token_breakdown.tool_defs +
-            dataSmall.token_breakdown.checkpoint +
-            dataSmall.token_breakdown.user +
-            dataSmall.token_breakdown.model +
-            dataSmall.token_breakdown.tool +
-            dataSmall.token_breakdown.system
-        ),
+        s3_breakdown_sum: Object.values(dataSmall.token_breakdown || {}).reduce((a, b) => a + b, 0),
+        s3_provisional: dataSmall.is_provisional,
+        s4_order: dataAuth.steps.map(s => s.step_index),
+        s4_cache_tokens: dataAuth.cache_tokens,
+        s4_provisional: dataAuth.is_provisional,
+        s4_total_tok: dataAuth.total_tokens,
+        s4_html: htmlAuth,
+        s5_loads: loadCalls,
+        s5_subagents: (window.__agyis_hud_state.currentData && window.__agyis_hud_state.currentData.subagents) || [],
+        s5_html: htmlEscaped,
     }));
 })();
 """
@@ -2396,9 +2495,33 @@ async function fetch(url) {
             self.assertIn(f">{label}</span>", out["s2_html"])
         self.assertIn("1M Context &bull; Live Trace", out["s2_timeline"])
 
-        # Scenario 3 assertion: total_tokens matches sum(token_breakdown) even when estimatedTokensUsed < stepSum + 7000
+        # Scenario 3 assertion: total_tokens matches sum(token_breakdown) and marks provisional estimate
         self.assertEqual(out["s3_total_tok"], out["s3_breakdown_sum"])
         self.assertGreater(out["s3_total_tok"], 5000)
+        self.assertTrue(out["s3_provisional"])
+
+        # Scenario 4 assertions: out-of-order stepIndex sorted chronologically, authoritative UsageMetadata, clamped fill <= 100%
+        self.assertEqual(out["s4_order"], [0, 1, 2])
+        self.assertEqual(out["s4_cache_tokens"], 280000)
+        self.assertFalse(out["s4_provisional"])
+        self.assertEqual(out["s4_total_tok"], 300000)
+        self.assertIn("100.0% over", out["s4_html"])
+        self.assertIn("Cache: 280.0k", out["s4_html"])
+
+        # Historical Epoch 0 assertions: must use Epoch 0's ~20k measured tokens and 1 row, NOT Epoch 1's 800k/Unattributed
+        self.assertIn("Epoch 1 of 2", out["s2_ep0_html"])
+        self.assertIn("Context Window (1 row)", out["s2_ep0_html"])
+        self.assertNotIn("800,000", out["s2_ep0_html"])
+        self.assertNotIn("Unattributed Overhead", out["s2_ep0_html"])
+
+        # Scenario 5 assertions: SPA routechange/popstate, subagent UUID filtering, HTML escaping
+        self.assertIn("route_test_1", out["s5_loads"])
+        self.assertIn("route-test-2", out["s5_loads"])
+        self.assertEqual(out["s5_subagents"], ["22222222-2222-2222-2222-222222222222"])
+        self.assertNotIn("<img src=x", out["s5_html"])
+        self.assertNotIn('<b onclick="xss()">', out["s5_html"])
+        self.assertNotIn('" onfocus="alert(2)', out["s5_html"])
+        self.assertIn("&lt;img src=x", out["s5_html"])
 
 
 if __name__ == "__main__":
