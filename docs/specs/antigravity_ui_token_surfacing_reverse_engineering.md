@@ -71,10 +71,13 @@ Inspection of `/usr/bin/agy` confirmed three Go rendering routines (`google3/thi
 
 Early cleanroom experimentation mapped urgency tiers against the `CASCADE_USE_EXPERIMENT_CHECKPOINTER` `token_threshold = 50,000` constant; full production telemetry calibration under **ADR-033** subsequently aligned Agyis Harness runtime guards (`harness/hooks/token_proximity_guard.py` and `harness/hooks/pre_invocation_hook.py`) to the live `256,000`-token window:
 
-| Runway Band | Token Threshold (Production ADR-033) | Enforcement & Surfacing Mechanism |
+| Runway Band | Token Threshold (Production ADR-033 / ADR-035) | Enforcement & Surfacing Mechanism |
 | :--- | :---: | :--- |
-| **Nominal** | `< 180,000` | Silent in `PreToolUse` / `PreInvocation` |
-| **Amber Runway Alert** | `180,000 – 229,999` | Proactive runway gauge in `token_proximity_guard.py` + `agyis status` |
-| **Compaction Imminent** | `>= 230,000` (empirical avg `245,941`) | One-shot 40-line directive in `PreInvocation` (`psl-compaction-advisory`), subsequent 1-line badge, automatic checkpointing via `agyis checkpoint` |
+| **Nominal** | `< 180,000` (scaled `< 65%` for subagents) | Silent in `PreToolUse` / `PreInvocation`; `HEALTHY / REUSE` in `classify_context_health()` |
+| **Amber Runway Alert** | `180,000 – 229,999` (`65%–80%` or `>= 80` epoch steps) | Proactive runway gauge + `tok/min` velocity in `token_proximity_guard.py`, `agyis status`, and HUD |
+| **Compaction Imminent** | `>= 230,000` (`>= 80%` window, empirical avg `245,941`) | One-shot directive in `PreInvocation` (`psl-compaction-advisory`, nested `systemMessage` envelope), subsequent 1-line badge, automatic checkpointing via `agyis checkpoint` |
 
-GUI token HUD surfacing is implemented cleanly without modifying binary files via CDP injection (`agyis gui --hud` and `agyis gui --server`, complying with `PSL-INV-010` dynamic SPA `/c/:id` route synchronization and stale DOM purging on re-injection).
+Under **ADR-035**, `harness/trajectory/` (`health.py`, `protobuf.py`, `sqlite_reader.py`, `transcript_reader.py`) acts as the Single Source of Truth across hooks, HUD, subagent health inspection, and `agyis status`:
+- **Honest `TokenBreakdown` Attribution**: Sums measured `user`, `model`, `thought`, `tool`, `checkpoint`, and `system` buckets in the active epoch and assigns any positive delta against authoritative `UsageMetadata` (`input_tokens + cache_read_tokens`) explicitly to `unattributed`.
+- **Active-Epoch Velocity**: Computes `burn_rate_tokens_per_min` from active-epoch protobuf timestamps with transcript ISO-timestamp fallback.
+- **Modular GUI Assets (`PSL-INV-010` / `PSL-INV-011`)**: `harness/gui/trajectory_hud.py` loads decoupled assets under `harness/gui/assets/` (`hud.js`, `hud_rpc.js`, `hud_views.js`, `hud_inspector.js`, `hud_styles.css`) via `importlib.resources` for live SPA `/c/:id` route tracking and stale DOM purging on re-injection.

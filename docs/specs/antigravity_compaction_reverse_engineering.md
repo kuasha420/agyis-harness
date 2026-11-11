@@ -120,7 +120,7 @@ The following is a summary of the conversation history that has been truncated t
 ```
 
 ### 4.3 Persistence Surfaces
-1. **Per-Conversation SQLite (`~/.gemini/antigravity/conversations/<id>.db`)**: Inserts synthetic `CortexStepCheckpoint` (`step_type = 4`) containing serialized `SessionSummary`, `CodeChangeSummary`, `IncludedStepIndexStart` / `IncludedStepIndexEnd`, `UserRequests`, `ArtifactSnapshots`, and `TrajectoryFileDiffs`, plus `checkpoint_index` in trajectory/executor metadata.
+1. **Per-Conversation SQLite (`~/.gemini/antigravity/conversations/<id>.db`)**: Inserts synthetic compaction checkpoint steps (`step_type = 23` in live v2.19+ databases; legacy `step_type = 4` in earlier captures) containing serialized `SessionSummary`, `CodeChangeSummary`, `IncludedStepIndexStart` / `IncludedStepIndexEnd`, `UserRequests`, `ArtifactSnapshots`, and `TrajectoryFileDiffs`, plus `checkpoint_index` in trajectory/executor metadata. Active context consumption per turn is carried in `UsageMetadata` (`input_tokens + cache_read_tokens`).
 2. **Central Summary Store (`~/.gemini/antigravity/conversation_summaries.db`)**: Stores `raw_summary`, `step_count`, `last_modified_time`, and sidebar `preview`.
 3. **Brain Directory (`~/.gemini/antigravity/brain/<id>/`)**: Preserves raw uncompacted outputs under `.system_generated/steps/<idx>/output.txt` alongside live artifacts (`implementation_plan.md`, `task.md`).
 
@@ -135,3 +135,7 @@ The following is a summary of the conversation history that has been truncated t
 
 ### 5.2 Frontend `"Compacting"` Indicator
 `Jrb = { context_summary: "Compacting" }` maps `activeHook.hookName` inside React component `Mrb()`. `Qrb()` renders `<div data-testid="agent-loading">` showing `"Compacting"` when elapsed time `< 30s` and `"Compacting · <duration>"` when `>= 30s`, reverting to `"Working"` once the checkpoint step completes.
+
+### 5.3 Epoch Continuity & Harness SSOT Synchronization (`ADR-035`)
+- **Checkpoint Epoch Reset**: `harness/trajectory/` (`sqlite_reader.py`, `transcript_reader.py`, `health.py`) partitions every trajectory into discrete compaction epochs at each checkpoint step (`CHECKPOINT_STEP_TYPE = 23` in SQLite; `CHECKPOINT` in transcript steps), tracking both `total_steps` and active `epoch_steps` / `epoch_index` / `epoch_start_idx`.
+- **Single-Source Readers**: `pre_invocation_hook.py`, `token_proximity_guard.py`, `harness/subagents/`, `agyis status`, and `harness/gui/trajectory_hud.py` consume `read_db_trajectory_state()` and `build_measured_breakdown()`, eliminating post-compaction step-count staleness, premature subagent retirement, and unattributed token masking.

@@ -76,6 +76,7 @@ Thumbs.db
 *.swp
 .agents/artifacts/
 .agents/artifacts
+.agents/scratch/
 .agents/teamwork/
 .agents/archive/
 

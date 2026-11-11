@@ -8,7 +8,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Repository**: `kuasha420/agyis-harness` (Private Development → Public Release)  
-**Last Updated**: 2026-11-11  
+**Last Updated**: 2026-11-12  
 
 ---
 
@@ -30,11 +30,11 @@
 
 Calibrated on a **256k** token context window (`CONTEXT_WINDOW_TOKENS = 256_000`, empirical compaction trigger avg `245,941`) and executed by `token_proximity_guard.py` + `pre_invocation_hook.py`:
 
-| Zone | Token Runway / Step Horizon | Runtime Behavior |
+| Zone | Token Runway / Epoch Step Horizon (`256k` baseline) | Runtime Behavior |
 | :--- | :--- | :--- |
-| **Healthy** | `<180k` tokens and `<40` steps | Nominal execution; zero warning overhead |
-| **Amber Warning** | `180k–229,999` tokens (`180k` threshold) or `40–44` steps | Single-shot ANSI warning and preparation for state capture |
-| **Red Alert / Turn Ceiling** | `>=230k` tokens (`230k` trigger) or `45`-step turn ceiling (`50`-step hard cap) | De-spammed compaction directive, auto-saved `.agents/artifacts/compaction_checkpoint_latest.md` & `cockpit_checkpoint.md`, milestone ledger handoff |
+| **Healthy** | `<70%` scaled window (`<180k` on `256k`) and `<80` epoch steps | Nominal execution; zero warning overhead |
+| **Amber Warning** | `70%–89.9%` scaled window (`180k–229,999` on `256k`) or `>=80` active-epoch steps | Single-shot ANSI warning / non-blocking epoch horizon advisory |
+| **Red Alert / Compaction** | `>=90%` scaled window (`>=230k` on `256k`) | De-spammed compaction directive, CID-scoped `.agents/artifacts/checkpoints/<conv_id>.md` succession (`agyis checkpoint`), milestone ledger handoff |
 
 ---
 
@@ -45,7 +45,7 @@ Phases 0.5 through 35 (`Horizon 0` empirical ground truth and `Horizon 1` produc
 - **Verified Quality Gate**: **1,993** hermetic tests, **100.0/100 AFF** score (`agyis audit aff`), and **3** cleanroom RE specifications (`19` verified empirical evidence rows: `10` SHA-256 `ev_*` digests + `9` `EV-20261017` runtime checks; verified via `agyis verify --spec`).
 - **Release History**: [`CHANGELOG.md`](CHANGELOG.md)
 - **Full Historical Ledger (Phases 1–35)**: [`0069329:docs/archive/ledger/project-ledger-rc10-historical.md`](docs/archive/README.md#ledger)
-- **Active Post-RC10 Summary & ADRs**: [`docs/taxonomy/project-ledger.md`](docs/taxonomy/project-ledger.md) · [`docs/adr/README.md`](docs/adr/README.md) (`ADR-001`–`ADR-034`)
+- **Active Post-RC10 Summary & ADRs**: [`docs/taxonomy/project-ledger.md`](docs/taxonomy/project-ledger.md) · [`docs/adr/README.md`](docs/adr/README.md) (`ADR-001`–`ADR-035`)
 
 ---
 

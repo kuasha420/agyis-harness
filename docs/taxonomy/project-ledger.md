@@ -7,7 +7,7 @@
 
 > **Historical Archive**: Phases 1–35 (2026-10-02 through `v1.0.0-rc10`) live verbatim at `0069329:docs/archive/ledger/project-ledger-rc10-historical.md` (indexed in [`docs/archive/README.md#ledger`](../archive/README.md#ledger)).
 > **Authoritative Baselines**: Reconciled empirical metrics and Route A/B/C scores live in [`docs/taxonomy/empirical-baselines.md`](empirical-baselines.md).
-> **Architecture Registry**: Decisions `ADR-001` through `ADR-034` are maintained in [`docs/adr/README.md`](../adr/README.md).
+> **Architecture Registry**: Decisions `ADR-001` through `ADR-035` are maintained in [`docs/adr/README.md`](../adr/README.md).
 
 ---
 
@@ -50,6 +50,7 @@
 | **`v1.0.0-rc8` (Ph 31–33)** | 2026-10-27–28 | Native REA 6.8.0 schema/JDK healing (`#96`), granular MCP scoping & shell hygiene hook (`#97`), ELF/Rust cleanroom verification, worktree prune | `1,770` tests (`18.39s`) |
 | **`v1.0.0-rc9` (Ph 34)** | 2026-11-03 | `256k/230k/180k` cockpit thresholds & de-spammed advisory (`ADR-033`), pre-analyzed Ghidra cache (`PSL-INV-009`), extensible CLI (`ADR-034`) | `1,782` tests (`17.4s`) |
 | **`v1.0.0-rc10` (Ph 35)** | 2026-11-10 | In-tree symlink skill deduplication gate, `ADR-031A/B` disambiguation, `28` current top-level CLI subcommands (`router` & `ladder` separate), **100.0/100 AFF** release gate | `1,981` tests (`~65s`) |
+| **Post-RC10 (`ADR-035`)** | 2026-11-12 | Unified `harness/trajectory/` SSOT (epoch splitting, burn rate, honest `unattributed` tokens, scaled subagent health), modular HUD assets, daemon/command-safety fixes (#107–#112), tightened `800L / 25D / 0 @aff_exempt` AFF gate | Verified pre-release |
 
 ---
 

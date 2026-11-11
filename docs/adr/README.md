@@ -8,8 +8,8 @@
 **Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
-**Scope**: Self-Contained Decision Registry (`ADR-001` through `ADR-034`)  
-**Last Updated**: 2026-11-11  
+**Scope**: Self-Contained Decision Registry (`ADR-001` through `ADR-035`)  
+**Last Updated**: 2026-11-12  
 
 ---
 
@@ -19,7 +19,7 @@ This registry is the single canonical authority for architectural decisions gove
 
 ---
 
-## Master ADR Registry (`ADR-001` – `ADR-034`)
+## Master ADR Registry (`ADR-001` – `ADR-035`)
 
 | ADR | Title | Status | Date | Scope & Code Pointers | Decision & Invariant Summary | Archive / Spec Link |
 | :--- | :--- | :---: | :--- | :--- | :--- | :--- |
@@ -58,11 +58,12 @@ This registry is the single canonical authority for architectural decisions gove
 | **ADR-032** | Tool-Native Primacy & Task Log Anti-Polling | Accepted | 2026-10-10 | `harness/hooks/anti_loop_hook.py`, `harness/skills/*-ops/` | Enforces Tool-Native Primacy (`command_safety` + ops skills); `anti_loop_hook.py` blocks repetitive `.system_generated/{tasks,logs}/` inspections (`>=2` consecutive / `>=3` in 10 calls) with Exit 2 while giving `manage_task(Action='status')` non-blocking advisory allow (Issue #41). | [0069329:ADR-032](../archive/README.md#adr) |
 | **ADR-033** | Dynamic Context Runway, Attention Horizon & Pre-Invocation Advisory | Accepted | 2026-10-25 | `harness/hooks/pre_invocation_hook.py`, `token_proximity_guard.py`, `harness/delivery/compaction_checkpoint.py` | Standardized 256k/180k/230k token constants and step 40/45/50 executioner horizon; state-gated de-spammed `PreInvocation` advisory; real read-only SQLite protobuf measurements; atomic checkpoints (`compaction_checkpoint_latest.md` & `cockpit_checkpoint.md`). | [0069329:ADR-033](../archive/README.md#adr) |
 | **ADR-034** | Extensible Workspace CLI & Command Federation | Accepted | 2026-10-26 | `harness/runtime/extensions.py`, `harness/commands/ext.py`, `harness/cli.py` | Scans `.agents/commands/` & `commands.json`, transparently dispatches unknown verbs past the 28 built-in subparsers, injects `AGYIS_WORKSPACE`/`AGYIS_EXTENSION_COMMAND`/`WORKSPACE_ROOT`/`AGYIS_VERSION`/`PYTHONPATH`, and enforces `DEFAULT_EXTENSION_TIMEOUT = 300.0`s (`124` timeout, `128+sig` signal). | [0069329:ADR-034](../archive/README.md#adr) |
+| **ADR-035** | Unified Trajectory SSOT, Epoch-Scoped Continuity & Strict Architectural Fitness | Accepted | 2026-11-12 | `harness/trajectory/`, `harness/gui/assets/`, `harness/runtime/aff.py`, `harness/hooks/`, `harness/telemetry/sync/` | Consolidates protobuf (`input + cacheRead`), SQLite checkpoint epoch splitting (`step_type` `23`), transcript timestamp fallback burn rate, honest `unattributed` bucket, percentage-scaled subagent health (`65%/80%`, `SOFT_EPOCH_STEP_ADVISORY = 80`), nested `systemMessage` envelope parity, modular `assets/*.js` HUD separation, sync daemon SQLite upsert & debounce hardening, and tightened AFF gates (`800`L / `25` defs / `.js` asset scanning / `0` `@aff_exempt` / strict DAG). | [lifecycle-hooks.md](../official-specs/lifecycle-hooks.md) |
 
 ---
 
 ## Governance & Archival Policy
 
-1. **Completed Decisions**: Finalized and harnessed ADRs (`ADR-028`, `ADR-031A`, `ADR-031B`, `ADR-032`, `ADR-033`, `ADR-034`) are frozen at commit `0069329` (indexed under [`docs/archive/README.md#adr`](../archive/README.md#adr)) with full architectural rationale and reconciled implementation pointers; their canonical summary contracts reside in this registry.
+1. **Completed Decisions**: Finalized and harnessed ADRs (`ADR-028`, `ADR-031A`, `ADR-031B`, `ADR-032`, `ADR-033`, `ADR-034`) are frozen at commit `0069329` (indexed under [`docs/archive/README.md#adr`](../archive/README.md#adr)) with full architectural rationale and reconciled implementation pointers; `ADR-035` is recorded in full summary above alongside updated official and cleanroom specifications.
 2. **Deferred Slots**: Unimplemented reservations (`ADR-029`) remain explicitly tagged `Deferred` until promoted by an approved specification and verified test contract.
 3. **Empirical Alignment**: Quantitative baselines cited across historical ADRs are reconciled in [`docs/taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md).
