@@ -155,10 +155,10 @@ During the planning turn, the agent is strictly prohibited from mutating product
 | :--- | :--- | :--- | :--- | :--- |
 | **Orchestration Model** | Dynamic Stigmergic Swarm | Deterministic Linear Pipeline | Modal Single Agent | Interactive Artifact Protocol |
 | **Coordination Medium** | `.swarm_blackboard_<task>.md` | Staged Worktrees & State Dir | Single Prompt Prepend | `implementation_plan.md` |
-| **Worker Roles** | Coder, Adversarial Verifier, Reviewer | Planner, Builder, Reviewer, Custodian, Auditor | Single Persona | Lead Architect & Specialists |
+| **Worker Roles** | Coder, Adversarial Verifier, Reviewer | Investigator, Planner, Builder, Reviewer, Custodian, Auditor | Single Persona | Lead Architect & Specialists |
 | **Commit Gate** | Synthesizer merges candidate diffs | Stage 4 Custodian atomic commit on HEAD | None | Retroactive Horizon Compaction |
-| **Context Cliff Guard** | 16-Spawn Succession Protocol | Fresh context per ladder stage (<50k tokens) | Read-only planning turn | Aperture Compaction in Ledger |
-| **Adversarial Verification**| Internal test generators & oracles | Sub-second benchmark & doctor audit | None | `python3 -m harness.cli test` |
+| **Context Cliff Guard** | 16-Spawn Succession Protocol | Fresh context per ladder stage (`<40k` healthy / `<80k` red, ADR-025) | Read-only planning turn | Aperture Compaction in Ledger |
+| **Adversarial Verification**| Internal test generators & oracles | Sub-second component benchmarks (`<1.0s`), full suite & doctor audit | None | `python3 -m harness.cli test` |
 | **Execution Cost** | High (Multi-agent fanout; paid plan) | Optimized (`Model: inherit`, targeted stages) | Low (Single turn) | Sub-second, zero-token overhead |
 
 ### When to Use Which Pattern:
@@ -179,12 +179,12 @@ Implemented `check_plan_mode_lock` in `harness/hooks/anti_drift_hook.py`:
 ### B. Dual Orchestration Taxonomy & Adversarial Verifier Bundle (`harness/subagents/spec.py`)
 Implemented in `harness/subagents/spec.py`:
 - Added the `adversarial_verifier` capability bundle inspired by `/boost`'s test generator and oracle persona:
-  - Allowed Tools: `view_file`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `search_web`, `run_command`, `manage_task`, `write_to_file`, `replace_file_content`.
+  - Allowed Tools: `view_file`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `search_web`, `run_command`, `manage_task`, `write_to_file`, `replace_file_content`, `send_message`.
   - Permissions: `read: true`, `write: true`, `execute: true`, `subagents: false`.
   - Scoped to authoring generative fuzzers, test oracles, and stress benchmarks.
 
 ### C. Telemetry Classification for Native Slash Commands (`pipeline/`)
-Implemented in `pipeline/extract_transcripts.py` and `harness/telemetry/sync.py`:
+Implemented in `pipeline/extract_transcripts.py` and `harness/telemetry/sync/`:
 - Detects user prompts starting with `/boost` and tags `BOOST_ORCHESTRATION`.
 - Detects prompts starting with `/plan` and tags `PLAN_INITIATION`.
 - Tracks plan confirmation phrases (`proceed`, `approved this document`, `lgtm`) as `CONFIRMATION`.

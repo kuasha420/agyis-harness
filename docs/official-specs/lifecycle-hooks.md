@@ -146,9 +146,9 @@ The completion fence decouples dirty state into two independent flags:
    - Running `./agyis test` (or `python3 -m harness.cli test`) clears `code_dirty = False` and `spec_dirty = False`.
    - Running `agyis verify --spec` or `rea verify-reconstruction` clears `spec_dirty = False` without requiring test suite execution.
 
-### 3.2 The `psl-token-proximity-guard` Contract (ADR-014 / ADR-028)
+### 3.2 The `psl-token-proximity-guard` Contract (ADR-014 / ADR-028 / ADR-033)
 
-The token proximity guard monitors active session context accumulation to warn agents before they hit the catastrophic 50k token context cliff.
+The token proximity guard monitors active session context accumulation across the **256,000-token** runway (`CONTEXT_WINDOW_TOKENS = 256_000`) to warn agents before reaching the compaction trigger threshold (`230,000` tokens; historical trigger average `245,941`).
 
 #### A. Registration in `hooks.json`
 ```json
@@ -175,9 +175,9 @@ The token proximity guard monitors active session context accumulation to warn a
 2. **Protobuf Extraction**: Reads the latest step from the `steps` table and decodes binary protobuf field 9 to extract exact prompt tokens (subfield 2) and cached content tokens (subfield 5).
 3. **Compaction Checkpoint Detection**: Honors Antigravity compaction checkpoint barriers (enum 23 / 0x17), bounding token calculation to post-compaction steps.
 4. **Threshold Indicators**:
-   - `< 35,000 tokens`: Silent (nominal operation).
-   - `35,000 - 44,999 tokens`: Emits an ANSI amber warning gauge to `stderr` advising approaching horizon limits.
-   - `>= 45,000 tokens`: Emits a bold ANSI red alert and terminal bell (`\a`) warning that the 50k compaction threshold is imminent.
+   - `< 180,000 tokens`: Silent (nominal operation within healthy runway).
+   - `180,000 - 229,999 tokens`: Emits an ANSI amber warning gauge (`AMBER_THRESHOLD = 180_000`) to `stderr` advising approaching compaction limits.
+   - `>= 230,000 tokens`: Emits a bold ANSI red alert and terminal bell (`\a`) (`RED_THRESHOLD = 230_000`) warning that compaction is imminent (synchronized with §3.6 `psl-compaction-advisory`).
 5. **Fail-Open Invariant**: Always outputs `{"decision": "allow"}` and exits 0. Tool calls are never interrupted.
 
 

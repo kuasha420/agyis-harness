@@ -57,7 +57,7 @@ agyis status                 # Show harness health, hooks health, token horizon 
 ### Fresh Project Initialization (`agyis init`)
 Scaffold `.agents/` stack skills, tagged rules, and cleanroom ledgers into a new or clean directory:
 ```bash
-agyis init [path] -s python -r builder
+agyis init [path] -s python -r cli
 ```
 
 ### Brownfield Golden-Path Onboarding (`agyis onboard`)

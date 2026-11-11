@@ -7,11 +7,11 @@
 
 ## Executive Summary
 
-During our empirical telemetry research and subagent proof-of-concept (POC) exploration, an essential platform discovery emerged: **agents defined in `.agents/agents/` are not merely background workers for `invoke_subagent`—they are surfaced directly in the Antigravity 2.0 chat interface as first-class, selectable entrypoint agents.**
+During empirical telemetry research and dual-mode agent platform discovery, an essential platform capability emerged: **agents defined in `.agents/agents/` are not merely background workers for `invoke_subagent`—they are surfaced directly in the Antigravity 2.0 chat interface as first-class, selectable entrypoint agents.**
 
 ![Antigravity New Conversation Agent Selector](../assets/antigravity_agent_menu.png)
 
-This dual-mode behavior (subagent + standalone entrypoint agent) unlocks a major strategic capability for **`agyis-harness`**: we can empower harness users to author, scaffold, and operate custom, workspace-aware agent personas (such as **Agyis Architect**, **Coordinator**, **Planner**, **Refactorer**, **Optimizer**, and **Security Auditor**) with scoped tool permissions, dedicated models, and deterministic hook guardrails.
+This dual-mode behavior (subagent + standalone entrypoint agent) enables `agyis-harness` to package, scaffold, and operate custom, workspace-aware agent personas (**Agyis Architect**, **Coordinator**, **Investigator**, **Planner**, **Builder**, **Reviewer**, **Custodian**, and **Auditor**) with scoped tool permissions, dedicated models, and deterministic hook guardrails.
 
 ---
 
@@ -50,7 +50,7 @@ graph TD
 | Surface | Invocation Method | Context State | Toolset | Typical Use Case |
 | :--- | :--- | :--- | :--- | :--- |
 | **Subagent** | Programmatic via `invoke_subagent` | Clean-slate isolated child session (`Workspace: "share"` or `"branch"`) | Strict subset delegated by parent | Parallel sweeps, benchmark verification, isolated refactors |
-| **Entrypoint Agent** | User selection via UI Agent dropdown or `/agents` CLI | Direct user conversation; inherits workspace rules & skills | Scoped to declared `tools` in frontmatter | Direct domain pairing: Architecture planning, AST refactoring, Doctor audit |
+| **Entrypoint Agent** | User selection via UI Agent dropdown or `agyis agents` CLI | Direct user conversation; inherits workspace rules & skills | Scoped to declared `tools` in frontmatter | Direct domain pairing: Architecture planning, AST refactoring, Doctor audit |
 
 ---
 
@@ -210,8 +210,8 @@ By surfacing specialized agents in the UI dropdown, the user naturally partition
 ├──────────────────────────┬───────────────────────┬─────────────────────┤
 │ Conversation 1: Planner  │ Conversation 2:       │ Conversation 3:     │
 │                          │ Builder               │ Reviewer / Auditor  │
-│ Persona: codebase_planner│ Persona: builder      │ Persona: reviewer   │
-│ Model: Gemini 3.8 Pro    │ Model: Gemini Flash   │ Model: Gemini Flash │
+│ Persona: agyis_planner   │ Persona: agyis_builder│ Persona: agyis_reviewer │
+│ Model: Gemini Pro/Inherit│ Model: Gemini Flash   │ Model: Gemini Flash │
 │ Tools: Read-Only         │ Tools: Write + Exec   │ Tools: Read-Only    │
 │ Steps: ~15 steps         │ Steps: ~30 steps      │ Steps: ~10 steps    │
 │ Output: implementation_  │ Output: Clean delta   │ Output: Defect      │
@@ -219,90 +219,93 @@ By surfacing specialized agents in the UI dropdown, the user naturally partition
 └──────────────────────────┴───────────────────────┴─────────────────────┘
 ```
 
-Each conversation operates strictly within the **Healthy Green Zone (<40k tokens, <40 steps)**, eliminating the 200+ step cliff entirely!
+Each delegated stage runs in a fresh, bounded subagent context (`<40k tokens`, well below the `180k` amber / `230k` red compaction runway of the `256k` window), eliminating the 200+ step cliff!
 
 ---
 
-## 4. Proposed Catalog of Workspace-Aware Agents
+## 4. Catalog of Built-In & Workspace-Aware Agents
 
-To deliver immediate value to harness users, we can package an extensible library of purpose-built agent archetypes:
+Agyis Harness ships 8 verified specialist agent personas stored in `harness/agents/` and synchronized into workspace `.agents/agents/`:
 
+```text
+harness/agents/
+├── agyis_architect.md     # Lead systems architect & full-capability conductor (main)
+├── agyis_coordinator.md   # Flight deck coordinator & multi-stage pipeline lead (coordinator)
+├── agyis_investigator.md  # Forensic RCA, telemetry replay & reproduction specialist (investigator)
+├── agyis_planner.md       # Architecture researcher & implementation_plan.md author (planner)
+├── agyis_builder.md       # Surgical executioner for contiguous AST/code edits (executioner)
+├── agyis_reviewer.md      # Rule, security & invariant hammer auditor (hammer)
+├── agyis_custodian.md     # DRY deduplication & atomic git HEAD custody specialist (custodian)
+└── agyis_auditor.md       # Read-only verification & benchmark certification gate (auditor)
 ```
-harness/agents/templates/
-├── agyis_architect.md   # Lead system architect & full-capability conductor
-├── coordinator.md       # High-level orchestrator & multi-stage project manager
-├── planner.md           # Architecture researcher & ADR / implementation plan author
-├── refactorer.md        # AST-aware code transformation & cleanup specialist
-├── optimizer.md         # Sub-second benchmark & algorithmic performance engineer
-├── security_auditor.md  # SAST, secret detection, and permissions auditor
-└── ops_doctor.md        # Workstation environment diagnostics & zero-sudo auto-healing
-```
 
-### Archetype Profiles
+### Canonical Archetype Profiles
 
 ```carousel
-#### 1. Codebase Planner (`planner.md`)
+#### 1. Architecture Planner (`agyis_planner.md`)
 - **Archetype**: `planner`
-- **Default Model**: `gemini-3.8-pro` (Deep reasoning & dependency mapping)
-- **Permissions**: Read-only (`read: true`, `write: false`, `execute: false`)
-- **Key Invariant**: **Artifact-First (ADR-012)**. Never outputs raw chat plans; always generates an interactive `implementation_plan.md` artifact.
+- **Default Model**: `inherit` (or `pro` for deep dependency mapping)
+- **Capability Bundle**: `orchestrator` (`read: true`, `write: false`, `execute: false`, `subagents: true`)
+- **Key Invariant**: **Artifact-First (`PSL-INV-005`)**. Never outputs raw chat plans; generates interactive `implementation_plan.md` artifacts.
 <!-- slide -->
-#### 2. Surgical Refactorer (`refactorer.md`)
+#### 2. Surgical Builder (`agyis_builder.md`)
 - **Archetype**: `executioner`
-- **Default Model**: `gemini-3.8-flash` or `gemini-3.8-pro`
-- **Permissions**: Full write & execute (`write: true`, `execute: true`, `subagent: false`)
-- **Key Invariants**: 
-  - **Surgical Contiguous Edits**: Enforces single-block replacements via `replace_file_content`.
-  - **The 5 Ground Rules**: Zero error swallowing; tests before complete delivery.
+- **Default Model**: `inherit`
+- **Capability Bundle**: `builder` (`read: true`, `write: true`, `execute: true`, `subagents: false`)
+- **Key Invariants**:
+  - **Surgical Contiguous Edits (`PSL-INV-003`)**: Enforces single-block replacements via `replace_file_content`.
+  - **Verification Before Completion (`PSL-INV-001`)**: Runs targeted verification and never swallows errors.
 <!-- slide -->
-#### 3. Benchmark Optimizer (`optimizer.md`)
+#### 3. Victory Auditor (`agyis_auditor.md`)
 - **Archetype**: `auditor`
-- **Default Model**: `gemini-3.8-flash`
-- **Permissions**: Execution only (`read: true`, `write: true`, `execute: true`)
+- **Default Model**: `inherit`
+- **Capability Bundle**: `verifier` (`read: true`, `write: false`, `execute: true`, `subagents: false`)
 - **Key Invariants**:
-  - **Sub-Second Benchmark Invariant (ADR-015)**: Asserts test suite runs in `<1.0s`.
-  - Continuous profiling with `time` and memory tracking.
+  - **Read-Only Audit Isolation (`PSL-INV-008`)**: Enforces `check_auditor_write_block` so verification cannot mutate product code or tests.
+  - **Verification Gate (`ADR-015`)**: Validates sub-second component benchmarks (`<1.0s`) and complete suite pass (`~65s` across 1,981 tests).
 <!-- slide -->
-#### 4. Swarm Coordinator (`coordinator.md`)
+#### 4. Flight Coordinator (`agyis_coordinator.md`)
 - **Archetype**: `coordinator`
-- **Default Model**: `gemini-3.8-pro`
-- **Permissions**: Read + Subagents (`read: true`, `subagent: true`, `write: false`)
+- **Default Model**: `inherit`
+- **Capability Bundle**: `orchestrator` (`read: true`, `write: false`, `execute: false`, `subagents: true`)
 - **Key Invariants**:
-  - Delegates execution to `harness_builder` and verification to `harness_auditor`.
-  - Manages handoffs, milestones, and project ledger updates.
+  - Delegates implementation to `agyis_builder` and independent verification to `agyis_reviewer` / `agyis_auditor`.
+  - Manages handoffs, compaction checkpoints, and project ledger updates.
 ```
 
 ---
 
 ## 5. Harness Product Integration & Scaffolding Engine
 
-To make this seamless for users, `agyis-harness` should provide a comprehensive agent authoring and lifecycle toolchain in `harness.cli`:
+`agyis-harness` provides an integrated agent authoring, validation, and rehydration toolchain via `harness/commands/agents.py` and `harness/subagents/`:
 
-### Proposed CLI Palette
+### Supported CLI Palette
 
 ```bash
 # 🧩 Agent Discovery & Inspection
-python3 -m harness.cli agents                  # List all active workspace & built-in agents
+python3 -m harness.cli agents                  # List all 8 registered personas & workspace agents
 python3 -m harness.cli agents <name>           # Display agent prompt, archetype & tool permissions
-python3 -m harness.cli agents --sync           # Sync harness templates to .agents/agents/
+python3 -m harness.cli agents --sync           # Sync harness/agents/ definitions to .agents/agents/
 
 # 🛠️ Scaffolding & Customization
 python3 -m harness.cli agents create <name> \
-    --archetype <planner|builder|reviewer|auditor|optimizer|custom> \
-    --model <flash|pro|inherit> \
-    --tools <read|write|exec|all>
+    -a <main|executioner|hammer|auditor|planner|coordinator|custodian|investigator> \
+    -b <read_only|verifier|builder|orchestrator|full> \
+    --scope <project|global> \
+    -m <inherit|flash|pro|flash_lite>
 
-# 🩺 Validation & Policy Audit
-python3 -m harness.cli agents validate         # Assert frontmatter validity, tool compatibility & safety
+# 🩺 Validation & Context Rehydration
+python3 -m harness.cli agents validate [target_name]
+python3 -m harness.cli agents rehydrate [target_name] --id <conv_id>
 ```
 
 ### Dynamic Workspace-Aware Context Injection
 
-When a user creates an agent using our harness CLI, the tool can automatically inject live workspace context directly into the agent's system prompt:
+When scaffolding an agent via `agyis agents create`, the scaffolding engine binds workspace context directly into the generated agent definition:
 
-1. **Active Runtimes & Matrix**: Automatically injects detected Python version, test runners (`pytest`, `unittest`), and linters from `matrix.json`.
-2. **Ground Rules & ADRs**: Binds the agent to workspace invariants (`AGENTS.md`, ADR-012, ADR-013, ADR-015).
-3. **Execution Commands**: Injects exact verification commands (e.g. `python3 -m harness.cli test`).
+1. **Active Runtimes & Matrix**: Injects detected stack tooling, test runners (`pytest`, `unittest`), and workspace verification commands from `matrix.json`.
+2. **Universal Invariants & ADRs**: Binds the agent to workspace invariants (`AGENTS.md`, `PSL-INV-001`..`PSL-INV-011`, ADR-012, ADR-013, ADR-015).
+3. **Tool Catalog Safety (17-Tool Validation)**: Validates frontmatter `tools` / `allowed_tools` against `ANTIGRAVITY_PLATFORM_TOOLS` (`17` canonical platform tools) in `harness/subagents/spec.py` to prevent platform tool-schema hangs.
 
 ---
 
@@ -316,14 +319,14 @@ Because `agyis-harness` features a built-in lifecycle hook dispatcher (`harness/
 sequenceDiagram
     autonumber
     actor User
-    participant Agent as Custom Agent (e.g. harness_auditor)
+    participant Agent as Custom Agent (e.g. agyis_auditor)
     participant LS as Language Server / Hook Dispatcher
     participant Hook as Anti-Drift & Safety Hooks
     participant Tool as Tool Execution Engine
 
     User->>Agent: "Verify test suite and fix any broken tests"
     Agent->>LS: ToolCall: write_to_file("tests/test_foo.py", ...)
-    LS->>Hook: PreToolUse(agent="harness_auditor", tool="write_to_file")
+    LS->>Hook: PreToolUse(agent="agyis_auditor", tool="write_to_file")
     Note over Hook: check_auditor_write_block detects write attempt by auditor
     Hook-->>LS: Exit 2 / Intercepted ("PSL Auditor Invariant: verification-only")
     LS-->>Agent: Error feedback: Tool execution denied by security fence
@@ -332,17 +335,13 @@ sequenceDiagram
 
 ---
 
-## 7. Strategic Recommendations & Next Steps
+## 7. Production Architecture & Operational Lifecycle
 
-1. **Immediate POC (Phase 1)**:
-   - Expand `harness/subagents.py` and `harness/agents/` to include `planner.md` and `optimizer.md`.
-   - Update frontmatter schemas across all agents to declare `subagent: true` and `mainAgent: true`.
-   - Run `python3 -m harness.cli agents --sync` to populate `.agents/agents/` and confirm immediate UI visibility in the New Conversation menu.
-
-2. **Scaffolding CLI (Phase 2)**:
-   - Implement `python3 -m harness.cli agents create` with interactive or flag-based scaffolding.
-   - Add `python3 -m harness.cli agents validate` to ensure frontmatter conformances.
-
-3. **Telemetry Integration (Phase 3)**:
-   - Extend `data/telemetry.db` session tracking to record the entrypoint agent persona (`session.agent_persona = "harness_planner"`).
-   - Correlate session error rates and step counts per agent persona to scientifically prove context health gains.
+1. **Package-Delivered Personas (`harness/agents/` & `.agents/agents/`)**:
+   - All 8 specialist agents (`agyis_architect`, `agyis_coordinator`, `agyis_investigator`, `agyis_planner`, `agyis_builder`, `agyis_reviewer`, `agyis_custodian`, `agyis_auditor`) ship with `subagent: true` and `mainAgent: true` for dual-mode UI and `invoke_subagent` discovery.
+   - `agyis agents --sync` keeps workspace `.agents/agents/` byte-identical with `harness/agents/`.
+2. **Validated Scaffolding & Bundles (`harness/commands/agents.py` & `harness/subagents/spec.py`)**:
+   - `agyis agents create` maps the 8 `AgentArchetype` roles and 5 capability bundles (`read_only`, `verifier`, `builder`, `orchestrator`, `full`).
+   - `agyis agents validate` enforces frontmatter validity, `17`-tool `ANTIGRAVITY_PLATFORM_TOOLS` compliance, and anti-hang protections.
+3. **Telemetry Attribution & Context Runway**:
+   - Session metadata tracks the active entrypoint persona (`session.agent_persona = "agyis_planner"`), enabling telemetry attribution (`agyis audit`) and sub-millisecond context health checks (`agyis subagents`).

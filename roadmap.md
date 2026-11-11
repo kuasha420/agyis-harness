@@ -3,12 +3,12 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# 🗺️ PSL Harness: Master Product Vision, Contracts & Roadmap
+# 🗺️ Agyis Harness: Master Product Vision, Contracts & Roadmap
 **Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Repository**: `kuasha420/agyis-harness` (Private Development → Public Release)  
-**Last Updated**: 2026-10-18  
+**Last Updated**: 2026-11-11  
 
 ---
 
@@ -16,7 +16,7 @@
 
 ### The Fundamental Motivation
 We rely heavily on Google's modern Gemini models—with **Gemini 3.8 Flash** as our primary high-throughput SWE workhorse and **Gemini 3.1 Pro** as our deep architectural reasoning model—for their market-leading reasoning aperture, rapid tool dispatch, massive context windows, and price-to-performance ratio in software engineering automation. However, developer productivity in long-horizon coding tasks is frequently constrained by harness-level friction:
-- **Context Cliffs**: Unpruned tool outputs dump thousands of lines into context, accelerating the 100k-token cognitive degradation cliff.
+- **Context Cliffs**: Unpruned tool outputs dump thousands of lines into context, accelerating exhaustion past the 180k/230k compaction runway of the 256k context window.
 - **Brittle Terminal Desyncs**: 98.4% of all tool failures occur in `run_command`, driven by benign exit code 1 panics, pyenv/conda shim hijacking, and interactive subshell hangs.
 - **Premature Convergence & Cognitive Drift**: In deep sessions, models succumb to "chatbot seduction", confusing speculative text proposals with working code, rationalizing incomplete work, and perseverating on repetitive thought mantras.
 - **Rigid Single-Threaded Loops**: Lack of hardware mesh and fleet awareness.
@@ -27,11 +27,11 @@ Rather than creating an isolated competing framework that reinvents agent execut
 2. **The Reference Extension Harness**: A high-performance, deterministic extension harness built *strictly on official Google Antigravity surfaces* (`plugin.json`, lifecycle hooks, MCP, rules) that solves environment and context bottlenecks deterministically in code, ensuring high autonomy and reliability for local and distributed agent execution.
 
 ### The Victory Playbook: Reinforcing What Worked Across 348 Sessions
-The mission of PAH is not merely defensive error mitigation; it is **actively codifying and amplifying the battle-tested patterns that produced near-zero error and intervention rates** across our empirical dataset:
+The mission of Agyis Harness is not merely defensive error mitigation; it is **actively codifying and amplifying the battle-tested patterns that produced near-zero error and intervention rates** across our empirical dataset:
 
-1. **Subagent Ladder & Worktree Sharding (`Executioner -> Hammer -> Custodian -> Auditor`)**:
+1. **Subagent Router & Worktree Sharding (`Builder -> Reviewer -> Custodian -> Auditor`)**:
    - `invoke_subagent` and `manage_subagents` achieved a **99.5% success rate** across 215 calls in the telemetry database.
-   - Spawning isolated subagents in worktrees for multi-phase tasks (test suites, refactors, lint passes) protects the coordinator's attention aperture, preventing the primary context window from crossing the 50k token cliff.
+   - Spawning isolated subagents in worktrees for multi-phase tasks (test suites, refactors, lint passes) protects the coordinator's attention aperture, preventing the primary context window from exhausting the 180k/230k compaction runway.
 2. **Explicit Command Dictionaries (The Golden Monorepo Pattern)**:
    - Workspaces declaring exact, copy-pasteable CLI invocations (`purrmission` with **1.67 interventions/session**, `sunshine-physio` with **1.91**) experienced **10x lower human interventions** than workspaces with multi-file rule indirection (`mm-website` with **18.2**).
    - The harness product must automatically inject verified project script palettes (`package.json`, `pyproject.toml`) so agents never guess command invocations or monorepo filters.
@@ -68,7 +68,7 @@ The mission of PAH is not merely defensive error mitigation; it is **actively co
 └───────────────────────────────────┬────────────────────────────────────┘
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│ Layer 1: PSL Harness Plugin (plugin.json, hooks, psl-audit-toolkit)    │
+│ Layer 1: Agyis Harness Plugin (plugin.json, hooks, psl-audit-toolkit)  │
 │ Deterministic lifecycle hooks, baseline runtime matrix, safety fences. │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     ▼
@@ -106,15 +106,15 @@ The mission of PAH is not merely defensive error mitigation; it is **actively co
 ```
 
 1. **The Product**: Ships to developers and agent strands across workspaces. Contains zero developer-specific telemetry scripts or scratch files.
-2. **The Project**: The engineering repository where PAH is developed, containing the 348-session database, multi-dimensional taxonomy reports, and internal verification suites.
+2. **The Project**: The engineering repository where Agyis Harness is developed, containing the telemetry database, multi-dimensional taxonomy reports, and internal verification suites.
 
 ---
 
 ## 3. Cognitive Exhaustion Guardrails & Visual Indicators
 
-Our empirical audit proved that session depth is the single greatest catalyst of cognitive failure:
-- Trajectories `<50` steps / `<50k` tokens maintain near-zero error and intervention rates (0.8 errors/session).
-- Trajectories `>200` steps / `>100k` tokens experience a **20x error spike** and **40x intervention spike**, culminating in **Attention Sink Collapse** (where models perseverate on identical thought loops 85.5% of the time) and **Premature Convergence** (declaring prototypes "complete").
+Our empirical audit of 348 historical baseline sessions proved that session depth and context exhaustion drive cognitive failure:
+- In that baseline cohort, trajectories `<50` steps / `<50k` tokens maintained near-zero error and intervention rates (0.8 errors/session), whereas trajectories `>200` steps / `>100k` tokens suffered a **20x error spike** and **40x intervention spike**, culminating in **Attention Sink Collapse** (perseverating on identical thought loops 85.5% of the time) and **Premature Convergence**.
+- For modern **256k-token** models, the harness translates those findings into the **Dynamic Context Runway (ADR-033)** paired with a **45-step** pre-invocation interrupt guard.
 
 ### The Visual Cockpit & Guardrail Architecture
 
@@ -122,15 +122,15 @@ Our empirical audit proved that session depth is the single greatest catalyst of
 ┌────────────────────────────────────────────────────────────────────────┐
 │                      CONTEXT DEPTH COCKPIT GAUGE                       │
 │                                                                        │
-│  [■■■■■■■■■■■■■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 35k Tokens │
+│  [■■■■■■■■■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 85k / 256k Tokens   │
 │  STATUS: 🟢 HEALTHY (High Attention Aperture | Exact Reasoning)         │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **Visual Depth Gauges (GUI / Terminal Header)**:
-   - 🟢 **Healthy Zone (`<50k` tokens / `<50` steps)**: High attention resolution, reliable reasoning.
-   - 🟡 **Amber Warning (`50k–100k` tokens / `50–100` steps)**: Attention stretching; compaction recommended.
-   - 🔴 **Red Alert (`>100k` tokens / `>100` steps)**: Context cliff active. High risk of premature convergence, loop repetition, and speculative plan dumping.
+1. **Visual Depth & Runway Zones (`256k` Window / `45`-Step Horizon)**:
+   - 🟢 **Healthy Zone (`<180k` tokens / `<45` steps)**: High attention resolution, reliable reasoning.
+   - 🟡 **Amber Warning (`180k–230k` tokens or `>=45` steps)**: Approaching compaction runway; advisory fires once per session state transition (`token_proximity_guard.py` / `pre_invocation_hook.py`).
+   - 🔴 **Red Alert (`>=230k` tokens)**: Compaction runway triggered; checkpoint generation and clean succession recommended immediately before platform auto-compaction.
 2. **Hard Horizon Compaction Fence**:
    - When a milestone completes or token depth enters the Red Alert zone, execution halts.
    - The coordinator must compact findings into `docs/taxonomy/project-ledger.md` under 50 lines, update `roadmap.md`, commit clean code to git, and **instruct the operator to reset into a fresh session**.
@@ -235,9 +235,9 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - Delivered `psl auth login|status|logout` and upgraded `psl sync` bi-directional CLI.
     - Generated containerization and CloudPanel loopback deployment profiles (`server/deploy.sh`, `docker-compose.yml`, systemd unit).
     - Expanded hermetic test suite to **256 passing tests in 1.289s**.
-  - [x] **Native Orchestration Alignment: Boost Swarm & Plan Mode (ADR-031 Phase 8)**:
+  - [x] **Native Orchestration Alignment: Boost Swarm & Plan Mode (ADR-031A Phase 8)**:
     - Reverse-engineered Antigravity internal Go binary implementations of native `/boost` and `/plan`.
-    - Formulated and finalized ADR-031 and authored complete research specification (`docs/official-specs/antigravity-boost-and-plan.md`).
+    - Formulated and finalized ADR-031A and authored complete research specification (`docs/official-specs/antigravity-boost-and-plan.md`).
     - Implemented PreToolUse Native Plan-Mode Lock (`check_plan_mode_lock`) in `harness/hooks/anti_drift_hook.py`.
     - Codified `adversarial_verifier` capability bundle in `harness/subagents.py` for test generators and stress oracles.
     - Extended transcript extraction in `pipeline/extract_transcripts.py` to classify native slash commands (`BOOST_ORCHESTRATION`, `PLAN_INITIATION`).
@@ -272,7 +272,7 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - **Native Primitives & Empirical Rules Alignment**: Synchronized all personas in `harness/agents/` and `.agents/agents/` with `/teamwork-preview`, `/boost`, and the 8 Canonical Empirical Rules.
     - **Token Proximity Guard**: Implemented PreToolUse hook monitoring session context consumption with amber (>35k) and red pulse (>45k) terminal alerts.
     - **GUI Telemetry & Autonomous Persistence (`agyis gui`)**: Implemented 100% stdlib RFC 6455 CDP WebSocket controller, `--toggle`, `--wait` hydration retry loop, `--no-popup` startup priming, DOM hotkey listeners (`F12`, `Ctrl+Shift+T`), Command Palette feature flag unlocking, `~/.local/bin/agy-debug` shortcut, and `antigravity-trajectory.path` systemd user service.
-    - **Test Benchmark & Certification**: Expanded test suite to **1,006 hermetic tests passing in 15.16s** (exit code 0; GUI unit tests pass in 0.043s). Certified by Triple Auditor Gate and deployed globally to `~/.gemini/config/plugins/psl-agy-harness/`.
+    - **Test Benchmark & Certification**: Expanded test suite to **1,006 hermetic tests passing in 15.16s** (exit code 0; GUI unit tests pass in 0.043s). Certified by Triple Auditor Gate and deployed globally at the time to `~/.gemini/config/plugins/psl-agy-harness/` (later migrated to `~/.gemini/config/plugins/agyis-harness/`).
 
   - [x] **Documentation & Runbook Hydration, Test Noise Suppression & v1.0.0-rc5 Release (Phase 14 - Horizon 1.7)**:
     - **Test Output Noise Suppression (Clean Dots Invariant)**: Isolated stdout/stderr across negative test cases (`tests/test_onboard.py`, `tests/test_verify.py`, `tests/test_anti_drift.py`, `tests/test_sync_service.py`, `tests/test_pipeline_audit_smoke.py`) using `redirect_stdout`/`redirect_stderr` and `mock.patch`. Running `python3 -m harness.cli test` produces clean unbroken test dots across all **1,065 tests** with exit code 0 and zero leaked JSON error objects or failure banners.
@@ -328,12 +328,12 @@ Our empirical audit proved that session depth is the single greatest catalyst of
     - Cleanroom RE toolsuite & pre-analyzed Ghidra acceleration engine under `PSL-INV-009` (`agyis re`).
     - Extensible workspace CLI architecture (`agyis ext` / ADR-034) delegating to `.agents/commands/`.
 
-  - [x] **General Availability (GA) & Enterprise Hardening (Phase 35 - Horizon 1.10 / Release v1.0.0 GA)**:
+  - [x] **Release Candidate 10 & Enterprise Hardening (Phase 35 - Horizon 1.10 / Release v1.0.0-rc10)**:
     - **In-Tree Skills Deduplication Gate**: Implemented automated, hermetic verification gate (`tests/test_skills_dedup_gate.py` and `harness/runtime/hygiene_checks.py`) enforcing that `.agents/skills/` entries mirroring `harness/skills/` MUST be symlinks pointing to `../../harness/skills/<name>`.
     - **ADR Disambiguation & Indexing**: Resolved filename collision by renaming to `ADR-031A` and `ADR-031B`; authored standalone records `ADR-033` (Dynamic Context Runway) and `ADR-034` (Extensible Workspace CLI); synchronized `docs/adr/README.md`.
     - **27-Subcommand CLI Palette Alignment**: Synchronized `README.md` and `docs/official-specs/cli-palette.md` documenting all 27 canonical subcommands.
     - **Lifecycle Hook Documentation**: Formalized `PreInvocation` hook (`psl-compaction-advisory`) in `docs/official-specs/lifecycle-hooks.md`.
-    - **Comprehensive Verification Standard**: 1,974+ hermetic tests passing with 100% green exit code 0, 100% AFF score, and cleanroom specification verification.
+    - **Comprehensive Verification Standard**: 1,981 hermetic tests passing with 100% green exit code 0, 100% AFF score, and cleanroom specification verification.
 
 ---
 

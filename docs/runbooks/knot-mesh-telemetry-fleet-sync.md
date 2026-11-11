@@ -233,11 +233,11 @@ The harness evaluates configuration in a strict 5-tier hierarchy.
 │                                                                        │
 │   1. CLI Argument Flags (--db, --endpoint, --token)                    │
 │      ▲                                                                 │
-│   2. Environment Variables (PSL_TELEMETRY_DB, PSL_SYNC_ENDPOINT)       │
+│   2. Environment Variables (AGYIS_TELEMETRY_DB, AGYIS_SYNC_ENDPOINT)   │
+│      ▲                      [legacy PSL_* fallbacks also supported]    │
+│   3. Workspace Config (<workspace>/.agyis/config.json)                 │
 │      ▲                                                                 │
-│   3. Workspace Config (<workspace>/.psl/config.json)                   │
-│      ▲                                                                 │
-│   4. User Global Config (~/.config/psl/config.json)                    │
+│   4. User Global Config (~/.config/agyis/config.json)                  │
 │      ▲                                                                 │
 │   5. Production Default Hardcoded Constants                            │
 └────────────────────────────────────────────────────────────────────────┘
@@ -245,14 +245,14 @@ The harness evaluates configuration in a strict 5-tier hierarchy.
 
 | Variable / Flag | Default Value | Description |
 |---|---|---|
-| `PSL_SYNC_ENDPOINT` | `https://psl-harness.infra.purrfecthq.com` (prod) / `http://localhost:8000` (local) | Remote gateway endpoint URL |
-| `PSL_TELEMETRY_DB` | `REPO_ROOT/data/telemetry.db` | Explicit SQLite database path override |
-| `PSL_DATA_DIR` | `~/.local/share/psl` | XDG data directory for databases |
-| `PSL_CONFIG_DIR` | `~/.config/psl` | XDG configuration directory |
-| `PSL_BIN_DIR` | `~/.local/bin` | Target directory for global `agyis` and `psl` executables |
+| `AGYIS_SYNC_ENDPOINT` | `https://psl-harness.infra.purrfecthq.com` (prod) / `http://localhost:8000` (local) | Remote gateway endpoint URL (legacy fallback: `PSL_SYNC_ENDPOINT`) |
+| `AGYIS_TELEMETRY_DB` | `REPO_ROOT/data/telemetry.db` | Explicit SQLite database path override (legacy fallback: `PSL_TELEMETRY_DB`) |
+| `AGYIS_DATA_DIR` | `~/.local/share/agyis` | XDG data directory for databases (legacy fallback: `PSL_DATA_DIR`) |
+| `AGYIS_CONFIG_DIR` | `~/.config/agyis` | XDG configuration directory (legacy fallback: `PSL_CONFIG_DIR`) |
+| `AGYIS_HARNESS_STATE_DIR` | *unset* | Isolated state directory override for hooks/runtime (legacy fallback: `PSL_HARNESS_STATE_DIR`) |
 | `PSL_RETRY_BACKOFF`| `1.0` | Initial backoff seconds for transient 5xx retries |
-| `--workspace` / `-w`| `False` | Scopes config write to `<workspace>/.psl/config.json` |
-| `--global` / `-g` | `True` | Scopes config write to user `~/.config/psl/` |
+| `--workspace` / `-w`| `False` | Scopes config write to `<workspace>/.agyis/config.json` |
+| `--global` / `-g` | `True` | Scopes config write to user `~/.config/agyis/` |
 | `--gh` | `False` | Lifts PAT token automatically from `gh auth token` |
 
 ---

@@ -56,8 +56,8 @@ Runway Status Badge"]
 Standardized active context thresholds across `harness/hooks/token_proximity_guard.py` and `harness/hooks/pre_invocation_hook.py`:
 - **Model Attention Window**: `256,000` tokens.
 - **Amber Warning Alert**: `180,000` tokens (approaching critical threshold).
-- **Red Pulse / Compaction Trigger**: `230,000` tokens (compaction imminent, initiate succession).
-- **Horizon Compulsory Interrupt**: `245,000` tokens (5 steps remaining; open sweeps blocked).
+- **Red Pulse / Compaction Trigger**: `230,000` tokens (compaction imminent, initiate succession; historical empirical compaction triggers average `245,941` tokens).
+- **Compulsory Horizon Interrupt**: Executioner step `45` of `50` (`STEP_INTERRUPT_THRESHOLD = 45`; 5 steps remaining, open sweeps blocked; preceded by warning at step `40`).
 
 ### 2. State-Gated De-Spammed PreInvocation Hook (`psl-compaction-advisory`)
 - Configured in `hooks.json` under `PreInvocation` events.
@@ -80,6 +80,6 @@ Standardized active context thresholds across `harness/hooks/token_proximity_gua
 
 - **Hermetic Testing**:
   - `tests/test_token_proximity_guard.py`: Validates thresholds, protobuf extraction, and ANSI gauge rendering.
-  - `tests/test_pre_invocation_hook.py`: Validates one-shot comprehensive directive injection and subsequent single-line badge compaction.
-  - `tests/test_checkpoint.py`: Validates atomic state capture and restoration.
+  - `tests/test_compaction_advisory.py`: Validates one-shot comprehensive directive injection, subsequent single-line badge compaction, and the 45-step horizon interrupt.
+  - `tests/test_compaction_checkpoint.py`: Validates atomic state capture and restoration.
 - **Benchmark Latency**: Token evaluation executes in $<2.5\text{ms}$ over read-only SQLite connections.

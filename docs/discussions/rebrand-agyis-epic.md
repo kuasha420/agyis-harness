@@ -306,7 +306,7 @@ The End-to-End suite (`tests/e2e/`) operates strictly as an external black box v
 | **Tier 4** | Real-World End-to-End User Journeys (Full migration scenarios) | 5 tests | 100% | < 0.8s |
 | **Total** | **Complete Opaque-Box E2E Test Suite** | **69 tests** | **100%** | **~ 3.5s (< 4.5s ceiling)** |
 
-- **Verification Sign-Off**: Published in-tree at [`TEST_READY.md`](file:///home/kuasha/Dev/psl-agy-harness/TEST_READY.md).
+- **Verification Sign-Off**: Historical pre-rebrand sign-off recorded in `TEST_READY.md` (subsequently superseded/removed during RC10 documentation consolidation).
 - **Explicit Test Commands**:
   ```bash
   python3 -m unittest discover -s tests/e2e -v    # Run complete 4-tier E2E suite

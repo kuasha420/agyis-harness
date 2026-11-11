@@ -87,13 +87,13 @@ When the operator presents an objective, defect, or architectural mandate, the C
 | **A** | **Bug Report / Silent Failure** | `agyis_investigator` | `Investigator` $\rightarrow$ `Planner` $\rightarrow$ `Builder` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Strict Read-Only on Code**: Must author minimal reproduction script in scratch (`scratch/reproduce_*.py`) before writing fix. | `rca_report.md` + `reproduce_bug.py` |
 | **B** | **New Feature / Milestone** | `agyis_planner` | `Planner` $\rightarrow$ `Coordinator Lock-In` $\rightarrow$ `Builder` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Zero Speculative Code**: Evaluates imports and contracts without touching source code. Drafts interactive plan. | `implementation_plan.md` |
 | **C** | **Single-Phase Task** | `agyis_builder` | `Builder` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Laser Executioner**: Single contiguous replacements (`replace_file_content`). Zero scope creep. Self-verifies locally. | In-flight diff + local test pass |
-| **D** | **Architectural Overhaul** | `agyis_architect` | `Architect` (delegates sub-parts) $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Deep Hybrid Orchestration**: Combines implementation with delegation to prevent context bloating past 50k tokens. | Clean multi-module diff |
+| **D** | **Architectural Overhaul** | `agyis_architect` | `Architect` (delegates sub-parts) $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Deep Hybrid Orchestration**: Combines implementation with delegation to prevent context bloating above the 180k/230k compaction runway. | Clean multi-module diff |
 | **E** | **Heisenbug during QA Gate** | `agyis_investigator` | `Auditor (FAIL)` $\rightarrow$ `Investigator (RCA)` $\rightarrow$ `Builder (Fix)` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Anti-Bypass Invariant**: Remediations must re-traverse Hammer review and Custodian commit gate. | `heisenbug_rca.md` |
 | **F** | **Macro Build Regression** | `agyis_architect` | `Architect` $\rightarrow$ `Investigator (RCA)` $\rightarrow$ `Architect` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Architect-to-Investigator Delegation**: On mysterious test breakages, pause and delegate RCA instead of guess-editing. | `scratch/reproduce_*.py` + `rca_report.md` |
 | **G** | **Parallel Research Mapping** | `agyis_coordinator` | `Coordinator` $\rightarrow$ Fan-out parallel `Planner` / `Investigator` $\rightarrow$ `Coordinator Synthesis` | **Context Preservation (ADR-025)**: Independent research tracks run in parallel contexts without cross-contamination. | `research_synthesis.md` |
 | **H** | **Cleanroom Spec Audit** | `agyis_investigator` | `Investigator` (Auditor) $\rightarrow$ `Coordinator` $\rightarrow$ `Builder` / `Swarm` | **Zero Production Mutation**: Evaluates baseline line-by-line against formal ACs. Documents gaps in `COMPLETION_LEDGER.md`. | `COMPLETION_LEDGER.md` |
 | **I** | **Cross-Branch Golden Merge** | `agyis_architect` | `Architect` (Synthesizer) $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Hermetic Worktree Isolation**: Reconciles divergent branches in dedicated worktree. Runs cross-test matrix. | Golden commit on unified branch |
-| **J** | **Victory Certification Council** | `agyis_auditor` + `agyis_reviewer` | `Auditor` (Hermetic Benchmarks) + `Reviewer` (8 Rules) $\rightarrow$ Dual Sign-Off | **Dual-Auditor Gate**: Never trust in-band self-certification. Independent auditors evaluate clean committed revision on HEAD. | `victory_audit_report.md` |
+| **J** | **Victory Certification Council** | `agyis_auditor` + `agyis_reviewer` | `Auditor` (Hermetic Benchmarks) + `Reviewer` (11 Invariants) $\rightarrow$ Dual Sign-Off | **Dual-Auditor Gate**: Never trust in-band self-certification. Independent auditors evaluate clean committed revision on HEAD. | `victory_audit_report.md` |
 | **K** | **Milestone Governance** | `agyis_custodian` | `Flight Director` / `Coordinator` $\rightarrow$ `Custodian` (Issue Formulation & Epic Sync via `gh` CLI) | **Zero Repository Document Pollution (AC5)**: Strictly zero scratch notes in git tree; deterministic CLI execution via `gh`. | GitHub Issues + Parent Epic Tracking Comment |
 | **L** | **Adversarial Fuzzing Battery** | `agyis_builder` / `agyis_investigator` | `Investigator` (Fuzzing Vectors) $\rightarrow$ `Builder` (Adversarial Tests) $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Zero Error Swallowing & Sub-Second SLA**: Concurrency lock timeout $\le 0.5$s, schema corruption tests must fail-open cleanly. | `tests/test_*_adversarial.py` |
 
@@ -117,15 +117,15 @@ flowchart LR
 
 ### 4.1 Plane 1: Human-in-the-Loop Operator Channel
 1. **Concise Presentation**: Clean markdown, structured comparison tables, and Mermaid flowcharts. Zero dense code dumps or raw terminal logs.
-2. **Artifact-First Proposals (Rule 5 & ADR-012)**: Non-trivial architectural changes must immediately crystallize into an interactive `implementation_plan.md` artifact.
+2. **Artifact-First Proposals (PSL-INV-005 & ADR-012)**: Non-trivial architectural changes must immediately crystallize into an interactive `implementation_plan.md` artifact.
 3. **Dynamic Sliding Aperture**: High resolution for immediate active milestone; medium resolution for near-future boundaries; low resolution for long-term vision.
-4. **Proactive Confirmation Gates (Rule 6)**: Pause for explicit confirmation before git resets (`git reset --hard`), branch force-pushes, file deletions, or service restarts.
+4. **Proactive Confirmation Gates (PSL-INV-006)**: Pause for explicit confirmation before git resets (`git reset --hard`), branch force-pushes, file deletions, or service restarts.
 5. **Anti-Thrashing Rule**: If any tool invocation or command fails twice consecutively, stop immediately, state the error concisely, and present concrete options.
 
 ### 4.2 Plane 2: Machine/Agent Communication Channel
 1. **Subagent Privacy Invariant**: Text generated outside `send_message` by a subagent is never relayed to the parent orchestrator's context. Subagents must transmit findings, test results, and handoffs via `send_message`.
 2. **Cockpit Demarcation Invariant**: The Cockpit Flight Director is the sole agent authorized to address the human operator in raw chat turns. Subagents must never break encapsulation to query the user directly unless an explicit `ask_question` tool gate is authorized.
-3. **Strict Reactive Wait Invariant (Rule 4 & ADR-032)**:
+3. **Strict Reactive Wait Invariant (PSL-INV-004 & ADR-032)**:
    - When dispatching background tasks or subagents, emit a single concise progress notification and **IMMEDIATELY STOP CALLING TOOLS**.
    - Zero polling loops (`manage_task`, `manage_subagents`, `tail -f` on task logs). Resumption is reactive.
 
@@ -139,7 +139,7 @@ All stage handoffs along the execution pipeline must conform to the formal schem
 ### Context Proximity Thresholds
 1. **🟢 Healthy Zone (<180,000 tokens)**: Normal autonomous operations and subagent dispatches.
 2. **🟡 Amber Zone (180,000 – 229,999 tokens)**: Pre-compaction awareness. Complete active stages; commit in-flight diffs to git on HEAD.
-3. **🔴 Compaction Imminent ($\ge 230,000$ tokens or Spawns $\ge 16$)**: PreInvocation hook injects advisory. Mandatory materialization of working memory via `proto_compaction_checkpoint.py` to `.agents/artifacts/compaction_checkpoint.md`. Prompt operator for `/compact` or invoke horizontal succession (`invoke_subagent(TypeName="self", Workspace="inherit")`).
+3. **🔴 Compaction Imminent ($\ge 230,000$ tokens or Spawns $\ge 16$)**: PreInvocation hook injects advisory. Mandatory materialization of working memory via `agyis checkpoint generate` (`harness.delivery.compaction_checkpoint`) to `.agents/artifacts/compaction_checkpoint_latest.md`. Prompt operator for `/compact` or invoke horizontal succession (`invoke_subagent(TypeName="self", Workspace="inherit")`).
 
 ### Autonomous Post-Compaction Continuation Directive
 When waking up in a compacted session or successor context:

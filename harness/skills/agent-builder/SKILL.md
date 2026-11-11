@@ -47,12 +47,13 @@ To prevent session freezes and maintain strict toolgroup scoping, custom agents 
 
 | Bundle | Allowed Tools | Permissions | Intended Roles |
 | :--- | :--- | :--- | :--- |
-| `read_only` | `view_file`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `search_web` | `read: true`, `write: false`, `execute: false`, `subagents: false` | Hammer, Code Reviewer, Security Inspector |
+| `read_only` | `view_file`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `search_web`, `send_message` | `read: true`, `write: false`, `execute: false`, `subagents: false` | Hammer, Code Reviewer, Security Inspector |
 | `verifier` | `read_only` + `run_command`, `manage_task` | `read: true`, `write: false`, `execute: true`, `subagents: false` | QA Verifier, Benchmark Auditor, Linter |
 | `adversarial_verifier` | `verifier` + `write_to_file`, `replace_file_content` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Test Generator, Fuzzer, Stress Oracle (/boost-inspired) |
 | `builder` | `verifier` + `write_to_file`, `replace_file_content` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Executioner, Implementer, Refactorer |
-| `orchestrator` | `read_only` + `invoke_subagent`, `send_message`, `manage_subagents`, `manage_task` | `read: true`, `write: false`, `execute: false`, `subagents: true` | Swarm Coordinator, Milestone Lead |
-| `full` | All 20 platform tools (`ANTIGRAVITY_PLATFORM_TOOLS`) | `read: true`, `write: true`, `execute: true`, `subagents: true`, `mcp: true`, `enable_write_tools: true` | Main Agent (`main` archetype), Lead Architect |
+| `investigator` | `verifier` + `write_to_file`, `replace_file_content` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Investigator, RCA & Reproduction Author |
+| `orchestrator` | `read_only` + `invoke_subagent`, `manage_subagents`, `manage_task`, `ask_question` | `read: true`, `write: false`, `execute: false`, `subagents: true` | Swarm Coordinator, Milestone Lead |
+| `full` | All 17 platform tools (`ANTIGRAVITY_PLATFORM_TOOLS`) | `read: true`, `write: true`, `execute: true`, `subagents: true`, `mcp: true`, `enable_write_tools: true` | Main Agent (`main` archetype), Lead Architect |
 
 > [!CAUTION]
 > **Platform Hanging Bug**: Never declare tools outside `ANTIGRAVITY_PLATFORM_TOOLS` (such as `edit_file` or speculative MCP tool names) in frontmatter `tools:` or `allowed_tools:`. Doing so causes the Antigravity subagent dispatcher to hang without returning an error.
@@ -101,7 +102,7 @@ agyis agents --sync
 ## 5. UI Activation & Platform Behaviors
 
 1. **Native `@<subagent>` Prompt Syntax (Antigravity v1.2.9+)**:
-   - Subagents can be invoked directly inside any prompt turn using native `@<agent_name>` inline syntax (e.g. `@harness_builder`, `@harness_reviewer`, `@agyis_architect`).
+   - Subagents can be invoked directly inside any prompt turn using native `@<agent_name>` inline syntax (e.g. `@agyis_builder`, `@agyis_reviewer`, `@agyis_architect`).
    - Seamlessly hand off context across stages in the Subagent Ladder protocol without manual session reconstruction.
 2. **Tool Prerequisite Pruning in `/` Menu (Antigravity v1.2.16+)**:
    - In Antigravity v1.2.16+, when invoking commands or subagents from the `/` menu, tools lacking declared prerequisite capabilities or masked by restrictive permissions are pruned from the execution environment.

@@ -3,7 +3,7 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# 📜 PSL Harness Project Ledger (Compacted Horizon 0)
+# 📜 Agyis Harness Project Ledger (Compacted Horizon 0)
 
 This ledger preserves permanent architectural decisions, schema contracts, and verified baseline metrics across completed phases. Detailed operational logs fade into git history and archives.
 
@@ -54,7 +54,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - **ADR-005 (Reactive Wakeup Supremacy)**: Prohibited agent polling loops on `manage_task(Action='status')` in favor of Antigravity 2.0 reactive wakeups.
   - **ADR-006 (Argument Rewrite Interception)**: Standardized on `PreToolUse` shallow `overwrite` dictionaries to sanitize benign pattern-matching pipelines (`|| true`), enforce non-interactive pagers (`PAGER=cat`), and inject network timeouts (`-o ConnectTimeout=5`).
 * **Canonical Specifications Committed**:
-  - [docs/official-specs/platform-surface-mapping.md](../../docs/official-specs/platform-surface-mapping.md): 655-line definitive deconstruction of CLI (`agy`), 2.0 Desktop Platform, Python SDK (`google-antigravity`), Lifecycle Hooks (`hooks.json`), and MCP boundaries mapped against the 348-session audit.
+  - [docs/official-specs/platform-surface-mapping.md](../../docs/official-specs/platform-surface-mapping.md): 685-line definitive deconstruction of CLI (`agy`), 2.0 Desktop Platform, Python SDK (`google-antigravity`), Lifecycle Hooks (`hooks.json`), and MCP boundaries mapped against the 348-session audit.
 
 ---
 
@@ -505,7 +505,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - Core Modules: `harness/subagents/stage_role.py`, `harness/subagents/heartbeat.py`, `harness/hooks/completion_fence_hook.py`, `harness/cli.py`
   - Skills: `skills/subagent-ladder/SKILL.md`, `skills/psl-test-harmonize/SKILL.md`
   - Tests: `tests/test_ladder_role_pinning.py`, `tests/test_executioner_step_horizon.py`, `tests/test_ladder_heartbeat.py`, `tests/test_ladder_integration.py`
-  - Master RFC: `docs/specs/RFC-051-real-world-testing-and-anti-synthetic-validation.md` (`epic_51_real_world_testing_rfc.md`)
+  - Design Basis: Proposed RFC-051 design goals codified directly in `harness/commands/test.py` and `harness/skills/psl-test-harmonize/SKILL.md` (standalone RFC-051 document not materialized)
 
 ---
 
@@ -861,8 +861,8 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
 
 ---
 
-## [Phase 35] General Availability (GA) & Enterprise Hardening (Release v1.0.0 GA)
-* **Status**: Completed | **Compaction Date**: 2026-11-10 | **Release**: `v1.0.0 GA` | **Milestone**: General Availability & Hardening
+## [Phase 35] Release Candidate 10 & Enterprise Hardening (Release v1.0.0-rc10)
+* **Status**: Completed | **Compaction Date**: 2026-11-10 | **Release**: `v1.0.0-rc10` | **Milestone**: Pre-Release Hardening & Parity Audit
 * **Key Architectural Decisions & Deliverables**:
   - **In-Tree Skills Deduplication Verification Gate (PSL-INV-004)**:
     * Codified automated, hermetic verification gate in `tests/test_skills_dedup_gate.py` and `harness/runtime/hygiene_checks.py`.
@@ -878,7 +878,7 @@ This ledger preserves permanent architectural decisions, schema contracts, and v
   - **PreInvocation Hook Specification**:
     * Formalized `psl-compaction-advisory` in `docs/official-specs/lifecycle-hooks.md`.
 * **Verified Baseline Metrics**:
-  - Full test suite: **1,974+ hermetic tests passing in <65s** (100% green, exit code 0).
+  - Full test suite: **1,981 hermetic tests passing in ~65s** (100% green, exit code 0).
   - Cleanroom specifications: Verified cleanly via `python3 -m harness.cli verify --spec`.
   - Architectural Fitness Function: **100.0/100 AFF score** with zero architectural defects.
 * **Reference Assets Committed**:

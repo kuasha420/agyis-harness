@@ -9,7 +9,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Scope**: Project-Internal Test Standards & Product-Delivered Testing Invariants  
-**Last Updated**: 2026-10-13  
+**Last Updated**: 2026-11-11  
 
 ---
 
@@ -33,7 +33,7 @@ All unit, integration, and replay tests within the `agyis-harness` repository (`
 
 ### A. The Hermetic Isolation Invariant
 - Tests must **never** make network calls, spawn daemon services, or mutate host-global state.
-- All state-persisting components (such as `anti_loop_hook` and `output_compactor_hook`) must accept configurable state directories via `state_dir: Optional[Path]` and environment variable overrides (`PSL_HARNESS_STATE_DIR`).
+- All state-persisting components (such as `anti_loop_hook` and `output_compactor_hook`) must accept configurable state directories via `state_dir: Optional[Path]` and environment variable overrides (`AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR`).
 - Test fixtures must use `tempfile.TemporaryDirectory()` and clean up on teardown.
 
 ### B. The Sub-Second Benchmark Invariant
@@ -52,12 +52,13 @@ Every lifecycle hook must be tested against the official Antigravity protojson s
 - Example: [test_command_safety.py](../../tests/test_command_safety.py) replays the exact PEP 701 f-string syntax crash from session `270b7abc` to verify that hermetic Python injection and f-string sanitization neutralize the bug.
 
 ### E. Test File Mapping & Suite Execution
+The `tests/` directory houses **77** `tests/test_*.py` modules totaling **1,981** automated tests (representative core modules below):
 ```text
 tests/
 ├── test_agent_scaffold.py           # 15 tests: agent scaffolding, workspace discovery, YAML frontmatter
 ├── test_anti_drift.py               # 40 tests: plan boundary enforcement, native plan-mode lock, exemptions
 ├── test_anti_loop.py                # 18 tests: repeat thresholds, reactive wait invariant, frequency window
-├── test_cli.py                      # 34 tests: 13-command dispatcher, command routing, lazy pipeline loading
+├── test_cli.py                      # 27-command CLI dispatcher, command routing, lazy pipeline loading
 ├── test_command_safety.py           # 18 tests: dangerous patterns, TUI blocks, hermetic python, grep rewrite
 ├── test_command_safety_remote.py    # 9 tests: remote grep rewrite, ControlMaster multiplexing, SSH timeouts
 ├── test_completion_fence.py         # 22 tests: dirty code tracking, exemptions, anti-deadlock safety valve
@@ -103,19 +104,20 @@ The harness injects the **Clean-Room Verification Invariant** into the agent's a
 3. **Failure Isolation**:
    - When tests fail, the agent must isolate the failing assertion, avoid repeating the exact identical test command without code modifications (Anti-Loop Invariant), and present the failure reason concisely.
 
-### B. The `Stop` Lifecycle Verification Fence (`completion_fence_hook.py`)
+### B. The `Stop` Lifecycle Verification Fence (`completion_fence_hook.py` / `fence_gates.py`)
 In Antigravity's lifecycle, the `Stop` event fires when the agent finishes its turn (`terminationReason: "model_stop"`):
-- If the agent has modified source files (`*.py`, `*.ts`, `*.go`, `*.rs`) during the session, but **zero verification test commands** were executed, the `Stop` hook returns:
+- If the agent has modified source or spec files (`*.py`, `*.ts`, `*.go`, `*.rs`, or `docs/specs/**`) during the session, but **zero verification test commands** were executed, the `Stop` hook blocks stop (`"decision": "continue"`) and returns (inside the `agyis-harness` repository or consumer projects respectively):
   ```json
   {
     "decision": "continue",
-    "reason": "PSL Verification Fence: Source files were modified, but automated tests have not been executed. Run the project verification suite before completing."
+    "reason": "Verification Required: Unverified code edits detected in: path/to/file.py. Execute 'agyis test' (or 'python3 -m harness.cli test') before stopping."
   }
   ```
+- Note: For external consumer repositories, the reason reads `Execute your project test suite (<detected_runner>) before stopping.`, and for unverified `docs/specs/**` or `.agents/ledger/*.json` edits without code changes it returns `Cleanroom Verification Required: Unverified cleanroom contract edits detected in: <files>. Execute 'rea verify-reconstruction' or 'agyis verify --spec' before stopping.`.
 - This deterministically prevents "Premature Convergence" where models hallucinate that their changes work without running verification.
 
 ### C. Standardized Test Runner Skills
-Agyis Harness will supply on-demand testing skills (`psl-test-runner`) that:
-- Automatically parse output from standard test runners (pytest, vitest, cargo test, go test).
-- Extract only failing test cases, stack traces, and assertions.
-- Compact test outputs to prevent context flooding before the agent processes them.
+Agyis Harness supplies modular on-demand testing skills (`psl-test-python`, `psl-test-node`, `psl-test-cargo`, `psl-test-go`, `psl-test-harmonize`) that:
+- Enforce hermetic execution contracts and diff-aware targeted runs (`test:diff`, `test:affected`, `test:full`).
+- Extract failing test cases, stack traces, and assertions cleanly.
+- Work alongside `output_compactor` hooks to keep test output compact before the agent processes it.

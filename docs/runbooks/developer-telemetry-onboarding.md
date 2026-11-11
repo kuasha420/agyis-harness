@@ -103,14 +103,14 @@ agyis sync
 
 ## 3. Privacy, Security & Denylist Controls
 
-PSL enforces strict, non-negotiable security boundaries built directly into the client transport:
+Agyis enforces strict, non-negotiable security boundaries built directly into the client transport:
 
 1. **Pre-Transmission Scrubbing**:
    - `strip_secrets()` automatically strips GitHub tokens, API keys, Bearer auth headers, passwords, SSH/PEM keys, and database connection strings before JSON serialization.
    - `anonymize_paths()` anonymizes absolute home directory paths (`/home/<username>/...`).
 2. **Workspace Denylists**:
    To permanently prevent proprietary client repositories or personal workspaces from being harvested or uploaded:
-   Add patterns to your global configuration file (`~/.config/psl/config.json`):
+   Add patterns to your global configuration file (`~/.config/agyis/config.json`):
    ```json
    {
      "endpoint": "https://psl-harness.infra.purrfecthq.com",

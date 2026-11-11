@@ -19,7 +19,7 @@ This operational runbook defines architectural boundaries governing global and l
 
 ## 1. The Fleet Repository Bloat Anti-Pattern
 
-During early harness iterations, onboarding workflows frequently copied standard specialist agent markdown definitions (`agyis_architect.md`, `executioner.md`, `hammer.md`, `auditor.md`, `coordinator.md`, `planner.md`) directly into `<workspace>/.agents/agents/` across dozens of client and library repositories.
+During early harness iterations, onboarding workflows frequently copied standard specialist agent markdown definitions (`agyis_architect.md`, `agyis_auditor.md`, `agyis_builder.md`, `agyis_coordinator.md`, `agyis_custodian.md`, `agyis_investigator.md`, `agyis_planner.md`, `agyis_reviewer.md`) directly into `<workspace>/.agents/agents/` across dozens of client and library repositories.
 
 ### Consequences of Repository Bloat:
 1. **Maintenance Debt**: Updating a core prompt invariant required opening pull requests across 50+ repositories.
@@ -29,9 +29,9 @@ During early harness iterations, onboarding workflows frequently copied standard
 ```mermaid
 graph TD
     subgraph AntiPattern["❌ Anti-Pattern: Agent Copy Sprawl"]
-        PluginGlobal["Global Harness Plugin"] -->|Duplicate 7 files| RepoA["Repo A (.agents/agents/)"]
-        PluginGlobal -->|Duplicate 7 files| RepoB["Repo B (.agents/agents/)"]
-        PluginGlobal -->|Duplicate 7 files| RepoC["Repo C (.agents/agents/)"]
+        PluginGlobal["Global Harness Plugin"] -->|Duplicate 8 files| RepoA["Repo A (.agents/agents/)"]
+        PluginGlobal -->|Duplicate 8 files| RepoB["Repo B (.agents/agents/)"]
+        PluginGlobal -->|Duplicate 8 files| RepoC["Repo C (.agents/agents/)"]
     end
 
     subgraph CleanArchitecture["✅ Canonical Architecture: 3-Tier Hierarchy"]
@@ -48,7 +48,7 @@ Google Antigravity resolves agent personas across three distinct architectural t
 
 | Tier | Location | Scope | Lifecycle & Purpose |
 | :--- | :--- | :--- | :--- |
-| **Layer 1: Plugin Global** | `~/.gemini/config/plugins/agyis-harness/agents/` | Fleet-Wide | Shipped and versioned with the Agyis harness plugin. Provides canonical baseline personas (`agyis_architect`, `executioner`, `hammer`, `auditor`). |
+| **Layer 1: Plugin Global** | `~/.gemini/config/plugins/agyis-harness/agents/` | Fleet-Wide | Shipped and versioned with the Agyis harness plugin. Provides the 8 canonical baseline personas (`agyis_architect`, `agyis_auditor`, `agyis_builder`, `agyis_coordinator`, `agyis_custodian`, `agyis_investigator`, `agyis_planner`, `agyis_reviewer`). |
 | **Layer 2: User Global** | `~/.gemini/config/agents/` | Workstation-Wide | User-specific cross-project agent personas or global customizations. Inherits or extends Layer 1. |
 | **Layer 3: Workspace Local** | `<workspace>/.agents/agents/` | Project-Specific | **Strictly reserved** for project-unique specialist subagents tailored to that repository's unique domain architecture. |
 
@@ -59,13 +59,13 @@ Google Antigravity resolves agent personas across three distinct architectural t
 To maintain fleet cleanliness, all developers and AI agents must adhere to the following invariants:
 
 ### Invariant 1: Standard Personas Remain Strictly Global
-Standard subagent archetypes (`agyis_architect`, `executioner`, `hammer`, `auditor`, `coordinator`, `planner`) must NEVER be copied or committed into client repository trees. They are resolved automatically by the Antigravity runtime from Layer 1 or Layer 2.
+The 8 standard `agyis_*` subagent personas (`agyis_architect`, `agyis_auditor`, `agyis_builder`, `agyis_coordinator`, `agyis_custodian`, `agyis_investigator`, `agyis_planner`, `agyis_reviewer`) must NEVER be copied or committed into client repository trees. They are resolved automatically by the Antigravity runtime from Layer 1 or Layer 2.
 
 ### Invariant 2: Local Scope Reserved for Domain Specialists Only
 The workspace directory `<workspace>/.agents/agents/` is permitted ONLY for domain-specific subagents that have zero applicability outside that specific codebase.
 - *Valid Local Specialist*: `knot-mesh` defining `swarm_orchestrator.md` with hardware topology roles.
 - *Valid Local Specialist*: `sunshine-physio` defining `kms_stream_specialist.md`.
-- *Invalid Local Agent*: Any copy of standard `executioner.md` or `auditor.md`.
+- *Invalid Local Agent*: Any copy of standard `agyis_builder.md` or `agyis_auditor.md`.
 
 ### Invariant 3: Prohibition of Standard Agent Copying During Onboarding
 Neither `agyis onboard` nor `agyis harmonize` will provision or copy standard subagents into `.agents/agents/`. Repository onboarding provisions **modular skills** (`.agents/skills/`) and **project rules** (`.agents/rules/`), leaving agent personas cleanly in global scope.

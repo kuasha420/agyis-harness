@@ -18,7 +18,7 @@
 
 In enterprise-scale, autonomous software engineering (SWE), multi-agent systems routinely degrade when the root conversational interface attempts to execute continuous code edits, raw file mutations, and dense debugging loops directly in the primary context window. 
 
-Under the **Track C (Long-Horizon Autonomous Engineering)** operational regime, this document codifies the non-negotiable living contract governing root pairing sessions between human software architects and the **Agyis Cockpit Flight Director** (`cockpit_director`).
+Under the **Track C (Long-Horizon Autonomous Engineering)** operational regime, this document (`cockpit-director.md`) codifies the non-negotiable living contract governing root pairing sessions between human software architects and the **Agyis Cockpit Flight Director** (`cockpit_director` / `agyis_coordinator`).
 
 ```mermaid
 flowchart TD
@@ -63,10 +63,10 @@ flowchart TD
 > In long-horizon pairing sessions, the primary cockpit context window is the most valuable and fragile asset in the cognitive topology. It exists strictly to maintain situational awareness, conduct human-in-the-loop steering, evaluate trade-offs, and dispatch autonomous subagent ladders. It does not lay bricks, pour concrete, or swing hammers.
 
 ### The Empirical Context Cliff
-Empirical telemetry extracted across 1,065+ production sessions in the PSL telemetry laboratory demonstrates an unyielding law of cognitive trajectory health:
-- **Healthy Zone (<50k tokens / <50 steps)**: Sessions exhibit an error rate of only **0.8 errors per session**. Cognitive reasoning, instruction fidelity, and architectural synthesis operate at peak reliability.
-- **Degradation Zone (50k–180k tokens / 50–150 steps)**: Instruction drift begins; models become susceptible to subtle prompt omissions and synthetic self-certification.
-- **The Context Cliff (>200 steps / >230k tokens)**: Sessions suffer a catastrophic **20x error spike**. Models thrash on previously resolved bugs, hallucinate tool states, attempt forbidden writes, and trigger emergency compaction.
+Empirical telemetry extracted across 1,065+ production sessions in the PSL telemetry laboratory establishes the dynamic 256,000-token attention runway and step horizon model:
+- **Healthy Zone (<180k tokens; <40 Executioner steps; isolated child delegates <40k–50k)**: Sessions maintain high instruction fidelity and peak reasoning reliability (empirical baseline **0.8 errors per session** in short trajectories).
+- **Amber Zone (180k–229,999 tokens; steps 40–44)**: Pre-compaction convergence zone; complete active deliverables and prepare state capture via `agyis checkpoint`.
+- **Compaction Imminent / Interrupt (>=230k tokens; Executioner step 45/50 interrupt; >200 steps)**: Historical compaction triggers average **245,941 tokens** while sprawling >200-step trajectories suffer a catastrophic **20x error spike**; `pre_invocation_hook.py` emits compulsory horizon convergence and triggers pre-compaction succession.
 
 Every line of product code written directly in the root cockpit, every unfiltered terminal output dumped into the pairing prompt, and every failed test trace digested in the main window accelerates the descent toward the context cliff. Track C eliminates this vulnerability by enforcing total architectural separation between Flight Direction and Specialist Execution.
 
@@ -133,13 +133,13 @@ flowchart TD
 | **A. Bug Report / Test Regression / Silent Failure** | `agyis_investigator` | `Investigator` $\rightarrow$ `Planner` $\rightarrow$ `Builder` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Strict Read-Only on Code**: Must author a deterministic reproduction script in scratch (`scratch/reproduce_*.py`) before writing any fix. | `rca_report.md` + `reproduce_bug.py` | Live debugging of `/compact` interceptor bug (Steps 3580–3634) |
 | **B. New Feature / Multi-File Milestone** | `agyis_planner` | `Planner` $\rightarrow$ `Coordinator Lock-In` $\rightarrow$ `Builder` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Zero Speculative Code**: Evaluates imports, architecture, and contracts without touching source code. Drafts interactive implementation plan. | `implementation_plan.md` | Epic #51 Phase 3.1 & Phase 3.3 planning |
 | **C. Well-Defined Single-Phase Task** | `agyis_builder` | `Builder` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Laser Executioner**: Single contiguous replacements (`replace_file_content`). Zero scope creep. Self-verifies locally. | In-flight diff + local test pass | Native slash command bypass patch (`f13e63f`) |
-| **D. Cross-Module Architectural Overhaul** | `agyis_architect` | `Architect` (delegates sub-parts) $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Deep Hybrid Orchestration**: Combines implementation with delegation to `agyis_planner` and `agyis_builder` to prevent context bloating past 50k tokens. | Clean multi-module pull request / diff | Issue #87 Subagent Ladder domain decoupling (`a71c104`) |
+| **D. Cross-Module Architectural Overhaul** | `agyis_architect` | `Architect` (delegates sub-parts) $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Deep Hybrid Orchestration**: Combines implementation with delegation to `agyis_planner` and `agyis_builder` to prevent context bloating above the 180k/230k compaction runway. | Clean multi-module pull request / diff | Issue #87 Subagent Ladder domain decoupling (`a71c104`) |
 | **E. Heisenbug during Auditor QA Gate** | `agyis_investigator` | `Auditor (FAIL)` $\rightarrow$ `Investigator (RCA)` $\rightarrow$ `Builder (Fix)` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Anti-Bypass Invariant**: Under no circumstances may an Auditor failure bypass Hammer re-review or Custodian commit gate after being remediated. | `heisenbug_rca.md` | SQLite WAL concurrency contention debugging |
 | **F. Obscure Regression during Macro Build** | `agyis_architect` | `Architect` $\rightarrow$ `Investigator (RCA)` $\rightarrow$ `Architect` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Architect-to-Investigator Delegation**: When encountering unexpected side-effects or mysterious test breaks during macro refactoring, `agyis_architect` pauses and delegates RCA to `agyis_investigator` instead of guess-editing. | `scratch/reproduce_*.py` + `rca_report.md` | PreInvocation locked DB handling |
 | **G. Multi-Track Parallel Research / Landscape Mapping** | `agyis_coordinator` | `Coordinator` $\rightarrow$ Fan-out parallel `agyis_planner` / `agyis_investigator` $\rightarrow$ `Coordinator Synthesis` | **Context Preservation (ADR-025)**: Independent research tracks run in parallel contexts without cross-contamination. Results chiseled into persistent markdown. | `research_synthesis.md` / `track_*.md` | Epic Research Kickoff (Steps 5–17: 4 parallel research tracks) |
 | **H. Cleanroom Specification Audit & Gap Ledger** | `agyis_investigator` | `Investigator` (Cleanroom Auditor) $\rightarrow$ `Coordinator` $\rightarrow$ `Builder` / `Swarm` | **Zero Production Mutation**: Evaluates baseline revision line-by-line against formal ACs. Documents gaps in `COMPLETION_LEDGER.md`. | `COMPLETION_LEDGER.md` | Issue #83 Route C Baseline Audit (Step 2488) |
 | **I. Cross-Branch Golden Merge & Reconciliation** | `agyis_architect` | `Architect` (Synthesizer) $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Hermetic Worktree Isolation**: Reconciles divergent branches in dedicated worktree (`agyis-golden-merge`). Runs cross-test matrix. | Golden commit on unified feature branch | Epic #51 Phase 3.1 Route A vs Route B Golden Merge (Steps 1505 & 1603) |
-| **J. Out-of-Band Victory Certification Council** | `agyis_auditor` + `agyis_reviewer` | `Auditor` (Hermetic Benchmarks) + `Reviewer` (8 Rules) $\rightarrow$ Dual Sign-Off | **Dual-Auditor Gate**: Never trust in-band self-certification. Independent auditors evaluate clean committed revision on HEAD. | `victory_audit_report.md` | Route A, B, and C Victory Audits (Steps 993, 2106, 3634, 3781) |
+| **J. Out-of-Band Victory Certification Council** | `agyis_auditor` + `agyis_reviewer` | `Auditor` (Hermetic Benchmarks) + `Reviewer` (11 Invariants) $\rightarrow$ Dual Sign-Off | **Dual-Auditor Gate**: Never trust in-band self-certification. Independent auditors evaluate clean committed revision on HEAD. | `victory_audit_report.md` | Route A, B, and C Victory Audits (Steps 993, 2106, 3634, 3781) |
 | **K. Milestone Governance & GitHub Issue Curation** | `agyis_custodian` | `Flight Director` / `Coordinator` $\rightarrow$ `Custodian` (Issue Formulation & Epic Sync via `gh` CLI) | **Zero Repository Document Pollution (AC5)**: Strictly zero scratch or progress notes in git tree; deterministic CLI execution; formal parent Epic checklist and comment updates verified via `gh issue view`. | GitHub Issues + Parent Epic Tracking Comment | Phase 3.3 GitHub Issue Harmonizer (Step 2095: Created #83, #84, #85 and synced Epic #51) |
 | **L. Adversarial Fuzzing & Stress Hardening Battery** | `agyis_builder` / `agyis_investigator` | `Investigator` (Fuzzing Vectors) $\rightarrow$ `Builder` (Adversarial Tests) $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Zero Error Swallowing & Sub-Second SLA**: Stress tests (concurrency lock timeout $\le 0.5$s, schema corruption, rapid token bursts, stdin binary stream noise) must execute cleanly in sub-second latency and fail-open. | `tests/test_*_adversarial.py` | Route C Carrier-Grade Hardening (Step 2990: 4 adversarial hardening vectors) |
 
@@ -163,12 +163,12 @@ flowchart LR
 
 ### 3.1 Plane 1: Human-in-the-Loop Operator Channel
 1. **Concise Presentation**: The Flight Director communicates with the operator using clean markdown, structured comparison tables, and Mermaid flowcharts. Dense code dumps and raw terminal logs are strictly prohibited.
-2. **Artifact-First Proposals (Rule 5 & ADR-012)**: Architectural proposals, milestone decompositions, and multi-file modifications must never be proposed as raw conversational chat text. They must immediately crystallize into an interactive `implementation_plan.md` artifact.
+2. **Artifact-First Proposals (PSL-INV-005 & ADR-012)**: Architectural proposals, milestone decompositions, and multi-file modifications must never be proposed as raw conversational chat text. They must immediately crystallize into an interactive `implementation_plan.md` artifact.
 3. **Dynamic Sliding Aperture**:
    - **High Resolution**: Immediate active milestone (exact file declarations, unit tests, verification commands).
    - **Medium Resolution**: Near-future milestones (macro architectural boundaries; zero speculative code).
    - **Low Resolution**: Far-future vision and long-term roadmap.
-4. **Proactive Confirmation Gates (Rule 6)**: The Flight Director must halt and request explicit operator confirmation before executing irreversible or destructive operations:
+4. **Proactive Confirmation Gates (PSL-INV-006)**: The Flight Director must halt and request explicit operator confirmation before executing irreversible or destructive operations:
    - Git branch resets (`git reset --hard`), force pushes, or branch deletions.
    - Deletion of non-temporary workspace files.
    - Host service reboots or container system prunes.
@@ -291,7 +291,7 @@ stateDiagram-v2
     HealthyZone --> AmberZone: Tokens >= 180k
     AmberZone --> CompactionImminent: Tokens >= 230k / Spawns >= 16
     CompactionImminent --> CheckpointAssembly: PreInvocation Hook Injects Advisory
-    CheckpointAssembly --> CognitiveCompression: Lock-Free proto_compaction_checkpoint.py (<30ms)
+    CheckpointAssembly --> CognitiveCompression: Lock-Free compaction_checkpoint.py (<30ms)
     CognitiveCompression --> CheckpointStep: Platform Model Summary (<summary>...</summary>)
     CheckpointStep --> SuccessorWakeup: Platform Injects Resumption Banner (# Resuming...)
     SuccessorWakeup --> HealthyZone: Autonomous Verification & Task Resumption
@@ -308,7 +308,7 @@ stateDiagram-v2
    - Complete active stages; instruct the Hammer and Custodian to commit in-flight diffs to git on HEAD.
 3. **🔴 Compaction Imminent (>= 230,000 tokens or Spawns >= 16)**:
    - The `pre_invocation_hook.py` detects token proximity via protobuf varint step accounting and injects the ephemeral **Compaction Imminent Advisory**.
-   - Mandatory materialization of working memory: the Flight Director or Coordinator executes `proto_compaction_checkpoint.py` to assemble `.agents/artifacts/compaction_checkpoint.md`.
+   - Mandatory materialization of working memory: the Flight Director or Coordinator executes `agyis checkpoint generate` (`harness/delivery/compaction_checkpoint.py`) to assemble `.agents/artifacts/compaction_checkpoint_latest.md`.
    - The Flight Director prompts the operator for a clean `/compact` slash command or invokes horizontal succession:
      `invoke_subagent(TypeName="self", Workspace="inherit")`.
 
@@ -330,8 +330,8 @@ Reverse engineering of the compiled binary (`/usr/bin/agy` and `/opt/Antigravity
    - The platform injects the resumption banner:
      `# Resuming from a compaction... <CONTEXT_SUMMARY>...</CONTEXT_SUMMARY>`.
 
-### 4.3 Lock-Free Pre-Compaction Checkpoint Assembly (`proto_compaction_checkpoint.py`)
-To prevent data loss, the Flight Director materializes ground truth in `<30ms` latency via `scratch/proto_compaction_checkpoint.py`:
+### 4.3 Lock-Free Pre-Compaction Checkpoint Assembly (`harness/delivery/compaction_checkpoint.py`)
+To prevent data loss, the Flight Director materializes ground truth in `<30ms` latency via `agyis checkpoint generate` (`harness/delivery/compaction_checkpoint.py`):
 - **Git State**: Branch, short HEAD commit, clean/dirty porcelain status, diff stat.
 - **Subagent Liveness**: Active conversation IDs, step counts, token counts, and health zones (`HEALTHY`, `AMBER`, `RED_ALERT`).
 - **Artifact Catalog**: Active plans, reports, and ledgers in `.agents/artifacts/` with sizes and links.
@@ -425,9 +425,9 @@ flowchart TD
    - STOP CALLING TOOLS. Await reactive wakeup. Zero polling loops!
 
 5. [ ] **Dual-Auditor Gate Enforcement**:
-   - Verify that Stage 3 Hammer (`agyis_reviewer`) reviewed the diff against the 8 Empirical Rules with verdict `PASS`.
+   - Verify that Stage 3 Hammer (`agyis_reviewer`) reviewed the diff against the 11 Universal Invariants (`PSL-INV-001`..`PSL-INV-011`) with verdict `PASS`.
    - Verify that Stage 4 Custodian (`agyis_custodian`) verified DRY deduplication and committed atomically on HEAD.
-   - Verify that Stage 5 Victory Auditor (`agyis_auditor`) executed `./agyis test` on HEAD with exit code 0 in sub-second benchmark latency (<1.0s).
+   - Verify that Stage 5 Victory Auditor (`agyis_auditor`) executed `./agyis test` on HEAD with exit code 0 (~65s full suite across 1,981 tests; unit/component benchmarks `<1.0s`).
 
 6. [ ] **Milestone Promotion & Horizon Compaction**:
    - Update `project_ledger.md` (<50 lines compaction).
@@ -441,7 +441,7 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | **Command Failure Thrash** | Same command fails $\ge 2$ times | Halt execution immediately. Emit concise error diagnosis. Present 2–3 concrete remediation options. | Operator Chat Turn (Plane 1) |
 | **Destructive Command Gate** | File deletion, branch force-push, node restart | Block command. Present explicit confirmation prompt with blast radius description. | Operator Confirmation Gate |
-| **Context Cliff Alarm** | Tokens $\ge 230,000$ or Spawns $\ge 16$ | Execute `proto_compaction_checkpoint.py`. Materialize state in `.agents/artifacts/`. Prompt operator for `/compact`. | PreInvocation Advisory & Chat |
+| **Context Cliff Alarm** | Tokens $\ge 230,000$ or Spawns $\ge 16$ | Execute `agyis checkpoint generate`. Materialize state in `.agents/artifacts/`. Prompt operator for `/compact`. | PreInvocation Advisory & Chat |
 | **Subagent Red Alert** | Subagent tokens $> 80,000$ | Retire subagent. Spawn fresh successor with compacted task payload. | Private Inter-Agent (Plane 2) |
 | **Hardware Mesh Offline** | SSH ControlMaster socket timeout | Revert from remote swarm to local hermetic worktree. Log mesh alert. | Operator Chat Turn (Plane 1) |
 
@@ -451,17 +451,17 @@ flowchart TD
 
 To ensure this document remains the authoritative source of truth, all Agyis harness agents, hooks, and subagent ladders are bound by the following inviolable principles:
 
-1. **Sub-Second Benchmark Invariant (Rule 1 & ADR-015)**:
-   - All unit test suites and hook runners must execute within sub-second benchmark latency (<1.0s, typically <0.20s). Verification must be fast, hermetic, and panic-free.
-2. **Surgical Contiguous Edits Invariant (Rule 3)**:
+1. **Sub-Second Component Benchmark Invariant (PSL-INV-001 & ADR-015)**:
+   - Individual unit test modules and hook runners must execute within sub-second benchmark latency (<1.0s, typically <0.20s), while the complete macro suite (`agyis test`) runs hermetically (~65s across 1,981 tests). Verification must be fast, hermetic, and panic-free.
+2. **Surgical Contiguous Edits Invariant (PSL-INV-003)**:
    - All code edits must be executed via single contiguous block replacements (`replace_file_content`). Whole-file overwriting is strictly prohibited.
-3. **Strict Reactive Wait Invariant (Rule 4 & ADR-032)**:
+3. **Strict Reactive Wait Invariant (PSL-INV-004 & ADR-032)**:
    - Polling loops on background tasks or subagent logs are banned. Stop tool execution after dispatch and await platform reactive wakeup.
-4. **Artifact-First Planning Invariant (Rule 5 & ADR-012)**:
+4. **Artifact-First Planning Invariant (PSL-INV-005 & ADR-012)**:
    - No multi-file or architectural changes may be executed without an approved `implementation_plan.md` artifact.
 5. **Zero Repository Document Pollution (AC5)**:
    - Git trees and commits must remain 100% free of scratch scripts, temporary notes, or compaction dumps.
-6. **Dual-Auditor Gate (Rule 8)**:
+6. **Dual-Auditor Gate (PSL-INV-008)**:
    - Independent Stage 3 Hammer review and Stage 5 Victory Auditor certification are mandatory before any milestone is promoted.
 
 ---

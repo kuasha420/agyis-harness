@@ -4,7 +4,7 @@ description: >-
   Dynamic subagent routing and multi-agent SWE execution protocol. Coordinates specialized
   agent pipelines (Investigator -> Planner -> Builder -> Reviewer -> Custodian -> Auditor)
   across the 12 canonical workflows, native Antigravity teamwork graphs, and tournament boosts.
-  Callable manually via /subagent-router (or /subagent-ladder) or dispatched downstream by Cockpit Flight Directors.
+  Callable manually via /subagent-router or dispatched downstream by Cockpit Flight Directors.
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
@@ -20,7 +20,7 @@ Rather than enforcing a rigid 1-dimensional waterfall, the Subagent Router dynam
 > [!NOTE]
 > **Invocation Contracts**:
 > - **Upstream Cockpit Dispatch**: Naturally dispatched downstream by the **Cockpit Flight Director** (`cockpit-director`) via typed stage transition payloads (`psl_stage_transition_payload.json`).
-> - **Operator / Manual Engagement**: Can also be engaged directly by human operators using `/subagent-router` (or legacy `/subagent-ladder`), or via `agyis cockpit route <letter>`.
+> - **Operator / Manual Engagement**: Can also be engaged directly by human operators using `/subagent-router`, or via `agyis cockpit route <letter>`.
 > - **Specialist Orchestration**: Coordinated by `agyis_coordinator` (for assembly lines and research fan-outs) or `agyis_architect` (for cross-module overhauls).
 
 ---
@@ -34,7 +34,7 @@ The Subagent Router enforces the **Dual-Sovereignty Principle** (Cognition vs. H
 - **The Harness governs boundaries, state verification, and physical execution guarantees**: Deterministic pre-tool-use write blocks for read-only agents, terminal command safety, output compaction (<2KB), and completion fence verification gates.
 
 Key cognitive benefits include:
-1. **Zero Context Carryover**: Subagents operate in lean, task-focused contexts (<50k tokens), preserving high reasoning capability and deterministic instruction following.
+1. **Zero Context Carryover**: Subagents operate in lean, task-focused contexts (well below the 180k/230k compaction runway of the 256k window), preserving high reasoning capability and deterministic instruction following.
 2. **Cognitive Role Isolation**: Separates the builder from the reviewer. An agent that writes code never reviews or audits its own diffs.
 3. **Hermetic State Preservation**: High-level milestone state, plan artifacts, and empirical test logs are preserved in persistent markdown documents, resilient to conversational compaction or session resets.
 4. **Anti-Anchoring Invariant**: Reviewers and auditors approach incoming diffs skeptically to break them with real repository tests rather than passively confirming prior attempts.
@@ -79,14 +79,14 @@ Every engineering milestone progressing through the sequential execution path ad
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ STAGE 2: SURGICAL EXECUTION (`agyis_builder` / `agyis_architect`)       │◄────────────────────────┐
 │ - `agyis_builder` applies surgical contiguous edits (`replace_file_content`). │                     │
-│ - Local self-verification via native tests (<1.0s benchmark invariant).  │                         │
+│ - Local self-verification via targeted component tests (<1.0s benchmark). │                         │
 │ - Produces diff summary and local test pass.                            │                         │
 └────────────────────────────────────┬────────────────────────────────────┘                         │
                                      │ (Execution Complete OR Remedy Complete)                      │
                                      ▼                                                              │
 ┌─────────────────────────────────────────────────────────────────────────┐                         │
 │ STAGE 3: CODE REVIEW & QUALITY AUDIT (`agyis_reviewer` - The Hammer)    │                         │
-│ - Independent agent audits diff against 8 Canonical Empirical Rules.    │                         │
+│ - Independent agent audits diff against the 11 Universal Invariants.    │                         │
 │ - Zero Error Swallowing Invariant & Zero Self-Certification.            │                         │
 │ - Emits PASS verdict OR Defect Ledger with file/line/rule citations.   │                         │
 └────────────────────────────────────┬────────────────────────────────────┘                         │
@@ -107,8 +107,8 @@ Every engineering milestone progressing through the sequential execution path ad
 ┌─────────────────────────────────────────────────────────────────────────┐                         │
 │ STAGE 5: HERMETIC QA & VERIFICATION AUDIT (`agyis_auditor`)             │                         │
 │ - Strictly evaluates the COMMITTED git revision on HEAD (never dirty).  │                         │
-│ - Runs project native test suite (`agyis test`, `pnpm test`, etc.).     │                         │
-│ - Asserts exit code 0 and sub-second benchmark latency (<1.0s SLA).     │                         │
+│ - Runs `agyis test` (~65s full suite) + <1.0s component benchmarks.     │                         │
+│ - Asserts exit code 0 across all hermetic suites.                       │                         │
 └──────────────────┬───────────────────────────────┘                                                │
                    │                                                                                │
          ┌─────────┴─────────┐                                                                      │
@@ -116,7 +116,7 @@ Every engineering milestone progressing through the sequential execution path ad
          │                   │                                 (MANDATORY: Return to Builder/Investigator,
          ▼                   │                                 THEN through Hammer!)
 ┌────────────────────────────┴────────────────────────────────────────────┐
-│ STAGE 6: PHASE ARCHIVAL & PROMOTION (`cockpit_director` / `agyis_coordinator`) │
+│ STAGE 6: PHASE ARCHIVAL & PROMOTION (`cockpit-director.md` / `agyis_coordinator`) │
 │ - Archives milestone plan into `.agents/artifacts/phase_X_delivery.md`. │
 │ - Records milestone completion in `docs/taxonomy/project-ledger.md`.     │
 │ - Subagents for completed phase are formally retired.                   │

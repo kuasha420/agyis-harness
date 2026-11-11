@@ -144,5 +144,5 @@ systemctl --user status agyis-sync.service
 
   # Check endpoint configuration
   echo $AGYIS_SYNC_ENDPOINT
-  cat ~/.config/psl/config.json
+  cat ~/.config/agyis/config.json
   ```

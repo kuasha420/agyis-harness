@@ -20,7 +20,7 @@ This skill codifies the verified milestone handoff procedure that prevents cogni
 Trigger this protocol immediately upon:
 1. All proposed code changes for the current milestone being implemented.
 2. All unit and contract tests passing with 100% coverage.
-3. The session approaching or exceeding **35k–50k tokens** or **50 steps** (entering the Amber warning zone).
+3. The session approaching or exceeding **180k–230k tokens** (amber/red thresholds of the 256k window) or **45–50 steps** (step interrupt horizon).
 
 ---
 
@@ -77,5 +77,5 @@ Record the completed phase in the project ledger (e.g. `docs/taxonomy/project-le
 - Ensure working tree is completely clean.
 
 ### Step 6: Session Reset Recommendation
-Because attention degradation accelerates past 50k tokens (the 100k cliff), always recommend that the operator reset into a fresh session for the next milestone:
-> *"Milestone completed and committed. All 43 tests pass. Working tree clean. To maintain maximum reasoning aperture and prevent cognitive degradation, please reset into a fresh conversation turn for the next milestone."*
+Because attention degradation and compaction pressure increase once a session enters the 180k/230k context runway (of the 256k window) or crosses 45–50 steps, always recommend that the operator reset into a fresh session for the next milestone:
+> *"Milestone completed and committed. All tests pass. Working tree clean. To maintain maximum reasoning aperture and prevent cognitive degradation, please reset into a fresh conversation turn for the next milestone."*

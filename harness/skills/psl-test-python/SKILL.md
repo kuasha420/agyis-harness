@@ -33,7 +33,7 @@ This skill establishes standardized execution contracts and hermetic benchmarkin
 - Target hermetic CPython 3.12+ runtimes (`python3` or `uv run python`).
 
 ### 1.2 Sub-Second Benchmark Invariant (ADR-015)
-- Automated unit test suites must complete execution in strictly **under 1.0 second**.
+- Individual unit and contract test modules (and `pytest` component suites) must complete execution in strictly **under 1.0 second**, while the full repository `agyis test` sweep completes in `~65s` across all modules.
 - Enforce in-memory mocks, deterministic loops, and zero artificial `time.sleep()` delays.
 - Eliminate external network requests and unnecessary disk thrashing.
 
@@ -56,8 +56,8 @@ This skill establishes standardized execution contracts and hermetic benchmarkin
 
 ---
 
-## 2. Failure Transparency (Ground Rule 1 & Rule 2)
+## 2. Failure Transparency (PSL-INV-001 & PSL-INV-002)
 
 - **Zero bare `except:` blocks**: Never mask assertion failures or exceptions.
-- **No Product Homework in Tests (Rule 2)**: Tests verify outcomes through black-box expectations and contract assertions; never duplicate production logic inside test asserts.
+- **No Product Homework in Tests (PSL-INV-001)**: Tests verify outcomes through black-box expectations and contract assertions; never duplicate production logic inside test asserts.
 - Self-verifying tests must record deterministic status codes and exit non-zero upon any test failure.

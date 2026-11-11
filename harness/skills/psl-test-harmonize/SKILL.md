@@ -14,7 +14,7 @@ description: >-
 
 # Dedicated Project Test Harmonization Protocol (`psl-test-harmonize`)
 
-This skill codifies the operational protocol for inspecting, auditing, and harmonizing test runners and project manifests into the **Diff-Aware Affected Testing Architecture** (RFC-051). It eliminates synthetic tautological verification (e.g. 1,150 tests passing with 0% UI mounting) and equips workspaces with tiered test dispatch capabilities.
+This skill codifies the operational protocol for inspecting, auditing, and harmonizing test runners and project manifests into the **Diff-Aware Affected Testing Architecture** (`agyis test --harmonize`). It eliminates synthetic tautological verification (e.g. 1,150 tests passing with 0% UI mounting) and equips workspaces with tiered test dispatch capabilities.
 
 ---
 
@@ -26,7 +26,7 @@ Trigger this skill whenever:
 - Frontend components are imported as raw JavaScript/TypeScript functions in Node without an authentic DOM mounting lifecycle (`happy-dom`, `jsdom`, or `@testing-library/react`).
 - Visual Regression Testing (VRT) uses synthetic file existence checks (`fs.existsSync(file) == true`) rather than authentic pixel diffing (`toHaveScreenshot()`).
 - Monorepos lack package-scoped test commands (`test:pkg`).
-- Preparing a repository for multi-agent delegation pipelines (`/subagent-ladder`, `/teamwork-preview`) or milestone handoff gates.
+- Preparing a repository for multi-agent delegation pipelines (`/subagent-router`, `/teamwork-preview`) or milestone handoff gates.
 
 ---
 
