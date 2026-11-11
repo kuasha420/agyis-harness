@@ -259,6 +259,36 @@ class TestTrajectorySSOT(unittest.TestCase):
         self.assertEqual(bd["unattributed"], 9_600)
         self.assertEqual(sum(bd.values()), 10_000)
 
+    def test_extract_spawned_subagents_ignores_command_outputs_and_type_annotations(self) -> None:
+        """extract_spawned_subagents ignores bash outputs, type annotations, and expired roles."""
+        steps = [
+            {
+                "step_index": 0,
+                "type": "PLANNER_RESPONSE",
+                "tool_calls": [{"name": "run_command", "args": {"CommandLine": "python3 script.py"}}],
+            },
+            {
+                "step_index": 1,
+                "type": "GENERIC",
+                "content": 'Created At: 2026-11-12T00:00:00Z\nCommand output:\nconversation_id: Optional[str]\nconversationId: target_conv_id\nconversationId: 14978a36-79f1-40db-bd61-eeb494726b73',
+            },
+            {
+                "step_index": 2,
+                "type": "PLANNER_RESPONSE",
+                "tool_calls": [{"name": "invoke_subagent", "args": {"TypeName": "agyis_reviewer", "Role": "Reviewer"}}],
+            },
+            {
+                "step_index": 3,
+                "type": "GENERIC",
+                "content": 'Created At: 2026-11-12T00:01:00Z\nCreated the following subagent:\n{\n  "conversationId": "valid-child-id-12345"\n}',
+            },
+        ]
+        spawned = extract_spawned_subagents(steps, parent_cid="parent-root")
+        self.assertEqual(spawned, {"valid-child-id-12345": "agyis_reviewer"})
+        self.assertNotIn("14978a36-79f1-40db-bd61-eeb494726b73", spawned)
+        self.assertNotIn("Optional", spawned)
+        self.assertNotIn("target_conv_id", spawned)
+
 
 if __name__ == "__main__":
     unittest.main()

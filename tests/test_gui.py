@@ -2538,6 +2538,8 @@ async function fetch(url, opts) {
         self.assertNotIn(">384k</span>", out["s1_html"])
         self.assertIn("512k Context &bull; Live Trace", out["s1_timeline"])
         self.assertNotIn("256k Context Parity", out["s1_timeline"])
+        self.assertIn("Active Context:", out["s1_html"])
+        self.assertNotIn("/ 384,000 tokens", out["s1_html"])
 
         # Scenario 2 assertions (800,000 / 1,000,000 -> ceil(800000 / 250000) = 4 rows: 0k, 250k, 500k, 750k)
         self.assertEqual(out["s2_epochs"], 2)
@@ -2549,6 +2551,7 @@ async function fetch(url, opts) {
         for label in ("0k", "250k", "500k", "750k"):
             self.assertIn(f">{label}</span>", out["s2_html"])
         self.assertIn("1M Context &bull; Live Trace", out["s2_timeline"])
+        self.assertNotIn("/ 1,000,000 tokens", out["s2_html"])
 
         # Scenario 3 assertion: total_tokens matches sum(token_breakdown) and marks provisional estimate
         self.assertEqual(out["s3_total_tok"], out["s3_breakdown_sum"])

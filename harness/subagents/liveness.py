@@ -260,13 +260,13 @@ def probe_subagent_liveness(
             if active_conv_id and not show_all:
                 if conv_id_str == active_conv_id or item.name == active_conv_id:
                     continue
-                is_child = conv_id_str in active_child_tokens or item.name in active_child_tokens or (
-                    role.lower() != "subagent" and role in active_child_tokens
-                )
+                is_child = conv_id_str in active_child_tokens or item.name in active_child_tokens
                 if not is_child and first_chunk and active_conv_id in first_chunk:
                     is_child = True
                     active_child_tokens.update((conv_id_str, item.name))
                 if not is_child:
+                    continue
+                if not is_custom_brain and age > max(14400, dead_threshold * 2):
                     continue
             elif not show_all and not is_custom_brain and age > dead_threshold:
                 continue

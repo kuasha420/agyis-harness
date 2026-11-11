@@ -39,6 +39,16 @@ _UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F
 _CID_PAIR_RE = re.compile(
     r'(?:conversation_?[iI]d|Recipient)\\?["\']?\s*:\s*\\?["\']?([A-Za-z0-9][A-Za-z0-9\-_]{7,63})'
 )
+_EXCLUDED_CIDS = frozenset({
+    "Optional",
+    "conversation_id",
+    "conversationId",
+    "target_conv_id",
+    "parent_id",
+    "active_id",
+    "string",
+    "object",
+})
 
 
 def extract_role_from_text(text: str) -> Optional[str]:
@@ -195,6 +205,9 @@ def extract_spawned_subagents(steps: List[Dict[str, Any]], parent_cid: str = "")
     pending_role = ""
 
     for step in steps:
+        if step.get("type") == "PLANNER_RESPONSE":
+            pending_role = ""
+
         raw_tcs = step.get("tool_calls") or step.get("toolCalls") or []
         if isinstance(raw_tcs, list):
             for tc in raw_tcs:
@@ -210,11 +223,11 @@ def extract_spawned_subagents(steps: List[Dict[str, Any]], parent_cid: str = "")
                 if t_name == "invoke_subagent" and isinstance(t_args, dict):
                     pending_role = str(t_args.get("TypeName") or t_args.get("Role") or "subagent").strip()
                     arg_cid = str(t_args.get("conversationId") or t_args.get("conversation_id") or "").strip()
-                    if arg_cid and arg_cid != parent_cid and "\\" not in arg_cid:
+                    if arg_cid and arg_cid != parent_cid and "\\" not in arg_cid and arg_cid not in _EXCLUDED_CIDS:
                         children[arg_cid] = pending_role or children.get(arg_cid, "subagent")
                 elif t_name == "send_message" and isinstance(t_args, dict):
                     recip = str(t_args.get("Recipient") or "").strip()
-                    if (_UUID_RE.match(recip) or (len(recip) >= 6 and "\\" not in recip and "/" not in recip)) and recip != parent_cid:
+                    if (_UUID_RE.match(recip) or (len(recip) >= 6 and "\\" not in recip and "/" not in recip)) and recip != parent_cid and recip not in _EXCLUDED_CIDS:
                         children.setdefault(recip, "subagent")
                 res = tc.get("result") or tc.get("output")
                 if res:
@@ -227,18 +240,22 @@ def extract_spawned_subagents(steps: List[Dict[str, Any]], parent_cid: str = "")
                             pass
                     if isinstance(res, dict):
                         res_cid = str(res.get("conversationId") or res.get("conversation_id") or "").strip()
-                        if res_cid and res_cid != parent_cid and "\\" not in res_cid:
+                        if res_cid and res_cid != parent_cid and "\\" not in res_cid and res_cid not in _EXCLUDED_CIDS:
                             children[res_cid] = pending_role or children.get(res_cid, "subagent")
                     res_str = json.dumps(res) if isinstance(res, dict) else str(res)
                     for cid in _CID_PAIR_RE.findall(res_str):
-                        if cid != parent_cid and "\\" not in cid:
+                        if cid != parent_cid and "\\" not in cid and cid not in _EXCLUDED_CIDS:
                             children[cid] = pending_role or children.get(cid, "subagent")
 
         content_str = str(step.get("content") or "")
-        if "conversationId" in content_str or "conversation_id" in content_str or "Recipient" in content_str:
-            for cid in _CID_PAIR_RE.findall(content_str):
-                if cid != parent_cid:
-                    children.setdefault(cid, pending_role or "subagent")
+        if "Created the following subagent" in content_str or (
+            pending_role and ("conversationId" in content_str or "conversation_id" in content_str)
+        ):
+            if not content_str.startswith("Created At:") or "Command output:" not in content_str:
+                for cid in _CID_PAIR_RE.findall(content_str):
+                    if cid != parent_cid and "\\" not in cid and cid not in _EXCLUDED_CIDS:
+                        children[cid] = pending_role or children.get(cid, "subagent")
+                        pending_role = ""
 
     return children
 

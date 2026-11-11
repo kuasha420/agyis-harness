@@ -500,7 +500,6 @@
                                         <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #64748b;"></span> Unattributed</span>
                                         <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #3f3f46;"></span> Unused</span>
                                     </div>
-                                    <div style="font-family: monospace; font-weight: 700; color: #cbd5e1;">${activeTokensSum.toLocaleString()} / ${totalActiveCapacity.toLocaleString()} tokens</div>
                                 </div>
                             </div>
                             <div class="agyis-step-grid-row agyis-step-grid-header">
