@@ -15,14 +15,17 @@ from pathlib import Path
 import re
 import shutil
 import stat
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from harness.delivery.cache import purge_workspace_build_caches
 from harness.delivery.constants import REPO_ROOT
 from harness.delivery.surfaces import find_workspace_root
 from harness.skills import (
+    ARCHITECTURAL_ROLE_PRESETS,
+    LANGUAGE_RUNTIME_PRESETS,
     STACK_PRESETS,
     detect_workspace_stack,
+    resolve_skills_to_sync,
 )
 
 TAG_START = "<!-- Added by AGYIS-HARNESS -->"
@@ -46,6 +49,73 @@ STACK_SKILL_PRESETS: Dict[str, List[str]] = {
         "psl-audit-toolkit",
     ],
 }
+
+
+def _dedup_skills(skills: Sequence[str]) -> List[str]:
+    """Deduplicates skill identifiers in insertion order using normalized names."""
+    seen: set[str] = set()
+    result: List[str] = []
+    for s in skills:
+        norm = s.strip().lower().replace("_", "-")
+        if norm and norm not in seen:
+            seen.add(norm)
+            result.append(s)
+    return result
+
+
+def resolve_skills_for_workspace(
+    workspace_dir: Path | str,
+    stack: Optional[str] = None,
+    role: Optional[str] = None,
+    subproject: Optional[Union[Path, str]] = None,
+    skills: Optional[Sequence[str]] = None,
+) -> List[str]:
+    """Resolves workspace skills via decoupled Language Runtime, Architectural Role, and Subproject presets.
+
+    Preserves backward compatibility for legacy stack presets (``"audit"``, ``"all"``,
+    ``"generic"``, or unknown stack names) while delegating standard language/role/subproject
+    resolution to ``harness.skills.resolve_skills_to_sync``.
+    """
+    if skills is not None:
+        return _dedup_skills(skills)
+
+    root_ws = Path(workspace_dir).resolve()
+    stk_norm = stack.strip().lower() if stack else None
+    role_norm = role.strip().lower() if role else None
+
+    if role_norm and role_norm not in ARCHITECTURAL_ROLE_PRESETS:
+        raise ValueError(
+            f"Unknown architectural role '{role}'. Choose from: {', '.join(sorted(ARCHITECTURAL_ROLE_PRESETS.keys()))}"
+        )
+
+    if stk_norm in ("audit", "all", "generic"):
+        resolved: List[str] = []
+        if stk_norm == "audit":
+            resolved.append("psl-audit-toolkit")
+        elif stk_norm == "all":
+            resolved.extend([
+                "psl-stack-typescript",
+                "psl-stack-python",
+                "psl-stack-systems",
+                "psl-stack-shell",
+                "psl-stack-backend",
+                "psl-audit-toolkit",
+            ])
+        if role_norm:
+            resolved.extend(ARCHITECTURAL_ROLE_PRESETS[role_norm])
+        return _dedup_skills(resolved)
+
+    if stk_norm and stk_norm != "auto" and stk_norm not in STACK_PRESETS:
+        resolved = list(ARCHITECTURAL_ROLE_PRESETS[role_norm]) if role_norm else []
+        return _dedup_skills(resolved)
+
+    resolved_skills = resolve_skills_to_sync(
+        stack=stk_norm or "auto",
+        role=role_norm,
+        workspace_root=root_ws,
+        subproject=subproject,
+    )
+    return list(resolved_skills or [])
 
 
 STANDARD_VERB_DESCRIPTIONS: Dict[str, str] = {

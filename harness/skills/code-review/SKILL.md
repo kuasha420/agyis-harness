@@ -12,7 +12,7 @@ description: >-
 
 # Delta-Focused Code Review & Feedback Protocol
 
-This skill codifies the delta-focused review workflow derived from high-performing repositories in our empirical dataset (such as `purrmission` and `sunshine-physio`), where focused line-level reviews reduced human interventions by 10x compared to whole-repo re-reading.
+This skill codifies the delta-focused review workflow derived from high-performing repositories in our empirical dataset (such as CLI-first TypeScript and web application repositories), where focused line-level reviews reduced human interventions by 10x compared to whole-repo re-reading.
 
 ---
 

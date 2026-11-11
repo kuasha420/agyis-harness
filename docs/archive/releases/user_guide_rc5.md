@@ -115,10 +115,10 @@ Example output on a healthy workstation:
  🩺 Agyis Harness: Workstation Runtime Diagnostic
 ======================================================================
  OS Family: ARCH | Host: desktop-anchor | Kernel: Linux 6.13.4-arch1
- Hermetic uv Python: /home/kuasha/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3
+ Hermetic uv Python: ~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3
 ----------------------------------------------------------------------
- [PASS] uv                     >=0.1.0        -> /home/kuasha/.local/bin/uv (0.6.14)
- [WARN] python                 >=3.12.0       -> /home/kuasha/.pyenv/shims/python3 (3.14.7) ⚠️ pyenv shim active in PATH
+ [PASS] uv                     >=0.1.0        -> ~/.local/bin/uv (0.6.14)
+ [WARN] python                 >=3.12.0       -> ~/.pyenv/shims/python3 (3.14.7) ⚠️ pyenv shim active in PATH
  [PASS] node                   >=20.0.0       -> /usr/bin/node (22.13.1)
  [PASS] pnpm                   >=8.0.0        -> /usr/bin/pnpm (9.15.4)
  [PASS] git                    >=2.38.0       -> /usr/bin/git (2.48.1)
@@ -126,7 +126,7 @@ Example output on a healthy workstation:
  [PASS] rg                     >=13.0.0       -> /usr/bin/rg (14.1.1)
  [PASS] fd                     >=8.7.0        -> /usr/bin/fd (10.2.0)
  [PASS] ssh                    >=8.9.0        -> /usr/bin/ssh (OpenSSH_9.9p1)
- [PASS] knot                   >=1.0.0        -> /home/kuasha/.local/bin/knot (1.2.0)
+ [PASS] knot                   >=1.0.0        -> ~/.local/bin/knot (1.2.0)
  [PASS] Database Port (5432)   TCP Listen     -> Available
 ----------------------------------------------------------------------
  Summary: 10 OK | 1 Warnings | 0 Outdated | 0 Missing
@@ -139,7 +139,7 @@ Example output on a healthy workstation:
 2. **Hermetic uv Python Auto-Discovery**:  
    Scans `~/.local/share/uv/python/` for installed CPython versions (`cpython-3.12.*`), confirming runtime injection readiness.
 3. **Database Port Collision Probing (Port 5432)**:  
-   Detects if PostgreSQL port 5432 is occupied by foreign Docker containers (e.g., `jasper_dev_postgres`) or background system services, warning the operator before spinning up conflicting database test containers. Remediation script:
+   Detects if PostgreSQL port 5432 is occupied by foreign Docker containers (e.g., `<foreign-db-container>`) or background system services, warning the operator before spinning up conflicting database test containers. Remediation script:
    ```bash
    python3 harness/skills/db-ops/scripts/detect_port_collision.py --find-free --rebind --env .env
    ```
@@ -202,7 +202,7 @@ agyis onboard --create-branch --pr
 | `--prune-legacy` | Flag | `True` | Safely archives legacy `.agent/` directories to tar.gz and manifest before deleting them. |
 | `--no-prune` | Flag | `False` | Disables deletion of legacy `.agent/` directory. |
 | `--pr`, `--open-pr` | Flag | `False` | Opens a GitHub Pull Request via `gh pr create` upon successful test verification. |
-| `--upstream-remote` | String | Auto-detected | Explicit upstream remote name (e.g. `upstream`, `canonical`, `purrfectsoft`). |
+| `--upstream-remote` | String | Auto-detected | Explicit upstream remote name (e.g. `upstream`, `canonical`, `<org>`). |
 | `--base-branch` | String | Auto-detected | Explicit base branch to target (defaults to default branch or active branch). |
 | `--dry-run` | Flag | `False` | Simulates all onboarding actions without modifying disk files or git branches. |
 | `--json` | Flag | `False` | Outputs machine-readable structured JSON report. |
@@ -321,7 +321,7 @@ To upgrade the global Agyis harness toolchain on your workstation:
 uv tool update agyis-harness
 
 # If installed from source checkout
-cd /home/kuasha/Dev/psl-agy-harness
+cd ~/Dev/psl-agy-harness
 git pull origin main
 ./agyis test
 ./agyis install --global --all-surfaces
@@ -363,7 +363,7 @@ agyis sync --service status
 Output when active:
 ```text
 ● agyis-sync.service - Agyis Harness Background Telemetry Sync Daemon
-     Loaded: loaded (/home/kuasha/.config/systemd/user/agyis-sync.service; enabled)
+     Loaded: loaded (~/.config/systemd/user/agyis-sync.service; enabled)
      Active: active (running) since Sun 2026-10-18 10:15:00 UTC; 2h 14min ago
 ```
 Output in JSON mode (`--json`):
@@ -373,7 +373,7 @@ Output in JSON mode (`--json`):
   "installed": true,
   "active": true,
   "status": "active",
-  "path": "/home/kuasha/.config/systemd/user/agyis-sync.service"
+  "path": "~/.config/systemd/user/agyis-sync.service"
 }
 ```
 
@@ -404,7 +404,7 @@ Before synchronizing telemetry with the central hub, configure GitHub organizati
 
 ```bash
 # Authenticate using active GitHub CLI token
-agyis auth login --gh --endpoint https://telemetry.purrfectsoft.com
+agyis auth login --gh --endpoint https://telemetry.<org>.com
 
 # Perform manual bi-directional sync (push local, pull remote)
 agyis sync
@@ -423,7 +423,7 @@ agyis sync --pull --all-developers
 | Symptom | Cause | Solution |
 | :--- | :--- | :--- |
 | `[WARN] python ... ⚠️ pyenv shim active in PATH` | Host `$PATH` points to a legacy pyenv shim (e.g. Python 3.10) | Run `agyis doctor --heal`. Agyis Harness lifecycle hooks automatically inject hermetic CPython >= 3.12 from `uv` during inline tool execution. |
-| `Port 5432 collision: occupied by foreign container` | An existing Docker container (e.g. `jasper_dev_postgres`) is binding port 5432 | Run `python3 harness/skills/db-ops/scripts/detect_port_collision.py --find-free --rebind --env .env` to find a free port and rebind your configuration. |
+| `Port 5432 collision: occupied by foreign container` | An existing Docker container (e.g. `<foreign-db-container>`) is binding port 5432 | Run `python3 harness/skills/db-ops/scripts/detect_port_collision.py --find-free --rebind --env .env` to find a free port and rebind your configuration. |
 | `✘ Error: Working tree has uncommitted changes` | `agyis onboard` aborted to protect your unstaged files | Commit or stash your changes, or pass `agyis onboard --allow-dirty` to generate an automated safety patch snapshot. |
 | `TS2307: Cannot find module` during verification | Stale Next.js / Turborepo type caches lingering in `.next/types` | Re-run onboarding with cache purging: `agyis onboard --purge-caches`. |
 | `Service 'agyis-sync.service' is not installed` | Systemd background sync daemon has not been set up | Run `agyis sync --service install` to install and enable the background daemon. |

@@ -892,13 +892,14 @@ class TestDualAdvisoriesDistinctText(unittest.TestCase):
     """Verifies distinct contract texts for Flight Director and Deep Execution dual advisories."""
 
     def test_flight_director_cognitive_state_flush_distinct_directives(self):
-        """Flight Director advisory mandates Cognitive State Preservation Invariant into compaction_checkpoint.md."""
+        """Flight Director advisory mandates Cognitive State Preservation Invariant into compaction_checkpoint_latest.md and cockpit_checkpoint.md."""
         adv = build_compaction_advisory(ROLE_FLIGHT_DIRECTOR, 235_000, 230_000)
 
         # Mandatory Invariant Directives
         self.assertIn("COGNITIVE STATE PRESERVATION INVARIANT", adv)
         self.assertNotIn("FLUSH", adv)
-        self.assertIn("compaction_checkpoint.md", adv)
+        self.assertIn("compaction_checkpoint_latest.md", adv)
+        self.assertIn("cockpit_checkpoint.md", adv)
         self.assertIn("materialize working memory", adv)
         self.assertIn("active task decomposition", adv)
         self.assertIn("pending subagent assignments", adv)
@@ -925,8 +926,9 @@ class TestDualAdvisoriesDistinctText(unittest.TestCase):
         self.assertIn("git diff", adv)
         self.assertIn("without reverting", adv)
 
-        # Must NOT include compaction_checkpoint.md flush
-        self.assertNotIn("compaction_checkpoint.md", adv)
+        # Must NOT include compaction checkpoint flush directives
+        self.assertNotIn("compaction_checkpoint_latest.md", adv)
+        self.assertNotIn("cockpit_checkpoint.md", adv)
 
 
 class TestClassifierEdgeCases(unittest.TestCase):

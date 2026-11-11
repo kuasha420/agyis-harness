@@ -14,9 +14,15 @@ description: >-
 
 This skill establishes empirical runbooks for Knot hardware mesh coordination, dynamic topology discovery, Tailscale and WireGuard connectivity probes, SSH multiplexing, and cross-node state synchronization.
 
+## Table of Contents
+1. [Dynamic Node Discovery and Topology Inspection](#1-dynamic-node-discovery-and-topology-inspection)
+2. [SSH Multiplexing and ControlMaster Management](#2-ssh-multiplexing-and-controlmaster-management)
+3. [Remote Execution and Stdin Script Streaming](#3-remote-execution-and-stdin-script-streaming)
+4. [Cross-Strand State Synchronization](#4-cross-strand-state-synchronization)
+
 ---
 
-## 1. Dynamic Node Discovery & Topology Inspection
+## 1. Dynamic Node Discovery and Topology Inspection
 
 ### Invariant: Bounded Timeouts on Mesh Probes
 All remote probes must enforce strict network timeouts (`ConnectTimeout=2`, bounded ping count `-c 2`) to prevent hung agent turns when nodes are asleep or off-mesh.
@@ -49,7 +55,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new <ta
 
 ---
 
-## 2. SSH Multiplexing & ControlMaster Management
+## 2. SSH Multiplexing and ControlMaster Management
 
 ### Invariant: Zero Exit Code 255 (Unclean SSH Terminations)
 Prevent SSH dropouts and connection exhaustion using persistent ControlMaster sockets:
@@ -76,7 +82,7 @@ agyis remote socket cleanup
 
 ---
 
-## 3. Remote Execution & Stdin Script Streaming
+## 3. Remote Execution and Stdin Script Streaming
 
 ### 3.1 Zero-Disk Footprint Script Streaming
 Avoid writing temporary script files to the remote node's filesystem:

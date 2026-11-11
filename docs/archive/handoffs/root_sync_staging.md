@@ -84,7 +84,7 @@ The specification mining survey (survey commit `cced547`) confirmed that while t
 +- `agyis gui [--devtools] [--trajectory-debug] [--toggle] [--no-popup] [--wait <sec>]`: Introspect and unlock Antigravity Electron GUI via CDP WebSocket (ADR-014).
 @@ -213,2 +216,4 @@
  - **Tier 3 (Mesh Host)**: `ssh >= 8.9`, `knot >= 1.0`.
-+- **Database Port Collision Probing**: Probes TCP port 5432 to identify foreign container collisions (e.g. `jasper_dev_postgres`) and recommends dynamic port re-binding.
++- **Database Port Collision Probing**: Probes TCP port 5432 to identify foreign container collisions (e.g. `<foreign-db-container>`) and recommends dynamic port re-binding.
  - **Fast-Path Invariant**: Default `agyis doctor` runs zero-delay fast-path checks (<0.05s) with strictly 0 warnings added when REA is absent, preserving sub-second benchmark latency (<1.0s).
 @@ -261,11 +266,11 @@
 -All 816 unit, integration, and replay tests pass hermetically in **<1.0s** (ADR-015 benchmark):

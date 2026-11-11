@@ -379,7 +379,7 @@ diff -u <(tail -n 15 GLOBAL_AGENTS.md) <(tail -n 25 harness/rules/GLOBAL_AGENTS.
 ### 11.2 Read-Only Integrity Attestation
 The Holistic Audit Report Compiler (`worker_report`) hereby formally attests:
 - **Zero Product Mutation**: No product, library, runtime, or test source files in `harness/`, `tests/`, `pipeline/`, or root configuration files were created, edited, or deleted during this audit.
-- **Git State Verification**: `git status --porcelain` in the primary repository `/home/kuasha/Dev/psl-agy-harness` is 100% clean.
+- **Git State Verification**: `git status --porcelain` in the primary repository `~/Dev/psl-agy-harness` is 100% clean.
 - **Authentic Verification**: All test numbers (1,852 total tests), execution timings, diff stats (44 files, +7,124 / -277 lines), and commit histories (`da2fb92` -> `c3e5612`) were empirically observed from genuine CLI invocations and tool outputs without simulation or mock fabrications.
 
 ---

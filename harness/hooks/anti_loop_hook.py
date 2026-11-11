@@ -274,20 +274,37 @@ def _is_manage_task_status(sig: dict) -> bool:
 
 
 def _is_task_log_inspection(sig: dict) -> bool:
-    """Helper to detect if a tool call is inspecting background task logs."""
+    """Helper to detect if a tool call is inspecting background task or session logs."""
     name = sig.get("name", "")
     args = sig.get("args")
     if not isinstance(args, dict):
         return False
     if name == "view_file":
         path = str(args.get("AbsolutePath") or "")
-        return (".system_generated/tasks" in path or "/tasks/task-" in path) and path.endswith(".log")
+        return (
+            ".system_generated/tasks" in path
+            or ".system_generated/logs" in path
+            or "/tasks/task-" in path
+        ) and path.endswith(".log")
     if name == "grep_search":
         search_path = str(args.get("SearchPath") or "")
-        return (".system_generated/tasks" in search_path or "/tasks/task-" in search_path) and (search_path.endswith(".log") or search_path.endswith("/tasks"))
+        norm_search = search_path.rstrip("/")
+        return (
+            ".system_generated/tasks" in search_path
+            or ".system_generated/logs" in search_path
+            or "/tasks/task-" in search_path
+        ) and (
+            norm_search.endswith(".log")
+            or norm_search.endswith("/tasks")
+            or norm_search.endswith("/logs")
+        )
     if name == "run_command":
         cmd = str(args.get("CommandLine") or "")
-        return (".system_generated/tasks" in cmd or "/tasks/task-" in cmd) and ".log" in cmd
+        return (
+            ".system_generated/tasks" in cmd
+            or ".system_generated/logs" in cmd
+            or "/tasks/task-" in cmd
+        ) and ".log" in cmd
     return False
 
 
@@ -424,7 +441,7 @@ def check_anti_loop(
                 "decision": "deny",
                 "reason": (
                     f"PSL Anti-Loop Guard: Intercepted {consecutive_inspections + 1} consecutive background task inspections. "
-                    "Never poll background task logs ('tail', 'cat', 'view_file' on .system_generated/tasks/ or manage_task 'status') "
+                    "Never poll background task logs ('tail', 'cat', 'view_file' on .system_generated/tasks/ or .system_generated/logs/ or manage_task 'status') "
                     "for progress updates. Stop calling tools and await reactive wakeup."
                 ),
             }

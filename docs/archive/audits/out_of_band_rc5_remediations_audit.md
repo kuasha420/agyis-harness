@@ -1,5 +1,5 @@
 # Independent Out-of-Band Audit: Fleet B Phase 1 Category B Core Architectural Remediations
-**Target Repository**: `kuasha420/agyis-harness` (`/home/kuasha/Dev/psl-agy-harness`)  
+**Target Repository**: `kuasha420/agyis-harness` (`~/Dev/psl-agy-harness`)  
 **Auditor**: `harness_auditor` (PSL Subagent Ladder QA Verifier)  
 **Evaluation Standard**: Dual-Auditor Gate Protocol / ICARO-42/b Ordinance / ADR-014 / ADR-015 / ADR-030 / ADR-031  
 **Audit Date**: 2026-10-17  
@@ -117,14 +117,14 @@ Execution Budget: 14.566s (Budget limit: 15.0s) -> PASS
  🩺  AGYIS WORKSTATION DOCTOR & RUNTIME GUARANTEE AUDIT
 ======================================================================
  OS Family: ARCH
- Hermetic uv Python: /home/kuasha/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3
- Agyis Launcher:     [PASS] -> /home/kuasha/.local/bin/agyis
- PSL Compatibility:  [PASS] -> /home/kuasha/.local/bin/psl
+ Hermetic uv Python: ~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3
+ Agyis Launcher:     [PASS] -> ~/.local/bin/agyis
+ PSL Compatibility:  [PASS] -> ~/.local/bin/psl
  Duplicate Agents:   [PASS] -> No duplicate agent definitions detected
  Duplicate Skills:   [PASS] -> No duplicate skill registrations detected
  Node Script Hygiene:[PASS] -> Node script module hygiene verified (ESM)
  Lifecycle Hooks:    [PASS] -> 5 hooks verified
- REA Tooling:        [PASS] -> REA detected at /home/kuasha/.local/share/pnpm/rea
+ REA Tooling:        [PASS] -> REA detected at ~/.local/share/pnpm/rea
 
 ▶ TIER 1 LANGUAGES: [PASS] uv, node, pnpm; [WARN] pyenv shim active in PATH
 ▶ TIER 2 SWE CLI:   [PASS] git, gh, ripgrep, fd

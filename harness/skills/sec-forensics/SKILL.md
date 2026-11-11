@@ -16,12 +16,18 @@ description: >-
 
 This skill establishes empirical, tool-native runbooks for emergency security containment, read-only isolated container triage, instant cloud credential revocation, remote memory-only script execution, and forensic audit report compilation.
 
+## Table of Contents
+1. [Ephemeral Read-Only Container Triage](#1-ephemeral-read-only-container-triage)
+2. [Emergency Cloud Credential Revocation](#2-emergency-cloud-credential-revocation)
+3. [Remote Forensics via Stdin Script Streaming](#3-remote-forensics-via-stdin-script-streaming)
+4. [Forensic Audit Report and Headless PDF Compilation](#4-forensic-audit-report-and-headless-pdf-compilation)
+
 ---
 
-## 1. Ephemeral Read-Only Container Triage (`docker run --rm -v /:/host:ro`)
+## 1. Ephemeral Read-Only Container Triage
 
 ### Invariant: Non-Invasive Read-Only Host Mount
-When investigating a potentially compromised host or suspicious binaries, never execute unverified tools directly on the host or mount host root read-write (`:rw`). Always mount root as read-only (`/:/host:ro`) inside an ephemeral container (`--rm`) with network isolation (`--network none`) to prevent lateral movement, persistence alteration, or tampering with file timestamps (`atime`/`mtime`).
+When investigating a potentially compromised host or suspicious binaries, never execute unverified tools directly on the host or mount host root read-write (`:rw`). Always inspect via an isolated ephemeral read-only mount (`docker run --rm -v /:/host:ro`) with network isolation (`--network none`) to prevent lateral movement, persistence alteration, or tampering with file timestamps (`atime`/`mtime`).
 
 ### Step 1.1: Launch Ephemeral Read-Only Analysis Shell
 ```bash
@@ -88,7 +94,7 @@ aws iam delete-access-key \
 
 ---
 
-## 3. Remote Forensics via `harness.cli remote script`
+## 3. Remote Forensics via Stdin Script Streaming
 
 ### Invariant: Zero-Disk-Footprint Script Streaming
 Never copy diagnostic scripts to remote target disks during live triage. Use `harness.cli remote script` to stream Python or shell scripts directly into remote interpreters over stdin.
@@ -113,7 +119,7 @@ agyis remote triage <target>
 
 ---
 
-## 4. Forensic Audit Report & Headless PDF Compilation
+## 4. Forensic Audit Report and Headless PDF Compilation
 
 ### Step 4.1: Structure Forensic Incident Report (`report.md`)
 Draft findings following the standard security incident format:

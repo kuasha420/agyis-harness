@@ -25,7 +25,7 @@ Classification  : Corporate Standard Architecture Specification & Draft ADR-031
    - [2.2 Skill Provisioning Mismatch & Architectural Role Conflation](#22-skill-provisioning-mismatch--architectural-role-conflation)
    - [2.3 Fork vs. Upstream Origin Tracking & Cross-Repo PR Detection](#23-fork-vs-upstream-origin-tracking--cross-repo-pr-detection)
    - [2.4 Global vs. Local Workspace Agent Boundaries & Deduplication](#24-global-vs-local-workspace-agent-boundaries--deduplication)
-   - [2.5 Auxiliary Worktree & Multi-Clone Handling (`mm-website-2`)](#25-auxiliary-worktree--multi-clone-handling-mm-website-2)
+   - [2.5 Auxiliary Worktree & Multi-Clone Handling (`<client-repo-web-aux>`)](#25-auxiliary-worktree--multi-clone-handling-<client-repo-web-aux>)
    - [2.6 Self-Referential Harness Host Verification Checks](#26-self-referential-harness-host-verification-checks)
    - [2.7 Uncommitted Work Safeguarding, Syntax Bugs & Swarm Interventions](#27-uncommitted-work-safeguarding-syntax-bugs--swarm-interventions)
 3. [Product & CLI Architecture Gap Analysis (R2)](#3-product--cli-architecture-gap-analysis-r2)
@@ -56,12 +56,12 @@ Classification  : Corporate Standard Architecture Specification & Draft ADR-031
 ## 1. Executive Summary
 
 ### 1.1 Retrospective Context
-On October 13, 2026, an autonomous multi-agent engineering swarm executed a fleet-wide onboarding campaign across 18 software repositories spanning three GitHub organizations and namespaces: `purrfectsoft`, `kuasha420`, and `sakibtamim`. The mission objective was to transition all active codebases to the newly published **Agyis Harness (`v1.0.0-rc1`)**, inject canonical `AGYIS-HARNESS` tagged invariant rules blocks, provision stack-tailored modular skills, safeguard all in-flight uncommitted local work, execute hermetic verification, and open official pull requests against each repository's active branch.
+On October 13, 2026, an autonomous multi-agent engineering swarm executed a fleet-wide onboarding campaign across 18 software repositories spanning three GitHub organizations and namespaces: `<org>`, `kuasha420`, and `<collaborator-org>`. The mission objective was to transition all active codebases to the newly published **Agyis Harness (`v1.0.0-rc1`)**, inject canonical `AGYIS-HARNESS` tagged invariant rules blocks, provision stack-tailored modular skills, safeguard all in-flight uncommitted local work, execute hermetic verification, and open official pull requests against each repository's active branch.
 
 ### 1.2 Core Audit Findings
 The campaign achieved **100% preservation of invariant rules and zero data or work loss**:
 - All 18 repositories were successfully analyzed.
-- Zero uncommitted local modifications were lost (high-value feature WIP in `purrfectcore-001` was preserved via git patch and safety branch; experimental items in `Jasper` were isolated via git stash and safety branch).
+- Zero uncommitted local modifications were lost (high-value feature WIP in `<client-repo-api>` was preserved via git patch and safety branch; experimental items in `<oss-bot-repo>` were isolated via git stash and safety branch).
 - 17 production Pull Requests were cleanly opened on GitHub (with `psl-agy-harness` recognized as the self-referential harness host).
 - Canonical rule fences (`<!-- Added by AGYIS-HARNESS --> ... <!-- End AGYIS-HARNESS -->`) were injected with zero corruption of pre-existing user markdown instructions.
 
@@ -72,7 +72,7 @@ These frictions stemmed directly from **6 fundamental architectural and document
 2. **Coupled Stack Presets & Architectural Conflation**: Default stack presets hardcoded `psl-stack-backend` into all TypeScript, Python, Node, and Go workspaces, forcing backend database transaction and tenant-isolation skills onto pure client, GUI, and mobile applications.
 3. **Fork & Permission Blindness**: The CLI and verification engines assumed direct write access to `origin`, failing to detect personal forks, missing GitHub push permissions (`viewerPermission: READ`), and cross-repository PR workflows.
 4. **Tooling Fragmentation & Ergonomic Disconnect**: `agyis harmonize` migrated rules but did not provision skills; `agyis install` defaulted to global plugin installation; workers lacked a unified `agyis onboard` workflow, forcing manual fallback to `mkdir -p .agents/skills && cp -r`.
-5. **Auxiliary Clone & Worktree Collision**: Fleet inventory tools lacked heuristics to differentiate canonical checkouts from auxiliary worktrees (e.g. `mm-website-2` vs `mm-website`).
+5. **Auxiliary Clone & Worktree Collision**: Fleet inventory tools lacked heuristics to differentiate canonical checkouts from auxiliary worktrees (e.g. `<client-repo-web-aux>` vs `<client-repo-web>`).
 6. **Documentation & Modular Skill Drift**: Critical modular skills (`psl-harmonize`, `agent-builder`, `subagent-ladder`) contained stale commands (`python3 -m harness.cli`, `psl`), obsolete paths (`~/.gemini/antigravity/agents/`), legacy rule markers (`<!-- Added by PSL-HARNESS -->`), and obsolete rules counts ("5 Ground Rules" vs. 8 canonical empirical rules).
 
 This specification provides the definitive, publication-grade architectural blueprint to resolve all 6 gaps, establishing a unified onboarding lifecycle, decoupled multi-tier stack presets, fork-aware remote automation, and complete documentation alignment.
@@ -85,13 +85,13 @@ This forensic analysis examines 12 conversation transcripts, 18 target repositor
 
 ```
 Primary Transcripts Audited:
-• Parent Agent Orchestrator: /home/kuasha/.gemini/antigravity/brain/f2855e28-fe0d-4f60-8160-2fbe3fdf2b16/.system_generated/logs/transcript.jsonl (354 steps)
-• Teamwork Sentinel         : /home/kuasha/.gemini/antigravity/brain/5d1e1849-a72e-467e-8a37-378fbe242236/.system_generated/logs/transcript.jsonl (315 steps)
-• Sub-Orchestrator M3       : /home/kuasha/.gemini/antigravity/brain/7c2332c9-89e7-47a2-92ed-924fd7efaf22/.system_generated/logs/transcript.jsonl (253 steps)
+• Parent Agent Orchestrator: ~/.gemini/antigravity/brain/f2855e28-fe0d-4f60-8160-2fbe3fdf2b16/.system_generated/logs/transcript.jsonl (354 steps)
+• Teamwork Sentinel         : ~/.gemini/antigravity/brain/5d1e1849-a72e-467e-8a37-378fbe242236/.system_generated/logs/transcript.jsonl (315 steps)
+• Sub-Orchestrator M3       : ~/.gemini/antigravity/brain/7c2332c9-89e7-47a2-92ed-924fd7efaf22/.system_generated/logs/transcript.jsonl (253 steps)
 • Subagent Worker Transcripts:
   - m1_worker_triage    (37ecaa9c-e2d6-480c-aa59-f3ee065c54c7)
   - m2_worker_kuasha    (c807cc7a-e159-4832-97a2-4809a44bc419)
-  - m3_worker_sakibtamim(c15aa052-bc5a-4f09-b8b5-db788fa10318)
+  - m3_worker_<collaborator-org>(c15aa052-bc5a-4f09-b8b5-db788fa10318)
   - m4_worker_purrfect  (5d5a0142-48b8-433f-91de-a97d7f337330, 276 steps)
   - m5_worker_infra     (8b1f16ba-0a93-474b-b5c5-8a52c480b3a9)
   - m6_challenger       (1014eec0-835f-4a60-81c1-4d62fb71750f)
@@ -113,7 +113,7 @@ In `harness/delivery/harmonize.py` lines 143–215, `harmonize_workspace()` scan
 The engine contains **zero deletion, moving, unlinking, or git staging logic**. `harness/commands/harmonize.py` accepts only `path`, `--dry-run`, and `--json`. Neither `--prune-legacy` nor `--clean-agent-dir` exists.
 
 #### B. Verification Contract Failure
-In `/home/kuasha/Dev/psl-agy-harness/.agents/teamwork/sub_orch_e2e/verify_fleet.py` lines 595–614, Tier 1 verification asserted an uncompromising negative check:
+In `~/Dev/psl-agy-harness/.agents/teamwork/sub_orch_e2e/verify_fleet.py` lines 595–614, Tier 1 verification asserted an uncompromising negative check:
 ```python
 legacy_dir = repo_dir / ".agent"
 if not legacy_dir.exists():
@@ -124,21 +124,21 @@ else:
 Because `agyis harmonize` left `.agent/` intact on disk, standard harmonized repositories immediately failed Tier 1 verification.
 
 #### C. Divergent Subagent Strategies
-1. **Worker `m3_worker_sakibtamim`**:
+1. **Worker `m3_worker_<collaborator-org>`**:
    In transcript `c15aa052-bc5a-4f09-b8b5-db788fa10318`, Steps 205–207 (2026-10-13T13:25:33Z):
-   Worker noticed `.agent` persisted after running `agyis harmonize /home/kuasha/Dev/purrfect-download-manager`. Recognizing that the presence of `.agent` would violate fleet cleanliness, the worker manually executed:
+   Worker noticed `.agent` persisted after running `agyis harmonize ~/Dev/<collab-desktop-repo>`. Recognizing that the presence of `.agent` would violate fleet cleanliness, the worker manually executed:
    ```bash
-   git -C /home/kuasha/Dev/purrfect-download-manager rm -r .agent
+   git -C ~/Dev/<collab-desktop-repo> rm -r .agent
    ```
-   The worker repeated this manual `git rm -r .agent` in `Jasper` (Step 35 in `m3_worker_sakibtamim/onboarding_report.md`).
+   The worker repeated this manual `git rm -r .agent` in `<oss-bot-repo>` (Step 35 in `m3_worker_<collaborator-org>/onboarding_report.md`).
 2. **Workers `m4_worker_purrfect` and `m5_worker_infra`**:
-   Interpreting ADR-014 literally ("non-destructive migration"), workers preserved `.agent/` intact on disk and tracked in git across 8 repositories: `purrfectcore-001`, `purrfectcore-client`, `psl-boilerplate`, `psl-scaffold`, `psl-website`, `mm-website`, `purrmission`, and `chronicle-time-keeper`.
+   Interpreting ADR-014 literally ("non-destructive migration"), workers preserved `.agent/` intact on disk and tracked in git across 8 repositories: `<client-repo-api>`, `<client-repo-web-app>`, `<corp-template-repo>`, `<corp-scaffold-repo>`, `<corp-web-repo>`, `<client-repo-web>`, `purrmission`, and `<client-time-tracker>`.
    As documented by `m6_reviewer` in `review_report.md` (lines 106–108):
-   > *"Observation: In `purrfectcore-001`, `purrfectcore-client`, `psl-boilerplate`, `psl-scaffold`, `psl-website`, `mm-website`, `purrmission`, and `chronicle-time-keeper`, the legacy `.agent/` directory remains tracked alongside `.agents/`... `agyis harmonize` is designed non-destructively to copy rule files without deleting `.agent/`. In contrast, in `Jasper` and `purrfect-download-manager`, worker `m3` explicitly ran `git rm -r .agent`."*
+   > *"Observation: In `<client-repo-api>`, `<client-repo-web-app>`, `<corp-template-repo>`, `<corp-scaffold-repo>`, `<corp-web-repo>`, `<client-repo-web>`, `purrmission`, and `<client-time-tracker>`, the legacy `.agent/` directory remains tracked alongside `.agents/`... `agyis harmonize` is designed non-destructively to copy rule files without deleting `.agent/`. In contrast, in `<oss-bot-repo>` and `<collab-desktop-repo>`, worker `m3` explicitly ran `git rm -r .agent`."*
 
 #### D. The Emergency `heal_fleet.py` Intervention
 When the parent agent ran `verify_fleet.py` at Step 253 (2026-10-13T14:11:51Z in `f2855e28...`), Tier 1 failed across all 8 repositories.
-At Step 271 (2026-10-13T14:13:21Z), the parent agent authored an emergency ad-hoc script at `/home/kuasha/.gemini/antigravity/brain/f2855e28-fe0d-4f60-8160-2fbe3fdf2b16/scratch/heal_fleet.py`:
+At Step 271 (2026-10-13T14:13:21Z), the parent agent authored an emergency ad-hoc script at `~/.gemini/antigravity/brain/f2855e28-fe0d-4f60-8160-2fbe3fdf2b16/scratch/heal_fleet.py`:
 ```python
 # Lines 36-42 of scratch/heal_fleet.py:
 legacy_agent = repo_path / ".agent"
@@ -177,11 +177,11 @@ When `detect_workspace_stack()` finds `package.json`, it returns `"typescript"`.
 
 #### B. Verification Suite Demand vs. Domain Reality
 In `verify_fleet.py` lines 245–398, `DEFAULT_FLEET_SPECS` copied `STACK_SKILL_PRESETS["typescript"]` verbatim, asserting that `psl-stack-backend` must exist in:
-- Desktop PyQt GUI app: `jimha`
-- React Native Mobile apps: `react-native-template-ts-plus`, `sunshine-physio-universalapp`
-- Desktop Electron/Next.js app: `purrfect-download-manager`
-- Frontend Web/UI libraries: `mm-website`, `psl-website`, `psl-boilerplate`, `purrfectcore-client`
-- Developer CLI tool: `psl-scaffold`
+- Desktop PyQt GUI app: `<desktop-gui-repo>`
+- React Native Mobile apps: `react-native-template-ts-plus`, `<client-repo-universal>`
+- Desktop Electron/Next.js app: `<collab-desktop-repo>`
+- Frontend Web/UI libraries: `<client-repo-web>`, `<corp-web-repo>`, `<corp-template-repo>`, `<client-repo-web-app>`
+- Developer CLI tool: `<corp-scaffold-repo>`
 - Discord bot: `purrmission`
 
 #### C. Subagent Domain Pruning & Challenger Report
@@ -191,36 +191,36 @@ In `m6_challenger/challenge_report.md` (lines 27–38), `m6_challenger` flagged 
 > *"Challenge 1: Test Suite Over-Specification of `psl-stack-backend` in `verify_fleet.py`... flagged 11 repositories as failing Tier 3... If workers had blindly installed `psl-stack-backend` into pure client or GUI repositories, they would violate the PSL principle of stack-tailored modular skills and pollute frontends with backend database transaction and tenant-isolation skills."*
 
 #### D. Forceful Pollution via `heal_fleet.py`
-To satisfy the rigid test suite, parent agent's `heal_fleet.py` (lines 45–49) copied `/home/kuasha/Dev/psl-agy-harness/.agents/skills/psl-stack-backend` into all 12 client repositories, committed them, and pushed them to remote origin (commits `cda6568` in `sunshine-physio-universalapp`, `b08ac64` in `react-native-template-ts-plus`, `1f19661` in `jimha`), polluting client repositories with backend server specifications.
+To satisfy the rigid test suite, parent agent's `heal_fleet.py` (lines 45–49) copied `~/Dev/psl-agy-harness/.agents/skills/psl-stack-backend` into all 12 client repositories, committed them, and pushed them to remote origin (commits `cda6568` in `<client-repo-universal>`, `b08ac64` in `react-native-template-ts-plus`, `1f19661` in `<desktop-gui-repo>`), polluting client repositories with backend server specifications.
 
 ---
 
 ### 2.3 Fork vs. Upstream Origin Tracking & Cross-Repo PR Detection
 
-#### A. Upstream 403 Permission Failure in `sakibtamim/purrfect-download-manager`
+#### A. Upstream 403 Permission Failure in `<collaborator-org>/<collab-desktop-repo>`
 In transcript `c15aa052-bc5a-4f09-b8b5-db788fa10318` Step 225 (2026-10-13T13:26:33Z):
 ```bash
-git -C /home/kuasha/Dev/purrfect-download-manager push -u origin chore/agyis-harness-onboarding
+git -C ~/Dev/<collab-desktop-repo> push -u origin chore/agyis-harness-onboarding
 ```
 Failed with:
 ```text
-remote: Permission to sakibtamim/purrfect-download-manager.git denied to kuasha420.
-fatal: unable to access 'https://github.com/sakibtamim/purrfect-download-manager.git/': The requested URL returned error: 403
+remote: Permission to <collaborator-org>/<collab-desktop-repo>.git denied to kuasha420.
+fatal: unable to access 'https://github.com/<collaborator-org>/<collab-desktop-repo>.git/': The requested URL returned error: 403
 ```
-- **Worker Triage**: At Step 229 (13:26:44Z), worker probed permissions: `gh repo view sakibtamim/purrfect-download-manager --json viewerPermission` -> `"READ"`.
+- **Worker Triage**: At Step 229 (13:26:44Z), worker probed permissions: `gh repo view <collaborator-org>/<collab-desktop-repo> --json viewerPermission` -> `"READ"`.
 - At Step 243 (13:27:30Z), worker configured a fork remote: `gh repo fork --remote=true --remote-name=fork`.
 - At Step 247 (13:27:43Z), pushed to `fork`: `git push -u fork chore/agyis-harness-onboarding`.
-- At Step 249 (13:27:51Z), opened cross-repo PR: `gh pr create --repo sakibtamim/purrfect-download-manager --base develop --head kuasha420:chore/agyis-harness-onboarding` -> PR #23.
+- At Step 249 (13:27:51Z), opened cross-repo PR: `gh pr create --repo <collaborator-org>/<collab-desktop-repo> --base develop --head kuasha420:chore/agyis-harness-onboarding` -> PR #23.
 - **Verification Engine Incompatibility**: In `verify_fleet.py` line 923, verification hardcoded `git ls-remote --heads origin target_branch`. Because the branch was pushed to `fork` and not `origin`, verification failed Tier 4: `Branch 'chore/agyis-harness-onboarding' has not been pushed to remote origin`.
 - **Healing Script Regression**: At Step 274 (14:13:47Z in parent), `heal_fleet.py` line 60 ran `git push origin branch`, triggering the 403 error again (line 203 in `task-274.log`).
 - **Parent Patch**: At Step 319 (14:17:07Z), parent agent edited `verify_fleet.py` lines 928–936 to probe `fork` remote when `origin` fails.
 
-#### B. Dual PR Topology in `purrmission`: Canonical `kuasha420` vs. Fork `purrfectsoft`
+#### B. Dual PR Topology in `purrmission`: Canonical `kuasha420` vs. Fork `<org>`
 - In parent transcript Step 200 (13:24:54Z), the operator intervened:
-  `<USER_REQUEST> Hey purmission is canonically on kuasha420 - the purrfectsoft is experimental fork. Both should be updated. </USER_REQUEST>`
+  `<USER_REQUEST> Hey purmission is canonically on kuasha420 - the <org> is experimental fork. Both should be updated. </USER_REQUEST>`
 - In `m4_worker_purrfect` transcript `5d5a...` Steps 159–165:
-  Worker pushed to `origin` and opened PR #161 on `kuasha420/purrmission` (`--base master`), then pushed to remote `purrfectsoft` and opened PR #4 on `purrfectsoft/purrmission` (`--base master`).
-- Auxiliary directory `/home/kuasha/Dev/purrmission/purrmission-worktrees/` existed on disk, requiring explicit exclusions to avoid git command corruption.
+  Worker pushed to `origin` and opened PR #161 on `kuasha420/purrmission` (`--base master`), then pushed to remote `<org>` and opened PR #4 on `<org>/purrmission` (`--base master`).
+- Auxiliary directory `~/Dev/purrmission/purrmission-worktrees/` existed on disk, requiring explicit exclusions to avoid git command corruption.
 
 ---
 
@@ -249,17 +249,17 @@ Zero standard personas were leaked into client repositories, preserving cleanlin
 
 ---
 
-### 2.5 Auxiliary Worktree & Multi-Clone Handling (`mm-website-2`)
+### 2.5 Auxiliary Worktree & Multi-Clone Handling (`<client-repo-web-aux>`)
 
 #### A. Physical Layout
-In `/home/kuasha/Dev`:
-- `/home/kuasha/Dev/mm-website`: Primary repository checkout pointing to `https://github.com/purrfectsoft/mm-website.git` on base branch `develop`.
-- `/home/kuasha/Dev/mm-website-2`: Auxiliary clone of `https://github.com/purrfectsoft/mm-website.git` on branch `copilot/add-mcp-support-for-copilot`.
+In `~/Dev`:
+- `~/Dev/<client-repo-web>`: Primary repository checkout pointing to `https://github.com/<org>/<client-repo-web>.git` on base branch `develop`.
+- `~/Dev/<client-repo-web-aux>`: Auxiliary clone of `https://github.com/<org>/<client-repo-web>.git` on branch `copilot/add-mcp-support-for-copilot`.
 
 #### B. Survey & Verification Friction
-In `verify_fleet.py` lines 358–365, `mm-website-2` was registered as an independent target repository in `DEFAULT_FLEET_SPECS`.
-When `verify_fleet.py` executed, it demanded that `mm-website-2` have its own `chore/agyis-harness-onboarding` branch and distinct PR.
-However, `mm-website` had already onboarded the repository and opened PR #411 on GitHub against `develop`. Attempting to open a duplicate PR for `mm-website-2` against the same repository failed.
+In `verify_fleet.py` lines 358–365, `<client-repo-web-aux>` was registered as an independent target repository in `DEFAULT_FLEET_SPECS`.
+When `verify_fleet.py` executed, it demanded that `<client-repo-web-aux>` have its own `chore/agyis-harness-onboarding` branch and distinct PR.
+However, `<client-repo-web>` had already onboarded the repository and opened PR #411 on GitHub against `develop`. Attempting to open a duplicate PR for `<client-repo-web-aux>` against the same repository failed.
 
 #### C. Manual Filtering Patch
 In parent transcript Step 293 (14:15:04Z), the parent investigated `is_auxiliary_clone`. At Step 314 (14:16:50Z), the parent patched `verify_fleet.py` line 1078:
@@ -295,25 +295,25 @@ TargetRepoSpec(
 ### 2.7 Uncommitted Work Safeguarding, Syntax Bugs & Swarm Interventions
 
 #### A. Uncommitted Work Triage
-1. **`purrfectcore-001`**:
+1. **`<client-repo-api>`**:
    - Initial state: 14 modified uncommitted files (+120/-62 lines) in advocate-referral features/specs; local `develop` was 71 commits behind `origin/develop` (`ad7a97c2` vs `fb0b172c`).
    - Triage by `m1_worker_triage` (`37ecaa9c...`):
-     Exported patch `.agents/teamwork/m1_worker_triage/purrfectcore-001-advocate-referral.patch` (20,321 bytes, 461 lines).
+     Exported patch `.agents/teamwork/m1_worker_triage/<client-repo-api>-advocate-referral.patch` (20,321 bytes, 461 lines).
      Created safety branch `backup/uncommitted-advocate-referral` at commit `86c73f5c`.
      Cleanly fast-forwarded `develop` to `origin/develop` before branching `chore/agyis-harness-onboarding`.
-2. **`Jasper`**:
+2. **`<oss-bot-repo>`**:
    - Initial state: Untracked `.agents/skills/psl-stack-backend/`, `psl-stack-typescript/`, and root `AGENTS.md`.
    - Invariant: `.agents/AGENTS.md` contained the 10-minute PR review delay fence and pre-merge check script (605 bytes, SHA256 `c6813e0c...`), but was untracked due to root `.gitignore:48:.agents/*`.
    - Triage by `m1_worker_triage`:
-     Exported patch `jasper-untracked-agent-items.patch` (14,540 bytes).
+     Exported patch `<oss-bot>-untracked-agent-items.patch` (14,540 bytes).
      Created safety branch `backup/untracked-agent-items` at commit `f6873a0`.
      Created git stash `stash@{0}` on `master`.
      Patched `.gitignore` whitelisting to guarantee tracking.
 
-#### B. Python Compatibility Syntax Bug in `jimha`
+#### B. Python Compatibility Syntax Bug in `<desktop-gui-repo>`
 In `m2_worker_kuasha` transcript `c807...` Step 115 (13:11:50Z):
-`tests/test_jimha.py` line 998 contained an f-string expression with an escaped backslash (`f"{'\\\"'}"`), which raises a `SyntaxError` in Python runtimes <= 3.11.
-Worker `m2` manually patched `tests/test_jimha.py` line 998 to decouple the expression into `expected_escape = json.dumps('window"with"quotes')` before `python3 -m unittest` could pass.
+`tests/test_<desktop-gui-repo>.py` line 998 contained an f-string expression with an escaped backslash (`f"{'\\\"'}"`), which raises a `SyntaxError` in Python runtimes <= 3.11.
+Worker `m2` manually patched `tests/test_<desktop-gui-repo>.py` line 998 to decouple the expression into `expected_escape = json.dumps('window"with"quotes')` before `python3 -m unittest` could pass.
 
 #### C. Antigravity Stop Hook Blocked Termination
 In parent transcript Step 324 (14:17:46Z):
@@ -321,7 +321,7 @@ When parent agent modified `verify_fleet.py` to fix fork checking and auxiliary 
 ```text
 <SYSTEM_MESSAGE>
 Stop hook blocked termination: Verification Required: Unverified code edits detected in:
-/home/kuasha/Dev/psl-agy-harness/.agents/teamwork/sub_orch_e2e/verify_fleet.py.
+~/Dev/psl-agy-harness/.agents/teamwork/sub_orch_e2e/verify_fleet.py.
 Execute 'agyis test' (or 'python3 -m harness.cli test') or your project test command.
 </SYSTEM_MESSAGE>
 ```
@@ -331,7 +331,7 @@ The agent was forced to execute `python3 -m harness.cli test` (576/576 tests OK 
 Across workers `m2`, `m3`, and `m4`, agents did NOT use `agyis install` or `agyis init` to provision skills.
 Because `agyis harmonize` does not provision skills, and `agyis install` defaults to `--global` (installing the plugin into Antigravity user config), workers repeatedly ran:
 ```bash
-mkdir -p <repo>/.agents/skills && cp -r /home/kuasha/Dev/psl-agy-harness/.agents/skills/<skill> <repo>/.agents/skills/
+mkdir -p <repo>/.agents/skills && cp -r ~/Dev/psl-agy-harness/.agents/skills/<skill> <repo>/.agents/skills/
 ```
 Only `m5_worker_infra` discovered and used `python3 -m harness.cli skills --sync --workspace <repo> --skills <list>`.
 
@@ -509,7 +509,7 @@ In `harness/delivery/workspace.py` lines 158–170:
 169:                 commands["test"] = f"{prefix}python3 -m unittest discover -s tests -v"
 ```
 Line 161 includes `(ws / "tests").is_dir()` inside `has_pytest`. Consequently, whenever `tests/` exists, `has_pytest` evaluates to `True`.
-The `elif (ws / "tests").is_dir():` on line 168 is **unreachable dead code**. Projects using standard `unittest` without `pytest` (e.g. `jimha`) are erroneously assigned `pytest`.
+The `elif (ws / "tests").is_dir():` on line 168 is **unreachable dead code**. Projects using standard `unittest` without `pytest` (e.g. `<desktop-gui-repo>`) are erroneously assigned `pytest`.
 
 #### B. Command Extraction Bypassed When `pyproject.toml` is Missing
 In `harness/delivery/workspace.py`:
@@ -544,7 +544,7 @@ GIT_EXCLUDE_PATTERNS: tuple[str, ...] = (
 ```
 Line 50 excludes the entire `.agents/` folder.
 If `configure_git_exclude(ws)` is run or if a repository inherits this pattern in `.git/info/exclude` or `.gitignore`, `.agents/skills/` and `.agents/rules/` are ignored by git.
-This defect materialized directly in `Jasper` (`.gitignore:48:.agents/*`) and `jasper-hosted` (`.git/info/exclude`), hiding version-controlled skills until workers manually intervened.
+This defect materialized directly in `<oss-bot-repo>` (`.gitignore:48:.agents/*`) and `<hosted-app>` (`.git/info/exclude`), hiding version-controlled skills until workers manually intervened.
 Conversely, if `.agents/` is un-excluded without explicitly excluding `.agents/archive/`, legacy backup tarballs (`.agents/archive/legacy-agent-backup-*.tar.gz`) are staged into git commits during `git add .agents`, bloating git history with large binary archives (Challenger 2 CHAL-02). Therefore, `GIT_EXCLUDE_PATTERNS` must explicitly scope to `(".agents/artifacts/", ".agents/teamwork/", ".agents/archive/")`.
 
 #### B. Dead Git Hygiene Functions
@@ -553,10 +553,10 @@ Conversely, if `.agents/` is un-excluded without explicitly excluding `.agents/a
 #### C. Total Absence of Git Remote & Fork Awareness
 The `harness/` delivery subsystem has zero capability to inspect:
 1. Working tree dirtiness or uncommitted modifications.
-2. Remote origin vs. fork URLs (e.g. `sakibtamim` upstream vs `kuasha420` fork).
+2. Remote origin vs. fork URLs (e.g. `<collaborator-org>` upstream vs `kuasha420` fork).
 3. GitHub push permissions on remote origin (`viewerPermission`).
 4. Active base branch (`develop` vs `main` vs `master`).
-5. Auxiliary clones or worktrees (`mm-website-2` vs `mm-website`).
+5. Auxiliary clones or worktrees (`<client-repo-web-aux>` vs `<client-repo-web>`).
 6. Self-referential harness checks (`psl-agy-harness` host detection).
 
 ---
@@ -776,7 +776,7 @@ OPTIONS:
   --stack STACK         Stack preset override (typescript, python, rust, go, systems, shell, auto)
   --role ROLE           Architectural role (backend, frontend, fullstack, cli, mobile, library, desktop_gui, media, audio, infra)
   --subproject PATH     Subproject path for localized monorepo onboarding (depth 2 detection default)
-  --upstream-remote NAME Explicit upstream canonical remote name (e.g. upstream, canonical, purrfectsoft)
+  --upstream-remote NAME Explicit upstream canonical remote name (e.g. upstream, canonical, <org>)
   --skills LIST         Additional modular skills to provision
   --prune-legacy        Prune legacy .agent/ directory after harmonization (default: true)
   --backup              Archive legacy configs before pruning (default: true)
@@ -984,7 +984,7 @@ To resolve this without sacrificing the sub-second execution invariant, `detect_
 
 ### 5.5 Resilient Fork-Aware Remote Detection & PR Submission Pipeline
 
-To eliminate manual bash scripting and execution failures during repository delivery (such as the `sakibtamim` 403 error, inverted cloned-fork workflows, custom canonical remote names, and unhandled permission roles), Agyis introduces a resilient `GitTopologyProbe`:
+To eliminate manual bash scripting and execution failures during repository delivery (such as the `<collaborator-org>` 403 error, inverted cloned-fork workflows, custom canonical remote names, and unhandled permission roles), Agyis introduces a resilient `GitTopologyProbe`:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -992,12 +992,12 @@ To eliminate manual bash scripting and execution failures during repository deli
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ 1. REMOTES INVENTORY: Query git remote -v.                                  │
 │    Detect origin, upstream, fork, and custom remotes (e.g. canonical,       │
-│    purrfectsoft), or accept explicit --upstream-remote <name>.              │
+│    <org>), or accept explicit --upstream-remote <name>.              │
 │                                                                             │
 │ 2. TOPOLOGY CLASSIFICATION:                                                 │
 │    • Inverted Cloned Fork Topology:                                         │
 │        If origin belongs to current authenticated user (fork) AND an        │
-│        upstream canonical remote exists (e.g. upstream, purrfectsoft):      │
+│        upstream canonical remote exists (e.g. upstream, <org>):      │
 │          - Push target : origin                                             │
 │          - PR target   : upstream / <base-branch>                           │
 │          - PR head     : <current-user>:<feature-branch>                    │
@@ -1034,7 +1034,7 @@ To eliminate manual bash scripting and execution failures during repository deli
 
 #### Key Resilience Guarantees:
 1. **Inverted Remote Handling**: Developers frequently clone their personal fork as `origin` and add the parent repository as `upstream`. Standard scripts checking permissions on `origin` see `viewerPermission: ADMIN` and naively open PRs against the developer's own fork rather than upstream (as reproduced in Challenger 2 CHAL-05). `GitTopologyProbe` detects when `origin` belongs to the authenticated user and an upstream canonical remote exists, correctly targeting pushes to `origin` and PR submission against `upstream`.
-2. **Custom Canonical Remote Support**: In multi-remote setups (e.g. `purrmission`, where the canonical remote is named `purrfectsoft` alongside `origin`), the probe resolves the canonical upstream by:
+2. **Custom Canonical Remote Support**: In multi-remote setups (e.g. `purrmission`, where the canonical remote is named `<org>` alongside `origin`), the probe resolves the canonical upstream by:
    - Reading the explicit `--upstream-remote <name>` flag if provided.
    - Scanning remote URLs against known organization naming patterns.
    - Prompting or falling back deterministically without aborting.
@@ -1095,7 +1095,7 @@ The probe evaluates `.git` to prevent operating on duplicate clones:
 
 ### Context & Problem Statement
 
-During the 2026 fleet onboarding campaign across 18 repositories (`purrfectsoft`, `kuasha420`, `sakibtamim`), autonomous agents achieved 100% preservation of invariant rules and opened 17 valid GitHub PRs. However, execution required significant manual intervention and ad-hoc scripting due to architectural limitations in the Agyis product:
+During the 2026 fleet onboarding campaign across 18 repositories (`<org>`, `kuasha420`, `<collaborator-org>`), autonomous agents achieved 100% preservation of invariant rules and opened 17 valid GitHub PRs. However, execution required significant manual intervention and ad-hoc scripting due to architectural limitations in the Agyis product:
 1. `agyis harmonize` performed a passive copy of legacy files from `.agent/` to `.agents/` without providing any mechanism to prune, archive, or stage the removal of the obsolete `.agent/` directory, causing test suite failures and worker divergence.
 2. `STACK_PRESETS` in `harness/skills/__init__.py` hardcoded `psl-stack-backend` into all TypeScript, Python, Node, and Go presets, conflating language runtimes with backend architectural roles and polluting frontend, mobile, and GUI codebases with database migration skills.
 3. The delivery engine possessed no awareness of git remotes, permission levels (`viewerPermission`), or forks, failing with HTTP 403 errors when operating on upstream collaborator repositories.
@@ -1149,7 +1149,7 @@ We will adopt **Option 3**. The Agyis harness core will be enhanced with:
 - **Repository History Integrity**: Binary `.tar.gz` backups are strictly excluded via `GIT_EXCLUDE_PATTERNS`, preventing git history bloating.
 - **Polyglot Monorepo Fidelity**: Bounded-depth workspace scanning ensures backend and worker microservices receive appropriate language runtimes and roles rather than being masked by root frontend tool configs.
 - **Architectural Cleanliness**: Pure UI, CLI, and mobile codebases remain free of backend database and tenant-isolation skills.
-- **Autonomous Multi-Org Scale**: AI agents can onboard repositories across organizations (`purrfectsoft`, `sakibtamim`) autonomously without hitting 403 permission deadlocks or terminal stdin hangs, correctly routing PRs across inverted forks and custom remotes.
+- **Autonomous Multi-Org Scale**: AI agents can onboard repositories across organizations (`<org>`, `<collaborator-org>`) autonomously without hitting 403 permission deadlocks or terminal stdin hangs, correctly routing PRs across inverted forks and custom remotes.
 - **Agent Alignment**: Modular skills instruct agents on canonical CLI commands (`agyis harmonize`, `agyis onboard`) rather than outdated shell hacks.
 
 #### Cons
@@ -1193,20 +1193,20 @@ To independently verify the completeness, forensic accuracy, and architectural f
 # 1. Verify Parent transcript commands & emergency heal_fleet.py creation
 python3 -c "
 import json
-with open('/home/kuasha/.gemini/antigravity/brain/f2855e28-fe0d-4f60-8160-2fbe3fdf2b16/.system_generated/logs/transcript.jsonl') as f:
+with open('~/.gemini/antigravity/brain/f2855e28-fe0d-4f60-8160-2fbe3fdf2b16/.system_generated/logs/transcript.jsonl') as f:
     for i, line in enumerate(f):
         if i in [200, 242, 253, 271, 281, 319, 324]:
             d = json.loads(line)
             print(f'Step {i} [{d.get(\"created_at\")}]: {d.get(\"content\", \"\")[:100]}')
 "
 
-# 2. Verify heal_fleet.py execution log and 403 error on purrfect-download-manager
-grep -n -C 3 "Permission to sakibtamim" /home/kuasha/.gemini/antigravity/brain/f2855e28-fe0d-4f60-8160-2fbe3fdf2b16/.system_generated/tasks/task-274.log
+# 2. Verify heal_fleet.py execution log and 403 error on <collab-desktop-repo>
+grep -n -C 3 "Permission to <collaborator-org>" ~/.gemini/antigravity/brain/f2855e28-fe0d-4f60-8160-2fbe3fdf2b16/.system_generated/tasks/task-274.log
 
 # 3. Verify worker m3 manual git rm .agent
 python3 -c "
 import json
-with open('/home/kuasha/.gemini/antigravity/brain/c15aa052-bc5a-4f09-b8b5-db788fa10318/.system_generated/logs/transcript.jsonl') as f:
+with open('~/.gemini/antigravity/brain/c15aa052-bc5a-4f09-b8b5-db788fa10318/.system_generated/logs/transcript.jsonl') as f:
     for i, line in enumerate(f):
         if i in [207, 225, 241, 247, 249]:
             d = json.loads(line)
@@ -1218,16 +1218,16 @@ with open('/home/kuasha/.gemini/antigravity/brain/c15aa052-bc5a-4f09-b8b5-db788f
 ### 7.2 Code Audit Verification
 ```bash
 # 1. Inspect STACK_PRESETS hardcoding psl-stack-backend
-sed -n '80,95p' /home/kuasha/Dev/psl-agy-harness/harness/skills/__init__.py
+sed -n '80,95p' ~/Dev/psl-agy-harness/harness/skills/__init__.py
 
 # 2. Inspect harmonize lack of pruning logic
-grep -En "(rmtree|unlink|remove)" /home/kuasha/Dev/psl-agy-harness/harness/delivery/harmonize.py || echo "Zero deletion logic confirmed."
+grep -En "(rmtree|unlink|remove)" ~/Dev/psl-agy-harness/harness/delivery/harmonize.py || echo "Zero deletion logic confirmed."
 
 # 3. Inspect unreachable dead code in workspace.py
-sed -n '158,170p' /home/kuasha/Dev/psl-agy-harness/harness/delivery/workspace.py
+sed -n '158,170p' ~/Dev/psl-agy-harness/harness/delivery/workspace.py
 
 # 4. Inspect GIT_EXCLUDE_PATTERNS contamination
-sed -n '49,55p' /home/kuasha/Dev/psl-agy-harness/harness/delivery/constants.py
+sed -n '49,55p' ~/Dev/psl-agy-harness/harness/delivery/constants.py
 ```
 
 ### 7.3 Documentation Drift Verification

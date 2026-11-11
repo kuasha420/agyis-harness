@@ -14,6 +14,12 @@ description: >-
 
 This skill codifies the TypeScript development standards and architectural invariants derived from high-performing enterprise repositories across the fleet.
 
+## Table of Contents
+1. [Type Safety Invariants](#1-type-safety-invariants)
+2. [Architectural Boundaries and Sovereignty](#2-architectural-boundaries-and-sovereignty)
+3. [Node Script Module Hygiene](#3-node-script-module-hygiene)
+4. [Verification and Compliance Checklist](#4-verification-and-compliance-checklist)
+
 ---
 
 ## 1. Type Safety Invariants
@@ -55,7 +61,7 @@ export type UserRegistrationDTO = z.infer<typeof UserRegistrationSchema>;
 
 ---
 
-## 2. Architectural Boundaries & Sovereignty
+## 2. Architectural Boundaries and Sovereignty
 
 ### 2.1 Single Source of Truth for DTO Contracts
 - Define contract types via Zod schemas and derive TypeScript types using `z.infer<typeof Schema>`.
@@ -79,7 +85,7 @@ export type UserRegistrationDTO = z.infer<typeof UserRegistrationSchema>;
 
 ---
 
-## 3. Node Script Module Hygiene (ESM vs CommonJS)
+## 3. Node Script Module Hygiene
 
 ### 3.1 Strict Extension Discipline in ESM Packages
 When a repository is configured with `"type": "module"` in `package.json`:
@@ -95,7 +101,7 @@ When a repository is configured with `"type": "module"` in `package.json`:
 
 ---
 
-## 4. Verification & Compliance Checklist
+## 4. Verification and Compliance Checklist
 
 1. [ ] Zero occurrences of `: any` or `as any` in changed files.
 2. [ ] All boundary inputs validated with Zod schemas (`safeParse` or `parse`).

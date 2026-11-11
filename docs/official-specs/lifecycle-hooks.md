@@ -6,25 +6,34 @@
 # Official Lifecycle Hooks Specification (`hooks.json`)
 
 ## Overview
-Antigravity lifecycle hooks allow execution of external shell commands or scripts at deterministic execution points in the agent loop. Hooks are defined in `hooks.json` at a customization root or inside an official plugin.
+Antigravity lifecycle hooks allow execution of external shell commands synchronously at deterministic transition points in the agent loop. Hooks are declared in `hooks.json` at:
+- **Workspace root**: `.agents/hooks.json` (or `.agent/hooks.json`)
+- **Plugin bundles**: `<plugin_dir>/hooks.json`
+- **Global user root**: `~/.gemini/config/hooks.json`
+
+Top-level keys are arbitrary unique hook names with an optional `"enabled": false` kill-switch. Handlers across layers merge sequentially in discovery order; `command` performs `~` expansion with process `cwd` pinned to the directory containing `hooks.json`, defaulting to a `30`s native timeout (`5`s in `agyis-harness`).
 
 ---
 
-## 1. Event Types & Invocations
+## 1. Event Types & Topologies (Flat vs. Grouped Matcher)
 
-| Event | Execution Phase | Matcher Supported? | Payload Context | Expected Output |
+Antigravity supports **6** lifecycle events across two schema layouts (`matcher` regex is supported only on tool events; `~` and tool stripping convert internal names like `CORTEX_STEP_TYPE_RUN_COMMAND` $\to$ `run_command`):
+
+| Event | Layout Topology | Matcher Key | Ingress Extensions (above common fields) | Expected Egress (`stdout`) |
 | :--- | :--- | :--- | :--- | :--- |
-| `PreToolUse` | Intercepts before tool execution | Yes (`matcher: "<regex>"`) | Tool name & arguments | Decision (`allow`, `deny`, `ask`, `force_ask`) + optional argument `overwrite` |
-| `PostToolUse` | Runs immediately after tool execution | Yes (`matcher: "<regex>"`) | Step index & tool error (if any) | `{}` |
-| `PreInvocation` | Runs before model prompt dispatch | No (flat list) | Invocation number, initial steps | `injectSteps` array (ephemeral messages or tool calls) |
-| `PostInvocation` | Runs after model generates tool calls | No (flat list) | Model output summary | `injectSteps`, `terminationBehavior` (`force_continue`, `terminate`) |
-| `Stop` | Intercepts agent loop termination | No (flat list) | Reason (`model_stop`, `error`, etc.), idle status | `decision` (`continue`, `stop`) + `reason` |
+| `SessionStart` | **Flat** list | Ignored | Common fields | `{"injectSteps": [...]}` |
+| `PreToolUse` | **Grouped** `{matcher, hooks}` | Yes (`"<regex>"`) | `toolCall: {name, args}`, `stepIdx` | `{"decision": "allow"\|"deny"\|"ask"\|"force_ask", "reason": "...", "overwrite": {...}, "permissionOverrides": [...]}` |
+| `PostToolUse` | **Grouped** `{matcher, hooks}` | Yes (`"<regex>"`) | `toolCall: {name, args}`, `stepIdx`, optional `error` | **`{}`** *(strict empty JSON object; returning `{"decision": "allow"}` triggers warnings)* |
+| `PreInvocation` | **Flat** list | Ignored | `invocationNum`, `initialNumSteps` | `{"injectSteps": [...]}` |
+| `PostInvocation` | **Flat** list | Ignored | `invocationNum`, `initialNumSteps` | `{"injectSteps": [...], "terminationBehavior": "force_continue"\|"terminate"\|""}` |
+| `Stop` | **Flat** list | Ignored | `executionNum`, `terminationReason`, `error`, `fullyIdle` | `{"decision": "continue"\|"allow", "reason": "..."}` |
 
 ---
 
-## 2. JSON I/O Contracts (camelCase Protojson)
+## 2. JSON I/O Contracts (Strict camelCase Protojson)
 
 ### Common Payload Metadata (Sent on `stdin`)
+All payloads use strict camelCase keys:
 ```json
 {
   "conversationId": "270b7abc-9b59-4f50-9c49-de3ed7e04f06",
@@ -35,38 +44,45 @@ Antigravity lifecycle hooks allow execution of external shell commands or script
 }
 ```
 
-### `PreToolUse` Decision Schema (Emitted on `stdout`)
+### `PreToolUse` Decision & Shallow `overwrite` Schema (`stdout`)
 ```json
 {
-  "decision": "allow", // "allow" | "deny" | "ask" | "force_ask"
+  "decision": "allow",
   "reason": "Detailed justification for the decision.",
   "overwrite": {
-    "CommandLine": "normalized-command" // Shallow top-level argument override
+    "CommandLine": "normalized-command"
   },
   "permissionOverrides": ["command(...)"]
 }
 ```
+- `"force_ask"` bypasses cached `"Always Allow"` grants.
+- `"overwrite"` performs a shallow top-level key replacement on `args` and prefixes the tool result with `[Notice: Hook rewrote tool arguments for keys: ...]`.
 
-### `Stop` Decision Schema (Emitted on `stdout`)
-```json
-{
-  "decision": "continue", // "continue" blocks stop; any other value allows exit
-  "reason": "Outstanding verification checks or unharvested background tasks."
-}
-```
+### `injectSteps` Envelope & Nested `systemMessage` Trap
+`SessionStart`, `PreInvocation`, and `PostInvocation` inject steps via `"injectSteps"`:
+- **`ephemeralMessage`** *(transient, dropped after turn)*: plain string -> `{"ephemeralMessage": "..."}`.
+- **`userMessage`** *(persistent synthetic user turn)*: plain string -> `{"userMessage": "..."}`.
+- **`systemMessage`** *(persistent across compaction)*: **MUST use a nested dictionary** (`{"systemMessage": {"systemMessage": "...", "metadata": {}}}`); passing a raw string fails protojson decoding.
+
+### `Stop` Ingress (`terminationReason`) & 2-Block Safety Valve
+`Stop` ingress includes `fullyIdle` (background `manage_task` completion) and `terminationReason` (`ExecutorTerminationReason` stripped enum across **9** values):
+- `NO_TOOL_CALL`, `MAX_INVOCATIONS`, `MAX_FORCED_INVOCATIONS`, `MAX_TOKEN_BUDGET_EXCEEDED`, `ERROR`, `USER_CANCELED`, `TERMINAL_STEP_TYPE`, `TERMINAL_CUSTOM_HOOK`, `INJECTED_RESPONSE`.
+
+Returning `{"decision": "continue", "reason": "..."}` blocks termination and re-enters the loop. After **2** consecutive blocks (`block_count >= 2`), the `agyis-harness` anti-deadlock safety valve returns `"decision": "allow"` with a warning.
 
 ---
 
 ## 3. Reference Implementation: `agyis-harness` Hooks
 
-In `harness/hooks/`, we provide 7 deterministic hooks registered in `hooks.json`:
-1. `command_safety_hook.py`: PreToolUse shell execution sanitizer, Python >= 3.12 uv runtime injector, and grep pattern probing exit normalizer (ADR-013).
-2. `anti_loop_hook.py`: PreToolUse repetitive call breaker and Strict Reactive Wait enforcer.
-3. `output_compactor_hook.py`: PostToolUse deterministic 2KB output compactor with DEF-04 pre-slice optimization for massive dumps.
-4. `completion_fence_hook.py`: PreToolUse/PostToolUse/Stop verification fence with ADR-028 decoupled dirty state (`code_dirty` vs `spec_dirty`).
-5. `token_proximity_guard.py`: PreToolUse context accumulation monitor decoding SQLite protobuf metadata and emitting ANSI threshold gauges.
-6. `anti_drift_hook.py`: PreToolUse plan adherence guard and Auditor write-block enforcer.
-7. `pre_invocation_hook.py`: PreInvocation dynamic attention runway evaluator and role-tailored compaction advisory (ADR-033).
+`hooks.json` registers **7** named hook blocks dispatching **7** Python hook modules via `python3 -m harness.hooks.runner <name>` across **8** verified hook check slots (`psl-stop-verification-fence` registers both `verification-fence` on `PreToolUse`/`Stop` and `post-verification-fence` on `PostToolUse`, so `doctor.py` / `hygiene_checks.py` verifies 8 command entries across the 7 blocks). Ephemeral state caches default to `/tmp/agyis_harness_state_{uid}` (overridable via `AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR`):
+
+1. `command_safety_hook.py` (`psl-command-safety-guard`): PreToolUse shell sanitizer, Python >= 3.12 runtime injector, SSH timeouts, and grep/diff exit normalizer (ADR-013).
+2. `anti_loop_hook.py` (`psl-anti-loop-guard`): PreToolUse repetitive call breaker, Issue #41 `manage_task(Action='status')` advisory allow, `.system_generated/{tasks,logs}/` log-polling Exit 2 deny, and Step 45/50 convergence gate.
+3. `output_compactor_hook.py` (`psl-output-compactor`): PostToolUse deterministic 2KB output compactor emitting `{}` on stdout, with DEF-04 character pre-slicing (`>200KB`).
+4. `completion_fence_hook.py` (`psl-stop-verification-fence` -> `verification-fence` + `post-verification-fence`): PreToolUse/PostToolUse/Stop fence with decoupled dirty state (`code_dirty` vs `spec_dirty`).
+5. `token_proximity_guard.py` (`psl-token-proximity-guard`): PreToolUse SQLite URI monitor decoding protobuf token gauges (`180k` amber / `230k` red).
+6. `anti_drift_hook.py` (`psl-anti-drift-guard`): PreToolUse plan adherence guard, Plan-Mode code lock (ADR-031A), and Auditor write-block enforcer.
+7. `pre_invocation_hook.py` (`psl-compaction-advisory`): PreInvocation dynamic attention runway evaluator and role-anchored compaction advisory (ADR-033).
 
 ### 3.1 The `psl-stop-verification-fence` Contract (ADR-022 / ADR-028)
 
@@ -136,11 +152,12 @@ The completion fence decouples dirty state into two independent flags:
 4. **Ephemeral Scratch Paths**:
    - Ephemeral scratch paths (`.rea/**`, `decompiled/**`, `artifacts/rea/**`, `/scratch/`, or temporary paths outside workspace root) never mark state dirty.
 
-5. **Formal Manifest Clearance (DEF-06)**:
-   - Validates cleanroom clearance manifests in `.agents/ledger/manifest.json` against typed schemas (`status: "verified"`, 64-character lowercase SHA-256 `evidence_hash`, and non-empty `obligations` array where all entries have `status: "satisfied"`). If verified, clears `spec_dirty = False` automatically.
+5. **Formal Ledger & Manifest Clearance (DEF-06)**:
+   - `is_manifest_verified()` (`harness/hooks/fence_classifiers.py`) prioritizes `.agents/ledger/obligation_ledger.json` via `validate_obligation_ledger()` (`harness/cleanroom/obligation.py`: checking `evidence_bundle`, non-empty `reviewed_obligations`, and `manifest` with empty/resolved `contradictions`).
+   - Falls back to legacy `.agents/ledger/manifest.json` (`status: "verified"`, 64-character lowercase SHA-256 `evidence_hash`, and non-empty `obligations` where all entries are `"satisfied"`). Passing clears `spec_dirty = False` automatically.
 
 6. **Anti-Deadlock Safety Valve**:
-   - If blocked twice consecutively (`block_count >= 2`), the safety valve trips and allows termination with warning, preventing infinite loops.
+   - If blocked twice consecutively (`block_count >= 2`), the safety valve trips and allows termination with warning (`"decision": "allow"`), preventing infinite loops.
 
 7. **Verification Clearance via Test Runner / Verify Command**:
    - Running `./agyis test` (or `python3 -m harness.cli test`) clears `code_dirty = False` and `spec_dirty = False`.
@@ -209,6 +226,13 @@ The `command_safety_hook.py` hook intercepts `run_command` in `PreToolUse` to gu
 - Enforces non-interactive pagers (`PAGER=cat` for `git`, `gh`).
 - Injects certified CPython 3.12+ for inline Python scripts (`python3 -c`) and sanitizes f-string quote escapes.
 - Surgical tail sanitization (`|| [ $? -eq 1 ]`) for standalone pattern searches (`grep`, `diff`).
+
+#### D. Anti-Loop & Reactive Wait Enforcement (`anti_loop_hook.py`, Issue #41)
+`psl-anti-loop-guard` intercepts `view_file|grep_search|run_command|manage_task` in `PreToolUse` with per-session sliding-window tracking persisted in `/tmp/agyis_harness_state_{uid}`:
+- **`manage_task(Action='status')` Non-Blocking Advisory (Issue #41)**: Returns `{"decision": "allow", "reason": "Advisory: Background tasks notify reactively upon exit. Avoid polling status to conserve steps."}` rather than hard-blocking interactive inspection.
+- **Background Log Polling Deny**: Repeated inspection of `.system_generated/tasks/` or `.system_generated/logs/` via `view_file`, `grep_search`, or shell readers (`tail`, `cat`) triggers `"decision": "deny"` (Exit 2), enforcing reactive wakeup.
+- **Cleanroom Spec & Verification Reset**: Code edits reset test verification counters, while `docs/specs/**` / `.agents/ledger/**` use an elevated sliding window quota (`SPEC_WINDOW_MAX_CALLS = 8`) while still denying `>= 3` consecutive identical calls.
+- **Executioner Step Convergence**: Enforces compulsory convergence (`Step 45/50`) blocking exploratory sweep tools under `deep_execution` roles past the horizon.
 ### 3.4 Plan-to-Execution Anti-Drift Verification Gate (ADR-024)
 
 The `anti_drift_hook.py` hook (`psl-anti-drift-guard`) intercepts file modifications in `PreToolUse` to ensure agents do not mutate files outside the boundaries of the approved implementation plan.
@@ -241,7 +265,7 @@ The `anti_drift_hook.py` hook (`psl-anti-drift-guard`) intercepts file modificat
    - Searches active conversation brain directory (`~/.gemini/antigravity/brain/<conv_id>/`).
 2. **Boundary Parsing (`parse_plan_files`)**:
    - Extracts targets from markdown links (`[basename](file:///path/to/file)` or relative links).
-   - Extracts targets from action headers (`#### [MODIFY] [file](...)`, `#### [NEW] path/to/file`, `#### [DELETE] ...`).
+   - Extracts targets from action headers (`#### [MODIFY] <markdown-file-link>`, `#### [NEW] path/to/file`, `#### [DELETE] ...`).
    - Extracts targets from backticks (` `path/to/file.py` `), excluding tool names, commands, keywords, and flags.
    - Indexes full paths, relative subpaths, and basenames for multi-resolution matching.
 
@@ -332,12 +356,13 @@ The compaction advisory hook operates at the `PreInvocation` event boundary, eva
 
 #### B. Architectural Behavior & Invariants
 1. **Dynamic Attention Runway Evaluation**:
-   - Reads active transcript SQLite database (`conversations/*.db`) in read-only URI mode.
-   - Decodes protobuf fields to inspect current token consumption against the 256k window.
+   - Reads active transcript SQLite database (`conversations/*.db`) in read-only URI mode (`file:<path>?mode=ro`, `timeout=1.0`).
+   - Decodes protobuf fields (`field 9`, subfields `2` and `5`, bounded by compaction checkpoint enum `23`) to inspect current token consumption against `CONTEXT_WINDOW_TOKENS = 256_000`.
+   - Emits role-appropriate directives anchored via `ROLE_PERSONA_PROMPTS` (`ROLE_FLIGHT_DIRECTOR`, `ROLE_DEEP_EXECUTION`, `ROLE_FORENSIC_AUDITOR`, `ROLE_SWARM_ORCHESTRATOR`), bypassing native platform slash commands (`/compact`, `/plan`, `/boost`, etc.).
 2. **De-Spammed Advisory Invariant**:
-   - When token consumption crosses the red alert threshold ($\ge 230,000$ tokens), injects a comprehensive 40-line compaction directive into the prompt **exactly once** per session crossing.
-   - On subsequent turns, injects a minimal 1-line badge to preserve attention runway without prompt bloat.
-3. **Carrier-Grade Pre-Compaction Checkpoint Auto-Serialization**:
-   - Automatically writes current mission state to `.agents/artifacts/cockpit_checkpoint.md` and active plan to `.agents/artifacts/active_plan.md`, ensuring seamless state succession across Antigravity turn compactions.
+   - Tracked per-session inside `/tmp/agyis_harness_state_{uid}` (overridable via `AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR`).
+   - When token consumption crosses the red alert threshold ($\ge 230,000$ tokens), injects a structured compaction directive into `injectSteps` **once** per threshold crossing; subsequent turns emit a compact single-line badge to conserve prompt tokens.
+3. **Carrier-Grade Pre-Compaction Checkpoint Awareness**:
+   - Synchronizes with `agyis checkpoint generate` (`harness/delivery/compaction_checkpoint.py`), referencing `.agents/artifacts/compaction_checkpoint_latest.md`, `.agents/artifacts/cockpit_checkpoint.md`, and `.agents/artifacts/active_plan.md` for seamless state succession across turn compactions.
 4. **Hermetic Fail-Open Protocol**:
-   - In case of transcript access contention or syntax anomalies, the hook fails open with empty steps (`{"injectSteps": []}`), guaranteeing model prompt dispatch is never stalled.
+   - On transcript lock contention or parse anomalies, the hook fails open with empty steps (`{"injectSteps": []}`), guaranteeing model prompt dispatch is never stalled.

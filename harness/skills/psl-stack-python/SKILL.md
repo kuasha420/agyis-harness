@@ -67,7 +67,7 @@ This skill codifies empirical Python development standards, hermetic execution r
   ```
 
 ### 2.2 Sub-Second Component Test Invariant (ADR-015)
-- Individual unit and contract test modules must execute in **under 1.0 second** (sub-second component benchmark; full suite runs hermetically via `agyis test` in ~65s across 1,981 tests).
+- Individual unit and contract test modules must execute in **under 1.0 second** (sub-second component benchmark; full suite runs hermetically via `agyis test` in ~66s across 1,993 tests).
 - Unit tests must be hermetic and in-memory:
   - Do not make external network requests.
   - Do not introduce `time.sleep()` delays; mock time or use deterministic event loops.

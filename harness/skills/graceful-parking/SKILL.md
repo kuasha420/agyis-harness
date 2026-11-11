@@ -12,9 +12,15 @@ description: Standardized zero-kill swarm parking and graceful resumption protoc
 
 This operational runbook governs non-destructive execution suspension across root flight directors, coordinators, and delegate subagents.
 
+## Table of Contents
+1. [Zero-Kill Rationale and The Phantom Pause Failure Mode](#1-zero-kill-rationale-and-the-phantom-pause-failure-mode)
+2. [Living Artifact Standard](#2-living-artifact-standard)
+3. [Bilateral Handshake Protocol](#3-bilateral-handshake-protocol)
+4. [Bilateral Resumption Protocol](#4-bilateral-resumption-protocol)
+
 ---
 
-## 1. Zero-Kill Rationale & The Phantom Pause Failure Mode
+## 1. Zero-Kill Rationale and The Phantom Pause Failure Mode
 
 ### The Panic-Kill Anti-Pattern (Session `f2855e28`)
 When approaching token limits or receiving an urgent pause directive from the operator, coordinators must **NEVER** invoke destructive termination primitives:
@@ -51,7 +57,7 @@ Universal pause states are declared in Tier 1 Living Artifacts:
 
 ---
 
-## 3. Bilateral Handshake Protocol (Top-Down Pause)
+## 3. Bilateral Handshake Protocol
 
 When initiating a graceful pause:
 

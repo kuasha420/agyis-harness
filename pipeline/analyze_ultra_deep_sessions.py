@@ -13,7 +13,7 @@ profiles survival archetypes (High-Endurance Survivors vs. Thrashing Traps),
 and reconstructs the historic session (8cbe936a) where Knot was conceived.
 
 Outputs:
-- docs/taxonomy/ultra-deep-sessions-survival-report.md
+- docs/archive/taxonomy/ultra-deep-sessions-survival-report.md
 - data/ultra_deep_sessions_analysis.json
 """
 
@@ -376,7 +376,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         parser = argparse.ArgumentParser(description="Audit ultra-deep 1,000+ step sessions.")
         parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
         parser.add_argument("--output-json", default="data/ultra_deep_sessions_analysis.json", help="Path for JSON output")
-        parser.add_argument("--output-report", default="docs/taxonomy/ultra-deep-sessions-survival-report.md", help="Path for report output")
+        parser.add_argument("--output-report", default="docs/archive/taxonomy/ultra-deep-sessions-survival-report.md", help="Path for report output")
         parser.add_argument("--quiet", action="store_true", help="Suppress verbose stdout")
         args = parser.parse_args()
 
@@ -392,7 +392,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     results = analyze_ultra_deep_sessions(db_path)
 
     json_path = Path(getattr(args, "output_json", None) or "data/ultra_deep_sessions_analysis.json")
-    report_path = Path(getattr(args, "output_report", None) or "docs/taxonomy/ultra-deep-sessions-survival-report.md")
+    report_path = Path(getattr(args, "output_report", None) or "docs/archive/taxonomy/ultra-deep-sessions-survival-report.md")
 
     json_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)

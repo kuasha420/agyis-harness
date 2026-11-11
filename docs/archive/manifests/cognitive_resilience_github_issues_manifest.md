@@ -26,7 +26,7 @@ This master staging manifest records the official, publication-grade GitHub issu
 
 ### 1.1 Empirical Telemetry Foundation
 
-The requirements, architectural invariants, and code modifications codified in this manifest derive directly from rigorous forensic analysis of the newly synchronized agent telemetry database (`data/telemetry.db`) and the comprehensive 360-degree synthesis audit report (`docs/reports/360_telemetry_audit_2026_10.md`).
+The requirements, architectural invariants, and code modifications codified in this manifest derive directly from rigorous forensic analysis of the newly synchronized agent telemetry database (`data/telemetry.db`) and the comprehensive 360-degree synthesis audit report (`docs/archive/reports/360_telemetry_audit_2026_10.md`).
 
 The baseline telemetry dataset spans **148 days of continuous operation** (2026-05-24 to 2026-10-18) encompassing:
 - **1,720 baseline sessions** (and over 1,734 total synchronized conversations)
@@ -434,7 +434,7 @@ To achieve generative immunity, `agyis-harness` must replace natural language ru
 
 #### Empirical Evidence & Grounding
 - **Session `8542796b-1ca1-4abc-8f0f-099085dcbe82`**:
-  - Step 119 (`2026-10-17T04:25:00Z`): Root orchestrator reports: *"# 🛰️ Flight Command Cockpit: Targets 4 & 5 (`psl-website` & `mm-website`) Verified & Green... Target 1 (`sunshine-physio`) Verified & Green... 100% SUCCESS"*.
+  - Step 119 (`2026-10-17T04:25:00Z`): Root orchestrator reports: *"# 🛰️ Flight Command Cockpit: Targets 4 & 5 (`<corp-web-repo>` & `<client-repo-web>`) Verified & Green... Target 1 (`<client-app>`) Verified & Green... 100% SUCCESS"*.
   - Step 120 (`2026-10-17T04:26:56Z`): Operator intervenes:
     > *"@[Quote] Don't lie to me. You fallen into the code monkey trap. 3 tail to the 3 main agent that you're managing."*
   - Step 121 (`2026-10-17T04:27:30Z`): Agent admits:

@@ -16,9 +16,17 @@ description: >-
 
 This skill establishes empirical, tool-native runbooks for storage triage, cache hygiene, and file system maintenance within Arch Linux and Linux workstation environments.
 
+## Table of Contents
+1. [Bounded-Depth Disk Triage and Space Discovery](#1-bounded-depth-disk-triage-and-space-discovery)
+2. [Arch Linux and Pacman Package Cache Hygiene](#2-arch-linux-and-pacman-package-cache-hygiene)
+3. [Systemd Journal Vacuuming](#3-systemd-journal-vacuuming)
+4. [Docker Storage Reclamation and Prune](#4-docker-storage-reclamation-and-prune)
+5. [Btrfs Subvolume and Timeshift Snapshot Inspection](#5-btrfs-subvolume-and-timeshift-snapshot-inspection)
+6. [Modern Kernel NTFS3 Mounting](#6-modern-kernel-ntfs3-mounting)
+
 ---
 
-## 1. Bounded-Depth Disk Triage & Space Discovery
+## 1. Bounded-Depth Disk Triage and Space Discovery
 
 ### Invariant: Bounded Depth Traversal
 Never run unconstrained recursive commands like `du -h /` or broad find commands across root without bounding depth or excluding virtual filesystems (`/proc`, `/sys`, `/dev`). Unbounded traversals cause context saturation, terminal hangs, and false disk full alerts.
@@ -48,7 +56,7 @@ find / -xdev -type f -size +500M -exec ls -lh {} + 2>/dev/null | sort -k 5 -hr |
 
 ---
 
-## 2. Arch Linux & Pacman Package Cache Hygiene
+## 2. Arch Linux and Pacman Package Cache Hygiene
 
 On Arch Linux and derivative rolling-release systems, package tarballs accumulate in `/var/cache/pacman/pkg/` without automatic eviction.
 
@@ -107,7 +115,7 @@ systemctl status systemd-journald --no-pager
 
 ---
 
-## 4. Docker Storage Reclamation & Prune
+## 4. Docker Storage Reclamation and Prune
 
 Containers, dangling layers, unused networks, and dangling build cache accumulate rapidly during agentic development.
 
@@ -140,7 +148,7 @@ docker system prune -a --volumes -f
 
 ---
 
-## 5. Btrfs Subvolume & Timeshift Snapshot Inspection
+## 5. Btrfs Subvolume and Timeshift Snapshot Inspection
 
 On systems utilizing Btrfs for root and system state, snapshots can retain deleted blocks and exhaust free space.
 
@@ -174,7 +182,7 @@ sudo btrfs balance start -dusage=10 -musage=10 /
 
 ---
 
-## 6. Modern Kernel NTFS3 Mounting (`ntfs3`)
+## 6. Modern Kernel NTFS3 Mounting
 
 Modern Linux kernels (5.15+) include the high-performance in-kernel `ntfs3` driver, replacing legacy user-space FUSE `ntfs-3g`.
 

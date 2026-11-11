@@ -24,7 +24,7 @@ Test Suite      : 1,065 passed, 0 failed, 100% green (20.937s full suite; unit s
 ### 1.1 Architectural Trajectory & Operational Scope
 Between release candidate tag **`v1.0.0-rc4`** (commit `c165dd7`) and the current tip of **`main`** (commit `cced547`), `psl-agy-harness` underwent an expansive stabilization, hardening, and feature evolution. This delta bridges **Horizon 1.5 (Fleet Harmonization & Enterprise Rehydration)** and **Horizon 1.6 (Agent Overhaul, REA Desktop GUI Telemetry & Autonomous Guards)**.
 
-The transition encompasses **13 commits** (12 feature/specification commits and 1 compaction commit) addressing 7 publication-grade GitHub issues (#57–#63) and completely resolving 8 empirical friction patterns identified during live multi-repository rehydration across `purrfectsoft` and `kuasha420` organizations.
+The transition encompasses **13 commits** (12 feature/specification commits and 1 compaction commit) addressing 7 publication-grade GitHub issues (#57–#63) and completely resolving 8 empirical friction patterns identified during live multi-repository rehydration across `<org>` and `kuasha420` organizations.
 
 The overall diff metrics are:
 - **Total Files Modified**: 66 files
@@ -95,7 +95,7 @@ The table below catalogs every modified file in the `v1.0.0-rc4..main` diff, det
 | 11 | `docs/specs/antigravity_compaction_reverse_engineering.md` | 353 | 0 | Specs | Reverse engineering spec on Antigravity 50k compaction window & checkpoint enum 23 |
 | 12 | `docs/specs/antigravity_gui_devtools_unlocking.md` | 400 | 0 | Specs | Technical spec on Chromium DevTools Protocol (CDP) WebSocket inspection & flag injection |
 | 13 | `docs/specs/antigravity_ui_token_surfacing_reverse_engineering.md` | 537 | 0 | Specs | REA specification on protobuf metadata schema, token extraction, and gauge surfacing |
-| 14 | `docs/specs/gap_cross_verification_report.md` | 721 | 0 | Specs | 18-repository fleet audit findings cross-referenced across `purrfectsoft` and `kuasha420` |
+| 14 | `docs/specs/gap_cross_verification_report.md` | 721 | 0 | Specs | 18-repository fleet audit findings cross-referenced across `<org>` and `kuasha420` |
 | 15 | `docs/specs/out_of_band_rc5_issues_audit.md` | 121 | 0 | Specs | Forensic audit of out-of-band issues #52, #57, #58, #59, #60, #61, #62, #63 |
 | 16 | `docs/specs/out_of_band_rc5_remediations_audit.md` | 150 | 0 | Specs | Audit of Category B core code remediations validating 100% test pass rate |
 | 17 | `docs/specs/rc4_rehydration_findings.md` | 154 | 0 | Specs | Empirical learnings from 16 PR rebases across 5 core repos; documented top 8 frictions |

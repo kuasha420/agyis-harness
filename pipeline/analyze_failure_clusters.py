@@ -384,7 +384,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Analyze model failure clusters and intervention hotspots.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
     parser.add_argument("--output-json", default="data/model_failure_clusters.json", help="Path to output JSON")
-    parser.add_argument("--output-report", default="docs/taxonomy/model-failure-clusters-report.md", help="Path to output markdown")
+    parser.add_argument("--output-report", default="docs/archive/taxonomy/model-failure-clusters-report.md", help="Path to output markdown")
     args = parser.parse_args(argv)
 
     db_path = Path(args.db)

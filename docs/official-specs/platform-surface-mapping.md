@@ -9,27 +9,26 @@
 **Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
-**Status**: Canonical Reference & Operational Guide  
-**Empirical Baseline**: Mined from 722 Workstation Sessions (219,292 Trajectory Steps, 160,226 Tool Calls, 4,062 Tool Failures, 15,562 Tool Loops)
+**Status**: Canonical First-Principle Surface & Protocol Reference  
+**Empirical Baseline**: Grounded in [`../taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md) (`1,734` classified sessions / `2,875` live sessions)
 
 ---
 
 ## Executive Summary
 
-Google Antigravity provides an extensible multi-tier agent execution runtime. However, developer tooling and custom harnesses frequently fail due to architectural mismatches: applying procedural prompt instructions where deterministic lifecycle hooks are required, polling asynchronous primitives that already feature reactive event wakeups, or overwhelming model context windows when native tool filtering and token compaction controls exist out of the box.
+Google Antigravity provides an extensible multi-tier agent execution runtime across three primary developer surfaces:
 
-This specification provides the definitive deconstruction of all official Antigravity developer surfaces:
-1. **The Antigravity CLI (`agy`)**: Interactive TUI, non-interactive batch/print execution, and structured streaming via NDJSON (`stream-json`).
-2. **The Antigravity 2.0 Desktop Platform**: Electron-based orchestrator, HTML auxiliary generative UI, background task supervision, terminal multiplexer, and reactive scheduling.
-3. **The Official Python SDK (`google-antigravity`)**: The three-pillar architecture (`Agent`, `Conversation`, `Connection`), capability configurations, fine-grained safety policies, and session leasing.
-4. **The Lifecycle Hooks Engine (`hooks.json` & SDK Hooks)**: Deterministic pre/post-tool and pre/post-invocation event interception, payload contracts, shallow argument `overwrite`, and trajectory completion gating (`Stop`).
-5. **Model Context Protocol (MCP) Boundaries**: Stdio vs. Streamable HTTP/SSE transports, tool filtering allowlists/denylists, and policy binding.
+1. **The Antigravity CLI (`agy`)**: Interactive TUI, non-interactive batch/print execution, structured streaming via NDJSON (`stream-json`), and terminal daemon management.
+2. **The Antigravity 2.0 Desktop Platform**: Electron-based orchestrator, Language Server Connect RPC introspection, HTML auxiliary generative UI, background task supervision (`manage_task`), terminal multiplexer, reactive scheduling (`schedule`), 9 system slash commands, and 4 hidden invokable subagent `TypeName`s.
+3. **The Official Python SDK (`google-antigravity`)**: The three-pillar architecture (`Agent`, `Conversation`, `Connection` / `AgentClient`), capability configurations, 9-level declarative safety policies, and session leasing.
+4. **The Lifecycle Hooks Engine (`hooks.json` & SDK Hooks)**: Deterministic `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, and `Stop` interception outside the token context window (detailed contracts in [`lifecycle-hooks.md`](lifecycle-hooks.md)).
+5. **Model Context Protocol (MCP) Boundaries & Extension Packaging**: Stdio vs. Streamable HTTP/SSE transports, tool filtering allowlists/denylists, official plugin manifests (`plugin.json`), 5-tier discovery precedence, and context budget caps.
 
-Following the platform deconstruction, this document conducts an exhaustive **Empirical Gap Analysis** matching each platform capability against the real-world failure distributions cataloged in our workstation telemetry audit report (`docs/taxonomy/workstation-audit-report.md`).
+The empirical gap analysis in §7 matches these platform capabilities against audited failure distributions in [`../taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md) (with historical cohort context preserved in [`../archive/taxonomy/workstation-audit-report.md`](../archive/taxonomy/workstation-audit-report.md)).
 
 ---
 
-## 1. Platform Topology: The Multi-Tier Extension Model
+## 1. Platform Topology, Extension Manifests & Discovery Precedence
 
 ```
 +----------------------------------------------------------------------------------------------------+
@@ -38,8 +37,8 @@ Following the platform deconstruction, this document conducts an exhaustive **Em
 |  +-----------------------------+  +-------------------------------+  +--------------------------+  |
 |  |     Antigravity CLI (agy)   |  |   Antigravity 2.0 Desktop     |  |   Official Python SDK    |  |
 |  |                             |  |   (Electron / IDE Host)       |  |  (google-antigravity)    |  |
-|  |  * Interactive TUI          |  |  * Chat Canvas & Mentions     |  |  * Agent Context Manager |  |
-|  |  * Batch Print (-p)         |  |  * HTML Aux Pane (GenUI)      |  |  * Conversation State    |  |
+|  |  * Interactive TUI          |  |  * Chat Canvas & Slash Cmds   |  |  * Agent / AgentClient   |  |
+|  |  * Batch Print (-p)         |  |  * Connect RPC & Aux GenUI    |  |  * Conversation State    |  |
 |  |  * Stream NDJSON Protocol   |  |  * Reactive Background Tasks  |  |  * Strategy Transports   |  |
 |  |  * Subcommands (mcp, plugin)|  |  * Terminal Multiplexer (TUI) |  |  * Declarative Policies   |  |
 |  +--------------+--------------+  +---------------+---------------+  +------------+-------------+  |
@@ -49,15 +48,15 @@ Following the platform deconstruction, this document conducts an exhaustive **Em
                                                     |
                                                     v
 +----------------------------------------------------------------------------------------------------+
-|                               Core Language Server & Agent Execution Loop                          |
+|                      Core Language Server & Cortex Loop (Dual-Plane Protobufs)                     |
 |                                                                                                    |
 |  [PreInvocation Hook] -> [Model Inference (Gemini)] -> [PostInvocation Hook]                      |
 |                                         |                                                          |
 |                                         v (Tool Call Generated)                                    |
 |  [PreToolUse Hook]    -> [Safety Policy Evaluation] -> [Tool Dispatch] -> [PostToolUse Hook]       |
-|  (Gate / Arg Overwrite)  (9-Level Ladder Check)       (Built-in / MCP)    (Audit / Truncation)     |
+|  (Gate / Arg Overwrite)  (9-Level Ladder Check)       (Built-in / MCP)    (Audit / 2KB Compaction) |
 |                                                                                                    |
-|  [Trajectory Idle]    -> [Stop Hook Gating] (Continue vs Allow Stop)                               |
+|  [Trajectory Idle]    -> [Stop Hook Gating] (continue vs allow_stop; 2-block safety valve)         |
 +---------------------------------------------------+------------------------------------------------+
                                                     |
          +------------------------------------------+----------------------------------------+
@@ -66,36 +65,74 @@ Following the platform deconstruction, this document conducts an exhaustive **Em
 +-----------------------+              +--------------------------+             +--------------------+
 |  Built-in Tools       |              |  Model Context Protocol  |             |  Custom Extensions |
 |  * run_command        |              |  (FastMCP / JSON-RPC)    |             |  * Skills / Rules  |
-|  * view_file          |              |  * Stdio Subprocess      |             |  * Custom Prompts  |
+|  * view_file          |              |  * Stdio Subprocess      |             |  * Slash Commands  |
 |  * replace_file_content              |  * Streamable HTTP / SSE |             |  * Subagent Trees  |
-|  * manage_task        |              |  * Tool Filtering Filter |             |  * Sidecar Daemons |
+|  * manage_task        |              |  * Tool Filtering Filter |             |  * Official Plugins|
 +-----------------------+              +--------------------------+             +--------------------+
 ```
 
-### 1.1 Workstation-Wide (Global) vs. Local (Workspace/Project) Precedence Hierarchy (ADR-030)
+### 1.1 Official Plugin Directory Layout & Manifest Schema (`plugin.json`)
 
-Antigravity resolves skills, agents, rules, and configuration across three distinct filesystem tiers evaluated from highest to lowest precedence:
+An official Antigravity plugin bundles manifests, MCP definitions, lifecycle hooks, rules, agents, and modular skills into a single distributable root:
 
 ```text
-[Layer 3: Workspace Local] (<project-root>/.agents/ or project root) -- HIGHEST PRECEDENCE
-         │ (Overrides user preferences and bundled plugin fallbacks)
-         ▼
-[Layer 2: Workstation User] (~/.gemini/antigravity/, ~/.gemini/config/)
-         │ (Overrides bundled plugin defaults)
-         ▼
-[Layer 1: Global Plugin] (~/.gemini/config/plugins/agyis-harness/ or harness/) -- DEFAULT FALLBACK
+<plugin-root>/
+├── plugin.json       # Required: Manifest metadata marker
+├── mcp_config.json   # Optional: Exposes stdio / HTTP MCP servers
+├── hooks.json        # Optional: Registers lifecycle hooks (ADR-022..033)
+├── agents/           # Optional: Dual-mode agent personas (*.md)
+├── rules/            # Optional: Merged into active rules (AGENTS.md)
+│   └── GLOBAL_AGENTS.md
+└── skills/           # Optional: Progressive-disclosure skill definitions
+    └── <skill-name>/
+        └── SKILL.md
 ```
 
-#### Coexistence & Override Matrix
+```json
+{
+  "name": "agyis-harness",
+  "displayName": "Agyis Harness for Google Antigravity™",
+  "version": "1.0.0-rc10",
+  "description": "Empirical audit pipeline and reference extension harness for Google Antigravity™",
+  "author": { "name": "Purrfect Software Limited (PSL)" },
+  "license": "Apache-2.0",
+  "keywords": ["antigravity", "harness", "telemetry", "audit", "gemini"],
+  "disabled": false
+}
+```
 
-| Component | Workstation-Wide (Global) | Workspace / Project-Specific (Local) | Precedence & Resolution Semantics |
+**Plugin Identity & Activation State Contract**:
+- Runtime plugin identity is keyed by the **installed directory basename (`<dir>`)**, NOT the `name` field inside `plugin.json`.
+- Active enable/disable overrides live in `~/.gemini/config/config.json` under `plugins.<dir>.enabled` (boolean). Setting `plugins.<dir>.enabled: true` overrides `"disabled": true` declared in `plugin.json`.
+
+### 1.2 Native 5-Tier Discovery Precedence & Override Hierarchy
+
+Antigravity evaluates extensions across **5 native discovery tiers** (highest to lowest precedence):
+
+1. **Workspace Project Level**: Discovered hierarchically walking upward from `CWD` to the `.git` repository root across `.agents/`, `.agent/`, `_agents/`, and `_agent/` (highest precedence; `.agent/` is legacy and harmonized into `.agents/` via `agyis harmonize`).
+2. **Workspace Declared Configs**: Explicit registrations declared in workspace `skills.json` or `plugins.json`.
+3. **Global User Directory**: Workstation-wide customizations under `~/.gemini/config/` (rules, skills, agents, and installed plugins in `~/.gemini/config/plugins/`).
+4. **Built-in Platform Bundles**: Embedded default skills and bundles shipped inside the Antigravity runtime (`/builtin/skills/`).
+5. **Global Declared Configs**: Explicit global manifest registrations under `~/.gemini/config/*.json`.
+
+#### Coexistence & Override Matrix (ADR-030)
+
+| Component | Global Plugin / User Tier | Workspace Local Tier (`<project>/.agents/`) | Precedence & Resolution Semantics |
 | :--- | :--- | :--- | :--- |
-| **Modular Skills** | `~/.gemini/config/skills/`<br>or bundled in plugin | `<project>/.agents/skills/<skill>/SKILL.md` | **Layer 3 > 2 > 1**: Local skill in `.agents/skills/` takes full precedence over global skill of same name. |
-| **Specialist Agents** | `~/.gemini/config/agents/<name>.md`<br>or bundled in plugin | `<project>/.agents/agents/<name>.md` | **Layer 3 > 2 > 1**: Local agent definition overrides global persona. Scaffolds ground into local repo context. |
-| **Agent Rules** | `~/.gemini/config/AGENTS.md`<br>`~/.gemini/config/rules/*.md` | `<project>/AGENTS.md`<br>`<project>/.agents/rules/*.md` | **Layer 3 > 2**: Local project rules take precedence, providing repository-specific constraints over global standards. |
-| **Tooling & Runtimes** | System `$PATH`, `uv` user Python | Project `.venv`, `node_modules` | When executed inside a repository containing `.venv`, `agyis` launcher auto-promotes to `.venv/bin/python`. |
-| **Lifecycle Hooks** | Global `hooks.json` across surfaces | Project-level `hooks.json` | Deterministic fail-safe runner intercepts tool calls across all sessions. |
-| **Git Hygiene** | Global git configuration | Local `.git/info/exclude` | `agyis install` configures `.git/info/exclude` so untracked local telemetry and state never pollute git status. |
+| **Modular Skills** | `~/.gemini/config/skills/` or plugin `skills/` | `<project>/.agents/skills/<skill>/SKILL.md` | **Workspace > User > Plugin**: Local skills shadow global names; workspace skills matching plugin skills should be pruned or symlinked (`agyis skills --prune-duplicates`). |
+| **Specialist Agents** | `~/.gemini/config/agents/<name>.md` or plugin `agents/` | `<project>/.agents/agents/<name>.md` | **Workspace > User > Plugin**: Local agent definition overrides global persona while inheriting declared capability bundles. |
+| **Agent Rules** | `~/.gemini/config/AGENTS.md` & `rules/*.md` | `<project>/AGENTS.md` & `.agents/rules/*.md` | **Workspace > User > Plugin**: Additive rule composition bounded by platform size and token budgets. |
+| **Tooling & Runtimes** | System `$PATH`, `uv` user Python | Project `.venv`, `node_modules` | `agyis` and lifecycle hooks auto-promote project `.venv/bin/python` or `uv` CPython >= 3.12. |
+| **Lifecycle Hooks** | Plugin/global `hooks.json` | Project-level `hooks.json` | Deterministic fail-safe stdio subprocesses (`timeout=5s` default in harness). |
+| **Git Hygiene** | Global gitignore | Local `.git/info/exclude` | `agyis onboard` / `agyis install` exclude ephemeral local harness state from git porcelain status. |
+
+### 1.3 Platform Rule & Skill Context Budgets
+
+Antigravity enforces strict byte and token ceilings during customization ingestion:
+- **Per-Rule File Cap**: `24,000` bytes maximum per individual rule file.
+- **Aggregate Rules Token Budget**: `20,000` tokens (`defaultRulesBudget`) across combined user/workspace rules (built-in rules are exempt from this quota).
+- **Per-Skill `SKILL.md` Cap**: `24,576` bytes (`24 KB`) maximum; upstream silently truncates oversized `SKILL.md` definitions (`harness` additionally enforces `## Table of Contents` for any `SKILL.md` exceeding `100` lines).
+- **Progressive Disclosure & Duplicate Pruning**: Only `name` + `description` frontmatter loads at turn startup (`16` skills = `1,330` inline tokens vs `5` MCP servers = `263,759` schema tokens). Duplicate workspace skill copies shadow global skills and waste `~4,500` redundant tokens per turn until pruned via `agyis skills --prune-duplicates`.
 
 ---
 
@@ -149,28 +186,37 @@ agy --input-format stream-json --output-format stream-json --dangerously-skip-pe
 agy <subcommand> [flags] [args]
 ```
 
-- **`agy plugin`**: Manage plugin packages:
-  - `list`: List all imported, installed, and discovered plugins.
-  - `import [source]`: Ingest plugins from external ecosystems (`gemini` or `claude`).
-  - `install <target>`: Install plugin packages (supports `plugin@marketplace`).
-  - `uninstall <name>`: Remove an installed plugin.
-  - `enable <name>` / `disable <name>`: Toggle active state of installed plugins.
-  - `validate [path]`: Validate manifest schema (`plugin.json`) and directory layout.
-  - `link <mp> <target>`: Create marketplace symlinks.
-- **`agy mcp`**: Manage Model Context Protocol server registrations:
-  - `add [flags] <name> <commandOrUrl> [args...]`: Register stdio or HTTP/SSE MCP server.
-    - Flags: `-e`, `--env KEY=value` (repeatable); `-H`, `--header "Key: Value"` (repeatable); `-t`, `--type stdio|http`.
-  - `remove <name>`: Unregister an MCP server.
-  - `list`: Display configured MCP servers and operational status.
-  - `enable <name>` / `disable <name>`: Toggle server visibility without removing configuration.
+- **`agy plugin`**: `list`, `import [source]` (`gemini` or `claude`), `install <target>` (`plugin@marketplace`), `uninstall <name>`, `enable <name>` / `disable <name>`, `validate [path]`, `link <mp> <target>`.
+- **`agy mcp`**: `add [flags] <name> <commandOrUrl> [args...]` (`-e`/`--env`, `-H`/`--header`, `-t stdio|http`), `remove <name>`, `list`, `enable <name>` / `disable <name>`.
 - **`agy agent` / `agy agents`**: Enumerate available agent personas and configurations.
-- **`agy models`**: Query Gemini model targets available to the current credentials.
-- **`agy remote-control`**: Control the background daemon enabling out-of-band workstation orchestration:
-  - `start`: Register and launch background daemon.
-  - `status`: Query daemon connectivity and active sessions.
-  - `stop`: Terminate the daemon process.
-- **`agy mic-serve`**: Stream local workstation microphone audio to a remote CLI session.
-- **`agy install`**: Bootstrap shell environment paths, autocompletions, and environment variables.
+- **`agy models`**: Query Gemini model targets available to current credentials.
+- **`agy remote-control`**: Control background workstation daemon (`start`, `status`, `stop`).
+- **`agy mic-serve` / `agy install`**: Stream local microphone audio / bootstrap shell paths and completions.
+
+### 2.5 Language Server Connect RPC & Dual-Plane Protobuf Descriptors
+
+The desktop Language Server exposes an authenticated local Connect RPC endpoint for live discovery of slash commands, skills, and planner configuration:
+
+- **Endpoint**: `POST http://127.0.0.1:<port>/exa.language_server_pb.LanguageServerService/GetSlashCommands`
+- **Required Headers**:
+  - `Content-Type: application/json`
+  - `Connect-Protocol-Version: 1`
+  - `x-codeium-csrf-token`: Extracted from `--csrf_token` runtime argument or renderer `window.__APP_CONFIG__.csrfToken`.
+- **Request Payload**:
+  ```json
+  {
+    "workspaceUris": ["file:///path/to/workspace"],
+    "cascadeConfig": {
+      "plannerConfig": { "planModel": "<model-id>" }
+    }
+  }
+  ```
+- **Response (`commands[]`)**: Entries contain `info.name`, `info.type` (`SLASH_COMMAND_TYPE_SYSTEM` | `SLASH_COMMAND_TYPE_SKILL`), `info.icon`, `info.modelFacingText`, `title`, and `description`.
+- **Dual-Plane Protobuf Architecture (`google3/third_party/jetski/*`)**:
+  - `language_server_pb/language_server.proto`: IDE control plane (Connect RPC service, workspace URIs, slash command resolution).
+  - `cortex_pb/cortex.proto`: Cortex execution engine (planning configs, step payloads, model routing).
+  - `cascade_plugins_pb/cascade_plugins.proto`: Plugin manifests, lifecycle hook contracts, and agent definitions.
+  - `reactive_component_pb/reactive_component.proto`: Trajectory steps, token metadata (`field 9`: subfield `2` prompt tokens, subfield `5` cached content tokens), and reactive task events.
 
 ---
 
@@ -185,7 +231,7 @@ Antigravity 2.0 is an Electron-based workstation environment that hosts the Lang
 |  +--------------------+  +-------------------------------------+  +-----------------------------+  |
 |  | Left-Hand Sidebar  |  | Main Chat Canvas                    |  | Auxiliary Workspace Pane    |  |
 |  |                    |  |                                     |  |                             |  |
-|  | * Projects Root    |  | * Slash Commands (/goal, /schedule) |  | [HTML Generative UI / Tab]  |  |
+|  | * Projects Root    |  | * Slash Commands (/boost, /plan)    |  | [HTML Generative UI / Tab]  |  |
 |  | * Active Sessions  |  | * @ Mentions (@file, @terminal)     |  | * Rich D3 / SVG Metrics     |  |
 |  | * Scheduled Tasks  |  | * Visual Diff Review                |  | * Interactive Forms         |  |
 |  | * Skills / Rules   |  | * Multi-turn Steer / Fences         |  | * UI Component Sandbox     |  |
@@ -200,7 +246,7 @@ Antigravity 2.0 is an Electron-based workstation environment that hosts the Lang
 ### 3.1 Auxiliary Generative UI (HTML Pane)
 Antigravity 2.0 integrates an internal browser viewport capable of rendering rich, interactive generative HTML artifacts. Agents produce HTML widgets via markdown code blocks or dedicated files:
 - **Rendering Model**: Isolated iframe sandbox supporting modern web standards (SVG, Canvas, CSS animations, JavaScript).
-- **Use Cases**: Live metric cockpits, topology graphs, hardware cluster visualizers, interactive approval forms, and component mockups.
+- **Use Cases**: Live metric cockpits, topology graphs, audit dashboards, interactive approval forms, and component mockups.
 - **Contract**: Communication back to the agent is bridged via structured DOM events or clipboard transfers.
 
 ### 3.2 Background Task Supervision & The Reactive Wakeup Invariant
@@ -210,9 +256,9 @@ The desktop runtime provides an asynchronous execution engine managed via the bu
   - `status`: Queries execution state (`running`, `completed`, `failed`).
   - `kill`: Sends termination signals to running child processes.
   - `send_input`: Pushes interactive input to a running task's `stdin`.
-- **The Reactive Wakeup Invariant**:
-  - **Critical Platform Semantic**: In Antigravity 2.0, background tasks automatically emit a system event upon completion that resumes the agent turn.
-  - **Empirical Anti-Pattern**: Agents trained on standard LLM paradigms frequently execute polling loops (calling `manage_task(Action='status')` 10–50 times in a row). This wastes tokens, saturates the context window, and risks context cliff degradation. Platform-compliant agents launch background tasks and immediately halt tool calls to await reactive resumption.
+- **The Reactive Wakeup Invariant & Issue #41 Advisory Contract**:
+  - **Platform Semantic**: In Antigravity 2.0, background tasks automatically emit a reactive system event upon completion that resumes the agent turn.
+  - **Harness Enforcement**: `anti_loop_hook.py` emits a non-blocking **advisory allow** (`{"decision": "allow", "reason": "Advisory: Background tasks notify reactively upon exit. Avoid polling status to conserve steps."}`) on `manage_task(Action='status')`, while hard-denying repeated polling reads of `.system_generated/tasks/` or `.system_generated/logs/` (Exit 2 / `"decision": "deny"`).
 
 ### 3.3 Terminal Multiplexer Subsystem (`run_command`)
 Shell execution within Antigravity 2.0 is handled through a persistent pseudo-terminal multiplexer:
@@ -222,7 +268,7 @@ Shell execution within Antigravity 2.0 is handled through a persistent pseudo-te
   - `RunPersistent` (boolean): When `true`, executes inside a persistent terminal shell instance that preserves shell environment variables across separate calls.
   - `RequestedTerminalID` (string): Reuses an established persistent terminal session.
   - `IsDaemon` (boolean): Flags long-running processes (development servers, watchers, tunnels) that are not expected to terminate autonomously.
-  - `WaitMsBeforeAsync` (integer, max 10,000ms): Synchronous wait threshold. Commands terminating within this threshold return their output immediately; commands exceeding it are cleanly transitioned to background tasks.
+  - `WaitMsBeforeAsync` (integer, max 10,000ms): Synchronous wait threshold. Commands terminating within this threshold return output immediately; commands exceeding it transition cleanly to background tasks.
 - **Execution Invariants**:
   - Automatically executed with `PAGER=cat` to prevent pagination hangs.
   - Commands must execute non-interactively; interactive prompts without redirection hang the terminal bridge until timeout.
@@ -253,6 +299,28 @@ The platform supports asynchronous temporal triggers:
 2. **Recurring Cron (`CronExpression`)**: Standard 5-field cron syntax (`*/5 * * * *`). Dispatches scheduled prompts into the agent conversation loop.
    - `IsDaemon=false`: Active polling/monitoring for current task completion.
    - `IsDaemon=true`: Standing background job that outlives the current task.
+
+### 3.6 Native Slash Commands, XML Prompt Wrappers & Invokable Subagent `TypeName`s
+
+Antigravity intercepts **9 native system slash commands** client-side/server-side (`SLASH_COMMAND_TYPE_SYSTEM`), rewriting user prompts into dedicated XML wrapper directives or triggering stateful handlers (`PreInvocation` harness hooks bypass all native slash commands to avoid collisions):
+
+| System Slash Command | Prompt Wrapper / Control Marker | Functional Semantics |
+| :--- | :--- | :--- |
+| **`/boost`** | `<ORCHESTRATOR>` | Dispatches two-tier deep reasoning / parallel swarm refinement (`owl` / `DeepCoder` / `DeepInvestigator` + anti-anchoring verification). |
+| **`/teamwork-preview`** | `<TEAMWORK>` | Launches coordinated multi-agent patterns (SWE Light, DAG + Blackboard, Colosseum funnel, Document Review RSA; see [`cockpit-director.md`](cockpit-director.md)). |
+| **`/plan`** | `<PLAN>` | Activates read-only planning modal loop (`implementation_plan.md` + interactive feedback gate). |
+| **`/grill-me`** | `<GRILL_ME>` | Forces Socratic edge-case interrogation before committing to design or edits. |
+| **`/goal`** | `<!-- GOAL_COMPLETE -->` / `<!-- GOAL_CANCELLED -->` | Bounded autonomous iteration loop; termination gated on explicit HTML comment sentinel markers. |
+| **`/browser`** | `<SUBAGENT>` -> `browser` | Delegates visual/DOM/Playwright web tasks to the isolated `browser` subagent. |
+| **`/schedule`** | `schedule` tool invocation | Creates one-shot timers or recurring 5-field cron jobs. |
+| **`/learn`** | `<LEARN>` | Extracts reusable session conventions/patterns into skill or rule artifacts. |
+| **`/compact`** | Engine checkpoint pass | Triggers manual context compaction and inserts a compaction checkpoint barrier (`enum 23`). |
+
+**Hidden Invokable Subagent `TypeName`s**: Beyond workspace Markdown agents (`.agents/agents/*.md`), `invoke_subagent` recognizes **4 native internal `TypeName`s**:
+1. **`DeepCoder`**: Runs `DeepCoderWorkerL0` + `DeepCoderImprovementWorker` for deep multi-file implementation/repair.
+2. **`DeepInvestigator`**: Runs `DeepInvestigatorWorkerL0` + `DeepInvestigatorImprovementWorker` for forensic codebase diagnosis.
+3. **`teamwork_preview`**: Exposes team workers (`orchestrator@colosseum`, `critic@colosseum`, `explorer@colosseum`, `implementer`, `qa`, `armed_worker@colosseum`).
+4. **`browser`**: Isolated headless browser subagent for web interaction and UI verification.
 
 ---
 
@@ -376,130 +444,23 @@ async with Agent(config) as agent:
 
 ## 5. Surface Deconstruction: Lifecycle Hooks Engine
 
-The Lifecycle Hooks engine provides the highest-leverage developer extension mechanism in Antigravity. Unlike rules or skills that rely on probabilistic model compliance, hooks execute **deterministic code outside the context window**, intercepting execution points with zero token cost.
+The Lifecycle Hooks engine executes **deterministic code outside the model context window** via `hooks.json` or Python SDK callbacks (see [`lifecycle-hooks.md`](lifecycle-hooks.md) for wire schemas, layout duality, and the complete reference specification). `agyis-harness` registers **7 hook blocks** in `hooks.json` covering **8 verified hook runner checks** (`psl-stop-verification-fence` dispatches both `verification-fence` and `post-verification-fence`).
 
-Hooks are configured either declaratively in `hooks.json` (supported across CLI, Antigravity 2.0, and IDE) or programmatically via Python decorators in the SDK.
+### 5.1 The Core Lifecycle Events (`hooks.json`)
 
-### 5.1 The Five Core Lifecycle Events
-
-| Event | Matcher Target | Execution Point | Primary Use Case |
+| Event | Layout / Matcher Target | Execution Point | Expected `stdout` Output |
 | :--- | :--- | :--- | :--- |
-| **`PreToolUse`** | Regex on Tool Name (`run_command`, `view_file\|grep_search`, `*`) | Before tool dispatch | Argument validation, dangerous command blocking, command rewriting via `overwrite`, loop tripping. |
-| **`PostToolUse`** | Regex on Tool Name | Immediately after tool execution completes | Error classification, output size auditing, automated telemetry harvesting, log truncation. |
-| **`PreInvocation`** | Flat array (no matcher) | Before prompt dispatch to Gemini | Context injection, ephemeral reminder insertion, dynamic rule gating. |
-| **`PostInvocation`** | Flat array (no matcher) | After Gemini generates tool calls | Tool call inspection, forcing loop continuation (`force_continue`), premature halt prevention. |
-| **`Stop`** | Flat array (no matcher) | When the trajectory reaches fully idle | Completion fencing, test verification enforcement, preventing premature victory claims. |
+| **`PreToolUse`** | Matcher-grouped regex (`run_command`, `view_file\|grep_search`, `*`) | Before tool dispatch | `{"decision": "allow"\|"deny"\|"ask"\|"force_ask", "overwrite": {...}, "reason": "..."}` |
+| **`PostToolUse`** | Matcher-grouped regex on tool name | Immediately after tool completion | **`{}`** (strictly empty JSON object, Exit `0`) |
+| **`PreInvocation`** | Flat list (no matcher) | Before inference dispatch | `{"injectSteps": [...]}` (`ephemeralMessage` / `userMessage` string; `systemMessage` nested dict) |
+| **`PostInvocation`** | Flat list (no matcher) | After inference generates tool calls | `{"injectSteps": [...], "terminationBehavior": "force_continue"\|"terminate"\|""}` |
+| **`Stop`** | Flat list (no matcher) | Trajectory termination boundary | `{"decision": "continue", "reason": "..."}` or allow exit (9 `terminationReason` values; 2-block valve) |
 
-### 5.2 JSON Protocol Specification (camelCase Protojson over Stdio)
+### 5.2 JSON Protocol Highlights (camelCase Protojson over Stdio)
 
-Every hook configured in `hooks.json` receives a JSON payload on `stdin` and must emit its result as JSON on `stdout`.
-
-#### Common Ingress Metadata (Present on all events)
-```json
-{
-  "conversationId": "270b7abc-9b59-4f50-9c49-de3ed7e04f06",
-  "workspacePaths": ["/workspace/agyis-harness"],
-  "transcriptPath": "~/.gemini/antigravity/brain/270b7abc.../transcript.jsonl",
-  "artifactDirectoryPath": "~/.gemini/antigravity/brain/270b7abc.../",
-  "modelName": "auto"
-}
-```
-
-#### 1. `PreToolUse` Contract
-- **Ingress (`stdin`)**:
-  ```json
-  {
-    "toolCall": {
-      "name": "run_command",
-      "args": {
-        "CommandLine": "git diff | grep TODO",
-        "Cwd": "/workspace/agyis-harness"
-      }
-    },
-    "stepIdx": 42,
-    ...commonMetadata
-  }
-  ```
-- **Egress (`stdout`)**:
-  ```json
-  {
-    "decision": "allow",
-    "reason": "Normalized git pipeline to defend against false-failure exit code 1",
-    "overwrite": {
-      "CommandLine": "git diff | grep TODO || true"
-    },
-    "permissionOverrides": ["command(git diff)"]
-  }
-  ```
-  - **`decision`**: `"allow"` (execute), `"deny"` (abort with error to agent), `"ask"` (prompt user), `"force_ask"` (prompt user ignoring permissions cache).
-  - **`overwrite`**: **Shallow top-level dictionary replacement**. Replaces matching keys in the tool arguments before execution occurs. The rewritten arguments are what actually run and what get recorded in the transcript.
-
-#### 2. `PostToolUse` Contract
-- **Ingress (`stdin`)**:
-  ```json
-  {
-    "stepIdx": 42,
-    "error": "exit status 1",
-    ...commonMetadata
-  }
-  ```
-- **Egress (`stdout`)**:
-  ```json
-  {}
-  ```
-  *(Returns an empty JSON object `{}`. PostToolUse is designed for external side-effects: telemetry logging, cache invalidation, state updates).*
-
-#### 3. `PreInvocation` Contract
-- **Ingress (`stdin`)**:
-  ```json
-  {
-    "invocationNum": 4,
-    "initialNumSteps": 18,
-    ...commonMetadata
-  }
-  ```
-- **Egress (`stdout`)**:
-  ```json
-  {
-    "injectSteps": [
-      {
-        "ephemeralMessage": "High-Resolution Reminder: Verify unit test exit codes before declaring milestone complete."
-      }
-    ]
-  }
-  ```
-  - Supported `injectSteps` types: `{"ephemeralMessage": "..."}`, `{"userMessage": "..."}`, `{"toolCall": {"name": "...", "args": {...}}}`.
-
-#### 4. `PostInvocation` Contract
-- **Ingress (`stdin`)**: Common metadata + `invocationNum`, `initialNumSteps`.
-- **Egress (`stdout`)**:
-  ```json
-  {
-    "injectSteps": [],
-    "terminationBehavior": "force_continue"
-  }
-  ```
-  - `terminationBehavior`: `"force_continue"` (forces another turn), `"terminate"` (aborts loop), `""` (default).
-
-#### 5. `Stop` Contract
-- **Ingress (`stdin`)**:
-  ```json
-  {
-    "executionNum": 1,
-    "terminationReason": "model_stop",
-    "error": "",
-    "fullyIdle": true,
-    ...commonMetadata
-  }
-  ```
-- **Egress (`stdout`)**:
-  ```json
-  {
-    "decision": "continue",
-    "reason": "PSL Completion Fence: Verification tests have not passed. Run pytest before finishing."
-  }
-  ```
-  - `decision`: `"continue"` blocks termination and injects `reason` into the context window as a high-priority system prompt. Any other value allows the agent to terminate cleanly.
+- **Common Ingress Metadata**: `conversationId`, `stepIdx` / `invocationNum` / `executionNum`, `workspacePaths`, `transcriptPath`, `artifactDirectoryPath`, `modelName`.
+- **Shallow `overwrite` Semantics (`PreToolUse`)**: Replaces matching top-level argument keys in-flight (`CommandLine`) before dispatch and transcript capture.
+- **`PreInvocation` Nested `systemMessage` Envelope**: Plain strings work for `{"ephemeralMessage": "..."}` and `{"userMessage": "..."}`, whereas `systemMessage` requires the nested envelope `{"systemMessage": {"systemMessage": "...", "metadata": {...}}}`.
 
 ---
 
@@ -509,145 +470,68 @@ Antigravity integrates with the Model Context Protocol (MCP) to provide clean bo
 
 ### 6.1 Transports
 1. **Stdio Transport (Local Process)**:
-   - Language Server spawns the target executable directly and communicates over standard input/output using JSON-RPC.
-   - Configuration defines `command`, `args`, and `env` dictionaries.
-   - Lifecycle is bound to the parent session.
+   - Language Server spawns the target executable directly and communicates over standard input/output using JSON-RPC (`command`, `args`, `env`).
 2. **Streamable HTTP / SSE Transport (Remote Service)**:
-   - Connects to remote MCP endpoints over HTTP using Server-Sent Events (SSE).
-   - Configuration defines `serverUrl` and optional authentication `headers`.
+   - Connects to remote MCP endpoints over HTTP using Server-Sent Events (`serverUrl`, `headers`).
 
 ### 6.2 Tool Filtering (Allowlist / Denylist)
-To prevent tool exposure from saturating the context window and triggering context cliff degradation, MCP server configurations support strict tool filtering:
+To prevent tool schema explosion (`5` unfiltered MCP servers expose `283` tools totaling `263,759` schema tokens vs. `16` skills consuming only `1,330` inline tokens), MCP server configurations enforce strict tool filtering:
 ```python
 stdio_server = types.McpStdioServer(
-    name="knot_mesh_service",
+    name="remote_ops_service",
     command="python3",
-    args=["-m", "knot.mcp_server"],
-    enabled_tools=["mesh_node_status", "mesh_exec"],   # Allowlist: ONLY these 2 tools exposed
-    # disabled_tools=["dangerous_wipe"]                # Denylist: Alternative mutually-exclusive filter
+    args=["-m", "remote_ops.mcp_server"],
+    enabled_tools=["remote_node_status", "remote_exec"],  # Allowlist: ONLY these 2 tools exposed
+    # disabled_tools=["dangerous_wipe"]                    # Denylist: Mutually exclusive filter
 )
 ```
 
 ### 6.3 FastMCP Compliance & Boundary Invariants
-- **Identifier Safety**: FastMCP requires all tool names and parameter keys to be valid Python identifiers (`^[a-zA-Z_][a-zA-Z0-9_]*$`). Any MCP tool emitting non-compliant identifiers fails schema ingestion.
-- **Synchronous Blocking Boundary**: MCP tool calls execute synchronously from the agent loop's perspective. Long-running remote calls must implement their own internal async queuing or be offloaded to background daemons.
-- **Safety Policy Binding**: By default, standard SDK policies allow MCP tool calls while restricting `run_command`. Under strict deny-by-default setups (`policy.deny_all()`), MCP servers must be explicitly granted via overloaded policy helpers (`policy.allow(mcp_server)`).
+- **Identifier Safety**: FastMCP requires all tool names and parameter keys to match `^[a-zA-Z_][a-zA-Z0-9_]*$`.
+- **Synchronous Blocking Boundary**: MCP tool calls execute synchronously from the agent loop's perspective; long-running remote work should offload cleanly.
+- **Safety Policy Binding**: Under strict deny-by-default policies (`policy.deny_all()`), explicitly permit required servers via `policy.allow(mcp_server)`.
 
 ---
 
-## 7. Empirical Gap Analysis: Audited Workstation Failures vs Platform Capabilities
+## 7. Empirical Gap Analysis: Workstation Failures vs. Platform Capabilities
 
-Our empirical audit analyzed **722 developer sessions, 219,292 trajectory steps, 160,226 tool calls, and 4,062 tool failures** recorded on this workstation (`docs/taxonomy/workstation-audit-report.md`). 
+Audited telemetry baselines in [`../taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md) (`1,734` classified sessions / `389,329` steps / `178,747` tool calls / `4,132` (`2.31%`) tool errors / `3,008` (`1.73/sess`) interventions; live `2026-11-11` corpus: `2,875` sessions / `598,911` steps / `424,817` calls / `11,510` (`2.71%`) errors / `5,604` interventions) establish four foundational empirical dynamics (historical cohort breakdowns are archived in [`../archive/taxonomy/workstation-audit-report.md`](../archive/taxonomy/workstation-audit-report.md)):
 
-Below is the definitive gap analysis mapping these breakdowns against Antigravity platform capabilities, categorizing the exact architectural remedy for each failure mode.
+1. **Tool Execution Succeeds Yet Sessions Still Stall**: Across `3,275` audited interventions (`operator_interventions_summary.json`), only `26` (`0.79%`) followed a failed tool call; `99.21%` followed technically succeeding tools due to drift, context bloat, polling inflation, or verification gaps.
+2. **Session Burden Surges with Depth While Per-Call Precision Remains Flat**:
+   - **Per-call error rate remains stable** (`1.87%–2.80%`: `1.87%` at `11–50` steps vs `2.70%` at `200+` steps; refuting older assumptions of a `20x–40x` per-call syntax/edit precision collapse).
+   - **Cumulative session errors and interventions surge sharply** under depth and token saturation: `<20k` tokens averages `1.26` errors and `1.22` interventions/session vs `57.79` errors (**`45.9x`**) and `39.00` interventions (**`32.0x`**) at `200k+` tokens (`24.4x` errors and `14.0x` interventions at `200+` steps).
+3. **Output Compaction & Progressive Skill Disclosure**: Bounded `2 KB` head/tail output compaction saves **`39.69%`** of output characters across `43,884` calls (`0` failure violations) and `21.31%` of session context (`<0.25 ms` runtime). Progressive skill loading (`1,330` inline tokens for `16` skills) outperforms eager MCP tool exposure (`263,759` schema tokens across `5` servers).
+4. **Reasoning Effort Trade-off**: Heuristic trajectory grading (`reasoning_benchmark_results.json`) measured `46.8%` accuracy at `1,196.46s` (`gemini-3.8-flash-low`) vs `46.6%` at `47,287.14s` (`gemini-3.8-flash-high`) and `35.7%` at `1,162.47s` (`gemini-3.1-pro`).
 
-```
-+----------------------------------------------------------------------------------------------------+
-|                                    Empirical Failure Distribution                                  |
-|                                                                                                    |
-|  [run_command Failures: 98.4% (2,192 errors)]                                                     |
-|  * Exit Code 1 (1,544): Benign non-zero search / diff matches                                      |
-|  * Exit Code 2 (245): Shell syntax / option misuse                                                 |
-|  * Exit Code 127 (143): Binary not found in PATH                                                   |
-|  * Exit Code 255 (72): SSH remote node connection timeouts                                         |
-|                                                                                                    |
-|  [Tool Thrashing Loops: 5,773 occurrences]                                                         |
-|  * view_file (3,951): Consecutive redundant file reads                                            |
-|  * grep_search (625): Identical un-evolved query loops                                             |
-|  * manage_task (300): Polling loops ignoring reactive wakeups                                     |
-|  * run_command (360): Repeating identical failing commands                                         |
-|                                                                                                    |
-|  [The 200+ Step Context Cliff]                                                                     |
-|  * 1-50 steps: 0.35 errors, 0.04 interventions                                                     |
-|  * 200+ steps: 20.54 errors (20x surge), 16.32 operator interventions (40x surge)                 |
-|                                                                                                    |
-|  [Human Operator Interventions: 1,690 occurrences]                                                 |
-|  * Stop & Hold Fences (69): Operator catching runaway agents                                       |
-|  * Trajectory Drift (4): Correcting divergence from architectural plan                             |
-|  * Premature Victory Claims: Halting before verification tests run                                |
-+----------------------------------------------------------------------------------------------------+
-```
+### Gap Matrix: Empirical Failure Mode vs. Architectural Layer
 
----
-
-### Gap Matrix: Failure Mode vs. Architectural Layer
-
-| Empirical Failure Mode | Root Cause | Layer 1: Under-Utilized Native Feature | Layer 2: Lifecycle Hook Requirement (`hooks.json`) | Layer 3: MCP Tool / Skill Requirement |
+| Empirical Failure Mode | Root Cause | Layer 1: Native Platform Feature | Layer 2: Lifecycle Hook (`hooks.json`) | Layer 3: Skills / CLI Tooling |
 | :--- | :--- | :--- | :--- | :--- |
-| **Exit Code 1 (1,544 failures)** | Benign commands (`grep`, `diff`) exiting 1 on zero matches; agent treats as fatal error and panics. | Use CLI/SDK structured commands; avoid raw subshells. | **`PreToolUse` Hook (`command_safety`)**: Regex match command string, append `\|\| true` via `overwrite.CommandLine` on pattern-search pipelines. | Rule invariant: Document pattern matching non-zero exits as benign in `AGENTS.md`. |
-| **Exit Code 127 (143 failures)** | Missing binaries, uninstalled dependencies, broken `PATH`. | Configure `LocalAgentConfig(env={"PATH": ...})` or run `agy install`. | **`PreToolUse` Hook**: Extract binary executable token (`which <bin>`); deny with actionable error if missing. | Custom Setup Skill: Pre-flight environment verifier. |
-| **Exit Code 255 (72 failures)** | Remote Knot mesh calls hanging on offline nodes (laptop, ally, steamdeck) without timeouts. | Pass `-o ConnectTimeout=5` on all SSH commands. | **`PreToolUse` Hook**: Match `^ssh\s+` and enforce `-o ConnectTimeout=5 -o BatchMode=yes` via `overwrite`. | **Knot Mesh MCP Tool**: Offload remote execution to a dedicated MCP server with health checks. |
-| **Interactive TUI Hangs** | Commands launching `nano`, `vim`, or unpiped interactive CLIs, freezing session. | Use CLI `--dangerously-skip-permissions` and `RunCommandConfig(enable_sandbox=True)`. | **`PreToolUse` Hook (`command_safety`)**: Inspect executable; hard-deny interactive TUI tools. | Rule invariant: Enforce non-interactive flags (`PAGER=cat`, `--batch`). |
-| **`view_file` Thrashing (3,951 calls)** | Agent re-reading identical file ranges across consecutive steps without state retention. | Use progressive disclosure and persistent context. | **`PreToolUse` Hook (`anti_loop_hook`)**: Track signature `(name, args)`; after 2 consecutive identical calls, deny with message to consult context. | Skill caching guideline: Advise model to retain read buffers. |
-| **`manage_task` Polling (300 calls)** | Agent polling `Action='status'` in a loop instead of awaiting reactive notification. | **Native Reactive Wakeup**: Stop calling tools and await completion notification from runtime. | **`PreToolUse` Hook**: Deny `manage_task(Action='status')` if called consecutively without intervening task events. | Rule invariant: Forbid manual polling loops in `AGENTS.md`. |
-| **`grep_search` Thrashing (625 calls)** | Agent repeating identical failed query without broadening pattern or checking case. | Use ripgrep flags properly; leverage semantic code search. | **`PreToolUse` Hook (`anti_loop_hook`)**: Deny identical consecutive regex queries; force query evolution. | Skill: Multi-stage search runbooks. |
-| **The 200+ Step Context Cliff** | Massive tool outputs (10k+ lines of build logs) flooding context, causing 20x error surge. | Configure `CompactionConfig(token_threshold=50000)` and `BudgetConfig(max_total_tokens)`. | **`PostToolUse` Hook**: Truncate tool output buffers exceeding 50 lines / 4KB before recording to transcript. | Pipeline automation: Pipe commands through `head -n 50` or `wc -l`. |
-| **Premature Victory Claims** | Agent declaring completion without running tests or verifying exit codes. | Configure SDK `agent_behavior=INTERACTIVE` with mandatory approval gates. | **`Stop` Hook (`completion_fence`)**: Inspect session state; if verification test suite has not run and passed, return `decision="continue"`. | Skill: Verification and testing checklist runbook. |
-| **Stop & Hold Fences (69 operator halts)** | Operator forced to intervene manually to halt runaway destructive actions. | Apply restrictive `policy.workspace_only()` and `policy.confirm_run_command()`. | **`PreToolUse` Hook**: Intercept destructive patterns (`rm -rf /`, `mkfs`, `git reset --hard`) and enforce `force_ask`. | Rule invariant: High-risk confirmation gates. |
+| **Exit Code 1 Search Probing** | Benign `grep` / `diff` exiting 1 on empty match treated as failure. | Native search tools (`grep_search`). | **`PreToolUse` (`command-safety`)**: Rewrites standalone probes via `overwrite` with `\|\| [ $? -eq 1 ]`. | Rule invariant (`PSL-INV-002`). |
+| **Exit Code 127 Missing Binaries** | Non-login subshells missing user dotfiles / `.venv` Python. | `LocalAgentConfig(env=...)`. | **`PreToolUse` (`command-safety`)**: Injects user toolchain `PATH` shims + `uv` CPython >= 3.12 (`ADR-013`, `ADR-023`). | `agyis doctor --heal`. |
+| **Remote SSH Hangouts (Exit 255)** | Unreachable remote targets hanging raw SSH commands. | Short-lived multiplexed transports. | **`PreToolUse` (`command-safety`)**: Injects `-o ConnectTimeout=5 -o BatchMode=yes` (`ADR-023`). | **`agyis remote` (`ADR-027`)** + `remote-ops` / `mesh-ops` skills. |
+| **Interactive TUI Hangs** | Unpiped pagers or interactive editors (`vim`, `nano`, `less`). | Headless `--print` / `PAGER=cat`. | **`PreToolUse` (`command-safety`)**: Rewrites `PAGER=cat`, blocks interactive TUI binaries. | Non-interactive skill contracts. |
+| **Redundant File / Search Loops** | Consecutive unchanged `view_file`, `grep_search`, or `run_command` loops. | Structured subagent delegation (`<40k` ctx). | **`PreToolUse` (`anti-loop`)**: Blocks repeat identical tool calls; allows evolved queries. | Zero-Exploration Invariant. |
+| **Background Polling Inflation** | Polling async tasks or `.system_generated/{tasks,logs}/` files instead of stopping. | **Native Reactive Wakeup** (`<SYSTEM_MESSAGE>`). | **`PreToolUse` (`anti-loop`, Issue #41)**: Emits non-blocking **advisory allow** on `manage_task(Action='status')`; **Exit 2 deny** on repeated log-file polling. | Reactive Wait rule (`PSL-INV-004`, `ADR-032`). |
+| **Long-Context Saturation & Flood** | Unbounded stdout dumps pushing sessions toward `200k+` tokens (`45.9x` error burden). | `CompactionConfig`, `/compact`, checkpoint barriers. | **`PostToolUse` (`compactor`)** `2 KB` truncation + **`PreToolUse` (`token-proximity`)** / **`PreInvocation` (`pre-invocation`)** advisories (`180k`/`230k`). | `agyis checkpoint` + fresh subagents. |
+| **Premature Completion / Plan Drift** | Claiming done without tests or cleanroom spec verification, or mutating outside plan. | `/plan` mode + SDK review gates. | **`Stop` (`verification-fence`)** (`code_dirty` vs `spec_dirty`, 2-block valve) + **`PreToolUse` (`anti-drift`)**. | `agyis test` / `agyis verify --spec`. |
 
 ---
 
-## 8. The Three Architectural Buckets: Where Capabilities Belong
+## 8. Three-Tier Architectural Boundaries & Recommendations for `agyis-harness`
 
-To establish clean engineering boundaries in `agyis-harness`, platform responsibilities are cleanly bifurcated across three implementation tiers:
-
-```
-+----------------------------------------------------------------------------------------------------+
-|                                  Three-Tier Architecture Model                                     |
-|                                                                                                    |
-|  [Tier 1: Native Platform Primitives]                                                              |
-|  * Reactive Task Notification Wakeups (zero-polling concurrency)                                   |
-|  * Built-in OS Command Sandboxing (cgroups / namespaces)                                           |
-|  * Context Compaction Thresholds (CompactionConfig)                                                |
-|  * MCP Tool Allowlist/Denylist Filtering (context protection)                                      |
-|  * Structured NDJSON Streaming Protocol (--input-format stream-json)                                |
-|                                                                                                    |
-|  [Tier 2: Lifecycle Hooks Engine (hooks.json)]                                                     |
-|  * PreToolUse: Deterministic command safety, destructive pattern blocking                          |
-|  * PreToolUse: Shallow argument rewrite (overwrite) for PAGER=cat, timeouts, || true               |
-|  * PreToolUse: Anti-loop signature tracking (denying 3+ consecutive identical calls)                |
-|  * PostToolUse: Output truncation and log size governance                                          |
-|  * Stop: Trajectory completion gating (blocking exit until tests pass)                             |
-|                                                                                                    |
-|  [Tier 3: MCP Servers & Custom Skills]                                                             |
-|  * Knot Mesh MCP: Remote node hardware bridging, SSH pooling, failover                             |
-|  * Linda Tuplespace MCP: Out-of-band multi-agent blackboard coordination                            |
-|  * Audit Toolkit Skill: Telemetry analysis, failure classification, session reporting              |
-|  * Subagent Ladder Protocol: Staged multi-agent pipelines (Executioner -> Hammer -> Auditor)       |
-+----------------------------------------------------------------------------------------------------+
-```
-
-### Tier 1: Under-Utilized Native Platform Features
-These capabilities are implemented directly inside the Antigravity engine and require zero custom hook scripts—only proper configuration:
-1. **Reactive Event Wakeup**: Eliminates 300+ `manage_task` loops. Agents do not poll; they launch tasks and await reactive wakeups.
-2. **Context Compaction Governance**: Eliminates the 200+ step context cliff by setting `compaction_config=CompactionConfig(token_threshold=50000)` in SDK configurations.
-3. **MCP Tool Filtering**: Shrinks system prompt token overhead by declaring `enabled_tools` on each MCP server in `LocalAgentConfig` or `mcp_config.json`.
-4. **Non-Interactive Batch Automation**: Using `agy -p --effort high --dangerously-skip-permissions` ensures headless workflows execute without human hang gates.
-5. **Declarative 9-Level Safety Policies**: Enforcing `policy.workspace_only()` prevents stray modifications outside the repository root.
-
-### Tier 2: Lifecycle Hooks Responsibilities (`hooks.json`)
-Deterministic interception where probabilistic prompt steering is insufficient:
-1. **Pre-flight Argument Rewriting (`PreToolUse.overwrite`)**:
-   - Rewriting `git diff` to include `PAGER=cat`.
-   - Appending `|| true` to pattern searches prone to benign Exit Code 1.
-   - Injecting `-o ConnectTimeout=5` into SSH command strings.
-2. **Anti-Loop Circuit Breakers (`PreToolUse`)**:
-   - Caching tool call signatures `(name, args)`.
-   - Denying repetitive calls (threshold >= 3) to break model thrashing on `view_file` and `grep_search`.
-3. **Destructive Safety Gates (`PreToolUse`)**:
-   - Hard-blocking hazardous shell commands (`rm -rf /`, raw disk writes).
-   - Upgrading destructive operations to `"force_ask"`.
-4. **Context Flood Prevention (`PostToolUse`)**:
-   - Auditing output sizes of `run_command` and truncating context-exploding outputs.
-5. **Completion Fences (`Stop`)**:
-   - Gating trajectory termination by checking test pass records before allowing `"allow_stop"`.
-
-### Tier 3: MCP Servers & Custom Skills
-Complex, domain-specific state orchestration and procedural execution:
-1. **Hardware Mesh Remote Orchestration (Knot Mesh MCP)**: Encapsulates multi-node execution (Desktop Anchor, Laptop CUDA, Steam Deck) behind structured tools with built-in health checks and timeout recovery, eliminating fragile raw SSH terminal calls.
-2. **Distributed Agent Blackboard (Linda Tuplespace MCP)**: Provides tuple coordination (`out`, `in`, `rd`) for multi-agent workflows without context window pollution.
-3. **Audit & Diagnostics Toolkit (Skill)**: Mimes and classifies workstation telemetry, generating actionable failure modes and trajectory analytics.
-4. **High-Resolution Engineering Runbooks (Rules & Skills)**: Providing progressive procedural knowledge for complex refactoring, ladder workflows, and architectural reviews.
+1. **Tier 1 — Native Platform Primitives**:
+   - Rely on native reactive task wakeups, native OS sandboxing, `CompactionConfig` / `/compact`, native `/plan` / `/boost` / `/teamwork-preview` workflows, and `enabled_tools` MCP allowlists.
+2. **Tier 2 — Deterministic Lifecycle Hooks (`hooks.json`, `7` blocks / `8` checks)**:
+   - `command_safety_hook.py`: Shallow `overwrite` normalization (`PAGER=cat`, `|| [ $? -eq 1 ]`, `uv` CPython injection, user `PATH` shims, SSH timeouts) and destructive blocks.
+   - `anti_loop_hook.py`: Repeat call circuit breaker, Issue #41 non-blocking `manage_task(Action='status')` advisory allow, and Exit 2 log-polling deny.
+   - `output_compactor_hook.py`: Deterministic **`2 KB`** output compactor (`<0.25 ms`).
+   - `anti_drift_hook.py` & `completion_fence_hook.py`: Plan adherence, read-only auditor write fence, and decoupled `code_dirty` / `spec_dirty` stop gating.
+   - `token_proximity_guard.py` & `pre_invocation_hook.py`: `180k`/`230k` runway gauges, role pinning, and `.agents/artifacts/compaction_checkpoint_latest.md` / `cockpit_checkpoint.md` succession.
+3. **Tier 3 — Modular Skills, Agent Personas & Remote CLI**:
+   - Package **30** progressive-disclosure skills (`<24,576 B` cap, `>100 L` ToC) and **8** dual-mode agent personas (`agyis_architect`, `agyis_coordinator`, `agyis_investigator`, `agyis_planner`, `agyis_builder`, `agyis_reviewer`, `agyis_custodian`, `agyis_auditor`).
+   - Standardize remote execution through OpenSSH ControlMaster multiplexing via **`agyis remote`** (`ADR-027`) and `remote-ops` / `mesh-ops` skills, isolating network timeouts from context windows.
 
 ---
 
@@ -656,30 +540,10 @@ Complex, domain-specific state orchestration and procedural execution:
 | Feature / Dimension | Antigravity CLI (`agy`) | Antigravity 2.0 Desktop | Official Python SDK | Lifecycle Hooks (`hooks.json`) |
 | :--- | :--- | :--- | :--- | :--- |
 | **Primary Consumer** | Terminal developer, CI/CD, batch runners | GUI developer, pair programming | Services, custom agent harnesses, evaluators | Safety guards, linters, policy enforcement |
-| **Execution Modality** | Interactive TUI, Batch `-p`, NDJSON stream | Visual Electron app, Chat Canvas | Programmatic async context manager | Synchronous hook subprocesses (stdio) |
+| **Execution Modality** | Interactive TUI, Batch `-p`, NDJSON stream | Visual Electron app, Connect RPC, Canvas | Programmatic async context manager | Synchronous hook subprocesses (stdio) |
 | **Reasoning Control** | `--effort low\|medium\|high` | Global & Project Settings menu | Endpoint model options / budget configs | N/A (runs before/after inference) |
 | **Tool Execution Safety** | `--dangerously-skip-permissions`, `--sandbox` | Global/Project Tool Policy (`strict`, `sandbox`) | 9-level declarative policy hierarchy (`policy.*`) | `PreToolUse` decision: `allow`, `deny`, `ask`, `force_ask` |
-| **Tool Argument Modification**| None (flags only) | None | SDK wrapper functions | **`PreToolUse` shallow `overwrite`** |
-| **Context Management** | Native compaction | Visual tab separation, progressive artifacts | `CompactionConfig(token_threshold)` | `PostToolUse` output truncation |
-| **Task Concurrency** | Background daemon (`remote-control`) | `manage_task` pane + reactive wakeup bus | `asyncio` event loop + custom tasks | Can inspect task state via external scripts |
-| **Completion Fencing** | Exit code / schema validation | Manual operator prompt | Budget and stop hook delegates | **`Stop` hook `decision="continue"`** |
-
----
-
-## 10. Architectural Recommendations for `agyis-harness`
-
-Based on this surface mapping and empirical gap analysis, the `agyis-harness` project should adopt the following canonical architecture:
-
-1. **Standardize on `hooks.json` for Anti-Loop & Safety Invariants**:
-   - Maintain `harness/hooks/anti_loop_hook.py` targeting `view_file|grep_search|run_command|manage_task` to prevent the 5,773 audited loop calls.
-   - Maintain `harness/hooks/command_safety_hook.py` with `overwrite` rewriting to eliminate Exit Code 1 false-failures and Exit Code 255 SSH timeouts.
-   - Deploy `harness/hooks/completion_fence_hook.py` under the `Stop` event to eliminate premature victory claims without test execution.
-
-2. **Leverage Native Reactive Wakeups in Agent Rules**:
-   - Update `AGENTS.md` to strictly forbid polling `manage_task(Action='status')` in loops, documenting that the Antigravity engine resumes execution reactively.
-
-3. **Deploy the Python SDK for Benchmark Harnesses**:
-   - Utilize `LocalAgentConfig().eval()` with `CompactionConfig(token_threshold=50000)` and `RunCommandConfig(enable_sandbox=True)` for all automated regression evaluations.
-
-4. **Encapsulate Knot Mesh Execution Behind an MCP Server**:
-   - Transition all remote cluster commands from raw terminal SSH calls into a dedicated Stdio MCP server (`knot-mesh-mcp`), isolating connection timeouts and network retries from the agent context window.
+| **Tool Argument Modification** | Flags only | Flags / UI confirmation | SDK wrapper functions | **`PreToolUse` shallow `overwrite`** |
+| **Context Management** | Native compaction | `/compact`, visual tabs, progressive artifacts | `CompactionConfig(token_threshold)` | `PostToolUse` `2 KB` compaction + `180k`/`230k` gauges |
+| **Task Concurrency** | Background daemon (`remote-control`) | `manage_task` pane + reactive wakeup bus | `asyncio` event loop + custom tasks | Advisory allow on `manage_task`; deny `.system_generated/{tasks,logs}/` polling |
+| **Completion Fencing** | Exit code / JSON schema validation | Interactive feedback gates (`/plan`) | Budget and stop hook delegates | **`Stop` hook `decision="continue"` (2-block valve)** |

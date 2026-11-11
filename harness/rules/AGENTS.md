@@ -12,10 +12,10 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 ---
 
 ## 1. Explicit Project Command Dictionary (The Victory Pattern)
-*Derived from purrmission & sunshine-physio: explicit CLI palettes yield 10x lower human intervention rates:*
+*Derived from empirical CLI-first baseline repositories: explicit CLI palettes yield 10x lower human intervention rates:*
 
 ```bash
-# 🧪 Verification & Testing (Hermetic, 1,981 tests, clean dots)
+# 🧪 Verification & Testing (Hermetic, 1,993 tests, clean dots)
 ./agyis test                                   # Run complete project test suite (~65s suite, sub-second components)
 python3 -m harness.cli test                    # Run complete project test suite
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**

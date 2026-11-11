@@ -53,6 +53,7 @@ from harness.delivery.workspace import (
     TAGGED_BLOCK_PATTERN,
     extract_command_dictionary,
     format_command_dictionary,
+    resolve_skills_for_workspace,
 )
 
 
@@ -1142,6 +1143,140 @@ class TestWorkspaceLinkSanitizer(unittest.TestCase):
         content = migrated_skill.read_text(encoding="utf-8")
         self.assertNotIn(".agent/rules/r.md", content)
         self.assertIn(".agents/rules/r.md", content)
+
+
+class TestHarmonizeDecoupledRoleAndSubproject(unittest.TestCase):
+    """Hermetic unit tests for ADR-031B decoupled language/role/subproject resolution in harmonize."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.src = self.root / "source"
+        skills_src = self.src / "harness" / "skills"
+        for sk in (
+            "psl-stack-typescript",
+            "psl-test-node",
+            "psl-stack-python",
+            "psl-test-python",
+            "psl-stack-backend",
+            "db-ops",
+            "modern-web-guidance",
+            "psl-audit-toolkit",
+            "psl-stack-shell",
+            "psl-stack-systems",
+        ):
+            sk_dir = skills_src / sk
+            sk_dir.mkdir(parents=True, exist_ok=True)
+            (sk_dir / "SKILL.md").write_text(f"---\nname: {sk}\n---\n# {sk}\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_resolve_skills_for_workspace_decoupled_language_and_role(self) -> None:
+        ws = self.root / "ts-app"
+        ws.mkdir()
+        (ws / "package.json").write_text(json.dumps({"devDependencies": {"typescript": "^5.0.0"}}), encoding="utf-8")
+
+        ts_only = resolve_skills_for_workspace(ws, stack="typescript")
+        self.assertEqual(ts_only, ["psl-stack-typescript", "psl-test-node"])
+        self.assertNotIn("psl-stack-backend", ts_only)
+
+        ts_backend = resolve_skills_for_workspace(ws, stack="typescript", role="backend")
+        self.assertEqual(ts_backend, ["psl-stack-typescript", "psl-test-node", "psl-stack-backend", "db-ops"])
+
+        ts_frontend = resolve_skills_for_workspace(ws, stack="typescript", role="frontend")
+        self.assertEqual(ts_frontend, ["psl-stack-typescript", "psl-test-node", "modern-web-guidance"])
+        self.assertNotIn("psl-stack-backend", ts_frontend)
+
+        ts_cli = resolve_skills_for_workspace(ws, stack="typescript", role="cli")
+        self.assertEqual(ts_cli, ["psl-stack-typescript", "psl-test-node"])
+
+        # Backwards compatibility for legacy audit/all/generic & explicit skills override
+        self.assertEqual(resolve_skills_for_workspace(ws, stack="audit"), ["psl-audit-toolkit"])
+        all_skills = resolve_skills_for_workspace(ws, stack="all")
+        for expected in ("psl-stack-typescript", "psl-stack-python", "psl-stack-backend", "psl-audit-toolkit"):
+            self.assertIn(expected, all_skills)
+        self.assertEqual(resolve_skills_for_workspace(ws, stack="generic", role="backend"), ["psl-stack-backend", "db-ops"])
+        self.assertEqual(
+            resolve_skills_for_workspace(ws, stack="typescript", role="backend", skills=["psl-stack-shell"]),
+            ["psl-stack-shell"],
+        )
+
+    def test_resolve_skills_for_workspace_explicit_empty_skills_overrides_presets(self) -> None:
+        ws = self.root / "empty-skills-override"
+        ws.mkdir()
+        (ws / "package.json").write_text(json.dumps({"devDependencies": {"typescript": "^5.0.0"}}), encoding="utf-8")
+
+        self.assertEqual(resolve_skills_for_workspace(ws, stack="typescript", skills=[]), [])
+        self.assertEqual(resolve_skills_for_workspace(ws, role="backend", skills=[]), [])
+        self.assertEqual(
+            resolve_skills_for_workspace(ws, stack="typescript", role="backend", skills=[]),
+            [],
+        )
+        self.assertEqual(resolve_skills_for_workspace(ws, stack="all", role="fullstack", skills=[]), [])
+
+    def test_harmonize_workspace_decoupled_role_and_subproject_provisioning(self) -> None:
+        monorepo = self.root / "monorepo"
+        monorepo.mkdir()
+        (monorepo / "package.json").write_text(json.dumps({"workspaces": ["apps/*", "services/*"]}), encoding="utf-8")
+
+        web_dir = monorepo / "apps" / "web"
+        web_dir.mkdir(parents=True)
+        (web_dir / "package.json").write_text(json.dumps({"dependencies": {"react": "19.0.0", "vite": "6.0.0"}}), encoding="utf-8")
+
+        api_dir = monorepo / "services" / "api"
+        api_dir.mkdir(parents=True)
+        (api_dir / "pyproject.toml").write_text('[project]\ndependencies = ["fastapi"]\n', encoding="utf-8")
+
+        res_web = harmonize_workspace(monorepo, source_dir=self.src, subproject="apps/web")
+        self.assertTrue(res_web.success)
+        self.assertEqual(res_web.workspace_dir, web_dir.resolve())
+        self.assertEqual(set(res_web.skills_provisioned), {"psl-stack-typescript", "psl-test-node", "modern-web-guidance"})
+        self.assertNotIn("psl-stack-backend", res_web.skills_provisioned)
+        self.assertTrue((web_dir / ".agents" / "skills" / "modern-web-guidance" / "SKILL.md").is_file())
+        self.assertFalse((monorepo / ".agents" / "skills").exists())
+
+        res_api = harmonize_workspace(monorepo, source_dir=self.src, subproject="services/api", role="backend")
+        self.assertTrue(res_api.success)
+        self.assertEqual(res_api.workspace_dir, api_dir.resolve())
+        self.assertEqual(set(res_api.skills_provisioned), {"psl-stack-python", "psl-test-python", "psl-stack-backend", "db-ops"})
+
+        res_audit = harmonize_workspace(web_dir, source_dir=self.src, stack="audit")
+        self.assertTrue(res_audit.success)
+        self.assertEqual(res_audit.skills_provisioned, ["psl-audit-toolkit"])
+
+    def test_cli_harmonize_forwards_role_and_subproject(self) -> None:
+        monorepo = self.root / "cli_mono"
+        monorepo.mkdir()
+        (monorepo / "package.json").write_text(json.dumps({"workspaces": ["services/*", "tools/*"]}), encoding="utf-8")
+
+        api_dir = monorepo / "services" / "api"
+        api_dir.mkdir(parents=True)
+        (api_dir / "pyproject.toml").write_text('[project]\ndependencies = ["fastapi"]\n', encoding="utf-8")
+
+        cli_tool = monorepo / "tools" / "runner"
+        cli_tool.mkdir(parents=True)
+        (cli_tool / "package.json").write_text(json.dumps({"devDependencies": {"typescript": "^5.0.0"}}), encoding="utf-8")
+
+        buf_api = io.StringIO()
+        with patch("sys.stdout", buf_api):
+            rc_api = main(["harmonize", str(monorepo), "--subproject", "services/api", "--role", "backend", "--json"])
+        self.assertEqual(rc_api, 0)
+        payload_api = json.loads(buf_api.getvalue())
+        self.assertTrue(payload_api["success"])
+        self.assertEqual(payload_api["workspace_dir"], str(api_dir.resolve()))
+        for sk in ("psl-stack-python", "psl-test-python", "psl-stack-backend", "db-ops"):
+            self.assertIn(sk, payload_api["skills_provisioned"])
+
+        buf_cli = io.StringIO()
+        with patch("sys.stdout", buf_cli):
+            rc_cli = main(["harmonize", str(monorepo), "--subproject", "tools/runner", "--stack", "typescript", "--role", "cli", "--json"])
+        self.assertEqual(rc_cli, 0)
+        payload_cli = json.loads(buf_cli.getvalue())
+        self.assertTrue(payload_cli["success"])
+        self.assertIn("psl-stack-typescript", payload_cli["skills_provisioned"])
+        self.assertIn("psl-test-node", payload_cli["skills_provisioned"])
+        self.assertNotIn("psl-stack-backend", payload_cli["skills_provisioned"])
 
 
 if __name__ == "__main__":

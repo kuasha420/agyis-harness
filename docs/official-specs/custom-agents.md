@@ -134,8 +134,8 @@ In our empirical benchmark across multi-constraint deduction, Python mutable def
 - **Product Rule**: Default custom and specialist agents to `inherit` or `flash` for high-throughput operational velocity, reserving `pro` / high effort strictly for complex multi-file architectural planning.
 
 #### 3. Thinking Perseveration & Attention Sink Collapse
-Our cognitive trace deep-dive (`docs/taxonomy/cognitive-failure-taxonomy-deepdive.md`, analyzing 14,476 thinking traces across 348 sessions) demonstrated that under long context horizons (>1,000 steps), unpruned thinking steps collapse into repetitive attractors:
-- In session `8d6608ca`, **85.5% (1,829 steps)** of all thinking traces perseverated on the exact same generic thought mantra (*"Prioritizing Tool Usage..."*).
+Our cognitive trace deep-dive ([`docs/archive/taxonomy/cognitive-failure-taxonomy-deepdive.md`](../archive/taxonomy/cognitive-failure-taxonomy-deepdive.md), reconciled in [`docs/taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md) across `N=348` traces / `24,163` thinking blocks) demonstrated that under long context horizons (`>1,000` steps), unpruned thinking steps collapse into repetitive attractors:
+- In session `8d6608ca`, **85.5% (`1,829 / 2,138` thinking traces)** perseverated on the exact same generic mantra (*"Prioritizing Tool Usage..."*).
 - High thinking token generation without periodic context resets accelerates this attention sink collapse.
 - Custom entrypoint agents directly prevent this failure mode by resetting the conversation context to zero for each specialized task phase.
 
@@ -186,7 +186,7 @@ async with Agent(config) as agent:
 **SDK Benefits for `agyis-harness`:**
 1. **Headless Benchmarking & CI/CD**: Run regression test suites where agents autonomously execute tickets and verify with `python3 -m harness.cli test`.
 2. **Automated Subagent Evaluation**: Stress-test custom agent personas against failure taxonomies without requiring manual GUI interactions.
-3. **Programmatic Orchestration**: Spin up transient agent fleets on Knot hardware nodes (Desktop Anchor, Laptop CUDA worker) using native Python bindings.
+3. **Programmatic Orchestration**: Spin up transient agent fleets across local worktrees or remote mesh hosts using native Python bindings.
 
 ---
 
@@ -194,9 +194,9 @@ async with Agent(config) as agent:
 
 ### Problem: The Monolithic Context Degradation Cliff
 
-Our empirical telemetry laboratory (`data/telemetry.db`, analyzing 30 titan sessions and >1,000 steps) established the **Context Cliff Invariant**:
-- Sessions `<50 steps` / `<50k tokens` maintain a clean **0.8 errors/session**.
-- Sessions `>200 steps` / `>200k tokens` experience a **20x error spike**, severe cognitive drift, and hallucinated bash commands.
+Our empirical telemetry corpus (`docs/taxonomy/empirical-baselines.md`, spanning `N=1,731` token-tracked and `N=1,734` depth-classified sessions) established the **Context Cliff Invariant**:
+- Sessions below `50k tokens` maintain tight reliability (`1.26–2.26` errors/session; `0.26` errors/session at `11–50` steps).
+- Beyond `200k tokens` / `200+ steps`, even though per-call failure rates stay roughly flat (`1.87%–2.80%`), cumulative exposure plus late-stage loop/steering collapse triggers `57.79` errors/session (**`45.9x`**) and `39.00` interventions/session (**`32.0x`**) (`24.4x` errors / `14.0x` interventions past `200+` steps).
 
 When a single "Main Agent" attempts to handle the entire lifecycle—brainstorming, architecture planning, bulk code modification, test debugging, and performance optimization—context bloat is inevitable.
 
@@ -262,7 +262,7 @@ harness/agents/
 - **Capability Bundle**: `verifier` (`read: true`, `write: false`, `execute: true`, `subagents: false`)
 - **Key Invariants**:
   - **Read-Only Audit Isolation (`PSL-INV-008`)**: Enforces `check_auditor_write_block` so verification cannot mutate product code or tests.
-  - **Verification Gate (`ADR-015`)**: Validates sub-second component benchmarks (`<1.0s`) and complete suite pass (`~65s` across 1,981 tests).
+  - **Verification Gate (`ADR-015`)**: Validates sub-second component benchmarks (`<1.0s`) and full hermetic suite pass (`agyis test` across all `tests/test_*.py` modules).
 <!-- slide -->
 #### 4. Flight Coordinator (`agyis_coordinator.md`)
 - **Archetype**: `coordinator`
@@ -299,21 +299,27 @@ python3 -m harness.cli agents validate [target_name]
 python3 -m harness.cli agents rehydrate [target_name] --id <conv_id>
 ```
 
-### Dynamic Workspace-Aware Context Injection
+### Dynamic Workspace-Aware Context Injection & Safety Contracts
 
 When scaffolding an agent via `agyis agents create`, the scaffolding engine binds workspace context directly into the generated agent definition:
 
 1. **Active Runtimes & Matrix**: Injects detected stack tooling, test runners (`pytest`, `unittest`), and workspace verification commands from `matrix.json`.
 2. **Universal Invariants & ADRs**: Binds the agent to workspace invariants (`AGENTS.md`, `PSL-INV-001`..`PSL-INV-011`, ADR-012, ADR-013, ADR-015).
-3. **Tool Catalog Safety (17-Tool Validation)**: Validates frontmatter `tools` / `allowed_tools` against `ANTIGRAVITY_PLATFORM_TOOLS` (`17` canonical platform tools) in `harness/subagents/spec.py` to prevent platform tool-schema hangs.
+3. **20-Tool Catalog Ceiling (`ANTIGRAVITY_PLATFORM_TOOLS`, Platform Hanging Bug)**: Frontmatter `tools` / `allowed_tools` are validated against the **17** static built-in platform primitives in `ANTIGRAVITY_PLATFORM_TOOLS` (`harness/subagents/spec.py`: `view_file`, `list_dir`, `grep_search`, `find_by_name`, `write_to_file`, `replace_file_content`, `run_command`, `manage_task`, `invoke_subagent`, `send_message`, `manage_subagents`, `define_subagent`, `schedule`, `generate_image`, `read_url_content`, `search_web`, `ask_question`). Setting `permissions.mcp: true` and `inheritCustomizations: true` binds up to **3** dynamic MCP primitives (`call_mcp_tool`, `list_resources`, `read_resource`), establishing a strict **20-tool safe ceiling**; uncatalogued static tool names trigger platform schema lookup hangs (**Platform Hanging Bug**).
+4. **Capability Bundles Matrix (`CAPABILITY_BUNDLES`)**: `harness/subagents/spec.py` defines **7** canonical capability bundles (5 exposed directly on `agyis agents create --bundle`):
+   - `read_only` (`read: true`, `write: false`, `execute: false`, `subagents: false`)
+   - `verifier` (`read_only` + `run_command`, `manage_task`; `execute: true`, `write: false`)
+   - `adversarial_verifier` (`verifier` + `write_to_file`, `replace_file_content` for test oracles/fuzzers)
+   - `builder` (`verifier` + `write_to_file`, `replace_file_content`)
+   - `investigator` (`verifier` + `write_to_file`, `replace_file_content` for scratch reproductions)
+   - `orchestrator` (`read_only` + `invoke_subagent`, `manage_subagents`, `manage_task`, `ask_question`; `subagents: true`)
+   - `full` (all platform tools + `permissions.mcp: true`, `enable_write_tools: true`)
 
 ---
 
-## 6. Deterministic Guardrails via Lifecycle Hooks
+## 6. Deterministic Guardrails, Role Pinning & Stage Contracts
 
-The biggest risk with custom agents in raw LLM setups is **policy drift** (e.g., a "read-only" reviewer hallucinating an edit command or an "auditor" rewriting tests).
-
-Because `agyis-harness` features a built-in lifecycle hook dispatcher (`harness/hooks/`), we enforce mathematical safety fences at the runtime level regardless of what the model attempts:
+The primary operational risk in multi-agent setups is **policy drift** (e.g., a read-only reviewer issuing file edits or an auditor rewriting tests). `agyis-harness` enforces deterministic boundaries via frontmatter validation, typed stage-role anchoring, and lifecycle hook fences (`harness/hooks/`):
 
 ```mermaid
 sequenceDiagram
@@ -333,15 +339,41 @@ sequenceDiagram
     Agent->>Agent: Recovers cleanly; reports verification findings without mutating code
 ```
 
+### Explicit Stage-Role Anchoring (`.agents/session_role.json`)
+`harness/subagents/stage_role.py` anchors the active ladder role inside `.agents/session_role.json`, validated by `validate_stage_role_schema()` (Draft `2020-12`) requiring exact keys `{"role", "specialist_agent", "stage", "stage_name", "task_id"}`:
+
+| Stage (`stage`) | Stage Name (`stage_name`) | Mainline Role (`role`) | `pre_invocation_hook.py` Prompt Anchor |
+| :---: | :--- | :--- | :--- |
+| `0` | `COORDINATION` | `flight_director` | `ROLE_FLIGHT_DIRECTOR` |
+| `1` | `EXECUTION` | `deep_execution` | `ROLE_DEEP_EXECUTION` |
+| `2` | `CODE_REVIEW` | `forensic_auditor` | `ROLE_FORENSIC_AUDITOR` |
+| `3` | `GIT_CUSTODY` | `deep_execution` | `ROLE_DEEP_EXECUTION` |
+| `4` | `QA_AUDIT` | `forensic_auditor` | `ROLE_FORENSIC_AUDITOR` |
+
+### 9 Role-Pinning Prompts Summary Matrix
+Every platform persona pins explicit capability and boundary mandates (`cockpit_director` plus the 8 package-delivered specialists):
+
+| Persona Identifier | Archetype / Role | Capability Bundle | Hard Cognitive Pinning Invariant |
+| :--- | :--- | :--- | :--- |
+| `cockpit_director` | Flight Director (`flight_director`) | `orchestrator` | Zero direct code thrash; decompose milestones, run `implementation_plan.md` gates, dispatch specialists. |
+| `agyis_coordinator` | Ladder Lead (`coordinator`) | `orchestrator` | Pure orchestration (`Stage 0`); serialize transitions and await reactive wakeup (zero status polling). |
+| `agyis_planner` | Structural Architect (`planner`) | `read_only` | Plan-before-code only; inspect boundaries and author interactive specs without speculative mutations. |
+| `agyis_investigator` | Forensic RCA (`investigator`) | `investigator` | Read-only on production code; isolate reproductions in `scratch/` before proposing fixes. |
+| `agyis_builder` | Deep Executioner (`builder`) | `builder` | Single contiguous edits (`replace_file_content`); strict plan adherence; self-verify locally. |
+| `agyis_reviewer` | Gate 1 Hammer (`reviewer`) | `read_only` | Adversarial delta audit against `PSL-INV-001`..`PSL-INV-011` and cleanroom criteria; zero mutations. |
+| `agyis_custodian` | Git Custodian (`custodian`) | `verifier` | DRY staging audit, AC5 scratch filtering, atomic HEAD commits; never edits product features. |
+| `agyis_auditor` | Gate 2 Victory (`auditor`) | `verifier` | Strictly verification-only (`check_auditor_write_block`); execute native suites and certify HEAD. |
+| `agyis_architect` | Systems Hybrid (`architect`) | `full` | Cross-module architecture overhaul, boundary refactoring, and subagent worktree synthesis. |
+
 ---
 
 ## 7. Production Architecture & Operational Lifecycle
 
 1. **Package-Delivered Personas (`harness/agents/` & `.agents/agents/`)**:
-   - All 8 specialist agents (`agyis_architect`, `agyis_coordinator`, `agyis_investigator`, `agyis_planner`, `agyis_builder`, `agyis_reviewer`, `agyis_custodian`, `agyis_auditor`) ship with `subagent: true` and `mainAgent: true` for dual-mode UI and `invoke_subagent` discovery.
-   - `agyis agents --sync` keeps workspace `.agents/agents/` byte-identical with `harness/agents/`.
+   - All **8** specialist agents (`agyis_architect`, `agyis_coordinator`, `agyis_investigator`, `agyis_planner`, `agyis_builder`, `agyis_reviewer`, `agyis_custodian`, `agyis_auditor`) ship with `subagent: true` and `mainAgent: true` for dual-mode UI and `invoke_subagent` discovery.
+   - `agyis agents --sync` keeps workspace `.agents/agents/` synchronized with `harness/agents/`.
 2. **Validated Scaffolding & Bundles (`harness/commands/agents.py` & `harness/subagents/spec.py`)**:
-   - `agyis agents create` maps the 8 `AgentArchetype` roles and 5 capability bundles (`read_only`, `verifier`, `builder`, `orchestrator`, `full`).
-   - `agyis agents validate` enforces frontmatter validity, `17`-tool `ANTIGRAVITY_PLATFORM_TOOLS` compliance, and anti-hang protections.
+   - `agyis agents create` maps the 8 `AgentArchetype` roles and CLI capability bundles (`read_only`, `verifier`, `builder`, `orchestrator`, `full`) backed by the 7 internal `CAPABILITY_BUNDLES`.
+   - `agyis agents validate` enforces frontmatter validity, `ANTIGRAVITY_PLATFORM_TOOLS` compliance (`17` static + `3` dynamic MCP = `20` max), and anti-hang protections.
 3. **Telemetry Attribution & Context Runway**:
-   - Session metadata tracks the active entrypoint persona (`session.agent_persona = "agyis_planner"`), enabling telemetry attribution (`agyis audit`) and sub-millisecond context health checks (`agyis subagents`).
+   - Session metadata tracks the active entrypoint persona and `.agents/session_role.json` anchor, enabling telemetry attribution (`agyis audit`) and sub-millisecond context health checks (`agyis subagents`).

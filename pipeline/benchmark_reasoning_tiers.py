@@ -21,7 +21,7 @@ Calculates:
 
 Outputs:
 - data/reasoning_benchmark_results.json
-- docs/taxonomy/reasoning-tier-benchmark-report.md
+- docs/archive/taxonomy/reasoning-tier-benchmark-report.md
 """
 
 from __future__ import annotations
@@ -180,7 +180,7 @@ def evaluate_reasoning_tiers(
     report_path = (
         Path(output_report)
         if output_report
-        else Path("docs/taxonomy/reasoning-tier-benchmark-report.md")
+        else Path("docs/archive/taxonomy/reasoning-tier-benchmark-report.md")
     )
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_md = generate_benchmark_report(results)
@@ -270,7 +270,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--output-json", default="data/reasoning_benchmark_results.json", help="Path to write JSON results")
     parser.add_argument(
         "--output-report",
-        default="docs/taxonomy/reasoning-tier-benchmark-report.md",
+        default="docs/archive/taxonomy/reasoning-tier-benchmark-report.md",
         help="Path to write Markdown benchmark report",
     )
     args = parser.parse_args(argv)

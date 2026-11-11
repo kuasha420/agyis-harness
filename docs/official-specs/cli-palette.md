@@ -3,7 +3,7 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Official Specification: Consolidated 27-Command CLI Palette
+# Official Specification: Consolidated 28-Subparser CLI Palette
 
 **Document**: Canonical CLI Subcommand Palette & Reference Guide  
 **Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
@@ -16,10 +16,10 @@
 
 ## 1. Executive Overview
 
-The unified developer CLI (`agyis` or `python3 -m harness.cli`, with backward-compatible alias `psl`) exposes 27 top-level subcommands (plus canonical aliases) implemented cleanly across `harness/commands/`, `harness/delivery/`, `harness/subagents/`, `harness/remote/`, and `harness/telemetry/`. In accordance with ADR-014 (Product vs. Project Bifurcation), all core CLI commands execute hermetically with zero mandatory dependencies on external third-party Python packages.
+The unified developer CLI (`agyis` or `python3 -m harness.cli`, with backward-compatible alias `psl`) registers **28 top-level subparsers** (`router` and `ladder` registered as sibling subparsers; `changelog` carries parser alias `changelogs`) across `harness/commands/`, `harness/delivery/`, `harness/subagents/`, `harness/remote/`, and `harness/telemetry/`. Per ADR-014 (Product vs. Project Bifurcation), core product CLI commands execute hermetically with zero mandatory third-party Python dependencies.
 
 > [!NOTE]
-> **CLI Nomenclature & Deprecation Lifecycle**: `agyis` is the primary executable. The legacy command `psl` is maintained as a backward-compatible alias with an active deprecation lifecycle (emitting `DeprecationWarning: 'psl' is deprecated and will be removed in 3 months. Use 'agyis' instead.` to `stderr`).
+> **CLI Nomenclature & Deprecation Lifecycle**: `agyis` is the primary executable. The legacy command `psl` is preserved as a backward-compatible alias (`DeprecationWarning: 'psl' is deprecated and will be removed in 3 months. Use 'agyis' instead.` on `stderr`).
 
 ```text
 agyis [-h] [-v]
@@ -28,10 +28,10 @@ agyis [-h] [-v]
   ├── test          Run hermetic test suites with diff-aware filtering & benchmark timing
   ├── audit         Run empirical telemetry laboratory extraction, certification & AFF audit
   ├── rules         Audit, deduplicate, and harmonize global & workspace agent rule files
-  ├── skills        List, inspect, synchronize, and deduplicate modular skills
-  ├── agents        Catalog, inspect, create, validate, and rehydrate specialist subagents
+  ├── skills        List, inspect, synchronize, and deduplicate modular product skills (30)
+  ├── agents        Catalog, inspect, create, validate, and rehydrate specialist subagents (8)
   ├── subagents     List active subagents, liveness status, and live context health gauges
-  ├── status        Print harness health, active hooks, attention horizon & telemetry summary
+  ├── status        Print harness health, active hooks (7 blocks / 8 checks), horizon & telemetry
   ├── remote        Remote agentic execution, SSH multiplexing & cloud/mesh triage (ADR-027)
   ├── auth          Manage GitHub organization authentication for central hub sync
   ├── sync          Bi-directional telemetry sync and native background systemd daemon (ADR-030)
@@ -46,7 +46,8 @@ agyis [-h] [-v]
   ├── changelog     Generate, update, or backfill Keep-a-Changelog entries (alias: changelogs)
   ├── checkpoint    Carrier-grade pre-compaction state capture & session succession (ADR-031A, ADR-033)
   ├── cockpit       Cockpit Flight Director pairing dashboard & 12-workflow router (ADR-031A)
-  ├── router        Dynamic subagent router across canonical workflows (alias: ladder)
+  ├── router        Dynamic subagent router across canonical workflows
+  ├── ladder        Sibling subparser alias for `router` across canonical workflows
   ├── clean         Multi-branch workspace hygiene, worktree pruning & build artifact removal (ADR-031A, ADR-031B)
   ├── re            Cleanroom reverse engineering toolsuite & Ghidra acceleration (ADR-028, ADR-034)
   └── ext           Extensible workspace CLI command runner & scaffolding suite (ADR-034)
@@ -58,7 +59,7 @@ agyis [-h] [-v]
 
 ### 1. `doctor`
 * **Syntax**: `agyis doctor [--matrix <path>] [--heal] [--json] [--experimental-rea] [--re] [--anti-synthetic] [--test-path <path>]`
-* **Purpose**: Audits the host environment against the 3-tier runtime compatibility matrix ([matrix.json](../../harness/runtime/matrix.json)):
+* **Purpose**: Audits the host environment against the 3-tier runtime compatibility matrix ([matrix.json](../../harness/runtime/matrix.json)) plus active `hooks.json` registration (`7` hook blocks / `8` verified hook runner checks):
   - **Tier 1 (Languages/Packaging)**: Python >= 3.12 (PEP 701 f-strings), Node >= 20, `uv`, `pnpm`.
   - **Tier 2 (Core SWE CLI)**: `git >= 2.38`, `gh >= 2.30`, `ripgrep >= 13.0`, `fd >= 8.7`.
   - **Tier 3 (Mesh Host)**: `ssh >= 8.9`, `knot >= 1.0`.
@@ -68,7 +69,7 @@ agyis [-h] [-v]
   - `--heal`: Executes safe zero-sudo user-space auto-healing via `uv` (provisions certified CPython >= 3.12).
   - `--experimental-rea`: Audits Reverse Engineer Anything (REA >= 6.0.0), MCP server registration, dynamic JDK 21+ discovery ladder, Ghidra 12.1+ headless analyzer, and Hopper display socket contracts.
   - `--re`: Audits reverse engineering & dirtyroom forensic toolchain (`ghidra`, `objdump`, `tshark`, `ydotool`).
-  - `--anti-synthetic`: Audits test files for synthetic, tautological, and fake test smells (Epic #51 R1).
+  - `--anti-synthetic`: Audits test files for synthetic, tautological, and fake test smells.
   - `--test-path <path>`: Target directory or specific test file to audit (defaults to workspace test suites).
   - `--json`: Emits complete diagnostic audit report in structured JSON format.
 * **Exit Codes**: `0` on clean environment or successful auto-heal; `1` if missing/outdated runtimes remain.
@@ -79,16 +80,16 @@ agyis [-h] [-v]
 * **Accepted Hook Names & Aliases**:
   - `command-safety` (alias: `safety`)
   - `anti-loop` (alias: `loop`)
-  - `output-compactor` (alias: `compactor`)
-  - `verification-fence` (aliases: `fence`, `stop-fence`, `stop`, `completion-fence`)
+  - `output-compactor` / `compactor`
+  - `verification-fence` / `post-verification-fence` (aliases: `fence`, `stop-fence`, `stop`, `completion-fence`, `post-fence`)
   - `anti-drift` (aliases: `drift`, `anti_drift`)
   - `token-proximity` (aliases: `token-proximity-guard`, `token`, `token_proximity_guard`)
   - `pre-invocation` (aliases: `preinvocation`, `compaction-advisory`, `compaction_advisory`, `compaction`, `advisory`)
-* **Behavior**: Delegates to `harness.hooks.runner.run_hook()`, providing fail-open deadlock protection (`{"decision": "allow"}` or `{}` / `{"injectSteps": []}`).
+* **Behavior**: Delegates to `harness.hooks.runner.run_hook()`, providing fail-open deadlock protection (`{"decision": "allow"}`, `{}`, or `{"injectSteps": []}`).
 
 ### 3. `test`
 * **Syntax**: `agyis test [-v] [-s <dir>] [--diff] [--branch <ref>] [--affected] [--pkg <name>] [--full] [--harmonize] [--dry-run] [--mutation] [--json]`
-* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across 1,981 tests in ~65s, while targeted/component modules satisfy the `<1.0s` sub-second benchmark invariant) and clears verification fence flags on success.
+* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **77** `tests/test_*.py` modules, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant) and clears verification fence flags on success.
 * **Flags**:
   - `-v`, `--verbose`: Enables detailed individual test case reporting.
   - `-s`, `--start-dir <path>`: Directory containing test suites (defaults to `tests/`).
@@ -236,7 +237,7 @@ agyis [-h] [-v]
   - `--role`, `-r`: Architectural role preset (`backend`, `frontend`, `fullstack`, `cli`, `library`, `mobile`, `desktop_gui`, `media`, `audio`, `infra`).
   - `--skills`: Comma-separated list of explicit skills to provision (overrides preset inference).
   - `--subproject`: Scoped subproject relative path for monorepos (e.g. `services/billing`).
-  - `--upstream-remote`: Explicit upstream canonical remote name (e.g. `upstream`, `canonical`, `purrfectsoft`).
+  - `--upstream-remote`: Explicit upstream canonical remote name (e.g. `upstream`, `canonical`, `<upstream-remote>`).
   - `--base-branch`: Explicit base branch to target (default: auto-detected default/active branch).
   - `--create-branch [name]`: Dedicated onboarding branch isolation (defaults to `chore/agyis-harness-onboarding`).
   - `--allow-dirty`: Proceed on a dirty tree by automatically exporting `.agents/artifacts/wip-safety-pre-onboard.patch`.
@@ -336,11 +337,15 @@ agyis [-h] [-v]
   - `route <A-L|alias> [--task-id <id>]`: Outputs structured dispatch briefing and `psl_stage_transition_payload.json` template for the 12 canonical routing workflows.
   - `verify [--allow-dirty]`: Audits the active pairing session against the 5 flight director invariants.
 
-### 24. `router` (Alias: `ladder`)
-* **Syntax**: `agyis router [workflow] [--task-id <id>] [-w|--workspace <path>] [--json]` / `agyis ladder [workflow] [--task-id <id>] [-w|--workspace <path>] [--json]`
-* **Purpose**: Dynamic subagent router and execution pipeline dispatching specialized agent ladders (`Investigator -> Planner -> Builder -> Reviewer -> Custodian -> Auditor`).
+### 24. `router`
+* **Syntax**: `agyis router [workflow] [--task-id <id>] [-w|--workspace <path>] [--json]`
+* **Purpose**: Dynamic subagent router dispatching specialized agent pipelines (`Investigator -> Planner -> Builder -> Reviewer -> Custodian -> Auditor`) across the 12 canonical workflows.
 
-### 25. `clean`
+### 25. `ladder`
+* **Syntax**: `agyis ladder [workflow] [--task-id <id>] [-w|--workspace <path>] [--json]`
+* **Purpose**: Backwards-compatible sibling top-level subparser aliasing `router` across the 12 canonical workflows.
+
+### 26. `clean`
 * **Syntax**: `agyis clean [--checkpoints] [--worktrees] [--branches] [--scratch] [--dist] [--all] [--retention <N>] [--scratch-hours <H>] [--dry-run] [-w|--workspace <path>] [--json]`
 * **Purpose**: Multi-branch workspace hygiene, orphaned git worktree pruning, merged ephemeral branch cleanup, checkpoint retention, scratchpad expiry, and build artifact removal (ADR-031A, ADR-031B).
 * **Flags**:
@@ -349,7 +354,7 @@ agyis [-h] [-v]
   - `--retention <N>` / `--scratch-hours <H>`: Checkpoint retention count (default `5`) and scratchpad age threshold in hours (default `24.0`).
   - `--dry-run`, `-w|--workspace`, `--json`: Preview mode, workspace root override, and JSON report.
 
-### 26. `re`
+### 27. `re`
 * **Syntax**: `agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs} [args]`
 * **Purpose**: Cleanroom reverse engineering toolsuite and Ghidra acceleration engine (ADR-028, ADR-034, PSL-INV-009).
 * **Subcommands**:
@@ -363,7 +368,7 @@ agyis [-h] [-v]
   - `disasm <target> [--binary <name>] [--bytes <N>] [--limit <N>]`: Disassembles instructions at a virtual address or function name via native `objdump`.
   - `xrefs <target> [--binary <name>]`: Finds cross-references to a hexadecimal virtual address (`0x...`).
 
-### 27. `ext`
+### 28. `ext`
 * **Syntax**: `agyis ext {list,run,init} [args]`
 * **Purpose**: Extensible workspace CLI command runner and management suite (ADR-034).
 * **Subcommands**:
@@ -377,12 +382,12 @@ agyis [-h] [-v]
 To verify the CLI palette programmatically:
 
 ```bash
-# Verify all 27 commands are registered and discoverable:
+# Verify all 28 top-level subparsers (router and ladder separate subparsers; changelog aliases changelogs) are registered:
 agyis --help
 # or: python3 -m harness.cli --help
 
 # Verify individual subcommand help dispatch:
-for cmd in doctor hook test audit rules skills agents subagents status remote auth sync init harmonize onboard install uninstall verify gui release-notes changelog checkpoint cockpit router clean re ext; do
+for cmd in doctor hook test audit rules skills agents subagents status remote auth sync init harmonize onboard install uninstall verify gui release-notes changelog checkpoint cockpit router ladder clean re ext; do
     agyis "$cmd" --help > /dev/null
 done
 ```

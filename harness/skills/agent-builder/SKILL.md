@@ -14,9 +14,16 @@ description: >-
 
 This skill codifies the protocol for authoring, scaffolding, and validating custom codebase-aware and workspace-aware specialist subagents within the PSL Subagent Ladder architecture.
 
+## Table of Contents
+1. [Triggers and When to Use](#1-triggers-and-when-to-use)
+2. [Automated Workspace Scanning Runbook](#2-automated-workspace-scanning-runbook)
+3. [Verified Capability Bundles](#3-verified-capability-bundles)
+4. [CLI Creation and Validation Gate](#4-cli-creation-and-validation-gate)
+5. [UI Activation and Platform Behaviors](#5-ui-activation-and-platform-behaviors)
+
 ---
 
-## 1. Triggers & When to Use
+## 1. Triggers and When to Use
 Invoke this protocol when:
 1. Creating a new specialist subagent persona for a project or global workspace.
 2. Scoping toolgroup permissions for a role (e.g. read-only auditor, verifier, swarm lead, executioner).
@@ -60,7 +67,7 @@ To prevent session freezes and maintain strict toolgroup scoping, custom agents 
 
 ---
 
-## 4. CLI Creation & Validation Gate
+## 4. CLI Creation and Validation Gate
 
 ### Scaffold a New Agent
 ```bash
@@ -99,7 +106,7 @@ agyis agents --sync
 
 ---
 
-## 5. UI Activation & Platform Behaviors
+## 5. UI Activation and Platform Behaviors
 
 1. **Native `@<subagent>` Prompt Syntax (Antigravity v1.2.9+)**:
    - Subagents can be invoked directly inside any prompt turn using native `@<agent_name>` inline syntax (e.g. `@agyis_builder`, `@agyis_reviewer`, `@agyis_architect`).

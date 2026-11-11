@@ -150,14 +150,31 @@ def discover_workspace_commands(
     return commands
 
 
+DEFAULT_EXTENSION_TIMEOUT = 300.0
+
+
 def execute_extension_command(
     cmd: ExtensionCommand,
     args: List[str],
+    timeout: Optional[float] = DEFAULT_EXTENSION_TIMEOUT,
 ) -> int:
-    """Executes a discovered workspace extension command cleanly."""
+    """Executes a discovered workspace extension command cleanly with ADR-034 isolation."""
+    from harness import __version__ as agyis_version
+
     env = os.environ.copy()
-    env["AGYIS_WORKSPACE"] = str(cmd.workspace_root)
+    workspace_str = str(cmd.workspace_root)
+    env["AGYIS_WORKSPACE"] = workspace_str
     env["AGYIS_EXTENSION_COMMAND"] = cmd.name
+    env["WORKSPACE_ROOT"] = workspace_str
+    env["AGYIS_VERSION"] = agyis_version
+
+    harness_pkg_root = str(Path(__file__).resolve().parent.parent.parent)
+    existing_pp = env.get("PYTHONPATH", "")
+    pp_parts = [p for p in existing_pp.split(os.pathsep) if p] if existing_pp else []
+    for candidate_path in (workspace_str, harness_pkg_root):
+        if candidate_path not in pp_parts:
+            pp_parts.append(candidate_path)
+    env["PYTHONPATH"] = os.pathsep.join(pp_parts)
 
     if cmd.command_type == "python":
         exec_args = [sys.executable, str(cmd.entrypoint)] + args
@@ -167,8 +184,16 @@ def execute_extension_command(
         exec_args = [str(cmd.entrypoint)] + args
 
     try:
-        proc = subprocess.run(exec_args, env=env, check=False)
+        proc = subprocess.run(exec_args, env=env, timeout=timeout, check=False)
+        if proc.returncode < 0:
+            return 128 + (-proc.returncode)
         return proc.returncode
+    except subprocess.TimeoutExpired:
+        print(
+            f"[!] Extension command '{cmd.name}' timed out after {timeout}s",
+            file=sys.stderr,
+        )
+        return 124
     except Exception as e:
         print(f"[!] Error executing extension command '{cmd.name}': {e}", file=sys.stderr)
         return 1

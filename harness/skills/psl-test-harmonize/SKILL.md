@@ -16,6 +16,15 @@ description: >-
 
 This skill codifies the operational protocol for inspecting, auditing, and harmonizing test runners and project manifests into the **Diff-Aware Affected Testing Architecture** (`agyis test --harmonize`). It eliminates synthetic tautological verification (e.g. 1,150 tests passing with 0% UI mounting) and equips workspaces with tiered test dispatch capabilities.
 
+## Table of Contents
+1. [When to Use](#1-when-to-use)
+2. [Safe Dual-Mode Harmonization Lifecycle](#2-safe-dual-mode-harmonization-lifecycle)
+3. [Standardized Test Script Conventions](#3-standardized-test-script-conventions)
+4. [Polyglot Manifest Ingestion and Injection](#4-polyglot-manifest-ingestion-and-injection)
+5. [Anti-Synthetic Runner Upgrades](#5-anti-synthetic-runner-upgrades)
+6. [The Harmonization Manifest](#6-the-harmonization-manifest)
+7. [Operational Verification](#7-operational-verification)
+
 ---
 
 ## 1. When to Use
@@ -93,172 +102,30 @@ The protocol standardizes five canonical script tiers across all language stacks
 
 ---
 
-## 4. Polyglot Manifest Ingestion & Injection
+## 4. Polyglot Manifest Ingestion and Injection
 
-### 4.1 Node / TypeScript Workspaces (`package.json`)
-- **Vitest**:
-  ```json
-  "scripts": {
-    "test:diff": "vitest related --run",
-    "test:watch": "vitest",
-    "test:affected": "vitest related --run",
-    "test:pkg": "vitest --project",
-    "test:full": "vitest run"
-  }
-  ```
-- **Jest**:
-  ```json
-  "scripts": {
-    "test:diff": "jest --findRelatedTests --passWithNoTests",
-    "test:watch": "jest --watch",
-    "test:affected": "jest --findRelatedTests --passWithNoTests",
-    "test:pkg": "pnpm --filter",
-    "test:full": "jest --runInBand"
-  }
-  ```
-- **Monorepo Root (`pnpm-workspace.yaml`, Turborepo)**:
-  ```json
-  "scripts": {
-    "test:diff": "pnpm -r --filter ...[HEAD] test:diff",
-    "test:affected": "turbo run test:affected --filter=...[HEAD]",
-    "test:pkg": "pnpm --filter",
-    "test:full": "pnpm -r test"
-  }
-  ```
+Harmonization inspects stack manifests and injects standardized `test:diff`, `test:watch`, `test:affected`, `test:pkg`, and `test:full` targets without overwriting pre-existing custom scripts:
+- **Node / TypeScript (`package.json`, `pnpm-workspace.yaml`)**: Configures `vitest` (`vitest related --run` / `vitest run`), `jest` (`jest --findRelatedTests --passWithNoTests` / `jest --runInBand`), or monorepo `pnpm` / `turbo` workspace filters.
+- **Rust (`Cargo.toml`, `.cargo/config.toml`)**: Adds `test-diff`, `test-watch`, `test-pkg`, and `test-full` cargo aliases.
+- **Python (`pyproject.toml`, `pytest.ini`, `Makefile`)**: Configures `[tool.pytest.ini_options]` and `Makefile` targets (`pytest --picked -q`, `ptw`, `pytest -v`).
 
-### 4.2 Rust Workspaces (`Cargo.toml`)
-Configures `.cargo/config.toml` aliases or `Makefile`:
-```toml
-[alias]
-test-diff = "test"
-test-watch = "watch -x test"
-test-pkg = "test --package"
-test-full = "test --workspace"
-```
-
-### 4.3 Python Workspaces (`pyproject.toml`, `pytest.ini`, `Makefile`)
-Configures `[tool.pytest.ini_options]` in `pyproject.toml` and `Makefile`:
-```toml
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-ra -q"
-```
-```makefile
-.PHONY: test test:diff test:watch test:affected test:full
-
-test:
-	pytest
-
-test:diff:
-	pytest --picked -q
-
-test:watch:
-	ptw
-
-test:affected:
-	pytest -q
-
-test:full:
-	pytest -v
-```
+For exact polyglot JSON/TOML/Makefile templates, see [Templates, Runner Upgrades, and Manifest Schema](references/templates-and-manifest.md).
 
 ---
 
 ## 5. Anti-Synthetic Runner Upgrades
 
-### 5.1 Eliminating 0% UI Mounting
-When React, Vue, or Svelte dependencies are present:
-1. **Vitest Configuration (`vitest.config.ts`)**:
-   Upgrade `test.environment` from missing or `'node'` to `'happy-dom'` or `'jsdom'`:
-   ```ts
-   import { defineConfig } from 'vitest/config';
+1. **Eliminating 0% UI Mounting**: When React, Vue, or Svelte is detected, upgrade `vitest.config.ts` `test.environment` to `'happy-dom'` or `'jsdom'` and require `@testing-library/react` (`render(<Component />)`).
+2. **Pixel-Based Visual Regression Testing (VRT)**: Ban synthetic `expect(fs.existsSync('screenshot.png')).toBe(true)`; require `await expect(page).toHaveScreenshot(...)` with `maxDiffPixelRatio`.
+3. **Computed Style & Contrast Auditing**: Enforce `@axe-core/playwright` (`injectAxe`, `checkA11y`) in real browser viewports.
 
-   export default defineConfig({
-     test: {
-       environment: 'happy-dom',
-       globals: true,
-     },
-   });
-   ```
-2. **DOM Testing Invariant**: Prohibit invoking React component functions as raw JS functions. Components must be mounted via `@testing-library/react` (`render(<Component />)`).
-
-### 5.2 Pixel-Based Visual Regression Testing (VRT)
-- **Prohibited Synthetic Pattern**:
-  ```ts
-  // ❌ ILLEGAL SYNTHETIC TEST: Passes without verifying rendering
-  expect(fs.existsSync('screenshot.png')).toBe(true);
-  ```
-- **Enforced Real-World Pattern**:
-  ```ts
-  // ✔ AUTHENTIC VRT: Performs real pixel buffer diff against baseline
-  await expect(page).toHaveScreenshot('homepage.png', {
-    maxDiffPixelRatio: 0.01,
-  });
-  ```
-
-### 5.3 Computed Style & Contrast Auditing
-Enforce `@axe-core/playwright` accessibility audits in real browser viewports:
-```ts
-import { injectAxe, checkA11y } from 'axe-playwright';
-
-test('contrast and a11y compliance', async ({ page }) => {
-  await page.goto('/dashboard');
-  await injectAxe(page);
-  await checkA11y(page, undefined, {
-    detailedReport: true,
-    detailedReportOptions: { html: true },
-  });
-});
-```
+Full configuration and test snippets are documented in [Templates, Runner Upgrades, and Manifest Schema](references/templates-and-manifest.md#2-anti-synthetic-runner-snippets).
 
 ---
 
-## 6. The Harmonization Manifest (`.agyis/test_manifest.json`)
+## 6. The Harmonization Manifest
 
-Applying harmonization generates `.agyis/test_manifest.json`, providing deterministic metadata for `agyis test` and `completion_fence_hook`:
-
-```json
-{
-  "version": "1.0.0",
-  "generated_at": "2026-10-21T16:00:00Z",
-  "workspace_root": "/path/to/workspace",
-  "stack": "typescript",
-  "role": "frontend",
-  "framework": "vitest",
-  "package_manager": "pnpm",
-  "is_monorepo": false,
-  "backup_patch": ".agyis/backups/test_harmonize_20261021_160000.patch",
-  "tiers": {
-    "tier_1a_diff": {
-      "name": "test:diff",
-      "command": "pnpm test:diff",
-      "supported": true,
-      "clears_turn_code_dirty": true
-    },
-    "tier_1b_affected": {
-      "name": "test:affected",
-      "command": "pnpm test:affected",
-      "supported": true,
-      "required_for_handoff": true
-    },
-    "tier_2b_full": {
-      "name": "test:full",
-      "command": "pnpm test:full",
-      "supported": true,
-      "required_for_commit": true
-    }
-  },
-  "human_loop": {
-    "watch_command": "pnpm test:watch",
-    "non_interactive_guard": "--no-watch CI=true"
-  },
-  "ui_mounting": {
-    "detected_frontend": true,
-    "environment": "happy-dom",
-    "has_dom_testing_library": true
-  }
-}
-```
+Applying harmonization generates `.agyis/test_manifest.json` capturing `stack`, `role`, `framework`, `package_manager`, `backup_patch`, tier metadata (`tier_1a_diff`, `tier_1b_affected`, `tier_2b_full`), `human_loop` guards (`--no-watch CI=true`), and `ui_mounting` (`happy-dom`) for `agyis test` and `completion_fence_hook` (full JSON schema in [Templates, Runner Upgrades, and Manifest Schema](references/templates-and-manifest.md#3-agyistest_manifestjson-example-schema)).
 
 ---
 

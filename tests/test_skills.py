@@ -17,6 +17,7 @@ import argparse
 import io
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -1006,6 +1007,119 @@ class TestResilienceAndContinuitySkills(unittest.TestCase):
 
 
 SkillPruneDuplicatesTests = TestPruneDuplicateSkills
+
+
+def _gfm_heading_slug(text: str) -> str:
+    """Compute a GitHub-Flavored Markdown heading anchor slug."""
+    cleaned = re.sub(r"[^\w\s-]", "", text.strip().lower())
+    return re.sub(r"\s", "-", cleaned)
+
+
+def _extract_markdown_headings(lines: list[str]) -> list[tuple[int, int, str, str]]:
+    """Return (line_idx, level, text, slug) for ATX headings outside code fences."""
+    headings: list[tuple[int, int, str, str]] = []
+    in_fence = False
+    fence_char = ""
+    slug_counts: dict[str, int] = {}
+
+    for idx, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            marker = stripped[:3]
+            if not in_fence:
+                in_fence = True
+                fence_char = marker
+            elif marker == fence_char:
+                in_fence = False
+                fence_char = ""
+            continue
+        if in_fence:
+            continue
+
+        match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        if not match:
+            continue
+        level = len(match.group(1))
+        raw_text = re.sub(r"\s+#+\s*$", "", match.group(2)).strip()
+        base_slug = _gfm_heading_slug(raw_text)
+        seen = slug_counts.get(base_slug, 0) + 1
+        slug_counts[base_slug] = seen
+        slug = base_slug if seen == 1 else f"{base_slug}-{seen - 1}"
+        headings.append((idx, level, raw_text, slug))
+
+    return headings
+
+
+class TestSkillsHardening(unittest.TestCase):
+    """Enforce platform byte caps and Table of Contents hygiene on all skills."""
+
+    PLATFORM_SKILL_MAX_BYTES = 24576
+
+    def _all_skill_files(self) -> list[Path]:
+        repo_root = Path(__file__).resolve().parent.parent
+        skills_dir = repo_root / "harness" / "skills"
+        files = sorted(skills_dir.glob("*/SKILL.md"))
+        self.assertGreaterEqual(len(files), 30, "Expected at least 30 modular skills")
+        return files
+
+    def test_all_skills_under_24kb_platform_limit(self) -> None:
+        """Every SKILL.md must remain strictly under the 24,576-byte platform limit."""
+        for skill_md in self._all_skill_files():
+            size = skill_md.stat().st_size
+            self.assertLess(
+                size,
+                self.PLATFORM_SKILL_MAX_BYTES,
+                f"{skill_md.parent.name}/SKILL.md is {size} bytes (>= {self.PLATFORM_SKILL_MAX_BYTES})",
+            )
+
+    def test_skills_over_100_lines_have_valid_table_of_contents(self) -> None:
+        """Any SKILL.md > 100 lines must include ## Table of Contents with valid #anchor links."""
+        for skill_md in self._all_skill_files():
+            lines = skill_md.read_text(encoding="utf-8").splitlines()
+            if len(lines) <= 100:
+                continue
+
+            headings = _extract_markdown_headings(lines)
+            toc_entries = [h for h in headings if h[1] == 2 and h[2] == "Table of Contents"]
+            self.assertEqual(
+                len(toc_entries),
+                1,
+                f"{skill_md.parent.name}/SKILL.md ({len(lines)} lines) must contain a single '## Table of Contents' heading",
+            )
+
+            toc_start = toc_entries[0][0] + 1
+            toc_end = len(lines)
+            for idx in range(toc_start, len(lines)):
+                stripped = lines[idx].strip()
+                if stripped == "---" or stripped.startswith("## "):
+                    toc_end = idx
+                    break
+
+            toc_block = "\n".join(lines[toc_start:toc_end])
+            anchors = re.findall(r"\[[^\]]+\]\(#([^)\s]+)\)", toc_block)
+            self.assertGreater(
+                len(anchors),
+                0,
+                f"{skill_md.parent.name}/SKILL.md Table of Contents must declare internal #anchor links",
+            )
+
+            all_slugs = {h[3] for h in headings}
+            for anchor in anchors:
+                self.assertIn(
+                    anchor,
+                    all_slugs,
+                    f"{skill_md.parent.name}/SKILL.md ToC link #{anchor} does not match any heading slug ({sorted(all_slugs)})",
+                )
+
+            h2_section_slugs = {
+                h[3] for h in headings if h[1] == 2 and h[2] != "Table of Contents"
+            }
+            missing_sections = sorted(h2_section_slugs - set(anchors))
+            self.assertEqual(
+                missing_sections,
+                [],
+                f"{skill_md.parent.name}/SKILL.md ToC is missing top-level sections: {missing_sections}",
+            )
 
 
 if __name__ == "__main__":

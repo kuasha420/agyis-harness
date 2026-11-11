@@ -144,6 +144,52 @@ class TestWorkspaceExtensions(unittest.TestCase):
             self.assertTrue(flag_file.is_file())
             self.assertEqual(flag_file.read_text().strip(), "dispatched successfully")
 
+    def test_execute_extension_exports_adr034_env_and_preserves_pythonpath(self):
+        from harness import __version__ as agyis_version
+
+        py_cmd = self.cmd_dir / "env_probe.py"
+        out_file = self.workspace / "env.json"
+        py_cmd.write_text(
+            f'import json, os\n'
+            f'with open("{out_file}", "w", encoding="utf-8") as f:\n'
+            f'    json.dump({{\n'
+            f'        "AGYIS_WORKSPACE": os.environ.get("AGYIS_WORKSPACE"),\n'
+            f'        "AGYIS_EXTENSION_COMMAND": os.environ.get("AGYIS_EXTENSION_COMMAND"),\n'
+            f'        "WORKSPACE_ROOT": os.environ.get("WORKSPACE_ROOT"),\n'
+            f'        "AGYIS_VERSION": os.environ.get("AGYIS_VERSION"),\n'
+            f'        "PYTHONPATH": os.environ.get("PYTHONPATH"),\n'
+            f'    }}, f)\n',
+            encoding="utf-8",
+        )
+
+        cmds = discover_workspace_commands(self.workspace)
+        with patch.dict(os.environ, {"PYTHONPATH": "/custom/lib/one"}):
+            ret = execute_extension_command(cmds["env_probe"], [])
+        self.assertEqual(ret, 0)
+        data = json.loads(out_file.read_text(encoding="utf-8"))
+        self.assertEqual(data["AGYIS_WORKSPACE"], str(self.workspace))
+        self.assertEqual(data["WORKSPACE_ROOT"], str(self.workspace))
+        self.assertEqual(data["AGYIS_EXTENSION_COMMAND"], "env_probe")
+        self.assertEqual(data["AGYIS_VERSION"], agyis_version)
+        pp_entries = data["PYTHONPATH"].split(os.pathsep)
+        self.assertEqual(pp_entries[0], "/custom/lib/one")
+        self.assertIn(str(self.workspace), pp_entries)
+
+    def test_execute_extension_timeout_and_signal_handling(self):
+        slow_cmd = self.cmd_dir / "slow_cmd.py"
+        slow_cmd.write_text("import time\ntime.sleep(2.0)\n", encoding="utf-8")
+
+        sig_cmd = self.cmd_dir / "sig_cmd.py"
+        sig_cmd.write_text("import os, signal\nos.kill(os.getpid(), signal.SIGTERM)\n", encoding="utf-8")
+
+        cmds = discover_workspace_commands(self.workspace)
+        with patch("sys.stderr", new_callable=io.StringIO):
+            timeout_rc = execute_extension_command(cmds["slow_cmd"], [], timeout=0.05)
+        self.assertEqual(timeout_rc, 124)
+
+        sig_rc = execute_extension_command(cmds["sig_cmd"], [], timeout=5.0)
+        self.assertEqual(sig_rc, 143)
+
 
 if __name__ == "__main__":
     unittest.main()

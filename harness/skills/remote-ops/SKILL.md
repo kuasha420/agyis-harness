@@ -14,9 +14,15 @@ description: >-
 
 This skill provides deterministic standard operating procedures (SOP) for executing remote commands, streaming scripts, and troubleshooting remote cloud instances, staging servers, and physical mesh strands without connection latency, non-login `$PATH` failures, or context floods.
 
+## Table of Contents
+1. [Core Architectural Guarantees](#1-core-architectural-guarantees)
+2. [Standard Operating Procedure](#2-standard-operating-procedure)
+3. [Command Reference](#3-command-reference)
+4. [Invariants and Guardrails](#4-invariants-and-guardrails)
+
 ---
 
-## 1. Core Architectural Guarantees (ADR-027)
+## 1. Core Architectural Guarantees
 
 1. **OpenSSH Connection Multiplexing**:
    - Reuses an authenticated master SSH connection (`ControlMaster=auto`, `ControlPersist=10m`).
@@ -37,7 +43,7 @@ This skill provides deterministic standard operating procedures (SOP) for execut
 
 ---
 
-## 2. Standard Operating Procedure (5-Phase Triage Ladder)
+## 2. Standard Operating Procedure
 
 When diagnosing a malfunctioning service, deployment failure, or remote server defect, follow the 5-phase ladder sequentially:
 
@@ -115,7 +121,7 @@ agyis remote socket cleanup
 
 ---
 
-## 4. Invariants & Guardrails
+## 4. Invariants and Guardrails
 
 - **Zero Unbounded Logs**: Never run naked `tail -f` or unconstrained `journalctl`. Always specify `--lines 50` or pipe through `head`/`tail`.
 - **Zero Remote File Pollution**: Favor stdin streaming over manual `scp` + `chmod +x` + execution. When staging is necessary, always verify the `trap 'rm -rf ...' EXIT` handler.

@@ -12,7 +12,7 @@ description: >-
 
 # Agyis Workspace Harmonization Protocol (`psl-harmonize`)
 
-This skill provides deterministic instructions for inspecting, diagnosing, and harmonizing legacy Google Antigravity configurations across internal and external repositories (`Jasper`, `purrmission`, `sunshine-physio`, `knot-mesh`, etc.) into the unified Agyis 3-tier architecture.
+This skill provides deterministic instructions for inspecting, diagnosing, and harmonizing legacy Google Antigravity configurations across internal and external repositories (TypeScript monorepos, CLI utilities, web frontends, and systems tooling) into the unified Agyis 3-tier architecture.
 
 ---
 

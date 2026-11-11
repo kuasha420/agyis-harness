@@ -13,7 +13,12 @@ description: >-
 
 # PSL Telemetry Sync: Hub Replication, Multi-Device Federation & Daemon Runbook
 
-This skill establishes standardized operational runbooks for bi-directional telemetry synchronization, cross-device transcript replication, authenticated dry-run previews, background watch daemons, and systemd service integration with the central telemetry hub (`https://psl-harness.infra.purrfecthq.com`).
+This skill establishes standardized operational runbooks for bi-directional telemetry synchronization, cross-device transcript replication, authenticated dry-run previews, background watch daemons, and systemd service integration with the central telemetry hub (`<telemetry-hub-url>`, i.e., `https://<telemetry-hub-host>`).
+
+## Table of Contents
+1. [Canonical CLI Workflows](#1-canonical-cli-workflows)
+2. [Architectural Invariants](#2-architectural-invariants)
+3. [Troubleshooting and Failure Recovery Runbook](#3-troubleshooting-and-failure-recovery-runbook)
 
 ---
 
@@ -112,7 +117,7 @@ systemctl --user status agyis-sync.service
 
 ---
 
-## 3. Troubleshooting & Failure Recovery Runbook
+## 3. Troubleshooting and Failure Recovery Runbook
 
 ### 3.1 HTTP 401: Unauthorized / Invalid Token
 - **Symptom**: `✘ Telemetry sync authentication failed (HTTP 401: Unauthorized)`.
@@ -131,16 +136,16 @@ systemctl --user status agyis-sync.service
 
 ### 3.2 HTTP 403: Forbidden / Organization Membership
 - **Symptom**: `✘ Telemetry sync authorization failed (HTTP 403: Forbidden)`.
-- **Diagnosis**: User is authenticated, but not an authorized member of the `purrfectsoft` GitHub organization.
+- **Diagnosis**: User is authenticated, but not an authorized member of the `<github-org>` GitHub organization.
 - **Remediation**: Verify organization membership on GitHub or contact organization admin for access.
 
 ### 3.3 Connection / DNS Failure
-- **Symptom**: `✘ Failed to connect to telemetry hub (https://psl-harness.infra.purrfecthq.com)`.
+- **Symptom**: `✘ Failed to connect to telemetry hub (<telemetry-hub-url>)`.
 - **Diagnosis**: Workstation is offline or endpoint URL is misconfigured.
 - **Remediation**:
   ```bash
   # Test hub health probe
-  curl -sS https://psl-harness.infra.purrfecthq.com/api/v1/health
+  curl -sS <telemetry-hub-url>/api/v1/health
 
   # Check endpoint configuration
   echo $AGYIS_SYNC_ENDPOINT

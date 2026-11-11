@@ -16,9 +16,15 @@ description: >-
 
 This skill establishes empirical, tool-native runbooks for Wayland display configurations, KDE `kscreen-doctor` output management, XDG desktop portal recovery, Electron PipeWire capture flags, and Sunshine KMS capture capabilities.
 
+## Table of Contents
+1. [Wayland Session and Output Probing](#1-wayland-session-and-output-probing)
+2. [XDG Desktop Portal Graceful Recovery](#2-xdg-desktop-portal-graceful-recovery)
+3. [Electron Ozone and PipeWire Screen Capture Flags](#3-electron-ozone-and-pipewire-screen-capture-flags)
+4. [Sunshine Low-Latency Streaming and KMS Capture Capabilities](#4-sunshine-low-latency-streaming-and-kms-capture-capabilities)
+
 ---
 
-## 1. Wayland Session & Output Probing (`kscreen-doctor`)
+## 1. Wayland Session and Output Probing
 
 ### Step 1.1: Verify Active Display Protocol
 Confirm Wayland session environment:
@@ -49,7 +55,7 @@ kscreen-doctor output.1.position.0,0 output.2.position.2560,0
 
 ---
 
-## 2. XDG Desktop Portal Graceful Recovery (No `-9` Invariant)
+## 2. XDG Desktop Portal Graceful Recovery
 
 ### Invariant: Never Send SIGKILL (`kill -9`) to Portals
 Sending `kill -9` (`SIGKILL`) to `xdg-desktop-portal` or its backend (`xdg-desktop-portal-kde`, `xdg-desktop-portal-gnome`, `xdg-desktop-portal-wlr`) leaves uncleaned D-Bus sessions, orphaned PipeWire nodes, and corrupts portal state. This causes file pickers, screen capture dialogues, and browser authorization modals to permanently hang until full desktop reboot.
@@ -80,7 +86,7 @@ busctl --user introspect org.freedesktop.portal.Desktop /org/freedesktop/portal/
 
 ---
 
-## 3. Electron Ozone & PipeWire Screen Capture Flags
+## 3. Electron Ozone and PipeWire Screen Capture Flags
 
 Electron and Chromium-based applications running under Wayland often default to legacy XWayland, resulting in blurry fractional scaling and completely broken screen capture (black screens).
 
@@ -108,7 +114,7 @@ pw-top -b -n 1
 
 ---
 
-## 4. Sunshine Low-Latency Streaming & KMS Capture Capabilities
+## 4. Sunshine Low-Latency Streaming and KMS Capture Capabilities
 
 Sunshine provides high-performance self-hosted game and desktop streaming. On Wayland, it requires Kernel Mode Setting (KMS) or NVFBC/VAAPI direct capture permissions.
 

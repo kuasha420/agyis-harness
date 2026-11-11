@@ -17,6 +17,15 @@ description: >-
 **Operational Regime**: Track C (Long-Horizon Autonomous Engineering)  
 **Governing ADRs**: ADR-012 (Artifact-First Planning), ADR-013 (Terminal Invariants), ADR-014 (Product vs. Project Bifurcation), ADR-015 (Clean-Room Testing & Verification), ADR-028 (Cleanroom Reconstruction), ADR-031A (Native Orchestration Alignment), ADR-032 (Tool-Native Primacy & Anti-Polling)
 
+## Table of Contents
+1. [The Air Traffic Control Tower Mandate](#1-the-air-traffic-control-tower-mandate)
+2. [Pillar 1: Zero-Code-Thrash Invariant](#2-pillar-1-zero-code-thrash-invariant)
+3. [Pillar 2: The 12 Canonical Routing Workflows](#3-pillar-2-the-12-canonical-routing-workflows)
+4. [Pillar 3: Dual-Plane Communication Contract](#4-pillar-3-dual-plane-communication-contract)
+5. [Pillar 4: Compaction Lifecycle and Native Succession Protocol](#5-pillar-4-compaction-lifecycle-and-native-succession-protocol)
+6. [Pillar 5: 3-Tier Storage Hierarchy and Zero Repo Pollution](#6-pillar-5-3-tier-storage-hierarchy-and-zero-repo-pollution)
+7. [Interactive CLI Flight Control Palette](#7-interactive-cli-flight-control-palette)
+
 ---
 
 ## 1. The Air Traffic Control Tower Mandate
@@ -30,32 +39,7 @@ Empirical telemetry across 1,065+ production sessions establishes the unyielding
 - **🟡 Amber Zone (180k–229k tokens / 50–150 steps)**: Pre-compaction awareness mode. Complete active stages; avoid sprawling refactors.
 - **🔴 Compaction Imminent ($\ge 230$k tokens or Spawns $\ge 16$)**: Catastrophic **20x error spike**. Thrashing on previously resolved bugs, hallucinating tool states, and emergency compaction.
 
-Direct code edits, uncompacted terminal dumps, and raw test traces in root accelerate descent toward the context cliff. Track C enforces total separation between Flight Direction and Downstream Execution.
-
-```mermaid
-flowchart TD
-    subgraph OperatorPlane["Human Operator Space"]
-        OP["Human Software Architect / Operator"]
-    end
-
-    subgraph FlightDeck["Root Pairing Cockpit (Flight Director)"]
-        FD["Cockpit Flight Director<br/>(Air Traffic Control Tower)"]
-        PLAN["Artifact-First Planning<br/>(implementation_plan.md)"]
-        CONFIRM["Proactive Confirmation Gates<br/>(Destructive / Release Actions)"]
-        FD --- PLAN
-        FD --- CONFIRM
-    end
-
-    subgraph Downstream["Downstream Specialist Execution (subagent-router)"]
-        ROUTER["subagent-router<br/>(Dynamic 12-Workflow Engine)"]
-        SPECIALISTS["agyis_investigator | agyis_planner | agyis_builder<br/>agyis_reviewer | agyis_custodian | agyis_auditor"]
-        ROUTER --> SPECIALISTS
-    end
-
-    OP <-->|"High-Level Strategic Direction (Plane 1)"| FD
-    FD <-->|"Typed Stage Transition Payloads (Plane 2)"| ROUTER
-    SPECIALISTS -->|"Certified Milestone Hand-off"| FD
-```
+Direct code edits, uncompacted terminal dumps, and raw test traces in root accelerate descent toward the context cliff. Track C enforces total separation between Flight Direction and Downstream Execution (see [Flight Control Topology & Workflow Diagrams](references/flight-control-diagrams.md)).
 
 ---
 
@@ -81,39 +65,26 @@ Root pairing context is preserved strictly for:
 ## 3. Pillar 2: The 12 Canonical Routing Workflows
 
 When the operator presents an objective, defect, or architectural mandate, the Cockpit Flight Director classifies the task into one of the 12 canonical routing workflows:
+- **A (`agyis_investigator`)**: Bug Report / Silent Failure (`rca_report.md` + scratch reproduction)
+- **B (`agyis_planner`)**: New Feature / Milestone (`implementation_plan.md`)
+- **C (`agyis_builder`)**: Single-Phase Task (contiguous edits + local tests)
+- **D (`agyis_architect`)**: Architectural Overhaul (delegated multi-module diff)
+- **E (`agyis_investigator`)**: Heisenbug during QA Gate (anti-bypass RCA -> remedy)
+- **F (`agyis_architect`)**: Macro Build Regression (pause and delegate RCA)
+- **G (`agyis_coordinator`)**: Parallel Research Mapping (`research_synthesis.md`)
+- **H (`agyis_investigator`)**: Cleanroom Spec Audit (`COMPLETION_LEDGER.md`)
+- **I (`agyis_architect`)**: Cross-Branch Golden Merge (isolated worktree synthesis)
+- **J (`agyis_auditor` + `agyis_reviewer`)**: Victory Certification Council (Dual-Auditor sign-off)
+- **K (`agyis_custodian`)**: Milestone Governance (GitHub Issues & Epic sync via `gh`)
+- **L (`agyis_builder` / `agyis_investigator`)**: Adversarial Fuzzing Battery (`tests/test_*_adversarial.py`)
 
-| Route | Title | Starting Specialist | Pipeline Route | Critical Invariants & Tool Boundaries | Primary Deliverable |
-| :---: | :--- | :--- | :--- | :--- | :--- |
-| **A** | **Bug Report / Silent Failure** | `agyis_investigator` | `Investigator` $\rightarrow$ `Planner` $\rightarrow$ `Builder` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Strict Read-Only on Code**: Must author minimal reproduction script in scratch (`scratch/reproduce_*.py`) before writing fix. | `rca_report.md` + `reproduce_bug.py` |
-| **B** | **New Feature / Milestone** | `agyis_planner` | `Planner` $\rightarrow$ `Coordinator Lock-In` $\rightarrow$ `Builder` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Zero Speculative Code**: Evaluates imports and contracts without touching source code. Drafts interactive plan. | `implementation_plan.md` |
-| **C** | **Single-Phase Task** | `agyis_builder` | `Builder` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Laser Executioner**: Single contiguous replacements (`replace_file_content`). Zero scope creep. Self-verifies locally. | In-flight diff + local test pass |
-| **D** | **Architectural Overhaul** | `agyis_architect` | `Architect` (delegates sub-parts) $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Deep Hybrid Orchestration**: Combines implementation with delegation to prevent context bloating above the 180k/230k compaction runway. | Clean multi-module diff |
-| **E** | **Heisenbug during QA Gate** | `agyis_investigator` | `Auditor (FAIL)` $\rightarrow$ `Investigator (RCA)` $\rightarrow$ `Builder (Fix)` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Anti-Bypass Invariant**: Remediations must re-traverse Hammer review and Custodian commit gate. | `heisenbug_rca.md` |
-| **F** | **Macro Build Regression** | `agyis_architect` | `Architect` $\rightarrow$ `Investigator (RCA)` $\rightarrow$ `Architect` $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Architect-to-Investigator Delegation**: On mysterious test breakages, pause and delegate RCA instead of guess-editing. | `scratch/reproduce_*.py` + `rca_report.md` |
-| **G** | **Parallel Research Mapping** | `agyis_coordinator` | `Coordinator` $\rightarrow$ Fan-out parallel `Planner` / `Investigator` $\rightarrow$ `Coordinator Synthesis` | **Context Preservation (ADR-025)**: Independent research tracks run in parallel contexts without cross-contamination. | `research_synthesis.md` |
-| **H** | **Cleanroom Spec Audit** | `agyis_investigator` | `Investigator` (Auditor) $\rightarrow$ `Coordinator` $\rightarrow$ `Builder` / `Swarm` | **Zero Production Mutation**: Evaluates baseline line-by-line against formal ACs. Documents gaps in `COMPLETION_LEDGER.md`. | `COMPLETION_LEDGER.md` |
-| **I** | **Cross-Branch Golden Merge** | `agyis_architect` | `Architect` (Synthesizer) $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Hermetic Worktree Isolation**: Reconciles divergent branches in dedicated worktree. Runs cross-test matrix. | Golden commit on unified branch |
-| **J** | **Victory Certification Council** | `agyis_auditor` + `agyis_reviewer` | `Auditor` (Hermetic Benchmarks) + `Reviewer` (11 Invariants) $\rightarrow$ Dual Sign-Off | **Dual-Auditor Gate**: Never trust in-band self-certification. Independent auditors evaluate clean committed revision on HEAD. | `victory_audit_report.md` |
-| **K** | **Milestone Governance** | `agyis_custodian` | `Flight Director` / `Coordinator` $\rightarrow$ `Custodian` (Issue Formulation & Epic Sync via `gh` CLI) | **Zero Repository Document Pollution (AC5)**: Strictly zero scratch notes in git tree; deterministic CLI execution via `gh`. | GitHub Issues + Parent Epic Tracking Comment |
-| **L** | **Adversarial Fuzzing Battery** | `agyis_builder` / `agyis_investigator` | `Investigator` (Fuzzing Vectors) $\rightarrow$ `Builder` (Adversarial Tests) $\rightarrow$ `Reviewer` $\rightarrow$ `Custodian` $\rightarrow$ `Auditor` | **Zero Error Swallowing & Sub-Second SLA**: Concurrency lock timeout $\le 0.5$s, schema corruption tests must fail-open cleanly. | `tests/test_*_adversarial.py` |
+For full pipeline paths, invariant boundaries, and topology diagrams, see [Flight Control Topology & Workflow Diagrams](references/flight-control-diagrams.md) and [`workflow-routing-table.md`](../subagent-router/references/workflow-routing-table.md).
 
 ---
 
 ## 4. Pillar 3: Dual-Plane Communication Contract
 
-Communication in Track C is partitioned into two orthogonal, non-interfering planes:
-
-```mermaid
-flowchart LR
-    subgraph Plane1["Plane 1: Human-in-the-Loop Operator Channel"]
-        USER["Human Software Architect"] <-->|"Conversational Markdown, Tables, Mermaid, Plans"| FD["Cockpit Flight Director"]
-    end
-
-    subgraph Plane2["Plane 2: Machine/Agent Private Channel"]
-        FD <-->|"send_message(Recipient, psl_stage_transition_payload.json)"| ROUTER["subagent-router"]
-        ROUTER <-->|"Typed Stage Payloads & Defect Ledgers"| WORKERS["Specialist Workers<br/>(Investigator, Planner, Builder, Hammer, Custodian, Auditor)"]
-    end
-```
+Communication in Track C is partitioned into two orthogonal, non-interfering planes (see [Dual-Plane Communication Diagram](references/flight-control-diagrams.md#2-dual-plane-communication-topology)):
 
 ### 4.1 Plane 1: Human-in-the-Loop Operator Channel
 1. **Concise Presentation**: Clean markdown, structured comparison tables, and Mermaid flowcharts. Zero dense code dumps or raw terminal logs.
@@ -134,9 +105,9 @@ All stage handoffs along the execution pipeline must conform to the formal schem
 
 ---
 
-## 5. Pillar 4: Compaction Lifecycle & Native Succession Protocol (ADR-031A)
+## 5. Pillar 4: Compaction Lifecycle and Native Succession Protocol
 
-### Context Proximity Thresholds
+### Context Proximity Thresholds (ADR-031A)
 1. **🟢 Healthy Zone (<180,000 tokens)**: Normal autonomous operations and subagent dispatches.
 2. **🟡 Amber Zone (180,000 – 229,999 tokens)**: Pre-compaction awareness. Complete active stages; commit in-flight diffs to git on HEAD.
 3. **🔴 Compaction Imminent ($\ge 230,000$ tokens or Spawns $\ge 16$)**: PreInvocation hook injects advisory. Mandatory materialization of working memory via `agyis checkpoint generate` (`harness.delivery.compaction_checkpoint`) to `.agents/artifacts/compaction_checkpoint_latest.md`. Prompt operator for `/compact` or invoke horizontal succession (`invoke_subagent(TypeName="self", Workspace="inherit")`).
@@ -152,31 +123,13 @@ When waking up in a compacted session or successor context:
 
 ---
 
-## 6. Pillar 5: 3-Tier Storage Hierarchy & Zero Repo Pollution (AC5)
+## 6. Pillar 5: 3-Tier Storage Hierarchy and Zero Repo Pollution
 
-```mermaid
-flowchart TD
-    subgraph Tier1["Tier 1: Living Artifacts (Durable, Cross-Compaction)"]
-        A1[".agents/artifacts/*.md<br/>(Master plans, delivery reports, architectural specifications)"]
-        A2["<appDataDir>/brain/<conversation-id>/*.md<br/>(Interactive plans, operator ledgers, RCA reports)"]
-    end
-
-    subgraph Tier2["Tier 2: Scratch Directory (Ephemeral, Non-Committed)"]
-        S1["<appDataDir>/brain/<conversation-id>/scratch/*<br/>(Reproduction scripts, fuzzers, trace logs)"]
-        S2["scratch/* or /tmp/*<br/>(Temporary output dumps, intermediate diffs)"]
-    end
-
-    subgraph Tier3["Tier 3: Git Working Tree (Strictly Production Assets)"]
-        G1["harness/**, src/**, lib/**, tests/**<br/>(Clean, tested, reviewed production source code)"]
-    end
-
-    Tier1 -.->|"Guides Execution"| Tier3
-    Tier2 -.->|"Verifies Defect"| Tier3
-```
+See the [3-Tier Storage Diagram](references/flight-control-diagrams.md#3-3-tier-storage-hierarchy-diagram) for the isolation flow:
 
 - **Tier 1 (Living Artifacts)**: Durable markdown documents persisting high-level intent across compactions.
 - **Tier 2 (Scratch Directory)**: Ephemeral sandbox for minimal bug reproduction scripts and fuzzers. Never committed to git.
-- **Tier 3 (Git Working Tree)**: Strictly production code, documentation, and tests. Never polluted with scratch scripts or compaction dumps.
+- **Tier 3 (Git Working Tree — AC5)**: Strictly production code, documentation, and tests. Never polluted with scratch scripts or compaction dumps.
 
 ---
 

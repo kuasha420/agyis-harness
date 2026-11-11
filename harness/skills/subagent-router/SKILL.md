@@ -23,9 +23,18 @@ Rather than enforcing a rigid 1-dimensional waterfall, the Subagent Router dynam
 > - **Operator / Manual Engagement**: Can also be engaged directly by human operators using `/subagent-router`, or via `agyis cockpit route <letter>`.
 > - **Specialist Orchestration**: Coordinated by `agyis_coordinator` (for assembly lines and research fan-outs) or `agyis_architect` (for cross-module overhauls).
 
+## Table of Contents
+1. [Architectural Rationale and Dual-Sovereignty Model](#1-architectural-rationale-and-dual-sovereignty-model)
+2. [Autonomous Routing Architecture & 12-Workflow Decision Table](#2-autonomous-routing-architecture--12-workflow-decision-table)
+3. [The 6-Stage Pipeline Lifecycle](#3-the-6-stage-pipeline-lifecycle)
+4. [Multi-Node Swarm PR Ingestion Protocol](#4-multi-node-swarm-pr-ingestion-protocol)
+5. [Strict State Machine Invariants](#5-strict-state-machine-invariants)
+6. [The 4 Multi-Agent Execution Modes](#6-the-4-multi-agent-execution-modes)
+7. [Interactive CLI Routing Integration and Swarm Monitoring](#7-interactive-cli-routing-integration-and-swarm-monitoring)
+
 ---
 
-## 1. Architectural Rationale & Dual-Sovereignty Model
+## 1. Architectural Rationale and Dual-Sovereignty Model
 
 Complex engineering initiatives easily cause **conversational context collapse** when executed in a single monolithic context window. Accumulated tool outputs, compile logs, and search results bloat context, degrade instruction following, and incur exponential token costs.
 
@@ -68,61 +77,15 @@ For the complete visual flowchart and exhaustive 12-workflow decision matrix, se
 
 Every engineering milestone progressing through the sequential execution path advances through the **6-Stage Pipeline**:
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│ STAGE 1: PLANNING & OPERATOR LOCK-IN (`agyis_coordinator` / `agyis_planner`) │
-│ - `agyis_planner` synthesizes architecture into `implementation_plan.md`.│
-│ - Operator reviews, grills, refines, and formally locks in the plan.    │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │ (Approved)
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│ STAGE 2: SURGICAL EXECUTION (`agyis_builder` / `agyis_architect`)       │◄────────────────────────┐
-│ - `agyis_builder` applies surgical contiguous edits (`replace_file_content`). │                     │
-│ - Local self-verification via targeted component tests (<1.0s benchmark). │                         │
-│ - Produces diff summary and local test pass.                            │                         │
-└────────────────────────────────────┬────────────────────────────────────┘                         │
-                                     │ (Execution Complete OR Remedy Complete)                      │
-                                     ▼                                                              │
-┌─────────────────────────────────────────────────────────────────────────┐                         │
-│ STAGE 3: CODE REVIEW & QUALITY AUDIT (`agyis_reviewer` - The Hammer)    │                         │
-│ - Independent agent audits diff against the 11 Universal Invariants.    │                         │
-│ - Zero Error Swallowing Invariant & Zero Self-Certification.            │                         │
-│ - Emits PASS verdict OR Defect Ledger with file/line/rule citations.   │                         │
-└────────────────────────────────────┬────────────────────────────────────┘                         │
-                                     │                                                              │
-         ┌───────────────────────────┴───────────────────────────┐                                  │
-         │ (Passed Code Review)                                  │ (Rejected: Defect Ledger)        │
-         ▼                                                       └──────────────────────────────────┤
-┌─────────────────────────────────────────────────────────────────────────┐                         │
-│ STAGE 4: MACRO ARCHITECTURAL AUDIT & GIT COMMIT GATE (`agyis_custodian`)│                         │
-│ - 4-Pillar Quality Gate (DRY, AFF, Asset Decoupling, Git Porcelain).     │                         │
-│ - Executes `agyis audit aff` (zero boundary breaches, cycles, monoliths)│                         │
-│ - Stages ONLY target files declared in approved plan (no blind `git add`).│                         │
-│ - Asserts working tree is 100% clean of scratch debris (AC5).           │                         │
-│ - Executes atomic commit on HEAD.                                       │                         │
-└────────────────────────────────────┬────────────────────────────────────┘                         │
-                                     │ (Committed Cleanly)                                          │
-                                     ▼                                                              │
-┌─────────────────────────────────────────────────────────────────────────┐                         │
-│ STAGE 5: HERMETIC QA & VERIFICATION AUDIT (`agyis_auditor`)             │                         │
-│ - Strictly evaluates the COMMITTED git revision on HEAD (never dirty).  │                         │
-│ - Runs `agyis test` (~65s full suite) + <1.0s component benchmarks.     │                         │
-│ - Asserts exit code 0 across all hermetic suites.                       │                         │
-└──────────────────┬───────────────────────────────┘                                                │
-                   │                                                                                │
-         ┌─────────┴─────────┐                                                                      │
-         │ (Passed QA Audit) │ (QA/Audit Failed)       ─────────────────────────────────────────────┘
-         │                   │                                 (MANDATORY: Return to Builder/Investigator,
-         ▼                   │                                 THEN through Hammer!)
-┌────────────────────────────┴────────────────────────────────────────────┐
-│ STAGE 6: PHASE ARCHIVAL & PROMOTION (`cockpit-director.md` / `agyis_coordinator`) │
-│ - Archives milestone plan into `.agents/artifacts/phase_X_delivery.md`. │
-│ - Records milestone completion in `docs/taxonomy/project-ledger.md`.     │
-│ - Subagents for completed phase are formally retired.                   │
-│ - Presents Phase X+1 Implementation Plan to user.                       │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+1. **Stage 1 — Planning and Operator Lock-In (`agyis_coordinator` / `agyis_planner`)**: Synthesizes architecture into `implementation_plan.md` and locks operator approval.
+2. **Stage 2 — Surgical Execution (`agyis_builder` / `agyis_architect`)**: Applies single contiguous edits (`replace_file_content`) and verifies locally via component tests (<1.0s benchmark).
+3. **Stage 3 — Code Review and Quality Audit (`agyis_reviewer` — The Hammer)**: Audits diffs against the 11 Universal Invariants, Zero Error Swallowing, and Zero Self-Certification; emits PASS or Defect Ledger.
+4. **Stage 4 — Macro Architectural Audit and Git Commit Gate (`agyis_custodian`)**: Runs the 4-Pillar Quality Gate (DRY, `agyis audit aff`, Asset Decoupling, Git Porcelain), stages plan-declared targets only, and commits on `HEAD`.
+5. **Stage 5 — Hermetic QA and Verification Audit (`agyis_auditor`)**: Evaluates strictly the committed `HEAD` revision using `agyis test` (~65s full suite) + <1.0s benchmarks; returns failures to Stage 2/RCA and back through Hammer.
+6. **Stage 6 — Phase Archival and Promotion (`cockpit-director` / `agyis_coordinator`)**: Archives delivery report to `.agents/artifacts/phase_X_delivery.md`, updates `docs/taxonomy/project-ledger.md`, retires subagents, and proposes Phase X+1.
+
+For the full visual 6-Stage Pipeline diagram and state-transition formulas, see:
+- 🔁 **[Pipeline Lifecycle & State Transition Diagrams](references/pipeline-lifecycle.md)**
 
 ---
 
@@ -189,7 +152,7 @@ The Subagent Router supports 4 distinct execution topologies:
 
 ---
 
-## 7. Interactive CLI Routing Integration & Swarm Monitoring
+## 7. Interactive CLI Routing Integration and Swarm Monitoring
 
 ```bash
 # 🛫 Canonical Workflow Routing

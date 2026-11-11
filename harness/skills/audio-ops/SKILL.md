@@ -15,9 +15,16 @@ description: >-
 
 This skill establishes empirical, tool-native runbooks for modern Linux audio stacks (PipeWire & WirePlumber), Bluetooth audio pairing, audio codec troubleshooting, and EBU R128 loudness normalization.
 
+## Table of Contents
+1. [PipeWire and WirePlumber User-Space Diagnostics](#1-pipewire-and-wireplumber-user-space-diagnostics)
+2. [PipeWire and WirePlumber Daemon Recovery](#2-pipewire-and-wireplumber-daemon-recovery)
+3. [Bluetooth Audio Pairing and Codec Negotiation](#3-bluetooth-audio-pairing-and-codec-negotiation)
+4. [Audio Loudness Normalization](#4-audio-loudness-normalization)
+5. [VLC and ffmpeg Split-Package Resolution](#5-vlc-and-ffmpeg-split-package-resolution)
+
 ---
 
-## 1. PipeWire & WirePlumber User-Space Diagnostics (`wpctl`)
+## 1. PipeWire and WirePlumber User-Space Diagnostics
 
 PipeWire manages real-time audio and video routing. WirePlumber serves as its session and policy manager.
 
@@ -59,7 +66,7 @@ wpctl set-mute <SINK_ID> toggle
 
 ---
 
-## 2. PipeWire & WirePlumber Daemon Recovery
+## 2. PipeWire and WirePlumber Daemon Recovery
 
 ### Invariant: User-Space Execution Hierarchy
 PipeWire and WirePlumber run exclusively under the **user systemd instance** (`systemctl --user`). Never invoke `sudo systemctl restart pipewire` — doing so will fail or corrupt socket ownership.
@@ -85,7 +92,7 @@ systemctl --user start pipewire pipewire-pulse wireplumber
 
 ---
 
-## 3. Bluetooth Audio Pairing & Codec Negotiation
+## 3. Bluetooth Audio Pairing and Codec Negotiation
 
 ### Step 3.1: Bluetooth Daemon & Controller Check
 Verify host Bluetooth service and controller status:
@@ -117,7 +124,7 @@ wpctl inspect <BLUETOOTH_NODE_ID>
 
 ---
 
-## 4. Audio Loudness Normalization (`ffmpeg loudnorm`)
+## 4. Audio Loudness Normalization
 
 Standardize audio tracks to the broadcast-standard EBU R128 loudness specification using `ffmpeg`.
 
@@ -152,7 +159,7 @@ ffmpeg -y -i input.wav -af "loudnorm=I=-16:TP=-1.5:LRA=11:measured_I=-24.12:meas
 
 ---
 
-## 5. VLC & ffmpeg Split-Package Resolution
+## 5. VLC and ffmpeg Split-Package Resolution
 
 ### The Issue
 On Arch Linux and modular Linux distributions, VLC plugins and ffmpeg codecs are packaged in split packages (`vlc-plugin-ffmpeg`, `vlc-plugins-base`, `vlc-plugins-all`). When system `ffmpeg` undergoes a major shared library soname bump (e.g. `libavcodec.so.60` to `libavcodec.so.61`), VLC may silently drop audio/video decoding or crash on startup.

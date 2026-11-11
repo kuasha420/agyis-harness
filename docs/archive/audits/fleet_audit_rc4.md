@@ -10,9 +10,9 @@ Document Status : Authoritative Fleet Audit & Release Input for v1.0.0-rc5
 Document Version: 1.0.0
 Author          : Teamwork Release Worker M2 (teamwork_preview_worker_m2)
 Date            : 2026-10-18
-Scope           : purrfectsoft, kuasha420, sakibtamim Repositories (Fleet Cohorts)
+Scope           : <org>, kuasha420, <collaborator-org> Repositories (Fleet Cohorts)
 Target Release  : Agyis Harness v1.0.0-rc5 (Production Gate)
-Codebase Engine : /home/kuasha/Dev/psl-agy-harness ('main' branch)
+Codebase Engine : ~/Dev/psl-agy-harness ('main' branch)
 Verification    : python3 -m harness.cli test (1,065 tests passed, exit code 0)
 ```
 
@@ -24,13 +24,13 @@ This report provides the definitive, evidence-backed fleet upgrade audit matrix,
 
 Across two intensive deployment waves conducted in October 2026:
 1. **The Phase 0/1 Onboarding Wave (`v1.0.0-rc1` / `v1.0.0-rc2`, October 13–15, 2026)**:
-   A total of **21 production repositories** (23 physical checkouts including the self-referential harness host and auxiliary monorepo checkouts) across `purrfectsoft`, `kuasha420`, and external collaborator `sakibtamim` were onboarded to the Agyis Harness ecosystem. This wave established standardized tagged rule fences (`<!-- Added by AGYIS-HARNESS --> ... <!-- End AGYIS-HARNESS -->`), modernized directory layouts from `.agent/` to `.agents/`, and injected stack-tailored modular skills.
+   A total of **21 production repositories** (23 physical checkouts including the self-referential harness host and auxiliary monorepo checkouts) across `<org>`, `kuasha420`, and external collaborator `<collaborator-org>` were onboarded to the Agyis Harness ecosystem. This wave established standardized tagged rule fences (`<!-- Added by AGYIS-HARNESS --> ... <!-- End AGYIS-HARNESS -->`), modernized directory layouts from `.agent/` to `.agents/`, and injected stack-tailored modular skills.
 2. **The High-Velocity Rehydration Wave (`v1.0.0-rc4`, October 16–17, 2026)**:
    The **5 core repositories** exhibiting the highest commit velocities and pull request densities were rehydrated with canonical `v1.0.0-rc4` configurations. Across these 5 repositories, **16 active, in-flight pull requests**—many suffering from 100% conflict density, complex Prisma ORM schema divergences, Next.js 15 route changes, and stale test assertions—were sequentially rebased, verified with native test runners, and confirmed as cleanly `MERGEABLE` on GitHub.
 
 ### High-Water Marks & Integrity Guarantees
 - **100% Preservation of Invariant Rules**: Zero regression or corruption of developer-defined domain rules or corporate governance invariants.
-- **Zero Work or Data Loss**: In-flight uncommitted modifications (e.g. 14 uncommitted files in `purrfectcore-001`, untracked agent files in `Jasper`) were safeguarded via automated git patches (`wip-safety-pre-onboard.patch`) and dedicated safety branches.
+- **Zero Work or Data Loss**: In-flight uncommitted modifications (e.g. 14 uncommitted files in `<client-repo-api>`, untracked agent files in `<oss-bot-repo>`) were safeguarded via automated git patches (`wip-safety-pre-onboard.patch`) and dedicated safety branches.
 - **16/16 PR Rebase Success**: 100% of open pull requests across the core cohort were rebased and verified against current base branches (`main`/`develop`).
 - **100% Resolution of Historical Frictions**: All 14 technical gaps (GAP-01 through GAP-14) and all 5 primary operational friction patterns (cache invalidation, DB port collisions, skill shadowing, dirty working trees, legacy directory retention) have been systematically resolved and hermetically tested on `main`.
 
@@ -44,12 +44,12 @@ The `v1.0.0-rc4` cohort represented the highest-stress deployment tier, targetin
 
 | Target Repository & Local Path | Architecture & Stack Archetype | Base Branch | Open PRs Rebased & Verified | Verification Command & Benchmark | GitHub State |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`purrfectsoft/sunshine-physio-webapp`**<br>`~/Dev/sunshine-physio-webapp` | Next.js 15 + Expo / React Native Universal Monorepo | `main` | **6 of 6 PRs**:<br>• #55 (cross-platform typecheck)<br>• #56 (dead-code pruning)<br>• #57 (booking deep-linking)<br>• #58 (resilience & error boundaries)<br>• #59 (auth role-gating & navigation)<br>• #60 (appointments reschedule/cancel) | `pnpm vitest run`<br>(201 test files, 2,838 tests passed, ~195s) | 🟢 6/6 Rebased & `MERGEABLE` |
+| **`<org>/<client-repo-webapp>`**<br>`~/Dev/<client-repo-webapp>` | Next.js 15 + Expo / React Native Universal Monorepo | `main` | **6 of 6 PRs**:<br>• #55 (cross-platform typecheck)<br>• #56 (dead-code pruning)<br>• #57 (booking deep-linking)<br>• #58 (resilience & error boundaries)<br>• #59 (auth role-gating & navigation)<br>• #60 (appointments reschedule/cancel) | `pnpm vitest run`<br>(201 test files, 2,838 tests passed, ~195s) | 🟢 6/6 Rebased & `MERGEABLE` |
 | **`kuasha420/knot-mesh`**<br>`~/Dev/knot-mesh` | Python 3.12 + Bash/systemd Wayland Hardware Mesh Swarm | `main` | **5 of 5 PRs**:<br>• #85 (deskflow crossover debounce)<br>• #87 (sync manifest deletion parity)<br>• #88 (node offboard & decommission)<br>• #89 (atomic identity & node rename)<br>• #90 (topology declarative mutations) | `pytest` + bash integrity suites<br>(44 pytest + 5/5 shell suites passed, exit 0) | 🟢 5/5 Rebased & `MERGEABLE` |
-| **`purrfectsoft/purrfectcore-001`**<br>`~/Dev/purrfectcore-001` | NestJS 11 + Prisma ORM Enterprise Backend Monolith | `develop` | **2 of 2 PRs**:<br>• #566 (remove prisma comments)<br>• #268 (billing / invoice handling) | `pnpm jest`<br>(66 test suites, 1,068 tests passed, 8.3s) | 🟢 2/2 Rebased & `MERGEABLE` |
-| **`purrfectsoft/psl-website`**<br>`~/Dev/psl-website` | Next.js + Turborepo + tRPC Corporate Portal Monorepo | `develop` | **2 of 2 PRs**:<br>• #57 (security alert & editor types)<br>• #61 (back-office AI automation) | `pnpm build && pnpm typecheck`<br>(58 static pages built, 0 type errors) | 🟢 2/2 Rebased & `MERGEABLE` |
-| **`purrfectsoft/mm-website`**<br>`~/Dev/mm-website` | Next.js + Turborepo Client Web Platform (46 issues) | `develop` | **1 of 1 PR**:<br>• #406 (referral landing page `/ref/:code`) | `pnpm build && pnpm typecheck`<br>(3 tasks OK, 0 type errors) | 🟢 1/1 Rebased & `MERGEABLE` |
-| **`purrfectsoft/mm-website-2`**<br>`~/Dev/mm-website-2` | Auxiliary Monorepo Clone (Duplicate workspace checkout) | `develop` | N/A (Auxiliary checkout) | `agyis doctor`<br>(9 OK, legacy `.agent/` eliminated) | 🟢 Synchronized to `develop` |
+| **`<org>/<client-repo-api>`**<br>`~/Dev/<client-repo-api>` | NestJS 11 + Prisma ORM Enterprise Backend Monolith | `develop` | **2 of 2 PRs**:<br>• #566 (remove prisma comments)<br>• #268 (billing / invoice handling) | `pnpm jest`<br>(66 test suites, 1,068 tests passed, 8.3s) | 🟢 2/2 Rebased & `MERGEABLE` |
+| **`<org>/<corp-web-repo>`**<br>`~/Dev/<corp-web-repo>` | Next.js + Turborepo + tRPC Corporate Portal Monorepo | `develop` | **2 of 2 PRs**:<br>• #57 (security alert & editor types)<br>• #61 (back-office AI automation) | `pnpm build && pnpm typecheck`<br>(58 static pages built, 0 type errors) | 🟢 2/2 Rebased & `MERGEABLE` |
+| **`<org>/<client-repo-web>`**<br>`~/Dev/<client-repo-web>` | Next.js + Turborepo Client Web Platform (46 issues) | `develop` | **1 of 1 PR**:<br>• #406 (referral landing page `/ref/:code`) | `pnpm build && pnpm typecheck`<br>(3 tasks OK, 0 type errors) | 🟢 1/1 Rebased & `MERGEABLE` |
+| **`<org>/<client-repo-web-aux>`**<br>`~/Dev/<client-repo-web-aux>` | Auxiliary Monorepo Clone (Duplicate workspace checkout) | `develop` | N/A (Auxiliary checkout) | `agyis doctor`<br>(9 OK, legacy `.agent/` eliminated) | 🟢 Synchronized to `develop` |
 
 ### 2.2 Census of all 16 Rebased Pull Requests
 
@@ -57,28 +57,28 @@ The `v1.0.0-rc4` cohort represented the highest-stress deployment tier, targetin
 ┌──────┬───────────────────────────────┬───────────────────────────────────────────┬──────────────────────────┬────────────────────────┐
 │ PR # │ Repository                    │ Title & Feature Scope                     │ Rebased Branch           │ Verification Result    │
 ├──────┼───────────────────────────────┼───────────────────────────────────────────┼──────────────────────────┼────────────────────────┤
-│ #55  │ sunshine-physio-webapp        │ Cross-platform typecheck & shared schemas │ fix/typecheck-shared     │ 2,838 vitest tests OK  │
-│ #56  │ sunshine-physio-webapp        │ Dead-code pruning (Issue #19)             │ chore/prune-dead-code    │ 2,783 vitest tests OK  │
-│ #57  │ sunshine-physio-webapp        │ Booking deep-linking & URL route handlers │ feat/booking-deep-links  │ 2,838 vitest tests OK  │
-│ #58  │ sunshine-physio-webapp        │ Clinical error boundaries & resilience    │ fix/error-boundaries     │ 2,838 vitest tests OK  │
-│ #59  │ sunshine-physio-webapp        │ Navigation role-gating & auth guards      │ feat/auth-nav-guards     │ 2,838 vitest tests OK  │
-│ #60  │ sunshine-physio-webapp        │ Patient appointment reschedule & cancel   │ feat/reschedule-cancel   │ 2,838 vitest tests OK  │
+│ #55  │ <client-repo-webapp>        │ Cross-platform typecheck & shared schemas │ fix/typecheck-shared     │ 2,838 vitest tests OK  │
+│ #56  │ <client-repo-webapp>        │ Dead-code pruning (Issue #19)             │ chore/prune-dead-code    │ 2,783 vitest tests OK  │
+│ #57  │ <client-repo-webapp>        │ Booking deep-linking & URL route handlers │ feat/booking-deep-links  │ 2,838 vitest tests OK  │
+│ #58  │ <client-repo-webapp>        │ Clinical error boundaries & resilience    │ fix/error-boundaries     │ 2,838 vitest tests OK  │
+│ #59  │ <client-repo-webapp>        │ Navigation role-gating & auth guards      │ feat/auth-nav-guards     │ 2,838 vitest tests OK  │
+│ #60  │ <client-repo-webapp>        │ Patient appointment reschedule & cancel   │ feat/reschedule-cancel   │ 2,838 vitest tests OK  │
 │ #85  │ knot-mesh                     │ Deskflow crossover debounce & deadlocks   │ fix/deskflow-debounce    │ 44 pytest + 5 bash OK  │
 │ #87  │ knot-mesh                     │ Manifest sync deletion parity             │ feat/manifest-sync-del   │ 44 pytest + 5 bash OK  │
 │ #88  │ knot-mesh                     │ Mesh node offboarding & decommission      │ feat/node-decommission   │ 44 pytest + 5 bash OK  │
 │ #89  │ knot-mesh                     │ Atomic hardware identity & node rename    │ feat/atomic-identity     │ 44 pytest + 5 bash OK  │
 │ #90  │ knot-mesh                     │ Declarative topology mutations            │ feat/topology-mutations  │ 44 pytest + 5 bash OK  │
-│ #566 │ purrfectcore-001              │ Prisma schema docstrings & comment prune  │ chore/remove-prisma-cmts │ 1,068 Jest tests OK    │
-│ #268 │ purrfectcore-001              │ Advance receipt & invoice handling        │ feat/billing-invoices    │ 1,068 Jest tests OK    │
-│ #57  │ psl-website                   │ Security alert & editor types             │ fix/security-alert-types │ 57 static pages built  │
-│ #61  │ psl-website                   │ Back-office AI automation routes          │ feat/backoffice-ai-auto  │ 58 static pages built  │
-│ #406 │ mm-website                    │ Referral landing page (/ref/:code)        │ feat/referral-landing    │ 3 build tasks OK       │
+│ #566 │ <client-repo-api>              │ Prisma schema docstrings & comment prune  │ chore/remove-prisma-cmts │ 1,068 Jest tests OK    │
+│ #268 │ <client-repo-api>              │ Advance receipt & invoice handling        │ feat/billing-invoices    │ 1,068 Jest tests OK    │
+│ #57  │ <corp-web-repo>                   │ Security alert & editor types             │ fix/security-alert-types │ 57 static pages built  │
+│ #61  │ <corp-web-repo>                   │ Back-office AI automation routes          │ feat/backoffice-ai-auto  │ 58 static pages built  │
+│ #406 │ <client-repo-web>                    │ Referral landing page (/ref/:code)        │ feat/referral-landing    │ 3 build tasks OK       │
 └──────┴───────────────────────────────┴───────────────────────────────────────────┴──────────────────────────┴────────────────────────┘
 ```
 
 ### 2.3 Deep Forensic Rebase Case Studies
 
-#### Case Study 1: Enterprise Prisma Schema Divergence (`purrfectcore-001` PR #566)
+#### Case Study 1: Enterprise Prisma Schema Divergence (`<client-repo-api>` PR #566)
 - **Branch**: `chore/remove-prisma-comments` (author: `@smamun19`)
 - **Initial State**: `DIRTY / CONFLICTING` against base branch `develop`.
 - **Anatomy of Conflict**:
@@ -89,13 +89,13 @@ The `v1.0.0-rc4` cohort represented the highest-stress deployment tier, targetin
   2. Integrated the author's high-signal docstrings for `CreditTransactionType`, `PatientCreditTransaction`, and `ServicePricing`.
 - **Validation**: Full Jest test suite verified: **66 suites passed, 1,068 tests passed in 8.3s**. PR was updated cleanly to commit `b891823c` and confirmed `MERGEABLE`.
 
-#### Case Study 2: 100% Conflict Density Resolution (`psl-website` PRs #57 & #61)
+#### Case Study 2: 100% Conflict Density Resolution (`<corp-web-repo>` PRs #57 & #61)
 - **Initial State**: Both PRs were completely blocked by merge conflicts against `develop`.
 - **Resolution Strategy**:
   1. **PR #57 (`fix/security-alert-and-editor-types`)**: Merged `nodemailer` dependencies into `apps/web/package.json` alongside Next.js 15.5.27; harmonized tRPC settings persistence (`api.settings.set`) with the rich maintenance control card in `settings-view.tsx`; regenerated Prisma client to register the `UserDevice` model. Result: 57 static pages built cleanly; commit `7d5e90b` marked `MERGEABLE`.
   2. **PR #61 (`feat/back-office-ai-automation`)**: Unified router registration in `apps/web/src/server/routers/_app.ts` with both `postsRouter` and `aiRouter`; remediated 8 strict ESLint/TypeScript errors (`@typescript-eslint/no-explicit-any`, missing timer cleanups in `ai/health/route.ts`). Result: 58 static pages built cleanly; commit `8bfc0fc` marked `MERGEABLE`.
 
-#### Case Study 3: Dead Code Pruning vs. Stale Unit Tests (`sunshine-physio` PR #56)
+#### Case Study 3: Dead Code Pruning vs. Stale Unit Tests (`<client-app>` PR #56)
 - **Initial State**: Rebase succeeded, but `pnpm vitest run` failed on `layout.test.tsx`.
 - **Anatomy of Friction**: PR #56 intentionally pruned multi-branch dead code from `apps/web/src/app/(admin)/layout.tsx` (Issue #19). However, the pre-existing unit test in `layout.test.tsx` still asserted that the `branch-switcher-button` and `Branches` navigation links rendered when `enableMultiBranch: true`.
 - **Resolution**: Updated unit test assertions to expect null (`toBeNull()`), maintaining alignment with dead-code pruning requirements. Full test suite passed (198 files, 2,783 tests), and commit `155b7b2` was pushed with lease.
@@ -104,35 +104,35 @@ The `v1.0.0-rc4` cohort represented the highest-stress deployment tier, targetin
 
 ## 3. Fleet Onboarding Wave Inventory (`rc1`/`rc2`/`rc3`)
 
-Between October 13 and October 15, 2026, the initial fleet onboarding wave transitioned 18 production repositories across three GitHub namespaces (`purrfectsoft`, `kuasha420`, and `sakibtamim`). Accounting for auxiliary checkouts and the harness host itself, the census represents 23 distinct active development trees.
+Between October 13 and October 15, 2026, the initial fleet onboarding wave transitioned 18 production repositories across three GitHub namespaces (`<org>`, `kuasha420`, and `<collaborator-org>`). Accounting for auxiliary checkouts and the harness host itself, the census represents 23 distinct active development trees.
 
 ### 3.1 Fleet Onboarding Census Master Matrix
 
 | # | Repository | Namespace / Org | Architecture & Primary Stack | Onboard PR | Merged Date | Base Branch | Status & Verification Result |
 | :- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1 | `purrfectcore-001` | `purrfectsoft` | NestJS 11 + Prisma ORM (Backend Monolith) | **#611** | 2026-10-14 | `develop` | 🟢 Merged (1,068 Jest tests passed) |
-| 2 | `sunshine-physio-webapp` | `purrfectsoft` | Next.js 15 + Expo React Native (Universal App) | **#52** | 2026-10-14 | `main` | 🟢 Merged (2,838 vitest tests passed) |
-| 3 | `mm-website` | `purrfectsoft` | Next.js + Turborepo (Healthcare Web Platform) | **#411** | 2026-10-14 | `develop` | 🟢 Merged (pnpm build clean) |
-| 4 | `psl-website` | `purrfectsoft` | Next.js 15 + Turborepo + tRPC (Corporate Portal) | **#74** | 2026-10-14 | `develop` | 🟢 Merged (58 static pages built clean) |
-| 5 | `purrfectcore-client` | `purrfectsoft` | Next.js + React Query (Clinical Portal Frontend) | **#543** | 2026-10-14 | `develop` | 🟢 Merged (TypeScript clean) |
-| 6 | `psl-boilerplate` | `purrfectsoft` | Turborepo + TypeScript (Enterprise Template) | **#1** | 2026-10-14 | `develop` | 🟢 Merged (vitest clean) |
-| 7 | `psl-scaffold` | `purrfectsoft` | Node.js + TypeScript (Developer CLI) | **#11** | 2026-10-14 | `develop` | 🟢 Merged (npm test clean) |
-| 8 | `purrmission` | `purrfectsoft` | Fastify + Discord.js (Bot Management Fork) | **#4** | 2026-10-14 | `master` | 🟢 Merged (vitest clean) |
-| 9 | `chronicle-time-keeper` | `purrfectsoft` | Next.js + Electron (Workstation Time Tracker) | **#16** | 2026-10-14 | `develop` | 🟢 Merged (pnpm test OK) |
-| 10 | `jasper-hosted` | `purrfectsoft` | Node.js + TypeScript + OCI (Hosted Audio Platform) | **#42** | 2026-10-14 | `main` | 🟢 Merged (vitest clean) |
-| 11 | `arbiter` | `purrfectsoft` | TypeScript + Fastify (Service Mesh Arbiter) | **#1** | 2026-10-13 | `develop` | 🟢 Merged (v1.0.0-rc2 clean) |
-| 12 | `bookcover-craft` | `purrfectsoft` | Next.js + Tailwind (Frontend Web Application) | **#4** | 2026-10-13 | `staging` | 🟢 Merged (v1.0.0-rc2 clean) |
-| 13 | `bookcover-craft-api`| `purrfectsoft` | Fastify + Python (Image Rendering Microservice) | **#6** | 2026-10-13 | `dev` | 🟢 Merged (v1.0.0-rc2 clean) |
-| 14 | `chakra-ui-icons-compat`| `purrfectsoft` | React + Chakra UI (UI Component Library) | **#1** | 2026-10-13 | `develop` | 🟢 Merged (v1.0.0-rc2 clean) |
+| 1 | `<client-repo-api>` | `<org>` | NestJS 11 + Prisma ORM (Backend Monolith) | **#611** | 2026-10-14 | `develop` | 🟢 Merged (1,068 Jest tests passed) |
+| 2 | `<client-repo-webapp>` | `<org>` | Next.js 15 + Expo React Native (Universal App) | **#52** | 2026-10-14 | `main` | 🟢 Merged (2,838 vitest tests passed) |
+| 3 | `<client-repo-web>` | `<org>` | Next.js + Turborepo (Healthcare Web Platform) | **#411** | 2026-10-14 | `develop` | 🟢 Merged (pnpm build clean) |
+| 4 | `<corp-web-repo>` | `<org>` | Next.js 15 + Turborepo + tRPC (Corporate Portal) | **#74** | 2026-10-14 | `develop` | 🟢 Merged (58 static pages built clean) |
+| 5 | `<client-repo-web-app>` | `<org>` | Next.js + React Query (Clinical Portal Frontend) | **#543** | 2026-10-14 | `develop` | 🟢 Merged (TypeScript clean) |
+| 6 | `<corp-template-repo>` | `<org>` | Turborepo + TypeScript (Enterprise Template) | **#1** | 2026-10-14 | `develop` | 🟢 Merged (vitest clean) |
+| 7 | `<corp-scaffold-repo>` | `<org>` | Node.js + TypeScript (Developer CLI) | **#11** | 2026-10-14 | `develop` | 🟢 Merged (npm test clean) |
+| 8 | `purrmission` | `<org>` | Fastify + Discord.js (Bot Management Fork) | **#4** | 2026-10-14 | `master` | 🟢 Merged (vitest clean) |
+| 9 | `<client-time-tracker>` | `<org>` | Next.js + Electron (Workstation Time Tracker) | **#16** | 2026-10-14 | `develop` | 🟢 Merged (pnpm test OK) |
+| 10 | `<hosted-app>` | `<org>` | Node.js + TypeScript + OCI (Hosted Audio Platform) | **#42** | 2026-10-14 | `main` | 🟢 Merged (vitest clean) |
+| 11 | `arbiter` | `<org>` | TypeScript + Fastify (Service Mesh Arbiter) | **#1** | 2026-10-13 | `develop` | 🟢 Merged (v1.0.0-rc2 clean) |
+| 12 | `bookcover-craft` | `<org>` | Next.js + Tailwind (Frontend Web Application) | **#4** | 2026-10-13 | `staging` | 🟢 Merged (v1.0.0-rc2 clean) |
+| 13 | `bookcover-craft-api`| `<org>` | Fastify + Python (Image Rendering Microservice) | **#6** | 2026-10-13 | `dev` | 🟢 Merged (v1.0.0-rc2 clean) |
+| 14 | `chakra-ui-icons-compat`| `<org>` | React + Chakra UI (UI Component Library) | **#1** | 2026-10-13 | `develop` | 🟢 Merged (v1.0.0-rc2 clean) |
 | 15 | `knot-mesh` | `kuasha420` | Python 3.12 + Bash/systemd (Hardware Mesh Swarm)| **#80** | 2026-10-14 | `main` | 🟢 Merged (44 pytest + 5 bash suites OK)|
 | 16 | `purrmission` | `kuasha420` | Fastify + Discord.js + Domain Ports (Canonical) | **#161**| 2026-10-14 | `master` | 🟢 Merged (Canonical Upstream OK) |
 | 17 | `react-native-template-ts-plus`| `kuasha420` | React Native 0.70+ TypeScript Mobile Template | **#19** | 2026-10-14 | `feat/resurrection` | 🟢 Merged (Jest suites clean) |
 | 18 | `purr` | `kuasha420` | Arch Linux PKGBUILD + Bash/Waydroid Subsystem | **#14** | 2026-10-14 | `main` | 🟢 Merged (Recipes validated) |
-| 19 | `jimha` | `kuasha420` | PyQt6 + Python 3.12 (Desktop GUI Window Manager) | **#1** | 2026-10-14 | `main` | 🟢 Merged (unittest discovery clean) |
-| 20 | `purrfect-download-manager`| `sakibtamim` | Electron + React + TypeScript (Desktop Tool) | **#23** | 2026-10-15 | `develop` | 🟢 Merged (Cross-repo Fork PR OK) |
-| 21 | `Jasper` | `sakibtamim` | Node.js + Discord.js + SQLite/Postgres | **#172**| 2026-10-14 | `master` | 🟢 Merged (Jest suites clean) |
+| 19 | `<desktop-gui-repo>` | `kuasha420` | PyQt6 + Python 3.12 (Desktop GUI Window Manager) | **#1** | 2026-10-14 | `main` | 🟢 Merged (unittest discovery clean) |
+| 20 | `<collab-desktop-repo>`| `<collaborator-org>` | Electron + React + TypeScript (Desktop Tool) | **#23** | 2026-10-15 | `develop` | 🟢 Merged (Cross-repo Fork PR OK) |
+| 21 | `<oss-bot-repo>` | `<collaborator-org>` | Node.js + Discord.js + SQLite/Postgres | **#172**| 2026-10-14 | `master` | 🟢 Merged (Jest suites clean) |
 | 22 | `psl-agy-harness` | `kuasha420` | Python 3.12 (Self-referential Harness Host) | N/A | Current | `main` | 🟢 Host Engine (1,065 tests passed) |
-| 23 | `mm-website-2` | `purrfectsoft` | Auxiliary Clone of `mm-website` | N/A | Current | `develop` | 🟢 Filtered & Synchronized |
+| 23 | `<client-repo-web-aux>` | `<org>` | Auxiliary Clone of `<client-repo-web>` | N/A | Current | `develop` | 🟢 Filtered & Synchronized |
 
 ---
 
@@ -155,7 +155,7 @@ The empirical telemetry gathered during fleet deployments revealed 5 major categ
 ### 4.1 Next.js & Turbopack Build Cache Invalidation (`.next/`, `.turbo/`, `node_modules/.cache`)
 
 #### Observed Symptom & Failure Mechanics
-In Next.js 14 and 15 applications (`psl-website`, `sunshine-physio-webapp`, `mm-website`), developers and autonomous agents frequently switch between git branches with diverging route structures. Next.js aggressively generates TypeScript declaration stubs under `.next/types/app/` to accelerate typechecking. 
+In Next.js 14 and 15 applications (`<corp-web-repo>`, `<client-repo-webapp>`, `<client-repo-web>`), developers and autonomous agents frequently switch between git branches with diverging route structures. Next.js aggressively generates TypeScript declaration stubs under `.next/types/app/` to accelerate typechecking. 
 When switching from a branch containing a route (e.g. `apps/web/src/app/(admin)/maintenance/page.tsx`) to a branch where that route was deleted, Next.js does not prune `.next/types/app/(admin)/maintenance/page.ts`. Subsequent execution of `next build` or `pnpm typecheck` attempts to validate the orphaned type stub against a non-existent source file, failing with unresolvable compilation errors:
 ```text
 Type error: Cannot find module '../../../../../apps/web/src/app/(admin)/maintenance/page' or its corresponding type declarations.
@@ -176,13 +176,13 @@ The delivery subsystem now features a dedicated, bounded cache purger in `harnes
 ### 4.2 PostgreSQL 5432 Port Collisions Across Parallel Containerized Projects
 
 #### Observed Symptom & Failure Mechanics
-During the verification of `purrfectsoft/mm-website`, running `pnpm build` failed during static page generation with Prisma client error:
+During the verification of `<org>/<client-repo-web>`, running `pnpm build` failed during static page generation with Prisma client error:
 ```text
 PrismaClientInitializationError: Can't reach database server at `localhost`:`5432`
 Please make sure your database server is running at `localhost`:`5432`.
 Error Code: P1000
 ```
-Inspection revealed that Docker container `jasper_dev_postgres` (belonging to another local repository `jasper-hosted`) was already bound to `0.0.0.0:5432` on the host. When `mm-website` attempted to connect to its own local Postgres instance, traffic was routed to the foreign database, rejecting authentication and blocking builds.
+Inspection revealed that Docker container `<foreign-db-container>` (belonging to another local repository `<hosted-app>`) was already bound to `0.0.0.0:5432` on the host. When `<client-repo-web>` attempted to connect to its own local Postgres instance, traffic was routed to the foreign database, rejecting authentication and blocking builds.
 
 #### Ground Truth Resolution on `main`
 A complete, standalone port collision diagnostic and re-binding tool was engineered at `harness/skills/db-ops/scripts/detect_port_collision.py` (473 lines):
@@ -194,7 +194,7 @@ A complete, standalone port collision diagnostic and re-binding tool was enginee
 - **Surgical `.env` Re-binding**: Implements `rebind_env_file()` using strict regular expressions (`RE_POSTGRES_PORT` and `RE_DATABASE_URL`), updating port declarations while preserving inline comments, quotes, and URL query strings.
 - **CLI & Onboarding Integration**: Wired into `onboard.py` (lines 310–335), warning operators during repository setup:
   ```text
-  Warning: Database port conflict detected on port 5432: Port 5432 collision: occupied by foreign container 'jasper_dev_postgres' (project: 'jasper-hosted').
+  Warning: Database port conflict detected on port 5432: Port 5432 collision: occupied by foreign container '<foreign-db-container>' (project: '<hosted-app>').
   ```
 - **Modular Skill Documentation**: Codified in `.agents/skills/db-ops/SKILL.md` (lines 173–236).
 
@@ -206,8 +206,8 @@ A complete, standalone port collision diagnostic and re-binding tool was enginee
 In the early Phase 0 onboarding model, skills were copied directly into each repository's `.agents/skills/` directory. When the global Agyis plugin was installed in Antigravity (`~/.gemini/config/plugins/agyis-harness/skills/`), both the global plugin and the local repository presented identical skill names to the model's tool dispatcher.
 Because Antigravity loads workspace skills in addition to global plugin skills, duplicate skills shadowed the global definitions, injecting identical instructions twice into the system prompt.
 - In `knot-mesh`, 7 skills were duplicated.
-- In `sunshine-physio`, 5 skills were duplicated.
-- In `purrfectcore-001`, 4 skills were duplicated.
+- In `<client-app>`, 5 skills were duplicated.
+- In `<client-repo-api>`, 4 skills were duplicated.
 This redundancy consumed **~4,500 wasted tokens per conversational turn**, degrading context health, accelerating context truncation cliffs, and triggering `Duplicate Skills: [WARN]` warnings in `agyis doctor`.
 
 #### Ground Truth Resolution on `main`
@@ -234,8 +234,8 @@ Single-source skill delivery (governed by Issue #52) was implemented in `harness
 
 #### Observed Symptom & Failure Mechanics
 During the onboarding wave, repositories frequently had uncommitted, in-progress developer work:
-- In `purrfectsoft/purrfectcore-001`, the developer had 14 uncommitted modified files in progress (+120/-62 lines) covering the advocate-referral feature, while local `develop` was 71 commits behind `origin/develop`.
-- In `sakibtamim/Jasper`, untracked agent rules and skills were present on disk.
+- In `<org>/<client-repo-api>`, the developer had 14 uncommitted modified files in progress (+120/-62 lines) covering the advocate-referral feature, while local `develop` was 71 commits behind `origin/develop`.
+- In `<collaborator-org>/<oss-bot-repo>`, untracked agent rules and skills were present on disk.
 Automated tools attempting to checkout new branches (`git checkout -b chore/agyis-harness-onboarding`) or execute rebases would either fail immediately with `error: Your local changes to the following files would be overwritten by checkout`, or risk discarding uncommitted changes during forced operations.
 
 #### Ground Truth Resolution on `main`
@@ -300,7 +300,7 @@ This section presents an exhaustive cross-reference proving that all 14 architec
 | **GAP-06** | **High** | `harness/delivery/workspace.py:159-199` | Removed `tests/` check from `has_pytest`. Evaluates `pytest.ini`, `setup.cfg`, `pyproject.toml`, `requirements*.txt`. Falls back cleanly to `python3 -m unittest discover -s tests -v`. | Unit tested in `tests/test_delivery_workspace.py`. Unittest projects receive correct discovery command. | 🟢 **RESOLVED** |
 | **GAP-07** | **Medium** | `harness/delivery/workspace.py:150-188` | Python command extraction inspects `setup.py`, `setup.cfg`, and `requirements*.txt` even when `pyproject.toml` is absent. | Verified: packages without `pyproject.toml` correctly extract commands. | 🟢 **RESOLVED** |
 | **GAP-08** | **High** | `harness/delivery/constants.py:49-58`<br>`harness/delivery/git_hygiene.py:21-70` | Scoped `GIT_EXCLUDE_PATTERNS` to `(".agents/artifacts/", ".agents/teamwork/", ".agents/archive/", "*.patch", ".agyis/", ".psl/", ".cache/", "scratch/")`. Skills stay version-controlled; backup archives stay excluded. | Verified: skills tracked in git, tarballs automatically excluded from commits. | 🟢 **RESOLVED** |
-| **GAP-09** | **Medium** | `harness/delivery/git_topology.py:45-535`<br>`harness/commands/onboard.py:120-160` | Implemented `GitTopologyProbe`: queries GitHub GraphQL `viewerPermission`, detects personal forks, inverted remotes, base branches, auxiliary clones (`mm-website-2`), and self-referential host engine. | Verified in `tests/test_git_topology.py`. Prevents 403 push rejections on upstream collaborator repos. | 🟢 **RESOLVED** |
+| **GAP-09** | **Medium** | `harness/delivery/git_topology.py:45-535`<br>`harness/commands/onboard.py:120-160` | Implemented `GitTopologyProbe`: queries GitHub GraphQL `viewerPermission`, detects personal forks, inverted remotes, base branches, auxiliary clones (`<client-repo-web-aux>`), and self-referential host engine. | Verified in `tests/test_git_topology.py`. Prevents 403 push rejections on upstream collaborator repos. | 🟢 **RESOLVED** |
 | **GAP-10** | **Medium** | `harness/cli.py:440-520`<br>`harness/commands/onboard.py:1-463` | Authoritative role division: `agyis init` for workspace scaffolding, `agyis install` for global plugin installation, and `agyis onboard` as the unified end-to-end repository onboarding engine. | Verified across CLI parsers and test suites. | 🟢 **RESOLVED** |
 | **GAP-11** | **Critical** | `.agents/skills/psl-harmonize/SKILL.md:1-86` | Complete skill rewrite: eliminated manual bash copy loops, removed deprecated `<!-- Added by PSL-HARNESS -->` tags, codified `agyis harmonize [path] --prune-legacy --backup`. | Skill inspected via `view_file`. Conforms strictly to Agyis CLI standards. | 🟢 **RESOLVED** |
 | **GAP-12** | **High** | `.agents/skills/agent-builder/SKILL.md:65-116` | Updated default persona to `agyis_architect`. Corrected global agent scope directory to canonical `~/.gemini/config/agents/`. Normalized commands to `agyis agents`. | Skill inspected via `view_file`. Zero references to obsolete paths. | 🟢 **RESOLVED** |
@@ -332,7 +332,7 @@ This section presents an exhaustive cross-reference proving that all 14 architec
 - **Code Ground Truth**: `harness/delivery/harmonize.py` lines 270–310 apply regular expression substitutions across markdown files, rewriting `.agent/rules/` to `.agents/rules/` while preserving user commentary.
 
 #### GAP-04: Coupled Stack Presets Hardcoding Backend Skills
-- **Specification Finding**: `STACK_PRESETS` forced `psl-stack-backend` into every TypeScript and Python project, polluting client and GUI apps (`jimha`, `sunshine-physio`) with database rules.
+- **Specification Finding**: `STACK_PRESETS` forced `psl-stack-backend` into every TypeScript and Python project, polluting client and GUI apps (`<desktop-gui-repo>`, `<client-app>`) with database rules.
 - **Code Ground Truth**: `harness/skills/__init__.py` lines 79–160 split presets into `LANGUAGE_RUNTIME_PRESETS` (`typescript`, `python`, `rust`, `go`, `systems`, `shell`) and `ARCHITECTURAL_ROLE_PRESETS` (`backend`, `frontend`, `fullstack`, `mobile`, `desktop_gui`, `cli`, `library`, `media`, `audio`, `infra`). Frontends receive `modern-web-guidance`; backends receive `psl-stack-backend` and `db-ops`; `cli` and `library` map safely to `[]`.
 
 #### GAP-05: Waterfall Detector Dominance & Shell Script Blindness
@@ -365,12 +365,12 @@ This section presents an exhaustive cross-reference proving that all 14 architec
   Skills and rules remain tracked in git; backup archives and patches are excluded.
 
 #### GAP-09: Git Remote & Fork Blindness (403 Errors)
-- **Specification Finding**: Tools assumed direct write access to `origin`, failing with HTTP 403 on collaborator forks (`sakibtamim/purrfect-download-manager`).
+- **Specification Finding**: Tools assumed direct write access to `origin`, failing with HTTP 403 on collaborator forks (`<collaborator-org>/<collab-desktop-repo>`).
 - **Code Ground Truth**: `harness/delivery/git_topology.py` (lines 45–535) implements `GitTopologyProbe`:
   - Evaluates `gh repo view --json viewerPermission`.
   - Classifies permissions: `ADMIN`, `MAINTAIN`, `WRITE` permit direct push; `READ`, `TRIAGE`, `NONE` trigger fork workflows.
   - Automatically forks via non-interactive `gh repo fork --clone=false --remote=true --remote-name=fork`.
-  - Flags auxiliary clones (`mm-website-2`) and the self-referential harness host (`psl-agy-harness`).
+  - Flags auxiliary clones (`<client-repo-web-aux>`) and the self-referential harness host (`psl-agy-harness`).
 
 #### GAP-10: Command Overlap Ambiguity (`init` vs `install -w`)
 - **Specification Finding**: Operators and agents were confused by overlapping responsibilities between `init` and `install -w`.
@@ -470,7 +470,7 @@ python3 -m harness.cli test
   • Stack: python (role: backend)
   • Skills: psl-stack-python, psl-test-python, psl-stack-backend, db-ops
   • Harmonized legacy .agent/: yes (pruned: yes)
-  • Warning: Database port conflict detected on port 5432: Port 5432 collision: occupied by foreign container 'jasper_dev_postgres' (project: 'jasper-hosted').
+  • Warning: Database port conflict detected on port 5432: Port 5432 collision: occupied by foreign container '<foreign-db-container>' (project: '<hosted-app>').
 .✔ Workspace onboarded: /tmp/tmpr4wdrg0s/no-prune-repo
   • Current branch: main (base: main)
   • Remote target: origin -> origin
@@ -522,7 +522,7 @@ OK
 2. **Build Cache Purge**: `Purged 3 build cache directory(ies): .next, .turbo, .next` verifies `harness/delivery/cache.py`.
 3. **Dirty Working Tree Safety**: Clean JSON error output `Working tree has uncommitted changes. Stash/commit your changes or use --allow-dirty` verifies `harness/commands/onboard.py`.
 4. **Legacy `.agent/` Pruning**: `Harmonized legacy .agent/: yes (pruned: yes)` verifies 4-phase deprecation in `harness/delivery/harmonize.py`.
-5. **Database Port Collision Probing**: `Warning: Database port conflict detected on port 5432: Port 5432 collision: occupied by foreign container 'jasper_dev_postgres'` verifies `detect_port_collision.py`.
+5. **Database Port Collision Probing**: `Warning: Database port conflict detected on port 5432: Port 5432 collision: occupied by foreign container '<foreign-db-container>'` verifies `detect_port_collision.py`.
 6. **Single-Source Skill Deduplication**: `Pruned 1 duplicate skill(s) shadowing global plugin: psl-stack-python` verifies `enforce_single_source_skills` in `harness/delivery/surfaces.py`.
 7. **Monorepo Depth-2 Subproject Detection**: `Subproject: services/billing, Stack: typescript (role: frontend)` verifies bounded-depth monorepo scanning and role detection in `harness/skills/__init__.py`.
 8. **Background Telemetry Sync Service**: `Installed systemd user service unit: ... agyis-sync.service` verifies systemd service management.

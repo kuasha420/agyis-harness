@@ -213,6 +213,18 @@ class TestPipelineAuditSmoke(unittest.TestCase):
         self.assertIn("<!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->", content)
         self.assertIn("<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->", content)
 
+    def test_pipeline_default_outputs_target_archive_taxonomy(self):
+        """Ensure telemetry pipeline scripts default markdown outputs to docs/archive/taxonomy/ rather than active docs/taxonomy/."""
+        repo_root = Path(__file__).resolve().parent.parent
+        pipeline_dir = repo_root / "pipeline"
+        for py_file in sorted(pipeline_dir.glob("*.py")):
+            text = py_file.read_text(encoding="utf-8")
+            self.assertNotIn(
+                "docs/taxonomy/",
+                text,
+                f"{py_file.name} still references active docs/taxonomy/ instead of docs/archive/taxonomy/",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

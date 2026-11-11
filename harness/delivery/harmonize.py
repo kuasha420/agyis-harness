@@ -28,7 +28,7 @@ import re
 import shutil
 import subprocess
 import tarfile
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from harness.delivery.constants import GIT_EXCLUDE_PATTERNS, REPO_ROOT
 from harness.delivery.git_hygiene import configure_git_exclude
@@ -220,6 +220,8 @@ def harmonize_workspace(
     archive_dir: Optional[Path] = None,
     stack: Optional[str] = None,
     skills: Optional[List[str]] = None,
+    role: Optional[str] = None,
+    subproject: Optional[Union[Path, str]] = None,
 ) -> HarmonizeResult:
     """
     Non-destructively harmonizes a workspace from legacy .agent/ configuration
@@ -231,7 +233,8 @@ def harmonize_workspace(
     Phase 3: Atomic safety archival (.tar.gz + manifest JSON in .agents/archive/ with git exclusion).
     Phase 4: Controlled deterministic pruning (git rm -rf .agent + disk debris cleanup + invariant assertion).
     """
-    ws = Path(workspace_dir).resolve()
+    root_ws = Path(workspace_dir).resolve()
+    ws = (root_ws / subproject).resolve() if subproject else root_ws
     if not ws.exists():
         return HarmonizeResult(
             success=False,
@@ -459,14 +462,18 @@ def harmonize_workspace(
         if not dry_run:
             rules_path.write_text(new_rules, encoding="utf-8")
 
-    # 6. Provision stack skills if requested
+    # 6. Provision decoupled language runtime + architectural role skills if requested
     skills_provisioned: List[str] = []
-    if stack or skills:
-        from harness.delivery.workspace import STACK_SKILL_PRESETS
-        from harness.skills import detect_workspace_stack
+    if stack or role or skills or subproject:
+        from harness.delivery.workspace import resolve_skills_for_workspace
 
-        selected_stack = stack.strip().lower() if stack else (detect_workspace_stack(ws) or "generic")
-        selected_skills = list(skills) if skills else list(STACK_SKILL_PRESETS.get(selected_stack, []))
+        selected_skills = resolve_skills_for_workspace(
+            workspace_dir=root_ws,
+            stack=stack,
+            role=role,
+            subproject=subproject,
+            skills=skills,
+        )
 
         src_skills = None
         for cand in [src / ".agents" / "skills", src / "skills", src / "harness" / "skills"]:

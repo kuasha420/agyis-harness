@@ -11,7 +11,7 @@ Document Version: 1.0.0
 Author          : Flight Director CapCom & Specialist Architecture Fleet
 Target Engines  : Agyis Harness v1.0.0-rc4 -> v1.0.0-rc5
 Date of Sweep   : 2026-10-16 to 2026-10-17
-Audited Repos   : 5 Repositories + 1 Auxiliary Clone across purrfectsoft and kuasha420
+Audited Repos   : 5 Repositories + 1 Auxiliary Clone across <org> and kuasha420
 Pipeline Scope  : 16 Open PRs Rebased & Verified, 5 Default Branches Rehydrated
 ```
 
@@ -27,23 +27,23 @@ Across all 5 codebases, default branches were synchronized, rehydrated with cano
 ┌────────────────────────────────┬──────────────────────────────┬──────────┬─────────────────────────────┬───────────────────────────┐
 │ Target Repository & Path       │ Architectural Archetype      │ Open PRs │ Native Verification Suites  │ Rebase & GitHub Status    │
 ├────────────────────────────────┼──────────────────────────────┼──────────┼─────────────────────────────┼───────────────────────────┤
-│ sunshine-physio-universalapp   │ Next.js 15 + Expo / React    │ 6 of 6   │ 201 test files /            │ 🟢 6/6 Rebased &          │
-│ (~/Dev/sunshine-physio-webapp) │ Native Universal Monorepo    │          │ 2,838 tests passed (vitest) │ MERGEABLE (PRs #55–#60)   │
+│ <client-repo-universal>   │ Next.js 15 + Expo / React    │ 6 of 6   │ 201 test files /            │ 🟢 6/6 Rebased &          │
+│ (~/Dev/<client-repo-webapp>) │ Native Universal Monorepo    │          │ 2,838 tests passed (vitest) │ MERGEABLE (PRs #55–#60)   │
 ├────────────────────────────────┼──────────────────────────────┼──────────┼─────────────────────────────┼───────────────────────────┤
 │ kuasha420/knot-mesh            │ Python 3.12 + Bash/systemd   │ 5 of 5   │ 44 pytest + 5/5 integrity   │ 🟢 5/5 Rebased &          │
 │ (~/Dev/knot-mesh)              │ Wayland Hardware Mesh Swarm  │          │ bash suites (exit code 0)   │ MERGEABLE (PRs #85, 87–90)│
 ├────────────────────────────────┼──────────────────────────────┼──────────┼─────────────────────────────┼───────────────────────────┤
-│ purrfectsoft/purrfectcore-001  │ NestJS 11 + Prisma ORM       │ 2 of 2   │ 66 test suites /            │ 🟢 2/2 Rebased &          │
-│ (~/Dev/purrfectcore-001)       │ Enterprise Backend Monolith  │          │ 1,068 tests passed (jest)   │ MERGEABLE (PRs #566, #268)│
+│ <org>/<client-repo-api>  │ NestJS 11 + Prisma ORM       │ 2 of 2   │ 66 test suites /            │ 🟢 2/2 Rebased &          │
+│ (~/Dev/<client-repo-api>)       │ Enterprise Backend Monolith  │          │ 1,068 tests passed (jest)   │ MERGEABLE (PRs #566, #268)│
 ├────────────────────────────────┼──────────────────────────────┼──────────┼─────────────────────────────┼───────────────────────────┤
-│ purrfectsoft/psl-website       │ Next.js + Turborepo + tRPC   │ 2 of 2   │ pnpm build (58 static pages)│ 🟢 2/2 Rebased &          │
-│ (~/Dev/psl-website)            │ Corporate Portal Monorepo    │          │ pnpm typecheck (0 errors)   │ MERGEABLE (PRs #57, #61)  │
+│ <org>/<corp-web-repo>       │ Next.js + Turborepo + tRPC   │ 2 of 2   │ pnpm build (58 static pages)│ 🟢 2/2 Rebased &          │
+│ (~/Dev/<corp-web-repo>)            │ Corporate Portal Monorepo    │          │ pnpm typecheck (0 errors)   │ MERGEABLE (PRs #57, #61)  │
 ├────────────────────────────────┼──────────────────────────────┼──────────┼─────────────────────────────┼───────────────────────────┤
-│ purrfectsoft/mm-website        │ Next.js + Turborepo Client   │ 1 of 1   │ pnpm build (3 tasks OK)     │ 🟢 1/1 Rebased &          │
-│ (~/Dev/mm-website)             │ Web Platform (46 issues)     │          │ pnpm typecheck (0 errors)   │ MERGEABLE (PR #406)       │
+│ <org>/<client-repo-web>        │ Next.js + Turborepo Client   │ 1 of 1   │ pnpm build (3 tasks OK)     │ 🟢 1/1 Rebased &          │
+│ (~/Dev/<client-repo-web>)             │ Web Platform (46 issues)     │          │ pnpm typecheck (0 errors)   │ MERGEABLE (PR #406)       │
 ├────────────────────────────────┼──────────────────────────────┼──────────┼─────────────────────────────┼───────────────────────────┤
-│ purrfectsoft/mm-website-2      │ Auxiliary Monorepo Clone     │ N/A      │ agyis doctor 9 OK,          │ 🟢 Synchronized to        │
-│ (~/Dev/mm-website-2)           │ Duplicate Workspace Checkout │          │ legacy .agent/ eliminated   │ develop & Clean           │
+│ <org>/<client-repo-web-aux>      │ Auxiliary Monorepo Clone     │ N/A      │ agyis doctor 9 OK,          │ 🟢 Synchronized to        │
+│ (~/Dev/<client-repo-web-aux>)           │ Duplicate Workspace Checkout │          │ legacy .agent/ eliminated   │ develop & Clean           │
 └────────────────────────────────┴──────────────────────────────┴──────────┴─────────────────────────────┴───────────────────────────┘
 ```
 
@@ -51,7 +51,7 @@ Across all 5 codebases, default branches were synchronized, rehydrated with cano
 
 ## 2. Deep Forensic Rebase & Conflict Case Studies
 
-### 2.1 Case Study 1: Enterprise Prisma Schema Divergence (`purrfectcore-001` PR #566)
+### 2.1 Case Study 1: Enterprise Prisma Schema Divergence (`<client-repo-api>` PR #566)
 - **Branch**: `chore/remove-prisma-comments` (author: `@smamun19`)
 - **Initial State**: `DIRTY / CONFLICTING` against `develop`.
 - **Anatomy of Conflict**:
@@ -62,8 +62,8 @@ Across all 5 codebases, default branches were synchronized, rehydrated with cano
   - Integrated the author's high-signal docstrings on `CreditTransactionType`, `PatientCreditTransaction`, and `ServicePricing`.
 - **Validation**: Full Jest test suite verified **66 suites passed, 1,068 tests passed** in 8.3s. PR updated to commit `b891823c` and marked `MERGEABLE`.
 
-### 2.2 Case Study 2: 100% Conflict Density Resolution (`psl-website` PRs #57 & #61)
-- **Initial State**: Both open PRs in `psl-website` were completely blocked on merge conflicts against `develop`.
+### 2.2 Case Study 2: 100% Conflict Density Resolution (`<corp-web-repo>` PRs #57 & #61)
+- **Initial State**: Both open PRs in `<corp-web-repo>` were completely blocked on merge conflicts against `develop`.
 - **Resolution Strategy**:
   1. **PR #57 (`fix/security-alert-and-editor-types`)**:
      - Merged `nodemailer` dependencies into `apps/web/package.json` alongside Next.js 15.5.27.
@@ -75,7 +75,7 @@ Across all 5 codebases, default branches were synchronized, rehydrated with cano
      - Remediated 8 strict ESLint/TypeScript errors (`@typescript-eslint/no-explicit-any`, missing timer cleanups in `ai/health/route.ts`).
      - Output: 58 static pages built cleanly; PR #61 marked `MERGEABLE` (`8bfc0fc`).
 
-### 2.3 Case Study 3: Dead Code Pruning vs. Stale Unit Tests (`sunshine-physio` PR #56)
+### 2.3 Case Study 3: Dead Code Pruning vs. Stale Unit Tests (`<client-app>` PR #56)
 - **Initial State**: Rebase succeeded, but `vitest run` failed on `layout.test.tsx`.
 - **Anatomy of Friction**:
   PR #56 intentionally pruned multi-branch dead code from `apps/web/src/app/(admin)/layout.tsx` (Issue #19). However, the pre-existing unit test in `layout.test.tsx` still asserted that the `branch-switcher-button` and `Branches` navigation links rendered when `enableMultiBranch: true`.
@@ -93,16 +93,16 @@ The rehydration and rebase sweep exposed 8 critical real-world friction patterns
 - **Requirement for `rc5`**: The `agyis onboard` and `agyis update` engines must automatically purge `.next/` and `.turbo/` build caches prior to executing typecheck verification gates.
 
 ### 2. Database Container Port Saturation in Multi-Repo Workstations
-- **Phenomenon**: In `purrfectsoft/mm-website`, `pnpm build` failed because Next.js static prerendering of localized routes attempted to connect to Postgres on port 5432. However, a container from another local repository (`jasper_dev_postgres`) was already occupying port 5432, resulting in Prisma connection error `P1000`.
+- **Phenomenon**: In `<org>/<client-repo-web>`, `pnpm build` failed because Next.js static prerendering of localized routes attempted to connect to Postgres on port 5432. However, a container from another local repository (`<foreign-db-container>`) was already occupying port 5432, resulting in Prisma connection error `P1000`.
 - **Requirement for `rc5`**: Multi-project environments need automated port collision detection. The `db-ops` skill and `agyis onboard` workflow must inspect port occupancy, dynamically assign isolated ports (e.g. 5433), and update `.env` `DATABASE_URL` bindings.
 
 ### 3. Husky Pre-Commit Branch Guards vs. Automated Tooling
-- **Phenomenon**: `purrfectsoft/psl-website` has a Husky hook (`.husky/verify-branch-name.sh`) that strictly aborts commits directly made to `develop` without recognizing automated harness migration or rehydration workflows.
+- **Phenomenon**: `<org>/<corp-web-repo>` has a Husky hook (`.husky/verify-branch-name.sh`) that strictly aborts commits directly made to `develop` without recognizing automated harness migration or rehydration workflows.
 - **Requirement for `rc5`**: The onboarding engine must support isolated chore branch creation (`--create-branch chore/agyis-harness-onboarding`) as the default path, or explicitly bypass local git pre-commit hooks via `--no-verify` when direct default branch rehydration is commanded.
 
 ### 4. Single-Source Skill Deduplication Token Savings
 - **Phenomenon**: Across the 5 repositories, running `agyis skills --prune-duplicates` purged between 2 and 7 redundant workspace skill copies that shadowed global plugin skills.
-- **Impact**: In `knot-mesh`, 7 skills were pruned; in `purrfectcore-001`, 4 skills were pruned; in `sunshine-physio`, 5 skills were pruned. This eliminated **~4,500 redundant tokens per turn** in prompt injection contexts and eliminated all `Duplicate Skills: [WARN]` doctor diagnostics.
+- **Impact**: In `knot-mesh`, 7 skills were pruned; in `<client-repo-api>`, 4 skills were pruned; in `<client-app>`, 5 skills were pruned. This eliminated **~4,500 redundant tokens per turn** in prompt injection contexts and eliminated all `Duplicate Skills: [WARN]` doctor diagnostics.
 - **Requirement for `rc5`**: `agyis onboard` must execute `enforce_single_source_skills()` by default.
 
 ### 5. Non-Python Manifest Command Extraction Fallback (GAP-07)
@@ -110,11 +110,11 @@ The rehydration and rebase sweep exposed 8 critical real-world friction patterns
 - **Requirement for `rc5`**: Implement Specification 3 from the gap analysis to inspect `setup.py`, `setup.cfg`, `requirements.txt`, and standalone `tests/*.sh` scripts when `pyproject.toml` is absent.
 
 ### 6. ESLint Strictness as a Next.js Production Build Blocker
-- **Phenomenon**: Next.js automatically executes `next lint` during `pnpm build`. In `psl-website` PR #61, clean TypeScript compilation was blocked by strict ESLint rules (`@typescript-eslint/no-explicit-any` and dangling timers in API routes).
+- **Phenomenon**: Next.js automatically executes `next lint` during `pnpm build`. In `<corp-web-repo>` PR #61, clean TypeScript compilation was blocked by strict ESLint rules (`@typescript-eslint/no-explicit-any` and dangling timers in API routes).
 - **Requirement for `rc5`**: Rebase workflows on Next.js repositories must anticipate lint failures and incorporate automated lint autofix (`pnpm lint --fix`) into the verification loop.
 
 ### 7. Monorepo Vitest Test Suite Latency
-- **Phenomenon**: Full-suite verification in large monorepos (e.g. `sunshine-physio` with 201 test files and 2,800+ tests) requires ~190–225s per cycle. Running this repeatedly during sequential PR rebasing creates significant latency.
+- **Phenomenon**: Full-suite verification in large monorepos (e.g. `<client-app>` with 201 test files and 2,800+ tests) requires ~190–225s per cycle. Running this repeatedly during sequential PR rebasing creates significant latency.
 - **Requirement for `rc5`**: Introduce targeted test discovery (DRA runner) during PR rebasing, running only the test files affected by the rebased commits while executing the full suite on final barrier join.
 
 ### 8. Subagent Restart Resilience & Git Idempotency

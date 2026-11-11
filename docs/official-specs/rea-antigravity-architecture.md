@@ -6,27 +6,22 @@
 # Technical Architecture Specification: REA (Reverse Engineer Anything) Native Antigravity Integration & Cleanroom Harmonization
 
 **Document Reference**: `PSL-SPEC-2026-REA-001`  
-**Target Release**: `v1.0.0-rc4` / `v1.1.0`  
 **Governing Standard**: ICARO-42/b Ordinance  
 **Classification**: Official Technical Architecture & Cleanroom Reconstruction Specification  
 **Publication Path**: `docs/official-specs/rea-antigravity-architecture.md`  
-**Status**: **APPROVED — ARCHITECTURAL BLUEPRINT & EMPIRICALLY VERIFIED**  
-**Date**: `2026-10-15`  
-**Authors**: PSL Lead Architect & Milestone 2 Implementation Worker (`m2_worker_1`), synthesized with `survey_spec_miner_2` and `survey_explorer_3`.
+**Status**: **APPROVED — ARCHITECTURAL CONTRACT**  
 
 ---
 
-## 1. Document Metadata & Executive Summary
+## 1. Document Metadata & Architectural Scope
 
-### 1.1 Scope & Mission Context
-This specification establishes the official architectural blueprint for integrating **Reverse Engineer Anything (REA)** (upstream `morluto/rea`, package `rea-agents`, web `https://rea.tools/`) into **agyis-harness** (formerly `psl-agy-harness`) within the Google Antigravity™ runtime environment.
+### 1.1 Integration Scope & Solved Failure Classes
+This specification establishes the official architectural blueprint for integrating **Reverse Engineer Anything (REA)** (upstream package `rea-agents`, web `https://rea.tools/`) into **agyis-harness** within the Google Antigravity™ runtime environment.
 
-During previous release iterations, initial attempts to wire REA and cleanroom specification gates into the harness produced three severe operational frictions:
-1. **Doctor Latency Degradation (Issue #44)**: Unconditional execution of heavy disassembler probes (`rea providers --json`) in `agyis doctor` introduced 2.5–4.0 seconds of latency, violating the ADR-015 sub-second benchmark invariant and emitting false warning flags for standard software developers who do not perform binary reverse engineering.
-2. **Cleanroom Specification Deadlock (Issue #45)**: The completion fence stop hook (`completion_fence_hook.py`) treated modifications to cleanroom specifications (`docs/specs/**`) as production code dirtying, coercing agents engaged in read-only black-box analysis to run non-existent unit test suites (`agyis test`) before exiting.
-3. **Lifecycle Hook Interference**: In subshells lacking login environment paths, `rea` commands failed with Exit Code 127 (`command not found`). Concurrently, iterative inspection of binary artifacts and specifications tripped false-positive anti-loop circuit breakers, while large disassembly dumps threatened hook timeout thresholds.
-
-Per authoritative directive `2026-10-15T20:36:45Z` in `ORIGINAL_REQUEST.md`, these capabilities were extracted from pull requests into dedicated feature branch `feat/rea-harmonization` for holistic architectural remediation.
+The architecture resolves three core integration classes cleanly without adding overhead to non-RE workflows:
+1. **Opt-In Doctor Latency Isolation**: Heavy disassembler probes (`rea providers --json`) execute only under `--experimental-rea`, keeping standard `agyis doctor` strictly sub-second (`<1.0s`) with zero false warnings.
+2. **Phase-Aware Cleanroom Fence**: `completion_fence_hook.py` decouples `spec_dirty` (`docs/specs/**`, `.agents/ledger/**`) from `code_dirty`, clearing specification work via `agyis verify --spec` or `rea verify-reconstruction` without forcing unit test runs.
+3. **Subshell & Stream Resilience**: Lifecycle hooks provide transparent `PATH` shims for `rea`, elevated bounded sliding-window quotas (`8` in `15` calls, `<3` consecutive identical reads) for cleanroom specs, and character-offset pre-slicing (`>200KB`) for multi-megabyte disassembly dumps.
 
 ### 1.2 The Non-Interference Invariant
 This specification codifies the foundational behavioral guarantee:
@@ -338,11 +333,10 @@ Antigravity's JSON-RPC stdio transport buffers individual tool responses. If an 
 2. **Evidence ID Referencing**: REA caches full analysis trees under immutable `evidence_id` hashes and returns lightweight summary receipts.
 3. **Paging via `inspect_analysis_view`**: Agents inspect specific slices or modules on demand using `inspect_analysis_view(evidence_id, view, page)` without re-running analysis or flooding context.
 
-### 4.4 Skills Integration
-The official skill `reverse-engineer-anything` (metadata version `"42"`) encapsulates REA operational runbooks, disassembler choice matrices, and cleanroom verification protocols.
-- **Global Path**: `~/.gemini/config/skills/reverse-engineer-anything/SKILL.md`
-- **Harness Canonical Path**: `skills/reverse-engineer-anything/SKILL.md`
-- **Synchronization**: Managed automatically via `agyis skills --sync` or `agyis init --experimental-rea`.
+### 4.4 Skills Integration (Dynamic Runtime Provisioning — No Vendoring)
+The official skill `reverse-engineer-anything` encapsulates REA operational runbooks, disassembler choice matrices, and cleanroom verification protocols without vendoring external upstream markdown inside `harness/skills/`:
+- **Dynamic Discovery & Provisioning (`provision_rea_skill()` in `harness/runtime/healing.py`)**: Discovers upstream `skills/reverse-engineer-anything/SKILL.md` from `rea providers --json` package `root_path` or user `pnpm`/`npm` global stores, symlinking or downloading on-demand into target skills roots (`~/.gemini/config/skills/reverse-engineer-anything/SKILL.md` or workspace `.agents/skills/`).
+- **Triggers**: Executed on-demand via `agyis init --experimental-rea`, `agyis doctor --experimental-rea --heal`, or `agyis install -g --experimental-rea`.
 
 ---
 
@@ -351,14 +345,14 @@ The official skill `reverse-engineer-anything` (metadata version `"42"`) encapsu
 Cleanroom reverse engineering requires a mathematical boundary between the **dirty room** (binary analysis, decompiler inspection) and the **clean room** (specification authoring, clean implementation).
 
 ```
-┌──────────────────────────────────────┐     ┌──────────────────────────────────────┐
-│        DIRTY ROOM: ANALYSIS          │     │       CLEAN ROOM: IMPLEMENTATION     │
-│ • Target Binaries & Libraries        │     │ • Cleanroom Specifications           │
-│ • Disassembly & Decompilation Dumps  │     │   (`docs/specs/**`)                  │
-│ • Ephemeral Scratch (`.rea/**`)      │     │ • Obligation Ledgers                 │
-│ • Reverse Engineering Prompts        │     │   (`.agents/ledger/obligations.json`)│
-│ • Retained Evidence (`evidence_id`)  │     │ • Cleanroom Code Implementation      │
-└──────────────────┬───────────────────┘     └──────────────────▲───────────────────┘
+┌──────────────────────────────────────┐     ┌───────────────────────────────────────────┐
+│        DIRTY ROOM: ANALYSIS          │     │       CLEAN ROOM: IMPLEMENTATION          │
+│ • Target Binaries & Libraries        │     │ • Cleanroom Specifications (`docs/specs/`)│
+│ • Disassembly & Decompilation Dumps  │     │ • Obligation Ledger                       │
+│ • Ephemeral Scratch (`.rea/**`)      │     │   (`.agents/ledger/obligation_ledger.json`)│
+│ • Reverse Engineering Prompts        │     │ • Cleanroom Code Implementation           │
+│ • Retained Evidence (`evidence_id`)  │     │ • Formal Verification (`agyis verify`)    │
+└──────────────────┬───────────────────┘     └──────────────────▲────────────────────────┘
                    │                                            │
                    │           EVIDENCE BOUNDARY                │
                    └───────────────────►────────────────────────┘
@@ -369,25 +363,38 @@ Cleanroom deliverables are codified in two repository locations:
 1. **Cleanroom Specifications (`docs/specs/**`)**:
    - Human- and agent-readable architectural, protocol, and functional specifications.
    - Authoritative API contracts, finite state machine definitions, and wire layouts.
-   - Contains zero copied decompiled code or vendor proprietary signatures.
+   - Contains zero copied decompiled code or vendor proprietary signatures (`agyis verify --spec`).
 2. **Obligation Ledgers (`.agents/ledger/**`)**:
-   - Machine-verifiable contracts generated by REA's Evidence Engine:
-     - `obligations.json`: Typed obligations linking specification claims to verification criteria.
-     - `manifest.json`: Bindings between obligations, original binary cases, and implementation verifiers.
-     - `evidence_bundle.json`: Immutable evidence records (`evidence_id`, subject, provider, digest).
+   - Machine-verifiable contracts scaffolded via `agyis verify --scaffold` (`harness/cleanroom/obligation.py`):
+     - `obligation_ledger.json` (**Primary REA 6.8.0+ Schema**): Consolidates `evidence_bundle` (`providers`, `records`, `artifacts`), `reviewed_obligations`, and `manifest` (`bindings`, `contradictions`, `status`).
+     - `manifest.json` (*Legacy fallback schema*): Bindings between obligations, evidence hashes, and `"satisfied"` verification proofs.
 
-### 5.2 Typed Obligation Model
-Each obligation in `.agents/ledger/obligations.json` adheres to the formal schema:
+### 5.2 Typed Obligation Ledger Model (`.agents/ledger/obligation_ledger.json`)
+`validate_obligation_ledger()` validates each `.agents/ledger/obligation_ledger.json` file against the structured REA 6.8.0+ contract:
 
 ```json
 {
-  "obligation_id": "OBLIG-AUTH-TOKEN-001",
-  "family": "protocol_wire_contract",
-  "target": "session_handshake",
-  "required_case_kinds": ["valid_handshake", "expired_token", "tampered_signature"],
-  "required_fixture_authority": "captured_pcap_stream",
-  "required_verifier_authority": "hermetic_test_oracle",
-  "disposition": "pending"
+  "$schema": "https://rea.dev/schemas/obligation-ledger-v1.json",
+  "version": "1.0.0",
+  "evidence_bundle": {
+    "providers": [{ "id": "ghidra", "name": "Ghidra Headless Decompiler", "version": "11.0" }],
+    "records": [{ "record_id": "REC-001", "provider": "ghidra", "subject": "target_binary", "digest": "sha256:..." }],
+    "artifacts": [{ "artifact_id": "ART-001", "path": "docs/specs/protocol.md", "digest": "sha256:..." }]
+  },
+  "reviewed_obligations": [
+    {
+      "obligation_id": "OBL-001",
+      "target": "packet_deserializer",
+      "disposition": "satisfied",
+      "rationale": "Validated against cleanroom binary disassembly capture REC-001",
+      "evidence_refs": ["REC-001"]
+    }
+  ],
+  "manifest": {
+    "bindings": { "target_binary": "target_binary" },
+    "contradictions": [],
+    "status": "verified"
+  }
 }
 ```
 
@@ -514,8 +521,9 @@ To resolve the frictions documented in Issues #44 and #45, the four primary life
                if result.get("status") != "error":
                    clear_spec_dirty()
        ```
-  3. **Formal Manifest Clearance Schema & Exact Rejection Message (DEF-06)**:
-     - **Manifest Schema**: A recorded cleanroom review in `.agents/ledger/manifest.json` clears `spec_dirty` only if the manifest parses as valid JSON and conforms strictly to the clearance schema:
+  3. **Formal Ledger & Manifest Clearance Schema (DEF-06)**:
+     - **Primary Obligation Ledger (`.agents/ledger/obligation_ledger.json`, REA 6.8.0+)**: `is_manifest_verified()` (`harness/hooks/fence_classifiers.py`) prioritizes `.agents/ledger/obligation_ledger.json` via `validate_obligation_ledger()` (`harness/cleanroom/obligation.py`), checking valid `evidence_bundle` (`providers`, `records`, `artifacts`), non-empty `reviewed_obligations` (`obligation_id`, `disposition`), and `manifest` (`bindings`, empty/resolved `contradictions`). Generated via `agyis verify --scaffold`.
+     - **Legacy Clearance Manifest Fallback (`.agents/ledger/manifest.json`)**: If `obligation_ledger.json` is absent, `.agents/ledger/manifest.json` clears `spec_dirty` when conforming to the schema below:
        ```json
        {
          "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -550,12 +558,12 @@ To resolve the frictions documented in Issues #44 and #45, the four primary life
          }
        }
        ```
-     - **Validation Invariant**: `"status"` must be `"verified"`, `evidence_hash` must be a valid 64-character SHA-256 digest, and `obligations` must be non-empty with all obligations marked `"satisfied"`.
+     - **Validation Invariant**: Either `.agents/ledger/obligation_ledger.json` passes `validate_obligation_ledger()`, or `.agents/ledger/manifest.json` declares `"status": "verified"`, a 64-character lowercase SHA-256 `evidence_hash`, and non-empty `"satisfied"` `obligations`.
      - **Exact Cleanroom Rejection Message**: When `evaluate_stop` is invoked with `spec_dirty == True` and `code_dirty == False`, the fence rejects termination with the verbatim message:
        ```
        Cleanroom Verification Required: Unverified cleanroom contract edits detected in: <files>. Execute 'rea verify-reconstruction' or 'agyis verify --spec' before stopping.
        ```
-  4. **Universal Verifier Recognition**: Register REA verification patterns in `UNIVERSAL_TEST_RUNNER_PATTERNS` so that executing `rea verify` resets dirty state across both CLI and script invocations.
+  4. **Universal Verifier Recognition**: Register REA verification patterns (`rea verify`, `rea verify-reconstruction`, `agyis verify`, `agyis verify --spec`) in `UNIVERSAL_TEST_RUNNER_PATTERNS` so executing verification clears cleanroom dirty state.
   5. **Scratch Path Isolation**: Exempt REA scratch paths from dirty tracking:
      ```python
      def is_ephemeral_scratch_path(path_str: str) -> bool:
@@ -642,33 +650,18 @@ In `harness/runtime/doctor.py`:
 
 ---
 
-## 8. Verification & Implementation Roadmap
+## 8. Verification & Compliance Gates
 
-The implementation of this architecture is scheduled across Milestones M3 through M6:
+All REA integration modules, hook gates, and cleanroom verifiers must satisfy deterministic automated checks prior to release:
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                              REA IMPLEMENTATION ROADMAP                                │
-├──────────────────────────┬──────────────────────────┬──────────────────────────────────┤
-│ Milestone 3: Opt-in CLI  │ Milestone 4: Hook Wire   │ Milestone 5: Skills & Packaging  │
-│ • --experimental-rea flag│ • command_safety PATH    │ • Canonical skill packaging      │
-│ • Decoupled doctor probe │ • anti_loop spec quota   │ • GLOBAL_AGENTS.md rules         │
-│ • Zero-sudo auto-healing │ • Phase-aware fence gate │ • .agents/ledger/ templates      │
-│ • Sub-second doctor test │ • Pre-slice compactor    │ • Hermetic integration test suite│
-├──────────────────────────┴──────────────────────────┴──────────────────────────────────┤
-│ Milestone 6: Dedicated Pull Request Delivery & Peer Review                             │
-│ • Branch: feat/rea-harmonization -> origin/feat/rea-harmonization                       │
-│ • Link to reopened Issues #44 and #45 with full verification proof                     │
-│ • 100% test pass with <1.0s benchmark invariant                                        │
-└────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-| Milestone | Target Scope | Core Deliverables | Verification Contract |
-| :--- | :--- | :--- | :--- |
-| **Milestone 3** | CLI & Diagnostics | `harness/cli.py`, `harness/commands/doctor.py`, `harness/runtime/doctor.py`, `harness/commands/init.py`, `harness/commands/install.py` | Hermetic unit tests in `tests/test_rea_doctor.py`. Doctor runs in <1.0s without flag. |
-| **Milestone 4** | Lifecycle Hooks Harmonization | `harness/hooks/command_safety_hook.py`, `harness/hooks/anti_loop_hook.py`, `harness/hooks/completion_fence_hook.py`, `harness/hooks/output_compactor_hook.py` | Unit tests in `tests/test_completion_fence_hook.py` and hook runner tests. |
-| **Milestone 5** | Skills, Rules & Ledgers | Package `skills/reverse-engineer-anything/`, update `AGENTS.md` and `GLOBAL_AGENTS.md`, scaffold `.agents/ledger/` | Hermetic verification in `tests/test_skills.py` and end-to-end rehearsal. |
-| **Milestone 6** | Quality Audit & PR Delivery | Full test discovery (`./agyis test`), git commit on HEAD, push to `origin`, open PR linking to #44 & #45 | All tests pass 100% with exit code 0. Zero regressions across existing 790 tests. |
+| Layer / Scope | Verification Command | Target Contract |
+| :--- | :--- | :--- |
+| **Cleanroom Specs Gate** | `agyis verify --spec` | Asserts `docs/specs/**` contains zero executable code files and clears `spec_dirty`. |
+| **Obligation Ledger Scaffold** | `agyis verify --scaffold` | Generates `.agents/ledger/obligation_ledger.json` (`REA 6.8.0+`) schema template. |
+| **Full Reconstruction Gate** | `agyis verify` / `rea verify-reconstruction` | Validates `.agents/ledger/obligation_ledger.json` (and legacy `manifest.json`) obligations against evidence. |
+| **Zero-Delay Doctor** | `agyis doctor` | Confirms sub-second (`<1.0s`) baseline check without launching heavy disassembler scans. |
+| **Opt-In REA Audit** | `agyis doctor --experimental-rea` | Audits `rea`, `mcp_config.json`, JDK 21+, Ghidra, Hopper, IDA Pro, and JADX provider chains. |
+| **Full Harness Test Suite** | `python3 -m harness.cli test` | Executes hermetic unit and contract suites across all runtime, hook, and cleanroom modules. |
 
 ---
 

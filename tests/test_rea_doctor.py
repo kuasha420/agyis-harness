@@ -28,7 +28,7 @@ from harness.commands.doctor import cmd_doctor
 from harness.commands.init import cmd_init
 from harness.commands.install import cmd_install
 from harness.runtime.doctor import DEFAULT_MATRIX, print_cli_report, run_doctor
-from harness.runtime.healing import heal_environment, heal_rea_tooling
+from harness.runtime.healing import heal_environment, heal_rea_tooling, provision_rea_skill
 from harness.runtime.tool_checks import (
     _parse_rea_providers,
     check_rea_tooling,
@@ -339,6 +339,31 @@ class TestReaAutoHealing(unittest.TestCase):
                 self.assertEqual(rea_server["env"]["JAVA_HOME"], "/usr/lib/jvm/java-21")
                 self.assertEqual(rea_server["env"]["REA_MCP_INPUT_SCHEMA_PROFILE"], "full")
                 self.assertEqual(rea_server["env"]["REA_MCP_OUTPUT_SCHEMA_PROFILE"], "off")
+
+    def test_provision_rea_skill_uses_agyis_harness_plugin_candidate(self):
+        """Verifies provision_rea_skill resolves agyis-harness plugin path, not legacy psl-agy-harness."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_home = Path(tmp_dir) / "home"
+            legacy_dir = tmp_home / ".gemini" / "config" / "plugins" / "psl-agy-harness" / "skills" / "reverse-engineer-anything"
+            legacy_dir.mkdir(parents=True)
+            (legacy_dir / "SKILL.md").write_text("# LEGACY\n", encoding="utf-8")
+
+            ws_skills_only_legacy = Path(tmp_dir) / "ws_legacy" / ".agents" / "skills"
+            with patch("pathlib.Path.home", return_value=tmp_home), \
+                 patch("harness.runtime.tool_checks.find_rea_binary", return_value=None):
+                res_legacy = provision_rea_skill(ws_skills_only_legacy, link=False, allow_download=False)
+            self.assertIsNone(res_legacy)
+
+            agyis_dir = tmp_home / ".gemini" / "config" / "plugins" / "agyis-harness" / "skills" / "reverse-engineer-anything"
+            agyis_dir.mkdir(parents=True)
+            (agyis_dir / "SKILL.md").write_text("# AGYIS\n", encoding="utf-8")
+
+            ws_skills = Path(tmp_dir) / "ws_agyis" / ".agents" / "skills"
+            with patch("pathlib.Path.home", return_value=tmp_home), \
+                 patch("harness.runtime.tool_checks.find_rea_binary", return_value=None):
+                res = provision_rea_skill(ws_skills, link=False, allow_download=False)
+            self.assertEqual(res, ws_skills / "reverse-engineer-anything")
+            self.assertEqual((res / "SKILL.md").read_text(encoding="utf-8"), "# AGYIS\n")
 
 
 class TestReaCliFlagsAndProvisioning(unittest.TestCase):

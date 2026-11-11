@@ -32,7 +32,7 @@ from harness.telemetry.schema import SCHEMA_SQL
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TELEMETRY_DB_PATH = REPO_ROOT / "data" / "telemetry.db"
-AUDIT_REPORT_PATH = REPO_ROOT / "docs" / "reports" / "360_telemetry_audit_2026_10.md"
+AUDIT_REPORT_PATH = REPO_ROOT / "docs" / "archive" / "reports" / "360_telemetry_audit_2026_10.md"
 
 REQUIRED_REPORT_SECTIONS = [
     "Executive Summary",
@@ -270,7 +270,7 @@ class TestTier1FeatureCoverage(unittest.TestCase):
 
     def test_t1_04_audit_report_required_sections_when_present(self) -> None:
         """
-        Validates that docs/reports/360_telemetry_audit_2026_10.md exists on disk
+        Validates that docs/archive/reports/360_telemetry_audit_2026_10.md exists on disk
         and contains all required canonical sections.
         """
         self.assertTrue(AUDIT_REPORT_PATH.exists(), f"Deliverable report missing at {AUDIT_REPORT_PATH}")

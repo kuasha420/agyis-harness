@@ -65,7 +65,7 @@ def provision_rea_skill(
         # Check standard pnpm / npm global locations
         home = Path.home()
         candidates = [
-            home / ".gemini" / "config" / "plugins" / "psl-agy-harness" / "skills" / "reverse-engineer-anything",
+            home / ".gemini" / "config" / "plugins" / "agyis-harness" / "skills" / "reverse-engineer-anything",
             home / ".gemini" / "config" / "skills" / "reverse-engineer-anything",
             home / ".local" / "share" / "pnpm" / "global" / "5" / "node_modules" / "rea-agents" / "skills" / "reverse-engineer-anything",
             home / ".npm-global" / "lib" / "node_modules" / "rea-agents" / "skills" / "reverse-engineer-anything",

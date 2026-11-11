@@ -23,7 +23,7 @@ Integrity Mode     : genuine
 This master staging manifest records the official, publication-grade GitHub issues published on **`kuasha420/agyis-harness`** to stage the core release requirements for **Agyis Harness `v1.0.0-rc5`**.
 
 All 6 issues were mined from:
-1. The **18-repository fleet audit** across `purrfectsoft`, `sakibtamim`, and `kuasha420` (`gap_cross_verification_report.md`).
+1. The **18-repository fleet audit** across `<org>`, `<collaborator-org>`, and `kuasha420` (`gap_cross_verification_report.md`).
 2. The live rehydration and rebasing of **16 open PRs** across the 5 highest-velocity codebases (`docs/specs/rc4_rehydration_findings.md`).
 3. The 1,247-line forensic gaps specification (`docs/specs/agyis-installation-harmonization-gaps.md`).
 4. Out-of-band issue reports and cross-repository synchronization tickets (`Issue #57`).
@@ -63,7 +63,7 @@ Each issue has been created with:
 - **Origin**: GAP-04, GAP-10A / Rehydration Findings §3.1, §3.3, §3.4, §3.8
 
 #### Architectural Rationale
-Tooling fragmentation during initial onboarding required manually orchestrating `agyis harmonize`, `agyis init`, and `agyis install -w`. Lack of branch isolation tripped Husky branch-name hooks on `develop` (`psl-website` PR #61). Residual skill conflation left backend database skills in frontend codebases (`psl-boilerplate`, `psl-scaffold`, `chronicle-time-keeper`, `purrfect-download-manager`, `jimha`). Un-deduplicated workspace skills bloated prompt contexts by ~4,500 redundant tokens per turn.
+Tooling fragmentation during initial onboarding required manually orchestrating `agyis harmonize`, `agyis init`, and `agyis install -w`. Lack of branch isolation tripped Husky branch-name hooks on `develop` (`<corp-web-repo>` PR #61). Residual skill conflation left backend database skills in frontend codebases (`<corp-template-repo>`, `<corp-scaffold-repo>`, `<client-time-tracker>`, `<collab-desktop-repo>`, `<desktop-gui-repo>`). Un-deduplicated workspace skills bloated prompt contexts by ~4,500 redundant tokens per turn.
 
 #### Exact Code Targets in `harness/`
 1. **`harness/cli.py:375-443` (`p_onboard` subparser)**:
@@ -146,7 +146,7 @@ Passive copy migration left `.agent/` on disk, causing all 8 standard harmonized
 - **Origin**: GAP-07 / Rehydration Findings §3.5
 
 #### Architectural Rationale
-Python command extraction was gated on `if pyproj.is_file():` (`harness/delivery/workspace.py:138`). In projects structured with `setup.py`, `setup.cfg`, `requirements.txt`, or standard `tests/` without `pyproject.toml` (e.g. `jimha` PR #1, `knot-mesh` PR #80, `purr` PR #14), extraction was completely skipped. This generated an empty Section 1 ("Project Command Dictionary") in `AGENTS.md`, breaking the Victory Pattern and causing Dynamic Repository Awareness (DRA) verification gate stalls.
+Python command extraction was gated on `if pyproj.is_file():` (`harness/delivery/workspace.py:138`). In projects structured with `setup.py`, `setup.cfg`, `requirements.txt`, or standard `tests/` without `pyproject.toml` (e.g. `<desktop-gui-repo>` PR #1, `knot-mesh` PR #80, `purr` PR #14), extraction was completely skipped. This generated an empty Section 1 ("Project Command Dictionary") in `AGENTS.md`, breaking the Victory Pattern and causing Dynamic Repository Awareness (DRA) verification gate stalls.
 
 #### Exact Code Targets in `harness/`
 1. **`harness/delivery/workspace.py:137-188`**:
@@ -224,7 +224,7 @@ Continuous background telemetry synchronization across nodes and the central hub
 - **Origin**: Rehydration Findings §3.2, §4.4
 
 #### Architectural Rationale
-In `purrfectsoft/mm-website`, `pnpm build` unexpectedly failed during Next.js static prerendering with Prisma `P1000: Authentication failed against database server`. A PostgreSQL container from an entirely different repository (`jasper_dev_postgres`) was occupying host port 5432. The agent misdiagnosed the failure as bad credentials rather than port collision. The `db-ops` skill lacks host collision inspection and automated free port reallocation.
+In `<org>/<client-repo-web>`, `pnpm build` unexpectedly failed during Next.js static prerendering with Prisma `P1000: Authentication failed against database server`. A PostgreSQL container from an entirely different repository (`<foreign-db-container>`) was occupying host port 5432. The agent misdiagnosed the failure as bad credentials rather than port collision. The `db-ops` skill lacks host collision inspection and automated free port reallocation.
 
 #### Exact Code Targets in `harness/`
 1. **`harness/skills/db-ops/SKILL.md` & `.agents/skills/db-ops/SKILL.md` (lines 147–172)**:

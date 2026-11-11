@@ -12,7 +12,7 @@ Analyzes tool execution character payload distributions, input vs output asymmet
 command category bloat, and empirical compaction savings across developer trajectories.
 
 Outputs:
-- docs/taxonomy/tool-volume-distribution-report.md
+- docs/archive/taxonomy/tool-volume-distribution-report.md
 - data/volume_distributions.json
 """
 
@@ -368,7 +368,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
         parser.add_argument("--backfill", action="store_true", help="Force volume backfill from transcripts")
         parser.add_argument("--output-json", default="data/volume_distributions.json", help="Path for JSON output")
-        parser.add_argument("--output-report", default="docs/taxonomy/tool-volume-distribution-report.md", help="Path for report output")
+        parser.add_argument("--output-report", default="docs/archive/taxonomy/tool-volume-distribution-report.md", help="Path for report output")
         parser.add_argument("--quiet", action="store_true", help="Suppress verbose stdout")
         args = parser.parse_args()
 
@@ -387,7 +387,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
     # Output paths
     json_path = Path(getattr(args, "output_json", None) or "data/volume_distributions.json")
-    report_path = Path(getattr(args, "output_report", None) or "docs/taxonomy/tool-volume-distribution-report.md")
+    report_path = Path(getattr(args, "output_report", None) or "docs/archive/taxonomy/tool-volume-distribution-report.md")
 
     json_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)

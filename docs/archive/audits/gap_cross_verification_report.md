@@ -8,10 +8,10 @@
 ```
 Document Title   : Master Forensic Cross-Verification & Gap Synthesis Report
 Document Version : 1.0.0 (Publication Grade / Release Gate Input)
-Audit Target     : 18 Target Repositories + 1 Auxiliary Clone across purrfectsoft, sakibtamim, kuasha420
+Audit Target     : 18 Target Repositories + 1 Auxiliary Clone across <org>, <collaborator-org>, kuasha420
 Active Baseline  : Agyis Harness v1.0.0-rc4 (Commit c994f73 / 99e58f8), 847 Tests Passing (12.7s), Doctor 9 OK
 Core Gap Spec    : docs/specs/agyis-installation-harmonization-gaps.md (PSL-SPEC-2026-HARMONIZE-001)
-Historical Ref   : /home/kuasha/.gemini/antigravity/brain/1b78f4f2-f9eb-437b-be43-21ae5f60ce94/agyis_purrfectsoft_deployment_report.md
+Historical Ref   : ~/.gemini/antigravity/brain/1b78f4f2-f9eb-437b-be43-21ae5f60ce94/agyis_purrfectsoft_deployment_report.md
 Synthesizer      : worker_report_synthesizer (Teamwork Fleet Synthesis Specialist)
 Parent Agent     : orchestrator_22 (867d1400-dc43-4495-a07c-4e93cc0496c0)
 Date of Audit    : 2026-10-16
@@ -49,32 +49,32 @@ Date of Audit    : 2026-10-16
 ## 1. Executive Summary
 
 ### 1.1 Context & Scope
-Between October 13 and October 16, 2026, the Agyis Engineering Swarm executed a multi-wave onboarding, remediation, and verification campaign across 18 target software repositories located in `/home/kuasha/Dev` across three GitHub namespaces: `purrfectsoft`, `sakibtamim`, and `kuasha420`. 
+Between October 13 and October 16, 2026, the Agyis Engineering Swarm executed a multi-wave onboarding, remediation, and verification campaign across 18 target software repositories located in `~/Dev` across three GitHub namespaces: `<org>`, `<collaborator-org>`, and `kuasha420`. 
 
-This authoritative synthesis report cross-verifies all 18 repositories and the auxiliary clone `mm-website-2` against the 6 Core Harmonization Gaps codified in `docs/specs/agyis-installation-harmonization-gaps.md` (1,247 lines). The audit establishes an empirical ground-truth baseline to guide the final release preparation for **Agyis Harness `v1.0.0-rc5`**.
+This authoritative synthesis report cross-verifies all 18 repositories and the auxiliary clone `<client-repo-web-aux>` against the 6 Core Harmonization Gaps codified in `docs/specs/agyis-installation-harmonization-gaps.md` (1,247 lines). The audit establishes an empirical ground-truth baseline to guide the final release preparation for **Agyis Harness `v1.0.0-rc5`**.
 
 ### 1.2 Key Audit Findings
 
 1. **100% PR Merge Verification on GitHub**:
    All 17 Wave 1 Pull Requests created during initial onboarding across the 17 client codebases are confirmed **100% MERGED** on GitHub into their target base branches (`develop`, `master`, `main`, `feat/resurrection`). Zero PRs remain open or in conflict. Every remote feature branch (`chore/agyis-harness-onboarding`) has been cleanly deleted on remote origins.
 2. **Clean Working Tree Hygiene & Safety Branch Integrity**:
-   All 18 repositories in `/home/kuasha/Dev` possess **100% clean working trees** (`git status --short` returns zero modified, untracked, or conflicted files). Local safety backup branches (`backup/uncommitted-advocate-referral` in `purrfectcore-001`, `backup/untracked-agent-items` in `Jasper`, `develop-backup` in `psl-scaffold`, and `backup-local-main` in `knot-mesh`) remain preserved intact on disk without data loss.
+   All 18 repositories in `~/Dev` possess **100% clean working trees** (`git status --short` returns zero modified, untracked, or conflicted files). Local safety backup branches (`backup/uncommitted-advocate-referral` in `<client-repo-api>`, `backup/untracked-agent-items` in `<oss-bot-repo>`, `develop-backup` in `<corp-scaffold-repo>`, and `backup-local-main` in `knot-mesh`) remain preserved intact on disk without data loss.
 3. **Legacy `.agent/` Eradication on Canonical Checkouts**:
-   Legacy `.agent/` directories have been **100% eliminated** from the active tracking branches of all 18 canonical repositories. However, because early pruning was executed via ad-hoc scripts (`heal_fleet.py`) rather than the native engine, auxiliary checkout `mm-website-2` still retains 9 legacy rule files in `.agent/rules/`.
+   Legacy `.agent/` directories have been **100% eliminated** from the active tracking branches of all 18 canonical repositories. However, because early pruning was executed via ad-hoc scripts (`heal_fleet.py`) rather than the native engine, auxiliary checkout `<client-repo-web-aux>` still retains 9 legacy rule files in `.agent/rules/`.
 4. **Residual Skill Conflation (`psl-stack-backend` Mismatch)**:
-   While preset decoupling was successfully implemented and verified in `purrfectcore-client`, `mm-website`, `sunshine-physio-universalapp`, and `react-native-template-ts-plus`, an audit of `.agents/skills/` reveals **5 repositories with residual `psl-stack-backend` skills**:
-   - `purrfectsoft/psl-boilerplate` (Frontend template monorepo)
-   - `purrfectsoft/psl-scaffold` (TypeScript CLI developer tools)
-   - `purrfectsoft/chronicle-time-keeper` (React + Vite frontend web client)
-   - `sakibtamim/purrfect-download-manager` (Tauri + Rust/TypeScript desktop GUI)
-   - `kuasha420/jimha` (PyQt6 Python desktop GUI)
+   While preset decoupling was successfully implemented and verified in `<client-repo-web-app>`, `<client-repo-web>`, `<client-repo-universal>`, and `react-native-template-ts-plus`, an audit of `.agents/skills/` reveals **5 repositories with residual `psl-stack-backend` skills**:
+   - `<org>/<corp-template-repo>` (Frontend template monorepo)
+   - `<org>/<corp-scaffold-repo>` (TypeScript CLI developer tools)
+   - `<org>/<client-time-tracker>` (React + Vite frontend web client)
+   - `<collaborator-org>/<collab-desktop-repo>` (Tauri + Rust/TypeScript desktop GUI)
+   - `kuasha420/<desktop-gui-repo>` (PyQt6 Python desktop GUI)
    These codebases were merged before decoupled presets were applied across the entire fleet and represent primary targets for the Phase 2 re-onboarding sweep.
-5. **Local Synchronization Lag in `purrfect-download-manager`**:
-   The local checkout at `/home/kuasha/Dev/purrfect-download-manager` is at commit `618cb3f` and has **not yet pulled** the merged PR #23 commit (`555910f`) from upstream `origin/develop`. Consequently, the local filesystem still reflects the pre-onboarding state (contains legacy `.agent/` and lacks `.agents/`).
-6. **Path Resolution Aliasing in `sunshine-physio-universalapp`**:
-   Repository `purrfectsoft/sunshine-physio-webapp` is checked out locally at `/home/kuasha/Dev/sunshine-physio-universalapp`. Tooling relying on directory basename matching fails with `ENOENT`. Dynamic git remote inspection is required.
-7. **Monorepo Role Conflation in `psl-website`**:
-   `purrfectsoft/psl-website` is cataloged in fleet taxonomy as `TypeScript / frontend`. However, inspect confirms `packages/database`, `packages/db-types`, and root scripts for `db:up`, `db:push`, and `db:generate`. Physically, it is a fullstack web monorepo whose inclusion of `psl-stack-backend` and `db-ops` is justified by codebase structure.
+5. **Local Synchronization Lag in `<collab-desktop-repo>`**:
+   The local checkout at `~/Dev/<collab-desktop-repo>` is at commit `618cb3f` and has **not yet pulled** the merged PR #23 commit (`555910f`) from upstream `origin/develop`. Consequently, the local filesystem still reflects the pre-onboarding state (contains legacy `.agent/` and lacks `.agents/`).
+6. **Path Resolution Aliasing in `<client-repo-universal>`**:
+   Repository `<org>/<client-repo-webapp>` is checked out locally at `~/Dev/<client-repo-universal>`. Tooling relying on directory basename matching fails with `ENOENT`. Dynamic git remote inspection is required.
+7. **Monorepo Role Conflation in `<corp-web-repo>`**:
+   `<org>/<corp-web-repo>` is cataloged in fleet taxonomy as `TypeScript / frontend`. However, inspect confirms `packages/database`, `packages/db-types`, and root scripts for `db:up`, `db:push`, and `db:generate`. Physically, it is a fullstack web monorepo whose inclusion of `psl-stack-backend` and `db-ops` is justified by codebase structure.
 8. **Baseline Release Stability**:
    The harness host repository `psl-agy-harness` is verified clean on `main` at baseline `v1.0.0-rc4` (`c994f73` / `99e58f8`). The hermetic test suite passes **847/847 tests in 12.7s–13.2s** (exit code 0), and `agyis doctor` reports 9 OK (1 pyenv warning).
 
@@ -84,29 +84,29 @@ This authoritative synthesis report cross-verifies all 18 repositories and the a
 
 ### 2.1 High-Density Master Forensic Table
 
-The following master forensic matrix documents all 18 target repositories plus the auxiliary clone `mm-website-2`:
+The following master forensic matrix documents all 18 target repositories plus the auxiliary clone `<client-repo-web-aux>`:
 
 | # | Repository Name | Local Filesystem Path | Declared vs. Actual Stack & Role | Active Branch & Remote | Working Tree Status & Backups | Legacy `.agent/` | Rule File Location & Fence Markers | Injected Skills (`.agents/skills/`) | Verdict & Alignment | GitHub PR Status & Details |
 | :-: | :--- | :--- | :--- | :--- | :--- | :---: | :--- | :--- | :---: | :--- |
-| **1** | [`purrfectsoft/purrfectcore-001`](https://github.com/purrfectsoft/purrfectcore-001) | `/home/kuasha/Dev/purrfectcore-001` | TS / backend (NestJS 11 + Prisma) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>`backup/uncommitted-advocate-referral` | ❌ Pruned (`fbbb5c29`) | `./AGENTS.md` (lines 37–155)<br>`<!-- Added by AGYIS-HARNESS -->` | `db-ops`, `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🟢 **Aligned** (Backend) | [PR #611](https://github.com/purrfectsoft/purrfectcore-001/pull/611)<br>**MERGED** 2026-10-14T14:48:33Z (`dc30494d`) |
-| **2** | [`purrfectsoft/purrfectcore-client`](https://github.com/purrfectsoft/purrfectcore-client) | `/home/kuasha/Dev/purrfectcore-client` | TS / frontend (Next.js client) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>None | ❌ Pruned (`b139ee4d`) | `./AGENTS.md` (lines 37–165)<br>`<!-- Added by AGYIS-HARNESS -->` | `code-review`, `generate-daily-report`, `git-branch`, `migrate-to-vinext`, `psl-stack-typescript`, `psl-test-node` | 🟢 **Aligned** (Decoupled in `f0278291`) | [PR #543](https://github.com/purrfectsoft/purrfectcore-client/pull/543)<br>**MERGED** 2026-10-14T14:48:24Z (`dc5b8dd3`) |
-| **3** | [`purrfectsoft/psl-boilerplate`](https://github.com/purrfectsoft/psl-boilerplate) | `/home/kuasha/Dev/psl-boilerplate` | TS / frontend (Turborepo template) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>None | ❌ Pruned (`a6a9fde`) | `./AGENTS.md` (lines 46–162)<br>`<!-- Added by AGYIS-HARNESS -->` | `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🔴 **MISMATCH** (`psl-stack-backend` in frontend) | [PR #1](https://github.com/purrfectsoft/psl-boilerplate/pull/1)<br>**MERGED** 2026-10-14T14:48:15Z (`895ed6a`) |
-| **4** | [`purrfectsoft/psl-scaffold`](https://github.com/purrfectsoft/psl-scaffold) | `/home/kuasha/Dev/psl-scaffold` | TS / cli (Config packages) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>`develop-backup` | ❌ Pruned (`8874fde`) | `./AGENTS.md` (lines 1–117)<br>`<!-- Added by AGYIS-HARNESS -->`<br>9 legacy rules in `.agents/rules/` | `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🔴 **MISMATCH** (`psl-stack-backend` in CLI) | [PR #11](https://github.com/purrfectsoft/psl-scaffold/pull/11)<br>**MERGED** 2026-10-14T14:48:06Z (`1650598`) |
-| **5** | [`purrfectsoft/psl-website`](https://github.com/purrfectsoft/psl-website) | `/home/kuasha/Dev/psl-website` | Declared: TS / frontend<br>Actual: Fullstack monorepo | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>None | ❌ Pruned (`f8d24f5`) | `./AGENTS.md` (lines 45–163)<br>`<!-- Added by AGYIS-HARNESS -->` | `db-ops`, `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🟡 **CONFLATION** (Monorepo has `packages/database`) | [PR #74](https://github.com/purrfectsoft/psl-website/pull/74)<br>**MERGED** 2026-10-14T14:47:56Z (`4bdac50`) |
-| **6** | [`purrfectsoft/mm-website`](https://github.com/purrfectsoft/mm-website) | `/home/kuasha/Dev/mm-website` | TS / frontend (Marketing web) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>None | ❌ Pruned (`910a931`) | `./AGENTS.md` (lines 43–161)<br>`<!-- Added by AGYIS-HARNESS -->` | `psl-stack-typescript`, `psl-test-node` | 🟢 **Aligned** (Decoupled in `7dee232`) | [PR #411](https://github.com/purrfectsoft/mm-website/pull/411)<br>**MERGED** 2026-10-14T14:47:47Z (`a513f16`) |
-| **\*** | [`purrfectsoft/mm-website-2`](https://github.com/purrfectsoft/mm-website) *(Aux)* | `/home/kuasha/Dev/mm-website-2` | TS / frontend (Duplicate checkout) | `copilot/add-mcp-support-for-copilot` | 🟢 Clean<br>None | 🔴 **PRESENT** (9 files in `.agent/rules/`) | ❌ None (No `AGENTS.md`) | None (No `.agents/`) | 🔴 **UN-ONBOARDED** (Auxiliary clone collision) | None (Skipped via `is_auxiliary_clone`) |
-| **7** | [`sakibtamim/Jasper`](https://github.com/sakibtamim/Jasper) | `/home/kuasha/Dev/Jasper` | TS / fullstack (Electron + Server) | `master` $\rightarrow$ `origin/master` | 🟢 Clean<br>`backup/untracked-agent-items` | ❌ Pruned | `./AGENTS.md` (lines 1–129)<br>`<!-- Added by AGYIS-HARNESS -->`<br>`.agents/AGENTS.md` (5 lines) | 17 skills (including `psl-stack-backend`, `db-ops`, external skills) | 🟢 **Aligned** (Fullstack) | [PR #172](https://github.com/sakibtamim/Jasper/pull/172)<br>**MERGED** 2026-10-14T14:49:49Z by `kuasha420` |
-| **8** | [`sakibtamim/purrfect-download-manager`](https://github.com/sakibtamim/purrfect-download-manager) | `/home/kuasha/Dev/purrfect-download-manager` | TS / desktop_gui (Tauri desktop) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>(Behind upstream `555910f`) | 🔴 **Present locally** (Pruned in PR #23) | Local: Legacy Motion Mechanics.<br>Upstream: `AGYIS-HARNESS` | Local: None.<br>PR #23: `display-ops`, `psl-stack-backend`, `psl-stack-ts`, `psl-test-node` | 🔴 **MISMATCH & LAG** (Backend skill in desktop GUI; local lag) | [PR #23](https://github.com/sakibtamim/purrfect-download-manager/pull/23)<br>**MERGED** 2026-10-15T15:40:23Z by `sakibtamim` |
-| **9** | [`kuasha420/purrmission`](https://github.com/kuasha420/purrmission) *(Canonical)* | `/home/kuasha/Dev/purrmission` | TS / cli (Discord bot + Prisma) | `master` $\rightarrow$ `origin/master` | 🟢 Clean<br>3 worktrees in `/Dev/purrmission-worktrees/` | ❌ Pruned | `./AGENTS.md` (lines 66–194)<br>`<!-- Added by AGYIS-HARNESS -->` | `code-review`, `db-ops`, `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🟢 **Aligned** (Prisma / backend bot) | [PR #161](https://github.com/kuasha420/purrmission/pull/161)<br>**MERGED** 2026-10-14T14:49:14Z (`224e222`) |
-| **10** | [`purrfectsoft/purrmission`](https://github.com/purrfectsoft/purrmission) *(Fork)* | `/home/kuasha/Dev/purrmission` *(Dual Remote)* | TS / cli (Organizational fork) | `master` $\rightarrow$ `purrfectsoft/master` | 🟢 Clean<br>Dual remote | ❌ Pruned | Same as Repo 9 | Same as Repo 9 | 🟢 **Aligned** (Identical content tree `35a4e1c0`) | [PR #4](https://github.com/purrfectsoft/purrmission/pull/4)<br>**MERGED** 2026-10-14T14:47:39Z (`a6610ad`) |
-| **11** | [`purrfectsoft/sunshine-physio-webapp`](https://github.com/purrfectsoft/sunshine-physio-webapp) | `/home/kuasha/Dev/sunshine-physio-universalapp` | TS / frontend (React web client) | `main` $\rightarrow$ `origin/main` | 🟢 Clean<br>Path aliasing | ❌ Pruned | `./AGENTS.md` (lines 172–290)<br>`<!-- Added by AGYIS-HARNESS -->` | `code-review`, `display-ops`, `milestone-handoff`, `psl-stack-typescript`, `psl-test-node`, `resolving-merge-conflicts` | 🟢 **Aligned** (Decoupled in rc2/rc3) | [PR #52](https://github.com/purrfectsoft/sunshine-physio-webapp/pull/52)<br>**MERGED** 2026-10-14T14:47:28Z (`kuasha420`) |
-| **12** | [`purrfectsoft/chronicle-time-keeper`](https://github.com/purrfectsoft/chronicle-time-keeper) | `/home/kuasha/Dev/chronicle-time-keeper` | TS / frontend (React + Vite) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>None | ❌ Pruned | `./AGENTS.md` (lines 1–117)<br>`<!-- Added by AGYIS-HARNESS -->` | `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🔴 **MISMATCH** (`psl-stack-backend` in frontend webapp) | [PR #16](https://github.com/purrfectsoft/chronicle-time-keeper/pull/16)<br>**MERGED** 2026-10-14T14:47:19Z (`kuasha420`) |
-| **13** | [`purrfectsoft/jasper-hosted`](https://github.com/purrfectsoft/jasper-hosted) | `/home/kuasha/Dev/jasper-hosted` | TS / backend (Fastify / Node API) | `main` $\rightarrow$ `origin/main` | 🟢 Clean<br>None | ❌ Pruned | `./AGENTS.md` (lines 1–117)<br>`<!-- Added by AGYIS-HARNESS -->` | `db-ops`, `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🟢 **Aligned** (Backend) | [PR #42](https://github.com/purrfectsoft/jasper-hosted/pull/42)<br>**MERGED** 2026-10-14T14:47:10Z (`21f703c`) |
-| **14** | [`kuasha420/jimha`](https://github.com/kuasha420/jimha) | `/home/kuasha/Dev/jimha` | Python / desktop_gui (PyQt6 client) | `main` $\rightarrow$ `origin/main` | 🟢 Clean<br>None | ❌ Pruned | `./AGENTS.md` (lines 1–105)<br>`<!-- Added by AGYIS-HARNESS -->`<br>Empty Command Dictionary | `display-ops`, `psl-stack-backend`, `psl-stack-python`, `psl-test-python` | 🔴 **CRITICAL MISMATCH** (`psl-stack-backend` in desktop GUI; empty command dict) | [PR #1](https://github.com/kuasha420/jimha/pull/1)<br>**MERGED** 2026-10-14T14:48:41Z (`521b7cc`) |
-| **15** | [`kuasha420/knot-mesh`](https://github.com/kuasha420/knot-mesh) | `/home/kuasha/Dev/knot-mesh` | Systems / shell / python (Mesh orchestration) | `fix/deskflow-crossover-debounce` | 🟢 Clean<br>`backup-local-main` | ❌ Pruned | `./AGENTS.md` (lines 143–247)<br>`<!-- Added by AGYIS-HARNESS -->` | `mesh-ops`, `psl-stack-python`, `psl-stack-shell`, `psl-stack-systems`, `psl-test-python` + 7 runtime symlinks | 🟢 **Aligned** (Systems / Mesh) | [PR #80](https://github.com/kuasha420/knot-mesh/pull/80)<br>**MERGED** into `main` 2026-10-14T14:48:49Z (`e4ab43d`) |
-| **16** | [`kuasha420/purr`](https://github.com/kuasha420/purr) | `/home/kuasha/Dev/purr` | Systems / shell / python (Arch Linux CLI) | `main` $\rightarrow$ `origin/main` | 🟢 Clean<br>None | ❌ Pruned | `./AGENTS.md` (lines 44–162)<br>`<!-- Added by AGYIS-HARNESS -->` | `arch-kde-devops`, `pacman-conflict-resolver`, `psl-stack-python`, `psl-stack-shell`, `psl-stack-systems`, `purr-release` | 🟢 **Aligned** (Systems / Desktop CLI) | [PR #14](https://github.com/kuasha420/purr/pull/14)<br>**MERGED** 2026-10-14T14:48:58Z (`891c806`) |
-| **17** | [`kuasha420/react-native-template-ts-plus`](https://github.com/kuasha420/react-native-template-ts-plus) | `/home/kuasha/Dev/react-native-template-ts-plus` | TS / mobile (React Native 0.76+) | `feat/resurrection` $\rightarrow$ `origin/feat/resurrection` | 🟢 Clean<br>None | ❌ Pruned | `./AGENTS.md` (lines 25–135)<br>`<!-- Added by AGYIS-HARNESS -->`<br>`.agents/rules/react-native-modernization.md` | `psl-stack-typescript`, `psl-test-node`, `react-native-harness` | 🟢 **Aligned** (Mobile decoupled; NO backend skills) | [PR #19](https://github.com/kuasha420/react-native-template-ts-plus/pull/19)<br>**MERGED** 2026-10-14T14:49:06Z (`28f4e07`) |
-| **18** | [`psl-agy-harness`](https://github.com/kuasha420/agyis-harness) *(Host)* | `/home/kuasha/Dev/psl-agy-harness` | Python / infra (Harness engine host) | `main` $\rightarrow$ `origin/main` | 🟢 Clean<br>`backup/issue-remediation-41-46-full`, `backup/local-main-oct10` | ❌ Pruned | Bifurcated architecture:<br>`.agents/rules/AGENTS.md`<br>`GLOBAL_AGENTS.md`<br>NO root `./AGENTS.md` | All 23 modular harness skills in `.agents/skills/`<br>Global plugin at `~/.gemini/config/plugins/psl-agy-harness` | 🟢 **Aligned** (Self-referential host engine) | N/A (Harness Host;<br>PRs #38–#48 merged on `main` at `c994f73`) |
+| **1** | [`<org>/<client-repo-api>`](https://github.com/<org>/<client-repo-api>) | `~/Dev/<client-repo-api>` | TS / backend (NestJS 11 + Prisma) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>`backup/uncommitted-advocate-referral` | ❌ Pruned (`fbbb5c29`) | `./AGENTS.md` (lines 37–155)<br>`<!-- Added by AGYIS-HARNESS -->` | `db-ops`, `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🟢 **Aligned** (Backend) | [PR #611](https://github.com/<org>/<client-repo-api>/pull/611)<br>**MERGED** 2026-10-14T14:48:33Z (`dc30494d`) |
+| **2** | [`<org>/<client-repo-web-app>`](https://github.com/<org>/<client-repo-web-app>) | `~/Dev/<client-repo-web-app>` | TS / frontend (Next.js client) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>None | ❌ Pruned (`b139ee4d`) | `./AGENTS.md` (lines 37–165)<br>`<!-- Added by AGYIS-HARNESS -->` | `code-review`, `generate-daily-report`, `git-branch`, `migrate-to-vinext`, `psl-stack-typescript`, `psl-test-node` | 🟢 **Aligned** (Decoupled in `f0278291`) | [PR #543](https://github.com/<org>/<client-repo-web-app>/pull/543)<br>**MERGED** 2026-10-14T14:48:24Z (`dc5b8dd3`) |
+| **3** | [`<org>/<corp-template-repo>`](https://github.com/<org>/<corp-template-repo>) | `~/Dev/<corp-template-repo>` | TS / frontend (Turborepo template) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>None | ❌ Pruned (`a6a9fde`) | `./AGENTS.md` (lines 46–162)<br>`<!-- Added by AGYIS-HARNESS -->` | `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🔴 **MISMATCH** (`psl-stack-backend` in frontend) | [PR #1](https://github.com/<org>/<corp-template-repo>/pull/1)<br>**MERGED** 2026-10-14T14:48:15Z (`895ed6a`) |
+| **4** | [`<org>/<corp-scaffold-repo>`](https://github.com/<org>/<corp-scaffold-repo>) | `~/Dev/<corp-scaffold-repo>` | TS / cli (Config packages) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>`develop-backup` | ❌ Pruned (`8874fde`) | `./AGENTS.md` (lines 1–117)<br>`<!-- Added by AGYIS-HARNESS -->`<br>9 legacy rules in `.agents/rules/` | `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🔴 **MISMATCH** (`psl-stack-backend` in CLI) | [PR #11](https://github.com/<org>/<corp-scaffold-repo>/pull/11)<br>**MERGED** 2026-10-14T14:48:06Z (`1650598`) |
+| **5** | [`<org>/<corp-web-repo>`](https://github.com/<org>/<corp-web-repo>) | `~/Dev/<corp-web-repo>` | Declared: TS / frontend<br>Actual: Fullstack monorepo | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>None | ❌ Pruned (`f8d24f5`) | `./AGENTS.md` (lines 45–163)<br>`<!-- Added by AGYIS-HARNESS -->` | `db-ops`, `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🟡 **CONFLATION** (Monorepo has `packages/database`) | [PR #74](https://github.com/<org>/<corp-web-repo>/pull/74)<br>**MERGED** 2026-10-14T14:47:56Z (`4bdac50`) |
+| **6** | [`<org>/<client-repo-web>`](https://github.com/<org>/<client-repo-web>) | `~/Dev/<client-repo-web>` | TS / frontend (Marketing web) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>None | ❌ Pruned (`910a931`) | `./AGENTS.md` (lines 43–161)<br>`<!-- Added by AGYIS-HARNESS -->` | `psl-stack-typescript`, `psl-test-node` | 🟢 **Aligned** (Decoupled in `7dee232`) | [PR #411](https://github.com/<org>/<client-repo-web>/pull/411)<br>**MERGED** 2026-10-14T14:47:47Z (`a513f16`) |
+| **\*** | [`<org>/<client-repo-web-aux>`](https://github.com/<org>/<client-repo-web>) *(Aux)* | `~/Dev/<client-repo-web-aux>` | TS / frontend (Duplicate checkout) | `copilot/add-mcp-support-for-copilot` | 🟢 Clean<br>None | 🔴 **PRESENT** (9 files in `.agent/rules/`) | ❌ None (No `AGENTS.md`) | None (No `.agents/`) | 🔴 **UN-ONBOARDED** (Auxiliary clone collision) | None (Skipped via `is_auxiliary_clone`) |
+| **7** | [`<collaborator-org>/<oss-bot-repo>`](https://github.com/<collaborator-org>/<oss-bot-repo>) | `~/Dev/<oss-bot-repo>` | TS / fullstack (Electron + Server) | `master` $\rightarrow$ `origin/master` | 🟢 Clean<br>`backup/untracked-agent-items` | ❌ Pruned | `./AGENTS.md` (lines 1–129)<br>`<!-- Added by AGYIS-HARNESS -->`<br>`.agents/AGENTS.md` (5 lines) | 17 skills (including `psl-stack-backend`, `db-ops`, external skills) | 🟢 **Aligned** (Fullstack) | [PR #172](https://github.com/<collaborator-org>/<oss-bot-repo>/pull/172)<br>**MERGED** 2026-10-14T14:49:49Z by `kuasha420` |
+| **8** | [`<collaborator-org>/<collab-desktop-repo>`](https://github.com/<collaborator-org>/<collab-desktop-repo>) | `~/Dev/<collab-desktop-repo>` | TS / desktop_gui (Tauri desktop) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>(Behind upstream `555910f`) | 🔴 **Present locally** (Pruned in PR #23) | Local: Legacy Motion Mechanics.<br>Upstream: `AGYIS-HARNESS` | Local: None.<br>PR #23: `display-ops`, `psl-stack-backend`, `psl-stack-ts`, `psl-test-node` | 🔴 **MISMATCH & LAG** (Backend skill in desktop GUI; local lag) | [PR #23](https://github.com/<collaborator-org>/<collab-desktop-repo>/pull/23)<br>**MERGED** 2026-10-15T15:40:23Z by `<collaborator-org>` |
+| **9** | [`kuasha420/purrmission`](https://github.com/kuasha420/purrmission) *(Canonical)* | `~/Dev/purrmission` | TS / cli (Discord bot + Prisma) | `master` $\rightarrow$ `origin/master` | 🟢 Clean<br>3 worktrees in `/Dev/purrmission-worktrees/` | ❌ Pruned | `./AGENTS.md` (lines 66–194)<br>`<!-- Added by AGYIS-HARNESS -->` | `code-review`, `db-ops`, `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🟢 **Aligned** (Prisma / backend bot) | [PR #161](https://github.com/kuasha420/purrmission/pull/161)<br>**MERGED** 2026-10-14T14:49:14Z (`224e222`) |
+| **10** | [`<org>/purrmission`](https://github.com/<org>/purrmission) *(Fork)* | `~/Dev/purrmission` *(Dual Remote)* | TS / cli (Organizational fork) | `master` $\rightarrow$ `<org>/master` | 🟢 Clean<br>Dual remote | ❌ Pruned | Same as Repo 9 | Same as Repo 9 | 🟢 **Aligned** (Identical content tree `35a4e1c0`) | [PR #4](https://github.com/<org>/purrmission/pull/4)<br>**MERGED** 2026-10-14T14:47:39Z (`a6610ad`) |
+| **11** | [`<org>/<client-repo-webapp>`](https://github.com/<org>/<client-repo-webapp>) | `~/Dev/<client-repo-universal>` | TS / frontend (React web client) | `main` $\rightarrow$ `origin/main` | 🟢 Clean<br>Path aliasing | ❌ Pruned | `./AGENTS.md` (lines 172–290)<br>`<!-- Added by AGYIS-HARNESS -->` | `code-review`, `display-ops`, `milestone-handoff`, `psl-stack-typescript`, `psl-test-node`, `resolving-merge-conflicts` | 🟢 **Aligned** (Decoupled in rc2/rc3) | [PR #52](https://github.com/<org>/<client-repo-webapp>/pull/52)<br>**MERGED** 2026-10-14T14:47:28Z (`kuasha420`) |
+| **12** | [`<org>/<client-time-tracker>`](https://github.com/<org>/<client-time-tracker>) | `~/Dev/<client-time-tracker>` | TS / frontend (React + Vite) | `develop` $\rightarrow$ `origin/develop` | 🟢 Clean<br>None | ❌ Pruned | `./AGENTS.md` (lines 1–117)<br>`<!-- Added by AGYIS-HARNESS -->` | `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🔴 **MISMATCH** (`psl-stack-backend` in frontend webapp) | [PR #16](https://github.com/<org>/<client-time-tracker>/pull/16)<br>**MERGED** 2026-10-14T14:47:19Z (`kuasha420`) |
+| **13** | [`<org>/<hosted-app>`](https://github.com/<org>/<hosted-app>) | `~/Dev/<hosted-app>` | TS / backend (Fastify / Node API) | `main` $\rightarrow$ `origin/main` | 🟢 Clean<br>None | ❌ Pruned | `./AGENTS.md` (lines 1–117)<br>`<!-- Added by AGYIS-HARNESS -->` | `db-ops`, `psl-stack-backend`, `psl-stack-typescript`, `psl-test-node` | 🟢 **Aligned** (Backend) | [PR #42](https://github.com/<org>/<hosted-app>/pull/42)<br>**MERGED** 2026-10-14T14:47:10Z (`21f703c`) |
+| **14** | [`kuasha420/<desktop-gui-repo>`](https://github.com/kuasha420/<desktop-gui-repo>) | `~/Dev/<desktop-gui-repo>` | Python / desktop_gui (PyQt6 client) | `main` $\rightarrow$ `origin/main` | 🟢 Clean<br>None | ❌ Pruned | `./AGENTS.md` (lines 1–105)<br>`<!-- Added by AGYIS-HARNESS -->`<br>Empty Command Dictionary | `display-ops`, `psl-stack-backend`, `psl-stack-python`, `psl-test-python` | 🔴 **CRITICAL MISMATCH** (`psl-stack-backend` in desktop GUI; empty command dict) | [PR #1](https://github.com/kuasha420/<desktop-gui-repo>/pull/1)<br>**MERGED** 2026-10-14T14:48:41Z (`521b7cc`) |
+| **15** | [`kuasha420/knot-mesh`](https://github.com/kuasha420/knot-mesh) | `~/Dev/knot-mesh` | Systems / shell / python (Mesh orchestration) | `fix/deskflow-crossover-debounce` | 🟢 Clean<br>`backup-local-main` | ❌ Pruned | `./AGENTS.md` (lines 143–247)<br>`<!-- Added by AGYIS-HARNESS -->` | `mesh-ops`, `psl-stack-python`, `psl-stack-shell`, `psl-stack-systems`, `psl-test-python` + 7 runtime symlinks | 🟢 **Aligned** (Systems / Mesh) | [PR #80](https://github.com/kuasha420/knot-mesh/pull/80)<br>**MERGED** into `main` 2026-10-14T14:48:49Z (`e4ab43d`) |
+| **16** | [`kuasha420/purr`](https://github.com/kuasha420/purr) | `~/Dev/purr` | Systems / shell / python (Arch Linux CLI) | `main` $\rightarrow$ `origin/main` | 🟢 Clean<br>None | ❌ Pruned | `./AGENTS.md` (lines 44–162)<br>`<!-- Added by AGYIS-HARNESS -->` | `arch-kde-devops`, `pacman-conflict-resolver`, `psl-stack-python`, `psl-stack-shell`, `psl-stack-systems`, `purr-release` | 🟢 **Aligned** (Systems / Desktop CLI) | [PR #14](https://github.com/kuasha420/purr/pull/14)<br>**MERGED** 2026-10-14T14:48:58Z (`891c806`) |
+| **17** | [`kuasha420/react-native-template-ts-plus`](https://github.com/kuasha420/react-native-template-ts-plus) | `~/Dev/react-native-template-ts-plus` | TS / mobile (React Native 0.76+) | `feat/resurrection` $\rightarrow$ `origin/feat/resurrection` | 🟢 Clean<br>None | ❌ Pruned | `./AGENTS.md` (lines 25–135)<br>`<!-- Added by AGYIS-HARNESS -->`<br>`.agents/rules/react-native-modernization.md` | `psl-stack-typescript`, `psl-test-node`, `react-native-harness` | 🟢 **Aligned** (Mobile decoupled; NO backend skills) | [PR #19](https://github.com/kuasha420/react-native-template-ts-plus/pull/19)<br>**MERGED** 2026-10-14T14:49:06Z (`28f4e07`) |
+| **18** | [`psl-agy-harness`](https://github.com/kuasha420/agyis-harness) *(Host)* | `~/Dev/psl-agy-harness` | Python / infra (Harness engine host) | `main` $\rightarrow$ `origin/main` | 🟢 Clean<br>`backup/issue-remediation-41-46-full`, `backup/local-main-oct10` | ❌ Pruned | Bifurcated architecture:<br>`.agents/rules/AGENTS.md`<br>`GLOBAL_AGENTS.md`<br>NO root `./AGENTS.md` | All 23 modular harness skills in `.agents/skills/`<br>Global plugin at `~/.gemini/config/plugins/psl-agy-harness` | 🟢 **Aligned** (Self-referential host engine) | N/A (Harness Host;<br>PRs #38–#48 merged on `main` at `c994f73`) |
 
 ---
 
@@ -141,9 +141,9 @@ The following master forensic matrix documents all 18 target repositories plus t
   - `harness/delivery/workspace.py:488-497`: `install_workspace()` still prints an outdated legacy notice: `"Run the /psl-harmonize skill to migrate..."`.
 
 #### C. Empirical Findings from the 18-Repository Audit
-- All 18 canonical repositories in `/home/kuasha/Dev` have `.agent/` cleanly pruned.
-- However, auxiliary checkout `/home/kuasha/Dev/mm-website-2` still contains unpruned `.agent/rules/` with 9 files.
-- In `purrfect-download-manager`, the local checkout retains `.agent/` because it was not pulled after PR #23 was merged on GitHub.
+- All 18 canonical repositories in `~/Dev` have `.agent/` cleanly pruned.
+- However, auxiliary checkout `~/Dev/<client-repo-web-aux>` still contains unpruned `.agent/rules/` with 9 files.
+- In `<collab-desktop-repo>`, the local checkout retains `.agent/` because it was not pulled after PR #23 was merged on GitHub.
 
 #### D. Classification: **Category A** (Core Engine) & **Category B** (CLI Defaults & Notice)
 - **Category A**: The 4-phase deprecation lifecycle (Scan, Checksum Verify, Archive to `.agents/archive/`, Deterministic 2-Step Pruning, Assertion) is fully implemented and tested.
@@ -183,9 +183,9 @@ The following master forensic matrix documents all 18 target repositories plus t
   - GAP-07: `workspace.py:138` wraps Python command extraction strictly inside `if pyproj.is_file():`. If a Python repo lacks `pyproject.toml` (e.g. `setup.py` or `requirements.txt`), command extraction extracts 0 test commands.
 
 #### C. Empirical Findings from the 18-Repository Audit
-- Preset decoupling was successfully applied to `purrfectcore-client` (PR #543), `mm-website` (PR #411), `sunshine-physio-universalapp` (PR #52), and `react-native-template-ts-plus` (PR #19).
-- However, **5 repositories retain `psl-stack-backend` mismatches**: `psl-boilerplate`, `psl-scaffold`, `purrfect-download-manager`, `chronicle-time-keeper`, and `jimha`.
-- In `jimha` (Python desktop GUI), Section 1 of `AGENTS.md` generated an empty Project Command Dictionary due to GAP-07.
+- Preset decoupling was successfully applied to `<client-repo-web-app>` (PR #543), `<client-repo-web>` (PR #411), `<client-repo-universal>` (PR #52), and `react-native-template-ts-plus` (PR #19).
+- However, **5 repositories retain `psl-stack-backend` mismatches**: `<corp-template-repo>`, `<corp-scaffold-repo>`, `<collab-desktop-repo>`, `<client-time-tracker>`, and `<desktop-gui-repo>`.
+- In `<desktop-gui-repo>` (Python desktop GUI), Section 1 of `AGENTS.md` generated an empty Project Command Dictionary due to GAP-07.
 
 #### D. Classification: **Category A** (Decoupled Presets in Code) & **Category B** (GAP-07 Python Fallback & Fleet De-provisioning)
 - **Category A**: Multi-tier decoupled preset engine (`LANGUAGE_RUNTIME_PRESETS` vs. `ARCHITECTURAL_ROLE_PRESETS`) is fully implemented in `harness/skills/__init__.py`.
@@ -197,7 +197,7 @@ The following master forensic matrix documents all 18 target repositories plus t
 
 #### A. Gap Definition from `docs/specs/agyis-installation-harmonization-gaps.md`
 - **Citations**: §2.3 (lines 182–215), §3.6 (lines 553–562), §5.5 (lines 932–1010), GAP-09.
-- **Problem Statement**: In `rc1`, the harness engine assumed direct push access to `origin`. When pushing to collaborator repository `sakibtamim/purrfect-download-manager`, git failed with HTTP 403 because `kuasha420` only had `viewerPermission: READ`. Subagents had to manually configure personal forks, push feature branches to forks, and execute cross-repo PR commands (`gh pr create --repo <upstream> --head kuasha420:<branch>`).
+- **Problem Statement**: In `rc1`, the harness engine assumed direct push access to `origin`. When pushing to collaborator repository `<collaborator-org>/<collab-desktop-repo>`, git failed with HTTP 403 because `kuasha420` only had `viewerPermission: READ`. Subagents had to manually configure personal forks, push feature branches to forks, and execute cross-repo PR commands (`gh pr create --repo <upstream> --head kuasha420:<branch>`).
 
 #### B. Codebase Status in `v1.0.0-rc4` Baseline
 - `harness/delivery/git_topology.py` (616 lines):
@@ -212,8 +212,8 @@ The following master forensic matrix documents all 18 target repositories plus t
   - `harness/commands/onboard.py:209`: Pushes `topology.current_branch` directly without creating a dedicated feature branch (`chore/agyis-harness-onboarding`) if the user is currently on `main` or `develop`.
 
 #### C. Empirical Findings from the 18-Repository Audit
-- In Wave 1, PR #23 on `sakibtamim/purrfect-download-manager` was successfully submitted across repos from `kuasha420:chore/agyis-harness-onboarding` into `sakibtamim:develop`, validating the cross-repo PR model.
-- `purrmission` successfully maintains dual remotes (`origin` $\rightarrow$ `kuasha420/purrmission` and `purrfectsoft` $\rightarrow$ `purrfectsoft/purrmission`) with identical trees (`35a4e1c0`).
+- In Wave 1, PR #23 on `<collaborator-org>/<collab-desktop-repo>` was successfully submitted across repos from `kuasha420:chore/agyis-harness-onboarding` into `<collaborator-org>:develop`, validating the cross-repo PR model.
+- `purrmission` successfully maintains dual remotes (`origin` $\rightarrow$ `kuasha420/purrmission` and `<org>` $\rightarrow$ `<org>/purrmission`) with identical trees (`35a4e1c0`).
 
 #### D. Classification: **Category A** (Topology Engine) & **Category B** (Branch Isolation)
 - **Category A**: `GitTopologyProbe` in `harness/delivery/git_topology.py` solves remote resolution, fork provisioning, and permissions inspection.
@@ -244,7 +244,7 @@ The following master forensic matrix documents all 18 target repositories plus t
 
 #### C. Empirical Findings from the 18-Repository Audit
 - During Wave 1, all 18 repositories were onboarded using fragmented commands and manual scripts.
-- In `psl-scaffold`, `.agents/rules/` still retains 9 legacy un-migrated markdown files because the initial harmonization pass was executed with raw copy scripts rather than canonical rule templates.
+- In `<corp-scaffold-repo>`, `.agents/rules/` still retains 9 legacy un-migrated markdown files because the initial harmonization pass was executed with raw copy scripts rather than canonical rule templates.
 
 #### D. Classification: **Category A** (Unified Command Structure) & **Category B** (CLI Flag Polish)
 - **Category A**: `harness/commands/onboard.py` exists, unifying harmonization, skill installation, and git topology probing.
@@ -256,7 +256,7 @@ The following master forensic matrix documents all 18 target repositories plus t
 
 #### A. Gap Definition from `docs/specs/agyis-installation-harmonization-gaps.md`
 - **Citations**: §2.5 (lines 240–280), §2.6 (lines 282–310), §5.5 (lines 980–1010).
-- **Problem Statement**: In `rc1`, fleet automation treated auxiliary clone `mm-website-2` (checked out on branch `copilot/add-mcp-support-for-copilot`) as an independent target repository, attempting to create duplicate onboarding branches and PRs against `purrfectsoft/mm-website`. Furthermore, `psl-agy-harness` was not recognized as the self-referential harness host.
+- **Problem Statement**: In `rc1`, fleet automation treated auxiliary clone `<client-repo-web-aux>` (checked out on branch `copilot/add-mcp-support-for-copilot`) as an independent target repository, attempting to create duplicate onboarding branches and PRs against `<org>/<client-repo-web>`. Furthermore, `psl-agy-harness` was not recognized as the self-referential harness host.
 
 #### B. Codebase Status in `v1.0.0-rc4` Baseline
 - `harness/delivery/git_topology.py`:
@@ -267,9 +267,9 @@ The following master forensic matrix documents all 18 target repositories plus t
 - `harness/delivery/git_hygiene.py:27-69`: Resolves worktree `gitdir:` and `commondir` pointers cleanly to avoid corrupting shared git configurations.
 
 #### C. Empirical Findings from the 18-Repository Audit
-- `mm-website-2` exists at `/home/kuasha/Dev/mm-website-2`. It was cleanly skipped during Wave 1 onboarding when parent agent patched `verify_fleet.py:1078` with `if not s.is_auxiliary_clone`.
+- `<client-repo-web-aux>` exists at `~/Dev/<client-repo-web-aux>`. It was cleanly skipped during Wave 1 onboarding when parent agent patched `verify_fleet.py:1078` with `if not s.is_auxiliary_clone`.
 - `purrmission-worktrees/` hosts 3 active worktrees (`issue-117`, `issue-118`, `issue-119`) with zero lock corruption.
-- In `sunshine-physio-webapp`, the local checkout directory is named `sunshine-physio-universalapp`.
+- In `<client-repo-webapp>`, the local checkout directory is named `<client-repo-universal>`.
 
 #### D. Classification: **Category A** (Detection Logic) & **Category B** (Path Resolution)
 - **Category A**: `is_auxiliary_clone` and `is_harness_host` heuristics in `git_topology.py` are fully functional.
@@ -341,7 +341,7 @@ The following taxonomy classifies all audited items across GAP-01 through GAP-14
 | **GAP-14** | CLI / Docs | `harness/commands/*.py`, `systemd.py`, `workspace.py` | Partially Open | **Category B** | Minor nomenclature cleanup: `systemd.py:26` (`Description=PSL`), `workspace.py:488-497` (`Run /psl-harmonize skill`), `skills/__init__.py:7`. |
 | **ISSUE-57**| Sync / CLI | `harness/commands/sync.py`, `harness/telemetry/sync/` | Open | **Category B** | Background Sync Service Management: implement `agyis sync --service [install|status|start|stop|restart|uninstall]`. |
 | **RFC-01** | Remote / Git | Cross-Repo GitHub PR Lifecycle Tracking | Spec | **Category C** | Long-term tracking of upstream PR status and automatic synchronization post-merge across external collaborator forks. |
-| **RFC-02** | Remote / CI | Multi-Remote Cross-Org CI Synchronization | Spec | **Category C** | Cross-organization webhook synchronization between `purrfectsoft` and personal developer remotes. |
+| **RFC-02** | Remote / CI | Multi-Remote Cross-Org CI Synchronization | Spec | **Category C** | Cross-organization webhook synchronization between `<org>` and personal developer remotes. |
 | **RFC-03** | CI / Rules | Continuous Rule Linting GitHub Action | Spec | **Category C** | Continuous rule linting action verifying fence integrity and preventing manual drift of injected harness invariants. |
 
 ---
@@ -362,7 +362,7 @@ OPTIONS:
   --role, -r ROLE             Architectural role preset (backend, frontend, fullstack, cli, library, mobile, desktop_gui, media, audio, infra)
   --skills LIST               Comma-separated list of explicit modular skills to install (e.g. "storage-ops,sec-forensics")
   --subproject PATH           Subproject path for localized monorepo onboarding (depth 2 detection default)
-  --upstream-remote NAME      Explicit upstream canonical remote name (e.g. upstream, canonical, purrfectsoft)
+  --upstream-remote NAME      Explicit upstream canonical remote name (e.g. upstream, canonical, <org>)
   --base-branch BRANCH        Explicit base branch to target (default: auto-detected default/active branch)
   --create-branch [NAME]      Create dedicated onboarding branch (default: chore/agyis-harness-onboarding)
   --prune-legacy              Prune legacy .agent/ directory after harmonization (default: true)
@@ -448,20 +448,20 @@ OPTIONS:
 
 | # | Repository Path | Primary Stack | Assigned Role | Required Injected Skills | Explicit Exclusions |
 | :-: | :--- | :--- | :--- | :--- | :--- |
-| 1 | `purrfectcore-001` | `typescript` | `backend` | `psl-stack-typescript`, `psl-test-node`, `psl-stack-backend`, `db-ops` | None |
-| 2 | `purrfectcore-client` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
-| 3 | `psl-boilerplate` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
-| 4 | `psl-scaffold` | `typescript` | `cli` | `psl-stack-typescript`, `psl-test-node` | `psl-stack-backend`, `db-ops` |
-| 5 | `psl-website` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
-| 6 | `mm-website` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
-| 7 | `Jasper` | `typescript` | `fullstack` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance`, `psl-stack-backend`, `db-ops` | None |
-| 8 | `purrfect-download-manager` | `typescript` | `desktop_gui`| `psl-stack-typescript`, `psl-test-node`, `display-ops` | `psl-stack-backend`, `db-ops` |
+| 1 | `<client-repo-api>` | `typescript` | `backend` | `psl-stack-typescript`, `psl-test-node`, `psl-stack-backend`, `db-ops` | None |
+| 2 | `<client-repo-web-app>` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
+| 3 | `<corp-template-repo>` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
+| 4 | `<corp-scaffold-repo>` | `typescript` | `cli` | `psl-stack-typescript`, `psl-test-node` | `psl-stack-backend`, `db-ops` |
+| 5 | `<corp-web-repo>` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
+| 6 | `<client-repo-web>` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
+| 7 | `<oss-bot-repo>` | `typescript` | `fullstack` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance`, `psl-stack-backend`, `db-ops` | None |
+| 8 | `<collab-desktop-repo>` | `typescript` | `desktop_gui`| `psl-stack-typescript`, `psl-test-node`, `display-ops` | `psl-stack-backend`, `db-ops` |
 | 9 | `kuasha420/purrmission` | `typescript` | `cli` | `psl-stack-typescript`, `psl-test-node` | `psl-stack-backend`, `db-ops` |
-| 10| `purrfectsoft/purrmission` | `typescript` | `cli` | `psl-stack-typescript`, `psl-test-node` | `psl-stack-backend`, `db-ops` |
-| 11| `sunshine-physio-webapp` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
-| 12| `chronicle-time-keeper` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
-| 13| `jasper-hosted` | `typescript` | `backend` | `psl-stack-typescript`, `psl-test-node`, `psl-stack-backend`, `db-ops` | None |
-| 14| `jimha` | `python` | `desktop_gui`| `psl-stack-python`, `psl-test-python`, `display-ops` | `psl-stack-backend`, `db-ops` |
+| 10| `<org>/purrmission` | `typescript` | `cli` | `psl-stack-typescript`, `psl-test-node` | `psl-stack-backend`, `db-ops` |
+| 11| `<client-repo-webapp>` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
+| 12| `<client-time-tracker>` | `typescript` | `frontend` | `psl-stack-typescript`, `psl-test-node`, `modern-web-guidance` | `psl-stack-backend`, `db-ops` |
+| 13| `<hosted-app>` | `typescript` | `backend` | `psl-stack-typescript`, `psl-test-node`, `psl-stack-backend`, `db-ops` | None |
+| 14| `<desktop-gui-repo>` | `python` | `desktop_gui`| `psl-stack-python`, `psl-test-python`, `display-ops` | `psl-stack-backend`, `db-ops` |
 | 15| `knot-mesh` | `systems` | `infra` | `psl-stack-systems`, `psl-stack-shell`, `mesh-ops`, `remote-ops`, `sec-forensics`, `storage-ops` | None |
 | 16| `purr` | `systems` | `cli` | `psl-stack-systems`, `psl-stack-shell` | `psl-stack-backend`, `db-ops` |
 | 17| `react-native-template-ts-plus`| `typescript` | `mobile` | `psl-stack-typescript`, `psl-test-node`, `android-cli` | `psl-stack-backend`, `db-ops` |
@@ -618,20 +618,20 @@ Execute programmatic re-onboarding sweep across all 18 repositories in isolated 
 
 ```bash
 # 1. Purge mismatched psl-stack-backend in Repos 3, 4, 8, 12, 14
-agyis onboard /home/kuasha/Dev/psl-boilerplate --role frontend --prune-legacy --create-branch
-agyis onboard /home/kuasha/Dev/psl-scaffold --role cli --prune-legacy --create-branch
-agyis onboard /home/kuasha/Dev/chronicle-time-keeper --role frontend --prune-legacy --create-branch
-agyis onboard /home/kuasha/Dev/purrfect-download-manager --role desktop_gui --prune-legacy --create-branch
-agyis onboard /home/kuasha/Dev/jimha --role desktop_gui --prune-legacy --create-branch
+agyis onboard ~/Dev/<corp-template-repo> --role frontend --prune-legacy --create-branch
+agyis onboard ~/Dev/<corp-scaffold-repo> --role cli --prune-legacy --create-branch
+agyis onboard ~/Dev/<client-time-tracker> --role frontend --prune-legacy --create-branch
+agyis onboard ~/Dev/<collab-desktop-repo> --role desktop_gui --prune-legacy --create-branch
+agyis onboard ~/Dev/<desktop-gui-repo> --role desktop_gui --prune-legacy --create-branch
 
-# 2. Fast-forward pull local checkout of purrfect-download-manager
-git -C /home/kuasha/Dev/purrfect-download-manager pull origin develop
+# 2. Fast-forward pull local checkout of <collab-desktop-repo>
+git -C ~/Dev/<collab-desktop-repo> pull origin develop
 
 # 3. Synchronize knot-mesh branch
-git -C /home/kuasha/Dev/knot-mesh checkout main
-git -C /home/kuasha/Dev/knot-mesh pull origin main
+git -C ~/Dev/knot-mesh checkout main
+git -C ~/Dev/knot-mesh pull origin main
 
-# 4. Standardize rules in psl-scaffold
+# 4. Standardize rules in <corp-scaffold-repo>
 # Replace 9 legacy rules in .agents/rules/ with standard 5-rule set
 ```
 
@@ -645,7 +645,7 @@ To independently reproduce, audit, and verify every metric and finding in this r
 # ==============================================================================
 # 1. VERIFY BASELINE HARNESS STATUS & SUITE EXECUTION
 # ==============================================================================
-cd /home/kuasha/Dev/psl-agy-harness
+cd ~/Dev/psl-agy-harness
 python3 -m harness.cli test
 # Expected: 847 tests pass cleanly in <15s with exit code 0.
 
@@ -656,31 +656,31 @@ python3 -m harness.cli doctor
 # 2. VERIFY WORKING TREE CLEANLINESS ACROSS ALL 18 REPOSITORIES
 # ==============================================================================
 for repo in \
-  purrfectcore-001 purrfectcore-client psl-boilerplate psl-scaffold psl-website mm-website \
-  Jasper purrfect-download-manager purrmission sunshine-physio-universalapp chronicle-time-keeper \
-  jasper-hosted jimha knot-mesh purr react-native-template-ts-plus psl-agy-harness; do
+  <client-repo-api> <client-repo-web-app> <corp-template-repo> <corp-scaffold-repo> <corp-web-repo> <client-repo-web> \
+  <oss-bot-repo> <collab-desktop-repo> purrmission <client-repo-universal> <client-time-tracker> \
+  <hosted-app> <desktop-gui-repo> knot-mesh purr react-native-template-ts-plus psl-agy-harness; do
   echo "=== Checking Working Tree: $repo ==="
-  git -C /home/kuasha/Dev/$repo status --short
+  git -C ~/Dev/$repo status --short
 done
 # Expected: All outputs are completely empty (0 diffs).
 
 # ==============================================================================
 # 3. VERIFY PR MERGE STATUSES ON GITHUB
 # ==============================================================================
-gh pr view 611 --repo purrfectsoft/purrfectcore-001 --json state,mergedAt
-gh pr view 543 --repo purrfectsoft/purrfectcore-client --json state,mergedAt
-gh pr view 1   --repo purrfectsoft/psl-boilerplate --json state,mergedAt
-gh pr view 11  --repo purrfectsoft/psl-scaffold --json state,mergedAt
-gh pr view 74  --repo purrfectsoft/psl-website --json state,mergedAt
-gh pr view 411 --repo purrfectsoft/mm-website --json state,mergedAt
-gh pr view 172 --repo sakibtamim/Jasper --json state,mergedAt
-gh pr view 23  --repo sakibtamim/purrfect-download-manager --json state,mergedAt
+gh pr view 611 --repo <org>/<client-repo-api> --json state,mergedAt
+gh pr view 543 --repo <org>/<client-repo-web-app> --json state,mergedAt
+gh pr view 1   --repo <org>/<corp-template-repo> --json state,mergedAt
+gh pr view 11  --repo <org>/<corp-scaffold-repo> --json state,mergedAt
+gh pr view 74  --repo <org>/<corp-web-repo> --json state,mergedAt
+gh pr view 411 --repo <org>/<client-repo-web> --json state,mergedAt
+gh pr view 172 --repo <collaborator-org>/<oss-bot-repo> --json state,mergedAt
+gh pr view 23  --repo <collaborator-org>/<collab-desktop-repo> --json state,mergedAt
 gh pr view 161 --repo kuasha420/purrmission --json state,mergedAt
-gh pr view 4   --repo purrfectsoft/purrmission --json state,mergedAt
-gh pr view 52  --repo purrfectsoft/sunshine-physio-webapp --json state,mergedAt
-gh pr view 16  --repo purrfectsoft/chronicle-time-keeper --json state,mergedAt
-gh pr view 42  --repo purrfectsoft/jasper-hosted --json state,mergedAt
-gh pr view 1   --repo kuasha420/jimha --json state,mergedAt
+gh pr view 4   --repo <org>/purrmission --json state,mergedAt
+gh pr view 52  --repo <org>/<client-repo-webapp> --json state,mergedAt
+gh pr view 16  --repo <org>/<client-time-tracker> --json state,mergedAt
+gh pr view 42  --repo <org>/<hosted-app> --json state,mergedAt
+gh pr view 1   --repo kuasha420/<desktop-gui-repo> --json state,mergedAt
 gh pr view 80  --repo kuasha420/knot-mesh --json state,mergedAt
 gh pr view 14  --repo kuasha420/purr --json state,mergedAt
 gh pr view 19  --repo kuasha420/react-native-template-ts-plus --json state,mergedAt
@@ -689,31 +689,31 @@ gh pr view 19  --repo kuasha420/react-native-template-ts-plus --json state,merge
 # ==============================================================================
 # 4. VERIFY RESIDUAL PSL-STACK-BACKEND SKILL MISMATCHES
 # ==============================================================================
-for repo in psl-boilerplate psl-scaffold chronicle-time-keeper jimha; do
+for repo in <corp-template-repo> <corp-scaffold-repo> <client-time-tracker> <desktop-gui-repo>; do
   echo "=== Checking Mismatch in $repo ==="
-  ls -ld /home/kuasha/Dev/$repo/.agents/skills/psl-stack-backend
+  ls -ld ~/Dev/$repo/.agents/skills/psl-stack-backend
 done
 # Expected: Directory exists in all 4, confirming residual skill mismatch.
 
 # ==============================================================================
 # 5. VERIFY DECOUPLED PRESETS IN CLEAN REPOSITORIES
 # ==============================================================================
-for repo in purrfectcore-client mm-website sunshine-physio-universalapp react-native-template-ts-plus; do
+for repo in <client-repo-web-app> <client-repo-web> <client-repo-universal> react-native-template-ts-plus; do
   echo "=== Checking Decoupling in $repo ==="
-  ls /home/kuasha/Dev/$repo/.agents/skills/
+  ls ~/Dev/$repo/.agents/skills/
 done
 # Expected: Zero occurrences of psl-stack-backend or db-ops.
 
 # ==============================================================================
 # 6. VERIFY ABSENCE OF LEGACY .agent/ IN CANONICAL REPOS & PRESENCE IN AUX CLONE
 # ==============================================================================
-for repo in purrfectcore-001 purrfectcore-client psl-boilerplate psl-scaffold psl-website mm-website \
-            Jasper purrmission sunshine-physio-universalapp chronicle-time-keeper jasper-hosted \
-            jimha knot-mesh purr react-native-template-ts-plus psl-agy-harness; do
-  ls -d /home/kuasha/Dev/$repo/.agent 2>&1 | grep -q "No such file" && echo "✔ $repo: .agent cleanly pruned"
+for repo in <client-repo-api> <client-repo-web-app> <corp-template-repo> <corp-scaffold-repo> <corp-web-repo> <client-repo-web> \
+            <oss-bot-repo> purrmission <client-repo-universal> <client-time-tracker> <hosted-app> \
+            <desktop-gui-repo> knot-mesh purr react-native-template-ts-plus psl-agy-harness; do
+  ls -d ~/Dev/$repo/.agent 2>&1 | grep -q "No such file" && echo "✔ $repo: .agent cleanly pruned"
 done
-ls -ld /home/kuasha/Dev/mm-website-2/.agent
-# Expected: Canonical repos cleanly pruned; mm-website-2/.agent exists.
+ls -ld ~/Dev/<client-repo-web-aux>/.agent
+# Expected: Canonical repos cleanly pruned; <client-repo-web-aux>/.agent exists.
 ```
 
 ---

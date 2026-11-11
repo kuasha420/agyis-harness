@@ -15,7 +15,7 @@ Implements a smart 2KB compaction algorithm for tool execution outputs:
     1. First 500 characters (head context)
     2. Last 1,000 characters (tail/completion status)
     3. All lines in omitted middle containing exit code, fatal, error, or failure keywords.
-- Caches compacted output and compaction metadata in /tmp/agyis_harness_state/.
+- Caches compacted output and compaction metadata in /tmp/agyis_harness_state_{uid} (per harness/utils/state.py).
 - Emits valid JSON `{}` on stdout per the official Antigravity PostToolUse contract.
 """
 

@@ -14,6 +14,12 @@ description: >-
 
 This skill codifies empirical shell scripting invariants and safe command execution patterns for Agyis Harness across Linux and POSIX environments.
 
+## Table of Contents
+1. [Core Script Invariants](#1-core-script-invariants)
+2. [Command Safety and Environment Invariants](#2-command-safety-and-environment-invariants)
+3. [Remote Execution Invariants](#3-remote-execution-invariants)
+4. [Operational Command Verification Checklist](#4-operational-command-verification-checklist)
+
 ---
 
 ## 1. Core Script Invariants
@@ -44,7 +50,7 @@ Under `set -e` and `pipefail`, commands like `grep`, `diff`, or `pgrep` exit wit
 
 ---
 
-## 2. Command Safety & Environment Invariants
+## 2. Command Safety and Environment Invariants
 
 ### 2.1 Exit 127 Mitigation (Binary Pre-flight)
 Before invoking non-standard binaries, CLI tools, or external utilities, verify binary presence using `command -v`:
@@ -83,9 +89,9 @@ Avoid escaping long, complex multi-line bash `-c` strings containing nested quot
 
 ---
 
-## 3. Remote Execution Invariants (ADR-027)
+## 3. Remote Execution Invariants
 
-### 3.1 OpenSSH Multiplexing & Socket Directory Invariant
+### 3.1 OpenSSH Multiplexing & Socket Directory Invariant (ADR-027)
 - Always enable OpenSSH multiplexing for programmatic/agentic SSH commands:
   ```bash
   -o ControlMaster=auto -o ControlPath=~/.cache/psl/ssh/cm_%C -o ControlPersist=10m -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15

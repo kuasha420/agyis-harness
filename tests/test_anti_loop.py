@@ -337,6 +337,74 @@ class TestAntiLoopHook(unittest.TestCase):
             res = check_anti_loop("grep_search", args, conv_id=conv_id, state_dir=self.state_dir)
             self.assertEqual(res["decision"], "allow")
 
+    def test_system_generated_logs_polling_denied(self):
+        """Repeated .log inspections inside .system_generated/logs/ are denied across run_command, view_file, and grep_search."""
+        # 1. run_command
+        conv_cmd = "test-sg-logs-cmd"
+        for tool_cmd in [
+            "cat /home/user/.gemini/brain/s1/.system_generated/logs/worker.log",
+            "tail -n 20 /home/user/.gemini/brain/s1/.system_generated/logs/worker.log",
+        ]:
+            self.assertEqual(
+                check_anti_loop("run_command", {"CommandLine": tool_cmd}, conv_id=conv_cmd, state_dir=self.state_dir)["decision"],
+                "allow",
+            )
+        res_cmd = check_anti_loop(
+            "run_command",
+            {"CommandLine": "head -n 5 /home/user/.gemini/brain/s1/.system_generated/logs/worker.log"},
+            conv_id=conv_cmd,
+            state_dir=self.state_dir,
+        )
+        self.assertEqual(res_cmd["decision"], "deny")
+        self.assertIn(".system_generated/logs/", res_cmd["reason"])
+
+        # 2. view_file
+        conv_view = "test-sg-logs-view"
+        view_args = {"AbsolutePath": "/home/user/.gemini/brain/s1/.system_generated/logs/build.log"}
+        self.assertEqual(check_anti_loop("view_file", view_args, conv_id=conv_view, state_dir=self.state_dir)["decision"], "allow")
+        self.assertEqual(check_anti_loop("view_file", view_args, conv_id=conv_view, state_dir=self.state_dir)["decision"], "allow")
+        res_view = check_anti_loop("view_file", view_args, conv_id=conv_view, state_dir=self.state_dir)
+        self.assertEqual(res_view["decision"], "deny")
+
+        # 3. grep_search on .system_generated/logs/ directory or .log file
+        conv_grep = "test-sg-logs-grep"
+        for i, q in enumerate(["ERR", "WARN"]):
+            res_g = check_anti_loop(
+                "grep_search",
+                {"SearchPath": "/home/user/.gemini/brain/s1/.system_generated/logs/", "Query": q},
+                conv_id=conv_grep,
+                state_dir=self.state_dir,
+            )
+            self.assertEqual(res_g["decision"], "allow", f"Step {i} should be allowed")
+        res_grep = check_anti_loop(
+            "grep_search",
+            {"SearchPath": "/home/user/.gemini/brain/s1/.system_generated/logs/runner.log", "Query": "FAIL"},
+            conv_id=conv_grep,
+            state_dir=self.state_dir,
+        )
+        self.assertEqual(res_grep["decision"], "deny")
+
+    def test_non_system_logs_and_jsonl_not_misclassified(self):
+        """Workspace /logs/*.log files and .system_generated/logs/transcript.jsonl are not treated as task log polling."""
+        conv_id = "test-sg-logs-false-positive"
+        for fname in ["app.log", "worker.log", "server.log"]:
+            res = check_anti_loop(
+                "view_file",
+                {"AbsolutePath": f"/workspace/logs/{fname}"},
+                conv_id=conv_id,
+                state_dir=self.state_dir,
+            )
+            self.assertEqual(res["decision"], "allow")
+
+        for idx in range(1, 4):
+            res = check_anti_loop(
+                "view_file",
+                {"AbsolutePath": "/home/user/.gemini/brain/s1/.system_generated/logs/transcript.jsonl", "StartLine": idx * 10, "EndLine": idx * 10 + 5},
+                conv_id=conv_id,
+                state_dir=self.state_dir,
+            )
+            self.assertEqual(res["decision"], "allow")
+
 
 if __name__ == "__main__":
     unittest.main()

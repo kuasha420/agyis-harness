@@ -67,6 +67,8 @@ def cmd_harmonize(args: argparse.Namespace) -> int:
     backup_dir_val = getattr(args, "backup_dir", None) or getattr(args, "archive_dir", None)
     archive_dir = Path(backup_dir_val) if backup_dir_val else None
     stack = getattr(args, "stack", None)
+    role = getattr(args, "role", None)
+    subproject = getattr(args, "subproject", None)
     skills_raw = getattr(args, "skills", None)
     skills = [s.strip() for s in skills_raw.split(",") if s.strip()] if skills_raw else None
 
@@ -77,6 +79,8 @@ def cmd_harmonize(args: argparse.Namespace) -> int:
         backup=backup,
         archive_dir=archive_dir,
         stack=stack,
+        role=role,
+        subproject=subproject,
         skills=skills,
     )
 

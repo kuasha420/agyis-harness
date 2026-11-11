@@ -14,6 +14,12 @@ description: >-
 
 This skill establishes empirical runbooks for Git worktree isolation, multi-branch task delegation, stale worktree pruning, and index lock recovery within Google Antigravity environments.
 
+## Table of Contents
+1. [Git Worktree Invariants](#1-git-worktree-invariants)
+2. [Worktree Lifecycle and Creation Patterns](#2-worktree-lifecycle-and-creation-patterns)
+3. [Worktree Removal and Orphan Pruning](#3-worktree-removal-and-orphan-pruning)
+4. [Git Index Locks and Stash Hygiene](#4-git-index-locks-and-stash-hygiene)
+
 ---
 
 ## 1. Git Worktree Invariants
@@ -28,7 +34,7 @@ Deleting a worktree folder with `rm -rf` leaves Git's administrative metadata in
 
 ---
 
-## 2. Worktree Lifecycle & Creation Patterns
+## 2. Worktree Lifecycle and Creation Patterns
 
 ### 2.1 Inspect Active Worktrees
 List all attached worktrees and their current checked-out branches/commits:
@@ -61,7 +67,7 @@ git worktree add --detach ../worktrees/inspect-commit <commit-hash>
 
 ---
 
-## 3. Worktree Removal & Orphan Pruning
+## 3. Worktree Removal and Orphan Pruning
 
 ### 3.1 Clean Worktree Removal
 Safely delete an unneeded worktree and its working directory:
@@ -92,7 +98,7 @@ git worktree unlock ../worktrees/isolated-task
 
 ---
 
-## 4. Git Index Locks & Stash Hygiene
+## 4. Git Index Locks and Stash Hygiene
 
 ### 4.1 Index Lock Recovery (`index.lock`)
 When an interrupted or crashed git command leaves `.git/index.lock` behind, preventing subsequent git operations (`fatal: Unable to create '.git/index.lock': File exists`):

@@ -1262,12 +1262,12 @@ def build_compaction_advisory(
             "ROLE: Flight Director (Cockpit Coordinator)\n\n"
             "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
             "1. COGNITIVE STATE PRESERVATION INVARIANT & ZERO REPO DOCUMENT POLLUTION:\n"
-            "   - Strongly direct coordinator to materialize working memory, active task decomposition, pending subagent assignments, and operator steering decisions into 'compaction_checkpoint.md' (.agents/artifacts/compaction_checkpoint.md or brain directory) before compaction strikes.\n"
+            "   - Strongly direct coordinator to materialize working memory, active task decomposition, pending subagent assignments, and operator steering decisions into 'compaction_checkpoint_latest.md' / 'cockpit_checkpoint.md' (.agents/artifacts/compaction_checkpoint_latest.md, .agents/artifacts/cockpit_checkpoint.md, or brain directory) before compaction strikes.\n"
             "   - Store current session state, remaining phase tasks, and open decisions strictly in local session artifacts (.agents/artifacts/ or brain directory) or scratch. Do NOT commit temporary state or session coordination files to git. Zero repository pollution.\n"
             "2. WORK PRESERVATION CONTRACT:\n"
             "   - Preserve all workspace changes. STRICTLY PROHIBIT 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
             "3. AUTONOMOUS POST-COMPACTION CONTINUATION:\n"
-            "   - On next wake-up, immediately inspect 'compaction_checkpoint.md' and the active phase plan in .agents/artifacts/ and run 'git status'.\n"
+            "   - On next wake-up, immediately inspect 'compaction_checkpoint_latest.md' / 'cockpit_checkpoint.md' and the active phase plan in .agents/artifacts/ and run 'git status'.\n"
             "   - Resume ladder orchestration and subagent coordination autonomously without human re-explanation."
         )
 
@@ -1368,7 +1368,7 @@ def build_post_compaction_persona_prompt(role: str) -> str:
         "You have resumed execution following a context window compaction event.\n\n"
         "1. GROUND TRUTH CHECKPOINT RESTORATION:\n"
         "   - Read the pre-compaction ground truth checkpoint immediately:\n"
-        "     `.agents/artifacts/compaction_checkpoint_latest.md`\n"
+        "     `.agents/artifacts/compaction_checkpoint_latest.md` / `.agents/artifacts/cockpit_checkpoint.md`\n"
         "   - Restore situational awareness: active phase progress, pending tasks, active subagents, and git diff status.\n\n"
         "2. WORK PRESERVATION CONTRACT:\n"
         "   - In-flight modifications on disk represent intentional progress.\n"
