@@ -693,9 +693,13 @@ class TestPillar1EarlyTurnIntent(unittest.TestCase):
     def test_orchestrator_keywords_in_prompt(self):
         """Pillar 1: Orchestrator keywords in prompt seed preliminary ROLE_FLIGHT_DIRECTOR."""
         keywords = [
-            "/teamwork-preview",
-            "/boost",
+            "/cockpit-director",
+            "/subagent-router",
             "/subagent-ladder",
+            "/teamwork-preview",
+            "/teamwork",
+            "/plan",
+            "/boost",
             "/goal",
             "orchestrate",
             "coordinate swarm",
@@ -777,8 +781,8 @@ class TestPillar2MidTrajectoryBehavioralVerification(unittest.TestCase):
         self.assertIsNone(check_pillar_2_behavior(payload, tokens=150_000))
 
     def test_subagent_spawns_confirm_flight_director(self):
-        """Pillar 2: Count of invoke_subagent, manage_task, schedule, send_message > 0 confirms flight_director."""
-        subagent_tools = ["invoke_subagent", "manage_task", "schedule", "send_message"]
+        """Pillar 2 (#110): Only invoke_subagent, manage_task, schedule confirm flight_director (not send_message)."""
+        subagent_tools = ["invoke_subagent", "manage_task", "schedule"]
         for tool in subagent_tools:
             with self.subTest(tool=tool):
                 payload = {
@@ -790,6 +794,38 @@ class TestPillar2MidTrajectoryBehavioralVerification(unittest.TestCase):
                     ROLE_FLIGHT_DIRECTOR,
                 )
                 self.assertEqual(classify_agent_role(payload, tokens=205_000), ROLE_FLIGHT_DIRECTOR)
+
+    def test_send_message_does_not_promote_worker_to_flight_director(self):
+        """Issue #110: Subagents or workers calling send_message are never promoted to flight_director."""
+        payload = {
+            "tokens": 205_000,
+            "parentConversationId": "root-orch-0001",
+            "tool_calls": ["send_message", "edit_file", "read_file"],
+        }
+        self.assertEqual(check_pillar_2_behavior(payload, tokens=205_000), ROLE_DEEP_EXECUTION)
+        self.assertEqual(classify_agent_role(payload, tokens=205_000), ROLE_DEEP_EXECUTION)
+
+    def test_sticky_turn_zero_orchestrator_does_not_flip_mid_flight(self):
+        """Issue #110: Turn-0 /cockpit-director session stays pinned across high-token turns until compaction."""
+        with tempfile.TemporaryDirectory() as ws_td:
+            ws = Path(ws_td)
+            cid = "11112222-3333-4444-5555-666677778888"
+            db_path = self.db_dir / f"{cid}.db"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, step_payload BLOB)")
+                conn.execute("INSERT INTO steps VALUES (0, 14, ?)", (json.dumps({"prompt": "/cockpit-director fix RC10"}),))
+                conn.commit()
+            res_0 = evaluate_pre_invocation({"conversationId": cid, "step_count": 0}, db_dir=self.db_dir, workspace_dir=ws)
+            self.assertIn("FLIGHT DIRECTOR", res_0["injectSteps"][0]["systemMessage"]["systemMessage"])
+            # Mid-flight: even with direct edit_file calls + high tokens, sticky role must remain FLIGHT_DIRECTOR
+            role_mid = classify_agent_role(
+                {"conversationId": cid, "tokens": 210_000, "tool_calls": ["edit_file", "write_file"]},
+                conversation_id=cid,
+                db_dir=self.db_dir,
+                workspace_dir=ws,
+                tokens=210_000,
+            )
+            self.assertEqual(role_mid, ROLE_FLIGHT_DIRECTOR)
 
     def test_swarm_subagent_confirms_swarm_orchestrator(self):
         """Pillar 2: Swarm/mesh coordination tool calls confirm swarm_orchestrator."""
@@ -892,15 +928,14 @@ class TestDualAdvisoriesDistinctText(unittest.TestCase):
     """Verifies distinct contract texts for Flight Director and Deep Execution dual advisories."""
 
     def test_flight_director_cognitive_state_flush_distinct_directives(self):
-        """Flight Director advisory mandates Cognitive State Preservation Invariant into compaction_checkpoint_latest.md and cockpit_checkpoint.md."""
+        """Flight Director advisory mandates Cognitive State Preservation Invariant into session-scoped checkpoint."""
         adv = build_compaction_advisory(ROLE_FLIGHT_DIRECTOR, 235_000, 230_000)
 
         # Mandatory Invariant Directives
         self.assertIn("COGNITIVE STATE PRESERVATION INVARIANT", adv)
         self.assertNotIn("FLUSH", adv)
-        self.assertIn("compaction_checkpoint_latest.md", adv)
-        self.assertIn("cockpit_checkpoint.md", adv)
-        self.assertIn("materialize working memory", adv)
+        self.assertIn(".agents/artifacts/checkpoints/", adv)
+        self.assertIn("Materialize working memory", adv)
         self.assertIn("active task decomposition", adv)
         self.assertIn("pending subagent assignments", adv)
         self.assertIn("operator steering decisions", adv)

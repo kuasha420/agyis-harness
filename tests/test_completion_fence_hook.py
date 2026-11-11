@@ -520,6 +520,13 @@ class TestCompletionFenceHardeningM2(unittest.TestCase):
         self.assertTrue(is_ephemeral_scratch_path("/var/tmp/script.sh", cwd=None))
         self.assertFalse(is_ephemeral_scratch_path("src/app.py", cwd=None))
 
+        # 6. Workspace scratch/ and .agents/scratch/ paths
+        self.assertTrue(is_ephemeral_scratch_path("scratch/repro.py", cwd=self.client_dir))
+        self.assertTrue(is_ephemeral_scratch_path(".agents/scratch/exec_1.py", cwd=self.client_dir))
+        self.assertTrue(is_ephemeral_scratch_path(str(self.client_dir / "scratch" / "probe.sh"), cwd=self.client_dir))
+        self.assertTrue(is_ephemeral_scratch_path(str(self.client_dir / ".agents" / "scratch" / "run.py"), cwd=self.client_dir))
+        self.assertFalse(is_ephemeral_scratch_path(str(self.client_dir / "src" / "scratch_helper.py"), cwd=self.client_dir))
+
     def test_scratch_edit_does_not_mark_dirty(self):
         """Editing an ephemeral scratch file does not mark state dirty."""
         conv_id = "test-scratch-edit"

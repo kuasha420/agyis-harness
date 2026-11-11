@@ -4,24 +4,20 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Hermetic test suite for Phase 3.3.2 (Issue #86: Thrashing-Activated Dynamic Horizon Fence).
+Hermetic test suite for Issue #109 (Epoch-Aware Soft Horizon Advisories, Replacing Cumulative 45/50 Hard Blocks).
 
 Tests:
-1. Step 40 warning ephemeralMessage injection in pre_invocation_hook.
-2. Step 45 interrupt ephemeralMessage injection in pre_invocation_hook.
-3. Step 45 exploratory sweep block (list_dir, find_by_name) in anti_loop_hook.
-4. Step 50 hard mutation stop fence in completion_fence_hook blocking code edits.
-5. Verification grace turn allows run_command test execution and read-only tools at step 50.
-6. Non-executioner roles (flight_director, forensic_auditor) exempt from the 50-step fence.
-7. Work preservation invariant (no git reverts, modifications preserved intact on disk).
-8. Token proximity guard step horizon terminal gauge awareness ([HORIZON: {step_count}/50 STEPS]).
-9. Benchmark SLA: Complete test suite passes in <0.20s.
+1. Cumulative steps 40/45/50 do NOT block healthy <80% workers in anti_loop_hook, fence_gates, or pre_invocation_hook.
+2. Epoch step 80 (SOFT_EPOCH_STEP_ADVISORY) emits non-blocking [AGYIS EPOCH HORIZON ADVISORY: ...] in pre_invocation_hook.
+3. Native slash commands bypass epoch horizon advisory injection.
+4. Non-executioner roles (flight_director, forensic_auditor) are exempt from executioner horizon advisories.
+5. Token proximity guard step horizon terminal gauge emits [EPOCH HORIZON: {step_count}/80 STEPS] at >= 80 epoch steps.
+6. Benchmark SLA: Complete test suite passes in <0.20s.
 """
 
 from __future__ import annotations
 
 import io
-import json
 import os
 from pathlib import Path
 import tempfile
@@ -29,40 +25,36 @@ import time
 import unittest
 
 from harness.hooks.anti_loop_hook import (
-    check_anti_loop,
-    evaluate_tool_call,
-    handle_pre_tool_use,
+    EXECUTIONER_HORIZON_STEPS as ANTI_LOOP_HORIZON_STEPS,
     ROLE_DEEP_EXECUTION as ANTI_LOOP_ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR as ANTI_LOOP_ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR as ANTI_LOOP_ROLE_FORENSIC_AUDITOR,
+    STEP_INTERRUPT_THRESHOLD,
+    check_anti_loop,
+    handle_pre_tool_use,
 )
 from harness.hooks.completion_fence_hook import (
-    check_pre_tool_use,
-    check_completion_fence_pre_tool,
-    CODE_MUTATION_TOOLS,
     EXECUTIONER_HORIZON_STEPS,
     ROLE_DEEP_EXECUTION as FENCE_ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR as FENCE_ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR as FENCE_ROLE_FORENSIC_AUDITOR,
+    check_pre_tool_use,
 )
 from harness.hooks.pre_invocation_hook import (
-    evaluate_pre_invocation,
     EXECUTIONER_HORIZON_STEPS as PRE_INVOCATION_HORIZON_STEPS,
-    STEP_WARNING_THRESHOLD,
-    STEP_INTERRUPT_THRESHOLD,
     ROLE_DEEP_EXECUTION as PRE_ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR as PRE_ROLE_FLIGHT_DIRECTOR,
+    SOFT_EPOCH_STEP_ADVISORY,
+    evaluate_pre_invocation,
 )
 from harness.hooks.token_proximity_guard import (
     format_terminal_gauge,
-    check_token_proximity,
     run_token_proximity_guard,
-    ROLE_DEEP_EXECUTION as GUARD_ROLE_DEEP_EXECUTION,
 )
 
 
 class TestExecutionerStepHorizon(unittest.TestCase):
-    """Hermetic unit test suite for Issue #86 Thrashing-Activated Dynamic Horizon Fence."""
+    """Hermetic unit test suite for Issue #109 Epoch-Aware Soft Horizon Advisories."""
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -83,245 +75,126 @@ class TestExecutionerStepHorizon(unittest.TestCase):
             os.environ.pop("PSL_AGENT_ROLE", None)
         self.temp_dir.cleanup()
 
-    # 1. Step 40 warning ephemeralMessage injection
-    def test_step_40_warning_ephemeral_message_injection(self) -> None:
-        """Step count 40 for executioner injects transient ephemeralMessage warning."""
+    def test_horizon_constants_unified_at_80_epoch_steps(self) -> None:
+        """Retired 45/50 hard fences now align cleanly with SOFT_EPOCH_STEP_ADVISORY = 80."""
+        self.assertEqual(SOFT_EPOCH_STEP_ADVISORY, 80)
+        self.assertEqual(STEP_INTERRUPT_THRESHOLD, SOFT_EPOCH_STEP_ADVISORY)
+        self.assertEqual(ANTI_LOOP_HORIZON_STEPS, SOFT_EPOCH_STEP_ADVISORY)
+        self.assertEqual(EXECUTIONER_HORIZON_STEPS, SOFT_EPOCH_STEP_ADVISORY)
+        self.assertEqual(PRE_INVOCATION_HORIZON_STEPS, SOFT_EPOCH_STEP_ADVISORY)
+
+    # 1. Steps 40/45/50 remain unblocked for healthy agents
+    def test_steps_40_45_50_remain_unblocked_for_healthy_executioner(self) -> None:
+        """Healthy executioners at cumulative steps 40, 45, 50 are never hard-blocked."""
+        for step in (40, 45, 50):
+            with self.subTest(step=step):
+                pre = evaluate_pre_invocation(
+                    {"step_count": step, "role": PRE_ROLE_DEEP_EXECUTION},
+                    workspace_dir=self.workspace_dir,
+                )
+                for item in pre.get("injectSteps", []):
+                    msg = str(item.get("ephemeralMessage", ""))
+                    self.assertNotIn("HORIZON WARNING", msg)
+                    self.assertNotIn("HORIZON INTERRUPT", msg)
+                    self.assertNotIn("EPOCH HORIZON ADVISORY", msg)
+
+                sweep = check_anti_loop(
+                    "list_dir",
+                    {"DirectoryPath": "/workspace"},
+                    conv_id=f"test-healthy-step-{step}",
+                    state_dir=self.workspace_dir,
+                    step_count=step,
+                    role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
+                )
+                self.assertEqual(sweep.get("decision"), "allow")
+
+                edit = check_pre_tool_use(
+                    "edit_file",
+                    {"TargetFile": "/workspace/src/app.py"},
+                    conv_id=f"test-healthy-edit-{step}",
+                    state_dir=self.workspace_dir,
+                    step_count=step,
+                    role=FENCE_ROLE_DEEP_EXECUTION,
+                )
+                self.assertEqual(edit.get("decision"), "allow")
+
+    # 2. Step 80 soft epoch horizon advisory injection
+    def test_step_80_soft_epoch_advisory_injection(self) -> None:
+        """Epoch step count 80 emits non-blocking [AGYIS EPOCH HORIZON ADVISORY] ephemeralMessage."""
         payload = {
-            "step_count": STEP_WARNING_THRESHOLD,
+            "step_count": SOFT_EPOCH_STEP_ADVISORY,
             "role": PRE_ROLE_DEEP_EXECUTION,
         }
         res = evaluate_pre_invocation(payload, workspace_dir=self.workspace_dir)
         inject_steps = res.get("injectSteps", [])
         self.assertEqual(len(inject_steps), 1)
         self.assertIn("ephemeralMessage", inject_steps[0])
-
         msg = inject_steps[0]["ephemeralMessage"]
-        expected_warning = (
-            "[AGYIS HORIZON WARNING: THRASHING DETECTED / REMEDY MODE ACTIVE - 10 STEPS REMAINING] "
-            "You have 10 steps remaining in your convergence budget. Cease exploring new files, "
-            "complete active edits, run tests, and prepare stage handoff."
-        )
-        self.assertIn(expected_warning, msg)
+        self.assertIn(f"[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/{SOFT_EPOCH_STEP_ADVISORY}", msg)
 
-    def test_step_40_warning_native_slash_command_bypass(self) -> None:
-        """Native slash commands (/compact, /plan, /goal) bypass Step 40 warning injection."""
+    def test_step_80_native_slash_command_bypass(self) -> None:
+        """Native slash commands (/compact, /plan, /goal) bypass Epoch 80 advisory injection."""
         for cmd in ("/compact", "/plan", "/goal", "/boost", "/teamwork-preview"):
             with self.subTest(cmd=cmd):
                 payload = {
-                    "step_count": STEP_WARNING_THRESHOLD,
+                    "step_count": SOFT_EPOCH_STEP_ADVISORY,
                     "role": PRE_ROLE_DEEP_EXECUTION,
                     "prompt": f"{cmd} test",
                 }
                 res = evaluate_pre_invocation(payload, workspace_dir=self.workspace_dir)
                 self.assertEqual(res, {"injectSteps": []})
 
-    # 2. Step 45 interrupt ephemeralMessage injection
-    def test_step_45_interrupt_ephemeral_message_injection(self) -> None:
-        """Step count 45 for executioner injects transient ephemeralMessage interrupt."""
+    # 3. Anti-loop & completion fence remain non-blocking at step 80
+    def test_step_80_exploratory_sweep_and_edits_remain_allowed_with_soft_advisory(self) -> None:
+        """Anti-loop & completion fence emit soft advisories without denying healthy agents at step >= 80."""
         payload = {
-            "step_count": STEP_INTERRUPT_THRESHOLD,
-            "role": PRE_ROLE_DEEP_EXECUTION,
-        }
-        res = evaluate_pre_invocation(payload, workspace_dir=self.workspace_dir)
-        inject_steps = res.get("injectSteps", [])
-        self.assertEqual(len(inject_steps), 1)
-        self.assertIn("ephemeralMessage", inject_steps[0])
-
-        msg = inject_steps[0]["ephemeralMessage"]
-        expected_interrupt = (
-            "[AGYIS HORIZON INTERRUPT: 5 STEPS REMAINING] "
-            "Compulsory convergence active. You have 5 steps remaining. Open sweeps are blocked. "
-            "Wrap up active diff and emit stage handoff."
-        )
-        self.assertEqual(expected_interrupt, msg)
-
-    def test_step_45_interrupt_native_slash_command_bypass(self) -> None:
-        """Native slash commands bypass Step 45 interrupt injection."""
-        payload = {
-            "step_count": STEP_INTERRUPT_THRESHOLD,
-            "role": PRE_ROLE_DEEP_EXECUTION,
-            "prompt": "/compact",
-        }
-        res = evaluate_pre_invocation(payload, workspace_dir=self.workspace_dir)
-        self.assertEqual(res, {"injectSteps": []})
-
-    def test_non_executioner_exempt_from_horizon_messages(self) -> None:
-        """Non-executioner roles (flight_director) do not receive horizon warning/interrupt."""
-        for step in (STEP_WARNING_THRESHOLD, STEP_INTERRUPT_THRESHOLD):
-            with self.subTest(step=step):
-                payload = {
-                    "step_count": step,
-                    "role": PRE_ROLE_FLIGHT_DIRECTOR,
-                }
-                res = evaluate_pre_invocation(payload, workspace_dir=self.workspace_dir)
-                inject_steps = res.get("injectSteps", [])
-                for item in inject_steps:
-                    msg = item.get("ephemeralMessage", "")
-                    self.assertNotIn("[AGYIS HORIZON WARNING:", msg)
-                    self.assertNotIn("[AGYIS HORIZON INTERRUPT:", msg)
-
-    # 3. Step 45 exploratory sweep block in anti_loop_hook
-    def test_step_45_exploratory_sweep_blocked_in_anti_loop(self) -> None:
-        """list_dir and find_by_name are blocked for executioner at step >= 45."""
-        expected_reason = (
-            "Compulsory convergence active (Step 45/50). "
-            "Open-ended repository sweeps are blocked. "
-            "Complete active edits, run tests, and emit stage handoff."
-        )
-
-        for tool in ("list_dir", "find_by_name"):
-            with self.subTest(tool=tool):
-                res = check_anti_loop(
-                    tool,
-                    {"DirectoryPath": "/workspace"} if tool == "list_dir" else {"Pattern": "*.py", "SearchDirectory": "/workspace"},
-                    conv_id="test-horizon-sweeps",
-                    state_dir=self.workspace_dir,
-                    step_count=45,
-                    role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
-                )
-                self.assertEqual(res.get("decision"), "deny")
-                self.assertEqual(res.get("reason"), expected_reason)
-
-    def test_step_45_payload_based_sweep_blocked_in_anti_loop(self) -> None:
-        """handle_pre_tool_use blocks exploratory sweeps when step >= 45 in payload."""
-        payload = {
-            "conversationId": "test-horizon-payload",
+            "conversationId": "test-soft-horizon-payload",
             "toolCall": {"name": "list_dir", "args": {"DirectoryPath": "/workspace"}},
-            "step_count": 48,
+            "step_count": 84,
             "role": "deep_execution",
         }
-        res = handle_pre_tool_use(payload, state_dir=self.workspace_dir)
-        self.assertEqual(res.get("decision"), "deny")
-        self.assertIn("Compulsory convergence active", res.get("reason", ""))
-
-    def test_step_45_targeted_inspection_and_test_permitted(self) -> None:
-        """view_file and run_command test runners remain permitted at step >= 45."""
-        view_res = check_anti_loop(
-            "view_file",
-            {"AbsolutePath": "/workspace/src/app.py"},
-            conv_id="test-horizon-permitted",
-            state_dir=self.workspace_dir,
-            step_count=45,
-            role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
-        )
-        self.assertEqual(view_res.get("decision"), "allow")
-
-        test_res = check_anti_loop(
-            "run_command",
-            {"CommandLine": "./agyis test"},
-            conv_id="test-horizon-permitted",
-            state_dir=self.workspace_dir,
-            step_count=45,
-            role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
-        )
-        self.assertEqual(test_res.get("decision"), "allow")
-
-    def test_step_below_45_exploratory_sweep_allowed(self) -> None:
-        """Exploratory sweeps at step 44 are permitted by compulsory convergence."""
-        res = check_anti_loop(
-            "list_dir",
-            {"DirectoryPath": "/workspace"},
-            conv_id="test-horizon-step44",
-            state_dir=self.workspace_dir,
-            step_count=44,
-            role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
-        )
-        self.assertEqual(res.get("decision"), "allow")
-
-    def test_non_executioner_exploratory_sweep_allowed_at_step_45(self) -> None:
-        """Non-executioner roles (flight_director, forensic_auditor) are exempt from sweep blocking at step 45."""
-        for role in (ANTI_LOOP_ROLE_FLIGHT_DIRECTOR, ANTI_LOOP_ROLE_FORENSIC_AUDITOR):
-            with self.subTest(role=role):
-                res = check_anti_loop(
-                    "list_dir",
-                    {"DirectoryPath": "/workspace"},
-                    conv_id=f"test-exempt-{role}",
-                    state_dir=self.workspace_dir,
-                    step_count=45,
-                    role=role,
-                )
-                self.assertEqual(res.get("decision"), "allow")
-
-    # 4. Step 50 hard mutation stop fence in completion_fence_hook
-    def test_step_50_hard_mutation_stop_fence_blocks_code_edits(self) -> None:
-        """Code mutation tools are strictly blocked for executioner at step >= 50."""
-        expected_reason = (
-            "HARD HORIZON FENCE TRIGGERED (20-Step Remedy Budget Exhausted / 50 Steps Reached). "
-            "Further code mutation is strictly blocked to prevent cognitive cliff collapse. "
-            "All local modifications are preserved intact on disk. You are granted 1 Verification Grace turn to run tests. "
-            "You MUST immediately message the parent agent via send_message with your stage transition payload and STOP calling tools."
-        )
+        self.assertEqual(handle_pre_tool_use(payload, state_dir=self.workspace_dir).get("decision"), "allow")
 
         for tool in ("write_to_file", "replace_file_content", "edit_file"):
             with self.subTest(tool=tool):
                 res = check_pre_tool_use(
                     tool,
                     {"TargetFile": "/workspace/src/app.py", "CodeContent": "# update"},
-                    conv_id="test-horizon-fence-50",
+                    conv_id="test-soft-fence-80",
                     state_dir=self.workspace_dir,
-                    step_count=50,
+                    step_count=80,
                     role=FENCE_ROLE_DEEP_EXECUTION,
                 )
-                self.assertEqual(res.get("decision"), "deny")
-                self.assertEqual(res.get("reason"), expected_reason)
+                self.assertEqual(res.get("decision"), "allow")
+                self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", res.get("advisory", ""))
 
-    def test_step_below_50_allows_code_edits(self) -> None:
-        """Code mutation tools at step 49 are allowed by horizon fence."""
-        res = check_pre_tool_use(
-            "write_to_file",
-            {"TargetFile": "/workspace/src/app.py", "CodeContent": "# update"},
-            conv_id="test-horizon-fence-49",
-            state_dir=self.workspace_dir,
-            step_count=49,
-            role=FENCE_ROLE_DEEP_EXECUTION,
-        )
-        self.assertEqual(res.get("decision"), "allow")
-
-    # 5. Verification grace turn allows run_command test execution at step 50
-    def test_step_50_verification_grace_permits_tests_and_reads(self) -> None:
-        """Verification grace turn permits test runner commands and read-only tools at step 50."""
-        # Test command permitted
-        res_test = check_pre_tool_use(
-            "run_command",
-            {"CommandLine": "./agyis test"},
-            conv_id="test-grace-turn",
-            state_dir=self.workspace_dir,
-            step_count=50,
-            role=FENCE_ROLE_DEEP_EXECUTION,
-        )
-        self.assertEqual(res_test.get("decision"), "allow")
-
-        # Read-only tools permitted
-        for tool in ("view_file", "grep_search", "send_message"):
-            with self.subTest(tool=tool):
-                res_read = check_pre_tool_use(
-                    tool,
-                    {"AbsolutePath": "/workspace/test.py"},
-                    conv_id="test-grace-turn",
-                    state_dir=self.workspace_dir,
-                    step_count=50,
-                    role=FENCE_ROLE_DEEP_EXECUTION,
-                )
-                self.assertEqual(res_read.get("decision"), "allow")
-
-    # 6. Non-executioner roles exempt from 50-step fence
-    def test_non_executioner_roles_exempt_from_50_step_fence(self) -> None:
-        """Non-executioner roles (flight_director, forensic_auditor) are exempt from 50-step mutation fence."""
+    def test_non_executioner_roles_exempt_from_epoch_horizon_advisories(self) -> None:
+        """Non-executioner roles (flight_director, forensic_auditor) stay allow with no executioner fence."""
         for role in (FENCE_ROLE_FLIGHT_DIRECTOR, FENCE_ROLE_FORENSIC_AUDITOR):
             with self.subTest(role=role):
+                self.assertEqual(
+                    check_anti_loop(
+                        "list_dir",
+                        {"DirectoryPath": "/workspace"},
+                        conv_id=f"test-exempt-{role}",
+                        state_dir=self.workspace_dir,
+                        step_count=85,
+                        role=role,
+                    ).get("decision"),
+                    "allow",
+                )
                 res = check_pre_tool_use(
                     "write_to_file",
                     {"TargetFile": "/workspace/plan.md", "CodeContent": "# plan"},
-                    conv_id=f"test-exempt-{role}-50",
+                    conv_id=f"test-exempt-{role}-85",
                     state_dir=self.workspace_dir,
-                    step_count=50,
+                    step_count=85,
                     role=role,
                 )
-                self.assertEqual(res.get("decision"), "allow")
+                self.assertEqual(res, {"decision": "allow"})
 
-    # 7. Work preservation invariant (no git reverts)
-    def test_work_preservation_invariant_no_git_reverts(self) -> None:
-        """When hard horizon fence triggers denial, local files on disk remain completely intact."""
+    def test_work_preservation_on_soft_advisory(self) -> None:
+        """Soft advisories never alter or revert local workspace files."""
         sample_file = self.workspace_dir / "preserved_work.py"
         sample_file.write_text("# precious in-flight modification\n", encoding="utf-8")
 
@@ -330,42 +203,39 @@ class TestExecutionerStepHorizon(unittest.TestCase):
             {"TargetFile": str(sample_file), "CodeContent": "# new content"},
             conv_id="test-work-preservation",
             state_dir=self.workspace_dir,
-            step_count=50,
+            step_count=85,
             role=FENCE_ROLE_DEEP_EXECUTION,
         )
-        self.assertEqual(res.get("decision"), "deny")
-        # Ensure disk content is preserved intact
+        self.assertEqual(res.get("decision"), "allow")
         self.assertEqual(sample_file.read_text(encoding="utf-8"), "# precious in-flight modification\n")
 
-    # 8. Token proximity guard step horizon terminal gauge awareness
-    def test_token_proximity_guard_gauge_includes_horizon_tag(self) -> None:
-        """format_terminal_gauge includes [HORIZON: {step_count}/50 STEPS] when step >= 40 for executioner."""
-        gauge_40 = format_terminal_gauge(tokens=1000, step_count=40, role="deep_execution")
-        self.assertIn("[HORIZON: 40/50 STEPS]", gauge_40)
+    # 4. Token proximity guard step horizon terminal gauge awareness
+    def test_token_proximity_guard_gauge_includes_epoch_horizon_tag(self) -> None:
+        """format_terminal_gauge includes [EPOCH HORIZON: {step_count}/80 STEPS] when step >= 80 for executioner."""
+        gauge_80 = format_terminal_gauge(tokens=1000, step_count=80, role="deep_execution")
+        self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", gauge_80)
 
-        gauge_45 = format_terminal_gauge(tokens=2000, step_count=45, role="deep_execution")
-        self.assertIn("[HORIZON: 45/50 STEPS]", gauge_45)
+        gauge_85 = format_terminal_gauge(tokens=2000, step_count=85, role="deep_execution")
+        self.assertIn("[EPOCH HORIZON: 85/80 STEPS]", gauge_85)
 
-        # Non-executioner does not include horizon tag
-        gauge_coord = format_terminal_gauge(tokens=1000, step_count=45, role="flight_director")
-        self.assertNotIn("[HORIZON:", gauge_coord)
+        gauge_coord = format_terminal_gauge(tokens=1000, step_count=85, role="flight_director")
+        self.assertNotIn("[EPOCH HORIZON:", gauge_coord)
 
-        # Step count < 40 does not include horizon tag
-        gauge_39 = format_terminal_gauge(tokens=1000, step_count=39, role="deep_execution")
-        self.assertNotIn("[HORIZON:", gauge_39)
+        gauge_45 = format_terminal_gauge(tokens=1000, step_count=45, role="deep_execution")
+        self.assertNotIn("[EPOCH HORIZON:", gauge_45)
 
-    def test_run_token_proximity_guard_emits_horizon_gauge_to_stderr(self) -> None:
-        """run_token_proximity_guard emits gauge with horizon tag to stderr when step >= 40 for executioner."""
+    def test_run_token_proximity_guard_emits_epoch_horizon_gauge_to_stderr(self) -> None:
+        """run_token_proximity_guard emits gauge with epoch horizon tag when epoch steps >= 80."""
         err_stream = io.StringIO()
         payload = {
             "conversationId": "test-proximity-horizon",
-            "step_count": 42,
+            "step_count": 82,
             "role": "deep_execution",
         }
         res = run_token_proximity_guard(payload, stderr=err_stream)
         self.assertEqual(res, {"decision": "allow"})
         output = err_stream.getvalue()
-        self.assertIn("[HORIZON: 42/50 STEPS]", output)
+        self.assertIn("[EPOCH HORIZON: 82/80 STEPS]", output)
         self.assertIn("[AGYIS TOKEN GAUGE]", output)
 
 
@@ -376,17 +246,10 @@ class TestStepHorizonBenchmark(unittest.TestCase):
         """50 iterations of pre-invocation, anti-loop, and completion fence execute in <0.20s."""
         t0 = time.perf_counter()
 
-        for step in (40, 45, 50):
-            # Pre-invocation evaluation
+        for step in (45, 50, 80):
             evaluate_pre_invocation({"step_count": step, "role": "deep_execution"})
-
-            # Anti-loop check
             check_anti_loop("list_dir", {"DirectoryPath": "/tmp"}, step_count=step, role="deep_execution")
-
-            # Completion fence PreToolUse check
             check_pre_tool_use("write_to_file", {"TargetFile": "/tmp/test.py"}, step_count=step, role="deep_execution")
-
-            # Token proximity gauge format
             format_terminal_gauge(tokens=10000, step_count=step, role="deep_execution")
 
         elapsed = time.perf_counter() - t0

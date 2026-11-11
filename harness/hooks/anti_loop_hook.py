@@ -19,101 +19,20 @@ from pathlib import Path
 import re
 import sys
 
+from harness.trajectory.health import (
+    ROLE_DEEP_EXECUTION,
+    ROLE_FLIGHT_DIRECTOR,
+    ROLE_FORENSIC_AUDITOR,
+    ROLE_SWARM_ORCHESTRATOR,
+    SOFT_EPOCH_STEP_ADVISORY,
+    normalize_role_str,
+)
 from harness.utils.state import get_state_dir, load_history, save_history
 
-
-
-ROLE_DEEP_EXECUTION: str = "deep_execution"
-ROLE_FLIGHT_DIRECTOR: str = "flight_director"
-ROLE_FORENSIC_AUDITOR: str = "forensic_auditor"
-ROLE_SWARM_ORCHESTRATOR: str = "swarm_orchestrator"
-
 EXPLORATORY_SWEEP_TOOLS: frozenset[str] = frozenset({"list_dir", "find_by_name"})
-STEP_INTERRUPT_THRESHOLD: int = 45
-EXECUTIONER_HORIZON_STEPS: int = 50
-
-
-def _normalize_role_str(val: str | None) -> str | None:
-    """Normalizes role identifier to canonical taxonomy."""
-    if not val or not isinstance(val, str):
-        return None
-    norm = val.strip().lower().replace("-", "_")
-    if norm in (
-        ROLE_DEEP_EXECUTION,
-        "agyis_builder",
-        "agyis_custodian",
-        "agyis_architect",
-        "architect",
-        "implementer",
-        "master_implementer",
-        "executioner",
-        "builder",
-        "custodian",
-        "harness_custodian",
-        "git_custodian",
-        "harness_builder",
-        "deep_coding",
-        "deep_coder",
-        "coder",
-        "execution",
-        "monolithic_swe_pairing",
-        "monolithic",
-        "monolith",
-        "swe_pairing",
-        "pairing",
-        "swe",
-    ):
-        return ROLE_DEEP_EXECUTION
-    if norm in (
-        ROLE_FORENSIC_AUDITOR,
-        "agyis_reviewer",
-        "agyis_auditor",
-        "agyis_investigator",
-        "reviewer",
-        "harness_reviewer",
-        "harness_auditor",
-        "investigator",
-        "detective",
-        "forensic",
-        "verifier",
-        "auditor",
-        "hammer",
-        "forensics",
-        "inspector",
-    ):
-        return ROLE_FORENSIC_AUDITOR
-    if norm in (
-        ROLE_SWARM_ORCHESTRATOR,
-        "orchestrator",
-        "swarm",
-        "mesh_coordinator",
-        "mesh",
-    ):
-        return ROLE_SWARM_ORCHESTRATOR
-    if norm in (
-        ROLE_FLIGHT_DIRECTOR,
-        "agyis_coordinator",
-        "agyis_planner",
-        "planner",
-        "coordinator",
-        "cockpit_director",
-        "flight_director",
-        "flight",
-        "director",
-        "cockpit",
-        "root",
-    ):
-        return ROLE_FLIGHT_DIRECTOR
-
-    if "executioner" in norm or "builder" in norm or "custodian" in norm or "deep_execution" in norm or "deep_coding" in norm:
-        return ROLE_DEEP_EXECUTION
-    if "hammer" in norm or "auditor" in norm or "forensic" in norm or "reviewer" in norm:
-        return ROLE_FORENSIC_AUDITOR
-    if "orchestrator" in norm or "swarm" in norm:
-        return ROLE_SWARM_ORCHESTRATOR
-    if "flight" in norm or "cockpit" in norm or "planner" in norm:
-        return ROLE_FLIGHT_DIRECTOR
-    return norm
+STEP_INTERRUPT_THRESHOLD: int = SOFT_EPOCH_STEP_ADVISORY
+EXECUTIONER_HORIZON_STEPS: int = SOFT_EPOCH_STEP_ADVISORY
+_normalize_role_str = normalize_role_str
 
 
 MAX_REPEATS = 3
@@ -333,9 +252,10 @@ def check_anti_loop(
     - Idempotent Status Command Relaxation: git status, git branch, stat, pwd allow up to at least 8 executions.
     - Non-Blocking Advisory: manage_task(Action='status') returns non-blocking advisory allow.
 
-    Compulsory Convergence (Issue #86):
-    - When role is ROLE_DEEP_EXECUTION and step_count >= 45, exploratory sweep tools
-      (list_dir, find_by_name) are deterministically blocked.
+    Soft Epoch Horizon Advisory (Issue #109):
+    - When role is ROLE_DEEP_EXECUTION and epoch step_count >= SOFT_EPOCH_STEP_ADVISORY (80),
+      exploratory sweep tools (list_dir, find_by_name) emit a non-blocking stderr advisory
+      encouraging targeted symbol lookups without blocking execution.
 
     Returns:
         {"decision": "allow"} or {"decision": "deny", "reason": ...}
@@ -376,17 +296,14 @@ def check_anti_loop(
 
     norm_role = _normalize_role_str(effective_role)
 
-    # Compulsory convergence check (Issue #86)
+    # Soft epoch horizon advisory (Issue #109 — never hard-block healthy agents on step count alone)
     if tool_name in EXPLORATORY_SWEEP_TOOLS:
-        if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= STEP_INTERRUPT_THRESHOLD:
-            return {
-                "decision": "deny",
-                "reason": (
-                    "Compulsory convergence active (Step 45/50). "
-                    "Open-ended repository sweeps are blocked. "
-                    "Complete active edits, run tests, and emit stage handoff."
-                ),
-            }
+        if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_EPOCH_STEP_ADVISORY:
+            sys.stderr.write(
+                f"[EPOCH HORIZON: {effective_step}/{SOFT_EPOCH_STEP_ADVISORY} STEPS] "
+                "Extended epoch reached — prefer targeted symbol lookups over broad sweeps.\n"
+            )
+            sys.stderr.flush()
 
     target_dir = state_dir or get_state_dir()
     try:

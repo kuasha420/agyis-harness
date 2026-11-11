@@ -4,16 +4,11 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Agyis Harness: PreInvocation Lifecycle Hook & Role-Tailored Compaction Advisory (Issue #83)
-
-Monitors token accumulation prior to model prompt dispatch and surfaces role-tailored
-"Compaction Imminent" advisories to eliminate agent diff amnesia, cognitive thrashing,
-and human re-explanation fatigue across context compaction boundaries.
+Agyis Harness: PreInvocation Lifecycle Hook & Role-Tailored Compaction Advisory (#83, #109, #110).
 
 Fail-Open Invariants:
-- Read-only SQLite connection (mode=ro, uri=True, timeout=0.5).
-- All exceptions caught and swallowed gracefully.
-- sys.stdout always emits valid protojson: {"injectSteps": []} or {"injectSteps": [{"ephemeralMessage": ...}]}.
+- Read-only SQLite access delegated to `harness.trajectory` SSOT.
+- Emits valid protojson: `{"injectSteps": []}` or nested `{"systemMessage": {"systemMessage": ..., "metadata": {}}}` / `{"ephemeralMessage": ...}`.
 - Process always exits 0.
 """
 
@@ -23,50 +18,50 @@ import json
 import os
 from pathlib import Path
 import re
-import sqlite3
 import sys
 import time
 import traceback
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from harness.hooks.token_proximity_guard import (
+from harness.hooks.role_pinning import (
+    CODING_KEYWORDS,
+    DEFAULT_ROLE_PINNING_CADENCE,
+    NATIVE_SYSTEM_SLASH_COMMANDS,
+    ORCHESTRATOR_KEYWORDS,
+    ROLE_PERSONA_PROMPTS,
+    TEST_RUNNER_KEYWORDS,
+    build_compaction_advisory,
+    build_post_compaction_persona_prompt,
+    build_role_persona_prompt,
+    build_role_reanchor_advisory,
+    check_pillar_1_intent,
+    check_pillar_2_behavior,
+    check_pillar_3_explicit_role,
+    classify_agent_role,
+    get_role_pinning_cadence,
+    is_native_slash_command,
+    load_sticky_role_state,
+    resolve_cid_state_dir,
+    resolve_conv_and_brain,
+    save_sticky_role_state,
+)
+from harness.trajectory import (
     CONTEXT_WINDOW_TOKENS,
-    LOCKED_CONVERSATION_IDS,
-    _normalize_cid,
-    clear_locked_conversations,
-    get_active_conversation_context_window,
-    get_active_conversation_tokens,
-    get_conversations_dir,
-    parse_protobuf_varint,
+    ROLE_DEEP_EXECUTION,
+    ROLE_FLIGHT_DIRECTOR,
+    ROLE_FORENSIC_AUDITOR,
+    ROLE_SWARM_ORCHESTRATOR,
+    SOFT_EPOCH_STEP_ADVISORY,
+    get_scaled_thresholds,
+    normalize_cid,
+    normalize_role_str,
+    read_db_trajectory_state,
 )
 
 DEFAULT_COMPACTION_ADVISORY_THRESHOLD: int = 230_000
 DEFAULT_SQLITE_TIMEOUT: float = 0.5
-MAX_PAYLOAD_BYTES: int = 524_288  # 512KB clamp (OPEN-2)
-
-EXECUTIONER_HORIZON_STEPS: int = 50
-STEP_WARNING_THRESHOLD: int = 40
-STEP_INTERRUPT_THRESHOLD: int = 45
-
-
-def get_compaction_sqlite_timeout(override: Optional[float] = None) -> float:
-    """Returns the effective SQLite connection timeout in seconds (strictly <= 0.5s)."""
-    if override is not None:
-        try:
-            val = float(override)
-            if val > 0:
-                return min(val, DEFAULT_SQLITE_TIMEOUT)
-        except (ValueError, TypeError):
-            pass
-    env_to = os.environ.get("AGYIS_SQLITE_TIMEOUT")
-    if env_to:
-        try:
-            val = float(env_to.strip())
-            if 0 < val:
-                return min(val, DEFAULT_SQLITE_TIMEOUT)
-        except (ValueError, TypeError):
-            pass
-    return DEFAULT_SQLITE_TIMEOUT
+MAX_PAYLOAD_BYTES: int = 524_288
+EXECUTIONER_HORIZON_STEPS: int = SOFT_EPOCH_STEP_ADVISORY
 
 CALIBRATION_METADATA: Dict[str, Any] = {
     "calibrated_threshold": 230_000,
@@ -78,206 +73,27 @@ CALIBRATION_METADATA: Dict[str, Any] = {
     "danger_zone_velocity_per_turn": "2,500 - 4,800 tokens",
 }
 
-ROLE_FLIGHT_DIRECTOR: str = "flight_director"
-ROLE_SWARM_ORCHESTRATOR: str = "swarm_orchestrator"
-ROLE_DEEP_EXECUTION: str = "deep_execution"
-ROLE_FORENSIC_AUDITOR: str = "forensic_auditor"
-
-DEFAULT_ROLE_PINNING_CADENCE: int = 10
+_normalize_role_str = normalize_role_str
+_PROMPT_KEYS = ("lastUserInput", "last_user_input", "prompt", "user_prompt", "userPrompt",
+                "message", "text", "query", "input", "initial_prompt", "task", "command",
+                "slash_command", "slashCommand", "user_input", "content")
 
 
-def get_role_pinning_cadence(override: Optional[int] = None) -> int:
-    """Returns effective cadence for intra-epoch periodic role re-anchors (default 10)."""
-    if override is not None:
-        try:
-            val = int(override)
-            if val > 0:
-                return val
-        except (ValueError, TypeError):
-            pass
-    env_val = os.environ.get("AGYIS_ROLE_PINNING_CADENCE")
-    if env_val:
-        try:
-            val = int(env_val.strip())
-            if val > 0:
-                return val
-        except (ValueError, TypeError):
-            pass
-    return DEFAULT_ROLE_PINNING_CADENCE
-
-
-NATIVE_SYSTEM_SLASH_COMMANDS: frozenset[str] = frozenset({
-    "compact",
-    "clear",
-    "reset",
-    "goal",
-    "plan",
-    "boost",
-    "teamwork",
-    "teamwork-preview",
-    "grill-me",
-    "browser",
-    "schedule",
-    "learn",
-    "automation",
-    "plugin",
-})
-
-
-def is_native_slash_command(text: str) -> bool:
-    """
-    Checks if a prompt or user message starts with an Antigravity native system slash command.
-    Handles raw slash commands ("/compact") as well as XML-wrapped requests ("<USER_REQUEST>/compact...</USER_REQUEST>").
-    Skills (e.g. /db-ops, /audio-ops) are NOT native system slash commands and return False.
-    """
-    if not text or not isinstance(text, str):
-        return False
-    cleaned = re.sub(r"</?USER_REQUEST>", "", text, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(
-        r"<ADDITIONAL_METADATA>.*?</ADDITIONAL_METADATA>",
-        "",
-        cleaned,
-        flags=re.DOTALL | re.IGNORECASE,
-    ).strip()
-    if not cleaned.startswith("/"):
-        return False
-    m = re.match(r"^/([a-zA-Z0-9_-]+)(?:\s|$)", cleaned)
-    if not m:
-        return False
-    cmd_name = m.group(1).lower()
-    return cmd_name in NATIVE_SYSTEM_SLASH_COMMANDS
-
-
-def extract_prompt_text(
-    payload: Dict[str, Any],
-    conversation_id: Optional[str] = None,
-    db_dir: Optional[Path] = None,
-    timeout: Optional[float] = None,
-) -> str:
-    """Extracts raw user prompt or command text from incoming hook payload or SQLite steps."""
-    for k in (
-        "lastUserInput",
-        "last_user_input",
-        "prompt",
-        "user_prompt",
-        "userPrompt",
-        "message",
-        "text",
-        "query",
-        "input",
-        "initial_prompt",
-        "task",
-        "command",
-        "slash_command",
-        "slashCommand",
-    ):
-        v = payload.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-
-    steps = payload.get("steps")
-    if isinstance(steps, list) and steps:
-        for s in reversed(steps):
-            if isinstance(s, dict):
-                for sk in (
-                    "lastUserInput",
-                    "last_user_input",
-                    "prompt",
-                    "user_input",
-                    "userPrompt",
-                    "message",
-                    "text",
-                    "query",
-                    "input",
-                    "content",
-                ):
-                    sv = s.get(sk)
-                    if isinstance(sv, str) and sv.strip():
-                        return sv.strip()
-
-    if conversation_id and conversation_id != "default" and conversation_id not in LOCKED_CONVERSATION_IDS:
-        conn: Optional[sqlite3.Connection] = None
-        try:
-            base_dir = db_dir or get_conversations_dir()
-            db_path = base_dir / f"{conversation_id}.db"
-            if db_path.is_file():
-                to = get_compaction_sqlite_timeout(timeout)
-                uri_path = f"file:{db_path.resolve()}?mode=ro"
-                conn = sqlite3.connect(uri_path, uri=True, timeout=to)
-                cur = conn.cursor()
-                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='steps'")
-                if cur.fetchone():
-                    cur.execute("PRAGMA table_info(steps)")
-                    cols = {row[1] for row in cur.fetchall()}
-                    target_cols = [c for c in ("step_data", "metadata", "step_payload") if c in cols]
-                    if target_cols:
-                        col_expr = target_cols[0]
-                        cur.execute(
-                            f"SELECT {col_expr} FROM steps ORDER BY rowid DESC LIMIT 3"
-                        )
-                        rows = cur.fetchall()
-                        for (row_data,) in rows:
-                            if not row_data:
-                                continue
-                            if isinstance(row_data, bytes):
-                                try:
-                                    text_payload = row_data.decode("utf-8", errors="replace")
-                                except Exception:
-                                    continue
-                            elif isinstance(row_data, str):
-                                text_payload = row_data
-                            else:
-                                continue
-
-                            text_payload = text_payload.strip()
-                            if not text_payload:
-                                continue
-
-                            candidate_text = ""
-                            if text_payload.startswith("{"):
-                                try:
-                                    parsed = json.loads(text_payload)
-                                    if isinstance(parsed, dict):
-                                        for sk in (
-                                            "prompt",
-                                            "user_input",
-                                            "lastUserInput",
-                                            "last_user_input",
-                                            "userPrompt",
-                                            "message",
-                                            "text",
-                                            "query",
-                                            "input",
-                                            "content",
-                                        ):
-                                            val = parsed.get(sk)
-                                            if isinstance(val, str) and val.strip():
-                                                candidate_text = val.strip()
-                                                break
-                                except Exception:
-                                    pass
-                            else:
-                                candidate_text = text_payload
-
-                            if candidate_text and is_native_slash_command(candidate_text):
-                                return candidate_text
-        except sqlite3.OperationalError:
-            if conversation_id:
-                LOCKED_CONVERSATION_IDS.add(conversation_id)
-        except Exception:
-            pass
-        finally:
-            if conn:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-
-    return ""
+def get_compaction_sqlite_timeout(override: Optional[float] = None) -> float:
+    """Returns the effective SQLite connection timeout in seconds (strictly <= 0.5s)."""
+    for cand in (override, os.environ.get("AGYIS_SQLITE_TIMEOUT")):
+        if cand is not None:
+            try:
+                val = float(str(cand).strip())
+                if val > 0:
+                    return min(val, DEFAULT_SQLITE_TIMEOUT)
+            except (ValueError, TypeError):
+                pass
+    return DEFAULT_SQLITE_TIMEOUT
 
 
 def get_compaction_advisory_threshold(max_context_tokens: Optional[int] = None) -> int:
-    """Returns the effective compaction advisory threshold with env override and dynamic window scaling."""
+    """Returns effective compaction advisory threshold with env override and dynamic scaling."""
     env_thresh = os.environ.get("AGYIS_COMPACTION_THRESHOLD") or os.environ.get("PSL_COMPACTION_THRESHOLD")
     if env_thresh:
         try:
@@ -286,1110 +102,77 @@ def get_compaction_advisory_threshold(max_context_tokens: Optional[int] = None) 
                 return val
         except (ValueError, TypeError):
             pass
-    if max_context_tokens is not None and max_context_tokens > 0 and max_context_tokens != CONTEXT_WINDOW_TOKENS:
-        return int(round(max_context_tokens * DEFAULT_COMPACTION_ADVISORY_THRESHOLD / CONTEXT_WINDOW_TOKENS))
-    return DEFAULT_COMPACTION_ADVISORY_THRESHOLD
+    _, red_t = get_scaled_thresholds(max_context_tokens)
+    return red_t
 
 
-def _normalize_role_str(val: Optional[str]) -> Optional[str]:
-    """Normalizes input string into a canonical role identifier if recognized."""
-    if not val or not isinstance(val, str):
-        return None
-    norm = val.strip().lower().replace("-", "_")
-
-    if norm in (
-        ROLE_DEEP_EXECUTION,
-        "agyis_builder",
-        "agyis_custodian",
-        "agyis_architect",
-        "architect",
-        "implementer",
-        "master_implementer",
-        "executioner",
-        "builder",
-        "custodian",
-        "harness_custodian",
-        "git_custodian",
-        "harness_builder",
-        "deep_coding",
-        "deep_coder",
-        "coder",
-        "execution",
-        "monolithic_swe_pairing",
-        "monolithic",
-        "monolith",
-        "swe_pairing",
-        "pairing",
-        "swe",
-    ):
-        return ROLE_DEEP_EXECUTION
-    if norm in (
-        ROLE_FORENSIC_AUDITOR,
-        "agyis_reviewer",
-        "agyis_auditor",
-        "agyis_investigator",
-        "reviewer",
-        "harness_reviewer",
-        "harness_auditor",
-        "investigator",
-        "detective",
-        "forensic",
-        "verifier",
-        "auditor",
-        "hammer",
-        "forensics",
-        "inspector",
-    ):
-        return ROLE_FORENSIC_AUDITOR
-    if norm in (
-        ROLE_SWARM_ORCHESTRATOR,
-        "orchestrator",
-        "swarm",
-        "mesh_coordinator",
-        "mesh",
-    ):
-        return ROLE_SWARM_ORCHESTRATOR
-    if norm in (
-        ROLE_FLIGHT_DIRECTOR,
-        "agyis_coordinator",
-        "agyis_planner",
-        "planner",
-        "coordinator",
-        "cockpit_director",
-        "flight_director",
-        "flight",
-        "director",
-        "cockpit",
-        "root",
-    ):
-        return ROLE_FLIGHT_DIRECTOR
-
-    # Substring / pattern matching
-    if (
-        "executioner" in norm
-        or "builder" in norm
-        or "custodian" in norm
-        or "deep_execution" in norm
-        or "deep_coding" in norm
-        or "monolith" in norm
-        or "swe_pairing" in norm
-        or "architect" in norm
-    ):
-        return ROLE_DEEP_EXECUTION
-    if (
-        "hammer" in norm
-        or "auditor" in norm
-        or "forensic" in norm
-        or "reviewer" in norm
-        or "investigator" in norm
-        or "detective" in norm
-        or "verifier" in norm
-    ):
-        return ROLE_FORENSIC_AUDITOR
-    if "orchestrator" in norm or "swarm" in norm:
-        return ROLE_SWARM_ORCHESTRATOR
-    if "flight" in norm or "cockpit" in norm or "planner" in norm:
-        return ROLE_FLIGHT_DIRECTOR
-
-    return None
-
-
-ORCHESTRATOR_KEYWORDS: Tuple[str, ...] = (
-    "/teamwork-preview",
-    "/boost",
-    "/subagent-ladder",
-    "/goal",
-    "orchestrate",
-    "coordinate swarm",
-)
-
-CODING_KEYWORDS: Tuple[str, ...] = (
-    "fix",
-    "bug",
-    "bugfix",
-    "issue",
-    "error",
-    "repair",
-    "patch",
-    "implement",
-    "refactor",
-    "test",
-    "tests",
-    "unit test",
-    "write code",
-    "feature",
-    "compile",
-    "build",
-    "coding",
-    "debug",
-    "modify",
-    "update",
-    "/fix",
-    "/test",
-    "/code",
-)
-
-TEST_RUNNER_KEYWORDS: Tuple[str, ...] = (
-    "pytest",
-    "unittest",
-    "-m unittest",
-    "cargo test",
-    "go test",
-    "npm test",
-    "pnpm test",
-    "yarn test",
-    "jest",
-    "vitest",
-    "harness.cli test",
-    "agyis test",
-    "./agyis test",
-    "python3 -m unittest",
-    "python -m unittest",
-)
-
-
-def _extract_tool_from_proto_bytes(raw_bytes: bytes) -> Tuple[str, str]:
-    """Helper to extract tool_name and arguments from Antigravity protobuf metadata."""
-    if not raw_bytes or not isinstance(raw_bytes, (bytes, bytearray, memoryview)):
-        return "", ""
-    try:
-        data = bytes(raw_bytes)
-        idx = 0
-        n = len(data)
-        while idx < n:
-            tag, idx = parse_protobuf_varint(data, idx)
-            fn = tag >> 3
-            wt = tag & 0x07
-            if fn == 0:
-                break
-            if wt == 0:
-                _, idx = parse_protobuf_varint(data, idx)
-            elif wt == 1:
-                idx += 8
-            elif wt == 2:
-                length, idx = parse_protobuf_varint(data, idx)
-                if idx + length > n:
-                    break
-                chunk = data[idx : idx + length]
-                idx += length
-                if fn == 4:  # Tool call metadata in Antigravity wire schema
-                    s_idx = 0
-                    s_n = len(chunk)
-                    tool_name = ""
-                    tool_args = ""
-                    while s_idx < s_n:
-                        s_tag, s_idx = parse_protobuf_varint(chunk, s_idx)
-                        s_fn = s_tag >> 3
-                        s_wt = s_tag & 0x07
-                        if s_fn == 0:
-                            break
-                        if s_wt == 0:
-                            _, s_idx = parse_protobuf_varint(chunk, s_idx)
-                        elif s_wt == 1:
-                            s_idx += 8
-                        elif s_wt == 2:
-                            s_len, s_idx = parse_protobuf_varint(chunk, s_idx)
-                            if s_idx + s_len > s_n:
-                                break
-                            sub_chunk = chunk[s_idx : s_idx + s_len]
-                            s_idx += s_len
-                            if s_fn == 2:
-                                tool_name = sub_chunk.decode("utf-8", errors="replace")
-                            elif s_fn == 3:
-                                tool_args = sub_chunk.decode("utf-8", errors="replace")
-                        elif s_wt == 5:
-                            s_idx += 4
-                        else:
-                            break
-                    if tool_name:
-                        return tool_name, tool_args
-            elif wt == 5:
-                idx += 4
-            else:
-                break
-    except Exception:
-        pass
-    return "", ""
-
-
-def check_pillar_3_explicit_role(
+def extract_prompt_text(
     payload: Dict[str, Any],
-    workspace_dir: Optional[Path] = None,
-    conversation_id: str = "",
-) -> Optional[str]:
-    """
-    Pillar 3 (Explicit Cognitive Self-Identification):
-    Inspects .agents/session_role.json or .agents/artifacts/session_role.json
-    (or active plan / env var AGYIS_ROLE / PSL_AGENT_ROLE / ANTIGRAVITY_AGENT_ROLE).
-    If present and valid (e.g. {"role": "flight_director"} or {"role": "deep_execution"}),
-    strictly respects this explicit declaration above all heuristics.
-    """
-    try:
-        search_dirs: List[Path] = []
-        if workspace_dir:
-            search_dirs.append(Path(os.path.expanduser(str(workspace_dir))))
-
-        # Collect workspace candidates from payload
-        for k in (
-            "workspace",
-            "worktree",
-            "cwd",
-            "workspacePath",
-            "workspaceDir",
-            "worktreePath",
-            "path",
-            "artifactDirectoryPath",
-            "artifact_directory_path",
-            "artifactDirectory",
-            "artifact_dir",
-        ):
-            v = payload.get(k)
-            if isinstance(v, str) and v.strip():
-                p = Path(os.path.expanduser(v.strip()))
-                if p not in search_dirs:
-                    search_dirs.append(p)
-            elif isinstance(v, dict) and "path" in v and isinstance(v["path"], str):
-                p = Path(os.path.expanduser(v["path"].strip()))
-                if p not in search_dirs:
-                    search_dirs.append(p)
-
-        for k in ("activeWorkspaces", "workspacePaths", "active_workspaces", "workspace_paths"):
-            lst = payload.get(k)
-            if isinstance(lst, (list, tuple)):
-                for item in lst:
-                    if isinstance(item, str) and item.strip():
-                        p = Path(os.path.expanduser(item.strip()))
-                        if p not in search_dirs:
-                            search_dirs.append(p)
-                    elif isinstance(item, dict) and "path" in item and isinstance(item["path"], str):
-                        p = Path(os.path.expanduser(item["path"].strip()))
-                        if p not in search_dirs:
-                            search_dirs.append(p)
-
-        cwd_path = Path.cwd()
-        if cwd_path not in search_dirs:
-            search_dirs.append(cwd_path)
-
-        # 1. Inspect .agents/session_role.json or .agents/artifacts/session_role.json (and plan.json)
-        for root in search_dirs:
-            candidates = [
-                root / ".agents" / "session_role.json",
-                root / ".agents" / "artifacts" / "session_role.json",
-                root / "session_role.json",
-                root / ".agents" / "artifacts" / "plan.json",
-                root / ".agents" / "plan.json",
-                root / "plan.json",
-            ]
-            for cand in candidates:
-                try:
-                    if cand.is_file():
-                        st_size = cand.stat().st_size
-                        if st_size == 0 or st_size > 65_536:
-                            continue
-                        content = cand.read_text(encoding="utf-8", errors="ignore").strip()
-                        if content:
-                            data = json.loads(content)
-                            if isinstance(data, dict):
-                                for rk in ("role", "agent_role", "session_role", "archetype"):
-                                    val = data.get(rk)
-                                    if isinstance(val, str) and val.strip():
-                                        matched = _normalize_role_str(val.strip())
-                                        if matched:
-                                            return matched
-                except (OSError, Exception):
-                    continue
-
-        # Resolve effective conversation ID
-        effective_cid = conversation_id
-        if not effective_cid or effective_cid == "default":
-            for pk in (
-                "transcriptPath",
-                "transcript_path",
-                "artifactDirectoryPath",
-                "artifact_directory_path",
-                "artifactDirectory",
-            ):
-                pv = payload.get(pk)
-                if isinstance(pv, str) and pv:
-                    m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", pv)
-                    if m:
-                        effective_cid = m.group(1).lower()
-                        break
-
-        # Also check brain dir if conversation_id is resolved
-        if effective_cid and effective_cid != "default":
-            try:
-                brain_cand = Path.home() / ".gemini" / "antigravity" / "brain" / str(effective_cid) / "session_role.json"
-                if brain_cand.is_file():
-                    st_size = brain_cand.stat().st_size
-                    if 0 < st_size <= 65_536:
-                        data = json.loads(brain_cand.read_text(encoding="utf-8", errors="ignore"))
-                        if isinstance(data, dict):
-                            for rk in ("role", "agent_role", "session_role", "archetype"):
-                                val = data.get(rk)
-                                if isinstance(val, str) and val.strip():
-                                    matched = _normalize_role_str(val.strip())
-                                    if matched:
-                                        return matched
-            except (OSError, Exception):
-                pass
-
-        # 2. Inspect active plan for explicit role declaration
-        try:
-            from harness.utils.plan_parser import find_active_plan
-            art_dir_str = (
-                payload.get("artifactDirectoryPath")
-                or payload.get("artifact_directory_path")
-                or payload.get("artifactDirectory")
-            )
-            art_brain_dir = Path(os.path.expanduser(art_dir_str.strip())) if isinstance(art_dir_str, str) and art_dir_str.strip() else None
-
-            plan_path = find_active_plan(
-                conv_id=effective_cid if effective_cid != "default" else None,
-                workspace_root=workspace_dir or (search_dirs[0] if search_dirs else None),
-                brain_dir=art_brain_dir,
-            )
-            if plan_path:
-                try:
-                    if plan_path.is_file():
-                        st_size = plan_path.stat().st_size
-                        if 0 < st_size <= 65_536:
-                            content = plan_path.read_text(encoding="utf-8", errors="ignore")[:8192]
-                            if plan_path.suffix == ".json":
-                                try:
-                                    d = json.loads(content)
-                                    if isinstance(d, dict):
-                                        for rk in ("role", "agent_role", "archetype"):
-                                            val = d.get(rk)
-                                            if isinstance(val, str) and val.strip():
-                                                matched = _normalize_role_str(val.strip())
-                                                if matched:
-                                                    return matched
-                                except Exception:
-                                    pass
-                            else:
-                                m = re.search(r"(?:^|\n)\s*(?:\*\*)?[Rr]ole(?:\*\*)?:\s*([a-zA-Z0-9_\-]+)", content)
-                                if m:
-                                    matched = _normalize_role_str(m.group(1).strip())
-                                    if matched:
-                                        return matched
-                                m_comment = re.search(r"<!--\s*role:\s*([a-zA-Z0-9_\-]+)\s*-->", content, re.IGNORECASE)
-                                if m_comment:
-                                    matched = _normalize_role_str(m_comment.group(1).strip())
-                                    if matched:
-                                        return matched
-                except (OSError, Exception):
-                    pass
-        except Exception:
-            pass
-
-        # 3. Environment variables
-        env_role = (
-            os.environ.get("AGYIS_ROLE")
-            or os.environ.get("PSL_AGENT_ROLE")
-            or os.environ.get("ANTIGRAVITY_AGENT_ROLE")
-        )
-        if env_role:
-            matched = _normalize_role_str(env_role)
-            if matched:
-                return matched
-
-    except Exception:
-        pass
-
-    return None
-
-
-def check_pillar_1_intent(
-    payload: Dict[str, Any],
-    conversation_id: str = "",
+    conversation_id: Optional[str] = None,
     db_dir: Optional[Path] = None,
     timeout: Optional[float] = None,
-) -> Optional[str]:
-    """
-    Pillar 1 (Early Turn Intent Interception):
-    Inspects early conversation steps (Step 1/2 in SQLite steps or prompt payload).
-    - If orchestrator keywords (/teamwork-preview, /boost, /subagent-ladder, /goal, orchestrate, coordinate swarm)
-      are detected, seed preliminary role as ROLE_FLIGHT_DIRECTOR.
-    - If direct coding/bugfix prompt, seed preliminary role as ROLE_DEEP_EXECUTION.
-    """
-    text_snippets: List[str] = []
-
-    # 1. Inspect direct prompt / task in payload
-    for k in (
-        "prompt",
-        "user_prompt",
-        "userPrompt",
-        "message",
-        "query",
-        "input",
-        "initial_prompt",
-        "task",
-    ):
+) -> str:
+    """Extracts raw user prompt from incoming payload or latest native-command DB step."""
+    for k in _PROMPT_KEYS:
         v = payload.get(k)
         if isinstance(v, str) and v.strip():
-            text_snippets.append(v.strip())
-
-    # 2. Inspect early steps in payload if present
-    steps_payload = payload.get("steps")
-    if isinstance(steps_payload, list):
-        for s in steps_payload[:2]:
+            return v.strip()
+    steps = payload.get("steps")
+    if isinstance(steps, list):
+        for s in reversed(steps):
             if isinstance(s, dict):
-                for sk in ("prompt", "user_input", "userPrompt", "message", "text", "query", "input", "step_data"):
+                for sk in _PROMPT_KEYS:
                     sv = s.get(sk)
                     if isinstance(sv, str) and sv.strip():
-                        text_snippets.append(sv.strip())
-            elif isinstance(s, str) and s.strip():
-                text_snippets.append(s.strip())
+                        return sv.strip()
+    norm_cid = normalize_cid(conversation_id or "")
+    if norm_cid and norm_cid != "default":
+        metrics = read_db_trajectory_state(norm_cid, db_dir=db_dir, timeout=get_compaction_sqlite_timeout(timeout))
+        if metrics.latest_user_prompt and is_native_slash_command(metrics.latest_user_prompt):
+            return metrics.latest_user_prompt
+    return ""
 
-    # 3. Inspect early steps in SQLite steps table
-    effective_cid = _normalize_cid(conversation_id)
-    if not effective_cid or effective_cid == "default":
-        cand = payload.get("conversationId") or payload.get("conversation_id")
-        if isinstance(cand, str) and cand.strip():
-            effective_cid = _normalize_cid(cand.strip())
-        if not effective_cid or effective_cid == "default":
-            for pk in ("transcriptPath", "transcript_path", "artifactDirectoryPath", "artifact_directory_path", "artifactDirectory"):
-                pv = payload.get(pk)
-                if isinstance(pv, str) and pv:
-                    m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", pv)
-                    if m:
-                        effective_cid = _normalize_cid(m.group(1).lower())
-                        break
 
-    if effective_cid and effective_cid != "default" and effective_cid not in LOCKED_CONVERSATION_IDS:
-        conn: Optional[sqlite3.Connection] = None
-        try:
-            base_dir = db_dir or get_conversations_dir()
-            db_path = base_dir / f"{effective_cid}.db"
-            if db_path.is_file():
-                to = get_compaction_sqlite_timeout(timeout)
-                uri_path = f"file:{db_path.resolve()}?mode=ro"
-                conn = sqlite3.connect(uri_path, uri=True, timeout=to)
-                cur = conn.cursor()
-                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='steps'")
-                if cur.fetchone():
-                    cur.execute("PRAGMA table_info(steps)")
-                    cols = {row[1] for row in cur.fetchall()}
-                    target_cols = [c for c in ("step_data", "metadata", "step_payload") if c in cols]
-                    if target_cols:
-                        order_clause = "ORDER BY idx ASC" if "idx" in cols else "ORDER BY rowid ASC"
-                        cur.execute(f"SELECT {', '.join(target_cols)} FROM steps {order_clause} LIMIT 4")
-                        for row in cur.fetchall():
-                            for raw_val in row:
-                                if not raw_val:
-                                    continue
-                                if isinstance(raw_val, str):
-                                    if raw_val.startswith("{"):
-                                        try:
-                                             parsed = json.loads(raw_val)
-                                             if isinstance(parsed, dict):
-                                                 for rk in ("role", "archetype", "subagent_role"):
-                                                     if rk in parsed and isinstance(parsed[rk], str):
-                                                         m = _normalize_role_str(parsed[rk])
-                                                         if m:
-                                                             return m
-                                                 for pk in ("prompt", "user_input", "userPrompt", "message", "text"):
-                                                     if pk in parsed and isinstance(parsed[pk], str):
-                                                         text_snippets.append(parsed[pk])
-                                        except Exception:
-                                             pass
-                                    text_snippets.append(raw_val)
-                                elif isinstance(raw_val, (bytes, bytearray, memoryview)):
-                                    text_snippets.append(bytes(raw_val).decode("utf-8", errors="ignore"))
-        except sqlite3.OperationalError as oe:
-            LOCKED_CONVERSATION_IDS.add(effective_cid)
-        except Exception:
-            pass
-        finally:
-            if conn is not None:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-
-    if not text_snippets:
-        return None
-
-    combined_text = " ".join(text_snippets).lower()
-
-    # Orchestrator keywords take precedence in intent interception
-    if any(k in combined_text for k in ORCHESTRATOR_KEYWORDS):
-        return ROLE_FLIGHT_DIRECTOR
-
-    # Direct coding / bugfix prompt
-    if any(k in combined_text for k in CODING_KEYWORDS):
-        return ROLE_DEEP_EXECUTION
-
+def _parse_int_field(payload: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[int]:
+    for k in keys:
+        if k in payload:
+            v = payload[k]
+            if isinstance(v, (int, float)):
+                return int(v)
+            if isinstance(v, str) and v.strip().isdigit():
+                return int(v.strip())
     return None
 
 
-def check_pillar_2_behavior(
-    payload: Dict[str, Any],
-    conversation_id: str = "",
-    tokens: int = 0,
-    db_dir: Optional[Path] = None,
-    timeout: Optional[float] = None,
-) -> Optional[str]:
-    """
-    Pillar 2 (Mid-Trajectory Behavioral Verification at Step 100 or 200k Tokens):
-    In an unclassified root session, when context reaches Step 100 or >= 200,000 tokens,
-    execute a rapid read-only SQLite check over the conversation's recorded tool calls:
-    - Count of invoke_subagent, manage_task, schedule, send_message > 0
-      -> Confirm ROLE_FLIGHT_DIRECTOR / ROLE_SWARM_ORCHESTRATOR.
-    - Count of edit_file, write_file, and test runner commands with 0 subagent spawns
-      -> Confirm ROLE_DEEP_EXECUTION (Monolithic SWE Pairing).
-    - Dominant read_file, grep, audit tools
-      -> Confirm ROLE_FORENSIC_AUDITOR.
-    """
-    try:
-        payload_tokens = 0
-        for k in ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens"):
-            val = payload.get(k)
-            if isinstance(val, (int, float)) and val > 0:
-                payload_tokens = int(val)
-                break
-        cur_tokens = max(tokens, payload_tokens)
-
-        step_count = (
-            payload.get("step_count")
-            or payload.get("stepCount")
-            or payload.get("current_step")
-            or payload.get("currentStep")
-            or payload.get("initialNumSteps")
-            or payload.get("initial_num_steps")
-            or payload.get("stepIdx")
-            or payload.get("step_idx")
-            or payload.get("invocationNum")
-            or payload.get("invocation_num")
-            or 0
+def _resolve_workspace(payload: Dict[str, Any], explicit_ws: Optional[Path]) -> Optional[Path]:
+    if explicit_ws is not None:
+        return explicit_ws
+    for k in ("workspace", "workspacePath", "workspacePaths", "activeWorkspaces", "cwd"):
+        wv = payload.get(k)
+        s = wv if isinstance(wv, str) else (
+            wv[0] if isinstance(wv, (list, tuple)) and wv and isinstance(wv[0], str) else (
+                wv[0].get("path") if isinstance(wv, (list, tuple)) and wv and isinstance(wv[0], dict) else None
+            )
         )
-        if not isinstance(step_count, (int, float)):
-            step_count = 0
-
-        # Resolve effective conversation ID
-        effective_cid = _normalize_cid(conversation_id)
-        if not effective_cid or effective_cid == "default":
-            cand = payload.get("conversationId") or payload.get("conversation_id")
-            if isinstance(cand, str) and cand.strip():
-                effective_cid = _normalize_cid(cand.strip())
-            if not effective_cid or effective_cid == "default":
-                for pk in (
-                    "transcriptPath",
-                    "transcript_path",
-                    "artifactDirectoryPath",
-                    "artifact_directory_path",
-                    "artifactDirectory",
-                ):
-                    pv = payload.get(pk)
-                    if isinstance(pv, str) and pv:
-                        m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", pv)
-                        if m:
-                            effective_cid = _normalize_cid(m.group(1).lower())
-                            break
-
-        if effective_cid and effective_cid != "default" and effective_cid not in LOCKED_CONVERSATION_IDS:
-            db_tokens = get_active_conversation_tokens(effective_cid, db_dir=db_dir, timeout=timeout)
-            cur_tokens = max(cur_tokens, db_tokens)
-
-        db_steps_count = 0
-        tool_calls: List[Tuple[str, str]] = []
-
-        # Single read-only SQLite inspection for both step count and tool calls
-        if effective_cid and effective_cid != "default" and effective_cid not in LOCKED_CONVERSATION_IDS:
-            conn: Optional[sqlite3.Connection] = None
-            try:
-                base_dir = db_dir or get_conversations_dir()
-                db_path = base_dir / f"{effective_cid}.db"
-                if db_path.is_file():
-                    uri_path = f"file:{db_path.resolve()}?mode=ro"
-                    to = get_compaction_sqlite_timeout(timeout)
-                    conn = sqlite3.connect(uri_path, uri=True, timeout=to)
-                    cur = conn.cursor()
-                    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                    tables = {r[0] for r in cur.fetchall()}
-
-                    if "steps" in tables:
-                        cur.execute("SELECT count(*) FROM steps")
-                        row = cur.fetchone()
-                        if row and row[0]:
-                            db_steps_count = int(row[0])
-
-                    total_steps_eval = max(step_count, db_steps_count)
-                    if cur_tokens >= 200_000 or total_steps_eval >= 100 or payload.get("force_pillar_2"):
-                        if "tool_calls" in tables:
-                            cur.execute("PRAGMA table_info(tool_calls)")
-                            t_cols = {r[1] for r in cur.fetchall()}
-                            name_col = "tool_name" if "tool_name" in t_cols else "name"
-                            arg_col = "arguments" if "arguments" in t_cols else ("command" if "command" in t_cols else "''")
-                            cur.execute(f"SELECT {name_col}, {arg_col} FROM tool_calls LIMIT 500")
-                            for r in cur.fetchall():
-                                tool_calls.append((str(r[0] or ""), str(r[1] or "")))
-
-                        elif "steps" in tables:
-                            cur.execute("PRAGMA table_info(steps)")
-                            s_cols = {r[1] for r in cur.fetchall()}
-                            target_cols = [c for c in ("tool_name", "step_data", "metadata", "step_payload") if c in s_cols]
-                            if target_cols:
-                                where_clause = "WHERE step_type = 132" if "step_type" in s_cols else ""
-                                order_clause = "ORDER BY idx DESC" if "idx" in s_cols else "ORDER BY rowid DESC"
-                                cur.execute(f"SELECT {', '.join(target_cols)} FROM steps {where_clause} {order_clause} LIMIT 500")
-                                for r_row in cur.fetchall():
-                                    for cell in r_row:
-                                        if not cell:
-                                            continue
-                                        if isinstance(cell, str):
-                                            if cell.startswith("{"):
-                                                try:
-                                                    d = json.loads(cell)
-                                                    if isinstance(d, dict):
-                                                        tn = d.get("tool_name") or d.get("tool") or d.get("name")
-                                                        args = d.get("arguments") or d.get("command") or d.get("args") or ""
-                                                        if tn:
-                                                            tool_calls.append((str(tn), str(args)))
-                                                except Exception:
-                                                    pass
-                                            else:
-                                                tool_calls.append((cell, ""))
-                                        elif isinstance(cell, (bytes, bytearray, memoryview)):
-                                            tn, args = _extract_tool_from_proto_bytes(bytes(cell))
-                                            if tn:
-                                                tool_calls.append((tn, args))
-            except sqlite3.OperationalError as oe:
-                LOCKED_CONVERSATION_IDS.add(effective_cid)
-            except Exception:
-                pass
-            finally:
-                if conn is not None:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-
-        total_steps = max(step_count, db_steps_count)
-
-        # Trigger check: Mid-Trajectory Behavioral Verification at Step 100 or >= 200,000 tokens
-        # Also allow payload to force Pillar 2 evaluation if explicitly marked (useful for hermetic tests)
-        if cur_tokens < 200_000 and total_steps < 100 and not payload.get("force_pillar_2"):
-            return None
-
-        # 2. Inspect tool calls from payload (for direct testing or payload-based tool logs)
-        payload_tools = payload.get("tool_calls") or payload.get("tools")
-        if isinstance(payload_tools, list):
-            for item in payload_tools:
-                if isinstance(item, str):
-                    tool_calls.append((item, ""))
-                elif isinstance(item, dict):
-                    tn = item.get("tool_name") or item.get("tool") or item.get("name") or ""
-                    args = item.get("arguments") or item.get("command") or item.get("args") or ""
-                    if tn:
-                        tool_calls.append((str(tn), str(args)))
-
-        if not tool_calls:
-            return None
-
-        subagent_count = 0
-        edit_write_test_count = 0
-        explicit_audit_count = 0
-        read_grep_count = 0
-        is_swarm = False
-
-        for tool_name, args in tool_calls:
-            tn = tool_name.lower().strip()
-            arg_lower = args.lower()
-
-            # Subagent & coordination tools
-            if tn in ("invoke_subagent", "manage_task", "schedule", "send_message") or "subagent" in tn:
-                subagent_count += 1
-                if any(k in arg_lower or k in tn for k in ("swarm", "mesh", "strand")):
-                    is_swarm = True
-                continue
-
-            # Direct editing & writing tools
-            if tn in ("edit_file", "write_file", "replace_file_content", "write_to_file", "apply_diff"):
-                edit_write_test_count += 1
-                continue
-
-            # Command execution tools (check command arguments)
-            if tn in ("run_command", "bash", "terminal", "exec_command", "shell"):
-                if any(kw in arg_lower for kw in TEST_RUNNER_KEYWORDS):
-                    edit_write_test_count += 1
-                    continue
-                elif any(kw in arg_lower for kw in ("audit", "verify", "doctor", "inspect")):
-                    explicit_audit_count += 1
-                    continue
-
-            # Direct test runner tool names
-            if any(kw in tn for kw in ("pytest", "unittest", "test_runner")):
-                edit_write_test_count += 1
-                continue
-
-            # Explicit audit tool names
-            if any(k in tn for k in ("audit", "verify", "doctor", "inspect")):
-                explicit_audit_count += 1
-                continue
-
-            # Read / grep / inspection tools
-            if (
-                tn in ("read_file", "view_file", "read_url_content", "read_browser_page")
-                or tn in ("grep_search", "find_by_name", "file_search")
-            ):
-                read_grep_count += 1
-                continue
-
-        # Confirmation Rules:
-        # Rule 1: Count of invoke_subagent, manage_task, schedule, send_message > 0
-        if subagent_count > 0:
-            return ROLE_SWARM_ORCHESTRATOR if is_swarm else ROLE_FLIGHT_DIRECTOR
-
-        # Rule 2: Explicit audit commands overwhelmingly dominate over minimal edits
-        if explicit_audit_count >= 3 and explicit_audit_count > edit_write_test_count:
-            return ROLE_FORENSIC_AUDITOR
-
-        # Rule 3: Count of edit_file, write_file, and test runner commands with 0 subagent spawns
-        # confirms Monolithic SWE Pairing (ROLE_DEEP_EXECUTION)
-        if edit_write_test_count > 0 and subagent_count == 0:
-            return ROLE_DEEP_EXECUTION
-
-        # Rule 4: Dominant read_file, grep, audit tools with 0 edits confirms Forensic Auditor
-        if (explicit_audit_count > 0 or read_grep_count > 0) and edit_write_test_count == 0 and subagent_count == 0:
-            return ROLE_FORENSIC_AUDITOR
-
-    except Exception:
-        pass
-
+        if isinstance(s, str) and s.strip():
+            return Path(os.path.expanduser(s.strip()))
     return None
 
 
-def classify_agent_role(
-    payload: Dict[str, Any],
-    conversation_id: str = "",
-    db_dir: Optional[Path] = None,
-    workspace_dir: Optional[Path] = None,
-    tokens: int = 0,
-    timeout: Optional[float] = None,
-) -> str:
-    """
-    Classifies the active agent role into one of the four canonical archetypes:
-    - ROLE_FLIGHT_DIRECTOR: Root cockpit / plan coordinator.
-    - ROLE_SWARM_ORCHESTRATOR: Multi-node mesh and strand coordinator.
-    - ROLE_DEEP_EXECUTION: Specialist builder / executioner / custodian (Monolithic SWE Pairing).
-    - ROLE_FORENSIC_AUDITOR: Hammer verification / auditor.
-
-    3-Pillar Dynamic Monolith Classifier Architecture:
-    1. Explicit subagent metadata in payload.
-    2. Pillar 3 (Explicit Cognitive Self-Identification): .agents/session_role.json,
-       .agents/artifacts/session_role.json, active plan, or env vars (AGYIS_ROLE, PSL_AGENT_ROLE).
-    3. Workspace / worktree paths in payload.
-    4. Pillar 2 (Mid-Trajectory Behavioral Verification at Step 100 or >=200k tokens):
-       Recorded tool calls check (subagent vs edit/test vs audit tools).
-    5. Pillar 1 (Early Turn Intent Interception):
-       Early steps (Step 1/2) in SQLite or prompt payload (orchestrator vs direct coding).
-    6. Default fallback to ROLE_FLIGHT_DIRECTOR.
-    """
+def _parse_payload(payload_str: Union[str, bytes, bytearray, Dict[str, Any]]) -> Dict[str, Any]:
     try:
-        # 1. Explicit role/subagent properties in payload
-        for key in (
-            "subagent_role",
-            "subagentRole",
-            "subagentType",
-            "agent_type",
-            "agentType",
-            "role",
-            "archetype",
-            "typeName",
-            "agentName",
-            "agent_name",
-        ):
-            if key in payload and isinstance(payload[key], str):
-                matched = _normalize_role_str(payload[key])
-                if matched:
-                    return matched
-
-        for parent_key in ("agent", "subagent", "metadata", "context"):
-            parent_dict = payload.get(parent_key)
-            if isinstance(parent_dict, dict):
-                for key in (
-                    "subagent_role",
-                    "subagentRole",
-                    "role",
-                    "archetype",
-                    "typeName",
-                    "agentName",
-                    "agent_name",
-                ):
-                    if key in parent_dict and isinstance(parent_dict[key], str):
-                        matched = _normalize_role_str(parent_dict[key])
-                        if matched:
-                            return matched
-
-        # 2. Pillar 3: Explicit Cognitive Self-Identification
-        # (.agents/session_role.json, .agents/artifacts/session_role.json, active plan, env vars)
-        p3_role = check_pillar_3_explicit_role(
-            payload,
-            workspace_dir=workspace_dir,
-            conversation_id=conversation_id,
-        )
-        if p3_role:
-            return p3_role
-
-        # 3. Pillar 2: Mid-Trajectory Behavioral Verification at Step 100 or >= 200,000 tokens
-        # Actual tool execution behavior takes precedence over path heuristics
-        p2_role = check_pillar_2_behavior(
-            payload,
-            conversation_id=conversation_id,
-            tokens=tokens,
-            db_dir=db_dir,
-            timeout=timeout,
-        )
-        if p2_role:
-            return p2_role
-
-        # 4. Pillar 1: Early Turn Intent Interception
-        p1_role = check_pillar_1_intent(
-            payload,
-            conversation_id=conversation_id,
-            db_dir=db_dir,
-            timeout=timeout,
-        )
-        if p1_role:
-            return p1_role
-
-        # 5. Workspace / worktree paths in payload (subagents or path-based roles)
-        ws_candidates: List[str] = []
-        for k in (
-            "workspace",
-            "worktree",
-            "cwd",
-            "workspacePath",
-            "workspacePaths",
-            "workspaceDir",
-            "worktreePath",
-            "path",
-            "activeWorkspaces",
-        ):
-            v = payload.get(k)
-            if isinstance(v, str):
-                ws_candidates.append(v)
-            elif isinstance(v, dict) and "path" in v and isinstance(v["path"], str):
-                ws_candidates.append(v["path"])
-
-        for ws_key in ("activeWorkspaces", "workspacePaths", "active_workspaces", "workspace_paths"):
-            ws_list = payload.get(ws_key)
-            if isinstance(ws_list, (list, tuple)):
-                for ws in ws_list:
-                    if isinstance(ws, str):
-                        ws_candidates.append(ws)
-                    elif isinstance(ws, dict) and "path" in ws and isinstance(ws["path"], str):
-                        ws_candidates.append(ws["path"])
-
-        for ws_path in ws_candidates:
-            matched = _normalize_role_str(ws_path)
-            if matched:
-                return matched
-
+        if isinstance(payload_str, dict):
+            return payload_str
+        if isinstance(payload_str, (bytes, bytearray)):
+            text = bytes(payload_str[:MAX_PAYLOAD_BYTES]).decode("utf-8", errors="replace")
+        elif isinstance(payload_str, str):
+            text = payload_str[:MAX_PAYLOAD_BYTES]
+        else:
+            return {}
+        parsed = json.loads(text) if text and text.strip() else {}
+        return parsed if isinstance(parsed, dict) else {}
     except Exception:
-        pass
-
-    # 7. Fallback default
-    return ROLE_FLIGHT_DIRECTOR
-
-
-def build_compaction_advisory(
-    role: str,
-    tokens: int,
-    threshold: int = DEFAULT_COMPACTION_ADVISORY_THRESHOLD,
-    max_context_tokens: Optional[int] = None,
-) -> str:
-    """
-    Generates a role-tailored system advisory directive alerting the agent to imminent compaction.
-    Codifies AC4 (Work Preservation Contract), AC5 (Zero Repo Pollution), and AC6 (Autonomous Continuation).
-    """
-    runway_cap = 246_000
-    if max_context_tokens is not None and max_context_tokens > 0 and max_context_tokens != CONTEXT_WINDOW_TOKENS:
-        runway_cap = int(round(max_context_tokens * 246_000 / CONTEXT_WINDOW_TOKENS))
-    remaining_tokens = max(0, runway_cap - tokens)
-    estimated_turns = max(1, remaining_tokens // 3500) if tokens < runway_cap else 1
-
-    if role == ROLE_DEEP_EXECUTION:
-        return (
-            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
-            "ROLE: Deep Execution (Monolithic SWE Pairing / Executioner)\n\n"
-            "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
-            "1. WORK PRESERVATION CONTRACT (MANDATORY):\n"
-            "   - STRICTLY PROHIBIT executing destructive git commands: NEVER run 'git checkout -- .', 'git reset --hard', or 'git clean -fd'.\n"
-            "   - Keep all in-flight work, partial edits, and uncommitted modifications intact on disk. Do NOT clean or discard active changes.\n"
-            "2. ZERO REPO DOCUMENT POLLUTION:\n"
-            "   - Save temporary recovery state or scratch files strictly to local artifacts/scratch (.agents/artifacts/ or brain directory).\n"
-            "   - Zero git commits for temporary progress markers, scratch notes, or WIP files.\n"
-            "3. AUTONOMOUS POST-COMPACTION CONTINUATION & WAKE-UP DIRECTIVE:\n"
-            "   - Post-compaction wake-up directive: inspect 'git status' and 'git diff' first to re-orient and inspect in-flight modifications.\n"
-            "   - Re-verify unit tests using the project test runner, review task instructions, and resume targeted testing autonomously without reverting, and without asking the operator what happened."
-        )
-
-    elif role == ROLE_SWARM_ORCHESTRATOR:
-        return (
-            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
-            "ROLE: Swarm Orchestrator (Workstream Coordinator)\n\n"
-            "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
-            "1. SWARM STATE SURVIVAL & ZERO REPO POLLUTION:\n"
-            "   - Persist subagent task rosters, worktree / stage status, worker branch names, and milestone gates strictly to local scratch or artifacts (.agents/artifacts/).\n"
-            "   - Zero git commits for ephemeral coordinator markers.\n"
-            "2. WORK PRESERVATION CONTRACT:\n"
-            "   - Preserve all local worktree changes. STRICTLY PROHIBIT 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
-            "3. AUTONOMOUS POST-COMPACTION CONTINUATION:\n"
-            "   - Post-compaction, verify worker branch status and in-flight worktrees via 'git status' and 'git diff'.\n"
-            "   - Resume swarm milestone gates and multi-worktree orchestration autonomously without manual intervention or operator re-prompting."
-        )
-
-    elif role == ROLE_FORENSIC_AUDITOR:
-        return (
-            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
-            "ROLE: Forensic Auditor (Auditor / Hammer)\n\n"
-            "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
-            "1. EVIDENCE PRESERVATION & ZERO REPO POLLUTION:\n"
-            "   - Preserve uncommitted defect reports, audit findings, and verification matrices in session scratch or artifacts (.agents/artifacts/).\n"
-            "   - Zero git commits for unverified or ephemeral audit markers.\n"
-            "2. WORK PRESERVATION CONTRACT:\n"
-            "   - Retain all test scripts and diagnostics on disk. STRICTLY PROHIBIT 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
-            "3. AUTONOMOUS POST-COMPACTION CONTINUATION:\n"
-            "   - Post-compaction, re-execute verification suites on HEAD, inspect 'git status' and 'git diff', verify exit codes, and issue formal certification autonomously."
-        )
-
-    elif role == ROLE_FLIGHT_DIRECTOR:
-        return (
-            f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
-            "ROLE: Flight Director (Cockpit Coordinator)\n\n"
-            "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
-            "1. COGNITIVE STATE PRESERVATION INVARIANT & ZERO REPO DOCUMENT POLLUTION:\n"
-            "   - Strongly direct coordinator to materialize working memory, active task decomposition, pending subagent assignments, and operator steering decisions into 'compaction_checkpoint_latest.md' / 'cockpit_checkpoint.md' (.agents/artifacts/compaction_checkpoint_latest.md, .agents/artifacts/cockpit_checkpoint.md, or brain directory) before compaction strikes.\n"
-            "   - Store current session state, remaining phase tasks, and open decisions strictly in local session artifacts (.agents/artifacts/ or brain directory) or scratch. Do NOT commit temporary state or session coordination files to git. Zero repository pollution.\n"
-            "2. WORK PRESERVATION CONTRACT:\n"
-            "   - Preserve all workspace changes. STRICTLY PROHIBIT 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
-            "3. AUTONOMOUS POST-COMPACTION CONTINUATION:\n"
-            "   - On next wake-up, immediately inspect 'compaction_checkpoint_latest.md' / 'cockpit_checkpoint.md' and the active phase plan in .agents/artifacts/ and run 'git status'.\n"
-            "   - Resume ladder orchestration and subagent coordination autonomously without human re-explanation."
-        )
-
-    return (
-        f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{estimated_turns} TURNS REMAINING)]\n"
-        "ROLE: General Agent\n\n"
-        "CRITICAL INSTRUCTIONS BEFORE CONTEXT COMPACTION:\n"
-        "1. WORK PRESERVATION CONTRACT: STRICTLY PROHIBIT 'git checkout -- .', 'git reset --hard', and 'git clean -fd'. Keep all work on disk.\n"
-        "2. ZERO REPO DOCUMENT POLLUTION: Save recovery state strictly to local artifacts/scratch. Zero git commits for temporary markers.\n"
-        "3. AUTONOMOUS POST-COMPACTION CONTINUATION: Inspect 'git status' and 'git diff' post-compaction and resume execution without asking operator what happened."
-    )
-
-
-ROLE_PERSONA_PROMPTS: Dict[str, str] = {
-    ROLE_FLIGHT_DIRECTOR: (
-        "[AGYIS ROLE PINNING: FLIGHT DIRECTOR / COORDINATOR]\n"
-        "You are operating as the Flight Director / Swarm Coordinator (Stage 0: COORDINATION).\n\n"
-        "CORE OPERATIONAL INVARIANTS:\n"
-        "1. ANTI-CHATBOT SEDUCTION & COGNITIVE STATE FLUSH:\n"
-        "   - Never execute multi-component refactorings in raw conversational chat turns.\n"
-        "   - Immediately crystallize execution plans into interactive implementation plans in .agents/artifacts/.\n"
-        "   - Flush working memory, task rosters, and steering decisions to artifacts; zero repository document pollution.\n"
-        "2. ZERO COORDINATOR REMEDIATION:\n"
-        "   - You are strictly forbidden from modifying product code, patching files directly, or self-resolving review defects.\n"
-        "   - Route all implementation and remediation tasks to specialist subagents (agyis_builder).\n"
-        "3. WORK PRESERVATION CONTRACT:\n"
-        "   - Preserve all local worktree changes. Strictly prohibit 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
-        "4. NON-POLLING REACTIVE DISCIPLINE:\n"
-        "   - Never poll task status in loops. Emit a concise notification and await reactive wakeup."
-    ),
-    ROLE_DEEP_EXECUTION: (
-        "[AGYIS ROLE PINNING: DEEP EXECUTION / EXECUTIONER]\n"
-        "You are operating as the Deep Execution Engineer (Stage 1: EXECUTION / Stage 3: GIT_CUSTODY).\n\n"
-        "CORE OPERATIONAL INVARIANTS:\n"
-        "1. WORK PRESERVATION CONTRACT:\n"
-        "   - Strictly prohibit destructive git commands ('git checkout -- .', 'git reset --hard', 'git clean -fd').\n"
-        "   - On session wake-up, inspect 'git status' and 'git diff' to verify in-flight modifications.\n"
-        "2. SURGICAL CONTIGUOUS EDITS INVARIANT:\n"
-        "   - Always make single contiguous block replacements (replace_file_content). Never overwrite whole files.\n"
-        "   - Preserve surrounding comments, docstrings, imports, and formatting.\n"
-        "3. ZERO SCOPE CREEP:\n"
-        "   - Implement ONLY the tasks specified in the approved implementation plan. Zero speculative expansions.\n"
-        "4. FAST & HERMETIC VERIFICATION:\n"
-        "   - Execute native test commands (./agyis test, python3 -m harness.cli test).\n"
-        "   - Preserve the sub-second benchmark invariant (<1.0s) and hermetic isolation."
-    ),
-    ROLE_FORENSIC_AUDITOR: (
-        "[AGYIS ROLE PINNING: FORENSIC AUDITOR / THE HAMMER]\n"
-        "You are operating as the Forensic Auditor / Victory Auditor (Stage 2: CODE_REVIEW / Stage 4: QA_AUDIT).\n\n"
-        "CORE OPERATIONAL INVARIANTS:\n"
-        "1. ANTI-FIXING & ZERO ERROR SWALLOWING:\n"
-        "   - Never patch code directly or swallow exceptions. Audit diffs line-by-line against the 8 Canonical Empirical Rules.\n"
-        "   - Emits definitive PASS or REJECT verdicts accompanied by a typed defect ledger.\n"
-        "2. DUAL-AUDITOR GATE & CLEAN REVISION INVARIANT:\n"
-        "   - Evaluate strictly the clean, committed revision on HEAD. Never evaluate dirty working trees.\n"
-        "3. FAST & HERMETIC VERIFICATION:\n"
-        "   - Run native test suites (./agyis test, python3 -m harness.cli test) and verify exit code 0.\n"
-        "   - Ensure tests run fast (<1.0s benchmark) without unbounded sleeps or external network dependencies.\n"
-        "4. CLEANROOM RIGOR:\n"
-        "   - Maintain dirty room vs clean room isolation. Derive implementations strictly from formal specifications."
-    ),
-    ROLE_SWARM_ORCHESTRATOR: (
-        "[AGYIS ROLE PINNING: SWARM ORCHESTRATOR]\n"
-        "You are operating as the Swarm Orchestrator coordinating distributed strands across the hardware mesh.\n\n"
-        "CORE OPERATIONAL INVARIANTS:\n"
-        "1. MESH COORDINATION & TOPOLOGY:\n"
-        "   - Coordinate tasks across nodes using non-blocking Linda Tuplespace or out-of-band Swarm Council.\n"
-        "2. WORK PRESERVATION CONTRACT:\n"
-        "   - Preserve local worktrees and branches. Strictly prohibit 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
-        "3. ZERO REPO POLLUTION:\n"
-        "   - Persist coordination state strictly to local artifacts or scratch spaces."
-    ),
-}
-
-
-def build_role_persona_prompt(role: str) -> str:
-    """Returns static role-only persona prompt (~250 tokens) for systemMessage injection."""
-    return ROLE_PERSONA_PROMPTS.get(
-        role,
-        (
-            f"[AGYIS ROLE PINNING: {role.upper()}]\n"
-            f"You are operating with role '{role}'.\n\n"
-            "CORE OPERATIONAL INVARIANTS:\n"
-            "1. WORK PRESERVATION CONTRACT: Strictly prohibit 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
-            "2. PLAN ADHERENCE: Implement only tasks specified in the approved plan. Zero speculative expansions.\n"
-            "3. HERMETIC VERIFICATION: Always run project verification commands and verify exit code 0.\n"
-            "4. NON-POLLING DISCIPLINE: Stop calling tools after launching async tasks and await reactive wakeup."
-        ),
-    )
-
-
-def build_post_compaction_persona_prompt(role: str) -> str:
-    """Returns post-compaction re-anchor prompt with latest checkpoint link and work preservation contract."""
-    base_persona = build_role_persona_prompt(role)
-    return (
-        f"{base_persona}\n\n"
-        "[AGYIS POST-COMPACTION SUCCESSION DIRECTIVE]\n"
-        "You have resumed execution following a context window compaction event.\n\n"
-        "1. GROUND TRUTH CHECKPOINT RESTORATION:\n"
-        "   - Read the pre-compaction ground truth checkpoint immediately:\n"
-        "     `.agents/artifacts/compaction_checkpoint_latest.md` / `.agents/artifacts/cockpit_checkpoint.md`\n"
-        "   - Restore situational awareness: active phase progress, pending tasks, active subagents, and git diff status.\n\n"
-        "2. WORK PRESERVATION CONTRACT:\n"
-        "   - In-flight modifications on disk represent intentional progress.\n"
-        "   - Strictly prohibit destructive git resets: NEVER execute 'git reset --hard', 'git checkout -- .', or 'git clean -fd'.\n\n"
-        "3. AUTONOMOUS CONTINUATION:\n"
-        "   - Proceed directly with the next actionable task identified in the checkpoint.\n"
-        "   - Do NOT ask the operator re-orientation questions ('What should I do next?' or 'Should I continue?'). Resume execution autonomously!"
-    )
-
-
-def build_role_reanchor_advisory(role: str, step_count: int, cadence: int) -> str:
-    """Returns intra-epoch periodic re-anchor ephemeralMessage directive."""
-    return (
-        f"[AGYIS ROLE RE-ANCHOR: {role.upper()} (STEP {step_count} | CADENCE {cadence})]\n"
-        "PERIODIC COGNITIVE ATTENTION AUDIT:\n"
-        f"Reinforcing active operational invariants for role '{role}':\n"
-        "1. Work Preservation: All in-flight edits must be preserved on disk. Destructive git commands are banned.\n"
-        "2. Role Fidelity: Adhere strictly to active stage boundaries. Zero scope creep or unauthorized remediation.\n"
-        "3. Empirical Verification: Validate all modifications with native test commands before concluding.\n"
-        "4. Non-Polling Discipline: Await reactive wakeup after background tasks."
-    )
+        return {}
 
 
 def evaluate_pre_invocation(
@@ -1399,302 +182,134 @@ def evaluate_pre_invocation(
     workspace_dir: Optional[Path] = None,
     sqlite_timeout: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """
-    Evaluates PreInvocation lifecycle event for role pinning and token compaction advisory (Issue #83, #85).
-    Returns:
-    - {"injectSteps": []} if no injection conditions met or on error.
-    - {"injectSteps": [{"systemMessage": ...}]} for Turn 0 stage entry or post-compaction re-anchor.
-    - {"injectSteps": [{"ephemeralMessage": ...}]} for intra-epoch periodic re-anchors or compaction advisory.
-    """
+    """Evaluates PreInvocation event for sticky role pinning, soft epoch horizon, and compaction alerts."""
+    payload = _parse_payload(payload_str)
     try:
-        if isinstance(payload_str, dict):
-            payload = payload_str
-        else:
-            if isinstance(payload_str, (bytes, bytearray)):
-                if len(payload_str) > MAX_PAYLOAD_BYTES:
-                    payload_str = payload_str[:MAX_PAYLOAD_BYTES]
-                payload_str = payload_str.decode("utf-8", errors="replace")
-            elif isinstance(payload_str, str):
-                if len(payload_str) > MAX_PAYLOAD_BYTES:
-                    payload_str = payload_str[:MAX_PAYLOAD_BYTES]
-            else:
-                payload_str = ""
-
-            payload = json.loads(payload_str) if payload_str and payload_str.strip() else {}
-            if not isinstance(payload, dict):
-                payload = {}
-    except Exception:
-        payload = {}
-
-    try:
-        conv_id = _normalize_cid(
-            str(payload.get("conversationId") or payload.get("conversation_id") or "default")
-        )
-        if not conv_id or conv_id == "default":
-            for pk in (
-                "transcriptPath",
-                "transcript_path",
-                "artifactDirectoryPath",
-                "artifact_directory_path",
-                "artifactDirectory",
-            ):
-                pv = payload.get(pk)
-                if isinstance(pv, str) and pv:
-                    m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", pv)
-                    if m:
-                        conv_id = _normalize_cid(m.group(1).lower())
-                        break
-
-        eff_ws = workspace_dir
-        if eff_ws is None:
-            for k in ("workspace", "workspacePath", "workspacePaths", "activeWorkspaces", "cwd"):
-                wv = payload.get(k)
-                if isinstance(wv, str) and wv.strip():
-                    eff_ws = Path(os.path.expanduser(wv.strip()))
-                    break
-                elif isinstance(wv, (list, tuple)) and wv:
-                    first = wv[0]
-                    if isinstance(first, str) and first.strip():
-                        eff_ws = Path(os.path.expanduser(first.strip()))
-                        break
-                    elif isinstance(first, dict) and "path" in first and isinstance(first["path"], str):
-                        eff_ws = Path(os.path.expanduser(first["path"].strip()))
-                        break
-
+        conv_id, _ = resolve_conv_and_brain(payload, str(payload.get("conversationId") or payload.get("conversation_id") or ""))
+        eff_ws = _resolve_workspace(payload, workspace_dir)
         to = get_compaction_sqlite_timeout(sqlite_timeout)
+        db_metrics = read_db_trajectory_state(conv_id, db_dir=db_dir, timeout=to) if conv_id != "default" else None
 
-        # Native slash command bypass (AC8 / Anti-Collision Invariant):
-        # Native platform slash commands (/compact, /plan, /goal, /boost, /teamwork-preview, etc.)
-        # must bypass PreInvocation advisory and role injection to prevent client-side interceptor collisions.
-        # Custom modular skills (/db-ops, /audio-ops) remain protected.
-        prompt_text = extract_prompt_text(
-            payload, conversation_id=conv_id, db_dir=db_dir, timeout=to
-        )
+        prompt_text = ""
+        for k in _PROMPT_KEYS:
+            v = payload.get(k)
+            if isinstance(v, str) and v.strip():
+                prompt_text = v.strip()
+                break
+        if not prompt_text and db_metrics and db_metrics.latest_user_prompt and is_native_slash_command(db_metrics.latest_user_prompt):
+            prompt_text = db_metrics.latest_user_prompt
         if is_native_slash_command(prompt_text):
             return {"injectSteps": []}
 
-        ctx_win = get_active_conversation_context_window(conv_id, db_dir=db_dir, timeout=to)
-        db_tokens = max(
-            int(ctx_win.get("tokens", 0) or 0),
-            int(get_active_conversation_tokens(conv_id, db_dir=db_dir, timeout=to) or 0),
+        csm = payload.get("chatStartMetadata") if isinstance(payload.get("chatStartMetadata"), dict) else {}
+        cwm = payload.get("contextWindowMetadata") or csm.get("contextWindowMetadata") or {}
+        payload_mct = _parse_int_field(payload, ("maxContextTokens", "max_context_tokens")) or (
+            _parse_int_field(cwm, ("maxContextTokens", "max_context_tokens")) if isinstance(cwm, dict) else None
         )
-        payload_max_ctx = 0
-        for mk in ("maxContextTokens", "max_context_tokens"):
-            mv = payload.get(mk)
-            if isinstance(mv, (int, float)) and int(mv) > 0:
-                payload_max_ctx = int(mv)
-                break
-            elif isinstance(mv, str) and mv.strip().isdigit() and int(mv.strip()) > 0:
-                payload_max_ctx = int(mv.strip())
-                break
-        if payload_max_ctx <= 0:
-            csm_obj = payload.get("chatStartMetadata")
-            for cwm_cand in (
-                payload.get("contextWindowMetadata"),
-                csm_obj.get("contextWindowMetadata") if isinstance(csm_obj, dict) else None,
-            ):
-                if isinstance(cwm_cand, dict):
-                    mv = cwm_cand.get("maxContextTokens") or cwm_cand.get("max_context_tokens")
-                    if isinstance(mv, (int, float)) and int(mv) > 0:
-                        payload_max_ctx = int(mv)
-                        break
+        max_ctx = payload_mct or (db_metrics.max_context_tokens if db_metrics else CONTEXT_WINDOW_TOKENS)
+        eff_thresh = int(threshold) if threshold is not None else get_compaction_advisory_threshold(max_ctx)
+        payload_tokens = _parse_int_field(payload, ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens")) or 0
+        tokens = max(db_metrics.tokens if db_metrics else 0, payload_tokens)
 
-        max_context_tokens = (
-            payload_max_ctx
-            if payload_max_ctx > 0
-            else int(ctx_win.get("max_context_tokens") or CONTEXT_WINDOW_TOKENS)
-        )
-        effective_threshold = (
-            int(threshold)
-            if threshold is not None
-            else get_compaction_advisory_threshold(max_context_tokens=max_context_tokens)
-        )
-
-        payload_tokens = 0
-        for k in ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens"):
-            val = payload.get(k)
-            if isinstance(val, (int, float)) and val > 0:
-                payload_tokens = int(val)
-                break
-            elif isinstance(val, str) and val.strip().isdigit() and int(val.strip()) > 0:
-                payload_tokens = int(val.strip())
-                break
-        tokens = max(db_tokens, payload_tokens)
-
-        role = classify_agent_role(
-            payload,
-            conversation_id=conv_id,
-            db_dir=db_dir,
-            workspace_dir=eff_ws,
-            tokens=tokens,
-            timeout=to,
-        )
-
-        # Step count resolution and stage role inspection
-        has_explicit_step = False
-        step_count: Optional[int] = None
-        for k in (
-            "step_count",
-            "stepCount",
-            "step",
-            "currentStep",
-            "initialNumSteps",
-            "initial_num_steps",
-            "stepIdx",
-            "step_idx",
-            "invocationNum",
-            "invocation_num",
-        ):
-            if k in payload:
-                v = payload[k]
-                if isinstance(v, (int, float)):
-                    step_count = int(v)
-                    has_explicit_step = True
-                    break
-                elif isinstance(v, str) and v.strip().isdigit():
-                    step_count = int(v.strip())
-                    has_explicit_step = True
-                    break
+        step_count = _parse_int_field(payload, ("step_count", "stepCount", "step", "currentStep", "initialNumSteps", "initial_num_steps", "stepIdx", "step_idx", "invocationNum", "invocation_num"))
+        has_explicit_step = step_count is not None
+        if db_metrics and db_metrics.checkpoint_count > 0:
+            step_count = db_metrics.epoch_steps
+            has_explicit_step = True
 
         stage_role_data = None
-        try:
-            from harness.subagents.stage_role import read_stage_role
-            stage_role_data = read_stage_role(eff_ws)
-        except Exception:
-            stage_role_data = None
-
+        if eff_ws is not None or conv_id != "default":
+            try:
+                from harness.subagents.stage_role import read_stage_role
+                stage_role_data = read_stage_role(
+                    eff_ws,
+                    conversation_id=conv_id if conv_id != "default" else None,
+                )
+            except Exception:
+                pass
         if not has_explicit_step and stage_role_data is not None:
-            # Active materialized ladder stage without step count passed -> Turn 0 stage entry
             step_count = 0
             has_explicit_step = True
 
+        state_dir = resolve_cid_state_dir(conv_id, eff_ws, payload)
+        sticky = load_sticky_role_state(state_dir, conv_id)
+        epoch_idx = db_metrics.epoch_index if db_metrics else 0
+
         is_post_compaction = bool(
             re.search(r"#\s*Resuming from a compaction", prompt_text, re.IGNORECASE)
+            or payload.get("isPostCompaction")
+            or payload.get("resumedFromCompaction")
+            or (
+                db_metrics
+                and db_metrics.checkpoint_count > 0
+                and (
+                    (sticky is not None and int(sticky.get("epoch", -1)) < epoch_idx)
+                    or (sticky is None and db_metrics.epoch_steps == 0)
+                )
+            )
         )
 
-        is_turn_zero = (has_explicit_step and step_count == 0)
+        role = classify_agent_role(
+            payload, conversation_id=conv_id, db_dir=db_dir, workspace_dir=eff_ws,
+            tokens=tokens, timeout=to, db_metrics=db_metrics, is_post_compaction=is_post_compaction,
+        )
+        if state_dir and conv_id != "default" and (not sticky or int(sticky.get("epoch", -1)) != epoch_idx):
+            save_sticky_role_state(state_dir, {"conversation_id": conv_id, "epoch": epoch_idx, "role": role, "pinned_at": time.time()})
+
         cadence = get_role_pinning_cadence()
-        is_periodic_reanchor = (
-            has_explicit_step
-            and step_count is not None
-            and step_count > 0
-            and step_count % cadence == 0
-        )
-
+        cp_rel = f".agents/artifacts/checkpoints/{conv_id}.md" if conv_id != "default" else ".agents/artifacts/checkpoints/session.md"
         inject_steps: List[Dict[str, Any]] = []
 
-        is_executioner = (role == ROLE_DEEP_EXECUTION) or (
-            stage_role_data is not None and stage_role_data.get("stage") in (1, 3)
-        )
-
-        # 1. Dual-anchor systemMessage: Turn 0 stage entry AND Turn 0 post-compaction
         if is_post_compaction:
-            persona_prompt = build_post_compaction_persona_prompt(role)
-            inject_steps.append({"systemMessage": persona_prompt})
-        elif is_turn_zero:
-            persona_prompt = build_role_persona_prompt(role)
-            inject_steps.append({"systemMessage": persona_prompt})
-        elif is_executioner and step_count == STEP_WARNING_THRESHOLD:
-            horizon_warn = (
-                "[AGYIS HORIZON WARNING: THRASHING DETECTED / REMEDY MODE ACTIVE - 10 STEPS REMAINING] "
-                "You have 10 steps remaining in your convergence budget. Cease exploring new files, "
-                "complete active edits, run tests, and prepare stage handoff."
-            )
-            reanchor_msg = build_role_reanchor_advisory(role, step_count or 0, cadence)
-            combined_msg = f"{horizon_warn}\n\n{reanchor_msg}"
-            inject_steps.append({"ephemeralMessage": combined_msg})
-        elif is_executioner and step_count == STEP_INTERRUPT_THRESHOLD:
-            inject_steps.append({
-                "ephemeralMessage": (
-                    "[AGYIS HORIZON INTERRUPT: 5 STEPS REMAINING] "
-                    "Compulsory convergence active. You have 5 steps remaining. Open sweeps are blocked. "
-                    "Wrap up active diff and emit stage handoff."
-                )
-            })
-        elif is_periodic_reanchor:
-            # 2. Intra-epoch periodic re-anchor (turns 10, 20, 30...)
-            reanchor_msg = build_role_reanchor_advisory(role, step_count or 0, cadence)
-            inject_steps.append({"ephemeralMessage": reanchor_msg})
+            inject_steps.append({"systemMessage": {"systemMessage": build_post_compaction_persona_prompt(role, checkpoint_path=cp_rel), "metadata": {}}})
+        elif has_explicit_step and step_count == 0:
+            inject_steps.append({"systemMessage": {"systemMessage": build_role_persona_prompt(role), "metadata": {}}})
+        elif has_explicit_step and step_count is not None and step_count > 0:
+            if step_count >= SOFT_EPOCH_STEP_ADVISORY and (step_count == SOFT_EPOCH_STEP_ADVISORY or step_count % cadence == 0):
+                reanchor = build_role_reanchor_advisory(role, step_count, cadence)
+                soft_adv = f"[AGYIS EPOCH HORIZON ADVISORY: Epoch step {step_count}/{SOFT_EPOCH_STEP_ADVISORY} — consider verifying diff & checkpoints]"
+                inject_steps.append({"ephemeralMessage": f"{soft_adv}\n\n{reanchor}"})
+            elif step_count % cadence == 0:
+                inject_steps.append({"ephemeralMessage": build_role_reanchor_advisory(role, step_count, cadence)})
 
-        # 3. Compaction imminent advisory & automated checkpoint serialization (tokens >= effective_threshold)
-        if tokens >= effective_threshold:
-            target_ws = eff_ws or Path.cwd()
-            is_real_session = bool(conv_id and re.match(r'^[0-9a-fA-F-]{8,}$', conv_id) and conv_id not in ("default", "test", "conv_test"))
-            state_file = target_ws / ".agents" / "artifacts" / f".compaction_alert_{conv_id}.json" if is_real_session else None
+        alert_file = state_dir / f".compaction_alert_{conv_id}.json" if state_dir and conv_id != "default" else None
+        if tokens >= eff_thresh:
             already_alerted = False
-            if state_file and state_file.is_file():
+            if alert_file and alert_file.is_file():
                 try:
-                    sdata = json.loads(state_file.read_text(encoding="utf-8"))
-                    if sdata.get("session_id") == conv_id and (time.time() - sdata.get("timestamp", 0) < 900):
-                        already_alerted = True
+                    sdata = json.loads(alert_file.read_text(encoding="utf-8"))
+                    already_alerted = (sdata.get("session_id") == conv_id and (time.time() - sdata.get("timestamp", 0) < 900))
                 except Exception:
-                    already_alerted = False
-
-            try:
-                from harness.delivery.compaction_checkpoint import generate_compaction_checkpoint
-
-                latest_cp = target_ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"
-                should_generate = True
-                if latest_cp.is_file():
-                    try:
-                        age = time.time() - latest_cp.stat().st_mtime
-                        if age < 5.0:
-                            should_generate = False
-                    except OSError:
-                        pass
-
-                if should_generate:
-                    generate_compaction_checkpoint(
-                        workspace_dir=target_ws,
-                        session_id=conv_id if conv_id and conv_id != "default" else None,
-                        orchestrator_role=role,
-                        trigger_tokens=effective_threshold,
-                    )
-            except Exception as exc:
-                sys.stderr.write(
-                    f"[AGYIS PRE-INVOCATION HOOK] Failed to serialize compaction checkpoint: {exc}\n"
-                )
-                traceback.print_exc(file=sys.stderr)
-                sys.stderr.flush()
+                    pass
+            if eff_ws is not None:
+                try:
+                    from harness.delivery.compaction_checkpoint import generate_compaction_checkpoint
+                    cp_target = eff_ws / ".agents" / "artifacts" / "checkpoints" / (f"{conv_id}.md" if conv_id != "default" else "session.md")
+                    if not cp_target.is_file() or (time.time() - cp_target.stat().st_mtime) >= 5.0:
+                        generate_compaction_checkpoint(workspace_dir=eff_ws, session_id=conv_id if conv_id != "default" else None, orchestrator_role=role, trigger_tokens=eff_thresh)
+                except Exception as exc:
+                    sys.stderr.write(f"[AGYIS PRE-INVOCATION HOOK] Failed to serialize compaction checkpoint: {exc}\n")
+                    sys.stderr.flush()
 
             if not already_alerted:
-                advisory = build_compaction_advisory(
-                    role,
-                    tokens,
-                    effective_threshold,
-                    max_context_tokens=max_context_tokens,
-                )
-                inject_steps.append({"ephemeralMessage": advisory})
-                if state_file:
+                inject_steps.append({"ephemeralMessage": build_compaction_advisory(role, tokens, eff_thresh, max_context_tokens=max_ctx, checkpoint_path=cp_rel)})
+                if alert_file and state_dir:
                     try:
-                        state_file.parent.mkdir(parents=True, exist_ok=True)
-                        state_file.write_text(json.dumps({
-                            "session_id": conv_id,
-                            "tokens": tokens,
-                            "threshold": effective_threshold,
-                            "timestamp": time.time(),
-                        }), encoding="utf-8")
-                    except Exception:
+                        state_dir.mkdir(parents=True, exist_ok=True)
+                        alert_file.write_text(json.dumps({"session_id": conv_id, "tokens": tokens, "threshold": eff_thresh, "timestamp": time.time()}), encoding="utf-8")
+                    except OSError:
                         pass
             else:
-                # Deduplicate: emit compact single-line gauge on subsequent turns instead of 40-line directive
-                badge = f"[AGYIS TOKEN GAUGE: ~{tokens:,} / {max_context_tokens:,} TOKENS | Compaction Checkpoint Active]"
-                inject_steps.append({"ephemeralMessage": badge})
-        else:
-            # Below threshold: reset alert state so future threshold crossings fire cleanly
+                inject_steps.append({"ephemeralMessage": f"[AGYIS TOKEN GAUGE: ~{tokens:,} / {max_ctx:,} TOKENS | Compaction Checkpoint Active]"})
+        elif alert_file and alert_file.is_file():
             try:
-                target_ws = eff_ws or Path.cwd()
-                if conv_id and conv_id != "default":
-                    sf = target_ws / ".agents" / "artifacts" / f".compaction_alert_{conv_id}.json"
-                    if sf.is_file():
-                        sf.unlink(missing_ok=True)
-            except Exception:
+                alert_file.unlink(missing_ok=True)
+            except OSError:
                 pass
 
         return {"injectSteps": inject_steps}
     except Exception:
         return {"injectSteps": []}
-
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -1703,27 +318,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         if hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
             raw_stdin = ""
         elif hasattr(sys.stdin, "buffer"):
-            raw_bytes = sys.stdin.buffer.read(MAX_PAYLOAD_BYTES)
-            raw_stdin = raw_bytes.decode("utf-8", errors="replace")
+            raw_stdin = sys.stdin.buffer.read(MAX_PAYLOAD_BYTES).decode("utf-8", errors="replace")
         else:
             raw_stdin = sys.stdin.read(MAX_PAYLOAD_BYTES)
-    except Exception:
-        raw_stdin = ""
-
-    try:
         res = evaluate_pre_invocation(raw_stdin)
     except Exception as exc:
-        sys.stderr.write(f"[PSL PRE-INVOCATION HOOK] Error during evaluation: {exc}\n")
+        sys.stderr.write(f"[PSL PRE-INVOCATION HOOK] Error: {exc}\n")
         traceback.print_exc(file=sys.stderr)
         sys.stderr.flush()
         res = {"injectSteps": []}
-
     try:
         sys.stdout.write(json.dumps(res) + "\n")
         sys.stdout.flush()
     except Exception:
         pass
-
     return 0
 
 

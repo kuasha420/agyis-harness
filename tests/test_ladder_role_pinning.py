@@ -106,14 +106,21 @@ class TestStageRoleMaterializationAndSchema(unittest.TestCase):
                     agent_name=agent_name,
                     task_id=task_id,
                     workspace_dir=self.workspace_dir,
+                    conversation_id="conv-stage-test",
                 )
 
                 self.assertTrue(role_path.is_file())
                 self.assertEqual(
-                    role_path, self.workspace_dir / ".agents" / "session_role.json"
+                    role_path,
+                    self.workspace_dir
+                    / ".agents"
+                    / "artifacts"
+                    / "checkpoints"
+                    / "conv-stage-test"
+                    / "session_role.json",
                 )
 
-                data = read_stage_role(self.workspace_dir)
+                data = read_stage_role(self.workspace_dir, conversation_id="conv-stage-test")
                 self.assertIsNotNone(data)
                 self.assertIsInstance(data, dict)
                 self.assertEqual(data["role"], STAGE_ROLE_MAP[stage])
@@ -121,20 +128,36 @@ class TestStageRoleMaterializationAndSchema(unittest.TestCase):
                 self.assertEqual(data["stage"], stage)
                 self.assertEqual(data["stage_name"], STAGE_NAME_MAP[stage])
                 self.assertEqual(data["task_id"], task_id)
+                self.assertEqual(data["conversation_id"], "conv-stage-test")
                 self.assertIn("updated_at", data)
                 self.assertIn("$schema", data)
 
     def test_clear_stage_role(self) -> None:
-        """clear_stage_role safely unlinks session_role.json."""
-        materialize_stage_role(1, "agyis_builder", "T-01", workspace_dir=self.workspace_dir)
-        self.assertTrue((self.workspace_dir / ".agents" / "session_role.json").is_file())
+        """clear_stage_role safely unlinks CID-scoped session_role.json."""
+        role_file = materialize_stage_role(
+            1,
+            "agyis_builder",
+            "T-01",
+            workspace_dir=self.workspace_dir,
+            conversation_id="conv-clear-test",
+        )
+        self.assertTrue(role_file.is_file())
 
-        cleared = clear_stage_role(self.workspace_dir)
+        cleared = clear_stage_role(self.workspace_dir, conversation_id="conv-clear-test")
         self.assertTrue(cleared)
-        self.assertFalse((self.workspace_dir / ".agents" / "session_role.json").exists())
+        self.assertFalse(role_file.exists())
 
         # Second clear call returns False safely
-        self.assertFalse(clear_stage_role(self.workspace_dir))
+        self.assertFalse(clear_stage_role(self.workspace_dir, conversation_id="conv-clear-test"))
+
+    def test_concurrent_session_roles_isolated(self) -> None:
+        """Issue #112: Concurrent sessions store independent CID-scoped session_role.json without overwriting."""
+        p1 = materialize_stage_role(1, "agyis_builder", "T-1", workspace_dir=self.workspace_dir, conversation_id="cid-builder-1")
+        p2 = materialize_stage_role(2, "agyis_reviewer", "T-2", workspace_dir=self.workspace_dir, conversation_id="cid-reviewer-2")
+        self.assertNotEqual(p1, p2)
+        self.assertFalse((self.workspace_dir / ".agents" / "session_role.json").exists())
+        self.assertEqual(check_pillar_3_explicit_role({"conversationId": "cid-builder-1"}, workspace_dir=self.workspace_dir), "deep_execution")
+        self.assertEqual(check_pillar_3_explicit_role({"conversationId": "cid-reviewer-2"}, workspace_dir=self.workspace_dir), "forensic_auditor")
 
     def test_schema_validation_failures(self) -> None:
         """validate_stage_role_schema rejects malformed payloads."""
@@ -258,7 +281,10 @@ class TestRolePinningDualAnchorAndReAnchor(unittest.TestCase):
         self.assertEqual(len(inject_steps), 1)
         self.assertIn("systemMessage", inject_steps[0])
 
-        system_msg = inject_steps[0]["systemMessage"]
+        envelope = inject_steps[0]["systemMessage"]
+        self.assertIsInstance(envelope, dict)
+        self.assertIn("metadata", envelope)
+        system_msg = envelope["systemMessage"]
         self.assertIn("[AGYIS ROLE PINNING: DEEP EXECUTION / EXECUTIONER]", system_msg)
         self.assertIn("WORK PRESERVATION CONTRACT", system_msg)
         self.assertIn("SURGICAL CONTIGUOUS EDITS INVARIANT", system_msg)
@@ -278,7 +304,7 @@ class TestRolePinningDualAnchorAndReAnchor(unittest.TestCase):
         inject_steps = res.get("injectSteps", [])
         self.assertEqual(len(inject_steps), 1)
         self.assertIn("systemMessage", inject_steps[0])
-        self.assertIn("DEEP EXECUTION", inject_steps[0]["systemMessage"])
+        self.assertIn("DEEP EXECUTION", inject_steps[0]["systemMessage"]["systemMessage"])
 
     def test_turn_zero_coordinator_stage(self) -> None:
         """Stage 0 (flight_director) injects coordinator-specific invariants."""
@@ -287,7 +313,7 @@ class TestRolePinningDualAnchorAndReAnchor(unittest.TestCase):
 
         inject_steps = res.get("injectSteps", [])
         self.assertEqual(len(inject_steps), 1)
-        system_msg = inject_steps[0]["systemMessage"]
+        system_msg = inject_steps[0]["systemMessage"]["systemMessage"]
         self.assertIn("[AGYIS ROLE PINNING: FLIGHT DIRECTOR / COORDINATOR]", system_msg)
         self.assertIn("ANTI-CHATBOT SEDUCTION & COGNITIVE STATE FLUSH", system_msg)
         self.assertIn("ZERO COORDINATOR REMEDIATION", system_msg)
@@ -299,13 +325,13 @@ class TestRolePinningDualAnchorAndReAnchor(unittest.TestCase):
 
         inject_steps = res.get("injectSteps", [])
         self.assertEqual(len(inject_steps), 1)
-        system_msg = inject_steps[0]["systemMessage"]
+        system_msg = inject_steps[0]["systemMessage"]["systemMessage"]
         self.assertIn("[AGYIS ROLE PINNING: FORENSIC AUDITOR / THE HAMMER]", system_msg)
         self.assertIn("ANTI-FIXING & ZERO ERROR SWALLOWING", system_msg)
         self.assertIn("DUAL-AUDITOR GATE & CLEAN REVISION INVARIANT", system_msg)
 
     def test_post_compaction_reanchor_dual_anchor(self) -> None:
-        """Turn 0 post-compaction ('# Resuming from a compaction...') injects systemMessage."""
+        """Turn 0 post-compaction ('# Resuming from a compaction...') injects nested systemMessage."""
         prompts = [
             "# Resuming from a compaction...\nPrevious context summarized.",
             "# Resuming from a compaction\nContinuing work.",
@@ -322,7 +348,8 @@ class TestRolePinningDualAnchorAndReAnchor(unittest.TestCase):
                 inject_steps = res.get("injectSteps", [])
                 self.assertEqual(len(inject_steps), 1)
                 self.assertIn("systemMessage", inject_steps[0])
-                self.assertIn("DEEP EXECUTION", inject_steps[0]["systemMessage"])
+                self.assertIsInstance(inject_steps[0]["systemMessage"], dict)
+                self.assertIn("DEEP EXECUTION", inject_steps[0]["systemMessage"]["systemMessage"])
 
     def test_intra_epoch_periodic_reanchors(self) -> None:
         """Turns 10, 20, 30 inject intra-epoch ephemeralMessage re-anchor advisories."""
@@ -430,6 +457,8 @@ class TestNativeSlashCommandsBypass(unittest.TestCase):
         res_0 = evaluate_pre_invocation(payload_0)
         self.assertEqual(len(res_0.get("injectSteps", [])), 1)
         self.assertIn("systemMessage", res_0["injectSteps"][0])
+        self.assertIsInstance(res_0["injectSteps"][0]["systemMessage"], dict)
+        self.assertIn("systemMessage", res_0["injectSteps"][0]["systemMessage"])
 
         # Turn 10 with modular skill prompt receives ephemeralMessage
         payload_10 = {

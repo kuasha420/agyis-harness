@@ -15,6 +15,14 @@ import re
 import tempfile
 
 from harness.discovery import detect_project_test_runner
+from harness.trajectory.health import (
+    ROLE_DEEP_EXECUTION,
+    ROLE_FLIGHT_DIRECTOR,
+    ROLE_FORENSIC_AUDITOR,
+    ROLE_SWARM_ORCHESTRATOR,
+    SOFT_EPOCH_STEP_ADVISORY,
+    normalize_role_str,
+)
 from harness.utils.workspace import is_harness_workspace
 
 # Declarative cleanroom specification extensions (only these qualify for pure spec_dirty)
@@ -24,12 +32,7 @@ DECLARATIVE_SPEC_EXTENSIONS: frozenset[str] = frozenset({
 
 TIER_RANKS: dict[str, int] = {"diff": 1, "affected": 2, "mutation": 2, "pkg": 3, "full": 4}
 
-ROLE_FLIGHT_DIRECTOR: str = "flight_director"
-ROLE_SWARM_ORCHESTRATOR: str = "swarm_orchestrator"
-ROLE_DEEP_EXECUTION: str = "deep_execution"
-ROLE_FORENSIC_AUDITOR: str = "forensic_auditor"
-
-EXECUTIONER_HORIZON_STEPS: int = 50
+EXECUTIONER_HORIZON_STEPS: int = SOFT_EPOCH_STEP_ADVISORY
 CODE_MUTATION_TOOLS: frozenset[str] = frozenset({"write_to_file", "replace_file_content", "edit_file"})
 
 # Non-code files that do not trigger code dirty state
@@ -123,42 +126,7 @@ SHELL_MUTATION_PATTERNS = (
 )
 
 
-def normalize_role(val: str | None) -> str | None:
-    """Normalizes an agent role identifier to the canonical taxonomy."""
-    if not val or not isinstance(val, str):
-        return None
-    norm = val.strip().lower().replace("-", "_")
-    if norm in (
-        ROLE_DEEP_EXECUTION, "agyis_builder", "agyis_custodian", "agyis_architect",
-        "architect", "implementer", "master_implementer", "executioner", "builder",
-        "custodian", "harness_custodian", "git_custodian", "harness_builder",
-        "deep_coding", "deep_coder", "coder", "execution", "monolithic_swe_pairing",
-        "monolithic", "monolith", "swe_pairing", "pairing", "swe",
-    ):
-        return ROLE_DEEP_EXECUTION
-    if norm in (
-        ROLE_FORENSIC_AUDITOR, "agyis_reviewer", "agyis_auditor", "agyis_investigator",
-        "reviewer", "harness_reviewer", "harness_auditor", "investigator", "detective",
-        "forensic", "verifier", "auditor", "hammer", "forensics", "inspector",
-    ):
-        return ROLE_FORENSIC_AUDITOR
-    if norm in (ROLE_SWARM_ORCHESTRATOR, "orchestrator", "swarm", "mesh_coordinator", "mesh"):
-        return ROLE_SWARM_ORCHESTRATOR
-    if norm in (
-        ROLE_FLIGHT_DIRECTOR, "agyis_coordinator", "agyis_planner", "planner",
-        "coordinator", "cockpit_director", "flight_director", "flight", "director", "cockpit", "root",
-    ):
-        return ROLE_FLIGHT_DIRECTOR
-
-    if "executioner" in norm or "builder" in norm or "custodian" in norm or "deep_execution" in norm or "deep_coding" in norm:
-        return ROLE_DEEP_EXECUTION
-    if "hammer" in norm or "auditor" in norm or "forensic" in norm or "reviewer" in norm:
-        return ROLE_FORENSIC_AUDITOR
-    if "orchestrator" in norm or "swarm" in norm:
-        return ROLE_SWARM_ORCHESTRATOR
-    if "flight" in norm or "cockpit" in norm or "planner" in norm:
-        return ROLE_FLIGHT_DIRECTOR
-    return norm
+normalize_role = normalize_role_str
 
 
 def classify_test_tier(command: str) -> str:
@@ -289,8 +257,12 @@ def is_ephemeral_scratch_path(file_path: str, cwd: Path | str | None = None) -> 
     if norm.startswith("artifacts/rea/") or "/artifacts/rea/" in norm:
         return True
 
-    # Rule 1: Antigravity ephemeral scratch transcripts/scripts
+    # Rule 1: Antigravity brain and workspace ephemeral scratch paths
     if ".gemini/antigravity/brain" in norm and "/scratch/" in norm:
+        return True
+    if norm.startswith("scratch/") or "/scratch/" in norm:
+        return True
+    if norm.startswith(".agents/scratch/") or "/.agents/scratch/" in norm:
         return True
 
     # Rule 2: When cwd is provided, check if path resolves outside cwd
@@ -331,6 +303,8 @@ def check_has_mutable_code(files: list[str], cwd: Path | str | None = None) -> b
     for f in files:
         if f == "<shell-mutation>":  # agyis: no-mutant shell mutation marker
             return True
+        if is_ephemeral_scratch_path(f, cwd=cwd):
+            continue
         if is_code_file(f) and not is_test_file(f):  # agyis: no-mutant code filter check
             f_path = Path(f)
             if not f_path.is_absolute() and cwd:  # agyis: no-mutant path resolution

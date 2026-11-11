@@ -15,13 +15,14 @@ from typing import Optional
 
 from harness.discovery import detect_project_test_runner, get_git_modified_files
 from harness.hooks.fence_classifiers import (
-    CODE_MUTATION_TOOLS, DECLARATIVE_SPEC_EXTENSIONS, EXECUTIONER_HORIZON_STEPS,
+    CODE_MUTATION_TOOLS, DECLARATIVE_SPEC_EXTENSIONS,
     ROLE_DEEP_EXECUTION, ROLE_FLIGHT_DIRECTOR, ROLE_SWARM_ORCHESTRATOR, TIER_RANKS,
     check_has_mutable_code, is_cleanroom_contract_file, is_code_file,
     is_manifest_verified, is_test_file, normalize_role,
 )
 from harness.hooks.fence_state import clear_spec_dirty, get_brain_dir, load_state, save_state
 from harness.hooks.fence_tasks import sync_background_tasks
+from harness.trajectory.health import SOFT_EPOCH_STEP_ADVISORY
 from harness.utils.workspace import is_harness_workspace
 
 
@@ -36,10 +37,10 @@ def check_pre_tool_use(
     cwd: Path | str | None = None,
 ) -> dict:
     """
-    Evaluates PreToolUse constraints including the Hard Horizon Fence (Issue #86).
-    When role is ROLE_DEEP_EXECUTION and step_count >= 50:
-    Blocks code mutation tools (write_to_file, replace_file_content, edit_file).
-    Permits verification grace (run_command test commands) and read-only tools.
+    Evaluates PreToolUse constraints including the Soft Epoch Horizon Advisory (Issue #109).
+    When role is ROLE_DEEP_EXECUTION and epoch step_count >= SOFT_EPOCH_STEP_ADVISORY (80):
+    Attaches a non-blocking horizon advisory on code mutation tools (write_to_file,
+    replace_file_content, edit_file) without blocking execution.
     Exempts non-executioner roles (flight_director, forensic_auditor).
     """
     effective_step = step_count
@@ -72,15 +73,13 @@ def check_pre_tool_use(
     if norm_role and norm_role != ROLE_DEEP_EXECUTION:
         return {"decision": "allow"}
 
-    if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= EXECUTIONER_HORIZON_STEPS:
+    if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_EPOCH_STEP_ADVISORY:
         if tool_name in CODE_MUTATION_TOOLS:
             return {
-                "decision": "deny",
-                "reason": (
-                    "HARD HORIZON FENCE TRIGGERED (20-Step Remedy Budget Exhausted / 50 Steps Reached). "
-                    "Further code mutation is strictly blocked to prevent cognitive cliff collapse. "
-                    "All local modifications are preserved intact on disk. You are granted 1 Verification Grace turn to run tests. "
-                    "You MUST immediately message the parent agent via send_message with your stage transition payload and STOP calling tools."
+                "decision": "allow",
+                "advisory": (
+                    f"[EPOCH HORIZON: {effective_step}/{SOFT_EPOCH_STEP_ADVISORY} STEPS] "
+                    "Extended epoch reached — verify diffs, update checkpoints, or compact when convenient."
                 ),
             }
 

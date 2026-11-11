@@ -364,20 +364,99 @@ class TestInlineScriptHygieneHook(unittest.TestCase):
             self.assertIsNone(reason)
 
     def test_sanitize_command_integration(self):
-        """sanitize_command integrates transparent promotion for multi-line scripts (Issue #101)."""
+        """sanitize_command promotes multi-line scripts to verified absolute scratch paths (#101)."""
         from harness.hooks.command_safety_hook import sanitize_command
         cmd = "python3 -c \"import os\nprint(os.getcwd())\""
-        decision, mod_cmd, reason = sanitize_command(cmd)
-        self.assertEqual(decision, "allow")
-        self.assertIsNotNone(mod_cmd)
-        self.assertIn(".agents/scratch/exec_", mod_cmd)
-        self.assertIn("[AGYIS COGNITIVE HINT]", reason)
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td).resolve()
+            decision, mod_cmd, reason = sanitize_command(cmd, workspace_dir=ws)
+            self.assertEqual(decision, "allow")
+            self.assertIsNotNone(mod_cmd)
+            self.assertIn(f"{ws}/.agents/scratch/exec_", mod_cmd)
+            self.assertIn("[AGYIS COGNITIVE HINT]", reason)
 
-        # Fallback when promotion is disabled: returns deny
         dec_fallback, mod_fallback, reason_fallback = sanitize_command(cmd, promote_scratch=False)
         self.assertEqual(dec_fallback, "deny")
         self.assertIsNone(mod_fallback)
         self.assertIn("PSL-INV-002 VIOLATION", reason_fallback)
+
+    def test_workspace_paths_preference_and_plugin_cwd_brain_fallback(self):
+        """workspacePaths picks <ws>/scratch/ if present, <ws>/.agents/scratch/ otherwise, or brain scratch when cwd is a plugin dir."""
+        from harness.hooks.command_safety_hook import resolve_scratch_target_path
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            ws1 = root / "ws_scratch"
+            (ws1 / "scratch").mkdir(parents=True, exist_ok=True)
+            t1, ref1 = resolve_scratch_target_path(".py", "abc12345", workspace_dir=ws1)
+            self.assertTrue(t1.is_absolute() and t1.is_relative_to(ws1 / "scratch"))
+            self.assertEqual(ref1, str(t1))
+
+            ws2 = root / "ws_agents"
+            ws2.mkdir(parents=True, exist_ok=True)
+            t2, _ = resolve_scratch_target_path(".py", "def67890", workspace_dir=ws2)
+            self.assertTrue(t2.is_absolute() and t2.is_relative_to(ws2 / ".agents" / "scratch"))
+
+            brain = root / "brain"
+            plugin_cwd = root / ".gemini" / "config" / "plugins" / "agyis-harness"
+            plugin_cwd.mkdir(parents=True, exist_ok=True)
+            with patch("harness.hooks.command_safety_hook.get_active_brain_dir", return_value=brain), \
+                 patch("harness.hooks.command_safety_hook.Path.cwd", return_value=plugin_cwd), \
+                 patch.dict("os.environ", {"AGYIS_CONVERSATION_ID": "conv-123"}):
+                t3, _ = resolve_scratch_target_path(".py", "11223344")
+                self.assertTrue(t3.is_relative_to(brain / "conv-123" / "scratch"))
+
+    def test_export_path_syntax_valid_before_for_loop(self):
+        """Hermetic python / shim PATH injection emits `export PATH="..."; ` valid before shell `for` loops."""
+        import subprocess
+        from harness.hooks.command_safety_hook import sanitize_command
+
+        with patch("harness.hooks.command_safety_hook.find_hermetic_uv_python_bin", return_value=Path("/opt/uv python/bin")), \
+             patch("harness.hooks.command_safety_hook.get_user_path_shims", return_value=["/home/user/.local/bin"]):
+            for cmd in (
+                'for f in a b; do python3 -c "print(\'hi\')"; done',
+                'for f in a b; do uv run pytest && python3 -c "print(1)"; done',
+            ):
+                dec, mod_cmd, _ = sanitize_command(cmd)
+                self.assertEqual(dec, "allow")
+                self.assertIsNotNone(mod_cmd)
+                self.assertTrue(mod_cmd.startswith('export PATH="'))
+                res = subprocess.run(["bash", "-n", "-c", mod_cmd], capture_output=True, text=True)
+                self.assertEqual(res.returncode, 0, f"bash -n failed on {mod_cmd}: {res.stderr}")
+
+    def test_trivial_shell_pipelines_quoted_nl_and_commit_args_not_rewritten(self):
+        """Trivial bash pipelines, quoted \\n print literals, and git commit strings stay un-rewritten."""
+        from harness.hooks.command_safety_hook import check_inline_script_hygiene, sanitize_command
+
+        safe_cmds = [
+            "bash -c 'cd /tmp && head -n 5 foo.txt'",
+            "bash -c \"cd /tmp &&\\\nhead -n 5 foo.txt\"",
+            "bash -c 'rg pattern src/ | tail -n 10'",
+            'python3 -c \'print("line1\\nline2")\'',
+            'git commit -m "Fix python3 -c \\"import a\\nprint(1)\\""',
+        ]
+        for cmd in safe_cmds:
+            dec, rsn = check_inline_script_hygiene(cmd)
+            self.assertEqual(dec, "allow", f"Should allow without rewrite: {cmd} -> {rsn}")
+            dec2, mod2, _ = sanitize_command(cmd)
+            self.assertEqual(dec2, "allow")
+            if mod2 is not None:
+                self.assertNotIn("/scratch/exec_", mod2)
+
+    def test_fence_exemption_for_workspace_scratch_paths(self):
+        """Shell mutations targeting workspace scratch/ or .agents/scratch/ do not trigger code_dirty."""
+        from harness.hooks.fence_tasks import check_shell_command_mutation
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ws, state_dir = root / "ws", root / "state"
+            ws.mkdir()
+            for cmd in (
+                "echo 'x=1' > scratch/tmp.py",
+                "echo 'x=1' > .agents/scratch/exec_12345678.py",
+            ):
+                mutated = check_shell_command_mutation(cmd, cwd=ws, conv_id="c-scratch", state_dir=state_dir)
+                self.assertFalse(mutated, f"Scratch write must remain exempt: {cmd}")
 
 
 if __name__ == "__main__":

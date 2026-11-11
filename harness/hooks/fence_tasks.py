@@ -20,6 +20,7 @@ from harness.hooks.fence_classifiers import (
     classify_test_tier,
     is_cleanroom_contract_file,
     is_code_file,
+    is_ephemeral_scratch_path,
     is_test_command,
 )
 from harness.hooks.fence_state import (
@@ -243,7 +244,7 @@ def check_shell_command_mutation(
             target in ("/dev/null", "/tmp", "&1", "&2")
             or target.startswith(("/dev/", "/tmp/", "&"))
         )
-        if not is_benign:
+        if not is_benign and not is_ephemeral_scratch_path(target, cwd=cwd):
             if is_code_file(target) or is_cleanroom_contract_file(target):
                 record_edit(target, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
                 return True
@@ -256,7 +257,7 @@ def check_shell_command_mutation(
             target in ("/dev/null", "/tmp", "&1", "&2")
             or target.startswith(("/dev/", "/tmp/", "&"))
         )
-        if not is_benign:
+        if not is_benign and not is_ephemeral_scratch_path(target, cwd=cwd):
             if is_code_file(target) or is_cleanroom_contract_file(target):
                 record_edit(target, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
                 return True
@@ -266,6 +267,8 @@ def check_shell_command_mutation(
         if pat.search(cmd_clean):
             m_sed_file = re.search(r"\bsed\s+-[^\s]*i[^\s]*\s+(?:'[^']*'|\"[^\"]*\"|[^\s]+)\s+([^\s;&|]+)", cmd_clean)
             target = m_sed_file.group(1).strip("\"'") if m_sed_file else "<shell-mutation>"
+            if target != "<shell-mutation>" and is_ephemeral_scratch_path(target, cwd=cwd):
+                return False
             record_edit(target, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
             return True
 

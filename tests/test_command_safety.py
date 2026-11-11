@@ -615,74 +615,69 @@ class TestRC10Cluster1ToolResilience(unittest.TestCase):
             self.assertIn("prepended directory navigation", res.get("reason", ""))
 
     def test_scratch_promotion_python(self):
-        """Multi-line Python inline script is promoted to .agents/scratch/exec_<hash>.py (#101)."""
+        """Multi-line Python inline script is promoted to a verified absolute .agents/scratch/exec_<hash>.py (#101)."""
         import tempfile
         from harness.hooks.command_safety_hook import promote_inline_script_to_scratch
 
         with tempfile.TemporaryDirectory() as td:
-            ws = Path(td)
+            ws = Path(td).resolve()
             multiline_cmd = "python3 -c \"import os\nprint(os.environ.get('USER'))\""
             decision, mod_cmd, reason = promote_inline_script_to_scratch(multiline_cmd, workspace_dir=ws)
 
             self.assertEqual(decision, "allow")
             self.assertIsNotNone(mod_cmd)
-            self.assertTrue(mod_cmd.startswith("python3 .agents/scratch/exec_"))
+            parts = mod_cmd.split()
+            self.assertEqual(parts[0], "python3")
+            scratch_file = Path(parts[1])
+            self.assertTrue(scratch_file.is_absolute())
+            self.assertTrue(scratch_file.is_relative_to(ws / ".agents" / "scratch"))
             self.assertTrue(mod_cmd.endswith(".py"))
             self.assertIn("[AGYIS COGNITIVE HINT]", reason)
-
-            # Inspect written scratch file
-            scratch_file = ws / mod_cmd.split()[1]
             self.assertTrue(scratch_file.is_file())
             content = scratch_file.read_text(encoding="utf-8")
             self.assertTrue(content.startswith("# Transparently promoted by PSL command_safety_hook (PSL-INV-002)\n"))
             self.assertIn("import os\nprint(os.environ.get('USER'))", content)
 
     def test_scratch_promotion_bash_and_sh_executable(self):
-        """Multi-line Bash and Sh scripts are promoted with executable permissions (chmod +x) (#101)."""
-        import os
+        """Multi-line Bash and Sh scripts are promoted to verified absolute paths with chmod +x (#101)."""
         import tempfile
         from harness.hooks.command_safety_hook import promote_inline_script_to_scratch
 
         with tempfile.TemporaryDirectory() as td:
-            ws = Path(td)
-            # Bash
+            ws = Path(td).resolve()
             bash_cmd = "bash -c \"echo line1\necho line2\""
-            dec_b, mod_b, reason_b = promote_inline_script_to_scratch(bash_cmd, workspace_dir=ws)
+            dec_b, mod_b, _ = promote_inline_script_to_scratch(bash_cmd, workspace_dir=ws)
             self.assertEqual(dec_b, "allow")
-            self.assertTrue(mod_b.startswith("bash .agents/scratch/exec_"))
+            scratch_b = Path(mod_b.split()[1])
+            self.assertEqual(mod_b.split()[0], "bash")
+            self.assertTrue(scratch_b.is_absolute() and scratch_b.is_relative_to(ws / ".agents" / "scratch"))
             self.assertTrue(mod_b.endswith(".sh"))
-
-            scratch_b = ws / mod_b.split()[1]
-            self.assertTrue(scratch_b.is_file())
-            # Verify executable mode
-            self.assertTrue(bool(scratch_b.stat().st_mode & 0o111))
+            self.assertTrue(scratch_b.is_file() and bool(scratch_b.stat().st_mode & 0o111))
             self.assertIn("# Transparently promoted by PSL command_safety_hook", scratch_b.read_text())
 
-            # Sh
             sh_cmd = "sh -c \"echo sh1\necho sh2\""
-            dec_s, mod_s, reason_s = promote_inline_script_to_scratch(sh_cmd, workspace_dir=ws)
+            dec_s, mod_s, _ = promote_inline_script_to_scratch(sh_cmd, workspace_dir=ws)
             self.assertEqual(dec_s, "allow")
-            self.assertTrue(mod_s.startswith("sh .agents/scratch/exec_"))
-            self.assertTrue(mod_s.endswith(".sh"))
-            scratch_s = ws / mod_s.split()[1]
-            self.assertTrue(bool(scratch_s.stat().st_mode & 0o111))
+            scratch_s = Path(mod_s.split()[1])
+            self.assertEqual(mod_s.split()[0], "sh")
+            self.assertTrue(scratch_s.is_absolute() and scratch_s.is_relative_to(ws / ".agents" / "scratch"))
+            self.assertTrue(mod_s.endswith(".sh") and bool(scratch_s.stat().st_mode & 0o111))
 
     def test_scratch_promotion_node_valid_js_comment(self):
-        """Multi-line Node scripts are promoted to .js files with valid // comment headers (#101)."""
+        """Multi-line Node scripts are promoted to absolute .js files with valid // comment headers (#101)."""
         import tempfile
         from harness.hooks.command_safety_hook import promote_inline_script_to_scratch
 
         with tempfile.TemporaryDirectory() as td:
-            ws = Path(td)
+            ws = Path(td).resolve()
             node_cmd = "node -e \"const os = require('os')\nconsole.log(os.platform())\""
-            dec, mod, reason = promote_inline_script_to_scratch(node_cmd, workspace_dir=ws)
+            dec, mod, _ = promote_inline_script_to_scratch(node_cmd, workspace_dir=ws)
             self.assertEqual(dec, "allow")
-            self.assertTrue(mod.startswith("node .agents/scratch/exec_"))
+            scratch_js = Path(mod.split()[1])
+            self.assertEqual(mod.split()[0], "node")
+            self.assertTrue(scratch_js.is_absolute() and scratch_js.is_relative_to(ws / ".agents" / "scratch"))
             self.assertTrue(mod.endswith(".js"))
-
-            scratch_js = ws / mod.split()[1]
             content = scratch_js.read_text(encoding="utf-8")
-            # Must start with // comment for JavaScript parser compatibility
             self.assertTrue(content.startswith("// Transparently promoted by PSL command_safety_hook (PSL-INV-002)\n"))
 
     def test_scratch_promotion_fallback_on_write_failure(self):
@@ -697,14 +692,15 @@ class TestRC10Cluster1ToolResilience(unittest.TestCase):
             self.assertIn("PSL-INV-002 VIOLATION", reason)
 
     def test_combined_cwd_and_scratch_promotion_end_to_end(self):
-        """End-to-end combination of foreign Cwd sanitization and transparent scratch promotion (#101 + #104)."""
+        """End-to-end foreign Cwd sanitization + workspacePaths absolute scratch promotion (#101 + #104)."""
         import io
         import tempfile
         from harness.hooks.command_safety_hook import main as safety_main
 
         with tempfile.TemporaryDirectory() as td:
-            ws = Path(td)
+            ws = Path(td).resolve()
             payload = {
+                "workspacePaths": [str(ws)],
                 "toolCall": {
                     "name": "run_command",
                     "args": {
@@ -712,18 +708,17 @@ class TestRC10Cluster1ToolResilience(unittest.TestCase):
                         "Cwd": "/opt/custom",
                         "toolAction": "eval",
                     },
-                }
+                },
             }
             with patch("sys.stdin", io.StringIO(json.dumps(payload))), \
-                 patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
-                 patch("pathlib.Path.cwd", return_value=ws):
+                 patch("sys.stdout", new_callable=io.StringIO) as mock_out:
                 safety_main()
                 res = json.loads(mock_out.getvalue().strip())
                 self.assertEqual(res["decision"], "allow")
-                self.assertIn("overwrite", res)
                 ow = res["overwrite"]
                 cmd = ow["CommandLine"]
-                self.assertTrue(cmd.startswith('cd "/opt/custom" && python3 .agents/scratch/exec_'))
+                expected_prefix = f'cd "/opt/custom" && python3 {ws}/.agents/scratch/exec_'
+                self.assertTrue(cmd.startswith(expected_prefix), f"Unexpected cmd: {cmd}")
                 self.assertTrue(cmd.endswith(".py"))
                 self.assertNotIn("Cwd", ow)
                 self.assertNotIn("toolAction", ow)
@@ -736,28 +731,23 @@ class TestRC10Cluster1ToolResilience(unittest.TestCase):
         from harness.hooks.command_safety_hook import promote_inline_script_to_scratch
 
         with tempfile.TemporaryDirectory() as td:
-            ws = Path(td)
-            # 1. Python containing "-c" inside body
+            ws = Path(td).resolve()
             py_cmd = "python3 -c \"import subprocess\nsubprocess.run(['bash', '-c', 'echo 1'])\""
-            dec_py, mod_py, reason_py = promote_inline_script_to_scratch(py_cmd, workspace_dir=ws)
+            dec_py, mod_py, _ = promote_inline_script_to_scratch(py_cmd, workspace_dir=ws)
             self.assertEqual(dec_py, "allow")
-            self.assertTrue(mod_py.startswith("python3 .agents/scratch/exec_"))
-            self.assertTrue(mod_py.endswith(".py"))
-            # Slicing must not leave dangling body fragments
             self.assertEqual(len(mod_py.split()), 2)
-
-            # Verify written body contains the inner -c intact
-            py_file = ws / mod_py.split()[1]
+            py_file = Path(mod_py.split()[1])
+            self.assertTrue(py_file.is_absolute() and py_file.is_relative_to(ws / ".agents" / "scratch"))
+            self.assertTrue(mod_py.endswith(".py"))
             self.assertIn("subprocess.run(['bash', '-c', 'echo 1'])", py_file.read_text())
 
-            # 2. Node containing "-e" inside body
             node_cmd = "node -e \"const cp = require('child_process')\ncp.execSync('echo -e hello')\""
-            dec_node, mod_node, reason_node = promote_inline_script_to_scratch(node_cmd, workspace_dir=ws)
+            dec_node, mod_node, _ = promote_inline_script_to_scratch(node_cmd, workspace_dir=ws)
             self.assertEqual(dec_node, "allow")
-            self.assertTrue(mod_node.startswith("node .agents/scratch/exec_"))
-            self.assertTrue(mod_node.endswith(".js"))
             self.assertEqual(len(mod_node.split()), 2)
-            node_file = ws / mod_node.split()[1]
+            node_file = Path(mod_node.split()[1])
+            self.assertTrue(node_file.is_absolute() and node_file.is_relative_to(ws / ".agents" / "scratch"))
+            self.assertTrue(mod_node.endswith(".js"))
             self.assertIn("cp.execSync('echo -e hello')", node_file.read_text())
 
     def test_scratch_promotion_multiple_interpreters_order_preservation(self):
@@ -766,32 +756,22 @@ class TestRC10Cluster1ToolResilience(unittest.TestCase):
         from harness.hooks.command_safety_hook import promote_inline_script_to_scratch
 
         with tempfile.TemporaryDirectory() as td:
-            ws = Path(td)
-            # Compound command with bash first, python second
+            ws = Path(td).resolve()
             compound = (
                 "bash -c \"echo step1\necho step1_done\" && "
                 "python3 -c \"import sys\nprint('step2')\""
             )
-            dec, mod, reason = promote_inline_script_to_scratch(compound, workspace_dir=ws)
+            dec, mod, _ = promote_inline_script_to_scratch(compound, workspace_dir=ws)
             self.assertEqual(dec, "allow")
-            self.assertIn(" && ", mod)
-
             parts = mod.split(" && ")
             self.assertEqual(len(parts), 2)
 
-            # First segment is bash
-            self.assertTrue(parts[0].startswith("bash .agents/scratch/exec_"))
-            self.assertTrue(parts[0].endswith(".sh"))
-
-            # Second segment is python
-            self.assertTrue(parts[1].startswith("python3 .agents/scratch/exec_"))
-            self.assertTrue(parts[1].endswith(".py"))
-
-            # Verify both files exist with correct contents
-            bash_file = ws / parts[0].split()[1]
-            py_file = ws / parts[1].split()[1]
-            self.assertTrue(bash_file.is_file())
-            self.assertTrue(py_file.is_file())
+            bash_file = Path(parts[0].split()[1])
+            py_file = Path(parts[1].split()[1])
+            self.assertEqual(parts[0].split()[0], "bash")
+            self.assertEqual(parts[1].split()[0], "python3")
+            self.assertTrue(bash_file.is_absolute() and bash_file.is_relative_to(ws / ".agents" / "scratch") and parts[0].endswith(".sh"))
+            self.assertTrue(py_file.is_absolute() and py_file.is_relative_to(ws / ".agents" / "scratch") and parts[1].endswith(".py"))
             self.assertIn("echo step1", bash_file.read_text())
             self.assertIn("import sys", py_file.read_text())
 

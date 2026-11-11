@@ -124,7 +124,8 @@ def _handle_pre_tool_commit_gate(cmd: str, payload: dict, conv_id: str, state_di
             ),
         }
     mutation_bypass = bool(os.environ.get("AGYIS_NO_MUTATION") == "1" or os.environ.get("PSL_FENCE_BYPASS") == "1")  # agyis: no-mutant bypass env check
-    has_mutables = check_has_mutable_code(state.get("session_modified_files", []), cwd=cwd)
+    effective_cwd = cwd if cwd is not None else state.get("cwd")
+    has_mutables = check_has_mutable_code(state.get("session_modified_files", []), cwd=effective_cwd)
     if not mutation_bypass and has_mutables and not state.get("mutation_verified", False):  # agyis: no-mutant default false check
         return {
             "decision": "deny",

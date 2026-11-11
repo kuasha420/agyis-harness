@@ -1054,7 +1054,10 @@ class TestDynamicContextWindowScaling(unittest.TestCase):
         conn.close()
 
         ctx_win = get_active_conversation_context_window(conv_id, db_dir=self.db_dir)
-        self.assertEqual(ctx_win["tokens"], 374475)
+        # Authoritative UsageMetadata (370k) takes precedence over inflated pre-call gen_metadata (374,475)
+        self.assertEqual(ctx_win["tokens"], 370000)
+        self.assertEqual(ctx_win["raw_estimated_tokens"], 374475)
+        self.assertFalse(ctx_win["is_provisional"])
         self.assertEqual(ctx_win["max_context_tokens"], 512000)
         self.assertEqual(ctx_win["amber_threshold"], 360000)
         self.assertEqual(ctx_win["red_threshold"], 460000)
