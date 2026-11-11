@@ -39,6 +39,7 @@ from harness.hooks.role_pinning import (
     check_pillar_3_explicit_role,
     classify_agent_role,
     get_role_pinning_cadence,
+    has_parent_conversation,
     is_native_slash_command,
     load_sticky_role_state,
     resolve_cid_state_dir,
@@ -56,6 +57,7 @@ from harness.trajectory import (
     normalize_cid,
     normalize_role_str,
     read_db_trajectory_state,
+    resolve_epoch_step_count,
 )
 
 DEFAULT_COMPACTION_ADVISORY_THRESHOLD: int = 230_000
@@ -106,13 +108,30 @@ def get_compaction_advisory_threshold(max_context_tokens: Optional[int] = None) 
     return red_t
 
 
+def _has_native_compaction_marker(text: str) -> bool:
+    """Detects manual /compact resume headers and Antigravity native auto-compaction <CONTEXT_SUMMARY> frames."""
+    if not text or not isinstance(text, str):
+        return False
+    if re.search(r"#\s*Resuming from a compaction", text, re.IGNORECASE):
+        return True
+    if "<CONTEXT_SUMMARY>" in text and (
+        text.lstrip().startswith("<CONTEXT_SUMMARY>")
+        or "RESUMING MY OWN TASK" in text
+        or "summary of the conversation history" in text.lower()
+    ):
+        return True
+    return False
+
+
 def extract_prompt_text(
     payload: Dict[str, Any],
     conversation_id: Optional[str] = None,
     db_dir: Optional[Path] = None,
     timeout: Optional[float] = None,
+    *,
+    db_metrics: Optional[Any] = None,
 ) -> str:
-    """Extracts raw user prompt from incoming payload or latest native-command DB step."""
+    """Extracts raw user prompt from incoming payload, payload steps, or DB slash/compaction prompt."""
     for k in _PROMPT_KEYS:
         v = payload.get(k)
         if isinstance(v, str) and v.strip():
@@ -126,10 +145,12 @@ def extract_prompt_text(
                     if isinstance(sv, str) and sv.strip():
                         return sv.strip()
     norm_cid = normalize_cid(conversation_id or "")
-    if norm_cid and norm_cid != "default":
+    metrics = db_metrics
+    if metrics is None and norm_cid and norm_cid != "default":
         metrics = read_db_trajectory_state(norm_cid, db_dir=db_dir, timeout=get_compaction_sqlite_timeout(timeout))
-        if metrics.latest_user_prompt and is_native_slash_command(metrics.latest_user_prompt):
-            return metrics.latest_user_prompt
+    latest = getattr(metrics, "latest_user_prompt", "") if metrics is not None else ""
+    if latest and (is_native_slash_command(latest) or _has_native_compaction_marker(latest)):
+        return latest
     return ""
 
 
@@ -190,14 +211,9 @@ def evaluate_pre_invocation(
         to = get_compaction_sqlite_timeout(sqlite_timeout)
         db_metrics = read_db_trajectory_state(conv_id, db_dir=db_dir, timeout=to) if conv_id != "default" else None
 
-        prompt_text = ""
-        for k in _PROMPT_KEYS:
-            v = payload.get(k)
-            if isinstance(v, str) and v.strip():
-                prompt_text = v.strip()
-                break
-        if not prompt_text and db_metrics and db_metrics.latest_user_prompt and is_native_slash_command(db_metrics.latest_user_prompt):
-            prompt_text = db_metrics.latest_user_prompt
+        prompt_text = extract_prompt_text(
+            payload, conversation_id=conv_id, db_dir=db_dir, timeout=to, db_metrics=db_metrics
+        )
         if is_native_slash_command(prompt_text):
             return {"injectSteps": []}
 
@@ -211,11 +227,8 @@ def evaluate_pre_invocation(
         payload_tokens = _parse_int_field(payload, ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens")) or 0
         tokens = max(db_metrics.tokens if db_metrics else 0, payload_tokens)
 
-        step_count = _parse_int_field(payload, ("step_count", "stepCount", "step", "currentStep", "initialNumSteps", "initial_num_steps", "stepIdx", "step_idx", "invocationNum", "invocation_num"))
+        step_count = resolve_epoch_step_count(payload, conv_id=conv_id, db_metrics=db_metrics)
         has_explicit_step = step_count is not None
-        if db_metrics and db_metrics.checkpoint_count > 0:
-            step_count = db_metrics.epoch_steps
-            has_explicit_step = True
 
         stage_role_data = None
         if eff_ws is not None or conv_id != "default":
@@ -227,7 +240,10 @@ def evaluate_pre_invocation(
                 )
             except Exception:
                 pass
-        if not has_explicit_step and stage_role_data is not None:
+        stage_num = int(stage_role_data.get("stage", 0) or 0) if stage_role_data else -1
+        stage_cid = str(stage_role_data.get("conversation_id") or "").strip() if stage_role_data else ""
+        stage_matches_cid = stage_role_data is not None and (conv_id == "default" or stage_cid == conv_id)
+        if not has_explicit_step and stage_matches_cid:
             step_count = 0
             has_explicit_step = True
 
@@ -236,7 +252,8 @@ def evaluate_pre_invocation(
         epoch_idx = db_metrics.epoch_index if db_metrics else 0
 
         is_post_compaction = bool(
-            re.search(r"#\s*Resuming from a compaction", prompt_text, re.IGNORECASE)
+            _has_native_compaction_marker(prompt_text)
+            or (db_metrics and _has_native_compaction_marker(db_metrics.latest_user_prompt))
             or payload.get("isPostCompaction")
             or payload.get("resumedFromCompaction")
             or (
@@ -272,15 +289,25 @@ def evaluate_pre_invocation(
             elif step_count % cadence == 0:
                 inject_steps.append({"ephemeralMessage": build_role_reanchor_advisory(role, step_count, cadence)})
 
+        is_specialist_stage = bool(stage_role_data and stage_num > 0 and conv_id != "default" and stage_cid == conv_id)
+        is_subagent = has_parent_conversation(payload, conv_id) or is_specialist_stage
         alert_file = state_dir / f".compaction_alert_{conv_id}.json" if state_dir and conv_id != "default" else None
+        existing_alert: Dict[str, Any] = {}
+        if alert_file and alert_file.is_file():
+            try:
+                parsed_alert = json.loads(alert_file.read_text(encoding="utf-8"))
+                if isinstance(parsed_alert, dict):
+                    existing_alert = parsed_alert
+            except Exception:
+                pass
         if tokens >= eff_thresh:
-            already_alerted = False
-            if alert_file and alert_file.is_file():
-                try:
-                    sdata = json.loads(alert_file.read_text(encoding="utf-8"))
-                    already_alerted = (sdata.get("session_id") == conv_id and (time.time() - sdata.get("timestamp", 0) < 900))
-                except Exception:
-                    pass
+            already_alerted = bool(
+                existing_alert
+                and existing_alert.get("session_id") == conv_id
+                and int(existing_alert.get("epoch", -1)) == epoch_idx
+                and existing_alert.get("active", True)
+                and (time.time() - existing_alert.get("timestamp", 0) < 900)
+            )
             if eff_ws is not None:
                 try:
                     from harness.delivery.compaction_checkpoint import generate_compaction_checkpoint
@@ -292,18 +319,27 @@ def evaluate_pre_invocation(
                     sys.stderr.flush()
 
             if not already_alerted:
-                inject_steps.append({"ephemeralMessage": build_compaction_advisory(role, tokens, eff_thresh, max_context_tokens=max_ctx, checkpoint_path=cp_rel)})
+                inject_steps.append({"ephemeralMessage": build_compaction_advisory(role, tokens, eff_thresh, max_context_tokens=max_ctx, checkpoint_path=cp_rel, is_subagent=is_subagent)})
                 if alert_file and state_dir:
                     try:
                         state_dir.mkdir(parents=True, exist_ok=True)
-                        alert_file.write_text(json.dumps({"session_id": conv_id, "tokens": tokens, "threshold": eff_thresh, "timestamp": time.time()}), encoding="utf-8")
+                        hist = existing_alert.get("alerted_epochs") if isinstance(existing_alert.get("alerted_epochs"), list) else []
+                        alerted_epochs = sorted({int(x) for x in hist if isinstance(x, (int, float))} | {epoch_idx})
+                        alert_file.write_text(json.dumps({
+                            "session_id": conv_id, "epoch": epoch_idx, "active": True,
+                            "tokens": tokens, "threshold": eff_thresh, "timestamp": time.time(),
+                            "alerted_epochs": alerted_epochs,
+                        }), encoding="utf-8")
                     except OSError:
                         pass
             else:
-                inject_steps.append({"ephemeralMessage": f"[AGYIS TOKEN GAUGE: ~{tokens:,} / {max_ctx:,} TOKENS | Compaction Checkpoint Active]"})
+                gauge_tag = "Subagent Auto-Compaction Ready" if is_subagent else "Compaction Checkpoint Active"
+                inject_steps.append({"ephemeralMessage": f"[AGYIS TOKEN GAUGE: ~{tokens:,} / {max_ctx:,} TOKENS | {gauge_tag}]"})
         elif alert_file and alert_file.is_file():
             try:
-                alert_file.unlink(missing_ok=True)
+                updated = dict(existing_alert)
+                updated.update({"session_id": conv_id, "epoch": epoch_idx, "active": False, "tokens": tokens, "cleared_at": time.time()})
+                alert_file.write_text(json.dumps(updated), encoding="utf-8")
             except OSError:
                 pass
 

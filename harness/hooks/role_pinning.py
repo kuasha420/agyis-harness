@@ -33,7 +33,7 @@ from harness.trajectory import (
     normalize_role_str,
     read_db_trajectory_state,
 )
-from harness.utils.context import get_active_conversation_id
+from harness.utils.context import get_active_brain_dir, get_active_conversation_id
 
 DEFAULT_ROLE_PINNING_CADENCE: int = 10
 _UUID_EXTRACT_RE = re.compile(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
@@ -225,14 +225,20 @@ def save_sticky_role_state(state_dir: Optional[Path], state: Dict[str, Any]) -> 
 
 def has_parent_conversation(payload: Dict[str, Any], conv_id: str) -> bool:
     """Returns True when the active conversation is a spawned child subagent."""
-    for k in ("parentConversationId", "parent_conversation_id", "parentId", "parent_id"):
+    for k in ("parentConversationId", "parent_conversation_id", "parentId", "parent_id",
+              "subagentRole", "subagent_role", "subagentType", "subagent_type"):
         if isinstance(payload.get(k), str) and payload[k].strip():
             return True
+    for pk in ("agent", "subagent", "metadata"):
+        pd = payload.get(pk)
+        if isinstance(pd, dict):
+            for k in ("parentConversationId", "parent_conversation_id", "subagentRole", "subagent_role", "subagentType"):
+                if isinstance(pd.get(k), str) and pd[k].strip():
+                    return True
     norm_cid = normalize_cid(conv_id)
     if norm_cid in _EPHEMERAL_CIDS:
         return False
-    brain_root = Path(os.path.expanduser(os.environ.get("AGYIS_BRAIN_DIR") or "~/.gemini/antigravity/brain"))
-    convo_dir = brain_root / norm_cid
+    convo_dir = get_active_brain_dir() / norm_cid
     if convo_dir.is_dir():
         for meta_name in (".metadata", "session_meta.json", "metadata.json"):
             mp = convo_dir / meta_name
@@ -242,6 +248,20 @@ def has_parent_conversation(payload: Dict[str, Any], conv_id: str) -> bool:
                     if isinstance(data, dict) and (data.get("parent_conversation_id") or data.get("parentConversationId")):
                         return True
             except Exception:
+                pass
+        t_path, _ = find_transcript_path(convo_dir)
+        if t_path is not None and t_path.is_file():
+            try:
+                with open(t_path, "r", encoding="utf-8", errors="replace") as f:
+                    for _ in range(3):
+                        raw_line = f.readline(16384)
+                        if not raw_line:
+                            break
+                        if "parent_conversation_id" in raw_line or "parentConversationId" in raw_line or "root_conversation_id" in raw_line:
+                            return True
+                        if "[Message]" in raw_line and re.search(r"sender=[0-9a-fA-F-]{36}", raw_line):
+                            return True
+            except OSError:
                 pass
     return False
 
@@ -616,14 +636,23 @@ def build_compaction_advisory(
     threshold: int = 230_000,
     max_context_tokens: Optional[int] = None,
     checkpoint_path: Optional[str] = None,
+    is_subagent: bool = False,
 ) -> str:
-    """Generates role-tailored advisory directive alerting to imminent compaction."""
+    """Generates role-tailored advisory directive alerting to imminent compaction (or subagent continuity)."""
     win = max_context_tokens if (max_context_tokens and max_context_tokens > 0) else 256_000
+    cp_hint = checkpoint_path or ".agents/artifacts/checkpoints/<session_id>.md"
+    preserve = "STRICTLY PROHIBIT 'git checkout -- .', 'git reset --hard', and 'git clean -fd'. Keep all in-flight work intact on disk."
+    if is_subagent:
+        return (
+            f"[AGYIS SUBAGENT CONTEXT CONTINUITY: {role.upper()} (~{tokens:,} / {win:,} TOKENS)]\n"
+            f"ROLE: Background Subagent ({role}) — Transparent Auto-Compaction Managed by Antigravity\n\n"
+            "1. CONTINUE WITHOUT SELF-CURTAILMENT: Background subagents cannot execute `/compact` directly; Antigravity automatically compacts subagent context natively when required. Do NOT abort early or rush your deliverable.\n"
+            f"2. WORK PRESERVATION CONTRACT (MANDATORY): {preserve}\n"
+            f"3. CHECKPOINT & COMPLETION: Save incremental findings cleanly to `{cp_hint}` and finish your complete deliverable before reporting back."
+        )
     runway_cap = int(round(win * 246_000 / 256_000))
     est_turns = max(1, (runway_cap - tokens) // 3500) if tokens < runway_cap else 1
-    cp_hint = checkpoint_path or ".agents/artifacts/checkpoints/<session_id>.md"
     header = f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{est_turns} TURNS REMAINING)]\n"
-    preserve = "STRICTLY PROHIBIT 'git checkout -- .', 'git reset --hard', and 'git clean -fd'. Keep all in-flight work intact on disk."
 
     if role == ROLE_DEEP_EXECUTION:
         return (

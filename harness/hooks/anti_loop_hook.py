@@ -27,6 +27,7 @@ from harness.trajectory.health import (
     SOFT_EPOCH_STEP_ADVISORY,
     normalize_role_str,
 )
+from harness.trajectory.sqlite_reader import resolve_epoch_step_count
 from harness.utils.state import get_state_dir, load_history, save_history
 
 EXPLORATORY_SWEEP_TOOLS: frozenset[str] = frozenset({"list_dir", "find_by_name"})
@@ -260,29 +261,7 @@ def check_anti_loop(
     Returns:
         {"decision": "allow"} or {"decision": "deny", "reason": ...}
     """
-    effective_step = step_count
-    if effective_step is None and payload:
-        for k in (
-            "step_count",
-            "stepCount",
-            "step",
-            "current_step",
-            "currentStep",
-            "step_idx",
-            "stepIdx",
-            "initialNumSteps",
-            "initial_num_steps",
-            "invocationNum",
-            "invocation_num",
-        ):
-            if k in payload:
-                v = payload[k]
-                if isinstance(v, (int, float)):
-                    effective_step = int(v)
-                    break
-                elif isinstance(v, str) and v.strip().isdigit():
-                    effective_step = int(v.strip())
-                    break
+    effective_step = resolve_epoch_step_count(payload, conv_id=conv_id, explicit_step=step_count)
 
     effective_role = role
     if effective_role is None and payload:

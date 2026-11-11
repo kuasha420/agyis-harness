@@ -23,6 +23,7 @@ from harness.hooks.fence_classifiers import (
 from harness.hooks.fence_state import clear_spec_dirty, get_brain_dir, load_state, save_state
 from harness.hooks.fence_tasks import sync_background_tasks
 from harness.trajectory.health import SOFT_EPOCH_STEP_ADVISORY
+from harness.trajectory.sqlite_reader import resolve_epoch_step_count
 from harness.utils.workspace import is_harness_workspace
 
 
@@ -43,21 +44,7 @@ def check_pre_tool_use(
     replace_file_content, edit_file) without blocking execution.
     Exempts non-executioner roles (flight_director, forensic_auditor).
     """
-    effective_step = step_count
-    if effective_step is None and payload:
-        for k in (
-            "step_count", "stepCount", "step", "current_step", "currentStep",
-            "step_idx", "stepIdx", "initialNumSteps", "initial_num_steps",
-            "invocationNum", "invocation_num",
-        ):
-            if k in payload:
-                v = payload[k]
-                if isinstance(v, (int, float)):
-                    effective_step = int(v)
-                    break
-                elif isinstance(v, str) and v.strip().isdigit():
-                    effective_step = int(v.strip())
-                    break
+    effective_step = resolve_epoch_step_count(payload, conv_id=conv_id, explicit_step=step_count)
 
     effective_role = role
     if effective_role is None and payload:

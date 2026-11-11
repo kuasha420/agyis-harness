@@ -2380,6 +2380,295 @@ class TestDynamicContextWindowPropagation(unittest.TestCase):
             self.assertIn("460,000", Path(cp_create_data["output_path"]).read_text(encoding="utf-8"))
 
 
+class TestRc10AcceptanceGapRegressions(unittest.TestCase):
+    """Regression coverage for RC10 acceptance criteria #107.2, #109.2, #111.2, #112.1, and #112.2."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.db_dir = self.root / "conversations"
+        self.brain_dir = self.root / "brain"
+        self.ws_dir = self.root / "ws"
+        self.db_dir.mkdir(parents=True, exist_ok=True)
+        self.brain_dir.mkdir(parents=True, exist_ok=True)
+        self.ws_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        from harness.trajectory.sqlite_reader import clear_locked_conversations
+        clear_locked_conversations()
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _create_steps_db(db_path: Path, steps: list) -> None:
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute(
+                "CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_type INTEGER, step_payload BLOB, step_data TEXT)"
+            )
+            for idx, st_type, payload_blob, data_dict in steps:
+                conn.execute(
+                    "INSERT INTO steps (idx, step_type, step_payload, step_data) VALUES (?, ?, ?, ?)",
+                    (idx, st_type, payload_blob, json.dumps(data_dict)),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _pb_user_prompt(text: str) -> bytes:
+        def _ld(fno: int, raw: bytes) -> bytes:
+            out = bytearray()
+            v = len(raw)
+            while v >= 0x80:
+                out.append((v & 0x7F) | 0x80)
+                v >>= 7
+            out.append(v)
+            return bytes([(fno << 3) | 2]) + bytes(out) + raw
+        return _ld(1, _ld(1, text.encode("utf-8")))
+
+    def test_status_labels_explicit_cid_and_mtime_fallback(self) -> None:
+        """#107.2: agyis status prints explicit CID without fallback label and labels newest mtime fallback."""
+        import argparse
+        from harness.commands.status import cmd_status
+
+        old_db = self.db_dir / "11111111-1111-4111-8111-111111111111.db"
+        new_db = self.db_dir / "22222222-2222-4222-8222-222222222222.db"
+        self._create_steps_db(old_db, [(1, 15, None, {"step_type": 15, "token_count": 40000})])
+        self._create_steps_db(new_db, [(1, 15, None, {"step_type": 15, "token_count": 50000})])
+        now = time.time()
+        os.utime(old_db, (now - 120, now - 120))
+        os.utime(new_db, (now, now))
+
+        args = argparse.Namespace(conv_id=None, json=False, compact=False, verbose=False)
+        with patch("harness.commands.status.DEFAULT_DB", self.root / "no_telemetry.db"), \
+             patch("harness.telemetry.config.resolve_db_path", return_value=self.root / "no_telemetry.db"), \
+             patch("harness.subagents.list_active_subagent_statuses", return_value=[]):
+            with patch.dict(
+                os.environ,
+                {"AGYIS_CONVERSATIONS_DIR": str(self.db_dir), "AGYIS_CONVERSATION_ID": old_db.stem},
+                clear=False,
+            ):
+                for k in (
+                    "CONVERSATION_ID",
+                    "ANTIGRAVITY_CONVERSATION_ID",
+                    "ANTIGRAVITY_SOURCE_METADATA",
+                    "GEMINI_CONVERSATION_ID",
+                    "PSL_CONVERSATION_ID",
+                ):
+                    os.environ.pop(k, None)
+                out_env = io.StringIO()
+                with patch("sys.stdout", out_env):
+                    self.assertEqual(cmd_status(args), 0)
+                self.assertIn(f"Active Session ({old_db.stem}):", out_env.getvalue())
+                self.assertNotIn("fallback: newest mtime", out_env.getvalue())
+
+            with patch.dict(os.environ, {"AGYIS_CONVERSATIONS_DIR": str(self.db_dir)}, clear=False):
+                for k in (
+                    "AGYIS_CONVERSATION_ID",
+                    "CONVERSATION_ID",
+                    "ANTIGRAVITY_CONVERSATION_ID",
+                    "ANTIGRAVITY_SOURCE_METADATA",
+                    "GEMINI_CONVERSATION_ID",
+                    "PSL_CONVERSATION_ID",
+                ):
+                    os.environ.pop(k, None)
+                out_fb = io.StringIO()
+                with patch("sys.stdout", out_fb):
+                    self.assertEqual(cmd_status(args), 0)
+                self.assertIn(f"Active Session ({new_db.stem} | fallback: newest mtime):", out_fb.getvalue())
+
+    def test_compaction_alert_file_persists_epoch_and_clears_without_unlink(self) -> None:
+        """#109.2: .compaction_alert_<cid>.json records epoch history and persists active=False below threshold."""
+        conv_id = "test-alert-epoch-persist"
+        (self.brain_dir / conv_id).mkdir(parents=True, exist_ok=True)
+        self._create_steps_db(
+            self.db_dir / f"{conv_id}.db",
+            [(1, 23, None, {"step_type": 23}), (2, 15, None, {"step_type": 15, "token_count": 240_000})],
+        )
+        alert_file = self.brain_dir / conv_id / ".agyis" / f".compaction_alert_{conv_id}.json"
+
+        with patch.dict(os.environ, {"AGYIS_BRAIN_DIR": str(self.brain_dir)}):
+            res_hi = evaluate_pre_invocation(
+                {"conversationId": conv_id, "step_count": 5, "role": ROLE_DEEP_EXECUTION},
+                db_dir=self.db_dir,
+                workspace_dir=self.ws_dir,
+            )
+            self.assertTrue(any("COMPACTION" in s.get("ephemeralMessage", "") for s in res_hi.get("injectSteps", [])))
+            self.assertTrue(alert_file.is_file())
+            alert_hi = json.loads(alert_file.read_text(encoding="utf-8"))
+            self.assertEqual(alert_hi["epoch"], 1)
+            self.assertTrue(alert_hi["active"])
+            self.assertIn(1, alert_hi["alerted_epochs"])
+
+            # Drop DB tokens below threshold -> must NOT unlink; must update active=False & preserve alerted_epochs
+            (self.db_dir / f"{conv_id}.db").unlink()
+            self._create_steps_db(
+                self.db_dir / f"{conv_id}.db",
+                [(1, 23, None, {"step_type": 23}), (2, 15, None, {"step_type": 15, "token_count": 20_000})],
+            )
+            evaluate_pre_invocation(
+                {"conversationId": conv_id, "step_count": 6, "role": ROLE_DEEP_EXECUTION},
+                db_dir=self.db_dir,
+                workspace_dir=self.ws_dir,
+            )
+            self.assertTrue(alert_file.is_file())
+            alert_lo = json.loads(alert_file.read_text(encoding="utf-8"))
+            self.assertFalse(alert_lo["active"])
+            self.assertEqual(alert_lo["epoch"], 1)
+            self.assertIn("cleared_at", alert_lo)
+            self.assertIn(1, alert_lo["alerted_epochs"])
+
+    def test_has_parent_conversation_detects_live_sender_transcript_line(self) -> None:
+        """#111.2: has_parent_conversation detects [Message] sender=<uuid> in live subagent transcripts."""
+        from harness.hooks.role_pinning import has_parent_conversation
+
+        child_id = "child-subagent-1112"
+        root_id = "root-session-1112"
+        logs_dir = self.brain_dir / child_id / ".system_generated" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        (logs_dir / "transcript.jsonl").write_text(
+            json.dumps({
+                "step_index": 0,
+                "type": "USER_INPUT",
+                "content": "[Message] timestamp=2026-11-12T00:00:00Z sender=11111111-1111-4111-8111-111111111111 content=Run audit",
+            }) + "\n",
+            encoding="utf-8",
+        )
+        (self.brain_dir / root_id / ".system_generated" / "logs").mkdir(parents=True, exist_ok=True)
+        (self.brain_dir / root_id / ".system_generated" / "logs" / "transcript.jsonl").write_text(
+            json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "Hello"}) + "\n",
+            encoding="utf-8",
+        )
+        with patch("harness.hooks.role_pinning.get_active_brain_dir", return_value=self.brain_dir):
+            self.assertTrue(has_parent_conversation({}, child_id))
+            self.assertFalse(has_parent_conversation({}, root_id))
+
+    def test_subagent_compaction_advisory_tailored_for_continuity(self) -> None:
+        """#112.1: Subagent compaction advisory suppresses COMPACTION IMMINENT and /compact self-curtailment."""
+        sub_msg = build_compaction_advisory(ROLE_DEEP_EXECUTION, 240_000, is_subagent=True)
+        self.assertIn("[AGYIS SUBAGENT CONTEXT CONTINUITY:", sub_msg)
+        self.assertNotIn("COMPACTION IMMINENT", sub_msg)
+        self.assertIn("/compact", sub_msg)
+
+        parent_msg = build_compaction_advisory(ROLE_DEEP_EXECUTION, 240_000, is_subagent=False)
+        self.assertIn("COMPACTION IMMINENT", parent_msg)
+
+        # End-to-end evaluate_pre_invocation detection via live child transcript sender
+        child_id = "subagent-live-1121"
+        logs_dir = self.brain_dir / child_id / ".system_generated" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        (logs_dir / "transcript.jsonl").write_text(
+            json.dumps({"step_index": 0, "content": "[Message] sender=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"}) + "\n",
+            encoding="utf-8",
+        )
+        self._create_steps_db(
+            self.db_dir / f"{child_id}.db",
+            [(1, 15, None, {"step_type": 15, "token_count": 240_000})],
+        )
+        with patch.dict(os.environ, {"AGYIS_BRAIN_DIR": str(self.brain_dir)}), \
+             patch("harness.hooks.role_pinning.get_active_brain_dir", return_value=self.brain_dir):
+            res = evaluate_pre_invocation(
+                {"conversationId": child_id, "role": ROLE_DEEP_EXECUTION},
+                db_dir=self.db_dir,
+                workspace_dir=self.ws_dir,
+            )
+            ephemeral = " ".join(s.get("ephemeralMessage", "") for s in res.get("injectSteps", []))
+            self.assertIn("AGYIS SUBAGENT CONTEXT CONTINUITY", ephemeral)
+            self.assertNotIn("COMPACTION IMMINENT", ephemeral)
+
+    def test_stage0_and_legacy_session_role_do_not_suppress_root_compaction(self) -> None:
+        """P0 fix: Stage 0 or legacy unscoped session_role.json must NOT mark root sessions as subagents."""
+        from harness.subagents.stage_role import materialize_stage_role
+
+        # 1. Stage 0 (flight_director) scoped to root_cid -> still root session, NOT subagent
+        root_cid = "root-stage0-1121"
+        materialize_stage_role(
+            stage=0,
+            agent_name="agyis_coordinator",
+            task_id="ROOT-STAGE-0",
+            workspace_dir=self.ws_dir,
+            conversation_id=root_cid,
+        )
+        self._create_steps_db(
+            self.db_dir / f"{root_cid}.db",
+            [(1, 15, None, {"step_type": 15, "token_count": 240_000})],
+        )
+        with patch.dict(os.environ, {"AGYIS_BRAIN_DIR": str(self.brain_dir)}):
+            res_s0 = evaluate_pre_invocation(
+                {"conversationId": root_cid, "step_count": 5, "role": ROLE_FLIGHT_DIRECTOR},
+                db_dir=self.db_dir,
+                workspace_dir=self.ws_dir,
+            )
+            msg_s0 = " ".join(s.get("ephemeralMessage", "") for s in res_s0.get("injectSteps", []))
+            self.assertIn("COMPACTION IMMINENT", msg_s0)
+            self.assertNotIn("AGYIS SUBAGENT CONTEXT CONTINUITY", msg_s0)
+
+        # 2. Legacy unscoped .agents/session_role.json (stage=1 without conversation_id) on default/unrelated root payload
+        ws_legacy = self.root / "ws_legacy"
+        ws_legacy.mkdir(parents=True, exist_ok=True)
+        materialize_stage_role(
+            stage=1,
+            agent_name="agyis_builder",
+            task_id="LEGACY-STAGE-1",
+            workspace_dir=ws_legacy,
+        )
+        res_legacy = evaluate_pre_invocation(
+            {"tokens": 240_000, "step_count": 5, "role": ROLE_DEEP_EXECUTION},
+            workspace_dir=ws_legacy,
+        )
+        msg_legacy = " ".join(s.get("ephemeralMessage", "") for s in res_legacy.get("injectSteps", []))
+        self.assertIn("COMPACTION IMMINENT", msg_legacy)
+        self.assertNotIn("AGYIS SUBAGENT CONTEXT CONTINUITY", msg_legacy)
+
+        # 3. CID-scoped Stage 1 specialist subagent -> DOES receive subagent continuity advisory
+        sub_cid = "sub-stage1-scoped-1121"
+        materialize_stage_role(
+            stage=1,
+            agent_name="agyis_builder",
+            task_id="SUB-STAGE-1",
+            workspace_dir=self.ws_dir,
+            conversation_id=sub_cid,
+        )
+        res_sub = evaluate_pre_invocation(
+            {"conversationId": sub_cid, "tokens": 240_000, "step_count": 5, "role": ROLE_DEEP_EXECUTION},
+            workspace_dir=self.ws_dir,
+        )
+        msg_sub = " ".join(s.get("ephemeralMessage", "") for s in res_sub.get("injectSteps", []))
+        self.assertIn("AGYIS SUBAGENT CONTEXT CONTINUITY", msg_sub)
+        self.assertNotIn("COMPACTION IMMINENT", msg_sub)
+
+    def test_post_compaction_persona_fires_on_native_context_summary_prompt(self) -> None:
+        """#112.2: build_post_compaction_persona_prompt fires on native <CONTEXT_SUMMARY> both in payload and SQLite."""
+        native_summary = (
+            "<CONTEXT_SUMMARY>\n"
+            "The following is a summary of the conversation history that has been truncated...\n"
+            "RESUMING MY OWN TASK\n"
+            "</CONTEXT_SUMMARY>"
+        )
+        res_payload = evaluate_pre_invocation(
+            {"prompt": native_summary, "role": ROLE_DEEP_EXECUTION},
+            workspace_dir=self.ws_dir,
+        )
+        sys_msgs = [s.get("systemMessage", {}).get("systemMessage", "") for s in res_payload.get("injectSteps", [])]
+        self.assertTrue(any("[AGYIS POST-COMPACTION SUCCESSION DIRECTIVE]" in m for m in sys_msgs))
+
+        conv_id = "test-native-summary-sqlite"
+        self._create_steps_db(
+            self.db_dir / f"{conv_id}.db",
+            [
+                (1, 23, None, {"step_type": 23}),
+                (2, 1, self._pb_user_prompt(native_summary), {"step_type": 1}),
+            ],
+        )
+        res_db = evaluate_pre_invocation(
+            {"conversationId": conv_id, "role": ROLE_DEEP_EXECUTION},
+            db_dir=self.db_dir,
+            workspace_dir=self.ws_dir,
+        )
+        sys_msgs_db = [s.get("systemMessage", {}).get("systemMessage", "") for s in res_db.get("injectSteps", [])]
+        self.assertTrue(any("[AGYIS POST-COMPACTION SUCCESSION DIRECTIVE]" in m for m in sys_msgs_db))
+
+
 if __name__ == "__main__":
     unittest.main()
 

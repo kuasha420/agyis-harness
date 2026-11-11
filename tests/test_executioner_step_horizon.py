@@ -260,5 +260,75 @@ class TestStepHorizonBenchmark(unittest.TestCase):
         )
 
 
+class TestEpochStepHorizonSqliteResolution(unittest.TestCase):
+    """#110.3: All hooks resolve epoch-scoped step counts from SQLite across checkpoints."""
+
+    def test_hooks_use_sqlite_epoch_steps_when_cumulative_step_exceeds_horizon(self) -> None:
+        import json
+        import sqlite3
+        from harness.trajectory.sqlite_reader import clear_locked_conversations, resolve_epoch_step_count
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_dir = Path(tmpdir)
+            conv_id = "test-epoch-steps-ssot"
+            db_path = db_dir / f"{conv_id}.db"
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute("CREATE TABLE steps (rowid INTEGER PRIMARY KEY, idx INTEGER, step_data TEXT)")
+                for i in range(1, 126):
+                    st = 23 if i == 100 else 15
+                    conn.execute(
+                        "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                        (i, json.dumps({"step_type": st, "token_count": 25000})),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+
+            try:
+                payload = {"conversationId": conv_id, "stepIdx": 125, "role": "deep_execution"}
+                with unittest.mock.patch(
+                    "harness.trajectory.sqlite_reader.get_conversations_dir", return_value=db_dir
+                ):
+                    self.assertEqual(resolve_epoch_step_count(payload, conv_id=conv_id, db_dir=db_dir), 25)
+                    anti_res = check_anti_loop(
+                        "list_dir", {"DirectoryPath": "/workspace"}, conv_id=conv_id, state_dir=db_dir, payload=payload
+                    )
+                    self.assertNotIn("EPOCH HORIZON", anti_res.get("advisory", ""))
+                    fence_res = check_pre_tool_use(
+                        "write_to_file", {"TargetFile": "/workspace/a.py"}, payload=payload, conv_id=conv_id, state_dir=db_dir
+                    )
+                    self.assertNotIn("EPOCH HORIZON", fence_res.get("advisory", ""))
+                    pre_res = evaluate_pre_invocation(payload, workspace_dir=db_dir, db_dir=db_dir)
+                    self.assertEqual(pre_res, {"injectSteps": []})
+
+                    # Add 55 more rows in current epoch -> epoch_steps = 80 (exact soft horizon trigger)
+                    conn = sqlite3.connect(db_path)
+                    try:
+                        for i in range(126, 181):
+                            conn.execute(
+                                "INSERT INTO steps (idx, step_data) VALUES (?, ?)",
+                                (i, json.dumps({"step_type": 15, "token_count": 25000})),
+                            )
+                        conn.commit()
+                    finally:
+                        conn.close()
+
+                    payload_over = {"conversationId": conv_id, "stepIdx": 180, "role": "deep_execution"}
+                    self.assertEqual(resolve_epoch_step_count(payload_over, conv_id=conv_id, db_dir=db_dir), 80)
+                    anti_over = check_anti_loop(
+                        "list_dir", {"DirectoryPath": "/workspace"}, conv_id=conv_id, state_dir=db_dir, payload=payload_over
+                    )
+                    self.assertEqual(anti_over.get("decision"), "allow")
+                    fence_over = check_pre_tool_use(
+                        "write_to_file", {"TargetFile": "/workspace/a.py"}, payload=payload_over, conv_id=conv_id, state_dir=db_dir
+                    )
+                    self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", fence_over.get("advisory", ""))
+                    pre_over = evaluate_pre_invocation(payload_over, workspace_dir=db_dir, db_dir=db_dir)
+                    self.assertTrue(any("[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/" in s.get("ephemeralMessage", "") for s in pre_over.get("injectSteps", [])))
+            finally:
+                clear_locked_conversations()
+
+
 if __name__ == "__main__":
     unittest.main()
