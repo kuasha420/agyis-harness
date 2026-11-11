@@ -534,3 +534,89 @@ def check_database_port_conflicts(
 
     return _fallback_check_database_port(workspace_root=workspace_root, port=port)
 
+
+
+def check_in_tree_skills_symlinks(
+    workspace_root: Optional[Path | str] = None,
+) -> Dict[str, Any]:
+    """
+    Automated verification gate for in-tree skills deduplication.
+    Enforces that any skills present in <workspace>/.agents/skills/ that mirror
+    <workspace>/harness/skills/ MUST be symlinks pointing to ../../harness/skills/<name>
+    and cannot be independent directory copies (Issue #52, GA Hardening).
+    """
+    ws = Path(workspace_root).resolve() if workspace_root is not None else Path.cwd().resolve()
+    harness_skills_dir = ws / "harness" / "skills"
+    agents_skills_dir = ws / ".agents" / "skills"
+
+    if not harness_skills_dir.is_dir() or not agents_skills_dir.is_dir():
+        return {
+            "status": "PASS",
+            "checked": 0,
+            "violations": [],
+            "details": "Workspace is not an in-tree harness development repository (no harness/skills or .agents/skills).",
+            "remediation": None,
+        }
+
+    harness_skills = {
+        item.name: item
+        for item in harness_skills_dir.iterdir()
+        if item.is_dir() and not item.name.startswith(".") and (item / "SKILL.md").is_file()
+    }
+
+    violations: List[Dict[str, str]] = []
+    checked = 0
+
+    for agent_skill in sorted(agents_skills_dir.iterdir()):
+        if not agent_skill.is_dir() and not agent_skill.is_symlink():
+            continue
+        if agent_skill.name.startswith("."):
+            continue
+
+        skill_name = agent_skill.name
+        if skill_name in harness_skills:
+            checked += 1
+            if not agent_skill.is_symlink():
+                violations.append({
+                    "skill": skill_name,
+                    "path": str(agent_skill),
+                    "reason": f"Skill directory is a physical copy instead of a symlink pointing to ../../harness/skills/{skill_name}",
+                })
+            else:
+                target = os.readlink(agent_skill)
+                expected_relative = f"../../harness/skills/{skill_name}"
+                if target != expected_relative:
+                    violations.append({
+                        "skill": skill_name,
+                        "path": str(agent_skill),
+                        "target": target,
+                        "reason": f"Symlink points to '{target}' instead of '{expected_relative}'",
+                    })
+                elif not agent_skill.is_dir():
+                    violations.append({
+                        "skill": skill_name,
+                        "path": str(agent_skill),
+                        "target": target,
+                        "reason": f"Symlink points to '{target}' but target directory does not exist or is broken",
+                    })
+
+    if violations:
+        violation_names = [v["skill"] for v in violations]
+        return {
+            "status": "FAIL",
+            "checked": checked,
+            "violations": violations,
+            "details": f"In-tree skill duplication detected! {len(violations)} skill(s) in .agents/skills/ are not proper symlinks to harness/skills/: {', '.join(violation_names)}",
+            "remediation": (
+                "Replace duplicated skill directories in .agents/skills/ with relative symlinks to ../../harness/skills/<name> "
+                "or run 'python3 -m harness.cli skills --prune-duplicates' to restore single-source hygiene."
+            ),
+        }
+
+    return {
+        "status": "PASS",
+        "checked": checked,
+        "violations": [],
+        "details": f"All {checked} in-tree mirrored skills in .agents/skills/ are verified symlinks to harness/skills/.",
+        "remediation": None,
+    }
