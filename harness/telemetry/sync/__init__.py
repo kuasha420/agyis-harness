@@ -22,18 +22,26 @@ from harness.telemetry.sync.push import push_local_sessions
 from harness.telemetry.sync.pull import pull_remote_sessions
 from harness.telemetry.sync.coordinator import sync_telemetry
 from harness.telemetry.sync.systemd import generate_systemd_service
-from harness.telemetry.sync.daemon import watch_and_sync
+from harness.telemetry.sync.daemon import (
+    compute_telemetry_lag,
+    harvest_local_transcripts,
+    read_sync_status,
+    watch_and_sync,
+)
 
 __all__ = [
     "DEFAULT_BATCH_SESSION_LIMIT",
     "DEFAULT_BATCH_STEP_LIMIT",
     "_get_retry_backoff",
+    "compute_telemetry_lag",
     "get_db_connection",
     "ensure_sync_columns",
+    "harvest_local_transcripts",
     "verify_auth_token",
     "interactive_select_sessions",
     "push_local_sessions",
     "pull_remote_sessions",
+    "read_sync_status",
     "sync_telemetry",
     "generate_systemd_service",
     "watch_and_sync",

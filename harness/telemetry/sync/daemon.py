@@ -4,336 +4,186 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Background sync daemon watcher & local telemetry harvester (ADR-030).
+Continuous Watch, Incremental Harvest & Sync Daemon (ADR-030).
+Uses canonical schema.py/extractor.py upserts, bounded backoff, and atomic health status.
 """
 
 from __future__ import annotations
 
-import glob
+from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import sqlite3
+import sys
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from harness.telemetry.config import resolve_db_path
+from harness.telemetry import config
+from harness.telemetry.db import compute_telemetry_lag, get_db_connection, iter_brain_transcripts
+from harness.telemetry.extractor import ensure_telemetry_schema, extract_session, upsert_session_telemetry
+from harness.utils.state import get_state_dir
 
+_MAX_MTIME_CACHE = 2000
+_MAX_RECENT_ERRORS = 5
+_MAX_SESSION_ERRORS = 20
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def get_sync_status_path(state_dir: Optional[Path] = None) -> Path:
+    """Returns path to the atomic daemon health status JSON file."""
+    return (Path(state_dir) if state_dir is not None else get_state_dir()) / "telemetry_sync_status.json"
+
+
+def read_sync_status(state_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Reads latest daemon health status JSON, returning empty dict if unavailable."""
+    path = get_sync_status_path(state_dir=state_dir)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _write_sync_status(payload: Dict[str, Any], state_dir: Optional[Path] = None) -> None:
+    path = get_sync_status_path(state_dir=state_dir)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(f".tmp.{os.getpid()}")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        sys.stderr.write(f"[agyis-sync] Failed writing sync status {path}: {exc}\n")
 
 def harvest_local_transcripts(
-    db_path: Path,
-    mtime_cache: Dict[str, Tuple[float, int]],
-    brain_dir: Optional[Path] = None,
+    db_path: Path, mtime_cache: Dict[str, Tuple[float, int]],
+    brain_dir: Optional[Path] = None, error_sink: Optional[List[str]] = None,
 ) -> int:
-    """Incrementally ingests local conversation transcripts into SQLite db.
-
-    Uses mtime & size stat cache for sub-millisecond change detection.
-    """
-    from harness.telemetry.extractor import (
-        SCHEMA_SQL,
-        ensure_sync_columns,
-        ensure_volume_columns,
-        extract_session,
+    """Incrementally ingests local transcripts into SQLite using canonical schema upserts."""
+    modified = sorted(
+        ((p, str(p), m, s) for _, p, m, s in iter_brain_transcripts(brain_dir) if mtime_cache.get(str(p)) != (m, s)),
+        key=lambda item: item[2],
     )
-
-    b_dir = brain_dir or (Path.home() / ".gemini" / "antigravity" / "brain")
-    if not b_dir.is_dir():
+    if not modified:
         return 0
-
-    pattern = str(b_dir / "*" / ".system_generated" / "logs" / "transcript.jsonl")
-    paths = glob.glob(pattern)
-    legacy_pattern = str(b_dir / "*" / "transcript.jsonl")
-    paths.extend(glob.glob(legacy_pattern))
-
-    modified_items: List[Tuple[Path, str, float, int]] = []
-    for p_str in paths:
-        try:
-            st = os.stat(p_str)
-            mtime = st.st_mtime
-            size = st.st_size
-            cached = mtime_cache.get(p_str)
-            if cached is None or cached[0] < mtime or cached[1] != size:
-                modified_items.append((Path(p_str), p_str, mtime, size))
-        except OSError:
-            continue
-
-    if not modified_items:
-        return 0
-
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path, timeout=30.0)
+    conn, stored = get_db_connection(db_path, row_factory=False), 0
     try:
-        conn.execute("PRAGMA journal_mode=WAL;")
-        cur = conn.cursor()
-        cur.executescript(SCHEMA_SQL)
-        ensure_volume_columns(conn)
-        ensure_sync_columns(conn)
-        conn.commit()
+        ensure_telemetry_schema(conn)
+        for p, p_str, mtime, size in modified:
+            try:
+                res = extract_session(p)
+                if not res:
+                    continue
+                upsert_session_telemetry(conn, *res, commit=True)
+                mtime_cache.pop(p_str, None)
+                mtime_cache[p_str] = (mtime, size)
+                if len(mtime_cache) > _MAX_MTIME_CACHE:
+                    mtime_cache.pop(next(iter(mtime_cache)), None)
+                stored += 1
+            except Exception as exc:
+                conn.rollback()
+                sys.stderr.write(f"[agyis-sync] Harvest failed for {p}: {exc}\n")
+                if error_sink is not None:
+                    error_sink.append(f"{p.parts[-4]}: {exc}")
     finally:
         conn.close()
-
-    stored = 0
-    for p, p_str, mtime, size in modified_items:
-        try:
-            res = extract_session(p)
-            if not res:
-                continue
-            session_row, step_rows, tool_rows, interv_rows = res
-            s_id = session_row["session_id"]
-
-            conn = sqlite3.connect(db_path, timeout=30.0)
-            try:
-                conn.execute("PRAGMA journal_mode=WAL;")
-                cur = conn.cursor()
-                cur.execute("DELETE FROM steps WHERE session_id = ?", (s_id,))
-                cur.execute("DELETE FROM tool_calls WHERE session_id = ?", (s_id,))
-                cur.execute("DELETE FROM user_interventions WHERE session_id = ?", (s_id,))
-
-                cur.execute(
-                    "SELECT remote_synced_at, origin_developer, total_steps FROM sessions WHERE session_id = ?",
-                    (s_id,),
-                )
-                existing_row = cur.fetchone()
-                if existing_row:
-                    existing_synced_at, existing_origin, existing_steps = (
-                        existing_row[0],
-                        existing_row[1],
-                        existing_row[2],
-                    )
-                    new_steps = session_row.get("total_steps") or 0
-                    if existing_steps is not None and new_steps > existing_steps:
-                        session_row["remote_synced_at"] = None
-                    elif existing_synced_at and not session_row.get("remote_synced_at"):
-                        session_row["remote_synced_at"] = existing_synced_at
-                    if existing_origin and existing_origin != "local":
-                        session_row["origin_developer"] = existing_origin
-
-                cur.execute(
-                    """
-                    INSERT OR REPLACE INTO sessions (
-                        session_id, start_time, end_time, duration_seconds, total_steps,
-                        model, workspace_path, transcript_path, file_size_bytes, has_errors,
-                        tool_call_count, tool_error_count, intervention_count,
-                        origin_developer, remote_synced_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        session_row["session_id"],
-                        session_row["start_time"],
-                        session_row["end_time"],
-                        session_row["duration_seconds"],
-                        session_row["total_steps"],
-                        session_row["model"],
-                        session_row["workspace_path"],
-                        session_row["transcript_path"],
-                        session_row["file_size_bytes"],
-                        session_row["has_errors"],
-                        session_row["tool_call_count"],
-                        session_row["tool_error_count"],
-                        session_row["intervention_count"],
-                        session_row.get("origin_developer", "local"),
-                        session_row.get("remote_synced_at", None),
-                    ),
-                )
-                if step_rows:
-                    cur.executemany(
-                        """
-                        INSERT OR IGNORE INTO steps (
-                            session_id, step_index, step_type, source, status, created_at,
-                            content_length, content_snippet, has_thinking, thinking_length, tool_count
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        [
-                            (
-                                s["session_id"],
-                                s["step_index"],
-                                s["step_type"],
-                                s["source"],
-                                s["status"],
-                                s["created_at"],
-                                s["content_length"],
-                                s["content_snippet"],
-                                s["has_thinking"],
-                                s["thinking_length"],
-                                s["tool_count"],
-                            )
-                            for s in step_rows
-                        ],
-                    )
-                if tool_rows:
-                    cur.executemany(
-                        """
-                        INSERT OR IGNORE INTO tool_calls (
-                            session_id, step_index, tool_name, command_type, status,
-                            args_snippet, error_message, latency_seconds, exit_code,
-                            output_length, output_snippet
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        [
-                            (
-                                t["session_id"],
-                                t["step_index"],
-                                t["tool_name"],
-                                t.get("command_type"),
-                                t["status"],
-                                t["args_snippet"],
-                                t.get("error_message"),
-                                t["latency_seconds"],
-                                t.get("exit_code"),
-                                t.get("output_length", 0),
-                                t.get("output_snippet"),
-                            )
-                            for t in tool_rows
-                        ],
-                    )
-                if interv_rows:
-                    cur.executemany(
-                        """
-                        INSERT OR IGNORE INTO user_interventions (
-                            session_id, step_index, intervention_type, text_snippet, created_at
-                        ) VALUES (?, ?, ?, ?, ?)
-                        """,
-                        [
-                            (
-                                v["session_id"],
-                                v["step_index"],
-                                v["intervention_type"],
-                                v["text_snippet"],
-                                v["created_at"],
-                            )
-                            for v in interv_rows
-                        ],
-                    )
-                conn.commit()
-                stored += 1
-
-                # Update mtime_cache only after commit succeeds (D3-MAJ-02)
-                # Bounded capacity guard and periodic dead-key eviction (D3-MAJ-03)
-                if len(mtime_cache) >= 5000:
-                    dead_keys = [k for k in mtime_cache if not os.path.exists(k)]
-                    for k in dead_keys:
-                        mtime_cache.pop(k, None)
-                    while len(mtime_cache) >= 5000:
-                        try:
-                            first_key = next(iter(mtime_cache))
-                            mtime_cache.pop(first_key, None)
-                        except (StopIteration, KeyError):
-                            break
-                mtime_cache[p_str] = (mtime, size)
-            finally:
-                conn.close()
-        except Exception:
-            continue
-
     return stored
 
-
 def watch_and_sync(
-    interval_sec: float = 5.0,
-    db_path: Optional[Union[str, Path]] = None,
-    run_once: bool = False,
-    max_iterations: Optional[int] = None,
-    stop_event: Optional[Any] = None,
-    endpoint: Optional[str] = None,
-    token: Optional[str] = None,
-    workspace_root: Optional[Union[str, Path]] = None,
+    interval_sec: float = 5.0, db_path: Optional[Union[str, Path]] = None,
+    endpoint: Optional[str] = None, token: Optional[str] = None,
+    run_once: bool = False, max_iterations: Optional[int] = None,
+    stop_event: Optional[threading.Event] = None,
     on_iteration: Optional[Callable[[int, Dict[str, Any]], None]] = None,
+    brain_dir: Optional[Path] = None, max_backoff_sec: float = 300.0, state_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Runs continuous background watching, local harvesting, and pushing of unsynced telemetry.
+    """Continuously harvests local transcripts and pushes deltas with exponential backoff."""
+    import harness.telemetry.sync as sync_mod
 
-    Parameters:
-        interval_sec: Poll interval in seconds (default 5.0).
-        db_path: Optional SQLite telemetry database path.
-        run_once: If True, executes exactly one harvesting/push attempt and returns.
-        max_iterations: Optional upper bound on iteration count.
-        stop_event: Optional threading.Event or object with is_set() and wait().
-        endpoint: Telemetry hub endpoint.
-        token: Authentication token.
-        workspace_root: Workspace root for path anonymization.
-        on_iteration: Optional callback(iteration_idx, iteration_result).
-    """
-    iterations = 0
-    total_sessions_pushed = 0
-    total_steps_pushed = 0
-    total_sessions_harvested = 0
-    last_synced_at = None
-    errors: List[str] = []
+    target_db = config.resolve_db_path(db_path, must_exist=False)
     mtime_cache: Dict[str, Tuple[float, int]] = {}
-
-    target_db = resolve_db_path(db_path, must_exist=False)
+    errors: List[str] = []
+    iterations = total_pushed = total_harvested = consecutive_failures = 0
+    last_success_at = last_harvest_at = last_error = None
+    try:
+        conn = get_db_connection(target_db, row_factory=False)
+        try:
+            ensure_telemetry_schema(conn)
+        finally:
+            conn.close()
+    except Exception as init_exc:
+        last_error = f"Schema init failed: {init_exc}"
+        sys.stderr.write(f"[agyis-sync] {last_error}\n")
+        errors.append(last_error)
 
     try:
         while True:
-            if stop_event is not None and stop_event.is_set():
-                break
-            if max_iterations is not None and iterations >= max_iterations:
-                break
-
             iterations += 1
-            harvested = 0
-            iteration_payload: Dict[str, Any] = {"iteration": iterations}
-
-            # 1. Incremental local transcript harvesting
+            iter_errors: List[str] = []
+            harvested = pushed = 0
+            push_unconfigured = False
             try:
-                harvested = harvest_local_transcripts(target_db, mtime_cache)
-                total_sessions_harvested += harvested
-                iteration_payload["sessions_harvested"] = harvested
+                harvested = harvest_local_transcripts(target_db, mtime_cache, brain_dir=brain_dir, error_sink=iter_errors)
+                total_harvested += harvested
+                if harvested > 0:
+                    last_harvest_at = _utc_now_iso()
             except Exception as h_exc:
-                errors.append(f"Harvest iteration {iterations} error: {h_exc}")
+                sys.stderr.write(f"[agyis-sync] Harvest iteration {iterations} error: {h_exc}\n")
+                iter_errors.append(f"Harvest iteration {iterations} error: {h_exc}")
+            try:
+                push_res = sync_mod.push_local_sessions(endpoint=endpoint, token=token, db_path=target_db)
+                if isinstance(push_res, dict):
+                    pushed = int(push_res.get("sessions_pushed") or 0)
+                    total_pushed += pushed
+            except ValueError:
+                push_unconfigured = True
+            except Exception as p_exc:
+                sys.stderr.write(f"[agyis-sync] Push iteration {iterations} error: {p_exc}\n")
+                iter_errors.append(f"Push iteration {iterations} error: {p_exc}")
 
-            # 2. Remote hub push (if configured)
-            import harness.telemetry.config as sync_cfg
-            import harness.telemetry.sync as sync_mod
-
-            has_endpoint = bool(endpoint or sync_cfg.get_sync_endpoint(workspace_root=workspace_root))
-            has_token = bool(token or sync_cfg.get_auth_token())
-
-            if has_endpoint and has_token:
-                try:
-                    push_res = sync_mod.push_local_sessions(
-                        endpoint=endpoint,
-                        token=token,
-                        db_path=target_db,
-                        workspace_root=workspace_root,
-                        dry_run=False,
-                    )
-                    pushed = push_res.get("sessions_pushed", 0)
-                    total_sessions_pushed += pushed
-                    total_steps_pushed += push_res.get("steps_pushed", 0)
-                    if push_res.get("synced_at"):
-                        last_synced_at = push_res["synced_at"]
-                    iteration_payload.update(push_res)
-                except Exception as exc:
-                    errors.append(f"Push iteration {iterations} error: {exc}")
-                    if run_once:
-                        raise
-
-            # Memory safety: cap errors history to 20 items to prevent unbounded heap growth
-            if len(errors) > 20:
-                errors = errors[-20:]
-
-            if on_iteration:
-                on_iteration(iterations, iteration_payload)
-
-            if run_once:
-                break
-
-            # Sleep / wait for next iteration
-            if stop_event is not None and hasattr(stop_event, "wait"):
-                stopped = stop_event.wait(timeout=interval_sec)
-                if stopped:
-                    break
+            now_iso, base_iv = _utc_now_iso(), max(0.0, float(interval_sec))
+            if iter_errors:
+                consecutive_failures += 1
+                last_error, errors = iter_errors[-1], (errors + iter_errors)[-_MAX_SESSION_ERRORS:]
+                sleep_sec = min(max_backoff_sec, max(base_iv, 0.5) * (2 ** min(consecutive_failures, 6)))
+                status_str = "error" if (harvested == 0 and not push_unconfigured) else "degraded"
             else:
-                time.sleep(interval_sec)
+                consecutive_failures, last_success_at, sleep_sec, status_str = 0, now_iso, base_iv, "ok"
 
+            backoff_val = sleep_sec if consecutive_failures > 0 else 0.0
+            payload = {
+                "iteration": iterations, "sessions_harvested": harvested, "sessions_pushed": pushed,
+                "harvest_errors": len(iter_errors), "push_unconfigured": push_unconfigured,
+                "consecutive_failures": consecutive_failures, "backoff_sec": backoff_val,
+            }
+            _write_sync_status({
+                "status": status_str, "updated_at": now_iso, "last_success_at": last_success_at,
+                "last_harvest_at": last_harvest_at or last_success_at, "last_harvested_sessions": harvested,
+                "harvest_errors": len(iter_errors), "consecutive_failures": consecutive_failures,
+                "backoff_sec": backoff_val, "last_error": last_error, "recent_errors": errors[-_MAX_RECENT_ERRORS:],
+            }, state_dir=state_dir)
+            if on_iteration is not None:
+                on_iteration(iterations, payload)
+            if run_once or (max_iterations is not None and iterations >= max_iterations):
+                break
+            if stop_event is not None:
+                if stop_event.is_set() or stop_event.wait(timeout=sleep_sec):
+                    break
+            elif sleep_sec > 0:
+                time.sleep(sleep_sec)
     except KeyboardInterrupt:
         pass
-
     return {
-        "status": "completed",
-        "iterations": iterations,
-        "total_sessions_harvested": total_sessions_harvested,
-        "total_sessions_pushed": total_sessions_pushed,
-        "total_steps_pushed": total_steps_pushed,
-        "last_synced_at": last_synced_at,
-        "errors": errors,
+        "status": "completed", "iterations": iterations, "total_sessions_pushed": total_pushed,
+        "total_sessions_harvested": total_harvested, "consecutive_failures": consecutive_failures, "errors": errors,
     }
+
+
+__all__ = [
+    "compute_telemetry_lag", "get_sync_status_path", "harvest_local_transcripts",
+    "read_sync_status", "watch_and_sync",
+]

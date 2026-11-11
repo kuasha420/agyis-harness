@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 
 def get_db_connection(
@@ -206,4 +206,66 @@ def prune_historical_tool_arguments(
         "disk_bytes_reclaimed": disk_bytes_reclaimed,
         "vacuum_executed": vacuum_executed,
     }
+
+
+def iter_brain_transcripts(brain_dir: Optional[Path] = None) -> List[Tuple[str, Path, float, int]]:
+    """Returns non-empty (session_id, transcript_path, mtime, size) tuples from brain storage."""
+    from harness.utils.context import get_active_brain_dir
+
+    target = get_active_brain_dir(brain_dir)
+    if not target.is_dir():
+        return []
+    found: List[Tuple[str, Path, float, int]] = []
+    for entry in target.iterdir():
+        t_path = entry / ".system_generated" / "logs" / "transcript.jsonl"
+        try:
+            st = entry.is_dir() and t_path.stat()
+        except OSError:
+            continue
+        if st and st.st_size > 0:
+            found.append((entry.name, t_path, st.st_mtime, st.st_size))
+    return found
+
+
+def compute_telemetry_lag(
+    db_path: Optional[Union[str, Path]] = None,
+    brain_dir: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Computes fast O(N) lag between on-disk transcripts and indexed telemetry sessions."""
+    from harness.telemetry import config
+
+    transcripts = iter_brain_transcripts(brain_dir)
+    res: Dict[str, Any] = {
+        "total_transcripts": len(transcripts),
+        "indexed_sessions": 0,
+        "unsynced_local": 0,
+        "stale_local": 0,
+        "latest_transcript_mtime": max((t[2] for t in transcripts), default=None),
+        "last_db_end_time": None,
+    }
+    target_db = config.resolve_db_path(db_path, must_exist=False)
+    if not transcripts or not target_db.is_file():
+        res["unsynced_local"] = len(transcripts) if transcripts else 0
+        return res
+    try:
+        conn = get_db_connection(target_db, timeout=2.0, row_factory=False)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT session_id, COALESCE(file_size_bytes, 0) FROM sessions")
+            recorded = {r[0]: int(r[1]) for r in cur.fetchall() if r[0]}
+            cur.execute("SELECT MAX(end_time) FROM sessions")
+            row = cur.fetchone()
+            res["last_db_end_time"] = row[0] if row else None
+            res["indexed_sessions"] = len(recorded)
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return res
+    for s_id, _, _, size in transcripts:
+        rec = recorded.get(s_id)
+        if rec is None:
+            res["unsynced_local"] += 1
+        elif size > rec:
+            res["stale_local"] += 1
+    return res
 

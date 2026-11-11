@@ -1967,6 +1967,97 @@ class TestWatchAndSync(unittest.TestCase):
             )
             self.assertEqual(res["iterations"], 2)
 
+    def test_harvest_local_transcripts_ingests_tool_calls_and_interventions(self):
+        """Verifies harvest_local_transcripts populates sessions, steps, tool_calls, and user_interventions."""
+        brain_dir = Path(self.tmpdir.name) / "brain"
+        sess_id = "sess-harvest-001"
+        t_dir = brain_dir / sess_id / ".system_generated" / "logs"
+        t_dir.mkdir(parents=True, exist_ok=True)
+        t_file = t_dir / "transcript.jsonl"
+        steps = [
+            {"step_index": 0, "type": "USER_INPUT", "source": "USER_EXPLICIT", "created_at": "2026-11-10T10:00:00Z", "content": "<USER_REQUEST>run tests</USER_REQUEST>"},
+            {"step_index": 1, "type": "PLANNER_RESPONSE", "source": "MODEL", "created_at": "2026-11-10T10:00:05Z", "tool_calls": [{"name": "run_command", "args": {"CommandLine": "python3 -m unittest"}}]},
+            {"step_index": 2, "type": "TOOL_RESULT", "status": "DONE", "created_at": "2026-11-10T10:00:07Z", "content": "Created At: 2026-11-10T10:00:05Z\nCompleted At: 2026-11-10T10:00:07Z\nRan 5 tests\nOK"},
+            {"step_index": 3, "type": "USER_INPUT", "source": "USER_EXPLICIT", "created_at": "2026-11-10T10:00:10Z", "content": "<USER_REQUEST>proceed</USER_REQUEST>"},
+        ]
+        t_file.write_text("\n".join(json.dumps(s) for s in steps) + "\n", encoding="utf-8")
+
+        lag_before = sync.compute_telemetry_lag(db_path=self.db_path, brain_dir=brain_dir)
+        self.assertEqual(lag_before["unsynced_local"], 1)
+
+        cache = {}
+        stored = sync.harvest_local_transcripts(self.db_path, cache, brain_dir=brain_dir)
+        self.assertEqual(stored, 1)
+        self.assertIn(str(t_file), cache)
+        # Re-running with unchanged transcript must be a zero-write no-op
+        self.assertEqual(sync.harvest_local_transcripts(self.db_path, cache, brain_dir=brain_dir), 0)
+
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT tool_call_count, intervention_count FROM sessions WHERE session_id = ?", (sess_id,))
+        self.assertEqual(cur.fetchone(), (1, 1))
+        cur.execute("SELECT tool_name, command_category, status FROM tool_calls WHERE session_id = ?", (sess_id,))
+        self.assertEqual(cur.fetchone(), ("run_command", "test_runner", "SUCCESS"))
+        cur.execute("SELECT intervention_type, prompt_text FROM user_interventions WHERE session_id = ?", (sess_id,))
+        self.assertEqual(cur.fetchone(), ("CONFIRMATION", "proceed"))
+        conn.close()
+
+        lag_after = sync.compute_telemetry_lag(db_path=self.db_path, brain_dir=brain_dir)
+        self.assertEqual(lag_after["unsynced_local"], 0)
+        self.assertEqual(lag_after["stale_local"], 0)
+
+        # Appending new bytes should surface stale_local == 1
+        with open(t_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"step_index": 4, "type": "PLANNER_RESPONSE", "content": "done"}) + "\n")
+        lag_stale = sync.compute_telemetry_lag(db_path=self.db_path, brain_dir=brain_dir)
+        self.assertEqual(lag_stale["stale_local"], 1)
+
+    def test_harvest_local_transcripts_logs_errors_and_leaves_mtime_uncached(self):
+        """Verifies harvest errors log to stderr, do not advance mtime_cache, and preserve clean DB."""
+        brain_dir = Path(self.tmpdir.name) / "brain_err"
+        t_dir = brain_dir / "sess-err-001" / ".system_generated" / "logs"
+        t_dir.mkdir(parents=True, exist_ok=True)
+        t_file = t_dir / "transcript.jsonl"
+        t_file.write_text(json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "hi"}) + "\n", encoding="utf-8")
+
+        cache, err_sink, err_buf = {}, [], io.StringIO()
+        with patch("harness.telemetry.sync.daemon.upsert_session_telemetry", side_effect=sqlite3.OperationalError("schema mismatch")), \
+             patch("sys.stderr", err_buf):
+            stored = sync.harvest_local_transcripts(self.db_path, cache, brain_dir=brain_dir, error_sink=err_sink)
+        self.assertEqual(stored, 0)
+        self.assertEqual(cache, {})
+        self.assertEqual(len(err_sink), 1)
+        self.assertIn("schema mismatch", err_buf.getvalue())
+
+    def test_watch_and_sync_exponential_backoff_and_health_status(self):
+        """Verifies watch_and_sync backs off exponentially on repeated errors and records health JSON."""
+        state_dir = Path(self.tmpdir.name) / "state"
+        backoffs = []
+        sleeps = []
+
+        def on_iter(idx, payload):
+            backoffs.append(payload["backoff_sec"])
+
+        with patch("harness.telemetry.sync.daemon.harvest_local_transcripts", side_effect=RuntimeError("db locked")), \
+             patch("harness.telemetry.sync.push_local_sessions", side_effect=ValueError("no token")), \
+             patch("harness.telemetry.sync.daemon.time.sleep", side_effect=lambda s: sleeps.append(s)), \
+             patch("sys.stderr", io.StringIO()):
+            res = sync.watch_and_sync(
+                interval_sec=0.5,
+                db_path=self.db_path,
+                max_iterations=3,
+                on_iteration=on_iter,
+                state_dir=state_dir,
+            )
+
+        self.assertEqual(res["consecutive_failures"], 3)
+        self.assertEqual(backoffs, [1.0, 2.0, 4.0])
+        self.assertEqual(sleeps, [1.0, 2.0])
+        health = sync.read_sync_status(state_dir=state_dir)
+        self.assertEqual(health["status"], "degraded")
+        self.assertEqual(health["consecutive_failures"], 3)
+        self.assertIn("db locked", health["last_error"])
+
 
 class TestSystemdServiceGenerator(unittest.TestCase):
     """Verifies systemd unit definition generator (Issue #1)."""

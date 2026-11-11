@@ -208,55 +208,31 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
         if save_db:
             from pipeline import extract_transcripts
-            import sqlite3
             from harness.telemetry import config
             from harness.telemetry.db import get_db_connection
+            from harness.telemetry.extractor import upsert_session_telemetry
+
             db_path = config.resolve_db_path(getattr(args, "db", None))
             conn = get_db_connection(db_path)
-            extract_transcripts.ensure_sync_columns(conn)
-            cur = conn.cursor()
-            cur.executescript(extract_transcripts.SCHEMA_SQL)
-            conn.commit()
-
-            t_path = s_dir / ".system_generated" / "logs" / "transcript.jsonl"
-            res = extract_transcripts.extract_session(t_path)
-            if res:
-                s_row, _, _, _ = res
-                cur.execute("""
-                    INSERT OR REPLACE INTO sessions (
-                        session_id, start_time, end_time, duration_seconds, total_steps,
-                        model, workspace_path, transcript_path, file_size_bytes, has_errors,
-                        tool_call_count, tool_error_count, intervention_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    s_row["session_id"], s_row["start_time"], s_row["end_time"],
-                    s_row["duration_seconds"], s_row["total_steps"], s_row["model"],
-                    s_row["workspace_path"], s_row["transcript_path"], s_row["file_size_bytes"],
-                    s_row["has_errors"], s_row["tool_call_count"], s_row["tool_error_count"],
-                    s_row["intervention_count"]
-                ))
+            try:
+                extract_transcripts.ensure_sync_columns(conn)
+                cur = conn.cursor()
+                cur.executescript(extract_transcripts.SCHEMA_SQL)
                 conn.commit()
 
-            for sa in report["subagents"]:
-                sub_p = s_dir.parent / sa["conversation_id"] / ".system_generated" / "logs" / "transcript.jsonl"
-                sub_res = extract_transcripts.extract_session(sub_p)
-                if sub_res:
-                    s_row, _, _, _ = sub_res
-                    cur.execute("""
-                        INSERT OR REPLACE INTO sessions (
-                            session_id, start_time, end_time, duration_seconds, total_steps,
-                            model, workspace_path, transcript_path, file_size_bytes, has_errors,
-                            tool_call_count, tool_error_count, intervention_count
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        s_row["session_id"], s_row["start_time"], s_row["end_time"],
-                        s_row["duration_seconds"], s_row["total_steps"], s_row["model"],
-                        s_row["workspace_path"], s_row["transcript_path"], s_row["file_size_bytes"],
-                        s_row["has_errors"], s_row["tool_call_count"], s_row["tool_error_count"],
-                        s_row["intervention_count"]
-                    ))
-                    conn.commit()
-            conn.close()
+                transcript_targets = [s_dir / ".system_generated" / "logs" / "transcript.jsonl"]
+                transcript_targets.extend(
+                    s_dir.parent / sa["conversation_id"] / ".system_generated" / "logs" / "transcript.jsonl"
+                    for sa in report.get("subagents", [])
+                    if sa.get("conversation_id")
+                )
+                for t_path in transcript_targets:
+                    res = extract_transcripts.extract_session(t_path)
+                    if res:
+                        upsert_session_telemetry(conn, *res, commit=False)
+                conn.commit()
+            finally:
+                conn.close()
             if not as_json:
                 print(f"✔ Synchronized session {report['session_id'][:8]} and {len(report['subagents'])} subagents into telemetry.db\n")
 
@@ -348,8 +324,11 @@ def cmd_audit(args: argparse.Namespace) -> int:
                 "missing_count": doc_summary.get("missing", 0),
                 "outdated_count": doc_summary.get("outdated", 0),
             }
-        except Exception:
-            pass
+        except Exception as exc:
+            sys.stderr.write(f"⚠️  Doctor audit warning: {exc}\n")
+
+        if not skip_tests and test_suite_result["exit_code"] != 0 and verdict_str.upper() in ("VICTORY CONFIRMED", "PASS"):
+            verdict_str = "REJECTED"
 
         verdict_obj = generate_audit_verdict(
             workspace_dir=cwd,
