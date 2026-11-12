@@ -309,7 +309,12 @@ def _load_meta_parent(
     return None, None
 
 
-def build_measured_breakdown(steps: List[Dict[str, Any]], total_tokens: int) -> TokenBreakdown:
+def build_measured_breakdown(
+    steps: List[Dict[str, Any]],
+    total_tokens: int,
+    system_prompt_tokens: int = 0,
+    tool_defs_tokens: int = 0,
+) -> TokenBreakdown:
     """
     Computes measured per-epoch token buckets plus honest `unattributed` remainder.
     Never applies synthetic 40/60 system/tool percentages or dumps unattributed gaps into `model`.
@@ -342,7 +347,9 @@ def build_measured_breakdown(steps: List[Dict[str, Any]], total_tokens: int) -> 
         else:
             tool_t += explicit_step_tok or estimate_tokens(content)
 
-    measured = user_t + model_t + thought_t + tool_t + cp_t + sys_t
+    effective_sys = max(sys_t, int(system_prompt_tokens or 0))
+    effective_tool_defs = int(tool_defs_tokens or 0)
+    measured = user_t + model_t + thought_t + tool_t + cp_t + effective_sys + effective_tool_defs
     if total_tokens <= 0:
         unattributed = 0
     else:
@@ -353,8 +360,9 @@ def build_measured_breakdown(steps: List[Dict[str, Any]], total_tokens: int) -> 
         model=model_t,
         thought=thought_t,
         tool=tool_t,
+        tool_defs=effective_tool_defs,
         checkpoint=cp_t,
-        system=sys_t,
+        system=effective_sys,
         unattributed=unattributed,
     )
 

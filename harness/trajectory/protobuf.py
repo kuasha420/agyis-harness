@@ -15,6 +15,58 @@ from typing import Any, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
+class ProtobufTokenChild:
+    """Individual item in a token group (e.g. section title or tool name)."""
+    name: str
+    tokens: int
+
+
+@dataclass(frozen=True)
+class ProtobufTokenGroupNode:
+    """Decoded TopLevelTokenGroup from contextWindowMetadata.tokenBreakdown."""
+    name: str
+    token_type: int
+    source: int
+    num_tokens: int
+    children: Tuple[ProtobufTokenChild, ...] = ()
+    mcp_servers: Tuple[Tuple[str, Tuple[ProtobufTokenChild, ...]], ...] = ()
+
+
+@dataclass(frozen=True)
+class ProtobufPromptSection:
+    """Decoded PromptSection from ChatModelMetadata."""
+    title: str
+    content: str
+    token_type: int = 1
+    token_source: int = 1
+
+
+@dataclass(frozen=True)
+class ProtobufToolDefinition:
+    """Decoded ChatToolDefinition from ChatModelMetadata."""
+    name: str
+    description: str = ""
+    server_name: str = ""
+    is_mcp: bool = False
+
+
+@dataclass(frozen=True)
+class ProtobufTokenBreakdown:
+    """Authoritative token breakdown extracted from protobuf."""
+    total_tokens: int = 0
+    system_tokens: int = 0
+    tool_tokens: int = 0
+    mcp_tool_tokens: int = 0
+    rules_tokens: int = 0
+    skills_tokens: int = 0
+    subagents_tokens: int = 0
+    chat_message_tokens: int = 0
+    groups: Tuple[ProtobufTokenGroupNode, ...] = ()
+    prompt_sections: Tuple[ProtobufPromptSection, ...] = ()
+    tools: Tuple[ProtobufToolDefinition, ...] = ()
+
+
+@dataclass(frozen=True)
 class ProtobufUsageMetrics:
     """Decoded token, context window, and model telemetry from protobuf blobs."""
 
@@ -26,6 +78,7 @@ class ProtobufUsageMetrics:
     max_context_tokens: int = 0
     checkpoint_idx: int = 0
     model_name: str = ""
+    token_breakdown: Optional[ProtobufTokenBreakdown] = None
 
     @property
     def total_prompt_tokens(self) -> int:
@@ -293,6 +346,136 @@ def extract_usage_from_protobuf(raw_bytes: bytes) -> ProtobufUsageMetrics:
         max_context_tokens=mct,
         checkpoint_idx=ckpt,
         model_name=model,
+    )
+
+
+def _parse_token_group_node(buf: bytes) -> ProtobufTokenGroupNode:
+    """Parses TopLevelTokenGroup message (fn 1 of TokenBreakdown)."""
+    fields = parse_pb_fields(buf) or []
+    name = ""
+    ttype = source = tokens = 0
+    children: List[ProtobufTokenChild] = []
+    mcp_servers: List[Tuple[str, Tuple[ProtobufTokenChild, ...]]] = []
+
+    for fn, wt, val in fields:
+        if fn == 1 and wt == 2 and isinstance(val, bytes):
+            name = val.decode("utf-8", errors="replace")
+        elif fn == 2 and wt == 0 and isinstance(val, int):
+            ttype = val
+        elif fn == 3 and wt == 0 and isinstance(val, int):
+            source = val
+        elif fn == 4 and wt == 0 and isinstance(val, int):
+            tokens = val
+        elif fn == 5 and wt == 2 and isinstance(val, bytes):
+            c_name = ""
+            c_tok = 0
+            sub_children: List[ProtobufTokenChild] = []
+            for sfn, swt, sval in parse_pb_fields(val) or []:
+                if sfn == 1 and swt == 2 and isinstance(sval, bytes):
+                    c_name = sval.decode("utf-8", errors="replace")
+                elif sfn == 3 and swt == 0 and isinstance(sval, int):
+                    c_tok = sval
+                elif sfn == 2 and swt == 2 and isinstance(sval, bytes):
+                    sc_name = ""
+                    sc_tok = 0
+                    for mfn, mwt, mval in parse_pb_fields(sval) or []:
+                        if mfn == 1 and mwt == 2 and isinstance(mval, bytes):
+                            sc_name = mval.decode("utf-8", errors="replace")
+                        elif mfn == 3 and mwt == 0 and isinstance(mval, int):
+                            sc_tok = mval
+                    if sc_name:
+                        sub_children.append(ProtobufTokenChild(sc_name, sc_tok))
+            if sub_children:
+                mcp_servers.append((c_name, tuple(sub_children)))
+            else:
+                children.append(ProtobufTokenChild(c_name, c_tok))
+
+    return ProtobufTokenGroupNode(
+        name=name,
+        token_type=ttype,
+        source=source,
+        num_tokens=tokens,
+        children=tuple(children),
+        mcp_servers=tuple(mcp_servers),
+    )
+
+
+def extract_token_breakdown_from_protobuf(buf: bytes) -> Optional[ProtobufTokenBreakdown]:
+    """Decodes contextWindowMetadata.tokenBreakdown, promptSections, and tools from protobuf."""
+    outer = parse_pb_fields(buf)
+    if not outer:
+        return None
+
+    cwm_bytes: Optional[bytes] = None
+    for fn, wt, val in outer:
+        if wt != 2 or not isinstance(val, bytes):
+            continue
+        if fn == 1:
+            for sfn, swt, sval in parse_pb_fields(val) or []:
+                if sfn == 9 and swt == 2 and isinstance(sval, bytes):
+                    for cfn, cwt, cval in parse_pb_fields(sval) or []:
+                        if cfn == 10 and cwt == 2 and isinstance(cval, bytes):
+                            cwm_bytes = cval
+                            break
+        elif fn == 9:
+            for cfn, cwt, cval in parse_pb_fields(val) or []:
+                if cfn == 10 and cwt == 2 and isinstance(cval, bytes):
+                    cwm_bytes = cval
+                    break
+        elif fn == 10:
+            cwm_bytes = val
+        if cwm_bytes:
+            break
+
+    if not cwm_bytes:
+        return None
+
+    tb_bytes: Optional[bytes] = None
+    for fn, wt, val in parse_pb_fields(cwm_bytes) or []:
+        if fn == 3 and wt == 2 and isinstance(val, bytes):
+            tb_bytes = val
+            break
+
+    if not tb_bytes:
+        return None
+
+    total_tokens = 0
+    groups: List[ProtobufTokenGroupNode] = []
+    sys_tokens = tool_tokens = mcp_tokens = rules_tokens = skills_tokens = subagents_tokens = chat_tokens = 0
+
+    for fn, wt, val in parse_pb_fields(tb_bytes) or []:
+        if fn == 2 and wt == 0 and isinstance(val, int):
+            total_tokens = val
+        elif fn == 1 and wt == 2 and isinstance(val, bytes):
+            g = _parse_token_group_node(val)
+            groups.append(g)
+            if g.token_type == 1:
+                sys_tokens += g.num_tokens
+            elif g.token_type == 2:
+                tool_tokens += g.num_tokens
+            elif g.token_type == 3:
+                rules_tokens += g.num_tokens
+            elif g.token_type == 4:
+                mcp_tokens += g.num_tokens
+            elif g.token_type == 5:
+                skills_tokens += g.num_tokens
+            elif g.token_type == 6:
+                subagents_tokens += g.num_tokens
+            elif g.token_type == 7:
+                chat_tokens += g.num_tokens
+            elif g.token_type == 0 and ("system" in g.name.lower() or "identity" in g.name.lower()):
+                sys_tokens += g.num_tokens
+
+    return ProtobufTokenBreakdown(
+        total_tokens=total_tokens,
+        system_tokens=sys_tokens,
+        tool_tokens=tool_tokens,
+        mcp_tool_tokens=mcp_tokens,
+        rules_tokens=rules_tokens,
+        skills_tokens=skills_tokens,
+        subagents_tokens=subagents_tokens,
+        chat_message_tokens=chat_tokens,
+        groups=tuple(groups),
     )
 
 

@@ -1,11 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Arafat Zahan (@kuasha420)
+// Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+// Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
+/**
+ * hud.js — In-situ Trajectory Debug View Orchestrator & Mount Engine.
+ * 
+ * Assembles the modular frontend components:
+ * 1. hud_header.js (Session switcher, badges, search, controls)
+ * 2. hud_context_bar.js (Wtc proportional token bar & Atc multi-row packing)
+ * 3. hud_timeline.js (lvc continuous ms Gantt visualizer & Buc idle collapsing)
+ * 4. hud_inspector.js (ruc 4-tab step/invocation/execution/trajectory inspector)
+ * 5. hud_deck.js (ovc split deck with resizable splitter clamps)
+ * 6. hud_rpc.js (ConnectRPC client & SSOT token breakdown groups)
+ */
+
 (() => {
     const HUD_ID = "agyis-trajectory-hud";
     const STYLES_ID = "agyis-trajectory-hud-styles";
     const __PAYLOAD__ = null;
-    const initialData = __PAYLOAD__.initialData;
-    const conversationList = __PAYLOAD__.conversationList;
-    const shouldOpen = __PAYLOAD__.shouldOpen;
-    const isToggle = __PAYLOAD__.isToggle;
+    const initialData = __PAYLOAD__ ? __PAYLOAD__.initialData : null;
+    const conversationList = __PAYLOAD__ ? __PAYLOAD__.conversationList : [];
+    const shouldOpen = __PAYLOAD__ ? __PAYLOAD__.shouldOpen : false;
+    const isToggle = __PAYLOAD__ ? __PAYLOAD__.isToggle : false;
     let hud = document.getElementById(HUD_ID);
 
     function syncToLatestState(state) {
@@ -13,13 +30,9 @@
         const steps = state.currentData.steps || [];
         const epochs = state.currentData.epochs || [];
 
-        // 1. Show latest epoch
         state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
-
-        // 2. Select latest step
         state.selectedIndex = Math.max(0, steps.length - 1);
 
-        // 3. Show latest 50 steps on steps list (last table page)
         const totalSteps = steps.length;
         const pageSize = 50;
         const totalPages = Math.max(1, Math.ceil(totalSteps / pageSize));
@@ -27,8 +40,19 @@
     }
 
     function extractHudFocusedConvoId() {
-        const match = (window.location && window.location.pathname) ? window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/) : null;
-        return match ? match[1] : null;
+        if (typeof window.detectActiveConversationContext === "function") {
+            return window.detectActiveConversationContext();
+        }
+        const pathMatch = (window.location && window.location.pathname) ? window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/) : null;
+        const routeCascadeId = pathMatch ? pathMatch[1] : null;
+
+        const focusedPane = typeof document !== "undefined" ? document.querySelector('div[data-pane-id]:not([data-pane-unfocused])') : null;
+        const focusedPaneId = focusedPane ? focusedPane.getAttribute('data-pane-id') : null;
+
+        const searchParams = (typeof window !== "undefined" && window.location && window.location.search) ? new URLSearchParams(window.location.search) : null;
+        const searchCascadeId = searchParams ? searchParams.get('cascadeId') : null;
+
+        return focusedPaneId || routeCascadeId || searchCascadeId || null;
     }
     window.__agyis_extract_convo_id = extractHudFocusedConvoId;
 
@@ -65,13 +89,26 @@
     hud.id = HUD_ID;
     hud.style.display = shouldOpen ? "flex" : "none";
 
-    const steps = initialData.steps || [];
-    const epochs = initialData.epochs || [];
+    const steps = (initialData && initialData.steps) || [];
+    const epochs = (initialData && initialData.epochs) || [];
+
+    // Initialize cleanroom state
+    let savedOrientation = "horizontal";
+    let savedInspectorWidth = null;
+    let savedInspectorHeight = null;
+    try {
+        savedOrientation = localStorage.getItem("jetski_debug_v2_layout_orientation") || "horizontal";
+        const w = parseInt(localStorage.getItem("jetski_debug_v2_inspector_width") || "", 10);
+        if (!isNaN(w) && w >= 300) savedInspectorWidth = w;
+        const h = parseInt(localStorage.getItem("jetski_debug_v2_inspector_height") || "", 10);
+        if (!isNaN(h) && h >= 150) savedInspectorHeight = h;
+    } catch (_) {}
+
     window.__agyis_hud_state = {
         rootData: initialData,
         currentData: initialData,
         sessionModel: (initialData && initialData.model) || "",
-        convoId: initialData.conversation_id,
+        convoId: (initialData && initialData.conversation_id) || "",
         selectedIndex: Math.max(0, steps.length - 1),
         activeEpochIndex: epochs.length > 0 ? epochs.length - 1 : -1,
         tablePage: Math.max(0, Math.ceil(steps.length / 50) - 1),
@@ -81,23 +118,43 @@
         currentMatchIdx: -1,
         activeTab: "step",
         mainDeckTab: "context",
-        layoutOrientation: "horizontal",
+        timelineMode: "steps",
+        layoutOrientation: savedOrientation,
+        inspectorWidth: savedInspectorWidth,
+        inspectorHeight: savedInspectorHeight,
         isMaximized: false,
         subagentsDropdownOpen: false,
-        hoveredContextSegment: null,
+        hoveredItemKey: null,
     };
     syncToLatestState(window.__agyis_hud_state);
 
-    /* __HUD_RPC__ */
-    /* __HUD_VIEWS__ */
+    /* __HUD_HEADER__ */
+    /* __HUD_CONTEXT_BAR__ */
+    /* __HUD_TIMELINE__ */
     /* __HUD_INSPECTOR__ */
+    /* __HUD_DECK__ */
+    /* __HUD_RPC__ */
+    /* __HOTKEY__ */
+
+    function selectStep(sIdx) {
+        const state = window.__agyis_hud_state;
+        const cur = state.currentData;
+        const curEpochs = (cur && cur.epochs) || [];
+        const foundEp = curEpochs.find(ep => sIdx >= ep.start_index && sIdx <= ep.end_index);
+        if (foundEp) state.activeEpochIndex = foundEp.epoch_index;
+        state.selectedIndex = sIdx;
+        renderHud();
+        const rowEl = hud.querySelector(`.agyis-step-grid-item[data-index="${sIdx}"]`);
+        if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
 
     function renderHud() {
         const state = window.__agyis_hud_state;
         const cur = state.currentData;
-        const curSteps = cur.steps || [];
+        const curSteps = (cur && cur.steps) || [];
         const currentStep = curSteps[state.selectedIndex] || null;
 
+        // Filter steps by search query
         const q = (state.filterQuery || "").trim().toLowerCase();
         const filteredIndices = [];
         for (let i = 0; i < curSteps.length; i++) {
@@ -111,7 +168,7 @@
         }
         state.searchMatchIndices = filteredIndices;
 
-        const curEpochs = (cur.epochs && cur.epochs.length > 0) ? cur.epochs : [{
+        const curEpochs = (cur && cur.epochs && cur.epochs.length > 0) ? cur.epochs : [{
             epoch_index: 0,
             start_index: 0,
             end_index: Math.max(0, curSteps.length - 1),
@@ -126,27 +183,67 @@
         const activeEpoch = curEpochs[state.activeEpochIndex] || curEpochs[curEpochs.length - 1];
         const epochSteps = curSteps.slice(activeEpoch.start_index, activeEpoch.end_index + 1);
 
-        const inspectorContentHtml = buildInspectorHtml(currentStep, state);
-        const { html, totalPages, pageSize } = buildMainDeckViewHtml(
-            cur, state, curSteps, curEpochs, activeEpoch, epochSteps, filteredIndices, inspectorContentHtml, currentStep, conversationList,
-        );
+        const containerWidth = window.innerWidth * 0.95;
+
+        // Render modular components
+        const headerHtml = window.renderHudHeader ? window.renderHudHeader(state, cur, conversationList) : "";
+        const inspectorContentHtml = window.buildInspectorHtml ? window.buildInspectorHtml(currentStep, state, cur) : "";
+        const deckHtml = window.renderMainDeck ? window.renderMainDeck(
+            cur, state, curSteps, curEpochs, activeEpoch, epochSteps, filteredIndices, inspectorContentHtml, currentStep, containerWidth
+        ) : "";
 
         if (!hud) hud = document.getElementById(HUD_ID);
         if (!hud) return;
-        hud.innerHTML = html;
-        bindHudEventListeners(hud, state, cur, curSteps, curEpochs, filteredIndices, totalPages, pageSize, currentStep);
+
+        hud.innerHTML = `
+            <div class="agyis-hud-box ${state.isMaximized ? "maximized" : ""}">
+                ${headerHtml}
+                ${deckHtml}
+            </div>
+        `;
+
+        // Bind modular events
+        if (window.bindHudHeaderEvents) window.bindHudHeaderEvents(hud, state, cur, renderHud, selectStep);
+        if (window.bindContextBarEvents) window.bindContextBarEvents(hud, state, cur, curEpochs, renderHud, selectStep);
+        if (window.bindTimelineEvents) window.bindTimelineEvents(hud, state, renderHud, selectStep);
+        if (window.bindInspectorEvents) window.bindInspectorEvents(hud, state, currentStep, selectStep);
+        if (window.initDeckSplitterAndNav) window.initDeckSplitterAndNav(hud, state, curSteps, filteredIndices, renderHud, selectStep);
+
+        // Prism syntax highlight
+        if (window.Prism && typeof window.Prism.highlightAllUnder === "function") {
+            const inspBody = hud.querySelector("#agyis-inspector-body");
+            if (inspBody) { try { window.Prism.highlightAllUnder(inspBody); } catch (_) {} }
+        }
     }
 
     window.__agyis_hud_render = renderHud;
     window.__agyis_hud_sync = syncToLatestState;
+    window.__agyis_hud_load_convo = async function(convoId) {
+        if (window.loadConversationViaRpc) {
+            const data = await window.loadConversationViaRpc(convoId);
+            if (data) {
+                const state = window.__agyis_hud_state;
+                if (state) {
+                    state.rootData = data;
+                    state.currentData = data;
+                    state.convoId = convoId;
+                    if (data.model) state.sessionModel = data.model;
+                    syncToLatestState(state);
+                    state.subagentsDropdownOpen = false;
+                    renderHud();
+                }
+                return data;
+            }
+        }
+        return null;
+    };
+
     renderHud();
     document.body.appendChild(hud);
-    const initialSelEl = document.querySelector(`.agyis-step-grid-item[data-index="${window.__agyis_hud_state.selectedIndex}"]`);
-    if (initialSelEl) initialSelEl.scrollIntoView({ block: "nearest" });
 
     // Initial check + SPA route sensitivity watcher (PSL-INV-010)
     const initialFocusedConvo = extractHudFocusedConvoId();
-    if (initialFocusedConvo && initialFocusedConvo !== initialData.conversation_id && typeof window.__agyis_hud_load_convo === "function") {
+    if (initialFocusedConvo && initialFocusedConvo !== (initialData && initialData.conversation_id) && typeof window.__agyis_hud_load_convo === "function") {
         window.__agyis_hud_load_convo(initialFocusedConvo);
     }
 
@@ -192,7 +289,7 @@
     };
     document.addEventListener("click", window.__agyis_hud_doc_click);
 
-    // Hotkey listener with stale listener cleanup
+    // Global Hotkey & Keyboard Navigation (j/k and ArrowDown/ArrowUp)
     window.__agyis_hud_hotkey_registered = true;
     window.__agyis_hud_last_toggle = window.__agyis_hud_last_toggle || 0;
     if (window.__agyis_hud_active_listener) {
@@ -202,6 +299,7 @@
         const isF12 = e.key === "F12";
         const isCtrlShiftT = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "T" || e.key === "t");
         const currentHud = document.getElementById(HUD_ID);
+
         if (isF12 || isCtrlShiftT) {
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -219,39 +317,38 @@
                     } else if (state) {
                         syncToLatestState(state);
                         if (typeof renderHud === "function") renderHud();
-                        const selEl = document.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
-                        if (selEl) selEl.scrollIntoView({ block: "nearest" });
                     }
                 }
             }
         }
+
         if (e.key === "Escape" && currentHud && currentHud.style.display !== "none") {
             currentHud.style.display = "none";
         }
-        if (currentHud && currentHud.style.display !== "none" && e.target && e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
+
+        // Keyboard navigation (j/k or ArrowDown/ArrowUp)
+        if (currentHud && currentHud.style.display !== "none" && e.target && e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA" && e.target.tagName !== "SELECT" && !e.target.isContentEditable) {
             const state = window.__agyis_hud_state;
             if (!state) return;
             const curSteps = (state.currentData && state.currentData.steps) ? state.currentData.steps : [];
+
+            if ((e.key === "ArrowDown" || e.key === "j") && state.selectedIndex < curSteps.length - 1) {
+                e.preventDefault();
+                selectStep(state.selectedIndex + 1);
+            }
+            if ((e.key === "ArrowUp" || e.key === "k") && state.selectedIndex > 0) {
+                e.preventDefault();
+                selectStep(state.selectedIndex - 1);
+            }
             if (e.key === "ArrowLeft" && state.selectedIndex > 0) {
-                state.selectedIndex -= 1;
-                const foundEp = ((state.currentData && state.currentData.epochs) || []).find(ep => state.selectedIndex >= ep.start_index && state.selectedIndex <= ep.end_index);
-                if (foundEp) state.activeEpochIndex = foundEp.epoch_index;
-                renderHud();
+                e.preventDefault();
+                selectStep(state.selectedIndex - 1);
             }
             if (e.key === "ArrowRight" && state.selectedIndex < curSteps.length - 1) {
-                state.selectedIndex += 1;
-                const foundEp = ((state.currentData && state.currentData.epochs) || []).find(ep => state.selectedIndex >= ep.start_index && state.selectedIndex <= ep.end_index);
-                if (foundEp) state.activeEpochIndex = foundEp.epoch_index;
-                renderHud();
+                e.preventDefault();
+                selectStep(state.selectedIndex + 1);
             }
         }
     };
     window.addEventListener("keydown", window.__agyis_hud_active_listener, true);
-
-    return {
-        success: true,
-        open: shouldOpen,
-        steps: initialData.step_count || 0,
-        convo_id: initialData.conversation_id,
-    };
 })();

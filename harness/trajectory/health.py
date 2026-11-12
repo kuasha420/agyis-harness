@@ -104,6 +104,7 @@ class TokenBreakdown:
     model: int = 0
     thought: int = 0
     tool: int = 0
+    tool_defs: int = 0
     checkpoint: int = 0
     system: int = 0
     unattributed: int = 0
@@ -115,8 +116,10 @@ class TokenBreakdown:
             "model": self.model,
             "thought": self.thought,
             "tool": self.tool,
+            "tool_defs": self.tool_defs,
             "checkpoint": self.checkpoint,
             "system": self.system,
+            "system_prompt": self.system,
             "unattributed": self.unattributed,
         }
 

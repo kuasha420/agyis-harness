@@ -289,6 +289,27 @@ class TestTrajectorySSOT(unittest.TestCase):
         self.assertNotIn("Optional", spawned)
         self.assertNotIn("target_conv_id", spawned)
 
+    def test_honest_token_breakdown_eliminates_unattributed_gap(self) -> None:
+        """Attributing system_prompt_tokens and tool_defs_tokens drops unattributed to zero."""
+        steps = [
+            {"type": "USER_INPUT", "content": "x" * 400, "tokens": 150},
+            {"type": "PLANNER_RESPONSE", "content": "y" * 800, "tokens": 350},
+        ]
+        # Total tokens = 40,500 (34,000 system + 6,000 tools + 500 steps)
+        bd = build_measured_breakdown(
+            steps,
+            total_tokens=40_500,
+            system_prompt_tokens=34_000,
+            tool_defs_tokens=6_000,
+        ).to_dict()
+
+        self.assertEqual(bd["user"], 150)
+        self.assertEqual(bd["model"], 350)
+        self.assertEqual(bd["system"], 34_000)
+        self.assertEqual(bd["tool_defs"], 6_000)
+        self.assertEqual(bd["unattributed"], 0)
+        self.assertEqual(sum(v for k, v in bd.items() if k != "system_prompt"), 40_500)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -764,9 +764,12 @@ def _load_hud_template() -> str:
     return (
         assets.joinpath("hud.js").read_text(encoding="utf-8")
         .replace("/* __HUD_STYLES__ */", assets.joinpath("hud_styles.css").read_text(encoding="utf-8"), 1)
-        .replace("/* __HUD_RPC__ */", assets.joinpath("hud_rpc.js").read_text(encoding="utf-8"), 1)
-        .replace("/* __HUD_VIEWS__ */", assets.joinpath("hud_views.js").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_HEADER__ */", assets.joinpath("hud_header.js").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_CONTEXT_BAR__ */", assets.joinpath("hud_context_bar.js").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_TIMELINE__ */", assets.joinpath("hud_timeline.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_INSPECTOR__ */", assets.joinpath("hud_inspector.js").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_DECK__ */", assets.joinpath("hud_deck.js").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_RPC__ */", assets.joinpath("hud_rpc.js").read_text(encoding="utf-8"), 1)
     )
 
 

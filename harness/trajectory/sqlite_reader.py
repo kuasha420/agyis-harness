@@ -35,6 +35,7 @@ from harness.trajectory.protobuf import (
     extract_compaction_summary_from_protobuf,
     extract_context_window_from_json,
     extract_timestamp_from_protobuf,
+    extract_token_breakdown_from_protobuf,
     extract_tool_from_protobuf,
     extract_usage_from_protobuf,
     iter_pb_strings,
@@ -369,18 +370,19 @@ def _extract_tool_from_step(parsed: Dict[str, Any]) -> Optional[Tuple[str, str]]
     return None
 
 
-def _read_gen_metadata(cursor: sqlite3.Cursor, tables: set[str]) -> Tuple[int, int, int, int, str]:
-    """Reads (estimated_tokens, max_context_tokens, usage_tokens, checkpoint_idx, model_name)."""
+def _read_gen_metadata(cursor: sqlite3.Cursor, tables: set[str]) -> Tuple[int, int, int, int, str, Dict[str, int]]:
+    """Reads (estimated_tokens, max_context_tokens, usage_tokens, checkpoint_idx, model_name, tb_extras)."""
     if "gen_metadata" not in tables:
-        return 0, 0, 0, 0, ""
+        return 0, 0, 0, 0, "", {}
     cursor.execute("PRAGMA table_info(gen_metadata)")
     cols = {r[1] for r in cursor.fetchall()}
     if "data" not in cols:
-        return 0, 0, 0, 0, ""
+        return 0, 0, 0, 0, "", {}
     order_col = "idx" if "idx" in cols else "rowid"
     cursor.execute(f"SELECT data FROM gen_metadata ORDER BY {order_col} DESC LIMIT 5")
     est = mct = usage = ckpt_idx = 0
     model = ""
+    tb_extras: Dict[str, int] = {}
     for (raw,) in cursor.fetchall():
         if not raw:
             continue
@@ -402,9 +404,18 @@ def _read_gen_metadata(cursor: sqlite3.Cursor, tables: set[str]) -> Tuple[int, i
             usage = usage or gm.total_prompt_tokens
             ckpt_idx = ckpt_idx or gm.checkpoint_idx
             model = model or gm.model_name
+            if not tb_extras and len(raw) > 5000:
+                tb = extract_token_breakdown_from_protobuf(bytes(raw))
+                if tb:
+                    tb_extras = {
+                        "system_prompt_tokens": tb.system_tokens,
+                        "tool_defs_tokens": tb.tool_tokens + tb.mcp_tool_tokens,
+                        "chat_message_tokens": tb.chat_message_tokens,
+                        "total_breakdown_tokens": tb.total_tokens,
+                    }
         if est > 0 and mct > 0:
             break
-    return est, mct, usage, ckpt_idx, model
+    return est, mct, usage, ckpt_idx, model, tb_extras
 
 
 def _compute_velocity(
@@ -471,7 +482,7 @@ def read_db_trajectory_state(
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = {r[0] for r in cursor.fetchall()}
 
-        gen_est, gen_mct, gen_usage, gen_ckpt_idx, gen_model = _read_gen_metadata(cursor, tables)
+        gen_est, gen_mct, gen_usage, gen_ckpt_idx, gen_model, tb_extras = _read_gen_metadata(cursor, tables)
 
         if "steps" not in tables:
             resolved_max = gen_mct or infer_model_context_window(gen_model) or DEFAULT_CONTEXT_WINDOW_TOKENS
@@ -668,6 +679,7 @@ def read_db_trajectory_state(
             red_threshold=red_t,
             compaction_threshold=red_t,
             recent_tools=tuple(recent_tools_list),
+            extras=dict(tb_extras, has_token_breakdown=1 if tb_extras else 0),
         )
     except sqlite3.OperationalError:
         record_locked_conversation(norm_cid)

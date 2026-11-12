@@ -1,99 +1,25 @@
-    function xtc(segment, pxPerToken, minSegmentPx) {
-        const tokens = segment && segment.tokens > 0 ? segment.tokens : 0;
-        return tokens > 0 ? Math.max(tokens * pxPerToken, minSegmentPx) : 0;
-    }
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Arafat Zahan (@kuasha420)
+// Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+// Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
-    function ytc(segments, capacityTokens, containerWidth, minSegmentPx, rowsCount) {
-        const capacityPx = containerWidth * rowsCount;
-        const pxPerToken = capacityTokens > 0 ? capacityPx / capacityTokens : 0;
-        let usedPx = 0;
-        let trueUsedPx = 0;
-        for (let i = 0; i < segments.length; i++) {
-            const tok = segments[i].tokens || 0;
-            usedPx += xtc(segments[i], pxPerToken, minSegmentPx);
-            trueUsedPx += (tok > 0 ? tok : 0) * pxPerToken;
-        }
-        return {
-            capacityPx: capacityPx,
-            pxPerToken: pxPerToken,
-            usedPx: usedPx,
-            trueUsedPx: trueUsedPx,
-            inflationPx: usedPx - trueUsedPx,
-        };
-    }
+/**
+ * hud_rpc.js — ConnectRPC Trajectory Client, SSOT Token Parser & 60 FPS Streaming Engine.
+ * 
+ * Provides:
+ * 1. Persistent ConnectRPC streaming over /exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates
+ *    with 5-byte envelope wire framing (\x00 + 4-byte uint32 length) and x-codeium-csrf-token authentication.
+ * 2. 60 FPS Jitter-Free StreamRenderCoordinator with requestAnimationFrame debouncing queue and delta reconciliation.
+ * 3. Protobuf SSOT Token Breakdown Parser (tokenBreakdown.groups Group 1 & 2) for granular section & tool attribution.
+ * 4. Fallback ladder to local loopback HTTP server (127.0.0.1:40624), unary RPCs, and __PAYLOAD__.initialData.
+ */
 
-    function ztc(segments, capacityTokens, containerWidth, minSegmentPx, maxRows) {
-        let current = ytc(segments, capacityTokens, containerWidth, minSegmentPx, 1);
-        for (let r = 1; r < maxRows; r++) {
-            if (current.inflationPx <= 0.1 * current.trueUsedPx) return r;
-            const next = ytc(segments, capacityTokens, containerWidth, minSegmentPx, r + 1);
-            if (current.inflationPx - next.inflationPx < 0.02 * containerWidth) return r;
-            current = next;
-        }
-        return maxRows;
-    }
+(function(global) {
+    "use strict";
 
-    function Atc(segments, capacityTokens, containerWidth, options) {
-        const opts = options || {};
-        const minSegmentPx = opts.minSegmentPx ?? 2;
-        const maxRows = Math.min(8, Math.max(1, opts.maxRows ?? 8));
-        const emptyResult = { rows: [], inflationPx: 0 };
-        if (!segments || segments.length === 0 || !Number.isFinite(containerWidth) || !Number.isFinite(capacityTokens) || containerWidth <= 0 || capacityTokens <= 0) {
-            return emptyResult;
-        }
-
-        const rowCount = ztc(segments, capacityTokens, containerWidth, minSegmentPx, maxRows);
-        const layout = ytc(segments, capacityTokens, containerWidth, minSegmentPx, rowCount);
-        const scaleFactor = layout.usedPx > layout.capacityPx ? layout.capacityPx / layout.usedPx : 1;
-        const segmentWidths = segments.map(s => xtc(s, layout.pxPerToken, minSegmentPx) * scaleFactor);
-        const unusedPx = Math.max(0, layout.capacityPx - layout.usedPx * scaleFactor);
-
-        const rows = [];
-        for (let r = 0; r < rowCount; r++) rows.push([]);
-
-        let cursorPx = 0;
-        const placeCell = (seg, widthPx, keyPrefix, showDivider) => {
-            let remainingWidth = widthPx;
-            let subIndex = 0;
-            while (remainingWidth > 1e-6) {
-                const rowIndex = Math.min(rows.length - 1, Math.floor((cursorPx + 1e-6) / containerWidth));
-                const rowStartPx = cursorPx - rowIndex * containerWidth;
-                const availableInRow = containerWidth - rowStartPx;
-                if (availableInRow <= 1e-6) break;
-
-                const sliceWidth = Math.min(remainingWidth, availableInRow);
-                remainingWidth -= sliceWidth;
-                cursorPx += sliceWidth;
-
-                const isDone = remainingWidth <= 1e-6;
-                const fillsRow = sliceWidth >= availableInRow - 1e-6;
-
-                rows[rowIndex].push({
-                    key: `${keyPrefix}#${subIndex}`,
-                    segment: seg,
-                    startFraction: rowStartPx / containerWidth,
-                    widthFraction: sliceWidth / containerWidth,
-                    continuesFromPreviousRow: subIndex > 0,
-                    continuesOnNextRow: !isDone,
-                    showDividerAfter: showDivider && isDone && !fillsRow,
-                });
-                subIndex++;
-            }
-        };
-
-        segments.forEach((seg, idx) => {
-            const nextSeg = segments[idx + 1];
-            const showDivider = nextSeg !== undefined && nextSeg.colorKey === seg.colorKey;
-            placeCell(seg, segmentWidths[idx], `${idx}:${seg.id}`, showDivider);
-        });
-
-        if (unusedPx > 1e-6) {
-            placeCell(null, unusedPx, "unused", false);
-        }
-
-        return { rows: rows, inflationPx: layout.inflationPx * scaleFactor };
-    }
-
+    /**
+     * Parses step timestamp in epoch milliseconds from varied metadata formats.
+     */
     function parseStepTimestampMs(rawStep, gm, em) {
         const cand = (rawStep && (rawStep.created_at || rawStep.createdAt || rawStep.timestamp)) ||
             (gm && (gm.createdAt || gm.timestamp)) ||
@@ -104,87 +30,122 @@
         return Number.isFinite(parsed) ? parsed : null;
     }
 
-    function resolveMeasuredSlices(rawSysPrompt, promptSections, rawChatTools) {
-        const sysTagDefs = [
-            { tag: "identity", name: "Identity", color: "#6366f1" },
-            { tag: "sandbox", name: "Sandbox", color: "#818cf8" },
-            { tag: "artifacts", name: "Artifacts", color: "#a78bfa" },
-            { tag: "conversation_transcript", name: "Transcript", color: "#c084fc" },
-            { tag: "guidelines", name: "Guidelines", color: "#e879f9" },
-            { tag: "communication_style", name: "Style", color: "#f472b6" },
-            { tag: "slash_commands", name: "Commands", color: "#fb7185" },
-            { tag: "messaging", name: "Messaging", color: "#9333ea" },
-            { tag: "mcp_servers", name: "MCP Servers", color: "#7c3aed" },
-            { tag: "subagents", name: "Subagents", color: "#6d28d9" },
-            { tag: "user_rules", name: "User Rules", color: "#5b21b6" },
-            { tag: "skills", name: "Skills", color: "#4c1d95" },
-            { tag: "featured_plugins", name: "Plugins", color: "#8b5cf6" },
-            { tag: "user_information", name: "UserInfo", color: "#a855f7" },
-            { tag: "subagent_reminder", name: "Reminders", color: "#d946ef" },
-        ];
+    /**
+     * Decodes granular token attribution slices from protobuf tokenBreakdown.groups (Strand 2 SSOT).
+     */
+    function extractProtobufBreakdownSlices(tokenBreakdown, chatModelData, genMetas) {
         const systemPromptSlices = [];
-        if (rawSysPrompt) {
-            sysTagDefs.forEach(def => {
-                const re = new RegExp(`<${def.tag}>([\\s\\S]*?)</${def.tag}>`, "i");
-                const m = rawSysPrompt.match(re);
-                if (m && m[1]) {
-                    systemPromptSlices.push({
-                        name: def.name,
-                        tag: def.tag,
-                        tokens: Math.max(10, Math.round(m[1].length / 3.5)),
-                        color: def.color,
-                    });
+        const toolDefSlices = [];
+
+        const groups = (tokenBreakdown && tokenBreakdown.groups) || [];
+        if (groups.length > 0) {
+            groups.forEach(g => {
+                const gType = Number(g.type);
+                const gName = g.name || "";
+                const gTokens = Number(g.numTokens || g.num_tokens || 0);
+                const children = g.children || [];
+
+                // Group 1: SYSTEM_PROMPT (or 3: RULES, 5: SKILLS, 6: SUBAGENTS)
+                if (gType === 1 || gType === 3 || gType === 5 || gType === 6 || (gType === 0 && /identity/i.test(gName))) {
+                    if (children.length > 0) {
+                        children.forEach(c => {
+                            const cName = c.name || "section";
+                            const cTok = Number(c.numTokens || c.num_tokens || 0);
+                            if (cTok > 0) {
+                                systemPromptSlices.push({
+                                    name: cName,
+                                    tag: cName.toLowerCase().replace(/[^a-z0-9_]/g, "_"),
+                                    tokens: cTok,
+                                });
+                            }
+                        });
+                    } else if (gTokens > 0) {
+                        systemPromptSlices.push({
+                            name: gName || "System Instructions",
+                            tag: "system_prompt",
+                            tokens: gTokens,
+                        });
+                    }
                 }
-            });
-            if (systemPromptSlices.length === 0) {
-                systemPromptSlices.push({
-                    name: "System Prompt",
-                    tokens: Math.max(1, Math.round(rawSysPrompt.length / 3.5)),
-                    color: "#6366f1",
-                });
-            }
-        } else if (promptSections && promptSections.length > 0) {
-            const palette = ["#6366f1", "#818cf8", "#a78bfa", "#c084fc", "#e879f9", "#f472b6", "#fb7185", "#9333ea", "#7c3aed", "#6d28d9", "#5b21b6", "#4c1d95", "#8b5cf6", "#a855f7", "#d946ef"];
-            promptSections.forEach((sec, sidx) => {
-                const sName = sec.name || sec.title || `Section #${sidx + 1}`;
-                const sContent = sec.content || sec.text || "";
-                if (sContent) {
-                    systemPromptSlices.push({
-                        name: sName,
-                        tokens: Math.max(1, Math.round(sContent.length / 3.5)),
-                        color: palette[sidx % palette.length],
-                    });
+
+                // Group 2: TOOLS (Native) or Group 4: MCP_TOOLS
+                if (gType === 2 || gType === 4) {
+                    if (children.length > 0) {
+                        children.forEach(c => {
+                            const cName = c.name || "tool";
+                            const subChildren = c.children || [];
+                            if (subChildren.length > 0) {
+                                subChildren.forEach(sc => {
+                                    const scName = sc.name || "tool";
+                                    const scTok = Number(sc.numTokens || sc.num_tokens || 0);
+                                    if (scTok > 0) {
+                                        toolDefSlices.push({
+                                            name: scName,
+                                            server_name: cName,
+                                            is_mcp: true,
+                                            tokens: scTok,
+                                        });
+                                    }
+                                });
+                            } else {
+                                const cTok = Number(c.numTokens || c.num_tokens || 0);
+                                if (cTok > 0) {
+                                    toolDefSlices.push({
+                                        name: cName,
+                                        server_name: gType === 4 ? (g.serverName || "") : "",
+                                        is_mcp: gType === 4,
+                                        tokens: cTok,
+                                    });
+                                }
+                            }
+                        });
+                    } else if (gTokens > 0) {
+                        toolDefSlices.push({
+                            name: gName || "Tool Schemas",
+                            tokens: gTokens,
+                            is_mcp: gType === 4,
+                        });
+                    }
                 }
             });
         }
 
-        const toolCatMap = {
-            filesystem: { name: "Filesystem Tools", color: "#06b6d4", tokens: 0, tools: ["read_file", "write_file", "edit_file", "replace_file_content", "write_to_file", "view_file"] },
-            terminal: { name: "Terminal Tools", color: "#0891b2", tokens: 0, tools: ["run_command", "bash"] },
-            subagents: { name: "Subagents", color: "#0e7490", tokens: 0, tools: ["invoke_subagent", "define_subagent", "manage_subagents", "send_message"] },
-            automation: { name: "Automation & Tasks", color: "#14b8a6", tokens: 0, tools: ["schedule", "manage_task", "call_mcp_tool", "list_resources", "read_resource", "search_web", "search_marketplace", "list_plugin_accounts", "ask_question"] },
-        };
-        const toolDefSlices = [];
-        if (rawChatTools && rawChatTools.length > 0) {
-            rawChatTools.forEach(t => {
-                const tName = (t.name || "").toLowerCase();
+        // Fallbacks
+        if (toolDefSlices.length === 0 && chatModelData && Array.isArray(chatModelData.tools)) {
+            chatModelData.tools.forEach(t => {
+                const tName = t.name || "tool";
+                const serverName = t.serverName || t.server_name || "";
                 const tok = Math.max(15, Math.round(JSON.stringify(t).length / 3.5));
-                if (toolCatMap.filesystem.tools.some(k => tName.includes(k))) toolCatMap.filesystem.tokens += tok;
-                else if (toolCatMap.terminal.tools.some(k => tName.includes(k))) toolCatMap.terminal.tokens += tok;
-                else if (toolCatMap.subagents.tools.some(k => tName.includes(k))) toolCatMap.subagents.tokens += tok;
-                else toolCatMap.automation.tokens += tok;
-            });
-            Object.values(toolCatMap).forEach(cat => {
-                if (cat.tokens > 0) {
-                    toolDefSlices.push({ name: cat.name, tokens: cat.tokens, color: cat.color });
-                }
+                toolDefSlices.push({
+                    name: tName,
+                    server_name: serverName,
+                    is_mcp: Boolean(serverName),
+                    tokens: tok,
+                });
             });
         }
+
+        if (systemPromptSlices.length === 0 && chatModelData && Array.isArray(chatModelData.promptSections)) {
+            chatModelData.promptSections.forEach((sec, idx) => {
+                const sName = sec.title || sec.name || `Section #${idx + 1}`;
+                const content = sec.content || "";
+                const tok = Math.max(10, Math.round(content.length / 3.5));
+                systemPromptSlices.push({
+                    name: sName,
+                    tag: sName.toLowerCase().replace(/[^a-z0-9_]/g, "_"),
+                    tokens: tok,
+                });
+            });
+        }
+
         return { systemPromptSlices, toolDefSlices };
     }
 
+    /**
+     * Builds the unified Trajectory Model from raw steps, generator metadata, and executor metadata.
+     */
     function buildHudTrajectoryData(convoId, rawSteps, genMetas, execMetas, chatModelData) {
-        const orderedRaw = rawSteps
+        const orderedRaw = (rawSteps || [])
             .map((rs, idx) => ({ raw: rs, origIdx: idx }))
             .sort((a, b) => {
                 const sa = Number(a.raw && (a.raw.stepIndex !== undefined ? a.raw.stepIndex : (a.raw.step_index !== undefined ? a.raw.step_index : a.origIdx)));
@@ -194,6 +155,7 @@
             })
             .map(item => item.raw);
 
+        // Index metadata streams
         const indexMetaStream = (rawList) => {
             const byStep = {};
             const list = [];
@@ -206,6 +168,7 @@
             });
             return { byStep, list, cursor: 0 };
         };
+
         const nextAlignedMeta = (stream, rawIdx, seqIdx, isEligible) => {
             const hit = stream.byStep[rawIdx] || stream.byStep[seqIdx] || null;
             if (hit) {
@@ -214,203 +177,174 @@
                 return hit;
             }
             if (!isEligible) return null;
-            while (stream.cursor < stream.list.length && stream.list[stream.cursor].keyed) stream.cursor++;
-            return stream.cursor < stream.list.length ? stream.list[stream.cursor++].item : null;
+            while (stream.cursor < stream.list.length) {
+                const entry = stream.list[stream.cursor++];
+                if (!entry.keyed) return entry.item;
+            }
+            return null;
         };
+
         const genStream = indexMetaStream(genMetas);
         const execStream = indexMetaStream(execMetas);
-        let cumulativeCtx = 0;
-        const steps = [];
 
-        orderedRaw.forEach((rawStep, idx) => {
-            const rawStepIdx = rawStep.stepIndex !== undefined ? rawStep.stepIndex : (rawStep.step_index !== undefined ? rawStep.step_index : idx);
-            let cortexType = rawStep.type || rawStep.stepType || "";
+        let activeChatStart = null;
+        let activeTokenBreakdown = null;
+        let cumulativeTokens = 0;
+        let maxContextTokens = 256000;
+
+        const steps = orderedRaw.map((rs, idx) => {
+            const stepIdx = rs.stepIndex !== undefined ? rs.stepIndex : (rs.step_index !== undefined ? rs.step_index : idx);
+            let cortexType = rs.type || rs.stepType || "STEP";
             if (typeof cortexType === "string" && cortexType.startsWith("CORTEX_STEP_TYPE_")) {
                 cortexType = cortexType.replace("CORTEX_STEP_TYPE_", "");
             }
-            if (!cortexType) {
-                if (rawStep.userInput) cortexType = "USER_INPUT";
-                else if (rawStep.checkpoint) cortexType = "CHECKPOINT";
-                else if (rawStep.plannerResponse) cortexType = "PLANNER_RESPONSE";
-                else if (rawStep.runCommand) cortexType = "RUN_COMMAND";
-                else if (rawStep.viewFile) cortexType = "VIEW_FILE";
-                else if (rawStep.codeAction) cortexType = "CODE_ACTION";
-                else if (rawStep.invokeSubagent) cortexType = "INVOKE_SUBAGENT";
-                else if (rawStep.toolCalls || rawStep.toolCall || (rawStep.metadata && rawStep.metadata.toolCall)) cortexType = "TOOL_CALL";
-                else {
-                    const src = String(rawStep.source || rawStep.role || "").toLowerCase();
-                    if (src === "user") cortexType = "USER_INPUT";
-                    else if (src === "system") cortexType = "SYSTEM";
-                    else if (src === "model" || src === "assistant") cortexType = "MODEL_OUTPUT";
-                    else cortexType = "STEP";
+            const isModelStep = cortexType === "PLANNER_RESPONSE" || cortexType === "MODEL_OUTPUT";
+            const isExecStep = !isModelStep && cortexType !== "USER_INPUT";
+
+            const gm = nextAlignedMeta(genStream, stepIdx, idx, isModelStep);
+            const em = nextAlignedMeta(execStream, stepIdx, idx, isExecStep);
+
+            const tsMs = parseStepTimestampMs(rs, gm, em);
+            const gmUsage = (gm && gm.usage) || (rs.metadata && rs.metadata.modelUsage) || {};
+
+            if (gm && gm.chatModel && gm.chatModel.chatStartMetadata) {
+                activeChatStart = gm.chatModel.chatStartMetadata;
+                const cwm = activeChatStart.contextWindowMetadata;
+                if (cwm) {
+                    if (cwm.maxTokens) maxContextTokens = cwm.maxTokens;
+                    if (cwm.tokenBreakdown) activeTokenBreakdown = cwm.tokenBreakdown;
                 }
             }
 
-            let content = rawStep.content || "";
-            if (!content && rawStep.userInput) {
-                content = rawStep.userInput.userResponse ||
-                    (rawStep.userInput.items && rawStep.userInput.items[0] && (rawStep.userInput.items[0].text || rawStep.userInput.items[0].content)) || "";
-            }
-            if (!content && rawStep.plannerResponse) {
-                content = rawStep.plannerResponse.response || rawStep.plannerResponse.text || rawStep.plannerResponse.content || "";
-            }
-            if (!content) {
-                const sysCandidate = rawStep.systemMessage || rawStep.system_message || rawStep.message || rawStep.task_details || rawStep.error_details || rawStep.render_info;
-                if (sysCandidate) {
-                    content = typeof sysCandidate === "object"
-                        ? (sysCandidate.content || sysCandidate.message || sysCandidate.text || JSON.stringify(sysCandidate, null, 2))
-                        : String(sysCandidate);
-                }
-            }
+            const inTok = Number(rs.input_tokens || gmUsage.inputTokens || 0);
+            const outTok = Number(rs.output_tokens || gmUsage.outputTokens || 0);
+            const thinkTok = Number(rs.thinking_tokens || gmUsage.thinkingOutputTokens || 0);
+            const cacheTok = Number(rs.cache_read_tokens || gmUsage.cacheReadTokens || 0);
+            const hasAuthUsage = inTok > 0 || outTok > 0 || cacheTok > 0;
 
-            const thinking = rawStep.thinking || (rawStep.plannerResponse && rawStep.plannerResponse.thinking) || "";
-            let toolCalls = rawStep.tool_calls || rawStep.toolCalls || [];
-            if (!Array.isArray(toolCalls) && rawStep.toolCall) toolCalls = [rawStep.toolCall];
-            const rawTc = rawStep.toolCall || (rawStep.metadata && rawStep.metadata.toolCall);
-            if (toolCalls.length === 0 && rawTc) {
-                let parsedArgs = rawTc.arguments || rawTc.args || {};
-                if (rawTc.argumentsJson) {
-                    try { parsedArgs = JSON.parse(rawTc.argumentsJson); } catch (_) { parsedArgs = { raw: rawTc.argumentsJson }; }
-                }
-                toolCalls = [{ id: rawTc.id, name: rawTc.name, args: parsedArgs }];
-            }
+            const approxTok = Math.max(1, Math.round((JSON.stringify(rs).length || 100) / 3.5));
+            const stepTokens = hasAuthUsage ? (outTok > 0 ? outTok : inTok) : (rs.tokens || approxTok);
 
-            let compSummary = null;
-            let checkpointIndex = null;
-            if (rawStep.checkpoint) {
-                const cp = rawStep.checkpoint;
-                if (typeof cp === "object" && cp !== null) {
-                    compSummary = cp.sessionSummary || cp.userIntent || cp.summary || null;
-                    if (cp.checkpointIndex !== undefined) checkpointIndex = cp.checkpointIndex;
-                } else if (typeof cp === "string") {
-                    compSummary = cp;
-                }
-            }
-            if (!compSummary && rawStep.sessionSummary) compSummary = String(rawStep.sessionSummary).trim();
-            if (!compSummary && rawStep.userIntent) compSummary = String(rawStep.userIntent).trim();
-            const srcLow = String(rawStep.source || rawStep.role || "").toLowerCase();
-            const isNonCpType = [
-                "GENERIC", "TOOL_CALL", "RUN_COMMAND", "VIEW_FILE", "CODE_ACTION",
-                "GREP_SEARCH", "FIND_FILES", "PLANNER_RESPONSE", "MODEL_OUTPUT",
-                "REPLACE_FILE_CONTENT", "WRITE_FILE", "SEND_MESSAGE", "INVOKE_SUBAGENT",
-            ].includes(cortexType);
-            const hasToolData = Boolean(toolCalls.length > 0 || rawStep.runCommand || rawStep.viewFile || rawStep.codeAction || rawStep.invokeSubagent || thinking);
-            const isGenuineCtxSummary = !isNonCpType && !hasToolData && srcLow !== "model" && srcLow !== "assistant" && content.includes("<CONTEXT_SUMMARY>") && (srcLow === "system" || srcLow === "system_sdk" || /^\s*<CONTEXT_SUMMARY>/.test(content) || content.includes("RESUMING MY OWN TASK"));
-            if (cortexType !== "CHECKPOINT" && (rawStep.checkpoint || rawStep.sessionSummary || rawStep.userIntent || isGenuineCtxSummary)) {
-                cortexType = "CHECKPOINT";
-            }
-            if (!compSummary && cortexType === "CHECKPOINT" && content) {
-                const m = String(content).match(/<(?:CONTEXT_SUMMARY|summary)>([\s\S]*?)<\/(?:CONTEXT_SUMMARY|summary)>/i);
-                if (m) compSummary = m[1].trim();
-            }
+            cumulativeTokens += stepTokens;
 
-            const isModelStep = (cortexType === "PLANNER_RESPONSE" || cortexType === "MODEL_OUTPUT");
-            const gm = nextAlignedMeta(genStream, rawStepIdx, idx, isModelStep);
+            const thinkingDurationMs = rs.thinking_duration_ms || (rs.thinkingDuration ? ((rs.thinkingDuration.seconds || 0) * 1000 + ((rs.thinkingDuration.nanos || 0) / 1e6)) : 0);
+            const streamingDurationMs = rs.streaming_duration_ms || (rs.streamingDuration ? ((rs.streamingDuration.seconds || 0) * 1000 + ((rs.streamingDuration.nanos || 0) / 1e6)) : 0);
+            const totalDurationMs = thinkingDurationMs + streamingDurationMs;
 
-            const isToolStep = (cortexType === "TOOL_CALL" || cortexType.includes("COMMAND") || cortexType.includes("FILE") || cortexType.includes("SEARCH") || cortexType === "CODE_ACTION");
-            const em = nextAlignedMeta(execStream, rawStepIdx, idx, isToolStep);
-
-            let thinkingMs = (gm && parseInt(gm.timeToFirstToken || 0, 10)) || 0;
-            let streamingMs = (gm && parseInt(gm.streamingDuration || 0, 10)) || 0;
-            if (!thinkingMs && thinking) thinkingMs = Math.min(20000, Math.max(600, Math.floor(thinking.length * 1.6)));
-            if (!streamingMs && isModelStep) streamingMs = Math.min(45000, Math.max(400, Math.floor(content.length * 1.8)));
-            if (em && em.executionDurationMs) streamingMs = parseInt(em.executionDurationMs, 10) || 0;
-            const totalDurationMs = thinkingMs + streamingMs;
-
-            const retryUsage = (rawStep.metadata && rawStep.metadata.retryInfos && rawStep.metadata.retryInfos[0] && rawStep.metadata.retryInfos[0].usage) || {};
             const extraFields = {};
-            let extraToolText = "";
-            if (rawStep.runCommand) {
-                extraFields.command = rawStep.runCommand.commandLine || "";
-                extraFields.exitCode = rawStep.runCommand.exitCode;
-                extraFields.output = (rawStep.runCommand.combinedOutput && rawStep.runCommand.combinedOutput.full) || "";
-                extraFields.cwd = rawStep.runCommand.cwd;
-                extraToolText += extraFields.command + extraFields.output;
+            if (rs.runCommand) {
+                extraFields.command = rs.runCommand.commandLine || "";
+                extraFields.exitCode = rs.runCommand.exitCode;
+                extraFields.output = (rs.runCommand.combinedOutput && rs.runCommand.combinedOutput.full) || "";
+                extraFields.cwd = rs.runCommand.cwd || "";
             }
-            if (rawStep.viewFile) {
-                extraFields.filePath = rawStep.viewFile.absolutePathUri;
-                extraFields.fileContent = rawStep.viewFile.content || "";
-                extraFields.endLine = rawStep.viewFile.endLine;
-                extraToolText += extraFields.fileContent;
+            if (rs.viewFile) {
+                extraFields.filePath = rs.viewFile.absolutePathUri || "";
+                extraFields.fileContent = rs.viewFile.content || "";
+                extraFields.endLine = rs.viewFile.endLine;
             }
-            if (rawStep.codeAction) {
-                extraFields.diffLines = (rawStep.codeAction.actionResult && rawStep.codeAction.actionResult.edit && rawStep.codeAction.actionResult.edit.diff && rawStep.codeAction.actionResult.edit.diff.unifiedDiff && rawStep.codeAction.actionResult.edit.diff.unifiedDiff.lines) || [];
-                const actSpec = rawStep.codeAction.actionSpec || {};
-                extraFields.filePath = (actSpec.createFile && actSpec.createFile.path && actSpec.createFile.path.absoluteUri) || (actSpec.editFile && actSpec.editFile.path && actSpec.editFile.path.absoluteUri) || "";
-                extraToolText += extraFields.diffLines.join("\n");
+            if (rs.codeAction) {
+                extraFields.diffLines = (rs.codeAction.actionResult?.edit?.diff?.unifiedDiff?.lines) || [];
+                const actSpec = rs.codeAction.actionSpec || {};
+                extraFields.filePath = actSpec.createFile?.path?.absoluteUri || actSpec.editFile?.path?.absoluteUri || "";
             }
-            if (rawStep.invokeSubagent) extraFields.subagent = (rawStep.invokeSubagent.subagents && rawStep.invokeSubagent.subagents[0]) || null;
-            if (rawStep.checkpoint) {
-                extraFields.sessionSummary = rawStep.checkpoint.sessionSummary || "";
-                extraFields.cacheReadTokens = parseInt(retryUsage.cacheReadTokens || 0, 10) || 0;
-                extraFields.checkpointInputTokens = parseInt(retryUsage.inputTokens || 0, 10) || 0;
+            if (rs.invokeSubagent) extraFields.subagent = (rs.invokeSubagent.subagents && rs.invokeSubagent.subagents[0]) || null;
+            if (rs.checkpoint) {
+                extraFields.sessionSummary = rs.checkpoint.sessionSummary || "";
+                extraFields.checkpoint_index = rs.checkpoint.checkpointIndex;
             }
 
-            const gmUsage = (gm && gm.usage) || (rawStep.metadata && rawStep.metadata.modelUsage) || {};
-            let inTok = parseInt(rawStep.input_tokens || gmUsage.inputTokens || gmUsage.promptTokenCount || gmUsage.inputTokenCount || extraFields.checkpointInputTokens || 0, 10) || 0;
-            let outTok = parseInt(rawStep.output_tokens || 0, 10) || 0;
-            let cacheTok = parseInt(rawStep.cache_read_tokens || rawStep.cacheReadTokens || gmUsage.cacheReadTokens || gmUsage.cachedContentTokenCount || retryUsage.cacheReadTokens || 0, 10) || 0;
-            let thinkOutTok = parseInt(gmUsage.thinkingOutputTokens || 0, 10) || 0;
-            if (!outTok && (gmUsage.outputTokens || gmUsage.candidatesTokenCount || gmUsage.responseOutputTokens || thinkOutTok)) {
-                const respOut = parseInt(gmUsage.outputTokens || gmUsage.candidatesTokenCount || gmUsage.responseOutputTokens || 0, 10) || 0;
-                outTok = respOut + thinkOutTok;
-            }
-
-            let stepTok = parseInt(rawStep.tokens || 0, 10) || 0;
-            if (stepTok <= 0) {
-                if (isModelStep) {
-                    stepTok = outTok > 0 ? outTok : Math.round((content.length + thinking.length) / 3.5);
-                    if (outTok <= 0) outTok = stepTok;
-                } else if (cortexType === "USER_INPUT") {
-                    stepTok = Math.round(content.length / 3.5);
-                    if (inTok <= 0) inTok = stepTok;
-                } else if (cortexType === "CHECKPOINT") {
-                    stepTok = Math.round(((compSummary ? compSummary.length : content.length) || 100) / 3.5);
-                } else {
-                    let charCount = extraToolText.length;
-                    toolCalls.forEach(tc => {
-                        charCount += (tc.name || "").length + JSON.stringify(tc.args || {}).length + String(tc.output || "").length;
-                    });
-                    if (charCount === 0) charCount = content.length;
-                    stepTok = Math.round(charCount / 3.5);
-                    if (outTok <= 0) outTok = stepTok;
-                }
-            }
-
-            if (cortexType === "CHECKPOINT") cumulativeCtx = stepTok;
-            else if (stepTok > 0) cumulativeCtx += stepTok;
-
-            const stepObj = Object.assign({
-                step_index: rawStepIdx,
-                exec_index: rawStep.exec_index || 1,
-                inv_index: rawStep.inv_index || 1,
+            return Object.assign({
+                step_index: stepIdx,
                 type: cortexType,
-                content: content,
-                thinking: thinking,
-                tool_calls: toolCalls,
-                status: rawStep.status || "STATUS_COMPLETED",
-                size_bytes: JSON.stringify(rawStep).length,
-                thinking_duration_ms: thinkingMs,
-                streaming_duration_ms: streamingMs,
-                total_duration_ms: totalDurationMs,
+                status: rs.status || "STATUS_COMPLETED",
+                content: rs.content || rs.text || "",
+                thinking: rs.thinking || rs.reasoning || "",
+                tool_calls: rs.tool_calls || rs.toolCalls || [],
+                timestamp_ms: tsMs,
+                created_at: rs.created_at || (tsMs ? new Date(tsMs).toISOString() : null),
+                tokens: stepTokens,
+                cumulative_tokens: cumulativeTokens,
                 input_tokens: inTok,
                 output_tokens: outTok,
-                thinking_tokens: thinkOutTok,
+                thinking_tokens: thinkTok,
                 cache_read_tokens: cacheTok,
-                tokens: stepTok,
-                cumulative_tokens: cumulativeCtx,
-                compaction_summary: compSummary,
-                checkpoint_index: checkpointIndex,
-                response_model: (gm && (gm.responseModel || gm.model)) || "",
+                size_bytes: JSON.stringify(rs).length,
+                thinking_duration_ms: thinkingDurationMs,
+                streaming_duration_ms: streamingDurationMs,
+                total_duration_ms: totalDurationMs,
+                response_model: rs.response_model || (gm && gm.model) || "",
                 generator_metadata: gm,
                 executor_metadata: em,
-                timestamp_ms: parseStepTimestampMs(rawStep, gm, em),
-                _hasExplicitInput: (rawStep.input_tokens !== undefined || Boolean(gmUsage.inputTokens || gmUsage.promptTokenCount || gmUsage.inputTokenCount || extraFields.checkpointInputTokens)),
-                _hasAuthUsage: (inTok + cacheTok > 0) && (cortexType !== "USER_INPUT" || rawStep.input_tokens !== undefined || Boolean(gmUsage.inputTokens || gmUsage.promptTokenCount || cacheTok > 0)),
+                _hasAuthUsage: hasAuthUsage,
             }, extraFields);
-            steps.push(stepObj);
         });
 
+        // Extract Context Window Metadata from genMetas and raw steps
+        maxContextTokens = 256000;
+        let foundMaxContext = false;
+        let latestEstimatedTokens = 0;
+        const extractCwmFromObj = (obj) => {
+            if (!obj || typeof obj !== "object") return;
+            const cwmCandidates = [
+                obj.contextWindowMetadata,
+                obj.chatStartMetadata && obj.chatStartMetadata.contextWindowMetadata,
+                obj.metadata && obj.metadata.contextWindowMetadata,
+                obj.metadata && obj.metadata.chatStartMetadata && obj.metadata.chatStartMetadata.contextWindowMetadata,
+                obj.chatModel && obj.chatModel.chatStartMetadata && obj.chatModel.chatStartMetadata.contextWindowMetadata,
+            ];
+            for (let cIdx = 0; cIdx < cwmCandidates.length; cIdx++) {
+                const cwm = cwmCandidates[cIdx];
+                if (!cwm || typeof cwm !== "object") continue;
+                if ((cwm.estimatedTokensUsed || cwm.estimated_tokens_used) && !latestEstimatedTokens) {
+                    const est = parseInt(cwm.estimatedTokensUsed || cwm.estimated_tokens_used, 10) || 0;
+                    if (est > 0) latestEstimatedTokens = est;
+                }
+                if ((cwm.maxContextTokens || cwm.max_context_tokens || cwm.maxTokens) && !foundMaxContext) {
+                    const mct = parseInt(cwm.maxContextTokens || cwm.max_context_tokens || cwm.maxTokens, 10) || 0;
+                    if (mct > 0) { maxContextTokens = mct; foundMaxContext = true; }
+                }
+                if (cwm.tokenBreakdown && !activeTokenBreakdown) {
+                    activeTokenBreakdown = cwm.tokenBreakdown;
+                }
+            }
+        };
+        for (let i = genMetas.length - 1; i >= 0; i--) {
+            extractCwmFromObj(genMetas[i]);
+            if (latestEstimatedTokens > 0 && foundMaxContext && activeTokenBreakdown) break;
+        }
+        if (!foundMaxContext || latestEstimatedTokens === 0 || !activeTokenBreakdown) {
+            for (let i = orderedRaw.length - 1; i >= 0; i--) {
+                extractCwmFromObj(orderedRaw[i]);
+                if (latestEstimatedTokens > 0 && foundMaxContext && activeTokenBreakdown) break;
+            }
+        }
+
+        const extractEstFromObj = (obj) => {
+            if (!obj || typeof obj !== "object") return 0;
+            const cwmCandidates = [
+                obj.contextWindowMetadata,
+                obj.chatStartMetadata && obj.chatStartMetadata.contextWindowMetadata,
+                obj.metadata && obj.metadata.contextWindowMetadata,
+                obj.metadata && obj.metadata.chatStartMetadata && obj.metadata.chatStartMetadata.contextWindowMetadata,
+                obj.chatModel && obj.chatModel.chatStartMetadata && obj.chatModel.chatStartMetadata.contextWindowMetadata,
+            ];
+            for (let cIdx = 0; cIdx < cwmCandidates.length; cIdx++) {
+                const cwm = cwmCandidates[cIdx];
+                if (cwm && typeof cwm === "object" && (cwm.estimatedTokensUsed || cwm.estimated_tokens_used)) {
+                    const est = parseInt(cwm.estimatedTokensUsed || cwm.estimated_tokens_used, 10) || 0;
+                    if (est > 0) return est;
+                }
+            }
+            return 0;
+        };
+
+        // Slice attributions
+        const { systemPromptSlices, toolDefSlices } = extractProtobufBreakdownSlices(activeTokenBreakdown, chatModelData, genMetas);
+        const sysPromptTok = systemPromptSlices.reduce((acc, s) => acc + (s.tokens || 0), 0);
+        const toolDefsTok = toolDefSlices.reduce((acc, s) => acc + (s.tokens || 0), 0);
+
+        // Calculate epochs based on CHECKPOINT steps
         const checkpoints = [];
         steps.forEach((s, i) => {
             if (s.type === "CHECKPOINT" || Boolean(orderedRaw[i] && orderedRaw[i].checkpoint)) {
@@ -442,68 +376,6 @@
             }
         }
 
-        let maxContextTokens = 256000;
-        let foundMaxContext = false;
-        let latestEstimatedTokens = 0;
-        const extractCwmFromObj = (obj) => {
-            if (!obj || typeof obj !== "object") return;
-            const cwmCandidates = [
-                obj.contextWindowMetadata,
-                obj.chatStartMetadata && obj.chatStartMetadata.contextWindowMetadata,
-                obj.metadata && obj.metadata.contextWindowMetadata,
-                obj.metadata && obj.metadata.chatStartMetadata && obj.metadata.chatStartMetadata.contextWindowMetadata,
-            ];
-            for (let cIdx = 0; cIdx < cwmCandidates.length; cIdx++) {
-                const cwm = cwmCandidates[cIdx];
-                if (!cwm || typeof cwm !== "object") continue;
-                if (cwm.estimatedTokensUsed && !latestEstimatedTokens) {
-                    const est = parseInt(cwm.estimatedTokensUsed, 10) || 0;
-                    if (est > 0) latestEstimatedTokens = est;
-                }
-                if (cwm.maxContextTokens && !foundMaxContext) {
-                    const mct = parseInt(cwm.maxContextTokens, 10) || 0;
-                    if (mct > 0) { maxContextTokens = mct; foundMaxContext = true; }
-                }
-            }
-        };
-        for (let i = genMetas.length - 1; i >= 0; i--) {
-            extractCwmFromObj(genMetas[i]);
-            if (latestEstimatedTokens > 0 && foundMaxContext) break;
-        }
-        if (!foundMaxContext || latestEstimatedTokens === 0) {
-            for (let i = orderedRaw.length - 1; i >= 0; i--) {
-                extractCwmFromObj(orderedRaw[i]);
-                if (latestEstimatedTokens > 0 && foundMaxContext) break;
-            }
-        }
-
-        const extractEstFromObj = (obj) => {
-            if (!obj || typeof obj !== "object") return 0;
-            const cwmCandidates = [
-                obj.contextWindowMetadata,
-                obj.chatStartMetadata && obj.chatStartMetadata.contextWindowMetadata,
-                obj.metadata && obj.metadata.contextWindowMetadata,
-                obj.metadata && obj.metadata.chatStartMetadata && obj.metadata.chatStartMetadata.contextWindowMetadata,
-            ];
-            for (let cIdx = 0; cIdx < cwmCandidates.length; cIdx++) {
-                const cwm = cwmCandidates[cIdx];
-                if (cwm && typeof cwm === "object" && cwm.estimatedTokensUsed) {
-                    const est = parseInt(cwm.estimatedTokensUsed, 10) || 0;
-                    if (est > 0) return est;
-                }
-            }
-            return 0;
-        };
-
-        const rawSysPrompt = (chatModelData && chatModelData.systemPrompt) || "";
-        const rawChatTools = (chatModelData && chatModelData.tools) || [];
-        const promptSections = (chatModelData && chatModelData.promptSections) ||
-            (genMetas[0] && genMetas[0].plannerConfig && genMetas[0].plannerConfig.declarativeMixinConfig && genMetas[0].plannerConfig.declarativeMixinConfig.promptSections) ||
-            (orderedRaw[0] && orderedRaw[0].declarativeMixinConfig && orderedRaw[0].declarativeMixinConfig.promptSections) || [];
-        const { systemPromptSlices, toolDefSlices } = resolveMeasuredSlices(rawSysPrompt, promptSections, rawChatTools);
-        const sysPromptTok = systemPromptSlices.reduce((acc, sl) => acc + (sl.tokens || 0), 0);
-        const toolDefsTok = toolDefSlices.reduce((acc, sl) => acc + (sl.tokens || 0), 0);
-
         const computeEpochMetrics = (epSteps, epStart, epEnd, isLastEpoch) => {
             let explicitUsageTokens = 0;
             let epochCacheTokens = 0;
@@ -530,13 +402,7 @@
             }
             if (isLastEpoch && epochEstTokens === 0) epochEstTokens = latestEstimatedTokens;
 
-            let actualUserTok = 0;
-            let actualModelTok = 0;
-            let actualThoughtTok = 0;
-            let actualToolTok = 0;
-            let actualCheckpointTok = 0;
-            let actualSystemTok = 0;
-
+            let actualUserTok = 0, actualModelTok = 0, actualThoughtTok = 0, actualToolTok = 0, actualCheckpointTok = 0, actualSystemTok = 0;
             epSteps.forEach(s => {
                 const t = s.type;
                 const tok = s.tokens || 0;
@@ -592,25 +458,15 @@
         const totalTokens = latestMetrics.total_tokens;
         const cacheTokens = latestMetrics.cache_tokens;
         const isProvisional = latestMetrics.is_provisional;
-        const tokenBreakdown = latestMetrics.token_breakdown;
-        steps.forEach(s => { delete s._hasExplicitInput; delete s._hasAuthUsage; });
+        const ssotBreakdown = latestMetrics.token_breakdown;
 
-        const velSamples = activeEpochSteps
-            .filter(s => s.timestamp_ms !== null && (s.input_tokens + s.cache_read_tokens + s.cumulative_tokens) > 0)
-            .map(s => ({ t: s.timestamp_ms, tok: (s.input_tokens + s.cache_read_tokens) || s.cumulative_tokens }));
-        let burnRatePerMin = 0;
-        if (velSamples.length >= 2) {
-            const dtMs = velSamples[velSamples.length - 1].t - velSamples[0].t;
-            const dTok = velSamples[velSamples.length - 1].tok - velSamples[0].tok;
-            if (dtMs > 0 && dTok > 0) burnRatePerMin = (dTok / (dtMs / 60000));
-        }
-
+        // Extract subagents
         const subagents = [];
         const subagentInfos = [];
         const subUuidRe = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
         const addSubagent = (uid, name, summary) => {
             const cleanUid = String(uid || "").trim();
-            if (!cleanUid || cleanUid === convoId || cleanUid.includes("\\") || subagents.includes(cleanUid)) return;
+            if (!cleanUid || cleanUid === convoId || subagents.includes(cleanUid)) return;
             subagents.push(cleanUid);
             subagentInfos.push({
                 id: cleanUid,
@@ -618,6 +474,7 @@
                 summary: String(summary || "").slice(0, 80),
             });
         };
+
         steps.forEach(s => {
             if (s.subagent && (s.subagent.conversationId || s.subagent.id)) {
                 addSubagent(s.subagent.conversationId || s.subagent.id, s.subagent.role || s.subagent.name, s.subagent.objective);
@@ -626,35 +483,22 @@
                 const tcName = String(tc.name || "").toLowerCase();
                 if (tcName !== "invoke_subagent" && tcName !== "send_message") return;
                 const args = (tc.args && typeof tc.args === "object") ? tc.args : {};
-                const roleName = args.TypeName || args.Role || args.name || args.agent_role || (tcName === "send_message" ? "Peer Agent" : "");
-                const promptText = args.Prompt || args.objective || args.prompt || "";
-                const explicitUid = args.conversationId || args.conversation_id || args.Recipient || "";
-                const outCombined = (tcName === "invoke_subagent")
-                    ? `${JSON.stringify(args)} ${String(tc.output || tc.result || "")}`
-                    : `${explicitUid} ${String(tc.output || tc.result || "")}`;
+                const outCombined = `${JSON.stringify(args)} ${String(tc.output || tc.result || "")}`;
                 const uuids = outCombined.match(subUuidRe) || [];
-                uuids.forEach(uid => addSubagent(uid, roleName, promptText));
+                uuids.forEach(uid => addSubagent(uid, args.TypeName || args.Role || args.name, args.Prompt || args.objective));
             });
         });
 
         let convoSummary = `Session ${convoId.slice(0, 8)}`;
         const firstUserStep = steps.find(s => s.type === "USER_INPUT");
         if (firstUserStep && firstUserStep.content) {
-            let clean = String(firstUserStep.content);
-            const m = clean.match(/<USER_REQUEST>([\s\S]*?)(?:<\/USER_REQUEST>|$)/);
-            if (m && m[1]) clean = m[1];
-            convoSummary = clean.trim().split(/\r?\n/)[0].slice(0, 70);
+            convoSummary = String(firstUserStep.content).trim().split(/\r?\n/)[0].slice(0, 70);
         }
-
-        const resolvedModel = (chatModelData && (chatModelData.model || chatModelData.modelName)) ||
-            (genMetas[0] && (genMetas[0].responseModel || genMetas[0].model)) ||
-            (steps.find(s => s.response_model) && steps.find(s => s.response_model).response_model) ||
-            (window.__agyis_hud_state && window.__agyis_hud_state.sessionModel) || "";
 
         return {
             conversation_id: convoId,
             summary: convoSummary,
-            model: resolvedModel,
+            model: (chatModelData && chatModelData.model) || (steps.find(s => s.response_model)?.response_model) || "",
             steps: steps,
             step_count: steps.length,
             epochs: epochs,
@@ -666,18 +510,213 @@
             max_context_tokens: maxContextTokens,
             cache_tokens: cacheTokens,
             is_provisional: isProvisional,
-            burn_rate_tokens_per_min: Math.round(burnRatePerMin * 10) / 10,
-            token_breakdown: tokenBreakdown,
+            burn_rate_tokens_per_min: 0,
+            token_breakdown: ssotBreakdown,
             system_prompt_slices: systemPromptSlices,
             tool_def_slices: toolDefSlices,
         };
     }
 
-    window.__agyis_hud_load_convo = async function(convoId) {
+    /**
+     * 60 FPS Jitter-Free StreamRenderCoordinator (Strand 2 Architecture).
+     * Decouples network delta ingress (20-60Hz) from DOM mutations via an in-memory queue,
+     * reconciling updates into a unified state and triggering a single render pass per 16.6ms frame.
+     */
+    class StreamRenderCoordinator {
+        constructor(renderCallback) {
+            this._renderCallback = renderCallback;
+            this._pendingDeltas = [];
+            this._rafId = null;
+            this._state = {
+                conversationId: "",
+                trajectoryId: "",
+                stepsInSlice: [],
+                generatorMetadatasInSlice: [],
+                totalStepsLength: 0,
+                activeTokens: 0,
+                tokenBreakdown: null,
+                isStreaming: false,
+            };
+            this._dirty = { steps: false, tokens: false, timeline: false };
+        }
+
+        ingestUpdate(update) {
+            this._pendingDeltas.push(update);
+            if (!this._rafId && typeof requestAnimationFrame !== "undefined") {
+                this._rafId = requestAnimationFrame(this._flushAndRender.bind(this));
+            } else if (!this._rafId) {
+                setTimeout(this._flushAndRender.bind(this), 16);
+            }
+        }
+
+        _flushAndRender() {
+            this._rafId = null;
+            if (this._pendingDeltas.length === 0) return;
+
+            while (this._pendingDeltas.length > 0) {
+                const update = this._pendingDeltas.shift();
+                this._reconcileUpdate(update);
+            }
+
+            if (this._dirty.steps || this._dirty.tokens || this._dirty.timeline) {
+                if (typeof this._renderCallback === "function") {
+                    this._renderCallback(this._state, this._dirty);
+                }
+                this._dirty.steps = false;
+                this._dirty.tokens = false;
+                this._dirty.timeline = false;
+            }
+        }
+
+        _reconcileUpdate(update) {
+            if (!update) return;
+            this._state.conversationId = update.conversationId || this._state.conversationId;
+            this._state.trajectoryId = update.trajectoryId || this._state.trajectoryId;
+
+            const mtu = update.mainTrajectoryUpdate;
+            if (!mtu) return;
+
+            if (mtu.stepsUpdate) {
+                const { indices, steps, totalLength } = mtu.stepsUpdate;
+                if (indices && steps) {
+                    for (let i = 0; i < indices.length; i++) {
+                        const idx = indices[i];
+                        this._state.stepsInSlice[idx] = steps[i];
+                    }
+                    this._dirty.steps = true;
+                    this._dirty.timeline = true;
+                }
+                if (totalLength !== undefined) this._state.totalStepsLength = totalLength;
+            }
+
+            if (mtu.generatorMetadatasUpdate) {
+                const { indices, generatorMetadatas } = mtu.generatorMetadatasUpdate;
+                if (indices && generatorMetadatas) {
+                    for (let i = 0; i < indices.length; i++) {
+                        const idx = indices[i];
+                        const gm = generatorMetadatas[i];
+                        this._state.generatorMetadatasInSlice[idx] = gm;
+
+                        const cwm = gm?.chatModel?.chatStartMetadata?.contextWindowMetadata;
+                        if (cwm) {
+                            this._state.activeTokens = cwm.estimatedTokensUsed || this._state.activeTokens;
+                            if (cwm.tokenBreakdown) {
+                                this._state.tokenBreakdown = cwm.tokenBreakdown;
+                                this._dirty.tokens = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * In-Situ ConnectRPC Streaming & Unary Client.
+     * Enforces Connect envelope framing (flags: uint8 + length: uint32be) and CSRF protection.
+     */
+    class InSituConnectClient {
+        constructor(options = {}) {
+            this.port = options.port || 40623;
+            this.baseUrl = (typeof window !== "undefined" && window.location && window.location.origin && window.location.origin.startsWith("http"))
+                ? window.location.origin
+                : `https://127.0.0.1:${this.port}`;
+            this.csrfToken = options.csrfToken || (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.csrfToken) || "";
+            this.activeAbortController = null;
+        }
+
+        /**
+         * Connects to StreamAgentStateUpdates over persistent HTTP/2 Connect streaming.
+         */
+        async streamConversation(conversationId, onStateChange) {
+            if (this.activeAbortController) {
+                this.activeAbortController.abort("Switching conversation");
+            }
+            this.activeAbortController = new AbortController();
+            const coordinator = new StreamRenderCoordinator(onStateChange);
+
+            const subscriberId = (typeof crypto !== "undefined" && crypto.randomUUID)
+                ? crypto.randomUUID()
+                : `sub-${Date.now()}`;
+
+            const reqBody = {
+                conversationId: conversationId,
+                subscriberId: subscriberId,
+                initialStepsPageBounds: { startIndex: 0, endIndexExclusive: 500 },
+                initialGeneratorMetadatasPageBounds: { startIndex: 0, endIndexExclusive: 500 },
+                initialExecutorMetadatasPageBounds: { startIndex: 0, endIndexExclusive: 500 },
+                trajectoryVerbosity: 2,
+            };
+
+            const jsonBytes = new TextEncoder().encode(JSON.stringify(reqBody));
+            // 5-byte Connect envelope: [0x00, len_byte0, len_byte1, len_byte2, len_byte3]
+            const framedReq = new Uint8Array(5 + jsonBytes.length);
+            framedReq[0] = 0x00;
+            new DataView(framedReq.buffer).setUint32(1, jsonBytes.length, false);
+            framedReq.set(jsonBytes, 5);
+
+            const url = `${this.baseUrl}/exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates`;
+            const headers = {
+                "Content-Type": "application/connect+json",
+                "Connect-Protocol-Version": "1",
+            };
+            if (this.csrfToken) headers["x-codeium-csrf-token"] = this.csrfToken;
+
+            const response = await fetch(url, {
+                method: "POST",
+                headers,
+                body: framedReq,
+                signal: this.activeAbortController.signal,
+            });
+
+            if (!response.ok) {
+                throw new Error(`ConnectRPC stream failed with HTTP ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            let buffer = new Uint8Array(0);
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const newBuf = new Uint8Array(buffer.length + value.length);
+                newBuf.set(buffer);
+                newBuf.set(value, buffer.length);
+                buffer = newBuf;
+
+                while (buffer.length >= 5) {
+                    const flags = buffer[0];
+                    const length = new DataView(buffer.buffer, buffer.byteOffset, 5).getUint32(1, false);
+                    if (buffer.length < 5 + length) break;
+
+                    const payloadBytes = buffer.subarray(5, 5 + length);
+                    buffer = buffer.subarray(5 + length);
+
+                    if (flags === 0x00) {
+                        const jsonStr = new TextDecoder().decode(payloadBytes);
+                        try {
+                            const message = JSON.parse(jsonStr);
+                            if (message.update) coordinator.ingestUpdate(message.update);
+                        } catch (e) {
+                            console.error("[InSituConnectClient] JSON decode error:", e);
+                        }
+                    } else if (flags === 0x02) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * ConnectRPC conversation loader with fallback ladder.
+     */
+    async function loadConversationViaRpc(convoId) {
         if (!convoId) return null;
         try {
-            const csrfToken = (window.__APP_CONFIG__ && window.__APP_CONFIG__.csrfToken) || "";
-            const baseUrl = (window.location && window.location.origin && window.location.origin.startsWith("http"))
+            const csrfToken = (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.csrfToken) || "";
+            const baseUrl = (typeof window !== "undefined" && window.location && window.location.origin && window.location.origin.startsWith("http"))
                 ? window.location.origin
                 : "https://127.0.0.1:40623";
 
@@ -704,20 +743,17 @@
                 const trajJson = await trajRes.json().catch(() => null);
                 if (trajJson && trajJson.trajectory && Array.isArray(trajJson.trajectory.steps)) rawSteps = trajJson.trajectory.steps;
             }
+
+            // Fallback to local HTTP server if loopback HTTPS returned no steps
             if (!rawSteps || rawSteps.length === 0) {
-                if (__PAYLOAD__ && __PAYLOAD__.initialData) {
+                const localHttpRes = await fetch(`http://127.0.0.1:40624/api/trajectory/${encodeURIComponent(convoId)}`).catch(() => null);
+                if (localHttpRes && localHttpRes.ok) {
+                    const localData = await localHttpRes.json().catch(() => null);
+                    if (localData && localData.steps) return localData;
+                }
+
+                if (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.initialData) {
                     const fallbackData = __PAYLOAD__.initialData;
-                    const state = window.__agyis_hud_state;
-                    if (state) {
-                        state.rootData = fallbackData;
-                        state.currentData = fallbackData;
-                        state.convoId = fallbackData.conversation_id || convoId;
-                        syncToLatestState(state);
-                        state.subagentsDropdownOpen = false;
-                        renderHud();
-                        const selEl = document.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
-                        if (selEl) selEl.scrollIntoView({ block: "nearest" });
-                    }
                     return fallbackData;
                 }
                 return null;
@@ -738,37 +774,22 @@
                 if (execJson) execMetas = execJson.executorMetadatas || execJson.metadatas || [];
             }
 
-            const data = buildHudTrajectoryData(convoId, rawSteps, genMetas, execMetas, chatModelData);
-            const state = window.__agyis_hud_state;
-            if (state) {
-                state.rootData = data;
-                state.currentData = data;
-                state.convoId = convoId;
-                if (data.model) state.sessionModel = data.model;
-                syncToLatestState(state);
-                state.subagentsDropdownOpen = false;
-                renderHud();
-                const selEl = document.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
-                if (selEl) selEl.scrollIntoView({ block: "nearest" });
-            }
-            return data;
+            return buildHudTrajectoryData(convoId, rawSteps, genMetas, execMetas, chatModelData);
         } catch (err) {
-            console.warn("[agyis] ConnectRPC trajectory fetch failed, using fallback:", err);
-            if (__PAYLOAD__ && __PAYLOAD__.initialData) {
+            console.warn("[agyis] ConnectRPC trajectory fetch failed:", err);
+            if (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.initialData) {
                 const fallbackData = __PAYLOAD__.initialData;
-                const state = window.__agyis_hud_state;
-                if (state) {
-                    state.rootData = fallbackData;
-                    state.currentData = fallbackData;
-                    state.convoId = fallbackData.conversation_id || convoId;
-                    syncToLatestState(state);
-                    state.subagentsDropdownOpen = false;
-                    renderHud();
-                    const selEl = document.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
-                    if (selEl) selEl.scrollIntoView({ block: "nearest" });
-                }
                 return fallbackData;
             }
             return null;
         }
-    };
+    }
+
+    // Export module onto window namespace
+    global.buildHudTrajectoryData = buildHudTrajectoryData;
+    global.extractProtobufBreakdownSlices = extractProtobufBreakdownSlices;
+    global.loadConversationViaRpc = loadConversationViaRpc;
+    global.StreamRenderCoordinator = StreamRenderCoordinator;
+    global.InSituConnectClient = InSituConnectClient;
+
+})(typeof window !== "undefined" ? window : globalThis);
