@@ -51,6 +51,7 @@
 | **`v1.0.0-rc9` (Ph 34)** | 2026-11-03 | `256k/230k/180k` cockpit thresholds & de-spammed advisory (`ADR-033`), pre-analyzed Ghidra cache (`PSL-INV-009`), extensible CLI (`ADR-034`) | `1,782` tests (`17.4s`) |
 | **`v1.0.0-rc10` (Ph 35)** | 2026-11-10 | In-tree symlink skill deduplication gate, `ADR-031A/B` disambiguation, `28` current top-level CLI subcommands (`router` & `ladder` separate), **100.0/100 AFF** release gate | `1,981` tests (`~65s`) |
 | **Post-RC10 (`ADR-035`)** | 2026-11-12 | Unified `harness/trajectory/` SSOT (epoch splitting, burn rate, honest `unattributed` tokens, scaled subagent health), modular HUD assets, daemon/command-safety fixes (#107–#112), tightened `800L / 25D / 0 @aff_exempt` AFF gate | Verified pre-release |
+| **Phase 36 (Cleanroom Parity)** | 2026-11-12 | Trajectory HUD & SSOT Stock 2.26.0 Parity: 9 modular cleanroom frontend assets (<800L), 0-token unattributed gap (protobuf `tokenBreakdown.groups`), dynamic pane focus & subagent traversal (1-click `← Parent` pill, `/c/:id` freshness), 60 FPS ConnectRPC streaming | 2,032 tests (50.06s), AFF 100/100 (`b3ecad7`) |
 
 ---
 
