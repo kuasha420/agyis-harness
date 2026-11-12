@@ -1552,8 +1552,8 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
         self.assertIn("height: calc(100vh - 38px) !important;", script)
         self.assertIn("-webkit-app-region: no-drag;", script)
         # Cumulative token sync in JS
-        self.assertIn("activeTokensSum = segments.reduce", script)
-        self.assertIn("Math.max(selectedEpochTotal, activeTokensSum)", script)
+        self.assertIn("rawSegmentsSum = segments.reduce", script)
+        self.assertIn("activeTokensSum = selectedEpochTotal > 0 ? selectedEpochTotal : rawSegmentsSum", script)
 
 
 class TestGUISystemdService(unittest.TestCase):
@@ -2593,6 +2593,7 @@ async function fetch(url, opts) {
         self.assertNotIn("Cache: 48.0k", out["s6_ep0_html"])
         self.assertNotIn("~est", out["s6_ep1_html"])
         self.assertIn("Cache: 48.0k", out["s6_ep1_html"])
+        self.assertIn("Active Context: <b style=\"color: #38bdf8;\">56,000</b>", out["s6_ep1_html"])
 
 
 if __name__ == "__main__":

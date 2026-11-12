@@ -231,17 +231,16 @@
         }
 
         const rawSegmentsSum = segments.reduce((acc, seg) => acc + (seg.tokens || 0), 0);
-        let activeTokensSum = segments.reduce((acc, seg) => acc + (seg.tokens || 0), 0);
         const selectedEpochTotal = (activeEpoch && activeEpoch.total_tokens !== undefined)
             ? (activeEpoch.total_tokens || 0)
             : (isLatestEpoch ? (cur.total_tokens || 0) : rawSegmentsSum);
-        activeTokensSum = Math.max(selectedEpochTotal, activeTokensSum);
-        const totalTokens = Math.max(selectedEpochTotal, activeTokensSum);
+        const activeTokensSum = selectedEpochTotal > 0 ? selectedEpochTotal : rawSegmentsSum;
+        const totalTokens = activeTokensSum;
 
         const ROW_CAPACITY = Math.max(64000, Math.ceil(maxTokens / 4));
         const rowCount = Math.min(4, Math.max(1, Math.ceil(activeTokensSum / ROW_CAPACITY)));
         const totalActiveCapacity = rowCount * ROW_CAPACITY;
-        const scaleFactor = (selectedEpochTotal > 0 && rawSegmentsSum > 0 && selectedEpochTotal > rawSegmentsSum)
+        const scaleFactor = (activeTokensSum > 0 && rawSegmentsSum > 0)
             ? (activeTokensSum / rawSegmentsSum)
             : 1.0;
 
@@ -254,7 +253,7 @@
         let tCursor = 0;
         segments.forEach((seg, sIdx) => {
             let segTokens = Math.max(0, Math.round((seg.tokens || 0) * scaleFactor));
-            if (scaleFactor > 1.0 && sIdx === segments.length - 1) segTokens = Math.max(0, activeTokensSum - tCursor);
+            if (scaleFactor !== 1.0 && sIdx === segments.length - 1) segTokens = Math.max(0, activeTokensSum - tCursor);
             const segStart = tCursor;
             const segEnd = Math.min(rowCount * ROW_CAPACITY, tCursor + segTokens);
             tCursor = segStart + segTokens;
@@ -439,13 +438,22 @@
         const matchDisplay = q ? `${matchCount > 0 ? state.currentMatchIdx + 1 : 0}/${matchCount}` : `${steps.length}/${steps.length}`;
         const maxCtxLabel = (maxTokens >= 1000000 && maxTokens % 1000000 === 0) ? (maxTokens / 1000000) + "M" : Math.round(maxTokens / 1000) + "k";
 
+        const effectiveConvoList = (conversationList || []).slice();
+        if (cur && cur.conversation_id && !effectiveConvoList.some(c => c.id === cur.conversation_id)) {
+            effectiveConvoList.unshift({
+                id: cur.conversation_id,
+                summary: cur.summary || cur.conversation_id.slice(0, 12),
+                mtime: Math.floor(Date.now() / 1000),
+            });
+        }
+
         const html = `
             <div class="agyis-hud-box ${state.isMaximized ? "maximized" : ""}">
                 <div class="agyis-hud-header">
                     <div class="agyis-hud-header-left">
                         <span class="agyis-hud-pill agyis-hud-pill-amber">⚡ Trajectory Debug View</span>
                         <select id="agyis-convo-select" class="agyis-hud-select" title="Switch Conversation">
-                            ${conversationList.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === cur.conversation_id ? "selected" : ""}>${escapeHtml(c.summary || c.id.slice(0, 12))} (${new Date(c.mtime * 1000).toLocaleTimeString()})</option>`).join("")}
+                            ${effectiveConvoList.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === cur.conversation_id ? "selected" : ""}>${escapeHtml(c.summary || c.id.slice(0, 12))} (${new Date(c.mtime * 1000).toLocaleTimeString()})</option>`).join("")}
                         </select>
                         <button id="agyis-refresh-btn" class="agyis-hud-btn" title="Refresh Trajectory from Server">🔄 Refresh</button>
                         ${isChildView ? '<button id="agyis-parent-btn" class="agyis-hud-pill agyis-hud-pill-blue" style="cursor: pointer;" title="Back to parent conversation">↑ Parent</button>' : ""}
