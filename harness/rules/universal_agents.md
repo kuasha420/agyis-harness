@@ -2,6 +2,7 @@
 trigger: manual
 description: Universal agent rules template for target workspace onboarding
 ---
+
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
@@ -14,7 +15,8 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 ---
 
 ## 1. Explicit Project Command Dictionary (The Victory Pattern)
-*Explicit CLI palettes yield 10x lower human intervention rates:*
+
+_Explicit CLI palettes yield 10x lower human intervention rates:_
 
 ```bash
 # 🧪 Project Verification & Agyis Quality Gates
@@ -48,6 +50,7 @@ agyis sync                                     # Bi-directional telemetry synchr
 ---
 
 ## 2. Universal Automated Verification Standard (PSL-INV-001)
+
 1. **Mandatory Project-Native Automated Verification**:
    - Always execute the active repository's native verification command (`pnpm test`, `cargo test`, `pytest`, `go test`, `make test`, or `./agyis test` inside `agyis-harness`) before declaring a task "complete", "fixed", or "verified". Assert exit code 0.
 2. **Fast & Hermetic Test Hygiene**:
@@ -60,6 +63,7 @@ agyis sync                                     # Bi-directional telemetry synchr
 ---
 
 ## 3. Terminal Invariants & Grep Probing Exception (PSL-INV-002)
+
 1. **Pre-flight Tool Availability (Mitigate Exit Code 127)**:
    - Verify tool availability (`command -v <bin>`) or handle fallback paths gracefully.
 2. **Context Flood Prevention**:
@@ -74,6 +78,7 @@ agyis sync                                     # Bi-directional telemetry synchr
 ---
 
 ## 4. Surgical Contiguous Edits Invariant (PSL-INV-003)
+
 1. Always make single contiguous block replacements for targeted edits (`replace_file_content`).
 2. Do NOT overwrite whole files when modifying specific functions, classes, or blocks.
 3. Preserve surrounding comments, docstrings, imports, and formatting.
@@ -81,6 +86,7 @@ agyis sync                                     # Bi-directional telemetry synchr
 ---
 
 ## 5. Context Preservation, Dynamic Runway & Subagent Delegation (PSL-INV-004)
+
 1. **256k Context Runway & 80-Step Soft Epoch Horizon Model**:
    - Monitor the **256,000-token** context window carefully:
      - **`180,000` tokens (Amber)**: Approaching critical runway limit; focus on converging active deliverables.
@@ -98,6 +104,7 @@ agyis sync                                     # Bi-directional telemetry synchr
 ---
 
 ## 6. Artifact-First Planning Invariant & Dynamic Aperture (PSL-INV-005)
+
 1. **Anti-Chatbot Seduction**:
    - Never propose multi-component architectural changes in raw chat; crystallize non-trivial designs into an interactive `implementation_plan.md` artifact before requesting operator confirmation.
 2. **Dynamic Sliding Aperture**:
@@ -108,6 +115,7 @@ agyis sync                                     # Bi-directional telemetry synchr
 ---
 
 ## 7. Human-in-the-Loop & Steering Alignment (PSL-INV-006)
+
 1. **Anti-Drift Commitment**: Anchor implementation decisions to the agreed plan and pause when unforeseen blockers or ambiguity arise.
 2. **Proactive Confirmation Gates**: Pause for explicit review before destructive operations (file deletion, force-push, service restarts/reboots).
 3. **Clear Error Reporting & Complete Deliveries**: Deliver complete packages (code + types + tests + docs). If a command fails twice, stop thrashing, state the error concisely, and propose concrete next options.
@@ -115,6 +123,7 @@ agyis sync                                     # Bi-directional telemetry synchr
 ---
 
 ## 8. Universal Cleanroom Reverse Engineering & Reconstruction Invariants (PSL-INV-007)
+
 1. **Dirty Room vs. Clean Room Isolation**: Keep binary/disassembly inspection (`.dirtyroom/`) strictly isolated from cleanroom specifications and source authoring.
 2. **Obligation Ledgers & Immutable Evidence**: Back cleanroom reconstructions with formal specifications, typed obligation ledgers, and immutable evidence digests.
 3. **Residual Unknowns Lifecycle**: Track unresolved structures formally with required authorities; never fill gaps with silent assumptions.
@@ -123,20 +132,24 @@ agyis sync                                     # Bi-directional telemetry synchr
 ---
 
 ## 9. Cockpit Flight Direction & Dual-Auditor Gate (PSL-INV-008)
+
 1. **Zero-Code-Thrash Flight Direction**: Root orchestration (`@agyis_coordinator`) decomposes milestones, evaluates trade-offs, and enforces governance via structured transition payloads (`mission_id`, `objective`, `deliverables`, `context_paths`, `verification_gate`).
 2. **Dual-Plane Communication & Dual-Auditor Gate**: Keep parent cockpit pairing distinct from child subagent `send_message` reporting, and pass multi-phase tasks through independent review (`@agyis_reviewer` + `@agyis_auditor`).
 
 ---
 
 ## 10. Pre-Analyzed Decompiler Cache Invariant (PSL-INV-009)
+
 1. **Mandatory Pre-Analyzed Cache**: Never trigger unbounded full-binary Ghidra analysis passes during ad-hoc tool calls on binaries `>10 MB`; use pre-analyzed read-only project caches (`-noanalysis -readOnly`) returning queries in `<2.0s` while keeping `.dirtyroom/`, `.gpr`, and `.rep` files gitignored.
 
 ---
 
 ## 11. Anti-Vibe-Coding & Dynamic Lifecycle Invariant (PSL-INV-010)
+
 1. **Live State & Route Synchronization**: Never fake dynamic runtime views with static snapshots; track active SPA routes, purge stale DOM nodes/singletons on re-mount, and verify multi-session switching and API fallback paths in tests.
 
 ---
 
 ## 12. Universal Architectural Fitness Invariant (PSL-INV-011)
+
 1. **Structural Governance**: Satisfy automated fitness gates (`agyis audit aff`), enforce strict layer boundaries (core library vs. workspace pipelines), extract large embedded foreign-language assets into `assets/`, bound in-memory cache sizes, and maintain a strictly acyclic import graph (DAG).

@@ -37,6 +37,7 @@ from harness.skills import (
     detect_monorepo_stack,
     detect_workspace_role,
     detect_workspace_stack,
+    detect_workspace_stacks,
     is_monorepo,
     resolve_skills_to_sync,
 )
@@ -322,7 +323,8 @@ def cmd_onboard(
             workspace_root=subproject_path,
         )
 
-    effective_stack = lang or detect_workspace_stack(subproject_path) or "generic"
+    detected_stacks = detect_workspace_stacks(subproject_path)
+    effective_stack = lang or (",".join(detected_stacks) if detected_stacks else "generic")
     effective_role = role or detect_workspace_role(subproject_path)
 
     # 11. Database port collision audit for backend/fullstack roles

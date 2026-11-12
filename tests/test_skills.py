@@ -35,6 +35,7 @@ from harness.skills import (
     detect_monorepo_stack,
     detect_workspace_role,
     detect_workspace_stack,
+    detect_workspace_stacks,
     get_skill,
     is_monorepo,
     list_skills,
@@ -882,6 +883,44 @@ class TestModularSkills(unittest.TestCase):
         (ws_sh_scripts / "scripts").mkdir()
         (ws_sh_scripts / "scripts" / "run.sh").write_text("#!/bin/bash\necho run\n", encoding="utf-8")
         self.assertEqual(detect_workspace_stack(ws_sh_scripts), "shell")
+
+    def test_detect_workspace_stacks_tauri_polyglot(self) -> None:
+        """detect_workspace_stacks discovers both TypeScript and Rust in non-monorepo Tauri apps."""
+        ws = self.isolated_path / "ws_tauri"
+        ws.mkdir(parents=True)
+        (ws / "package.json").write_text(json.dumps({"name": "tauri-app", "devDependencies": {"typescript": "^5.0.0"}}), encoding="utf-8")
+        (ws / "tsconfig.json").write_text("{}", encoding="utf-8")
+        (ws / "src-tauri").mkdir()
+        (ws / "src-tauri" / "Cargo.toml").write_text("[package]\nname = \"src-tauri\"\n", encoding="utf-8")
+
+        stacks = detect_workspace_stacks(ws)
+        self.assertEqual(stacks, ["typescript", "rust"])
+        # Backwards compatible primary stack
+        self.assertEqual(detect_workspace_stack(ws), "typescript")
+
+    def test_resolve_skills_to_sync_comma_separated(self) -> None:
+        """resolve_skills_to_sync accepts comma-separated stacks and deduplicates output."""
+        skills = resolve_skills_to_sync(stack="typescript,rust")
+        self.assertIsNotNone(skills)
+        self.assertIn("psl-stack-typescript", skills)
+        self.assertIn("psl-test-node", skills)
+        self.assertIn("psl-test-cargo", skills)
+        self.assertIn("psl-stack-systems", skills)
+        self.assertIn("psl-stack-shell", skills)
+
+    def test_resolve_skills_to_sync_auto_polyglot(self) -> None:
+        """resolve_skills_to_sync with stack='auto' detects all stacks in non-monorepo polyglot."""
+        ws = self.isolated_path / "ws_tauri_auto"
+        ws.mkdir(parents=True)
+        (ws / "package.json").write_text(json.dumps({"name": "tauri-app"}), encoding="utf-8")
+        (ws / "tsconfig.json").write_text("{}", encoding="utf-8")
+        (ws / "src-tauri").mkdir()
+        (ws / "src-tauri" / "Cargo.toml").write_text("[package]\nname = \"src-tauri\"\n", encoding="utf-8")
+
+        skills = resolve_skills_to_sync(stack="auto", workspace_root=ws)
+        self.assertIsNotNone(skills)
+        self.assertIn("psl-stack-typescript", skills)
+        self.assertIn("psl-test-cargo", skills)
 
 
 class TestPruneDuplicateSkills(unittest.TestCase):

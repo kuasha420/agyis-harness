@@ -212,7 +212,7 @@ def check_node_script_hygiene(workspace_root: Optional[Path] = None) -> Dict[str
     ignored_dir_names = {
         "node_modules", ".git", ".venv", "venv", "dist", "build",
         ".cache", ".next", "__pycache__", ".agents", ".psl", "scratch",
-        ".dirtyroom",
+        ".dirtyroom", "target", ".turbo", "out", ".out", ".svelte-kit", ".nuxt",
     }
 
     cjs_patterns = [

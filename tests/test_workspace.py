@@ -482,6 +482,24 @@ class TestDeliveryWorkspacePythonCommandExtraction(unittest.TestCase):
         cmds = extract_command_dictionary(self.ws)
         self.assertNotIn("test", cmds)
 
+    def test_extract_command_dictionary_tauri_polyglot(self):
+        """extract_command_dictionary extracts both Node and namespaced Rust commands for Tauri apps."""
+        (self.ws / "package.json").write_text(
+            json.dumps({"scripts": {"test": "vitest", "build": "vite build", "dev": "tauri dev"}}),
+            encoding="utf-8",
+        )
+        (self.ws / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+        (self.ws / "src-tauri").mkdir()
+        (self.ws / "src-tauri" / "Cargo.toml").write_text('[package]\nname = "src-tauri"\n', encoding="utf-8")
+
+        cmds = extract_command_dictionary(self.ws)
+        self.assertEqual(cmds.get("test"), "pnpm test")
+        self.assertEqual(cmds.get("build"), "pnpm build")
+        self.assertEqual(cmds.get("dev"), "pnpm dev")
+        self.assertEqual(cmds.get("test:rust"), "cargo test --manifest-path src-tauri/Cargo.toml")
+        self.assertEqual(cmds.get("build:rust"), "cargo build --manifest-path src-tauri/Cargo.toml")
+        self.assertEqual(cmds.get("lint:rust"), "cargo clippy --manifest-path src-tauri/Cargo.toml")
+
 
 if __name__ == "__main__":
     unittest.main()

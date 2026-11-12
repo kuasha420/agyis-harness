@@ -43,6 +43,7 @@ from harness.delivery.workspace import (
     extract_command_descriptions,
     extract_command_dictionary,
     format_command_dictionary,
+    normalize_tagged_rules,
 )
 from harness.utils.frontmatter import parse_frontmatter
 
@@ -438,7 +439,7 @@ def harmonize_workspace(
             rewritten_existing = adapt_spdx_license(rewritten_existing, repo_license)
         if TAGGED_BLOCK_PATTERN.search(rewritten_existing):
             new_rules = TAGGED_BLOCK_PATTERN.sub(tagged_block, rewritten_existing)
-            if new_rules != existing_rules:
+            if new_rules != existing_rules and normalize_tagged_rules(new_rules) != normalize_tagged_rules(existing_rules):
                 rules_action = "migrated_tagged_block"
                 any_modified = True
                 if not dry_run:

@@ -52,6 +52,7 @@ from harness.delivery.workspace import (
     extract_command_dictionary,
     format_command_dictionary,
     install_workspace,
+    normalize_tagged_rules,
     resolve_skills_for_workspace,
 )
 from harness.delivery.cache import (
@@ -163,6 +164,7 @@ __all__ = [
     "extract_command_dictionary",
     "format_command_dictionary",
     "install_workspace",
+    "normalize_tagged_rules",
     "resolve_skills_for_workspace",
     "DEFAULT_CACHE_TARGETS",
     "purge_workspace_build_caches",

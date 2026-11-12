@@ -188,6 +188,36 @@ class TestTieredDependencyResolver(unittest.TestCase):
         self.assertIn("src/calc.ts", resolved.runner_cmd)
         self.assertIn("--run", resolved.runner_cmd)
 
+    def test_resolve_level1_tauri_polyglot_rust_only(self):
+        (self.ws / "package.json").write_text(json.dumps({"scripts": {"test": "vitest"}}), encoding="utf-8")
+        (self.ws / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+        (self.ws / "src-tauri").mkdir()
+        (self.ws / "src-tauri" / "Cargo.toml").write_text("[package]\nname = \"src-tauri\"\n", encoding="utf-8")
+
+        resolved = resolve_affected_tests(
+            repo_root=self.ws,
+            modified_files=["src-tauri/src/main.rs"],
+        )
+        self.assertEqual(resolved.tier, 1)
+        self.assertEqual(resolved.tier_name, "native")
+        self.assertEqual(resolved.runner_cmd, "cargo test --manifest-path src-tauri/Cargo.toml")
+
+    def test_resolve_level1_tauri_polyglot_mixed(self):
+        (self.ws / "package.json").write_text(json.dumps({"scripts": {"test": "vitest"}}), encoding="utf-8")
+        (self.ws / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+        (self.ws / "src-tauri").mkdir()
+        (self.ws / "src-tauri" / "Cargo.toml").write_text("[package]\nname = \"src-tauri\"\n", encoding="utf-8")
+
+        resolved = resolve_affected_tests(
+            repo_root=self.ws,
+            modified_files=["src/App.svelte", "src-tauri/src/main.rs"],
+        )
+        self.assertEqual(resolved.tier, 1)
+        self.assertEqual(resolved.tier_name, "native")
+        self.assertIn("pnpm exec vitest related src/App.svelte --run", resolved.runner_cmd)
+        self.assertIn("cargo test --manifest-path src-tauri/Cargo.toml", resolved.runner_cmd)
+        self.assertIn("&&", resolved.runner_cmd)
+
     def test_resolve_level1_jest_native(self):
         (self.ws / "jest.config.js").write_text("module.exports = {};\n")
         (self.ws / "src").mkdir()

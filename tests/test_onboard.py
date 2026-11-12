@@ -179,6 +179,30 @@ class TestOnboardCommand(unittest.TestCase):
         self.assertTrue((sub_skills / "psl-test-node").exists())
         self.assertFalse((sub_skills / "psl-stack-backend").exists())
 
+    def test_onboard_polyglot_comma_separated_lang(self):
+        """Verifies onboarding with comma-separated --lang provisions skills for all stacks."""
+        target = self.ws / "polyglot-tauri"
+        self._init_git_repo(target)
+        (target / "package.json").write_text('{"name": "polyglot-app"}\n', encoding="utf-8")
+        (target / "src-tauri").mkdir()
+        (target / "src-tauri" / "Cargo.toml").write_text('[package]\nname = "src-tauri"\n', encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=target, check=True)
+        subprocess.run(["git", "commit", "-m", "Initial polyglot layout"], cwd=target, check=True, stdout=subprocess.DEVNULL)
+
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = cmd_onboard(
+                target,
+                lang="typescript,rust",
+                role="desktop_gui",
+                config_dir=self.isolated_cfg,
+            )
+        self.assertEqual(code, 0)
+
+        skills_dir = target / ".agents" / "skills"
+        self.assertTrue((skills_dir / "psl-stack-typescript").exists())
+        self.assertTrue((skills_dir / "psl-test-cargo").exists())
+        self.assertTrue((skills_dir / "display-ops").exists())
+
     def test_onboard_json_output(self):
         """Verifies structured JSON output for automated pipelines."""
         target = self.ws / "json-project"

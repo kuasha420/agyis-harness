@@ -13,7 +13,17 @@ from typing import Any, Dict, Optional
 
 STANDARD_VERB_DESCRIPTIONS: Dict[str, str] = {
     "test": "Run complete project test suite",
+    "test:rust": "Run Rust / Cargo test suite",
+    "test:node": "Run Node / TypeScript test suite",
+    "test:diff": "Run fast tests for uncommitted changes",
+    "test:watch": "Run tests in interactive watch mode",
+    "test:affected": "Run tests affected by recent changes",
+    "test:full": "Run complete test verification suite",
+    "test:pkg": "Run targeted package test suite",
     "build": "Build project artifacts",
+    "build:rust": "Build Rust native binaries",
+    "clippy": "Run Cargo Clippy linter",
+    "lint:rust": "Run Cargo Clippy linter",
     "lint": "Code quality & linting checks",
     "dev": "Start local development server",
     "start": "Launch production runtime",
@@ -25,6 +35,9 @@ STANDARD_VERB_DESCRIPTIONS: Dict[str, str] = {
     "all": "Build all targets",
     "vet": "Go static analysis",
     "run": "Run project executable",
+    "verify": "Execute project verification gates",
+    "tauri:build": "Build Tauri desktop package & binaries",
+    "tauri:dev": "Launch Tauri desktop application in dev mode",
 }
 
 
@@ -223,12 +236,23 @@ def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
                     "format",
                     "typecheck",
                     "clean",
+                    "verify",
+                    "test:diff",
+                    "test:watch",
+                    "test:affected",
+                    "test:full",
+                    "test:pkg",
+                    "test:rust",
+                    "test:node",
+                    "clippy",
+                    "tauri:build",
+                    "tauri:dev",
                 ]
                 for v in priority_verbs:
                     if v in raw_scripts and v not in commands:
                         commands[v] = format_node_cmd(v)
                 for k in raw_scripts:
-                    if k not in commands and len(commands) < 12:
+                    if k not in commands and len(commands) < 24:
                         commands[k] = format_node_cmd(k)
         except Exception:
             pass
@@ -306,14 +330,60 @@ def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
             elif "pyright" in tools or (ws / "pyrightconfig.json").is_file():
                 commands["check"] = f"{prefix}pyright"
 
-    # 3. Rust (Cargo.toml)
-    if (ws / "Cargo.toml").is_file():
+    # 3. Rust (Cargo.toml or src-tauri/Cargo.toml or native/Cargo.toml)
+    cargo_root = ws / "Cargo.toml"
+    cargo_tauri = ws / "src-tauri" / "Cargo.toml"
+    cargo_native = ws / "native" / "Cargo.toml"
+
+    if cargo_root.is_file():
         if "test" not in commands:
             commands["test"] = "cargo test"
+        elif "test:rust" not in commands:
+            commands["test:rust"] = "cargo test"
+
         if "build" not in commands:
             commands["build"] = "cargo build"
+        elif "build:rust" not in commands:
+            commands["build:rust"] = "cargo build"
+
         if "lint" not in commands:
             commands["lint"] = "cargo clippy"
+        elif "lint:rust" not in commands and "clippy" not in commands:
+            commands["lint:rust"] = "cargo clippy"
+
+    elif cargo_tauri.is_file():
+        manifest_arg = "--manifest-path src-tauri/Cargo.toml"
+        if "test" not in commands:
+            commands["test"] = f"cargo test {manifest_arg}"
+        if "test:rust" not in commands:
+            commands["test:rust"] = f"cargo test {manifest_arg}"
+
+        if "build" not in commands:
+            commands["build"] = f"cargo build {manifest_arg}"
+        if "build:rust" not in commands:
+            commands["build:rust"] = f"cargo build {manifest_arg}"
+
+        if "clippy" not in commands and "lint:rust" not in commands:
+            commands["lint:rust"] = f"cargo clippy {manifest_arg}"
+        if "lint" not in commands:
+            commands["lint"] = f"cargo clippy {manifest_arg}"
+
+    elif cargo_native.is_file():
+        manifest_arg = "--manifest-path native/Cargo.toml"
+        if "test" not in commands:
+            commands["test"] = f"cargo test {manifest_arg}"
+        if "test:rust" not in commands:
+            commands["test:rust"] = f"cargo test {manifest_arg}"
+
+        if "build" not in commands:
+            commands["build"] = f"cargo build {manifest_arg}"
+        if "build:rust" not in commands:
+            commands["build:rust"] = f"cargo build {manifest_arg}"
+
+        if "clippy" not in commands and "lint:rust" not in commands:
+            commands["lint:rust"] = f"cargo clippy {manifest_arg}"
+        if "lint" not in commands:
+            commands["lint"] = f"cargo clippy {manifest_arg}"
 
     # 4. Go (go.mod)
     if (ws / "go.mod").is_file():
@@ -351,7 +421,7 @@ def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
                 if ct in valid_targets and ct not in commands:
                     commands[ct] = f"make {ct}"
             for t in valid_targets:
-                if t not in commands and len(commands) < 12:
+                if t not in commands and len(commands) < 24:
                     commands[t] = f"make {t}"
         except Exception:
             pass
@@ -555,3 +625,13 @@ def format_command_dictionary(
         desc = inferred_desc.get(verb) or STANDARD_VERB_DESCRIPTIONS.get(verb, f"Execute {verb}")
         lines.append(f"{cmd:<46} # {desc}".rstrip())
     return "\n".join(lines)
+
+
+def normalize_tagged_rules(text: str) -> str:
+    """Normalizes Markdown whitespace, blank lines, and emphasis for idempotent tagged block diffing."""
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").split("\n")]
+    norm = "\n".join(lines).strip()
+    norm = re.sub(r"\n{3,}", "\n\n", norm)
+    # Normalize standalone italics (*text* -> _text_) without touching **bold**
+    norm = re.sub(r"(?<!\*)\*([^\*\n]+)\*(?!\*)", r"_\1_", norm)
+    return norm

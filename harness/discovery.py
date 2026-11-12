@@ -341,7 +341,16 @@ def resolve_affected_tests(
             is_empty=True,
         )
 
-    # Level 1: Native runner capabilities (Vitest / Jest)
+    # Classify files by language for multi-stack / polyglot resolution
+    js_ts_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".svelte", ".vue", ".html", ".css"}
+    rust_exts = {".rs"}
+    js_ts_files = [f for f in files if Path(f).suffix.lower() in js_ts_exts]
+    rust_files = [
+        f for f in files
+        if Path(f).suffix.lower() in rust_exts or (Path(f).parts and Path(f).parts[0] in ("src-tauri", "native"))
+    ]
+
+    # Level 1: Native runner capabilities (Vitest / Jest / Cargo)
     package_json = root / "package.json"
     has_vitest = False
     has_jest = False
@@ -362,24 +371,109 @@ def resolve_affected_tests(
     except Exception:
         pass
 
+    # Package manager execution prefix (pnpm exec, bun x, yarn, npx)
+    pm_exec = ""
+    if (root / "pnpm-lock.yaml").is_file() or (root / ".pnpm-lock.yaml").is_file():
+        pm_exec = "pnpm exec "
+    elif (root / "bun.lockb").is_file() or (root / "bun.lock").is_file() or (root / "bunfig.toml").is_file():
+        pm_exec = "bun x "
+    elif (root / "yarn.lock").is_file():
+        pm_exec = "yarn "
+    elif package_json.is_file():
+        pm_exec = "npx "
+
+    # Cargo runner detection
+    cargo_manifest_arg = ""
+    has_cargo = False
+    if (root / "src-tauri" / "Cargo.toml").is_file():
+        cargo_manifest_arg = " --manifest-path src-tauri/Cargo.toml"
+        has_cargo = True
+    elif (root / "native" / "Cargo.toml").is_file():
+        cargo_manifest_arg = " --manifest-path native/Cargo.toml"
+        has_cargo = True
+    elif (root / "Cargo.toml").is_file():
+        has_cargo = True
+    cargo_cmd = f"cargo test{cargo_manifest_arg}"
+
     if has_vitest:
-        files_arg = " ".join(shlex.quote(f) for f in files)
-        cmd = f"vitest related {files_arg} --run"
-        return ResolvedTests(
-            runner_cmd=cmd,
-            test_files=[],
-            source_files=files,
-            tier=1,
-            tier_name="native",
-            scope=mode,
-            package=pkg,
-        )
+        if rust_files and not js_ts_files:
+            return ResolvedTests(
+                runner_cmd=cargo_cmd,
+                test_files=[],
+                source_files=files,
+                tier=1,
+                tier_name="native",
+                scope=mode,
+                package=pkg,
+            )
+        elif rust_files and js_ts_files:
+            js_arg = " ".join(shlex.quote(f) for f in js_ts_files)
+            vitest_cmd = f"{pm_exec}vitest related {js_arg} --run"
+            combined_cmd = f"{vitest_cmd} && {cargo_cmd}"
+            return ResolvedTests(
+                runner_cmd=combined_cmd,
+                test_files=[],
+                source_files=files,
+                tier=1,
+                tier_name="native",
+                scope=mode,
+                package=pkg,
+            )
+        elif js_ts_files or not rust_files:
+            target_files = js_ts_files or files
+            files_arg = " ".join(shlex.quote(f) for f in target_files)
+            cmd = f"{pm_exec}vitest related {files_arg} --run"
+            return ResolvedTests(
+                runner_cmd=cmd,
+                test_files=[],
+                source_files=files,
+                tier=1,
+                tier_name="native",
+                scope=mode,
+                package=pkg,
+            )
 
     if has_jest:
-        files_arg = " ".join(shlex.quote(f) for f in files)
-        cmd = f"jest --findRelatedTests {files_arg} --passWithNoTests"
+        if rust_files and not js_ts_files:
+            return ResolvedTests(
+                runner_cmd=cargo_cmd,
+                test_files=[],
+                source_files=files,
+                tier=1,
+                tier_name="native",
+                scope=mode,
+                package=pkg,
+            )
+        elif rust_files and js_ts_files:
+            js_arg = " ".join(shlex.quote(f) for f in js_ts_files)
+            jest_cmd = f"{pm_exec}jest --findRelatedTests {js_arg} --passWithNoTests"
+            combined_cmd = f"{jest_cmd} && {cargo_cmd}"
+            return ResolvedTests(
+                runner_cmd=combined_cmd,
+                test_files=[],
+                source_files=files,
+                tier=1,
+                tier_name="native",
+                scope=mode,
+                package=pkg,
+            )
+        elif js_ts_files or not rust_files:
+            target_files = js_ts_files or files
+            files_arg = " ".join(shlex.quote(f) for f in target_files)
+            cmd = f"{pm_exec}jest --findRelatedTests {files_arg} --passWithNoTests"
+            return ResolvedTests(
+                runner_cmd=cmd,
+                test_files=[],
+                source_files=files,
+                tier=1,
+                tier_name="native",
+                scope=mode,
+                package=pkg,
+            )
+
+    if has_cargo and rust_files and not js_ts_files:
         return ResolvedTests(
-            runner_cmd=cmd,
+            runner_cmd=cargo_cmd,
             test_files=[],
             source_files=files,
             tier=1,
@@ -437,7 +531,10 @@ def resolve_affected_tests(
         elif any(t.endswith((".ts", ".tsx", ".js", ".jsx")) for t in sorted_tests):
             cmd = f"npm test -- {quoted_tests}"
         elif any(t.endswith(".rs") for t in sorted_tests):
-            cmd = f"cargo test {quoted_tests}"
+            if (root / "src-tauri" / "Cargo.toml").is_file():
+                cmd = f"cargo test --manifest-path src-tauri/Cargo.toml {quoted_tests}"
+            else:
+                cmd = f"cargo test {quoted_tests}"
         elif any(t.endswith(".go") for t in sorted_tests):
             cmd = f"go test {quoted_tests}"
         else:

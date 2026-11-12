@@ -74,6 +74,7 @@ class TestAuditReport:
     ui_mounting_status: str = "unsupported"  # "optimal", "missing_dom_env", "unsupported", "configured"
     vrt_status: str = "unsupported"  # "pixel_diff", "synthetic_existence_check", "missing", "unsupported"
     gaps: List[str] = field(default_factory=list)
+    secondary_runners: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -91,6 +92,7 @@ class TestAuditReport:
             "ui_mounting_status": self.ui_mounting_status,
             "vrt_status": self.vrt_status,
             "gaps": self.gaps,
+            "secondary_runners": self.secondary_runners,
         }
 
 
@@ -159,9 +161,37 @@ class TestHarmonizer:
         ui_mounting_status = "unsupported"
         vrt_status = "unsupported"
 
+        # Check all candidate manifests
         # 1. Node / TS
         package_json = ws / "package.json"
-        if package_json.is_file():
+        has_node = package_json.is_file()
+
+        # 2. Rust: root Cargo.toml, src-tauri/Cargo.toml, or native/Cargo.toml
+        cargo_root = ws / "Cargo.toml"
+        cargo_tauri = ws / "src-tauri" / "Cargo.toml"
+        cargo_native = ws / "native" / "Cargo.toml"
+        cargo_path: Optional[Path] = None
+        cargo_type: Optional[str] = None
+        if cargo_root.is_file():
+            cargo_path = cargo_root
+            cargo_type = "Cargo.toml"
+        elif cargo_tauri.is_file():
+            cargo_path = cargo_tauri
+            cargo_type = "src-tauri/Cargo.toml"
+        elif cargo_native.is_file():
+            cargo_path = cargo_native
+            cargo_type = "native/Cargo.toml"
+
+        # 3. Python
+        pyproject_file = ws / "pyproject.toml"
+        has_py = pyproject_file.is_file()
+
+        # 4. Makefile
+        make_file = ws / "Makefile" if (ws / "Makefile").is_file() else (ws / "makefile" if (ws / "makefile").is_file() else None)
+
+        secondary_runners: List[Dict[str, Any]] = []
+
+        if has_node:
             manifest_type = "package.json"
             manifest_path = package_json
             if (ws / "pnpm-lock.yaml").exists() or (ws / ".pnpm-lock.yaml").exists():
@@ -216,26 +246,77 @@ class TestHarmonizer:
             except Exception as e:
                 gaps.append(f"Failed to parse package.json: {e}")
 
+            if cargo_path:
+                secondary_runners.append({
+                    "manifest_type": cargo_type,
+                    "manifest_path": str(cargo_path),
+                    "test_framework": "cargo",
+                    "package_manager": "cargo",
+                    "missing_scripts": ["test:diff", "test:watch", "test:affected", "test:pkg", "test:full"],
+                })
+            if has_py:
+                secondary_runners.append({
+                    "manifest_type": "pyproject.toml",
+                    "manifest_path": str(pyproject_file),
+                    "test_framework": "pytest",
+                    "package_manager": "uv" if (ws / "uv.lock").exists() else "pip",
+                    "missing_scripts": ["test:diff", "test:watch", "test:affected", "test:full"],
+                })
+            if make_file:
+                secondary_runners.append({
+                    "manifest_type": "Makefile",
+                    "manifest_path": str(make_file),
+                    "test_framework": "make",
+                    "package_manager": "make",
+                    "missing_scripts": ["test:diff", "test:watch", "test:affected", "test:full"],
+                })
+
         # 2. Rust
-        elif (ws / "Cargo.toml").is_file():
-            manifest_type = "Cargo.toml"
-            manifest_path = ws / "Cargo.toml"
+        elif cargo_path:
+            manifest_type = cargo_type
+            manifest_path = cargo_path
             framework = "cargo"
             pkg_manager = "cargo"
             missing_scripts = ["test:diff", "test:watch", "test:affected", "test:pkg", "test:full"]
 
+            if has_py:
+                secondary_runners.append({
+                    "manifest_type": "pyproject.toml",
+                    "manifest_path": str(pyproject_file),
+                    "test_framework": "pytest",
+                    "package_manager": "uv" if (ws / "uv.lock").exists() else "pip",
+                    "missing_scripts": ["test:diff", "test:watch", "test:affected", "test:full"],
+                })
+            if make_file:
+                secondary_runners.append({
+                    "manifest_type": "Makefile",
+                    "manifest_path": str(make_file),
+                    "test_framework": "make",
+                    "package_manager": "make",
+                    "missing_scripts": ["test:diff", "test:watch", "test:affected", "test:full"],
+                })
+
         # 3. Python
-        elif (ws / "pyproject.toml").is_file():
+        elif has_py:
             manifest_type = "pyproject.toml"
-            manifest_path = ws / "pyproject.toml"
+            manifest_path = pyproject_file
             framework = "pytest"
             pkg_manager = "uv" if (ws / "uv.lock").exists() else "pip"
             missing_scripts = ["test:diff", "test:watch", "test:affected", "test:full"]
 
+            if make_file:
+                secondary_runners.append({
+                    "manifest_type": "Makefile",
+                    "manifest_path": str(make_file),
+                    "test_framework": "make",
+                    "package_manager": "make",
+                    "missing_scripts": ["test:diff", "test:watch", "test:affected", "test:full"],
+                })
+
         # 4. Makefile
-        elif (ws / "Makefile").is_file() or (ws / "makefile").is_file():
+        elif make_file:
             manifest_type = "Makefile"
-            manifest_path = ws / "Makefile" if (ws / "Makefile").is_file() else ws / "makefile"
+            manifest_path = make_file
             framework = "make"
             pkg_manager = "make"
             missing_scripts = ["test:diff", "test:watch", "test:affected", "test:full"]
@@ -255,6 +336,7 @@ class TestHarmonizer:
             ui_mounting_status=ui_mounting_status,
             vrt_status=vrt_status,
             gaps=gaps,
+            secondary_runners=secondary_runners,
         )
 
     def plan_mutations(self, audit: TestAuditReport) -> List[FileMutation]:
@@ -473,6 +555,69 @@ class TestHarmonizer:
                 "test:full": full_cmd,
             },
         }
+
+        runners: Dict[str, Any] = {}
+        if audit.manifest_type:
+            primary_key = (
+                "node"
+                if audit.manifest_type == "package.json"
+                else (
+                    "cargo"
+                    if "Cargo" in audit.manifest_type
+                    else ("pytest" if "pyproject" in audit.manifest_type else "make")
+                )
+            )
+            runners[primary_key] = {
+                "manifest": str(audit.manifest_path.relative_to(self.workspace_root)) if audit.manifest_path else audit.manifest_type,
+                "framework": frm,
+                "package_manager": pm,
+                "diff": diff_cmd,
+                "affected": affected_cmd,
+                "full": full_cmd,
+                "watch": watch_cmd,
+            }
+
+        for sec in audit.secondary_runners:
+            sec_type = sec.get("manifest_type")
+            sec_path = sec.get("manifest_path")
+            sec_frm = sec.get("test_framework", "unknown")
+            sec_pm = sec.get("package_manager", "unknown")
+            rel_sec_path = Path(sec_path).relative_to(self.workspace_root).as_posix() if sec_path else sec_type
+            if sec_type and ("Cargo" in sec_type or "tauri" in sec_type):
+                manifest_arg = f"--manifest-path {rel_sec_path}" if rel_sec_path != "Cargo.toml" else ""
+                cmd_suffix = f" {manifest_arg}".rstrip()
+                runners["cargo"] = {
+                    "manifest": rel_sec_path,
+                    "framework": sec_frm,
+                    "package_manager": sec_pm,
+                    "diff": f"cargo test{cmd_suffix}",
+                    "affected": f"cargo test{cmd_suffix}",
+                    "full": f"cargo test{cmd_suffix}",
+                    "watch": f"cargo watch -x test{cmd_suffix}",
+                }
+            elif sec_type == "pyproject.toml":
+                runners["pytest"] = {
+                    "manifest": rel_sec_path,
+                    "framework": sec_frm,
+                    "package_manager": sec_pm,
+                    "diff": "pytest --picked",
+                    "affected": "pytest",
+                    "full": "pytest",
+                    "watch": "ptw",
+                }
+            elif sec_type == "Makefile":
+                runners["make"] = {
+                    "manifest": rel_sec_path,
+                    "framework": sec_frm,
+                    "package_manager": sec_pm,
+                    "diff": "make test:diff",
+                    "affected": "make test:affected",
+                    "full": "make test:full",
+                    "watch": "make test:watch",
+                }
+
+        manifest["runners"] = runners if runners else None
+        manifest["secondary_runners"] = audit.secondary_runners
         return manifest
 
     def _generate_unified_diff(self, path: Path, original: str, updated: str) -> str:

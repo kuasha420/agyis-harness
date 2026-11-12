@@ -106,8 +106,10 @@ def resolve_skills_for_workspace(
         return _dedup_skills(resolved)
 
     if stk_norm and stk_norm != "auto" and stk_norm not in STACK_PRESETS:
-        resolved = list(ARCHITECTURAL_ROLE_PRESETS[role_norm]) if role_norm else []
-        return _dedup_skills(resolved)
+        tokens = [t.strip() for t in stk_norm.split(",") if t.strip()]
+        if not all(t in STACK_PRESETS or t in LANGUAGE_RUNTIME_PRESETS for t in tokens):
+            resolved = list(ARCHITECTURAL_ROLE_PRESETS[role_norm]) if role_norm else []
+            return _dedup_skills(resolved)
 
     resolved_skills = resolve_skills_to_sync(
         stack=stk_norm or "auto",
@@ -127,6 +129,7 @@ from harness.delivery.workspace_probe import (  # noqa: F401
     extract_command_descriptions,
     extract_command_dictionary,
     format_command_dictionary,
+    normalize_tagged_rules,
 )
 
 
@@ -206,7 +209,10 @@ def install_workspace(
     if skills is not None:
         selected_skills = list(skills)
     else:
-        selected_skills = list(STACK_SKILL_PRESETS.get(detected_stack, []))
+        selected_skills = resolve_skills_for_workspace(
+            workspace_dir=ws,
+            stack=stack,
+        )
 
     target_skills_dir = ws / ".agents" / "skills"
     skills_installed: List[str] = []
@@ -348,7 +354,7 @@ def install_workspace(
                     new_rules = f"{existing_clean}\n\n{tagged_block}\n"
                 else:
                     new_rules = f"{tagged_block}\n"
-            if new_rules != existing_rules:
+            if new_rules != existing_rules and normalize_tagged_rules(new_rules) != normalize_tagged_rules(existing_rules):
                 if not dry_run:
                     rules_path.write_text(new_rules, encoding="utf-8")
                 rules_updated = True

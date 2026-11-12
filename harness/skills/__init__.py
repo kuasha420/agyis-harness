@@ -76,163 +76,25 @@ def get_skill(name: str, skills_dir: Optional[Path] = None) -> Optional[SkillSpe
     return None
 
 
-LANGUAGE_RUNTIME_PRESETS: Dict[str, List[str]] = {
-    "typescript": [
-        "psl-stack-typescript",
-        "psl-test-node",
-    ],
-    "node": [
-        "psl-stack-typescript",
-        "psl-test-node",
-    ],
-    "javascript": [
-        "psl-stack-typescript",
-        "psl-test-node",
-    ],
-    "python": [
-        "psl-stack-python",
-        "psl-test-python",
-    ],
-    "rust": [
-        "psl-test-cargo",
-        "psl-stack-systems",
-        "psl-stack-shell",
-    ],
-    "cargo": [
-        "psl-test-cargo",
-        "psl-stack-systems",
-        "psl-stack-shell",
-    ],
-    "go": [
-        "psl-test-go",
-    ],
-    "systems": [
-        "psl-stack-systems",
-        "psl-stack-shell",
-    ],
-    "shell": [
-        "psl-stack-shell",
-    ],
-}
-
-ARCHITECTURAL_ROLE_PRESETS: Dict[str, List[str]] = {
-    "backend": [
-        "psl-stack-backend",
-        "db-ops",
-    ],
-    "frontend": [
-        "modern-web-guidance",
-    ],
-    "fullstack": [
-        "modern-web-guidance",
-        "psl-stack-backend",
-        "db-ops",
-    ],
-    "mobile": [
-        "android-cli",
-    ],
-    "desktop_gui": [
-        "display-ops",
-    ],
-    "cli": [],
-    "library": [],
-    "media": [
-        "media-ops",
-    ],
-    "audio": [
-        "audio-ops",
-    ],
-    "infra": [
-        "mesh-ops",
-        "remote-ops",
-        "sec-forensics",
-        "storage-ops",
-    ],
-}
-
-# Backward compatibility mapping for STACK_PRESETS
-STACK_PRESETS: Dict[str, List[str]] = {
-    **LANGUAGE_RUNTIME_PRESETS,
-    "backend": [
-        "psl-stack-backend",
-        "db-ops",
-    ],
-}
-
-GROUP_PRESETS: Dict[str, List[str]] = {
-    "stack": [
-        "psl-stack-python",
-        "psl-stack-typescript",
-        "psl-stack-shell",
-        "psl-stack-systems",
-        "psl-stack-backend",
-    ],
-    "testing": [
-        "psl-test-python",
-        "psl-test-node",
-        "psl-test-cargo",
-        "psl-test-go",
-        "psl-test-harmonize",
-    ],
-    "runners": [
-        "psl-test-python",
-        "psl-test-node",
-        "psl-test-cargo",
-        "psl-test-go",
-        "psl-test-harmonize",
-    ],
-    "ops": [
-        "storage-ops",
-        "audio-ops",
-        "display-ops",
-        "sec-forensics",
-        "media-ops",
-        "db-ops",
-        "mesh-ops",
-        "git-worktree-ops",
-        "remote-ops",
-    ],
-    "workstation": [
-        "storage-ops",
-        "audio-ops",
-        "display-ops",
-        "sec-forensics",
-        "media-ops",
-        "db-ops",
-        "mesh-ops",
-        "git-worktree-ops",
-    ],
-    "workflow": [
-        "agent-builder",
-        "subagent-ladder",
-        "milestone-handoff",
-        "code-review",
-        "psl-audit-toolkit",
-    ],
-    "ladder": [
-        "agent-builder",
-        "subagent-ladder",
-        "milestone-handoff",
-        "code-review",
-    ],
-    "resilience": [
-        "powerloss-resume",
-        "db-ops",
-        "storage-ops",
-    ],
-    "continuity": [
-        "graceful-parking",
-        "milestone-handoff",
-        "git-worktree-ops",
-    ],
-}
+from harness.skills.presets import (
+    ARCHITECTURAL_ROLE_PRESETS,
+    GROUP_PRESETS,
+    LANGUAGE_RUNTIME_PRESETS,
+    STACK_PRESETS,
+)
 
 
-def detect_workspace_stack(
+def detect_workspace_stacks(
     workspace_root: Optional[Path] = None,
     subproject: Optional[Union[Path, str]] = None,
-) -> Optional[str]:
-    """Detect workspace language stack from project files, with subproject and shell support."""
+) -> List[str]:
+    """
+    Detects all coexisting workspace language stacks from project manifests across
+    root and bounded embedded subprojects (e.g. Tauri src-tauri/Cargo.toml, native addons).
+
+    Returns a list of detected language identifiers in priority order, e.g. ['typescript', 'rust'].
+    Preserves sub-second execution benchmark by strictly avoiding recursive walks.
+    """
     from harness.delivery.surfaces import find_workspace_root
 
     root = Path(workspace_root) if workspace_root else find_workspace_root()
@@ -240,20 +102,24 @@ def detect_workspace_stack(
         root = (root / subproject).resolve()
 
     if not root.is_dir():
-        return None
+        return []
 
-    # Multi-factor TS vs JS separation
+    detected: List[str] = []
+
+    def _add(stack: str) -> None:
+        if stack not in detected:
+            detected.append(stack)
+
+    # 1. Inspect root for Node / TypeScript / JavaScript
     has_tsconfig = (root / "tsconfig.json").is_file()
     has_jsconfig = (root / "jsconfig.json").is_file()
     has_package_json = (root / "package.json").is_file()
 
     if has_tsconfig:
-        return "typescript"
-
-    if has_jsconfig:
-        return "javascript"
-
-    if has_package_json:
+        _add("typescript")
+    elif has_jsconfig:
+        _add("javascript")
+    elif has_package_json:
         # Inspect package.json dependencies and source files to differentiate TS vs JS
         is_ts = False
         try:
@@ -287,38 +153,44 @@ def detect_workspace_stack(
                 pass
 
         if is_ts:
-            return "typescript"
-
-        # Check if there are JS files (.js, .jsx, .mjs, .cjs)
-        try:
-            js_files = any(
-                p.is_file() and p.suffix in (".js", ".jsx", ".mjs", ".cjs")
-                for p in root.iterdir()
-            )
-            src_dir = root / "src"
-            if not js_files and src_dir.is_dir():
+            _add("typescript")
+        else:
+            # Check if there are JS files (.js, .jsx, .mjs, .cjs)
+            try:
                 js_files = any(
                     p.is_file() and p.suffix in (".js", ".jsx", ".mjs", ".cjs")
-                    for p in src_dir.iterdir()
+                    for p in root.iterdir()
                 )
-            if js_files:
-                return "javascript"
-        except OSError:
-            pass
+                src_dir = root / "src"
+                if not js_files and src_dir.is_dir():
+                    js_files = any(
+                        p.is_file() and p.suffix in (".js", ".jsx", ".mjs", ".cjs")
+                        for p in src_dir.iterdir()
+                    )
+                if js_files:
+                    _add("javascript")
+                else:
+                    _add("typescript")
+            except OSError:
+                _add("typescript")
 
-        # Default fallback for package.json without explicit indicators
-        return "typescript"
-
+    # 2. Inspect root for Python
     if (
         (root / "pyproject.toml").is_file()
         or (root / "requirements.txt").is_file()
         or (root / "setup.py").is_file()
     ):
-        return "python"
+        _add("python")
+
+    # 3. Inspect root for Rust
     if (root / "Cargo.toml").is_file():
-        return "rust"
+        _add("rust")
+
+    # 4. Inspect root for Go
     if (root / "go.mod").is_file():
-        return "go"
+        _add("go")
+
+    # 5. Inspect root for Systems
     if (
         (root / "Makefile").is_file()
         or (root / "CMakeLists.txt").is_file()
@@ -326,22 +198,63 @@ def detect_workspace_stack(
         or (root / "flake.nix").is_file()
         or (root / "PKGBUILD").is_file()
     ):
-        return "systems"
+        _add("systems")
 
-    # Shell script detection: *.sh files in root or scripts/ or bin/
+    # 6. Embedded / Polyglot Subprojects (bounded check: depth 1-2)
+    # 6a. Tauri: src-tauri/Cargo.toml
+    if (root / "src-tauri" / "Cargo.toml").is_file():
+        _add("rust")
+
+    # 6b. Native bindings / crates: native/Cargo.toml, src-native/Cargo.toml, rust/Cargo.toml
+    for native_cand in ("native", "src-native", "rust"):
+        if (root / native_cand / "Cargo.toml").is_file():
+            _add("rust")
+            break
+
+    # 6c. Backend / frontend split in non-monorepo:
+    # backend/Cargo.toml, backend/pyproject.toml, backend/go.mod, backend/package.json
+    backend_dir = root / "backend"
+    if backend_dir.is_dir():
+        if (backend_dir / "Cargo.toml").is_file():
+            _add("rust")
+        if (backend_dir / "pyproject.toml").is_file() or (backend_dir / "requirements.txt").is_file():
+            _add("python")
+        if (backend_dir / "go.mod").is_file():
+            _add("go")
+        if (backend_dir / "tsconfig.json").is_file() or (backend_dir / "package.json").is_file():
+            _add("typescript")
+
+    frontend_dir = root / "frontend"
+    if frontend_dir.is_dir():
+        if (frontend_dir / "tsconfig.json").is_file() or (frontend_dir / "package.json").is_file():
+            _add("typescript")
+
+    # 7. Shell scripts: *.sh in root or scripts/ or bin/
     try:
-        if any(p.is_file() and p.name.endswith(".sh") for p in root.iterdir()):
-            return "shell"
-        for sub in ("bin", "scripts"):
-            sub_p = root / sub
-            if sub_p.is_dir() and any(
-                p.is_file() and p.name.endswith(".sh") for p in sub_p.iterdir()
-            ):
-                return "shell"
+        has_sh = any(p.is_file() and p.name.endswith(".sh") for p in root.iterdir())
+        if not has_sh:
+            for sub in ("bin", "scripts"):
+                sub_p = root / sub
+                if sub_p.is_dir() and any(
+                    p.is_file() and p.name.endswith(".sh") for p in sub_p.iterdir()
+                ):
+                    has_sh = True
+                    break
+        if has_sh:
+            _add("shell")
     except OSError:
         pass
 
-    return None
+    return detected
+
+
+def detect_workspace_stack(
+    workspace_root: Optional[Path] = None,
+    subproject: Optional[Union[Path, str]] = None,
+) -> Optional[str]:
+    """Detect workspace primary language stack from project files, with subproject and shell support."""
+    stacks = detect_workspace_stacks(workspace_root=workspace_root, subproject=subproject)
+    return stacks[0] if stacks else None
 
 
 def detect_workspace_role(
@@ -624,7 +537,7 @@ def detect_monorepo_stack(workspace_root: Path) -> Tuple[Set[str], Set[str]]:
 def resolve_skills_to_sync(
     skill_names: Optional[List[str]] = None,
     group: Optional[str] = None,
-    stack: Optional[str] = None,
+    stack: Optional[Union[str, List[str]]] = None,
     role: Optional[str] = None,
     workspace_root: Optional[Path] = None,
     subproject: Optional[Union[Path, str]] = None,
@@ -645,35 +558,50 @@ def resolve_skills_to_sync(
             )
 
     if stack:
-        stk_norm = stack.strip().lower()
-        if stk_norm == "auto":
-            target_ws = Path(workspace_root) if workspace_root else None
-            if target_ws and subproject:
-                target_ws = (target_ws / subproject).resolve()
+        target_ws = Path(workspace_root) if workspace_root else None
+        if target_ws and subproject:
+            target_ws = (target_ws / subproject).resolve()
 
-            if target_ws and is_monorepo(target_ws) and not subproject:
-                mono_langs, mono_roles = detect_monorepo_stack(target_ws)
-                for l in mono_langs:
-                    if l in LANGUAGE_RUNTIME_PRESETS:
-                        resolved.extend(LANGUAGE_RUNTIME_PRESETS[l])
-                if role is None:
-                    for r in mono_roles:
-                        if r in ARCHITECTURAL_ROLE_PRESETS:
-                            resolved.extend(ARCHITECTURAL_ROLE_PRESETS[r])
-            else:
-                detected = detect_workspace_stack(target_ws)
-                if detected and detected in LANGUAGE_RUNTIME_PRESETS:
-                    resolved.extend(LANGUAGE_RUNTIME_PRESETS[detected])
-                if role is None and target_ws:
-                    detected_r = detect_workspace_role(target_ws)
-                    if detected_r and detected_r in ARCHITECTURAL_ROLE_PRESETS:
-                        resolved.extend(ARCHITECTURAL_ROLE_PRESETS[detected_r])
-        elif stk_norm in STACK_PRESETS:
-            resolved.extend(STACK_PRESETS[stk_norm])
+        if isinstance(stack, (list, tuple, set)):
+            stack_tokens = [s.strip().lower() for s in stack if s and s.strip()]
+        elif isinstance(stack, str):
+            stack_tokens = [s.strip().lower() for s in stack.split(",") if s.strip()]
         else:
-            raise ValueError(
-                f"Unknown stack preset '{stack}'. Choose from: {', '.join(sorted(STACK_PRESETS.keys()))}, auto"
-            )
+            stack_tokens = []
+
+        for stk_norm in stack_tokens:
+            if stk_norm == "auto":
+                if target_ws and is_monorepo(target_ws) and not subproject:
+                    mono_langs, mono_roles = detect_monorepo_stack(target_ws)
+                    for l in mono_langs:
+                        if l in LANGUAGE_RUNTIME_PRESETS:
+                            resolved.extend(LANGUAGE_RUNTIME_PRESETS[l])
+                    if role is None:
+                        for r in mono_roles:
+                            if r in ARCHITECTURAL_ROLE_PRESETS:
+                                resolved.extend(ARCHITECTURAL_ROLE_PRESETS[r])
+                else:
+                    detected_stacks = detect_workspace_stacks(target_ws) if target_ws else []
+                    for detected in detected_stacks:
+                        if detected in LANGUAGE_RUNTIME_PRESETS:
+                            resolved.extend(LANGUAGE_RUNTIME_PRESETS[detected])
+                        elif detected in STACK_PRESETS:
+                            resolved.extend(STACK_PRESETS[detected])
+                    if role is None and target_ws:
+                        detected_r = detect_workspace_role(target_ws)
+                        if detected_r and detected_r in ARCHITECTURAL_ROLE_PRESETS:
+                            resolved.extend(ARCHITECTURAL_ROLE_PRESETS[detected_r])
+            elif stk_norm in STACK_PRESETS:
+                resolved.extend(STACK_PRESETS[stk_norm])
+            elif stk_norm in LANGUAGE_RUNTIME_PRESETS:
+                resolved.extend(LANGUAGE_RUNTIME_PRESETS[stk_norm])
+            else:
+                valid_choices = sorted(
+                    set(list(STACK_PRESETS.keys()) + list(LANGUAGE_RUNTIME_PRESETS.keys())) | {"auto"}
+                )
+                raise ValueError(
+                    f"Unknown stack preset '{stk_norm}'. Choose from: {', '.join(valid_choices)}"
+                )
 
     if role:
         role_norm = role.strip().lower()
@@ -702,7 +630,7 @@ def sync_skills(
     source_dir: Optional[Path] = None,
     skill_names: Optional[List[str]] = None,
     group: Optional[str] = None,
-    stack: Optional[str] = None,
+    stack: Optional[Union[str, List[str]]] = None,
     role: Optional[str] = None,
     subproject: Optional[Union[Path, str]] = None,
     dedup: bool = True,
@@ -790,6 +718,7 @@ __all__ = [
     "detect_monorepo_stack",
     "detect_workspace_role",
     "detect_workspace_stack",
+    "detect_workspace_stacks",
     "get_skill",
     "is_monorepo",
     "list_skills",

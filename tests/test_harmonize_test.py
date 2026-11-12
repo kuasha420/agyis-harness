@@ -116,6 +116,35 @@ class TestAuditManifests(unittest.TestCase):
         self.assertEqual(audit.manifest_type, "Makefile")
         self.assertEqual(audit.test_framework, "make")
 
+    def test_audit_tauri_polyglot_multi_runner(self):
+        pkg_json = self.ws / "package.json"
+        pkg_json.write_text(json.dumps({
+            "name": "tauri-app",
+            "scripts": {"test": "vitest run"},
+            "devDependencies": {"vitest": "^1.5.0"}
+        }))
+        (self.ws / "src-tauri").mkdir()
+        (self.ws / "src-tauri" / "Cargo.toml").write_text("[package]\nname = \"src-tauri\"\n")
+
+        harmonizer = TestHarmonizer(self.ws)
+        audit = harmonizer.audit()
+
+        # Primary runner is Node/Vitest
+        self.assertEqual(audit.manifest_type, "package.json")
+        self.assertEqual(audit.test_framework, "vitest")
+
+        # Secondary runner captures Cargo in src-tauri
+        self.assertEqual(len(audit.secondary_runners), 1)
+        sec = audit.secondary_runners[0]
+        self.assertEqual(sec["manifest_type"], "src-tauri/Cargo.toml")
+        self.assertEqual(sec["test_framework"], "cargo")
+
+        manifest = harmonizer.build_test_manifest(audit)
+        self.assertIn("runners", manifest)
+        self.assertIn("node", manifest["runners"])
+        self.assertIn("cargo", manifest["runners"])
+        self.assertIn("src-tauri/Cargo.toml", manifest["runners"]["cargo"]["manifest"])
+
 
 class TestScriptPreservation(unittest.TestCase):
     """Ensures existing custom scripts are never overwritten."""

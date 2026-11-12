@@ -275,6 +275,29 @@ class TestPslDoctor(unittest.TestCase):
             self.assertIn("broken.js", res["violations"][0]["file"])
             self.assertIsNotNone(res["remediation"])
 
+    def test_check_node_script_hygiene_ignores_rust_target_and_build_artifacts(self):
+        """ESM package ignores CJS scripts generated in target/doc, .turbo, out, etc."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ws = Path(tmp_dir)
+            (ws / "package.json").write_text(json.dumps({"name": "polyglot-esm", "type": "module"}), encoding="utf-8")
+            (ws / "src").mkdir()
+            (ws / "src" / "index.js").write_text("export const x = 1;\n", encoding="utf-8")
+
+            # Cargo doc output
+            target_doc = ws / "target" / "doc" / "static.files"
+            target_doc.mkdir(parents=True)
+            (target_doc / "search.js").write_text("var search = require('search');\nmodule.exports = search;\n", encoding="utf-8")
+
+            # Turbo cache output
+            turbo_dir = ws / ".turbo" / "cache"
+            turbo_dir.mkdir(parents=True)
+            (turbo_dir / "cache.js").write_text("module.exports = {};\n", encoding="utf-8")
+
+            res = check_node_script_hygiene(workspace_root=ws)
+            self.assertEqual(res["status"], "OK")
+            self.assertTrue(res["is_esm"])
+            self.assertEqual(res["violations"], [])
+
     def test_check_hooks_health_canonical(self):
         """Canonical repo hooks.json passes health audit with status OK and all 5 hooks verified."""
         res = check_hooks_health()

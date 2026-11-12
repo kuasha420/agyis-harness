@@ -30,6 +30,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import tarfile
@@ -229,6 +230,22 @@ class TestHarmonizeEngine(unittest.TestCase):
         self.assertIn("<!-- Added by AGYIS-HARNESS -->", updated)
         self.assertIn("<!-- End AGYIS-HARNESS -->", updated)
         self.assertNotIn("PSL-HARNESS", updated)
+
+    def test_tagged_rules_prettier_idempotence(self) -> None:
+        """Verifies Prettier-formatted AGENTS.md tagged block remains idempotent under harmonize."""
+        res1 = harmonize_workspace(self.ws, dry_run=False, source_dir=REPO_ROOT)
+        self.assertTrue(res1.success)
+
+        agents_md = self.ws / "AGENTS.md"
+        content = agents_md.read_text(encoding="utf-8")
+
+        # Simulate Prettier formatting normalization (italics and whitespace)
+        prettier_formatted = re.sub(r"(?<!\*)\*([^\*\n]+)\*(?!\*)", r"_\1_", content)
+        agents_md.write_text(prettier_formatted, encoding="utf-8")
+
+        # Harmonize dry-run should detect that rules are already up to date without mutation churn
+        res2 = harmonize_workspace(self.ws, dry_run=True, source_dir=REPO_ROOT)
+        self.assertEqual(res2.rules_action, "already_up_to_date")
 
     def test_rule_fencing_surrounding_user_rules_prefix_and_suffix(self) -> None:
         prefix = "# Header Rules\n\nRule A: Be fast.\n\n"
