@@ -60,7 +60,7 @@
                         style="cursor: pointer; background: rgba(168, 85, 247, 0.1); color: rgb(192, 132, 252); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 9999px; padding: 2px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;"
                         title="View child subagents">
                     <span>${subagents.length} Child Subagent${subagents.length === 1 ? "" : "s"}</span>
-                    <span style="font-size: 9px; transform: ${state.subagentsDropdownOpen ? "rotate(180deg)" : "rotate(0deg)"}; transition: transform 0.15s;">▼</span>
+                    <span class="agyis-subagents-arrow" style="font-size: 9px; transform: ${state.subagentsDropdownOpen ? "rotate(180deg)" : "rotate(0deg)"}; transition: transform 0.15s;">▼</span>
                 </button>
                 <div id="agyis-subagents-menu"
                      style="display: ${state.subagentsDropdownOpen ? "block" : "none"}; position: absolute; top: 100%; left: 0; margin-top: 4px; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); z-index: 200; min-width: 260px; max-height: 240px; overflow-y: auto;">
@@ -72,9 +72,7 @@
                         return `
                             <div class="agyis-subagent-item"
                                  data-sub-id="${escapeHeaderHtml(sid)}"
-                                 style="padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #27272a; transition: background 0.15s;"
-                                 onmouseover="this.style.background='#27272a'"
-                                 onmouseout="this.style.background='transparent'">
+                                 style="padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #27272a; transition: background 0.15s;">
                                 <div style="font-weight: 600; color: #c084fc; font-size: 11px;">${escapeHeaderHtml(info.name)}</div>
                                 <div style="font-size: 10px; color: #a1a1aa; font-family: monospace;">${escapeHeaderHtml(sid.slice(0, 16))}...</div>
                             </div>
@@ -99,6 +97,9 @@
         const steps = (cur && cur.steps) || [];
         const matchCount = state.searchMatchIndices ? state.searchMatchIndices.length : 0;
         const matchDisplay = q ? `${matchCount > 0 ? (state.currentMatchIdx || 0) + 1 : 0}/${matchCount}` : `${steps.length}/${steps.length}`;
+
+        const isSide = (state.layoutOrientation || "horizontal") === "horizontal" || state.layoutOrientation === "side";
+        const isStack = state.layoutOrientation === "vertical" || state.layoutOrientation === "stack";
 
         return `
             <div class="agyis-hud-header">
@@ -132,11 +133,11 @@
                 <div class="agyis-hud-header-right">
                     <div role="group" aria-label="Debug view layout" style="display: inline-flex; border: 1px solid #3f3f46; border-radius: 6px; overflow: hidden;">
                         <button id="agyis-layout-side"
-                                class="agyis-hud-btn ${state.layoutOrientation === "horizontal" ? "active" : ""}"
+                                class="agyis-hud-btn ${isSide ? "active" : ""}"
                                 style="border: none; border-radius: 0;"
                                 title="Side-by-side layout">◫ Side-by-Side</button>
                         <button id="agyis-layout-stack"
-                                class="agyis-hud-btn ${state.layoutOrientation === "vertical" ? "active" : ""}"
+                                class="agyis-hud-btn ${isStack ? "active" : ""}"
                                 style="border: none; border-radius: 0;"
                                 title="Stacked layout">☰ Stacked</button>
                     </div>
@@ -201,6 +202,8 @@
             state.subagentsDropdownOpen = !state.subagentsDropdownOpen;
             const menu = hudEl.querySelector("#agyis-subagents-menu");
             if (menu) menu.style.display = state.subagentsDropdownOpen ? "block" : "none";
+            const arrow = hudEl.querySelector("#agyis-subagents-dropdown-toggle .agyis-subagents-arrow, #agyis-subagents-dropdown-toggle span:last-child");
+            if (arrow) arrow.style.transform = state.subagentsDropdownOpen ? "rotate(180deg)" : "rotate(0deg)";
         });
 
         // Subagent item click (jump directly to child subagent conversation)
@@ -211,6 +214,8 @@
                 state.subagentsDropdownOpen = false;
                 const menu = hudEl.querySelector("#agyis-subagents-menu");
                 if (menu) menu.style.display = "none";
+                const arrow = hudEl.querySelector("#agyis-subagents-dropdown-toggle .agyis-subagents-arrow, #agyis-subagents-dropdown-toggle span:last-child");
+                if (arrow) arrow.style.transform = "rotate(0deg)";
 
                 const subTraj = cur && cur.subagent_trajectories ? cur.subagent_trajectories[sid] : null;
                 if (subTraj) {

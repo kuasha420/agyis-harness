@@ -338,7 +338,9 @@
      * Renders the complete Gantt Timeline Visualizer HTML.
      */
     function renderTimelineView(steps, state, containerWidth) {
-        const width = Number.isFinite(containerWidth) && containerWidth > 300 ? containerWidth : 1200;
+        const baseWidth = Number.isFinite(containerWidth) && containerWidth > 300 ? containerWidth : 1200;
+        const zoom = Math.max(0.5, Math.min(5.0, state.timelineZoom || 1.0));
+        const width = Math.round(baseWidth * zoom);
         const stepTimings = steps.map((s, idx) => {
             const timing = extractStepPhases(s);
             return {
@@ -406,11 +408,72 @@
             }).join("");
         } else {
             // Activity Mode (compact horizontal lanes)
-            tracksHtml = `
-                <div style="padding: 10px; color: #a1a1aa; font-size: 11px;">
-                    Activity mode packed view (${stepTimings.length} steps)
-                </div>
-            `;
+            const activityLanes = [
+                {
+                    id: "model",
+                    label: "Model & Thinking",
+                    color: "#f59e0b",
+                    predicate: s => s.type === "PLANNER_RESPONSE" || s.type === "MODEL_OUTPUT" || s.type === "USER_INPUT",
+                },
+                {
+                    id: "terminal",
+                    label: "Terminal Execution",
+                    color: "#06b6d4",
+                    predicate: s => s.type.includes("COMMAND") || s.type.includes("BASH") || (s.summary && (s.summary.startsWith("run_command") || s.summary.startsWith("bash"))),
+                },
+                {
+                    id: "files",
+                    label: "Files & Code",
+                    color: "#10b981",
+                    predicate: s => s.type.includes("FILE") || s.type.includes("WRITE") || s.type.includes("REPLACE") || s.type.includes("DIFF") || (s.summary && (s.summary.startsWith("view_file") || s.summary.startsWith("replace_file") || s.summary.startsWith("write_to_file"))),
+                },
+                {
+                    id: "subagents",
+                    label: "Search & Subagents",
+                    color: "#a855f7",
+                    predicate: s => s.type.includes("SUBAGENT") || s.type.includes("SEARCH") || s.type.includes("FIND") || (s.summary && (s.summary.startsWith("grep_search") || s.summary.startsWith("find_by_name") || s.summary.startsWith("invoke_subagent") || s.summary.startsWith("send_message"))),
+                },
+                {
+                    id: "checkpoints",
+                    label: "Compaction & System",
+                    color: "#ec4899",
+                    predicate: s => s.type === "CHECKPOINT" || s.type === "SYSTEM",
+                },
+            ];
+
+            tracksHtml = activityLanes.map(lane => {
+                const laneSteps = stepTimings.filter(s => lane.predicate(s) || (lane.id === "model" && !activityLanes.slice(1).some(l => l.predicate(s))));
+                const laneBarsHtml = laneSteps.map(s => {
+                    const isSelected = s.arrayIndex === state.selectedIndex;
+                    const isHovered = state.hoveredItemKey === `step-${s.arrayIndex}`;
+                    const x0 = Math.max(0, scale.toPx(s.timing.startMs));
+                    const x1 = Math.max(x0 + 4, scale.toPx(s.timing.endMs));
+                    const barWidth = Math.max(4, x1 - x0);
+                    const durLabel = formatDuration(s.timing.totalMs);
+
+                    return `
+                        <div class="agyis-timeline-step-row agyis-timeline-step-block ${isSelected ? "selected" : ""} ${isHovered ? "context-cell-hovered" : ""}"
+                             data-step-index="${s.arrayIndex}"
+                             data-item-key="step-${s.arrayIndex}"
+                             title="#${s.stepIndex} ${escapeHtml(s.type)} (${durLabel})"
+                             style="position: absolute; left: ${x0}px; width: ${barWidth}px; height: 18px; top: 3px; background: ${lane.color}; border-radius: 2px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.5); opacity: ${isSelected ? 1.0 : 0.85}; outline: ${isSelected ? "2px solid #fbbf24" : "none"}; outline-offset: 1px;">
+                        </div>
+                    `;
+                }).join("");
+
+                return `
+                    <div class="agyis-timeline-lane-row" style="display: flex; align-items: center; height: 26px; border-bottom: 1px solid #202024;">
+                        <div style="width: 220px; flex-shrink: 0; font-family: monospace; font-size: 11px; color: #a1a1aa; padding-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px;">
+                            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${lane.color};"></span>
+                            <span style="font-weight: 600; color: #e4e4e7;">${escapeHtml(lane.label)}</span>
+                            <span style="color: #71717a; font-size: 10px;">(${laneSteps.length})</span>
+                        </div>
+                        <div style="flex: 1; height: 24px; position: relative; background: #18181b;">
+                            ${laneBarsHtml}
+                        </div>
+                    </div>
+                `;
+            }).join("");
         }
 
         // Time Ruler markers
@@ -472,6 +535,20 @@
         });
         hudEl.querySelector("#agyis-tl-mode-activity")?.addEventListener("click", () => {
             state.timelineMode = "activity";
+            if (renderCallback) renderCallback();
+        });
+
+        // Timeline Zoom controls
+        hudEl.querySelector("#agyis-tl-zoom-in")?.addEventListener("click", () => {
+            state.timelineZoom = Math.min(5.0, (state.timelineZoom || 1.0) * 1.3);
+            if (renderCallback) renderCallback();
+        });
+        hudEl.querySelector("#agyis-tl-zoom-out")?.addEventListener("click", () => {
+            state.timelineZoom = Math.max(0.5, (state.timelineZoom || 1.0) / 1.3);
+            if (renderCallback) renderCallback();
+        });
+        hudEl.querySelector("#agyis-tl-zoom-reset")?.addEventListener("click", () => {
+            state.timelineZoom = 1.0;
             if (renderCallback) renderCallback();
         });
 

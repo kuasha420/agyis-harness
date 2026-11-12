@@ -547,3 +547,15 @@
     padding: 10px 12px;
     margin: 8px 0;
 }
+
+.agyis-subagent-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid #27272a;
+    transition: background 0.15s;
+}
+
+.agyis-subagent-item:hover {
+    background: #27272a !important;
+}
+

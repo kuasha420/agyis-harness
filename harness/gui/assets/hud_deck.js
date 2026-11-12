@@ -47,7 +47,8 @@
      * Renders the complete Split Deck HTML (main pane, splitter, inspector pane).
      */
     function renderMainDeck(cur, state, steps, epochs, activeEpoch, epochSteps, filteredIndices, inspectorContentHtml, currentStep, containerWidth) {
-        const orientation = state.layoutOrientation || "horizontal";
+        const rawOrientation = state.layoutOrientation || "horizontal";
+        const orientation = (rawOrientation === "vertical" || rawOrientation === "stack") ? "vertical" : "horizontal";
         const pageSize = 50;
         const totalFiltered = filteredIndices.length;
         const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
@@ -198,7 +199,8 @@
         // Mouse drag resizing with canonical ovc clamps
         splitterEl.addEventListener("mousedown", (downEvent) => {
             downEvent.preventDefault();
-            const orientation = state.layoutOrientation || "horizontal";
+            const rawOrientation = state.layoutOrientation || "horizontal";
+            const orientation = (rawOrientation === "vertical" || rawOrientation === "stack") ? "vertical" : "horizontal";
             const deckRect = deckEl.getBoundingClientRect();
 
             const onMouseMove = (moveEvent) => {

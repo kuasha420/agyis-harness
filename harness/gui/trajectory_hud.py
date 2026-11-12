@@ -779,6 +779,8 @@ def build_trajectory_hud_script(
     conversations: List[Dict[str, Any]],
     open_view: bool = True,
     toggle: bool = False,
+    connect_rpc_port: Optional[int] = None,
+    connect_rpc_url: Optional[str] = None,
 ) -> str:
     """Builds the complete self-contained in-situ DOM injection script for the Trajectory Debug View HUD."""
     payload = {
@@ -786,5 +788,7 @@ def build_trajectory_hud_script(
         "conversationList": conversations,
         "shouldOpen": open_view,
         "isToggle": toggle,
+        "connectRpcPort": connect_rpc_port,
+        "connectRpcUrl": connect_rpc_url,
     }
     return _load_hud_template().replace("const __PAYLOAD__ = null;", f"const __PAYLOAD__ = {json.dumps(payload)};", 1)

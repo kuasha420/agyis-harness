@@ -41,18 +41,31 @@
 
     function extractHudFocusedConvoId() {
         if (typeof window.detectActiveConversationContext === "function") {
-            return window.detectActiveConversationContext();
+            const detected = window.detectActiveConversationContext();
+            if (detected) return detected;
         }
+        const searchParams = (typeof window !== "undefined" && window.location && window.location.search) ? new URLSearchParams(window.location.search) : null;
+        const isUuidPattern = (id) => typeof id === "string" && (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) || (!/^pane[-_]/i.test(id) && id.length >= 20));
+
+        let tabSubagentId = null;
+        if (searchParams) {
+            const tabParam = searchParams.get('tab');
+            if (tabParam && tabParam.startsWith('subagent_convo__')) {
+                const cand = tabParam.slice('subagent_convo__'.length);
+                if (isUuidPattern(cand)) tabSubagentId = cand;
+            }
+        }
+
         const pathMatch = (window.location && window.location.pathname) ? window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/) : null;
         const routeCascadeId = pathMatch ? pathMatch[1] : null;
 
         const focusedPane = typeof document !== "undefined" ? document.querySelector('div[data-pane-id]:not([data-pane-unfocused])') : null;
-        const focusedPaneId = focusedPane ? focusedPane.getAttribute('data-pane-id') : null;
+        const rawPaneId = focusedPane ? focusedPane.getAttribute('data-pane-id') : null;
+        const focusedPaneId = isUuidPattern(rawPaneId) ? rawPaneId : null;
 
-        const searchParams = (typeof window !== "undefined" && window.location && window.location.search) ? new URLSearchParams(window.location.search) : null;
         const searchCascadeId = searchParams ? searchParams.get('cascadeId') : null;
 
-        return focusedPaneId || routeCascadeId || searchCascadeId || null;
+        return tabSubagentId || routeCascadeId || focusedPaneId || searchCascadeId || null;
     }
     window.__agyis_extract_convo_id = extractHudFocusedConvoId;
 
@@ -280,10 +293,14 @@
     };
 
     if (window.__agyis_hud_doc_click) document.removeEventListener("click", window.__agyis_hud_doc_click);
-    window.__agyis_hud_doc_click = () => {
+    window.__agyis_hud_doc_click = (e) => {
         if (window.__agyis_hud_state && window.__agyis_hud_state.subagentsDropdownOpen) {
+            const toggleBtn = hud ? hud.querySelector("#agyis-subagents-dropdown-toggle") : null;
+            const menu = hud ? hud.querySelector("#agyis-subagents-menu") : null;
+            if (e && ((toggleBtn && toggleBtn.contains(e.target)) || (menu && menu.contains(e.target)))) {
+                return;
+            }
             window.__agyis_hud_state.subagentsDropdownOpen = false;
-            const menu = hud.querySelector("#agyis-subagents-menu");
             if (menu) menu.style.display = "none";
         }
     };

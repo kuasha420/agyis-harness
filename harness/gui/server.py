@@ -106,13 +106,20 @@ class TrajectoryRequestHandler(http.server.BaseHTTPRequestHandler):
             self._write_json(200, payload)
             return
 
-        if path == "/api/trajectory":
-            convo_ids = query.get("id") or query.get("conversation_id")
-            if not convo_ids or not convo_ids[0].strip():
-                self._write_json(400, {"error": "Missing required query parameter: id"})
+        if path == "/api/trajectory" or path.startswith("/api/trajectory/"):
+            convo_id = ""
+            if path.startswith("/api/trajectory/"):
+                raw_id = path[len("/api/trajectory/"):].strip()
+                convo_id = urllib.parse.unquote(raw_id.split("/")[0]).strip()
+            if not convo_id:
+                convo_ids = query.get("id") or query.get("conversation_id")
+                if convo_ids and convo_ids[0].strip():
+                    convo_id = convo_ids[0].strip()
+
+            if not convo_id:
+                self._write_json(400, {"error": "Missing required query or path parameter: id"})
                 return
 
-            convo_id = convo_ids[0].strip()
             parent_ids = query.get("parent_id")
             parent_id = parent_ids[0].strip() if parent_ids else None
 

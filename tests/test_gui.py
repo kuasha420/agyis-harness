@@ -29,6 +29,7 @@ from harness.commands.gui import (
     CDPWebSocketClient,
     build_hotkey_script,
     cmd_gui,
+    discover_language_server_endpoint,
     find_page_target,
     format_devtools_urls,
     generate_gui_systemd_path_unit,
@@ -484,6 +485,60 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
         self.assertTrue(res["success"])
         self.assertEqual(res["convo_id"], "explicit-convo-12345")
         self.assertIn("https://127.0.0.1:37277/", res["url"])
+
+    @patch("harness.gui.server.ensure_trajectory_server")
+    def test_inject_trajectory_debug_auto_spawns_server(self, mock_ensure_server) -> None:
+        mock_client = MagicMock()
+        mock_client.evaluate.return_value = {"success": True, "open": True}
+        res = inject_trajectory_debug(mock_client, conversation_id="test-spawn-convo")
+        self.assertTrue(res["success"])
+        mock_ensure_server.assert_called_once()
+
+    @patch("subprocess.check_output")
+    def test_discover_language_server_endpoint(self, mock_subprocess) -> None:
+        mock_subprocess.return_value = "LISTEN 0 10 127.0.0.1:46203 0.0.0.0:* users:((\"language_server\",pid=123,fd=4))\n"
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_resp = MagicMock()
+            mock_resp.__enter__.return_value = mock_resp
+            mock_urlopen.return_value = mock_resp
+            endpoint = discover_language_server_endpoint()
+            self.assertIsNotNone(endpoint)
+            self.assertEqual(endpoint["port"], 46203)
+            self.assertEqual(endpoint["url"], "https://127.0.0.1:46203")
+
+    @patch("subprocess.check_output")
+    def test_discover_language_server_endpoint_prioritizes_https(self, mock_subprocess) -> None:
+        # Port 40285 listed first (HTTP only, returns 401), Port 42161 listed second (HTTPS ConnectRPC, returns 200)
+        mock_subprocess.return_value = (
+            "LISTEN 0 8192 127.0.0.1:40285 0.0.0.0:* users:((\"language_server\",pid=123,fd=1))\n"
+            "LISTEN 0 8192 127.0.0.1:42161 0.0.0.0:* users:((\"language_server\",pid=123,fd=2))\n"
+        )
+        import urllib.error
+
+        def fake_urlopen(req, timeout=0.25, context=None):
+            url = req.full_url
+            if "https://127.0.0.1:42161" in url:
+                mock_resp = MagicMock()
+                mock_resp.__enter__.return_value = mock_resp
+                return mock_resp
+            elif "https://127.0.0.1:40285" in url:
+                raise urllib.error.URLError("SSL wrong version number")
+            elif "http://127.0.0.1:40285" in url:
+                raise urllib.error.HTTPError(url, 401, "Unauthorized", {}, None)
+            raise urllib.error.URLError("Connection refused")
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            endpoint = discover_language_server_endpoint()
+            self.assertIsNotNone(endpoint)
+            self.assertEqual(endpoint["port"], 42161)
+            self.assertEqual(endpoint["proto"], "https")
+            self.assertEqual(endpoint["url"], "https://127.0.0.1:42161")
+
+    @patch("subprocess.check_output")
+    def test_discover_language_server_endpoint_empty(self, mock_subprocess) -> None:
+        mock_subprocess.side_effect = FileNotFoundError()
+        endpoint = discover_language_server_endpoint()
+        self.assertIsNone(endpoint)
 
 
 class TestFormatDevToolsUrls(unittest.TestCase):
@@ -1405,6 +1460,28 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
         self.assertIn("existingHud.remove()", script)
         self.assertIn("window.__agyis_hud_load_convo", script)
         self.assertIn("agyis-refresh-btn", script)
+        # Verify Activity mode packed horizontal lanes
+        self.assertIn("agyis-timeline-lane-row", script)
+        self.assertIn("Model &amp; Thinking", script.replace("&", "&amp;"))
+        self.assertIn("Terminal Execution", script)
+        self.assertIn("Files &amp; Code", script.replace("&", "&amp;"))
+
+        # Verify dynamic connectRpcPort and connectRpcUrl injection
+        script_with_port = build_trajectory_hud_script(
+            convo_id="convo-abc",
+            trajectory_data={"conversation_id": "convo-abc", "steps": []},
+            conversations=[],
+            open_view=True,
+            connect_rpc_port=46203,
+            connect_rpc_url="https://127.0.0.1:46203",
+        )
+        self.assertIn('"connectRpcPort": 46203', script_with_port)
+        self.assertIn('"connectRpcUrl": "https://127.0.0.1:46203"', script_with_port)
+        self.assertIn("agyis-tl-zoom-in", script)
+        self.assertIn("agyis-tl-zoom-out", script)
+        self.assertIn("agyis-layout-side", script)
+        self.assertIn("agyis-layout-stack", script)
+        self.assertIn("agyis-subagent-item", script)
 
     def test_default_256k_context_capacity(self) -> None:
         convo_id = "test-256k-cap"
@@ -2594,6 +2671,84 @@ async function fetch(url, opts) {
         self.assertNotIn("~est", out["s6_ep1_html"])
         self.assertIn("Cache: 48.0k", out["s6_ep1_html"])
         self.assertIn("Active Context: <b style=\"color: #38bdf8;\">56,000</b>", out["s6_ep1_html"])
+
+    def test_extract_hud_focused_convo_id_precedence_in_node(self) -> None:
+        import importlib.resources
+        import shutil
+        import subprocess
+
+        if not shutil.which("node"):
+            self.skipTest("node binary unavailable")
+
+        assets = importlib.resources.files("harness.gui.assets")
+        hud_js = assets.joinpath("hud.js").read_text(encoding="utf-8")
+
+        node_script = """
+global.document = {
+    getElementById(id) { return null; },
+    createElement(tag) { return { id: "", style: {}, appendChild() {}, remove() {} }; },
+    head: { appendChild() {} },
+    body: { appendChild() {} },
+    querySelector() { return null; },
+    addEventListener() {},
+    removeEventListener() {},
+};
+global.window = {
+    location: { origin: "https://127.0.0.1:40623", pathname: "/c/init-convo", search: "" },
+    addEventListener() {},
+    removeEventListener() {},
+};
+""" + hud_js + """
+
+// Test Case 1: Route UUID should take precedence over generic pane ID like "pane-1"
+window.location = { pathname: "/c/uuid-route-1234-5678", search: "" };
+global.document.querySelector = function(sel) {
+    if (sel.includes("data-pane-id")) {
+        return { getAttribute(a) { return a === "data-pane-id" ? "pane-1" : null; } };
+    }
+    return null;
+};
+const res1 = window.__agyis_extract_convo_id();
+if (res1 !== "uuid-route-1234-5678") {
+    console.error("FAIL 1: expected route uuid, got " + res1);
+    process.exit(1);
+}
+
+// Test Case 2: If no route, but pane has a valid UUID, use pane UUID
+window.location = { pathname: "/", search: "" };
+global.document.querySelector = function(sel) {
+    return { getAttribute(a) { return "e8c67662-8c67-4674-b4f0-4760bd3fec59"; } };
+};
+const res2 = window.__agyis_extract_convo_id();
+if (res2 !== "e8c67662-8c67-4674-b4f0-4760bd3fec59") {
+    console.error("FAIL 2: expected valid pane uuid, got " + res2);
+    process.exit(1);
+}
+
+// Test Case 3: If no route and generic pane ID "pane-2", reject pane ID and fallback to search param
+window.location = { pathname: "/", search: "?cascadeId=cascade-uuid-9999" };
+global.document.querySelector = function(sel) {
+    return { getAttribute(a) { return "pane-2"; } };
+};
+const res3 = window.__agyis_extract_convo_id();
+if (res3 !== "cascade-uuid-9999") {
+    console.error("FAIL 3: expected search param fallback, got " + res3);
+    process.exit(1);
+}
+
+// Test Case 4: If viewing a subagent tab, subagent tab UUID takes precedence over parent route UUID
+window.location = { pathname: "/c/parent-uuid-1111", search: "?tab=subagent_convo__b5796a47-98bf-499f-b185-2d2f5f7977e0" };
+const res4 = window.__agyis_extract_convo_id();
+if (res4 !== "b5796a47-98bf-499f-b185-2d2f5f7977e0") {
+    console.error("FAIL 4: expected subagent tab uuid, got " + res4);
+    process.exit(1);
+}
+
+console.log("PASS");
+"""
+        proc = subprocess.run(["node", "-e", node_script], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, f"Node extraction failed: {proc.stderr}")
+        self.assertIn("PASS", proc.stdout)
 
 
 if __name__ == "__main__":

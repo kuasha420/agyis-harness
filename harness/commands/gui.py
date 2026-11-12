@@ -70,6 +70,72 @@ def build_hotkey_script() -> str:
     return _load_gui_asset("hotkey.js")
 
 
+def discover_language_server_endpoint(
+    timeout: float = 0.25,
+    candidate_ports: Optional[List[int]] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Discovers the active ephemeral loopback port and protocol used by Antigravity's
+    embedded Go language_server for ConnectRPC service (PSL-SPEC-ANTIGRAVITY-SSOT).
+    Probes listening sockets identified from `ss -tlnp` for LanguageServerService,
+    prioritizing HTTPS to align with the running Electron webview and --https_server_port 0.
+    """
+    import re
+    import ssl
+    import subprocess
+    import urllib.error
+    import urllib.request
+
+    ports: List[int] = list(candidate_ports or [])
+    try:
+        out = subprocess.check_output(["ss", "-tlnp"], text=True, stderr=subprocess.DEVNULL)
+        for line in out.splitlines():
+            if "language_server" in line:
+                m = re.search(r"127\.0\.0\.1:(\d+)", line)
+                if m:
+                    ports.append(int(m.group(1)))
+    except Exception:
+        pass
+
+    if not ports:
+        return None
+
+    # Deduplicate while preserving discovery order
+    unique_ports = list(dict.fromkeys(ports))
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    # Prioritize HTTPS outer loop to match Electron HTTPS window and --https_server_port 0
+    for proto in ("https", "http"):
+        ssl_ctx = ctx if proto == "https" else None
+        for p in unique_ports:
+            for method in ("Heartbeat", "GetCascadeTrajectory"):
+                url = f"{proto}://127.0.0.1:{p}/exa.language_server_pb.LanguageServerService/{method}"
+                req = urllib.request.Request(
+                    url,
+                    method="POST",
+                    headers={
+                        "Content-Type": "application/json",
+                        "Connect-Protocol-Version": "1",
+                    },
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx):
+                        return {"port": p, "url": f"{proto}://127.0.0.1:{p}", "proto": proto}
+                except urllib.error.HTTPError as err:
+                    try:
+                        if err.code in (200, 400, 401):
+                            return {"port": p, "url": f"{proto}://127.0.0.1:{p}", "proto": proto}
+                    finally:
+                        err.close()
+                except Exception:
+                    pass
+
+    return None
+
+
 def inject_trajectory_debug(
     client: CDPWebSocketClient,
     flags: Optional[Dict[str, bool]] = None,
@@ -84,27 +150,42 @@ def inject_trajectory_debug(
     (F12, Ctrl+Shift+T, Esc) surviving page reloads (ADR-014 / PSL-INV-007).
     """
     import re
+    from harness.gui.server import ensure_trajectory_server
     from harness.gui.trajectory_hud import (
         build_trajectory_hud_script,
         get_recent_conversations,
         load_conversation_trajectory,
     )
 
+    # 0. Ensure background trajectory server daemon is listening (PSL-INV-010)
+    try:
+        ensure_trajectory_server(brain_dir=brain_dir)
+    except Exception:
+        pass
+
     target_flags = flags or DEFAULT_TARGET_FLAGS
     flags_json = json.dumps(target_flags)
 
-    # 1. Resolve active conversation ID from page context or live workspace session
+    # 1. Resolve active conversation ID and candidate ports from page context
     convo_id = conversation_id
     page_url: Optional[str] = None
-    if not convo_id:
-        try:
-            page_url = client.evaluate("window.location.href")
-            if isinstance(page_url, str):
-                m = re.search(r"/c/([a-zA-Z0-9_-]+)", page_url)
-                if m:
-                    convo_id = m.group(1)
-        except (CDPError, TimeoutError, OSError):
-            pass
+    candidate_ports: List[int] = []
+    try:
+        page_url = client.evaluate("window.location.href")
+        if isinstance(page_url, str):
+            m = re.search(r"/c/([a-zA-Z0-9_-]+)", page_url)
+            if m and not convo_id:
+                convo_id = m.group(1)
+            m_port = re.search(r"https?://127\.0\.0\.1:(\d+)", page_url)
+            if m_port:
+                candidate_ports.append(int(m_port.group(1)))
+    except (CDPError, TimeoutError, OSError):
+        pass
+
+    # Discover active language_server ConnectRPC port/URL with candidate ports
+    ls_endpoint = discover_language_server_endpoint(candidate_ports=candidate_ports)
+    connect_rpc_port = ls_endpoint["port"] if ls_endpoint else None
+    connect_rpc_url = ls_endpoint["url"] if ls_endpoint else None
 
     conversations = get_recent_conversations(brain_dir=brain_dir)
     if not convo_id:
@@ -128,6 +209,8 @@ def inject_trajectory_debug(
         conversations=conversations,
         open_view=open_view,
         toggle=toggle,
+        connect_rpc_port=connect_rpc_port,
+        connect_rpc_url=connect_rpc_url,
     )
 
     # 4. Register hotkey and persistent navigation script with Page.addScriptToEvaluateOnNewDocument
@@ -137,6 +220,14 @@ def inject_trajectory_debug(
         client.send_command("Page.addScriptToEvaluateOnNewDocument", {"source": persistent_script})
     except Exception:
         pass
+
+    if connect_rpc_url or connect_rpc_port:
+        try:
+            port_val = json.dumps(connect_rpc_port)
+            url_val = json.dumps(connect_rpc_url)
+            client.evaluate(f"window.__AGYIS_CONNECT_PORT__ = {port_val}; window.__AGYIS_CONNECT_URL__ = {url_val};")
+        except Exception:
+            pass
 
     # 5. Set developer flags in localStorage for runtime backwards-compatibility
     flags_expr = (

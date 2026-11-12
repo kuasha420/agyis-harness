@@ -108,6 +108,25 @@ class TestTrajectoryServerEndpoints(unittest.TestCase):
             self.assertEqual(data.get("conversation_id"), self.convo_a)
             self.assertEqual(len(data.get("steps", [])), 3)
 
+    def test_trajectory_endpoint_path_parameter(self) -> None:
+        url = f"{self.base_url}/api/trajectory/{self.convo_a}"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data.get("conversation_id"), self.convo_a)
+            self.assertEqual(len(data.get("steps", [])), 3)
+
+    def test_trajectory_endpoint_path_parameter_url_encoded(self) -> None:
+        encoded_id = urllib.parse.quote(self.convo_b)
+        url = f"{self.base_url}/api/trajectory/{encoded_id}"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data.get("conversation_id"), self.convo_b)
+            self.assertEqual(len(data.get("steps", [])), 7)
+
     def test_trajectory_endpoint_missing_id(self) -> None:
         url = f"{self.base_url}/api/trajectory"
         req = urllib.request.Request(url, method="GET")

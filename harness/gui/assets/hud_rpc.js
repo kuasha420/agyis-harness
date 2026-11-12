@@ -4,14 +4,9 @@
 // Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 /**
- * hud_rpc.js — ConnectRPC Trajectory Client, SSOT Token Parser & 60 FPS Streaming Engine.
- * 
- * Provides:
- * 1. Persistent ConnectRPC streaming over /exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates
- *    with 5-byte envelope wire framing (\x00 + 4-byte uint32 length) and x-codeium-csrf-token authentication.
- * 2. 60 FPS Jitter-Free StreamRenderCoordinator with requestAnimationFrame debouncing queue and delta reconciliation.
- * 3. Protobuf SSOT Token Breakdown Parser (tokenBreakdown.groups Group 1 & 2) for granular section & tool attribution.
- * 4. Fallback ladder to local loopback HTTP server (127.0.0.1:40624), unary RPCs, and __PAYLOAD__.initialData.
+ * hud_rpc.js — ConnectRPC Trajectory Client, SSOT Token Parser & 60 FPS Streaming Engine (lvc/ovc).
+ * ConnectRPC streaming over /exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates,
+ * 60 FPS StreamRenderCoordinator, Protobuf SSOT Token Breakdown Parser, and dynamic fallback ladder.
  */
 
 (function(global) {
@@ -286,13 +281,7 @@
         let latestEstimatedTokens = 0;
         const extractCwmFromObj = (obj) => {
             if (!obj || typeof obj !== "object") return;
-            const cwmCandidates = [
-                obj.contextWindowMetadata,
-                obj.chatStartMetadata && obj.chatStartMetadata.contextWindowMetadata,
-                obj.metadata && obj.metadata.contextWindowMetadata,
-                obj.metadata && obj.metadata.chatStartMetadata && obj.metadata.chatStartMetadata.contextWindowMetadata,
-                obj.chatModel && obj.chatModel.chatStartMetadata && obj.chatModel.chatStartMetadata.contextWindowMetadata,
-            ];
+            const cwmCandidates = [obj.contextWindowMetadata, obj.chatStartMetadata?.contextWindowMetadata, obj.metadata?.contextWindowMetadata, obj.metadata?.chatStartMetadata?.contextWindowMetadata, obj.chatModel?.chatStartMetadata?.contextWindowMetadata];
             for (let cIdx = 0; cIdx < cwmCandidates.length; cIdx++) {
                 const cwm = cwmCandidates[cIdx];
                 if (!cwm || typeof cwm !== "object") continue;
@@ -322,13 +311,7 @@
 
         const extractEstFromObj = (obj) => {
             if (!obj || typeof obj !== "object") return 0;
-            const cwmCandidates = [
-                obj.contextWindowMetadata,
-                obj.chatStartMetadata && obj.chatStartMetadata.contextWindowMetadata,
-                obj.metadata && obj.metadata.contextWindowMetadata,
-                obj.metadata && obj.metadata.chatStartMetadata && obj.metadata.chatStartMetadata.contextWindowMetadata,
-                obj.chatModel && obj.chatModel.chatStartMetadata && obj.chatModel.chatStartMetadata.contextWindowMetadata,
-            ];
+            const cwmCandidates = [obj.contextWindowMetadata, obj.chatStartMetadata?.contextWindowMetadata, obj.metadata?.contextWindowMetadata, obj.metadata?.chatStartMetadata?.contextWindowMetadata, obj.chatModel?.chatStartMetadata?.contextWindowMetadata];
             for (let cIdx = 0; cIdx < cwmCandidates.length; cIdx++) {
                 const cwm = cwmCandidates[cIdx];
                 if (cwm && typeof cwm === "object" && (cwm.estimatedTokensUsed || cwm.estimated_tokens_used)) {
@@ -617,10 +600,11 @@
      */
     class InSituConnectClient {
         constructor(options = {}) {
-            this.port = options.port || 40623;
-            this.baseUrl = (typeof window !== "undefined" && window.location && window.location.origin && window.location.origin.startsWith("http"))
-                ? window.location.origin
-                : `https://127.0.0.1:${this.port}`;
+            const dynamicPort = options.port || (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.connectRpcPort) || (typeof window !== "undefined" && window.__AGYIS_CONNECT_PORT__) || (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.connectRpcPort) || 40623;
+            const dynamicUrl = options.baseUrl || (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.connectRpcUrl) || (typeof window !== "undefined" && window.__AGYIS_CONNECT_URL__) || (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.connectRpcUrl);
+            const protoDefault = (typeof window !== "undefined" && window.location && window.location.protocol === "http:") ? "http:" : "https:";
+            this.port = dynamicPort;
+            this.baseUrl = dynamicUrl || ((typeof window !== "undefined" && window.location && window.location.origin && window.location.origin.startsWith("http")) ? window.location.origin : `${protoDefault}//127.0.0.1:${this.port}`);
             this.csrfToken = options.csrfToken || (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.csrfToken) || "";
             this.activeAbortController = null;
         }
@@ -635,39 +619,25 @@
             this.activeAbortController = new AbortController();
             const coordinator = new StreamRenderCoordinator(onStateChange);
 
-            const subscriberId = (typeof crypto !== "undefined" && crypto.randomUUID)
-                ? crypto.randomUUID()
-                : `sub-${Date.now()}`;
-
+            const subscriberId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `sub-${Date.now()}`;
             const reqBody = {
-                conversationId: conversationId,
-                subscriberId: subscriberId,
+                conversationId, subscriberId,
                 initialStepsPageBounds: { startIndex: 0, endIndexExclusive: 500 },
                 initialGeneratorMetadatasPageBounds: { startIndex: 0, endIndexExclusive: 500 },
                 initialExecutorMetadatasPageBounds: { startIndex: 0, endIndexExclusive: 500 },
                 trajectoryVerbosity: 2,
             };
-
             const jsonBytes = new TextEncoder().encode(JSON.stringify(reqBody));
-            // 5-byte Connect envelope: [0x00, len_byte0, len_byte1, len_byte2, len_byte3]
             const framedReq = new Uint8Array(5 + jsonBytes.length);
             framedReq[0] = 0x00;
             new DataView(framedReq.buffer).setUint32(1, jsonBytes.length, false);
             framedReq.set(jsonBytes, 5);
 
             const url = `${this.baseUrl}/exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates`;
-            const headers = {
-                "Content-Type": "application/connect+json",
-                "Connect-Protocol-Version": "1",
-            };
+            const headers = { "Content-Type": "application/connect+json", "Connect-Protocol-Version": "1" };
             if (this.csrfToken) headers["x-codeium-csrf-token"] = this.csrfToken;
 
-            const response = await fetch(url, {
-                method: "POST",
-                headers,
-                body: framedReq,
-                signal: this.activeAbortController.signal,
-            });
+            const response = await fetch(url, { method: "POST", headers, body: framedReq, signal: this.activeAbortController.signal });
 
             if (!response.ok) {
                 throw new Error(`ConnectRPC stream failed with HTTP ${response.status}`);
@@ -716,14 +686,17 @@
         if (!convoId) return null;
         try {
             const csrfToken = (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.csrfToken) || "";
-            const baseUrl = (typeof window !== "undefined" && window.location && window.location.origin && window.location.origin.startsWith("http"))
-                ? window.location.origin
-                : "https://127.0.0.1:40623";
+            const dynamicUrl = (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.connectRpcUrl)
+                || (typeof window !== "undefined" && window.__AGYIS_CONNECT_URL__)
+                || (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.connectRpcUrl);
+            const dynamicPort = (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.connectRpcPort)
+                || (typeof window !== "undefined" && window.__AGYIS_CONNECT_PORT__)
+                || (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.connectRpcPort);
+            const protoDefault = (typeof window !== "undefined" && window.location && window.location.protocol === "http:") ? "http:" : "https:";
+            const baseUrl = dynamicUrl || (dynamicPort ? `${protoDefault}//127.0.0.1:${dynamicPort}` : null)
+                || ((typeof window !== "undefined" && window.location && window.location.origin && window.location.origin.startsWith("http")) ? window.location.origin : "https://127.0.0.1:40623");
 
-            const headers = {
-                "Content-Type": "application/json",
-                "Connect-Protocol-Version": "1",
-            };
+            const headers = { "Content-Type": "application/json", "Connect-Protocol-Version": "1" };
             if (csrfToken) headers["x-codeium-csrf-token"] = csrfToken;
 
             const reqBody = JSON.stringify({ cascadeId: convoId });
@@ -744,17 +717,20 @@
                 if (trajJson && trajJson.trajectory && Array.isArray(trajJson.trajectory.steps)) rawSteps = trajJson.trajectory.steps;
             }
 
-            // Fallback to local HTTP server if loopback HTTPS returned no steps
+            // Fallback to local HTTP server (dual query/path parameter support)
             if (!rawSteps || rawSteps.length === 0) {
-                const localHttpRes = await fetch(`http://127.0.0.1:40624/api/trajectory/${encodeURIComponent(convoId)}`).catch(() => null);
+                const encId = encodeURIComponent(convoId);
+                let localHttpRes = await fetch(`http://127.0.0.1:40624/api/trajectory?id=${encId}`).catch(() => null);
+                if (!localHttpRes || !localHttpRes.ok) {
+                    localHttpRes = await fetch(`http://127.0.0.1:40624/api/trajectory/${encId}`).catch(() => null);
+                }
                 if (localHttpRes && localHttpRes.ok) {
                     const localData = await localHttpRes.json().catch(() => null);
                     if (localData && localData.steps) return localData;
                 }
 
                 if (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.initialData) {
-                    const fallbackData = __PAYLOAD__.initialData;
-                    return fallbackData;
+                    return __PAYLOAD__.initialData;
                 }
                 return null;
             }
