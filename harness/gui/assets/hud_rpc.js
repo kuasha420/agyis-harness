@@ -552,8 +552,9 @@
             });
 
             const activeMeasuredSum = sysPromptTok + toolDefsTok + actualCheckpointTok + actualUserTok + actualModelTok + actualThoughtTok + actualToolTok + actualSystemTok;
-            const explicitBest = explicitUsageTokens > 0 ? explicitUsageTokens : epochEstTokens;
-            const epTotalTokens = explicitBest > 0 ? Math.max(explicitBest, activeMeasuredSum) : activeMeasuredSum;
+            const epTotalTokens = explicitUsageTokens > 0
+                ? explicitUsageTokens
+                : (epochEstTokens > 0 ? Math.max(epochEstTokens, activeMeasuredSum) : activeMeasuredSum);
             const epIsProvisional = (explicitUsageTokens === 0) && (epTotalTokens > 0);
             const epUnattrTok = Math.max(0, epTotalTokens - activeMeasuredSum);
             return {
@@ -638,7 +639,12 @@
 
         let convoSummary = `Session ${convoId.slice(0, 8)}`;
         const firstUserStep = steps.find(s => s.type === "USER_INPUT");
-        if (firstUserStep && firstUserStep.content) convoSummary = String(firstUserStep.content).slice(0, 80).replace(/\r?\n/g, " ");
+        if (firstUserStep && firstUserStep.content) {
+            let clean = String(firstUserStep.content);
+            const m = clean.match(/<USER_REQUEST>([\s\S]*?)(?:<\/USER_REQUEST>|$)/);
+            if (m && m[1]) clean = m[1];
+            convoSummary = clean.trim().split(/\r?\n/)[0].slice(0, 70);
+        }
 
         const resolvedModel = (chatModelData && (chatModelData.model || chatModelData.modelName)) ||
             (genMetas[0] && (genMetas[0].responseModel || genMetas[0].model)) ||

@@ -306,10 +306,11 @@
             if (e.target.value && typeof window.__agyis_hud_load_convo === "function") window.__agyis_hud_load_convo(e.target.value);
         });
         hudEl.querySelector("#agyis-refresh-btn")?.addEventListener("click", () => {
-            if (state.convoId && typeof window.__agyis_hud_load_convo === "function") {
+            const focusedId = (typeof window.__agyis_extract_convo_id === "function" ? window.__agyis_extract_convo_id() : null) || state.convoId;
+            if (focusedId && typeof window.__agyis_hud_load_convo === "function") {
                 const btn = hudEl.querySelector("#agyis-refresh-btn");
                 if (btn) btn.textContent = "⏳...";
-                window.__agyis_hud_load_convo(state.convoId).finally(() => { if (btn) btn.textContent = "🔄 Refresh"; });
+                window.__agyis_hud_load_convo(focusedId).finally(() => { if (btn) btn.textContent = "🔄 Refresh"; });
             }
         });
         hudEl.querySelector("#agyis-close-btn")?.addEventListener("click", () => { hudEl.style.display = "none"; });

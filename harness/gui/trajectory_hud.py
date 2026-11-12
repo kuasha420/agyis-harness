@@ -266,8 +266,14 @@ def _extract_conversation_summary(convo_dir: Path, transcript_path: Path) -> str
                         continue
                     try:
                         s = json.loads(line)
-                        if str(s.get("source") or s.get("role") or "").lower() == "user" and s.get("content"):
-                            return str(s["content"]).strip().splitlines()[0][:60]
+                        if (s.get("type") == "USER_INPUT" or "user" in str(s.get("source") or s.get("role") or "").lower()) and s.get("content"):
+                            raw = str(s["content"]).strip()
+                            m = re.search(r"<USER_REQUEST>(.*?)(?:</USER_REQUEST>|$)", raw, re.DOTALL)
+                            clean = (m.group(1) if m else raw).strip()
+                            if clean:
+                                first_line = clean.splitlines()[0][:60].strip()
+                                if first_line:
+                                    return first_line
                     except (json.JSONDecodeError, ValueError, KeyError):
                         continue
         except OSError:
@@ -639,8 +645,7 @@ def _compute_honest_breakdown(
             else:
                 tool_t += tok
         measured = sys_prompt_tok + tool_defs_tok + cp_t + user_t + model_t + thought_t + tool_t + sys_t
-        explicit_best = explicit_usage if explicit_usage > 0 else explicit_est
-        total_tokens = max(explicit_best, measured) if explicit_best > 0 else measured
+        total_tokens = explicit_usage if explicit_usage > 0 else (max(explicit_est, measured) if explicit_est > 0 else measured)
         is_provisional = (explicit_usage == 0) and (total_tokens > 0)
         unattributed = max(0, total_tokens - measured)
         bd = {

@@ -276,7 +276,7 @@ class TestAntiVibeScriptDOMReplacement(unittest.TestCase):
         self.assertIn("Context Window", script)
         self.assertIn("Timeline", script)
         self.assertIn("minSegmentPx", script)
-        self.assertIn("activeTokensSum = segments.reduce", script)
+        self.assertIn("rawSegmentsSum = segments.reduce", script)
         self.assertIn("-webkit-app-region: no-drag;", script)
         self.assertIn("height: calc(100vh - 38px)", script)
 
