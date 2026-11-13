@@ -2750,6 +2750,211 @@ console.log("PASS");
         self.assertEqual(proc.returncode, 0, f"Node extraction failed: {proc.stderr}")
         self.assertIn("PASS", proc.stdout)
 
+    def test_subagent_convo_id_extraction_with_both_hotkey_and_hud_loaded(self) -> None:
+        """Asserts subagent convo ID extraction when both hotkey.js and hud.js are loaded (DEF-BB-010)."""
+        import importlib.resources
+        import shutil
+        import subprocess
+
+        if not shutil.which("node"):
+            self.skipTest("node binary unavailable")
+
+        assets = importlib.resources.files("harness.gui.assets")
+        hotkey_js = assets.joinpath("hotkey.js").read_text(encoding="utf-8")
+        hud_js = assets.joinpath("hud.js").read_text(encoding="utf-8")
+
+        node_script = """
+global.document = {
+    getElementById(id) { return null; },
+    createElement(tag) { return { id: "", style: {}, appendChild() {}, remove() {} }; },
+    head: { appendChild() {} },
+    body: { appendChild() {} },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    addEventListener() {},
+    removeEventListener() {},
+};
+global.window = {
+    location: { origin: "https://127.0.0.1:33315", pathname: "/c/parent-1111", search: "?tab=subagent_convo__sub-2222" },
+    addEventListener() {},
+    removeEventListener() {},
+};
+""" + hotkey_js + "\n" + hud_js + """
+// 1. Both detectors must return subagent ID when tab parameter is present
+const detectedFromHotkey = window.detectActiveConversationContext();
+if (detectedFromHotkey !== "sub-2222") {
+    console.error("FAIL: detectActiveConversationContext returned " + detectedFromHotkey + ", expected sub-2222");
+    process.exit(1);
+}
+const detectedFromHud = window.__agyis_extract_convo_id();
+if (detectedFromHud !== "sub-2222") {
+    console.error("FAIL: __agyis_extract_convo_id returned " + detectedFromHud + ", expected sub-2222");
+    process.exit(1);
+}
+
+// 2. When subagent tab is absent, fall back to pathname /c/:id
+window.location.search = "";
+window.location.pathname = "/c/parent-1111";
+const parentFromHotkey = window.detectActiveConversationContext();
+if (parentFromHotkey !== "parent-1111") {
+    console.error("FAIL: expected parent-1111 from hotkey, got " + parentFromHotkey);
+    process.exit(1);
+}
+const parentFromHud = window.__agyis_extract_convo_id();
+if (parentFromHud !== "parent-1111") {
+    console.error("FAIL: expected parent-1111 from hud, got " + parentFromHud);
+    process.exit(1);
+}
+
+console.log("PASS");
+"""
+        proc = subprocess.run(["node", "-e", node_script], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, f"Node subagent extraction failed: {proc.stderr}")
+        self.assertIn("PASS", proc.stdout)
+
+    def test_hud_rpc_dynamic_port_fallback(self) -> None:
+        """Asserts InSituConnectClient port fallback reads window.location.port on loopback https (DEF-BB-012)."""
+        import importlib.resources
+        import shutil
+        import subprocess
+
+        if not shutil.which("node"):
+            self.skipTest("node binary unavailable")
+
+        assets = importlib.resources.files("harness.gui.assets")
+        hud_rpc_js = assets.joinpath("hud_rpc.js").read_text(encoding="utf-8")
+
+        node_script = """
+global.window = {
+    location: { protocol: "https:", hostname: "127.0.0.1", port: "33315", origin: "https://127.0.0.1:33315" },
+    __APP_CONFIG__: { csrfToken: "csrf-test" },
+};
+""" + hud_rpc_js + """
+const client1 = new window.InSituConnectClient();
+if (client1.port !== 33315) {
+    console.error("FAIL: client1.port expected 33315, got " + client1.port);
+    process.exit(1);
+}
+if (client1.baseUrl !== "https://127.0.0.1:33315") {
+    console.error("FAIL: client1.baseUrl expected https://127.0.0.1:33315, got " + client1.baseUrl);
+    process.exit(1);
+}
+
+// Loopback with localhost
+window.location = { protocol: "https:", hostname: "localhost", port: "49999", origin: "https://localhost:49999" };
+const client2 = new window.InSituConnectClient();
+if (client2.port !== 49999) {
+    console.error("FAIL: client2.port expected 49999, got " + client2.port);
+    process.exit(1);
+}
+if (client2.baseUrl !== "https://localhost:49999") {
+    console.error("FAIL: client2.baseUrl expected https://localhost:49999, got " + client2.baseUrl);
+    process.exit(1);
+}
+
+console.log("PASS");
+"""
+        proc = subprocess.run(["node", "-e", node_script], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, f"Dynamic port fallback test failed: {proc.stderr}")
+        self.assertIn("PASS", proc.stdout)
+
+    def test_stream_render_coordinator_raf_batching_in_node(self) -> None:
+        """Asserts StreamRenderCoordinator batches deltas at 60 FPS via rAF queue (DEF-BB-011)."""
+        import importlib.resources
+        import shutil
+        import subprocess
+
+        if not shutil.which("node"):
+            self.skipTest("node binary unavailable")
+
+        assets = importlib.resources.files("harness.gui.assets")
+        hud_rpc_js = assets.joinpath("hud_rpc.js").read_text(encoding="utf-8")
+
+        node_script = """
+let rafCallbacks = [];
+global.requestAnimationFrame = function(cb) {
+    rafCallbacks.push(cb);
+    return rafCallbacks.length;
+};
+global.window = {};
+""" + hud_rpc_js + """
+let renderCallCount = 0;
+let lastRenderedState = null;
+const coordinator = new window.StreamRenderCoordinator((state, dirty) => {
+    renderCallCount++;
+    lastRenderedState = state;
+});
+
+// Rapidly ingest 5 delta updates in a single frame
+for (let i = 0; i < 5; i++) {
+    coordinator.ingestUpdate({
+        conversationId: "test-convo-stream",
+        mainTrajectoryUpdate: {
+            stepsUpdate: {
+                indices: [i],
+                steps: [{ stepIndex: i, type: "MODEL_OUTPUT", content: "Delta frame #" + i }]
+            }
+        }
+    });
+}
+
+// Before rAF fires: exactly 1 rAF request scheduled, 0 renders executed
+if (rafCallbacks.length !== 1) {
+    console.error("FAIL: expected 1 rAF callback scheduled, got " + rafCallbacks.length);
+    process.exit(1);
+}
+if (renderCallCount !== 0) {
+    console.error("FAIL: render should not be called synchronously before rAF, called: " + renderCallCount);
+    process.exit(1);
+}
+
+// Fire the scheduled rAF frame
+const frameCallback = rafCallbacks.shift();
+frameCallback();
+
+if (renderCallCount !== 1) {
+    console.error("FAIL: expected 1 batched render call, got " + renderCallCount);
+    process.exit(1);
+}
+if (!lastRenderedState || lastRenderedState.stepsInSlice.length !== 5) {
+    console.error("FAIL: expected 5 steps in slice after batch, got " + (lastRenderedState ? lastRenderedState.stepsInSlice.length : null));
+    process.exit(1);
+}
+
+console.log("PASS");
+"""
+        proc = subprocess.run(["node", "-e", node_script], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, f"StreamRenderCoordinator test failed: {proc.stderr}")
+        self.assertIn("PASS", proc.stdout)
+
+    def test_inject_trajectory_debug_prioritizes_subagent_tab(self) -> None:
+        """Asserts inject_trajectory_debug detects tab=subagent_convo__ and sets parent_id (DEF-BB-010)."""
+        mock_client = MagicMock()
+        mock_client.evaluate.return_value = (
+            "https://127.0.0.1:33315/c/parent-1111?project=proj-abc&tab=subagent_convo__sub-2222"
+        )
+        mock_client.send_command.return_value = {"scriptId": "1"}
+
+        with patch("harness.gui.trajectory_hud.load_conversation_trajectory") as mock_load, \
+             patch("harness.gui.trajectory_hud.build_trajectory_hud_script") as mock_build, \
+             patch("harness.commands.gui.build_hotkey_script") as mock_hotkey, \
+             patch("harness.commands.gui.discover_language_server_endpoint") as mock_ls, \
+             patch("harness.gui.server.ensure_trajectory_server"):
+            mock_ls.return_value = {"port": 33315, "url": "https://127.0.0.1:33315"}
+            mock_load.return_value = {"conversation_id": "sub-2222", "parent_id": "parent-1111", "steps": []}
+            mock_build.return_value = "/* hud_script */"
+            mock_hotkey.return_value = "/* hotkey_script */"
+
+            res = inject_trajectory_debug(client=mock_client)
+            self.assertTrue(res.get("success"))
+            self.assertEqual(res.get("convo_id"), "sub-2222")
+
+            # Assert load_conversation_trajectory was called with convo_id='sub-2222' and parent_id='parent-1111'
+            mock_load.assert_called_once()
+            args, kwargs = mock_load.call_args
+            self.assertEqual(args[0], "sub-2222")
+            self.assertEqual(kwargs.get("parent_id"), "parent-1111")
+
 
 if __name__ == "__main__":
     unittest.main()

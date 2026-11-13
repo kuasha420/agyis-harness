@@ -60,7 +60,9 @@ def cmd_harmonize(args: argparse.Namespace) -> int:
         return 0
 
     target_ws = Path(args.path) if getattr(args, "path", None) else Path.cwd()
-    dry_run = bool(getattr(args, "dry_run", False))
+    apply = bool(getattr(args, "apply", False) or getattr(args, "yes", False))
+    explicit_dry_run = bool(getattr(args, "dry_run", False))
+    dry_run = explicit_dry_run or not apply
     prune_legacy = bool(getattr(args, "prune_legacy", False) or getattr(args, "clean_agent_dir", False))
     no_backup = bool(getattr(args, "no_backup", False))
     backup = bool(getattr(args, "backup", True)) and not no_backup
@@ -115,13 +117,14 @@ def cmd_harmonize(args: argparse.Namespace) -> int:
     }.get(res.rules_action, res.rules_action)
     print(f"  • Rules: {rules_desc}")
 
+    if res.backup_archive:
+        verb_arch = "Would archive" if res.dry_run else "Archived"
+        file_count = res.backup_manifest.get("file_count", len(res.backup_manifest.get("files", []))) if res.backup_manifest else 0
+        print(f"  • Backup archive: {verb_arch} to {res.backup_archive} ({file_count} files)")
+
     if res.pruned_legacy:
         verb = "Would prune" if res.dry_run else "Pruned"
         print(f"  • Legacy cleanup: {verb} .agent/ directory")
-        if res.backup_archive:
-            verb_arch = "Would archive" if res.dry_run else "Archived"
-            file_count = res.backup_manifest.get("file_count", len(res.backup_manifest.get("files", []))) if res.backup_manifest else 0
-            print(f"  • Backup archive: {verb_arch} to {res.backup_archive} ({file_count} files)")
         if res.untracked_debris_cleaned:
             verb_deb = "Would clean" if res.dry_run else "Cleaned"
             print(f"  • Untracked debris: {verb_deb} {len(res.untracked_debris_cleaned)} files")

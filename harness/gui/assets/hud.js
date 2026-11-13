@@ -40,20 +40,22 @@
     }
 
     function extractHudFocusedConvoId() {
-        if (typeof window.detectActiveConversationContext === "function") {
-            const detected = window.detectActiveConversationContext();
-            if (detected) return detected;
-        }
         const searchParams = (typeof window !== "undefined" && window.location && window.location.search) ? new URLSearchParams(window.location.search) : null;
         const isUuidPattern = (id) => typeof id === "string" && (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) || (!/^pane[-_]/i.test(id) && id.length >= 20));
 
-        let tabSubagentId = null;
+        // Priority 1: Check active subagent tab query parameter (?tab=subagent_convo__<uuid>)
         if (searchParams) {
             const tabParam = searchParams.get('tab');
             if (tabParam && tabParam.startsWith('subagent_convo__')) {
                 const cand = tabParam.slice('subagent_convo__'.length);
-                if (isUuidPattern(cand)) tabSubagentId = cand;
+                if (cand && /^[0-9a-zA-Z_-]+$/.test(cand)) return cand;
             }
+        }
+
+        // Priority 2: Delegate to global detector if available
+        if (typeof window.detectActiveConversationContext === "function") {
+            const detected = window.detectActiveConversationContext();
+            if (detected) return detected;
         }
 
         const pathMatch = (window.location && window.location.pathname) ? window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/) : null;
@@ -65,7 +67,7 @@
 
         const searchCascadeId = searchParams ? searchParams.get('cascadeId') : null;
 
-        return tabSubagentId || routeCascadeId || focusedPaneId || searchCascadeId || null;
+        return routeCascadeId || focusedPaneId || searchCascadeId || null;
     }
     window.__agyis_extract_convo_id = extractHudFocusedConvoId;
 
@@ -229,9 +231,61 @@
         }
     }
 
+    let activeStreamClient = null;
+
+    function handleStreamStateChange(streamState, dirty) {
+        const state = window.__agyis_hud_state;
+        if (!state) return;
+        const convoId = streamState.conversationId || state.convoId;
+        const rawSteps = (streamState.stepsInSlice || []).filter(Boolean);
+        if (rawSteps.length === 0 && !dirty.tokens) return;
+
+        let updatedData = null;
+        if (typeof window.buildHudTrajectoryData === "function" && rawSteps.length > 0) {
+            updatedData = window.buildHudTrajectoryData(
+                convoId,
+                rawSteps,
+                (streamState.generatorMetadatasInSlice || []).filter(Boolean),
+                [],
+                null
+            );
+        }
+
+        if (updatedData) {
+            state.rootData = updatedData;
+            state.currentData = updatedData;
+            state.convoId = convoId;
+            if (updatedData.model) state.sessionModel = updatedData.model;
+            syncToLatestState(state);
+            renderHud();
+        } else if (dirty.tokens && streamState.tokenBreakdown && state.currentData) {
+            state.currentData.total_tokens = streamState.activeTokens || state.currentData.total_tokens;
+            state.currentData.token_breakdown = streamState.tokenBreakdown;
+            renderHud();
+        }
+    }
+
+    function startStreamSubscription(convoId) {
+        if (!convoId || typeof window.InSituConnectClient !== "function") return;
+        try {
+            if (!activeStreamClient) {
+                activeStreamClient = new window.InSituConnectClient();
+            }
+            activeStreamClient.streamConversation(convoId, handleStreamStateChange).catch(err => {
+                if (err && (err.name === "AbortError" || String(err).includes("abort") || String(err).includes("Switching conversation"))) return;
+                console.warn("[agyis:hud] ConnectRPC stream error:", err);
+            });
+        } catch (err) {
+            console.warn("[agyis:hud] Failed to start ConnectRPC stream subscription:", err);
+        }
+    }
+
     window.__agyis_hud_render = renderHud;
     window.__agyis_hud_sync = syncToLatestState;
+    window.__agyis_hud_start_stream = startStreamSubscription;
     window.__agyis_hud_load_convo = async function(convoId) {
+        if (!convoId) return null;
+        startStreamSubscription(convoId);
         if (window.loadConversationViaRpc) {
             const data = await window.loadConversationViaRpc(convoId);
             if (data) {
@@ -256,8 +310,13 @@
 
     // Initial check + SPA route sensitivity watcher (PSL-INV-010)
     const initialFocusedConvo = extractHudFocusedConvoId();
-    if (initialFocusedConvo && initialFocusedConvo !== (initialData && initialData.conversation_id) && typeof window.__agyis_hud_load_convo === "function") {
-        window.__agyis_hud_load_convo(initialFocusedConvo);
+    const activeMountConvo = initialFocusedConvo || (initialData && initialData.conversation_id);
+    if (activeMountConvo) {
+        if (initialFocusedConvo && initialFocusedConvo !== (initialData && initialData.conversation_id) && typeof window.__agyis_hud_load_convo === "function") {
+            window.__agyis_hud_load_convo(initialFocusedConvo);
+        } else {
+            startStreamSubscription(activeMountConvo);
+        }
     }
 
     if (typeof window.__agyis_hud_route_cleanup === "function") {
@@ -288,6 +347,9 @@
     window.addEventListener("popstate", onSpaRouteChange);
     window.addEventListener("agyis:routechange", onSpaRouteChange);
     window.__agyis_hud_route_cleanup = () => {
+        if (activeStreamClient && activeStreamClient.activeAbortController) {
+            try { activeStreamClient.activeAbortController.abort("HUD cleanup"); } catch (_) {}
+        }
         window.removeEventListener("popstate", onSpaRouteChange);
         window.removeEventListener("agyis:routechange", onSpaRouteChange);
     };

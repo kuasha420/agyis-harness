@@ -516,7 +516,7 @@ class TestHarmonizeCLI(unittest.TestCase):
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
         with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
-            code = main(["harmonize", str(self.ws), "--json"], prog="psl")
+            code = main(["harmonize", str(self.ws), "--apply", "--json"], prog="psl")
 
         self.assertEqual(code, 0)
         self.assertIn("DeprecationWarning: 'psl' is deprecated", stderr_buf.getvalue())
@@ -606,10 +606,11 @@ class TestHarmonizeCLI(unittest.TestCase):
 
         stdout_buf = io.StringIO()
         with patch("sys.stdout", stdout_buf):
-            code = main(["harmonize", str(ws1), "--prune-legacy", "--json"], prog="agyis")
+            code = main(["harmonize", str(ws1), "--apply", "--prune-legacy", "--json"], prog="agyis")
         self.assertEqual(code, 0)
         data1 = json.loads(stdout_buf.getvalue())
         self.assertTrue(data1["success"])
+        self.assertFalse(data1["dry_run"])
         self.assertTrue(data1["pruned_legacy"])
         self.assertFalse((ws1 / ".agent").exists())
         self.assertTrue((ws1 / ".agents" / "rules" / "rule1.md").is_file())
@@ -622,10 +623,11 @@ class TestHarmonizeCLI(unittest.TestCase):
 
         stdout_buf2 = io.StringIO()
         with patch("sys.stdout", stdout_buf2):
-            code = main(["harmonize", str(ws2), "--clean-agent-dir", "--json"], prog="agyis")
+            code = main(["harmonize", str(ws2), "--apply", "--clean-agent-dir", "--json"], prog="agyis")
         self.assertEqual(code, 0)
         data2 = json.loads(stdout_buf2.getvalue())
         self.assertTrue(data2["success"])
+        self.assertFalse(data2["dry_run"])
         self.assertTrue(data2["pruned_legacy"])
         self.assertFalse((ws2 / ".agent").exists())
         self.assertTrue((ws2 / ".agents" / "rules" / "rule2.md").is_file())
@@ -639,10 +641,11 @@ class TestHarmonizeCLI(unittest.TestCase):
 
         stdout_buf = io.StringIO()
         with patch("sys.stdout", stdout_buf):
-            code = main(["harmonize", str(ws_nobackup), "--prune-legacy", "--no-backup", "--json"], prog="agyis")
+            code = main(["harmonize", str(ws_nobackup), "--apply", "--prune-legacy", "--no-backup", "--json"], prog="agyis")
         self.assertEqual(code, 0)
         data = json.loads(stdout_buf.getvalue())
         self.assertTrue(data["success"])
+        self.assertFalse(data["dry_run"])
         self.assertTrue(data["pruned_legacy"])
         self.assertIsNone(data["backup_archive"])
         self.assertFalse((ws_nobackup / ".agent").exists())
@@ -658,14 +661,58 @@ class TestHarmonizeCLI(unittest.TestCase):
 
         stdout_buf = io.StringIO()
         with patch("sys.stdout", stdout_buf):
-            code = main(["harmonize", str(ws_custom), "--prune-legacy", "--backup-dir", str(custom_arch), "--json"], prog="agyis")
+            code = main(["harmonize", str(ws_custom), "--apply", "--prune-legacy", "--backup-dir", str(custom_arch), "--json"], prog="agyis")
         self.assertEqual(code, 0)
         data = json.loads(stdout_buf.getvalue())
         self.assertTrue(data["success"])
+        self.assertFalse(data["dry_run"])
         self.assertTrue(data["pruned_legacy"])
         self.assertTrue(custom_arch.is_dir())
+        self.assertIsNotNone(data["backup_archive"])
         self.assertTrue(Path(data["backup_archive"]).is_file())
         self.assertEqual(Path(data["backup_archive"]).parent, custom_arch.resolve())
+
+    def test_cli_harmonize_defaults_to_dry_run_without_apply(self) -> None:
+        """Verifies CLI harmonize defaults to dry-run when --apply is omitted (DEF-BB-008)."""
+        ws_safe = self.ws / "cli_safe_preview"
+        ws_safe.mkdir()
+        (ws_safe / ".agent" / "rules").mkdir(parents=True)
+        (ws_safe / ".agent" / "rules" / "preview.md").write_text("# Preview\n", encoding="utf-8")
+
+        stdout_buf = io.StringIO()
+        with patch("sys.stdout", stdout_buf):
+            code = main(["harmonize", str(ws_safe), "--json"], prog="agyis")
+        self.assertEqual(code, 0)
+        data = json.loads(stdout_buf.getvalue())
+        self.assertTrue(data["success"])
+        self.assertTrue(data["dry_run"])
+        # No mutations on disk
+        self.assertFalse((ws_safe / ".agents").exists())
+        self.assertTrue((ws_safe / ".agent").exists())
+
+    def test_cli_harmonize_backup_decoupled_from_prune_legacy(self) -> None:
+        """Verifies CLI --apply --backup creates archive without deleting .agent/ (DEF-BB-007)."""
+        ws_backup_only = self.ws / "cli_backup_only"
+        ws_backup_only.mkdir()
+        (ws_backup_only / ".agent" / "rules").mkdir(parents=True)
+        (ws_backup_only / ".agent" / "rules" / "important.md").write_text("# Keep Me\n", encoding="utf-8")
+
+        stdout_buf = io.StringIO()
+        with patch("sys.stdout", stdout_buf):
+            code = main(["harmonize", str(ws_backup_only), "--apply", "--backup", "--json"], prog="agyis")
+        self.assertEqual(code, 0)
+        data = json.loads(stdout_buf.getvalue())
+        self.assertTrue(data["success"])
+        self.assertFalse(data["dry_run"])
+        self.assertFalse(data["pruned_legacy"])
+        self.assertIsNotNone(data["backup_archive"])
+        archive_path = Path(data["backup_archive"])
+        self.assertTrue(archive_path.is_file())
+        # .agent must still exist on disk!
+        self.assertTrue((ws_backup_only / ".agent").is_dir())
+        self.assertTrue((ws_backup_only / ".agent" / "rules" / "important.md").is_file())
+        # .agents/archive must exist
+        self.assertTrue((ws_backup_only / ".agents" / "archive").is_dir())
 
 
 class TestHarmonizeDeprecationLifecycle(unittest.TestCase):
