@@ -168,13 +168,19 @@ def inject_trajectory_debug(
 
     # 1. Resolve active conversation ID and candidate ports from page context
     convo_id = conversation_id
+    parent_convo_id: Optional[str] = None
     page_url: Optional[str] = None
     candidate_ports: List[int] = []
     try:
         page_url = client.evaluate("window.location.href")
         if isinstance(page_url, str):
+            m_sub = re.search(r"[?&]tab=subagent_convo__([a-zA-Z0-9_-]+)", page_url)
             m = re.search(r"/c/([a-zA-Z0-9_-]+)", page_url)
-            if m and not convo_id:
+            if m:
+                parent_convo_id = m.group(1)
+            if m_sub and not convo_id:
+                convo_id = m_sub.group(1)
+            elif m and not convo_id:
                 convo_id = m.group(1)
             m_port = re.search(r"https?://127\.0\.0\.1:(\d+)", page_url)
             if m_port:
@@ -200,7 +206,8 @@ def inject_trajectory_debug(
             convo_id = "active-session"
 
     # 2. Load trajectory data
-    trajectory_data = load_conversation_trajectory(convo_id, brain_dir=brain_dir)
+    resolved_parent_id = parent_convo_id if (parent_convo_id and convo_id != parent_convo_id) else None
+    trajectory_data = load_conversation_trajectory(convo_id, brain_dir=brain_dir, parent_id=resolved_parent_id)
 
     # 3. Build in-situ Trajectory Debug HUD script
     hud_script = build_trajectory_hud_script(

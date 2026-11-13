@@ -8,9 +8,10 @@
  * 
  * Provides:
  * 1. Multi-tier active conversation and subagent context extraction:
- *    - Priority 1: Electron DOM focused pane (div[data-pane-id]:not([data-pane-unfocused]))
- *    - Priority 2: SPA pathname route (/c/:id)
- *    - Priority 3: URL search parameter (?cascadeId=...)
+ *    - Priority 1: Subagent query parameter (?tab=subagent_convo__<uuid>)
+ *    - Priority 2: Electron DOM focused pane (div[data-pane-id]:not([data-pane-unfocused]))
+ *    - Priority 3: SPA pathname route (/c/:id)
+ *    - Priority 4: URL search parameter (?cascadeId=...)
  * 2. Hotkey binding (F12 / Ctrl+Shift+T):
  *    - Toggles Trajectory Debug View visibility.
  *    - On toggle open: compares active conversation against current HUD context.
@@ -35,7 +36,19 @@
      */
     function detectActiveConversationContext() {
         try {
-            // Priority 1: Inspect Electron DOM focused pane (Strand 1 discovery)
+            // Priority 1: Check active subagent tab query parameter (?tab=subagent_convo__<uuid>)
+            if (typeof window !== "undefined" && window.location && window.location.search) {
+                const searchParams = new URLSearchParams(window.location.search);
+                const tabParam = searchParams.get("tab");
+                if (tabParam && tabParam.startsWith("subagent_convo__")) {
+                    const subId = tabParam.slice("subagent_convo__".length);
+                    if (subId && /^[a-zA-Z0-9_-]+$/.test(subId)) {
+                        return subId;
+                    }
+                }
+            }
+
+            // Priority 2: Inspect Electron DOM focused pane (Strand 1 discovery)
             if (typeof document !== "undefined") {
                 const focusedPane = document.querySelector('div[data-pane-id]:not([data-pane-unfocused])');
                 if (focusedPane) {
@@ -46,7 +59,7 @@
                 }
             }
 
-            // Priority 2: Match active SPA URL pathname (/c/:id)
+            // Priority 3: Match active SPA URL pathname (/c/:id)
             if (typeof window !== "undefined" && window.location && window.location.pathname) {
                 const pathMatch = window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/);
                 if (pathMatch && pathMatch[1]) {
@@ -54,7 +67,7 @@
                 }
             }
 
-            // Priority 3: Fall back to URL search parameter (?cascadeId=...)
+            // Priority 4: Fall back to URL search parameter (?cascadeId=...)
             if (typeof window !== "undefined" && window.location && window.location.search) {
                 const searchParams = new URLSearchParams(window.location.search);
                 const searchCascadeId = searchParams.get("cascadeId");

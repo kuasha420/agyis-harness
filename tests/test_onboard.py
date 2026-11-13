@@ -446,7 +446,7 @@ class TestOnboardCommand(unittest.TestCase):
             self.assertIn("Working tree has uncommitted changes", data["error"])
 
     def test_onboard_dirty_working_tree_proceeds_with_allow_dirty_and_exports_patch(self):
-        """Verifies --allow-dirty records pre-onboard diff to .agents/artifacts/wip-safety-pre-onboard.patch."""
+        """Verifies --allow-dirty records pre-onboard diff to .agents/artifacts/pre_onboard_safety.patch."""
         target = self.ws / "dirty-repo-allow"
         self._init_git_repo(target)
         # Modify tracked file
@@ -457,11 +457,13 @@ class TestOnboardCommand(unittest.TestCase):
             self.assertEqual(code, 0)
             data = json.loads(mock_out.getvalue().strip())
             self.assertTrue(data["success"])
-            patch_expected = str(target / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch")
+            patch_expected = str(target / ".agents" / "artifacts" / "pre_onboard_safety.patch")
             self.assertEqual(data["safety_patch"], patch_expected)
 
-        patch_file = target / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch"
+        patch_file = target / ".agents" / "artifacts" / "pre_onboard_safety.patch"
+        compat_patch_file = target / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch"
         self.assertTrue(patch_file.is_file())
+        self.assertTrue(compat_patch_file.exists())
         patch_text = patch_file.read_text(encoding="utf-8")
         self.assertIn("+# Test Repo modified", patch_text)
 
@@ -476,12 +478,14 @@ class TestOnboardCommand(unittest.TestCase):
             self.assertEqual(code, 0)
             data = json.loads(mock_out.getvalue().strip())
             self.assertTrue(data["dry_run"])
-            patch_expected = str(target / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch")
+            patch_expected = str(target / ".agents" / "artifacts" / "pre_onboard_safety.patch")
             self.assertEqual(data["safety_patch"], patch_expected)
 
         # In dry run, patch file should not be created
-        patch_file = target / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch"
+        patch_file = target / ".agents" / "artifacts" / "pre_onboard_safety.patch"
+        compat_patch_file = target / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch"
         self.assertFalse(patch_file.exists())
+        self.assertFalse(compat_patch_file.exists())
 
     def test_onboard_create_branch_default_and_custom(self):
         """Verifies --create-branch switches to default chore/agyis-harness-onboarding or custom branch."""
@@ -569,7 +573,7 @@ class TestOnboardCommand(unittest.TestCase):
             self.assertEqual(code_ok, 0)
             data = json.loads(mock_out.getvalue().strip())
             self.assertEqual(data["created_branch"], "chore/agyis-harness-onboarding")
-            self.assertIn("wip-safety-pre-onboard.patch", data["safety_patch"])
+            self.assertIn("pre_onboard_safety.patch", data["safety_patch"])
             self.assertEqual(data["purged_caches"], [])
             self.assertEqual(data["caches_purged"], [])
 

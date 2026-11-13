@@ -176,7 +176,8 @@ def cmd_onboard(
                 sys.stderr.write(f"✘ Error: {err_msg}\n")
             return 1
 
-        patch_file = ws / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch"
+        patch_file = ws / ".agents" / "artifacts" / "pre_onboard_safety.patch"
+        compat_patch_file = ws / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch"
         safety_patch_path = str(patch_file)
         if not dry_run:
             patch_file.parent.mkdir(parents=True, exist_ok=True)
@@ -206,6 +207,12 @@ def cmd_onboard(
                 )
                 diff_content = diff_proc2.stdout
             patch_file.write_text(diff_content, encoding="utf-8")
+            try:
+                if compat_patch_file.is_symlink() or compat_patch_file.exists():
+                    compat_patch_file.unlink()
+                compat_patch_file.symlink_to(patch_file.name)
+            except (OSError, NotImplementedError):
+                compat_patch_file.write_text(diff_content, encoding="utf-8")
 
     # 5. Dedicated branch isolation
     created_branch_name: Optional[str] = None
@@ -453,7 +460,7 @@ def cmd_onboard(
         print(f"  • {prefix_dedup} {len(pruned_skills)} duplicate skill(s) shadowing global plugin: {', '.join(Path(p).name for p in pruned_skills)}")
     if safety_patch_path:
         prefix_patch = "[dry-run] Would record" if dry_run else "Recorded"
-        print(f"  • {prefix_patch} pre-onboard safety patch: .agents/artifacts/wip-safety-pre-onboard.patch")
+        print(f"  • {prefix_patch} pre-onboard safety patch: .agents/artifacts/pre_onboard_safety.patch")
     if purged_caches:
         prefix_cache = "[dry-run] Would purge" if dry_run else "Purged"
         print(f"  • {prefix_cache} {len(purged_caches)} build cache directory(ies): {', '.join(Path(p).name for p in purged_caches)}")

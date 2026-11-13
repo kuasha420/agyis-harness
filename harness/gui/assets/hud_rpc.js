@@ -478,6 +478,20 @@
             convoSummary = String(firstUserStep.content).trim().split(/\r?\n/)[0].slice(0, 70);
         }
 
+        let parentId = null;
+        if (typeof window !== "undefined" && window.location) {
+            const searchParams = window.location.search ? new URLSearchParams(window.location.search) : null;
+            const tabParam = searchParams ? searchParams.get('tab') : null;
+            const pathMatch = window.location.pathname ? window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/) : null;
+            if (pathMatch && pathMatch[1] && pathMatch[1] !== convoId) {
+                if (tabParam && tabParam.startsWith('subagent_convo__') && tabParam.slice('subagent_convo__'.length) === convoId) {
+                    parentId = pathMatch[1];
+                } else if (!tabParam) {
+                    parentId = pathMatch[1];
+                }
+            }
+        }
+
         return {
             conversation_id: convoId,
             summary: convoSummary,
@@ -485,7 +499,7 @@
             steps: steps,
             step_count: steps.length,
             epochs: epochs,
-            parent_id: null,
+            parent_id: parentId,
             subagents: subagents,
             subagent_infos: subagentInfos,
             subagent_trajectories: {},
@@ -595,17 +609,34 @@
     }
 
     /**
+     * Resolves ConnectRPC endpoint (port, baseUrl, csrfToken) from options, runtime payloads, or window environment.
+     */
+    function resolveRpcEndpoint(options = {}) {
+        const loc = typeof window !== "undefined" ? window.location : null;
+        const isLoopback = !!(loc && (loc.hostname === "127.0.0.1" || loc.hostname === "localhost" || (loc.origin && (loc.origin.includes("127.0.0.1") || loc.origin.includes("localhost")))));
+        const isHttps = !!(loc && loc.protocol === "https:");
+        const locPort = (isHttps && isLoopback && loc.port) ? parseInt(loc.port, 10) : (isHttps && isLoopback && loc.origin && loc.origin.match(/:(\d+)/) ? parseInt(loc.origin.match(/:(\d+)/)[1], 10) : null);
+        const appCfg = typeof window !== "undefined" && window.__APP_CONFIG__;
+        const payload = typeof __PAYLOAD__ !== "undefined" ? __PAYLOAD__ : null;
+        const port = options.port || (payload && payload.connectRpcPort) || (typeof window !== "undefined" && window.__AGYIS_CONNECT_PORT__) || (appCfg && appCfg.connectRpcPort) || locPort || 40623;
+        const dynamicUrl = options.baseUrl || (payload && payload.connectRpcUrl) || (typeof window !== "undefined" && window.__AGYIS_CONNECT_URL__) || (appCfg && appCfg.connectRpcUrl);
+        const proto = (loc && loc.protocol === "http:") ? "http:" : "https:";
+        const fallbackOrigin = (isHttps && isLoopback && loc && loc.origin && loc.origin.startsWith("http")) ? loc.origin : null;
+        const baseUrl = dynamicUrl || fallbackOrigin || (loc && loc.origin && loc.origin.startsWith("http") ? loc.origin : `${proto}//127.0.0.1:${port}`);
+        const csrfToken = options.csrfToken || (appCfg && appCfg.csrfToken) || "";
+        return { port, baseUrl, csrfToken };
+    }
+
+    /**
      * In-Situ ConnectRPC Streaming & Unary Client.
      * Enforces Connect envelope framing (flags: uint8 + length: uint32be) and CSRF protection.
      */
     class InSituConnectClient {
         constructor(options = {}) {
-            const dynamicPort = options.port || (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.connectRpcPort) || (typeof window !== "undefined" && window.__AGYIS_CONNECT_PORT__) || (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.connectRpcPort) || 40623;
-            const dynamicUrl = options.baseUrl || (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.connectRpcUrl) || (typeof window !== "undefined" && window.__AGYIS_CONNECT_URL__) || (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.connectRpcUrl);
-            const protoDefault = (typeof window !== "undefined" && window.location && window.location.protocol === "http:") ? "http:" : "https:";
-            this.port = dynamicPort;
-            this.baseUrl = dynamicUrl || ((typeof window !== "undefined" && window.location && window.location.origin && window.location.origin.startsWith("http")) ? window.location.origin : `${protoDefault}//127.0.0.1:${this.port}`);
-            this.csrfToken = options.csrfToken || (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.csrfToken) || "";
+            const ep = resolveRpcEndpoint(options);
+            this.port = ep.port;
+            this.baseUrl = ep.baseUrl;
+            this.csrfToken = ep.csrfToken;
             this.activeAbortController = null;
         }
 
@@ -685,16 +716,7 @@
     async function loadConversationViaRpc(convoId) {
         if (!convoId) return null;
         try {
-            const csrfToken = (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.csrfToken) || "";
-            const dynamicUrl = (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.connectRpcUrl)
-                || (typeof window !== "undefined" && window.__AGYIS_CONNECT_URL__)
-                || (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.connectRpcUrl);
-            const dynamicPort = (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.connectRpcPort)
-                || (typeof window !== "undefined" && window.__AGYIS_CONNECT_PORT__)
-                || (typeof window !== "undefined" && window.__APP_CONFIG__ && window.__APP_CONFIG__.connectRpcPort);
-            const protoDefault = (typeof window !== "undefined" && window.location && window.location.protocol === "http:") ? "http:" : "https:";
-            const baseUrl = dynamicUrl || (dynamicPort ? `${protoDefault}//127.0.0.1:${dynamicPort}` : null)
-                || ((typeof window !== "undefined" && window.location && window.location.origin && window.location.origin.startsWith("http")) ? window.location.origin : "https://127.0.0.1:40623");
+            const { baseUrl, csrfToken } = resolveRpcEndpoint();
 
             const headers = { "Content-Type": "application/json", "Connect-Protocol-Version": "1" };
             if (csrfToken) headers["x-codeium-csrf-token"] = csrfToken;
@@ -735,20 +757,11 @@
                 return null;
             }
 
-            let genMetas = [];
-            let chatModelData = null;
-            if (genRes && genRes.ok) {
-                const genJson = await genRes.json().catch(() => null);
-                if (genJson) {
-                    genMetas = genJson.generatorMetadata || genJson.generatorMetadatas || genJson.metadatas || [];
-                    chatModelData = genJson.chatModel || (genMetas[0] && genMetas[0].chatModel) || null;
-                }
-            }
-            let execMetas = [];
-            if (execRes && execRes.ok) {
-                const execJson = await execRes.json().catch(() => null);
-                if (execJson) execMetas = execJson.executorMetadatas || execJson.metadatas || [];
-            }
+            const genJson = (genRes && genRes.ok) ? await genRes.json().catch(() => null) : null;
+            const genMetas = (genJson && (genJson.generatorMetadata || genJson.generatorMetadatas || genJson.metadatas)) || [];
+            const chatModelData = (genJson && (genJson.chatModel || (genMetas[0] && genMetas[0].chatModel))) || null;
+            const execJson = (execRes && execRes.ok) ? await execRes.json().catch(() => null) : null;
+            const execMetas = (execJson && (execJson.executorMetadatas || execJson.metadatas)) || [];
 
             return buildHudTrajectoryData(convoId, rawSteps, genMetas, execMetas, chatModelData);
         } catch (err) {
@@ -767,5 +780,6 @@
     global.loadConversationViaRpc = loadConversationViaRpc;
     global.StreamRenderCoordinator = StreamRenderCoordinator;
     global.InSituConnectClient = InSituConnectClient;
+    global.resolveRpcEndpoint = resolveRpcEndpoint;
 
 })(typeof window !== "undefined" ? window : globalThis);

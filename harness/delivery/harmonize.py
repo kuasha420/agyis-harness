@@ -348,6 +348,13 @@ def harmonize_workspace(
                     if not dry_run:
                         dst_skill_dir.mkdir(parents=True, exist_ok=True)
                         dst_skill_file.write_text(synthesized, encoding="utf-8")
+                        if "_" in skill_name:
+                            alias_dir = target_skills_dir / skill_name.replace("_", "-")
+                            if not alias_dir.exists():
+                                try:
+                                    alias_dir.symlink_to(skill_name)
+                                except (OSError, NotImplementedError):
+                                    pass
                         if not dst_skill_file.is_file() or dst_skill_file.stat().st_size == 0:
                             return HarmonizeResult(
                                 success=False,
@@ -559,7 +566,7 @@ def harmonize_workspace(
     backup_manifest: Optional[Dict[str, Any]] = None
     manifest_path: Optional[Path] = None
 
-    if prune_legacy and backup and legacy_agent_dir_found:
+    if backup and legacy_agent_dir_found:
         target_archive_dir = Path(archive_dir).resolve() if archive_dir else (ws / ".agents" / "archive")
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         tarball_path = target_archive_dir / f"legacy-agent-backup-{timestamp}.tar.gz"
@@ -628,6 +635,7 @@ def harmonize_workspace(
                     # Archive empty directory node
                     tar.add(legacy_agent_dir, arcname=".agent", recursive=False)
             manifest_path.write_text(json.dumps(backup_manifest, indent=2), encoding="utf-8")
+            any_modified = True
 
         backup_archive_path = tarball_path
 
