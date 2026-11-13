@@ -259,8 +259,12 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
         return None
 
     role = (
-        payload.get("agent_role")
+        payload.get("subagent_role")
+        or payload.get("subagentRole")
+        or payload.get("agent_role")
         or payload.get("agentRole")
+        or payload.get("agent_type")
+        or payload.get("agentType")
         or payload.get("role")
         or payload.get("agent_name")
         or payload.get("agentName")
@@ -381,8 +385,12 @@ def check_flight_director_write_guard(payload: dict) -> Optional[dict]:
         return None
 
     role = (
-        payload.get("agent_role")
+        payload.get("subagent_role")
+        or payload.get("subagentRole")
+        or payload.get("agent_role")
         or payload.get("agentRole")
+        or payload.get("agent_type")
+        or payload.get("agentType")
         or payload.get("role")
         or payload.get("agent_name")
         or payload.get("agentName")

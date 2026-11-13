@@ -10,8 +10,10 @@ High-level system and harness status CLI command (ADR-014).
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import sys
+from typing import Any, Dict
 
 import harness
 from harness.commands.subagents import format_subagents_table
@@ -23,6 +25,147 @@ DEFAULT_DB = REPO_ROOT / "data" / "telemetry.db"
 
 def cmd_status(args: argparse.Namespace) -> int:
     """Prints a high-level status summary of the Agyis Harness."""
+    if getattr(args, "json", False):
+        herm_py = psl_doctor.find_hermetic_uv_python()
+        from harness.skills import list_skills
+        from harness.subagents import list_active_subagent_statuses, list_agent_specs
+
+        skills = list_skills()
+        agents = list_agent_specs()
+        active_subagents = list_active_subagent_statuses()
+
+        from harness.telemetry.config import resolve_db_path
+        from harness.telemetry.sync.daemon import compute_telemetry_lag, read_sync_status
+
+        db_target = DEFAULT_DB if DEFAULT_DB.exists() else resolve_db_path(must_exist=False)
+        sync_payload: Dict[str, Any] = {
+            "status": "not_initialized",
+            "db_present": db_target.exists(),
+        }
+        if db_target.exists():
+            import sqlite3
+            from harness.telemetry.db import get_db_connection
+
+            sync_payload["db_path"] = str(db_target)
+            try:
+                conn = get_db_connection(db_target)
+                c = conn.cursor()
+                c.execute("SELECT COUNT(*), MAX(end_time) FROM sessions")
+                sess_row = c.fetchone()
+                sess_cnt, last_end = (sess_row[0], sess_row[1]) if sess_row else (0, None)
+                c.execute("SELECT COUNT(*) FROM steps")
+                step_cnt = c.fetchone()[0]
+                try:
+                    c.execute("SELECT COUNT(*) FROM tool_calls")
+                    tc_cnt = c.fetchone()[0]
+                except sqlite3.Error:
+                    tc_cnt = 0
+                conn.close()
+                sync_payload["sessions_count"] = sess_cnt
+                sync_payload["steps_count"] = step_cnt
+                sync_payload["tool_calls_count"] = tc_cnt
+                sync_payload["last_session_end"] = str(last_end) if last_end else None
+            except (sqlite3.Error, OSError):
+                pass
+
+        try:
+            sync_st = read_sync_status()
+            lag = compute_telemetry_lag(db_path=db_target)
+            sync_payload["status"] = sync_st.get("status", "idle")
+            sync_payload["last_harvest_at"] = str(sync_st.get("last_harvest_at")) if sync_st.get("last_harvest_at") else None
+            sync_payload["consecutive_failures"] = sync_st.get("consecutive_failures", 0)
+            sync_payload["unsynced_local"] = lag.get("unsynced_local", 0)
+            sync_payload["stale_local"] = lag.get("stale_local", 0)
+            sync_payload["total_transcripts"] = lag.get("total_transcripts", 0)
+            sync_payload["last_error"] = sync_st.get("last_error")
+        except Exception:
+            pass
+
+        import os
+        from harness.hooks.token_proximity_guard import (
+            AMBER_THRESHOLD,
+            COMPACTION_THRESHOLD,
+            CONTEXT_WINDOW_TOKENS,
+            RED_THRESHOLD,
+            get_active_conversation_context_window,
+            get_active_conversation_token_velocity,
+            get_active_conversation_tokens,
+            get_conversations_dir,
+        )
+        from harness.utils.context import get_active_conversation_id
+
+        conv_id = get_active_conversation_id() or os.environ.get("CONVERSATION_ID")
+        if not conv_id:
+            conv_dir = get_conversations_dir()
+            if conv_dir.is_dir():
+                dbs = sorted([f for f in conv_dir.glob("*.db") if not f.name.endswith(".tmp")], key=lambda f: f.stat().st_mtime, reverse=True)
+                if dbs:
+                    conv_id = dbs[0].stem
+
+        ctx_win = get_active_conversation_context_window(conv_id) if conv_id else {
+            "tokens": 0,
+            "max_context_tokens": CONTEXT_WINDOW_TOKENS,
+            "amber_threshold": AMBER_THRESHOLD,
+            "red_threshold": RED_THRESHOLD,
+            "compaction_threshold": COMPACTION_THRESHOLD,
+        }
+        max_ctx = int(ctx_win.get("max_context_tokens") or CONTEXT_WINDOW_TOKENS)
+        amber_t = int(ctx_win.get("amber_threshold") or AMBER_THRESHOLD)
+        red_t = int(ctx_win.get("red_threshold") or RED_THRESHOLD)
+        comp_t = int(ctx_win.get("compaction_threshold") or COMPACTION_THRESHOLD)
+
+        vel = get_active_conversation_token_velocity(conv_id) if conv_id else {}
+        tokens = vel.get("tokens", 0) or ctx_win.get("tokens", 0)
+        if tokens <= 0 and conv_id:
+            tokens = get_active_conversation_tokens(conv_id)
+        burn_rate = vel.get("burn_rate_tokens_per_min", 0.0)
+        mins_to_comp = vel.get("mins_to_compaction") or vel.get("mins_to_50k")
+        vel_tier = vel.get("velocity_tier", "SAFE")
+
+        token_metrics = {
+            "active_tokens": tokens,
+            "max_context_tokens": max_ctx,
+            "amber_threshold": amber_t,
+            "red_threshold": red_t,
+            "compaction_threshold": comp_t,
+            "burn_rate_tokens_per_min": burn_rate,
+            "mins_to_compaction": mins_to_comp,
+            "velocity_tier": vel_tier,
+            "conversation_id": conv_id,
+        }
+
+        try:
+            from harness.subagents.heartbeat import read_stage_heartbeat
+            workspace_dir = getattr(args, "workspace_dir", None)
+            heartbeat = read_stage_heartbeat(workspace_dir=workspace_dir)
+        except Exception:
+            heartbeat = None
+
+        report = {
+            "version": harness.__version__,
+            "repository_root": str(REPO_ROOT),
+            "platform": f"{sys.platform} (Python {sys.version.split()[0]})",
+            "hermetic_python": str(herm_py) if herm_py else None,
+            "skills_count": len(skills),
+            "subagents_count": len(agents),
+            "telemetry_sync": sync_payload,
+            "active_hooks": [
+                "command-safety",
+                "anti-loop",
+                "output-compactor",
+                "verification-fence",
+                "anti-drift",
+                "token-proximity",
+            ],
+            "token_metrics": token_metrics,
+            "tokens": tokens,
+            "max_context_tokens": max_ctx,
+            "active_subagents_count": len(active_subagents),
+            "heartbeat": heartbeat,
+        }
+        print(json.dumps(report, indent=2))
+        return 0
+
     print("=" * 70)
     print(f" 🛡️ Agyis Harness for Google Antigravity™ (v{harness.__version__})")
     print("=" * 70)

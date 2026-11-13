@@ -37,6 +37,14 @@ class TestCommandSafety(unittest.TestCase):
             "rm -r -f /",
             "rm -rf ./*",
             "rm -rf *",
+            "rm -rf ~",
+            "rm -rf ~/*",
+            "rm -rf $HOME",
+            "rm -rf ${HOME}",
+            "git reset --hard",
+            "git checkout -- .",
+            "git clean -fd",
+            "git clean -f",
             "mkfs /dev/sda1",
             "dd if=/dev/zero of=/dev/sda",
         ]
@@ -89,6 +97,30 @@ class TestCommandSafety(unittest.TestCase):
         self.assertIn('PATH="', mod)
         self.assertIn("cpython-3.1", mod)
         self.assertIn("python3 -c", mod)
+
+    @patch("harness.hooks.command_safety_hook.find_hermetic_uv_python_bin")
+    def test_hermetic_python_injection_script(self, mock_find):
+        mock_find.return_value = Path("/home/mock/.local/share/uv/python/cpython-3.12.0-linux-x86_64-gnu/bin")
+        decision, mod, reason = sanitize_command("python3 scripts/task.py")
+        self.assertEqual(decision, "allow")
+        self.assertIsNotNone(mod)
+        self.assertIn('export PATH="', mod)
+        self.assertIn("cpython-3.1", mod)
+        self.assertIn("python3 scripts/task.py", mod)
+
+    def test_systemd_pager_neutralization(self):
+        for cmd in ("systemctl status", "journalctl -u docker", "udevadm monitor"):
+            decision, mod, reason = sanitize_command(cmd)
+            self.assertEqual(decision, "allow")
+            self.assertIsNotNone(mod)
+            self.assertTrue(mod.startswith("SYSTEMD_PAGER=cat "))
+            self.assertIn("enforced non-interactive SYSTEMD_PAGER=cat", reason)
+
+        # Commands already containing --no-pager or PAGER= should not be modified
+        for cmd in ("systemctl status --no-pager", "PAGER=cat journalctl", "SYSTEMD_PAGER=cat udevadm"):
+            decision, mod, reason = sanitize_command(cmd)
+            self.assertEqual(decision, "allow")
+            self.assertIsNone(mod)
 
     def test_should_sanitize_grep_or_diff(self):
         # Valid candidates for surgical tail sanitization
@@ -718,7 +750,7 @@ class TestRC10Cluster1ToolResilience(unittest.TestCase):
                 ow = res["overwrite"]
                 cmd = ow["CommandLine"]
                 expected_prefix = f'cd "/opt/custom" && python3 {ws}/.agents/scratch/exec_'
-                self.assertTrue(cmd.startswith(expected_prefix), f"Unexpected cmd: {cmd}")
+                self.assertIn(expected_prefix, cmd, f"Unexpected cmd: {cmd}")
                 self.assertTrue(cmd.endswith(".py"))
                 self.assertNotIn("Cwd", ow)
                 self.assertNotIn("toolAction", ow)

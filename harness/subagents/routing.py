@@ -60,7 +60,7 @@ CANONICAL_ROUTES: Tuple[WorkflowRoute, ...] = (
     WorkflowRoute(
         letter="A",
         alias="rca",
-        mnemonic_aliases=("rca", "bugfix", "bug", "defect", "patch", "investigate"),
+        mnemonic_aliases=("rca", "bugfix", "bug", "defect", "patch", "investigate", "fix"),
         title="Bug Report / Test Regression / Silent Failure",
         starting_specialist="agyis_investigator",
         pipeline_route="Investigator -> Planner -> Builder -> Reviewer -> Custodian -> Auditor",
@@ -168,7 +168,7 @@ CANONICAL_ROUTES: Tuple[WorkflowRoute, ...] = (
     WorkflowRoute(
         letter="G",
         alias="research",
-        mnemonic_aliases=("research", "fanout", "explore", "survey", "landscape"),
+        mnemonic_aliases=("research", "fanout", "explore", "survey", "landscape", "discovery"),
         title="Multi-Track Parallel Research / Landscape Mapping",
         starting_specialist="agyis_coordinator",
         pipeline_route="Coordinator -> Fan-out parallel Planners / Investigators -> Coordinator Synthesis",
@@ -240,7 +240,7 @@ CANONICAL_ROUTES: Tuple[WorkflowRoute, ...] = (
     WorkflowRoute(
         letter="K",
         alias="governance",
-        mnemonic_aliases=("governance", "issues", "curation", "epic", "github"),
+        mnemonic_aliases=("governance", "issues", "curation", "epic", "github", "custodian"),
         title="Milestone Governance & GitHub Issue Curation",
         starting_specialist="agyis_custodian",
         pipeline_route="Flight Director / Coordinator -> Custodian (Issue Formulation & Epic Sync via gh CLI)",

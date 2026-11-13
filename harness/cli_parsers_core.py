@@ -237,7 +237,8 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     )
 
     # status / info
-    subparsers.add_parser("status", help="Print harness installation and health summary")
+    p_status = subparsers.add_parser("status", help="Print harness installation and health summary")
+    p_status.add_argument("--json", action="store_true", help="Output status report in JSON format")
 
     # remote
     p_remote = subparsers.add_parser(

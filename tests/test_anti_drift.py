@@ -785,6 +785,21 @@ class TestAntiDriftHook(unittest.TestCase):
                 res = check_auditor_write_block(payload)
                 self.assertIsNone(res, f"Expected no block for {role} using {tool}")
 
+    def test_subagent_role_keys_resolution(self):
+        """Verifies subagent_role, subagentRole, agent_type, agentType keys resolve properly (DEF-BB-017)."""
+        for key in ("subagent_role", "subagentRole", "agent_type", "agentType"):
+            payload = {
+                key: "auditor",
+                "toolCall": {
+                    "name": "write_to_file",
+                    "args": {"TargetFile": "src/app.py", "CodeContent": "bad"},
+                },
+            }
+            res = check_auditor_write_block(payload)
+            self.assertIsNotNone(res, f"Expected block when role specified via {key}")
+            self.assertEqual(res["decision"], "deny")
+            self.assertIn("PSL Auditor Invariant", res["reason"])
+
     def test_plan_mode_blocks_code_mutations(self):
         """When in plan mode, code file modifications are blocked (ADR-031)."""
         payload = {

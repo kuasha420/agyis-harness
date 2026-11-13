@@ -81,6 +81,9 @@ class TestSubagentRoutingEngine(unittest.TestCase):
 
         # Mnemonic aliases
         self.assertEqual(get_route("bugfix"), route_a)
+        self.assertEqual(get_route("fix"), route_a)
+        self.assertEqual(get_route("discovery"), get_route("G"))
+        self.assertEqual(get_route("custodian"), get_route("K"))
         self.assertEqual(get_route("hotfix"), get_route("C"))
         self.assertEqual(get_route("refactor"), get_route("D"))
         self.assertEqual(get_route("dual-audit"), get_route("J"))

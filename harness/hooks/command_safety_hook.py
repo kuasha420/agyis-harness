@@ -42,10 +42,13 @@ from harness.remote.safety import (
 from harness.utils.context import get_active_brain_dir, get_active_conversation_id
 
 DANGEROUS_PATTERNS = [
-    r"\brm\s+.*-[a-zA-Z]*r.*-[a-zA-Z]*f.*\s+(?:/\*?|\./\*?|\*)(?:\s|$)",
-    r"\brm\s+.*-[a-zA-Z]*f.*-[a-zA-Z]*r.*\s+(?:/\*?|\./\*?|\*)(?:\s|$)",
-    r"\brm\s+-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*\s+(?:/\*?|\./\*?|\*)(?:\s|$)",
-    r"\brm\s+-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*\s+(?:/\*?|\./\*?|\*)(?:\s|$)",
+    r"\brm\s+.*-[a-zA-Z]*r.*-[a-zA-Z]*f.*\s+(?:/\*?|\./\*?|\*|~|~/\*?|\$HOME|\${HOME})(?:\s|$)",
+    r"\brm\s+.*-[a-zA-Z]*f.*-[a-zA-Z]*r.*\s+(?:/\*?|\./\*?|\*|~|~/\*?|\$HOME|\${HOME})(?:\s|$)",
+    r"\brm\s+-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*\s+(?:/\*?|\./\*?|\*|~|~/\*?|\$HOME|\${HOME})(?:\s|$)",
+    r"\brm\s+-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*\s+(?:/\*?|\./\*?|\*|~|~/\*?|\$HOME|\${HOME})(?:\s|$)",
+    r"\bgit\s+reset\s+--hard\b",
+    r"\bgit\s+checkout\s+--\s+\.",
+    r"\bgit\s+clean\s+-[a-zA-Z]*f",
     r"\bmkfs\b", r"\bdd\s+if=.*?of=/dev/[sh]d[a-z]\b",
 ]
 INTERACTIVE_COMMANDS = ["nano", "vim", "vi", "emacs", "less", "more", "top", "htop", "glances"]
@@ -172,6 +175,16 @@ def find_hermetic_uv_python_bin() -> Optional[Path]:
 def is_inline_python_command(cmd: str) -> bool:
     """Detects inline python -c / python3 -c invocations."""
     return bool(re.search(r"\b(?:python3?)\s+-c\b", cmd))
+
+
+def is_python_command(cmd: str) -> bool:
+    """Detects python / python3 invocations (inline -c, -m module, or script execution)."""
+    if re.search(r"\bpython3?(?:\.\d+)?\b", cmd):
+        return True
+    bin_name = extract_command_binary(cmd)
+    if bin_name and bin_name.endswith(".py"):
+        return True
+    return False
 
 
 def _find_promotable_inline_matches(cmd: str) -> List[Tuple[Any, str, str, str, str]]:
@@ -371,6 +384,8 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
             modified_cmd = mod_f; reasons.extend(r_f)
     if first_token in ("git", "gh") and not re.search(r"--no-pager|\bPAGER=", modified_cmd):
         modified_cmd = f"PAGER=cat {modified_cmd}"; reasons.append("enforced non-interactive PAGER=cat")
+    if re.search(r"\b(?:systemctl|journalctl|udevadm)\b", modified_cmd) and not re.search(r"--no-pager|\bSYSTEMD_PAGER=|\bPAGER=", modified_cmd):
+        modified_cmd = f"SYSTEMD_PAGER=cat {modified_cmd}"; reasons.append("enforced non-interactive SYSTEMD_PAGER=cat")
     mod_ssh, ssh_injected = inject_ssh_timeouts(modified_cmd)
     if ssh_injected:
         modified_cmd = mod_ssh; reasons.append("injected non-blocking SSH timeout and batch mode guards")
@@ -381,16 +396,17 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
     if path_injected:
         modified_cmd = mod_path; reasons.append("injected user-space toolchain PATH shims")
 
-    if is_inline_python_command(modified_cmd):
+    if is_python_command(modified_cmd):
         hermetic_bin = find_hermetic_uv_python_bin()
         if hermetic_bin:
             hb_esc = str(hermetic_bin).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
-            if modified_cmd.startswith('export PATH="'):
-                modified_cmd = f'export PATH="{hb_esc}:' + modified_cmd[len('export PATH="'):]
-                reasons.append("injected hermetic CPython >= 3.12 for PEP 701 f-string safety")
-            elif "PATH=" not in modified_cmd:
-                modified_cmd = f'export PATH="{hb_esc}:$PATH"; {modified_cmd}'
-                reasons.append("injected hermetic CPython >= 3.12 for PEP 701 f-string safety")
+            if hb_esc not in modified_cmd:
+                if modified_cmd.startswith('export PATH="'):
+                    modified_cmd = f'export PATH="{hb_esc}:' + modified_cmd[len('export PATH="'):]
+                    reasons.append("injected hermetic CPython >= 3.12 for PEP 701 f-string safety")
+                elif "PATH=" not in modified_cmd:
+                    modified_cmd = f'export PATH="{hb_esc}:$PATH"; {modified_cmd}'
+                    reasons.append("injected hermetic CPython >= 3.12 for PEP 701 f-string safety")
 
     if modified_cmd == original_cmd:
         return ("allow", None, None)
@@ -536,7 +552,7 @@ def normalize_mcp_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Tuple[
                 target_p = Path(target_path_str)
                 if target_p.is_file() and (target_p.stat().st_size / (1024 * 1024)) > 10.0:
                     from harness.re.scaffold import get_dirtyroom_root
-                    dr = get_dirtyroom_root(target_p.parent)
+                    dr = get_dirtyroom_root(target_p.parent) or get_dirtyroom_root()
                     has_gpr = bool(dr and (dr / "ghidra").is_dir() and any((dr / "ghidra").glob("*.gpr")))
                     env_gpr = os.environ.get("REA_GHIDRA_PROJECT_DIR")
                     if not has_gpr and env_gpr and Path(env_gpr).is_dir():

@@ -251,6 +251,29 @@ class TestReaMcpSchemaNormalizerHook(unittest.TestCase):
         dec, mod_args, reason = normalize_rea_mcp_tool_call("call_mcp_tool", tool_args)
         self.assertEqual(dec, "allow")
 
+    def test_psl_inv_009_external_large_binary_fallback_to_workspace_cache(self):
+        """Verifies external binary outside workspace falls back to workspace dirtyroom cache (DEF-BB-023)."""
+        dr = self.workspace / ".dirtyroom" / "ghidra"
+        dr.mkdir(parents=True, exist_ok=True)
+        (dr / "TargetProject.gpr").write_text("<project/>", encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as external_dir:
+            external_bin = Path(external_dir) / "ExternalTarget.bin"
+            with open(external_bin, "wb") as f:
+                f.seek(15 * 1024 * 1024 - 1)
+                f.write(b"\0")
+
+            tool_args = {
+                "ServerName": "rea",
+                "ToolName": "open_binary",
+                "Arguments": {
+                    "path": str(external_bin),
+                },
+            }
+            with patch("os.getcwd", return_value=str(self.workspace)):
+                dec, mod_args, reason = normalize_rea_mcp_tool_call("call_mcp_tool", tool_args)
+                self.assertEqual(dec, "allow")
+
     def test_normalize_procedure_pseudo_code_aliases(self):
         """Verifies Address, addr, target, procedure_name, and proc map to procedure."""
         aliases = ["Address", "address", "addr", "procedure_name", "target", "proc"]

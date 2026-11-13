@@ -98,6 +98,24 @@ class TestPslCli(unittest.TestCase):
             self.assertIn("Modular Skills:", out)
             self.assertIn("Specialist Subagents:", out)
 
+    def test_cli_status_json(self):
+        """Verifies `agyis status --json` emits structured JSON report with expected keys (DEF-BB-004)."""
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            code = main(["status", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(mock_out.getvalue())
+            self.assertIn("version", data)
+            self.assertIn("repository_root", data)
+            self.assertIn("platform", data)
+            self.assertIn("skills_count", data)
+            self.assertIn("subagents_count", data)
+            self.assertIn("telemetry_sync", data)
+            self.assertIn("active_hooks", data)
+            self.assertIn("token_metrics", data)
+            self.assertIn("command-safety", data["active_hooks"])
+            self.assertIsInstance(data["skills_count"], int)
+            self.assertIsInstance(data["subagents_count"], int)
+
     def test_cli_status_renders_telemetry_sync_lag_and_health(self):
         """Verifies `agyis status` surfaces daemon sync errors and unsynced transcript lag."""
         import sqlite3
