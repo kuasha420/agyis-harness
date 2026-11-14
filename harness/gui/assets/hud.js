@@ -210,6 +210,24 @@
         if (!hud) hud = document.getElementById(HUD_ID);
         if (!hud) return;
 
+        let activeElId = null;
+        let activeSelStart = null;
+        let activeSelEnd = null;
+        let activeValue = null;
+        try {
+            const activeEl = document.activeElement;
+            if (activeEl && (hud.contains(activeEl) || activeEl.id === "agyis-search-input") && activeEl.id) {
+                activeElId = activeEl.id;
+                if (typeof activeEl.selectionStart === "number") {
+                    activeSelStart = activeEl.selectionStart;
+                    activeSelEnd = activeEl.selectionEnd;
+                }
+                if (typeof activeEl.value === "string") {
+                    activeValue = activeEl.value;
+                }
+            }
+        } catch (_) {}
+
         hud.innerHTML = `
             <div class="agyis-hud-box ${state.isMaximized ? "maximized" : ""}">
                 ${headerHtml}
@@ -223,6 +241,24 @@
         if (window.bindTimelineEvents) window.bindTimelineEvents(hud, state, renderHud, selectStep);
         if (window.bindInspectorEvents) window.bindInspectorEvents(hud, state, currentStep, selectStep);
         if (window.initDeckSplitterAndNav) window.initDeckSplitterAndNav(hud, state, curSteps, filteredIndices, renderHud, selectStep);
+
+        // Restore focus and cursor caret positions immediately after mounting
+        if (activeElId) {
+            try {
+                const restoredEl = hud.querySelector("#" + activeElId);
+                if (restoredEl) {
+                    if (activeValue !== null && restoredEl.value !== activeValue) {
+                        restoredEl.value = activeValue;
+                    }
+                    if (typeof restoredEl.focus === "function") {
+                        restoredEl.focus();
+                    }
+                    if (typeof activeSelStart === "number" && typeof restoredEl.setSelectionRange === "function") {
+                        restoredEl.setSelectionRange(activeSelStart, activeSelEnd);
+                    }
+                }
+            } catch (_) {}
+        }
 
         // Prism syntax highlight
         if (window.Prism && typeof window.Prism.highlightAllUnder === "function") {
@@ -252,11 +288,28 @@
         }
 
         if (updatedData) {
+            const prevSelected = state.selectedIndex;
+            const prevTotal = state.currentData && state.currentData.steps ? state.currentData.steps.length : 0;
+            const wasAtEnd = prevTotal === 0 || prevSelected >= prevTotal - 1;
+
             state.rootData = updatedData;
             state.currentData = updatedData;
             state.convoId = convoId;
             if (updatedData.model) state.sessionModel = updatedData.model;
-            syncToLatestState(state);
+
+            if (wasAtEnd) {
+                syncToLatestState(state);
+            } else {
+                // Historical inspection: preserve user step selection and active epoch
+                const steps = updatedData.steps || [];
+                const epochs = updatedData.epochs || [];
+                state.selectedIndex = Math.min(prevSelected, Math.max(0, steps.length - 1));
+                if (epochs.length > 0) {
+                    const foundEp = epochs.find(ep => state.selectedIndex >= ep.start_index && state.selectedIndex <= ep.end_index);
+                    state.activeEpochIndex = foundEp ? foundEp.epoch_index : (epochs.length - 1);
+                }
+                state.tablePage = Math.floor(state.selectedIndex / 50);
+            }
             renderHud();
         } else if (dirty.tokens && streamState.tokenBreakdown && state.currentData) {
             state.currentData.total_tokens = streamState.activeTokens || state.currentData.total_tokens;
@@ -283,11 +336,18 @@
     window.__agyis_hud_render = renderHud;
     window.__agyis_hud_sync = syncToLatestState;
     window.__agyis_hud_start_stream = startStreamSubscription;
+    let _loadConvoSeq = 0;
+
     window.__agyis_hud_load_convo = async function(convoId) {
         if (!convoId) return null;
+        const seq = ++_loadConvoSeq;
         startStreamSubscription(convoId);
         if (window.loadConversationViaRpc) {
             const data = await window.loadConversationViaRpc(convoId);
+            if (seq !== _loadConvoSeq) {
+                // Superseded by a newer conversation load request; discard stale response
+                return null;
+            }
             if (data) {
                 const state = window.__agyis_hud_state;
                 if (state) {
@@ -402,6 +462,25 @@
         }
 
         if (e.key === "Escape" && currentHud && currentHud.style.display !== "none") {
+            const searchInput = currentHud.querySelector("#agyis-search-input");
+            const isSearchFocused = (document.activeElement && document.activeElement.id === "agyis-search-input") || (e.target && e.target.id === "agyis-search-input");
+            const state = window.__agyis_hud_state;
+            const hasText = (searchInput && searchInput.value && searchInput.value.length > 0) || (state && state.filterQuery && state.filterQuery.length > 0);
+
+            if (isSearchFocused && hasText) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (searchInput) searchInput.value = "";
+                if (state) {
+                    state.filterQuery = "";
+                    state.tablePage = 0;
+                    state.currentMatchIdx = 0;
+                }
+                if (typeof renderHud === "function") renderHud();
+                const freshInput = currentHud.querySelector("#agyis-search-input");
+                if (freshInput && typeof freshInput.focus === "function") freshInput.focus();
+                return;
+            }
             currentHud.style.display = "none";
         }
 

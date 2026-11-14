@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -29,8 +30,10 @@ def cmd_remote(args: argparse.Namespace) -> int:
     if sub == "exec":
         login_shell = getattr(args, "login_shell", False)
         if not login_shell:
-            from harness.hooks.command_safety_hook import REMOTE_TOOLCHAIN_REGEX
-            if REMOTE_TOOLCHAIN_REGEX.search(args.command):
+            from harness.remote.safety import REMOTE_TOOLCHAIN_REGEX
+            if REMOTE_TOOLCHAIN_REGEX.search(args.command) and not re.search(
+                r"\b(?:bash|zsh|sh)\s+-[a-zA-Z]*l\b", args.command
+            ):
                 login_shell = True
 
         res = runner.run(

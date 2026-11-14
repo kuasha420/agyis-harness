@@ -53,7 +53,7 @@ class RemoteTriage:
 
         if profile in ("all", "ports"):
             parts.append("echo '=== PORTS ==='")
-            parts.append("ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || lsof -iTCP -sTCP:LISTEN -P -n 2>/dev/null | head -n 25")
+            parts.append("(ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || lsof -iTCP -sTCP:LISTEN -P -n 2>/dev/null) | head -n 25")
 
         if profile in ("all", "services"):
             parts.append("echo '=== SERVICES ==='")
@@ -104,6 +104,16 @@ class RemoteTriage:
             f"### 🩺 Remote Triage Report: `{target}` (Profile: `{profile}`)",
             "",
         ]
+
+        # Diagnostic & Connection Output (DEF-BB-034 / DEF-BB-047)
+        gen_lines = [l.strip() for l in sections.get("GENERAL", []) if l.strip()]
+        if gen_lines:
+            lines_out.append("#### ⚠️ Diagnostic & Connection Output")
+            lines_out.append("```")
+            for gl in gen_lines[:25]:
+                lines_out.append(gl)
+            lines_out.append("```")
+            lines_out.append("")
 
         # Host & Resources
         if "HOST" in sections or "RESOURCES" in sections:
