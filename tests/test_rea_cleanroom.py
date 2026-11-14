@@ -177,6 +177,23 @@ class TestJDK21DiscoveryAndMCPConfig(unittest.TestCase):
         rea_env = data["mcpServers"]["rea"]["env"]
         self.assertEqual(rea_env["JAVA_HOME"], str(fake_jdk))
 
+    def test_find_jdk21_path_prefers_java27_when_ghidra_12_2(self):
+        """Verifies find_jdk21_path prefers OpenJDK 27 when Ghidra 12.2 is detected (DEF-BB-040)."""
+        fake_jdk27 = self.tmp_path / "java-27-openjdk"
+        fake_jdk27.mkdir(parents=True)
+        (fake_jdk27 / "release").write_text('JAVA_VERSION="27.0.1"\n', encoding="utf-8")
+
+        with patch("harness.runtime.tool_checks_rea.is_ghidra_12_2_installed", return_value=True), \
+             patch("harness.runtime.tool_checks_rea._tc_attr", side_effect=lambda name, default=None: (
+                 (lambda: True) if name == "is_ghidra_12_2_installed" else
+                 (lambda p: fake_jdk27 if str(p) == "/usr/lib/jvm/java-27-openjdk" else Path(p)) if name == "Path" else
+                 default
+             )), \
+             patch.dict(os.environ, {"JAVA_HOME": ""}):
+            found = find_jdk21_path()
+            self.assertIsNotNone(found)
+            self.assertEqual(found, fake_jdk27.resolve())
+
 
 @patch("harness.hooks.command_safety_hook.get_user_path_shims", return_value=[])
 class TestCommandSafetyREASetup(unittest.TestCase):
@@ -226,6 +243,17 @@ class TestCleanroomObligationSchema(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_evidence_bundle_dataclass_fields(self):
+        """Verifies EvidenceBundle dataclass includes all REA 6.8.0 collections (DEF-REVIEW-004)."""
+        eb = EvidenceBundle()
+        self.assertEqual(eb.providers, [])
+        self.assertEqual(eb.records, [])
+        self.assertEqual(eb.artifacts, [])
+        self.assertEqual(eb.captures, [])
+        self.assertEqual(eb.environments, [])
+        self.assertEqual(eb.scenarios, [])
+        self.assertEqual(eb.unknowns, [])
+
     def test_scaffold_and_validate_clean(self):
         ledger_path = self.tmp_path / ".agents" / "ledger" / "obligation_ledger.json"
         out = scaffold_obligation_ledger(ledger_path)
@@ -241,6 +269,48 @@ class TestCleanroomObligationSchema(unittest.TestCase):
         valid, errors = validate_obligation_ledger(ledger_path)
         self.assertFalse(valid)
         self.assertTrue(any("evidence_bundle" in e for e in errors))
+
+    def test_validate_disallows_schema_key(self):
+        ledger_path = self.tmp_path / "schema_ledger.json"
+        scaffold_obligation_ledger(ledger_path)
+        data = json.loads(ledger_path.read_text(encoding="utf-8"))
+        data["$schema"] = "https://rea.dev/schemas/obligation-ledger-v1.json"
+        ledger_path.write_text(json.dumps(data), encoding="utf-8")
+
+        valid, errors = validate_obligation_ledger(ledger_path)
+        self.assertFalse(valid)
+        self.assertTrue(any("$schema" in e for e in errors))
+
+    def test_validate_bindings_must_be_list(self):
+        ledger_path = self.tmp_path / "dict_bindings_ledger.json"
+        scaffold_obligation_ledger(ledger_path)
+        data = json.loads(ledger_path.read_text(encoding="utf-8"))
+        data["manifest"]["bindings"] = {"symbol": "target"}
+        ledger_path.write_text(json.dumps(data), encoding="utf-8")
+
+        valid, errors = validate_obligation_ledger(ledger_path)
+        self.assertFalse(valid)
+        self.assertTrue(any("bindings" in e for e in errors))
+
+    def test_validate_disposition_enum(self):
+        ledger_path = self.tmp_path / "disposition_ledger.json"
+        scaffold_obligation_ledger(ledger_path)
+        data = json.loads(ledger_path.read_text(encoding="utf-8"))
+        data["reviewed_obligations"] = [
+            {"obligation_id": "OBL-01", "disposition": "active"},
+            {"obligation_id": "OBL-02", "disposition": "out-of-scope"},
+            {"obligation_id": "OBL-03", "disposition": "blocked"},
+        ]
+        ledger_path.write_text(json.dumps(data), encoding="utf-8")
+        valid, errors = validate_obligation_ledger(ledger_path)
+        self.assertTrue(valid, f"Expected active/blocked/out-of-scope to be valid: {errors}")
+
+        # Invalid disposition
+        data["reviewed_obligations"][0]["disposition"] = "unknown_status"
+        ledger_path.write_text(json.dumps(data), encoding="utf-8")
+        valid, errors = validate_obligation_ledger(ledger_path)
+        self.assertFalse(valid)
+        self.assertTrue(any("invalid disposition" in e for e in errors))
 
     def test_validate_unresolved_contradictions(self):
         ledger_path = self.tmp_path / "contradiction_ledger.json"
@@ -268,12 +338,20 @@ class TestCompletionFenceAndVerifyCLI(unittest.TestCase):
         ledger_path = self.ws / ".agents" / "ledger" / "obligation_ledger.json"
         scaffold_obligation_ledger(ledger_path)
 
-        # Scaffolded ledger has disposition="satisfied" -> verified
+        # Scaffolded ledger -> verified
         self.assertTrue(is_manifest_verified(self.ws))
 
-        # Change disposition to rejected -> not verified
+        # Add active obligation -> verified
         data = json.loads(ledger_path.read_text(encoding="utf-8"))
-        data["reviewed_obligations"][0]["disposition"] = "rejected"
+        data["reviewed_obligations"].append({
+            "obligation_id": "OBL-001",
+            "disposition": "active",
+        })
+        ledger_path.write_text(json.dumps(data), encoding="utf-8")
+        self.assertTrue(is_manifest_verified(self.ws))
+
+        # Change disposition to blocked -> not verified
+        data["reviewed_obligations"][0]["disposition"] = "blocked"
         ledger_path.write_text(json.dumps(data), encoding="utf-8")
         self.assertFalse(is_manifest_verified(self.ws))
 
@@ -292,7 +370,7 @@ class TestCompletionFenceAndVerifyCLI(unittest.TestCase):
         self.assertEqual(data["status"], "scaffolded")
         self.assertTrue((self.ws / ".agents" / "ledger" / "obligation_ledger.json").is_file())
 
-    def test_cmd_verify_delegates_to_rea_build_and_evaluate(self):
+    def test_cmd_verify_delegates_to_rea_build(self):
         ledger_path = self.ws / ".agents" / "ledger" / "obligation_ledger.json"
         scaffold_obligation_ledger(ledger_path)
 
@@ -303,32 +381,25 @@ class TestCompletionFenceAndVerifyCLI(unittest.TestCase):
             scaffold=False,
         )
         mock_proc_build = subprocess.CompletedProcess(
-            args=["rea", "build-reconstruction-obligation-ledger"],
+            args=["rea", "build-reconstruction-obligation-ledger", str(ledger_path)],
             returncode=0,
             stdout="Built obligation ledger: 1 obligation",
             stderr="",
         )
-        mock_proc_eval = subprocess.CompletedProcess(
-            args=["rea", "evaluate-reconstruction-coverage"],
-            returncode=0,
-            stdout="Coverage: 100% (1/1 satisfied)",
-            stderr="",
-        )
-
-        def mock_subp(cmd, *a, **kw):
-            if "build-reconstruction-obligation-ledger" in cmd:
-                return mock_proc_build
-            if "evaluate-reconstruction-coverage" in cmd:
-                return mock_proc_eval
-            return MagicMock()
 
         buf = io.StringIO()
         with patch("shutil.which", return_value="/usr/local/bin/rea"), patch(
-            "subprocess.run", side_effect=mock_subp
+            "subprocess.run", return_value=mock_proc_build
         ) as mock_run, patch("sys.stdout", buf):
             code = cmd_verify(args)
             self.assertEqual(code, 0)
-            self.assertEqual(mock_run.call_count, 2)
+            mock_run.assert_called_once_with(
+                ["rea", "build-reconstruction-obligation-ledger", str(ledger_path)],
+                cwd=str(self.ws),
+                capture_output=True,
+                text=True,
+                timeout=30.0,
+            )
             self.assertIn("Cleanroom reconstruction verified via REA", buf.getvalue())
 
 
@@ -355,6 +426,32 @@ class TestAutoHealingREANode(unittest.TestCase):
             actions = heal_rea_tooling(mock_audit)
             self.assertTrue(any("switched to Node 24 LTS" in a for a in actions))
             mock_subp.assert_any_call(["/usr/bin/pnpm", "env", "use", "--global", "24"], capture_output=True, text=True)
+
+    def test_heal_rea_tooling_injects_java27_when_ghidra_12_2(self):
+        """Verifies heal_rea_tooling injects OpenJDK 27 when Ghidra 12.2 is detected (DEF-BB-040)."""
+        mock_audit = {
+            "rea_tooling": {"binary": "/usr/local/bin/rea", "status": "ok"},
+        }
+        mock_node_check = {
+            "status": "OK",
+            "rea_compatible": True,
+            "version": "24.22.1",
+        }
+        orig_is_dir = Path.is_dir
+
+        def mock_is_dir(p):
+            if "java-27-openjdk" in str(p):
+                return True
+            return orig_is_dir(p)
+
+        with patch("harness.runtime.tool_checks.check_node_toolchain", return_value=mock_node_check), \
+             patch("harness.runtime.tool_checks.find_jdk21_path", return_value=None), \
+             patch("harness.runtime.tool_checks.is_ghidra_12_2_installed", return_value=True), \
+             patch.object(Path, "is_dir", mock_is_dir), \
+             patch("harness.runtime.tool_checks.configure_rea_mcp_server", return_value=([], [])) as mock_cfg:
+            heal_rea_tooling(mock_audit)
+            call_kwargs = mock_cfg.call_args[1]
+            self.assertIn("java-27-openjdk", str(call_kwargs.get("jdk21_path")))
 
 
 if __name__ == "__main__":

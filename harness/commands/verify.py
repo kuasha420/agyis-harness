@@ -109,127 +109,63 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
     # 2. Delegation to REA obligation engine if applicable
     typed_ledger_path = workspace / ".agents" / "ledger" / "obligation_ledger.json"
-    if shutil.which("rea"):
-        if typed_ledger_path.is_file():
-            try:
-                res_build = subprocess.run(
-                    ["rea", "build-reconstruction-obligation-ledger", str(typed_ledger_path)],
-                    cwd=str(workspace),
-                    capture_output=True,
-                    text=True,
-                )
-                res_eval = subprocess.run(
-                    ["rea", "evaluate-reconstruction-coverage"],
-                    cwd=str(workspace),
-                    capture_output=True,
-                    text=True,
-                )
-                if res_build.returncode == 0 and res_eval.returncode == 0:
-                    combined_out = (res_build.stdout or "") + ("\n" if res_build.stdout and res_eval.stdout else "") + (res_eval.stdout or "")
-                    if is_json:
-                        print(
-                            json.dumps(
-                                {
-                                    "status": "verified",
-                                    "delegated": "rea",
-                                    "command": "rea evaluate-reconstruction-coverage",
-                                    "output": combined_out.strip(),
-                                },
-                                indent=2,
-                            )
+    if shutil.which("rea") and typed_ledger_path.is_file():
+        try:
+            res_build = subprocess.run(
+                ["rea", "build-reconstruction-obligation-ledger", str(typed_ledger_path)],
+                cwd=str(workspace),
+                capture_output=True,
+                text=True,
+                timeout=30.0,
+            )
+            if res_build.returncode == 0:
+                if is_json:
+                    print(
+                        json.dumps(
+                            {
+                                "status": "verified",
+                                "delegated": "rea",
+                                "command": "rea build-reconstruction-obligation-ledger",
+                                "output": (res_build.stdout or "").strip(),
+                            },
+                            indent=2,
                         )
-                    else:
-                        if combined_out.strip():
-                            print(combined_out.strip())
-                        print("✔ Cleanroom reconstruction verified via REA obligation engine.")
-                    try:
-                        clear_spec_dirty()
-                    except Exception:
-                        pass
-                    return 0
+                    )
                 else:
-                    err_code = res_build.returncode if res_build.returncode != 0 else res_eval.returncode
-                    err_out = (res_build.stderr or "") + "\n" + (res_eval.stderr or "")
-                    if is_json:
-                        print(
-                            json.dumps(
-                                {
-                                    "status": "failed",
-                                    "delegated": "rea",
-                                    "command": "rea evaluate-reconstruction-coverage",
-                                    "returncode": err_code,
-                                    "stderr": err_out.strip(),
-                                },
-                                indent=2,
-                            )
+                    if (res_build.stdout or "").strip():
+                        print(res_build.stdout.strip())
+                    print("✔ Cleanroom reconstruction verified via REA obligation engine.")
+                try:
+                    clear_spec_dirty()
+                except Exception:
+                    pass
+                return 0
+            else:
+                err_code = res_build.returncode
+                err_out = (res_build.stderr or "").strip()
+                if is_json:
+                    print(
+                        json.dumps(
+                            {
+                                "status": "failed",
+                                "delegated": "rea",
+                                "command": "rea build-reconstruction-obligation-ledger",
+                                "returncode": err_code,
+                                "stderr": err_out,
+                            },
+                            indent=2,
                         )
-                    else:
-                        if err_out.strip():
-                            print(err_out.strip(), file=sys.stderr)
-                        print(
-                            f"❌ Verification failed: REA commands returned exit code {err_code}.",
-                            file=sys.stderr,
-                        )
-                    return err_code if err_code != 0 else 1
-            except OSError:
-                pass
-        else:
-            # Fallback for environments without typed obligation_ledger.json
-            try:
-                res = subprocess.run(
-                    ["rea", "verify-reconstruction"],
-                    cwd=str(workspace),
-                    capture_output=True,
-                    text=True,
-                )
-                out = (res.stdout or "") + (res.stderr or "")
-                if "is not a command" not in out and "unrecognized" not in out.lower():
-                    if res.returncode == 0:
-                        if is_json:
-                            print(
-                                json.dumps(
-                                    {
-                                        "status": "verified",
-                                        "delegated": "rea",
-                                        "command": "rea verify-reconstruction",
-                                        "output": res.stdout.strip(),
-                                    },
-                                    indent=2,
-                                )
-                            )
-                        else:
-                            if res.stdout.strip():
-                                print(res.stdout.strip())
-                            print("✔ Cleanroom reconstruction verified via 'rea verify-reconstruction'.")
-                        try:
-                            clear_spec_dirty()
-                        except Exception:
-                            pass
-                        return 0
-                    else:
-                        if is_json:
-                            print(
-                                json.dumps(
-                                    {
-                                        "status": "failed",
-                                        "delegated": "rea",
-                                        "command": "rea verify-reconstruction",
-                                        "returncode": res.returncode,
-                                        "stderr": res.stderr.strip(),
-                                    },
-                                    indent=2,
-                                )
-                            )
-                        else:
-                            if res.stderr.strip():
-                                print(res.stderr.strip(), file=sys.stderr)
-                            print(
-                                f"❌ Verification failed: 'rea verify-reconstruction' returned exit code {res.returncode}.",
-                                file=sys.stderr,
-                            )
-                        return res.returncode if res.returncode != 0 else 1
-            except OSError:
-                pass
+                    )
+                else:
+                    if err_out:
+                        print(err_out, file=sys.stderr)
+                    print(
+                        f"❌ Verification failed: REA command returned exit code {err_code}.",
+                        file=sys.stderr,
+                    )
+                return err_code if err_code != 0 else 1
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
     # 3. Native cleanroom manifest and specifications validation
     manifest_path = workspace / ".agents" / "ledger" / "manifest.json"

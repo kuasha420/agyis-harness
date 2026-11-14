@@ -147,14 +147,19 @@ class TestVerifyCommand(unittest.TestCase):
         self.assertEqual(data["status"], "failed")
 
     def test_cmd_verify_delegates_to_rea_when_available(self) -> None:
-        """Verifies delegation to 'rea verify-reconstruction' when rea is in PATH."""
+        """Verifies delegation to 'rea build-reconstruction-obligation-ledger' when typed ledger exists."""
+        ledger_dir = self.workspace / ".agents" / "ledger"
+        ledger_dir.mkdir(parents=True, exist_ok=True)
+        typed_ledger = ledger_dir / "obligation_ledger.json"
+        typed_ledger.write_text("{}", encoding="utf-8")
+
         args = argparse.Namespace(
             workspace=self.workspace,
             spec=False,
             json=False,
         )
         mock_proc = subprocess.CompletedProcess(
-            args=["rea", "verify-reconstruction"],
+            args=["rea", "build-reconstruction-obligation-ledger", str(typed_ledger)],
             returncode=0,
             stdout="REA reconstruction verified: 10/10 obligations",
             stderr="",
@@ -165,21 +170,27 @@ class TestVerifyCommand(unittest.TestCase):
             code = cmd_verify(args)
             self.assertEqual(code, 0)
             mock_run.assert_called_once_with(
-                ["rea", "verify-reconstruction"],
+                ["rea", "build-reconstruction-obligation-ledger", str(typed_ledger)],
                 cwd=str(self.workspace),
                 capture_output=True,
                 text=True,
+                timeout=30.0,
             )
 
     def test_cmd_verify_rea_failure_returns_1(self) -> None:
-        """Verifies that failing rea verify-reconstruction delegates and returns error code."""
+        """Verifies that failing rea build-reconstruction-obligation-ledger returns error code."""
+        ledger_dir = self.workspace / ".agents" / "ledger"
+        ledger_dir.mkdir(parents=True, exist_ok=True)
+        typed_ledger = ledger_dir / "obligation_ledger.json"
+        typed_ledger.write_text("{}", encoding="utf-8")
+
         args = argparse.Namespace(
             workspace=self.workspace,
             spec=False,
             json=False,
         )
         mock_proc = subprocess.CompletedProcess(
-            args=["rea", "verify-reconstruction"],
+            args=["rea", "build-reconstruction-obligation-ledger", str(typed_ledger)],
             returncode=1,
             stdout="",
             stderr="Unsatisfied obligation: OBL-042",
@@ -191,6 +202,25 @@ class TestVerifyCommand(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("Verification failed", mock_err.getvalue())
             self.assertIn("Unsatisfied obligation: OBL-042", mock_err.getvalue())
+
+    def test_cmd_verify_rea_timeout_falls_back_gracefully(self) -> None:
+        """Verifies cmd_verify handles REA subprocess timeout gracefully (DEF-REVIEW-003)."""
+        ledger_dir = self.workspace / ".agents" / "ledger"
+        ledger_dir.mkdir(parents=True, exist_ok=True)
+        typed_ledger = ledger_dir / "obligation_ledger.json"
+        typed_ledger.write_text("{}", encoding="utf-8")
+
+        args = argparse.Namespace(
+            workspace=self.workspace,
+            spec=False,
+            json=False,
+        )
+        with patch("shutil.which", return_value="/usr/local/bin/rea"), \
+             patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["rea"], timeout=30.0)), \
+             patch("sys.stderr", new_callable=io.StringIO):
+            code = cmd_verify(args)
+            # Timeout falls through to native verification (which returns 1 since ledger is empty)
+            self.assertEqual(code, 1)
 
     def test_cli_main_verify_integration(self) -> None:
         """Verifies running 'verify' through harness.cli.main dispatcher."""

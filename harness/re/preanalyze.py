@@ -207,13 +207,31 @@ def preanalyze_binary(
             "indexed_symbols": counts,
         }
 
+    # Ensure project_dir passed to analyzeHeadless does not contain a leading '.' component (DEF-BB-038)
+    # Ghidra ProjectLocator / NamingUtilities.checkName raises IllegalArgumentException
+    # if any path component in <project_location> starts with '.'
+    ghidra_project_location = ghidra_dir
+    if any(part.startswith(".") for part in ghidra_dir.parts):
+        parent_dir = root.parent
+        symlink_alias = parent_dir / "dirtyroom"
+        if not symlink_alias.exists() and not symlink_alias.is_symlink():
+            try:
+                symlink_alias.symlink_to(".dirtyroom", target_is_directory=True)
+            except OSError:
+                pass
+        if symlink_alias.exists() or symlink_alias.is_symlink():
+            non_dot_dir = symlink_alias / "ghidra"
+            if not any(part.startswith(".") for part in non_dot_dir.parts):
+                ghidra_project_location = non_dot_dir
+
     # Build headless Ghidra command
     cmd = [
         str(headless),
-        str(ghidra_dir),
+        str(ghidra_project_location),
         proj_name,
     ]
-    if overwrite or not gpr_file.exists():
+    has_gpr = gpr_file.exists() or (ghidra_project_location / f"{proj_name}.gpr").exists()
+    if overwrite or not has_gpr:
         cmd.extend(["-import", str(b_path), "-overwrite"])
     else:
         cmd.extend(["-process", b_path.name])

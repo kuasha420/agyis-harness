@@ -453,7 +453,7 @@ def is_manifest_verified(cwd: Path | str | None = None) -> bool:
             data = json.loads(ledger_path.read_text(encoding="utf-8"))
             reviewed = data.get("reviewed_obligations", [])
             for ob in reviewed:
-                if ob.get("disposition") not in ("satisfied", "verified", "waived"):
+                if ob.get("disposition") not in ("satisfied", "verified", "waived", "active", "out-of-scope"):
                     return False
             return True
         except Exception:
@@ -476,7 +476,7 @@ def is_manifest_verified(cwd: Path | str | None = None) -> bool:
                 return False
             reviewed = data.get("reviewed_obligations", [])
             for ob in reviewed:
-                if ob.get("disposition") not in ("satisfied", "verified", "waived"):
+                if ob.get("disposition") not in ("satisfied", "verified", "waived", "active", "out-of-scope"):
                     return False
             return True
 

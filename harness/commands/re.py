@@ -297,10 +297,46 @@ def cmd_decompile(args: argparse.Namespace) -> int:
         print("[!] No binary specified and no binary registered in dirtyroom. Use --binary <name>.", file=sys.stderr)
         return 1
 
+    # PSL-INV-009 §1 Guard: Binaries > 10MB must be pre-analyzed (DEF-BB-039)
+    bin_path = resolve_binary_path(binary)
+    if not bin_path and Path(binary).is_file():
+        bin_path = Path(binary)
+
+    if bin_path and bin_path.is_file():
+        file_size = bin_path.stat().st_size
+        if file_size > 10 * 1024 * 1024:
+            has_gpr = False
+            cand_dirs = []
+            env_dir = os.environ.get("REA_GHIDRA_PROJECT_DIR")
+            if env_dir:
+                cand_dirs.append(Path(env_dir))
+            root = get_dirtyroom_root()
+            if root:
+                cand_dirs.append(root / "ghidra")
+                if root.parent:
+                    cand_dirs.append(root.parent / "dirtyroom" / "ghidra")
+            cand_dirs.extend([Path(".dirtyroom/ghidra"), Path("dirtyroom/ghidra")])
+            for cd in cand_dirs:
+                if cd.is_dir() and any(cd.glob("*.gpr")):
+                    has_gpr = True
+                    break
+
+            if not has_gpr:
+                size_mb = file_size / (1024 * 1024)
+                target = binary
+                print(
+                    f"[!] PSL-INV-009 §1 Violation: Target binary '{target}' exceeds 10MB ({size_mb:.1f}MB) and is not pre-analyzed. Run 'agyis re preanalyze {target}' first to prevent decompiler timeout.",
+                    file=sys.stderr,
+                )
+                return 1
+
     cmd = [rea_bin, "decompile", str(binary), "--procedure", str(proc)]
     try:
-        res = subprocess.run(cmd, check=False)
+        res = subprocess.run(cmd, check=False, timeout=15.0)
         return res.returncode
+    except subprocess.TimeoutExpired:
+        print("[!] PSL-INV-009 §2 Benchmark Violation: Decompilation exceeded 15s SLA (potential cache bypass).", file=sys.stderr)
+        return 1
     except Exception as e:
         print(f"[!] Error executing rea decompile: {e}", file=sys.stderr)
         return 1
@@ -529,7 +565,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_patch.add_argument("--json", action="store_true", help="Output JSON")
 
     # pre-analyze
-    p_pre = sub.add_parser("pre-analyze", help="Pre-analyze binary with headless Ghidra")
+    p_pre = sub.add_parser("pre-analyze", aliases=["preanalyze"], help="Pre-analyze binary with headless Ghidra")
     p_pre.add_argument("binary", help="Target binary path (PE/ELF/Mach-O)")
     p_pre.add_argument("--project", help="Ghidra project name")
     p_pre.add_argument("--overwrite", action="store_true", help="Overwrite existing project entry")
@@ -572,7 +608,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_init(args)
     if args.re_cmd == "patch-rea":
         return cmd_patch_rea(args)
-    if args.re_cmd == "pre-analyze":
+    if args.re_cmd in ("pre-analyze", "preanalyze"):
         return cmd_preanalyze(args)
     if args.re_cmd == "find":
         return cmd_find(args)

@@ -17,6 +17,8 @@ import shutil
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 
+from harness.runtime.tool_checks_rea import is_ghidra_12_2_installed
+
 PATCH_SIGNATURE = "REA_GHIDRA_PROJECT_DIR"
 
 LAUNCHER_SNIPPET = """    const projectDir = process.env.REA_GHIDRA_PROJECT_DIR || (process.env.AGYIS_DIRTYROOM ? scriptPath.join(process.env.AGYIS_DIRTYROOM, "ghidra") : (process.env.IMMORTAL_DIRTYROOM ? scriptPath.join(process.env.IMMORTAL_DIRTYROOM, "ghidra") : undefined));
@@ -164,6 +166,7 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
 
     launcher_patched = False
     mcp_patched = False
+    policy_patched = False
 
     if launcher and launcher.is_file():
         try:
@@ -176,6 +179,14 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
         try:
             content = mcp_binary.read_text(encoding="utf-8", errors="ignore")
             mcp_patched = PATCH_SIGNATURE in content
+        except Exception:
+            pass
+
+    policy_file = root / "dist" / "ghidra" / "GhidraReleasePolicy.js"
+    if policy_file.is_file():
+        try:
+            p_content = policy_file.read_text(encoding="utf-8", errors="ignore")
+            policy_patched = 'SUPPORTED_GHIDRA_VERSION = "12.2"' in p_content
         except Exception:
             pass
 
@@ -194,8 +205,10 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
         "rea_root": str(root),
         "launcher_patched": launcher_patched,
         "mcp_patched": mcp_patched,
+        "policy_patched": policy_patched,
         "launcher_path": str(launcher) if launcher else None,
         "mcp_path": str(mcp_binary) if mcp_binary else None,
+        "policy_path": str(policy_file) if policy_file.is_file() else None,
         "message": msg,
     }
 
@@ -285,6 +298,21 @@ def apply_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
         else:
             return {"success": False, "error": f"Target marker not found in {mcp_binary.name}"}
 
+    # 3. Patch GhidraReleasePolicy.js if Ghidra 12.2 is installed (DEF-BB-040)
+    policy_file = root / "dist" / "ghidra" / "GhidraReleasePolicy.js"
+    if policy_file.is_file() and is_ghidra_12_2_installed():
+        p_content = policy_file.read_text(encoding="utf-8")
+        if 'SUPPORTED_GHIDRA_VERSION = "12.1.4"' in p_content:
+            p_orig = policy_file.with_suffix(".js.orig")
+            if not p_orig.is_file():
+                p_orig.write_text(p_content, encoding="utf-8")
+            p_content = p_content.replace(
+                'SUPPORTED_GHIDRA_VERSION = "12.1.4"',
+                'SUPPORTED_GHIDRA_VERSION = "12.2"',
+            )
+            policy_file.write_text(p_content, encoding="utf-8")
+            applied_files.append(str(policy_file))
+
     return {
         "success": True,
         "applied_files": applied_files,
@@ -314,6 +342,14 @@ def revert_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
             shutil.copy2(orig, mcp_binary)
             orig.unlink()
             reverted_files.append(str(mcp_binary))
+
+    policy_file = root / "dist" / "ghidra" / "GhidraReleasePolicy.js"
+    if policy_file.is_file():
+        p_orig = policy_file.with_suffix(".js.orig")
+        if p_orig.is_file():
+            shutil.copy2(p_orig, policy_file)
+            p_orig.unlink()
+            reverted_files.append(str(policy_file))
 
     return {
         "success": True,

@@ -32,6 +32,7 @@ __all__ = [
     "find_hermetic_uv_python",
     "find_jdk21_path",
     "find_rea_binary",
+    "is_ghidra_12_2_installed",
     "is_rea_mcp_configured",
     "is_rea_node_compatible",
     "parse_version",
@@ -437,5 +438,6 @@ from .tool_checks_rea import (  # noqa: E402, F401
     configure_rea_mcp_server,
     find_jdk21_path,
     find_rea_binary,
+    is_ghidra_12_2_installed,
     is_rea_mcp_configured,
 )

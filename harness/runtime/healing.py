@@ -179,6 +179,12 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
                 ghidra_dir = str(cand)
                 break
 
+    from harness.runtime.tool_checks import is_ghidra_12_2_installed
+    if not discovered_jdk and is_ghidra_12_2_installed(ghidra_dir):
+        cand27 = Path("/usr/lib/jvm/java-27-openjdk")
+        if cand27.is_dir():
+            discovered_jdk = cand27
+
     configured_paths, config_errors = configure_rea_mcp_server(
         jdk21_path=discovered_jdk,
         ghidra_dir=ghidra_dir,

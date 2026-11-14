@@ -178,12 +178,22 @@ def scaffold_dirtyroom(
         init_dirtyroom_db(db_file)
         db_created = True
 
+    # 2b. Non-dot symlink for Ghidra compatibility (DEF-BB-038)
+    # Ghidra rejects any path component starting with '.' in project locations
+    symlink_alias = target / "dirtyroom"
+    if not symlink_alias.exists() and not symlink_alias.is_symlink():
+        try:
+            symlink_alias.symlink_to(".dirtyroom", target_is_directory=True)
+        except OSError:
+            pass
+
     # 3. Environment Export file
     env_file = dirty_dir / "dirtyroom.env"
     if not env_file.exists():
+        ghidra_proj_dir = f"{target}/dirtyroom/ghidra" if (symlink_alias.exists() or symlink_alias.is_symlink()) else f"{dirty_dir}/ghidra"
         env_content = f"""# Agyis Dirty-Room Environment Configuration (ADR-028, PSL-INV-009)
 export AGYIS_DIRTYROOM="{dirty_dir}"
-export REA_GHIDRA_PROJECT_DIR="{dirty_dir}/ghidra"
+export REA_GHIDRA_PROJECT_DIR="{ghidra_proj_dir}"
 export REA_GHIDRA_PROJECT_NAME="{project_name}"
 export REA_DISASSEMBLER="ghidra"
 """
@@ -207,6 +217,7 @@ export REA_DISASSEMBLER="ghidra"
     return {
         "success": True,
         "dirtyroom_root": str(dirty_dir),
+        "symlink_alias": str(symlink_alias) if (symlink_alias.exists() or symlink_alias.is_symlink()) else None,
         "created_dirs": created_dirs,
         "db_path": str(db_file),
         "db_created": db_created,

@@ -14,7 +14,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from harness.hooks.command_safety_hook import (
     normalize_mcp_tool_call,
@@ -78,6 +78,11 @@ class TestDirtyroomScaffolding(unittest.TestCase):
         self.assertIn("idx_strings_value", indexes)
         conn.close()
 
+        # Verify non-dot symlink exists (DEF-BB-038)
+        symlink_alias = self.workspace / "dirtyroom"
+        self.assertTrue(symlink_alias.is_symlink() or symlink_alias.is_dir())
+        self.assertEqual(symlink_alias.resolve(), dirty_dir.resolve())
+
         # Verify env file
         env_file = dirty_dir / "dirtyroom.env"
         self.assertTrue(env_file.is_file())
@@ -93,6 +98,27 @@ class TestDirtyroomScaffolding(unittest.TestCase):
         db_conn = get_dirtyroom_db(dirty_dir)
         self.assertIsNotNone(db_conn)
         db_conn.close()
+
+    def test_preanalyze_binary_resolves_nondot_ghidra_dir(self):
+        """Verifies preanalyze_binary uses non-dot symlink to satisfy Ghidra path invariants (DEF-BB-038)."""
+        from harness.re.preanalyze import preanalyze_binary
+        from unittest.mock import MagicMock
+
+        bin_path = self.workspace / "test.bin"
+        bin_path.write_bytes(b"\x90" * 64)
+        scaffold_dirtyroom(self.workspace)
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+
+        with patch("harness.re.preanalyze.find_ghidra_headless", return_value=Path("/opt/ghidra/support/analyzeHeadless")), \
+             patch("subprocess.run", return_value=mock_proc) as mock_run:
+            res = preanalyze_binary(bin_path)
+            self.assertTrue(res["success"])
+            call_cmd = mock_run.call_args[0][0]
+            project_dir_arg = call_cmd[1]
+            parts = Path(project_dir_arg).parts
+            self.assertFalse(any(p.startswith(".") for p in parts), f"Path components must not start with '.': {parts}")
 
 
 class TestReaPatcherLifecycle(unittest.TestCase):
@@ -130,6 +156,14 @@ class TestReaPatcherLifecycle(unittest.TestCase):
             encoding="utf-8",
         )
 
+        # Create unpatched GhidraReleasePolicy.js (DEF-BB-040)
+        self.policy = self.ghidra_dir / "GhidraReleasePolicy.js"
+        self.policy.write_text(
+            'export const SUPPORTED_GHIDRA_VERSION = "12.1.4";\n'
+            'export const SUPPORTED_GHIDRA_JAVA_MAJOR = 21;\n',
+            encoding="utf-8",
+        )
+
     def tearDown(self):
         self.temp_dir.cleanup()
 
@@ -140,33 +174,41 @@ class TestReaPatcherLifecycle(unittest.TestCase):
         self.assertFalse(res["mcp_patched"])
 
     def test_apply_and_revert_patch_roundtrip(self):
-        # 1. Apply patch
-        apply_res = apply_patch(self.mock_rea)
-        self.assertTrue(apply_res["success"])
+        with patch("harness.re.patcher.is_ghidra_12_2_installed", return_value=True):
+            # 1. Apply patch
+            apply_res = apply_patch(self.mock_rea)
+            self.assertTrue(apply_res["success"])
 
-        # Check patched files
-        check_res = check_patch(self.mock_rea)
-        self.assertEqual(check_res["status"], "applied")
-        self.assertTrue(check_res["launcher_patched"])
-        self.assertTrue(check_res["mcp_patched"])
+            # Check patched files
+            check_res = check_patch(self.mock_rea)
+            self.assertEqual(check_res["status"], "applied")
+            self.assertTrue(check_res["launcher_patched"])
+            self.assertTrue(check_res["mcp_patched"])
+            self.assertTrue(check_res["policy_patched"])
 
-        l_content = self.launcher.read_text(encoding="utf-8")
-        self.assertIn(PATCH_SIGNATURE, l_content)
-        self.assertIn("-noanalysis", l_content)
-        self.assertIn("-readOnly", l_content)
+            l_content = self.launcher.read_text(encoding="utf-8")
+            self.assertIn(PATCH_SIGNATURE, l_content)
+            self.assertIn("-noanalysis", l_content)
+            self.assertIn("-readOnly", l_content)
 
-        # Verify .orig backups exist
-        self.assertTrue(self.launcher.with_suffix(".js.orig").is_file())
-        self.assertTrue(self.mcp_binary.with_suffix(".js.orig").is_file())
+            p_content = self.policy.read_text(encoding="utf-8")
+            self.assertIn('SUPPORTED_GHIDRA_VERSION = "12.2"', p_content)
 
-        # 2. Revert patch
-        rev_res = revert_patch(self.mock_rea)
-        self.assertTrue(rev_res["success"])
+            # Verify .orig backups exist
+            self.assertTrue(self.launcher.with_suffix(".js.orig").is_file())
+            self.assertTrue(self.mcp_binary.with_suffix(".js.orig").is_file())
+            self.assertTrue(self.policy.with_suffix(".js.orig").is_file())
 
-        check_after = check_patch(self.mock_rea)
-        self.assertEqual(check_after["status"], "unapplied")
-        self.assertFalse(self.launcher.with_suffix(".js.orig").exists())
-        self.assertNotIn(PATCH_SIGNATURE, self.launcher.read_text(encoding="utf-8"))
+            # 2. Revert patch
+            rev_res = revert_patch(self.mock_rea)
+            self.assertTrue(rev_res["success"])
+
+            check_after = check_patch(self.mock_rea)
+            self.assertEqual(check_after["status"], "unapplied")
+            self.assertFalse(self.launcher.with_suffix(".js.orig").exists())
+            self.assertFalse(self.policy.with_suffix(".js.orig").exists())
+            self.assertNotIn(PATCH_SIGNATURE, self.launcher.read_text(encoding="utf-8"))
+            self.assertIn('SUPPORTED_GHIDRA_VERSION = "12.1.4"', self.policy.read_text(encoding="utf-8"))
 
 
 class TestReaMcpSchemaNormalizerHook(unittest.TestCase):
@@ -410,6 +452,101 @@ class TestReaMcpSchemaNormalizerHook(unittest.TestCase):
             self.assertNotIn("api_key", mod_args["Arguments"])
             self.assertNotIn("MaxResults", mod_args["Arguments"])
             self.assertNotIn("filter_query", mod_args["Arguments"])
+
+
+class TestCmdDecompilePSLINV009(unittest.TestCase):
+    """Verifies PSL-INV-009 §1 pre-analyzed cache enforcement in cmd_decompile (DEF-BB-039)."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_cmd_decompile_rejects_large_binary_without_gpr(self):
+        from harness.commands.re import cmd_decompile
+        import argparse
+        import io
+
+        large_bin = self.workspace / "LargeApp.exe"
+        with open(large_bin, "wb") as f:
+            f.seek(12 * 1024 * 1024 - 1)
+            f.write(b"\0")
+
+        args = argparse.Namespace(
+            procedure="main",
+            binary=str(large_bin),
+        )
+        err_buf = io.StringIO()
+        with patch("shutil.which", return_value="/usr/local/bin/rea"), \
+             patch("sys.stderr", err_buf), \
+             patch("os.getcwd", return_value=str(self.workspace)):
+            code = cmd_decompile(args)
+            self.assertEqual(code, 1)
+            err_msg = err_buf.getvalue()
+            self.assertIn("PSL-INV-009 §1 Violation", err_msg)
+            self.assertIn("exceeds 10MB (12.0MB)", err_msg)
+            self.assertIn("Run 'agyis re preanalyze", err_msg)
+
+    def test_cmd_decompile_allows_large_binary_with_gpr(self):
+        from harness.commands.re import cmd_decompile
+        import argparse
+        import subprocess
+
+        large_bin = self.workspace / "LargeApp.exe"
+        with open(large_bin, "wb") as f:
+            f.seek(12 * 1024 * 1024 - 1)
+            f.write(b"\0")
+
+        ghidra_dir = self.workspace / ".dirtyroom" / "ghidra"
+        ghidra_dir.mkdir(parents=True, exist_ok=True)
+        (ghidra_dir / "LargeApp.gpr").write_text("<project/>", encoding="utf-8")
+
+        args = argparse.Namespace(
+            procedure="main",
+            binary=str(large_bin),
+        )
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+
+        with patch("shutil.which", return_value="/usr/local/bin/rea"), \
+             patch("subprocess.run", return_value=mock_proc) as mock_run, \
+             patch("harness.commands.re.get_dirtyroom_root", return_value=self.workspace / ".dirtyroom"):
+            code = cmd_decompile(args)
+            self.assertEqual(code, 0)
+            mock_run.assert_called_once()
+
+    def test_cmd_decompile_timeout_expired_prints_sla_violation(self):
+        """Verifies PSL-INV-009 §2 benchmark violation on decompilation timeout (DEF-REVIEW-002)."""
+        from harness.commands.re import cmd_decompile
+        import argparse
+        import io
+        import subprocess
+
+        small_bin = self.workspace / "SmallApp.exe"
+        small_bin.write_bytes(b"\x90" * 100)
+
+        args = argparse.Namespace(
+            procedure="main",
+            binary=str(small_bin),
+        )
+        err_buf = io.StringIO()
+        with patch("shutil.which", return_value="/usr/local/bin/rea"), \
+             patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["rea"], timeout=15.0)), \
+             patch("sys.stderr", err_buf):
+            code = cmd_decompile(args)
+            self.assertEqual(code, 1)
+            self.assertIn("PSL-INV-009 §2 Benchmark Violation", err_buf.getvalue())
+            self.assertIn("exceeded 15s SLA", err_buf.getvalue())
+
+    def test_preanalyze_alias_dispatches_correctly(self):
+        """Verifies 'preanalyze' alias is recognized in re subcommand (DEF-REVIEW-001)."""
+        from harness.commands.re import main as re_main
+        with patch("harness.commands.re.cmd_preanalyze", return_value=0) as mock_cmd:
+            code = re_main(["preanalyze", "/tmp/nonexistent.bin"])
+            self.assertEqual(code, 0)
+            mock_cmd.assert_called_once()
 
 
 if __name__ == "__main__":

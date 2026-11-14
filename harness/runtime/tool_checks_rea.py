@@ -159,13 +159,44 @@ def _is_jdk21_or_higher(jdk_path: Path) -> bool:
     return False
 
 
+def is_ghidra_12_2_installed(ghidra_dir: Optional[str] = None) -> bool:
+    """Checks whether Ghidra 12.2 is detected in the environment (DEF-BB-040)."""
+    path_cls = _tc_attr("Path", Path)
+    candidates = []
+    if ghidra_dir:
+        candidates.append(path_cls(ghidra_dir))
+    env_dir = os.environ.get("GHIDRA_INSTALL_DIR") or os.environ.get("GHIDRA_HOME")
+    if env_dir:
+        candidates.append(path_cls(env_dir))
+    candidates.extend([
+        path_cls("/opt/ghidra"),
+        path_cls("/usr/share/ghidra"),
+        path_cls("/usr/local/opt/ghidra"),
+    ])
+    for base in candidates:
+        for prop in [
+            base / "Ghidra" / "application.properties",
+            base / "application.properties",
+        ]:
+            if prop.is_file():
+                try:
+                    txt = prop.read_text(encoding="utf-8", errors="ignore")
+                    if "application.version=12.2" in txt:
+                        return True
+                except OSError:
+                    pass
+    return False
+
+
 def find_jdk21_path() -> Optional[Path]:
     """
     Discovers OpenJDK 21+ installation directory across environment and standard platform paths.
     Validates that release file or java -version indicates >= 21.
+    If Ghidra 12.2 is detected, injects/prefers OpenJDK 27 (DEF-BB-040).
     """
     path_cls = _tc_attr("Path", Path)
     jdk_check = _tc_attr("_is_jdk21_or_higher", _is_jdk21_or_higher)
+    ghidra_12_check = _tc_attr("is_ghidra_12_2_installed", is_ghidra_12_2_installed)
 
     env_java_home = os.environ.get("JAVA_HOME")
     if env_java_home and env_java_home.strip():
@@ -177,8 +208,18 @@ def find_jdk21_path() -> Optional[Path]:
             # Accommodate mock/symlink JDK 21+ paths that may not be mounted
             return cand
 
+    # If Ghidra 12.2 is detected, prefer Java 27 (DEF-BB-040)
+    if ghidra_12_check():
+        cand27 = path_cls("/usr/lib/jvm/java-27-openjdk")
+        try:
+            if cand27.is_dir() and jdk_check(cand27):
+                return cand27.resolve()
+        except OSError:
+            pass
+
     system_candidates = [
         # Linux / Arch / Fedora / Debian / Ubuntu
+        path_cls("/usr/lib/jvm/java-27-openjdk"),
         path_cls("/usr/lib/jvm/java-21-openjdk"),
         path_cls("/usr/lib/jvm/default"),
         path_cls("/usr/lib/jvm/temurin-21"),
