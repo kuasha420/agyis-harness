@@ -29,7 +29,7 @@ import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from harness.utils.state import get_state_dir
+from harness.utils.state import atomic_write_json, atomic_write_text, get_state_dir
 
 # Configuration Constants
 MAX_OUTPUT_CHARS = 2048
@@ -254,21 +254,13 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
 
     try:
         # Write latest compaction metadata
-        (target_state_dir / f"compactor_{conv_id}.json").write_text(
-            json.dumps(record, indent=2), encoding="utf-8"
-        )
-        (target_state_dir / "last_compaction.json").write_text(
-            json.dumps(record, indent=2), encoding="utf-8"
-        )
+        atomic_write_json(target_state_dir / f"compactor_{conv_id}.json", record, indent=2)
+        atomic_write_json(target_state_dir / "last_compaction.json", record, indent=2)
 
         # Write compacted output if compacted or needed for inspection
         if was_compacted:
-            (target_state_dir / f"compacted_{conv_id}_{step_idx}.txt").write_text(
-                compacted, encoding="utf-8"
-            )
-            (target_state_dir / "last_compacted_output.txt").write_text(
-                compacted, encoding="utf-8"
-            )
+            atomic_write_text(target_state_dir / f"compacted_{conv_id}_{step_idx}.txt", compacted, encoding="utf-8")
+            atomic_write_text(target_state_dir / "last_compacted_output.txt", compacted, encoding="utf-8")
 
         # Append to diagnostic log
         log_line = (

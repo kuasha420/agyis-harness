@@ -465,12 +465,15 @@ def read_db_trajectory_state(
         return base_metrics
 
     db_path = (db_dir or get_conversations_dir()) / f"{norm_cid}.db"
-    if not db_path.is_file():
-        cand = Path(conversation_id)
-        if cand.is_file():
-            db_path = cand
-        else:
-            return base_metrics
+    try:
+        if not db_path.is_file():
+            cand = Path(conversation_id)
+            if cand.is_file():
+                db_path = cand
+            else:
+                return base_metrics
+    except (PermissionError, OSError):
+        return base_metrics
 
     eff_timeout = min(float(timeout), 0.5) if (timeout is not None and float(timeout) > 0) else 0.5
     conn: Optional[sqlite3.Connection] = None

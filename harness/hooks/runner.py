@@ -179,27 +179,27 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
             try:
                 if hasattr(sys.stdin, "isatty") and not sys.stdin.isatty():
                     if hasattr(sys.stdin, "buffer"):
-                        raw_bytes = sys.stdin.buffer.read(524_288)
+                        raw_bytes = sys.stdin.buffer.read(10_485_760)
                         payload_str = raw_bytes.decode("utf-8", errors="replace")
                     else:
-                        payload_str = sys.stdin.read(524_288)
+                        payload_str = sys.stdin.read(10_485_760)
                 elif not hasattr(sys.stdin, "isatty"):
                     if hasattr(sys.stdin, "buffer"):
-                        raw_bytes = sys.stdin.buffer.read(524_288)
+                        raw_bytes = sys.stdin.buffer.read(10_485_760)
                         payload_str = raw_bytes.decode("utf-8", errors="replace")
                     else:
-                        payload_str = sys.stdin.read(524_288)
+                        payload_str = sys.stdin.read(10_485_760)
                 else:
                     payload_str = ""
             except Exception:
                 payload_str = ""
         elif isinstance(payload_str, (bytes, bytearray)):
-            if len(payload_str) > 524_288:
-                payload_str = payload_str[:524_288]
+            if len(payload_str) > 10_485_760:
+                payload_str = payload_str[:10_485_760]
             payload_str = payload_str.decode("utf-8", errors="replace")
         elif isinstance(payload_str, str):
-            if len(payload_str) > 524_288:
-                payload_str = payload_str[:524_288]
+            if len(payload_str) > 10_485_760:
+                payload_str = payload_str[:10_485_760]
 
         is_post = is_post_tool_use_context(hook_name, payload_str)
         if is_post:

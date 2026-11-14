@@ -221,11 +221,32 @@ def record_verification(
 ) -> dict:
     """
     Records test verification results with verification tier tracking (RFC-051 Phase 2 R4).
-    If successful, clears code_dirty, spec_dirty, turn_mutated, resets last_modified_files,
-    records verified_tier, and clears session_modified_files if tier in ('pkg', 'full').
+    If successful:
+    - If tier is 'spec', clears spec_dirty, updates verified_tier, and does NOT clear code_dirty.
+    - Otherwise, clears code_dirty, spec_dirty, turn_mutated, resets last_modified_files,
+      records verified_tier, and clears session_modified_files if tier in ('pkg', 'full').
     """
     state = load_state(conv_id=conv_id, state_dir=state_dir)
     if success:
+        if tier == "spec":
+            state["spec_dirty"] = False
+            state["last_verified_at"] = datetime.now(timezone.utc).isoformat()
+            state["verified_tier"] = "spec"
+            state["last_modified_files"] = [
+                f for f in state.get("last_modified_files", [])
+                if not is_cleanroom_contract_file(f)
+            ]
+            state["turn_modified_files"] = [
+                f for f in state.get("turn_modified_files", [])
+                if not is_cleanroom_contract_file(f)
+            ]
+            if not state.get("code_dirty", False):
+                if not state.get("turn_modified_files"):
+                    state["turn_mutated"] = False
+                state["block_count"] = 0
+            save_state(state, conv_id=conv_id, state_dir=state_dir)
+            return state
+
         state["code_dirty"] = False
         state["spec_dirty"] = False
         state["turn_mutated"] = False
@@ -246,6 +267,11 @@ def record_verification(
             state["session_modified_files"] = []
         save_state(state, conv_id=conv_id, state_dir=state_dir)
     else:
+        if tier == "spec":
+            state["spec_dirty"] = True
+            state["verified_tier"] = None
+            save_state(state, conv_id=conv_id, state_dir=state_dir)
+            return state
         state["code_dirty"] = True
         state["verified_tier"] = None
         if tier == "mutation":  # agyis: no-mutant failure mutation tier check

@@ -164,16 +164,16 @@ class TestTier2Boundaries(OpaqueBoxTestCase):
 
     def test_b2_03_negative_signal_exit_codes(self) -> None:
         """Assures commands terminated by signals (e.g. exit code 137 or -9) do not clear dirty state."""
-        conv_id = "c_b2_03"
         ws_file = str(self.ws / "src" / "main.py")
 
-        self.run_hook("verification-fence", {
-            "conversationId": conv_id,
-            "cwd": str(self.ws),
-            "toolCall": {"name": "write_to_file", "args": {"TargetFile": ws_file}},
-        })
-
         for sig_code in (-9, 137, 143):
+            conv_id = f"c_b2_03_{abs(sig_code)}"
+            self.run_hook("verification-fence", {
+                "conversationId": conv_id,
+                "cwd": str(self.ws),
+                "toolCall": {"name": "write_to_file", "args": {"TargetFile": ws_file}},
+            })
+
             self.run_hook("verification-fence", {
                 "conversationId": conv_id,
                 "cwd": str(self.ws),

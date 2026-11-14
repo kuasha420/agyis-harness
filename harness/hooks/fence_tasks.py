@@ -300,10 +300,6 @@ def check_command_verification(
     tier = classify_test_tier(command)
     success = (exit_code == 0)
     record_verification(success=success, tier=tier, conv_id=conv_id, state_dir=state_dir)
-    if not success:
-        state = load_state(conv_id=conv_id, state_dir=state_dir)
-        state["block_count"] = 0
-        save_state(state, conv_id=conv_id, state_dir=state_dir)
     return True
 
 

@@ -119,7 +119,10 @@ def ensure_volume_columns(conn: sqlite3.Connection) -> None:
     ]
     for col_name, col_type in new_cols:
         if col_name not in existing_cols:
-            cur.execute(f"ALTER TABLE tool_calls ADD COLUMN {col_name} {col_type}")
+            try:
+                cur.execute(f"ALTER TABLE tool_calls ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass
 
     cur.execute("CREATE INDEX IF NOT EXISTS idx_tools_category ON tool_calls(command_category)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_tools_output_len ON tool_calls(output_length_chars)")
@@ -229,13 +232,23 @@ def extract_session(
         for line in f:
             if line.strip():
                 try:
-                    steps.append(json.loads(line))
+                    obj = json.loads(line)
+                    if isinstance(obj, dict):
+                        steps.append(obj)
                 except Exception:
                     continue
 
     if not steps:
         return None
-    steps.sort(key=lambda s: s.get("step_index", 0))
+
+    def _step_key(s: Any) -> int:
+        if isinstance(s, dict):
+            idx = s.get("step_index")
+            if isinstance(idx, int):
+                return idx
+        return 0
+
+    steps.sort(key=_step_key)
     start_time, end_time = steps[0].get("created_at"), steps[-1].get("created_at")
     duration_s = calculate_duration(start_time, end_time)
 
@@ -244,12 +257,20 @@ def extract_session(
     tool_calls_extracted: List[Dict[str, Any]] = []
     interventions_extracted: List[Dict[str, Any]] = []
     has_errors, tool_error_count = False, 0
-    step_by_idx = {s.get("step_index", 0): s for s in steps}
+    step_by_idx = {
+        s.get("step_index"): s
+        for s in steps
+        if isinstance(s, dict) and isinstance(s.get("step_index"), int)
+    }
     recent_tool_failed, recent_tool_name, recent_error_snippet = False, "", ""
     last_tool_sig, repeated_tool_count = None, 0
 
     for i, s in enumerate(steps):
-        s_idx, s_type, source = s.get("step_index", i), s.get("type", "UNKNOWN"), s.get("source", "UNKNOWN")
+        if not isinstance(s, dict):
+            continue
+        raw_idx = s.get("step_index")
+        s_idx = raw_idx if isinstance(raw_idx, int) else i
+        s_type, source = s.get("type", "UNKNOWN"), s.get("source", "UNKNOWN")
         content = str(s.get("content", ""))
 
         if "Model Selection" in content:
@@ -297,9 +318,9 @@ def extract_session(
                 else:
                     last_tool_sig, repeated_tool_count = tool_sig, 1
 
-                res_step = step_by_idx.get(s_idx + 1)
+                res_step = step_by_idx.get(s_idx + 1) if isinstance(s_idx, int) else None
                 t_status, exit_code, err_snippet = "SUCCESS", 0, ""
-                res_content = str(res_step.get("content", "")) if res_step else ""
+                res_content = str(res_step.get("content", "")) if isinstance(res_step, dict) else ""
                 started_at = completed_at = tool_duration = None
 
                 if res_content:
@@ -316,7 +337,7 @@ def extract_session(
                             t_status, has_errors = "FAILED", True
                             tool_error_count += 1
                             err_snippet = res_content[:800]
-                    elif "Encountered error in tool execution:" in res_content or res_step.get("status") == "ERROR":
+                    elif "Encountered error in tool execution:" in res_content or (isinstance(res_step, dict) and res_step.get("status") == "ERROR"):
                         t_status = "ERROR"
                         exit_code = -1
                         has_errors = True

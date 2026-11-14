@@ -18,7 +18,7 @@ from harness.hooks.fence_classifiers import (
     CODE_MUTATION_TOOLS, DECLARATIVE_SPEC_EXTENSIONS,
     ROLE_DEEP_EXECUTION, ROLE_FLIGHT_DIRECTOR, ROLE_SWARM_ORCHESTRATOR, TIER_RANKS,
     check_has_mutable_code, is_cleanroom_contract_file, is_code_file,
-    is_manifest_verified, is_test_file, normalize_role,
+    is_ephemeral_scratch_path, is_manifest_verified, is_test_file, normalize_role,
 )
 from harness.hooks.fence_state import clear_spec_dirty, get_brain_dir, load_state, save_state
 from harness.hooks.fence_tasks import sync_background_tasks
@@ -376,18 +376,27 @@ def evaluate_stop(
     verified_tier = state.get("verified_tier")
 
     # Truth Anchor: reconcile empty last_modified_files against git status
-    if code_dirty and not state.get("last_modified_files", []):
-        git_mods = get_git_modified_files(effective_cwd)
-        if not git_mods:
-            state["code_dirty"] = False
-            state["turn_mutated"] = False
-            state["turn_modified_files"] = []
-            state["block_count"] = 0
-            save_state(state, conv_id=conv_id, state_dir=state_dir)
-            code_dirty = False
-        else:
-            state["last_modified_files"] = git_mods
-            save_state(state, conv_id=conv_id, state_dir=state_dir)
+    if code_dirty:
+        clean_mods = [
+            f for f in state.get("last_modified_files", [])
+            if not is_ephemeral_scratch_path(f, cwd=effective_cwd)
+        ]
+        state["last_modified_files"] = clean_mods
+        if not clean_mods:
+            git_mods = [
+                f for f in get_git_modified_files(effective_cwd)
+                if not is_ephemeral_scratch_path(f, cwd=effective_cwd)
+            ]
+            if not git_mods:
+                state["code_dirty"] = False
+                state["turn_mutated"] = False
+                state["turn_modified_files"] = []
+                state["block_count"] = 0
+                save_state(state, conv_id=conv_id, state_dir=state_dir)
+                code_dirty = False
+            else:
+                state["last_modified_files"] = git_mods
+                save_state(state, conv_id=conv_id, state_dir=state_dir)
 
     session_has_code = any(
         is_code_file(f) or f == "<shell-mutation>" for f in state.get("session_modified_files", [])
@@ -460,7 +469,10 @@ def evaluate_stop(
     if block_count < 2:
         state["block_count"] = block_count + 1
         save_state(state, conv_id=conv_id, state_dir=state_dir)
-        modified_files = state.get("last_modified_files", [])
+        modified_files = [
+            f for f in state.get("last_modified_files", [])
+            if not is_ephemeral_scratch_path(f, cwd=effective_cwd)
+        ]
         files_str = ", ".join(modified_files) if modified_files else "untracked code files"
         has_contract = any(is_cleanroom_contract_file(f) for f in modified_files)
         has_code = any(not is_cleanroom_contract_file(f) or (Path(f).suffix.lower() not in DECLARATIVE_SPEC_EXTENSIONS) for f in modified_files)

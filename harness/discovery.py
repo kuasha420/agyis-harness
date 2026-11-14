@@ -27,6 +27,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 
@@ -166,6 +167,66 @@ def is_git_repo(cwd: Union[Path, str, None] = None) -> bool:
         return False
 
 
+def is_ephemeral_scratch_path(file_path: str, cwd: Path | str | None = None) -> bool:
+    """
+    Determines if a file path represents an ephemeral scratch file or is outside
+    the target workspace root. Scratch files do not trigger code dirty state.
+
+    Rules:
+    1. Paths containing .gemini/antigravity/brain/ and /scratch/ return True.
+    2. When cwd is provided: files outside cwd (not target_path.is_relative_to(workspace_root)) return True.
+    3. When cwd is not provided: paths in system temp directories (/tmp/, /var/tmp/) return True.
+    """
+    if not file_path or not isinstance(file_path, str):
+        return False
+
+    norm = file_path.replace("\\", "/").strip()
+    if norm.startswith("./"):
+        norm = norm[2:]
+
+    # Rule 0: REA ephemeral scratch paths
+    if norm.startswith(".rea/") or "/.rea/" in norm:
+        return True
+    if norm.startswith("decompiled/") or "/decompiled/" in norm:
+        return True
+    if norm.startswith("artifacts/rea/") or "/artifacts/rea/" in norm:
+        return True
+
+    # Rule 1: Antigravity brain and workspace ephemeral scratch paths
+    if ".gemini/antigravity/brain" in norm and "/scratch/" in norm:
+        return True
+    if norm.startswith("scratch/") or "/scratch/" in norm:
+        return True
+    if norm.startswith(".agents/scratch/") or "/.agents/scratch/" in norm:
+        return True
+
+    # Rule 2: When cwd is provided, check if path resolves outside cwd
+    if cwd is not None:
+        try:
+            workspace_root = Path(cwd).resolve()
+            p = Path(file_path)
+            target_path = p.resolve() if p.is_absolute() else (workspace_root / p).resolve()
+            if not target_path.is_relative_to(workspace_root):
+                return True
+        except (ValueError, OSError):
+            pass
+    else:
+        # Rule 3: When cwd is not provided, paths in system temp directories return True
+        if norm.startswith("/tmp/") or norm == "/tmp" or norm.startswith("/var/tmp/") or norm == "/var/tmp":
+            return True
+        try:
+            p = Path(file_path)
+            if p.is_absolute():
+                resolved = p.resolve()
+                for temp_base in (Path("/tmp"), Path("/var/tmp"), Path(tempfile.gettempdir())):
+                    if resolved.is_relative_to(temp_base.resolve()):
+                        return True
+        except (ValueError, OSError):
+            pass
+
+    return False
+
+
 def get_git_modified_files(
     cwd: Union[Path, str, None] = None,
     branch: Optional[str] = None,
@@ -261,7 +322,23 @@ def get_git_modified_files(
                 elif has_head and not branch:
                     modified_files.add(Path(path_part).as_posix())
 
-    # Filter out exempt extensions and directory prefixes
+    # Discover git submodules
+    submodules: Set[str] = set()
+    gm_path = target_dir / ".gitmodules"
+    if gm_path.is_file():
+        try:
+            for line in gm_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if line.startswith("path") and "=" in line:
+                    parts = line.split("=", 1)
+                    if parts[0].strip() == "path":
+                        sub_p = parts[1].strip().replace("\\", "/").rstrip("/")
+                        if sub_p:
+                            submodules.add(sub_p)
+        except Exception:
+            pass
+
+    # Filter out exempt extensions, directory prefixes, submodules, and ephemeral scratch paths
     filtered_files: List[str] = []
     for f in modified_files:
         p = Path(f)
@@ -269,6 +346,13 @@ def get_git_modified_files(
             continue
         posix_str = p.as_posix()
         if posix_str.startswith(".git/") or posix_str.startswith(".system_generated/"):
+            continue
+        if any(posix_str == sm or posix_str.startswith(sm + "/") for sm in submodules):
+            continue
+        target_path = target_dir / posix_str
+        if target_path.is_dir() and ((target_path / ".git").is_file() or (target_path / ".git").is_dir()):
+            continue
+        if is_ephemeral_scratch_path(posix_str, cwd=target_dir):
             continue
         filtered_files.append(posix_str)
 

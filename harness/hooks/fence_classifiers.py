@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 import tempfile
 
-from harness.discovery import detect_project_test_runner
+from harness.discovery import detect_project_test_runner, is_ephemeral_scratch_path
 from harness.trajectory.health import (
     ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR,
@@ -30,7 +30,7 @@ DECLARATIVE_SPEC_EXTENSIONS: frozenset[str] = frozenset({
     ".md", ".markdown", ".json", ".yaml", ".yml", ".proto", ".schema", ".fbs", ".toml", ".txt",
 })
 
-TIER_RANKS: dict[str, int] = {"diff": 1, "affected": 2, "mutation": 2, "pkg": 3, "full": 4}
+TIER_RANKS: dict[str, int] = {"spec": 0, "diff": 1, "affected": 2, "mutation": 2, "pkg": 3, "full": 4}
 
 EXECUTIONER_HORIZON_STEPS: int = SOFT_EPOCH_STEP_ADVISORY
 CODE_MUTATION_TOOLS: frozenset[str] = frozenset({"write_to_file", "replace_file_content", "edit_file"})
@@ -133,6 +133,14 @@ def classify_test_tier(command: str) -> str:
     """Classifies a recognized test command into its verification tier (RFC-051 Phase 2 R4)."""
     cmd_clean = command.strip()
 
+    # Spec tier for cleanroom spec verification
+    if (
+        re.search(r"\b(?:rea\s+(?:verify|verify-reconstruction|evaluate-coverage))\b", cmd_clean)
+        or re.search(r"(?:^|[\s;&|])(?:\./)?(?:agyis|psl)\s+verify\b", cmd_clean)
+        or re.search(r"(?:^|[\s;&|])python3?(?:\.\d+)?\s+-m\s+harness(?:\.cli)?\s+verify\b", cmd_clean)
+    ):
+        return "spec"
+
     # 0. Diff-aware micro-mutation testing
     if "--mutation" in cmd_clean:  # agyis: no-mutant mutation string literal
         return "mutation"
@@ -228,66 +236,6 @@ def is_cleanroom_contract_file(path_str: str) -> bool:
         return True
     if norm.startswith(".agents/ledger/") or "/.agents/ledger/" in norm:
         return True
-
-    return False
-
-
-def is_ephemeral_scratch_path(file_path: str, cwd: Path | str | None = None) -> bool:
-    """
-    Determines if a file path represents an ephemeral scratch file or is outside
-    the target workspace root. Scratch files do not trigger code dirty state.
-
-    Rules:
-    1. Paths containing .gemini/antigravity/brain/ and /scratch/ return True.
-    2. When cwd is provided: files outside cwd (not target_path.is_relative_to(workspace_root)) return True.
-    3. When cwd is not provided: paths in system temp directories (/tmp/, /var/tmp/) return True.
-    """
-    if not file_path or not isinstance(file_path, str):
-        return False
-
-    norm = file_path.replace("\\", "/").strip()
-    if norm.startswith("./"):
-        norm = norm[2:]
-
-    # Rule 0: REA ephemeral scratch paths
-    if norm.startswith(".rea/") or "/.rea/" in norm:
-        return True
-    if norm.startswith("decompiled/") or "/decompiled/" in norm:
-        return True
-    if norm.startswith("artifacts/rea/") or "/artifacts/rea/" in norm:
-        return True
-
-    # Rule 1: Antigravity brain and workspace ephemeral scratch paths
-    if ".gemini/antigravity/brain" in norm and "/scratch/" in norm:
-        return True
-    if norm.startswith("scratch/") or "/scratch/" in norm:
-        return True
-    if norm.startswith(".agents/scratch/") or "/.agents/scratch/" in norm:
-        return True
-
-    # Rule 2: When cwd is provided, check if path resolves outside cwd
-    if cwd is not None:
-        try:
-            workspace_root = Path(cwd).resolve()
-            p = Path(file_path)
-            target_path = p.resolve() if p.is_absolute() else (workspace_root / p).resolve()
-            if not target_path.is_relative_to(workspace_root):
-                return True
-        except (ValueError, OSError):
-            pass
-    else:
-        # Rule 3: When cwd is not provided, paths in system temp directories return True
-        if norm.startswith("/tmp/") or norm == "/tmp" or norm.startswith("/var/tmp/") or norm == "/var/tmp":
-            return True
-        try:
-            p = Path(file_path)
-            if p.is_absolute():
-                resolved = p.resolve()
-                for temp_base in (Path("/tmp"), Path("/var/tmp"), Path(tempfile.gettempdir())):
-                    if resolved.is_relative_to(temp_base.resolve()):
-                        return True
-        except (ValueError, OSError):
-            pass
 
     return False
 

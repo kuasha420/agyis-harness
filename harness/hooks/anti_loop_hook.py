@@ -66,11 +66,26 @@ TEST_VERIFICATION_PATTERNS = (
 )
 
 
+_NON_FUNCTIONAL_METADATA_KEYS: frozenset[str] = frozenset({
+    "toolSummary",
+    "description",
+    "WaitMsBeforeAsync",
+    "timeout",
+})
+
+
+def _normalize_tool_args(args: Any) -> Any:
+    """Normalizes tool arguments by stripping non-functional metadata keys."""
+    if not isinstance(args, dict):
+        return args
+    return {k: v for k, v in args.items() if k not in _NON_FUNCTIONAL_METADATA_KEYS}
+
+
 def _signatures_match(sig1: dict, sig2: dict) -> bool:
-    """Helper to check if two tool call signatures are identical."""
+    """Helper to check if two tool call signatures are identical after stripping metadata."""
     if sig1.get("name") != sig2.get("name"):
         return False
-    return sig1.get("args") == sig2.get("args")
+    return _normalize_tool_args(sig1.get("args")) == _normalize_tool_args(sig2.get("args"))
 
 
 PATH_KEYS = (

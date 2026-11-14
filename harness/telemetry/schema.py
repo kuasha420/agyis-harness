@@ -129,7 +129,10 @@ def ensure_sync_columns(conn: sqlite3.Connection) -> None:
     ]
     for col_name, col_type in new_cols:
         if col_name not in existing_cols:
-            cur.execute(f"ALTER TABLE sessions ADD COLUMN {col_name} {col_type}")
+            try:
+                cur.execute(f"ALTER TABLE sessions ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass
 
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_origin ON sessions(origin_developer)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_synced ON sessions(remote_synced_at)")

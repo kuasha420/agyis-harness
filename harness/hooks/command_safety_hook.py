@@ -608,6 +608,10 @@ def main() -> None:
         print(json.dumps({"decision": "allow"}))
         return
 
+    if not isinstance(payload, dict):
+        print(json.dumps({"decision": "allow"}))
+        return
+
     tool_call = payload.get("toolCall") or {}
     tool_name = tool_call.get("name") or payload.get("tool_name") or "run_command"
     tool_args = tool_call.get("args") or payload.get("tool_args") or {}

@@ -227,7 +227,10 @@ def _handle_tool_call_event(
 def main() -> None:
     """CLI / hook entry point consuming protojson from stdin and writing to stdout."""
     try:
-        raw_stdin = sys.stdin.read()
+        if hasattr(sys.stdin, "buffer"):
+            raw_stdin = sys.stdin.buffer.read().decode("utf-8", errors="replace")
+        else:
+            raw_stdin = sys.stdin.read()
         if not raw_stdin.strip():
             print(json.dumps(evaluate_stop("default")))
             return
@@ -235,7 +238,7 @@ def main() -> None:
         if not isinstance(payload, dict):
             print(json.dumps(evaluate_stop("default")))
             return
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError):
         print(json.dumps({"decision": "allow"}))
         return
 
