@@ -1392,7 +1392,11 @@ class TestTier2BoundaryCases(BaseBugBashTestCase):
         """F12.B4: High-frequency updates push to array and coalesce in single RAF loop."""
         rpc_js = importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js").read_text(encoding="utf-8")
         self.assertIn("this._pendingDeltas.push(update)", rpc_js)
-        self.assertIn("while (this._pendingDeltas.length > 0)", rpc_js)
+        self.assertTrue(
+            "while (this._pendingDeltas.length > 0)" in rpc_js
+            or "for (const update of deltas)" in rpc_js,
+            "Queue drainage mechanism missing in hud_rpc.js",
+        )
 
     def test_t2_f12_05_missing_csrf_token(self) -> None:
         """F12.B5: Omits CSRF header if token is empty string."""

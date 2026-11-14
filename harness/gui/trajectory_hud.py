@@ -19,6 +19,10 @@ from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from harness.gui.trajectory_convo_helpers import (
+    _extract_conversation_summary,
+    get_recent_conversations,
+)
 from harness.trajectory.health import (
     DEFAULT_CONTEXT_WINDOW_TOKENS,
     TrajectoryMetrics,
@@ -245,40 +249,6 @@ def atc_context_layout(
         place_cell(None, unused_px, "unused", False)
 
     return {"rows": rows, "inflation_px": layout["inflation_px"] * scale_factor}
-
-
-def _extract_conversation_summary(convo_dir: Path, transcript_path: Path) -> str:
-    """Extracts a short human-readable summary for a conversation."""
-    meta_path = convo_dir / "meta.json"
-    if meta_path.is_file():
-        try:
-            data = json.loads(meta_path.read_text(encoding="utf-8", errors="replace"))
-            summary = data.get("summary") or data.get("title")
-            if summary:
-                return str(summary).strip()
-        except (json.JSONDecodeError, OSError, ValueError, KeyError):
-            pass
-    if transcript_path.is_file():
-        try:
-            with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    try:
-                        s = json.loads(line)
-                        if (s.get("type") == "USER_INPUT" or "user" in str(s.get("source") or s.get("role") or "").lower()) and s.get("content"):
-                            raw = str(s["content"]).strip()
-                            m = re.search(r"<USER_REQUEST>(.*?)(?:</USER_REQUEST>|$)", raw, re.DOTALL)
-                            clean = (m.group(1) if m else raw).strip()
-                            if clean:
-                                first_line = clean.splitlines()[0][:60].strip()
-                                if first_line:
-                                    return first_line
-                    except (json.JSONDecodeError, ValueError, KeyError):
-                        continue
-        except OSError:
-            pass
-    return f"Session {convo_dir.name[:8]}"
 
 
 def _resolve_lineage_and_subagents(
@@ -736,64 +706,6 @@ def load_conversation_trajectory(
         "system_prompt_slices": sys_slices,
         "tool_def_slices": tool_slices,
     }
-
-
-def get_recent_conversations(brain_dir: Optional[Path] = None, limit: Optional[int] = 100) -> List[Dict[str, Any]]:
-    """Discovers recent Antigravity conversations sorted by modification time."""
-    base_brain = get_active_brain_dir(brain_dir)
-    if not base_brain.is_dir():
-        return []
-
-    conversations: List[Dict[str, Any]] = []
-    for d in base_brain.iterdir():
-        if d.is_dir() and d.name != ".system_generated":
-            t_log, _ = find_transcript_path(d)
-            if t_log and t_log.is_file():
-                try:
-                    summary = _extract_conversation_summary(d, t_log)
-                    pid, _ = _load_meta_parent(d)
-                    if not pid and t_log.is_file():
-                        try:
-                            with open(t_log, "r", encoding="utf-8", errors="replace") as f:
-                                for _ in range(5):
-                                    line = f.readline(16384).strip()
-                                    if not line:
-                                        break
-                                    if line.startswith("{"):
-                                        try:
-                                            obj = json.loads(line)
-                                            if isinstance(obj, dict):
-                                                meta = obj.get("_meta") if isinstance(obj.get("_meta"), dict) else {}
-                                                found_pid = (
-                                                    obj.get("parent_conversation_id")
-                                                    or obj.get("parentConversationId")
-                                                    or obj.get("parentId")
-                                                    or obj.get("parent_id")
-                                                    or meta.get("antigravity.google/root_conversation_id")
-                                                    or obj.get("root_conversation_id")
-                                                )
-                                                if found_pid:
-                                                    pid = str(found_pid).strip()
-                                                    break
-                                        except json.JSONDecodeError:
-                                            pass
-                        except OSError:
-                            pass
-
-                    item: Dict[str, Any] = {
-                        "id": d.name,
-                        "summary": summary,
-                        "mtime": t_log.stat().st_mtime,
-                    }
-                    if pid:
-                        item["parent_id"] = pid
-                        item["parentConversationId"] = pid
-                    conversations.append(item)
-                except OSError:
-                    continue
-
-    conversations.sort(key=lambda c: c["mtime"], reverse=True)
-    return conversations[:limit] if limit is not None else conversations
 
 
 def _load_hud_template() -> str:
