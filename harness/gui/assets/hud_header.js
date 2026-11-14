@@ -220,6 +220,10 @@
                 const subTraj = cur && cur.subagent_trajectories ? cur.subagent_trajectories[sid] : null;
                 if (subTraj) {
                     state.currentData = subTraj;
+                    state.convoId = sid || subTraj.conversation_id || state.convoId;
+                    if (subTraj.model) state.sessionModel = subTraj.model;
+                    const epochs = subTraj.epochs || [];
+                    state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
                     state.selectedIndex = Math.max(0, (subTraj.steps || []).length - 1);
                     if (renderCallback) renderCallback();
                 } else if (sid && typeof window.__agyis_hud_load_convo === "function") {
@@ -234,6 +238,10 @@
                 window.__agyis_hud_load_convo(cur.parent_id);
             } else if (state.rootData) {
                 state.currentData = state.rootData;
+                state.convoId = state.rootData.conversation_id || state.rootData.id || state.convoId;
+                if (state.rootData.model) state.sessionModel = state.rootData.model;
+                const epochs = state.rootData.epochs || [];
+                state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
                 state.selectedIndex = Math.max(0, (state.rootData.steps || []).length - 1);
                 if (renderCallback) renderCallback();
             }

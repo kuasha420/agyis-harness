@@ -550,8 +550,9 @@
             this._rafId = null;
             if (this._pendingDeltas.length === 0) return;
 
-            while (this._pendingDeltas.length > 0) {
-                const update = this._pendingDeltas.shift();
+            const deltas = this._pendingDeltas;
+            this._pendingDeltas = [];
+            for (const update of deltas) {
                 this._reconcileUpdate(update);
             }
 

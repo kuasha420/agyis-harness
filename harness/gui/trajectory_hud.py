@@ -738,7 +738,7 @@ def load_conversation_trajectory(
     }
 
 
-def get_recent_conversations(brain_dir: Optional[Path] = None, limit: int = 30) -> List[Dict[str, Any]]:
+def get_recent_conversations(brain_dir: Optional[Path] = None, limit: Optional[int] = 100) -> List[Dict[str, Any]]:
     """Discovers recent Antigravity conversations sorted by modification time."""
     base_brain = get_active_brain_dir(brain_dir)
     if not base_brain.is_dir():
@@ -750,12 +750,50 @@ def get_recent_conversations(brain_dir: Optional[Path] = None, limit: int = 30) 
             t_log, _ = find_transcript_path(d)
             if t_log and t_log.is_file():
                 try:
-                    conversations.append({"id": d.name, "summary": _extract_conversation_summary(d, t_log), "mtime": t_log.stat().st_mtime})
+                    summary = _extract_conversation_summary(d, t_log)
+                    pid, _ = _load_meta_parent(d)
+                    if not pid and t_log.is_file():
+                        try:
+                            with open(t_log, "r", encoding="utf-8", errors="replace") as f:
+                                for _ in range(5):
+                                    line = f.readline(16384).strip()
+                                    if not line:
+                                        break
+                                    if line.startswith("{"):
+                                        try:
+                                            obj = json.loads(line)
+                                            if isinstance(obj, dict):
+                                                meta = obj.get("_meta") if isinstance(obj.get("_meta"), dict) else {}
+                                                found_pid = (
+                                                    obj.get("parent_conversation_id")
+                                                    or obj.get("parentConversationId")
+                                                    or obj.get("parentId")
+                                                    or obj.get("parent_id")
+                                                    or meta.get("antigravity.google/root_conversation_id")
+                                                    or obj.get("root_conversation_id")
+                                                )
+                                                if found_pid:
+                                                    pid = str(found_pid).strip()
+                                                    break
+                                        except json.JSONDecodeError:
+                                            pass
+                        except OSError:
+                            pass
+
+                    item: Dict[str, Any] = {
+                        "id": d.name,
+                        "summary": summary,
+                        "mtime": t_log.stat().st_mtime,
+                    }
+                    if pid:
+                        item["parent_id"] = pid
+                        item["parentConversationId"] = pid
+                    conversations.append(item)
                 except OSError:
                     continue
 
     conversations.sort(key=lambda c: c["mtime"], reverse=True)
-    return conversations[:limit]
+    return conversations[:limit] if limit is not None else conversations
 
 
 def _load_hud_template() -> str:
