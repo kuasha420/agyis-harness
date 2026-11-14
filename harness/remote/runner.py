@@ -126,14 +126,28 @@ class RemoteRunner:
         )
         effective_timeout = timeout if timeout is not None else self.default_timeout
 
-        proc = subprocess.run(
-            cmd,
-            input=input,
-            timeout=effective_timeout,
-            capture_output=capture_output,
-            text=text,
-            check=check,
-        )
+        try:
+            proc = subprocess.run(
+                cmd,
+                input=input,
+                timeout=effective_timeout,
+                capture_output=capture_output,
+                text=text,
+                check=check,
+            )
+        except subprocess.TimeoutExpired:
+            self.cleanup_target_socket(
+                target=target,
+                port=port,
+                extra_options=extra_options,
+                socket_dir=self.socket_dir,
+            )
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=124,
+                stdout="",
+                stderr=f"Remote command timed out after {effective_timeout}s\n",
+            )
         if proc.returncode == 255:
             self.cleanup_target_socket(target=target, port=port, extra_options=extra_options)
         return proc
@@ -193,6 +207,7 @@ class RemoteRunner:
         target: str,
         port: Optional[int] = None,
         extra_options: Optional[List[str]] = None,
+        socket_dir: Optional[Path] = None,
     ) -> List[Path]:
         """
         Cleans up ControlMaster socket specifically scoped to the failing target.
@@ -252,6 +267,14 @@ class RemoteRunner:
 
         for item in self.socket_dir.iterdir():
             if item.name.startswith("cm_"):
+                try:
+                    subprocess.run(
+                        ["ssh", "-S", str(item), "-O", "exit", "dummy_host"],
+                        capture_output=True,
+                        timeout=2,
+                    )
+                except (subprocess.SubprocessError, OSError):
+                    pass
                 try:
                     item.unlink()
                     removed.append(item)
