@@ -58,35 +58,30 @@ class RemoteTriage:
         if profile in ("all", "services"):
             parts.append("echo '=== SERVICES ==='")
             parts.append("systemctl --failed --no-pager 2>/dev/null || true")
-            parts.append("if command -v pm2 >/dev/null 2>&1; then pm2 jlist 2>/dev/null || pm2 list 2>/dev/null; fi")
-            parts.append("if command -v docker >/dev/null 2>&1; then docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null; fi")
+            parts.append("if command -v pm2 >/dev/null 2>&1; then pm2 jlist 2>/dev/null || pm2 list 2>/dev/null || true; fi")
+            parts.append("if command -v docker >/dev/null 2>&1; then docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null || true; fi")
 
         if profile in ("all", "logs") or service:
             parts.append("echo '=== LOGS ==='")
             if service:
                 parts.append(
                     f"journalctl -u {shlex.quote(service)} -n {bounded_lines} --no-pager 2>/dev/null || "
-                    f"if command -v pm2 >/dev/null 2>&1; then pm2 logs {shlex.quote(service)} --lines {bounded_lines} --nostream 2>/dev/null; fi"
+                    f"if command -v pm2 >/dev/null 2>&1; then pm2 logs {shlex.quote(service)} --lines {bounded_lines} --nostream 2>/dev/null || true; fi"
                 )
             elif profile == "logs":
                 parts.append(
                     f"journalctl -n {bounded_lines} -p err..emerg --no-pager 2>/dev/null || "
                     f"tail -n {bounded_lines} /var/log/syslog 2>/dev/null || "
-                    f"dmesg -T 2>/dev/null | tail -n {bounded_lines}"
+                    f"dmesg -T 2>/dev/null | tail -n {bounded_lines} || true"
                 )
 
+        parts.append("true")
         return "; ".join(parts)
 
     @classmethod
-    def format_triage_markdown(
-        cls,
-        raw_output: str,
-        target: str,
-        profile: str = "all",
-        max_bytes: int = 2048,
-    ) -> str:
+    def parse_sections(cls, raw_output: str) -> Dict[str, List[str]]:
         """
-        Parses raw triage probe output and formats it into a deterministic, compact (<2KB) Markdown report.
+        Parses raw triage probe output into a structured sections dictionary.
         """
         sections: Dict[str, List[str]] = {}
         current_section = "GENERAL"
@@ -99,6 +94,20 @@ class RemoteTriage:
                 sections[current_section] = []
             else:
                 sections[current_section].append(line)
+        return sections
+
+    @classmethod
+    def format_triage_markdown(
+        cls,
+        raw_output: str,
+        target: str,
+        profile: str = "all",
+        max_bytes: int = 2048,
+    ) -> str:
+        """
+        Parses raw triage probe output and formats it into a deterministic, compact (<2KB) Markdown report.
+        """
+        sections = cls.parse_sections(raw_output)
 
         lines_out: List[str] = [
             f"### 🩺 Remote Triage Report: `{target}` (Profile: `{profile}`)",
@@ -235,8 +244,10 @@ class RemoteTriage:
             timeout=timeout,
         )
 
+        raw_text = result.stdout or result.stderr
+        sections = cls.parse_sections(raw_text)
         report_md = cls.format_triage_markdown(
-            raw_output=result.stdout or result.stderr,
+            raw_output=raw_text,
             target=target,
             profile=profile,
         )
@@ -246,6 +257,7 @@ class RemoteTriage:
             "profile": profile,
             "service": service,
             "exit_code": result.returncode,
+            "sections": sections,
             "report_markdown": report_md,
             "raw_output": result.stdout,
         }

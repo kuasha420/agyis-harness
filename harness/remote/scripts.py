@@ -159,6 +159,7 @@ class ScriptStreamer:
             f"{content}\n"
             f"{sentinel}\n"
             f"chmod +x {dest_file_q} && "
+            f"cd {stage_dir_q} && "
             f"{exec_part}"
         )
 

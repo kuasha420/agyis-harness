@@ -302,6 +302,21 @@ class TestScriptStreamer(unittest.TestCase):
         cmd_str2 = call_args2[0][-1]
         self.assertIn("chmod +x /tmp/.psl_remote_", cmd_str2)
         self.assertIn("&& /tmp/.psl_remote_", cmd_str2)
+        self.assertIn("cd /tmp/.psl_remote_", cmd_str2)
+
+    def test_stage_script_cd_to_staged_dir(self):
+        """DEF-BB-057: Verifies stage_script changes directory into temporary staged dir."""
+        runner = RemoteRunner()
+        script_file = Path(self.temp_dir.name) / "test_cd.sh"
+        script_file.write_text("echo pwd\n")
+        with patch("subprocess.run") as mock_subproc:
+            mock_subproc.return_value = subprocess.CompletedProcess(
+                args=["ssh"], returncode=0, stdout="", stderr=""
+            )
+            ScriptStreamer.stage_script(runner, "laptop", script_file)
+            mock_subproc.assert_called_once()
+            cmd_str = mock_subproc.call_args[0][0][-1]
+            self.assertIn("cd /tmp/.psl_remote_", cmd_str)
 
     def test_remote_scripts_missing_file_and_shebangs(self):
         """
@@ -426,7 +441,30 @@ class TestRemoteTriage(unittest.TestCase):
         res = RemoteTriageEngine.run_triage(mock_runner, target="offline-edge-node")
         self.assertEqual(res["target"], "offline-edge-node")
         self.assertEqual(res["exit_code"], 0)
+        self.assertIn("sections", res)
         self.assertIn("_No listening ports discovered or permission denied._", res["report_markdown"])
+
+    def test_build_triage_probe_docker_pm2_swallowing(self):
+        """DEF-BB-055: Verifies build_triage_probe includes || true on docker/pm2 and trailing true."""
+        cmd_services = RemoteTriage.build_triage_probe(profile="services")
+        self.assertIn("docker ps --format", cmd_services)
+        self.assertIn("|| true", cmd_services)
+        self.assertTrue(cmd_services.endswith("true"))
+
+    def test_run_triage_returns_parsed_sections(self):
+        """DEF-BB-056: Verifies run_triage returns parsed sections dict for JSON consumers."""
+        mock_runner = MagicMock()
+        mock_runner.run.return_value = subprocess.CompletedProcess(
+            args=["ssh"],
+            returncode=0,
+            stdout="=== HOST ===\nnode1\n=== RESOURCES ===\nMem: 100\n",
+            stderr="",
+        )
+        res = RemoteTriage.run_triage(mock_runner, target="node1")
+        self.assertIn("sections", res)
+        self.assertIn("HOST", res["sections"])
+        self.assertIn("RESOURCES", res["sections"])
+        self.assertEqual(res["sections"]["HOST"], ["node1"])
 
 
 if __name__ == "__main__":
