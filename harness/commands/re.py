@@ -279,12 +279,14 @@ def cmd_decompile(args: argparse.Namespace) -> int:
     proc = args.procedure
     binary = getattr(args, "binary", None)
     if not binary:
-        # Check if there is a binary in dirtyroom
+        # Check if there is a binary in dirtyroom, preferring executable over dll
         conn = get_dirtyroom_db()
         if conn:
             try:
                 cur = conn.cursor()
-                cur.execute("SELECT name FROM binaries LIMIT 1")
+                cur.execute(
+                    "SELECT name FROM binaries ORDER BY (CASE WHEN name LIKE '%.exe' THEN 0 ELSE 1 END), id LIMIT 1"
+                )
                 row = cur.fetchone()
                 if row:
                     binary = row[0]
@@ -330,12 +332,29 @@ def cmd_decompile(args: argparse.Namespace) -> int:
                 )
                 return 1
 
-    cmd = [rea_bin, "decompile", str(binary), "--procedure", str(proc)]
+    env = os.environ.copy()
+    root = get_dirtyroom_root()
+    if root:
+        ghidra_dir = root / "ghidra"
+        if ghidra_dir.is_dir():
+            env["REA_GHIDRA_PROJECT_DIR"] = str(ghidra_dir)
+            gprs = list(ghidra_dir.glob("*.gpr"))
+            if gprs:
+                env["REA_GHIDRA_PROJECT_NAME"] = gprs[0].stem
+                env["REA_GHIDRA_PROJECT_PATH"] = str(gprs[0])
+        env["AGYIS_DIRTYROOM"] = str(root)
+
+    target_target = str(bin_path) if bin_path else str(binary)
+    cmd = [rea_bin, "decompile", target_target, "--procedure", str(proc)]
+    timeout_s = getattr(args, "timeout", None) or 180.0
+    if "REA_GHIDRA_STARTUP_TIMEOUT_MS" not in env:
+        env["REA_GHIDRA_STARTUP_TIMEOUT_MS"] = str(int(timeout_s * 1000))
+
     try:
-        res = subprocess.run(cmd, check=False, timeout=15.0)
+        res = subprocess.run(cmd, env=env, check=False, timeout=timeout_s)
         return res.returncode
     except subprocess.TimeoutExpired:
-        print("[!] PSL-INV-009 §2 Benchmark Violation: Decompilation exceeded 15s SLA (potential cache bypass).", file=sys.stderr)
+        print(f"[!] PSL-INV-009 §2 Benchmark Violation: Decompilation exceeded {timeout_s:.0f}s SLA (potential cache bypass).", file=sys.stderr)
         return 1
     except Exception as e:
         print(f"[!] Error executing rea decompile: {e}", file=sys.stderr)
@@ -587,6 +606,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_dec = sub.add_parser("decompile", help="Decompile procedure with project acceleration")
     p_dec.add_argument("procedure", help="Function name or hex address")
     p_dec.add_argument("--binary", help="Target binary filename")
+    p_dec.add_argument("--timeout", type=float, default=180.0, help="Decompilation SLA timeout in seconds (default: 180.0)")
 
     # pcap
     p_pcap = sub.add_parser("pcap", help="Inspect packet capture frames")
