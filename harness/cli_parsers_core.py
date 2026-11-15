@@ -116,6 +116,11 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Output test or mutation results in structured JSON format",
     )
+    p_test.add_argument(
+        "--no-buffer",
+        action="store_true",
+        help="Do not buffer stdout/stderr during test execution (shows negative assertion output)",
+    )
 
     # audit
     p_audit = subparsers.add_parser("audit", help="Run empirical telemetry laboratory pipelines")

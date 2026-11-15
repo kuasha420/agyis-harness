@@ -45,9 +45,10 @@ class TestAntiSyntheticCLI(unittest.TestCase):
         self.assertTrue(args_doc.anti_synthetic)
         self.assertTrue(args_doc.json)
 
-        args_test = parser.parse_args(["test", "--mutation", "--json"])
+        args_test = parser.parse_args(["test", "--mutation", "--json", "--no-buffer"])
         self.assertTrue(args_test.mutation)
         self.assertTrue(args_test.json)
+        self.assertTrue(args_test.no_buffer)
 
     def test_doctor_anti_synthetic_clean_returns_zero(self):
         """agyis doctor --anti-synthetic on clean tests exits 0."""

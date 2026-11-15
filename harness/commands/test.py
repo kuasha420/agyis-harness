@@ -173,7 +173,8 @@ def cmd_test(args: argparse.Namespace) -> int:
     loader = unittest.TestLoader()
     suite = loader.discover(start_dir=str(test_dir), pattern="test_*.py")
     verbosity = 2 if getattr(args, "verbose", False) else 1
-    runner = unittest.TextTestRunner(verbosity=verbosity)
+    buffer_output = not getattr(args, "no_buffer", False)
+    runner = unittest.TextTestRunner(verbosity=verbosity, buffer=buffer_output)
     result = runner.run(suite)
 
     success = result.wasSuccessful()

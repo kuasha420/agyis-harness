@@ -481,6 +481,32 @@ class TestCLIDiffIntegration(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             mock_disc.assert_called_once()
 
+    def test_cli_test_buffer_enabled_by_default(self):
+        with patch("harness.commands.test.unittest.TestLoader.discover") as mock_disc, \
+             patch("harness.commands.test.unittest.TextTestRunner") as mock_runner_cls:
+            mock_runner = MagicMock()
+            mock_runner.run.return_value = MagicMock(wasSuccessful=MagicMock(return_value=True))
+            mock_runner_cls.return_value = mock_runner
+
+            exit_code = main(["test", "--full"])
+            self.assertEqual(exit_code, 0)
+            mock_runner_cls.assert_called_once()
+            _, kwargs = mock_runner_cls.call_args
+            self.assertTrue(kwargs.get("buffer"))
+
+    def test_cli_test_no_buffer_flag(self):
+        with patch("harness.commands.test.unittest.TestLoader.discover") as mock_disc, \
+             patch("harness.commands.test.unittest.TextTestRunner") as mock_runner_cls:
+            mock_runner = MagicMock()
+            mock_runner.run.return_value = MagicMock(wasSuccessful=MagicMock(return_value=True))
+            mock_runner_cls.return_value = mock_runner
+
+            exit_code = main(["test", "--full", "--no-buffer"])
+            self.assertEqual(exit_code, 0)
+            mock_runner_cls.assert_called_once()
+            _, kwargs = mock_runner_cls.call_args
+            self.assertFalse(kwargs.get("buffer"))
+
 
 if __name__ == "__main__":
     unittest.main()
