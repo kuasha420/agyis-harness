@@ -48,7 +48,7 @@ def record_telemetry_proof(
     if not command:
         return False
     clean = command.strip()
-    if not re.search(r"\bknot\s+(?:ledger\s+generate|status)\b", clean):
+    if not re.search(r"\b(?:knot\s+(?:ledger\s+generate|status)|agyis\s+(?:status|remote\s+triage))\b", clean):
         return False
 
     target_dir = state_dir or get_state_dir()
@@ -101,7 +101,7 @@ def has_telemetry_proof(
                 for item in history:
                     args = item.get("args") or {}
                     cmd = args.get("CommandLine") or args.get("command") or ""
-                    if re.search(r"\bknot\s+(?:ledger\s+generate|status)\b", cmd):
+                    if re.search(r"\b(?:knot\s+(?:ledger\s+generate|status)|agyis\s+(?:status|remote\s+triage))\b", cmd):
                         return True
         except (json.JSONDecodeError, OSError):
             pass

@@ -308,20 +308,6 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         help="Socket action to perform (default: status)",
     )
 
-    # remote screens
-    p_rscreens = p_remote_subs.add_parser(
-        "screens", help="Capture and generate fleet screens carousel artifact"
-    )
-    p_rscreens.add_argument(
-        "--brain-dir", type=Path, default=None, help="Custom brain directory path"
-    )
-    p_rscreens.add_argument(
-        "--data", type=str, default=None, help="Path to JSON file or inline JSON with screen captures"
-    )
-    p_rscreens.add_argument(
-        "--json", action="store_true", help="Output result in JSON format"
-    )
-
     # auth
     p_auth = subparsers.add_parser("auth", help="Manage GitHub organization authentication for telemetry")
     auth_subs = p_auth.add_subparsers(dest="auth_cmd", help="Auth subcommands")

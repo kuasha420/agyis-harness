@@ -371,14 +371,6 @@ class TestModularSkills(unittest.TestCase):
                 "pg_stat_activity",
                 "connection",
             ),
-            "mesh-ops": (
-                "tailscale",
-                "ssh",
-                "knot",
-                "controlmaster",
-                "wireguard",
-                "sync",
-            ),
             "git-worktree-ops": (
                 "git worktree add",
                 "git worktree prune",
@@ -503,7 +495,7 @@ class TestModularSkills(unittest.TestCase):
         synced_group = sync_skills(target_dir=target_group, group="ops")
         self.assertGreaterEqual(len(synced_group), 8)
         self.assertTrue((target_group / "storage-ops" / "SKILL.md").exists())
-        self.assertTrue((target_group / "mesh-ops" / "SKILL.md").exists())
+        self.assertTrue((target_group / "remote-ops" / "SKILL.md").exists())
         self.assertFalse((target_group / "psl-stack-python").exists())
 
         # 3. Sync by stack preset (python)
@@ -701,7 +693,7 @@ class TestModularSkills(unittest.TestCase):
         # Infra role
         self.assertEqual(
             ARCHITECTURAL_ROLE_PRESETS["infra"],
-            ["mesh-ops", "remote-ops", "sec-forensics", "storage-ops"],
+            ["remote-ops", "sec-forensics", "storage-ops"],
         )
 
     def test_boundary_roles_cli_and_library_safety(self) -> None:
@@ -1098,7 +1090,7 @@ class TestSkillsHardening(unittest.TestCase):
         repo_root = Path(__file__).resolve().parent.parent
         skills_dir = repo_root / "harness" / "skills"
         files = sorted(skills_dir.glob("*/SKILL.md"))
-        self.assertGreaterEqual(len(files), 30, "Expected at least 30 modular skills")
+        self.assertGreaterEqual(len(files), 29, "Expected at least 29 modular skills")
         return files
 
     def test_all_skills_under_24kb_platform_limit(self) -> None:

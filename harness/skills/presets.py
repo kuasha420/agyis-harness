@@ -78,7 +78,6 @@ ARCHITECTURAL_ROLE_PRESETS: Dict[str, List[str]] = {
         "audio-ops",
     ],
     "infra": [
-        "mesh-ops",
         "remote-ops",
         "sec-forensics",
         "storage-ops",
@@ -123,7 +122,6 @@ GROUP_PRESETS: Dict[str, List[str]] = {
         "sec-forensics",
         "media-ops",
         "db-ops",
-        "mesh-ops",
         "git-worktree-ops",
         "remote-ops",
     ],
@@ -134,7 +132,6 @@ GROUP_PRESETS: Dict[str, List[str]] = {
         "sec-forensics",
         "media-ops",
         "db-ops",
-        "mesh-ops",
         "git-worktree-ops",
     ],
     "workflow": [

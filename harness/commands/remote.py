@@ -118,34 +118,4 @@ def cmd_remote(args: argparse.Namespace) -> int:
                 print(f"  ✔ {sock['name']} (Path: {sock['path']})")
             return 0
 
-    elif sub == "screens":
-        from harness.remote.display_bridge import capture_fleet_screens
-
-        raw_data = getattr(args, "data", None)
-        json_data = None
-        if raw_data:
-            p = Path(raw_data)
-            if p.is_file():
-                try:
-                    json_data = json.loads(p.read_text(encoding="utf-8", errors="replace"))
-                except Exception as exc:
-                    sys.stderr.write(f"Error parsing JSON from {p}: {exc}\n")
-                    return 1
-            else:
-                try:
-                    json_data = json.loads(raw_data)
-                except Exception as exc:
-                    sys.stderr.write(f"Error parsing inline JSON: {exc}\n")
-                    return 1
-
-        md_path = capture_fleet_screens(
-            brain_dir=getattr(args, "brain_dir", None),
-            json_data=json_data,
-        )
-        if getattr(args, "json", False):
-            print(json.dumps({"artifact": str(md_path), "status": "ok"}, indent=2))
-        else:
-            print(f"✔ Fleet screens carousel generated at {md_path}")
-        return 0
-
     return 0
