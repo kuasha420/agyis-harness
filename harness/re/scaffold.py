@@ -121,7 +121,11 @@ def get_dirtyroom_root(start_path: Optional[Path] = None) -> Optional[Path]:
 
 
 def get_dirtyroom_db(dirtyroom_root: Optional[Path] = None) -> Optional[sqlite3.Connection]:
-    """Returns an open SQLite connection to the dirtyroom symbols database."""
+    """Returns an open SQLite connection to the dirtyroom symbols database.
+
+    Evaluates candidates by size and schema content to prevent empty or 0-byte
+    shadow files from masking populated symbols databases.
+    """
     root = dirtyroom_root or get_dirtyroom_root()
     if not root:
         return None
@@ -133,9 +137,29 @@ def get_dirtyroom_db(dirtyroom_root: Optional[Path] = None) -> Optional[sqlite3.
         root / "symbols.db",
         root / "symbols.sqlite",
     ]
-    for c in cands:
-        if c.is_file():
-            return sqlite3.connect(c)
+    valid_cands = [c for c in cands if c.is_file() and c.stat().st_size > 0]
+    if not valid_cands:
+        return None
+
+    best_cand = None
+    best_count = -1
+
+    for c in valid_cands:
+        try:
+            conn = sqlite3.connect(c)
+            cursor = conn.cursor()
+            cursor.execute("SELECT count(*) FROM functions")
+            cnt = cursor.fetchone()[0]
+            if cnt > best_count:
+                best_count = cnt
+                best_cand = c
+            conn.close()
+        except Exception:
+            if best_cand is None:
+                best_cand = c
+
+    if best_cand:
+        return sqlite3.connect(best_cand)
 
     return None
 

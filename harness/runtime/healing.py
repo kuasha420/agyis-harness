@@ -249,10 +249,18 @@ def heal_forensic_toolchain(
         from harness.re.scaffold import get_dirtyroom_root, init_dirtyroom_db
 
         dr_root = get_dirtyroom_root(workspace_dir)
-        if dr_root and (dr_root / "symbols").is_dir() and not (dr_root / "symbols" / "dirtyroom.db").exists():
-            db_path = dr_root / "symbols" / "dirtyroom.db"
-            init_dirtyroom_db(db_path)
-            actions.append(f"Auto-initialized dirty-room SQLite symbols cache at {db_path}")
+        if dr_root and (dr_root / "symbols").is_dir():
+            existing_dbs = [
+                dr_root / "symbols" / "dirtyroom.db",
+                dr_root / "symbols" / "paladins_symbols.sqlite",
+                dr_root / "symbols.db",
+                dr_root / "symbols.sqlite",
+            ]
+            has_db = any(p.is_file() and p.stat().st_size > 0 for p in existing_dbs)
+            if not has_db:
+                db_path = dr_root / "symbols" / "dirtyroom.db"
+                init_dirtyroom_db(db_path)
+                actions.append(f"Auto-initialized dirty-room SQLite symbols cache at {db_path}")
     except Exception as e:
         actions.append(f"Could not auto-init dirtyroom db: {e}")
 

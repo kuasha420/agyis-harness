@@ -390,6 +390,11 @@ def resolve_binary_path(binary_name: Optional[str] = None) -> Optional[Path]:
     if root:
         bin_dir = root / "binaries"
         if bin_dir.is_dir():
+            # Prefer primary game executable (ShippingPC-ChaosGame.exe) over others
+            for preferred in ["ShippingPC-ChaosGame.exe", "Paladins.exe"]:
+                p_cand = bin_dir / preferred
+                if p_cand.is_file():
+                    return p_cand
             for c in sorted(bin_dir.iterdir()):
                 if c.is_file() and not c.name.startswith("."):
                     return c
