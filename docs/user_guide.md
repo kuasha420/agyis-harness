@@ -6,7 +6,7 @@
 # Agyis Harness — Canonical User & Operator Guide
 
 **Target Audience**: Engineers, Operators, and Teams Running Google Antigravity™  
-**Version**: `1.0.0-rc10` (`2026-11-11`)  
+**Version**: `1.0.0-rc11` (`2026-11-15`)  
 **Primary CLI Entrypoint**: `agyis` (backward-compatible alias: `psl`)  
 
 ---
