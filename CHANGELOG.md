@@ -43,26 +43,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(hooks,telemetry): remediate adversarial fuzzing & WAL concurrency defects (DEF-BB-028..035, DEF-BB-052..054)
 - fix(cleanroom,re): remediate REA 6.8.0 schema drift, Ghidra SLA, and CLI delegations (DEF-BB-036..040)
   - DEF-BB-036: Align cleanroom obligation ledger schema with REA 6.8.0:
-  - Disallow top-level $schema (deprecated in REA 6.8.0)
-  - Extend EvidenceBundle with captures, environments, scenarios, unknowns
-  - Require manifest.bindings as list of dicts instead of dict
-  - Validate reviewed_obligations disposition enum (active, blocked, out-of-scope)
-  - Update scaffolded obligation ledger template accordingly
+    - Disallow top-level $schema (deprecated in REA 6.8.0)
+    - Extend EvidenceBundle with captures, environments, scenarios, unknowns
+    - Require manifest.bindings as list of dicts instead of dict
+    - Validate reviewed_obligations disposition enum (active, blocked, out-of-scope)
+    - Update scaffolded obligation ledger template accordingly
   - DEF-BB-037: Enforce PSL-INV-009 §1 & §2 Ghidra SLA benchmarks:
-  - Prohibit decompilation of binaries >10MB without prior headless Ghidra pre-analysis
-  - Enforce 15.0s timeout SLA on decompiler executions to detect cache bypass
+    - Prohibit decompilation of binaries >10MB without prior headless Ghidra pre-analysis
+    - Enforce 15.0s timeout SLA on decompiler executions to detect cache bypass
   - DEF-BB-038: Standardize CLI command aliases and fix Ghidra path compatibility:
-  - Support 'preanalyze' alias alongside 'pre-analyze' in 'agyis re'
-  - Create non-dot symlink alias (dirtyroom) to circumvent Ghidra ProjectLocator '.' rejection
-  - Point REA_GHIDRA_PROJECT_DIR to non-dot path
+    - Support 'preanalyze' alias alongside 'pre-analyze' in 'agyis re'
+    - Create non-dot symlink alias (dirtyroom) to circumvent Ghidra ProjectLocator '.' rejection
+    - Point REA_GHIDRA_PROJECT_DIR to non-dot path
   - DEF-BB-039: Streamline REA delegation in verify CLI:
-  - Delegate to 'rea build-reconstruction-obligation-ledger' with 30s timeout
-  - Fall back cleanly to native cleanroom verification on missing CLI or timeout
-  - Update fence classifiers for active and out-of-scope obligation dispositions
+    - Delegate to 'rea build-reconstruction-obligation-ledger' with 30s timeout
+    - Fall back cleanly to native cleanroom verification on missing CLI or timeout
+    - Update fence classifiers for active and out-of-scope obligation dispositions
   - DEF-BB-040: Detect Ghidra 12.2 and inject OpenJDK 27:
-  - Add is_ghidra_12_2_installed detector scanning standard install locations
-  - Prefer /usr/lib/jvm/java-27-openjdk when Ghidra 12.2 is detected
-  - Patch REA GhidraReleasePolicy.js for Ghidra 12.2 compatibility
+    - Add is_ghidra_12_2_installed detector scanning standard install locations
+    - Prefer /usr/lib/jvm/java-27-openjdk when Ghidra 12.2 is detected
+    - Patch REA GhidraReleasePolicy.js for Ghidra 12.2 compatibility
 - fix(harness): resolve bug bash defects across CLI palette, lifecycle hooks, and REA cache
   - DEF-BB-004: Add --json flag support to agyis status CLI with structured telemetry, hooks, and token metrics.
   - DEF-BB-005: Detect general python3 script invocations in command safety hook to inject hermetic uv CPython >= 3.12.
@@ -77,7 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(gui): calibrate HUD context metrics to authoritative model usage and fix session title extraction
 - fix(gui): calibrate active context tokens to authoritative usage and dynamically populate session dropdown
   - Fix activeTokensSum blowing up to rawSegmentsSum when character heuristic estimates exceed authoritative model usage; now uses selectedEpochTotal as authoritative context size and scales step slices bidirectionally.
-  - Dynamically prepend cur.conversation_id to effectiveConvoList when missing from initial static conversation list, preventing <select id="agyis-convo-select"> from falsely displaying the first conversation.
+  - Dynamically prepend cur.conversation_id to effectiveConvoList when missing from initial static conversation list, preventing `<select id="agyis-convo-select">` from falsely displaying the first conversation.
 - fix(gui): eliminate HUD double token reporting and resolve false-positive subagent liveness
   - Remove redundant ${activeTokensSum} / ${totalActiveCapacity} tokens line from HUD context legend, making the top Active Context: ... / 256,000 max the single source of truth.
   - Filter type annotations and generic IDs (_EXCLUDED_CIDS) and prevent run_command outputs from registering phantom spawned subagents in extract_spawned_subagents.
