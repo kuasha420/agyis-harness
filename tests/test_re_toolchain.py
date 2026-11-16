@@ -548,6 +548,83 @@ class TestCmdDecompilePSLINV009(unittest.TestCase):
             self.assertEqual(code, 0)
             mock_cmd.assert_called_once()
 
+    def test_cmd_decompile_query_cache_and_bypass(self):
+        """Verifies decompiler query caching and --no-cache bypass flag."""
+        from harness.commands.re import cmd_decompile
+        import argparse
+        import io
+
+        small_bin = self.workspace / "CacheApp.exe"
+        small_bin.write_bytes(b"\x90" * 100)
+
+        dr = self.workspace / ".dirtyroom"
+        (dr / "ghidra").mkdir(parents=True, exist_ok=True)
+        (dr / "ghidra" / "CacheApp.gpr").write_text("<project/>", encoding="utf-8")
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "void target_func(void) { return; }\n"
+        mock_proc.stderr = ""
+
+        args = argparse.Namespace(
+            procedure="target_func",
+            binary=str(small_bin),
+            no_cache=False,
+            timeout=30.0,
+        )
+
+        out_buf = io.StringIO()
+        with patch("shutil.which", return_value="/usr/local/bin/rea"), \
+             patch("subprocess.run", return_value=mock_proc) as mock_run, \
+             patch("sys.stdout", out_buf), \
+             patch("harness.commands.re.get_dirtyroom_root", return_value=dr):
+            code = cmd_decompile(args)
+            self.assertEqual(code, 0)
+            self.assertEqual(mock_run.call_count, 1)
+            self.assertIn("void target_func", out_buf.getvalue())
+
+            # Verify cache file was created on disk
+            cache_file = dr / "cache" / "decompile" / "CacheApp.exe_target_func.c"
+            self.assertTrue(cache_file.is_file())
+            self.assertEqual(cache_file.read_text(encoding="utf-8"), mock_proc.stdout)
+
+            # Second call: Should read from cache without calling subprocess.run
+            out_buf2 = io.StringIO()
+            with patch("sys.stdout", out_buf2):
+                code2 = cmd_decompile(args)
+                self.assertEqual(code2, 0)
+                self.assertEqual(mock_run.call_count, 1)  # Still 1!
+                self.assertIn("void target_func", out_buf2.getvalue())
+
+            # Third call with no_cache=True: Should re-invoke subprocess.run
+            args_no_cache = argparse.Namespace(
+                procedure="target_func",
+                binary=str(small_bin),
+                no_cache=True,
+                timeout=30.0,
+            )
+            out_buf3 = io.StringIO()
+            with patch("sys.stdout", out_buf3):
+                code3 = cmd_decompile(args_no_cache)
+                self.assertEqual(code3, 0)
+                self.assertEqual(mock_run.call_count, 2)  # Re-invoked!
+
+    def test_inject_rea_dirtyroom_env_in_command_safety(self):
+        """Verifies automated REA direct mount environment injection for raw shell commands."""
+        from harness.hooks.command_safety_hook import inject_rea_dirtyroom_env
+
+        dr = self.workspace / ".dirtyroom" / "ghidra"
+        dr.mkdir(parents=True, exist_ok=True)
+        (dr / "GameApp.gpr").write_text("<project/>", encoding="utf-8")
+
+        raw_cmd = "rea decompile ShippingPC.exe --procedure 0x140001000"
+        mod_cmd, changed, reasons = inject_rea_dirtyroom_env(raw_cmd, workspace_dir=self.workspace)
+        self.assertTrue(changed)
+        self.assertIn('REA_GHIDRA_DIRECT_MOUNT="1"', mod_cmd)
+        self.assertIn('REA_GHIDRA_PROJECT_NAME="GameApp"', mod_cmd)
+        self.assertIn(f'REA_GHIDRA_PROJECT_DIR="{dr}"', mod_cmd)
+        self.assertTrue(mod_cmd.endswith(raw_cmd))
+
 
 if __name__ == "__main__":
     unittest.main()

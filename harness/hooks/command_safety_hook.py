@@ -348,6 +348,33 @@ def inject_rea_setup_flags(cmd: str) -> Tuple[str, bool, List[str]]:
     return re.sub(r"(\b(?:[^\s]+/)?rea\s+setup\b)", r"\1 --yes", cmd, count=1), True, ["enforced non-interactive rea setup --yes"]
 
 
+def inject_rea_dirtyroom_env(cmd: str, workspace_dir: Optional[Path] = None) -> Tuple[str, bool, List[str]]:
+    """Automatically injects REA direct-mount & pre-analyzed Ghidra project environment variables."""
+    if not re.search(r"\b(?:[^\s]+/)?rea\s+(?:decompile|disasm|xrefs|read-bytes|search|procedure_pseudo_code|inspect-native)\b", cmd):
+        return cmd, False, []
+    if "REA_GHIDRA_PROJECT_DIR" in cmd or "REA_GHIDRA_DIRECT_MOUNT" in cmd:
+        return cmd, False, []
+    try:
+        from harness.re.scaffold import get_dirtyroom_root
+        dr = get_dirtyroom_root(workspace_dir)
+        if not dr or not (dr / "ghidra").is_dir():
+            return cmd, False, []
+        gprs = list((dr / "ghidra").glob("*.gpr"))
+        if not gprs:
+            return cmd, False, []
+        gpr = gprs[0]
+        env_prefix = (
+            f'REA_GHIDRA_PROJECT_DIR="{dr / "ghidra"}" '
+            f'REA_GHIDRA_PROJECT_NAME="{gpr.stem}" '
+            f'REA_GHIDRA_PROJECT_PATH="{gpr}" '
+            f'REA_GHIDRA_DIRECT_MOUNT="1" '
+            f'AGYIS_DIRTYROOM="{dr}" '
+        )
+        return env_prefix + cmd, True, ["injected dirtyroom REA direct-mount environment"]
+    except Exception:
+        return cmd, False, []
+
+
 def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratch: bool = True, workspace_dir: Optional[Path] = None) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Audits and transforms a shell command before execution."""
     cmd = raw_cmd.strip()
@@ -382,6 +409,9 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
         mod_f, changed_f, r_f = fn(modified_cmd)
         if changed_f:
             modified_cmd = mod_f; reasons.extend(r_f)
+    mod_rea, rea_env_injected, rea_reasons = inject_rea_dirtyroom_env(modified_cmd, workspace_dir=workspace_dir)
+    if rea_env_injected:
+        modified_cmd = mod_rea; reasons.extend(rea_reasons)
     if first_token in ("git", "gh") and not re.search(r"--no-pager|\bPAGER=", modified_cmd):
         modified_cmd = f"PAGER=cat {modified_cmd}"; reasons.append("enforced non-interactive PAGER=cat")
     if re.search(r"\b(?:systemctl|journalctl|udevadm)\b", modified_cmd) and not re.search(r"--no-pager|\bSYSTEMD_PAGER=|\bPAGER=", modified_cmd):

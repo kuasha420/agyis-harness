@@ -345,16 +345,50 @@ def cmd_decompile(args: argparse.Namespace) -> int:
         env["AGYIS_DIRTYROOM"] = str(root)
 
     target_target = str(bin_path) if bin_path else str(binary)
+    if "REA_GHIDRA_DIRECT_MOUNT" not in env:
+        env["REA_GHIDRA_DIRECT_MOUNT"] = "1"
+    if "REA_GHIDRA_PROGRAM_NAME" not in env:
+        env["REA_GHIDRA_PROGRAM_NAME"] = Path(target_target).name
+
+    # Optimization C: Deterministic Decompiler Query Cache
+    no_cache = getattr(args, "no_cache", False)
+    cache_file = None
+    if not no_cache and root:
+        cache_dir = root / "cache" / "decompile"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        clean_proc = str(proc).replace(":", "_").replace("/", "_").replace("\\", "_")
+        target_name = Path(target_target).name
+        cache_file = cache_dir / f"{target_name}_{clean_proc}.c"
+        if cache_file.is_file() and cache_file.stat().st_size > 0:
+            try:
+                sys.stdout.write(cache_file.read_text(encoding="utf-8"))
+                sys.stdout.flush()
+                return 0
+            except OSError:
+                pass
+
     cmd = [rea_bin, "decompile", target_target, "--procedure", str(proc)]
     timeout_s = getattr(args, "timeout", None) or 180.0
     if "REA_GHIDRA_STARTUP_TIMEOUT_MS" not in env:
         env["REA_GHIDRA_STARTUP_TIMEOUT_MS"] = str(int(timeout_s * 1000))
 
     try:
-        res = subprocess.run(cmd, env=env, check=False, timeout=timeout_s)
+        res = subprocess.run(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False, timeout=timeout_s)
+        if isinstance(res.stdout, str):
+            sys.stdout.write(res.stdout)
+            sys.stdout.flush()
+            if res.returncode == 0 and cache_file:
+                try:
+                    cache_file.write_text(res.stdout, encoding="utf-8")
+                except OSError:
+                    pass
+        if isinstance(res.stderr, str):
+            sys.stderr.write(res.stderr)
+            sys.stderr.flush()
         return res.returncode
-    except subprocess.TimeoutExpired:
-        print(f"[!] PSL-INV-009 §2 Benchmark Violation: Decompilation exceeded {timeout_s:.0f}s SLA (potential cache bypass).", file=sys.stderr)
+    except subprocess.TimeoutExpired as e:
+        actual_sla = getattr(e, "timeout", None) or timeout_s
+        print(f"[!] PSL-INV-009 §2 Benchmark Violation: Decompilation exceeded {actual_sla:.0f}s SLA (potential cache bypass).", file=sys.stderr)
         return 1
     except Exception as e:
         print(f"[!] Error executing rea decompile: {e}", file=sys.stderr)
@@ -607,6 +641,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_dec.add_argument("procedure", help="Function name or hex address")
     p_dec.add_argument("--binary", help="Target binary filename")
     p_dec.add_argument("--timeout", type=float, default=180.0, help="Decompilation SLA timeout in seconds (default: 180.0)")
+    p_dec.add_argument("--no-cache", action="store_true", help="Bypass and refresh decompiler query cache")
 
     # pcap
     p_pcap = sub.add_parser("pcap", help="Inspect packet capture frames")
