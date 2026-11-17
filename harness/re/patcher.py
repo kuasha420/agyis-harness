@@ -6,84 +6,57 @@
 """
 REA Ghidra Pre-Analyzed Project Acceleration Patcher (ADR-028, PSL-INV-009).
 Enables sub-2-second decompilation on large (>10MB) binaries by patching the
-installed REA MCP server to reuse pre-analyzed Ghidra projects with -noanalysis -readOnly
-and bypass redundant 1.3GB disk cloning (Optimization 2: Direct In-Place Mount).
+installed REA MCP server to reuse pre-analyzed Ghidra projects with -noanalysis -readOnly,
+bypass redundant 1.3GB disk cloning (Optimization 2: Direct In-Place Mount), and
+dynamically auto-discover workspace dirtyroom Ghidra projects from any global MCP session.
 """
 
+import importlib.resources
 import json
 import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 
 from harness.runtime.tool_checks_rea import is_ghidra_12_2_installed
 
 PATCH_SIGNATURE = "REA_GHIDRA_PROJECT_DIR"
 DIRECT_MOUNT_SIGNATURE = "REA_DIRECT_MOUNT_ACTIVE"
+AUTO_DISCOVERY_SIGNATURE = "AGYIS_REA_AUTODISCOVERY_V3"
 
-LAUNCHER_SNIPPET = """    const projectDir = process.env.REA_GHIDRA_PROJECT_DIR || (process.env.AGYIS_DIRTYROOM ? scriptPath.join(process.env.AGYIS_DIRTYROOM, "ghidra") : (process.env.IMMORTAL_DIRTYROOM ? scriptPath.join(process.env.IMMORTAL_DIRTYROOM, "ghidra") : undefined));
-    const projectName = process.env.REA_GHIDRA_PROJECT_NAME || (process.env.AGYIS_DIRTYROOM_PROJECT || (process.env.IMMORTAL_DIRTYROOM ? "PaladinsProject" : undefined));
-    let targetBase = scriptPath.basename(options.targetPath);
-    const BINARY_MAP = {
-        "0c51d381dfe9": "ShippingPC-ChaosGame.exe",
-        "90ce02b7b820": "MctsInterface.dll",
-        "1c4ad378fb8c": "vivoxsdk_x64.dll"
-    };
-    if (process.env.REA_BINARY_MAP) {
-        try { Object.assign(BINARY_MAP, JSON.parse(process.env.REA_BINARY_MAP)); } catch {}
-    }
-    if (process.env.REA_GHIDRA_PROGRAM_NAME) {
-        targetBase = process.env.REA_GHIDRA_PROGRAM_NAME;
-    } else if (targetBase.startsWith("target-")) {
-        const prefix = targetBase.slice(7, 19);
-        if (BINARY_MAP[prefix]) {
-            targetBase = BINARY_MAP[prefix];
-        }
-    }
-    if (projectDir && !options.rawBinary && !options.dosMz && !options.dosCom && options.gamecubeDol === undefined && options.psp !== true) {
-        try {
-            let activeProject = projectName;
-            if (!activeProject) {
-                const files = readdirSync(projectDir);
-                const gpr = files.find(f => f.endsWith(".gpr"));
-                if (gpr) activeProject = gpr.slice(0, -4);
-            }
-            if (activeProject) {
-                const gprPath = scriptPath.join(projectDir, `${activeProject}.gpr`);
-                statSync(gprPath);
-                return [
-                    projectDir,
-                    activeProject,
-                    "-process",
-                    targetBase,
-                    "-noanalysis",
-                    "-readOnly",
-                    "-log",
-                    options.ghidraLogPath,
-                    "-scriptlog",
-                    options.scriptLogPath,
-                    "-scriptPath",
-                    bridgeDirectory,
-                    "-postScript",
-                    options.bridgeScriptPath,
-                    options.descriptorPath
-                ];
-            }
-        } catch {}
-    }
-"""
+_FS_SYNC_IMPORT_LINE = (
+    'import { lstatSync as __agyisLstatSync, readFileSync as __agyisReadFileSync, '
+    'readdirSync as __agyisReaddirSync, statSync as __agyisStatSync, '
+    'symlinkSync as __agyisSymlinkSync } from "node:fs";'
+)
+_FASTPATH_IMPORT_LINES = (
+    'import { readdir as __agyisReaddir, stat as __agyisStat } from "node:fs/promises";\n'
+    'import { dirname as __agyisDirname, join as __agyisJoin, resolve as __agyisResolve } from "node:path";'
+)
 
-FASTPATH_FINGERPRINT_SNIPPET = """    if (process.env.REA_GHIDRA_DIRECT_MOUNT !== "0" && (process.env.REA_GHIDRA_PROJECT_DIR || process.env.AGYIS_DIRTYROOM || process.env.IMMORTAL_DIRTYROOM)) {
-        return "0000000000000000000000000000000000000000000000000000000000000000"; // REA_DIRECT_MOUNT_ACTIVE: 64-hex SHA256 bypass
-    }
-"""
+_FINGERPRINT_FN_RE = re.compile(
+    r"((?:(?:export\s+)?(?:const\s+)?fingerprintGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|"
+    r"async\s+function\s+fingerprintGhidraProject\s*\([^)]*\)\s*\{))"
+)
+_COPY_FN_RE = re.compile(
+    r"((?:(?:export\s+)?(?:const\s+)?copyExistingGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|"
+    r"async\s+function\s+copyExistingGhidraProject\s*\([^)]*\)\s*\{))"
+)
+_SNAPSHOT_PATH_RE = re.compile(
+    r"(const\s+snapshotPath\s*=\s*join\(runtimeRoot,\s*`target-\$\{expectedSha256\.slice\(0,\s*12\)\}\$\{suffix\}`\);)"
+)
 
-FASTPATH_COPY_SNIPPET = """    if (process.env.REA_GHIDRA_DIRECT_MOUNT !== "0" && (process.env.REA_GHIDRA_PROJECT_DIR || process.env.AGYIS_DIRTYROOM || process.env.IMMORTAL_DIRTYROOM)) {
-        return; // REA_DIRECT_MOUNT_ACTIVE: Bypass 1.3GB disk copy
-    }
-"""
+
+def _load_asset(name: str) -> str:
+    """Loads an externalized JavaScript patch template via importlib.resources."""
+    return importlib.resources.files("harness.re.assets").joinpath(name).read_text(encoding="utf-8")
+
+
+LAUNCHER_SNIPPET = _load_asset("launcher_direct_mount.js")
+FASTPATH_FINGERPRINT_SNIPPET = _load_asset("fastpath_fingerprint.js")
+FASTPATH_COPY_SNIPPET = _load_asset("fastpath_copy.js")
+SNAPSHOT_ORIGIN_SNIPPET = _load_asset("snapshot_origin.js")
 
 
 def _safe_read_text(path: Optional[Path]) -> str:
@@ -94,6 +67,112 @@ def _safe_read_text(path: Optional[Path]) -> str:
         return path.read_text(encoding="utf-8", errors="ignore")
     except (OSError, PermissionError):
         return ""
+
+
+def _prepend_esm_imports(content: str, import_block: str) -> str:
+    """Inserts ESM import lines cleanly after any leading shebang."""
+    if content.startswith("#!"):
+        nl = content.find("\n")
+        if nl != -1:
+            return f"{content[: nl + 1]}{import_block}\n{content[nl + 1 :]}"
+    return f"{import_block}\n{content}"
+
+
+def _ensure_aliased_imports(
+    content: str,
+    *,
+    need_fs_sync: bool = False,
+    need_fastpath: bool = False,
+) -> str:
+    """Ensures collision-free aliased Node ESM imports exist for injected snippets."""
+    blocks: List[str] = []
+    if need_fs_sync and _FS_SYNC_IMPORT_LINE not in content:
+        blocks.append(_FS_SYNC_IMPORT_LINE)
+    if need_fastpath and _FASTPATH_IMPORT_LINES not in content:
+        blocks.append(_FASTPATH_IMPORT_LINES)
+    if not blocks:
+        return content
+    return _prepend_esm_imports(content, "\n".join(blocks))
+
+
+def _load_clean_base(file_path: Path) -> str:
+    """Loads pristine upstream JS from .js.orig if present, creating backup once if unpatched."""
+    orig = file_path.with_suffix(".js.orig")
+    if orig.is_file():
+        return orig.read_text(encoding="utf-8")
+
+    current = file_path.read_text(encoding="utf-8")
+    has_any_sig = (
+        PATCH_SIGNATURE in current
+        or DIRECT_MOUNT_SIGNATURE in current
+        or AUTO_DISCOVERY_SIGNATURE in current
+        or "AGYIS_REA_AUTODISCOVERY" in current
+    )
+    if not has_any_sig:
+        orig.write_text(current, encoding="utf-8")
+    return current
+
+
+def _inject_bundle_snippets(
+    content: str,
+    *,
+    require_launcher: bool,
+    include_fastpaths: bool,
+    include_snapshot_origin: bool,
+) -> Tuple[str, bool, Optional[str]]:
+    """Applies launcher, fastpath, and snapshot-origin snippets onto pristine JS source."""
+    modified = False
+    need_fs_sync = False
+    need_fastpath = False
+    out = content
+
+    target_primary = "const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);"
+    target_alt = "bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);"
+
+    if require_launcher or target_primary in out or target_alt in out:
+        if target_primary in out:
+            out = out.replace(target_primary, f"{target_primary}\n{LAUNCHER_SNIPPET}", 1)
+            need_fs_sync = True
+            modified = True
+        elif target_alt in out:
+            out = out.replace(target_alt, f"{target_alt}\n{LAUNCHER_SNIPPET}", 1)
+            need_fs_sync = True
+            modified = True
+        elif require_launcher:
+            return out, False, "Target launcher marker not found"
+
+    if include_fastpaths:
+        out, fp_count = _FINGERPRINT_FN_RE.subn(
+            lambda m: f"{m.group(1)}\n{FASTPATH_FINGERPRINT_SNIPPET}",
+            out,
+            count=1,
+        )
+        out, cp_count = _COPY_FN_RE.subn(
+            lambda m: f"{m.group(1)}\n{FASTPATH_COPY_SNIPPET}",
+            out,
+            count=1,
+        )
+        if fp_count or cp_count:
+            need_fastpath = True
+            modified = True
+
+    if include_snapshot_origin:
+        out, snap_count = _SNAPSHOT_PATH_RE.subn(
+            lambda m: f"{m.group(1)}\n{SNAPSHOT_ORIGIN_SNIPPET}",
+            out,
+            count=1,
+        )
+        if snap_count:
+            modified = True
+
+    if need_fs_sync or need_fastpath:
+        out = _ensure_aliased_imports(
+            out,
+            need_fs_sync=need_fs_sync,
+            need_fastpath=need_fastpath,
+        )
+
+    return out, modified, None
 
 
 def find_rea_package_root() -> Optional[Path]:
@@ -159,37 +238,33 @@ def get_all_patch_targets(rea_root: Optional[Path] = None) -> Dict[str, Optional
 
     launcher = root / "dist" / "ghidra" / "GhidraLauncher.js"
     snapshot = root / "dist" / "ghidra" / "GhidraProjectSnapshot.js"
+    target_snapshot = root / "dist" / "ghidra" / "GhidraTargetSnapshot.js"
     policy = root / "dist" / "ghidra" / "GhidraReleasePolicy.js"
 
     mcp_dir = root / "dist" / "mcp"
     mcp_binary: Optional[Path] = None
     if mcp_dir.is_dir():
-        for cand in mcp_dir.glob("binary-*.js"):
+        for cand in sorted(mcp_dir.glob("binary-*.js")):
             if not cand.name.endswith(".orig"):
-                try:
-                    content = cand.read_text(encoding="utf-8", errors="ignore")
-                    if "ghidraHeadlessArguments" in content:
-                        mcp_binary = cand
-                        break
-                except Exception:
-                    pass
+                content = _safe_read_text(cand)
+                if "ghidraHeadlessArguments" in content:
+                    mcp_binary = cand
+                    break
 
     cli_dir = root / "dist" / "cli-runtime"
     cli_binary: Optional[Path] = None
     if cli_dir.is_dir():
-        for cand in cli_dir.glob("binary-*.js"):
+        for cand in sorted(cli_dir.glob("binary-*.js")):
             if not cand.name.endswith(".orig"):
-                try:
-                    content = cand.read_text(encoding="utf-8", errors="ignore")
-                    if "ghidraHeadlessArguments" in content:
-                        cli_binary = cand
-                        break
-                except Exception:
-                    pass
+                content = _safe_read_text(cand)
+                if "ghidraHeadlessArguments" in content:
+                    cli_binary = cand
+                    break
 
     return {
         "launcher": launcher if launcher.is_file() else None,
         "snapshot": snapshot if snapshot.is_file() else None,
+        "target_snapshot": target_snapshot if target_snapshot.is_file() else None,
         "mcp_binary": mcp_binary,
         "cli_binary": cli_binary,
         "policy": policy if policy.is_file() else None,
@@ -197,7 +272,7 @@ def get_all_patch_targets(rea_root: Optional[Path] = None) -> Dict[str, Optional
 
 
 def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
-    """Inspects whether the Ghidra acceleration patch is currently applied."""
+    """Inspects whether the Ghidra acceleration & auto-discovery patch is currently applied."""
     root = rea_root or find_rea_package_root()
     if not root:
         return {
@@ -208,6 +283,7 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
             "snapshot_patched": False,
             "cli_patched": False,
             "direct_mount_active": False,
+            "auto_discovery_active": False,
             "launcher_path": None,
             "mcp_path": None,
             "message": "REA (rea-agents) package could not be found.",
@@ -217,65 +293,52 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
     launcher = targets.get("launcher")
     mcp_binary = targets.get("mcp_binary")
     snapshot = targets.get("snapshot")
+    target_snapshot = targets.get("target_snapshot")
     cli_binary = targets.get("cli_binary")
     policy_file = targets.get("policy")
 
-    launcher_patched = False
-    mcp_patched = False
-    snapshot_patched = False
-    cli_patched = False
-    policy_patched = False
+    l_text = _safe_read_text(launcher)
+    m_text = _safe_read_text(mcp_binary)
+    s_text = _safe_read_text(snapshot)
+    ts_text = _safe_read_text(target_snapshot)
+    c_text = _safe_read_text(cli_binary)
+    p_text = _safe_read_text(policy_file)
 
-    if launcher and launcher.is_file():
-        try:
-            content = launcher.read_text(encoding="utf-8", errors="ignore")
-            launcher_patched = PATCH_SIGNATURE in content
-        except Exception:
-            pass
-
-    if mcp_binary and mcp_binary.is_file():
-        try:
-            content = mcp_binary.read_text(encoding="utf-8", errors="ignore")
-            mcp_patched = PATCH_SIGNATURE in content
-        except Exception:
-            pass
-
-    if snapshot and snapshot.is_file():
-        try:
-            content = snapshot.read_text(encoding="utf-8", errors="ignore")
-            snapshot_patched = DIRECT_MOUNT_SIGNATURE in content
-        except Exception:
-            pass
-
-    if cli_binary and cli_binary.is_file():
-        try:
-            content = cli_binary.read_text(encoding="utf-8", errors="ignore")
-            cli_patched = PATCH_SIGNATURE in content and DIRECT_MOUNT_SIGNATURE in content
-        except Exception:
-            pass
-
-    if policy_file and policy_file.is_file():
-        try:
-            p_content = policy_file.read_text(encoding="utf-8", errors="ignore")
-            policy_patched = 'SUPPORTED_GHIDRA_VERSION = "12.2"' in p_content
-        except Exception:
-            pass
+    launcher_patched = bool(launcher) and PATCH_SIGNATURE in l_text
+    mcp_patched = bool(mcp_binary) and PATCH_SIGNATURE in m_text
+    snapshot_patched = bool(snapshot) and DIRECT_MOUNT_SIGNATURE in s_text
+    cli_patched = bool(cli_binary) and PATCH_SIGNATURE in c_text and DIRECT_MOUNT_SIGNATURE in c_text
+    policy_patched = bool(policy_file) and 'SUPPORTED_GHIDRA_VERSION = "12.2"' in p_text
 
     direct_mount_active = (
         (not snapshot or snapshot_patched)
         and (not cli_binary or cli_patched)
-        and (not mcp_binary or (DIRECT_MOUNT_SIGNATURE in _safe_read_text(mcp_binary)))
+        and (not mcp_binary or (DIRECT_MOUNT_SIGNATURE in m_text))
+    )
+    auto_discovery_active = (
+        bool(launcher)
+        and AUTO_DISCOVERY_SIGNATURE in l_text
+        and _FS_SYNC_IMPORT_LINE in l_text
+        and bool(mcp_binary)
+        and AUTO_DISCOVERY_SIGNATURE in m_text
+        and _FS_SYNC_IMPORT_LINE in m_text
+        and (not snapshot or (AUTO_DISCOVERY_SIGNATURE in s_text and _FASTPATH_IMPORT_LINES in s_text))
+        and (not cli_binary or (AUTO_DISCOVERY_SIGNATURE in c_text and _FS_SYNC_IMPORT_LINE in c_text))
+        and (not target_snapshot or AUTO_DISCOVERY_SIGNATURE in ts_text)
     )
 
-    if launcher_patched and mcp_patched and direct_mount_active:
+    if launcher_patched and mcp_patched and auto_discovery_active and direct_mount_active:
         status = "applied"
-        msg = "REA pre-analyzed Ghidra project acceleration patch & zero-copy direct mount active."
-    elif launcher_patched and mcp_patched:
+        msg = "REA pre-analyzed Ghidra acceleration, direct mount & multi-workspace auto-discovery active."
+    elif launcher_patched and mcp_patched and auto_discovery_active:
         status = "applied"
-        msg = "REA pre-analyzed Ghidra project acceleration patch is active."
-    elif launcher_patched or mcp_patched:
+        msg = "REA pre-analyzed Ghidra acceleration & multi-workspace auto-discovery active."
+    elif launcher_patched or mcp_patched or snapshot_patched or cli_patched:
         status = "partial"
-        msg = "REA patch is partially applied (inconsistent launcher/mcp bundle)."
+        if launcher_patched and mcp_patched and not auto_discovery_active:
+            msg = "REA patch is outdated (missing latest multi-workspace auto-discovery); re-run 'agyis re patch-rea --apply'."
+        else:
+            msg = "REA patch is partially applied (inconsistent launcher/mcp bundle)."
     else:
         status = "unapplied"
         msg = "REA patch is not applied (ad-hoc temporary analysis pass will occur)."
@@ -288,6 +351,7 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
         "snapshot_patched": snapshot_patched,
         "cli_patched": cli_patched,
         "direct_mount_active": direct_mount_active,
+        "auto_discovery_active": auto_discovery_active,
         "policy_patched": policy_patched,
         "launcher_path": str(launcher) if launcher else None,
         "mcp_path": str(mcp_binary) if mcp_binary else None,
@@ -298,7 +362,7 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
 
 
 def apply_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
-    """Applies the pre-analyzed Ghidra acceleration patch and zero-copy direct mount to the REA installation."""
+    """Applies or upgrades the pre-analyzed Ghidra acceleration & direct-mount patch."""
     root = rea_root or find_rea_package_root()
     if not root:
         return {"success": False, "error": "REA package root not found"}
@@ -307,6 +371,7 @@ def apply_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
     launcher = targets.get("launcher")
     mcp_binary = targets.get("mcp_binary")
     snapshot = targets.get("snapshot")
+    target_snapshot = targets.get("target_snapshot")
     cli_binary = targets.get("cli_binary")
     policy_file = targets.get("policy")
 
@@ -317,163 +382,121 @@ def apply_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
 
     applied_files: List[str] = []
 
-    # Helper to backup to .orig once
-    def ensure_backup(file_path: Path, content: str) -> None:
-        orig = file_path.with_suffix(".js.orig")
-        if not orig.is_file():
-            orig.write_text(content, encoding="utf-8")
-
-    # 1. Patch GhidraLauncher.js
-    l_content = launcher.read_text(encoding="utf-8")
-    if PATCH_SIGNATURE not in l_content:
-        ensure_backup(launcher, l_content)
-
-        if 'import { statSync' not in l_content and 'import { readdirSync' not in l_content:
-            l_content = re.sub(
-                r'(import \{[^\}]*?\}\s*from\s*"node:fs/promises";)',
-                r'import { readdirSync, statSync } from "node:fs";\n\1',
-                l_content,
-                count=1,
-            )
-        elif 'readdirSync' not in l_content:
-            l_content = l_content.replace('import { statSync', 'import { readdirSync, statSync')
-
-        target_marker = "const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);"
-        if target_marker in l_content:
-            l_content = l_content.replace(
-                target_marker,
-                f"{target_marker}\n{LAUNCHER_SNIPPET}",
-                1,
-            )
-            launcher.write_text(l_content, encoding="utf-8")
+    # 1. Patch or upgrade GhidraLauncher.js
+    l_current = launcher.read_text(encoding="utf-8")
+    if (
+        PATCH_SIGNATURE not in l_current
+        or AUTO_DISCOVERY_SIGNATURE not in l_current
+        or _FS_SYNC_IMPORT_LINE not in l_current
+    ):
+        l_base = _load_clean_base(launcher)
+        l_patched, l_mod, l_err = _inject_bundle_snippets(
+            l_base,
+            require_launcher=True,
+            include_fastpaths=False,
+            include_snapshot_origin=False,
+        )
+        if l_err:
+            return {"success": False, "error": f"{l_err} in {launcher.name}"}
+        if l_mod:
+            launcher.write_text(l_patched, encoding="utf-8")
             applied_files.append(str(launcher))
-        else:
-            return {"success": False, "error": f"Target marker not found in {launcher.name}"}
 
-    # 2. Patch GhidraProjectSnapshot.js (Zero-copy Direct Mount fastpath)
+    # 2. Patch or upgrade GhidraProjectSnapshot.js (Zero-copy Direct Mount fastpath)
     if snapshot and snapshot.is_file():
-        s_content = snapshot.read_text(encoding="utf-8")
-        if DIRECT_MOUNT_SIGNATURE not in s_content:
-            ensure_backup(snapshot, s_content)
-
-            s_content = re.sub(
-                r"((?:(?:export\s+)?(?:const\s+)?fingerprintGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+fingerprintGhidraProject\s*\([^)]*\)\s*\{))",
-                r"\1\n" + FASTPATH_FINGERPRINT_SNIPPET,
-                s_content,
-                count=1,
+        s_current = snapshot.read_text(encoding="utf-8")
+        if (
+            DIRECT_MOUNT_SIGNATURE not in s_current
+            or AUTO_DISCOVERY_SIGNATURE not in s_current
+            or _FASTPATH_IMPORT_LINES not in s_current
+        ):
+            s_base = _load_clean_base(snapshot)
+            s_patched, s_mod, _ = _inject_bundle_snippets(
+                s_base,
+                require_launcher=False,
+                include_fastpaths=True,
+                include_snapshot_origin=False,
             )
-            s_content = re.sub(
-                r"((?:(?:export\s+)?(?:const\s+)?copyExistingGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+copyExistingGhidraProject\s*\([^)]*\)\s*\{))",
-                r"\1\n" + FASTPATH_COPY_SNIPPET,
-                s_content,
-                count=1,
+            if s_mod:
+                snapshot.write_text(s_patched, encoding="utf-8")
+                applied_files.append(str(snapshot))
+
+    # 3. Patch or upgrade GhidraTargetSnapshot.js (Origin path tracking for temp snapshots)
+    if target_snapshot and target_snapshot.is_file():
+        ts_current = target_snapshot.read_text(encoding="utf-8")
+        if AUTO_DISCOVERY_SIGNATURE not in ts_current:
+            ts_base = _load_clean_base(target_snapshot)
+            ts_patched, ts_mod, _ = _inject_bundle_snippets(
+                ts_base,
+                require_launcher=False,
+                include_fastpaths=False,
+                include_snapshot_origin=True,
             )
-            snapshot.write_text(s_content, encoding="utf-8")
-            applied_files.append(str(snapshot))
+            if ts_mod:
+                target_snapshot.write_text(ts_patched, encoding="utf-8")
+                applied_files.append(str(target_snapshot))
 
-    # 3. Patch dist/mcp/binary-*.js
-    m_content = mcp_binary.read_text(encoding="utf-8")
-    m_modified = False
-    if PATCH_SIGNATURE not in m_content or DIRECT_MOUNT_SIGNATURE not in m_content:
-        ensure_backup(mcp_binary, m_content)
-
-        if 'readdirSync' not in m_content:
-            m_content = re.sub(
-                r'(import \{[^\}]*statSync[^\}]*\}\s*from\s*"node:fs";)',
-                lambda m: m.group(0).replace('statSync', 'readdirSync, statSync'),
-                m_content,
-                count=1,
-            )
-            m_modified = True
-
-        target_mcp = "const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);"
-        alt_target = "bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);"
-
-        if PATCH_SIGNATURE not in m_content:
-            if target_mcp in m_content:
-                m_content = m_content.replace(target_mcp, f"{target_mcp}\n{LAUNCHER_SNIPPET}", 1)
-                m_modified = True
-            elif alt_target in m_content:
-                m_content = m_content.replace(alt_target, f"{alt_target}\n{LAUNCHER_SNIPPET}", 1)
-                m_modified = True
-            else:
-                return {"success": False, "error": f"Target marker not found in {mcp_binary.name}"}
-
-        if DIRECT_MOUNT_SIGNATURE not in m_content:
-            m_content = re.sub(
-                r"((?:(?:export\s+)?(?:const\s+)?fingerprintGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+fingerprintGhidraProject\s*\([^)]*\)\s*\{))",
-                r"\1\n" + FASTPATH_FINGERPRINT_SNIPPET,
-                m_content,
-                count=1,
-            )
-            m_content = re.sub(
-                r"((?:(?:export\s+)?(?:const\s+)?copyExistingGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+copyExistingGhidraProject\s*\([^)]*\)\s*\{))",
-                r"\1\n" + FASTPATH_COPY_SNIPPET,
-                m_content,
-                count=1,
-            )
-            m_modified = True
-
-        if m_modified:
-            mcp_binary.write_text(m_content, encoding="utf-8")
+    # 4. Patch or upgrade dist/mcp/binary-*.js
+    m_current = mcp_binary.read_text(encoding="utf-8")
+    has_m_fastpath_fn = bool(_FINGERPRINT_FN_RE.search(m_current) or _COPY_FN_RE.search(m_current))
+    needs_m_fastpath = has_m_fastpath_fn and (
+        DIRECT_MOUNT_SIGNATURE not in m_current or _FASTPATH_IMPORT_LINES not in m_current
+    )
+    if (
+        PATCH_SIGNATURE not in m_current
+        or AUTO_DISCOVERY_SIGNATURE not in m_current
+        or _FS_SYNC_IMPORT_LINE not in m_current
+        or needs_m_fastpath
+    ):
+        m_base = _load_clean_base(mcp_binary)
+        m_patched, m_mod, m_err = _inject_bundle_snippets(
+            m_base,
+            require_launcher=True,
+            include_fastpaths=True,
+            include_snapshot_origin=True,
+        )
+        if m_err:
+            return {"success": False, "error": f"{m_err} in {mcp_binary.name}"}
+        if m_mod:
+            mcp_binary.write_text(m_patched, encoding="utf-8")
             applied_files.append(str(mcp_binary))
 
-    # 4. Patch dist/cli-runtime/binary-*.js (CLI runtime acceleration)
+    # 5. Patch or upgrade dist/cli-runtime/binary-*.js
     if cli_binary and cli_binary.is_file():
-        c_content = cli_binary.read_text(encoding="utf-8")
-        c_modified = False
-        if PATCH_SIGNATURE not in c_content or DIRECT_MOUNT_SIGNATURE not in c_content:
-            ensure_backup(cli_binary, c_content)
-
-            if 'readdirSync' not in c_content:
-                c_content = re.sub(
-                    r'(import \{[^\}]*statSync[^\}]*\}\s*from\s*"node:fs";)',
-                    lambda m: m.group(0).replace('statSync', 'readdirSync, statSync'),
-                    c_content,
-                    count=1,
-                )
-                c_modified = True
-
-            target_cli = "const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);"
-            alt_target = "bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);"
-
-            if PATCH_SIGNATURE not in c_content:
-                if target_cli in c_content:
-                    c_content = c_content.replace(target_cli, f"{target_cli}\n{LAUNCHER_SNIPPET}", 1)
-                    c_modified = True
-                elif alt_target in c_content:
-                    c_content = c_content.replace(alt_target, f"{alt_target}\n{LAUNCHER_SNIPPET}", 1)
-                    c_modified = True
-
-            if DIRECT_MOUNT_SIGNATURE not in c_content:
-                c_content = re.sub(
-                    r"((?:(?:export\s+)?(?:const\s+)?fingerprintGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+fingerprintGhidraProject\s*\([^)]*\)\s*\{))",
-                    r"\1\n" + FASTPATH_FINGERPRINT_SNIPPET,
-                    c_content,
-                    count=1,
-                )
-                c_content = re.sub(
-                    r"((?:(?:export\s+)?(?:const\s+)?copyExistingGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+copyExistingGhidraProject\s*\([^)]*\)\s*\{))",
-                    r"\1\n" + FASTPATH_COPY_SNIPPET,
-                    c_content,
-                    count=1,
-                )
-                c_modified = True
-
-            if c_modified:
-                cli_binary.write_text(c_content, encoding="utf-8")
+        c_current = cli_binary.read_text(encoding="utf-8")
+        has_c_fastpath_fn = bool(_FINGERPRINT_FN_RE.search(c_current) or _COPY_FN_RE.search(c_current))
+        needs_c_fastpath = has_c_fastpath_fn and (
+            DIRECT_MOUNT_SIGNATURE not in c_current or _FASTPATH_IMPORT_LINES not in c_current
+        )
+        if (
+            PATCH_SIGNATURE not in c_current
+            or AUTO_DISCOVERY_SIGNATURE not in c_current
+            or _FS_SYNC_IMPORT_LINE not in c_current
+            or needs_c_fastpath
+        ):
+            c_base = _load_clean_base(cli_binary)
+            c_patched, c_mod, _ = _inject_bundle_snippets(
+                c_base,
+                require_launcher=False,
+                include_fastpaths=True,
+                include_snapshot_origin=True,
+            )
+            if c_mod:
+                cli_binary.write_text(c_patched, encoding="utf-8")
                 applied_files.append(str(cli_binary))
 
-    # 5. Patch GhidraReleasePolicy.js if Ghidra 12.2 is installed (DEF-BB-040)
+    # 6. Patch GhidraReleasePolicy.js if Ghidra 12.2 is installed (DEF-BB-040)
     if policy_file and policy_file.is_file() and is_ghidra_12_2_installed():
-        p_content = policy_file.read_text(encoding="utf-8")
-        if 'SUPPORTED_GHIDRA_VERSION = "12.1.4"' in p_content:
-            ensure_backup(policy_file, p_content)
-            p_content = p_content.replace(
+        p_current = policy_file.read_text(encoding="utf-8")
+        if 'SUPPORTED_GHIDRA_VERSION = "12.1.4"' in p_current:
+            orig_policy = policy_file.with_suffix(".js.orig")
+            if not orig_policy.is_file():
+                orig_policy.write_text(p_current, encoding="utf-8")
+            p_patched = p_current.replace(
                 'SUPPORTED_GHIDRA_VERSION = "12.1.4"',
                 'SUPPORTED_GHIDRA_VERSION = "12.2"',
             )
-            policy_file.write_text(p_content, encoding="utf-8")
+            policy_file.write_text(p_patched, encoding="utf-8")
             applied_files.append(str(policy_file))
 
     return {
@@ -491,7 +514,6 @@ def revert_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
 
     reverted_files: List[str] = []
 
-    # Find all .orig backups anywhere under root/dist
     dist_dir = root / "dist"
     if dist_dir.is_dir():
         for orig in dist_dir.rglob("*.orig"):

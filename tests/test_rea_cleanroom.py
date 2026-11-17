@@ -422,6 +422,8 @@ class TestAutoHealingREANode(unittest.TestCase):
              patch("shutil.which", return_value="/usr/bin/pnpm"), \
              patch("subprocess.run", return_value=mock_pnpm_proc) as mock_subp, \
              patch("harness.runtime.tool_checks.find_jdk21_path", return_value=None), \
+             patch("harness.re.patcher.check_patch", return_value={"status": "applied"}), \
+             patch("harness.re.patcher.apply_patch", return_value={"success": True, "applied_files": []}), \
              patch("harness.runtime.tool_checks.configure_rea_mcp_server", return_value=([], [])):
             actions = heal_rea_tooling(mock_audit)
             self.assertTrue(any("switched to Node 24 LTS" in a for a in actions))
@@ -448,6 +450,8 @@ class TestAutoHealingREANode(unittest.TestCase):
              patch("harness.runtime.tool_checks.find_jdk21_path", return_value=None), \
              patch("harness.runtime.tool_checks.is_ghidra_12_2_installed", return_value=True), \
              patch.object(Path, "is_dir", mock_is_dir), \
+             patch("harness.re.patcher.check_patch", return_value={"status": "applied"}), \
+             patch("harness.re.patcher.apply_patch", return_value={"success": True, "applied_files": []}), \
              patch("harness.runtime.tool_checks.configure_rea_mcp_server", return_value=([], [])) as mock_cfg:
             heal_rea_tooling(mock_audit)
             call_kwargs = mock_cfg.call_args[1]

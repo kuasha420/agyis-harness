@@ -241,6 +241,39 @@ def find_jdk21_path() -> Optional[Path]:
     return None
 
 
+def _resolve_nondot_ghidra_dir(dr: Path) -> Optional[Path]:
+    """Resolve a non-dot Ghidra project directory path for DEF-BB-038 compliance.
+
+    Ghidra rejects any path component starting with '.' (such as '.dirtyroom').
+    Prefers an existing sibling non-dot symlink (e.g. 'dirtyroom/ghidra') that
+    resolves to the same directory as 'dr / ghidra', creates it safely if
+    missing, and returns 'dr / ghidra' only when no leading dot is present.
+    Returns None if 'dr' starts with '.' and no safe non-dot alias can be used.
+    """
+    ghidra_dir = dr / "ghidra"
+    if not dr.name.startswith("."):
+        return ghidra_dir
+
+    nondot_name = dr.name.lstrip(".")
+    if not nondot_name:
+        return None
+
+    nondot_alias = dr.parent / nondot_name
+    if not nondot_alias.exists() and not nondot_alias.is_symlink():
+        try:
+            nondot_alias.symlink_to(dr.name, target_is_directory=True)
+        except OSError:
+            return None
+
+    nondot_ghidra = nondot_alias / "ghidra"
+    try:
+        if nondot_ghidra.is_dir() and nondot_ghidra.resolve() == ghidra_dir.resolve():
+            return nondot_ghidra
+    except OSError:
+        return None
+    return None
+
+
 def configure_rea_mcp_server(
     config_paths: Optional[List[Path]] = None,
     jdk21_path: Optional[Path] = None,
@@ -299,33 +332,54 @@ def configure_rea_mcp_server(
             if "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
                 data["mcpServers"] = {}
 
+            existing_rea = data["mcpServers"].get("rea")
+            existing_env = (
+                existing_rea.get("env")
+                if isinstance(existing_rea, dict) and isinstance(existing_rea.get("env"), dict)
+                else {}
+            )
+
+            # Preserve existing user-pinned env vars (REA_GHIDRA_*, AGYIS_DIRTYROOM*,
+            # IMMORTAL_DIRTYROOM, REA_BINARY_MAP, etc.) across reinstalls.
             env_vars: Dict[str, str] = {
-                "GHIDRA_INSTALL_DIR": ghidra_dir or "/opt/ghidra",
-                "REA_MCP_INPUT_SCHEMA_PROFILE": "full",
-                "REA_MCP_OUTPUT_SCHEMA_PROFILE": "off",
+                str(k): str(v)
+                for k, v in existing_env.items()
+                if v is not None and str(v) != ""
             }
+            env_vars["GHIDRA_INSTALL_DIR"] = (
+                ghidra_dir or env_vars.get("GHIDRA_INSTALL_DIR") or "/opt/ghidra"
+            )
+            env_vars["REA_MCP_INPUT_SCHEMA_PROFILE"] = "full"
+            env_vars["REA_MCP_OUTPUT_SCHEMA_PROFILE"] = "off"
+            # Always enable global direct-mount acceleration unless explicitly disabled ("0").
+            if env_vars.get("REA_GHIDRA_DIRECT_MOUNT") != "0":
+                env_vars["REA_GHIDRA_DIRECT_MOUNT"] = "1"
             if jdk21_path:
                 env_vars["JAVA_HOME"] = str(jdk21_path)
 
             try:
                 from harness.re.scaffold import get_dirtyroom_root
+
                 dr = get_dirtyroom_root()
                 if dr and (dr / "ghidra").is_dir():
-                    gprs = list((dr / "ghidra").glob("*.gpr"))
-                    if gprs:
-                        env_vars["REA_GHIDRA_PROJECT_DIR"] = str(dr / "ghidra")
-                        env_vars["REA_GHIDRA_PROJECT_NAME"] = gprs[0].stem
-                        env_vars["REA_GHIDRA_PROJECT_PATH"] = str(gprs[0])
-                        env_vars["REA_GHIDRA_DIRECT_MOUNT"] = "1"
-                        env_vars["AGYIS_DIRTYROOM"] = str(dr)
+                    raw_gprs = sorted((dr / "ghidra").glob("*.gpr"))
+                    if raw_gprs:
+                        ghidra_proj_dir = _resolve_nondot_ghidra_dir(dr)
+                        if ghidra_proj_dir is not None:
+                            gprs = sorted(ghidra_proj_dir.glob("*.gpr"))
+                            if gprs:
+                                env_vars["REA_GHIDRA_PROJECT_DIR"] = str(ghidra_proj_dir)
+                                env_vars["REA_GHIDRA_PROJECT_NAME"] = gprs[0].stem
+                                env_vars["REA_GHIDRA_PROJECT_PATH"] = str(gprs[0])
+                                env_vars["AGYIS_DIRTYROOM"] = str(dr)
             except (OSError, ImportError) as exc:
                 errors.append(f"Warning: Failed to resolve dirtyroom environment: {exc}")
 
-            data["mcpServers"]["rea"] = {
-                "command": "rea",
-                "args": ["mcp"],
-                "env": env_vars,
-            }
+            rea_entry: Dict[str, Any] = dict(existing_rea) if isinstance(existing_rea, dict) else {}
+            rea_entry["command"] = "rea"
+            rea_entry["args"] = ["mcp"]
+            rea_entry["env"] = env_vars
+            data["mcpServers"]["rea"] = rea_entry
             cfg_p.parent.mkdir(parents=True, exist_ok=True)
             cfg_p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
             configured.append(cfg_p)
