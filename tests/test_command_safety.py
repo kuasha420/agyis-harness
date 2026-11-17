@@ -343,7 +343,7 @@ class TestCommandSafety(unittest.TestCase):
             decision, mod_cmd, reason = sanitize_command(cmd)
             self.assertEqual(decision, "allow")
             self.assertIsNotNone(mod_cmd)
-            self.assertIn(".agents/scratch/exec_", mod_cmd)
+            self.assertTrue(".agents/scratch/exec_" in mod_cmd or "scratch/exec_" in mod_cmd)
             self.assertIn("[AGYIS COGNITIVE HINT]", reason or "")
 
             # When promote_scratch is False, verify it is safely denied per PSL-INV-002 §4

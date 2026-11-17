@@ -333,10 +333,11 @@ Antigravity's JSON-RPC stdio transport buffers individual tool responses. If an 
 2. **Evidence ID Referencing**: REA caches full analysis trees under immutable `evidence_id` hashes and returns lightweight summary receipts.
 3. **Paging via `inspect_analysis_view`**: Agents inspect specific slices or modules on demand using `inspect_analysis_view(evidence_id, view, page)` without re-running analysis or flooding context.
 
-### 4.4 Skills Integration (Dynamic Runtime Provisioning — No Vendoring)
-The official skill `reverse-engineer-anything` encapsulates REA operational runbooks, disassembler choice matrices, and cleanroom verification protocols without vendoring external upstream markdown inside `harness/skills/`:
-- **Dynamic Discovery & Provisioning (`provision_rea_skill()` in `harness/runtime/healing.py`)**: Discovers upstream `skills/reverse-engineer-anything/SKILL.md` from `rea providers --json` package `root_path` or user `pnpm`/`npm` global stores, symlinking or downloading on-demand into target skills roots (`~/.gemini/config/skills/reverse-engineer-anything/SKILL.md` or workspace `.agents/skills/`).
-- **Triggers**: Executed on-demand via `agyis init --experimental-rea`, `agyis doctor --experimental-rea --heal`, or `agyis install -g --experimental-rea`.
+### 4.4 Skills Integration (First-Party `re-ops` + Dynamic Upstream Provisioning)
+- **First-Party Layer 1 Skill (`harness/skills/re-ops/SKILL.md`)**: Target-agnostic Agyis operational runbook covering cleanroom quarantine (`PSL-INV-007`), pre-analyzed Ghidra direct-mount acceleration (`PSL-INV-009`), the complete `agyis re` lifecycle palette, 4-vector cleanroom verification, and the 5-step REA surgical escalation ladder. Provisioned via `--role re`, `--role cleanroom`, or the `ops` skill group.
+- **Upstream Dynamic Skill (`reverse-engineer-anything`)**: Encapsulates upstream REA operational runbooks, disassembler choice matrices, and cleanroom verification protocols without vendoring external upstream markdown inside `harness/skills/`:
+  - **Dynamic Discovery & Provisioning (`provision_rea_skill()` in `harness/runtime/healing.py`)**: Discovers upstream `skills/reverse-engineer-anything/SKILL.md` from `rea providers --json` package `root_path` or user `pnpm`/`npm` global stores, symlinking or downloading on-demand into target skills roots (`~/.gemini/config/skills/reverse-engineer-anything/SKILL.md` or workspace `.agents/skills/`).
+  - **Triggers**: Executed on-demand via `agyis init --experimental-rea`, `agyis doctor --experimental-rea --heal`, or `agyis install -g --experimental-rea`.
 
 ---
 
@@ -650,7 +651,49 @@ In `harness/runtime/doctor.py`:
 
 ---
 
-## 8. Verification & Compliance Gates
+## 8. Accelerated Decompilation Architecture: Direct Mount, Daemon Bridge & Query Cache (Issue #113, PSL-INV-009)
+
+To eliminate the severe latency bottlenecks encountered during reverse engineering operations on large closed-source binaries (>50MB, e.g. `ShippingPC-ChaosGame.exe`: 68MB, 356,000 procedures, 817,000 strings), Agyis Harness introduces a 3-tier acceleration architecture satisfying the sub-2-second decompilation benchmark required by **PSL-INV-009 §2**.
+
+### 8.1 Empirical Latency Benchmarks (Target: 68MB PE32+ Binary)
+
+| Tier | Optimization Architecture | Execution Pathway | Latency | Speedup |
+| :--- | :--- | :--- | :--- | :--- |
+| **Baseline** | Stock REA + Project Reuse (ADR-028) | Ad-hoc CLI + 1.3GB Disk Clone | `132.10s` | 1.0x |
+| **Optimization 2** | **Direct In-Place Mount** (`-readOnly -noanalysis`) | Ad-hoc CLI (Zero Clone) | `9.78s` | **13.5x** |
+| **Optimization 1** | **Persistent MCP Bridge Daemon** | In-Memory MCP Tool Invocation | `~0.20s - 0.80s` | **165x - 660x** |
+| **Optimization 3** | **Deterministic Query Cache** | Local Disk Cache (`.dirtyroom/cache/`) | `<0.005s` | **>26,000x** |
+
+### 8.2 Optimization 1: Persistent REA MCP Bridge Daemon Support
+- **Mechanism**: The REA MCP server maintains an open connection with persistent language provider and decompiler instances in memory, eliminating cold JVM startup penalties (8–10s) on every query.
+- **Supervisor Daemon (`agyis re daemon [status|start|stop]`)**:
+  - `start`: Launches detached supervisor holding open stdio connection to `rea mcp`, performs MCP protocol `initialize` handshake to warm up providers, and writes PID to `.dirtyroom/logs/rea_daemon.pid`.
+  - `status`: Inspects daemon liveness, uptime, child PID, mounted Ghidra projects, and MCP registration.
+  - `stop`: Gracefully terminates the daemon process via SIGTERM with SIGKILL fallback.
+- **Environment Injection**: `harness/runtime/tool_checks_rea.py` automatically injects `REA_GHIDRA_PROJECT_DIR`, `REA_GHIDRA_PROJECT_NAME`, `REA_GHIDRA_PROJECT_PATH`, `REA_GHIDRA_DIRECT_MOUNT="1"`, and `AGYIS_DIRTYROOM` into the generated `mcpServers.rea.env` block.
+
+### 8.3 Optimization 2: Direct In-Place Mount (`REA_GHIDRA_DIRECT_MOUNT=1`)
+- **Mechanism**: Eliminates the 1.3GB disk cloning step in REA:
+  - Bypasses `copyExistingGhidraProject` in `dist/ghidra/GhidraProjectSnapshot.js`, `dist/mcp/binary-*.js`, and `dist/cli-runtime/binary-*.js`.
+  - Enforces `-noanalysis` and `-readOnly` flags when launching Ghidra's `analyzeHeadless` on the repository root.
+  - Transparently injected via `harness/hooks/command_safety_hook.py` (`inject_rea_dirtyroom_env`) for any terminal command invoking `rea decompile/disasm/xrefs/read-bytes`.
+
+### 8.4 Optimization 3: Deterministic Decompiler Query Cache
+- **Mechanism**: Caches decompiled C pseudocode under `.dirtyroom/cache/decompile/{binary}_{bin_id}_{procedure}.c`.
+- **Cache Management (`agyis re cache [status|clear]`)**:
+  - `status`: Inspects cache disk usage, file counts, hit rates, and category breakdowns (<5ms responses).
+  - `clear`: Purges cached entries (`--type all|decompile`) and resets hit counters with `--dry-run` preview.
+  - `cmd_decompile`: Inspects cache before launching any process, returning cached output in `<5ms`. CLI flag `--no-cache` forces cache bypass and refreshes the cache entry with fresh decompiler output.
+
+### 8.5 Turnkey Dirtyroom Seeding, Priming & Routine Hygiene
+*Full operational runbook documented in [`docs/runbooks/dirtyroom-operations.md`](../runbooks/dirtyroom-operations.md).*
+- **Turnkey PCAP Seeding (`agyis re seed`)**: Ingests libpcap and pcapng frames directly into the SQLite `packets` table, extracting IP/port tuples, payload lengths, and frame summaries, while establishing formal linkages to target binary records and run tracking.
+- **Decompiler Cache Priming (`agyis re prime`)**: Pre-warms the deterministic query cache on top-priority functions (exported symbols and largest subroutines) or user-supplied symbol files, ensuring subsequent queries hit the `<5ms` cache tier.
+- **Orphan Lock & Storage Hygiene (`agyis re clean`)**: Safely detects and purges stale Ghidra `.lock` files after `/proc` safety checks, prunes rotated logs (while preserving active daemon logs), and executes SQLite `VACUUM`, `REINDEX`, and `ANALYZE` to reclaim disk space.
+
+---
+
+## 9. Verification & Compliance Gates
 
 All REA integration modules, hook gates, and cleanroom verifiers must satisfy deterministic automated checks prior to release:
 
@@ -661,9 +704,14 @@ All REA integration modules, hook gates, and cleanroom verifiers must satisfy de
 | **Full Reconstruction Gate** | `agyis verify` / `rea verify-reconstruction` | Validates `.agents/ledger/obligation_ledger.json` (and legacy `manifest.json`) obligations against evidence. |
 | **Zero-Delay Doctor** | `agyis doctor` | Confirms sub-second (`<1.0s`) baseline check without launching heavy disassembler scans. |
 | **Opt-In REA Audit** | `agyis doctor --experimental-rea` | Audits `rea`, `mcp_config.json`, JDK 21+, Ghidra, Hopper, IDA Pro, and JADX provider chains. |
+| **Query Cache Status Gate** | `agyis re cache status` | Asserts active cache directory, sub-millisecond retrieval, and accurate hit rates. |
+| **Daemon Bridge Status Gate** | `agyis re daemon status` | Inspects persistent MCP supervisor state and direct-mount environment. |
+| **Dirtyroom Seeding Gate** | `agyis re seed --json` | Validates PCAP frame ingestion and binary run linkage into SQLite. |
+| **Cache Priming Gate** | `agyis re prime --dry-run` | Validates candidate priority function selection and cache key generation. |
+| **Hygiene Cleanup Gate** | `agyis re clean --dry-run` | Verifies safe stale lock detection, log pruning, and database vacuum paths. |
 | **Full Harness Test Suite** | `python3 -m harness.cli test` | Executes hermetic unit and contract suites across all runtime, hook, and cleanroom modules. |
 
 ---
 
-## 9. Governing Standards & Compliance
+## 10. Governing Standards & Compliance
 This technical specification is issued under the authority of Purrfect Software Limited (PSL) and is governed by the **ICARO-42/b Ordinance**. All implementations must adhere strictly to the Non-Interference Invariant, the Sub-Second Benchmark Invariant, and the Product vs. Project Bifurcation (ADR-014).

@@ -166,7 +166,7 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_skills = subparsers.add_parser("skills", help="List, inspect, and synchronize modular product skills")
     p_skills.add_argument("name", nargs="?", default=None, help="Name of specific skill to view or sync")
     p_skills.add_argument("--sync", action="store_true", help="Sync skills to .agents/skills")
-    p_skills.add_argument("--group", "-g", type=str, default=None, help="Sync skills by group preset (stack, testing, runners, ops, workstation, workflow, ladder)")
+    p_skills.add_argument("--group", "-g", type=str, default=None, help="Sync skills by group preset (stack, testing, runners, ops, workstation, workflow, ladder, resilience, continuity, re, cleanroom)")
     p_skills.add_argument("--stack", "-s", type=str, default=None, help="Sync skills tailored for stack preset (python, typescript, rust, go, systems, shell, auto)")
     p_skills.add_argument("--skills", type=str, default=None, help="Comma-separated skill names to sync")
     p_skills.add_argument("--override", action="store_true", help="Force overwrite existing skill files")
@@ -366,6 +366,8 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         "media",
         "audio",
         "infra",
+        "re",
+        "cleanroom",
     ]
 
     # init
@@ -388,7 +390,7 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         type=str,
         choices=ROLE_CHOICES,
         default=None,
-        help="Architectural role preset (backend, frontend, fullstack, cli, library, mobile, desktop_gui, media, audio, infra)",
+        help="Architectural role preset (backend, frontend, fullstack, cli, library, mobile, desktop_gui, media, audio, infra, re, cleanroom)",
     )
     p_init.add_argument(
         "--subproject",
@@ -449,7 +451,7 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         type=str,
         choices=ROLE_CHOICES,
         default=None,
-        help="Architectural role preset (backend, frontend, fullstack, cli, library, mobile, desktop_gui, media, audio, infra)",
+        help="Architectural role preset (backend, frontend, fullstack, cli, library, mobile, desktop_gui, media, audio, infra, re, cleanroom)",
     )
     p_onboard.add_argument(
         "--subproject",
@@ -570,7 +572,7 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         type=str,
         choices=ROLE_CHOICES,
         default=None,
-        help="Architectural role preset for workspace (backend, frontend, fullstack, cli, library, mobile, desktop_gui, media, audio, infra)",
+        help="Architectural role preset for workspace (backend, frontend, fullstack, cli, library, mobile, desktop_gui, media, audio, infra, re, cleanroom)",
     )
     p_install.add_argument(
         "--subproject",

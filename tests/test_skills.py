@@ -379,6 +379,17 @@ class TestModularSkills(unittest.TestCase):
                 "index.lock",
                 "stash",
             ),
+            "re-ops": (
+                "PSL-INV-007",
+                "PSL-INV-009",
+                "agyis re init",
+                "agyis re patch-rea",
+                "agyis re pre-analyze",
+                "agyis re daemon",
+                "agyis verify --spec",
+                "dirtyroom-operations.md",
+                "rea-antigravity-architecture.md",
+            ),
         }
         for skill_name, keywords in expected_skills.items():
             with self.subTest(skill=skill_name):
@@ -657,6 +668,8 @@ class TestModularSkills(unittest.TestCase):
             "media",
             "audio",
             "infra",
+            "re",
+            "cleanroom",
         }
         self.assertEqual(set(ARCHITECTURAL_ROLE_PRESETS.keys()), expected_roles)
         # Boundary roles are empty lists
@@ -695,6 +708,9 @@ class TestModularSkills(unittest.TestCase):
             ARCHITECTURAL_ROLE_PRESETS["infra"],
             ["remote-ops", "sec-forensics", "storage-ops"],
         )
+        # Cleanroom & Reverse Engineering roles
+        self.assertEqual(ARCHITECTURAL_ROLE_PRESETS["re"], ["re-ops"])
+        self.assertEqual(ARCHITECTURAL_ROLE_PRESETS["cleanroom"], ["re-ops"])
 
     def test_boundary_roles_cli_and_library_safety(self) -> None:
         """Boundary roles 'cli' and 'library' do not raise KeyError and install zero extra skills."""
@@ -1037,6 +1053,212 @@ class TestResilienceAndContinuitySkills(unittest.TestCase):
         self.assertEqual(continuity_synced, ["graceful-parking", "milestone-handoff", "git-worktree-ops"])
 
 
+class TestReOpsSkillAndPresets(unittest.TestCase):
+    """Hermetic contract tests for Layer 1 re-ops skill, presets, CLI role wiring, and ADR-014 purity."""
+
+    def test_re_ops_skill_contract_and_complete_re_palette(self) -> None:
+        """re-ops must be discoverable and document PSL-INV-007/009, full agyis re lifecycle, 4-vector methodology, and 5-step ladder."""
+        spec = get_skill("re-ops")
+        self.assertIsNotNone(spec, "re-ops skill must be discoverable")
+        self.assertEqual(spec.name, "re-ops")
+        self.assertEqual(get_skill("re_ops"), spec)
+        self.assertGreater(len(spec.description), 40)
+
+        body = spec.body
+        # Governance & verification contracts
+        for required in (
+            "PSL-INV-007",
+            "PSL-INV-009",
+            "agyis verify --spec",
+            "agyis verify --scaffold",
+            "agyis verify",
+            "agyis doctor --experimental-rea",
+            "Vector 1:",
+            "Vector 2:",
+            "Vector 3:",
+            "Vector 4:",
+            "5-Step REA Surgical Escalation Ladder",
+            "docs/runbooks/dirtyroom-operations.md",
+            "docs/official-specs/rea-antigravity-architecture.md",
+        ):
+            self.assertIn(required, body, f"re-ops SKILL.md missing required contract element: {required}")
+
+        # Complete 14-subcommand agyis re lifecycle palette
+        for subcmd in (
+            "agyis re init",
+            "agyis re status",
+            "agyis re patch-rea",
+            "agyis re pre-analyze",
+            "agyis re seed",
+            "agyis re daemon",
+            "agyis re prime",
+            "agyis re find",
+            "agyis re decompile",
+            "agyis re disasm",
+            "agyis re xrefs",
+            "agyis re pcap",
+            "agyis re cache",
+            "agyis re clean",
+        ):
+            self.assertIn(subcmd, body, f"re-ops SKILL.md missing agyis re subcommand: {subcmd}")
+
+    def test_re_ops_strict_target_agnostic_adr014_purity(self) -> None:
+        """Layer 1 re-ops must contain zero target/project-specific symbols, paths, or extensions (ADR-014)."""
+        spec = get_skill("re-ops")
+        self.assertIsNotNone(spec)
+        raw_lower = spec.path.read_text(encoding="utf-8").lower()
+        forbidden_project_tokens = (
+            "paladins",
+            "project immortal",
+            "immortal-net",
+            "immortal-server",
+            "chaosgame",
+            "fernando",
+            "shootingrange",
+            "gazebo",
+            "utgmatchlobby",
+            "mcts_token",
+            "cmarshal",
+            "agyis flight",
+            "agyis mcts",
+            "agyis game",
+            "agyis input",
+        )
+        for token in forbidden_project_tokens:
+            self.assertNotIn(
+                token,
+                raw_lower,
+                f"Layer 1 re-ops violates ADR-014 purity by referencing target-specific token '{token}'",
+            )
+
+    def test_re_ops_portable_references_and_runtime_accuracy(self) -> None:
+        """re-ops SKILL.md uses portable doc paths (zero broken ../ links), accurate xrefs/daemon semantics, and importlib.resources accessibility."""
+        import importlib.resources as ir
+
+        spec = get_skill("re-ops")
+        self.assertIsNotNone(spec)
+        raw = spec.path.read_text(encoding="utf-8")
+
+        # Portable references: no repo-relative markdown links that break when installed externally
+        self.assertNotIn("](../", raw, "re-ops SKILL.md must not contain fragile relative ../ markdown links")
+        self.assertNotIn("../../../docs/", raw)
+
+        # Runtime accuracy: PE32/PE32+ scope for agyis re xrefs and accurate CLI vs MCP daemon routing
+        self.assertIn("PE32/PE32+", raw)
+        self.assertIn("Interactive MCP Path", raw)
+
+        # Package resource accessibility
+        pkg_skill = ir.files("harness.skills") / "re-ops" / "SKILL.md"
+        self.assertTrue(pkg_skill.is_file(), "re-ops/SKILL.md must be accessible via importlib.resources")
+
+    def test_re_and_cleanroom_presets_and_sync(self) -> None:
+        """Role presets ('re', 'cleanroom') and group presets ('ops', 're', 'cleanroom') resolve and sync re-ops."""
+        from harness.delivery.workspace import resolve_skills_for_workspace
+        from harness.skills import GROUP_PRESETS
+
+        self.assertIn("re-ops", GROUP_PRESETS["ops"])
+        self.assertEqual(GROUP_PRESETS["re"], ["re-ops"])
+        self.assertEqual(GROUP_PRESETS["cleanroom"], ["re-ops"])
+
+        for role in ("re", "cleanroom"):
+            with self.subTest(role=role):
+                self.assertEqual(resolve_skills_to_sync(role=role), ["re-ops"])
+                self.assertEqual(resolve_skills_to_sync(group=role), ["re-ops"])
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    ws = Path(tmpdir)
+                    self.assertIn("re-ops", resolve_skills_for_workspace(ws, stack="generic", role=role))
+                    dest = ws / ".agents" / "skills"
+                    synced = sync_skills(target_dir=dest, role=role)
+                    self.assertEqual(len(synced), 1)
+                    self.assertTrue((dest / "re-ops" / "SKILL.md").is_file())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ops_dest = Path(tmpdir) / "ops_skills"
+            synced_ops = sync_skills(target_dir=ops_dest, group="ops")
+            self.assertGreaterEqual(len(synced_ops), 9)
+            self.assertTrue((ops_dest / "re-ops" / "SKILL.md").is_file())
+
+    def test_cli_parsers_accept_re_and_cleanroom_roles(self) -> None:
+        """CLI subcommands (init, harmonize, onboard, install) accept --role re/cleanroom and skills --group help lists them."""
+        parser = build_parser()
+        for subcmd in ("init", "harmonize", "onboard", "install"):
+            for role in ("re", "cleanroom"):
+                with self.subTest(subcmd=subcmd, role=role):
+                    args = parser.parse_args([subcmd, "--role", role])
+                    self.assertEqual(args.role, role)
+
+        # Verify skills --group help documents re and cleanroom presets
+        subparsers_actions = [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]
+        skills_parser = subparsers_actions[0].choices["skills"]
+        skills_help = skills_parser.format_help()
+        self.assertIn("re, cleanroom", skills_help)
+
+    def test_dirtyroom_runbook_adr014_purity_and_tier_harmonization(self) -> None:
+        """docs/runbooks/dirtyroom-operations.md must be target-agnostic (ADR-014) and match CLI vs MCP tier routing."""
+        repo_root = Path(__file__).resolve().parent.parent
+        runbook = repo_root / "docs" / "runbooks" / "dirtyroom-operations.md"
+        self.assertTrue(runbook.is_file(), "docs/runbooks/dirtyroom-operations.md must exist")
+
+        raw = runbook.read_text(encoding="utf-8")
+        raw_lower = raw.lower()
+
+        # ADR-014 target-agnostic purity: zero project/game-specific symbols or filenames
+        forbidden_tokens = (
+            "paladins",
+            "project immortal",
+            "immortal-net",
+            "immortal-server",
+            "chaosgame",
+            "fernando",
+            "shootingrange",
+            "gazebo",
+            "utgmatchlobby",
+            "mcts_token",
+            "cmarshal",
+            "retail_session",
+            "gameengine",
+            "agyis flight",
+            "agyis mcts",
+            "agyis game",
+            "agyis input",
+        )
+        for token in forbidden_tokens:
+            self.assertNotIn(
+                token,
+                raw_lower,
+                f"dirtyroom-operations.md violates ADR-014 purity by referencing target-specific token '{token}'",
+            )
+
+        # Harmonized two-path 3-tier routing (CLI Path: Tier 1 -> Tier 3; Interactive MCP Path: Tier 2)
+        for required in (
+            "CLI Path:",
+            "Interactive MCP Path:",
+            "Tier 1 (Cache)",
+            "Tier 2 (Daemon)",
+            "Tier 3 (Direct Mount)",
+            "agyis re patch-rea --apply",
+            "REA_GHIDRA_DIRECT_MOUNT=1",
+            "agyis re daemon start",
+            "../../harness/skills/re-ops/SKILL.md",
+        ):
+            self.assertIn(required, raw, f"dirtyroom-operations.md missing harmonized contract element: {required}")
+
+        # Prevent regression to inaccurate CLI->daemon fallback claims
+        for forbidden_claim in (
+            "via warm daemon",
+            "through the warm rea bridge",
+        ):
+            self.assertNotIn(
+                forbidden_claim,
+                raw_lower,
+                f"dirtyroom-operations.md must not claim CLI commands route '{forbidden_claim}'",
+            )
+
+        # Companion relative link resolves to harness/skills/re-ops/SKILL.md
+        companion_target = (runbook.parent / "../../harness/skills/re-ops/SKILL.md").resolve()
+        self.assertTrue(companion_target.is_file(), f"Companion skill link target missing: {companion_target}")
+
+
 SkillPruneDuplicatesTests = TestPruneDuplicateSkills
 
 
@@ -1090,7 +1312,7 @@ class TestSkillsHardening(unittest.TestCase):
         repo_root = Path(__file__).resolve().parent.parent
         skills_dir = repo_root / "harness" / "skills"
         files = sorted(skills_dir.glob("*/SKILL.md"))
-        self.assertGreaterEqual(len(files), 29, "Expected at least 29 modular skills")
+        self.assertGreaterEqual(len(files), 30, "Expected at least 30 modular skills")
         return files
 
     def test_all_skills_under_24kb_platform_limit(self) -> None:

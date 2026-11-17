@@ -111,8 +111,15 @@ agyis sync --service install && agyis sync --service status
 agyis verify --spec               # Verify 3 cleanroom RE specs (19 evidence rows: 10 SHA-256 ev_* + 9 EV-20261017 checks)
 agyis verify                      # Validate .agents/ledger/obligation_ledger.json
 agyis re init && agyis re pre-analyze ./target.bin
+agyis re patch-rea --apply        # Apply zero-copy direct mount patch (bypasses 1.3GB disk clone)
+agyis re seed --pcap session.pcap # Ingest network packets into SQLite and link to runs
+agyis re daemon start             # Launch persistent REA MCP bridge supervisor (<0.8s queries)
+agyis re prime --top 25           # Pre-warm decompiler query cache on priority functions
+agyis re cache status             # Inspect decompiler query cache (<5ms responses, --json supported)
+agyis re clean                    # Safely purge orphan Ghidra locks, prune logs, and vacuum DB
 agyis gui                         # Unlock Trajectory Debug View over CDP WebSocket (--toggle, --devtools)
 ```
+*See [dirtyroom-operations.md](runbooks/dirtyroom-operations.md) and the Layer 1 `re-ops` skill (`--role re` / `--role cleanroom`) for full preparation, seeding, priming, 4-vector verification, and hygiene lifecycle.*
 
 ---
 

@@ -307,6 +307,20 @@ def configure_rea_mcp_server(
             if jdk21_path:
                 env_vars["JAVA_HOME"] = str(jdk21_path)
 
+            try:
+                from harness.re.scaffold import get_dirtyroom_root
+                dr = get_dirtyroom_root()
+                if dr and (dr / "ghidra").is_dir():
+                    gprs = list((dr / "ghidra").glob("*.gpr"))
+                    if gprs:
+                        env_vars["REA_GHIDRA_PROJECT_DIR"] = str(dr / "ghidra")
+                        env_vars["REA_GHIDRA_PROJECT_NAME"] = gprs[0].stem
+                        env_vars["REA_GHIDRA_PROJECT_PATH"] = str(gprs[0])
+                        env_vars["REA_GHIDRA_DIRECT_MOUNT"] = "1"
+                        env_vars["AGYIS_DIRTYROOM"] = str(dr)
+            except (OSError, ImportError) as exc:
+                errors.append(f"Warning: Failed to resolve dirtyroom environment: {exc}")
+
             data["mcpServers"]["rea"] = {
                 "command": "rea",
                 "args": ["mcp"],

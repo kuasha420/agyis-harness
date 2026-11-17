@@ -82,6 +82,12 @@ ARCHITECTURAL_ROLE_PRESETS: Dict[str, List[str]] = {
         "sec-forensics",
         "storage-ops",
     ],
+    "re": [
+        "re-ops",
+    ],
+    "cleanroom": [
+        "re-ops",
+    ],
 }
 
 # Backward compatibility mapping for STACK_PRESETS
@@ -124,6 +130,7 @@ GROUP_PRESETS: Dict[str, List[str]] = {
         "db-ops",
         "git-worktree-ops",
         "remote-ops",
+        "re-ops",
     ],
     "workstation": [
         "storage-ops",
@@ -156,5 +163,11 @@ GROUP_PRESETS: Dict[str, List[str]] = {
         "graceful-parking",
         "milestone-handoff",
         "git-worktree-ops",
+    ],
+    "re": [
+        "re-ops",
+    ],
+    "cleanroom": [
+        "re-ops",
     ],
 }

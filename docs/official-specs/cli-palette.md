@@ -137,7 +137,7 @@ agyis [-h] [-v]
   - `--prune-duplicates`: Prunes redundant workspace skills that shadow global plugin skills (saving ~4,500 tokens/turn).
   - `--dry-run`: Simulates pruning duplicate skills without modifying disk.
   - `-s`, `--stack <stk>`: Tailors deployment to a specific stack preset (`python`, `typescript`, `rust`, `go`, `systems`, `shell`, `auto`). `--stack auto` detects stack from repository manifests (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`).
-  - `-g`, `--group <grp>`: Syncs a functional group preset (`stack`, `testing`, `runners`, `ops`, `workstation`, `workflow`, `ladder`).
+  - `-g`, `--group <grp>`: Syncs a functional group preset (`stack`, `testing`, `runners`, `ops`, `workstation`, `workflow`, `ladder`, `resilience`, `continuity`, `re`, `cleanroom`).
   - `--skills <list>`: Comma-separated list of specific skill names to synchronize.
   - `--override`: Overwrites existing local skill files even if identical.
   - `--no-dedup`: Disables deduplication when syncing skills.
@@ -206,7 +206,7 @@ agyis [-h] [-v]
 * **Flags & Options**:
   - `path`: Target workspace directory (defaults to current directory).
   - `-s`, `--stack`, `--lang <stk>`: Language runtime preset (`typescript`, `node`, `javascript`, `python`, `rust`, `go`, `systems`, `shell`, `audit`, `all`). Auto-detects if omitted.
-  - `-r`, `--role <role>`: Architectural role preset (`backend`, `frontend`, `fullstack`, `cli`, `library`, `mobile`, `desktop_gui`, `media`, `audio`, `infra`).
+  - `-r`, `--role <role>`: Architectural role preset (`backend`, `frontend`, `fullstack`, `cli`, `library`, `mobile`, `desktop_gui`, `media`, `audio`, `infra`, `re`, `cleanroom`).
   - `--subproject <path>`: Relative path to subproject within workspace for targeted detection.
   - `--skills <list>`: Comma-separated list of modular skills to install to `<ws>/.agents/skills/`.
   - `--agents [list]`: Installs specialist agent definitions into `<ws>/.agents/agents/`.
@@ -225,7 +225,7 @@ agyis [-h] [-v]
   - `--dry-run`: Previews harmonization actions without modifying files.
   - `--apply` / `-y`, `--yes`: Applies harmonization mutations to disk (non-interactively with `-y`).
   - `--prune-legacy` (`--clean-agent-dir`), `--backup` / `--no-backup`, `--backup-dir` (`--archive-dir`): Archive and remove legacy `.agent/` directories into `<ws>/.agents/archive/`.
-  - `--stack` (`--lang`), `-r|--role` (`backend`, `frontend`, `fullstack`, `cli`, `library`, `mobile`, `desktop_gui`, `media`, `audio`, `infra`), `--subproject`, `--skills`: Provision stack/role skills immediately following harmonization.
+  - `--stack` (`--lang`), `-r|--role` (`backend`, `frontend`, `fullstack`, `cli`, `library`, `mobile`, `desktop_gui`, `media`, `audio`, `infra`, `re`, `cleanroom`), `--subproject`, `--skills`: Provision stack/role skills immediately following harmonization.
   - `--json`: Emits harmonization report in structured JSON format.
 
 ### 14. `onboard`
@@ -234,7 +234,7 @@ agyis [-h] [-v]
 * **Flags**:
   - `path`: Target workspace path (defaults to current directory).
   - `--lang`, `--stack`, `-s`: Language preset (`typescript`, `node`, `javascript`, `python`, `rust`, `go`, `systems`, `shell`, `auto`).
-  - `--role`, `-r`: Architectural role preset (`backend`, `frontend`, `fullstack`, `cli`, `library`, `mobile`, `desktop_gui`, `media`, `audio`, `infra`).
+  - `--role`, `-r`: Architectural role preset (`backend`, `frontend`, `fullstack`, `cli`, `library`, `mobile`, `desktop_gui`, `media`, `audio`, `infra`, `re`, `cleanroom`).
   - `--skills`: Comma-separated list of explicit skills to provision (overrides preset inference).
   - `--subproject`: Scoped subproject relative path for monorepos (e.g. `services/billing`).
   - `--upstream-remote`: Explicit upstream canonical remote name (e.g. `upstream`, `canonical`, `<upstream-remote>`).
@@ -263,7 +263,7 @@ agyis [-h] [-v]
   - `--all-surfaces`: Synchronizes all auxiliary Antigravity surface configurations.
   - `--target`: Custom target installation directory.
   - `-w`, `--workspace [path]`: Routes to workspace initialization (`agyis init`), deploying stack skills and tagged rules.
-  - `-s|--stack|--lang`, `-r|--role` (`backend`, `frontend`, `fullstack`, `cli`, `library`, `mobile`, `desktop_gui`, `media`, `audio`, `infra`), `--subproject`, `--skills`, `--agents`, `--override`, `--no-dedup`: Forwarded to workspace initialization engine.
+  - `-s|--stack|--lang`, `-r|--role` (`backend`, `frontend`, `fullstack`, `cli`, `library`, `mobile`, `desktop_gui`, `media`, `audio`, `infra`, `re`, `cleanroom`), `--subproject`, `--skills`, `--agents`, `--override`, `--no-dedup`: Forwarded to workspace initialization engine.
   - `--experimental-rea`: Installs global plugins with opt-in Reverse Engineer Anything (REA) MCP wiring.
   - `--json`: Outputs result in JSON format.
 
@@ -355,18 +355,23 @@ agyis [-h] [-v]
   - `--dry-run`, `-w|--workspace`, `--json`: Preview mode, workspace root override, and JSON report.
 
 ### 27. `re`
-* **Syntax**: `agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs} [args]`
-* **Purpose**: Cleanroom reverse engineering toolsuite and Ghidra acceleration engine (ADR-028, ADR-034, PSL-INV-009).
+* **Syntax**: `agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs,cache,daemon,seed,prime,clean} [args]`
+* **Purpose**: Cleanroom reverse engineering toolsuite, Ghidra direct-mount acceleration, persistent MCP daemon bridge & query caching engine (ADR-028, ADR-034, PSL-INV-009, Issue #113).
 * **Subcommands**:
   - `status [--json]`: Reports status of dirtyroom scaffolding, symbol database, and REA patches.
-  - `init [path] [--project <name>] [--json]`: Turnkey dirtyroom scaffolding (`.dirtyroom/{ghidra,symbols,logs,pcaps}`).
-  - `patch-rea [--apply|--revert|--check] [--json]`: Idempotently manages `rea-agents` acceleration patch for sub-2s decompilation on $>10\text{MB}$ binaries (`-noanalysis -readOnly`).
+  - `init [path] [--project <name>] [--json]`: Turnkey dirtyroom scaffolding (`.dirtyroom/{ghidra,symbols,logs,pcaps,cache/decompile}`).
+  - `patch-rea [--apply|--revert|--check] [--json]`: Idempotently manages `rea-agents` acceleration patch and zero-copy direct mount for sub-2s decompilation on $>10\text{MB}$ binaries (`-noanalysis -readOnly`).
   - `pre-analyze <bin> [--project <name>] [--overwrite] [--json]`: Executes headless Ghidra pre-analysis and indexes symbols into SQLite.
   - `find <pattern> [--type all|func|str|rtti] [--limit <N>] [--json]`: Sub-millisecond symbol and string query from pre-analyzed SQLite database.
-  - `decompile <func> [--binary <name>]`: Targeted procedure decompilation using pre-analyzed Ghidra project.
+  - `decompile <func> [--binary <name>] [--no-cache] [--timeout <N>]`: Targeted procedure decompilation using pre-analyzed Ghidra project and deterministic query cache (<5ms cached, <0.8s via MCP).
   - `pcap <file> [--limit <N>] [--filter <expr>]`: Inspects network packet captures.
   - `disasm <target> [--binary <name>] [--bytes <N>] [--limit <N>]`: Disassembles instructions at a virtual address or function name via native `objdump`.
   - `xrefs <target> [--binary <name>]`: Finds cross-references to a hexadecimal virtual address (`0x...`).
+  - `cache [status|clear] [--type all|decompile] [--dry-run] [--json]`: Inspects or clears decompiler query cache entries, disk usage, and hit rate metrics.
+  - `daemon [status|start|stop] [--foreground] [--json]`: Manages persistent REA MCP bridge supervisor daemon to warm up language providers and eliminate cold JVM startups.
+  - `seed [--pcap <file>] [--binary <name>] [--limit <N>] [--json]`: Ingests packet capture frames into SQLite `packets` table and links them to binary runs.
+  - `prime [--top <N>] [--file <path>] [--binary <name>] [--timeout <N>] [--dry-run] [--json]`: Pre-warms decompiler query cache on priority functions to guarantee sub-millisecond retrieval.
+  - `clean [--locks] [--logs] [--vacuum] [--force] [--dry-run] [--json]`: Safe hygiene and space reclamation; removes orphan Ghidra locks, prunes old logs, and vacuums SQLite database.
 
 ### 28. `ext`
 * **Syntax**: `agyis ext {list,run,init} [args]`

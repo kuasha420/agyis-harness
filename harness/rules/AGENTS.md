@@ -101,6 +101,7 @@ python3 -c "from harness.delivery import purge_build_caches; purge_build_caches(
 # db-ops:           Non-interactive psql/sqlite3 CLI, connection pool saturation, locks, WAL checkpoints, Docker DB triage
 # mesh-ops:         Knot hardware mesh coordination, Tailscale/WireGuard ping, ControlMaster sockets, state sync, KDE Connect
 # git-worktree-ops: Isolated worktree lifecycle, branch cleanup, orphan prune, stash hygiene, index.lock recovery
+# re-ops:           Cleanroom RE (PSL-INV-007/009), agyis re lifecycle, direct-mount Ghidra, 4-vector verification & escalation
 
 # 🌐 Remote Operations & Cloud/Mesh Triage (ADR-027)
 agyis remote exec <target> "<cmd>"             # Multiplexed SSH with login-shell promotion
@@ -119,6 +120,9 @@ rea evaluate-coverage                          # Calculate reconstruction covera
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
 agyis doctor --experimental-rea                # Audit REA providers, JDK 21+, Ghidra & MCP registration
 agyis doctor --experimental-rea --heal         # Safe zero-sudo auto-healing & REA skill provisioning
+agyis re cache [status|clear]                  # Inspect & purge decompiler query cache (<5ms responses, Issue #113)
+agyis re daemon [status|start|stop]            # Manage persistent REA bridge supervisor daemon (Issue #113)
+agyis re patch-rea [--apply|--revert|--check]  # Manage direct-mount acceleration patch & zero-copy bypass
 ```
 
 ---
