@@ -351,21 +351,29 @@ def cmd_decompile(args: argparse.Namespace) -> int:
         env["REA_GHIDRA_PROGRAM_NAME"] = Path(target_target).name
 
     # Optimization C: Deterministic Decompiler Query Cache
+    from harness.re.cache import record_cache_hit, record_cache_miss
+
     no_cache = getattr(args, "no_cache", False)
     cache_file = None
+    target_name = Path(target_target).name
+    clean_proc = str(proc).replace(":", "_").replace("/", "_").replace("\\", "_")
+    cache_key = f"{target_name}_{clean_proc}"
+
     if not no_cache and root:
         cache_dir = root / "cache" / "decompile"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        clean_proc = str(proc).replace(":", "_").replace("/", "_").replace("\\", "_")
-        target_name = Path(target_target).name
-        cache_file = cache_dir / f"{target_name}_{clean_proc}.c"
+        cache_file = cache_dir / f"{cache_key}.c"
         if cache_file.is_file() and cache_file.stat().st_size > 0:
             try:
                 sys.stdout.write(cache_file.read_text(encoding="utf-8"))
                 sys.stdout.flush()
+                record_cache_hit(root, "decompile", key=cache_key)
                 return 0
             except OSError:
                 pass
+
+    if root:
+        record_cache_miss(root, "decompile", key=cache_key)
 
     cmd = [rea_bin, "decompile", target_target, "--procedure", str(proc)]
     timeout_s = getattr(args, "timeout", None) or 180.0
@@ -661,6 +669,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_xrefs.add_argument("target", help="Target virtual address (hex 0x...)")
     p_xrefs.add_argument("--binary", help="Target binary filename or path (auto-detects from .dirtyroom/binaries/ if omitted)")
 
+    # cache (Issue #113)
+    p_cache = sub.add_parser("cache", help="Inspect or clear decompiler query cache (Issue #113)")
+    p_cache.add_argument("cache_action", choices=["status", "clear"], nargs="?", default="status", help="Cache action (default: status)")
+    p_cache.add_argument("--type", choices=["all", "decompile"], default="all", help="Cache category (default: all)")
+    p_cache.add_argument("--dry-run", action="store_true", help="Preview files to be cleared without deleting")
+    p_cache.add_argument("--json", action="store_true", help="Output JSON")
+
+    # daemon (Issue #113)
+    p_daemon = sub.add_parser("daemon", help="Manage background REA MCP bridge daemon (Issue #113)")
+    p_daemon.add_argument("daemon_action", choices=["status", "start", "stop"], nargs="?", default="status", help="Daemon action (default: status)")
+    p_daemon.add_argument("--foreground", action="store_true", help="Run daemon in foreground")
+    p_daemon.add_argument("--json", action="store_true", help="Output JSON")
+
     args = parser.parse_args(argv)
     if not args.re_cmd or args.re_cmd == "status":
         return cmd_status(args)
@@ -680,6 +701,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_disasm(args)
     if args.re_cmd == "xrefs":
         return cmd_xrefs(args)
+    if args.re_cmd == "cache":
+        from harness.re.cache import cmd_cache
+        return cmd_cache(args)
+    if args.re_cmd == "daemon":
+        from harness.re.daemon import cmd_daemon
+        return cmd_daemon(args)
 
     parser.print_help()
     return 1

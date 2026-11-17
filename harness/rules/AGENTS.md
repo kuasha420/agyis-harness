@@ -119,6 +119,9 @@ rea evaluate-coverage                          # Calculate reconstruction covera
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
 agyis doctor --experimental-rea                # Audit REA providers, JDK 21+, Ghidra & MCP registration
 agyis doctor --experimental-rea --heal         # Safe zero-sudo auto-healing & REA skill provisioning
+agyis re cache [status|clear]                  # Inspect & purge decompiler query cache (<5ms responses, Issue #113)
+agyis re daemon [status|start|stop]            # Manage persistent REA bridge supervisor daemon (Issue #113)
+agyis re patch-rea [--apply|--revert|--check]  # Manage direct-mount acceleration patch & zero-copy bypass
 ```
 
 ---

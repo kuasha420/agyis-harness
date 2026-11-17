@@ -355,18 +355,20 @@ agyis [-h] [-v]
   - `--dry-run`, `-w|--workspace`, `--json`: Preview mode, workspace root override, and JSON report.
 
 ### 27. `re`
-* **Syntax**: `agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs} [args]`
-* **Purpose**: Cleanroom reverse engineering toolsuite and Ghidra acceleration engine (ADR-028, ADR-034, PSL-INV-009).
+* **Syntax**: `agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs,cache,daemon} [args]`
+* **Purpose**: Cleanroom reverse engineering toolsuite, Ghidra direct-mount acceleration, persistent MCP daemon bridge & query caching engine (ADR-028, ADR-034, PSL-INV-009, Issue #113).
 * **Subcommands**:
   - `status [--json]`: Reports status of dirtyroom scaffolding, symbol database, and REA patches.
   - `init [path] [--project <name>] [--json]`: Turnkey dirtyroom scaffolding (`.dirtyroom/{ghidra,symbols,logs,pcaps}`).
-  - `patch-rea [--apply|--revert|--check] [--json]`: Idempotently manages `rea-agents` acceleration patch for sub-2s decompilation on $>10\text{MB}$ binaries (`-noanalysis -readOnly`).
+  - `patch-rea [--apply|--revert|--check] [--json]`: Idempotently manages `rea-agents` acceleration patch and zero-copy direct mount for sub-2s decompilation on $>10\text{MB}$ binaries (`-noanalysis -readOnly`).
   - `pre-analyze <bin> [--project <name>] [--overwrite] [--json]`: Executes headless Ghidra pre-analysis and indexes symbols into SQLite.
   - `find <pattern> [--type all|func|str|rtti] [--limit <N>] [--json]`: Sub-millisecond symbol and string query from pre-analyzed SQLite database.
-  - `decompile <func> [--binary <name>]`: Targeted procedure decompilation using pre-analyzed Ghidra project.
+  - `decompile <func> [--binary <name>] [--no-cache] [--timeout <N>]`: Targeted procedure decompilation using pre-analyzed Ghidra project and deterministic query cache (<5ms cached, <0.8s via MCP).
   - `pcap <file> [--limit <N>] [--filter <expr>]`: Inspects network packet captures.
   - `disasm <target> [--binary <name>] [--bytes <N>] [--limit <N>]`: Disassembles instructions at a virtual address or function name via native `objdump`.
   - `xrefs <target> [--binary <name>]`: Finds cross-references to a hexadecimal virtual address (`0x...`).
+  - `cache [status|clear] [--type all|decompile] [--dry-run] [--json]`: Inspects or clears decompiler query cache entries, disk usage, and hit rate metrics.
+  - `daemon [status|start|stop] [--foreground] [--json]`: Manages persistent REA MCP bridge supervisor daemon to warm up language providers and eliminate cold JVM startups.
 
 ### 28. `ext`
 * **Syntax**: `agyis ext {list,run,init} [args]`

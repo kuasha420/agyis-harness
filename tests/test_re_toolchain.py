@@ -8,9 +8,12 @@ Unit tests for Agyis Cleanroom Reverse Engineering Toolsuite & REA Patcher (ADR-
 Verifies dirtyroom scaffolding, SQLite schemas, REA patcher lifecycle, and REA schema normalization.
 """
 
+import argparse
+import io
 import json
 import os
 from pathlib import Path
+import signal
 import sqlite3
 import tempfile
 import unittest
@@ -624,6 +627,188 @@ class TestCmdDecompilePSLINV009(unittest.TestCase):
         self.assertIn('REA_GHIDRA_PROJECT_NAME="GameApp"', mod_cmd)
         self.assertIn(f'REA_GHIDRA_PROJECT_DIR="{dr}"', mod_cmd)
         self.assertTrue(mod_cmd.endswith(raw_cmd))
+
+    def test_re_cache_stats_and_clear_lifecycle(self):
+        """Verifies cache stats recording, hit rate calculation, and clear lifecycle."""
+        from harness.re.cache import (
+            clear_cache,
+            cmd_cache,
+            get_cache_dir,
+            get_cache_stats,
+            record_cache_hit,
+            record_cache_miss,
+        )
+
+        dr = self.workspace / ".dirtyroom"
+        cache_dir = get_cache_dir(dr, "decompile")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create dummy cache files
+        (cache_dir / "app_funcA.c").write_text("int funcA() { return 1; }\n", encoding="utf-8")
+        (cache_dir / "app_funcB.c").write_text("int funcB() { return 2; }\n", encoding="utf-8")
+
+        # Record metrics: 3 hits, 1 miss -> 75% hit rate
+        record_cache_hit(dr, "decompile", key="app_funcA")
+        record_cache_hit(dr, "decompile", key="app_funcA")
+        record_cache_hit(dr, "decompile", key="app_funcB")
+        record_cache_miss(dr, "decompile", key="app_funcC")
+
+        stats = get_cache_stats(dr)
+        self.assertEqual(stats["status"], "active")
+        self.assertEqual(stats["entries"], 2)
+        self.assertEqual(stats["hits"], 3)
+        self.assertEqual(stats["misses"], 1)
+        self.assertEqual(stats["total_queries"], 4)
+        self.assertEqual(stats["hit_rate_pct"], 75.0)
+        self.assertIn("decompile", stats["categories"])
+
+        # Test CLI cmd_cache status
+        args_status = argparse.Namespace(cache_action="status", json=True)
+        out_buf = io.StringIO()
+        with patch("sys.stdout", out_buf), patch("harness.re.cache.get_dirtyroom_root", return_value=dr):
+            code = cmd_cache(args_status)
+            self.assertEqual(code, 0)
+            json_out = json.loads(out_buf.getvalue())
+            self.assertEqual(json_out["hit_rate_pct"], 75.0)
+
+        # Test dry-run clear
+        res_dry = clear_cache(dr, category="all", dry_run=True)
+        self.assertTrue(res_dry["dry_run"])
+        self.assertEqual(res_dry["deleted_count"], 2)
+        self.assertTrue((cache_dir / "app_funcA.c").is_file())
+
+        # Test actual clear
+        args_clear = argparse.Namespace(cache_action="clear", type="all", dry_run=False, json=True)
+        out_buf2 = io.StringIO()
+        with patch("sys.stdout", out_buf2), patch("harness.re.cache.get_dirtyroom_root", return_value=dr):
+            code_clear = cmd_cache(args_clear)
+            self.assertEqual(code_clear, 0)
+            res_clear = json.loads(out_buf2.getvalue())
+            self.assertEqual(res_clear["deleted_count"], 2)
+            self.assertFalse((cache_dir / "app_funcA.c").exists())
+
+        # Stats reset after all-clear
+        stats_after = get_cache_stats(dr)
+        self.assertEqual(stats_after["entries"], 0)
+        self.assertEqual(stats_after["hits"], 0)
+
+    def test_re_daemon_status_and_lifecycle(self):
+        """Verifies REA bridge daemon status probing, start, and stop operations."""
+        from harness.re.daemon import (
+            cmd_daemon,
+            get_daemon_status,
+            get_pid_file,
+            start_daemon,
+            stop_daemon,
+        )
+
+        dr = self.workspace / ".dirtyroom"
+        pid_file = get_pid_file(dr)
+
+        # 1. Initially stopped
+        with patch("harness.re.daemon.get_dirtyroom_root", return_value=dr):
+            st = get_daemon_status(dr)
+            self.assertFalse(st["running"])
+            self.assertEqual(st["status"], "stopped")
+            self.assertIsNone(st["pid"])
+
+            # CLI status JSON
+            args_status = argparse.Namespace(daemon_action="status", json=True)
+            out_buf = io.StringIO()
+            with patch("sys.stdout", out_buf):
+                self.assertEqual(cmd_daemon(args_status), 0)
+                out_data = json.loads(out_buf.getvalue())
+                self.assertEqual(out_data["status"], "stopped")
+
+            # 2. Test start_daemon (mocking Popen)
+            mock_proc = MagicMock()
+            mock_proc.pid = 99999
+
+            def fake_popen(*p_args, **kwargs):
+                pid_file.write_text("99999\n", encoding="utf-8")
+                return mock_proc
+
+            with patch("subprocess.Popen", side_effect=fake_popen), \
+                 patch("shutil.which", return_value="/usr/local/bin/rea"), \
+                 patch("harness.re.daemon.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
+                 patch("harness.re.daemon._is_pid_alive", return_value=True), \
+                 patch("harness.re.daemon.configure_rea_mcp_server"):
+                res_start = start_daemon(dr, timeout=1.0)
+                self.assertTrue(res_start["success"])
+                self.assertEqual(res_start["pid"], 99999)
+
+                # Check status now reports running
+                st_running = get_daemon_status(dr)
+                self.assertTrue(st_running["running"])
+                self.assertEqual(st_running["pid"], 99999)
+
+                # Start again -> already running
+                res_again = start_daemon(dr)
+                self.assertTrue(res_again["already_running"])
+
+            # 3. Test stop_daemon
+            with patch("harness.re.daemon._is_pid_alive", side_effect=[True, False]), \
+                 patch("os.kill") as mock_kill:
+                res_stop = stop_daemon(dr, timeout=1.0)
+                self.assertTrue(res_stop["success"])
+                self.assertTrue(res_stop["stopped"])
+                mock_kill.assert_called_with(99999, signal.SIGTERM)
+                self.assertFalse(pid_file.exists())
+
+    def test_patcher_supports_async_function_syntax(self):
+        """Verifies patcher handles standard async function syntax variants across rea releases."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            mock_root = Path(tmp_dir)
+            ghidra_dir = mock_root / "dist" / "ghidra"
+            ghidra_dir.mkdir(parents=True)
+            mcp_dir = mock_root / "dist" / "mcp"
+            mcp_dir.mkdir(parents=True)
+
+            launcher = ghidra_dir / "GhidraLauncher.js"
+            launcher.write_text(
+                'import { statSync } from "node:fs";\n'
+                'const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+                'let targetBase = options.target;\n',
+                encoding="utf-8",
+            )
+
+            # Alternate ES syntax: async function instead of arrow function
+            snapshot = ghidra_dir / "GhidraProjectSnapshot.js"
+            snapshot.write_text(
+                'async function fingerprintGhidraProject(root, name, resources, signal) {\n'
+                '    return "original-fingerprint";\n'
+                '}\n'
+                'async function copyExistingGhidraProject(sourcePath, dest, options = {}) {\n'
+                '    return originalCopy();\n'
+                '}\n',
+                encoding="utf-8",
+            )
+
+            mcp_bin = mcp_dir / "binary-12345.js"
+            mcp_bin.write_text(
+                'import { statSync } from "node:fs";\n'
+                'const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+                'const ghidraHeadlessArguments = [];\n'
+                'async function fingerprintGhidraProject(root, name, resources, signal) {\n'
+                '    return "mcp-fingerprint";\n'
+                '}\n'
+                'async function copyExistingGhidraProject(sourcePath, dest, options = {}) {\n'
+                '    return mcpCopy();\n'
+                '}\n',
+                encoding="utf-8",
+            )
+
+            res = apply_patch(mock_root)
+            self.assertTrue(res["success"], res.get("error"))
+
+            # Verify direct mount fastpath was injected
+            snap_txt = snapshot.read_text(encoding="utf-8")
+            self.assertIn("REA_DIRECT_MOUNT_ACTIVE", snap_txt)
+            self.assertIn("0000000000000000000000000000000000000000000000000000000000000000", snap_txt)
+
+            status = check_patch(mock_root)
+            self.assertTrue(status["direct_mount_active"])
+            self.assertEqual(status["status"], "applied")
 
 
 if __name__ == "__main__":

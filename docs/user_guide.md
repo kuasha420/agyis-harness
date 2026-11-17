@@ -111,6 +111,9 @@ agyis sync --service install && agyis sync --service status
 agyis verify --spec               # Verify 3 cleanroom RE specs (19 evidence rows: 10 SHA-256 ev_* + 9 EV-20261017 checks)
 agyis verify                      # Validate .agents/ledger/obligation_ledger.json
 agyis re init && agyis re pre-analyze ./target.bin
+agyis re patch-rea --apply        # Apply zero-copy direct mount patch (bypasses 1.3GB disk clone)
+agyis re cache status             # Inspect decompiler query cache (<5ms responses, --json supported)
+agyis re daemon start             # Launch persistent REA MCP bridge supervisor (<0.8s queries)
 agyis gui                         # Unlock Trajectory Debug View over CDP WebSocket (--toggle, --devtools)
 ```
 

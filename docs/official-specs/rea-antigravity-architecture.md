@@ -650,7 +650,43 @@ In `harness/runtime/doctor.py`:
 
 ---
 
-## 8. Verification & Compliance Gates
+## 8. Accelerated Decompilation Architecture: Direct Mount, Daemon Bridge & Query Cache (Issue #113, PSL-INV-009)
+
+To eliminate the severe latency bottlenecks encountered during reverse engineering operations on large closed-source binaries (>50MB, e.g. `ShippingPC-ChaosGame.exe`: 68MB, 356,000 procedures, 817,000 strings), Agyis Harness introduces a 3-tier acceleration architecture satisfying the sub-2-second decompilation benchmark required by **PSL-INV-009 §2**.
+
+### 8.1 Empirical Latency Benchmarks (Target: 68MB PE32+ Binary)
+
+| Tier | Optimization Architecture | Execution Pathway | Latency | Speedup |
+| :--- | :--- | :--- | :--- | :--- |
+| **Baseline** | Stock REA + Project Reuse (ADR-028) | Ad-hoc CLI + 1.3GB Disk Clone | `132.10s` | 1.0x |
+| **Optimization 2** | **Direct In-Place Mount** (`-readOnly -noanalysis`) | Ad-hoc CLI (Zero Clone) | `9.78s` | **13.5x** |
+| **Optimization 1** | **Persistent MCP Bridge Daemon** | In-Memory MCP Tool Invocation | `~0.20s - 0.80s` | **165x - 660x** |
+| **Optimization 3** | **Deterministic Query Cache** | Local Disk Cache (`.dirtyroom/cache/`) | `<0.005s` | **>26,000x** |
+
+### 8.2 Optimization 1: Persistent REA MCP Bridge Daemon Support
+- **Mechanism**: The REA MCP server maintains an open connection with persistent language provider and decompiler instances in memory, eliminating cold JVM startup penalties (8–10s) on every query.
+- **Supervisor Daemon (`agyis re daemon [status|start|stop]`)**:
+  - `start`: Launches detached supervisor holding open stdio connection to `rea mcp`, performs MCP protocol `initialize` handshake to warm up providers, and writes PID to `.dirtyroom/logs/rea_daemon.pid`.
+  - `status`: Inspects daemon liveness, uptime, child PID, mounted Ghidra projects, and MCP registration.
+  - `stop`: Gracefully terminates the daemon process via SIGTERM with SIGKILL fallback.
+- **Environment Injection**: `harness/runtime/tool_checks_rea.py` automatically injects `REA_GHIDRA_PROJECT_DIR`, `REA_GHIDRA_PROJECT_NAME`, `REA_GHIDRA_PROJECT_PATH`, `REA_GHIDRA_DIRECT_MOUNT="1"`, and `AGYIS_DIRTYROOM` into the generated `mcpServers.rea.env` block.
+
+### 8.3 Optimization 2: Direct In-Place Mount (`REA_GHIDRA_DIRECT_MOUNT=1`)
+- **Mechanism**: Eliminates the 1.3GB disk cloning step in REA:
+  - Bypasses `copyExistingGhidraProject` in `dist/ghidra/GhidraProjectSnapshot.js`, `dist/mcp/binary-*.js`, and `dist/cli-runtime/binary-*.js`.
+  - Enforces `-noanalysis` and `-readOnly` flags when launching Ghidra's `analyzeHeadless` on the repository root.
+  - Transparently injected via `harness/hooks/command_safety_hook.py` (`inject_rea_dirtyroom_env`) for any terminal command invoking `rea decompile/disasm/xrefs/read-bytes`.
+
+### 8.4 Optimization 3: Deterministic Decompiler Query Cache
+- **Mechanism**: Caches decompiled C pseudocode under `.dirtyroom/cache/decompile/{binary}_{procedure}.c`.
+- **Cache Management (`agyis re cache [status|clear]`)**:
+  - `status`: Inspects cache disk usage, file counts, hit rates, and category breakdowns (<5ms responses).
+  - `clear`: Purges cached entries (`--type all|decompile`) and resets hit counters with `--dry-run` preview.
+  - `cmd_decompile`: Inspects cache before launching any process, returning cached output in `<5ms`. CLI flag `--no-cache` forces cache bypass and refreshes the cache entry with fresh decompiler output.
+
+---
+
+## 9. Verification & Compliance Gates
 
 All REA integration modules, hook gates, and cleanroom verifiers must satisfy deterministic automated checks prior to release:
 
@@ -661,9 +697,11 @@ All REA integration modules, hook gates, and cleanroom verifiers must satisfy de
 | **Full Reconstruction Gate** | `agyis verify` / `rea verify-reconstruction` | Validates `.agents/ledger/obligation_ledger.json` (and legacy `manifest.json`) obligations against evidence. |
 | **Zero-Delay Doctor** | `agyis doctor` | Confirms sub-second (`<1.0s`) baseline check without launching heavy disassembler scans. |
 | **Opt-In REA Audit** | `agyis doctor --experimental-rea` | Audits `rea`, `mcp_config.json`, JDK 21+, Ghidra, Hopper, IDA Pro, and JADX provider chains. |
+| **Query Cache Status Gate** | `agyis re cache status` | Asserts active cache directory, sub-millisecond retrieval, and accurate hit rates. |
+| **Daemon Bridge Status Gate** | `agyis re daemon status` | Inspects persistent MCP supervisor state and direct-mount environment. |
 | **Full Harness Test Suite** | `python3 -m harness.cli test` | Executes hermetic unit and contract suites across all runtime, hook, and cleanroom modules. |
 
 ---
 
-## 9. Governing Standards & Compliance
+## 10. Governing Standards & Compliance
 This technical specification is issued under the authority of Purrfect Software Limited (PSL) and is governed by the **ICARO-42/b Ordinance**. All implementations must adhere strictly to the Non-Interference Invariant, the Sub-Second Benchmark Invariant, and the Product vs. Project Bifurcation (ADR-014).

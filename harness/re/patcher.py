@@ -347,13 +347,13 @@ def apply_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
             ensure_backup(snapshot, s_content)
 
             s_content = re.sub(
-                r"(fingerprintGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{)",
+                r"((?:(?:export\s+)?(?:const\s+)?fingerprintGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+fingerprintGhidraProject\s*\([^)]*\)\s*\{))",
                 r"\1\n" + FASTPATH_FINGERPRINT_SNIPPET,
                 s_content,
                 count=1,
             )
             s_content = re.sub(
-                r"(copyExistingGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{)",
+                r"((?:(?:export\s+)?(?:const\s+)?copyExistingGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+copyExistingGhidraProject\s*\([^)]*\)\s*\{))",
                 r"\1\n" + FASTPATH_COPY_SNIPPET,
                 s_content,
                 count=1,
@@ -391,13 +391,13 @@ def apply_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
 
         if DIRECT_MOUNT_SIGNATURE not in m_content:
             m_content = re.sub(
-                r"(fingerprintGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{)",
+                r"((?:(?:export\s+)?(?:const\s+)?fingerprintGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+fingerprintGhidraProject\s*\([^)]*\)\s*\{))",
                 r"\1\n" + FASTPATH_FINGERPRINT_SNIPPET,
                 m_content,
                 count=1,
             )
             m_content = re.sub(
-                r"(copyExistingGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{)",
+                r"((?:(?:export\s+)?(?:const\s+)?copyExistingGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+copyExistingGhidraProject\s*\([^)]*\)\s*\{))",
                 r"\1\n" + FASTPATH_COPY_SNIPPET,
                 m_content,
                 count=1,
@@ -437,13 +437,13 @@ def apply_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
 
             if DIRECT_MOUNT_SIGNATURE not in c_content:
                 c_content = re.sub(
-                    r"(fingerprintGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{)",
+                    r"((?:(?:export\s+)?(?:const\s+)?fingerprintGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+fingerprintGhidraProject\s*\([^)]*\)\s*\{))",
                     r"\1\n" + FASTPATH_FINGERPRINT_SNIPPET,
                     c_content,
                     count=1,
                 )
                 c_content = re.sub(
-                    r"(copyExistingGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{)",
+                    r"((?:(?:export\s+)?(?:const\s+)?copyExistingGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|async\s+function\s+copyExistingGhidraProject\s*\([^)]*\)\s*\{))",
                     r"\1\n" + FASTPATH_COPY_SNIPPET,
                     c_content,
                     count=1,
