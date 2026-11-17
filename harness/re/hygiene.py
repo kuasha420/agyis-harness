@@ -29,25 +29,70 @@ def _safe_stat_size(p: Path) -> int:
         return 0
 
 
-def _is_ghidra_running() -> bool:
-    """Checks if any active Ghidra or analyzeHeadless process is running on the host."""
+_GHIDRA_CMDLINE_MARKERS = (
+    "analyzeheadless",
+    "ghidrarun",
+    "ghidralauncher",
+    "ghidra.ghidra",
+    "ghidra.ghidraclassloader",
+    "reaghidrabridge",
+)
+_NON_GHIDRA_EXECUTABLES = frozenset({
+    "grep",
+    "egrep",
+    "fgrep",
+    "rg",
+    "ag",
+    "ack",
+    "pgrep",
+    "pkill",
+    "sed",
+    "awk",
+    "cat",
+    "less",
+    "head",
+    "tail",
+    "git",
+})
+_SHELL_EXECUTABLES = frozenset({"sh", "bash", "zsh", "dash", "fish"})
+
+
+def _is_ghidra_running(proc_dir: Optional[Path] = None) -> bool:
+    """Checks if any active Ghidra, analyzeHeadless, or REA Ghidra JVM process is running."""
     try:
-        proc_dir = Path("/proc")
-        if not proc_dir.is_dir():
+        root = proc_dir if proc_dir is not None else Path("/proc")
+        if not root.is_dir():
             return False
         self_pid = ""
-        try:
-            self_pid = (proc_dir / "self").resolve().name
-        except (OSError, PermissionError):
-            self_pid = ""
-        for pid_entry in proc_dir.iterdir():
-            if not pid_entry.name.isdigit() or pid_entry.name == self_pid:
+        if proc_dir is None:
+            try:
+                self_pid = (root / "self").resolve().name
+            except (OSError, PermissionError):
+                self_pid = ""
+        for pid_entry in root.iterdir():
+            if not pid_entry.name.isdigit() or (self_pid and pid_entry.name == self_pid):
                 continue
             cmdline_file = pid_entry / "cmdline"
             if cmdline_file.is_file():
                 try:
-                    cmdline = cmdline_file.read_bytes().replace(b"\x00", b" ").decode("latin-1", errors="ignore")
-                    if "analyzeHeadless" in cmdline or "ghidraRun" in cmdline or "GhidraLauncher" in cmdline:
+                    raw = cmdline_file.read_bytes()
+                    argv = [
+                        part.decode("latin-1", errors="ignore")
+                        for part in raw.split(b"\x00")
+                        if part
+                    ]
+                    if not argv:
+                        continue
+                    exe_name = argv[0].rsplit("/", 1)[-1].lower()
+                    if exe_name in _NON_GHIDRA_EXECUTABLES:
+                        continue
+                    if exe_name in _SHELL_EXECUTABLES and any(
+                        arg == "-c" or (arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:])
+                        for arg in argv[1:3]
+                    ):
+                        continue
+                    cmdline_lower = " ".join(argv).lower()
+                    if any(marker in cmdline_lower for marker in _GHIDRA_CMDLINE_MARKERS):
                         return True
                 except (OSError, PermissionError):
                     continue
