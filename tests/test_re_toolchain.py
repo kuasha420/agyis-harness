@@ -1527,15 +1527,15 @@ class TestDirtyroomHygiene(unittest.TestCase):
         for l in (l1, l2, l3):
             l.write_text("ghidra-lock-content", encoding="utf-8")
 
-        # 1. Dry run
-        dry_res = clean_locks(self.dr, dry_run=True)
-        self.assertEqual(dry_res["count"], 3)
-        self.assertTrue(l1.is_file())
-        self.assertTrue(l2.is_file())
-        self.assertTrue(l3.is_file())
-
-        # 2. Live execution (with no ghidra process active)
+        # 1. Dry run (hermetic with no ghidra process active)
         with patch("harness.re.hygiene._is_ghidra_running", return_value=False):
+            dry_res = clean_locks(self.dr, dry_run=True)
+            self.assertEqual(dry_res["count"], 3)
+            self.assertTrue(l1.is_file())
+            self.assertTrue(l2.is_file())
+            self.assertTrue(l3.is_file())
+
+            # 2. Live execution (with no ghidra process active)
             res = clean_locks(self.dr, dry_run=False)
             self.assertEqual(res["count"], 3)
             self.assertFalse(l1.exists())
@@ -1544,22 +1544,69 @@ class TestDirtyroomHygiene(unittest.TestCase):
 
     def test_clean_locks_process_safety_guard(self):
         """Verifies active Ghidra processes prevent accidental lock deletion without force."""
-        from harness.re.hygiene import clean_locks
+        from harness.re.hygiene import clean_locks, cmd_clean
 
         lock_p = self.dr / "ghidra" / "active.lock"
         lock_p.write_text("active-lock", encoding="utf-8")
 
         with patch("harness.re.hygiene._is_ghidra_running", return_value=True):
-            # Guard prevents deletion
+            # Guard prevents deletion in both live and dry-run modes
             safe_res = clean_locks(self.dr, dry_run=False, force=False)
             self.assertEqual(safe_res["count"], 0)
             self.assertTrue(safe_res["ghidra_running"])
+            self.assertIn("Active Ghidra process detected", safe_res.get("skipped_reason", ""))
             self.assertTrue(lock_p.is_file())
+
+            # CLI dry-run output clearly reports active Ghidra skipped lock removal
+            args = argparse.Namespace(locks=True, logs=False, vacuum=False, force=False, dry_run=True, json=False)
+            out_buf = io.StringIO()
+            with patch("harness.re.hygiene.get_dirtyroom_root", return_value=self.dr), \
+                 patch("sys.stdout", out_buf):
+                self.assertEqual(cmd_clean(args), 0)
+            cli_out = out_buf.getvalue()
+            self.assertIn("[SKIPPED]", cli_out)
+            self.assertIn("Active Ghidra process detected", cli_out)
 
             # Force override deletes anyway
             force_res = clean_locks(self.dr, dry_run=False, force=True)
             self.assertEqual(force_res["count"], 1)
             self.assertFalse(lock_p.exists())
+
+    def test_is_ghidra_running_detects_live_jvm_and_avoids_false_positives(self):
+        """Verifies _is_ghidra_running detects headless Ghidra JVMs without grep/shell false positives."""
+        from harness.re.hygiene import _is_ghidra_running
+
+        fake_proc = self.workspace / "fake_proc"
+        fake_proc.mkdir(parents=True, exist_ok=True)
+
+        # Populate non-Ghidra processes including grep and bash -c wrappers mentioning Ghidra strings
+        non_ghidra = {
+            "1001": b"/usr/bin/python3\x00-m\x00harness.cli\x00re\x00clean\x00--locks\x00--dry-run\x00",
+            "1002": b"/usr/bin/grep\x00-i\x00AnalyzeHeadless\x00/tmp/trace.log\x00",
+            "1003": b"/bin/bash\x00-c\x00ps aux | grep ghidra.GhidraClassLoader\x00",
+        }
+        for pid, raw in non_ghidra.items():
+            pdir = fake_proc / pid
+            pdir.mkdir()
+            (pdir / "cmdline").write_bytes(raw)
+
+        self.assertFalse(_is_ghidra_running(proc_dir=fake_proc))
+
+        # Add a live Ghidra headless JVM invocation (capital AnalyzeHeadless + GhidraClassLoader + ReaGhidraBridge)
+        jvm_pid = fake_proc / "2488143"
+        jvm_pid.mkdir()
+        (jvm_pid / "cmdline").write_bytes(
+            b"/usr/lib/jvm/java-27-openjdk/bin/java\x00"
+            b"-Djava.system.class.loader=ghidra.GhidraClassLoader\x00"
+            b"-cp\x00/opt/ghidra/Ghidra/Framework/Utility/lib/Utility.jar\x00"
+            b"ghidra.Ghidra\x00"
+            b"ghidra.app.util.headless.AnalyzeHeadless\x00"
+            b"/mnt/fast_data/dirtyroom/ghidra\x00"
+            b"PaladinsProject\x00"
+            b"-postScript\x00ReaGhidraBridge.java\x00"
+        )
+
+        self.assertTrue(_is_ghidra_running(proc_dir=fake_proc))
 
     def test_clean_logs_pruning_preserves_active_daemon(self):
         """Verifies log pruning deletes old logs while preserving active supervisor daemon log."""
