@@ -322,6 +322,8 @@ class TestReaAutoHealing(unittest.TestCase):
                  patch("shutil.which", side_effect=lambda x: "/usr/bin/pnpm" if x == "pnpm" else None), \
                  patch.dict(os.environ, {"JAVA_HOME": "/usr/lib/jvm/java-21", "GHIDRA_INSTALL_DIR": "/opt/ghidra"}), \
                  patch("sys.stdout", new_callable=io.StringIO), \
+                 patch("harness.re.patcher.check_patch", return_value={"status": "applied"}), \
+                 patch("harness.re.patcher.apply_patch", return_value={"success": True, "applied_files": []}), \
                  patch("subprocess.run", side_effect=mock_subproc):
                 audit = {
                     "os_family": "linux",

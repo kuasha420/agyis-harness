@@ -13,10 +13,12 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import socket
 import sqlite3
 import struct
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -26,6 +28,8 @@ from harness.hooks.command_safety_hook import (
     normalize_rea_mcp_tool_call,
 )
 from harness.re.patcher import (
+    AUTO_DISCOVERY_SIGNATURE,
+    DIRECT_MOUNT_SIGNATURE,
     LAUNCHER_SNIPPET,
     PATCH_SIGNATURE,
     apply_patch,
@@ -1745,6 +1749,679 @@ class TestDirtyroomHygiene(unittest.TestCase):
         res_multi = clean_dirtyroom(vacuum=True, dirtyroom_root=self.dr)
         self.assertFalse(res_multi["success"])
         self.assertIn("paladins_symbols.sqlite", res_multi.get("error", ""))
+
+
+class TestGlobalReaDirectMountAndAutoDiscovery(unittest.TestCase):
+    """End-to-end verification of global mcp_config.json wiring and multi-workspace JS direct-mount."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_configure_rea_mcp_server_emits_direct_mount_and_preserves_user_env_from_non_re_dir(self):
+        """Verifies Bugs A & B: REA_GHIDRA_DIRECT_MOUNT=1 emitted globally and user env preserved."""
+        from harness.runtime.tool_checks_rea import configure_rea_mcp_server
+
+        cfg_file = self.root / "mcp_config.json"
+        fake_jdk = self.root / "jdk-21"
+        fake_jdk.mkdir(parents=True)
+        (fake_jdk / "release").write_text('JAVA_VERSION="21.0.4"\n', encoding="utf-8")
+
+        # 1. Fresh install from a non-RE dir still emits REA_GHIDRA_DIRECT_MOUNT="1"
+        with patch("harness.re.scaffold.get_dirtyroom_root", return_value=None):
+            configured, errors = configure_rea_mcp_server(
+                config_paths=[cfg_file],
+                jdk21_path=fake_jdk,
+                ghidra_dir="/opt/ghidra",
+            )
+        self.assertEqual(errors, [])
+        self.assertEqual(configured, [cfg_file])
+        fresh_env = json.loads(cfg_file.read_text(encoding="utf-8"))["mcpServers"]["rea"]["env"]
+        self.assertEqual(fresh_env["REA_GHIDRA_DIRECT_MOUNT"], "1")
+        self.assertEqual(fresh_env["GHIDRA_INSTALL_DIR"], "/opt/ghidra")
+
+        # 2. Reinstall from a non-RE dir preserves pre-existing user-pinned dirtyroom env vars
+        pinned = {
+            "mcpServers": {
+                "rea": {
+                    "command": "rea",
+                    "args": ["mcp"],
+                    "env": {
+                        "REA_GHIDRA_PROJECT_DIR": "/pinned/ws/dirtyroom/ghidra",
+                        "REA_GHIDRA_PROJECT_NAME": "PinnedProj",
+                        "REA_GHIDRA_PROJECT_PATH": "/pinned/ws/dirtyroom/ghidra/PinnedProj.gpr",
+                        "REA_GHIDRA_PROGRAM_NAME": "CustomTarget.exe",
+                        "AGYIS_DIRTYROOM": "/pinned/ws/.dirtyroom",
+                        "IMMORTAL_DIRTYROOM": "/legacy/immortal",
+                        "REA_BINARY_MAP": '{"deadbeef1234":"CustomTarget.exe"}',
+                    },
+                }
+            }
+        }
+        cfg_file.write_text(json.dumps(pinned, indent=2), encoding="utf-8")
+
+        with patch("harness.re.scaffold.get_dirtyroom_root", return_value=None):
+            configured, errors = configure_rea_mcp_server(
+                config_paths=[cfg_file],
+                jdk21_path=fake_jdk,
+                ghidra_dir="/opt/ghidra",
+            )
+        self.assertEqual(errors, [])
+        merged_env = json.loads(cfg_file.read_text(encoding="utf-8"))["mcpServers"]["rea"]["env"]
+        self.assertEqual(merged_env["REA_GHIDRA_DIRECT_MOUNT"], "1")
+        self.assertEqual(merged_env["REA_GHIDRA_PROJECT_DIR"], "/pinned/ws/dirtyroom/ghidra")
+        self.assertEqual(merged_env["REA_GHIDRA_PROJECT_NAME"], "PinnedProj")
+        self.assertEqual(merged_env["REA_GHIDRA_PROJECT_PATH"], "/pinned/ws/dirtyroom/ghidra/PinnedProj.gpr")
+        self.assertEqual(merged_env["REA_GHIDRA_PROGRAM_NAME"], "CustomTarget.exe")
+        self.assertEqual(merged_env["AGYIS_DIRTYROOM"], "/pinned/ws/.dirtyroom")
+        self.assertEqual(merged_env["IMMORTAL_DIRTYROOM"], "/legacy/immortal")
+        self.assertEqual(merged_env["REA_BINARY_MAP"], '{"deadbeef1234":"CustomTarget.exe"}')
+
+        # 3. Explicit user opt-out REA_GHIDRA_DIRECT_MOUNT="0" is respected
+        opt_out = json.loads(cfg_file.read_text(encoding="utf-8"))
+        opt_out["mcpServers"]["rea"]["env"]["REA_GHIDRA_DIRECT_MOUNT"] = "0"
+        cfg_file.write_text(json.dumps(opt_out, indent=2), encoding="utf-8")
+
+        with patch("harness.re.scaffold.get_dirtyroom_root", return_value=None):
+            configure_rea_mcp_server(
+                config_paths=[cfg_file],
+                jdk21_path=fake_jdk,
+                ghidra_dir="/opt/ghidra",
+            )
+        opt_out_env = json.loads(cfg_file.read_text(encoding="utf-8"))["mcpServers"]["rea"]["env"]
+        self.assertEqual(opt_out_env["REA_GHIDRA_DIRECT_MOUNT"], "0")
+
+    def test_configure_rea_mcp_server_resolves_nondot_dirtyroom_ghidra_path(self):
+        """Verifies Bug C (DEF-BB-038): prefers non-dot dirtyroom/ghidra symlink over .dirtyroom/ghidra."""
+        from harness.runtime.tool_checks_rea import configure_rea_mcp_server
+
+        ws = self.root / "re_ws"
+        dr = ws / ".dirtyroom"
+        (dr / "ghidra").mkdir(parents=True)
+        (dr / "ghidra" / "MyProj.gpr").write_text("gpr", encoding="utf-8")
+        (ws / "dirtyroom").symlink_to(".dirtyroom", target_is_directory=True)
+
+        cfg_file = self.root / "mcp_re.json"
+        fake_jdk = self.root / "jdk-21"
+        fake_jdk.mkdir(parents=True)
+        (fake_jdk / "release").write_text('JAVA_VERSION="21.0.4"\n', encoding="utf-8")
+
+        with patch("harness.re.scaffold.get_dirtyroom_root", return_value=dr):
+            configured, errors = configure_rea_mcp_server(
+                config_paths=[cfg_file],
+                jdk21_path=fake_jdk,
+                ghidra_dir="/opt/ghidra",
+            )
+        self.assertEqual(errors, [])
+        self.assertEqual(configured, [cfg_file])
+        env = json.loads(cfg_file.read_text(encoding="utf-8"))["mcpServers"]["rea"]["env"]
+        expected_dir = str(ws / "dirtyroom" / "ghidra")
+        self.assertEqual(env["REA_GHIDRA_PROJECT_DIR"], expected_dir)
+        self.assertEqual(env["REA_GHIDRA_PROJECT_PATH"], str(ws / "dirtyroom" / "ghidra" / "MyProj.gpr"))
+        self.assertEqual(env["REA_GHIDRA_PROJECT_NAME"], "MyProj")
+        self.assertEqual(env["REA_GHIDRA_DIRECT_MOUNT"], "1")
+        self.assertNotIn("/.dirtyroom/", env["REA_GHIDRA_PROJECT_DIR"])
+        self.assertNotIn("/.dirtyroom/", env["REA_GHIDRA_PROJECT_PATH"])
+
+        # Also verify auto-creation of non-dot symlink if missing
+        ws2 = self.root / "re_ws_nosym"
+        dr2 = ws2 / ".dirtyroom"
+        (dr2 / "ghidra").mkdir(parents=True)
+        (dr2 / "ghidra" / "AutoSym.gpr").write_text("gpr", encoding="utf-8")
+        cfg_file2 = self.root / "mcp_re2.json"
+
+        with patch("harness.re.scaffold.get_dirtyroom_root", return_value=dr2):
+            configure_rea_mcp_server(
+                config_paths=[cfg_file2],
+                jdk21_path=fake_jdk,
+                ghidra_dir="/opt/ghidra",
+            )
+        self.assertTrue((ws2 / "dirtyroom").is_symlink())
+        env2 = json.loads(cfg_file2.read_text(encoding="utf-8"))["mcpServers"]["rea"]["env"]
+        self.assertEqual(env2["REA_GHIDRA_PROJECT_DIR"], str(ws2 / "dirtyroom" / "ghidra"))
+
+        # Verify NO stray symlink is created when .dirtyroom/ghidra/ has zero .gpr files
+        ws3 = self.root / "re_ws_empty_ghidra"
+        dr3 = ws3 / ".dirtyroom"
+        (dr3 / "ghidra").mkdir(parents=True)
+        cfg_file3 = self.root / "mcp_re3.json"
+        with patch("harness.re.scaffold.get_dirtyroom_root", return_value=dr3):
+            configure_rea_mcp_server(
+                config_paths=[cfg_file3],
+                jdk21_path=fake_jdk,
+                ghidra_dir="/opt/ghidra",
+            )
+        self.assertFalse((ws3 / "dirtyroom").exists())
+        self.assertFalse((ws3 / "dirtyroom").is_symlink())
+        env3 = json.loads(cfg_file3.read_text(encoding="utf-8"))["mcpServers"]["rea"]["env"]
+        self.assertEqual(env3["REA_GHIDRA_DIRECT_MOUNT"], "1")
+        self.assertNotIn("REA_GHIDRA_PROJECT_DIR", env3)
+
+        # Verify unrelated regular 'dirtyroom/ghidra' dir does NOT cause mismatched dir/dot-path
+        ws4 = self.root / "re_ws_separate_dir"
+        dr4 = ws4 / ".dirtyroom"
+        (dr4 / "ghidra").mkdir(parents=True)
+        (dr4 / "ghidra" / "RealProj.gpr").write_text("gpr", encoding="utf-8")
+        (ws4 / "dirtyroom" / "ghidra").mkdir(parents=True)  # unrelated regular dir, NOT symlink
+        cfg_file4 = self.root / "mcp_re4.json"
+        with patch("harness.re.scaffold.get_dirtyroom_root", return_value=dr4):
+            configure_rea_mcp_server(
+                config_paths=[cfg_file4],
+                jdk21_path=fake_jdk,
+                ghidra_dir="/opt/ghidra",
+            )
+        env4 = json.loads(cfg_file4.read_text(encoding="utf-8"))["mcpServers"]["rea"]["env"]
+        self.assertEqual(env4["REA_GHIDRA_DIRECT_MOUNT"], "1")
+        self.assertNotIn("REA_GHIDRA_PROJECT_DIR", env4)
+        self.assertNotIn("REA_GHIDRA_PROJECT_PATH", env4)
+
+    def test_patcher_upgrades_older_v1_patch_using_orig_and_reverts_cleanly(self):
+        """Verifies apply_patch safely upgrades V1-patched installations via .orig backups."""
+        mock_rea = self.root / "rea-v1-upgrade"
+        ghidra_dir = mock_rea / "dist" / "ghidra"
+        mcp_dir = mock_rea / "dist" / "mcp"
+        cli_dir = mock_rea / "dist" / "cli-runtime"
+        ghidra_dir.mkdir(parents=True)
+        mcp_dir.mkdir(parents=True)
+        cli_dir.mkdir(parents=True)
+
+        orig_launcher = (
+            'import { constants as fsConstants } from "node:fs";\n'
+            'import { copyFile, mkdir } from "node:fs/promises";\n'
+            'import { posix, win32 } from "node:path";\n'
+            'export const ghidraHeadlessArguments = (options) => {\n'
+            '    const scriptPath = (options.platform ?? process.platform) === "win32" ? win32 : posix;\n'
+            '    const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+            '    return [options.projectRoot, "rea-project", "-import", options.targetPath];\n'
+            '};\n'
+        )
+        orig_snapshot = (
+            'import { cp, lstat, mkdir, readdir, realpath } from "node:fs/promises";\n'
+            'import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";\n'
+            'export const fingerprintGhidraProject = async (root, name, resources, signal) => {\n'
+            '    return "slow-sha256";\n'
+            '};\n'
+            'export const copyExistingGhidraProject = async (sourcePath, destinationRoot, options = {}) => {\n'
+            '    throw new Error("should-not-copy");\n'
+            '};\n'
+        )
+        orig_target_snap = (
+            'import { extname, join } from "node:path";\n'
+            'const safeExtension = (p) => extname(p) || ".bin";\n'
+            'export const createGhidraTargetSnapshot = async (sourcePath, runtimeRoot, expectedSha256, options = {}) => {\n'
+            '    const suffix = safeExtension(sourcePath);\n'
+            '    const snapshotPath = join(runtimeRoot, `target-${expectedSha256.slice(0, 12)}${suffix}`);\n'
+            '    return { path: snapshotPath, sha256: expectedSha256 };\n'
+            '};\n'
+        )
+        orig_bundle = (
+            'import { statSync } from "node:fs";\n'
+            'import { readdir } from "node:fs/promises";\n'
+            'import { dirname, extname, join, posix, resolve, win32 } from "node:path";\n'
+            'export const fingerprintGhidraProject = async (root, name, resources, signal) => {\n'
+            '    return "slow-bundle-sha";\n'
+            '};\n'
+            'export const copyExistingGhidraProject = async (sourcePath, destinationRoot, options = {}) => {\n'
+            '    throw new Error("should-not-copy-bundle");\n'
+            '};\n'
+            'const safeExtension = (p) => extname(p) || ".bin";\n'
+            'export const createGhidraTargetSnapshot = async (sourcePath, runtimeRoot, expectedSha256, options = {}) => {\n'
+            '    const suffix = safeExtension(sourcePath);\n'
+            '    const snapshotPath = join(runtimeRoot, `target-${expectedSha256.slice(0, 12)}${suffix}`);\n'
+            '    return { path: snapshotPath, sha256: expectedSha256 };\n'
+            '};\n'
+            'export const ghidraHeadlessArguments = (options) => {\n'
+            '    const scriptPath = (options.platform ?? process.platform) === "win32" ? win32 : posix;\n'
+            '    const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+            '    return [options.projectRoot, "rea-project", "-import", options.targetPath];\n'
+            '};\n'
+        )
+
+        # Simulate an older V1-patched installation with .orig backups present
+        launcher = ghidra_dir / "GhidraLauncher.js"
+        snapshot = ghidra_dir / "GhidraProjectSnapshot.js"
+        target_snap = ghidra_dir / "GhidraTargetSnapshot.js"
+        mcp_bin = mcp_dir / "binary-v1test.js"
+        cli_bin = cli_dir / "binary-v1cli.js"
+
+        launcher.with_suffix(".js.orig").write_text(orig_launcher, encoding="utf-8")
+        snapshot.with_suffix(".js.orig").write_text(orig_snapshot, encoding="utf-8")
+        mcp_bin.with_suffix(".js.orig").write_text(orig_bundle, encoding="utf-8")
+        cli_bin.with_suffix(".js.orig").write_text(orig_bundle, encoding="utf-8")
+
+        launcher.write_text(orig_launcher.replace("const bridgeDirectory =", "// V1 REA_GHIDRA_PROJECT_DIR\nconst bridgeDirectory ="), encoding="utf-8")
+        snapshot.write_text(orig_snapshot.replace('"slow-sha256"', '"0000" // REA_DIRECT_MOUNT_ACTIVE'), encoding="utf-8")
+        target_snap.write_text(orig_target_snap, encoding="utf-8")
+        mcp_bin.write_text(orig_bundle.replace("const bridgeDirectory =", "// V1 REA_GHIDRA_PROJECT_DIR REA_DIRECT_MOUNT_ACTIVE\nconst bridgeDirectory ="), encoding="utf-8")
+        cli_bin.write_text(orig_bundle.replace("const bridgeDirectory =", "// V1 REA_GHIDRA_PROJECT_DIR REA_DIRECT_MOUNT_ACTIVE\nconst bridgeDirectory ="), encoding="utf-8")
+
+        # 1. check_patch detects outdated V1 state as partial with auto_discovery_active=False
+        before = check_patch(mock_rea)
+        self.assertEqual(before["status"], "partial")
+        self.assertTrue(before["launcher_patched"])
+        self.assertTrue(before["mcp_patched"])
+        self.assertFalse(before["auto_discovery_active"])
+
+        # 2. apply_patch upgrades cleanly from .orig backups without overwriting .orig
+        upgrade_res = apply_patch(mock_rea)
+        self.assertTrue(upgrade_res["success"], upgrade_res.get("error"))
+        self.assertEqual(len(upgrade_res["applied_files"]), 5)
+
+        after = check_patch(mock_rea)
+        self.assertEqual(after["status"], "applied")
+        self.assertTrue(after["direct_mount_active"])
+        self.assertTrue(after["auto_discovery_active"])
+        self.assertNotIn("// V1 ", launcher.read_text(encoding="utf-8"))
+        self.assertIn(AUTO_DISCOVERY_SIGNATURE, launcher.read_text(encoding="utf-8"))
+        self.assertIn(AUTO_DISCOVERY_SIGNATURE, snapshot.read_text(encoding="utf-8"))
+        self.assertIn(AUTO_DISCOVERY_SIGNATURE, target_snap.read_text(encoding="utf-8"))
+        self.assertEqual(launcher.with_suffix(".js.orig").read_text(encoding="utf-8"), orig_launcher)
+
+        # 3. Re-running apply_patch is idempotent
+        second_res = apply_patch(mock_rea)
+        self.assertTrue(second_res["success"])
+        self.assertEqual(second_res["applied_files"], [])
+
+        # 4. revert_patch restores pristine originals cleanly
+        rev = revert_patch(mock_rea)
+        self.assertTrue(rev["success"])
+        self.assertEqual(launcher.read_text(encoding="utf-8"), orig_launcher)
+        self.assertEqual(snapshot.read_text(encoding="utf-8"), orig_snapshot)
+        self.assertEqual(target_snap.read_text(encoding="utf-8"), orig_target_snap)
+        self.assertEqual(mcp_bin.read_text(encoding="utf-8"), orig_bundle)
+        self.assertEqual(check_patch(mock_rea)["status"], "unapplied")
+
+    def test_node_e2e_direct_mount_autodiscovery_without_static_env_vars(self):
+        """Real Node.js E2E test proving global direct-mount works with ONLY REA_GHIDRA_DIRECT_MOUNT=1."""
+        node_bin = shutil.which("node")
+        if not node_bin:
+            self.skipTest("node binary not available in PATH")
+
+        # 1. Build a realistic ESM rea-agents layout matching rea-agents@6.9.0
+        mock_rea = self.root / "rea-agents"
+        ghidra_dir = mock_rea / "dist" / "ghidra"
+        mcp_dir = mock_rea / "dist" / "mcp"
+        ghidra_dir.mkdir(parents=True)
+        mcp_dir.mkdir(parents=True)
+        (mock_rea / "package.json").write_text('{"name":"rea-agents","type":"module"}\n', encoding="utf-8")
+
+        (ghidra_dir / "GhidraLauncher.js").write_text(
+            'import { constants as fsConstants } from "node:fs";\n'
+            'import { copyFile, mkdir } from "node:fs/promises";\n'
+            'import { posix, win32 } from "node:path";\n'
+            'export const ghidraHeadlessArguments = (options) => {\n'
+            '    const scriptPath = (options.platform ?? process.platform) === "win32" ? win32 : posix;\n'
+            '    const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+            '    return [options.projectRoot, "rea-project", "-import", options.targetPath];\n'
+            '};\n',
+            encoding="utf-8",
+        )
+        (ghidra_dir / "GhidraProjectSnapshot.js").write_text(
+            'import { cp, lstat, mkdir, readdir, realpath } from "node:fs/promises";\n'
+            'import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";\n'
+            'export const fingerprintGhidraProject = async (root, name, resources, signal) => {\n'
+            '    return "non-bypassed-real-fingerprint";\n'
+            '};\n'
+            'export const copyExistingGhidraProject = async (sourcePath, destinationRoot, options = {}) => {\n'
+            '    await mkdir(join(destinationRoot, "COPIED_MARKER"), { recursive: true });\n'
+            '};\n',
+            encoding="utf-8",
+        )
+        (ghidra_dir / "GhidraTargetSnapshot.js").write_text(
+            'import { extname, join } from "node:path";\n'
+            'const safeExtension = (p) => extname(p) || ".bin";\n'
+            'export const createGhidraTargetSnapshot = async (sourcePath, runtimeRoot, expectedSha256, options = {}) => {\n'
+            '    const suffix = safeExtension(sourcePath);\n'
+            '    const snapshotPath = join(runtimeRoot, `target-${expectedSha256.slice(0, 12)}${suffix}`);\n'
+            '    return { path: snapshotPath, sha256: expectedSha256 };\n'
+            '};\n',
+            encoding="utf-8",
+        )
+        (mcp_dir / "binary-e2e.js").write_text(
+            'import { statSync } from "node:fs";\n'
+            'import { mkdir, readdir } from "node:fs/promises";\n'
+            'import { dirname, extname, join, posix, resolve, win32 } from "node:path";\n'
+            'export const fingerprintGhidraProject = async (root, name, resources, signal) => {\n'
+            '    return "non-bypassed-mcp-fingerprint";\n'
+            '};\n'
+            'export const copyExistingGhidraProject = async (sourcePath, destinationRoot, options = {}) => {\n'
+            '    await mkdir(join(destinationRoot, "COPIED_MCP"), { recursive: true });\n'
+            '};\n'
+            'const safeExtension = (p) => extname(p) || ".bin";\n'
+            'export const createGhidraTargetSnapshot = async (sourcePath, runtimeRoot, expectedSha256, options = {}) => {\n'
+            '    const suffix = safeExtension(sourcePath);\n'
+            '    const snapshotPath = join(runtimeRoot, `target-${expectedSha256.slice(0, 12)}${suffix}`);\n'
+            '    return { path: snapshotPath, sha256: expectedSha256 };\n'
+            '};\n'
+            'export const ghidraHeadlessArguments = (options) => {\n'
+            '    const scriptPath = (options.platform ?? process.platform) === "win32" ? win32 : posix;\n'
+            '    const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+            '    return [options.projectRoot, "rea-project", "-import", options.targetPath];\n'
+            '};\n',
+            encoding="utf-8",
+        )
+
+        patch_res = apply_patch(mock_rea)
+        self.assertTrue(patch_res["success"], patch_res.get("error"))
+        status = check_patch(mock_rea)
+        self.assertEqual(status["status"], "applied")
+        self.assertTrue(status["direct_mount_active"])
+        self.assertTrue(status["auto_discovery_active"])
+
+        # 2. Build temp RE workspace with .dirtyroom/binaries/test.exe and dirtyroom/ghidra/MyProj.gpr
+        re_ws = self.root / "game_workspace"
+        (re_ws / ".dirtyroom" / "binaries").mkdir(parents=True)
+        (re_ws / ".dirtyroom" / "ghidra" / "MyProj.rep").mkdir(parents=True)
+        (re_ws / ".dirtyroom" / "ghidra" / "MyProj.gpr").write_text("gpr", encoding="utf-8")
+        target_exe = re_ws / ".dirtyroom" / "binaries" / "test.exe"
+        target_exe.write_bytes(b"MZTEST")
+        (re_ws / "dirtyroom").symlink_to(".dirtyroom", target_is_directory=True)
+
+        # Unrelated cwd and non-RE target
+        unrelated_cwd = self.root / "unrelated_cwd"
+        unrelated_cwd.mkdir()
+        plain_exe = unrelated_cwd / "plain.exe"
+        plain_exe.write_bytes(b"MZPLAIN")
+        dest_root = self.root / "clone_dest"
+        dest_root.mkdir()
+        dest_optout = self.root / "clone_dest_optout"
+        dest_optout.mkdir()
+        tmp_runtime = self.root / "rea_runtime"
+        tmp_runtime.mkdir()
+
+        # 3. Execute real Node.js harness script testing all code paths
+        driver = self.root / "e2e_driver.mjs"
+        driver.write_text(
+            'import assert from "node:assert/strict";\n'
+            'import { readdirSync } from "node:fs";\n'
+            'import { ghidraHeadlessArguments } from "./rea-agents/dist/ghidra/GhidraLauncher.js";\n'
+            'import { fingerprintGhidraProject, copyExistingGhidraProject } from "./rea-agents/dist/ghidra/GhidraProjectSnapshot.js";\n'
+            'import { createGhidraTargetSnapshot } from "./rea-agents/dist/ghidra/GhidraTargetSnapshot.js";\n'
+            'import * as mcpBundle from "./rea-agents/dist/mcp/binary-e2e.js";\n'
+            'const ws = process.env.TEST_WS;\n'
+            'const targetExe = process.env.TEST_TARGET;\n'
+            'const plainExe = process.env.TEST_PLAIN;\n'
+            'const destRoot = process.env.TEST_DEST;\n'
+            'const destOptout = process.env.TEST_DEST_OPTOUT;\n'
+            'const tmpRuntime = process.env.TEST_RUNTIME;\n'
+            'const expectedDir = `${ws}/dirtyroom/ghidra`;\n'
+            'const baseOpts = {\n'
+            '    platform: "linux",\n'
+            '    projectRoot: "/tmp/ephemeral/project",\n'
+            '    bridgeScriptPath: "/opt/rea/bridge/Bridge.java",\n'
+            '    descriptorPath: "/tmp/ephemeral/session.json",\n'
+            '    ghidraLogPath: "/tmp/ephemeral/ghidra.log",\n'
+            '    scriptLogPath: "/tmp/ephemeral/script.log",\n'
+            '};\n'
+            '// Case 1: Auto-discovery from targetPath with ONLY REA_GHIDRA_DIRECT_MOUNT=1\n'
+            'const argsDirect = ghidraHeadlessArguments({ ...baseOpts, targetPath: targetExe });\n'
+            'assert.equal(argsDirect[0], expectedDir);\n'
+            'assert.ok(!argsDirect[0].includes("/.dirtyroom/"));\n'
+            'assert.equal(argsDirect[1], "MyProj");\n'
+            'assert.equal(argsDirect[2], "-process");\n'
+            'assert.equal(argsDirect[3], "test.exe");\n'
+            'assert.equal(argsDirect[4], "-noanalysis");\n'
+            'assert.equal(argsDirect[5], "-readOnly");\n'
+            '// Case 2: Real rea mcp snapshot indirection (temp target-<sha>.exe -> original workspace binary)\n'
+            'const sha = "a".repeat(64);\n'
+            'const snap = await createGhidraTargetSnapshot(targetExe, tmpRuntime, sha);\n'
+            'const argsSnap = ghidraHeadlessArguments({ ...baseOpts, targetPath: snap.path });\n'
+            'assert.equal(argsSnap[0], expectedDir);\n'
+            'assert.equal(argsSnap[1], "MyProj");\n'
+            'assert.equal(argsSnap[2], "-process");\n'
+            'assert.equal(argsSnap[3], "test.exe");\n'
+            'assert.equal(argsSnap[4], "-noanalysis");\n'
+            'assert.equal(argsSnap[5], "-readOnly");\n'
+            '// Case 3: MCP bundle snapshot + launcher + fastpaths with ONLY REA_GHIDRA_DIRECT_MOUNT=1\n'
+            'const mcpSnap = await mcpBundle.createGhidraTargetSnapshot(targetExe, tmpRuntime, "b".repeat(64));\n'
+            'const mcpArgs = mcpBundle.ghidraHeadlessArguments({ ...baseOpts, targetPath: mcpSnap.path });\n'
+            'assert.equal(mcpArgs[0], expectedDir);\n'
+            'assert.equal(mcpArgs[3], "test.exe");\n'
+            '// Case 4: Fingerprint and copy fastpaths short-circuit via auto-discovery without cloning\n'
+            'const fp = await fingerprintGhidraProject(expectedDir, "MyProj");\n'
+            'assert.equal(fp, "0".repeat(64));\n'
+            'const fpDot = await mcpBundle.fingerprintGhidraProject(`${ws}/.dirtyroom/ghidra`, "MyProj");\n'
+            'assert.equal(fpDot, "0".repeat(64));\n'
+            'await copyExistingGhidraProject(expectedDir, destRoot, { projectName: "MyProj" });\n'
+            'await mcpBundle.copyExistingGhidraProject(`${ws}/.dirtyroom/ghidra`, destRoot, { projectName: "MyProj" });\n'
+            'assert.deepEqual(readdirSync(destRoot), []);\n'
+            '// Case 5: Non-RE workspace binary falls back cleanly to -import\n'
+            'const plainArgs = ghidraHeadlessArguments({ ...baseOpts, targetPath: plainExe });\n'
+            'assert.equal(plainArgs[2], "-import");\n'
+            '// Case 6: Explicit dot-path env var REA_GHIDRA_PROJECT_DIR normalized to non-dot sibling\n'
+            'process.env.REA_GHIDRA_PROJECT_DIR = `${ws}/.dirtyroom/ghidra`;\n'
+            'const dotNormArgs = ghidraHeadlessArguments({ ...baseOpts, targetPath: plainExe });\n'
+            'assert.equal(dotNormArgs[0], expectedDir);\n'
+            'assert.ok(!dotNormArgs[0].includes("/.dirtyroom/"));\n'
+            'delete process.env.REA_GHIDRA_PROJECT_DIR;\n'
+            '// Case 7: Explicit opt-out REA_GHIDRA_DIRECT_MOUNT=0 disables direct mount and fastpaths\n'
+            'process.env.REA_GHIDRA_DIRECT_MOUNT = "0";\n'
+            'const optOutArgs = ghidraHeadlessArguments({ ...baseOpts, targetPath: targetExe });\n'
+            'assert.equal(optOutArgs[2], "-import");\n'
+            'const optOutFp = await fingerprintGhidraProject(expectedDir, "MyProj");\n'
+            'assert.equal(optOutFp, "non-bypassed-real-fingerprint");\n'
+            'await copyExistingGhidraProject(expectedDir, destOptout, { projectName: "MyProj" });\n'
+            'assert.deepEqual(readdirSync(destOptout), ["COPIED_MARKER"]);\n'
+            'console.log("NODE_E2E_OK");\n',
+            encoding="utf-8",
+        )
+
+        # Construct strictly clean env with ONLY REA_GHIDRA_DIRECT_MOUNT=1 (no project dir / dirtyroom env)
+        clean_env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", str(self.root)),
+            "REA_GHIDRA_DIRECT_MOUNT": "1",
+            "TEST_WS": str(re_ws),
+            "TEST_TARGET": str(target_exe),
+            "TEST_PLAIN": str(plain_exe),
+            "TEST_DEST": str(dest_root),
+            "TEST_DEST_OPTOUT": str(dest_optout),
+            "TEST_RUNTIME": str(tmp_runtime),
+        }
+
+        proc = subprocess.run(
+            [node_bin, str(driver)],
+            cwd=str(unrelated_cwd),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(proc.returncode, 0, f"Node E2E failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+        self.assertIn("NODE_E2E_OK", proc.stdout)
+
+    def test_node_e2e_adversarial_edge_cases_and_real_rea_bundles(self):
+        """Real Node.js E2E test covering auto-symlink, multi-GPR selection, overrides, and real rea-agents bundles."""
+        node_bin = shutil.which("node")
+        if not node_bin:
+            self.skipTest("node binary not available in PATH")
+
+        # 1. Minimal mock ESM modules (note: GhidraProjectSnapshot has ZERO imports to test aliased import injection)
+        mock_rea = self.root / "rea-adv"
+        ghidra_dir = mock_rea / "dist" / "ghidra"
+        mcp_dir = mock_rea / "dist" / "mcp"
+        ghidra_dir.mkdir(parents=True)
+        mcp_dir.mkdir(parents=True)
+        (mock_rea / "package.json").write_text('{"name":"rea-agents","type":"module"}\n', encoding="utf-8")
+
+        (ghidra_dir / "GhidraLauncher.js").write_text(
+            'import { posix, win32 } from "node:path";\n'
+            'export const ghidraHeadlessArguments = (options) => {\n'
+            '    const scriptPath = (options.platform ?? process.platform) === "win32" ? win32 : posix;\n'
+            '    const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+            '    if (options.existingProject) return [options.projectRoot, options.existingProject.projectName, "-process", options.existingProject.programName];\n'
+            '    return [options.projectRoot, "rea-project", "-import", options.packedProgramPath ?? options.targetPath];\n'
+            '};\n',
+            encoding="utf-8",
+        )
+        (ghidra_dir / "GhidraProjectSnapshot.js").write_text(
+            'export async function fingerprintGhidraProject(root, name, resources, signal) {\n'
+            '    return "non-bypassed-fp";\n'
+            '}\n'
+            'export async function copyExistingGhidraProject(sourcePath, destinationRoot, options = {}) {\n'
+            '    return "non-bypassed-copy";\n'
+            '}\n',
+            encoding="utf-8",
+        )
+        (mcp_dir / "binary-adv.js").write_text(
+            'import { posix, win32 } from "node:path";\n'
+            'export const ghidraHeadlessArguments = (options) => {\n'
+            '    const scriptPath = (options.platform ?? process.platform) === "win32" ? win32 : posix;\n'
+            '    const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+            '    return [options.projectRoot, "rea-project", "-import", options.targetPath];\n'
+            '};\n',
+            encoding="utf-8",
+        )
+        self.assertTrue(apply_patch(mock_rea)["success"])
+
+        # 2. Workspace without pre-existing dirtyroom symlink (DEF-BB-038 auto-symlink)
+        ws_nosym = self.root / "ws_nosym"
+        (ws_nosym / ".dirtyroom" / "ghidra" / "NoSym.rep").mkdir(parents=True)
+        (ws_nosym / ".dirtyroom" / "ghidra" / "NoSym.gpr").write_text("gpr", encoding="utf-8")
+        (ws_nosym / ".dirtyroom" / "binaries").mkdir(parents=True)
+        t_nosym = ws_nosym / ".dirtyroom" / "binaries" / "app.exe"
+        t_nosym.write_bytes(b"MZ")
+
+        # 3. Multi-GPR workspace with populated .rep/idata/*.prp metadata
+        ws_multi = self.root / "ws_multi"
+        for proj, prog in [("Alpha", "alpha.exe"), ("Beta", "beta.dll")]:
+            idata = ws_multi / ".dirtyroom" / "ghidra" / f"{proj}.rep" / "idata" / "00"
+            idata.mkdir(parents=True)
+            (ws_multi / ".dirtyroom" / "ghidra" / f"{proj}.gpr").write_text("gpr", encoding="utf-8")
+            (idata / "00000001.prp").write_text(
+                f'<?xml version="1.0"?><FILE_INFO><BASIC_INFO>'
+                f'<STATE NAME="CONTENT_TYPE" TYPE="string" VALUE="Program" />'
+                f'<STATE NAME="NAME" TYPE="string" VALUE="{prog}" />'
+                f'</BASIC_INFO></FILE_INFO>\n',
+                encoding="utf-8",
+            )
+        (ws_multi / ".dirtyroom" / "binaries").mkdir(parents=True)
+        t_beta = ws_multi / ".dirtyroom" / "binaries" / "beta.dll"
+        t_beta.write_bytes(b"MZ")
+        t_unimported = ws_multi / ".dirtyroom" / "binaries" / "unimported.so"
+        t_unimported.write_bytes(b"\x7fELF")
+        (ws_multi / "dirtyroom").symlink_to(".dirtyroom", target_is_directory=True)
+
+        # 4. Custom standalone Ghidra project dir (not named dirtyroom/ghidra)
+        custom_proj = self.root / "custom_proj"
+        (custom_proj / "Custom.rep").mkdir(parents=True)
+        (custom_proj / "Custom.gpr").write_text("gpr", encoding="utf-8")
+
+        driver = self.root / "adv_driver.mjs"
+        driver.write_text(
+            'import assert from "node:assert/strict";\n'
+            'import { lstatSync } from "node:fs";\n'
+            'import { ghidraHeadlessArguments } from "./rea-adv/dist/ghidra/GhidraLauncher.js";\n'
+            'import { fingerprintGhidraProject, copyExistingGhidraProject } from "./rea-adv/dist/ghidra/GhidraProjectSnapshot.js";\n'
+            'const base = {\n'
+            '    platform: "linux",\n'
+            '    projectRoot: "/tmp/p",\n'
+            '    bridgeScriptPath: "/opt/rea/bridge.java",\n'
+            '    descriptorPath: "/tmp/session.json",\n'
+            '    ghidraLogPath: "/tmp/g.log",\n'
+            '    scriptLogPath: "/tmp/s.log",\n'
+            '};\n'
+            '// 1. Auto-symlink DEF-BB-038 when dirtyroom symlink was initially missing\n'
+            'const aNoSym = ghidraHeadlessArguments({ ...base, targetPath: process.env.T_NOSYM });\n'
+            'assert.equal(aNoSym[0], `${process.env.WS_NOSYM}/dirtyroom/ghidra`);\n'
+            'assert.ok(!aNoSym[0].includes("/.dirtyroom/"));\n'
+            'assert.ok(lstatSync(`${process.env.WS_NOSYM}/dirtyroom`).isSymbolicLink());\n'
+            'assert.equal(aNoSym[1], "NoSym");\n'
+            'assert.equal(aNoSym[2], "-process");\n'
+            'assert.equal(aNoSym[3], "app.exe");\n'
+            '// 2. Multi-GPR picks Beta for beta.dll, and falls back to -import for unimported.so\n'
+            'const aBeta = ghidraHeadlessArguments({ ...base, targetPath: process.env.T_BETA });\n'
+            'assert.equal(aBeta[1], "Beta");\n'
+            'assert.equal(aBeta[2], "-process");\n'
+            'assert.equal(aBeta[3], "beta.dll");\n'
+            'const aUnimp = ghidraHeadlessArguments({ ...base, targetPath: process.env.T_UNIMP });\n'
+            'assert.equal(aUnimp[2], "-import");\n'
+            '// 3. Respects packedProgramPath, languageOverride, and options.existingProject\n'
+            'const aPacked = ghidraHeadlessArguments({ ...base, targetPath: process.env.T_BETA, packedProgramPath: "/tmp/r.gzf" });\n'
+            'assert.equal(aPacked[2], "-import");\n'
+            'assert.equal(aPacked[3], "/tmp/r.gzf");\n'
+            'const aLang = ghidraHeadlessArguments({ ...base, targetPath: process.env.T_BETA, languageOverride: { languageId: "x86:LE:64:default" } });\n'
+            'assert.equal(aLang[2], "-import");\n'
+            'const aExisting = ghidraHeadlessArguments({\n'
+            '    ...base,\n'
+            '    targetPath: "/tmp/target-111122223333.exe",\n'
+            '    existingProject: { projectPath: `${process.env.WS_MULTI}/.dirtyroom/ghidra`, projectName: "Beta", programName: "CustomProg.exe" },\n'
+            '});\n'
+            'assert.equal(aExisting[0], `${process.env.WS_MULTI}/dirtyroom/ghidra`);\n'
+            'assert.equal(aExisting[1], "Beta");\n'
+            'assert.equal(aExisting[2], "-process");\n'
+            'assert.equal(aExisting[3], "CustomProg.exe");\n'
+            '// 4. Fastpaths bypass custom project dir AND do NOT falsely bypass nonexistent dirs even when cwd is an RE workspace\n'
+            'const fpCustom = await fingerprintGhidraProject(process.env.CUSTOM_PROJ, "Custom");\n'
+            'assert.equal(fpCustom, "0".repeat(64));\n'
+            'const cpCustom = await copyExistingGhidraProject(process.env.CUSTOM_PROJ, "/tmp/unused", { projectName: "Custom" });\n'
+            'assert.equal(cpCustom, undefined);\n'
+            'const fpMissing = await fingerprintGhidraProject("/tmp/definitely-missing-ghidra-proj-xyz", "Missing");\n'
+            'assert.equal(fpMissing, "non-bypassed-fp");\n'
+            'const cpMissing = await copyExistingGhidraProject("/tmp/definitely-missing-ghidra-proj-xyz", "/tmp/unused", { projectName: "Missing" });\n'
+            'assert.equal(cpMissing, "non-bypassed-copy");\n'
+            'console.log("ADV_E2E_OK");\n',
+            encoding="utf-8",
+        )
+        clean_env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", str(self.root)),
+            "REA_GHIDRA_DIRECT_MOUNT": "1",
+            "WS_NOSYM": str(ws_nosym),
+            "T_NOSYM": str(t_nosym),
+            "WS_MULTI": str(ws_multi),
+            "T_BETA": str(t_beta),
+            "T_UNIMP": str(t_unimported),
+            "CUSTOM_PROJ": str(custom_proj),
+        }
+        proc = subprocess.run(
+            [node_bin, str(driver)],
+            cwd=str(ws_multi),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(proc.returncode, 0, f"Adversarial Node E2E failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+        self.assertIn("ADV_E2E_OK", proc.stdout)
+
+        # 5. If real rea-agents is installed on the host, test patching a temp copy of its real files + node --check
+        from harness.re.patcher import find_rea_package_root, get_all_patch_targets
+
+        real_root = find_rea_package_root()
+        if real_root is not None:
+            real_copy = self.root / "real_rea_copy"
+            targets = get_all_patch_targets(real_root)
+            for key, src_path in targets.items():
+                if src_path is None or not src_path.is_file():
+                    continue
+                orig_path = src_path.with_suffix(".js.orig")
+                source_file = orig_path if orig_path.is_file() else src_path
+                rel = src_path.relative_to(real_root)
+                dst = real_copy / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_file, dst)
+            (real_copy / "package.json").write_text('{"name":"rea-agents","type":"module"}\n', encoding="utf-8")
+
+            res = apply_patch(real_copy)
+            self.assertTrue(res["success"], res.get("error"))
+            st = check_patch(real_copy)
+            self.assertEqual(st["status"], "applied")
+            self.assertTrue(st["auto_discovery_active"])
+            self.assertTrue(st["direct_mount_active"])
+            for patched_file in res["applied_files"]:
+                chk = subprocess.run(
+                    [node_bin, "--check", patched_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                self.assertEqual(chk.returncode, 0, f"node --check failed on {patched_file}:\n{chk.stderr}")
+            self.assertTrue(revert_patch(real_copy)["success"])
+            self.assertEqual(check_patch(real_copy)["status"], "unapplied")
 
 
 if __name__ == "__main__":
