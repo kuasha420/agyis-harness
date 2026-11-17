@@ -357,7 +357,15 @@ def cmd_decompile(args: argparse.Namespace) -> int:
     cache_file = None
     target_name = Path(target_target).name
     clean_proc = str(proc).replace(":", "_").replace("/", "_").replace("\\", "_")
-    cache_key = f"{target_name}_{clean_proc}"
+    bin_id = "00000000"
+    if bin_path and bin_path.is_file():
+        try:
+            st = bin_path.stat()
+            import hashlib
+            bin_id = hashlib.sha256(f"{st.st_size}_{st.st_mtime_ns}".encode()).hexdigest()[:8]
+        except OSError:
+            pass
+    cache_key = f"{target_name}_{bin_id}_{clean_proc}"
 
     if root:
         cache_dir = root / "cache" / "decompile"

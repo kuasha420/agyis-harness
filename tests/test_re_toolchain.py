@@ -587,7 +587,9 @@ class TestCmdDecompilePSLINV009(unittest.TestCase):
             self.assertIn("void target_func", out_buf.getvalue())
 
             # Verify cache file was created on disk
-            cache_file = dr / "cache" / "decompile" / "CacheApp.exe_target_func.c"
+            found_cache = list((dr / "cache" / "decompile").glob("CacheApp.exe_*target_func.c"))
+            self.assertTrue(len(found_cache) > 0)
+            cache_file = found_cache[0]
             self.assertTrue(cache_file.is_file())
             self.assertEqual(cache_file.read_text(encoding="utf-8"), mock_proc.stdout)
 
@@ -629,8 +631,10 @@ class TestCmdDecompilePSLINV009(unittest.TestCase):
         mod_cmd, changed, reasons = inject_rea_dirtyroom_env(raw_cmd, workspace_dir=self.workspace)
         self.assertTrue(changed)
         self.assertIn('REA_GHIDRA_DIRECT_MOUNT="1"', mod_cmd)
-        self.assertIn('REA_GHIDRA_PROJECT_NAME="GameApp"', mod_cmd)
-        self.assertIn(f'REA_GHIDRA_PROJECT_DIR="{dr}"', mod_cmd)
+        self.assertIn('REA_GHIDRA_PROJECT_NAME=', mod_cmd)
+        self.assertIn('GameApp', mod_cmd)
+        self.assertIn('REA_GHIDRA_PROJECT_DIR=', mod_cmd)
+        self.assertIn(str(dr), mod_cmd)
         self.assertTrue(mod_cmd.endswith(raw_cmd))
 
     def test_re_cache_stats_and_clear_lifecycle(self):

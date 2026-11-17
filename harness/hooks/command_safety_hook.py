@@ -362,13 +362,14 @@ def inject_rea_dirtyroom_env(cmd: str, workspace_dir: Optional[Path] = None) -> 
         gprs = list((dr / "ghidra").glob("*.gpr"))
         if not gprs:
             return cmd, False, []
+        import shlex
         gpr = gprs[0]
         env_prefix = (
-            f'REA_GHIDRA_PROJECT_DIR="{dr / "ghidra"}" '
-            f'REA_GHIDRA_PROJECT_NAME="{gpr.stem}" '
-            f'REA_GHIDRA_PROJECT_PATH="{gpr}" '
+            f"REA_GHIDRA_PROJECT_DIR={shlex.quote(str(dr / 'ghidra'))} "
+            f"REA_GHIDRA_PROJECT_NAME={shlex.quote(gpr.stem)} "
+            f"REA_GHIDRA_PROJECT_PATH={shlex.quote(str(gpr))} "
             f'REA_GHIDRA_DIRECT_MOUNT="1" '
-            f'AGYIS_DIRTYROOM="{dr}" '
+            f"AGYIS_DIRTYROOM={shlex.quote(str(dr))} "
         )
         return env_prefix + cmd, True, ["injected dirtyroom REA direct-mount environment"]
     except Exception:

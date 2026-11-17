@@ -52,6 +52,11 @@ def get_pid_file(root: Optional[Path] = None) -> Path:
     return get_daemon_dir(root) / "rea_daemon.pid"
 
 
+def get_socket_file(root: Optional[Path] = None) -> Path:
+    """Returns path to the daemon Unix domain socket."""
+    return get_daemon_dir(root) / "rea_mcp.sock"
+
+
 def get_status_file(root: Optional[Path] = None) -> Path:
     """Returns path to the daemon status metadata file."""
     return get_daemon_dir(root) / "rea_daemon_status.json"
@@ -152,6 +157,8 @@ def get_daemon_status(root: Optional[Path] = None) -> Dict[str, Any]:
         "uptime_seconds": round(uptime_s, 1) if alive else 0.0,
         "log_file": str(log_p),
         "pid_file": str(pid_p),
+        "socket_file": str(get_socket_file(root)),
+        "socket_active": get_socket_file(root).is_socket() if alive else False,
         "mcp_configured": is_rea_mcp_configured(),
         "direct_mount_active": patch_info.get("direct_mount_active", False),
         "ghidra_project": ghidra_proj,
@@ -198,6 +205,7 @@ def stop_daemon(root: Optional[Path] = None, timeout: float = 4.0) -> Dict[str, 
 
     try:
         pid_p.unlink(missing_ok=True)
+        get_socket_file(root).unlink(missing_ok=True)
     except OSError:
         pass
 

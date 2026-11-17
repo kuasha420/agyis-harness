@@ -318,8 +318,8 @@ def configure_rea_mcp_server(
                         env_vars["REA_GHIDRA_PROJECT_PATH"] = str(gprs[0])
                         env_vars["REA_GHIDRA_DIRECT_MOUNT"] = "1"
                         env_vars["AGYIS_DIRTYROOM"] = str(dr)
-            except Exception:
-                pass
+            except (OSError, ImportError) as exc:
+                errors.append(f"Warning: Failed to resolve dirtyroom environment: {exc}")
 
             data["mcpServers"]["rea"] = {
                 "command": "rea",

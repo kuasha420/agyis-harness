@@ -86,6 +86,16 @@ FASTPATH_COPY_SNIPPET = """    if (process.env.REA_GHIDRA_DIRECT_MOUNT !== "0" &
 """
 
 
+def _safe_read_text(path: Optional[Path]) -> str:
+    """Safely reads text from path, returning empty string on missing file or read errors."""
+    if not path or not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore")
+    except (OSError, PermissionError):
+        return ""
+
+
 def find_rea_package_root() -> Optional[Path]:
     """Discovers the installed rea-agents npm/pnpm package directory."""
     # 1. Explicit env override
@@ -254,7 +264,7 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
     direct_mount_active = (
         (not snapshot or snapshot_patched)
         and (not cli_binary or cli_patched)
-        and (not mcp_binary or (DIRECT_MOUNT_SIGNATURE in (mcp_binary.read_text(encoding="utf-8", errors="ignore") if mcp_binary.is_file() else "")))
+        and (not mcp_binary or (DIRECT_MOUNT_SIGNATURE in _safe_read_text(mcp_binary)))
     )
 
     if launcher_patched and mcp_patched and direct_mount_active:

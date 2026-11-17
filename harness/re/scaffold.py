@@ -145,6 +145,7 @@ def get_dirtyroom_db(dirtyroom_root: Optional[Path] = None) -> Optional[sqlite3.
     best_count = -1
 
     for c in valid_cands:
+        conn = None
         try:
             conn = sqlite3.connect(c)
             cursor = conn.cursor()
@@ -153,10 +154,15 @@ def get_dirtyroom_db(dirtyroom_root: Optional[Path] = None) -> Optional[sqlite3.
             if cnt > best_count:
                 best_count = cnt
                 best_cand = c
-            conn.close()
         except Exception:
             if best_cand is None:
                 best_cand = c
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     if best_cand:
         return sqlite3.connect(best_cand)
