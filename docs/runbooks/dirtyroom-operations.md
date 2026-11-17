@@ -9,6 +9,8 @@ This operational runbook codifies standard operating procedures for provisioning
 
 Governed by **PSL-INV-007** (Universal Cleanroom Reverse Engineering & Reconstruction Invariants) and **PSL-INV-009** (Pre-Analyzed Decompiler Cache & Direct Mount Invariant).
 
+> **Agent Skill Companion**: Autonomous agents invoke the target-agnostic Layer 1 skill [`re-ops`](../../harness/skills/re-ops/SKILL.md) (provisioned via `--role re`, `--role cleanroom`, or the `ops` skill group) for progressive-disclosure access to this runbook, the 4-vector cleanroom verification methodology, and the 5-step REA surgical escalation ladder.
+
 ---
 
 ## 1. Prerequisites & Tooling
@@ -115,7 +117,7 @@ agyis re patch-rea --check
 agyis re patch-rea --apply
 ```
 
-This patches `GhidraLauncher.js` in `rea-agents` to enforce `-noanalysis` and `-readOnly` flags against the existing pre-analyzed Ghidra project directly in `.dirtyroom/ghidra/`, eliminating temporary disk clones and unfreezing the decompiler pipeline.
+This patches `GhidraLauncher.js`, `GhidraProjectSnapshot.js`, and the MCP/CLI binary bundles (`dist/mcp/binary-*.js`, `dist/cli-runtime/binary-*.js`) in `rea-agents` to enforce Ghidra `-noanalysis` and `-readOnly` flags against the existing pre-analyzed Ghidra project mounted via `dirtyroom/ghidra/` (`REA_GHIDRA_DIRECT_MOUNT=1`), bypassing temporary `.rep/` disk clones and unfreezing the decompiler pipeline.
 
 ---
 
@@ -147,10 +149,10 @@ Ingest live network session captures into the SQLite `packets` table and link th
 
 ```bash
 # Seed default or specific PCAP
-agyis re seed --pcap .dirtyroom/pcaps/retail_session.pcap --binary target.exe --limit 5000
+agyis re seed --pcap .dirtyroom/pcaps/session.pcap --binary target.exe --limit 5000
 
 # JSON output mode for automation
-agyis re seed --pcap .dirtyroom/pcaps/retail_session.pcap --json
+agyis re seed --pcap .dirtyroom/pcaps/session.pcap --json
 ```
 
 The seed engine:
@@ -170,37 +172,37 @@ agyis re find "Connection"
 # Target specific category
 agyis re find "Login" --type func --limit 20
 agyis re find "http://" --type str --limit 10
-agyis re find "GameEngine" --type rtti
+agyis re find "NetworkHandler" --type rtti
 ```
 
 ---
 
 ## 4. Priming & Acceleration
 
-To satisfy **PSL-INV-009 §2** (sub-2-second benchmark invariant), the RE pipeline leverages a persistent supervisor daemon and deterministic query cache.
+To satisfy **PSL-INV-009 §2** (sub-2-second benchmark invariant), the RE pipeline separates the **CLI Path** (Tier 1 disk cache + Tier 3 direct-mount CLI fallback) from the **Interactive MCP Path** (Tier 2 persistent REA MCP bridge daemon):
 
 ```
-Query: agyis re decompile <function>
-                │
-                ▼
-      ┌───────────────────┐
-      │  Cache Hit?       │ ── Yes (<5ms) ──> Output from .dirtyroom/cache/
-      └───────────────────┘
-                │ No
-                ▼
-      ┌───────────────────┐
-      │ REA Bridge Daemon │ ── Yes (<0.8s) ─> Sub-second in-memory Ghidra query
-      └───────────────────┘
-                │ Fallback
-                ▼
-      ┌───────────────────┐
-      │ Direct REA CLI    │ ── Subprocess ──> Direct mount (-noanalysis -readOnly)
-      └───────────────────┘
++-----------------------------------------------------------------------------+
+| CLI Path: agyis re decompile <function> / agyis re prime                    |
+|   -> Tier 1: Disk Cache (.dirtyroom/cache/decompile/*.c) -- Hit (<5ms)      |
+|   -> Miss (or `agyis re decompile --no-cache`) -> Tier 3: Direct-Mount CLI  |
+|      (patched `rea decompile` via `agyis re patch-rea --apply` with         |
+|      `REA_GHIDRA_DIRECT_MOUNT=1`; Ghidra `-noanalysis -readOnly`)           |
++-----------------------------------------------------------------------------+
+| Interactive MCP Path: REA MCP tools (procedure_pseudo_code / assembly)      |
+|   -> Tier 2: Persistent REA MCP Bridge (`agyis re daemon start`) (<0.8s)    |
++-----------------------------------------------------------------------------+
 ```
 
-### 4.1 Step 1: Launch Persistent REA MCP Bridge Daemon
+| Tier | Mechanism | Query Path / Command | Latency Target |
+| :--- | :--- | :--- | :--- |
+| **Tier 1 (Cache)** | Deterministic disk cache | `agyis re decompile` hit (pre-warm via `agyis re prime`, inspect via `agyis re cache status`) | `<5 ms` |
+| **Tier 2 (Daemon)** | Persistent REA MCP bridge | Warm `rea mcp` managed by `agyis re daemon start` (serves interactive REA MCP tools) | `<0.8 s` |
+| **Tier 3 (Direct Mount)** | Zero-copy in-place Ghidra mount | `agyis re decompile` cache miss / `--no-cache` and `agyis re prime` via patched `rea decompile` (`agyis re patch-rea --apply`, `REA_GHIDRA_DIRECT_MOUNT=1`, Ghidra `-noanalysis -readOnly`) | `<10 s` (cold CLI) |
 
-Cold JVM launches incur an 8–10s startup penalty. Launch the background REA bridge supervisor daemon to maintain warm Ghidra instances and open stdio MCP connections:
+### 4.1 Step 1: Launch Persistent REA MCP Bridge Daemon (Tier 2 Interactive MCP Path)
+
+Cold JVM launches incur an 8–10s startup penalty during interactive analysis. Launch the background REA bridge supervisor daemon to maintain a warm `rea mcp` process serving interactive REA MCP tool queries at `<0.8s`:
 
 ```bash
 # Start background supervisor daemon
@@ -215,7 +217,7 @@ agyis re daemon status --json
 
 ### 4.2 Step 2: Pre-Warm Decompiler Query Cache (`agyis re prime`)
 
-Pre-warm the decompiler query cache on priority functions (e.g. exported entrypoints, network dispatchers, major subsystem loops):
+Pre-warm the Tier 1 deterministic disk cache on priority functions (e.g. exported entrypoints, network dispatchers, major subsystem loops) so subsequent `agyis re decompile` CLI lookups return in `<5ms`:
 
 ```bash
 # Pre-warm top 25 priority functions from SQLite
@@ -230,21 +232,23 @@ agyis re prime --top 50 --dry-run
 
 The priming engine:
 1. Sorts functions by export status and size.
-2. Checks `.dirtyroom/cache/decompile/{cache_key}.c`.
-3. Issues sequential decompilation calls through the warm REA bridge.
-4. Writes resulting C pseudo-code to `.dirtyroom/cache/decompile/` while preserving authentic client hit/miss telemetry in `stats.json`.
+2. Checks `.dirtyroom/cache/decompile/{cache_key}.c` and skips already-cached procedures.
+3. Issues sequential Tier 3 direct-mount CLI calls (`rea decompile <binary> --procedure <proc>` with `REA_GHIDRA_DIRECT_MOUNT=1`, relying on the `agyis re patch-rea --apply` direct-mount patch to pass `-noanalysis -readOnly` to Ghidra) for uncached targets.
+4. Atomically writes resulting C pseudo-code to `.dirtyroom/cache/decompile/` while preserving authentic client hit/miss telemetry in `stats.json`.
 
 ### 4.3 Step 3: Benchmark Verification
 
 Validate that decompilation queries complete within required benchmark bounds:
 
 ```bash
-# Cached query verification (<5ms)
-time agyis re decompile UTgMatchLobby_QueueState
+# Tier 1 cached CLI query verification (<5ms)
+time agyis re decompile HandleHandshake
 
-# Forced cache-refresh verification (<0.8s via warm daemon)
-time agyis re decompile UTgMatchLobby_QueueState --no-cache
+# Tier 3 forced cache-refresh verification (direct-mount CLI via REA_GHIDRA_DIRECT_MOUNT=1; Ghidra -noanalysis -readOnly)
+time agyis re decompile HandleHandshake --no-cache
 ```
+
+> **Note**: `agyis re decompile --no-cache` intentionally bypasses Tier 1 and runs Tier 3 direct-mount CLI (`rea decompile`). For `<0.8s` uncached interactive queries, invoke REA MCP tools (e.g. `procedure_pseudo_code`) against the warm Tier 2 daemon started by `agyis re daemon start`.
 
 ---
 
@@ -320,10 +324,10 @@ Every claim about an unmapped protocol, opcode, or struct layout must link to an
 {
   "obligation_id": "OBL-AUTH-001",
   "subject": "Handshake Sequence",
-  "claim": "Client sends CMarshal Hello (0x01) followed by Login Response (0x02)",
+  "claim": "Client sends ProtocolHello (0x01) followed by Login Response (0x02)",
   "evidence_type": "PCAP_FRAME",
   "evidence_id": "frame_104",
-  "pcap_file": "retail_session.pcap",
+  "pcap_file": "session.pcap",
   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "verification_gate": "cargo test test_golden_stream"
 }
@@ -349,6 +353,6 @@ agyis verify
 | `Ghidra project locked / Read-only error` | Stale orphan `*.lock` from crashed process | Run `agyis re clean --locks` to clear stale locks safely. |
 | `PSL-INV-009 §1 Violation: Target binary exceeds 10MB` | Binary $>10\text{MB}$ invoked without pre-analysis | Run `agyis re pre-analyze <binary>` before decompiling. |
 | `Decompilation SLA timeout (>180s)` | Direct mount patch not applied; REA cloning `.rep/` | Run `agyis re patch-rea --apply` to enable direct mount. |
-| `Cold JVM startup latency (8-10s per query)` | REA MCP bridge supervisor daemon not running | Run `agyis re daemon start` to warm up JVM and language providers. |
+| `Cold JVM startup latency (8-10s per query)` | REA MCP bridge daemon not running (interactive MCP) or Tier 1 cache cold (CLI) | Run `agyis re daemon start` for `<0.8s` interactive REA MCP queries, or pre-warm the Tier 1 CLI cache via `agyis re prime` (`<5ms` hits). |
 | `Dirtyroom database missing or locked` | SQLite database locked or fragmented | Run `agyis re clean --vacuum` to reindex and optimize pages. |
 | `PCAP ingestion fails on .pcapng` | Pure-Python parser requires libpcap format | Ensure `tshark` is installed (`sudo pacman -S wireshark-cli`). |

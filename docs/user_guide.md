@@ -119,7 +119,7 @@ agyis re cache status             # Inspect decompiler query cache (<5ms respons
 agyis re clean                    # Safely purge orphan Ghidra locks, prune logs, and vacuum DB
 agyis gui                         # Unlock Trajectory Debug View over CDP WebSocket (--toggle, --devtools)
 ```
-*See [dirtyroom-operations.md](runbooks/dirtyroom-operations.md) for full preparation, seeding, priming, and hygiene lifecycle.*
+*See [dirtyroom-operations.md](runbooks/dirtyroom-operations.md) and the Layer 1 `re-ops` skill (`--role re` / `--role cleanroom`) for full preparation, seeding, priming, 4-vector verification, and hygiene lifecycle.*
 
 ---
 

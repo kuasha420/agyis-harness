@@ -333,10 +333,11 @@ Antigravity's JSON-RPC stdio transport buffers individual tool responses. If an 
 2. **Evidence ID Referencing**: REA caches full analysis trees under immutable `evidence_id` hashes and returns lightweight summary receipts.
 3. **Paging via `inspect_analysis_view`**: Agents inspect specific slices or modules on demand using `inspect_analysis_view(evidence_id, view, page)` without re-running analysis or flooding context.
 
-### 4.4 Skills Integration (Dynamic Runtime Provisioning — No Vendoring)
-The official skill `reverse-engineer-anything` encapsulates REA operational runbooks, disassembler choice matrices, and cleanroom verification protocols without vendoring external upstream markdown inside `harness/skills/`:
-- **Dynamic Discovery & Provisioning (`provision_rea_skill()` in `harness/runtime/healing.py`)**: Discovers upstream `skills/reverse-engineer-anything/SKILL.md` from `rea providers --json` package `root_path` or user `pnpm`/`npm` global stores, symlinking or downloading on-demand into target skills roots (`~/.gemini/config/skills/reverse-engineer-anything/SKILL.md` or workspace `.agents/skills/`).
-- **Triggers**: Executed on-demand via `agyis init --experimental-rea`, `agyis doctor --experimental-rea --heal`, or `agyis install -g --experimental-rea`.
+### 4.4 Skills Integration (First-Party `re-ops` + Dynamic Upstream Provisioning)
+- **First-Party Layer 1 Skill (`harness/skills/re-ops/SKILL.md`)**: Target-agnostic Agyis operational runbook covering cleanroom quarantine (`PSL-INV-007`), pre-analyzed Ghidra direct-mount acceleration (`PSL-INV-009`), the complete `agyis re` lifecycle palette, 4-vector cleanroom verification, and the 5-step REA surgical escalation ladder. Provisioned via `--role re`, `--role cleanroom`, or the `ops` skill group.
+- **Upstream Dynamic Skill (`reverse-engineer-anything`)**: Encapsulates upstream REA operational runbooks, disassembler choice matrices, and cleanroom verification protocols without vendoring external upstream markdown inside `harness/skills/`:
+  - **Dynamic Discovery & Provisioning (`provision_rea_skill()` in `harness/runtime/healing.py`)**: Discovers upstream `skills/reverse-engineer-anything/SKILL.md` from `rea providers --json` package `root_path` or user `pnpm`/`npm` global stores, symlinking or downloading on-demand into target skills roots (`~/.gemini/config/skills/reverse-engineer-anything/SKILL.md` or workspace `.agents/skills/`).
+  - **Triggers**: Executed on-demand via `agyis init --experimental-rea`, `agyis doctor --experimental-rea --heal`, or `agyis install -g --experimental-rea`.
 
 ---
 
