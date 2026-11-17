@@ -599,7 +599,8 @@ class TestCmdDecompilePSLINV009(unittest.TestCase):
                 self.assertEqual(mock_run.call_count, 1)  # Still 1!
                 self.assertIn("void target_func", out_buf2.getvalue())
 
-            # Third call with no_cache=True: Should re-invoke subprocess.run
+            # Third call with no_cache=True: Should re-invoke subprocess.run and refresh cache file
+            mock_proc.stdout = "void updated_target_func(void) { return; }\n"
             args_no_cache = argparse.Namespace(
                 procedure="target_func",
                 binary=str(small_bin),
@@ -611,6 +612,10 @@ class TestCmdDecompilePSLINV009(unittest.TestCase):
                 code3 = cmd_decompile(args_no_cache)
                 self.assertEqual(code3, 0)
                 self.assertEqual(mock_run.call_count, 2)  # Re-invoked!
+                self.assertIn("void updated_target_func", out_buf3.getvalue())
+
+            # Verify on-disk cache file was refreshed with updated output
+            self.assertEqual(cache_file.read_text(encoding="utf-8"), "void updated_target_func(void) { return; }\n")
 
     def test_inject_rea_dirtyroom_env_in_command_safety(self):
         """Verifies automated REA direct mount environment injection for raw shell commands."""

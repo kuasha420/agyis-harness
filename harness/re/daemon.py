@@ -366,10 +366,14 @@ def start_daemon(
     # Spawn supervisor worker detached
     cmd = [sys.executable, "-m", "harness.re.daemon", "--worker"]
     log_p = get_log_file(root)
+    spawn_env = os.environ.copy()
+    if root:
+        spawn_env["AGYIS_DIRTYROOM"] = str(root)
 
     with open(log_p, "a", encoding="utf-8") as err_out:
         proc = subprocess.Popen(
             cmd,
+            env=spawn_env,
             stdout=subprocess.DEVNULL,
             stderr=err_out,
             start_new_session=True,

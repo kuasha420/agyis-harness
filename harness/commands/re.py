@@ -359,11 +359,11 @@ def cmd_decompile(args: argparse.Namespace) -> int:
     clean_proc = str(proc).replace(":", "_").replace("/", "_").replace("\\", "_")
     cache_key = f"{target_name}_{clean_proc}"
 
-    if not no_cache and root:
+    if root:
         cache_dir = root / "cache" / "decompile"
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file = cache_dir / f"{cache_key}.c"
-        if cache_file.is_file() and cache_file.stat().st_size > 0:
+        if not no_cache and cache_file.is_file() and cache_file.stat().st_size > 0:
             try:
                 sys.stdout.write(cache_file.read_text(encoding="utf-8"))
                 sys.stdout.flush()
@@ -371,8 +371,6 @@ def cmd_decompile(args: argparse.Namespace) -> int:
                 return 0
             except OSError:
                 pass
-
-    if root:
         record_cache_miss(root, "decompile", key=cache_key)
 
     cmd = [rea_bin, "decompile", target_target, "--procedure", str(proc)]
