@@ -10,7 +10,6 @@ Ghidra pre-analysis, and REA MCP patch governance.
 """
 
 import argparse
-from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -22,7 +21,12 @@ from typing import Any, Dict, List, Optional
 
 from harness.re.patcher import apply_patch, check_patch, revert_patch
 from harness.re.preanalyze import find_ghidra_headless, preanalyze_binary
-from harness.re.scaffold import get_dirtyroom_db, get_dirtyroom_root, scaffold_dirtyroom
+from harness.re.scaffold import (
+    get_dirtyroom_db,
+    get_dirtyroom_root,
+    resolve_binary_path,
+    scaffold_dirtyroom,
+)
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -65,7 +69,7 @@ def cmd_status(args: argparse.Namespace) -> int:
             status_data["metrics"]["strings"] = cursor.fetchone()[0]
             cursor.execute("SELECT count(*) FROM rtti_classes")
             status_data["metrics"]["rtti_classes"] = cursor.fetchone()[0]
-        except Exception:
+        except (sqlite3.Error, TypeError):
             pass
         finally:
             conn.close()
@@ -122,7 +126,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     print(f"[*] Initialized Dirty-Room at {res['dirtyroom_root']}")
     print(f"    - Database: {res['db_path']} ({'created' if res['db_created'] else 'retained'})")
     print(f"    - Environment: {res['env_file']}")
-    print(f"    - Quarantined: .dirtyroom/ghidra/*.rep/, logs/")
+    print(f"    - Quarantined: .dirtyroom/ghidra/*.rep/, logs/, cache/")
     return 0
 
 
@@ -290,7 +294,7 @@ def cmd_decompile(args: argparse.Namespace) -> int:
                 row = cur.fetchone()
                 if row:
                     binary = row[0]
-            except Exception:
+            except sqlite3.Error:
                 pass
             finally:
                 conn.close()
@@ -351,21 +355,11 @@ def cmd_decompile(args: argparse.Namespace) -> int:
         env["REA_GHIDRA_PROGRAM_NAME"] = Path(target_target).name
 
     # Optimization C: Deterministic Decompiler Query Cache
-    from harness.re.cache import record_cache_hit, record_cache_miss
+    from harness.re.cache import compute_cache_key, record_cache_hit, record_cache_miss
 
     no_cache = getattr(args, "no_cache", False)
     cache_file = None
-    target_name = Path(target_target).name
-    clean_proc = str(proc).replace(":", "_").replace("/", "_").replace("\\", "_")
-    bin_id = "00000000"
-    if bin_path and bin_path.is_file():
-        try:
-            st = bin_path.stat()
-            import hashlib
-            bin_id = hashlib.sha256(f"{st.st_size}_{st.st_mtime_ns}".encode()).hexdigest()[:8]
-        except OSError:
-            pass
-    cache_key = f"{target_name}_{bin_id}_{clean_proc}"
+    cache_key = compute_cache_key(bin_path, Path(target_target).name, str(proc))
 
     if root:
         cache_dir = root / "cache" / "decompile"
@@ -404,7 +398,7 @@ def cmd_decompile(args: argparse.Namespace) -> int:
         actual_sla = getattr(e, "timeout", None) or timeout_s
         print(f"[!] PSL-INV-009 §2 Benchmark Violation: Decompilation exceeded {actual_sla:.0f}s SLA (potential cache bypass).", file=sys.stderr)
         return 1
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError) as e:
         print(f"[!] Error executing rea decompile: {e}", file=sys.stderr)
         return 1
 
@@ -428,47 +422,9 @@ def cmd_pcap(args: argparse.Namespace) -> int:
     try:
         res = subprocess.run(cmd, check=False)
         return res.returncode
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError) as e:
         print(f"[!] Error executing tshark: {e}", file=sys.stderr)
         return 1
-
-
-def resolve_binary_path(binary_name: Optional[str] = None) -> Optional[Path]:
-    """Resolves a target binary in the dirtyroom environment or direct filesystem path (ADR-014, ADR-028)."""
-    root = get_dirtyroom_root()
-    if binary_name:
-        direct = Path(binary_name)
-        if direct.is_file():
-            return direct
-        if root:
-            candidates = [
-                root / "binaries" / binary_name,
-                root / binary_name,
-            ]
-            for c in candidates:
-                if c.is_file():
-                    return c
-            for match in root.rglob(binary_name):
-                if match.is_file():
-                    return match
-        return None
-
-    # Auto-detect binary from dirtyroom if binary_name not provided
-    if root:
-        bin_dir = root / "binaries"
-        if bin_dir.is_dir():
-            # Prefer primary game executable (ShippingPC-ChaosGame.exe) over others
-            for preferred in ["ShippingPC-ChaosGame.exe", "Paladins.exe"]:
-                p_cand = bin_dir / preferred
-                if p_cand.is_file():
-                    return p_cand
-            for c in sorted(bin_dir.iterdir()):
-                if c.is_file() and not c.name.startswith("."):
-                    return c
-        for c in sorted(root.iterdir()):
-            if c.is_file() and not c.name.startswith(".") and c.suffix.lower() in (".exe", ".dll", ".so", ".dylib", ".bin"):
-                return c
-    return None
 
 
 def cmd_disasm(args: argparse.Namespace) -> int:
@@ -529,7 +485,7 @@ def cmd_disasm(args: argparse.Namespace) -> int:
         for l in code_lines[:limit]:
             print(l)
         return 0
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError) as e:
         print(f"[!] Error executing objdump: {e}", file=sys.stderr)
         return 1
 
@@ -688,6 +644,31 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_daemon.add_argument("--foreground", action="store_true", help="Run daemon in foreground")
     p_daemon.add_argument("--json", action="store_true", help="Output JSON")
 
+    # seed
+    p_seed = sub.add_parser("seed", help="Ingest PCAP frames into database and link to binary runs")
+    p_seed.add_argument("--pcap", help="Path to .pcap or .pcapng file")
+    p_seed.add_argument("--binary", help="Target binary filename or path")
+    p_seed.add_argument("--limit", type=int, default=None, help="Maximum number of packets to ingest")
+    p_seed.add_argument("--json", action="store_true", help="Output JSON")
+
+    # prime
+    p_prime = sub.add_parser("prime", help="Pre-warm decompiler query cache on priority functions")
+    p_prime.add_argument("--top", type=int, default=20, help="Number of top priority functions to prime (default: 20)")
+    p_prime.add_argument("--file", help="Path to symbols file listing priority functions")
+    p_prime.add_argument("--binary", help="Target binary filename or path")
+    p_prime.add_argument("--timeout", type=float, default=60.0, help="Per-function SLA timeout in seconds (default: 60.0)")
+    p_prime.add_argument("--dry-run", action="store_true", help="Preview functions to prime without calling decompiler")
+    p_prime.add_argument("--json", action="store_true", help="Output JSON")
+
+    # clean
+    p_clean = sub.add_parser("clean", help="Hygiene and maintenance for locks, logs, and database")
+    p_clean.add_argument("--locks", action="store_true", help="Remove stale Ghidra .lock files")
+    p_clean.add_argument("--logs", action="store_true", help="Prune old log files")
+    p_clean.add_argument("--vacuum", action="store_true", help="Vacuum and optimize SQLite symbol database")
+    p_clean.add_argument("--force", action="store_true", help="Force lock removal even if Ghidra process detected")
+    p_clean.add_argument("--dry-run", action="store_true", help="Preview cleanup actions without deleting files")
+    p_clean.add_argument("--json", action="store_true", help="Output JSON")
+
     args = parser.parse_args(argv)
     if not args.re_cmd or args.re_cmd == "status":
         return cmd_status(args)
@@ -713,6 +694,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.re_cmd == "daemon":
         from harness.re.daemon import cmd_daemon
         return cmd_daemon(args)
+    if args.re_cmd == "seed":
+        from harness.re.seeding import cmd_seed
+        return cmd_seed(args)
+    if args.re_cmd == "prime":
+        from harness.re.priming import cmd_prime
+        return cmd_prime(args)
+    if args.re_cmd == "clean":
+        from harness.re.hygiene import cmd_clean
+        return cmd_clean(args)
 
     parser.print_help()
     return 1

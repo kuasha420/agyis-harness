@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -46,6 +47,21 @@ def get_cache_dir(root: Optional[Path] = None, category: str = "decompile") -> P
     """Returns a specific category cache directory under .dirtyroom/cache/."""
     cache_root = get_cache_root(root)
     return cache_root / category
+
+
+def compute_cache_key(binary_path: Optional[Path], binary_name: str, procedure: str) -> str:
+    """Computes deterministic decompiler cache key matching cmd_decompile."""
+    clean_proc = str(procedure).replace(":", "_").replace("/", "_").replace("\\", "_")
+    bin_p = Path(binary_path) if binary_path else None
+    bin_id = "00000000"
+    if bin_p and bin_p.is_file():
+        try:
+            st = bin_p.stat()
+            bin_id = hashlib.sha256(f"{st.st_size}_{st.st_mtime_ns}".encode()).hexdigest()[:8]
+        except OSError:
+            pass
+    target_name = bin_p.name if bin_p else (Path(binary_name).name if binary_name else "target")
+    return f"{target_name}_{bin_id}_{clean_proc}"
 
 
 def get_stats_file(root: Optional[Path] = None) -> Path:

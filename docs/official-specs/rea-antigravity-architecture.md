@@ -678,11 +678,17 @@ To eliminate the severe latency bottlenecks encountered during reverse engineeri
   - Transparently injected via `harness/hooks/command_safety_hook.py` (`inject_rea_dirtyroom_env`) for any terminal command invoking `rea decompile/disasm/xrefs/read-bytes`.
 
 ### 8.4 Optimization 3: Deterministic Decompiler Query Cache
-- **Mechanism**: Caches decompiled C pseudocode under `.dirtyroom/cache/decompile/{binary}_{procedure}.c`.
+- **Mechanism**: Caches decompiled C pseudocode under `.dirtyroom/cache/decompile/{binary}_{bin_id}_{procedure}.c`.
 - **Cache Management (`agyis re cache [status|clear]`)**:
   - `status`: Inspects cache disk usage, file counts, hit rates, and category breakdowns (<5ms responses).
   - `clear`: Purges cached entries (`--type all|decompile`) and resets hit counters with `--dry-run` preview.
   - `cmd_decompile`: Inspects cache before launching any process, returning cached output in `<5ms`. CLI flag `--no-cache` forces cache bypass and refreshes the cache entry with fresh decompiler output.
+
+### 8.5 Turnkey Dirtyroom Seeding, Priming & Routine Hygiene
+*Full operational runbook documented in [`docs/runbooks/dirtyroom-operations.md`](../runbooks/dirtyroom-operations.md).*
+- **Turnkey PCAP Seeding (`agyis re seed`)**: Ingests libpcap and pcapng frames directly into the SQLite `packets` table, extracting IP/port tuples, payload lengths, and frame summaries, while establishing formal linkages to target binary records and run tracking.
+- **Decompiler Cache Priming (`agyis re prime`)**: Pre-warms the deterministic query cache on top-priority functions (exported symbols and largest subroutines) or user-supplied symbol files, ensuring subsequent queries hit the `<5ms` cache tier.
+- **Orphan Lock & Storage Hygiene (`agyis re clean`)**: Safely detects and purges stale Ghidra `.lock` files after `/proc` safety checks, prunes rotated logs (while preserving active daemon logs), and executes SQLite `VACUUM`, `REINDEX`, and `ANALYZE` to reclaim disk space.
 
 ---
 
@@ -699,6 +705,9 @@ All REA integration modules, hook gates, and cleanroom verifiers must satisfy de
 | **Opt-In REA Audit** | `agyis doctor --experimental-rea` | Audits `rea`, `mcp_config.json`, JDK 21+, Ghidra, Hopper, IDA Pro, and JADX provider chains. |
 | **Query Cache Status Gate** | `agyis re cache status` | Asserts active cache directory, sub-millisecond retrieval, and accurate hit rates. |
 | **Daemon Bridge Status Gate** | `agyis re daemon status` | Inspects persistent MCP supervisor state and direct-mount environment. |
+| **Dirtyroom Seeding Gate** | `agyis re seed --json` | Validates PCAP frame ingestion and binary run linkage into SQLite. |
+| **Cache Priming Gate** | `agyis re prime --dry-run` | Validates candidate priority function selection and cache key generation. |
+| **Hygiene Cleanup Gate** | `agyis re clean --dry-run` | Verifies safe stale lock detection, log pruning, and database vacuum paths. |
 | **Full Harness Test Suite** | `python3 -m harness.cli test` | Executes hermetic unit and contract suites across all runtime, hook, and cleanroom modules. |
 
 ---
