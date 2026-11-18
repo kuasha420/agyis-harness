@@ -591,27 +591,19 @@ def normalize_mcp_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Tuple[
                     if dr and (dr / "ghidra").is_dir():
                         gprs = list((dr / "ghidra").glob("*.gpr"))
                         if gprs:
-                            try:
-                                if target_p.resolve().is_relative_to(dr.parent.resolve()):
+                            has_gpr = True
+                    if not has_gpr and dr:
+                        try:
+                            from harness.re.scaffold import get_dirtyroom_db
+                            conn = get_dirtyroom_db(dr)
+                            if conn:
+                                cur = conn.cursor()
+                                cur.execute("SELECT 1 FROM binaries WHERE name = ? LIMIT 1", (target_p.name,))
+                                if cur.fetchone():
                                     has_gpr = True
-                            except (ValueError, OSError):
-                                pass
-                            if any(g.stem.lower() == target_p.stem.lower() for g in gprs):
-                                has_gpr = True
-                            elif "tmp" in str(dr) or "test" in str(dr):
-                                has_gpr = True
-                            else:
-                                try:
-                                    from harness.re.scaffold import get_dirtyroom_db
-                                    conn = get_dirtyroom_db(dr)
-                                    if conn:
-                                        cur = conn.cursor()
-                                        cur.execute("SELECT 1 FROM binaries WHERE name = ? LIMIT 1", (target_p.name,))
-                                        if cur.fetchone():
-                                            has_gpr = True
-                                        conn.close()
-                                except Exception:
-                                    pass
+                                conn.close()
+                        except Exception:
+                            pass
                     env_gpr = os.environ.get("REA_GHIDRA_PROJECT_DIR")
                     if not has_gpr and env_gpr and Path(env_gpr).is_dir():
                         has_gpr = any(Path(env_gpr).glob("*.gpr"))

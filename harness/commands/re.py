@@ -296,11 +296,15 @@ def cmd_decompile(args: argparse.Namespace) -> int:
         proc_val = None
         is_numeric = False
 
-    if is_numeric and proc_val is not None:
-        db_conn = get_dirtyroom_db()
-        if db_conn:
-            try:
-                c = db_conn.cursor()
+    binary = getattr(args, "binary", None)
+    binary_in_db = False
+
+    # Single consolidated SQLite connection for procedure resolution, binary detection, and DB lookup
+    db_conn = get_dirtyroom_db()
+    if db_conn:
+        try:
+            c = db_conn.cursor()
+            if is_numeric and proc_val is not None:
                 c.execute(
                     "SELECT name, address, size FROM functions WHERE address <= ? AND address + size > ? ORDER BY address DESC LIMIT 1",
                     (proc_val, proc_val),
@@ -318,28 +322,25 @@ def cmd_decompile(args: argparse.Namespace) -> int:
                     delta = proc_val - base_addr
                     print(f"[*] Auto-resolved interior address 0x{proc_val:x} to procedure {resolved_name} (+0x{delta:x}).")
                     proc = resolved_name
-            except sqlite3.Error:
-                pass
-            finally:
-                db_conn.close()
 
-    binary = getattr(args, "binary", None)
-    if not binary:
-        # Check if there is a binary in dirtyroom, preferring executable over dll
-        conn = get_dirtyroom_db()
-        if conn:
-            try:
-                cur = conn.cursor()
-                cur.execute(
+            if not binary:
+                # Check if there is a binary in dirtyroom, preferring executable over dll
+                c.execute(
                     "SELECT name FROM binaries ORDER BY (CASE WHEN name LIKE '%.exe' THEN 0 ELSE 1 END), id LIMIT 1"
                 )
-                row = cur.fetchone()
+                row = c.fetchone()
                 if row:
                     binary = row[0]
-            except sqlite3.Error:
-                pass
-            finally:
-                conn.close()
+
+            check_target = Path(binary).name if binary else None
+            if check_target:
+                c.execute("SELECT 1 FROM binaries WHERE name = ? LIMIT 1", (check_target,))
+                if c.fetchone():
+                    binary_in_db = True
+        except sqlite3.Error:
+            pass
+        finally:
+            db_conn.close()
 
     if not binary:
         print("[!] No binary specified and no binary registered in dirtyroom. Use --binary <name>.", file=sys.stderr)
@@ -380,19 +381,9 @@ def cmd_decompile(args: argparse.Namespace) -> int:
                         if any(g.stem.lower() == bin_path.stem.lower() for g in gprs):
                             has_gpr = True
                             break
-                        if root:
-                            try:
-                                conn = get_dirtyroom_db(root)
-                                if conn:
-                                    cur = conn.cursor()
-                                    cur.execute("SELECT 1 FROM binaries WHERE name = ? LIMIT 1", (bin_path.name,))
-                                    if cur.fetchone():
-                                        has_gpr = True
-                                    conn.close()
-                                    if has_gpr:
-                                        break
-                            except Exception:
-                                pass
+                        if binary_in_db:
+                            has_gpr = True
+                            break
                         if env_dir and cd == Path(env_dir):
                             has_gpr = True
                             break
@@ -567,7 +558,14 @@ def cmd_addr(args: argparse.Namespace) -> int:
     from harness.re.address import execute_cmd_addr
 
     conn = get_dirtyroom_db()
-    return execute_cmd_addr(args, conn=conn)
+    try:
+        return execute_cmd_addr(args, conn=conn)
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def cmd_xrefs(args: argparse.Namespace) -> int:
@@ -575,7 +573,14 @@ def cmd_xrefs(args: argparse.Namespace) -> int:
     from harness.re.xrefs import execute_cmd_xrefs
 
     conn = get_dirtyroom_db()
-    return execute_cmd_xrefs(args, conn=conn)
+    try:
+        return execute_cmd_xrefs(args, conn=conn)
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def main(argv: Optional[List[str]] = None) -> int:

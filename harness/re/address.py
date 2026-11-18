@@ -22,11 +22,22 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from harness.re.scaffold import resolve_binary_path
 
 
-def parse_pe_sections(binary_path: Path) -> Tuple[int, List[Dict[str, Any]]]:
+class PESectionInfo(tuple):
+    """Tuple of (image_base, sections) with is_64bit property."""
+
+    def __new__(cls, image_base: int, sections: List[Dict[str, Any]], is_64bit: bool = True):
+        obj = super().__new__(cls, (image_base, sections))
+        obj.image_base = image_base
+        obj.sections = sections
+        obj.is_64bit = is_64bit
+        return obj
+
+
+def parse_pe_sections(binary_path: Path) -> PESectionInfo:
     """Parses PE32/PE32+ header to extract ImageBase and Section Table.
 
     Returns:
-        (image_base, sections_list)
+        PESectionInfo (image_base, sections_list) with .is_64bit attribute.
     """
     with open(binary_path, "rb") as f:
         # Read enough for DOS and PE header + sections table
@@ -48,10 +59,13 @@ def parse_pe_sections(binary_path: Path) -> Tuple[int, List[Dict[str, Any]]]:
     # PE32+ (0x20B): 8-byte ImageBase at offset +24
     if opt_magic == 0x10B:
         image_base = struct.unpack_from("<I", hdr, e_lfanew + 24 + 28)[0]
+        is_64bit = False
     elif opt_magic == 0x20B:
         image_base = struct.unpack_from("<Q", hdr, e_lfanew + 24 + 24)[0]
+        is_64bit = True
     else:
         image_base = struct.unpack_from("<Q", hdr, e_lfanew + 24 + 24)[0]
+        is_64bit = True
 
     sec_offset = e_lfanew + 24 + opt_hdr_size
     sections: List[Dict[str, Any]] = []
@@ -82,7 +96,7 @@ def parse_pe_sections(binary_path: Path) -> Tuple[int, List[Dict[str, Any]]]:
             "is_data": not (is_code or is_execute),
         })
 
-    return image_base, sections
+    return PESectionInfo(image_base, sections, is_64bit=is_64bit)
 
 
 def inspect_address(
@@ -111,7 +125,9 @@ def inspect_address(
     else:
         addr_int = int(addr_input)
 
-    image_base, sections = parse_pe_sections(bin_path)
+    pe_info = parse_pe_sections(bin_path)
+    image_base, sections = pe_info[0], pe_info[1]
+    is_64bit = getattr(pe_info, "is_64bit", True)
 
     # Classify input address type
     if addr_int >= image_base:
@@ -169,11 +185,26 @@ def inspect_address(
     if conn is not None:
         try:
             cur = conn.cursor()
+            binary_id: Optional[int] = None
+            try:
+                cur.execute("SELECT id FROM binaries WHERE name = ? LIMIT 1", (bin_path.name,))
+                brow = cur.fetchone()
+                if brow:
+                    binary_id = brow[0]
+            except sqlite3.Error:
+                binary_id = None
+
             # 1. Check for containing function: address <= va AND address + size > va
-            cur.execute(
-                "SELECT name, address, size FROM functions WHERE address <= ? AND address + size > ? ORDER BY address DESC LIMIT 1",
-                (va, va),
-            )
+            if binary_id is not None:
+                cur.execute(
+                    "SELECT name, address, size FROM functions WHERE binary_id = ? AND address <= ? AND address + size > ? ORDER BY address DESC LIMIT 1",
+                    (binary_id, va, va),
+                )
+            else:
+                cur.execute(
+                    "SELECT name, address, size FROM functions WHERE address <= ? AND address + size > ? ORDER BY address DESC LIMIT 1",
+                    (va, va),
+                )
             fn_row = cur.fetchone()
             if fn_row:
                 fn_name = fn_row[0]
@@ -192,10 +223,18 @@ def inspect_address(
             else:
                 # 2. Check for string matches in data sections or exact string address
                 try:
-                    cur.execute(
-                        "SELECT address, value, string_type, length FROM strings WHERE address = ? OR (address <= ? AND address + length > ?) LIMIT 1",
-                        (va, va, va),
-                    )
+                    str_cols = [col[1] for col in cur.execute("PRAGMA table_info(strings)").fetchall()]
+                    st_col = "string_type" if "string_type" in str_cols else ("encoding" if "encoding" in str_cols else "'ascii'")
+                    if binary_id is not None and "binary_id" in str_cols:
+                        cur.execute(
+                            f"SELECT address, value, {st_col}, length FROM strings WHERE binary_id = ? AND (address = ? OR (address <= ? AND address + length > ?)) LIMIT 1",
+                            (binary_id, va, va, va),
+                        )
+                    else:
+                        cur.execute(
+                            f"SELECT address, value, {st_col}, length FROM strings WHERE address = ? OR (address <= ? AND address + length > ?) LIMIT 1",
+                            (va, va, va),
+                        )
                     s_row = cur.fetchone()
                     if s_row:
                         s_addr = int(s_row[0])
@@ -212,36 +251,81 @@ def inspect_address(
                 except sqlite3.Error:
                     pass
 
-                # 3. Check for RTTI class / vtable references
+                # 3. Check for RTTI class / vtable references (Schema Reflection: Defect 4)
                 if not symbol_info:
                     try:
-                        cur.execute(
-                            "SELECT class_name, demangled_name, vtable_addr, type_descriptor_addr FROM rtti_classes WHERE vtable_addr = ? OR type_descriptor_addr = ? OR (vtable_addr <= ? AND vtable_addr + 1024 > ?) LIMIT 1",
-                            (va, va, va, va),
-                        )
-                        r_row = cur.fetchone()
-                        if r_row:
-                            vt_addr = int(r_row[2]) if r_row[2] else 0
-                            symbol_info = {
-                                "type": "rtti",
-                                "class_name": r_row[0],
-                                "demangled_name": r_row[1],
-                                "vtable_addr": vt_addr,
-                                "vtable_addr_hex": f"0x{vt_addr:x}" if vt_addr else None,
-                                "type_descriptor_addr": int(r_row[3]) if r_row[3] else None,
-                                "offset": (va - vt_addr) if vt_addr else 0,
-                                "delta_str": f"+0x{(va - vt_addr):x}" if vt_addr and (va - vt_addr) > 0 else "+0x0",
-                            }
+                        rtti_cols = [col[1] for col in cur.execute("PRAGMA table_info(rtti_classes)").fetchall()]
+                        if "class_name" in rtti_cols:
+                            vt_col = "vtable_addr" if "vtable_addr" in rtti_cols else "vtable_address"
+                            td_col = "type_descriptor_addr" if "type_descriptor_addr" in rtti_cols else None
+                            td_expr = td_col if td_col else "NULL"
+                            if td_col:
+                                cond = f"({vt_col} = ? OR {td_col} = ? OR ({vt_col} <= ? AND {vt_col} + 1024 > ?))"
+                                params = [va, va, va, va]
+                            else:
+                                cond = f"({vt_col} = ? OR ({vt_col} <= ? AND {vt_col} + 1024 > ?))"
+                                params = [va, va, va]
+                            if binary_id is not None and "binary_id" in rtti_cols:
+                                cond = f"binary_id = ? AND {cond}"
+                                params.insert(0, binary_id)
+                            cur.execute(
+                                f"SELECT class_name, demangled_name, {vt_col}, {td_expr} FROM rtti_classes WHERE {cond} LIMIT 1",
+                                tuple(params),
+                            )
+                            r_row = cur.fetchone()
+                            if r_row:
+                                vt_addr = int(r_row[2]) if r_row[2] else 0
+                                td_addr = int(r_row[3]) if r_row[3] is not None else None
+                                symbol_info = {
+                                    "type": "rtti",
+                                    "class_name": r_row[0],
+                                    "demangled_name": r_row[1] or r_row[0],
+                                    "vtable_addr": vt_addr,
+                                    "vtable_addr_hex": f"0x{vt_addr:x}" if vt_addr else None,
+                                    "type_descriptor_addr": td_addr,
+                                    "offset": (va - vt_addr) if vt_addr else 0,
+                                    "delta_str": f"+0x{(va - vt_addr):x}" if vt_addr and (va - vt_addr) > 0 else "+0x0",
+                                }
+                        elif "name" in rtti_cols:
+                            vt_col = "vtable_address" if "vtable_address" in rtti_cols else "vtable_addr"
+                            cond = f"({vt_col} = ? OR ({vt_col} <= ? AND {vt_col} + 1024 > ?))"
+                            params = [va, va, va]
+                            if binary_id is not None and "binary_id" in rtti_cols:
+                                cond = f"binary_id = ? AND {cond}"
+                                params.insert(0, binary_id)
+                            cur.execute(
+                                f"SELECT name, {vt_col} FROM rtti_classes WHERE {cond} LIMIT 1",
+                                tuple(params),
+                            )
+                            r_row = cur.fetchone()
+                            if r_row:
+                                vt_addr = int(r_row[1]) if r_row[1] else 0
+                                symbol_info = {
+                                    "type": "rtti",
+                                    "class_name": r_row[0],
+                                    "demangled_name": r_row[0],
+                                    "vtable_addr": vt_addr,
+                                    "vtable_addr_hex": f"0x{vt_addr:x}" if vt_addr else None,
+                                    "type_descriptor_addr": None,
+                                    "offset": (va - vt_addr) if vt_addr else 0,
+                                    "delta_str": f"+0x{(va - vt_addr):x}" if vt_addr and (va - vt_addr) > 0 else "+0x0",
+                                }
                     except sqlite3.Error:
                         pass
 
                 # 4. If in code section and not inside any function, find nearest preceding function
                 if not symbol_info and sec and sec.get("is_code"):
                     try:
-                        cur.execute(
-                            "SELECT name, address, size FROM functions WHERE address <= ? ORDER BY address DESC LIMIT 1",
-                            (va,),
-                        )
+                        if binary_id is not None:
+                            cur.execute(
+                                "SELECT name, address, size FROM functions WHERE binary_id = ? AND address <= ? ORDER BY address DESC LIMIT 1",
+                                (binary_id, va),
+                            )
+                        else:
+                            cur.execute(
+                                "SELECT name, address, size FROM functions WHERE address <= ? ORDER BY address DESC LIMIT 1",
+                                (va,),
+                            )
                         near_row = cur.fetchone()
                         if near_row:
                             fn_name = near_row[0]
@@ -274,6 +358,7 @@ def inspect_address(
         "file_offset_hex": f"0x{file_offset:x}" if file_offset is not None else None,
         "image_base": image_base,
         "image_base_hex": f"0x{image_base:x}",
+        "is_64bit": is_64bit,
         "section": {
             "name": sec["name"],
             "permissions": sec["permissions"],
@@ -302,15 +387,16 @@ def execute_cmd_addr(args: argparse.Namespace, conn: Optional[sqlite3.Connection
         target_name = binary or "target binary"
         print(f"[!] Error: Binary '{target_name}' not found. Specify --binary or place in .dirtyroom/binaries/.", file=sys.stderr)
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
         return 1
 
-    close_conn = False
     if conn is None:
         try:
             from harness.re.scaffold import get_dirtyroom_db
             conn = get_dirtyroom_db()
-            close_conn = conn is not None
         except Exception:
             conn = None
 
@@ -320,8 +406,11 @@ def execute_cmd_addr(args: argparse.Namespace, conn: Optional[sqlite3.Connection
         print(f"[!] Error inspecting address '{addr_input}': {e}", file=sys.stderr)
         return 1
     finally:
-        if conn and close_conn:
-            conn.close()
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     if getattr(args, "json", False):
         print(json.dumps(info, indent=2))

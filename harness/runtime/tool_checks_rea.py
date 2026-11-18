@@ -361,14 +361,7 @@ def configure_rea_mcp_server(
             try:
                 from harness.re.scaffold import get_dirtyroom_root
 
-                target_ws = workspace_dir
-                if target_ws is None and config_paths:
-                    for cp in config_paths:
-                        cp_str = str(cp)
-                        if "tmp" in cp_str or "test" in cp_str:
-                            target_ws = cp.parent
-                            break
-                dr = get_dirtyroom_root(target_ws)
+                dr = get_dirtyroom_root(workspace_dir)
                 if dr and (dr / "ghidra").is_dir():
                     raw_gprs = sorted((dr / "ghidra").glob("*.gpr"))
                     if raw_gprs:

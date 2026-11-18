@@ -20,6 +20,7 @@ import sqlite3
 import struct
 import subprocess
 import tempfile
+from typing import Any, Dict, List, Optional, Tuple, Union
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -3436,6 +3437,52 @@ def _make_synthetic_pe64(
     return bytes(pe_data)
 
 
+def _make_synthetic_pe32(
+    image_base: int = 0x00400000,
+    sections: Optional[list] = None,
+    extra_payload: Optional[dict] = None,
+) -> bytes:
+    """Generates a minimal valid PE32 (32-bit) binary buffer for testing."""
+    if sections is None:
+        sections = [
+            (".text", 0x1000, 0x1000, 0x1000, 0x1000, 0x60000020),
+            (".rdata", 0x2000, 0x1000, 0x2000, 0x1000, 0x40000040),
+            (".data", 0x3000, 0x1000, 0x3000, 0x1000, 0xC0000040),
+        ]
+    e_lfanew = 0x80
+    dos_hdr = bytearray(e_lfanew)
+    dos_hdr[0:2] = b"MZ"
+    struct.pack_into("<I", dos_hdr, 0x3C, e_lfanew)
+
+    pe_sig = b"PE\x00\x00"
+    num_sec = len(sections)
+    opt_hdr_size = 224
+    coff_hdr = struct.pack("<HHIIIHH", 0x014C, num_sec, 0, 0, 0, opt_hdr_size, 0x0102)
+
+    opt_hdr = bytearray(opt_hdr_size)
+    struct.pack_into("<H", opt_hdr, 0, 0x10B)
+    struct.pack_into("<I", opt_hdr, 28, image_base)
+    struct.pack_into("<I", opt_hdr, 32, 0x1000)
+    struct.pack_into("<I", opt_hdr, 36, 0x200)
+
+    sec_hdrs = bytearray()
+    for name, vaddr, vsize, raw_off, raw_sz, chars in sections:
+        name_bytes = name.encode("latin-1")[:8].ljust(8, b"\x00")
+        sec_hdrs.extend(struct.pack("<8sIIIIIIHHI", name_bytes, vsize, vaddr, raw_sz, raw_off, 0, 0, 0, 0, chars))
+
+    pe_data = bytearray(dos_hdr + pe_sig + coff_hdr + opt_hdr + sec_hdrs)
+    max_raw = max(s[3] + s[4] for s in sections) if sections else len(pe_data)
+    if len(pe_data) < max_raw:
+        pe_data.extend(b"\x00" * (max_raw - len(pe_data)))
+
+    if extra_payload:
+        for offset, data_bytes in extra_payload.items():
+            if offset + len(data_bytes) <= len(pe_data):
+                pe_data[offset : offset + len(data_bytes)] = data_bytes
+
+    return bytes(pe_data)
+
+
 class TestAddressInspectionAndToolchainHardening(unittest.TestCase):
     """Verifies Address Translation (inspect_address, agyis re addr), Smart Procedure Resolution, and Dual-Mode xrefs."""
 
@@ -3676,6 +3723,226 @@ class TestAddressInspectionAndToolchainHardening(unittest.TestCase):
             sources = {item["source"] for item in items}
             self.assertIn("data_scan", sources)
             self.assertNotIn("code_scan", sources)
+
+    def test_cmd_addr_and_execute_cmd_addr_connection_closure(self):
+        """Verifies Defect 1: SQLite connection is reliably closed in finally block."""
+        from harness.commands.re import cmd_addr
+        from harness.re.address import execute_cmd_addr
+
+        # 1. execute_cmd_addr with provided connection (error path closes connection)
+        mock_conn = MagicMock()
+        mock_conn.cursor.side_effect = sqlite3.OperationalError("Mock DB Error")
+        args = argparse.Namespace(address="0x140001050", binary=str(self.bin_path), json=True)
+        code = execute_cmd_addr(args, conn=mock_conn)
+        self.assertEqual(code, 1)
+        mock_conn.close.assert_called_once()
+
+        # 2. cmd_addr wraps execute_cmd_addr and closes connection
+        mock_conn2 = MagicMock()
+        mock_conn2.cursor.side_effect = sqlite3.OperationalError("Mock DB Error")
+        with patch("harness.commands.re.get_dirtyroom_db", return_value=mock_conn2):
+            code = cmd_addr(args)
+            self.assertEqual(code, 1)
+            mock_conn2.close.assert_called()
+
+    def test_xrefs_code_scan_zero_offset_first_byte(self):
+        """Verifies Defect 2: Code scan detects CALL at offset 0 (first byte of section)."""
+        from harness.re.xrefs import find_cross_references
+
+        # Put CALL (0xE8) at the very start of .text section (raw_offset 0x1000)
+        target_va = 0x140001500
+        call_off = 0x1000  # i = 0 within section
+        disp = target_va - (0x140000000 + call_off + 5)
+        call_bytes = b"\xE8" + struct.pack("<i", disp)
+
+        pe_bytes = _make_synthetic_pe64(extra_payload={call_off: call_bytes})
+        p = self.workspace / "ZeroOffsetCall.exe"
+        p.write_bytes(pe_bytes)
+
+        xrefs = find_cross_references(p, target_va, xref_type_filter="code")
+        self.assertEqual(len(xrefs), 1)
+        self.assertEqual(xrefs[0]["from_address"], 0x140001000)
+        self.assertEqual(xrefs[0]["source"], "code_scan")
+        self.assertEqual(xrefs[0]["xref_type"], "code:CALL")
+
+    def test_xrefs_function_attribution_size_boundary(self):
+        """Verifies Defect 3: Symbol is not falsely attributed if target is outside function bounds."""
+        from harness.re.xrefs import find_cross_references
+
+        # FUN_140001000 is at 0x140001000 with size 256 (ends at 0x140001100)
+        # Put CALL instruction at 0x140001150 (outside function bounds) calling 0x140001200
+        target_va = 0x140001200
+        call_off = 0x1150
+        disp = target_va - (0x140000000 + call_off + 5)
+        call_bytes = b"\xE8" + struct.pack("<i", disp)
+
+        pe_bytes = _make_synthetic_pe64(extra_payload={call_off: call_bytes})
+        p = self.workspace / "OutOfBounds.exe"
+        p.write_bytes(pe_bytes)
+
+        # Register OutBounds.exe in DB with distinct binary_id so Mode A xrefs don't overlap
+        cur = self.conn.cursor()
+        cur.execute("INSERT INTO binaries VALUES (99, 'OutOfBounds.exe', 'h99', 16384)")
+        self.conn.commit()
+
+        xrefs = find_cross_references(p, target_va, xref_type_filter="code", conn=self.conn)
+        self.assertEqual(len(xrefs), 1)
+        self.assertEqual(xrefs[0]["from_address"], 0x140001150)
+        # Must NOT be attributed to FUN_140001000 because 0x140001150 > 0x140001000 + 256
+        self.assertEqual(xrefs[0]["symbol"], "unknown")
+
+    def test_rtti_schema_reflection_legacy_and_extended(self):
+        """Verifies Defect 4: Schema reflection supports both Schema A (name, vtable_address) and Schema B."""
+        from harness.re.address import inspect_address
+        from harness.re.xrefs import find_cross_references
+
+        db_path = self.workspace / "schema_a.db"
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.executescript("""
+        CREATE TABLE binaries (id INTEGER PRIMARY KEY, name TEXT UNIQUE, sha256 TEXT, file_size INTEGER);
+        INSERT INTO binaries VALUES (1, 'SchemaATarget.exe', 'hash', 16384);
+
+        CREATE TABLE functions (id INTEGER PRIMARY KEY, binary_id INTEGER, name TEXT, address INTEGER, size INTEGER);
+
+        CREATE TABLE strings (id INTEGER PRIMARY KEY, binary_id INTEGER, value TEXT, address INTEGER, length INTEGER);
+
+        CREATE TABLE rtti_classes (id INTEGER PRIMARY KEY, binary_id INTEGER, name TEXT, vtable_address INTEGER, base_classes TEXT);
+        INSERT INTO rtti_classes VALUES (1, 1, 'MyLegacyClass', 0x140002000, '');
+        """)
+        conn.commit()
+
+        # 1. inspect_address with Schema A (at vtable_address 0x140002000)
+        res = inspect_address(self.bin_path, "0x140002000", db_conn=conn)
+        self.assertIsNotNone(res["symbol"])
+        self.assertEqual(res["symbol"]["type"], "rtti")
+        self.assertEqual(res["symbol"]["class_name"], "MyLegacyClass")
+
+        # 2. find_cross_references with Schema A (xref at 0x140002050 inside vtable starting at 0x140002000)
+        ptr_off = 0x2050
+        target_fn = 0x140001000
+        ptr_bytes = struct.pack("<Q", target_fn)
+        pe_bytes = _make_synthetic_pe64(extra_payload={ptr_off: ptr_bytes})
+        p = self.workspace / "SchemaATarget.exe"
+        p.write_bytes(pe_bytes)
+
+        xrefs = find_cross_references(p, target_fn, xref_type_filter="data", conn=conn)
+        self.assertEqual(len(xrefs), 1)
+        # Symbol should attribute to vtable MyLegacyClass + 0x50
+        self.assertIn("MyLegacyClass", xrefs[0]["symbol"])
+        conn.close()
+
+    def test_xrefs_pe32_4byte_pointer(self):
+        """Verifies Defect 6: 32-bit PE uses 4-byte (<I) pointer scan in data sections."""
+        from harness.re.address import inspect_address, parse_pe_sections
+        from harness.re.xrefs import find_cross_references
+
+        target_va = 0x00401200
+        ptr_off = 0x2050
+        ptr_bytes = struct.pack("<I", target_va)
+
+        pe32_bytes = _make_synthetic_pe32(image_base=0x00400000, extra_payload={ptr_off: ptr_bytes})
+        p = self.workspace / "App32.exe"
+        p.write_bytes(pe32_bytes)
+
+        # 1. Verify parse_pe_sections reports is_64bit=False
+        pe_info = parse_pe_sections(p)
+        self.assertFalse(pe_info.is_64bit)
+        self.assertEqual(pe_info[0], 0x00400000)
+
+        # 2. Verify inspect_address handles 32-bit PE
+        addr_res = inspect_address(p, "0x00402050")
+        self.assertFalse(addr_res["is_64bit"])
+        self.assertEqual(addr_res["image_base"], 0x00400000)
+        self.assertEqual(addr_res["rva"], 0x2050)
+
+        # 3. Verify find_cross_references finds the 4-byte pointer
+        xrefs = find_cross_references(p, target_va, xref_type_filter="data")
+        self.assertEqual(len(xrefs), 1)
+        self.assertEqual(xrefs[0]["from_address"], 0x00400000 + ptr_off)
+        self.assertEqual(xrefs[0]["source"], "data_scan")
+        self.assertIn("data_ptr", xrefs[0]["xref_type"])
+
+    def test_binary_id_scoping_address_and_xrefs(self):
+        """Verifies Defect 7: binary_id scopes function and symbol lookup when binary is known."""
+        from harness.re.address import inspect_address
+        from harness.re.xrefs import find_cross_references
+
+        db_path = self.workspace / "multi_bin.db"
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.executescript("""
+        CREATE TABLE binaries (id INTEGER PRIMARY KEY, name TEXT UNIQUE, sha256 TEXT, file_size INTEGER);
+        INSERT INTO binaries VALUES (10, 'BinOne.exe', 'hash1', 16384);
+        INSERT INTO binaries VALUES (20, 'BinTwo.exe', 'hash2', 16384);
+
+        CREATE TABLE functions (id INTEGER PRIMARY KEY, binary_id INTEGER, name TEXT, address INTEGER, size INTEGER);
+        INSERT INTO functions VALUES (1, 10, 'FuncInBinOne', 0x140001000, 256);
+        INSERT INTO functions VALUES (2, 20, 'FuncInBinTwo', 0x140001000, 256);
+
+        CREATE TABLE strings (id INTEGER PRIMARY KEY, binary_id INTEGER, value TEXT, address INTEGER, length INTEGER, encoding TEXT);
+        CREATE TABLE rtti_classes (id INTEGER PRIMARY KEY, binary_id INTEGER, name TEXT, vtable_address INTEGER, base_classes TEXT);
+        """)
+        conn.commit()
+
+        bin1 = self.workspace / "BinOne.exe"
+        bin1.write_bytes(_make_synthetic_pe64())
+        bin2 = self.workspace / "BinTwo.exe"
+        bin2.write_bytes(_make_synthetic_pe64())
+
+        # BinOne inspect_address -> FuncInBinOne
+        res1 = inspect_address(bin1, "0x140001020", db_conn=conn)
+        self.assertEqual(res1["symbol"]["name"], "FuncInBinOne")
+
+        # BinTwo inspect_address -> FuncInBinTwo
+        res2 = inspect_address(bin2, "0x140001020", db_conn=conn)
+        self.assertEqual(res2["symbol"]["name"], "FuncInBinTwo")
+        conn.close()
+
+    def test_cmd_decompile_single_connection(self):
+        """Verifies Defect 9: get_dirtyroom_db is called only once in cmd_decompile."""
+        from harness.commands.re import cmd_decompile
+
+        ghidra_dir = self.dr / "ghidra"
+        ghidra_dir.mkdir(parents=True, exist_ok=True)
+        (ghidra_dir / "MockTarget.gpr").write_text("<project/>", encoding="utf-8")
+
+        args = argparse.Namespace(
+            procedure="0x140001050",
+            binary=str(self.bin_path),
+            timeout=10.0,
+            no_cache=True,
+        )
+        call_count = 0
+        def counting_get_db(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            return sqlite3.connect(self.db_path)
+
+        out_buf = io.StringIO()
+        with patch("shutil.which", return_value="/usr/local/bin/rea"), \
+             patch("sys.stdout", out_buf), \
+             patch("harness.commands.re.get_dirtyroom_db", side_effect=counting_get_db), \
+             patch("harness.commands.re.get_dirtyroom_root", return_value=self.dr), \
+             patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="void FUN_140001000() {}", stderr="")
+            code = cmd_decompile(args)
+            self.assertEqual(code, 0)
+            self.assertEqual(call_count, 1)
+
+    def test_no_tmp_test_path_sniffing(self):
+        """Verifies Defect 5: No 'tmp' in str(dr) or 'test' in path sniffing in safety hook or tool checks."""
+        import inspect
+        from harness.hooks import command_safety_hook
+        from harness.runtime import tool_checks_rea
+
+        src_hook = inspect.getsource(command_safety_hook)
+        src_rea = inspect.getsource(tool_checks_rea)
+
+        self.assertNotIn('"tmp" in str(dr)', src_hook)
+        self.assertNotIn('"test" in str(dr)', src_hook)
+        self.assertNotIn('"tmp" in cp_str', src_rea)
+        self.assertNotIn('"test" in cp_str', src_rea)
 
 
 if __name__ == "__main__":
