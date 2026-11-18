@@ -691,6 +691,13 @@ To eliminate the severe latency bottlenecks encountered during reverse engineeri
 - **Decompiler Cache Priming (`agyis re prime`)**: Pre-warms the deterministic query cache on top-priority functions (exported symbols and largest subroutines) or user-supplied symbol files, ensuring subsequent queries hit the `<5ms` cache tier.
 - **Orphan Lock & Storage Hygiene (`agyis re clean`)**: Safely detects and purges stale Ghidra `.lock` files after `/proc` safety checks, prunes rotated logs (while preserving active daemon logs), and executes SQLite `VACUUM`, `REINDEX`, and `ANALYZE` to reclaim disk space.
 
+### 8.6 Address Inspection, Translation & Dual-Mode Cross-References
+- **Address Resolution & Translation Engine (`harness/re/address.py`, `agyis re addr`)**: Parses PE32/PE32+ DOS, COFF, and Optional Headers; translates bidirectionally across Virtual Address (VA), Relative Virtual Address (RVA), and File Offset; identifies containing PE sections with access permissions; correlates addresses to canonical symbols, strings, and RTTI classes in `<2ms`.
+- **Smart Procedure Resolution (`cmd_decompile`)**: Automatically intercepts numeric interior addresses passed to `agyis re decompile <address>`, queries the `functions` table for the containing procedure boundary, resolves to the canonical entry symbol (e.g. `FUN_140bc8790 (+0x5)`), and passes the entrypoint to the decompiler backend.
+- **Dual-Mode Cross-References (`harness/re/xrefs.py`, `agyis re xrefs`)**:
+  - *Mode A (Pre-analyzed SQLite Cache)*: Sub-millisecond queries on `xrefs` table for known call and data references.
+  - *Mode B (Direct Binary Scanning)*: Scans executable `.text` sections for relative `CALL` (`0xE8`) and `JMP` (`0xE9`) instruction opcodes; scans `.rdata`/`.data` sections for 4-byte (PE32) and 8-byte (PE32+) pointer references. Supports `--type {all,code,data}` filtering and `--json` export.
+
 ---
 
 ## 9. Verification & Compliance Gates
@@ -704,6 +711,8 @@ All REA integration modules, hook gates, and cleanroom verifiers must satisfy de
 | **Full Reconstruction Gate** | `agyis verify` / `rea verify-reconstruction` | Validates `.agents/ledger/obligation_ledger.json` (and legacy `manifest.json`) obligations against evidence. |
 | **Zero-Delay Doctor** | `agyis doctor` | Confirms sub-second (`<1.0s`) baseline check without launching heavy disassembler scans. |
 | **Opt-In REA Audit** | `agyis doctor --experimental-rea` | Audits `rea`, `mcp_config.json`, JDK 21+, Ghidra, Hopper, IDA Pro, and JADX provider chains. |
+| **Address Inspection Gate** | `agyis re addr 0x... --json` | Validates VA <-> RVA <-> File Offset mapping and symbol attribution in `<2ms`. |
+| **Cross-Reference Gate** | `agyis re xrefs 0x... --json` | Validates dual-mode (SQLite + binary direct scan) xref resolution across code and data. |
 | **Query Cache Status Gate** | `agyis re cache status` | Asserts active cache directory, sub-millisecond retrieval, and accurate hit rates. |
 | **Daemon Bridge Status Gate** | `agyis re daemon status` | Inspects persistent MCP supervisor state and direct-mount environment. |
 | **Dirtyroom Seeding Gate** | `agyis re seed --json` | Validates PCAP frame ingestion and binary run linkage into SQLite. |

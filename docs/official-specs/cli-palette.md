@@ -355,7 +355,7 @@ agyis [-h] [-v]
   - `--dry-run`, `-w|--workspace`, `--json`: Preview mode, workspace root override, and JSON report.
 
 ### 27. `re`
-* **Syntax**: `agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs,cache,daemon,seed,prime,clean} [args]`
+* **Syntax**: `agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs,addr,cache,daemon,seed,prime,clean} [args]`
 * **Purpose**: Cleanroom reverse engineering toolsuite, Ghidra direct-mount acceleration, persistent MCP daemon bridge & query caching engine (ADR-028, ADR-034, PSL-INV-009, Issue #113).
 * **Subcommands**:
   - `status [--json]`: Reports status of dirtyroom scaffolding, symbol database, and REA patches.
@@ -363,10 +363,11 @@ agyis [-h] [-v]
   - `patch-rea [--apply|--revert|--check] [--json]`: Idempotently manages `rea-agents` acceleration patch and zero-copy direct mount for sub-2s decompilation on $>10\text{MB}$ binaries (`-noanalysis -readOnly`).
   - `pre-analyze <bin> [--project <name>] [--overwrite] [--json]`: Executes headless Ghidra pre-analysis and indexes symbols into SQLite.
   - `find <pattern> [--type all|func|str|rtti] [--limit <N>] [--json]`: Sub-millisecond symbol and string query from pre-analyzed SQLite database.
-  - `decompile <func> [--binary <name>] [--no-cache] [--timeout <N>]`: Targeted procedure decompilation using pre-analyzed Ghidra project and deterministic query cache (<5ms cached, <0.8s via MCP).
+  - `decompile <procedure|address> [--binary <name>] [--no-cache] [--timeout <N>]`: Targeted procedure decompilation using pre-analyzed Ghidra project and deterministic query cache (<5ms cached, <0.8s via MCP); automatically resolves interior virtual addresses to entry procedures.
   - `pcap <file> [--limit <N>] [--filter <expr>]`: Inspects network packet captures.
   - `disasm <target> [--binary <name>] [--bytes <N>] [--limit <N>]`: Disassembles instructions at a virtual address or function name via native `objdump`.
-  - `xrefs <target> [--binary <name>]`: Finds cross-references to a hexadecimal virtual address (`0x...`).
+  - `xrefs <target> [--type {all,code,data}] [--binary <name>] [--json]`: Dual-mode cross-reference scan (pre-analyzed SQLite cache + direct binary scanning across code CALL/JMP opcodes and data pointers).
+  - `addr <address> [--binary <name>] [--json]`: Translates address between VA, RVA, File Offset, containing PE section, and correlates to symbols, strings, and RTTI classes.
   - `cache [status|clear] [--type all|decompile] [--dry-run] [--json]`: Inspects or clears decompiler query cache entries, disk usage, and hit rate metrics.
   - `daemon [status|start|stop] [--foreground] [--json]`: Manages persistent REA MCP bridge supervisor daemon to warm up language providers and eliminate cold JVM startups.
   - `seed [--pcap <file>] [--binary <name>] [--limit <N>] [--json]`: Ingests packet capture frames into SQLite `packets` table and links them to binary runs.

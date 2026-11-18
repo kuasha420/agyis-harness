@@ -123,6 +123,9 @@ agyis doctor --experimental-rea --heal         # Safe zero-sudo auto-healing & R
 agyis re cache [status|clear]                  # Inspect & purge decompiler query cache (<5ms responses, Issue #113)
 agyis re daemon [status|start|stop]            # Manage persistent REA bridge supervisor daemon (Issue #113)
 agyis re patch-rea [--apply|--revert|--check]  # Manage direct-mount acceleration patch & zero-copy bypass
+agyis re addr <address> [--binary <bin>] [--json] # Inspect & translate VA <-> RVA <-> File Offset with symbol resolution
+agyis re xrefs <target> [--type all|code|data] [--json] # Dual-mode cross-reference scan (SQLite cache + binary scan)
+agyis re decompile <proc|addr> [--binary <bin>]   # Decompile procedure or interior address with auto-resolution
 ```
 
 ---

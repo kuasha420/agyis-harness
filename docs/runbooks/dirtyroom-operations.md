@@ -175,6 +175,37 @@ agyis re find "http://" --type str --limit 10
 agyis re find "NetworkHandler" --type rtti
 ```
 
+### 3.4 Step 4: Address Translation, Cross-References & Smart Decompilation
+
+During binary reverse engineering, raw addresses observed in disassemblies, memory dumps, or packet streams require bidirectional translation, symbol correlation, and cross-reference analysis:
+
+```bash
+# Inspect and translate virtual address, RVA, and file offset
+agyis re addr 0x140001050 --binary target.exe
+
+# Output provides full section breakdown and containing procedure:
+#   === Address Inspection: 0x140001050 (VA) ===
+#     Binary:      target.exe
+#     VA:          0x140001050 (5368713296)
+#     RVA:         0x1050 (+4176)
+#     File Offset: 0x450 (1104)
+#     Section:     .text [r-x] (RVA: 0x1000..0x2000)
+#     Procedure:   FUN_140001000 (+0x50 from 0x140001000, size: 256 bytes)
+
+# Machine-readable JSON output for script pipelines
+agyis re addr 0x140001050 --binary target.exe --json
+
+# Dual-mode cross-reference scan (Mode A: SQLite cache; Mode B: binary direct scan)
+# Automatically searches relative CALL/JMP opcodes and PE32 4-byte / PE32+ 8-byte data pointers
+agyis re xrefs 0x140001200 --binary target.exe
+agyis re xrefs 0x140001200 --binary target.exe --type code
+agyis re xrefs 0x140001200 --binary target.exe --type data --json
+
+# Smart procedure decompilation: interior addresses automatically resolve to entrypoint
+agyis re decompile 0x140001050 --binary target.exe
+# [*] Auto-resolved interior address 0x140001050 to procedure FUN_140001000 (+0x50).
+```
+
 ---
 
 ## 4. Priming & Acceleration

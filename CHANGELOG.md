@@ -13,6 +13,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Features & Reverse Engineering (ADR-028, PSL-INV-007, PSL-INV-009)
+- feat(re): implement PE32/PE32+ address inspection & translation CLI (`agyis re addr`)
+  - Bidirectional mapping across VA <-> RVA <-> File Offset with section permission parsing
+  - Sub-millisecond symbol correlation against dirtyroom functions, strings, and RTTI classes
+  - Full `--json` export support for downstream tool pipelines
+- feat(re): implement dual-mode cross-reference resolution (`agyis re xrefs`)
+  - Mode A (SQLite pre-analyzed cache): Sub-millisecond lookup on indexed `xrefs` table
+  - Mode B (Binary direct scan): Scans `.text` for relative CALL/JMP opcodes and `.rdata`/`.data` for 4-byte (PE32) and 8-byte (PE32+) pointer references
+  - Filters by `--type {all,code,data}` with symbol attribution and `--json` export
+- feat(re): implement smart procedure resolution in decompilation (`agyis re decompile`)
+  - Numeric interior virtual addresses auto-resolve to entry procedure symbols (e.g. `FUN_140bc8790 +0x5`)
+  - Eliminates manual entrypoint calculation prior to accelerated decompilation
+- fix(re): enforce hermetic test isolation and dynamic schema reflection
+  - Purged environment path sniffing in lifecycle hooks and REA runtime checks
+  - Implemented dynamic `PRAGMA table_info` reflection across legacy and pre-analyzed RTTI schemas
+  - Scoped dirtyroom symbol queries to target `binary_id` preventing multi-binary collision
+  - Hardened connection lifecycle with guaranteed closure on all exit paths
+
 ---
 
 ## [1.0.0-rc11] - 2026-11-15

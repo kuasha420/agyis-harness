@@ -155,36 +155,45 @@ agyis re find "protocol://" --type str --limit 10
 agyis re find "NetworkHandler" --type rtti
 
 # 10. Accelerated decompilation (<5ms Tier 1 cache hit; Tier 3 direct-mount CLI on miss/--no-cache;
-#     use REA MCP tools with a warm daemon for <0.8s uncached interactive queries)
+#     use REA MCP tools with a warm daemon for <0.8s uncached interactive queries).
+#     Auto-resolves interior virtual addresses (e.g. 0x140bc8795 -> FUN_140bc8790 +0x5) to entrypoint.
 agyis re decompile AuthSession_VerifyToken --binary target.bin
+agyis re decompile 0x140001a50 --binary target.bin
 agyis re decompile AuthSession_VerifyToken --binary target.bin --no-cache --timeout 60.0
 
 # 11. Zero-timeout native disassembly via objdump (accepts hex address or function name)
 agyis re disasm 0x140001a20 --binary target.bin --bytes 128 --limit 50
 agyis re disasm AuthSession_VerifyToken --binary target.bin
 
-# 12. Scan PE32/PE32+ .text/code sections for relative CALL/JMP cross-references to a hex VA
-#     (for ELF/Mach-O or data/indirect xrefs, use REA MCP `xrefs`)
+# 12. Dual-mode cross-reference scan (Mode A: SQLite pre-analyzed cache; Mode B: binary direct scan)
+#     Scans relative CALL/JMP opcodes in code and 4/8-byte pointers in data across PE32/PE32+
 agyis re xrefs 0x140001a20 --binary target.bin
+agyis re xrefs 0x140001a20 --binary target.bin --type code
+agyis re xrefs 0x140001a20 --binary target.bin --type data --json
 
-# 13. Bounded packet capture inspection via tshark
+# 13. Address inspection, translation (VA <-> RVA <-> File Offset) & symbol attribution
+agyis re addr 0x140001a50 --binary target.bin
+agyis re addr 0x1a50 --binary target.bin
+agyis re addr 0x140001a50 --binary target.bin --json
+
+# 14. Bounded packet capture inspection via tshark
 agyis re pcap .dirtyroom/pcaps/session.pcap --limit 50 --filter "tcp.port == 8443"
 ```
 
 ### 3.4 Cache Governance, Hygiene & Teardown
 ```bash
-# 14a. Inspect or clear deterministic query cache
+# 15a. Inspect or clear deterministic query cache
 agyis re cache status
 agyis re cache clear --type decompile --dry-run
 agyis re cache clear --type all
 
-# 14b. Turnkey hygiene: purge orphan Ghidra .lock files (with /proc safety checks),
+# 15b. Turnkey hygiene: purge orphan Ghidra .lock files (with /proc safety checks),
 #      prune rotated logs (preserving active daemon logs), and VACUUM/REINDEX SQLite
 agyis re clean --dry-run
 agyis re clean --locks --logs --vacuum
 agyis re clean
 
-# 14c. Gracefully stop background REA MCP bridge daemon when switching projects
+# 15c. Gracefully stop background REA MCP bridge daemon when switching projects
 agyis re daemon stop
 ```
 
@@ -200,9 +209,10 @@ agyis re daemon stop
 | `agyis re daemon` | Manage persistent REA MCP bridge supervisor daemon | `status\|start\|stop`, `--foreground`, `--json` |
 | `agyis re prime` | Pre-warm decompiler cache on top or listed symbols | `--top`, `--file`, `--binary`, `--timeout`, `--dry-run`, `--json` |
 | `agyis re find` | Sub-millisecond SQLite search over functions, strings & RTTI | `<pattern>`, `--type all\|func\|str\|rtti`, `--limit`, `--json` |
-| `agyis re decompile` | Cached / direct-mount CLI decompilation with >10MB pre-analysis guard | `<procedure>`, `--binary`, `--timeout`, `--no-cache` |
+| `agyis re decompile` | Cached / direct-mount CLI decompilation with smart interior procedure resolution | `<procedure>`, `--binary`, `--timeout`, `--no-cache` |
 | `agyis re disasm` | Native `objdump` Intel-syntax disassembly by address or symbol | `<target>`, `--binary`, `--bytes`, `--limit` |
-| `agyis re xrefs` | PE32/PE32+ `.text`/`code` relative `CALL`/`JMP` xref scan (use REA MCP for ELF/Mach-O) | `<hex_addr>`, `--binary` |
+| `agyis re xrefs` | Dual-mode cross-reference scan (pre-analyzed SQLite + direct binary scan) | `<hex_addr>`, `--type all\|code\|data`, `--binary`, `--json` |
+| `agyis re addr` | Address inspection & translation (VA <-> RVA <-> File Offset) with symbol lookup | `<address>`, `--binary`, `--json` |
 | `agyis re pcap` | Bounded `tshark` packet summary with optional display filter | `<file>`, `--limit`, `--filter` |
 | `agyis re cache` | Inspect hit rates/size or purge decompiler cache entries | `status\|clear`, `--type all\|decompile`, `--dry-run`, `--json` |
 | `agyis re clean` | Remove stale Ghidra locks, prune old logs, vacuum SQLite DB | `--locks`, `--logs`, `--vacuum`, `--force`, `--dry-run`, `--json` |
