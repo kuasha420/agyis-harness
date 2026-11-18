@@ -296,8 +296,11 @@ class TestReaMcpSchemaNormalizerHook(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temp_dir.name)
+        self.cwd_patch = patch("os.getcwd", return_value=str(self.workspace))
+        self.cwd_patch.start()
 
     def tearDown(self):
+        self.cwd_patch.stop()
         self.temp_dir.cleanup()
 
     def test_normalize_pascal_case_arguments(self):
@@ -3385,6 +3388,294 @@ class TestGlobalReaDirectMountAndAutoDiscovery(unittest.TestCase):
         self.assertIn("JS_HARDENING_OK", proc.stdout)
         self.assertFalse((hidden_dot_ws / "dirtyroom").exists())
         self.assertFalse((hidden_dot_ws / "dirtyroom").is_symlink())
+
+
+def _make_synthetic_pe64(
+    image_base: int = 0x140000000,
+    sections: Optional[list] = None,
+    extra_payload: Optional[dict] = None,
+) -> bytes:
+    """Generates a minimal valid PE32+ (64-bit) binary buffer for testing."""
+    if sections is None:
+        sections = [
+            (".text", 0x1000, 0x1000, 0x1000, 0x1000, 0x60000020),
+            (".rdata", 0x2000, 0x1000, 0x2000, 0x1000, 0x40000040),
+            (".data", 0x3000, 0x1000, 0x3000, 0x1000, 0xC0000040),
+        ]
+    e_lfanew = 0x80
+    dos_hdr = bytearray(e_lfanew)
+    dos_hdr[0:2] = b"MZ"
+    struct.pack_into("<I", dos_hdr, 0x3C, e_lfanew)
+
+    pe_sig = b"PE\x00\x00"
+    num_sec = len(sections)
+    opt_hdr_size = 240
+    coff_hdr = struct.pack("<HHIIIHH", 0x8664, num_sec, 0, 0, 0, opt_hdr_size, 0x0022)
+
+    opt_hdr = bytearray(opt_hdr_size)
+    struct.pack_into("<H", opt_hdr, 0, 0x20B)
+    struct.pack_into("<Q", opt_hdr, 24, image_base)
+    struct.pack_into("<I", opt_hdr, 32, 0x1000)
+    struct.pack_into("<I", opt_hdr, 36, 0x200)
+
+    sec_hdrs = bytearray()
+    for name, vaddr, vsize, raw_off, raw_sz, chars in sections:
+        name_bytes = name.encode("latin-1")[:8].ljust(8, b"\x00")
+        sec_hdrs.extend(struct.pack("<8sIIIIIIHHI", name_bytes, vsize, vaddr, raw_sz, raw_off, 0, 0, 0, 0, chars))
+
+    pe_data = bytearray(dos_hdr + pe_sig + coff_hdr + opt_hdr + sec_hdrs)
+    max_raw = max(s[3] + s[4] for s in sections) if sections else len(pe_data)
+    if len(pe_data) < max_raw:
+        pe_data.extend(b"\x00" * (max_raw - len(pe_data)))
+
+    if extra_payload:
+        for offset, data_bytes in extra_payload.items():
+            if offset + len(data_bytes) <= len(pe_data):
+                pe_data[offset : offset + len(data_bytes)] = data_bytes
+
+    return bytes(pe_data)
+
+
+class TestAddressInspectionAndToolchainHardening(unittest.TestCase):
+    """Verifies Address Translation (inspect_address, agyis re addr), Smart Procedure Resolution, and Dual-Mode xrefs."""
+
+    def setUp(self):
+        self.registry_path = _isolate_registry(self)
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.temp_dir.name)
+        self.cwd_patch = patch("os.getcwd", return_value=str(self.workspace))
+        self.cwd_patch.start()
+
+        # Build mock PE
+        self.bin_path = self.workspace / "MockTarget.exe"
+        self.bin_bytes = _make_synthetic_pe64()
+        self.bin_path.write_bytes(self.bin_bytes)
+
+        # Build mock dirtyroom SQLite database
+        self.dr = self.workspace / ".dirtyroom"
+        self.dr_symbols = self.dr / "symbols"
+        self.dr_symbols.mkdir(parents=True, exist_ok=True)
+        self.db_path = self.dr_symbols / "dirtyroom.db"
+
+        self.conn = sqlite3.connect(self.db_path)
+        cur = self.conn.cursor()
+        cur.executescript("""
+        CREATE TABLE binaries (id INTEGER PRIMARY KEY, name TEXT UNIQUE, sha256 TEXT, file_size INTEGER);
+        INSERT INTO binaries VALUES (1, 'MockTarget.exe', 'deadbeef', 16384);
+
+        CREATE TABLE functions (id INTEGER PRIMARY KEY, binary_id INTEGER, name TEXT, address INTEGER, size INTEGER);
+        INSERT INTO functions VALUES (1, 1, 'FUN_140001000', 0x140001000, 256);
+        INSERT INTO functions VALUES (2, 1, 'FUN_140001200', 0x140001200, 128);
+
+        CREATE TABLE strings (id INTEGER PRIMARY KEY, binary_id INTEGER, address INTEGER, string_type TEXT, value TEXT, length INTEGER);
+        INSERT INTO strings VALUES (1, 1, 0x140002100, 'ascii', 'HelloPaladins', 13);
+
+        CREATE TABLE rtti_classes (id INTEGER PRIMARY KEY, binary_id INTEGER, class_name TEXT, demangled_name TEXT, type_descriptor_addr INTEGER, vtable_addr INTEGER);
+        INSERT INTO rtti_classes VALUES (1, 1, '.?AVTgPlayerController@@', 'TgPlayerController', 0x140002200, 0x140002300);
+
+        CREATE TABLE xrefs (id INTEGER PRIMARY KEY, binary_id INTEGER, from_addr INTEGER, to_addr INTEGER, xref_type TEXT);
+        INSERT INTO xrefs VALUES (1, 1, 0x140001040, 0x140001200, 'CALL');
+        """)
+        self.conn.commit()
+
+    def tearDown(self):
+        self.conn.close()
+        self.cwd_patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_inspect_address_va_inside_function(self):
+        from harness.re.address import inspect_address
+
+        res = inspect_address(self.bin_path, "0x140001050", db_conn=self.conn)
+        self.assertEqual(res["input_type"], "VA")
+        self.assertEqual(res["va"], 0x140001050)
+        self.assertEqual(res["va_hex"], "0x140001050")
+        self.assertEqual(res["rva"], 0x1050)
+        self.assertEqual(res["rva_hex"], "0x1050")
+        self.assertEqual(res["file_offset"], 0x1050)
+        self.assertEqual(res["section"]["name"], ".text")
+        self.assertTrue(res["section"]["is_code"])
+        self.assertIsNotNone(res["symbol"])
+        self.assertEqual(res["symbol"]["type"], "function")
+        self.assertEqual(res["symbol"]["name"], "FUN_140001000")
+        self.assertEqual(res["symbol"]["offset"], 0x50)
+        self.assertEqual(res["symbol"]["delta_str"], "+0x50")
+
+    def test_inspect_address_rva_input(self):
+        from harness.re.address import inspect_address
+
+        res = inspect_address(self.bin_path, 0x1050, db_conn=self.conn)
+        self.assertEqual(res["input_type"], "RVA")
+        self.assertEqual(res["va"], 0x140001050)
+        self.assertEqual(res["rva"], 0x1050)
+        self.assertEqual(res["symbol"]["name"], "FUN_140001000")
+
+    def test_inspect_address_data_string_and_rtti(self):
+        from harness.re.address import inspect_address
+
+        # Query string address in .rdata
+        res_str = inspect_address(self.bin_path, "0x140002100", db_conn=self.conn)
+        self.assertEqual(res_str["section"]["name"], ".rdata")
+        self.assertFalse(res_str["section"]["is_code"])
+        self.assertIsNotNone(res_str["symbol"])
+        self.assertEqual(res_str["symbol"]["type"], "string")
+        self.assertEqual(res_str["symbol"]["value"], "HelloPaladins")
+
+        # Query RTTI vtable address in .rdata
+        res_rtti = inspect_address(self.bin_path, "0x140002300", db_conn=self.conn)
+        self.assertIsNotNone(res_rtti["symbol"])
+        self.assertEqual(res_rtti["symbol"]["type"], "rtti")
+        self.assertEqual(res_rtti["symbol"]["class_name"], ".?AVTgPlayerController@@")
+
+    def test_inspect_address_nearest_function(self):
+        from harness.re.address import inspect_address
+
+        # Address 0x140001150 is between FUN_140001000 (ends 0x140001100) and FUN_140001200
+        res = inspect_address(self.bin_path, "0x140001150", db_conn=self.conn)
+        self.assertEqual(res["section"]["name"], ".text")
+        self.assertIsNotNone(res["symbol"])
+        self.assertEqual(res["symbol"]["type"], "nearest_function")
+        self.assertEqual(res["symbol"]["name"], "FUN_140001000")
+        self.assertEqual(res["symbol"]["offset"], 0x150)
+
+    def test_cmd_addr_cli_pretty_and_json(self):
+        from harness.commands.re import cmd_addr
+
+        out_buf = io.StringIO()
+        args = argparse.Namespace(
+            address="0x140001050",
+            binary=str(self.bin_path),
+            json=False,
+        )
+        with patch("sys.stdout", out_buf), patch("harness.commands.re.get_dirtyroom_db", side_effect=lambda: sqlite3.connect(self.db_path)):
+            code = cmd_addr(args)
+            self.assertEqual(code, 0)
+            txt = out_buf.getvalue()
+            self.assertIn("=== Address Inspection: 0x140001050 (VA) ===", txt)
+            self.assertIn("VA:          0x140001050", txt)
+            self.assertIn("RVA:         0x1050", txt)
+            self.assertIn("Section:     .text [r-x]", txt)
+            self.assertIn("Procedure:   FUN_140001000 (+0x50", txt)
+
+        # JSON mode
+        json_buf = io.StringIO()
+        args_json = argparse.Namespace(
+            address="0x140001050",
+            binary=str(self.bin_path),
+            json=True,
+        )
+        with patch("sys.stdout", json_buf), patch("harness.commands.re.get_dirtyroom_db", side_effect=lambda: sqlite3.connect(self.db_path)):
+            code = cmd_addr(args_json)
+            self.assertEqual(code, 0)
+            data = json.loads(json_buf.getvalue())
+            self.assertEqual(data["va_hex"], "0x140001050")
+            self.assertEqual(data["symbol"]["name"], "FUN_140001000")
+
+    def test_cmd_decompile_smart_procedure_resolution(self):
+        from harness.commands.re import cmd_decompile
+
+        # Mock Ghidra project in dirtyroom
+        ghidra_dir = self.dr / "ghidra"
+        ghidra_dir.mkdir(parents=True, exist_ok=True)
+        (ghidra_dir / "MockTarget.gpr").write_text("<project/>", encoding="utf-8")
+
+        args = argparse.Namespace(
+            procedure="0x140001050",
+            binary=str(self.bin_path),
+            timeout=10.0,
+            no_cache=True,
+        )
+        out_buf = io.StringIO()
+        with patch("shutil.which", return_value="/usr/local/bin/rea"), \
+             patch("sys.stdout", out_buf), \
+             patch("harness.commands.re.get_dirtyroom_db", return_value=self.conn), \
+             patch("harness.commands.re.get_dirtyroom_root", return_value=self.dr), \
+             patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="void FUN_140001000() {}", stderr="")
+            code = cmd_decompile(args)
+            self.assertEqual(code, 0)
+            txt = out_buf.getvalue()
+            self.assertIn("[*] Auto-resolved interior address 0x140001050 to procedure FUN_140001000 (+0x50).", txt)
+            # Verify subprocess was called with resolved procedure name
+            call_cmd = mock_run.call_args[0][0]
+            self.assertIn("--procedure", call_cmd)
+            proc_idx = call_cmd.index("--procedure")
+            self.assertEqual(call_cmd[proc_idx + 1], "FUN_140001000")
+
+    def test_cmd_xrefs_dual_mode(self):
+        from harness.commands.re import cmd_xrefs
+
+        # Create binary with:
+        # 1) Call instruction in .text at 0x140001080 calling 0x140001200:
+        #    Opcode: 0xE8, displacement = 0x140001200 - (0x140001080 + 5) = 0x17B
+        # 2) 8-byte pointer in .rdata at 0x140002050 pointing to 0x140001200
+        call_off = 0x1080
+        disp = 0x140001200 - (0x140000000 + call_off + 5)
+        call_bytes = b"\xE8" + struct.pack("<i", disp)
+        ptr_off = 0x2050
+        ptr_bytes = struct.pack("<Q", 0x140001200)
+
+        custom_pe = _make_synthetic_pe64(extra_payload={
+            call_off: call_bytes,
+            ptr_off: ptr_bytes,
+        })
+        custom_bin = self.workspace / "CustomXrefTarget.exe"
+        custom_bin.write_bytes(custom_pe)
+
+        # Register CustomXrefTarget.exe in DB
+        cur = self.conn.cursor()
+        cur.execute("INSERT INTO binaries VALUES (2, 'CustomXrefTarget.exe', 'hash2', 16384)")
+        cur.execute("INSERT INTO xrefs VALUES (2, 2, 0x140001040, 0x140001200, 'CALL')")
+        self.conn.commit()
+
+        # 1. Type: all (should find sqlite xref, code scan xref, and data ptr xref)
+        out_buf = io.StringIO()
+        args_all = argparse.Namespace(
+            target="0x140001200",
+            binary=str(custom_bin),
+            type="all",
+            json=True,
+        )
+        with patch("sys.stdout", out_buf), patch("harness.commands.re.get_dirtyroom_db", return_value=self.conn):
+            code = cmd_xrefs(args_all)
+            self.assertEqual(code, 0)
+            items = json.loads(out_buf.getvalue())
+            sources = {item["source"] for item in items}
+            self.assertIn("sqlite", sources)
+            self.assertIn("code_scan", sources)
+            self.assertIn("data_scan", sources)
+
+        # 2. Type: code (should find sqlite:CALL and code_scan, but NOT data_scan)
+        out_code = io.StringIO()
+        args_code = argparse.Namespace(
+            target="0x140001200",
+            binary=str(custom_bin),
+            type="code",
+            json=True,
+        )
+        with patch("sys.stdout", out_code), patch("harness.commands.re.get_dirtyroom_db", return_value=self.conn):
+            code = cmd_xrefs(args_code)
+            self.assertEqual(code, 0)
+            items = json.loads(out_code.getvalue())
+            sources = {item["source"] for item in items}
+            self.assertIn("code_scan", sources)
+            self.assertNotIn("data_scan", sources)
+
+        # 3. Type: data (should find data_scan, but NOT code_scan)
+        out_data = io.StringIO()
+        args_data = argparse.Namespace(
+            target="0x140001200",
+            binary=str(custom_bin),
+            type="data",
+            json=True,
+        )
+        with patch("sys.stdout", out_data), patch("harness.commands.re.get_dirtyroom_db", return_value=self.conn):
+            code = cmd_xrefs(args_data)
+            self.assertEqual(code, 0)
+            items = json.loads(out_data.getvalue())
+            sources = {item["source"] for item in items}
+            self.assertIn("data_scan", sources)
+            self.assertNotIn("code_scan", sources)
 
 
 if __name__ == "__main__":

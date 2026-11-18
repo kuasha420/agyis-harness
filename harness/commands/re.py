@@ -287,6 +287,42 @@ def cmd_decompile(args: argparse.Namespace) -> int:
         return 1
 
     proc = args.procedure
+
+    # Smart Procedure Resolution: auto-resolve interior addresses to canonical procedure symbol
+    try:
+        proc_val = int(proc.strip(), 0) if isinstance(proc, str) else int(proc)
+        is_numeric = True
+    except (ValueError, TypeError):
+        proc_val = None
+        is_numeric = False
+
+    if is_numeric and proc_val is not None:
+        db_conn = get_dirtyroom_db()
+        if db_conn:
+            try:
+                c = db_conn.cursor()
+                c.execute(
+                    "SELECT name, address, size FROM functions WHERE address <= ? AND address + size > ? ORDER BY address DESC LIMIT 1",
+                    (proc_val, proc_val),
+                )
+                fn_row = c.fetchone()
+                if not fn_row:
+                    c.execute(
+                        "SELECT name, address, size FROM functions WHERE address = ? LIMIT 1",
+                        (proc_val,),
+                    )
+                    fn_row = c.fetchone()
+                if fn_row:
+                    resolved_name = fn_row[0]
+                    base_addr = int(fn_row[1])
+                    delta = proc_val - base_addr
+                    print(f"[*] Auto-resolved interior address 0x{proc_val:x} to procedure {resolved_name} (+0x{delta:x}).")
+                    proc = resolved_name
+            except sqlite3.Error:
+                pass
+            finally:
+                db_conn.close()
+
     binary = getattr(args, "binary", None)
     if not binary:
         # Check if there is a binary in dirtyroom, preferring executable over dll
@@ -322,16 +358,44 @@ def cmd_decompile(args: argparse.Namespace) -> int:
             env_dir = os.environ.get("REA_GHIDRA_PROJECT_DIR")
             if env_dir:
                 cand_dirs.append(Path(env_dir))
-            root = get_dirtyroom_root()
+            root = get_dirtyroom_root(bin_path.parent)
+            if not root:
+                root = get_dirtyroom_root(Path(os.getcwd()))
             if root:
                 cand_dirs.append(root / "ghidra")
                 if root.parent:
                     cand_dirs.append(root.parent / "dirtyroom" / "ghidra")
-            cand_dirs.extend([Path(".dirtyroom/ghidra"), Path("dirtyroom/ghidra")])
+            cwd_p = Path(os.getcwd())
+            cand_dirs.extend([cwd_p / ".dirtyroom" / "ghidra", cwd_p / "dirtyroom" / "ghidra"])
             for cd in cand_dirs:
-                if cd.is_dir() and any(cd.glob("*.gpr")):
-                    has_gpr = True
-                    break
+                if cd.is_dir():
+                    gprs = list(cd.glob("*.gpr"))
+                    if gprs:
+                        try:
+                            if bin_path.resolve().is_relative_to(cd.parent.resolve()) or (root and bin_path.resolve().is_relative_to(root.parent.resolve())):
+                                has_gpr = True
+                                break
+                        except (ValueError, OSError):
+                            pass
+                        if any(g.stem.lower() == bin_path.stem.lower() for g in gprs):
+                            has_gpr = True
+                            break
+                        if root:
+                            try:
+                                conn = get_dirtyroom_db(root)
+                                if conn:
+                                    cur = conn.cursor()
+                                    cur.execute("SELECT 1 FROM binaries WHERE name = ? LIMIT 1", (bin_path.name,))
+                                    if cur.fetchone():
+                                        has_gpr = True
+                                    conn.close()
+                                    if has_gpr:
+                                        break
+                            except Exception:
+                                pass
+                        if env_dir and cd == Path(env_dir):
+                            has_gpr = True
+                            break
 
             if not has_gpr:
                 size_mb = file_size / (1024 * 1024)
@@ -498,81 +562,20 @@ def cmd_disasm(args: argparse.Namespace) -> int:
         return 1
 
 
-def cmd_xrefs(args: argparse.Namespace) -> int:
-    """Scans binary code sections for cross-references to a virtual address."""
-    target = args.target
-    try:
-        target_va = int(target, 0)
-    except ValueError:
-        print(f"[!] Error: Target must be a hex address (0x...): {target}", file=sys.stderr)
-        return 1
-
-    binary = getattr(args, "binary", None)
-    bin_path = resolve_binary_path(binary)
-    if not bin_path:
-        target_name = binary or "target binary"
-        print(f"[!] Error: Binary '{target_name}' not found. Specify --binary or place in .dirtyroom/binaries/.", file=sys.stderr)
-        return 1
-
-    import struct
-
-    with open(bin_path, "rb") as f:
-        buf = f.read()
-
-    e_lfanew = struct.unpack_from("<I", buf, 0x3C)[0]
-    num_sections = struct.unpack_from("<H", buf, e_lfanew + 6)[0]
-    opt_hdr_size = struct.unpack_from("<H", buf, e_lfanew + 20)[0]
-
-    # Inspect PE Optional Header magic (DOM5-MAJ-02):
-    # 0x10b for PE32 (32-bit), 0x20b for PE32+ (64-bit)
-    opt_hdr_offset = e_lfanew + 24
-    opt_magic = struct.unpack_from("<H", buf, opt_hdr_offset)[0]
-    if opt_magic == 0x10B:
-        # PE32: 4-byte ImageBase at offset 28 in Optional Header
-        image_base = struct.unpack_from("<I", buf, opt_hdr_offset + 28)[0]
-    elif opt_magic == 0x20B:
-        # PE32+: 8-byte ImageBase at offset 24 in Optional Header
-        image_base = struct.unpack_from("<Q", buf, opt_hdr_offset + 24)[0]
-    else:
-        image_base = struct.unpack_from("<Q", buf, opt_hdr_offset + 24)[0]
-
-    sec_offset = e_lfanew + 24 + opt_hdr_size
-    found_xrefs = []
-    for s in range(num_sections):
-        sec_hdr = buf[sec_offset + s * 40 : sec_offset + (s + 1) * 40]
-        sec_name = sec_hdr[:8].rstrip(b"\x00").decode("latin-1")
-        vsize, vaddr, raw_size, raw_offset = struct.unpack_from("<IIII", sec_hdr, 8)
-        if sec_name in (".text", "code"):
-            sec_data = buf[raw_offset : raw_offset + raw_size]
-            base_va = image_base + vaddr
-            for i in range(1, len(sec_data) - 4):
-                # Verify preceding opcode is CALL (0xE8) or JMP (0xE9)
-                opcode = sec_data[i - 1]
-                if opcode not in (0xE8, 0xE9):
-                    continue
-                disp = struct.unpack_from("<i", sec_data, i)[0]
-                curr_va = base_va + i + 4
-                if curr_va + disp == target_va:
-                    found_xrefs.append(base_va + i - 1)
+def cmd_addr(args: argparse.Namespace) -> int:
+    """Inspects and translates a virtual address, RVA, or file offset with symbol resolution."""
+    from harness.re.address import execute_cmd_addr
 
     conn = get_dirtyroom_db()
-    binary_label = bin_path.name
-    print(f"[*] Found {len(found_xrefs)} cross-reference(s) to {hex(target_va)} in {binary_label}:")
-    for xref in found_xrefs:
-        func_name = "unknown"
-        if conn:
-            c = conn.cursor()
-            c.execute(
-                "SELECT name, address FROM functions WHERE binary_id = (SELECT id FROM binaries WHERE name=?) AND address <= ? ORDER BY address DESC LIMIT 1",
-                (binary_label, xref),
-            )
-            r = c.fetchone()
-            if r:
-                func_name = f"{r[0]} + {hex(xref - r[1])}"
-        print(f"  {hex(xref)}  ({func_name})")
-    if conn:
-        conn.close()
-    return 0
+    return execute_cmd_addr(args, conn=conn)
+
+
+def cmd_xrefs(args: argparse.Namespace) -> int:
+    """Finds cross-references to a virtual address via SQLite pre-analyzed cache and binary scanning."""
+    from harness.re.xrefs import execute_cmd_xrefs
+
+    conn = get_dirtyroom_db()
+    return execute_cmd_xrefs(args, conn=conn)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -637,7 +640,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     # xrefs
     p_xrefs = sub.add_parser("xrefs", help="Find cross-references to a virtual address")
     p_xrefs.add_argument("target", help="Target virtual address (hex 0x...)")
+    p_xrefs.add_argument("--type", choices=["all", "code", "data"], default="all", help="Xref type filter (default: all)")
     p_xrefs.add_argument("--binary", help="Target binary filename or path (auto-detects from .dirtyroom/binaries/ if omitted)")
+    p_xrefs.add_argument("--json", action="store_true", help="Output JSON")
+
+    # addr
+    p_addr = sub.add_parser("addr", help="Inspect and translate VA <-> RVA <-> File Offset with symbol resolution")
+    p_addr.add_argument("address", help="Address to translate (hex 0x... or decimal)")
+    p_addr.add_argument("--binary", help="Target binary filename or path (auto-detects from dirtyroom if omitted)")
+    p_addr.add_argument("--json", action="store_true", help="Output JSON")
 
     # cache (Issue #113)
     p_cache = sub.add_parser("cache", help="Inspect or clear decompiler query cache (Issue #113)")
@@ -696,6 +707,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_disasm(args)
     if args.re_cmd == "xrefs":
         return cmd_xrefs(args)
+    if args.re_cmd == "addr":
+        return cmd_addr(args)
     if args.re_cmd == "cache":
         from harness.re.cache import cmd_cache
         return cmd_cache(args)
