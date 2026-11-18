@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from harness.re.patcher import apply_patch, check_patch, revert_patch
 from harness.re.preanalyze import find_ghidra_headless, preanalyze_binary
-from harness.re.registry import register_dirtyroom
+from harness.re.registry import try_register_dirtyroom
 from harness.re.scaffold import (
     get_dirtyroom_db,
     get_dirtyroom_root,
@@ -33,11 +33,9 @@ from harness.re.scaffold import (
 def cmd_status(args: argparse.Namespace) -> int:
     """Prints dirtyroom, Ghidra project, database, and REA patch health."""
     root = get_dirtyroom_root()
+    reg_warn: Optional[str] = None
     if root and root.is_dir():
-        try:
-            register_dirtyroom(root)
-        except OSError:
-            pass
+        _, reg_warn = try_register_dirtyroom(root)
     patch_info = check_patch()
 
     status_data: Dict[str, Any] = {
@@ -49,6 +47,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         "rea_patch": patch_info,
         "headless_ghidra": str(find_ghidra_headless()) if find_ghidra_headless() else None,
     }
+    if reg_warn:
+        status_data["registry_warning"] = reg_warn
 
     if root and (root / "ghidra").is_dir():
         for gpr in (root / "ghidra").glob("*.gpr"):
@@ -346,10 +346,7 @@ def cmd_decompile(args: argparse.Namespace) -> int:
     root = get_dirtyroom_root()
     if root:
         if root.is_dir():
-            try:
-                register_dirtyroom(root)
-            except OSError:
-                pass
+            try_register_dirtyroom(root)
         ghidra_dir = root / "ghidra"
         if ghidra_dir.is_dir():
             env["REA_GHIDRA_PROJECT_DIR"] = str(ghidra_dir)

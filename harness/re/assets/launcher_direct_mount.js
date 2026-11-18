@@ -36,7 +36,7 @@
                 }
             } catch {}
             // (c) Create sibling 'dirtyroom -> .dirtyroom' symlink if absent
-            if (__aliasRoot && __replaced) {
+            if (__aliasRoot && __replaced && !__agyisHasDotPart(__replaced)) {
                 try {
                     __agyisLstatSync(__aliasRoot);
                 } catch {
@@ -150,9 +150,12 @@
                 const __preferred = scriptPath.join(__curr, "dirtyroom", "ghidra");
                 if (__agyisListGprs(__preferred).length > 0) {
                     __foundLocalDir = true;
-                    const __sel = __agyisSelectGpr(__preferred, targetBase, explicitProjectName, allowUnmatched);
-                    if (__sel) {
-                        return { projectDir: __preferred, projectName: __sel.projectName, programName: __sel.programName };
+                    const __safePreferred = __agyisToNonDotDir(__preferred);
+                    if (__safePreferred) {
+                        const __sel = __agyisSelectGpr(__safePreferred, targetBase, explicitProjectName, allowUnmatched);
+                        if (__sel) {
+                            return { projectDir: __safePreferred, projectName: __sel.projectName, programName: __sel.programName };
+                        }
                     }
                 }
                 const __dotCand = scriptPath.join(__curr, ".dirtyroom", "ghidra");
@@ -201,7 +204,7 @@
             if (!__rawMap || typeof __rawMap !== "object") return undefined;
             const __entries = (Array.isArray(__rawMap) ? __rawMap : Object.values(__rawMap))
                 .filter((e) => e && typeof e === "object" && typeof e.ghidra_dir === "string")
-                .sort((a, b) => Number(b.last_seen || 0) - Number(a.last_seen || 0))
+                .sort((a, b) => (Number(b.last_seen) || 0) - (Number(a.last_seen) || 0))
                 .slice(0, 64);
             if (__entries.length === 0) return undefined;
             const __baseForSha = typeof targetPath === "string" ? scriptPath.basename(targetPath) : "";

@@ -23,7 +23,7 @@ import subprocess
 import sys
 from typing import Any, Dict, List, Optional
 
-from harness.re.registry import register_dirtyroom
+from harness.re.registry import try_register_dirtyroom
 from harness.re.scaffold import get_dirtyroom_db, get_dirtyroom_root, resolve_binary_path
 
 
@@ -438,12 +438,9 @@ def seed_packets(
         cursor.execute("UPDATE runs SET finished_at = ? WHERE id = ?", (finished_at, run_id))
         conn.commit()
 
-        try:
-            register_dirtyroom(root)
-        except OSError:
-            pass
+        _, reg_warn = try_register_dirtyroom(root)
 
-        return {
+        result: Dict[str, Any] = {
             "success": True,
             "pcap": str(resolved_pcap),
             "packets_ingested": len(packets),
@@ -453,6 +450,9 @@ def seed_packets(
             "started_at": started_at,
             "finished_at": finished_at,
         }
+        if reg_warn:
+            result["registry_warning"] = reg_warn
+        return result
     except sqlite3.Error as e:
         return {"success": False, "error": f"Database error seeding packets: {e}"}
     finally:

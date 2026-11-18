@@ -3077,6 +3077,315 @@ class TestGlobalReaDirectMountAndAutoDiscovery(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, f"V4 regression E2E failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
         self.assertIn("V4_REGRESSIONS_OK", proc.stdout)
 
+    def test_try_register_dirtyroom_diagnostics_and_json_stdout_purity(self):
+        """Verifies try_register_dirtyroom surfaces OSError warnings via stderr + result dicts while keeping JSON stdout clean."""
+        from harness.commands.re import cmd_decompile, cmd_status
+        from harness.re.preanalyze import preanalyze_binary
+        from harness.re.registry import try_register_dirtyroom
+        from harness.re.seeding import seed_packets
+
+        # Regular file used as parent directory triggers deterministic NotADirectoryError (OSError) even as root
+        blocker_file = self.root / "reg_parent_blocker"
+        blocker_file.write_text("not-a-directory", encoding="utf-8")
+        unwritable_reg = blocker_file / "agyis_dirtyrooms.json"
+
+        ws = self.root / "ws_warn"
+        err_buf = io.StringIO()
+        with patch.dict(os.environ, {"AGYIS_DIRTYROOM_REGISTRY": str(unwritable_reg)}), \
+             patch("sys.stderr", err_buf):
+            scaf_res = scaffold_dirtyroom(ws, project_name="WarnProj")
+        self.assertTrue(scaf_res["success"])
+        self.assertIn("registry_warning", scaf_res)
+        self.assertIn("Failed to update global dirtyroom registry", scaf_res["registry_warning"])
+        self.assertIn("[!] Warning: Failed to update global dirtyroom registry", err_buf.getvalue())
+
+        dr = ws / ".dirtyroom"
+        (dr / "ghidra" / "WarnProj.gpr").write_text("gpr", encoding="utf-8")
+
+        # Direct helper with emit_stderr=False returns warning without touching stderr
+        silent_err = io.StringIO()
+        with patch("sys.stderr", silent_err):
+            reg_res, reg_warn = try_register_dirtyroom(dr, registry_path=unwritable_reg, emit_stderr=False)
+        self.assertIsNone(reg_res)
+        self.assertIsNotNone(reg_warn)
+        self.assertEqual(silent_err.getvalue(), "")
+
+        # cmd_status --json: stdout must remain strictly valid JSON carrying registry_warning; warning goes to stderr
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        with patch.dict(os.environ, {"AGYIS_DIRTYROOM_REGISTRY": str(unwritable_reg)}), \
+             patch("harness.commands.re.get_dirtyroom_root", return_value=dr), \
+             patch("harness.commands.re.check_patch", return_value={"status": "applied", "message": "ok"}), \
+             patch("harness.commands.re.find_ghidra_headless", return_value=None), \
+             patch("sys.stdout", out_buf), \
+             patch("sys.stderr", err_buf):
+            self.assertEqual(cmd_status(argparse.Namespace(json=True)), 0)
+        parsed_status = json.loads(out_buf.getvalue())
+        self.assertIn("registry_warning", parsed_status)
+        self.assertIn("[!] Warning: Failed to update global dirtyroom registry", err_buf.getvalue())
+
+        # preanalyze_binary (no headless path + headless success path)
+        bin_path = dr / "binaries" / "WarnApp.exe"
+        bin_path.parent.mkdir(parents=True, exist_ok=True)
+        bin_path.write_bytes(b"MZWARN_PAYLOAD")
+
+        err_buf = io.StringIO()
+        with patch.dict(os.environ, {"AGYIS_DIRTYROOM_REGISTRY": str(unwritable_reg)}), \
+             patch("harness.re.preanalyze.find_ghidra_headless", return_value=None), \
+             patch("sys.stderr", err_buf):
+            pre_no_hl = preanalyze_binary(bin_path, dirtyroom_dir=dr, project_name="WarnProj")
+        self.assertFalse(pre_no_hl["success"])
+        self.assertIn("registry_warning", pre_no_hl)
+        self.assertIn("[!] Warning: Failed to update global dirtyroom registry", err_buf.getvalue())
+
+        err_buf = io.StringIO()
+        mock_hl_proc = MagicMock(returncode=0)
+        with patch.dict(os.environ, {"AGYIS_DIRTYROOM_REGISTRY": str(unwritable_reg)}), \
+             patch("harness.re.preanalyze.find_ghidra_headless", return_value=Path("/opt/ghidra/analyzeHeadless")), \
+             patch("harness.re.preanalyze.subprocess.run", return_value=mock_hl_proc), \
+             patch("sys.stderr", err_buf):
+            pre_ok = preanalyze_binary(bin_path, dirtyroom_dir=dr, project_name="WarnProj")
+        self.assertTrue(pre_ok["success"])
+        self.assertIn("registry_warning", pre_ok)
+        self.assertIn("[!] Warning: Failed to update global dirtyroom registry", err_buf.getvalue())
+
+        # seed_packets surfaces registry_warning and writes to stderr
+        pcap_path = dr / "pcaps" / "warn.pcap"
+        pcap_path.write_bytes(_make_synthetic_pcap([(1700000000, 1, 6, "10.0.0.1", "10.0.0.2", 1234, 80, b"hi")]))
+        err_buf = io.StringIO()
+        with patch.dict(os.environ, {"AGYIS_DIRTYROOM_REGISTRY": str(unwritable_reg)}), \
+             patch("sys.stderr", err_buf):
+            seed_res = seed_packets(pcap_path=pcap_path, binary_name="WarnApp.exe", dirtyroom_root=dr)
+        self.assertTrue(seed_res["success"])
+        self.assertIn("registry_warning", seed_res)
+        self.assertIn("[!] Warning: Failed to update global dirtyroom registry", err_buf.getvalue())
+
+        # cmd_decompile emits warning to stderr without blocking decompilation
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        mock_dec = MagicMock(returncode=0, stdout="int main() { return 0; }\n", stderr="")
+        with patch.dict(os.environ, {"AGYIS_DIRTYROOM_REGISTRY": str(unwritable_reg)}), \
+             patch("shutil.which", return_value="/usr/local/bin/rea"), \
+             patch("subprocess.run", return_value=mock_dec), \
+             patch("harness.commands.re.get_dirtyroom_root", return_value=dr), \
+             patch("sys.stdout", out_buf), \
+             patch("sys.stderr", err_buf):
+            code = cmd_decompile(argparse.Namespace(procedure="main", binary=str(bin_path), no_cache=True, timeout=10.0))
+        self.assertEqual(code, 0)
+        self.assertIn("int main()", out_buf.getvalue())
+        self.assertIn("[!] Warning: Failed to update global dirtyroom registry", err_buf.getvalue())
+
+    def test_read_registered_binaries_streams_and_caps_at_max(self):
+        """Verifies _read_registered_binaries streams via cursor iteration without fetchall() and caps at MAX_BINARIES_PER_DIRTYROOM."""
+        from harness.re.registry import MAX_BINARIES_PER_DIRTYROOM, _read_registered_binaries
+
+        dr = self.root / "ws_stream" / ".dirtyroom"
+        (dr / "symbols").mkdir(parents=True)
+        db_path = dr / "symbols" / "dirtyroom.db"
+        total_rows = MAX_BINARIES_PER_DIRTYROOM + 40
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE binaries (name TEXT, sha256 TEXT)")
+        conn.executemany(
+            "INSERT INTO binaries VALUES (?, ?)",
+            [(f"bin_{idx:04d}.exe", f"{idx + 1:012x}" + "a" * 52) for idx in range(total_rows)],
+        )
+        conn.commit()
+        conn.close()
+
+        rows_yielded = 0
+        real_connect = sqlite3.connect
+
+        class _StreamingCursorProxy:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def fetchall(self):
+                raise AssertionError("_read_registered_binaries must stream rows instead of calling fetchall()")
+
+            def __iter__(self):
+                nonlocal rows_yielded
+                for row in self._inner:
+                    rows_yielded += 1
+                    yield row
+
+            def close(self):
+                self._inner.close()
+
+        class _StreamingConnProxy:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def execute(self, sql, *args, **kwargs):
+                return _StreamingCursorProxy(self._inner.execute(sql, *args, **kwargs))
+
+            def close(self):
+                self._inner.close()
+
+        with patch("harness.re.registry.sqlite3.connect", side_effect=lambda *a, **kw: _StreamingConnProxy(real_connect(*a, **kw))):
+            binaries = _read_registered_binaries(dr)
+
+        self.assertEqual(len(binaries), MAX_BINARIES_PER_DIRTYROOM)
+        self.assertEqual(rows_yielded, MAX_BINARIES_PER_DIRTYROOM + 1)
+
+    def test_resolve_nondot_ghidra_dir_hidden_ancestor_guard(self):
+        """Verifies resolve_nondot_ghidra_dir returns None and avoids creating a useless symlink under a dot-prefixed ancestor."""
+        from harness.re.registry import resolve_nondot_ghidra_dir
+
+        hidden_ws = self.root / ".hidden" / "ws"
+        hidden_dr = hidden_ws / ".dirtyroom"
+        (hidden_dr / "ghidra").mkdir(parents=True)
+        (hidden_dr / "ghidra" / "HiddenProj.gpr").write_text("gpr", encoding="utf-8")
+
+        self.assertIsNone(resolve_nondot_ghidra_dir(hidden_dr))
+        self.assertFalse((hidden_ws / "dirtyroom").exists())
+        self.assertFalse((hidden_ws / "dirtyroom").is_symlink())
+
+    def test_node_launcher_nan_safe_sort_and_hidden_ancestor_guards(self):
+        """Real Node.js test verifying NaN-safe last_seen sorting and hidden-ancestor non-dot guards in launcher_direct_mount.js."""
+        node_bin = shutil.which("node")
+        if not node_bin:
+            self.skipTest("node binary not available in PATH")
+
+        mock_rea = self.root / "rea-hardening"
+        (mock_rea / "dist" / "ghidra").mkdir(parents=True)
+        (mock_rea / "dist" / "mcp").mkdir(parents=True)
+        (mock_rea / "dist" / "application").mkdir(parents=True)
+        (mock_rea / "package.json").write_text('{"name":"rea-agents","type":"module"}\n', encoding="utf-8")
+        launcher_stub = (
+            'import { posix, win32 } from "node:path";\n'
+            'export const ghidraHeadlessArguments = (options) => {\n'
+            '    const scriptPath = (options.platform ?? process.platform) === "win32" ? win32 : posix;\n'
+            '    const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+            '    return [options.projectRoot, "rea-project", "-import", options.targetPath];\n'
+            '};\n'
+        )
+        (mock_rea / "dist" / "ghidra" / "GhidraLauncher.js").write_text(launcher_stub, encoding="utf-8")
+        (mock_rea / "dist" / "mcp" / "binary-hardening.js").write_text(launcher_stub, encoding="utf-8")
+        (mock_rea / "dist" / "ghidra" / "GhidraTargetSnapshot.js").write_text(
+            'import { extname, join } from "node:path";\n'
+            'export const createGhidraTargetSnapshot = async (sourcePath, runtimeRoot, expectedSha256) => {\n'
+            '    const suffix = extname(sourcePath) || ".bin";\n'
+            '    const snapshotPath = join(runtimeRoot, `target-${expectedSha256.slice(0, 12)}${suffix}`);\n'
+            '    return { path: snapshotPath, sha256: expectedSha256 };\n'
+            '};\n',
+            encoding="utf-8",
+        )
+        (mock_rea / "dist" / "application" / "BinaryTargetResolver.js").write_text(
+            'import { realpath } from "node:fs/promises";\n'
+            'export const resolveBinaryTarget = async (candidate) => ({ sourcePath: await realpath(candidate) });\n',
+            encoding="utf-8",
+        )
+        self.assertTrue(apply_patch(mock_rea)["success"])
+
+        # 1. NaN-safe last_seen sorting: invalid string entry listed FIRST must lose to valid numeric last_seen entry
+        ws_invalid = self.root / "ws_nan_invalid"
+        idata_inv = ws_invalid / "dirtyroom" / "ghidra" / "InvalidTsProj.rep" / "idata" / "00"
+        idata_inv.mkdir(parents=True)
+        (ws_invalid / "dirtyroom" / "ghidra" / "InvalidTsProj.gpr").write_text("gpr", encoding="utf-8")
+        (idata_inv / "00000001.prp").write_text(
+            '<FILE_INFO><BASIC_INFO><STATE NAME="CONTENT_TYPE" TYPE="string" VALUE="Program" />'
+            '<STATE NAME="NAME" TYPE="string" VALUE="SharedApp.exe" /></BASIC_INFO></FILE_INFO>\n',
+            encoding="utf-8",
+        )
+
+        ws_valid = self.root / "ws_nan_valid"
+        idata_val = ws_valid / "dirtyroom" / "ghidra" / "ValidTsProj.rep" / "idata" / "00"
+        idata_val.mkdir(parents=True)
+        (ws_valid / "dirtyroom" / "ghidra" / "ValidTsProj.gpr").write_text("gpr", encoding="utf-8")
+        (idata_val / "00000001.prp").write_text(
+            '<FILE_INFO><BASIC_INFO><STATE NAME="CONTENT_TYPE" TYPE="string" VALUE="Program" />'
+            '<STATE NAME="NAME" TYPE="string" VALUE="SharedApp.exe" /></BASIC_INFO></FILE_INFO>\n',
+            encoding="utf-8",
+        )
+
+        nan_reg = self.root / "nan_sort_registry.json"
+        nan_reg.write_text(
+            json.dumps({
+                "version": 1,
+                "dirtyrooms": {
+                    str(ws_invalid / "dirtyroom" / "ghidra"): {
+                        "ghidra_dir": str(ws_invalid / "dirtyroom" / "ghidra"),
+                        "last_seen": "invalid",
+                        "projects": ["InvalidTsProj"],
+                        "binaries": {},
+                    },
+                    str(ws_valid / "dirtyroom" / "ghidra"): {
+                        "ghidra_dir": str(ws_valid / "dirtyroom" / "ghidra"),
+                        "last_seen": 500,
+                        "projects": ["ValidTsProj"],
+                        "binaries": {},
+                    },
+                },
+            }),
+            encoding="utf-8",
+        )
+
+        # 2. Hidden-ancestor .dirtyroom: must NOT create sibling symlink and must NOT leak dot path
+        hidden_dot_ws = self.root / ".hidden_js" / "ws_dot"
+        (hidden_dot_ws / ".dirtyroom" / "ghidra").mkdir(parents=True)
+        (hidden_dot_ws / ".dirtyroom" / "ghidra" / "HiddenDotProj.gpr").write_text("gpr", encoding="utf-8")
+        (hidden_dot_ws / ".dirtyroom" / "binaries").mkdir(parents=True)
+        hidden_dot_bin = hidden_dot_ws / ".dirtyroom" / "binaries" / "DotApp.exe"
+        hidden_dot_bin.write_bytes(b"MZ")
+
+        # 3. Hidden-ancestor preferred dirtyroom/ghidra: must NOT leak leading-dot ancestor path to Ghidra
+        hidden_pref_ws = self.root / ".hidden_js" / "ws_pref"
+        (hidden_pref_ws / "dirtyroom" / "ghidra").mkdir(parents=True)
+        (hidden_pref_ws / "dirtyroom" / "ghidra" / "HiddenPrefProj.gpr").write_text("gpr", encoding="utf-8")
+        (hidden_pref_ws / "dirtyroom" / "binaries").mkdir(parents=True)
+        hidden_pref_bin = hidden_pref_ws / "dirtyroom" / "binaries" / "PrefApp.exe"
+        hidden_pref_bin.write_bytes(b"MZ")
+
+        driver = self.root / "hardening_driver.mjs"
+        driver.write_text(
+            'import assert from "node:assert/strict";\n'
+            'import { ghidraHeadlessArguments } from "./rea-hardening/dist/ghidra/GhidraLauncher.js";\n'
+            'const base = {\n'
+            '    platform: "linux", projectRoot: "/tmp/p", bridgeScriptPath: "/b/B.java",\n'
+            '    descriptorPath: "/d", ghidraLogPath: "/g", scriptLogPath: "/s",\n'
+            '};\n'
+            '// Case 1: NaN-safe last_seen sort picks ValidTsProj (last_seen=500) over InvalidTsProj (last_seen="invalid")\n'
+            'const argsSort = ghidraHeadlessArguments({ ...base, targetPath: "/tmp/other/SharedApp.exe" });\n'
+            'assert.equal(argsSort[0], process.env.EXPECTED_VALID_DIR);\n'
+            'assert.equal(argsSort[1], "ValidTsProj");\n'
+            'assert.equal(argsSort[2], "-process");\n'
+            'assert.equal(argsSort[3], "SharedApp.exe");\n'
+            '// Case 2: Hidden-ancestor .dirtyroom via explicit env & auto-discovery falls back cleanly to -import\n'
+            'process.env.REA_GHIDRA_PROJECT_DIR = process.env.HIDDEN_DOT_GHIDRA;\n'
+            'const argsHiddenEnv = ghidraHeadlessArguments({ ...base, targetPath: process.env.HIDDEN_DOT_BIN });\n'
+            'assert.equal(argsHiddenEnv[2], "-import");\n'
+            'delete process.env.REA_GHIDRA_PROJECT_DIR;\n'
+            'const argsHiddenAuto = ghidraHeadlessArguments({ ...base, targetPath: process.env.HIDDEN_DOT_BIN });\n'
+            'assert.equal(argsHiddenAuto[2], "-import");\n'
+            '// Case 3: Hidden-ancestor preferred dirtyroom/ghidra does not leak dot-ancestor path into Ghidra\n'
+            'const argsHiddenPref = ghidraHeadlessArguments({ ...base, targetPath: process.env.HIDDEN_PREF_BIN });\n'
+            'assert.equal(argsHiddenPref[2], "-import");\n'
+            'console.log("JS_HARDENING_OK");\n',
+            encoding="utf-8",
+        )
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": str(self.root),
+            "REA_GHIDRA_DIRECT_MOUNT": "1",
+            "AGYIS_DIRTYROOM_REGISTRY": str(nan_reg),
+            "EXPECTED_VALID_DIR": str(ws_valid / "dirtyroom" / "ghidra"),
+            "HIDDEN_DOT_GHIDRA": str(hidden_dot_ws / ".dirtyroom" / "ghidra"),
+            "HIDDEN_DOT_BIN": str(hidden_dot_bin),
+            "HIDDEN_PREF_BIN": str(hidden_pref_bin),
+        }
+        proc = subprocess.run(
+            [node_bin, str(driver)],
+            cwd="/tmp",
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(proc.returncode, 0, f"JS hardening test failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+        self.assertIn("JS_HARDENING_OK", proc.stdout)
+        self.assertFalse((hidden_dot_ws / "dirtyroom").exists())
+        self.assertFalse((hidden_dot_ws / "dirtyroom").is_symlink())
+
 
 if __name__ == "__main__":
     unittest.main()

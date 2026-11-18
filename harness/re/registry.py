@@ -13,9 +13,10 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import sys
 import tempfile
 import time
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 try:
     import fcntl
@@ -86,7 +87,13 @@ def resolve_nondot_ghidra_dir(dirtyroom_root: Path) -> Optional[Path]:
     for candidate in (_valid_alias(), ghidra_raw, resolved_ghidra):
         if candidate is not None and not _has_dot_component(candidate):
             return candidate
-    if alias_root is not None and not alias_root.exists() and not alias_root.is_symlink() and any(p.is_file() for p in ghidra_raw.glob("*.gpr")):
+    if (
+        alias_root is not None
+        and not _has_dot_component(alias_root)
+        and not alias_root.exists()
+        and not alias_root.is_symlink()
+        and any(p.is_file() for p in ghidra_raw.glob("*.gpr"))
+    ):
         try:
             alias_root.symlink_to(raw_root.name, target_is_directory=True)
         except OSError:
@@ -115,13 +122,14 @@ def _read_registered_binaries(dirtyroom_root: Path) -> Dict[str, str]:
                 continue
             seen.add(rp)
             with closing(sqlite3.connect(f"{rp.as_uri()}?mode=ro", uri=True)) as conn:
-                for name, sha256 in conn.execute("SELECT name, sha256 FROM binaries").fetchall():
-                    if len(binaries) >= MAX_BINARIES_PER_DIRTYROOM:
-                        break
-                    if isinstance(name, str) and name.strip() and isinstance(sha256, str):
-                        prefix = sha256.strip()[:12].lower()
-                        if len(prefix) == 12 and prefix != "000000000000" and _HEX_CHARS.issuperset(prefix):
-                            binaries.setdefault(prefix, name.strip())
+                with closing(conn.execute("SELECT name, sha256 FROM binaries")) as cursor:
+                    for name, sha256 in cursor:
+                        if len(binaries) >= MAX_BINARIES_PER_DIRTYROOM:
+                            break
+                        if isinstance(name, str) and name.strip() and isinstance(sha256, str):
+                            prefix = sha256.strip()[:12].lower()
+                            if len(prefix) == 12 and prefix != "000000000000" and _HEX_CHARS.issuperset(prefix):
+                                binaries.setdefault(prefix, name.strip())
         except (sqlite3.Error, OSError, ValueError):
             continue
     return binaries
@@ -193,3 +201,18 @@ def register_dirtyroom(dirtyroom_root: Path, registry_path: Optional[Path] = Non
         _atomic_write_json(reg_path, {"version": _REGISTRY_VERSION, "updated_at": now_iso, "dirtyrooms": pruned})
 
     return {"registered": True, "registry_path": str(reg_path), "ghidra_dir": key_str, "projects": projects, "binaries": binaries, "entry_count": len(pruned)}
+
+
+def try_register_dirtyroom(
+    dirtyroom_root: Path,
+    registry_path: Optional[Path] = None,
+    emit_stderr: bool = True,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Best-effort dirtyroom registry update that surfaces OSError diagnostics via stderr."""
+    try:
+        return register_dirtyroom(dirtyroom_root, registry_path=registry_path), None
+    except OSError as exc:
+        warning = f"Warning: Failed to update global dirtyroom registry for {dirtyroom_root}: {exc}"
+        if emit_stderr:
+            sys.stderr.write(f"[!] {warning}\n")
+        return None, warning

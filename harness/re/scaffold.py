@@ -13,7 +13,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Dict, Optional
 
-from harness.re.registry import register_dirtyroom
+from harness.re.registry import try_register_dirtyroom
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS binaries (
@@ -308,12 +308,9 @@ export REA_GHIDRA_DIRECT_MOUNT="1"
                     f.write(f"{sep}{header}" + "\n".join(missing) + "\n")
                 root_gi_updated = True
 
-    try:
-        register_dirtyroom(dirty_dir)
-    except OSError:
-        pass
+    _, reg_warn = try_register_dirtyroom(dirty_dir)
 
-    return {
+    result: Dict[str, Any] = {
         "success": True,
         "dirtyroom_root": str(dirty_dir),
         "symlink_alias": str(symlink_alias) if (symlink_alias.exists() or symlink_alias.is_symlink()) else None,
@@ -323,3 +320,6 @@ export REA_GHIDRA_DIRECT_MOUNT="1"
         "env_file": str(env_file),
         "root_gitignore_updated": root_gi_updated,
     }
+    if reg_warn:
+        result["registry_warning"] = reg_warn
+    return result

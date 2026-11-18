@@ -18,7 +18,7 @@ import shutil
 import subprocess
 from typing import Any, Dict, List, Optional
 
-from harness.re.registry import register_dirtyroom
+from harness.re.registry import try_register_dirtyroom
 from harness.re.scaffold import get_dirtyroom_db, get_dirtyroom_root, scaffold_dirtyroom
 
 
@@ -196,15 +196,12 @@ def preanalyze_binary(
         counts = index_binary_symbols(b_path, conn, binary_id)
         conn.close()
 
-    try:
-        register_dirtyroom(root)
-    except OSError:
-        pass
+    _, reg_warn = try_register_dirtyroom(root)
 
     # Locate analyzeHeadless
     headless = find_ghidra_headless()
     if not headless:
-        return {
+        result: Dict[str, Any] = {
             "success": False,
             "error": "analyzeHeadless not found. Set GHIDRA_INSTALL_DIR or install Ghidra.",
             "binary": b_path.name,
@@ -212,6 +209,9 @@ def preanalyze_binary(
             "size_mb": round(file_size / (1024 * 1024), 2),
             "indexed_symbols": counts,
         }
+        if reg_warn:
+            result["registry_warning"] = reg_warn
+        return result
 
     # Ensure project_dir passed to analyzeHeadless does not contain a leading '.' component (DEF-BB-038)
     # Ghidra ProjectLocator / NamingUtilities.checkName raises IllegalArgumentException
@@ -254,12 +254,9 @@ def preanalyze_binary(
             check=False,
         )
 
-    try:
-        register_dirtyroom(root)
-    except OSError:
-        pass
+    _, reg_warn = try_register_dirtyroom(root)
 
-    return {
+    result = {
         "success": proc.returncode == 0,
         "exit_code": proc.returncode,
         "ghidra_project": str(gpr_file),
@@ -269,3 +266,6 @@ def preanalyze_binary(
         "log_path": str(log_path),
         "indexed_symbols": counts,
     }
+    if reg_warn:
+        result["registry_warning"] = reg_warn
+    return result
