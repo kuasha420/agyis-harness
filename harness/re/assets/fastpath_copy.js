@@ -1,4 +1,4 @@
-    // AGYIS_REA_AUTODISCOVERY_V3: Zero-copy direct-mount disk clone bypass
+    // AGYIS_REA_AUTODISCOVERY_V4: Zero-copy direct-mount disk clone bypass
     if (process.env.REA_GHIDRA_DIRECT_MOUNT !== "0") {
         let __agyisBypass = Boolean(
             process.env.REA_GHIDRA_PROJECT_DIR ||

@@ -23,6 +23,7 @@ import subprocess
 import sys
 from typing import Any, Dict, List, Optional
 
+from harness.re.registry import register_dirtyroom
 from harness.re.scaffold import get_dirtyroom_db, get_dirtyroom_root, resolve_binary_path
 
 
@@ -436,6 +437,11 @@ def seed_packets(
         finished_at = _utc_now_iso()
         cursor.execute("UPDATE runs SET finished_at = ? WHERE id = ?", (finished_at, run_id))
         conn.commit()
+
+        try:
+            register_dirtyroom(root)
+        except OSError:
+            pass
 
         return {
             "success": True,

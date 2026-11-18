@@ -13,6 +13,8 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Dict, Optional
 
+from harness.re.registry import register_dirtyroom
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS binaries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -305,6 +307,11 @@ export REA_GHIDRA_DIRECT_MOUNT="1"
                 with open(root_gi, "a", encoding="utf-8") as f:
                     f.write(f"{sep}{header}" + "\n".join(missing) + "\n")
                 root_gi_updated = True
+
+    try:
+        register_dirtyroom(dirty_dir)
+    except OSError:
+        pass
 
     return {
         "success": True,
