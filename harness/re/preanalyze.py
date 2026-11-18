@@ -18,6 +18,7 @@ import shutil
 import subprocess
 from typing import Any, Dict, List, Optional
 
+from harness.re.registry import register_dirtyroom
 from harness.re.scaffold import get_dirtyroom_db, get_dirtyroom_root, scaffold_dirtyroom
 
 
@@ -195,6 +196,11 @@ def preanalyze_binary(
         counts = index_binary_symbols(b_path, conn, binary_id)
         conn.close()
 
+    try:
+        register_dirtyroom(root)
+    except OSError:
+        pass
+
     # Locate analyzeHeadless
     headless = find_ghidra_headless()
     if not headless:
@@ -247,6 +253,11 @@ def preanalyze_binary(
             timeout=timeout_seconds,
             check=False,
         )
+
+    try:
+        register_dirtyroom(root)
+    except OSError:
+        pass
 
     return {
         "success": proc.returncode == 0,

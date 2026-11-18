@@ -44,10 +44,29 @@ from harness.re.scaffold import (
 )
 
 
+def _isolate_registry(test_case: unittest.TestCase) -> Path:
+    """Redirects AGYIS_DIRTYROOM_REGISTRY into an isolated temp dir for test hermeticity."""
+    reg_td = tempfile.TemporaryDirectory()
+    reg_path = Path(reg_td.name) / "agyis_dirtyrooms.json"
+    orig_val = os.environ.get("AGYIS_DIRTYROOM_REGISTRY")
+    os.environ["AGYIS_DIRTYROOM_REGISTRY"] = str(reg_path)
+
+    def _restore() -> None:
+        if orig_val is None:
+            os.environ.pop("AGYIS_DIRTYROOM_REGISTRY", None)
+        else:
+            os.environ["AGYIS_DIRTYROOM_REGISTRY"] = orig_val
+        reg_td.cleanup()
+
+    test_case.addCleanup(_restore)
+    return reg_path
+
+
 class TestDirtyroomScaffolding(unittest.TestCase):
     """Verifies hermetic dirtyroom directory and SQLite schema generation."""
 
     def setUp(self):
+        self.registry_path = _isolate_registry(self)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temp_dir.name)
 
@@ -518,6 +537,7 @@ class TestCmdDecompilePSLINV009(unittest.TestCase):
     """Verifies PSL-INV-009 §1 pre-analyzed cache enforcement in cmd_decompile (DEF-BB-039)."""
 
     def setUp(self):
+        self.registry_path = _isolate_registry(self)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temp_dir.name)
 
@@ -900,6 +920,7 @@ class TestDirtyroomSeeding(unittest.TestCase):
     """Verifies PCAP parsing, schema extensions, frame ingestion, and run linking."""
 
     def setUp(self):
+        self.registry_path = _isolate_registry(self)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temp_dir.name)
         scaffold_dirtyroom(self.workspace, project_name="SeedTest")
@@ -1228,6 +1249,7 @@ class TestDirtyroomPriming(unittest.TestCase):
     """Verifies decompiler query cache pre-warming and priority function selection."""
 
     def setUp(self):
+        self.registry_path = _isolate_registry(self)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temp_dir.name)
         scaffold_dirtyroom(self.workspace, project_name="PrimeTest")
@@ -1505,6 +1527,7 @@ class TestDirtyroomHygiene(unittest.TestCase):
     """Verifies lock file detection, log pruning, database vacuum, and routine hygiene."""
 
     def setUp(self):
+        self.registry_path = _isolate_registry(self)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temp_dir.name)
         scaffold_dirtyroom(self.workspace, project_name="HygieneTest")
@@ -1802,6 +1825,7 @@ class TestGlobalReaDirectMountAndAutoDiscovery(unittest.TestCase):
     """End-to-end verification of global mcp_config.json wiring and multi-workspace JS direct-mount."""
 
     def setUp(self):
+        self.registry_path = _isolate_registry(self)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
 
@@ -2261,6 +2285,7 @@ class TestGlobalReaDirectMountAndAutoDiscovery(unittest.TestCase):
             "PATH": os.environ.get("PATH", ""),
             "HOME": os.environ.get("HOME", str(self.root)),
             "REA_GHIDRA_DIRECT_MOUNT": "1",
+            "AGYIS_DIRTYROOM_REGISTRY": str(self.registry_path),
             "TEST_WS": str(re_ws),
             "TEST_TARGET": str(target_exe),
             "TEST_PLAIN": str(plain_exe),
@@ -2417,6 +2442,7 @@ class TestGlobalReaDirectMountAndAutoDiscovery(unittest.TestCase):
             "PATH": os.environ.get("PATH", ""),
             "HOME": os.environ.get("HOME", str(self.root)),
             "REA_GHIDRA_DIRECT_MOUNT": "1",
+            "AGYIS_DIRTYROOM_REGISTRY": str(self.registry_path),
             "WS_NOSYM": str(ws_nosym),
             "T_NOSYM": str(t_nosym),
             "WS_MULTI": str(ws_multi),
@@ -2469,6 +2495,587 @@ class TestGlobalReaDirectMountAndAutoDiscovery(unittest.TestCase):
                 self.assertEqual(chk.returncode, 0, f"node --check failed on {patched_file}:\n{chk.stderr}")
             self.assertTrue(revert_patch(real_copy)["success"])
             self.assertEqual(check_patch(real_copy)["status"], "unapplied")
+
+    def test_dirtyroom_registry_registration_nondot_cap_and_pruning(self):
+        """Verifies register_dirtyroom non-dot resolution, binaries map, 64-entry LRU cap, pruning, and CLI wiring."""
+        from harness.commands.re import cmd_decompile, cmd_status
+        from harness.re.preanalyze import preanalyze_binary
+        from harness.re.registry import (
+            MAX_REGISTRY_ENTRIES,
+            load_dirtyroom_registry,
+            register_dirtyroom,
+        )
+        from harness.re.seeding import seed_packets
+
+        reg_file = self.root / "isolated_dirtyrooms.json"
+
+        # 1. Standard .dirtyroom with DB binaries + .gpr + placeholder zero hash ignored
+        ws1 = self.root / "ws_std"
+        scaffold_dirtyroom(ws1, project_name="StdProj")
+        dr1 = ws1 / ".dirtyroom"
+        (dr1 / "ghidra" / "StdProj.gpr").write_text("gpr", encoding="utf-8")
+        conn = sqlite3.connect(dr1 / "symbols" / "dirtyroom.db")
+        conn.execute(
+            "INSERT INTO binaries (name, sha256, file_size, created_at) VALUES (?, ?, ?, ?)",
+            ("Alpha.exe", "ABCDEF012345" + "9" * 52, 4096, "2026-11-18T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO binaries (name, sha256, file_size, created_at) VALUES (?, ?, ?, ?)",
+            ("Placeholder.exe", "0" * 64, 0, "2026-11-18T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        res1 = register_dirtyroom(dr1, registry_path=reg_file)
+        self.assertTrue(res1["registered"])
+        self.assertEqual(res1["ghidra_dir"], str(ws1 / "dirtyroom" / "ghidra"))
+        self.assertNotIn("/.dirtyroom/", res1["ghidra_dir"])
+        self.assertEqual(res1["projects"], ["StdProj"])
+        self.assertEqual(res1["binaries"], {"abcdef012345": "Alpha.exe"})
+
+        # 2. Symlinked .dirtyroom pointing to external non-dot directory (NO sibling 'dirtyroom' symlink)
+        ext_mount = self.root / "fast_storage" / "re_project_mount"
+        (ext_mount / "ghidra").mkdir(parents=True)
+        (ext_mount / "ghidra" / "ExtProj.gpr").write_text("gpr", encoding="utf-8")
+        ws_ext = self.root / "ws_symlink_dr"
+        ws_ext.mkdir()
+        (ws_ext / ".dirtyroom").symlink_to(ext_mount, target_is_directory=True)
+
+        res_ext = register_dirtyroom(ws_ext / ".dirtyroom", registry_path=reg_file)
+        self.assertTrue(res_ext["registered"])
+        self.assertEqual(res_ext["ghidra_dir"], str((ext_mount / "ghidra").resolve()))
+        self.assertFalse((ws_ext / "dirtyroom").exists())
+
+        # Deduplication: re-registering via resolved external path keeps single entry for same physical dir
+        res_ext_dup = register_dirtyroom(ext_mount, registry_path=reg_file)
+        self.assertTrue(res_ext_dup["registered"])
+        self.assertEqual(res_ext_dup["entry_count"], 2)
+
+        # 3. Stale pruning: deleting ws_std's ghidra dir removes it on next upsert
+        #    Also verify NO stray sibling symlink is created for an empty .dirtyroom/ghidra without .gpr files
+        ws_empty = self.root / "ws_empty_no_gpr"
+        (ws_empty / ".dirtyroom" / "ghidra").mkdir(parents=True)
+        res_empty = register_dirtyroom(ws_empty / ".dirtyroom", registry_path=reg_file)
+        self.assertFalse(res_empty["registered"])
+        self.assertFalse((ws_empty / "dirtyroom").exists())
+        self.assertFalse((ws_empty / "dirtyroom").is_symlink())
+
+        shutil.rmtree(dr1 / "ghidra")
+        ws_keep = self.root / "ws_keep"
+        (ws_keep / ".dirtyroom" / "ghidra").mkdir(parents=True)
+        (ws_keep / ".dirtyroom" / "ghidra" / "KeepProj.gpr").write_text("gpr", encoding="utf-8")
+        res_keep = register_dirtyroom(ws_keep / ".dirtyroom", registry_path=reg_file)
+        self.assertTrue(res_keep["registered"])
+        self.assertTrue((ws_keep / "dirtyroom").is_symlink())
+        loaded_after_prune = load_dirtyroom_registry(reg_file)["dirtyrooms"]
+        self.assertNotIn(str(ws1 / "dirtyroom" / "ghidra"), loaded_after_prune)
+        self.assertEqual(len(loaded_after_prune), 2)
+
+        # 4. Bounded 64-entry LRU eviction cap
+        cap_reg = self.root / "cap_registry.json"
+        for idx in range(MAX_REGISTRY_ENTRIES + 6):
+            w = self.root / f"cap_ws_{idx:03d}"
+            (w / "dirtyroom" / "ghidra").mkdir(parents=True)
+            register_dirtyroom(w / "dirtyroom", registry_path=cap_reg)
+        cap_entries = load_dirtyroom_registry(cap_reg)["dirtyrooms"]
+        self.assertEqual(len(cap_entries), MAX_REGISTRY_ENTRIES)
+        self.assertNotIn(str(self.root / "cap_ws_000" / "dirtyroom" / "ghidra"), cap_entries)
+        self.assertIn(str(self.root / f"cap_ws_{MAX_REGISTRY_ENTRIES + 5:03d}" / "dirtyroom" / "ghidra"), cap_entries)
+
+        # 5. Automatic wiring into scaffold_dirtyroom, preanalyze_binary, cmd_status, cmd_decompile, seed_packets
+        wire_ws = self.root / "wire_ws"
+        scaffold_dirtyroom(wire_ws, project_name="WireProj")
+        wire_key = str(wire_ws / "dirtyroom" / "ghidra")
+        self.assertIn(wire_key, load_dirtyroom_registry(self.registry_path)["dirtyrooms"])
+
+        wire_bin = wire_ws / ".dirtyroom" / "binaries" / "WireApp.exe"
+        wire_bin.parent.mkdir(parents=True, exist_ok=True)
+        wire_bin.write_bytes(b"MZWIRE_PAYLOAD_12345")
+        import hashlib
+        wire_sha12 = hashlib.sha256(wire_bin.read_bytes()).hexdigest()[:12]
+        (wire_ws / ".dirtyroom" / "ghidra" / "WireProj.gpr").write_text("gpr", encoding="utf-8")
+
+        with patch("harness.re.preanalyze.find_ghidra_headless", return_value=None):
+            preanalyze_binary(wire_bin, dirtyroom_dir=wire_ws / ".dirtyroom", project_name="WireProj")
+        reg_entry = load_dirtyroom_registry(self.registry_path)["dirtyrooms"][wire_key]
+        self.assertEqual(reg_entry["binaries"].get(wire_sha12), "WireApp.exe")
+        self.assertEqual(reg_entry["projects"], ["WireProj"])
+
+        # cmd_status & cmd_decompile & seed_packets all refresh registry cleanly
+        self.registry_path.unlink()
+        out_buf = io.StringIO()
+        with patch("harness.commands.re.get_dirtyroom_root", return_value=wire_ws / ".dirtyroom"), \
+             patch("harness.commands.re.check_patch", return_value={"status": "applied", "message": "ok"}), \
+             patch("harness.commands.re.find_ghidra_headless", return_value=None), \
+             patch("sys.stdout", out_buf):
+            self.assertEqual(cmd_status(argparse.Namespace(json=True)), 0)
+        self.assertIn(wire_key, load_dirtyroom_registry(self.registry_path)["dirtyrooms"])
+
+        self.registry_path.unlink()
+        mock_proc = MagicMock(returncode=0, stdout="int main() { return 0; }\n", stderr="")
+        with patch("shutil.which", return_value="/usr/local/bin/rea"), \
+             patch("subprocess.run", return_value=mock_proc), \
+             patch("harness.commands.re.get_dirtyroom_root", return_value=wire_ws / ".dirtyroom"), \
+             patch("sys.stdout", io.StringIO()):
+            self.assertEqual(
+                cmd_decompile(argparse.Namespace(procedure="main", binary=str(wire_bin), no_cache=True, timeout=10.0)),
+                0,
+            )
+        self.assertIn(wire_key, load_dirtyroom_registry(self.registry_path)["dirtyrooms"])
+
+        self.registry_path.unlink()
+        pcap_path = wire_ws / ".dirtyroom" / "pcaps" / "wire.pcap"
+        pcap_path.write_bytes(_make_synthetic_pcap([(1700000000, 1, 6, "10.0.0.1", "10.0.0.2", 1234, 80, b"hi")]))
+        seed_res = seed_packets(pcap_path=pcap_path, binary_name="WireApp.exe", dirtyroom_root=wire_ws / ".dirtyroom")
+        self.assertTrue(seed_res["success"])
+        self.assertIn(wire_key, load_dirtyroom_registry(self.registry_path)["dirtyrooms"])
+
+    def test_node_e2e_v4_symlinked_binaries_and_registry_autodiscovery(self):
+        """Real Node.js E2E reproducing the exact Antigravity IDE symlink + CWD=/tmp failure and V4 fix."""
+        node_bin = shutil.which("node")
+        if not node_bin:
+            self.skipTest("node binary not available in PATH")
+
+        from harness.re.registry import register_dirtyroom
+
+        # 1. Build mock rea-agents@6.9.0 ESM layout including BinaryTargetResolver (V3 -> V4 upgrade too)
+        mock_rea = self.root / "rea-v4-e2e"
+        ghidra_dir = mock_rea / "dist" / "ghidra"
+        app_dir = mock_rea / "dist" / "application"
+        mcp_dir = mock_rea / "dist" / "mcp"
+        ghidra_dir.mkdir(parents=True)
+        app_dir.mkdir(parents=True)
+        mcp_dir.mkdir(parents=True)
+        (mock_rea / "package.json").write_text('{"name":"rea-agents","type":"module"}\n', encoding="utf-8")
+
+        orig_launcher = (
+            'import { posix, win32 } from "node:path";\n'
+            'export const ghidraHeadlessArguments = (options) => {\n'
+            '    const scriptPath = (options.platform ?? process.platform) === "win32" ? win32 : posix;\n'
+            '    const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+            '    return [options.projectRoot, "rea-project", "-import", options.targetPath];\n'
+            '};\n'
+        )
+        orig_target_snap = (
+            'import { extname, join } from "node:path";\n'
+            'const safeExtension = (p) => extname(p) || ".bin";\n'
+            'export const createGhidraTargetSnapshot = async (sourcePath, runtimeRoot, expectedSha256) => {\n'
+            '    const suffix = safeExtension(sourcePath);\n'
+            '    const snapshotPath = join(runtimeRoot, `target-${expectedSha256.slice(0, 12)}${suffix}`);\n'
+            '    return { path: snapshotPath, sha256: expectedSha256 };\n'
+            '};\n'
+        )
+        orig_resolver = (
+            'import { realpath } from "node:fs/promises";\n'
+            'export const resolveBinaryTarget = async (candidate) => {\n'
+            '    const canonical = await realpath(candidate);\n'
+            '    const sourcePath = process.platform === "win32" ? candidate : canonical;\n'
+            '    return { sourcePath, canonical };\n'
+            '};\n'
+        )
+
+        # Simulate V3-patched state with .orig backups to verify V3 -> V4 clean upgrade
+        (ghidra_dir / "GhidraLauncher.js.orig").write_text(orig_launcher, encoding="utf-8")
+        (ghidra_dir / "GhidraLauncher.js").write_text(
+            orig_launcher.replace("const bridgeDirectory =", "// AGYIS_REA_AUTODISCOVERY_V3 REA_GHIDRA_PROJECT_DIR\nconst bridgeDirectory ="),
+            encoding="utf-8",
+        )
+        (ghidra_dir / "GhidraTargetSnapshot.js").write_text(orig_target_snap, encoding="utf-8")
+        (app_dir / "BinaryTargetResolver.js").write_text(orig_resolver, encoding="utf-8")
+        (mcp_dir / "binary-v4e2e.js.orig").write_text(orig_launcher, encoding="utf-8")
+        (mcp_dir / "binary-v4e2e.js").write_text(
+            orig_launcher.replace("const bridgeDirectory =", "// AGYIS_REA_AUTODISCOVERY_V3 REA_GHIDRA_PROJECT_DIR REA_DIRECT_MOUNT_ACTIVE\nconst bridgeDirectory ="),
+            encoding="utf-8",
+        )
+        (mcp_dir / "BinaryTargetResolver-v4e2e.js").write_text(orig_resolver, encoding="utf-8")
+
+        v3_status = check_patch(mock_rea)
+        self.assertEqual(v3_status["status"], "partial")
+        self.assertFalse(v3_status["auto_discovery_active"])
+
+        upgrade_res = apply_patch(mock_rea)
+        self.assertTrue(upgrade_res["success"], upgrade_res.get("error"))
+        v4_status = check_patch(mock_rea)
+        self.assertEqual(v4_status["status"], "applied")
+        self.assertTrue(v4_status["auto_discovery_active"])
+        self.assertEqual(AUTO_DISCOVERY_SIGNATURE, "AGYIS_REA_AUTODISCOVERY_V4")
+
+        # 2. Exact Antigravity IDE scenario: external steam_dir + symlinked .dirtyroom/binaries
+        steam_dir = self.root / "steam_dir"
+        steam_dir.mkdir()
+        game_exe = steam_dir / "Game.exe"
+        game_exe.write_bytes(b"MZGAME_BINARY_BYTES")
+        direct_ext_exe = steam_dir / "DirectExt.exe"
+        direct_ext_exe.write_bytes(b"MZDIRECT_EXT_BYTES")
+        sym_only_exe = steam_dir / "SymOnly.exe"
+        sym_only_exe.write_bytes(b"MZSYMONLY_BYTES")
+
+        sha12 = "a1b2c3d4e5f6"
+        ws_game = self.root / "ws_game"
+        scaffold_dirtyroom(ws_game, project_name="GameProj")
+        dr_game = ws_game / ".dirtyroom"
+        (dr_game / "binaries").symlink_to(steam_dir, target_is_directory=True)
+        (dr_game / "ghidra" / "GameProj.rep").mkdir(parents=True)
+        (dr_game / "ghidra" / "GameProj.gpr").write_text("gpr", encoding="utf-8")
+        conn = sqlite3.connect(dr_game / "symbols" / "dirtyroom.db")
+        conn.execute(
+            "INSERT INTO binaries (name, sha256, file_size, created_at) VALUES (?, ?, ?, ?)",
+            ("Game.exe", sha12 + "0" * 52, 1024, "2026-11-18T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        reg_file = self.root / "v4_e2e_registry.json"
+        reg_res = register_dirtyroom(dr_game, registry_path=reg_file)
+        self.assertTrue(reg_res["registered"])
+        self.assertEqual(reg_res["binaries"].get(sha12), "Game.exe")
+
+        # Second registered workspace: .dirtyroom symlinked to external non-dot mount, .prp-only match (no DB sha)
+        ext_dr_storage = self.root / "ext_storage" / "prp_dirtyroom"
+        prp_idata = ext_dr_storage / "ghidra" / "PrpOnlyProj.rep" / "idata" / "00"
+        prp_idata.mkdir(parents=True)
+        (ext_dr_storage / "ghidra" / "PrpOnlyProj.gpr").write_text("gpr", encoding="utf-8")
+        (prp_idata / "00000001.prp").write_text(
+            '<?xml version="1.0"?><FILE_INFO><BASIC_INFO>'
+            '<STATE NAME="CONTENT_TYPE" TYPE="string" VALUE="Program" />'
+            '<STATE NAME="NAME" TYPE="string" VALUE="DirectExt.exe" />'
+            '</BASIC_INFO></FILE_INFO>\n',
+            encoding="utf-8",
+        )
+        ws_prp = self.root / "ws_prp_ext"
+        ws_prp.mkdir()
+        (ws_prp / ".dirtyroom").symlink_to(ext_dr_storage, target_is_directory=True)
+        reg_prp = register_dirtyroom(ws_prp / ".dirtyroom", registry_path=reg_file)
+        self.assertTrue(reg_prp["registered"])
+        self.assertEqual(reg_prp["ghidra_dir"], str((ext_dr_storage / "ghidra").resolve()))
+
+        # Third workspace: UNREGISTERED in registry, tests pre-realpath BinaryTargetResolver symlink capture
+        ws_unreg = self.root / "ws_unreg_sym"
+        (ws_unreg / ".dirtyroom" / "ghidra" / "UnregProj.rep").mkdir(parents=True)
+        (ws_unreg / ".dirtyroom" / "ghidra" / "UnregProj.gpr").write_text("gpr", encoding="utf-8")
+        (ws_unreg / ".dirtyroom" / "binaries").symlink_to(steam_dir, target_is_directory=True)
+        (ws_unreg / "dirtyroom").symlink_to(".dirtyroom", target_is_directory=True)
+
+        runtime_tmp = self.root / "rea_v4_runtime"
+        runtime_tmp.mkdir()
+
+        driver = self.root / "v4_e2e_driver.mjs"
+        driver.write_text(
+            'import assert from "node:assert/strict";\n'
+            'import { ghidraHeadlessArguments } from "./rea-v4-e2e/dist/ghidra/GhidraLauncher.js";\n'
+            'import { createGhidraTargetSnapshot } from "./rea-v4-e2e/dist/ghidra/GhidraTargetSnapshot.js";\n'
+            'import { resolveBinaryTarget } from "./rea-v4-e2e/dist/application/BinaryTargetResolver.js";\n'
+            'const baseOpts = {\n'
+            '    platform: "linux",\n'
+            '    projectRoot: "/tmp/ephemeral/project",\n'
+            '    bridgeScriptPath: "/opt/rea/bridge/Bridge.java",\n'
+            '    descriptorPath: "/tmp/ephemeral/session.json",\n'
+            '    ghidraLogPath: "/tmp/ephemeral/ghidra.log",\n'
+            '    scriptLogPath: "/tmp/ephemeral/script.log",\n'
+            '};\n'
+            '// Case A: Exact IDE failure — CWD=/tmp, target-<sha12>.bin, ONLY REA_GHIDRA_DIRECT_MOUNT=1 + registry\n'
+            'const argsSha = ghidraHeadlessArguments({\n'
+            '    ...baseOpts,\n'
+            '    targetPath: `/tmp/rea-ghidra-xyz/target-${process.env.TEST_SHA12}.bin`,\n'
+            '});\n'
+            'assert.equal(argsSha[0], process.env.EXPECTED_GAME_DIR);\n'
+            'assert.ok(!argsSha[0].includes("/.dirtyroom/"));\n'
+            'assert.equal(argsSha[1], "GameProj");\n'
+            'assert.equal(argsSha[2], "-process");\n'
+            'assert.equal(argsSha[3], "Game.exe");\n'
+            'assert.equal(argsSha[4], "-noanalysis");\n'
+            'assert.equal(argsSha[5], "-readOnly");\n'
+            '// Case B: Unregistered binary does NOT hijack GameProj — falls back cleanly to -import\n'
+            'const argsUnregSha = ghidraHeadlessArguments({\n'
+            '    ...baseOpts,\n'
+            '    targetPath: "/tmp/rea-ghidra-xyz/target-deadbeef1234.bin",\n'
+            '});\n'
+            'assert.equal(argsUnregSha[2], "-import");\n'
+            'const argsUnregBin = ghidraHeadlessArguments({\n'
+            '    ...baseOpts,\n'
+            '    targetPath: "/bin/ls",\n'
+            '});\n'
+            'assert.equal(argsUnregBin[2], "-import");\n'
+            '// Case C: Direct external binary path matched strictly via .rep/idata/*.prp in registry\n'
+            'const argsPrp = ghidraHeadlessArguments({\n'
+            '    ...baseOpts,\n'
+            '    targetPath: process.env.DIRECT_EXT_EXE,\n'
+            '});\n'
+            'assert.equal(argsPrp[0], process.env.EXPECTED_PRP_DIR);\n'
+            'assert.equal(argsPrp[1], "PrpOnlyProj");\n'
+            'assert.equal(argsPrp[2], "-process");\n'
+            'assert.equal(argsPrp[3], "DirectExt.exe");\n'
+            'assert.equal(argsPrp[4], "-noanalysis");\n'
+            'assert.equal(argsPrp[5], "-readOnly");\n'
+            '// Case D: Pre-realpath capture in BinaryTargetResolver recovers symlinked dirtyroom without registry\n'
+            'const resolved = await resolveBinaryTarget(process.env.UNREG_SYM_TARGET);\n'
+            'assert.ok(!resolved.sourcePath.includes(".dirtyroom"));\n'
+            'const snap = await createGhidraTargetSnapshot(resolved.sourcePath, process.env.RUNTIME_TMP, "f".repeat(64));\n'
+            'const argsPreRealpath = ghidraHeadlessArguments({ ...baseOpts, targetPath: snap.path });\n'
+            'assert.equal(argsPreRealpath[0], process.env.EXPECTED_UNREG_DIR);\n'
+            'assert.equal(argsPreRealpath[1], "UnregProj");\n'
+            'assert.equal(argsPreRealpath[2], "-process");\n'
+            'assert.equal(argsPreRealpath[3], "SymOnly.exe");\n'
+            'assert.equal(argsPreRealpath[4], "-noanalysis");\n'
+            'assert.equal(argsPreRealpath[5], "-readOnly");\n'
+            '// Case E: __agyisToNonDotDir uses realpathSync when .dirtyroom symlinks to non-dot mount (no sibling symlink)\n'
+            'process.env.REA_GHIDRA_PROJECT_DIR = process.env.PRP_DOT_GHIDRA;\n'
+            'const argsRealNonDot = ghidraHeadlessArguments({ ...baseOpts, targetPath: process.env.DIRECT_EXT_EXE });\n'
+            'assert.equal(argsRealNonDot[0], process.env.EXPECTED_PRP_DIR);\n'
+            'assert.ok(!argsRealNonDot[0].includes("/.dirtyroom/"));\n'
+            'assert.equal(argsRealNonDot[1], "PrpOnlyProj");\n'
+            'delete process.env.REA_GHIDRA_PROJECT_DIR;\n'
+            '// Case F: Corrupted registry JSON fails closed to -import without throwing\n'
+            'process.env.AGYIS_DIRTYROOM_REGISTRY = process.env.CORRUPT_REG;\n'
+            'const argsCorrupt = ghidraHeadlessArguments({\n'
+            '    ...baseOpts,\n'
+            '    targetPath: `/tmp/rea-ghidra-xyz/target-${process.env.TEST_SHA12}.bin`,\n'
+            '});\n'
+            'assert.equal(argsCorrupt[2], "-import");\n'
+            'console.log("V4_NODE_E2E_OK");\n',
+            encoding="utf-8",
+        )
+
+        corrupt_reg = self.root / "corrupt_registry.json"
+        corrupt_reg.write_text("{not valid json!!!", encoding="utf-8")
+
+        # Strictly minimal env: ONLY REA_GHIDRA_DIRECT_MOUNT=1 + AGYIS_DIRTYROOM_REGISTRY (CWD=/tmp!)
+        clean_env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": str(self.root),
+            "REA_GHIDRA_DIRECT_MOUNT": "1",
+            "AGYIS_DIRTYROOM_REGISTRY": str(reg_file),
+            "TEST_SHA12": sha12,
+            "EXPECTED_GAME_DIR": str(ws_game / "dirtyroom" / "ghidra"),
+            "DIRECT_EXT_EXE": str(direct_ext_exe),
+            "EXPECTED_PRP_DIR": str((ext_dr_storage / "ghidra").resolve()),
+            "PRP_DOT_GHIDRA": str(ws_prp / ".dirtyroom" / "ghidra"),
+            "UNREG_SYM_TARGET": str(ws_unreg / ".dirtyroom" / "binaries" / "SymOnly.exe"),
+            "EXPECTED_UNREG_DIR": str(ws_unreg / "dirtyroom" / "ghidra"),
+            "RUNTIME_TMP": str(runtime_tmp),
+            "CORRUPT_REG": str(corrupt_reg),
+        }
+        proc = subprocess.run(
+            [node_bin, str(driver)],
+            cwd="/tmp",
+            env=clean_env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(proc.returncode, 0, f"V4 Node E2E failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+        self.assertIn("V4_NODE_E2E_OK", proc.stdout)
+
+        # Verify revert_patch cleanly restores all files including BinaryTargetResolver
+        self.assertTrue(revert_patch(mock_rea)["success"])
+        self.assertEqual(check_patch(mock_rea)["status"], "unapplied")
+        self.assertEqual((app_dir / "BinaryTargetResolver.js").read_text(encoding="utf-8"), orig_resolver)
+
+    def test_v4_registry_and_launcher_edge_case_regressions(self):
+        """Regression tests for relative paths, URI-special chars, null last_seen, SHA-conflict rejection, seed continuation, state-dir parity, and canonical PRP casing."""
+        node_bin = shutil.which("node")
+        if not node_bin:
+            self.skipTest("node binary not available in PATH")
+
+        from harness.re.registry import load_dirtyroom_registry, register_dirtyroom
+
+        # 1. Relative dirtyroom_root resolves to absolute paths in registry (never relative 'dirtyroom/ghidra')
+        ws_rel = self.root / "ws_relative"
+        (ws_rel / ".dirtyroom" / "ghidra").mkdir(parents=True)
+        (ws_rel / ".dirtyroom" / "ghidra" / "RelProj.gpr").write_text("gpr", encoding="utf-8")
+        (ws_rel / "dirtyroom").symlink_to(".dirtyroom", target_is_directory=True)
+        reg_rel = self.root / "reg_rel.json"
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir(ws_rel)
+            res_rel = register_dirtyroom(Path(".dirtyroom"), registry_path=reg_rel)
+        finally:
+            os.chdir(orig_cwd)
+        self.assertTrue(res_rel["registered"])
+        self.assertTrue(Path(res_rel["ghidra_dir"]).is_absolute())
+        self.assertEqual(res_rel["ghidra_dir"], str(ws_rel / "dirtyroom" / "ghidra"))
+        stored_rel = load_dirtyroom_registry(reg_rel)["dirtyrooms"][res_rel["ghidra_dir"]]
+        self.assertTrue(Path(stored_rel["dirtyroom_root"]).is_absolute())
+        self.assertEqual(stored_rel["workspace"], str(ws_rel))
+
+        # 2. Corrupted/null last_seen in >64-entry registry does not crash register_dirtyroom
+        reg_bad = self.root / "reg_bad_ts.json"
+        bad_map = {}
+        for idx in range(64):
+            gdir = self.root / f"ts_ws_{idx}" / "dirtyroom" / "ghidra"
+            gdir.mkdir(parents=True)
+            bad_map[str(gdir)] = {
+                "ghidra_dir": str(gdir),
+                "last_seen": None if idx == 0 else ("invalid" if idx == 1 else float(idx)),
+            }
+        reg_bad.write_text(json.dumps({"version": 1, "dirtyrooms": bad_map}), encoding="utf-8")
+        ws_extra = self.root / "ts_ws_extra" / "dirtyroom"
+        (ws_extra / "ghidra").mkdir(parents=True)
+        res_bad = register_dirtyroom(ws_extra, registry_path=reg_bad)
+        self.assertTrue(res_bad["registered"])
+        self.assertEqual(res_bad["entry_count"], 64)
+
+        # 3. Paths containing URI-special characters ('#', '?') still read SQLite binaries cleanly
+        ws_uri = self.root / "proj#1?v=2"
+        (ws_uri / ".dirtyroom" / "ghidra").mkdir(parents=True)
+        (ws_uri / ".dirtyroom" / "symbols").mkdir(parents=True)
+        (ws_uri / ".dirtyroom" / "ghidra" / "UriProj.gpr").write_text("gpr", encoding="utf-8")
+        (ws_uri / "dirtyroom").symlink_to(".dirtyroom", target_is_directory=True)
+        conn_uri = sqlite3.connect(ws_uri / ".dirtyroom" / "symbols" / "dirtyroom.db")
+        conn_uri.execute("CREATE TABLE binaries (name TEXT, sha256 TEXT)")
+        conn_uri.execute("INSERT INTO binaries VALUES (?, ?)", ("UriApp.exe", "123456abcdef" + "0" * 52))
+        conn_uri.commit()
+        conn_uri.close()
+        res_uri = register_dirtyroom(ws_uri / ".dirtyroom", registry_path=self.root / "reg_uri.json")
+        self.assertEqual(res_uri["binaries"], {"123456abcdef": "UriApp.exe"})
+
+        # 4. Node E2E for SHA-conflict rejection, multi-seed fallback, PSL_HARNESS_STATE_DIR parity, and PRP casing
+        mock_rea = self.root / "rea-reg"
+        (mock_rea / "dist" / "ghidra").mkdir(parents=True)
+        (mock_rea / "dist" / "mcp").mkdir(parents=True)
+        (mock_rea / "dist" / "application").mkdir(parents=True)
+        (mock_rea / "package.json").write_text('{"name":"rea-agents","type":"module"}\n', encoding="utf-8")
+        (mock_rea / "dist" / "ghidra" / "GhidraLauncher.js").write_text(
+            'import { posix, win32 } from "node:path";\n'
+            'export const ghidraHeadlessArguments = (options) => {\n'
+            '    const scriptPath = (options.platform ?? process.platform) === "win32" ? win32 : posix;\n'
+            '    const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+            '    return [options.projectRoot, "rea-project", "-import", options.targetPath];\n'
+            '};\n',
+            encoding="utf-8",
+        )
+        (mock_rea / "dist" / "ghidra" / "GhidraTargetSnapshot.js").write_text(
+            'import { extname, join } from "node:path";\n'
+            'export const createGhidraTargetSnapshot = async (sourcePath, runtimeRoot, expectedSha256) => {\n'
+            '    const suffix = extname(sourcePath) || ".bin";\n'
+            '    const snapshotPath = join(runtimeRoot, `target-${expectedSha256.slice(0, 12)}${suffix}`);\n'
+            '    return { path: snapshotPath, sha256: expectedSha256 };\n'
+            '};\n',
+            encoding="utf-8",
+        )
+        (mock_rea / "dist" / "mcp" / "binary-reg.js").write_text(
+            'import { posix, win32 } from "node:path";\n'
+            'export const ghidraHeadlessArguments = (options) => {\n'
+            '    const scriptPath = (options.platform ?? process.platform) === "win32" ? win32 : posix;\n'
+            '    const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);\n'
+            '    return [options.projectRoot, "rea-project", "-import", options.targetPath];\n'
+            '};\n',
+            encoding="utf-8",
+        )
+        (mock_rea / "dist" / "application" / "BinaryTargetResolver.js").write_text(
+            'import { realpath } from "node:fs/promises";\n'
+            'export const resolveBinaryTarget = async (candidate) => {\n'
+            '    const canonical = await realpath(candidate);\n'
+            '    return { sourcePath: canonical };\n'
+            '};\n',
+            encoding="utf-8",
+        )
+        self.assertTrue(apply_patch(mock_rea)["success"])
+
+        # Workspace A: Game.exe (SHA aaaaaaaaaaaa) in ProjA.gpr
+        ws_a = self.root / "ws_a"
+        idata_a = ws_a / ".dirtyroom" / "ghidra" / "ProjA.rep" / "idata" / "00"
+        idata_a.mkdir(parents=True)
+        (ws_a / ".dirtyroom" / "ghidra" / "ProjA.gpr").write_text("gpr", encoding="utf-8")
+        (idata_a / "00000001.prp").write_text(
+            '<FILE_INFO><BASIC_INFO><STATE NAME="CONTENT_TYPE" TYPE="string" VALUE="Program" />'
+            '<STATE NAME="NAME" TYPE="string" VALUE="Game.exe" /></BASIC_INFO></FILE_INFO>\n',
+            encoding="utf-8",
+        )
+        (ws_a / ".dirtyroom" / "symbols").mkdir(parents=True)
+        conn_a = sqlite3.connect(ws_a / ".dirtyroom" / "symbols" / "dirtyroom.db")
+        conn_a.execute("CREATE TABLE binaries (name TEXT, sha256 TEXT)")
+        conn_a.execute("INSERT INTO binaries VALUES (?, ?)", ("Game.exe", "a" * 64))
+        conn_a.commit()
+        conn_a.close()
+        (ws_a / "dirtyroom").symlink_to(".dirtyroom", target_is_directory=True)
+
+        # Workspace B: AppB.exe in ProjB.gpr (unregistered), symlinked from ws_a/.dirtyroom/binaries/AppB.exe
+        ws_b = self.root / "ws_b"
+        idata_b = ws_b / ".dirtyroom" / "ghidra" / "ProjB.rep" / "idata" / "00"
+        idata_b.mkdir(parents=True)
+        (ws_b / ".dirtyroom" / "ghidra" / "ProjB.gpr").write_text("gpr", encoding="utf-8")
+        (idata_b / "00000001.prp").write_text(
+            '<FILE_INFO><BASIC_INFO><STATE NAME="CONTENT_TYPE" TYPE="string" VALUE="Program" />'
+            '<STATE NAME="NAME" TYPE="string" VALUE="AppB.exe" /></BASIC_INFO></FILE_INFO>\n',
+            encoding="utf-8",
+        )
+        (ws_b / ".dirtyroom" / "binaries").mkdir(parents=True)
+        app_b_real = ws_b / ".dirtyroom" / "binaries" / "AppB.exe"
+        app_b_real.write_bytes(b"MZB")
+        (ws_b / "dirtyroom").symlink_to(".dirtyroom", target_is_directory=True)
+        (ws_a / ".dirtyroom" / "binaries").mkdir(parents=True)
+        app_b_link = ws_a / ".dirtyroom" / "binaries" / "AppB.exe"
+        app_b_link.symlink_to(app_b_real)
+
+        # Unrelated v2 Game.exe outside any dirtyroom (SHA cccccccccccc != aaaaaaaaaaaa)
+        ext_v2 = self.root / "ext_v2"
+        ext_v2.mkdir()
+        game_v2 = ext_v2 / "Game.exe"
+        game_v2.write_bytes(b"MZv2")
+
+        # Register ws_a into PSL_HARNESS_STATE_DIR/agyis_dirtyrooms.json
+        state_dir = self.root / "state_dir_e2e"
+        state_dir.mkdir()
+        register_dirtyroom(ws_a / ".dirtyroom", registry_path=state_dir / "agyis_dirtyrooms.json")
+
+        driver = self.root / "reg_e2e_driver.mjs"
+        driver.write_text(
+            'import assert from "node:assert/strict";\n'
+            'import { ghidraHeadlessArguments } from "./rea-reg/dist/ghidra/GhidraLauncher.js";\n'
+            'import { createGhidraTargetSnapshot } from "./rea-reg/dist/ghidra/GhidraTargetSnapshot.js";\n'
+            'import { resolveBinaryTarget } from "./rea-reg/dist/application/BinaryTargetResolver.js";\n'
+            'const base = {\n'
+            '    platform: "linux", projectRoot: "/tmp/p", bridgeScriptPath: "/b/B.java",\n'
+            '    descriptorPath: "/d", ghidraLogPath: "/g", scriptLogPath: "/s",\n'
+            '};\n'
+            '// 4a. PSL_HARNESS_STATE_DIR parity resolves SHA aaaaaaaaaaaa without AGYIS_DIRTYROOM_REGISTRY\n'
+            'const argsState = ghidraHeadlessArguments({ ...base, targetPath: "/tmp/target-aaaaaaaaaaaa.exe" });\n'
+            'assert.equal(argsState[0], process.env.EXPECTED_WSA_DIR);\n'
+            'assert.equal(argsState[1], "ProjA");\n'
+            'assert.equal(argsState[2], "-process");\n'
+            'assert.equal(argsState[3], "Game.exe");\n'
+            '// 4b. Different SHA (cccccccccccc) with same filename Game.exe MUST NOT hijack ProjA\n'
+            'const snapV2 = await createGhidraTargetSnapshot(process.env.GAME_V2, "/tmp", "c".repeat(64));\n'
+            'const argsConflict = ghidraHeadlessArguments({ ...base, targetPath: snapV2.path });\n'
+            'assert.equal(argsConflict[2], "-import");\n'
+            '// 4c. Symlink inside ws_a pointing to ws_b continues past non-matching ws_a to match ProjB\n'
+            'const resB = await resolveBinaryTarget(process.env.APPB_LINK);\n'
+            'const snapB = await createGhidraTargetSnapshot(resB.sourcePath, "/tmp", "d".repeat(64));\n'
+            'const argsSeed = ghidraHeadlessArguments({ ...base, targetPath: snapB.path });\n'
+            'assert.equal(argsSeed[0], process.env.EXPECTED_WSB_DIR);\n'
+            'assert.equal(argsSeed[1], "ProjB");\n'
+            'assert.equal(argsSeed[2], "-process");\n'
+            'assert.equal(argsSeed[3], "AppB.exe");\n'
+            '// 4d. Case-insensitive .prp match passes canonical PRP program casing ("Game.exe") to -process\n'
+            'const argsCase = ghidraHeadlessArguments({ ...base, targetPath: `${process.env.WSA}/.dirtyroom/binaries/game.exe` });\n'
+            'assert.equal(argsCase[1], "ProjA");\n'
+            'assert.equal(argsCase[2], "-process");\n'
+            'assert.equal(argsCase[3], "Game.exe");\n'
+            'console.log("V4_REGRESSIONS_OK");\n',
+            encoding="utf-8",
+        )
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": str(self.root),
+            "REA_GHIDRA_DIRECT_MOUNT": "1",
+            "PSL_HARNESS_STATE_DIR": str(state_dir),
+            "EXPECTED_WSA_DIR": str(ws_a / "dirtyroom" / "ghidra"),
+            "EXPECTED_WSB_DIR": str(ws_b / "dirtyroom" / "ghidra"),
+            "WSA": str(ws_a),
+            "GAME_V2": str(game_v2),
+            "APPB_LINK": str(app_b_link),
+        }
+        proc = subprocess.run(
+            [node_bin, str(driver)],
+            cwd="/tmp",
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(proc.returncode, 0, f"V4 regression E2E failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+        self.assertIn("V4_REGRESSIONS_OK", proc.stdout)
 
 
 if __name__ == "__main__":

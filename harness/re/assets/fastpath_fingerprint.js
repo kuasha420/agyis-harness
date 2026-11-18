@@ -1,4 +1,4 @@
-    // AGYIS_REA_AUTODISCOVERY_V3: Zero-copy direct-mount fingerprint bypass
+    // AGYIS_REA_AUTODISCOVERY_V4: Zero-copy direct-mount fingerprint bypass
     if (process.env.REA_GHIDRA_DIRECT_MOUNT !== "0") {
         let __agyisBypass = Boolean(
             process.env.REA_GHIDRA_PROJECT_DIR ||

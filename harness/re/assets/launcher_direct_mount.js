@@ -1,31 +1,51 @@
-    // AGYIS_REA_AUTODISCOVERY_V3: Multi-workspace dirtyroom direct-mount resolution
+    // AGYIS_REA_AUTODISCOVERY_V4: Multi-workspace dirtyroom & global registry direct-mount resolution
+    const __agyisHasDotPart = (p) => {
+        if (!p || typeof p !== "string") return true;
+        return p.split(/[\\/]+/).some((seg) => seg.length > 1 && seg.startsWith(".") && seg !== "..");
+    };
     const __agyisToNonDotDir = (dirPath) => {
         if (!dirPath || typeof dirPath !== "string") return undefined;
         try {
             const __norm = dirPath.replace(/[\\/]+$/, "");
+            if (!__agyisHasDotPart(__norm)) return __norm;
             const __match = __norm.match(/^(.*?)(^|[\\/])\.dirtyroom($|[\\/].*)$/);
-            if (!__match) return __norm;
-            const __aliasRoot = `${__match[1]}${__match[2]}dirtyroom`;
-            const __replaced = `${__aliasRoot}${__match[3]}`;
-            try {
-                __agyisLstatSync(__aliasRoot);
-            } catch {
+            const __aliasRoot = __match ? `${__match[1]}${__match[2]}dirtyroom` : undefined;
+            const __replaced = __match ? `${__aliasRoot}${__match[3]}` : undefined;
+            const __sameDir = (cand) => {
                 try {
-                    __agyisSymlinkSync(".dirtyroom", __aliasRoot, "dir");
-                } catch {}
-            }
-            try {
-                const __repStat = __agyisStatSync(__replaced);
-                if (__repStat.isDirectory()) {
+                    const __repStat = __agyisStatSync(cand);
+                    if (!__repStat.isDirectory()) return false;
                     try {
                         const __origStat = __agyisStatSync(__norm);
                         if (__origStat.ino && __repStat.ino && (__origStat.ino !== __repStat.ino || __origStat.dev !== __repStat.dev)) {
-                            return undefined;
+                            return false;
                         }
                     } catch {}
-                    return __replaced;
+                    return !__agyisHasDotPart(cand);
+                } catch {
+                    return false;
+                }
+            };
+            // (a) Existing sibling 'dirtyroom' symlink/alias
+            if (__replaced && __sameDir(__replaced)) return __replaced;
+            // (b) realpathSync if resolved path already has zero leading-dot components
+            try {
+                const __real = __agyisRealpathSync(__norm).replace(/[\\/]+$/, "");
+                if (__real && !__agyisHasDotPart(__real) && __agyisStatSync(__real).isDirectory()) {
+                    return __real;
                 }
             } catch {}
+            // (c) Create sibling 'dirtyroom -> .dirtyroom' symlink if absent
+            if (__aliasRoot && __replaced) {
+                try {
+                    __agyisLstatSync(__aliasRoot);
+                } catch {
+                    try {
+                        __agyisSymlinkSync(".dirtyroom", __aliasRoot, "dir");
+                    } catch {}
+                }
+                if (__sameDir(__replaced)) return __replaced;
+            }
             return undefined;
         } catch {
             return undefined;
@@ -82,7 +102,9 @@
         const __gprs = __agyisListGprs(projectDir);
         if (__gprs.length === 0) return undefined;
         if (explicitProjectName) {
-            return __gprs.includes(explicitProjectName) ? explicitProjectName : undefined;
+            return __gprs.includes(explicitProjectName)
+                ? { projectName: explicitProjectName, programName: targetBase }
+                : undefined;
         }
         let __ciMatch;
         let __syntheticFallback;
@@ -93,19 +115,19 @@
                 if (!__syntheticFallback) __syntheticFallback = __proj;
                 continue;
             }
-            if (__progs.has(targetBase)) return __proj;
+            if (__progs.has(targetBase)) return { projectName: __proj, programName: targetBase };
             if (!__ciMatch && __targetLower) {
                 for (const __p of __progs) {
                     if (__p.toLowerCase() === __targetLower) {
-                        __ciMatch = __proj;
+                        __ciMatch = { projectName: __proj, programName: __p };
                         break;
                     }
                 }
             }
         }
         if (__ciMatch) return __ciMatch;
-        if (__syntheticFallback) return __syntheticFallback;
-        return allowUnmatched ? __gprs[0] : undefined;
+        if (__syntheticFallback) return { projectName: __syntheticFallback, programName: targetBase };
+        return allowUnmatched ? { projectName: __gprs[0], programName: targetBase } : undefined;
     };
     const __agyisDiscoverDirtyroom = (seedPaths, targetBase, explicitProjectName, allowUnmatched) => {
         for (const __rawSeed of seedPaths) {
@@ -124,25 +146,113 @@
                 __curr = scriptPath.dirname(__curr);
             }
             for (let __depth = 0; __depth < 64 && __curr; __depth++) {
+                let __foundLocalDir = false;
                 const __preferred = scriptPath.join(__curr, "dirtyroom", "ghidra");
-                const __prefGprs = __agyisListGprs(__preferred);
-                if (__prefGprs.length > 0) {
+                if (__agyisListGprs(__preferred).length > 0) {
+                    __foundLocalDir = true;
                     const __sel = __agyisSelectGpr(__preferred, targetBase, explicitProjectName, allowUnmatched);
-                    return __sel ? { projectDir: __preferred, projectName: __sel } : undefined;
+                    if (__sel) {
+                        return { projectDir: __preferred, projectName: __sel.projectName, programName: __sel.programName };
+                    }
                 }
                 const __dotCand = scriptPath.join(__curr, ".dirtyroom", "ghidra");
-                const __dotGprs = __agyisListGprs(__dotCand);
-                if (__dotGprs.length > 0) {
+                if (__agyisListGprs(__dotCand).length > 0) {
+                    __foundLocalDir = true;
                     const __safeDir = __agyisToNonDotDir(__dotCand);
-                    if (!__safeDir) return undefined;
-                    const __sel = __agyisSelectGpr(__safeDir, targetBase, explicitProjectName, allowUnmatched);
-                    return __sel ? { projectDir: __safeDir, projectName: __sel } : undefined;
+                    if (__safeDir) {
+                        const __sel = __agyisSelectGpr(__safeDir, targetBase, explicitProjectName, allowUnmatched);
+                        if (__sel) {
+                            return { projectDir: __safeDir, projectName: __sel.projectName, programName: __sel.programName };
+                        }
+                    }
                 }
+                if (__foundLocalDir) break;
                 const __parent = scriptPath.dirname(__curr);
                 if (!__parent || __parent === __curr) break;
                 __curr = __parent;
             }
         }
+        return undefined;
+    };
+    const __agyisHasConflictingSha = (binMap, progName, sha12) => {
+        if (!sha12 || !binMap || typeof binMap !== "object") return false;
+        const __progLower = progName.toLowerCase();
+        let __sawSameName = false;
+        for (const [__k, __v] of Object.entries(binMap)) {
+            if (typeof __k === "string" && typeof __v === "string" && __v.toLowerCase() === __progLower) {
+                if (__k.toLowerCase() === sha12) return false;
+                __sawSameName = true;
+            }
+        }
+        return __sawSameName;
+    };
+    const __agyisLookupRegistry = (targetPath, targetBase, explicitProjectName) => {
+        try {
+            const __stateDir = process.env.AGYIS_HARNESS_STATE_DIR || process.env.PSL_HARNESS_STATE_DIR;
+            const __regPath = process.env.AGYIS_DIRTYROOM_REGISTRY || (
+                __stateDir
+                    ? __agyisOsJoin(__stateDir, "agyis_dirtyrooms.json")
+                    : __agyisOsJoin(__agyisHomedir(), ".gemini", "config", "agyis_dirtyrooms.json")
+            );
+            if (!__regPath) return undefined;
+            const __rawJson = __agyisReadFileSync(__regPath, "utf8");
+            const __parsed = JSON.parse(__rawJson);
+            const __rawMap = __parsed && typeof __parsed === "object" ? __parsed.dirtyrooms : undefined;
+            if (!__rawMap || typeof __rawMap !== "object") return undefined;
+            const __entries = (Array.isArray(__rawMap) ? __rawMap : Object.values(__rawMap))
+                .filter((e) => e && typeof e === "object" && typeof e.ghidra_dir === "string")
+                .sort((a, b) => Number(b.last_seen || 0) - Number(a.last_seen || 0))
+                .slice(0, 64);
+            if (__entries.length === 0) return undefined;
+            const __baseForSha = typeof targetPath === "string" ? scriptPath.basename(targetPath) : "";
+            const __shaM = __baseForSha.match(/^target-([0-9a-f]{12})(?:[._-]|$)/i);
+            const __sha12 = __shaM ? __shaM[1].toLowerCase() : undefined;
+            // Pass 1: Deterministic 12-hex SHA-256 prefix match across registered dirtyrooms
+            if (__sha12) {
+                for (const __entry of __entries) {
+                    const __binMap = __entry.binaries;
+                    if (!__binMap || typeof __binMap !== "object") continue;
+                    let __mapped = __binMap[__sha12];
+                    if (typeof __mapped !== "string") {
+                        for (const [__k, __v] of Object.entries(__binMap)) {
+                            if (typeof __k === "string" && __k.toLowerCase() === __sha12 && typeof __v === "string") {
+                                __mapped = __v;
+                                break;
+                            }
+                        }
+                    }
+                    if (typeof __mapped !== "string" || !__mapped) continue;
+                    const __regDir = __agyisToNonDotDir(__entry.ghidra_dir);
+                    if (!__regDir) continue;
+                    const __sel = __agyisSelectGpr(__regDir, __mapped, explicitProjectName, false);
+                    if (__sel) {
+                        return { projectDir: __regDir, projectName: __sel.projectName, programName: __sel.programName };
+                    }
+                }
+            }
+            // Pass 2: Strict .rep/idata/*.prp program name match (rejects SHA conflicts; never hijacks unrelated binaries)
+            const __targetLower = typeof targetBase === "string" && targetBase ? targetBase.toLowerCase() : "";
+            if (__targetLower) {
+                for (const __entry of __entries) {
+                    const __regDir = __agyisToNonDotDir(__entry.ghidra_dir);
+                    if (!__regDir) continue;
+                    const __gprs = __agyisListGprs(__regDir);
+                    for (const __proj of __gprs) {
+                        if (explicitProjectName && __proj !== explicitProjectName) continue;
+                        const __progs = __agyisInspectProjectPrograms(__regDir, __proj);
+                        if (__progs === null) continue;
+                        if (__progs.has(targetBase) && !__agyisHasConflictingSha(__entry.binaries, targetBase, __sha12)) {
+                            return { projectDir: __regDir, projectName: __proj, programName: targetBase };
+                        }
+                        for (const __p of __progs) {
+                            if (__p.toLowerCase() === __targetLower && !__agyisHasConflictingSha(__entry.binaries, __p, __sha12)) {
+                                return { projectDir: __regDir, projectName: __proj, programName: __p };
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {}
         return undefined;
     };
     const __agyisHasImportOverride = Boolean(
@@ -160,6 +270,11 @@
     );
     if (process.env.REA_GHIDRA_DIRECT_MOUNT !== "0" && !__agyisHasImportOverride) {
         const __originTargetPath = (globalThis.__agyisReaSnapshotOrigin && globalThis.__agyisReaSnapshotOrigin.get(options.targetPath)) || options.targetPath;
+        const __rawRequestedPath =
+            (globalThis.__agyisReaRequestedPath && (
+                globalThis.__agyisReaRequestedPath.get(__originTargetPath) ||
+                globalThis.__agyisReaRequestedPath.get(options.targetPath)
+            )) || undefined;
         let targetBase = scriptPath.basename(__originTargetPath);
         const BINARY_MAP = {
             "0c51d381dfe9": "ShippingPC-ChaosGame.exe",
@@ -215,16 +330,32 @@
         } else {
             let __safeCwd;
             try { __safeCwd = process.cwd(); } catch {}
-            const __discovered = __agyisDiscoverDirtyroom([__originTargetPath, options.targetPath, __safeCwd], targetBase, projectName, __allowUnmatched);
+            const __discovered = __agyisDiscoverDirtyroom([__rawRequestedPath, __originTargetPath, options.targetPath, __safeCwd], targetBase, projectName, __allowUnmatched);
             if (__discovered) {
                 projectDir = __discovered.projectDir;
                 if (!projectName) projectName = __discovered.projectName;
+                if (__discovered.programName && !process.env.REA_GHIDRA_PROGRAM_NAME && !options.existingProject?.programName) {
+                    targetBase = __discovered.programName;
+                }
+            } else {
+                const __regHit = __agyisLookupRegistry(options.targetPath, targetBase, projectName);
+                if (__regHit) {
+                    projectDir = __regHit.projectDir;
+                    if (!projectName) projectName = __regHit.projectName;
+                    if (__regHit.programName && !process.env.REA_GHIDRA_PROGRAM_NAME && !options.existingProject?.programName) {
+                        targetBase = __regHit.programName;
+                    }
+                }
             }
         }
         if (projectDir) {
             try {
-                const activeProject = __agyisSelectGpr(projectDir, targetBase, projectName, __allowUnmatched);
-                if (activeProject) {
+                const activeSel = __agyisSelectGpr(projectDir, targetBase, projectName, __allowUnmatched);
+                if (activeSel) {
+                    const activeProject = activeSel.projectName;
+                    if (activeSel.programName && !process.env.REA_GHIDRA_PROGRAM_NAME && !options.existingProject?.programName) {
+                        targetBase = activeSel.programName;
+                    }
                     const gprPath = scriptPath.join(projectDir, `${activeProject}.gpr`);
                     __agyisStatSync(gprPath);
                     return [

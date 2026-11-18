@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from harness.re.patcher import apply_patch, check_patch, revert_patch
 from harness.re.preanalyze import find_ghidra_headless, preanalyze_binary
+from harness.re.registry import register_dirtyroom
 from harness.re.scaffold import (
     get_dirtyroom_db,
     get_dirtyroom_root,
@@ -32,6 +33,11 @@ from harness.re.scaffold import (
 def cmd_status(args: argparse.Namespace) -> int:
     """Prints dirtyroom, Ghidra project, database, and REA patch health."""
     root = get_dirtyroom_root()
+    if root and root.is_dir():
+        try:
+            register_dirtyroom(root)
+        except OSError:
+            pass
     patch_info = check_patch()
 
     status_data: Dict[str, Any] = {
@@ -339,6 +345,11 @@ def cmd_decompile(args: argparse.Namespace) -> int:
     env = os.environ.copy()
     root = get_dirtyroom_root()
     if root:
+        if root.is_dir():
+            try:
+                register_dirtyroom(root)
+            except OSError:
+                pass
         ghidra_dir = root / "ghidra"
         if ghidra_dir.is_dir():
             env["REA_GHIDRA_PROJECT_DIR"] = str(ghidra_dir)
