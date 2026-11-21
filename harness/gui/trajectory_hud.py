@@ -88,7 +88,7 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
         "PLANNER_RESPONSE", "USER_INPUT", "RUN_COMMAND", "VIEW_FILE",
         "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES",
         "SEND_MESSAGE", "INVOKE_SUBAGENT", "MODEL_OUTPUT", "SYSTEM", "TOOL_CALL",
-        "CHECKPOINT", "CODE_ACTION",
+        "CHECKPOINT", "CODE_ACTION", "GENERIC",
     ):
         return existing_type
 
@@ -97,6 +97,7 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
         ("viewFile", "viewfile", "VIEW_FILE"),
         ("codeAction", "codeaction", "CODE_ACTION"),
         ("invokeSubagent", "invokesubagent", "INVOKE_SUBAGENT"),
+        ("generic", "generic", "GENERIC"),
     ):
         if step.get(field_k) is not None or step_case == case_k:
             return ctype

@@ -29,12 +29,25 @@ class EvidenceBundle:
 
 @dataclass
 class ReviewedObligation:
-    """Represents a reviewed cleanroom reconstruction obligation."""
+    """Represents a reviewed cleanroom reconstruction obligation (REA 6.9.0 strictObject)."""
     obligation_id: str
     disposition: str
-    target: Optional[str] = None
-    rationale: Optional[str] = None
-    evidence_refs: List[str] = field(default_factory=list)
+    target: str = ""
+    obligation_version: str = "1.0.0"
+    title: str = ""
+    application_layer: str = "application"
+    family: str = "cleanroom"
+    required: bool = True
+    required_case_kinds: List[str] = field(default_factory=list)
+    required_original_authority: str = "none"
+    required_fixture_authority: str = "none"
+    required_verifier_authority: str = "none"
+    requires_parser_type: bool = False
+    dependency_obligation_ids: List[str] = field(default_factory=list)
+    residual_unknown_ids: List[str] = field(default_factory=list)
+    unavailable_authority: List[str] = field(default_factory=list)
+    required_next_evidence: List[str] = field(default_factory=list)
+    review_evidence_ids: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -121,7 +134,7 @@ def validate_obligation_ledger(ledger_path: Path | str) -> Tuple[bool, List[str]
 
 def scaffold_obligation_ledger(output_path: Path | str) -> Path:
     """
-    Generates a starter typed obligation ledger adhering to REA 6.8.0 schema.
+    Generates a starter typed obligation ledger adhering to REA 6.9.0 canonical bundle schema.
     """
     target = Path(output_path).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -131,13 +144,7 @@ def scaffold_obligation_ledger(output_path: Path | str) -> Path:
             "artifacts": [],
             "captures": [],
             "environments": [],
-            "providers": [
-                {
-                    "id": "ghidra",
-                    "name": "Ghidra Headless Decompiler",
-                    "version": "12.2",
-                }
-            ],
+            "providers": [],
             "records": [],
             "scenarios": [],
             "unknowns": [],

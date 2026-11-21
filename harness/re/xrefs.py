@@ -18,7 +18,7 @@ import struct
 import sys
 from typing import Any, Dict, List, Optional
 
-from harness.re.address import parse_pe_sections
+from harness.re.address import parse_binary_sections, parse_pe_sections  # noqa: F401
 from harness.re.scaffold import resolve_binary_path
 
 
@@ -90,7 +90,7 @@ def find_cross_references(
     with open(bin_path, "rb") as f:
         buf = f.read()
 
-    pe_info = parse_pe_sections(bin_path)
+    pe_info = parse_binary_sections(bin_path)
     image_base, sections = pe_info[0], pe_info[1]
     is_64bit = getattr(pe_info, "is_64bit", True)
 

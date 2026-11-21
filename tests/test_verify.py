@@ -258,5 +258,34 @@ class TestVerifyCommand(unittest.TestCase):
             mock_clear.assert_called_once()
 
 
+    def test_cmd_verify_missing_ledger_returns_1(self) -> None:
+        """Verifies cmd_verify fails non-zero when no obligation ledger or manifest exists (DRIFT-P1-12)."""
+        args = argparse.Namespace(
+            workspace=self.workspace,
+            spec=False,
+            json=True,
+        )
+        out_buf = io.StringIO()
+        with patch("shutil.which", return_value=None), patch("sys.stdout", out_buf):
+            code = cmd_verify(args)
+        self.assertEqual(code, 1)
+        data = json.loads(out_buf.getvalue())
+        self.assertEqual(data["status"], "failed")
+
+    def test_scaffold_obligation_ledger_rea_690_schema(self) -> None:
+        """Verifies scaffolded ledger uses canonical empty providers/records and 18-field ReviewedObligation."""
+        from harness.cleanroom.obligation import ReviewedObligation, scaffold_obligation_ledger
+
+        ledger_path = self.workspace / ".agents" / "ledger" / "obligation_ledger.json"
+        scaffold_obligation_ledger(ledger_path)
+        data = json.loads(ledger_path.read_text(encoding="utf-8"))
+        self.assertEqual(data["evidence_bundle"]["providers"], [])
+        self.assertEqual(data["evidence_bundle"]["records"], [])
+
+        ob = ReviewedObligation(obligation_id="OBL-1", disposition="active", target="foo")
+        self.assertEqual(ob.obligation_version, "1.0.0")
+        self.assertIsInstance(ob.review_evidence_ids, list)
+
+
 if __name__ == "__main__":
     unittest.main()

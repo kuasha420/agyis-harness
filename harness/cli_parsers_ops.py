@@ -27,7 +27,12 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_gui.add_argument(
         "--trajectory-debug",
         action="store_true",
-        help="Inject developer flags and trigger Trajectory Debug View (?trajectoryDebugOpen=true)",
+        help="Inject developer flags and open the In-Situ Trajectory Debug HUD",
+    )
+    p_gui.add_argument(
+        "--install-launcher",
+        action="store_true",
+        help="Install user .desktop override (~/.local/share/applications/antigravity.desktop) with --remote-debugging-port=0",
     )
     p_gui.add_argument(
         "--toggle",

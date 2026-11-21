@@ -614,7 +614,7 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_verify.add_argument(
         "--scaffold",
         action="store_true",
-        help="Scaffold a typed .agents/ledger/obligation_ledger.json adhering to REA 6.8.0 schema",
+        help="Scaffold a typed .agents/ledger/obligation_ledger.json adhering to REA 6.9.0 schema",
     )
     p_verify.add_argument(
         "--workspace",

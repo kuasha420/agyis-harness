@@ -324,9 +324,9 @@ def cmd_decompile(args: argparse.Namespace) -> int:
                     proc = resolved_name
 
             if not binary:
-                # Check if there is a binary in dirtyroom, preferring executable over dll
+                # Check if there is a binary in dirtyroom, preferring executables over shared libraries
                 c.execute(
-                    "SELECT name FROM binaries ORDER BY (CASE WHEN name LIKE '%.exe' THEN 0 ELSE 1 END), id LIMIT 1"
+                    "SELECT name FROM binaries ORDER BY (CASE WHEN name NOT LIKE '%.dll' AND name NOT LIKE '%.so' AND name NOT LIKE '%.dylib' THEN 0 ELSE 1 END), id LIMIT 1"
                 )
                 row = c.fetchone()
                 if row:

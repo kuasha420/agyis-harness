@@ -40,26 +40,18 @@
                 const gTokens = Number(g.numTokens || g.num_tokens || 0);
                 const children = g.children || [];
 
-                // Group 1: SYSTEM_PROMPT (or 3: RULES, 5: SKILLS, 6: SUBAGENTS)
-                if (gType === 1 || gType === 3 || gType === 5 || gType === 6 || (gType === 0 && /identity/i.test(gName))) {
+                // Group 1: SYSTEM_PROMPT (or 3: RULES, 5: SKILLS, 6: SUBAGENTS, 8: WORKFLOWS, 9: PLUGINS, 10: FLOWS)
+                if (gType === 1 || gType === 3 || gType === 5 || gType === 6 || gType === 8 || gType === 9 || gType === 10 || (gType === 0 && /identity/i.test(gName))) {
+                    const fallbackGroupNames = { 1: "System Instructions", 3: "Rules", 5: "Skills", 6: "Subagents", 8: "Workflows", 9: "Plugins", 10: "Flows" };
                     if (children.length > 0) {
                         children.forEach(c => {
                             const cName = c.name || "section";
                             const cTok = Number(c.numTokens || c.num_tokens || 0);
-                            if (cTok > 0) {
-                                systemPromptSlices.push({
-                                    name: cName,
-                                    tag: cName.toLowerCase().replace(/[^a-z0-9_]/g, "_"),
-                                    tokens: cTok,
-                                });
-                            }
+                            if (cTok > 0) systemPromptSlices.push({ name: cName, tag: cName.toLowerCase().replace(/[^a-z0-9_]/g, "_"), tokens: cTok });
                         });
                     } else if (gTokens > 0) {
-                        systemPromptSlices.push({
-                            name: gName || "System Instructions",
-                            tag: "system_prompt",
-                            tokens: gTokens,
-                        });
+                        const label = gName || fallbackGroupNames[gType] || "System Instructions";
+                        systemPromptSlices.push({ name: label, tag: label.toLowerCase().replace(/[^a-z0-9_]/g, "_"), tokens: gTokens });
                     }
                 }
 
@@ -73,25 +65,11 @@
                                 subChildren.forEach(sc => {
                                     const scName = sc.name || "tool";
                                     const scTok = Number(sc.numTokens || sc.num_tokens || 0);
-                                    if (scTok > 0) {
-                                        toolDefSlices.push({
-                                            name: scName,
-                                            server_name: cName,
-                                            is_mcp: true,
-                                            tokens: scTok,
-                                        });
-                                    }
+                                    if (scTok > 0) toolDefSlices.push({ name: scName, server_name: cName, is_mcp: true, tokens: scTok });
                                 });
                             } else {
                                 const cTok = Number(c.numTokens || c.num_tokens || 0);
-                                if (cTok > 0) {
-                                    toolDefSlices.push({
-                                        name: cName,
-                                        server_name: gType === 4 ? (g.serverName || "") : "",
-                                        is_mcp: gType === 4,
-                                        tokens: cTok,
-                                    });
-                                }
+                                if (cTok > 0) toolDefSlices.push({ name: cName, server_name: gType === 4 ? (g.serverName || "") : "", is_mcp: gType === 4, tokens: cTok });
                             }
                         });
                     } else if (gTokens > 0) {
@@ -190,7 +168,9 @@
         const steps = orderedRaw.map((rs, idx) => {
             const stepIdx = rs.stepIndex !== undefined ? rs.stepIndex : (rs.step_index !== undefined ? rs.step_index : idx);
             let cortexType = rs.type || rs.stepType || "STEP";
-            if (typeof cortexType === "string" && cortexType.startsWith("CORTEX_STEP_TYPE_")) {
+            if (cortexType === 132 || cortexType === "132") {
+                cortexType = "GENERIC";
+            } else if (typeof cortexType === "string" && cortexType.startsWith("CORTEX_STEP_TYPE_")) {
                 cortexType = cortexType.replace("CORTEX_STEP_TYPE_", "");
             }
             const isModelStep = cortexType === "PLANNER_RESPONSE" || cortexType === "MODEL_OUTPUT";
@@ -206,7 +186,7 @@
                 activeChatStart = gm.chatModel.chatStartMetadata;
                 const cwm = activeChatStart.contextWindowMetadata;
                 if (cwm) {
-                    if (cwm.maxTokens) maxContextTokens = cwm.maxTokens;
+                    if (cwm.maxContextTokens || cwm.maxTokens) maxContextTokens = cwm.maxContextTokens || cwm.maxTokens;
                     if (cwm.tokenBreakdown) activeTokenBreakdown = cwm.tokenBreakdown;
                 }
             }
@@ -247,6 +227,11 @@
             if (rs.checkpoint) {
                 extraFields.sessionSummary = rs.checkpoint.sessionSummary || "";
                 extraFields.checkpoint_index = rs.checkpoint.checkpointIndex;
+            }
+            if (rs.generic) {
+                extraFields.generic = rs.generic;
+                if (rs.generic.toolName) extraFields.toolName = rs.generic.toolName;
+                if (rs.generic.output !== undefined) extraFields.output = rs.generic.output;
             }
 
             return Object.assign({
@@ -529,8 +514,10 @@
                 trajectoryId: "",
                 stepsInSlice: [],
                 generatorMetadatasInSlice: [],
+                executorMetadatasInSlice: [],
                 totalStepsLength: 0,
                 activeTokens: 0,
+                maxContextTokens: 0,
                 tokenBreakdown: null,
                 isStreaming: false,
             };
@@ -570,16 +557,20 @@
             this._state.conversationId = update.conversationId || this._state.conversationId;
             this._state.trajectoryId = update.trajectoryId || this._state.trajectoryId;
 
+            if (update.contextWindowUsage) {
+                const cwu = update.contextWindowUsage;
+                if (cwu.estimatedTokensUsed !== undefined) { this._state.activeTokens = cwu.estimatedTokensUsed; this._dirty.tokens = true; }
+                if (cwu.maxContextTokens !== undefined) { this._state.maxContextTokens = cwu.maxContextTokens; this._dirty.tokens = true; }
+                if (cwu.tokenGroups) { this._state.tokenBreakdown = { groups: cwu.tokenGroups }; this._dirty.tokens = true; }
+            }
+
             const mtu = update.mainTrajectoryUpdate;
             if (!mtu) return;
 
             if (mtu.stepsUpdate) {
                 const { indices, steps, totalLength } = mtu.stepsUpdate;
                 if (indices && steps) {
-                    for (let i = 0; i < indices.length; i++) {
-                        const idx = indices[i];
-                        this._state.stepsInSlice[idx] = steps[i];
-                    }
+                    for (let i = 0; i < indices.length; i++) this._state.stepsInSlice[indices[i]] = steps[i];
                     this._dirty.steps = true;
                     this._dirty.timeline = true;
                 }
@@ -590,19 +581,24 @@
                 const { indices, generatorMetadatas } = mtu.generatorMetadatasUpdate;
                 if (indices && generatorMetadatas) {
                     for (let i = 0; i < indices.length; i++) {
-                        const idx = indices[i];
                         const gm = generatorMetadatas[i];
-                        this._state.generatorMetadatasInSlice[idx] = gm;
-
+                        this._state.generatorMetadatasInSlice[indices[i]] = gm;
                         const cwm = gm?.chatModel?.chatStartMetadata?.contextWindowMetadata;
                         if (cwm) {
                             this._state.activeTokens = cwm.estimatedTokensUsed || this._state.activeTokens;
-                            if (cwm.tokenBreakdown) {
-                                this._state.tokenBreakdown = cwm.tokenBreakdown;
-                                this._dirty.tokens = true;
-                            }
+                            if (cwm.maxContextTokens || cwm.maxTokens) this._state.maxContextTokens = cwm.maxContextTokens || cwm.maxTokens;
+                            if (cwm.tokenBreakdown) { this._state.tokenBreakdown = cwm.tokenBreakdown; this._dirty.tokens = true; }
                         }
                     }
+                }
+            }
+
+            if (mtu.executorMetadatasUpdate) {
+                const { indices, executorMetadatas, executorMetadata } = mtu.executorMetadatasUpdate;
+                const execList = executorMetadatas || executorMetadata;
+                if (indices && execList) {
+                    for (let i = 0; i < indices.length; i++) this._state.executorMetadatasInSlice[indices[i]] = execList[i];
+                    this._dirty.steps = true;
                 }
             }
         }
@@ -623,7 +619,13 @@
         const proto = (loc && loc.protocol === "http:") ? "http:" : "https:";
         const fallbackOrigin = (isHttps && isLoopback && loc && loc.origin && loc.origin.startsWith("http")) ? loc.origin : null;
         const baseUrl = dynamicUrl || fallbackOrigin || (loc && loc.origin && loc.origin.startsWith("http") ? loc.origin : `${proto}//127.0.0.1:${port}`);
-        const csrfToken = options.csrfToken || (appCfg && appCfg.csrfToken) || "";
+        let sessionCsrf = "";
+        try {
+            if (typeof localStorage !== "undefined" && localStorage && typeof localStorage.getItem === "function") {
+                sessionCsrf = localStorage.getItem("agy_session_csrf_token") || "";
+            }
+        } catch (_) {}
+        const csrfToken = options.csrfToken || (appCfg && appCfg.csrfToken) || sessionCsrf || "";
         return { port, baseUrl, csrfToken };
     }
 
@@ -656,7 +658,7 @@
                 initialStepsPageBounds: { startIndex: 0, endIndexExclusive: 500 },
                 initialGeneratorMetadatasPageBounds: { startIndex: 0, endIndexExclusive: 500 },
                 initialExecutorMetadatasPageBounds: { startIndex: 0, endIndexExclusive: 500 },
-                trajectoryVerbosity: 2,
+                trajectoryVerbosity: 3,
             };
             const jsonBytes = new TextEncoder().encode(JSON.stringify(reqBody));
             const framedReq = new Uint8Array(5 + jsonBytes.length);
@@ -721,7 +723,7 @@
             const headers = { "Content-Type": "application/json", "Connect-Protocol-Version": "1" };
             if (csrfToken) headers["x-codeium-csrf-token"] = csrfToken;
 
-            const reqBody = JSON.stringify({ cascadeId: convoId });
+            const reqBody = JSON.stringify({ cascadeId: convoId, trajectoryVerbosity: 3 });
             const [trajRes, stepsRes, genRes, execRes] = await Promise.all([
                 fetch(`${baseUrl}/exa.language_server_pb.LanguageServerService/GetCascadeTrajectory`, { method: "POST", headers, body: reqBody }).catch(() => null),
                 fetch(`${baseUrl}/exa.language_server_pb.LanguageServerService/GetCascadeTrajectorySteps`, { method: "POST", headers, body: reqBody }).catch(() => null),
@@ -761,7 +763,7 @@
             const genMetas = (genJson && (genJson.generatorMetadata || genJson.generatorMetadatas || genJson.metadatas)) || [];
             const chatModelData = (genJson && (genJson.chatModel || (genMetas[0] && genMetas[0].chatModel))) || null;
             const execJson = (execRes && execRes.ok) ? await execRes.json().catch(() => null) : null;
-            const execMetas = (execJson && (execJson.executorMetadatas || execJson.metadatas)) || [];
+            const execMetas = (execJson && (execJson.executorMetadata || execJson.executorMetadatas || execJson.metadatas)) || [];
 
             return buildHudTrajectoryData(convoId, rawSteps, genMetas, execMetas, chatModelData);
         } catch (err) {

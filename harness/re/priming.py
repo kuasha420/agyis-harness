@@ -108,7 +108,7 @@ def prime_cache(
             elif not bin_path:
                 # Mirror cmd_decompile fallback to primary registered binary
                 cursor.execute(
-                    "SELECT id, name FROM binaries ORDER BY (CASE WHEN name LIKE '%.exe' THEN 0 ELSE 1 END), id LIMIT 1"
+                    "SELECT id, name FROM binaries ORDER BY (CASE WHEN name NOT LIKE '%.dll' AND name NOT LIKE '%.so' AND name NOT LIKE '%.dylib' THEN 0 ELSE 1 END), id LIMIT 1"
                 )
                 r = cursor.fetchone()
                 if r:

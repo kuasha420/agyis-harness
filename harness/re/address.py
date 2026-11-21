@@ -23,13 +23,20 @@ from harness.re.scaffold import resolve_binary_path
 
 
 class PESectionInfo(tuple):
-    """Tuple of (image_base, sections) with is_64bit property."""
+    """Tuple of (image_base, sections) with is_64bit and binary_format properties."""
 
-    def __new__(cls, image_base: int, sections: List[Dict[str, Any]], is_64bit: bool = True):
+    def __new__(
+        cls,
+        image_base: int,
+        sections: List[Dict[str, Any]],
+        is_64bit: bool = True,
+        binary_format: str = "PE",
+    ):
         obj = super().__new__(cls, (image_base, sections))
         obj.image_base = image_base
         obj.sections = sections
         obj.is_64bit = is_64bit
+        obj.binary_format = binary_format
         return obj
 
 
@@ -96,7 +103,124 @@ def parse_pe_sections(binary_path: Path) -> PESectionInfo:
             "is_data": not (is_code or is_execute),
         })
 
-    return PESectionInfo(image_base, sections, is_64bit=is_64bit)
+    return PESectionInfo(image_base, sections, is_64bit=is_64bit, binary_format="PE")
+
+
+def parse_elf_sections(binary_path: Path) -> PESectionInfo:
+    """Parses ELF32/ELF64 headers and section table using pure Python stdlib."""
+    with open(binary_path, "rb") as f:
+        ehdr = f.read(64)
+        if len(ehdr) < 52 or ehdr[:4] != b"\x7fELF":
+            raise ValueError(f"File '{binary_path}' is not a valid ELF executable (missing ELF magic)")
+
+        ei_class = ehdr[4]
+        ei_data = ehdr[5]
+        endian = "<" if ei_data == 1 else ">" if ei_data == 2 else "<"
+
+        if ei_class == 2:
+            if len(ehdr) < 64:
+                raise ValueError(f"Truncated ELF64 header in '{binary_path}'")
+            is_64bit = True
+            e_phoff = struct.unpack_from(endian + "Q", ehdr, 32)[0]
+            e_shoff = struct.unpack_from(endian + "Q", ehdr, 40)[0]
+            e_phentsize, e_phnum, e_shentsize, e_shnum, e_shstrndx = struct.unpack_from(
+                endian + "HHHHH", ehdr, 54
+            )
+        elif ei_class == 1:
+            is_64bit = False
+            e_phoff = struct.unpack_from(endian + "I", ehdr, 28)[0]
+            e_shoff = struct.unpack_from(endian + "I", ehdr, 32)[0]
+            e_phentsize, e_phnum, e_shentsize, e_shnum, e_shstrndx = struct.unpack_from(
+                endian + "HHHHH", ehdr, 42
+            )
+        else:
+            raise ValueError(f"Unsupported ELF class {ei_class} in '{binary_path}'")
+
+        # Determine image_base from lowest PT_LOAD p_vaddr
+        load_vaddrs: List[int] = []
+        if e_phoff > 0 and e_phnum > 0 and e_phentsize >= (56 if is_64bit else 32):
+            f.seek(e_phoff)
+            ph_data = f.read(e_phnum * e_phentsize)
+            for i in range(e_phnum):
+                off = i * e_phentsize
+                if off + e_phentsize > len(ph_data):
+                    break
+                p_type = struct.unpack_from(endian + "I", ph_data, off)[0]
+                if p_type == 1:  # PT_LOAD
+                    p_vaddr = struct.unpack_from(
+                        endian + ("Q" if is_64bit else "I"), ph_data, off + (16 if is_64bit else 8)
+                    )[0]
+                    load_vaddrs.append(p_vaddr)
+        image_base = min(load_vaddrs) if load_vaddrs else 0
+
+        sections: List[Dict[str, Any]] = []
+        if e_shoff > 0 and e_shnum > 0 and e_shentsize >= (64 if is_64bit else 40):
+            f.seek(e_shoff)
+            sh_data = f.read(e_shnum * e_shentsize)
+
+            def _read_shdr(idx: int) -> Tuple[int, int, int, int, int, int]:
+                off = idx * e_shentsize
+                if is_64bit:
+                    sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size = struct.unpack_from(
+                        endian + "IIQQQQ", sh_data, off
+                    )
+                else:
+                    sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size = struct.unpack_from(
+                        endian + "IIIIII", sh_data, off
+                    )
+                return sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size
+
+            shstrtab = b""
+            if 0 <= e_shstrndx < e_shnum and (e_shstrndx + 1) * e_shentsize <= len(sh_data):
+                _, _, _, _, str_off, str_sz = _read_shdr(e_shstrndx)
+                if str_sz > 0:
+                    f.seek(str_off)
+                    shstrtab = f.read(str_sz)
+
+            for i in range(e_shnum):
+                if (i + 1) * e_shentsize > len(sh_data):
+                    break
+                sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size = _read_shdr(i)
+                if sh_type == 0:  # SHT_NULL
+                    continue
+                if not (sh_flags & 0x2) and sh_addr == 0:
+                    continue
+                name = ""
+                if shstrtab and sh_name < len(shstrtab):
+                    end = shstrtab.find(b"\x00", sh_name)
+                    raw_name = shstrtab[sh_name:end] if end != -1 else shstrtab[sh_name:]
+                    name = raw_name.decode("latin-1", errors="replace")
+
+                is_alloc = bool(sh_flags & 0x2)
+                is_write = bool(sh_flags & 0x1)
+                is_exec = bool(sh_flags & 0x4)
+                perms = f"{'r' if is_alloc else '-'}{'w' if is_write else '-'}{'x' if is_exec else '-'}"
+                raw_size = 0 if sh_type == 8 else sh_size  # SHT_NOBITS == 8
+                rva = sh_addr - image_base if sh_addr >= image_base else sh_addr
+                sections.append({
+                    "name": name,
+                    "rva": rva,
+                    "virtual_size": sh_size,
+                    "raw_offset": sh_offset,
+                    "raw_size": raw_size,
+                    "characteristics": sh_flags,
+                    "permissions": perms,
+                    "is_code": is_exec,
+                    "is_data": is_alloc and not is_exec,
+                })
+
+    return PESectionInfo(image_base, sections, is_64bit=is_64bit, binary_format="ELF")
+
+
+def parse_binary_sections(binary_path: Path) -> PESectionInfo:
+    """Auto-detects PE32/PE32+ or ELF32/ELF64 and parses its sections."""
+    with open(binary_path, "rb") as f:
+        magic = f.read(4)
+    if magic[:2] == b"MZ":
+        return parse_pe_sections(binary_path)
+    if magic[:4] == b"\x7fELF":
+        return parse_elf_sections(binary_path)
+    raise ValueError(f"File '{binary_path}' is neither a PE (MZ) nor an ELF (\\x7fELF) executable")
 
 
 def inspect_address(
@@ -125,9 +249,10 @@ def inspect_address(
     else:
         addr_int = int(addr_input)
 
-    pe_info = parse_pe_sections(bin_path)
+    pe_info = parse_binary_sections(bin_path)
     image_base, sections = pe_info[0], pe_info[1]
     is_64bit = getattr(pe_info, "is_64bit", True)
+    binary_format = getattr(pe_info, "binary_format", "PE")
 
     # Classify input address type
     if addr_int >= image_base:

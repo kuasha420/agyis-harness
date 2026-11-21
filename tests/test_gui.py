@@ -376,7 +376,7 @@ class TestTrajectoryDebugInjection(unittest.TestCase):
 
         res = inject_trajectory_debug(mock_client)
         self.assertTrue(res["success"])
-        self.assertIn("trajectoryDebugOpen=true", res["url"])
+        self.assertNotIn("trajectoryDebugOpen=true", res["url"])
 
     def test_inject_trajectory_debug_failure(self) -> None:
         mock_client = MagicMock()
@@ -948,9 +948,9 @@ class TestGuiCommandCLI(unittest.TestCase):
             self.assertEqual(code, 0)
             mock_inject.assert_called_once_with(unittest.mock.ANY, toggle=False, open_view=False)
             out = mock_out.getvalue()
-            self.assertIn("Trajectory Debug shortcuts and Command Palette flags primed successfully (modal popup suppressed)", out)
-            self.assertIn("Injected flags: 'enable-trajectory-debug-tools', 'enable-developer-mode'", out)
-            self.assertIn("Developer: Trajectory Debug View", out)
+            self.assertIn("In-Situ Trajectory Debug HUD shortcuts primed successfully (modal popup suppressed)", out)
+            self.assertIn("Best-effort flags written: 'enable-trajectory-debug-tools', 'enable-developer-mode'", out)
+            self.assertNotIn("Developer: Trajectory Debug View", out)
             self.assertIn("F12", out)
 
     @patch("harness.commands.gui.inject_trajectory_debug")
@@ -2954,6 +2954,91 @@ console.log("PASS");
             args, kwargs = mock_load.call_args
             self.assertEqual(args[0], "sub-2222")
             self.assertEqual(kwargs.get("parent_id"), "parent-1111")
+
+
+class TestV234GuiAndHudCompatibility(unittest.TestCase):
+    """Regression tests for Antigravity v2.34.0 GUI, CDP, and HUD compatibility."""
+
+    def test_install_cdp_launcher_writes_desktop_file(self) -> None:
+        from harness.gui.launcher import install_cdp_launcher
+
+        with tempfile.TemporaryDirectory() as tmp:
+            desktop_path = Path(tmp) / "applications" / "antigravity.desktop"
+            res = install_cdp_launcher(desktop_path=desktop_path, system_desktop_path=Path(tmp) / "missing.desktop")
+            self.assertTrue(res["success"])
+            self.assertTrue(desktop_path.is_file())
+            content = desktop_path.read_text(encoding="utf-8")
+            self.assertIn("Exec=/usr/bin/antigravity --remote-debugging-port=0 %U", content)
+
+    def test_detect_antigravity_without_cdp_filters_helpers(self) -> None:
+        from harness.gui.launcher import detect_antigravity_without_cdp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = Path(tmp)
+            (proc / "101").mkdir()
+            (proc / "101" / "cmdline").write_bytes(b"/opt/Antigravity/antigravity\x00--no-sandbox\x00")
+            (proc / "102").mkdir()
+            (proc / "102" / "cmdline").write_bytes(b"/opt/Antigravity/antigravity\x00--type=renderer\x00")
+            (proc / "103").mkdir()
+            (proc / "103" / "cmdline").write_bytes(b"/opt/Antigravity/antigravity\x00--remote-debugging-port=0\x00")
+
+            found = detect_antigravity_without_cdp(proc_root=proc)
+            self.assertEqual([p["pid"] for p in found], [101])
+
+    def test_find_page_target_prefers_hub_port_over_playback_and_browser_wcv(self) -> None:
+        targets = [
+            {"id": "WCV1", "type": "page", "title": "Local App", "url": "http://127.0.0.1:40624/c/other"},
+            {"id": "WCV2", "type": "page", "title": "Dev App", "url": "http://127.0.0.1:5173/c/dev"},
+            {"id": "HUB1", "type": "page", "title": "Antigravity", "url": "https://127.0.0.1:40729/c/abc"},
+        ]
+        chosen = find_page_target(targets, expected_hub_port=40729)
+        self.assertIsNotNone(chosen)
+        self.assertEqual(chosen["id"], "HUB1")
+
+        chosen_no_hint = find_page_target(targets)
+        self.assertIsNotNone(chosen_no_hint)
+        self.assertEqual(chosen_no_hint["id"], "HUB1")
+
+    def test_hud_js_assets_v234_contracts(self) -> None:
+        from harness.commands.gui import _load_gui_asset
+
+        rpc_js = _load_gui_asset("hud_rpc.js")
+        self.assertIn("agy_session_csrf_token", rpc_js)
+        self.assertIn("trajectoryVerbosity: 3", rpc_js)
+        self.assertIn("execJson.executorMetadata", rpc_js)
+        self.assertIn("update.contextWindowUsage", rpc_js)
+        self.assertIn("cwm.maxContextTokens", rpc_js)
+        self.assertIn("gType === 8 || gType === 9 || gType === 10", rpc_js)
+        self.assertIn('"GENERIC"', rpc_js)
+
+        hud_js = _load_gui_asset("hud.js")
+        self.assertIn("window.__agyis_hud_mount", hud_js)
+        self.assertIn("CSS.escape", hud_js)
+
+        hotkey_js = _load_gui_asset("hotkey.js")
+        self.assertIn('searchParams.get("focused")', hotkey_js)
+
+        header_js = _load_gui_asset("hud_header.js")
+        self.assertNotIn("text-muted-foreground shrink-0", header_js)
+
+    def test_discover_ls_endpoint_rejects_plain_text_401(self) -> None:
+        import urllib.error
+        from harness.commands.gui import discover_language_server_endpoint
+
+        def _fake_urlopen(req, timeout=0.25, context=None):
+            if ":41335/" in req.full_url:
+                raise urllib.error.HTTPError(
+                    req.full_url, 401, "Unauthorized", {"Content-Type": "text/plain"}, None
+                )
+            raise urllib.error.HTTPError(
+                req.full_url, 401, "Unauthorized", {"Content-Type": "application/json"}, None
+            )
+
+        with patch("subprocess.check_output", return_value=""), \
+             patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+            ep = discover_language_server_endpoint(candidate_ports=[41335, 42381])
+            self.assertIsNotNone(ep)
+            self.assertEqual(ep["port"], 42381)
 
 
 if __name__ == "__main__":

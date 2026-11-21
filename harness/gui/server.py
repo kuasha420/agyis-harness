@@ -38,9 +38,9 @@ DEFAULT_HOST = "127.0.0.1"
 
 logger = logging.getLogger("harness.gui.server")
 
-# In-memory trajectory cache: transcript_path -> (st_mtime_ns, st_size, trajectory_data)
+# In-memory trajectory cache: cache_key -> (mtime_ns, size, full_mtime_ns, full_size, trajectory_data)
 _MAX_TRAJECTORY_CACHE_SIZE = 1000
-_TRAJECTORY_CACHE: Dict[str, Tuple[int, int, Dict[str, Any]]] = {}
+_TRAJECTORY_CACHE: Dict[str, Tuple[int, int, int, int, Dict[str, Any]]] = {}
 
 
 def get_cached_trajectory(
@@ -54,21 +54,31 @@ def get_cached_trajectory(
     transcript_path = convo_dir / ".system_generated" / "logs" / "transcript.jsonl"
     if not transcript_path.is_file():
         transcript_path = convo_dir / "transcript.jsonl"
+    full_path = transcript_path.with_name("transcript_full.jsonl")
 
     t_path_str = str(transcript_path)
+    cache_key = t_path_str if not parent_id else f"{t_path_str}::parent={parent_id}"
     if transcript_path.is_file():
         try:
             st = os.stat(transcript_path)
-            cached = _TRAJECTORY_CACHE.get(t_path_str)
+            full_st = os.stat(full_path) if full_path.is_file() else None
+            f_mtime = full_st.st_mtime_ns if full_st else 0
+            f_size = full_st.st_size if full_st else 0
+            cached = _TRAJECTORY_CACHE.get(cache_key)
             if cached is not None:
-                cached_mtime, cached_size, cached_data = cached
-                if cached_mtime == st.st_mtime_ns and cached_size == st.st_size:
+                c_mtime, c_size, c_fmtime, c_fsize, cached_data = cached
+                if (
+                    c_mtime == st.st_mtime_ns
+                    and c_size == st.st_size
+                    and c_fmtime == f_mtime
+                    and c_fsize == f_size
+                ):
                     return cached_data
 
             data = load_conversation_trajectory(convo_id, brain_dir=brain_dir, parent_id=parent_id)
             if len(_TRAJECTORY_CACHE) >= _MAX_TRAJECTORY_CACHE_SIZE:
                 _TRAJECTORY_CACHE.clear()
-            _TRAJECTORY_CACHE[t_path_str] = (st.st_mtime_ns, st.st_size, data)
+            _TRAJECTORY_CACHE[cache_key] = (st.st_mtime_ns, st.st_size, f_mtime, f_size, data)
             return data
         except OSError:
             pass
@@ -172,7 +182,8 @@ class TrajectoryServer(http.server.ThreadingHTTPServer):
         RequestHandlerClass: type[TrajectoryRequestHandler] = TrajectoryRequestHandler,
         brain_dir: Optional[Path] = None,
     ):
-        self.brain_dir = brain_dir
+        env_brain = os.environ.get("AGYIS_BRAIN_DIR")
+        self.brain_dir = brain_dir if brain_dir is not None else (Path(env_brain) if env_brain else None)
         # Subclass request handler to pass brain_dir
         class ConfiguredHandler(RequestHandlerClass):
             brain_dir = self.brain_dir
@@ -216,8 +227,11 @@ def ensure_trajectory_server(
         return None
 
     cmd = [sys.executable, "-m", "harness.cli", "gui", "--server", "--server-port", str(port)]
+    env = os.environ.copy()
+    if brain_dir is not None:
+        env["AGYIS_BRAIN_DIR"] = str(brain_dir)
     try:
-        subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
         for _ in range(10):
             time.sleep(0.05)
             if is_server_alive(host=host, port=port):

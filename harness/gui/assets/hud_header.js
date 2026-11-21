@@ -106,7 +106,7 @@
                 <div class="agyis-hud-header-left">
                     <div style="display: inline-flex; align-items: center; gap: 4px;">
                         <span class="agyis-hud-pill agyis-hud-pill-amber" style="font-weight: 700;">Trajectory Debug View</span>
-                        ${isChildView ? '<span class="text-muted-foreground shrink-0" style="color: #a1a1aa; font-size: 11px; margin-left: 2px;">(subagent)</span>' : ""}
+                        ${isChildView ? '<span class="agyis-hud-subagent-tag" style="color: #a1a1aa; font-size: 11px; margin-left: 2px; flex-shrink: 0;">(subagent)</span>' : ""}
                     </div>
                     <select id="agyis-convo-select" class="agyis-hud-select" title="Search conversations (by name or Cascade ID)">
                         ${effectiveConvoList.map(c => {

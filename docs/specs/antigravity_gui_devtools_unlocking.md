@@ -94,7 +94,8 @@ All findings in this specification were validated empirically on host `<workstat
 
 These mechanisms are shipped in `agyis-harness` via `agyis gui` (`harness/cli.py` & `harness/gui/`):
 - `agyis gui --devtools`: Reads `~/.config/Antigravity/DevToolsActivePort` and emits CDP targets and `chrome://inspect` URIs.
-- `agyis gui --trajectory-debug` / `--toggle` / `--no-popup`: Injects `jetski.developer.customFlagOverrides` and hotkeys over live CDP WebSocket without modifying binary files.
+- `agyis gui --install-launcher`: Installs `~/.local/share/applications/antigravity.desktop` with `Exec=/usr/bin/antigravity --remote-debugging-port=0 %U` so desktop launches emit `DevToolsActivePort`.
+- `agyis gui --trajectory-debug` / `--toggle` / `--no-popup`: Performs best-effort `jetski.developer.customFlagOverrides` injection and mounts the In-Situ Trajectory Debug HUD (`#agyis-trajectory-hud`) with persistent `F12` / `Ctrl+Shift+T` hotkeys over live CDP WebSocket without modifying binary files.
 - `agyis gui --hud` / `--hud-remove` / `--server` / `--service`: Deploys and manages the live SPA-route-synchronized Trajectory Token HUD overlay and background trajectory API (`--server-port 40624`).
 
 ---
@@ -111,7 +112,7 @@ Upgrading from Antigravity Desktop `v2.32.1-1` to `v2.34.0-1` (Electron `44.9.1`
    - `language_server` now runs with `AGY_REQUIRE_AUTHENTICATED_UI_BOOTSTRAP=1` (`dist/languageServer.js:278`) and serves `window.__APP_CONFIG__.csrfToken = ""` in `index.html`; unauthenticated ConnectRPC calls return HTTP `401` (`missing CSRF token`).
    - `dist/authBootstrap.js` mints a single-use `#t=` token via `POST /auth/mint`, which `main.js` exchanges via `POST /auth` for `sessionToken` and stores in both `window.__APP_CONFIG__.csrfToken` and `localStorage["agy_session_csrf_token"]`.
 3. **Native Trajectory Debug View Trigger Change (`main.js` web bundle):**
-   - The `?trajectoryDebugOpen=true` query parameter is absent (`0` matches in `v2.34.0` `main.js`). `conversationView.openTrajectoryDebugView` now gates on both `trajectoryDebugTools` and `customSidePanels?.has("trajectoryDebug")` and opens a `customView` (`customPaneKey: "trajectoryDebug"`).
+   - The `?trajectoryDebugOpen=true` query parameter is absent (`0` matches in `v2.34.0` `main.js`). `conversationView.openTrajectoryDebugView` now gates on both `trajectoryDebugTools` and `customSidePanels?.has("trajectoryDebug")`, and `"trajectoryDebug"` is unregistered in `customSidePanels` in packaged external builds (while `canApplyDeveloperOverrides` blocks self-bootstrapping `jetski.developer.customFlagOverrides`). Consequently, the cleanroom In-Situ HUD (`#agyis-trajectory-hud`) is the primary live trajectory inspector in `v2.34.0`.
 
 | Evidence ID | Component / Target | Subject / Digest / Location | Verified Value / Finding |
 |---|---|---|---|

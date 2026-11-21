@@ -347,6 +347,7 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
     mcp_patched = bool(mcp_binary) and PATCH_SIGNATURE in m_text
     snapshot_patched = bool(snapshot) and DIRECT_MOUNT_SIGNATURE in s_text
     cli_patched = bool(cli_binary) and PATCH_SIGNATURE in c_text and DIRECT_MOUNT_SIGNATURE in c_text
+    policy_native = bool(policy_file) and 'SUPPORTED_GHIDRA_VERSION = "12.2"' in p_text and not policy_file.with_suffix(".js.orig").is_file()
     policy_patched = bool(policy_file) and 'SUPPORTED_GHIDRA_VERSION = "12.2"' in p_text
 
     direct_mount_active = (
@@ -395,6 +396,7 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
         "direct_mount_active": direct_mount_active,
         "auto_discovery_active": auto_discovery_active,
         "policy_patched": policy_patched,
+        "policy_native": policy_native,
         "launcher_path": str(launcher) if launcher else None,
         "mcp_path": str(mcp_binary) if mcp_binary else None,
         "cli_path": str(cli_binary) if cli_binary else None,

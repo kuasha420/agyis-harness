@@ -18,8 +18,10 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import socket
 import subprocess
 import sys
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -275,13 +277,25 @@ def _run_worker(root: Optional[Path] = None) -> int:
 
         cmd = [str(rea_bin), "mcp"]
         child: Optional[subprocess.Popen] = None
+        sock_path = get_socket_file(root)
+        srv_sock: Optional[socket.socket] = None
+        child_lock = threading.Lock()
 
         def _handle_term(signum, frame):
+            if srv_sock is not None:
+                try:
+                    srv_sock.close()
+                except OSError:
+                    pass
             if child and child.poll() is None:
                 try:
                     child.terminate()
                 except OSError:
                     pass
+            try:
+                sock_path.unlink(missing_ok=True)
+            except OSError:
+                pass
             sys.exit(0)
 
         signal.signal(signal.SIGTERM, _handle_term)
@@ -292,11 +306,18 @@ def _run_worker(root: Optional[Path] = None) -> int:
                 cmd,
                 env=env,
                 stdin=subprocess.PIPE,
-                stdout=log_f,
-                stderr=subprocess.STDOUT,
+                stdout=subprocess.PIPE,
+                stderr=log_f,
                 text=True,
                 bufsize=1,
             )
+
+            # Bind Unix domain socket for low-latency JSON-RPC bridging
+            sock_path.unlink(missing_ok=True)
+            srv_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            srv_sock.bind(str(sock_path))
+            srv_sock.listen(16)
+            srv_sock.settimeout(0.5)
 
             # Record status
             status_data = {
@@ -305,6 +326,7 @@ def _run_worker(root: Optional[Path] = None) -> int:
                 "child_pid": child.pid,
                 "started_at": _utc_now_iso(),
                 "started_at_ts": time.time(),
+                "socket_file": str(sock_path),
                 "ghidra_project": env.get("REA_GHIDRA_PROJECT_NAME"),
                 "ghidra_project_dir": env.get("REA_GHIDRA_PROJECT_DIR"),
                 "direct_mount": env.get("REA_GHIDRA_DIRECT_MOUNT"),
@@ -317,7 +339,7 @@ def _run_worker(root: Optional[Path] = None) -> int:
                 "id": 1,
                 "method": "initialize",
                 "params": {
-                    "protocolVersion": "2024-11-05",
+                    "protocolVersion": "2025-11-25",
                     "capabilities": {},
                     "clientInfo": {"name": "agyis-daemon-bridge", "version": "1.0.0"},
                 },
@@ -325,6 +347,36 @@ def _run_worker(root: Optional[Path] = None) -> int:
             if child.stdin:
                 child.stdin.write(json.dumps(init_payload) + "\n")
                 child.stdin.flush()
+            if child.stdout:
+                init_resp = child.stdout.readline()
+                if init_resp:
+                    log_f.write(f"[init] {init_resp}")
+                    log_f.flush()
+
+            def _serve_socket_clients() -> None:
+                while child and child.poll() is None:
+                    try:
+                        conn, _ = srv_sock.accept()
+                    except socket.timeout:
+                        continue
+                    except OSError:
+                        break
+                    try:
+                        with conn:
+                            raw = conn.makefile("r", encoding="utf-8", errors="replace").readline()
+                            if not raw or not child.stdin or not child.stdout:
+                                continue
+                            with child_lock:
+                                child.stdin.write(raw.rstrip("\r\n") + "\n")
+                                child.stdin.flush()
+                                resp_line = child.stdout.readline()
+                            if resp_line:
+                                conn.sendall(resp_line.encode("utf-8"))
+                    except OSError:
+                        pass
+
+            srv_thread = threading.Thread(target=_serve_socket_clients, daemon=True)
+            srv_thread.start()
 
             # Keep process alive while child is healthy
             while child.poll() is None:
@@ -339,6 +391,15 @@ def _run_worker(root: Optional[Path] = None) -> int:
             log_f.flush()
             return 1
         finally:
+            if srv_sock is not None:
+                try:
+                    srv_sock.close()
+                except OSError:
+                    pass
+            try:
+                sock_path.unlink(missing_ok=True)
+            except OSError:
+                pass
             try:
                 pid_p.unlink(missing_ok=True)
             except OSError:

@@ -44,12 +44,15 @@
         const isUuidPattern = (id) => typeof id === "string" && (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) || (!/^pane[-_]/i.test(id) && id.length >= 20));
 
         // Priority 1: Check active subagent tab query parameter (?tab=subagent_convo__<uuid>)
+        // and split-pane focused query parameter (?focused=<uuid>)
         if (searchParams) {
             const tabParam = searchParams.get('tab');
             if (tabParam && tabParam.startsWith('subagent_convo__')) {
                 const cand = tabParam.slice('subagent_convo__'.length);
                 if (cand && /^[0-9a-zA-Z_-]+$/.test(cand)) return cand;
             }
+            const focusedParam = searchParams.get('focused');
+            if (focusedParam && /^[0-9a-zA-Z_-]+$/.test(focusedParam)) return focusedParam;
         }
 
         // Priority 2: Delegate to global detector if available
@@ -58,8 +61,8 @@
             if (detected) return detected;
         }
 
-        const pathMatch = (window.location && window.location.pathname) ? window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/) : null;
-        const routeCascadeId = pathMatch ? pathMatch[1] : null;
+        const pathMatch = (window.location && window.location.pathname) ? window.location.pathname.match(/\/c\/([^/?#]+)/) : null;
+        const routeCascadeId = pathMatch && pathMatch[1] ? pathMatch[1].split("+")[0] : null;
 
         const focusedPane = typeof document !== "undefined" ? document.querySelector('div[data-pane-id]:not([data-pane-unfocused])') : null;
         const rawPaneId = focusedPane ? focusedPane.getAttribute('data-pane-id') : null;
@@ -245,7 +248,10 @@
         // Restore focus and cursor caret positions immediately after mounting
         if (activeElId) {
             try {
-                const restoredEl = hud.querySelector("#" + activeElId);
+                const escapedId = (typeof CSS !== "undefined" && typeof CSS.escape === "function")
+                    ? CSS.escape(activeElId)
+                    : activeElId.replace(/([^\w-])/g, "\\$1");
+                const restoredEl = hud.querySelector("#" + escapedId);
                 if (restoredEl) {
                     if (activeValue !== null && restoredEl.value !== activeValue) {
                         restoredEl.value = activeValue;
@@ -282,7 +288,7 @@
                 convoId,
                 rawSteps,
                 (streamState.generatorMetadatasInSlice || []).filter(Boolean),
-                [],
+                (streamState.executorMetadatasInSlice || []).filter(Boolean),
                 null
             );
         }
@@ -333,6 +339,36 @@
         }
     }
 
+    function ensureHudDomAttached(openFlag) {
+        if (!document.getElementById(STYLES_ID) && document.head) {
+            document.head.appendChild(styleEl);
+        }
+        let curHud = document.getElementById(HUD_ID);
+        if (!curHud) {
+            curHud = hud;
+            if (curHud && document.body) {
+                document.body.appendChild(curHud);
+            }
+        }
+        if (curHud && typeof openFlag === "boolean") {
+            curHud.style.display = openFlag ? "flex" : "none";
+        }
+        return curHud;
+    }
+
+    window.__agyis_hud_mount = function(opts = {}) {
+        const openFlag = opts.shouldOpen !== undefined ? Boolean(opts.shouldOpen) : true;
+        const targetConvoId = opts.conversationId || extractHudFocusedConvoId();
+        ensureHudDomAttached(openFlag);
+        const state = window.__agyis_hud_state;
+        if (targetConvoId && state && targetConvoId !== state.convoId && typeof window.__agyis_hud_load_convo === "function") {
+            window.__agyis_hud_load_convo(targetConvoId);
+        } else {
+            renderHud();
+        }
+        return true;
+    };
+
     window.__agyis_hud_render = renderHud;
     window.__agyis_hud_sync = syncToLatestState;
     window.__agyis_hud_start_stream = startStreamSubscription;
@@ -340,6 +376,7 @@
 
     window.__agyis_hud_load_convo = async function(convoId) {
         if (!convoId) return null;
+        ensureHudDomAttached();
         const seq = ++_loadConvoSeq;
         startStreamSubscription(convoId);
         if (window.loadConversationViaRpc) {

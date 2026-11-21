@@ -37,6 +37,7 @@
     function detectActiveConversationContext() {
         try {
             // Priority 1: Check active subagent tab query parameter (?tab=subagent_convo__<uuid>)
+            // and split-pane focused query parameter (?focused=<uuid>)
             if (typeof window !== "undefined" && window.location && window.location.search) {
                 const searchParams = new URLSearchParams(window.location.search);
                 const tabParam = searchParams.get("tab");
@@ -46,24 +47,31 @@
                         return subId;
                     }
                 }
+                const focusedParam = searchParams.get("focused");
+                if (focusedParam && /^[a-zA-Z0-9_-]+$/.test(focusedParam)) {
+                    return focusedParam;
+                }
             }
 
-            // Priority 2: Inspect Electron DOM focused pane (Strand 1 discovery)
+            // Priority 2: Inspect Electron DOM focused pane (only when pane-id is a UUID, not "pane-1")
             if (typeof document !== "undefined") {
                 const focusedPane = document.querySelector('div[data-pane-id]:not([data-pane-unfocused])');
                 if (focusedPane) {
                     const paneId = focusedPane.getAttribute("data-pane-id");
-                    if (paneId && /^[0-9a-fA-F-]+$/.test(paneId)) {
+                    if (paneId && !/^pane[-_]/i.test(paneId) && /^[0-9a-fA-F-]+$/.test(paneId)) {
                         return paneId;
                     }
                 }
             }
 
-            // Priority 3: Match active SPA URL pathname (/c/:id)
+            // Priority 3: Match active SPA URL pathname (/c/:id or /c/:id1+:id2)
             if (typeof window !== "undefined" && window.location && window.location.pathname) {
-                const pathMatch = window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/);
+                const pathMatch = window.location.pathname.match(/\/c\/([^/?#]+)/);
                 if (pathMatch && pathMatch[1]) {
-                    return pathMatch[1];
+                    const firstId = pathMatch[1].split("+")[0];
+                    if (firstId && /^[a-zA-Z0-9_-]+$/.test(firstId)) {
+                        return firstId;
+                    }
                 }
             }
 
@@ -181,10 +189,19 @@
                 return;
             }
 
-            // Dismiss on Escape if HUD is open
+            // Dismiss on Escape if HUD is open (defer to hud.js listener if mounted)
             if (e.key === "Escape") {
+                if (typeof global.__agyis_hud_active_listener === "function") {
+                    return;
+                }
                 const currentHud = document.getElementById(HUD_ID);
                 if (currentHud && currentHud.style.display !== "none") {
+                    const searchInput = currentHud.querySelector("#agyis-search-input");
+                    const isSearchFocused = (document.activeElement && document.activeElement.id === "agyis-search-input") || (e.target && e.target.id === "agyis-search-input");
+                    const hasText = (searchInput && searchInput.value && searchInput.value.length > 0) || (global.__agyis_hud_state && global.__agyis_hud_state.filterQuery && global.__agyis_hud_state.filterQuery.length > 0);
+                    if (isSearchFocused && hasText) {
+                        return;
+                    }
                     // Do not close if focus is inside an open dropdown or modal
                     const menu = currentHud.querySelector("#agyis-subagents-menu");
                     if (menu && menu.style.display === "block") {

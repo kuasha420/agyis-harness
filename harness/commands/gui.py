@@ -12,8 +12,8 @@ via the local Chromium DevTools Protocol (CDP) WebSocket:
 - Query active browser targets via http://127.0.0.1:<port>/json
 - Standard-library-only RFC 6455 WebSocket client framing
 - Runtime.evaluate injection:
-  * LocalStorage jetski.developer.customFlagOverrides (enable-trajectory-debug-tools, enable-developer-mode)
-  * Window URL searchParams trigger ?trajectoryDebugOpen=true
+  * Best-effort LocalStorage jetski.developer.customFlagOverrides (enable-trajectory-debug-tools, enable-developer-mode)
+  * In-Situ Trajectory Debug HUD & persistent F12 / Ctrl+Shift+T hotkeys
 - Non-invasive DevTools inspector URL formatting and status reporting
 """
 
@@ -35,11 +35,14 @@ from harness.gui.cdp import (  # noqa: F401
     CDPTimeoutError,
     CDPWebSocketClient,
     DEFAULT_DEVTOOLS_PORT_FILE,
+    detect_antigravity_without_cdp,
     find_page_target,
+    format_cdp_restart_instructions,
     format_devtools_urls,
     get_cdp_targets,
     get_devtools_active_port,
 )
+from harness.gui.launcher import install_cdp_launcher  # noqa: F401
 from harness.gui.systemd import (  # noqa: F401
     GUI_PATH_UNIT,
     GUI_SERVICE_UNIT,
@@ -126,8 +129,12 @@ def discover_language_server_endpoint(
                         return {"port": p, "url": f"{proto}://127.0.0.1:{p}", "proto": proto}
                 except urllib.error.HTTPError as err:
                     try:
-                        if err.code in (200, 400, 401):
+                        if err.code == 200:
                             return {"port": p, "url": f"{proto}://127.0.0.1:{p}", "proto": proto}
+                        if err.code in (400, 401):
+                            ctype = (err.headers.get("Content-Type") or "").lower() if err.headers else ""
+                            if any(tok in ctype for tok in ("json", "connect", "proto")):
+                                return {"port": p, "url": f"{proto}://127.0.0.1:{p}", "proto": proto}
                     finally:
                         err.close()
                 except Exception:
@@ -175,13 +182,17 @@ def inject_trajectory_debug(
         page_url = client.evaluate("window.location.href")
         if isinstance(page_url, str):
             m_sub = re.search(r"[?&]tab=subagent_convo__([a-zA-Z0-9_-]+)", page_url)
-            m = re.search(r"/c/([a-zA-Z0-9_-]+)", page_url)
-            if m:
-                parent_convo_id = m.group(1)
+            m_focused = re.search(r"[?&]focused=([a-zA-Z0-9_-]+)", page_url)
+            m = re.search(r"/c/([^/?#]+)", page_url)
+            route_id = m.group(1).split("+")[0] if m else None
+            if m_focused:
+                route_id = m_focused.group(1)
+            if route_id:
+                parent_convo_id = route_id
             if m_sub and not convo_id:
                 convo_id = m_sub.group(1)
-            elif m and not convo_id:
-                convo_id = m.group(1)
+            elif route_id and not convo_id:
+                convo_id = route_id
             m_port = re.search(r"https?://127\.0\.0\.1:(\d+)", page_url)
             if m_port:
                 candidate_ports.append(int(m_port.group(1)))
@@ -256,9 +267,6 @@ def inject_trajectory_debug(
     is_open = res.get("open", open_view) if isinstance(res, dict) else open_view
     page_url_str = page_url if isinstance(page_url, str) else "https://127.0.0.1:37277/"
     resolved_url = page_url_str
-    if is_open and "trajectoryDebugOpen" not in resolved_url:
-        delim = "&" if "?" in resolved_url else "?"
-        resolved_url = f"{resolved_url}{delim}trajectoryDebugOpen=true"
 
     return {
         "success": True,
@@ -382,6 +390,16 @@ def cmd_gui(args: argparse.Namespace) -> int:
             action=service_action,
             json_output=getattr(args, "json", False),
         )
+
+    if getattr(args, "install_launcher", False):
+        res = install_cdp_launcher()
+        if getattr(args, "json", False):
+            print(json.dumps({"status": "installed", **res}, indent=2))
+        else:
+            print(f"✔ Installed CDP-enabled Antigravity launcher at {res['path']}")
+            print(f"  Exec={res['exec']}")
+            print("  Restart Antigravity from your desktop launcher to enable DevToolsActivePort.")
+        return 0
 
     port_file: Optional[Path] = getattr(args, "port_file", None)
     timeout: float = getattr(args, "timeout", 5.0)
@@ -524,18 +542,28 @@ def cmd_gui(args: argparse.Namespace) -> int:
     if not success or target is None:
         if last_phase == "port":
             is_headless = not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")
+            missing_cdp_procs = detect_antigravity_without_cdp()
+            instructions = format_cdp_restart_instructions(missing_cdp_procs) if missing_cdp_procs else []
             if as_json:
-                print(json.dumps({
+                err_payload: Dict[str, Any] = {
                     "status": "error",
                     "error": "port_file_not_found",
                     "message": str(last_error or "DevTools port file not found"),
                     "headless": is_headless,
-                }, indent=2))
+                }
+                if missing_cdp_procs:
+                    err_payload["missing_cdp_pids"] = [p["pid"] for p in missing_cdp_procs]
+                    err_payload["remediation"] = [line.strip() for line in instructions]
+                print(json.dumps(err_payload, indent=2))
             else:
                 print(f"❌ Could not resolve Antigravity DevTools port: {last_error or 'DevTools port file not found'}")
                 if is_headless:
                     print("   (Host environment appears headless: neither DISPLAY nor WAYLAND_DISPLAY is set)")
-                print("   Ensure Google Antigravity Desktop GUI is running.")
+                if missing_cdp_procs:
+                    for line in instructions:
+                        print(line)
+                else:
+                    print("   Ensure Google Antigravity Desktop GUI is running with --remote-debugging-port=0.")
             return 1
         elif last_phase == "connection":
             if as_json:
@@ -609,10 +637,9 @@ def cmd_gui(args: argparse.Namespace) -> int:
         print("-" * 70)
         is_open = trajectory_result.get("open", True)
         if no_popup:
-            print(" ✔ Trajectory Debug shortcuts and Command Palette flags primed successfully (modal popup suppressed)")
-            print("   • Injected flags: 'enable-trajectory-debug-tools', 'enable-developer-mode'")
-            print("   • Command Palette: 'Developer: Trajectory Debug View' is visible")
-            print("   • Keyboard hotkey active: [F12] or [Ctrl+Shift+T] directly toggle modal inside Antigravity.")
+            print(" ✔ In-Situ Trajectory Debug HUD shortcuts primed successfully (modal popup suppressed)")
+            print("   • Best-effort flags written: 'enable-trajectory-debug-tools', 'enable-developer-mode'")
+            print("   • Keyboard hotkey active: [F12] or [Ctrl+Shift+T] directly toggle HUD inside Antigravity.")
         else:
             state_str = "unlocked" if is_open else "closed"
             convo_label = trajectory_result.get("convo_id", "active")

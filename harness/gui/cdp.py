@@ -18,6 +18,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from harness.gui.launcher import (  # noqa: F401
+    detect_antigravity_without_cdp,
+    format_cdp_restart_instructions,
+)
+
 DEFAULT_DEVTOOLS_PORT_FILE = Path.home() / ".config" / "Antigravity" / "DevToolsActivePort"
 
 
@@ -89,31 +94,70 @@ def get_cdp_targets(port: int, host: str = "127.0.0.1", timeout: float = 5.0) ->
         raise CDPConnectionError(f"Failed to query CDP targets at {url}: {exc}") from exc
 
 
-def find_page_target(targets: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Identifies the active Antigravity main application page target, skipping about:blank and data: URIs."""
+def _url_port(url: str) -> Optional[int]:
+    try:
+        return urllib.parse.urlparse(url).port
+    except ValueError:
+        return None
+
+
+def find_page_target(
+    targets: List[Dict[str, Any]],
+    expected_hub_port: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    """Identifies the active Antigravity main application page target, skipping about:blank, data:, and browserWcv tabs."""
     pages = [
         t for t in targets
         if t.get("type") == "page"
         and not (t.get("url") or "").startswith("about:blank")
         and not (t.get("url") or "").startswith("data:")
+        and not (t.get("url") or "").startswith("devtools://")
     ]
     if not pages:
         return None
 
-    # 1. Prefer window with active conversation route (/c/ in url)
-    for p in pages:
+    def _is_loopback(url: str) -> bool:
+        return "127.0.0.1" in url or "localhost" in url
+
+    def _is_playback_server(url: str) -> bool:
+        return _url_port(url) == 40624
+
+    # 0. If expected_hub_port is known, strongly prefer pages hosted on that Hub port
+    if expected_hub_port is not None:
+        hub_pages = [p for p in pages if _url_port(p.get("url", "")) == expected_hub_port]
+        for p in hub_pages:
+            if "/c/" in p.get("url", ""):
+                return p
+        if hub_pages:
+            return hub_pages[0]
+
+    non_playback = [p for p in pages if not _is_playback_server(p.get("url", ""))] or pages
+
+    # 1. Prefer HTTPS Antigravity Hub window with active conversation route (/c/ in url)
+    for p in non_playback:
         url = p.get("url", "")
-        if "/c/" in url and "127.0.0.1" in url and not url.startswith("devtools://"):
+        if "/c/" in url and url.startswith("https://") and _is_loopback(url):
             return p
 
-    # 2. Prefer window with Antigravity title or active webview URL
-    for p in pages:
+    # 2. Prefer any loopback window with active conversation route (/c/ in url)
+    for p in non_playback:
+        url = p.get("url", "")
+        if "/c/" in url and _is_loopback(url):
+            return p
+
+    # 3. Prefer window with Antigravity title or active HTTPS/loopback webview URL
+    for p in non_playback:
         title = p.get("title", "")
         url = p.get("url", "")
-        if "Antigravity" in title or ("127.0.0.1" in url and not url.startswith("devtools://")):
+        if "Antigravity" in title or (_is_loopback(url) and url.startswith("https://")):
             return p
 
-    return pages[0]
+    for p in non_playback:
+        url = p.get("url", "")
+        if _is_loopback(url):
+            return p
+
+    return non_playback[0]
 
 
 class CDPWebSocketClient:

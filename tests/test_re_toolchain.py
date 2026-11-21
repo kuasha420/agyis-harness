@@ -616,8 +616,11 @@ class TestCmdDecompilePSLINV009(unittest.TestCase):
             binary=str(small_bin),
         )
         err_buf = io.StringIO()
+        dr = self.workspace / ".dirtyroom"
+        dr.mkdir(parents=True, exist_ok=True)
         with patch("shutil.which", return_value="/usr/local/bin/rea"), \
              patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["rea"], timeout=15.0)), \
+             patch("harness.commands.re.get_dirtyroom_root", return_value=dr), \
              patch("sys.stderr", err_buf):
             code = cmd_decompile(args)
             self.assertEqual(code, 1)
@@ -3943,6 +3946,59 @@ class TestAddressInspectionAndToolchainHardening(unittest.TestCase):
         self.assertNotIn('"test" in str(dr)', src_hook)
         self.assertNotIn('"tmp" in cp_str', src_rea)
         self.assertNotIn('"test" in cp_str', src_rea)
+
+
+    def test_elf64_address_inspection_and_xrefs(self):
+        """Verifies pure-stdlib ELF64 parsing, VA/RVA/FileOffset translation, and xrefs (DRIFT-P1-13)."""
+        import struct
+        from harness.re.address import inspect_address, parse_binary_sections
+        from harness.re.xrefs import find_cross_references
+
+        elf_path = self.workspace / "sample_elf64"
+        # Build minimal valid ELF64 little-endian binary:
+        # 64B Ehdr + 56B Phdr (PT_LOAD at vaddr 0x400000) + code at 0x1000 + .shstrtab + 3 Shdrs
+        shstrtab = b"\x00.text\x00.shstrtab\x00"
+        code_off = 0x200
+        code_va = 0x400200
+        target_va = 0x400210
+        # CALL target_va from code_va (disp = 0x10 - 5 = 11)
+        code_bytes = b"\xe8" + struct.pack("<i", target_va - (code_va + 5)) + b"\xc3" + b"\x90" * 16
+        shstr_off = 0x300
+        shoff = 0x400
+
+        ehdr = struct.pack(
+            "<16sHHIQQQIHHHHHH",
+            b"\x7fELF\x02\x01\x01" + b"\x00" * 9,
+            2, 62, 1, code_va, 64, shoff, 0, 64, 56, 1, 64, 3, 2,
+        )
+        phdr = struct.pack("<IIQQQQQQ", 1, 5, 0, 0x400000, 0x400000, 0x500, 0x500, 0x1000)
+        sh_null = struct.pack("<IIQQQQIIQQ", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        sh_text = struct.pack("<IIQQQQIIQQ", 1, 1, 6, code_va, code_off, len(code_bytes), 0, 0, 16, 0)
+        sh_str = struct.pack("<IIQQQQIIQQ", 7, 3, 0, 0, shstr_off, len(shstrtab), 0, 0, 1, 0)
+
+        buf = bytearray(0x500)
+        buf[0:64] = ehdr
+        buf[64:120] = phdr
+        buf[code_off : code_off + len(code_bytes)] = code_bytes
+        buf[shstr_off : shstr_off + len(shstrtab)] = shstrtab
+        buf[shoff : shoff + 64] = sh_null
+        buf[shoff + 64 : shoff + 128] = sh_text
+        buf[shoff + 128 : shoff + 192] = sh_str
+        elf_path.write_bytes(bytes(buf))
+
+        info = parse_binary_sections(elf_path)
+        self.assertEqual(info.binary_format, "ELF")
+        self.assertTrue(info.is_64bit)
+        self.assertEqual(info.image_base, 0x400000)
+
+        res = inspect_address(elf_path, hex(code_va))
+        self.assertEqual(res["va"], code_va)
+        self.assertEqual(res["file_offset"], code_off)
+        self.assertEqual(res["section"]["name"], ".text")
+
+        xrefs = find_cross_references(elf_path, target_va, xref_type_filter="code")
+        self.assertEqual(len(xrefs), 1)
+        self.assertEqual(xrefs[0]["from_address"], code_va)
 
 
 if __name__ == "__main__":

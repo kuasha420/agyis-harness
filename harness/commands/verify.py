@@ -26,10 +26,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
     in .agents/ledger/manifest.json (ADR-028).
 
     - If 'rea' executable is found and not in explicit spec mode, delegates to
-      'rea verify-reconstruction' if applicable.
-    - Otherwise validates cleanroom manifest and specs directory.
-    - Returns 0 on valid/clean specs or manifest, or if cleanroom specs are present.
-    - Returns 1 if manifest exists but is invalid.
+      'rea build-reconstruction-obligation-ledger' when obligation_ledger.json exists.
+    - Otherwise validates cleanroom manifest/ledger.
+    - Returns 0 on valid/clean specs (--spec) or verified manifest/ledger.
+    - Returns 1 if manifest/ledger is missing or invalid, or if REA fails/times out.
     """
     workspace_val = getattr(args, "workspace", None)
     workspace = Path(workspace_val).resolve() if workspace_val else Path.cwd().resolve()
@@ -164,14 +164,50 @@ def cmd_verify(args: argparse.Namespace) -> int:
                         file=sys.stderr,
                     )
                 return err_code if err_code != 0 else 1
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            if is_json:
+                print(
+                    json.dumps(
+                        {
+                            "status": "failed",
+                            "delegated": "rea",
+                            "command": "rea build-reconstruction-obligation-ledger",
+                            "error": str(exc),
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                print(f"❌ Verification failed: REA execution error: {exc}", file=sys.stderr)
+            return 1
 
     # 3. Native cleanroom manifest and specifications validation
     manifest_path = workspace / ".agents" / "ledger" / "manifest.json"
     target_ledger = typed_ledger_path if typed_ledger_path.is_file() else manifest_path
     ledger_exists = target_ledger.is_file()
-    manifest_verified = is_manifest_verified(workspace) if ledger_exists else False
+    if not ledger_exists:
+        if is_json:
+            print(
+                json.dumps(
+                    {
+                        "status": "failed",
+                        "reason": "No cleanroom obligation ledger or manifest found (.agents/ledger/obligation_ledger.json or manifest.json).",
+                        "workspace": str(workspace),
+                        "manifest": None,
+                        "manifest_verified": False,
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(
+                "❌ Verification failed: No cleanroom obligation ledger or manifest found "
+                "(run 'agyis verify --scaffold' or 'agyis verify --spec').",
+                file=sys.stderr,
+            )
+        return 1
+
+    manifest_verified = is_manifest_verified(workspace)
 
     # Return 1 if manifest/ledger exists but is invalid
     if ledger_exists and not manifest_verified:

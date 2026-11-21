@@ -77,35 +77,38 @@ def index_binary_symbols(
     cursor = db_conn.cursor()
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    # 1. Function / Export extraction via objdump if available
+    # 1. Function / Export extraction via objdump if available (-T dynamic, fallback -t static)
     objdump = shutil.which("objdump") or shutil.which("llvm-objdump")
     if objdump:
-        try:
-            # -T for dynamic symbols / exports, -t for static
-            res = subprocess.run(
-                [objdump, "-T", str(binary_path)],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=15,
+        funcs_to_insert = []
+        for flag in ("-T", "-t"):
+            try:
+                res = subprocess.run(
+                    [objdump, flag, str(binary_path)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=15,
+                )
+                if res.returncode == 0:
+                    is_exp = 1 if flag == "-T" else 0
+                    for line in res.stdout.splitlines():
+                        parts = line.split()
+                        if len(parts) >= 6 and "F" in parts:
+                            addr = parts[0]
+                            name = parts[-1]
+                            funcs_to_insert.append((binary_id, name, addr, 0, "", is_exp, now_iso))
+            except Exception:
+                pass
+            if funcs_to_insert:
+                break
+        if funcs_to_insert:
+            cursor.executemany(
+                "INSERT INTO functions (binary_id, name, address, size, signature, is_exported, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                funcs_to_insert,
             )
-            if res.returncode == 0:
-                funcs_to_insert = []
-                for line in res.stdout.splitlines():
-                    parts = line.split()
-                    if len(parts) >= 6 and "F" in parts:
-                        addr = parts[0]
-                        name = parts[-1]
-                        funcs_to_insert.append((binary_id, name, addr, 0, "", 1, now_iso))
-                if funcs_to_insert:
-                    cursor.executemany(
-                        "INSERT INTO functions (binary_id, name, address, size, signature, is_exported, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        funcs_to_insert,
-                    )
-                    counts["functions"] = len(funcs_to_insert)
-        except Exception:
-            pass
+            counts["functions"] = len(funcs_to_insert)
 
     # 2. String extraction via strings utility
     strings_bin = shutil.which("strings")
@@ -172,6 +175,20 @@ def preanalyze_binary(
 
     # Register in SQLite database
     conn = get_dirtyroom_db(root)
+    bin_format = b_path.suffix.lstrip(".")
+    try:
+        with open(b_path, "rb") as bf:
+            magic = bf.read(4)
+        if magic[:2] == b"MZ":
+            bin_format = "pe"
+        elif magic[:4] == b"\x7fELF":
+            bin_format = "elf"
+        elif magic in (b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe"):
+            bin_format = "macho"
+    except OSError:
+        pass
+    bin_format = bin_format or "unknown"
+
     binary_id = None
     if conn:
         try:
@@ -179,8 +196,8 @@ def preanalyze_binary(
             cursor.execute(
                 "INSERT INTO binaries (name, sha256, file_size, architecture, format, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(name) DO UPDATE SET sha256=excluded.sha256, file_size=excluded.file_size",
-                (b_path.name, sha256, file_size, "x86_64", b_path.suffix.lstrip("."), now_iso),
+                "ON CONFLICT(name) DO UPDATE SET sha256=excluded.sha256, file_size=excluded.file_size, format=excluded.format",
+                (b_path.name, sha256, file_size, "x86_64", bin_format, now_iso),
             )
             conn.commit()
             cursor.execute("SELECT id FROM binaries WHERE name = ?", (b_path.name,))

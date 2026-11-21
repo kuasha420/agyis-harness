@@ -153,16 +153,26 @@ def resolve_binary_path(binary_name: Optional[str] = None, dirtyroom_root: Optio
     if root:
         bin_dir = root / "binaries"
         if bin_dir.is_dir():
-            for preferred in ["ShippingPC-ChaosGame.exe", "Paladins.exe"]:
-                p_cand = bin_dir / preferred
-                if p_cand.is_file():
-                    return p_cand
-            for c in sorted(bin_dir.iterdir()):
-                if c.is_file() and not c.name.startswith("."):
+            candidates = sorted(
+                c for c in bin_dir.iterdir()
+                if c.is_file() and not c.name.startswith(".")
+            )
+            # Prefer executables over shared libraries (.dll/.so/.dylib)
+            for c in candidates:
+                if c.suffix.lower() not in (".dll", ".so", ".dylib"):
                     return c
+            if candidates:
+                return candidates[0]
         for c in sorted(root.iterdir()):
-            if c.is_file() and not c.name.startswith(".") and c.suffix.lower() in (".exe", ".dll", ".so", ".dylib", ".bin"):
-                return c
+            if c.is_file() and not c.name.startswith("."):
+                if c.suffix.lower() in (".exe", ".dll", ".so", ".dylib", ".bin"):
+                    return c
+                try:
+                    with open(c, "rb") as bf:
+                        if bf.read(4) == b"\x7fELF":
+                            return c
+                except OSError:
+                    pass
     return None
 
 
