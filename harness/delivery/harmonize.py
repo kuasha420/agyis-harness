@@ -247,7 +247,13 @@ def harmonize_workspace(
     src = Path(source_dir).resolve() if source_dir else REPO_ROOT.resolve()
 
     legacy_agent_dir = ws / ".agent"
-    legacy_agent_dir_found = legacy_agent_dir.is_dir()
+    alt_legacy_roots = [
+        ws / "_agent",
+        ws / "_agents",
+        ws / ".agents" / "workflows",
+        ws / "_agents" / "workflows",
+    ]
+    legacy_agent_dir_found = legacy_agent_dir.is_dir() or any(p.is_dir() for p in alt_legacy_roots) or (ws / "workflows.json").is_file()
 
     target_agents_dir = ws / ".agents"
     target_agents_subagents = target_agents_dir / "agents"

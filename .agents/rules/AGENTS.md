@@ -115,7 +115,7 @@ agyis remote socket cleanup                    # Remove active ControlMaster soc
 rea --version                                  # Report REA CLI & SDK version (6.5.0 / 2.3.1)
 rea mcp doctor                                 # Audit REA stdio MCP catalog & checksums
 rea providers --json                           # List available disassembler engines (opt-in deep probe)
-rea verify-reconstruction                      # Formally verify typed cleanroom obligations against evidence
+agyis verify                                   # Formally verify typed cleanroom obligations against evidence
 rea evaluate-coverage                          # Calculate reconstruction coverage against obligation ledger
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
 agyis doctor --experimental-rea                # Audit REA providers, JDK 21+, Ghidra & MCP registration

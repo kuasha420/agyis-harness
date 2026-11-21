@@ -466,6 +466,13 @@ class TestRemoteTriage(unittest.TestCase):
         self.assertIn("RESOURCES", res["sections"])
         self.assertEqual(res["sections"]["HOST"], ["node1"])
 
+    def test_remote_runner_honors_antigravity_ssh_bin(self):
+        """DRIFT-P2-04: RemoteRunner.build_command honors ANTIGRAVITY_SSH_BIN."""
+        runner = RemoteRunner(socket_dir=Path(tempfile.gettempdir()))
+        with patch.dict(os.environ, {"ANTIGRAVITY_SSH_BIN": "/opt/antigravity/bin/ssh"}):
+            cmd = runner.build_command("host1", remote_cmd="uptime")
+        self.assertEqual(cmd[0], "/opt/antigravity/bin/ssh")
+
 
 if __name__ == "__main__":
     unittest.main()

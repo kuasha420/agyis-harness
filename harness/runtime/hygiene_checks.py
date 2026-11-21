@@ -286,12 +286,26 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
     else:
         for cand in (
             Path.cwd() / "hooks.json",
+            Path.home() / ".gemini" / "config" / "hooks.json",
+            Path.home() / ".gemini" / "config" / "plugins" / "agyis-harness" / "hooks.json",
             REPO_ROOT / "hooks.json",
             REPO_ROOT / "harness/hooks/hooks.json",
         ):
             if cand.is_file():
                 target_path = cand
                 break
+
+    legacy_cli_hooks = Path.home() / ".gemini" / "antigravity-cli" / "hooks.json"
+    if hooks_path is None and legacy_cli_hooks.exists() and not legacy_cli_hooks.is_symlink():
+        return {
+            "status": "WARNING",
+            "hooks_path": str(target_path) if target_path else str(legacy_cli_hooks),
+            "checked_hooks": [],
+            "failures": [
+                f"Legacy non-symlinked {legacy_cli_hooks} conflicts with canonical ~/.gemini/config/hooks.json."
+            ],
+            "remediation": "Run 'agyis doctor --heal' or symlink ~/.gemini/antigravity-cli/hooks.json to ~/.gemini/config/hooks.json.",
+        }
 
     if target_path is None or not target_path.exists():
         missing_path = str(target_path) if target_path else str(REPO_ROOT / "hooks.json")

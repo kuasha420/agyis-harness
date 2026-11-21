@@ -81,7 +81,8 @@ class RemoteRunner:
         """
         Builds the SSH argv list suitable for subprocess execution.
         """
-        cmd: List[str] = ["ssh"]
+        ssh_bin = os.environ.get("ANTIGRAVITY_SSH_BIN") or "ssh"
+        cmd: List[str] = [ssh_bin]
         cmd.extend(self.get_multiplex_options())
 
         if port is not None:

@@ -121,7 +121,6 @@ def copy_distributable_tree(
 
         if global_rules_src.exists():
             shutil.copy2(global_rules_src, rules_dst / "AGENTS.md")
-            shutil.copy2(global_rules_src, rules_dst / "GLOBAL_AGENTS.md")
 
         installed_items.append("rules")
 

@@ -120,21 +120,6 @@ def main(
     if prog == "psl" and not _warned:
         emit_psl_deprecation_warning()
 
-    raw_argv = sys.argv[1:] if argv is None else list(argv)
-    if raw_argv and not raw_argv[0].startswith("-"):
-        first_tok = raw_argv[0]
-        # Check if first token matches a workspace extension command before argparse
-        exts = discover_workspace_commands()
-        if first_tok in exts:
-            return execute_extension_command(exts[first_tok], raw_argv[1:])
-
-    parser = build_parser(prog=prog)
-    args = parser.parse_args(argv)
-
-    if not args.subcommand:
-        parser.print_help()
-        return 0
-
     commands = {
         "doctor": cmd_doctor,
         "hook": cmd_hook,
@@ -164,6 +149,23 @@ def main(
         "ladder": cmd_cockpit,
         "clean": cmd_clean,
     }
+    reserved_subcommands = set(commands.keys()) | {"re", "ext"}
+
+    raw_argv = sys.argv[1:] if argv is None else list(argv)
+    if raw_argv and not raw_argv[0].startswith("-"):
+        first_tok = raw_argv[0]
+        # Check if first token matches a workspace extension command (never shadow built-ins)
+        if first_tok not in reserved_subcommands:
+            exts = discover_workspace_commands()
+            if first_tok in exts:
+                return execute_extension_command(exts[first_tok], raw_argv[1:])
+
+    parser = build_parser(prog=prog)
+    args = parser.parse_args(argv)
+
+    if not args.subcommand:
+        parser.print_help()
+        return 0
 
     if args.subcommand == "re":
         return cmd_re(getattr(args, "re_args", []))

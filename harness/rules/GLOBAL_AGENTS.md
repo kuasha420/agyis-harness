@@ -42,7 +42,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 
 ## 3. Surgical Contiguous Edits Invariant (PSL-INV-003)
 *Audit revealed single contiguous block replacements achieve 99.9% tool success (only 4 failures out of 4,650 calls):*
-1. Always make single contiguous block replacements for targeted edits (`replace_file_content`).
+1. Always make single contiguous block replacements for targeted edits (`edit_file`).
 2. Do NOT overwrite whole files when modifying specific functions, classes, or blocks.
 3. Preserve surrounding comments, docstrings, imports, and formatting.
 
@@ -52,9 +52,9 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 *Trajectories <50 steps / <50k tokens maintain 0.8 errors/session; >200 steps suffer a 20x error spike:*
 1. **Keep Primary Context in the Healthy Zone (<50k tokens)**.
 2. **Anti-Loop Heuristics**:
-   - Do NOT repeatedly call `view_file` on the same file within consecutive steps.
-   - Evolve search queries; do not repeat identical `grep_search` patterns.
-   - **Strict Reactive Wait Invariant**: Never poll `manage_task(Action='status')` NOR repeatedly read background task logs (`tail`, `cat`, `grep`, `view_file` on `.system_generated/tasks/*.log`) to print manual progress updates. After launching a background task, output a single concise notification and stop calling tools. Await reactive wakeup.
+   - Do NOT repeatedly call `read_file` on the same file within consecutive steps.
+   - Evolve search queries; do not repeat identical `run_command` (`rg`/`grep`) patterns.
+   - **Strict Reactive Wait Invariant**: Never poll `manage_task(Action='status')` NOR repeatedly read background task logs (`tail`, `cat`, `grep`, `read_file` on `.system_generated/tasks/*.log`) to print manual progress updates. After launching a background task, output a single concise notification and stop calling tools. Await reactive wakeup.
 3. **Tool-Native Primacy (The Anti-Premature-Cognition Invariant)**:
    - When an external CLI or tool fails, exhaust the tool's standard native options, configurations, and flag escalation ladders (e.g., `--impersonate`, `--concurrent-fragments`, retry/timeout flags, native formatting options) before reading internal tool source code, monkeypatching APIs, or constructing custom proxy scripts. Cognitive intervention is a last resort, not a first reflex.
 4. **Single-Source Skill Deduplication Invariant**:

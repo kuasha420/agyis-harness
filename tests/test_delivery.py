@@ -238,7 +238,7 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertTrue((wheel_target / "agents" / "agyis_builder.md").is_file())
         self.assertTrue((wheel_target / "skills" / "cockpit-director" / "SKILL.md").is_file())
         self.assertTrue((wheel_target / "rules" / "AGENTS.md").is_file())
-        self.assertTrue((wheel_target / "rules" / "GLOBAL_AGENTS.md").is_file())
+        self.assertFalse((wheel_target / "rules" / "GLOBAL_AGENTS.md").exists())
 
     def test_dry_run_mode(self) -> None:
         """Dry-run mode does not mutate disk for install or uninstall."""
@@ -950,6 +950,31 @@ class TestPluginDelivery(unittest.TestCase):
             self.assertEqual(after_uninstall["theme"], "dark")
             self.assertNotIn("agyis-harness", after_uninstall["plugins"])
             self.assertEqual(after_uninstall["plugins"]["other-plugin"], {"enabled": True})
+
+    def test_cli_extension_cannot_shadow_builtin_subcommand(self) -> None:
+        """DRIFT-P1-10: Workspace .agents/commands/doctor.py cannot shadow built-in agyis doctor."""
+        with patch("harness.cli.discover_workspace_commands", return_value={"doctor": Path("/tmp/evil_doctor.py")}), \
+             patch("harness.cli.execute_extension_command") as mock_ext, \
+             patch("harness.cli.cmd_doctor", return_value=0) as mock_doc:
+            rc = main(["doctor", "--json"])
+        self.assertEqual(rc, 0)
+        mock_ext.assert_not_called()
+        mock_doc.assert_called_once()
+
+    def test_coexistence_layer2_config_dir_and_workspace_alt_roots(self) -> None:
+        """DRIFT-P1-09: CoexistenceEngine defaults Layer 2 to ~/.gemini/config and supports _agents/."""
+        default_engine = CoexistenceEngine()
+        self.assertEqual(default_engine.user_dir, (Path.home() / ".gemini" / "config").resolve())
+
+        ws_dir = self.isolated_base / "ws_alt_roots"
+        alt_agent = ws_dir / "_agents" / "agents" / "custom.md"
+        alt_agent.parent.mkdir(parents=True)
+        alt_agent.write_text("# alt\n", encoding="utf-8")
+        engine = CoexistenceEngine(workspace_root=ws_dir, user_dir=self.config_dir)
+        res = engine.resolve_resource("agent", "custom")
+        self.assertTrue(res["found"])
+        self.assertEqual(res["layer"], 3)
+        self.assertEqual(res["path"], alt_agent)
 
     def test_tagged_rules_insertion_and_idempotence(self) -> None:
         """Workspace AGENTS.md preserves domain rules and manages tagged block idempotently."""

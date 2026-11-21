@@ -6,16 +6,5 @@
   "logo": "assets/logo.svg",
   "author": {
     "name": "Arafat Zahan (@kuasha420) & Purrfect Software Limited (PSL)"
-  },
-  "license": "Apache-2.0",
-  "keywords": [
-    "antigravity",
-    "agyis",
-    "harness",
-    "telemetry",
-    "audit",
-    "immune-system",
-    "gemini",
-    "developer-tooling"
-  ]
+  }
 }

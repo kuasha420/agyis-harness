@@ -257,6 +257,17 @@ def run_doctor(
         forensic_toolchain = fut_ft.result() if fut_ft else None
         checked_tools = {k: fut.result() for k, fut in tool_futures.items()}
 
+    antigravity_surfaces = {
+        "desktop_bin": shutil.which("antigravity"),
+        "cli_bin": shutil.which("agy"),
+        "ide_bin": shutil.which("antigravity-ide"),
+        "desktop_dir": (Path.home() / ".gemini" / "antigravity").is_dir(),
+        "cli_dir": (Path.home() / ".gemini" / "antigravity-cli").is_dir(),
+        "ide_dir": (Path.home() / ".gemini" / "antigravity-ide").is_dir(),
+        "canonical_config": (Path.home() / ".gemini" / "config" / "config.json").is_file(),
+        "cli_settings": (Path.home() / ".gemini" / "antigravity-cli" / "settings.json").is_file(),
+    }
+
     results: Dict[str, Any] = {
         "os_family": os_family,
         "hermetic_python_available": str(hermetic_python) if hermetic_python else None,
@@ -271,6 +282,7 @@ def run_doctor(
         "telemetry_daemon": telemetry_daemon,
         "rea_tooling": rea_tooling,
         "architectural_fitness": architectural_fitness,
+        "antigravity_surfaces": antigravity_surfaces,
         "experimental_rea": experimental_rea,
         "re_toolchain": re_active,
         "forensic_toolchain": forensic_toolchain,
@@ -316,7 +328,7 @@ def run_doctor(
 
     if forensic_toolchain:
         ft_summ = forensic_toolchain.get("summary", {})
-        results["summary"]["ok"] += ft_summ.get("pass", 0)
+        results["summary"]["forensic_pass"] = ft_summ.get("pass", 0)
         results["summary"]["optional_missing"] += ft_summ.get("info", 0)
         if re_active:
             results["summary"]["warning"] += ft_summ.get("warn", 0)

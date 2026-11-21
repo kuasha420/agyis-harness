@@ -665,6 +665,42 @@ class TestOnboardCommand(unittest.TestCase):
             data = json.loads(mock_out.getvalue().strip())
             self.assertIsNone(data["database_port_check"])
 
+    def test_onboard_dry_run_skips_git_topology_mutations(self) -> None:
+        """DRIFT-P1-10: GitTopologyProbe.probe(..., dry_run=True) never runs gh repo fork or git remote add."""
+        from harness.delivery.git_topology import GitTopologyProbe
+
+        repo = self.ws / "dry-run-fork-repo"
+        self._init_git_repo(repo)
+        import subprocess
+        subprocess.run(["git", "remote", "add", "origin", "https://github.com/org/repo.git"], cwd=repo, check=True)
+
+        real_run = subprocess.run
+        calls = []
+
+        def _fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if cmd[:2] == ["gh", "api"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="testuser\n", stderr="")
+            if cmd[:3] == ["gh", "repo", "view"] and "org/repo" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout=json.dumps({"viewerPermission": "READ", "defaultBranchRef": {"name": "main"}}),
+                    stderr="",
+                )
+            if cmd[:3] == ["gh", "repo", "view"]:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+            return real_run(cmd, *args, **kwargs)
+
+        with patch("shutil.which", return_value="/usr/bin/gh"), \
+             patch("harness.delivery.git_topology.subprocess.run", side_effect=_fake_run):
+            topo = GitTopologyProbe.probe(repo, dry_run=True)
+
+        self.assertTrue(topo.requires_fork)
+        self.assertEqual(topo.push_target_remote, "fork")
+        self.assertFalse(any(c[:3] == ["gh", "repo", "fork"] for c in calls))
+        self.assertFalse(any(c[:3] == ["git", "remote", "add"] for c in calls))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,8 +21,8 @@ class CoexistenceEngine:
     Evaluates 3-tier resource precedence and guarantees zero workspace git pollution.
 
     Precedence Hierarchy:
-    - Layer 3 (Workspace Local `.agents/` or project root) [Highest Precedence]
-    - Layer 2 (User Preferences `~/.gemini/antigravity/`)
+    - Layer 3 (Workspace Local `.agents/`, `_agents/`, or project root) [Highest Precedence]
+    - Layer 2 (User Preferences `~/.gemini/config/` & `~/.gemini/{GEMINI.md,AGENTS.md}`)
     - Layer 1 (Global Plugin Installation or `harness/`) [Default Fallback]
     """
 
@@ -36,7 +36,7 @@ class CoexistenceEngine:
         self.user_dir = (
             Path(user_dir).resolve()
             if user_dir
-            else Path.home() / ".gemini" / "antigravity"
+            else Path.home() / ".gemini" / "config"
         )
         self.plugin_dir = (
             Path(plugin_dir).resolve()
@@ -72,49 +72,72 @@ class CoexistenceEngine:
                 candidates.extend([
                     ws / ".agents" / "agents" / f"{rname}.md",
                     ws / ".agents" / "agents" / rname,
+                    ws / "_agents" / "agents" / f"{rname}.md",
+                    ws / "_agents" / f"{rname}.md",
+                    ws / "_agent" / f"{rname}.md",
                     ws / ".agents" / f"{rname}.md",
                 ])
             elif rtype in ("skill", "skills"):
                 candidates.extend([
                     ws / ".agents" / "skills" / rname / "SKILL.md",
                     ws / ".agents" / "skills" / rname,
+                    ws / "_agents" / "skills" / rname / "SKILL.md",
                 ])
             elif rtype in ("rule", "rules"):
                 candidates.extend([
                     ws / ".agents" / "rules" / f"{rname}.md",
                     ws / ".agents" / "rules" / rname,
+                    ws / "_agents" / "rules" / f"{rname}.md",
                     ws / "AGENTS.md" if rname.lower() in ("agents.md", "agents") else ws / rname,
                 ])
             else:
                 candidates.extend([
                     ws / ".agents" / rtype / rname,
                     ws / ".agents" / rname,
+                    ws / "_agents" / rtype / rname,
                     ws / rname,
                 ])
             return candidates
 
         def get_user_candidates() -> List[Path]:
             candidates: List[Path] = []
+            gemini_root = self.user_dir.parent
+            cfg_root = gemini_root / "config" if self.user_dir.name != "config" else self.user_dir
             if rtype in ("agent", "agents"):
                 candidates.extend([
                     self.user_dir / "agents" / f"{rname}.md",
                     self.user_dir / "agents" / rname,
+                    cfg_root / "agents" / f"{rname}.md",
                 ])
             elif rtype in ("skill", "skills"):
                 candidates.extend([
                     self.user_dir / "skills" / rname / "SKILL.md",
                     self.user_dir / "skills" / rname,
-                    self.user_dir.parent / "config" / "skills" / rname / "SKILL.md",
+                    cfg_root / "skills" / rname / "SKILL.md",
                 ])
             elif rtype in ("rule", "rules"):
                 candidates.extend([
                     self.user_dir / "rules" / f"{rname}.md",
                     self.user_dir / "rules" / rname,
+                    cfg_root / "rules" / f"{rname}.md",
+                    gemini_root / "GEMINI.md" if rname.lower() in ("gemini.md", "gemini") else gemini_root / "AGENTS.md",
+                ])
+            elif rtype in ("hooks", "hook"):
+                candidates.extend([
+                    self.user_dir / "hooks.json",
+                    cfg_root / "hooks.json",
+                ])
+            elif rtype in ("mcp", "mcp_config"):
+                candidates.extend([
+                    self.user_dir / "mcp_config.json",
+                    cfg_root / "mcp_config.json",
                 ])
             else:
                 candidates.extend([
                     self.user_dir / rtype / rname,
                     self.user_dir / rname,
+                    cfg_root / rtype / rname,
+                    cfg_root / rname,
                 ])
             return candidates
 

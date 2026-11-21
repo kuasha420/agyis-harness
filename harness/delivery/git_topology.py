@@ -109,7 +109,12 @@ class GitTopologyProbe:
     """Probes repository remotes, permissions, dirtiness, worktrees, and delivery targets."""
 
     @classmethod
-    def probe(cls, repo_path: Path, upstream_remote: Optional[str] = None) -> GitTopology:
+    def probe(
+        cls,
+        repo_path: Path,
+        upstream_remote: Optional[str] = None,
+        dry_run: bool = False,
+    ) -> GitTopology:
         ws = Path(repo_path).resolve()
         if not ws.is_dir():
             raise FileNotFoundError(f"Path does not exist or is not a directory: {ws}")
@@ -484,7 +489,7 @@ class GitTopologyProbe:
                         except Exception:
                             fork_exists = False
 
-                        if not fork_exists:
+                        if not fork_exists and not dry_run:
                             try:
                                 subprocess.run(
                                     ["gh", "repo", "fork", target_repo_slug, "--clone=false", "--remote=true", "--remote-name=fork"],
@@ -500,26 +505,27 @@ class GitTopologyProbe:
 
                         if "fork" not in remotes:
                             fork_url = f"https://github.com/{auth_user}/{target_rem.repo}.git"
-                            try:
-                                subprocess.run(
-                                    ["git", "remote", "add", "fork", fork_url],
-                                    cwd=ws,
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    text=True,
-                                    timeout=5,
-                                    check=False,
-                                )
-                                remotes["fork"] = RemoteInfo(
-                                    name="fork",
-                                    fetch_url=fork_url,
-                                    push_url=fork_url,
-                                    owner=auth_user,
-                                    repo=target_rem.repo,
-                                    is_github=True,
-                                )
-                            except Exception:
-                                pass
+                            if not dry_run:
+                                try:
+                                    subprocess.run(
+                                        ["git", "remote", "add", "fork", fork_url],
+                                        cwd=ws,
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE,
+                                        text=True,
+                                        timeout=5,
+                                        check=False,
+                                    )
+                                except Exception:
+                                    pass
+                            remotes["fork"] = RemoteInfo(
+                                name="fork",
+                                fetch_url=fork_url,
+                                push_url=fork_url,
+                                owner=auth_user,
+                                repo=target_rem.repo,
+                                is_github=True,
+                            )
 
                         push_target_remote = "fork"
                         pr_head_branch = f"{auth_user}:{current_branch}"

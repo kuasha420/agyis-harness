@@ -86,6 +86,8 @@ def is_rea_mcp_configured(mcp_config_path: Optional[Path] = None) -> bool:
         else [
             path_cls.home() / ".gemini" / "config" / "mcp_config.json",
             path_cls.home() / ".gemini" / "antigravity" / "mcp_config.json",
+            path_cls.home() / ".gemini" / "antigravity-cli" / "mcp_config.json",
+            path_cls.home() / ".gemini" / "antigravity-ide" / "mcp_config.json",
         ]
     )
     for target_path in candidates:
@@ -292,6 +294,8 @@ def configure_rea_mcp_server(
         config_paths = [
             path_cls.home() / ".gemini" / "config" / "mcp_config.json",
             path_cls.home() / ".gemini" / "antigravity" / "mcp_config.json",
+            path_cls.home() / ".gemini" / "antigravity-cli" / "mcp_config.json",
+            path_cls.home() / ".gemini" / "antigravity-ide" / "mcp_config.json",
         ]
 
     if not ghidra_dir:

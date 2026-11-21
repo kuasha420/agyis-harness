@@ -79,7 +79,7 @@ agyis sync                                     # Bi-directional telemetry synchr
 
 ## 4. Surgical Contiguous Edits Invariant (PSL-INV-003)
 
-1. Always make single contiguous block replacements for targeted edits (`replace_file_content`).
+1. Always make single contiguous block replacements for targeted edits (`edit_file`).
 2. Do NOT overwrite whole files when modifying specific functions, classes, or blocks.
 3. Preserve surrounding comments, docstrings, imports, and formatting.
 
@@ -87,14 +87,14 @@ agyis sync                                     # Bi-directional telemetry synchr
 
 ## 5. Context Preservation, Dynamic Runway & Subagent Delegation (PSL-INV-004)
 
-1. **256k Context Runway & 80-Step Soft Epoch Horizon Model**:
-   - Monitor the **256,000-token** context window carefully:
-     - **`180,000` tokens (Amber)**: Approaching critical runway limit; focus on converging active deliverables.
-     - **`230,000` tokens (Red / Compaction Trigger)**: Compaction imminent (~245,941 historical average trigger); emit or update `.agents/artifacts/checkpoints/<conversation_id>.md` via `agyis checkpoint generate` before handoff.
+1. **512k/1M Context Runway & 80-Step Soft Epoch Horizon Model**:
+   - Monitor the **context window** (512k/1M) carefully:
+     - **Amber (~70%)**: Approaching critical runway limit; focus on converging active deliverables.
+     - **Red (~90% / Compaction Trigger)**: Compaction imminent; emit or update `.agents/artifacts/checkpoints/<conversation_id>.md` via `agyis checkpoint generate` before handoff.
      - **Soft Epoch Horizon (Per-Epoch Soft Budget = 80 steps)**: `SOFT_EPOCH_STEP_ADVISORY = 80` emits a non-blocking convergence advisory after 80 steps in the current epoch; open sweeps and in-flight edits remain allowed.
 2. **Anti-Loop & Reactive Wait Discipline**:
-   - Do NOT repeatedly call `view_file` on the same file within consecutive steps.
-   - Evolve search queries; do not repeat identical `grep_search` patterns.
+   - Do NOT repeatedly call `read_file` on the same file within consecutive steps.
+   - Evolve search queries; do not repeat identical `run_command` (`rg`/`grep`) patterns.
    - Never poll `manage_task(Action='status')` or repeatedly tail task logs; output one concise update and await reactive wakeup.
 3. **Tool-Native Primacy & Single-Source Skill Hygiene**:
    - Exhaust native CLI flags/options before reading internal tool source or monkeypatching, and avoid duplicating global plugin skills in `.agents/skills/` without project-specific customization.

@@ -118,7 +118,7 @@ def cmd_onboard(
 
     # 1. Probe git topology
     try:
-        topology = GitTopologyProbe.probe(ws, upstream_remote=upstream_remote)
+        topology = GitTopologyProbe.probe(ws, upstream_remote=upstream_remote, dry_run=dry_run)
     except Exception as exc:
         if json_output:
             print(json.dumps({"success": False, "error": str(exc), "workspace": str(ws)}, indent=2))

@@ -43,6 +43,7 @@ SYNC_SURFACE_ITEMS: tuple[str, ...] = (
     "plugins",
     "rules",
     "hooks.json",
+    "mcp_config.json",
     "AGENTS.md",
 )
 

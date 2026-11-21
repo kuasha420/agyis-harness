@@ -17,6 +17,11 @@ Provides automated hygiene and garbage collection across long-running sessions:
 from __future__ import annotations
 
 import argparse
+import errno
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX fallback
+    fcntl = None  # type: ignore[assignment]
 import json
 import os
 from pathlib import Path
@@ -24,9 +29,34 @@ import shutil
 import subprocess
 import sys
 import time
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from harness.delivery.compaction_checkpoint import prune_stale_checkpoints
+
+
+def _is_cid_actively_locked(cid: str) -> bool:
+    """Returns True if any Antigravity surface holds an active flock on presence/<cid>.lock."""
+    if not cid or fcntl is None:
+        return False
+    for surface_name in ("antigravity", "antigravity-cli", "antigravity-ide"):
+        lock_path = Path.home() / ".gemini" / surface_name / "presence" / f"{cid}.lock"
+        if not lock_path.is_file():
+            continue
+        fd: Optional[int] = None
+        try:
+            fd = os.open(lock_path, os.O_RDONLY)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError as exc:
+            if exc.errno in (errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK):
+                return True
+        finally:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+    return False
 
 
 def clean_checkpoints(
@@ -71,19 +101,78 @@ def clean_checkpoints(
     pruned = prune_stale_checkpoints(art_dir, retention_limit=retention, dry_run=dry_run)
     for p in pruned:
         pruned_files.append(str(p))
+
+    # 3. Also scan .agents/artifacts/checkpoints/ for v2.34.0 per-session checkpoints
+    cp_dir = art_dir / "checkpoints"
+    if cp_dir.is_dir():
+        cp_pruned = prune_stale_checkpoints(cp_dir, retention_limit=retention, dry_run=dry_run)
+        for p in cp_pruned:
+            pruned_files.append(str(p))
+        try:
+            session_cps: List[Tuple[float, Path]] = []
+            for entry in cp_dir.glob("*.md"):
+                if (
+                    entry.is_file()
+                    and not entry.name.startswith("compaction_checkpoint_")
+                    and not _is_cid_actively_locked(entry.stem)
+                ):
+                    session_cps.append((entry.stat().st_mtime, entry))
+            session_cps.sort(key=lambda item: item[0], reverse=True)
+            for _, entry in session_cps[retention:]:
+                pruned_files.append(str(entry))
+                if not dry_run:
+                    try:
+                        entry.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+
     return pruned_files
+
+
+def _is_worktree_dirty_or_unmerged(wt_path: Path, workspace_dir: Path, wt_branch: Optional[str]) -> bool:
+    """Returns True if worktree has uncommitted changes or commits not merged into HEAD."""
+    try:
+        st = subprocess.run(
+            ["git", "-C", str(wt_path), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=3.0,
+            check=False,
+        )
+        if st.returncode == 0 and st.stdout.strip():
+            return True
+    except Exception:
+        return True
+
+    if wt_branch:
+        try:
+            unmerged = subprocess.run(
+                ["git", "-C", str(workspace_dir), "log", f"HEAD..{wt_branch}", "--oneline", "-n", "1"],
+                capture_output=True,
+                text=True,
+                timeout=3.0,
+                check=False,
+            )
+            if unmerged.returncode == 0 and unmerged.stdout.strip():
+                return True
+        except Exception:
+            return True
+    return False
 
 
 def clean_worktrees(
     workspace_dir: Path,
     dry_run: bool = False,
+    force: bool = False,
 ) -> List[str]:
-    """Prunes dead git worktrees via git worktree prune and removes orphaned subagent-* directories."""
+    """Prunes dead git worktrees and orphaned directories without deleting active/dirty worktrees."""
     pruned_worktrees: List[str] = []
 
-    def _run_git(args: List[str]) -> str:
+    def _run_git(args: List[str]) -> subprocess.CompletedProcess[str] | None:
         try:
-            res = subprocess.run(
+            return subprocess.run(
                 ["git"] + args,
                 cwd=str(workspace_dir),
                 capture_output=True,
@@ -91,44 +180,96 @@ def clean_worktrees(
                 timeout=3.0,
                 check=False,
             )
-            return res.stdout.strip()
         except Exception:
-            return ""
+            return None
 
-    # 1. Prune registered subagent worktrees
-    wt_out = _run_git(["worktree", "list", "--porcelain"])
+    # 1. Prune registered ephemeral worktrees only when safe (or --force)
+    wt_res = _run_git(["worktree", "list", "--porcelain"])
+    wt_out = wt_res.stdout.strip() if wt_res else ""
+    blocks: List[Dict[str, str]] = []
+    cur_block: Dict[str, str] = {}
     for line in wt_out.splitlines():
-        if line.startswith("worktree "):
-            p = line.split("worktree ", 1)[1].strip()
-            if ".gemini/antigravity/worktrees" in p or "/subagent-" in p:
-                pruned_worktrees.append(p)
-                if not dry_run:
-                    _run_git(["worktree", "remove", "--force", p])
-                    if Path(p).is_dir():
-                        shutil.rmtree(p, ignore_errors=True)
+        if not line.strip():
+            if cur_block:
+                blocks.append(cur_block)
+                cur_block = {}
+            continue
+        if " " in line:
+            k, v = line.split(" ", 1)
+            cur_block[k] = v.strip()
+        else:
+            cur_block[line.strip()] = ""
+    if cur_block:
+        blocks.append(cur_block)
 
-    if dry_run:
-        out = _run_git(["worktree", "prune", "--dry-run", "-v"])
-        if out:
-            for line in out.splitlines():
-                if line.strip():
-                    pruned_worktrees.append(line.strip())
-    else:
-        out = _run_git(["worktree", "prune", "-v"])
-        if out:
-            for line in out.splitlines():
-                if line.strip():
-                    pruned_worktrees.append(line.strip())
+    ephemeral_markers = (
+        ".gemini/antigravity/worktrees",
+        ".gemini/antigravity-cli/worktrees",
+        ".gemini/antigravity-ide/worktrees",
+        ".system_generated/worktrees",
+        "/subagent-",
+    )
+    resolved_ws = workspace_dir.resolve()
+    for blk in blocks:
+        p = blk.get("worktree", "")
+        if not p:
+            continue
+        wt_path = Path(p)
+        if wt_path.resolve() == resolved_ws:
+            continue
+        if not any(marker in p for marker in ephemeral_markers):
+            continue
+        wt_branch = blk.get("branch", "").replace("refs/heads/", "").strip() or None
+        cid_candidates = [wt_path.name, wt_path.parent.name]
+        if not force:
+            if any(_is_cid_actively_locked(cid) for cid in cid_candidates):
+                continue
+            if wt_path.is_dir() and _is_worktree_dirty_or_unmerged(wt_path, workspace_dir, wt_branch):
+                continue
+        pruned_worktrees.append(p)
+        if not dry_run:
+            rm_args = ["worktree", "remove"]
+            if force:
+                rm_args.append("--force")
+            rm_args.append(p)
+            _run_git(rm_args)
+            if wt_path.is_dir() and force:
+                shutil.rmtree(wt_path, ignore_errors=True)
 
-    # Check for truly orphaned subagent directories in ~/.gemini/antigravity/worktrees
-    antigravity_worktrees = Path.home() / ".gemini" / "antigravity" / "worktrees"
-    if antigravity_worktrees.is_dir():
+    prune_args = ["worktree", "prune", "--dry-run", "-v"] if dry_run else ["worktree", "prune", "-v"]
+    prune_res = _run_git(prune_args)
+    out = prune_res.stdout.strip() if prune_res else ""
+    if out:
+        for line in out.splitlines():
+            if line.strip():
+                pruned_worktrees.append(line.strip())
+
+    # 2. Check for truly orphaned directories in Antigravity worktrees & .system_generated/worktrees
+    candidate_roots = [
+        Path.home() / ".gemini" / "antigravity" / "worktrees",
+        Path.home() / ".gemini" / "antigravity-cli" / "worktrees",
+        Path.home() / ".gemini" / "antigravity-ide" / "worktrees",
+        Path.home() / ".gemini" / "antigravity" / ".system_generated" / "worktrees",
+        workspace_dir / ".system_generated" / "worktrees",
+    ]
+    for wt_root in candidate_roots:
+        if not wt_root.is_dir():
+            continue
         try:
-            for session_dir in antigravity_worktrees.iterdir():
-                if not session_dir.is_dir():
+            for entry in wt_root.iterdir():
+                if not entry.is_dir():
                     continue
-                for wt_dir in session_dir.glob("subagent-*"):
-                    if not wt_dir.is_dir():
+                candidates: List[Path] = []
+                if (entry / ".git").exists() or entry.name.startswith(("subagent-", "worktree-", "swarm-")):
+                    candidates.append(entry)
+                for sub_wt in entry.glob("subagent-*"):
+                    if sub_wt.is_dir():
+                        candidates.append(sub_wt)
+                for wt_dir in candidates:
+                    if not force and (
+                        _is_cid_actively_locked(wt_dir.name)
+                        or _is_cid_actively_locked(entry.name)
+                    ):
                         continue
                     git_link = wt_dir / ".git"
                     is_orphaned = False
@@ -138,7 +279,13 @@ def clean_worktrees(
                         try:
                             content = git_link.read_text(encoding="utf-8").strip()
                             if content.startswith("gitdir:"):
-                                gitdir_path = Path(content.split(":", 1)[1].strip())
+                                raw_gitdir = content.split(":", 1)[1].strip()
+                                raw_path = Path(raw_gitdir)
+                                gitdir_path = (
+                                    raw_path.resolve()
+                                    if raw_path.is_absolute()
+                                    else (wt_dir / raw_path).resolve()
+                                )
                                 if not gitdir_path.exists():
                                     is_orphaned = True
                         except OSError:
@@ -189,7 +336,7 @@ def clean_branches(
         branch = line.strip().lstrip("*+ ").strip()
         if not branch:
             continue
-        if branch.startswith("subagent-") and branch not in active_branches:
+        if branch.startswith(("subagent-", "worktree-", "swarm-")) and branch not in active_branches:
             deleted_branches.append(branch)
             if not dry_run:
                 _run_git(["branch", "-d", branch])
@@ -382,6 +529,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
     except (TypeError, ValueError):
         scratch_hours = 24.0
     dry_run = getattr(args, "dry_run", False)
+    force = bool(getattr(args, "force", False))
     json_output = getattr(args, "json", False)
 
     pruned_cps: List[str] = []
@@ -395,7 +543,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
     if do_checkpoints:
         pruned_cps = clean_checkpoints(ws, retention=retention, dry_run=dry_run)
     if do_worktrees:
-        pruned_wts = clean_worktrees(ws, dry_run=dry_run)
+        pruned_wts = clean_worktrees(ws, dry_run=dry_run, force=force)
     if do_branches:
         deleted_brs = clean_branches(ws, dry_run=dry_run)
     if do_scratch:

@@ -121,6 +121,7 @@ class PluginInstaller:
             self.aux_bin_dirs = [
                 (Path.home() / ".gemini" / "antigravity" / "bin").resolve(),
                 (Path.home() / ".gemini" / "antigravity-cli" / "bin").resolve(),
+                (Path.home() / ".gemini" / "antigravity-ide" / "bin").resolve(),
                 Path("/usr/local/bin").resolve(),
             ]
 

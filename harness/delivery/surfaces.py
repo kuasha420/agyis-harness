@@ -132,14 +132,6 @@ def enforce_single_source_skills(
                                     plugin_skill_names.add(item.name)
 
     if not plugin_skill_names:
-        repo_skills = Path(__file__).resolve().parent.parent / "skills"
-        if repo_skills.is_dir():
-            for item in repo_skills.iterdir():
-                if item.is_dir() and not item.name.startswith("."):
-                    if (item / "SKILL.md").is_file() or any(item.glob("*.md")):
-                        plugin_skill_names.add(item.name)
-
-    if not plugin_skill_names:
         return []
 
     candidate_dirs = [cfg / "skills"]
@@ -217,10 +209,14 @@ def sync_surfaces_impl(
         if not dry_run:
             (cfg_root / dname).mkdir(parents=True, exist_ok=True)
 
-    # Ensure canonical hooks.json and AGENTS.md exist if not present
+    # Ensure canonical hooks.json, mcp_config.json, and AGENTS.md exist if not present
     canonical_hooks = cfg_root / "hooks.json"
     if not canonical_hooks.exists() and not dry_run:
-        canonical_hooks.write_text("{\n  \"hooks\": []\n}\n", encoding="utf-8")
+        canonical_hooks.write_text("{\n  \"hooks\": {}\n}\n", encoding="utf-8")
+
+    canonical_mcp = cfg_root / "mcp_config.json"
+    if not canonical_mcp.exists() and not dry_run:
+        canonical_mcp.write_text("{\n  \"mcpServers\": {}\n}\n", encoding="utf-8")
 
     canonical_agents_md = cfg_root / "AGENTS.md"
     if not canonical_agents_md.exists() and not dry_run:

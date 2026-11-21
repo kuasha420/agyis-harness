@@ -1403,6 +1403,27 @@ class TestTelemetryDaemonDoctor(unittest.TestCase):
             self.assertIn("disk I/O error", result["remediation"])
             self.assertEqual(result["sync_health"]["consecutive_failures"], 4)
 
+    def test_doctor_summary_accounting_and_legacy_cli_hooks_check(self):
+        """DRIFT-P2-04: run_doctor keeps ok <= total_tools, reports antigravity_surfaces, and flags legacy cli hooks.json."""
+        from harness.runtime.doctor import run_doctor
+        from harness.runtime.hygiene_checks import check_hooks_health
+
+        matrix_path = Path(__file__).resolve().parent.parent / "harness" / "runtime" / "matrix.json"
+        audit = run_doctor(matrix_path, workspace_root=Path(__file__).resolve().parent.parent)
+        self.assertLessEqual(audit["summary"]["ok"], audit["summary"]["total_tools"])
+        self.assertIn("antigravity_surfaces", audit)
+        self.assertIn("cli_bin", audit["antigravity_surfaces"])
+
+        with tempfile.TemporaryDirectory() as td:
+            fake_home = Path(td)
+            cli_hooks = fake_home / ".gemini" / "antigravity-cli" / "hooks.json"
+            cli_hooks.parent.mkdir(parents=True)
+            cli_hooks.write_text("{}", encoding="utf-8")
+            with patch.object(Path, "home", return_value=fake_home):
+                res = check_hooks_health()
+            self.assertEqual(res["status"], "WARNING")
+            self.assertIn("Legacy non-symlinked", res["failures"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -538,6 +538,61 @@ class TestCleanCLI(unittest.TestCase):
                 self.assertEqual(data_err["dist"]["count"], 0)
         self.assertTrue(locked_file.is_file())
 
+    def test_clean_checkpoints_scans_checkpoints_subdir(self) -> None:
+        """DRIFT-P0-05: clean_checkpoints prunes .agents/artifacts/checkpoints/*.md beyond retention."""
+        cp_dir = self.ws / ".agents" / "artifacts" / "checkpoints"
+        cp_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(4):
+            f = cp_dir / f"session-{i}.md"
+            f.write_text(f"cp {i}\n", encoding="utf-8")
+            os.utime(f, (1000 + i, 1000 + i))
+
+        pruned = clean_checkpoints(self.ws, retention=2, dry_run=False)
+        self.assertEqual(len(pruned), 2)
+        remaining = sorted(p.name for p in cp_dir.glob("*.md"))
+        self.assertEqual(remaining, ["session-2.md", "session-3.md"])
+
+    def test_clean_worktrees_preserves_locked_and_dirty_and_resolves_relative_gitdir(self) -> None:
+        """DRIFT-P0-05: clean_worktrees skips locked/dirty worktrees without --force and resolves relative gitdir."""
+        import fcntl
+
+        fake_home = self.ws / "home"
+        wt_root = fake_home / ".gemini" / "antigravity" / "worktrees"
+        pres_dir = fake_home / ".gemini" / "antigravity" / "presence"
+        wt_root.mkdir(parents=True)
+        pres_dir.mkdir(parents=True)
+
+        # Locked worktree (missing .git, would look orphaned if not locked)
+        locked_cid = "11111111-1111-1111-1111-111111111111"
+        locked_wt = wt_root / locked_cid
+        locked_wt.mkdir()
+        lock_file = pres_dir / f"{locked_cid}.lock"
+        lock_file.write_text("", encoding="utf-8")
+
+        # Valid worktree with relative gitdir
+        rel_wt = wt_root / "22222222-2222-2222-2222-222222222222"
+        rel_wt.mkdir()
+        (wt_root / "real_gitdir").mkdir()
+        (rel_wt / ".git").write_text("gitdir: ../real_gitdir\n", encoding="utf-8")
+
+        # Truly orphaned worktree
+        orphan_wt = wt_root / "33333333-3333-3333-3333-333333333333"
+        orphan_wt.mkdir()
+        (orphan_wt / ".git").write_text("gitdir: ../does_not_exist\n", encoding="utf-8")
+
+        with patch.object(Path, "home", return_value=fake_home):
+            with open(lock_file, "r+", encoding="utf-8") as fh:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                try:
+                    pruned = clean_worktrees(self.ws, dry_run=False, force=False)
+                finally:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+        self.assertTrue(locked_wt.is_dir(), "Locked worktree must not be deleted without --force")
+        self.assertTrue(rel_wt.is_dir(), "Worktree with valid relative gitdir must not be deleted")
+        self.assertFalse(orphan_wt.is_dir(), "Orphaned worktree must be removed")
+        self.assertIn(str(orphan_wt), pruned)
+
 
 if __name__ == "__main__":
     unittest.main()

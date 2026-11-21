@@ -354,10 +354,22 @@ def heal_environment(
         actions_taken.append(f"Distro package install required:\n    {cmd}")
 
     cli_binary = audit.get("cli_binary", {})
-    if (cli_binary.get("collision") or cli_binary.get("status") == "WARNING") and cli_binary.get("remediation"):
-        actions_taken.append(
-            f"CLI Binary Remediation:\n    {cli_binary['remediation']}"
-        )
+    if cli_binary.get("collision") or cli_binary.get("status") == "WARNING":
+        healed_cli = False
+        try:
+            from harness.delivery.installer import PluginInstaller
+
+            inst = PluginInstaller()
+            if inst.default_target_dir.exists():
+                inst._install_bin(inst.default_target_dir)
+                actions_taken.append("Reinstalled agyis/psl CLI launchers into bin_dir and aux_bin_dirs.")
+                healed_cli = True
+        except Exception:
+            pass
+        if not healed_cli and cli_binary.get("remediation"):
+            actions_taken.append(
+                f"CLI Binary Remediation:\n    {cli_binary['remediation']}"
+            )
     else:
         psl_collision = audit.get("psl_collision", {})
         if psl_collision.get("collision") and psl_collision.get("remediation"):
@@ -366,10 +378,37 @@ def heal_environment(
             )
 
     dup_agents = audit.get("duplicate_agents", {})
-    if dup_agents.get("status") == "WARNING" and dup_agents.get("remediation"):
-        actions_taken.append(
-            f"Duplicate Agents Remediation:\n    {dup_agents['remediation']}"
-        )
+    if dup_agents.get("status") == "WARNING":
+        try:
+            from harness.delivery.installer import PluginInstaller
+
+            inst = PluginInstaller()
+            removed_agents = inst._enforce_single_source_agents(inst.default_target_dir, dry_run=False)
+            if removed_agents:
+                actions_taken.append(f"Pruned {len(removed_agents)} duplicate standalone agent(s).")
+            elif dup_agents.get("remediation"):
+                actions_taken.append(f"Duplicate Agents Remediation:\n    {dup_agents['remediation']}")
+        except Exception:
+            if dup_agents.get("remediation"):
+                actions_taken.append(f"Duplicate Agents Remediation:\n    {dup_agents['remediation']}")
+
+    dup_skills = audit.get("duplicate_skills", {})
+    if dup_skills.get("status") == "WARNING":
+        try:
+            from harness.delivery.surfaces import enforce_single_source_skills
+
+            removed_skills = enforce_single_source_skills(
+                config_dir=Path.home() / ".gemini" / "config",
+                workspace_dir=workspace_dir,
+                dry_run=False,
+            )
+            if removed_skills:
+                actions_taken.append(f"Pruned {len(removed_skills)} duplicate skill(s).")
+            elif dup_skills.get("remediation"):
+                actions_taken.append(f"Duplicate Skills Remediation:\n    {dup_skills['remediation']}")
+        except Exception:
+            if dup_skills.get("remediation"):
+                actions_taken.append(f"Duplicate Skills Remediation:\n    {dup_skills['remediation']}")
 
     node_hyg = audit.get("node_script_hygiene", {})
     if node_hyg.get("status") == "WARNING" and node_hyg.get("remediation"):
@@ -378,10 +417,39 @@ def heal_environment(
         )
 
     hooks_h = audit.get("hooks_health", {})
-    if hooks_h.get("status") == "WARNING" and hooks_h.get("remediation"):
-        actions_taken.append(
-            f"Hooks Health Remediation:\n    {hooks_h['remediation']}"
+    if hooks_h.get("status") == "WARNING":
+        try:
+            from harness.delivery.surfaces import sync_surfaces
+
+            sync_surfaces(dry_run=False)
+            actions_taken.append("Synchronized canonical hooks.json and surface symlinks.")
+        except Exception:
+            if hooks_h.get("remediation"):
+                actions_taken.append(f"Hooks Health Remediation:\n    {hooks_h['remediation']}")
+
+    db_port = audit.get("database_port_conflicts", {})
+    if db_port.get("status") == "WARNING" and workspace_dir is not None:
+        env_file = Path(workspace_dir) / ".env"
+        port_script = (
+            Path(__file__).resolve().parent.parent
+            / "skills"
+            / "db-ops"
+            / "scripts"
+            / "detect_port_collision.py"
         )
+        if env_file.is_file() and port_script.is_file():
+            try:
+                res = subprocess.run(
+                    [sys.executable, str(port_script), "--find-free", "--rebind", "--env", str(env_file)],
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
+                    check=False,
+                )
+                if res.returncode == 0:
+                    actions_taken.append(f"Rebound conflicting DB port in {env_file}.")
+            except Exception:
+                pass
 
     if experimental_rea or audit.get("experimental_rea"):
         rea_actions = heal_rea_tooling(audit)
