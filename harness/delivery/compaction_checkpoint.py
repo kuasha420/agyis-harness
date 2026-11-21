@@ -178,7 +178,7 @@ def collect_active_subagents(
     """Collects active subagent statuses strictly via SSOT trajectory discovery."""
     ws = Path(workspace_dir)
     b_dir = Path(brain_dir) if brain_dir is not None else None
-    eff_parent = session_id if b_dir is not None else get_active_conversation_id(session_id)
+    eff_parent = session_id if b_dir is not None else get_active_conversation_id(session_id, check_presence=True)
 
     heartbeat_meta: Optional[Dict[str, Any]] = None
     try:
@@ -342,18 +342,22 @@ def generate_compaction_checkpoint(
     workspace_dir: Union[Path, str],
     session_id: Optional[str] = None,
     orchestrator_role: str = "agyis_coordinator",
-    trigger_tokens: int = 230_000,
+    trigger_tokens: Optional[int] = None,
     plan_path: Optional[Union[Path, str]] = None,
     output_path: Optional[Union[Path, str]] = None,
     brain_dir: Optional[Union[Path, str]] = None,
 ) -> CheckpointResult:
     """Assembles pre-compaction state and writes isolated per-conversation checkpoint."""
+    from harness.trajectory.health import COMPACTION_THRESHOLD
+
+    if trigger_tokens is None:
+        trigger_tokens = COMPACTION_THRESHOLD
     t0 = time.perf_counter()
     epoch = int(time.time())
     iso_time = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     ws = Path(workspace_dir)
-    raw_sess = get_active_conversation_id(session_id)
+    raw_sess = session_id if brain_dir is not None else get_active_conversation_id(session_id, check_presence=True)
     sess = raw_sess or "unknown_session"
     effective_brain = get_active_brain_dir(brain_dir)
     cand_session_brain = effective_brain / sess if raw_sess else None
@@ -471,7 +475,7 @@ def assemble_compaction_checkpoint(
     workspace_dir: Union[Path, str],
     session_id: Optional[str] = None,
     orchestrator_role: str = "agyis_coordinator",
-    trigger_tokens: int = 230_000,
+    trigger_tokens: Optional[int] = None,
     brain_dir: Optional[Union[Path, str]] = None,
     plan_path: Optional[Union[Path, str]] = None,
     output_path: Optional[Union[Path, str]] = None,
@@ -481,10 +485,12 @@ def assemble_compaction_checkpoint(
 
 
 def main() -> int:
+    from harness.trajectory.health import COMPACTION_THRESHOLD
+
     workspace = Path(os.environ.get("AGYIS_WORKSPACE_DIR", Path.cwd()))
-    session_id = get_active_conversation_id()
+    session_id = get_active_conversation_id(check_presence=True)
     role = os.environ.get("AGYIS_ROLE", "agyis_coordinator")
-    res = generate_compaction_checkpoint(workspace_dir=workspace, session_id=session_id, orchestrator_role=role, trigger_tokens=230_000)
+    res = generate_compaction_checkpoint(workspace_dir=workspace, session_id=session_id, orchestrator_role=role, trigger_tokens=COMPACTION_THRESHOLD)
     print(f"✔ Checkpoint written: {res.output_path} ({len(res.content):,} bytes, {res.elapsed_ms:.2f} ms)")
     return 0
 

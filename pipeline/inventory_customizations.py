@@ -320,9 +320,33 @@ def main(argv: Optional[List[str]] = None) -> None:
         if p and p not in all_skills_map:
             all_skills_map[p] = s
 
-    # Plugins
+    # Plugins (respecting ~/.gemini/config/config.json plugins.<name>.enabled)
     plugins_dir = config_dir / "plugins"
-    plugins = scan_plugins(plugins_dir)
+    raw_plugins = scan_plugins(plugins_dir)
+    enabled_map: dict[str, bool] = {}
+    cfg_file = config_dir / "config.json"
+    if cfg_file.is_file():
+        try:
+            cfg_data = json.loads(cfg_file.read_text(encoding="utf-8"))
+            if isinstance(cfg_data, dict) and isinstance(cfg_data.get("plugins"), dict):
+                for pname, pmeta in cfg_data["plugins"].items():
+                    if isinstance(pmeta, dict) and "enabled" in pmeta:
+                        enabled_map[pname] = bool(pmeta["enabled"])
+        except Exception:
+            pass
+    plugins = [
+        p for p in raw_plugins
+        if enabled_map.get(p.get("name", ""), enabled_map.get(p.get("directory_name", ""), True))
+    ]
+
+    # Agents (~/.gemini/config/agents/)
+    config_agents_dir = config_dir / "agents"
+    config_agents = (
+        sorted(f.stem for f in config_agents_dir.glob("*.md"))
+        if config_agents_dir.is_dir()
+        else []
+    )
+    cli_dir = gemini_dir / "antigravity-cli"
 
     # MCP Environment
     mcp_config_path = config_dir / "mcp_config.json"
@@ -347,14 +371,18 @@ def main(argv: Optional[List[str]] = None) -> None:
     total_skill_injection_tokens = sum(s.get("estimated_injection_tokens", 0) for s in all_skills_map.values())
     total_skill_full_tokens = sum(s.get("estimated_full_tokens", 0) for s in all_skills_map.values())
 
+    from datetime import datetime
+
     report = {
-        "timestamp": os.popen("date -Iseconds").read().strip(),
+        "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
         "workstation": {
             "user": os.getenv("USER", "unknown"),
             "home": str(home),
             "antigravity_dir": str(antigravity_dir),
+            "antigravity_cli_dir": str(cli_dir) if cli_dir.is_dir() else None,
             "config_dir": str(config_dir),
         },
+        "agents": config_agents,
         "summary": {
             "total_skills": total_skills,
             "builtin_skills_count": len(builtin_skills),

@@ -73,22 +73,24 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
         out_path = getattr(args, "out", None)
         role = getattr(args, "role", None) or os.environ.get("AGYIS_ROLE", "agyis_coordinator")
 
-        conv_id = get_active_conversation_id(getattr(args, "session_id", None))
+        from harness.trajectory.health import COMPACTION_THRESHOLD, DEFAULT_CONTEXT_WINDOW_TOKENS
+
+        conv_id = get_active_conversation_id(getattr(args, "session_id", None), check_presence=True)
         brain_dir = Path(args.brain_dir) if getattr(args, "brain_dir", None) else None
 
         raw_trigger = getattr(args, "trigger_tokens", None)
         if raw_trigger is not None:
             trigger_tokens = int(raw_trigger)
         else:
-            trigger_tokens = 230_000
+            trigger_tokens = COMPACTION_THRESHOLD
             if conv_id:
                 try:
                     from harness.hooks.token_proximity_guard import get_active_conversation_context_window
 
                     ctx_win = get_active_conversation_context_window(conv_id)
-                    trigger_tokens = int(ctx_win.get("compaction_threshold") or 230_000)
+                    trigger_tokens = int(ctx_win.get("compaction_threshold") or COMPACTION_THRESHOLD)
                 except Exception:
-                    trigger_tokens = 230_000
+                    trigger_tokens = COMPACTION_THRESHOLD
 
         res = generate_compaction_checkpoint(
             workspace_dir=workspace,
@@ -190,17 +192,26 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
             except OSError:
                 checkpoint_age_seconds = 0.0
 
-        brain_dir = get_active_brain_dir(getattr(args, "brain_dir", None))
-        git_state = inspect_git_state(workspace)
-        subagents = collect_active_subagents(workspace, brain_dir=brain_dir)
+        from harness.trajectory.health import COMPACTION_THRESHOLD, DEFAULT_CONTEXT_WINDOW_TOKENS
 
+        explicit_brain_dir = getattr(args, "brain_dir", None)
+        brain_dir = Path(explicit_brain_dir) if explicit_brain_dir else None
+        git_state = inspect_git_state(workspace)
         session_id = (
-            get_active_conversation_id(getattr(args, "session_id", None)) or ""
+            getattr(args, "session_id", None)
+            if brain_dir is not None
+            else get_active_conversation_id(getattr(args, "session_id", None), check_presence=True)
+        ) or ""
+        subagents = collect_active_subagents(
+            workspace,
+            brain_dir=brain_dir,
+            session_id=session_id or None,
         )
+
         ctx_win: Dict[str, Any] = {
             "tokens": 0,
-            "max_context_tokens": 256_000,
-            "compaction_threshold": 230_000,
+            "max_context_tokens": DEFAULT_CONTEXT_WINDOW_TOKENS,
+            "compaction_threshold": COMPACTION_THRESHOLD,
         }
         if session_id:
             try:
@@ -226,12 +237,12 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
                 except Exception:
                     tokens = 0
 
-        max_ctx = int(ctx_win.get("max_context_tokens") or 256_000)
+        max_ctx = int(ctx_win.get("max_context_tokens") or DEFAULT_CONTEXT_WINDOW_TOKENS)
         raw_trigger = getattr(args, "trigger_tokens", None)
         trigger_threshold = (
             int(raw_trigger)
             if raw_trigger is not None
-            else int(ctx_win.get("compaction_threshold") or 230_000)
+            else int(ctx_win.get("compaction_threshold") or COMPACTION_THRESHOLD)
         )
         proximity_pct = (
             round((tokens / trigger_threshold * 100.0), 2) if trigger_threshold > 0 else 0.0

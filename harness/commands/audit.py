@@ -196,7 +196,13 @@ def cmd_audit(args: argparse.Namespace) -> int:
         as_json = getattr(args, "json", False)
 
         if session_id:
-            s_dir = Path.home() / ".gemini" / "antigravity" / "brain" / session_id
+            from harness.utils.context import get_active_brain_dir
+
+            s_dir = get_active_brain_dir() / session_id
+            if not s_dir.exists():
+                cli_s_dir = Path.home() / ".gemini" / "antigravity-cli" / "brain" / session_id
+                if cli_s_dir.exists():
+                    s_dir = cli_s_dir
         else:
             s_dir = analyze_live_session.find_latest_session_dir()
 
@@ -220,12 +226,18 @@ def cmd_audit(args: argparse.Namespace) -> int:
                 cur.executescript(extract_transcripts.SCHEMA_SQL)
                 conn.commit()
 
-                transcript_targets = [s_dir / ".system_generated" / "logs" / "transcript.jsonl"]
-                transcript_targets.extend(
-                    s_dir.parent / sa["conversation_id"] / ".system_generated" / "logs" / "transcript.jsonl"
-                    for sa in report.get("subagents", [])
-                    if sa.get("conversation_id")
-                )
+                from harness.trajectory.transcript_reader import find_transcript_path
+
+                transcript_targets = []
+                root_tp, _ = find_transcript_path(s_dir)
+                if root_tp:
+                    transcript_targets.append(root_tp)
+                for sa in report.get("subagents", []):
+                    sa_cid = sa.get("conversation_id")
+                    if sa_cid:
+                        sa_tp, _ = find_transcript_path(s_dir.parent / sa_cid)
+                        if sa_tp:
+                            transcript_targets.append(sa_tp)
                 for t_path in transcript_targets:
                     res = extract_transcripts.extract_session(t_path)
                     if res:

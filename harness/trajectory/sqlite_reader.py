@@ -67,6 +67,9 @@ def get_conversations_dir() -> Path:
     )
     if env_dir and env_dir.strip():
         return Path(env_dir.strip())
+    env_app_data = os.environ.get("ANTIGRAVITY_APP_DATA_DIR")
+    if env_app_data and env_app_data.strip():
+        return Path(env_app_data.strip()) / "conversations"
     return Path.home() / ".gemini" / "antigravity" / "conversations"
 
 
@@ -466,6 +469,15 @@ def read_db_trajectory_state(
 
     db_path = (db_dir or get_conversations_dir()) / f"{norm_cid}.db"
     try:
+        if not db_path.is_file() and db_dir is None and not (
+            os.environ.get("AGYIS_CONVERSATIONS_DIR")
+            or os.environ.get("ANTIGRAVITY_CONVERSATIONS_DIR")
+            or os.environ.get("GEMINI_CONVERSATIONS_DIR")
+            or os.environ.get("ANTIGRAVITY_APP_DATA_DIR")
+        ):
+            cli_cand = Path.home() / ".gemini" / "antigravity-cli" / "conversations" / f"{norm_cid}.db"
+            if cli_cand.is_file():
+                db_path = cli_cand
         if not db_path.is_file():
             cand = Path(conversation_id)
             if cand.is_file():
@@ -564,14 +576,19 @@ def read_db_trajectory_state(
             rl = cursor.fetchone()
             if rl:
                 latest_user_prompt = _extract_prompt_from_step(_extract_step_fields(rl, col_map))
+        _NON_PROMPT_STEP_TYPES = frozenset({15, 17, 23, 90, 101, 132})
         if not turn0_prompt and epoch_parsed:
             for item in epoch_parsed[:4]:
+                if item.get("step_type") in _NON_PROMPT_STEP_TYPES:
+                    continue
                 p = _extract_prompt_from_step(item)
                 if p:
                     turn0_prompt = p
                     break
         if not latest_user_prompt and epoch_parsed:
             for item in reversed(epoch_parsed[-3:]):
+                if item.get("step_type") in _NON_PROMPT_STEP_TYPES:
+                    continue
                 p = _extract_prompt_from_step(item)
                 if p:
                     latest_user_prompt = p

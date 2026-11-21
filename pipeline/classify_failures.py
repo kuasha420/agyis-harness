@@ -298,9 +298,9 @@ The terminal tool (`run_command`) is responsible for **98.4% of all tool failure
     md += f"""
 #### Tool Thrashing & Loop Traps ({sum(l['loop_calls'] for l in loops):,} Occurrences)
 Redundant consecutive tool calls on identical arguments:
-- **`view_file`**: **3,951 repeated calls**. Agents re-reading files without state caching or paging awareness.
-- **`grep_search`**: **625 repeated calls**. Repeated pattern search attempts without broadening or altering queries.
-- **`manage_task`**: **300 repeated calls**. Runaway polling loops instead of reactive timer/task waiting.
+- **`read_file` / `view_file`**: **3,951 repeated calls**. Agents re-reading files without state caching or paging awareness.
+- **`run_command` (`rg`/`grep`) / `grep_search`**: **625 repeated calls**. Repeated pattern search attempts without broadening or altering queries.
+- **`manage_task` / `swarm_wait`**: **300 repeated calls**. Runaway polling loops instead of reactive timer/task waiting.
 - **`run_command`**: **360 repeated calls**. Repeatedly re-running the same failing command.
 
 #### The Context Cliff: Trajectory Length vs Error Escalation

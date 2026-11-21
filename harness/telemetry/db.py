@@ -10,6 +10,7 @@ Centralized SQLite database connection factory for PSL Telemetry (ADR-014, ADR-0
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import os
 from pathlib import Path
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -212,18 +213,34 @@ def iter_brain_transcripts(brain_dir: Optional[Path] = None) -> List[Tuple[str, 
     """Returns non-empty (session_id, transcript_path, mtime, size) tuples from brain storage."""
     from harness.utils.context import get_active_brain_dir
 
-    target = get_active_brain_dir(brain_dir)
-    if not target.is_dir():
-        return []
+    targets: List[Path] = [get_active_brain_dir(brain_dir)]
+    if brain_dir is None and not (
+        os.environ.get("ANTIGRAVITY_BRAIN_DIR")
+        or os.environ.get("ANTIGRAVITY_APP_DATA_DIR")
+        or os.environ.get("GEMINI_BRAIN_DIR")
+    ):
+        cli_brain = Path.home() / ".gemini" / "antigravity-cli" / "brain"
+        if cli_brain.is_dir() and cli_brain not in targets:
+            targets.append(cli_brain)
+
     found: List[Tuple[str, Path, float, int]] = []
-    for entry in target.iterdir():
-        t_path = entry / ".system_generated" / "logs" / "transcript.jsonl"
-        try:
-            st = entry.is_dir() and t_path.stat()
-        except OSError:
+    seen_ids: set[str] = set()
+    for target in targets:
+        if not target.is_dir():
             continue
-        if st and st.st_size > 0:
-            found.append((entry.name, t_path, st.st_mtime, st.st_size))
+        for entry in target.iterdir():
+            if entry.name in seen_ids or not entry.is_dir():
+                continue
+            t_full = entry / ".system_generated" / "logs" / "transcript_full.jsonl"
+            t_compact = entry / ".system_generated" / "logs" / "transcript.jsonl"
+            t_path = t_full if t_full.is_file() else t_compact
+            try:
+                st = t_path.stat()
+            except OSError:
+                continue
+            if st.st_size > 0:
+                seen_ids.add(entry.name)
+                found.append((entry.name, t_path, st.st_mtime, st.st_size))
     return found
 
 

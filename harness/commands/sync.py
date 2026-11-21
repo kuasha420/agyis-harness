@@ -52,15 +52,31 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
     if getattr(args, "session_id", None):
         try:
-            from pipeline import analyze_live_session
-            s_dir = analyze_live_session.find_session_dir(args.session_id)
-            if s_dir and s_dir.exists():
-                t_file = s_dir / ".system_generated" / "logs" / "transcript.jsonl"
-                if t_file.exists():
-                    from pipeline import extract_transcripts
-                    from harness.telemetry import config
-                    resolved_db = config.resolve_db_path(db_path)
-                    extract_transcripts.extract_and_store([t_file], db_path=resolved_db)
+            from harness.telemetry import config
+            from harness.telemetry.db import get_db_connection
+            from harness.telemetry.extractor import (
+                ensure_telemetry_schema,
+                extract_session,
+                upsert_session_telemetry,
+            )
+            from harness.trajectory.transcript_reader import find_transcript_path
+
+            t_file, _ = find_transcript_path(args.session_id)
+            if t_file is None or not t_file.is_file():
+                from pathlib import Path
+                cli_brain = Path.home() / ".gemini" / "antigravity-cli" / "brain"
+                if cli_brain.is_dir():
+                    t_file, _ = find_transcript_path(args.session_id, brain_dir=cli_brain)
+            if t_file and t_file.is_file():
+                resolved_db = config.resolve_db_path(db_path)
+                conn = get_db_connection(resolved_db)
+                try:
+                    ensure_telemetry_schema(conn)
+                    res = extract_session(t_file)
+                    if res:
+                        upsert_session_telemetry(conn, *res, commit=True)
+                finally:
+                    conn.close()
         except Exception as exc:
             sys.stderr.write(f"Warning: Session ingestion failed: {exc}\n")
 

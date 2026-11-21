@@ -61,6 +61,9 @@ class ProtobufTokenBreakdown:
     skills_tokens: int = 0
     subagents_tokens: int = 0
     chat_message_tokens: int = 0
+    workflows_tokens: int = 0
+    plugins_tokens: int = 0
+    flows_tokens: int = 0
     groups: Tuple[ProtobufTokenGroupNode, ...] = ()
     prompt_sections: Tuple[ProtobufPromptSection, ...] = ()
     tools: Tuple[ProtobufToolDefinition, ...] = ()
@@ -199,10 +202,16 @@ def _looks_binary_msg(raw: bytes, fields: List[Tuple[int, int, Any]]) -> bool:
         raw.decode("utf-8")
     except UnicodeDecodeError:
         return True
-    # Pure ASCII prose often starts with printable ASCII tags; require small sensible field numbers.
-    return all(1 <= fn <= 64 and wt in (0, 1, 2, 5) for fn, wt, _ in fields[:4]) and any(
-        b < 32 and b not in (9, 10, 13) for b in raw[:32]
-    )
+    if not all(1 <= fn <= 64 and wt in (0, 1, 2, 5) for fn, wt, _ in fields[:4]):
+        return False
+    if any(b < 32 and b not in (9, 10, 13) for b in raw[:32]):
+        return True
+    # CortexStepUserInput.items (fn 19 -> sfn 3) wraps UTF-8 in `0x0a <len> <text>`
+    # where <len> can be printable ASCII (>= 32), so raw[:32] has no control bytes.
+    if len(raw) >= 3 and raw[0] in (0x0A, 0x12, 0x1A, 0x22) and fields[0][1] == 2:
+        if all(1 <= fn <= 32 and wt in (0, 1, 2, 5) for fn, wt, _ in fields):
+            return True
+    return False
 
 
 def extract_timestamp_from_protobuf(raw_bytes: bytes) -> Optional[float]:
@@ -246,9 +255,9 @@ def _parse_usage_msg(buf: bytes) -> Tuple[int, int, int, int]:
             elif fn == 5:
                 cache = val
             elif fn == 9:
-                out = val
-            elif fn == 10:
                 thought = val
+            elif fn == 10:
+                out = val
     if out == 0 and candidates > 0:
         out = max(0, candidates - thought)
     return inp, cache, out, thought
@@ -274,15 +283,17 @@ def _parse_csm(buf: bytes) -> Tuple[int, int, int]:
     fields = parse_pb_fields(buf)
     if not fields:
         return 0, 0, 0
-    ckpt = est = mct = 0
+    ckpt_fn1 = ckpt_fn2 = est = mct = 0
     for fn, wt, val in fields:
         if fn == 1 and wt == 0 and isinstance(val, int) and val > 0:
-            ckpt = val
+            ckpt_fn1 = val
+        elif fn == 2 and wt == 0 and isinstance(val, int) and val > 0:
+            ckpt_fn2 = val
         elif fn == 10 and wt == 2 and isinstance(val, bytes):
             c_est, c_mct = _parse_cwm(val)
             est = est or c_est
             mct = mct or c_mct
-    return ckpt, est, mct
+    return (ckpt_fn2 or ckpt_fn1), est, mct
 
 
 def extract_usage_from_protobuf(raw_bytes: bytes) -> ProtobufUsageMetrics:
@@ -349,6 +360,27 @@ def extract_usage_from_protobuf(raw_bytes: bytes) -> ProtobufUsageMetrics:
     )
 
 
+def _collect_recursive_token_children(buf: bytes, depth: int = 0) -> Tuple[str, int, List[ProtobufTokenChild]]:
+    """Recursively parses TokenGroup {1: name, 2: children, 3: num_tokens}."""
+    if depth > 8:
+        return "", 0, []
+    c_name = ""
+    c_tok = 0
+    sub_children: List[ProtobufTokenChild] = []
+    for sfn, swt, sval in parse_pb_fields(buf) or []:
+        if sfn == 1 and swt == 2 and isinstance(sval, bytes):
+            c_name = sval.decode("utf-8", errors="replace")
+        elif sfn == 3 and swt == 0 and isinstance(sval, int):
+            c_tok = sval
+        elif sfn == 2 and swt == 2 and isinstance(sval, bytes):
+            sc_name, sc_tok, nested = _collect_recursive_token_children(sval, depth + 1)
+            if nested:
+                sub_children.extend(nested)
+            elif sc_name:
+                sub_children.append(ProtobufTokenChild(sc_name, sc_tok))
+    return c_name, c_tok, sub_children
+
+
 def _parse_token_group_node(buf: bytes) -> ProtobufTokenGroupNode:
     """Parses TopLevelTokenGroup message (fn 1 of TokenBreakdown)."""
     fields = parse_pb_fields(buf) or []
@@ -367,26 +399,12 @@ def _parse_token_group_node(buf: bytes) -> ProtobufTokenGroupNode:
         elif fn == 4 and wt == 0 and isinstance(val, int):
             tokens = val
         elif fn == 5 and wt == 2 and isinstance(val, bytes):
-            c_name = ""
-            c_tok = 0
-            sub_children: List[ProtobufTokenChild] = []
-            for sfn, swt, sval in parse_pb_fields(val) or []:
-                if sfn == 1 and swt == 2 and isinstance(sval, bytes):
-                    c_name = sval.decode("utf-8", errors="replace")
-                elif sfn == 3 and swt == 0 and isinstance(sval, int):
-                    c_tok = sval
-                elif sfn == 2 and swt == 2 and isinstance(sval, bytes):
-                    sc_name = ""
-                    sc_tok = 0
-                    for mfn, mwt, mval in parse_pb_fields(sval) or []:
-                        if mfn == 1 and mwt == 2 and isinstance(mval, bytes):
-                            sc_name = mval.decode("utf-8", errors="replace")
-                        elif mfn == 3 and mwt == 0 and isinstance(mval, int):
-                            sc_tok = mval
-                    if sc_name:
-                        sub_children.append(ProtobufTokenChild(sc_name, sc_tok))
-            if sub_children:
+            c_name, c_tok, sub_children = _collect_recursive_token_children(val)
+            if sub_children and ttype == 4:
                 mcp_servers.append((c_name, tuple(sub_children)))
+            elif sub_children:
+                children.append(ProtobufTokenChild(c_name, c_tok))
+                children.extend(sub_children)
             else:
                 children.append(ProtobufTokenChild(c_name, c_tok))
 
@@ -442,6 +460,7 @@ def extract_token_breakdown_from_protobuf(buf: bytes) -> Optional[ProtobufTokenB
     total_tokens = 0
     groups: List[ProtobufTokenGroupNode] = []
     sys_tokens = tool_tokens = mcp_tokens = rules_tokens = skills_tokens = subagents_tokens = chat_tokens = 0
+    workflows_tokens = plugins_tokens = flows_tokens = 0
 
     for fn, wt, val in parse_pb_fields(tb_bytes) or []:
         if fn == 2 and wt == 0 and isinstance(val, int):
@@ -463,6 +482,12 @@ def extract_token_breakdown_from_protobuf(buf: bytes) -> Optional[ProtobufTokenB
                 subagents_tokens += g.num_tokens
             elif g.token_type == 7:
                 chat_tokens += g.num_tokens
+            elif g.token_type == 8:
+                workflows_tokens += g.num_tokens
+            elif g.token_type == 9:
+                plugins_tokens += g.num_tokens
+            elif g.token_type == 10:
+                flows_tokens += g.num_tokens
             elif g.token_type == 0 and ("system" in g.name.lower() or "identity" in g.name.lower()):
                 sys_tokens += g.num_tokens
 
@@ -475,6 +500,9 @@ def extract_token_breakdown_from_protobuf(buf: bytes) -> Optional[ProtobufTokenB
         skills_tokens=skills_tokens,
         subagents_tokens=subagents_tokens,
         chat_message_tokens=chat_tokens,
+        workflows_tokens=workflows_tokens,
+        plugins_tokens=plugins_tokens,
+        flows_tokens=flows_tokens,
         groups=tuple(groups),
     )
 
@@ -558,19 +586,25 @@ def extract_context_window_from_json(data: Any) -> Tuple[int, int]:
 
 
 def extract_tool_from_protobuf(raw_bytes: bytes) -> Tuple[str, str]:
-    """Extracts (tool_name, tool_args) from Antigravity step metadata protobuf (fn 4)."""
+    """Extracts (tool_name, tool_args) from Antigravity step metadata protobuf (fn 29 modified_tool_call or fn 4 tool_call)."""
     if not raw_bytes or not isinstance(raw_bytes, (bytes, bytearray, memoryview)):
         return "", ""
-    for fn, wt, val in parse_pb_fields(bytes(raw_bytes)) or []:
-        if fn == 4 and wt == 2 and isinstance(val, bytes):
-            name = args = ""
-            for sfn, swt, sval in parse_pb_fields(val) or []:
-                if swt != 2 or not isinstance(sval, bytes):
-                    continue
-                if sfn == 2:
-                    name = sval.decode("utf-8", errors="replace")
-                elif sfn == 3:
-                    args = sval.decode("utf-8", errors="replace")
-            if name:
-                return name, args
-    return "", ""
+    fields = parse_pb_fields(bytes(raw_bytes)) or []
+    fallback_pair: Tuple[str, str] = ("", "")
+    for target_fn in (29, 4):
+        for fn, wt, val in fields:
+            if fn == target_fn and wt == 2 and isinstance(val, bytes):
+                name = args = ""
+                for sfn, swt, sval in parse_pb_fields(val) or []:
+                    if swt != 2 or not isinstance(sval, bytes):
+                        continue
+                    if sfn == 2:
+                        name = sval.decode("utf-8", errors="replace")
+                    elif sfn == 3:
+                        args = sval.decode("utf-8", errors="replace")
+                if name:
+                    if target_fn == 29:
+                        return name, args
+                    if not fallback_pair[0]:
+                        fallback_pair = (name, args)
+    return fallback_pair

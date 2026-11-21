@@ -11,14 +11,94 @@ and active workspace across all CLI commands and subagents.
 
 from __future__ import annotations
 
+import errno
+import fcntl
 import json
 import os
 from pathlib import Path
 import subprocess
-from typing import Optional, Union
+from typing import List, Optional, Tuple, Union
 
 
-def get_active_conversation_id(explicit_id: Optional[str] = None) -> Optional[str]:
+def get_active_app_data_dir() -> Path:
+    """Resolves the active Antigravity appDataDir (~/.gemini/antigravity or ~/.gemini/antigravity-cli)."""
+    env_app_data = os.environ.get("ANTIGRAVITY_APP_DATA_DIR")
+    if env_app_data and env_app_data.strip():
+        return Path(env_app_data.strip())
+    env_brain = os.environ.get("ANTIGRAVITY_BRAIN_DIR")
+    if env_brain and env_brain.strip():
+        return Path(env_brain.strip()).parent
+    return Path.home() / ".gemini" / "antigravity"
+
+
+def detect_presence_conversation_id(
+    presence_dir: Optional[Union[Path, str]] = None,
+) -> Optional[str]:
+    """
+    Detects the active root conversation ID by probing flock() on
+    <appDataDir>/presence/<cid>.lock without blocking or holding any lock.
+    """
+    if presence_dir is not None and str(presence_dir).strip():
+        p_dir = Path(presence_dir)
+    else:
+        env_presence = os.environ.get("ANTIGRAVITY_PRESENCE_DIR")
+        if env_presence and env_presence.strip():
+            p_dir = Path(env_presence.strip())
+        else:
+            p_dir = get_active_app_data_dir() / "presence"
+
+    if not p_dir.is_dir():
+        return None
+
+    locked: List[Tuple[float, str]] = []
+    try:
+        entries = list(p_dir.glob("*.lock"))
+    except OSError:
+        return None
+
+    for lock_file in entries:
+        cid = lock_file.stem.strip()
+        if not cid:
+            continue
+        fd = -1
+        try:
+            fd = os.open(str(lock_file), os.O_RDONLY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except BlockingIOError:
+                try:
+                    mtime = lock_file.stat().st_mtime
+                except OSError:
+                    mtime = 0.0
+                locked.append((mtime, cid))
+            except OSError as exc:
+                if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES):
+                    try:
+                        mtime = lock_file.stat().st_mtime
+                    except OSError:
+                        mtime = 0.0
+                    locked.append((mtime, cid))
+        except OSError:
+            continue
+        finally:
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+    if not locked:
+        return None
+    locked.sort(key=lambda item: item[0], reverse=True)
+    return locked[0][1]
+
+
+def get_active_conversation_id(
+    explicit_id: Optional[str] = None,
+    *,
+    check_presence: bool = False,
+) -> Optional[str]:
     """
     Resolves the active conversation/session ID using the canonical priority hierarchy:
     1. Explicitly provided conversation ID argument
@@ -26,7 +106,8 @@ def get_active_conversation_id(explicit_id: Optional[str] = None) -> Optional[st
     3. ANTIGRAVITY_SOURCE_METADATA JSON parsing (tool.conversationId / conversationId / conversation_id)
     4. AGYIS_CONVERSATION_ID
     5. GEMINI_CONVERSATION_ID
-    6. None fallback
+    6. Optional flock() probe on <appDataDir>/presence/<cid>.lock (when check_presence=True)
+    7. None fallback
     """
     if explicit_id is not None and str(explicit_id).strip():
         return str(explicit_id).strip()
@@ -58,6 +139,9 @@ def get_active_conversation_id(explicit_id: Optional[str] = None) -> Optional[st
     env_gemini = os.environ.get("GEMINI_CONVERSATION_ID")
     if env_gemini and env_gemini.strip():
         return env_gemini.strip()
+
+    if check_presence:
+        return detect_presence_conversation_id()
 
     return None
 
@@ -117,6 +201,8 @@ def get_active_workspace(explicit_ws: Optional[Union[Path, str]] = None) -> Path
 
 
 __all__ = [
+    "get_active_app_data_dir",
+    "detect_presence_conversation_id",
     "get_active_conversation_id",
     "get_active_brain_dir",
     "get_active_workspace",

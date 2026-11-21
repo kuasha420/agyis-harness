@@ -72,11 +72,11 @@ TIERS = [
 def classify_session_tier(model_name: str, has_thinking: bool, thinking_len: int) -> str:
     """Classifies a session model name into one of the three canonical benchmark reasoning tiers."""
     lower = model_name.lower()
-    if "pro" in lower:
+    if "pro" in lower or "gemini-4-neon" in lower:
         return "gemini-3.1-pro"
-    if "high" in lower:
+    if "high" in lower or "gemini-4-hydrogen" in lower or lower.endswith("-h") or "flash-h" in lower:
         return "gemini-3.8-flash-high"
-    if "low" in lower:
+    if "low" in lower or lower.endswith("-s") or "flash-s" in lower:
         return "gemini-3.8-flash-low"
     # Heuristic based on thinking length if generic Flash/Gemini
     if has_thinking or thinking_len > 1500:

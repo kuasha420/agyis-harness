@@ -94,7 +94,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         )
         from harness.utils.context import get_active_conversation_id
 
-        conv_id = get_active_conversation_id() or os.environ.get("CONVERSATION_ID")
+        conv_id = get_active_conversation_id(check_presence=True) or os.environ.get("CONVERSATION_ID")
         if not conv_id:
             conv_dir = get_conversations_dir()
             if conv_dir.is_dir():
@@ -263,12 +263,17 @@ def cmd_status(args: argparse.Namespace) -> int:
             get_active_conversation_tokens,
             get_conversations_dir,
         )
-        from harness.utils.context import get_active_conversation_id
+        from harness.utils.context import detect_presence_conversation_id, get_active_conversation_id
 
         conv_id = get_active_conversation_id() or os.environ.get("CONVERSATION_ID")
         conv_source = "env" if conv_id else ""
+        conv_dir = get_conversations_dir()
         if not conv_id:
-            conv_dir = get_conversations_dir()
+            presence_cid = detect_presence_conversation_id()
+            if presence_cid and (conv_dir / f"{presence_cid}.db").is_file():
+                conv_id = presence_cid
+                conv_source = "presence"
+        if not conv_id:
             if conv_dir.is_dir():
                 dbs = sorted([f for f in conv_dir.glob("*.db") if not f.name.endswith(".tmp")], key=lambda f: f.stat().st_mtime, reverse=True)
                 if dbs:
@@ -316,10 +321,15 @@ def cmd_status(args: argparse.Namespace) -> int:
                 conv_label = f"{conv_id} | {conv_source}" if conv_source == "fallback: newest mtime" else conv_id
                 print(f"   📊 Active Session ({conv_label}): {gauge}")
     except Exception:
-        print(" Cognitive Attention Horizon Gauge (256k Model Context Window):")
-        print("   🟢 Healthy Zone: <180k tokens (Nominal / High Attention Aperture)")
-        print("   🟡 Amber Zone:   180k–230k tokens (Attention Compaction Advised)")
-        print("   🔴 Red Alert:    >=230k tokens (Compaction Imminent, 256k Context Window)")
+        from harness.trajectory.health import AMBER_THRESHOLD, CONTEXT_WINDOW_TOKENS, RED_THRESHOLD
+
+        win_k = int(round(CONTEXT_WINDOW_TOKENS / 1000))
+        amber_k = int(round(AMBER_THRESHOLD / 1000))
+        red_k = int(round(RED_THRESHOLD / 1000))
+        print(f" Cognitive Attention Horizon Gauge ({win_k}k Default / 512k-1M Model-Scaled Context Window):")
+        print(f"   🟢 Healthy Zone: <{amber_k}k tokens (Nominal / High Attention Aperture)")
+        print(f"   🟡 Amber Zone:   {amber_k}k–{red_k}k tokens (Attention Compaction Advised)")
+        print(f"   🔴 Red Alert:    >={red_k}k tokens (Compaction Imminent, {win_k}k Default Window)")
     print("-" * 70)
     print(" Specialist Subagents:")
     for ag in agents:

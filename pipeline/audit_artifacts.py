@@ -243,7 +243,7 @@ We paired **{p_stats['paired_plan_walkthrough_sessions']} sessions** that genera
 
 1. **The Plan-Fidelity Invariant**: An average fidelity of **75–85%** indicates that Gemini's planning mode is structurally sound, with divergence primarily caused by legitimate discovery during implementation.
 2. **Proactive Drift Warning Hook**:
-   - A `PreToolUse` hook on `replace_file_content` / `write_to_file` can check whether the target file was in the approved `implementation_plan.md`. If it's a completely novel file outside the planned directory, it can prompt: *"Note: Touching unplanned file X. Update plan?"*
+   - A `PreToolUse` hook on `edit_file` / `write_file` (legacy: `replace_file_content` / `write_to_file`) can check whether the target file was in the approved `implementation_plan.md`. If it's a completely novel file outside the planned directory, it can prompt: *"Note: Touching unplanned file X. Update plan?"*
 """
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

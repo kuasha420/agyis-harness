@@ -273,13 +273,16 @@ def extract_session(
         s_type, source = s.get("type", "UNKNOWN"), s.get("source", "UNKNOWN")
         content = str(s.get("content", ""))
 
-        if "Model Selection" in content:
+        s_model = s.get("model")
+        if isinstance(s_model, str) and s_model.strip():
+            model_detected = s_model.strip()
+        elif model_detected == "Gemini 3.5/Flash/Pro (Default)" and s_type in ("SYSTEM_MESSAGE", "USER_INPUT") and "Model Selection" in content:
             m = re.search(r"Model Selection` from .*? to ([^.\n\r]+)", content)
             if m:
                 model_detected = m.group(1).strip()
 
         if not workspace_detected and "/Dev/" in content:
-            m = re.search(r"(/[a-zA-Z0-9_\-]+/Dev/[a-zA-Z0-9_\-]+)", content)
+            m = re.search(r"(/(?:home|Users|root|workspace|var|opt|srv)(?:/[a-zA-Z0-9_.\-]+)*/Dev/[a-zA-Z0-9_.\-]+)", content)
             if m:
                 workspace_detected = m.group(1)
 
@@ -300,13 +303,25 @@ def extract_session(
 
         raw_tools = s.get("tool_calls", [])
         if raw_tools and isinstance(raw_tools, list):
-            for tc in raw_tools:
+            for tool_offset, tc in enumerate(raw_tools):
                 if not isinstance(tc, dict):
                     continue
                 t_name, t_args = tc.get("name", "unknown"), tc.get("args", {})
+                if isinstance(t_args, str):
+                    try:
+                        parsed_args = json.loads(t_args)
+                        if isinstance(parsed_args, dict):
+                            t_args = parsed_args
+                    except (json.JSONDecodeError, ValueError):
+                        pass
                 target_path = (
-                    t_args.get("TargetFile") or t_args.get("AbsolutePath")
-                    or t_args.get("SearchPath") or t_args.get("DirectoryPath")
+                    t_args.get("Path")
+                    or t_args.get("TargetFile")
+                    or t_args.get("AbsolutePath")
+                    or t_args.get("FilePath")
+                    or t_args.get("Target")
+                    or t_args.get("SearchPath")
+                    or t_args.get("DirectoryPath")
                 ) if isinstance(t_args, dict) else None
                 cmd_line = t_args.get("CommandLine") if isinstance(t_args, dict) else None
 
@@ -318,9 +333,11 @@ def extract_session(
                 else:
                     last_tool_sig, repeated_tool_count = tool_sig, 1
 
-                res_step = step_by_idx.get(s_idx + 1) if isinstance(s_idx, int) else None
+                res_idx = (s_idx + 1 + tool_offset) if isinstance(s_idx, int) else None
+                res_step = step_by_idx.get(res_idx) if res_idx is not None else None
                 t_status, exit_code, err_snippet = "SUCCESS", 0, ""
                 res_content = str(res_step.get("content", "")) if isinstance(res_step, dict) else ""
+                step_err = res_step.get("error") if isinstance(res_step, dict) else None
                 started_at = completed_at = tool_duration = None
 
                 if res_content:
@@ -330,19 +347,25 @@ def extract_session(
                         started_at, completed_at = m_created.group(1).strip(), m_completed.group(1).strip()
                         tool_duration = calculate_duration(started_at, completed_at)
 
-                    m_exit = re.search(r"(?:failed with exit code:|exited with code)\s*(\d+)", res_content)
+                    m_exit = re.search(r"(?:failed with exit code:|exited with code)\s*(\d+)", res_content, re.IGNORECASE)
                     if m_exit:
                         exit_code = int(m_exit.group(1))
                         if exit_code != 0:
                             t_status, has_errors = "FAILED", True
                             tool_error_count += 1
                             err_snippet = res_content[:800]
-                    elif "Encountered error in tool execution:" in res_content or (isinstance(res_step, dict) and res_step.get("status") == "ERROR"):
+                    elif step_err or "Encountered error in tool execution:" in res_content or (isinstance(res_step, dict) and res_step.get("status") == "ERROR"):
                         t_status = "ERROR"
                         exit_code = -1
                         has_errors = True
                         tool_error_count += 1
-                        err_snippet = res_content[:800]
+                        err_snippet = (str(step_err) if step_err else res_content)[:800]
+                elif step_err or (isinstance(res_step, dict) and res_step.get("status") == "ERROR"):
+                    t_status = "ERROR"
+                    exit_code = -1
+                    has_errors = True
+                    tool_error_count += 1
+                    err_snippet = str(step_err or "ERROR")[:800]
 
                 if t_status in ("FAILED", "ERROR"):
                     recent_tool_failed, recent_tool_name, recent_error_snippet = True, t_name, err_snippet
@@ -354,7 +377,7 @@ def extract_session(
                     res_content and ("<truncated" in res_content or "content" in (res_step or {}).get("truncated_fields", ()))
                 ) else 0
                 tool_calls_extracted.append({
-                    "session_id": session_id, "step_index": s_idx, "result_step_index": s_idx + 1 if res_step else None,
+                    "session_id": session_id, "step_index": s_idx, "result_step_index": res_idx if res_step else None,
                     "tool_name": t_name, "arguments_json": args_json, "arguments_snippet": str(t_args)[:250],
                     "target_path": str(target_path) if target_path else None,
                     "command_line": str(cmd_line) if cmd_line else None,

@@ -709,9 +709,19 @@ def resolve_affected_tests(
 
 def is_non_interactive_context() -> bool:
     """Returns True if running in an agent, CI, or non-TTY context."""
-    for env_key in ("CI", "CONTINUOUS_INTEGRATION", "ANTIGRAVITY", "GEMINI_CLI", "AGYIS_AGENT", "PSL_AGENT"):
+    for env_key in (
+        "CI",
+        "CONTINUOUS_INTEGRATION",
+        "ANTIGRAVITY",
+        "ANTIGRAVITY_AGENT",
+        "GEMINI_CLI",
+        "AGYIS_AGENT",
+        "PSL_AGENT",
+    ):
         if os.environ.get(env_key, "").lower() in ("true", "1", "yes"):
             return True
+    if os.environ.get("ANTIGRAVITY_CONVERSATION_ID", "").strip():
+        return True
     if os.environ.get("DEBIAN_FRONTEND", "").lower() == "noninteractive":
         return True
     try:

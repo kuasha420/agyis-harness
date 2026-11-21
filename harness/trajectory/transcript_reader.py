@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -51,6 +52,17 @@ _EXCLUDED_CIDS = frozenset({
 })
 
 
+_ROLE_STOPWORDS = frozenset({
+    "a", "an", "the", "now", "here", "this", "that", "these", "those",
+    "it", "you", "we", "they", "one", "not", "only", "still", "already",
+    "currently", "about", "operating", "independent", "executing",
+    "working", "running", "waiting", "sleeping", "reading", "writing",
+    "done", "finished", "ready", "free", "asked", "assigned", "expected",
+    "supposed", "required", "allowed", "unable", "able", "responsible",
+    "limited", "going", "looking", "trying", "using", "making", "doing",
+})
+
+
 def extract_role_from_text(text: str) -> Optional[str]:
     """Extracts subagent or agent persona role identifier from prompt prose."""
     if not text or not isinstance(text, str):
@@ -66,7 +78,7 @@ def extract_role_from_text(text: str) -> Optional[str]:
     m = re.search(r"You are\s+(?:a\s+|an\s+|the\s+)?['`\"]?([A-Za-z0-9_:]+(?:-[A-Za-z0-9_:]+)*)['`\"]?", text)
     if m:
         cand = m.group(1).strip()
-        if cand.lower() not in ("a", "an", "the", "now", "here"):
+        if cand.lower() not in _ROLE_STOPWORDS and len(cand) >= 2:
             return cand
     return None
 
@@ -166,6 +178,7 @@ def is_transcript_completed(transcript_path: Path) -> bool:
     except OSError:
         return False
 
+    saw_generic_tail = False
     for raw_line in reversed(chunk.splitlines()):
         stripped = raw_line.strip()
         if not stripped:
@@ -184,8 +197,21 @@ def is_transcript_completed(transcript_path: Path) -> bool:
             if any(k in content_str for k in ("RESOURCE_EXHAUSTED", "stopped", "killed", "failed", "execution error")):
                 return True
             continue
+        if obj_type == "GENERIC":
+            saw_generic_tail = True
+            continue
         if obj_type == "PLANNER_RESPONSE":
-            return obj.get("status") == "DONE" and not (obj.get("tool_calls") or obj.get("toolCalls"))
+            tcs = obj.get("tool_calls") or obj.get("toolCalls") or []
+            tc_names = {
+                str(tc.get("name") or "")
+                for tc in (tcs if isinstance(tcs, list) else [])
+                if isinstance(tc, dict)
+            }
+            if tc_names & {"swarm_wait", "finish"}:
+                return True
+            if saw_generic_tail:
+                return False
+            return obj.get("status") == "DONE" and not tcs
         return False
     return False
 
@@ -225,6 +251,15 @@ def extract_spawned_subagents(steps: List[Dict[str, Any]], parent_cid: str = "")
                     arg_cid = str(t_args.get("conversationId") or t_args.get("conversation_id") or "").strip()
                     if arg_cid and arg_cid != parent_cid and "\\" not in arg_cid and arg_cid not in _EXCLUDED_CIDS:
                         children[arg_cid] = pending_role or children.get(arg_cid, "subagent")
+                elif t_name == "swarm" and isinstance(t_args, dict):
+                    raw_action = t_args.get("action")
+                    if isinstance(raw_action, str):
+                        raw_action = raw_action.strip().strip('"').strip("'")
+                    if raw_action == "add":
+                        raw_name = t_args.get("name") or "subagent"
+                        if isinstance(raw_name, str):
+                            raw_name = raw_name.strip().strip('"').strip("'")
+                        pending_role = str(raw_name or "subagent")
                 elif t_name == "send_message" and isinstance(t_args, dict):
                     recip = str(t_args.get("Recipient") or "").strip()
                     if (_UUID_RE.match(recip) or (len(recip) >= 6 and "\\" not in recip and "/" not in recip)) and recip != parent_cid and recip not in _EXCLUDED_CIDS:
@@ -240,14 +275,26 @@ def extract_spawned_subagents(steps: List[Dict[str, Any]], parent_cid: str = "")
                             pass
                     if isinstance(res, dict):
                         res_cid = str(res.get("conversationId") or res.get("conversation_id") or "").strip()
+                        res_name = str(res.get("name") or "").strip()
                         if res_cid and res_cid != parent_cid and "\\" not in res_cid and res_cid not in _EXCLUDED_CIDS:
-                            children[res_cid] = pending_role or children.get(res_cid, "subagent")
+                            children[res_cid] = res_name or pending_role or children.get(res_cid, "subagent")
                     res_str = json.dumps(res) if isinstance(res, dict) else str(res)
                     for cid in _CID_PAIR_RE.findall(res_str):
                         if cid != parent_cid and "\\" not in cid and cid not in _EXCLUDED_CIDS:
                             children[cid] = pending_role or children.get(cid, "subagent")
 
         content_str = str(step.get("content") or "")
+        if step.get("type") == "GENERIC" and content_str.lstrip().startswith("{"):
+            try:
+                g_obj = json.loads(content_str)
+                if isinstance(g_obj, dict):
+                    g_cid = str(g_obj.get("conversation_id") or g_obj.get("conversationId") or "").strip()
+                    g_name = str(g_obj.get("name") or "").strip()
+                    if g_cid and g_cid != parent_cid and "\\" not in g_cid and g_cid not in _EXCLUDED_CIDS:
+                        children[g_cid] = g_name or pending_role or children.get(g_cid, "subagent")
+                        pending_role = ""
+            except (json.JSONDecodeError, ValueError):
+                pass
         if "Created the following subagent" in content_str or (
             pending_role and ("conversationId" in content_str or "conversation_id" in content_str)
         ):
@@ -260,10 +307,95 @@ def extract_spawned_subagents(steps: List[Dict[str, Any]], parent_cid: str = "")
     return children
 
 
-def _load_meta_parent(
-    convo_dir: Path, cutoff: Optional[float] = None
+def _query_conversation_summaries_children(
+    app_data_dir: Path,
+    parent_cid: str,
+) -> Dict[str, Dict[str, Any]]:
+    """Queries conversation_summaries.db (?mode=ro) for swarm/subagent children of parent_cid."""
+    db_path = app_data_dir / "conversation_summaries.db"
+    if not db_path.is_file():
+        return {}
+    result: Dict[str, Dict[str, Any]] = {}
+    conn: Optional[sqlite3.Connection] = None
+    try:
+        conn = sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True, timeout=0.5)
+        conn.execute("PRAGMA query_only = ON")
+        rows = conn.execute(
+            "SELECT conversation_id, agent_name, nesting_depth, not_fully_idle, killed "
+            "FROM conversation_summaries WHERE parent_conversation_id = ?",
+            (parent_cid,),
+        ).fetchall()
+        for cid, agent_name, depth, not_fully_idle, killed in rows:
+            if cid:
+                result[str(cid).strip()] = {
+                    "agent_name": str(agent_name or "").strip(),
+                    "nesting_depth": int(depth or 0),
+                    "not_fully_idle": bool(not_fully_idle),
+                    "killed": bool(killed),
+                }
+    except (sqlite3.Error, OSError):
+        return {}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+    return result
+
+
+def _query_conversation_summary_parent(
+    app_data_dir: Path,
+    cid: str,
 ) -> Tuple[Optional[str], Optional[str]]:
-    """Reads optional (parent_id, role) from recent session metadata or transcript header line."""
+    """Queries conversation_summaries.db (?mode=ro) for (parent_conversation_id, agent_name) of cid."""
+    db_path = app_data_dir / "conversation_summaries.db"
+    if not db_path.is_file() or not cid:
+        return None, None
+    conn: Optional[sqlite3.Connection] = None
+    try:
+        conn = sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True, timeout=0.5)
+        conn.execute("PRAGMA query_only = ON")
+        row = conn.execute(
+            "SELECT parent_conversation_id, agent_name FROM conversation_summaries WHERE conversation_id = ?",
+            (cid,),
+        ).fetchone()
+        if row and row[0]:
+            pid = str(row[0]).strip()
+            role = str(row[1] or "").strip() or None
+            return pid, role
+    except (sqlite3.Error, OSError):
+        return None, None
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+    return None, None
+
+
+def _load_swarm_plan_tasks(parent_dir: Path) -> Dict[str, str]:
+    """Reads .system_generated/swarm/plan.json tasks mapping {agent_name: task_desc}."""
+    plan_path = parent_dir / ".system_generated" / "swarm" / "plan.json"
+    if not plan_path.is_file():
+        return {}
+    try:
+        data = json.loads(plan_path.read_text(encoding="utf-8", errors="replace"))
+        if isinstance(data, dict) and isinstance(data.get("tasks"), dict):
+            return {str(k): str(v) for k, v in data["tasks"].items() if k}
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+    return {}
+
+
+def _load_meta_parent(
+    convo_dir: Path,
+    cutoff: Optional[float] = None,
+    *,
+    check_summaries_db: bool = True,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Reads optional (parent_id, role) from session metadata, transcript header, or conversation_summaries.db."""
     for name in ("meta.json", "metadata.json", "session_meta.json", ".metadata"):
         mp = convo_dir / name
         if not mp.is_file():
@@ -306,6 +438,8 @@ def _load_meta_parent(
                         return str(pid).strip(), extract_role_from_text(str(obj.get("content") or ""))
         except (OSError, json.JSONDecodeError, ValueError):
             pass
+    if check_summaries_db:
+        return _query_conversation_summary_parent(convo_dir.parent.parent, convo_dir.name)
     return None, None
 
 
@@ -324,7 +458,12 @@ def build_measured_breakdown(
         stype = str(s.get("type") or "").upper()
         content = str(s.get("content") or "")
         thinking = str(s.get("thinking") or "")
-        explicit_step_tok = int(s.get("tokens") or 0)
+        explicit_step_tok = int(
+            s.get("tokens")
+            or s.get("token_count")
+            or (int(s.get("input_tokens") or 0) + int(s.get("cache_read_tokens") or 0))
+            or 0
+        )
 
         if thinking:
             t_tok = estimate_tokens(thinking)
@@ -392,6 +531,16 @@ def discover_active_subagents(
         p_steps, _, _ = load_transcript_steps(parent_t_path)
         spawned_map = extract_spawned_subagents(p_steps, parent_cid=norm_parent)
 
+    summary_children = _query_conversation_summaries_children(b_dir.parent, norm_parent)
+    swarm_plan_tasks = _load_swarm_plan_tasks(b_dir / norm_parent)
+    for sc_id, sc_info in summary_children.items():
+        if not include_completed and sc_info.get("killed"):
+            continue
+        if sc_info.get("agent_name"):
+            spawned_map.setdefault(sc_id, sc_info["agent_name"])
+        else:
+            spawned_map.setdefault(sc_id, "subagent")
+
     cutoff = time.time() - (max_age_hours * 3600.0)
     statuses: List[SubagentContextStatus] = []
 
@@ -400,13 +549,21 @@ def discover_active_subagents(
         for entry in b_dir.iterdir():
             if not entry.is_dir() or entry.name == norm_parent:
                 continue
-            meta_pid, _ = _load_meta_parent(entry, cutoff=cutoff)
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    continue
+            except OSError:
+                continue
+            meta_pid, _ = _load_meta_parent(entry, cutoff=cutoff, check_summaries_db=False)
             if meta_pid == norm_parent:
                 candidate_ids.add(entry.name)
     except OSError:
         pass
 
     for cid in sorted(candidate_ids):
+        sc_meta = summary_children.get(cid)
+        if not include_completed and sc_meta and sc_meta.get("killed"):
+            continue
         t0 = time.perf_counter()
         t_path, resolved_cid = find_transcript_path(cid, brain_dir=b_dir)
         convo_dir = b_dir / resolved_cid
@@ -429,10 +586,16 @@ def discover_active_subagents(
         if meta_pid and meta_pid != norm_parent:
             continue
         role = spawned_map.get(resolved_cid) or meta_role or "subagent"
+        if role == "subagent" and sc_meta and sc_meta.get("agent_name"):
+            role = sc_meta["agent_name"]
         if role == "subagent" and steps:
-            detected_role = extract_role_from_text(str(steps[0].get("content") or ""))
-            if detected_role:
-                role = detected_role
+            first_type = str(steps[0].get("type") or "").upper()
+            if first_type in ("USER_INPUT", "SYSTEM_MESSAGE", "PLANNER_RESPONSE", ""):
+                detected_role = extract_role_from_text(str(steps[0].get("content") or ""))
+                if detected_role:
+                    role = detected_role
+        if role in swarm_plan_tasks and sc_meta and sc_meta.get("agent_name"):
+            role = sc_meta["agent_name"]
 
         # Active-epoch token/step count: DB authoritative first, else transcript active-epoch text
         cp_indices = [i for i, s in enumerate(steps) if is_transcript_checkpoint_step(s)]
@@ -445,7 +608,13 @@ def discover_active_subagents(
             is_prov = db_metrics.is_provisional
         else:
             token_count = sum(
-                int(s.get("tokens") or 0) or (estimate_tokens(str(s.get("content") or "")) + estimate_tokens(str(s.get("thinking") or "")))
+                int(
+                    s.get("tokens")
+                    or s.get("token_count")
+                    or (int(s.get("input_tokens") or 0) + int(s.get("cache_read_tokens") or 0))
+                    or 0
+                )
+                or (estimate_tokens(str(s.get("content") or "")) + estimate_tokens(str(s.get("thinking") or "")))
                 for s in active_slice
             )
             is_prov = token_count > 0

@@ -39,21 +39,33 @@ from harness.utils.tokens import estimate_tokens
 
 
 def find_latest_session_dir() -> Optional[Path]:
-    brain_root = Path.home() / ".gemini" / "antigravity" / "brain"
-    pattern = str(brain_root / "*" / ".system_generated" / "logs" / "transcript.jsonl")
-    matches = sorted(glob.glob(pattern), key=lambda p: os.path.getmtime(p), reverse=True)
+    from harness.utils.context import get_active_brain_dir
+
+    roots = [get_active_brain_dir()]
+    cli_brain = Path.home() / ".gemini" / "antigravity-cli" / "brain"
+    if cli_brain.is_dir() and cli_brain not in roots:
+        roots.append(cli_brain)
+    matches: List[str] = []
+    for brain_root in roots:
+        for fname in ("transcript_full.jsonl", "transcript.jsonl"):
+            matches.extend(glob.glob(str(brain_root / "*" / ".system_generated" / "logs" / fname)))
+    matches = sorted(matches, key=lambda p: os.path.getmtime(p), reverse=True)
     if not matches:
         return None
-    # Return the session directory (e.g. brain/<session_id>)
     return Path(matches[0]).parents[2]
 
 
 def find_session_dir(session_id: str) -> Optional[Path]:
-    """Locates the directory for a specific session ID under ~/.gemini/antigravity/brain."""
-    brain_root = Path.home() / ".gemini" / "antigravity" / "brain"
-    target = brain_root / session_id
-    if target.is_dir():
-        return target
+    """Locates the directory for a specific session ID under active brain dir or ~/.gemini/antigravity-cli/brain."""
+    from harness.utils.context import get_active_brain_dir
+
+    for brain_root in (
+        get_active_brain_dir(),
+        Path.home() / ".gemini" / "antigravity-cli" / "brain",
+    ):
+        target = brain_root / session_id
+        if target.is_dir():
+            return target
     return None
 
 
@@ -74,14 +86,16 @@ def parse_transcript_lines(transcript_path: Path) -> List[Dict[str, Any]]:
 
 def discover_child_subagents(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     subagents: List[Dict[str, Any]] = []
+    seen_cids: set[str] = set()
     pending_prompt = ""
     pending_role = ""
     pending_type = ""
 
     for s in steps:
-        # Check tool calls for invoke_subagent
+        # Check tool calls for invoke_subagent or swarm{action:"add"}
         for tc in s.get("tool_calls", []):
-            if tc.get("name") == "invoke_subagent":
+            tc_name = tc.get("name")
+            if tc_name == "invoke_subagent":
                 args = tc.get("args", {})
                 subs = args.get("Subagents", [])
                 if isinstance(subs, str):
@@ -100,24 +114,57 @@ def discover_child_subagents(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]
                         pending_role = sub0.get("Role", "")
                         pending_type = sub0.get("TypeName", "")
                         pending_prompt = sub0.get("Prompt", "")
+            elif tc_name == "swarm":
+                args = tc.get("args", {})
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except Exception:
+                        args = {}
+                if isinstance(args, dict):
+                    act = str(args.get("action") or "").strip().strip('"').strip("'")
+                    if act == "add":
+                        pending_role = str(args.get("name") or "subagent").strip().strip('"').strip("'")
+                        pending_type = "swarm"
+                        pending_prompt = str(args.get("brief") or "").strip()
 
-        # Check tool responses for conversationId
-        content = s.get("content", "")
+        # Check tool responses for conversationId / conversation_id
+        content = str(s.get("content", "") or "")
         if s.get("type") == "GENERIC" and "Created the following subagents" in content:
-            # Parse conversationId
             match = re.search(r'"conversationId":\s*"([a-f0-9\-]+)"', content)
             if match:
                 conv_id = match.group(1)
-                subagents.append({
-                    "conversation_id": conv_id,
-                    "role": pending_role or "Subagent",
-                    "type": pending_type,
-                    "prompt_snippet": pending_prompt[:120].strip() if pending_prompt else "",
-                    "created_at": s.get("created_at")
-                })
+                if conv_id not in seen_cids:
+                    seen_cids.add(conv_id)
+                    subagents.append({
+                        "conversation_id": conv_id,
+                        "role": pending_role or "Subagent",
+                        "type": pending_type,
+                        "prompt_snippet": pending_prompt[:120].strip() if pending_prompt else "",
+                        "created_at": s.get("created_at")
+                    })
                 pending_role = ""
                 pending_type = ""
                 pending_prompt = ""
+        elif s.get("type") == "GENERIC" and content.lstrip().startswith("{"):
+            try:
+                g_obj = json.loads(content)
+                if isinstance(g_obj, dict) and g_obj.get("status") == "added":
+                    conv_id = str(g_obj.get("conversation_id") or g_obj.get("conversationId") or "").strip()
+                    if conv_id and conv_id not in seen_cids:
+                        seen_cids.add(conv_id)
+                        subagents.append({
+                            "conversation_id": conv_id,
+                            "role": str(g_obj.get("name") or pending_role or "Subagent").strip(),
+                            "type": pending_type or "swarm",
+                            "prompt_snippet": pending_prompt[:120].strip() if pending_prompt else "",
+                            "created_at": s.get("created_at"),
+                        })
+                        pending_role = ""
+                        pending_type = ""
+                        pending_prompt = ""
+            except Exception:
+                pass
 
     return subagents
 

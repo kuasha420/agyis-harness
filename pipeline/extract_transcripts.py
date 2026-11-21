@@ -200,8 +200,12 @@ def main(argv: Optional[List[str]] = None) -> None:
         backfill_tool_volumes(db_path, verbose=True)
         return
 
-    pattern = str(Path.home() / ".gemini" / "antigravity" / "brain" / "*" / ".system_generated" / "logs" / "transcript.jsonl")
-    transcript_paths = sorted(glob.glob(pattern), key=lambda p: os.path.getmtime(p), reverse=True)
+    from harness.telemetry.db import iter_brain_transcripts
+
+    transcript_paths = [
+        str(p)
+        for _, p, _, _ in sorted(iter_brain_transcripts(), key=lambda item: item[2], reverse=True)
+    ]
 
     if args.limit:
         transcript_paths = transcript_paths[:args.limit]

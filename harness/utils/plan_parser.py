@@ -27,8 +27,11 @@ SPECIAL_FILENAMES: frozenset[str] = frozenset({
 })
 
 EXCLUDED_WORDS: frozenset[str] = frozenset({
-    # Common tools & actions
+    # Common tools & actions (legacy + v2.34.0 canonical)
     "write_to_file", "replace_file_content", "edit_file", "view_file", "grep_search",
+    "read_file", "write_file", "swarm", "post_message", "read_board", "swarm_wait",
+    "run_workflow", "search_marketplace", "list_plugin_accounts", "finish",
+    "ask_question", "search_web", "read_resource", "list_resources",
     "run_command", "manage_task", "send_message", "schedule", "read_url_content",
     "read_browser_page", "pretooluse", "posttooluse", "preinvocation", "postinvocation",
     "stop", "allow", "deny", "ask", "force_ask",
@@ -211,6 +214,12 @@ def find_active_plan(
         return mname.endswith(".md") or mname == "plan.json" or mname.endswith(".plan.json")
 
     # Tier 2 (Active Brain Directory)
+    from harness.utils.context import (
+        detect_presence_conversation_id,
+        get_active_brain_dir,
+        get_active_conversation_id,
+    )
+
     tier2_candidates: list[Path] = []
     tier2_seen: set[Path] = set()
 
@@ -218,19 +227,25 @@ def find_active_plan(
     if brain_dir:
         brain_roots.append(Path(brain_dir))
     env_brain = os.environ.get("ANTIGRAVITY_BRAIN_DIR")
-    if env_brain:
-        brain_roots.append(Path(env_brain))
+    if env_brain and env_brain.strip():
+        brain_roots.append(Path(env_brain.strip()))
 
     cids: list[str] = []
-    if conv_id:
-        cids.append(str(conv_id))
-    for env_k in ("AGYIS_CONVERSATION_ID", "GEMINI_CONVERSATION_ID"):
+    primary_cid = get_active_conversation_id(conv_id)
+    if primary_cid:
+        cids.append(primary_cid)
+    for env_k in ("ANTIGRAVITY_CONVERSATION_ID", "AGYIS_CONVERSATION_ID", "GEMINI_CONVERSATION_ID"):
         val = os.environ.get(env_k)
-        if val and val not in cids:
-            cids.append(val)
+        if val and val.strip() and val.strip() not in cids:
+            cids.append(val.strip())
+    if not cids and not brain_dir:
+        presence_cid = detect_presence_conversation_id()
+        if presence_cid:
+            cids.append(presence_cid)
 
+    active_brain_base = get_active_brain_dir()
     for cid in cids:
-        brain_roots.append(Path.home() / ".gemini" / "antigravity" / "brain" / cid)
+        brain_roots.append(active_brain_base / cid)
 
     for b_root in brain_roots:
         if not b_root.is_dir():

@@ -188,7 +188,16 @@ def infer_model_context_window(model_name: Optional[str]) -> int:
     lower = model_name.lower()
     if "1m" in lower or "1000k" in lower or "1048576" in lower:
         return 1_000_000
-    if "512k" in lower:
+    if "512k" in lower or any(
+        tag in lower
+        for tag in (
+            "gemini-4-hydrogen",
+            "gemini-4-neon",
+            "gemini-3.8-flash-s",
+            "gemini-3.8-flash-h",
+            "gemini 3.8 flash (high)",
+        )
+    ):
         return 512_000
     if "200k" in lower:
         return 200_000

@@ -133,8 +133,8 @@ def extract_execution_result(step_payload_bytes: bytes) -> Tuple[int, str]:
                 ssubfields = {fn: val for fn, wt, val in parse_protobuf_fields(subfields[2])}
                 if 1 in ssubfields and isinstance(ssubfields[1], bytes):
                     raw_text = ssubfields[1].decode("utf-8", errors="replace")
-                    # Extract: "The command exited with code <N>."
-                    match = re.search(r"The command exited with code (\d+)", raw_text)
+                    # Extract: "The command exited with code <N>." or "Command exited with code <N>"
+                    match = re.search(r"(?:The\s+)?[Cc]ommand exited with code (\d+)", raw_text)
                     exit_code = int(match.group(1)) if match else 0
                     return exit_code, raw_text
 
@@ -168,7 +168,8 @@ def extract_conversation_db(
         return None
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True, timeout=0.5)
+        conn.execute("PRAGMA query_only = ON")
         cur = conn.cursor()
 
         # Check required tables
@@ -203,18 +204,20 @@ def extract_conversation_db(
                         meta_start_time = parse_proto_timestamp(val)
                     elif fn == 18 and wt == 2:
                         try:
-                            workspace_detected = val.decode("utf-8", errors="replace")
+                            cand_ws = val.decode("utf-8", errors="replace")
+                            if "/" in cand_ws or cand_ws.startswith("file://"):
+                                workspace_detected = cand_ws
                         except Exception:
                             pass
 
         # 3. Model detection from executor_metadata or steps
         model_detected = "Gemini 3.5/Flash/Pro (Default)"
         if "executor_metadata" in tables:
-            cur.execute("SELECT data FROM executor_metadata WHERE data IS NOT NULL")
+            cur.execute("SELECT data FROM executor_metadata WHERE data IS NOT NULL ORDER BY rowid DESC")
             for (ex_data,) in cur.fetchall():
                 if isinstance(ex_data, bytes):
                     ex_str = ex_data.decode("latin1", errors="replace")
-                    m = re.search(r"(gemini-[a-zA-Z0-9.\-_]+|gpt-[a-zA-Z0-9.\-_]+)", ex_str, re.IGNORECASE)
+                    m = re.search(r"(gemini-[a-zA-Z0-9.\-_]+|gpt-[a-zA-Z0-9.\-_]+|claude-[a-zA-Z0-9.\-_]+)", ex_str, re.IGNORECASE)
                     if m:
                         model_detected = m.group(1).strip()
                         break
@@ -355,12 +358,24 @@ def extract_conversation_db(
         elif status_val == 3:
             s_status = "DONE"
 
-        if step_type == 14 or (content_text and not tool_name and s_status != "ERROR" and idx == 0):
+        if step_type == 14:
             s_type = "USER_INPUT"
             source = "USER"
         elif step_type == 15:
             s_type = "AGENT_OUTPUT"
             source = "MODEL"
+        elif step_type == 23:
+            s_type = "CHECKPOINT"
+            source = "SYSTEM"
+        elif step_type == 90:
+            s_type = "EPHEMERAL_MESSAGE"
+            source = "SYSTEM"
+        elif step_type == 101:
+            s_type = "SYSTEM_MESSAGE"
+            source = "SYSTEM"
+        elif step_type == 17:
+            s_type = "TASK_BOUNDARY"
+            source = "SYSTEM"
         elif tool_name or step_type in (5, 8, 9, 21, 132):
             s_type = f"TOOL_CALL:{tool_name}" if tool_name else "TOOL_CALL"
             source = "TOOL"
@@ -407,8 +422,11 @@ def extract_conversation_db(
         # Process tool calls
         if tool_name:
             target_path = (
-                tool_args.get("TargetFile")
+                tool_args.get("Path")
+                or tool_args.get("TargetFile")
                 or tool_args.get("AbsolutePath")
+                or tool_args.get("FilePath")
+                or tool_args.get("Target")
                 or tool_args.get("SearchPath")
                 or tool_args.get("DirectoryPath")
             )
@@ -663,11 +681,13 @@ def harvest_all_conversations(conv_dir: Path, target_db: Path) -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> None:
+    from harness.trajectory.sqlite_reader import get_conversations_dir
+
     parser = argparse.ArgumentParser(description="Harvest Antigravity SQLite conversation DBs into telemetry.db.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite telemetry database")
     parser.add_argument(
         "--conv-dir",
-        default=str(Path.home() / ".gemini" / "antigravity" / "conversations"),
+        default=str(get_conversations_dir()),
         help="Path to conversations directory containing .db files",
     )
     args = parser.parse_args(argv)

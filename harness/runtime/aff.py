@@ -126,7 +126,6 @@ DEFAULT_BOUNDARY_RULES: List[BoundaryRule] = [
         remediation="Decouple product runtime from development pipeline scripts and test suites.",
         exemptions=[
             "harness/commands/audit.py",
-            "harness/commands/sync.py",
         ],
     ),
     BoundaryRule(
