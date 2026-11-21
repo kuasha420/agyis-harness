@@ -29,6 +29,7 @@ from harness.cli import main
 from harness.skills import parse_frontmatter
 from harness.subagents import (
     ANTIGRAVITY_PLATFORM_TOOLS,
+    CANONICAL_PLATFORM_TOOLS,
     CAPABILITY_BUNDLES,
     REPO_ROOT,
     AgentArchetype,
@@ -79,16 +80,16 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         self.assertTrue(read_only.issubset(orchestrator))
         self.assertTrue(builder.issubset(full))
         self.assertTrue(orchestrator.issubset(full))
-        self.assertEqual(full, ANTIGRAVITY_PLATFORM_TOOLS)
+        self.assertEqual(full, CANONICAL_PLATFORM_TOOLS)
 
         self.assertIn("run_command", verifier)
-        self.assertIn("write_to_file", builder)
-        self.assertIn("replace_file_content", builder)
+        self.assertIn("write_file", builder)
+        self.assertIn("edit_file", builder)
         self.assertIn("invoke_subagent", orchestrator)
-        self.assertNotIn("write_to_file", orchestrator)
-        self.assertIn("write_to_file", full)
+        self.assertNotIn("write_file", orchestrator)
+        self.assertIn("write_file", full)
         self.assertIn("invoke_subagent", full)
-        self.assertEqual(len(full), len(ANTIGRAVITY_PLATFORM_TOOLS))
+        self.assertEqual(len(full), len(CANONICAL_PLATFORM_TOOLS))
 
     def test_inspect_workspace_context_repo_root(self) -> None:
         """inspect_workspace_context successfully parses current repo project files."""
@@ -199,10 +200,10 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         self.assertTrue(perms["mcp"])
         self.assertTrue(perms.get("enable_write_tools"))
 
-        # All 20 platform tools in tools & allowed_tools
-        self.assertEqual(len(fm["tools"]), len(ANTIGRAVITY_PLATFORM_TOOLS))
-        self.assertEqual(set(fm["tools"]), ANTIGRAVITY_PLATFORM_TOOLS)
-        self.assertEqual(set(fm["allowed_tools"]), ANTIGRAVITY_PLATFORM_TOOLS)
+        # All 24 canonical platform tools in tools & allowed_tools
+        self.assertEqual(len(fm["tools"]), len(CANONICAL_PLATFORM_TOOLS))
+        self.assertEqual(set(fm["tools"]), CANONICAL_PLATFORM_TOOLS)
+        self.assertEqual(set(fm["allowed_tools"]), CANONICAL_PLATFORM_TOOLS)
 
         # Invariants in prompt
         self.assertIn("The 5 Ground Rules", prompt)
@@ -216,8 +217,7 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         self.assertIn("ADR-015", prompt)
         self.assertIn("@<subagent>", prompt)
         self.assertIn("Zero-Exploration Invariant", prompt)
-        self.assertIn("list_dir", prompt)
-        self.assertIn("find_by_name", prompt)
+        self.assertIn("read_file", prompt)
 
         # Validate with validate_agent_spec
         spec_path = self.workspace / "test_psl_lead.md"
@@ -233,7 +233,10 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
         self.assertTrue(fm["permissions"]["write"])
         self.assertTrue(fm["permissions"]["subagents"])
         for expected_tool in [
-            "write_to_file",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "run_command",
             "ask_question",
             "invoke_subagent",
             "send_message",

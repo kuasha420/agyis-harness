@@ -213,18 +213,20 @@ def scaffold_agent_markdown(
             resolved_bundle = "investigator"
         elif arch == AgentArchetype.PLANNER:
             tools = [
-                "view_file",
-                "list_dir",
-                "grep_search",
-                "find_by_name",
-                "read_url_content",
+                "read_file",
+                "write_file",
+                "edit_file",
+                "run_command",
                 "search_web",
                 "manage_task",
-                "write_to_file",
                 "ask_question",
                 "invoke_subagent",
                 "send_message",
                 "manage_subagents",
+                "read_board",
+                "post_message",
+                "enter_plan_mode",
+                "exit_plan_mode",
             ]
         else:
             resolved_bundle = "read_only"
@@ -296,9 +298,9 @@ def scaffold_agent_markdown(
                 enable_write_tools=True,
             )
         else:
-            can_w = any(t in tools for t in ("write_to_file", "replace_file_content", "edit_file"))
+            can_w = any(t in tools for t in ("write_file", "edit_file", "write_to_file", "replace_file_content"))
             can_e = any(t in tools for t in ("run_command",))
-            can_s = any(t in tools for t in ("invoke_subagent", "manage_subagents", "define_subagent")) or arch == AgentArchetype.COORDINATOR
+            can_s = any(t in tools for t in ("invoke_subagent", "manage_subagents", "define_subagent", "swarm", "run_workflow")) or arch == AgentArchetype.COORDINATOR
             can_m = arch in (AgentArchetype.PLANNER, AgentArchetype.MAIN, AgentArchetype.INVESTIGATOR) or bool(skills)
             enable_w = can_w
             perms = ToolPermissions(
@@ -324,6 +326,7 @@ def scaffold_agent_markdown(
         f"subagent: {'true' if subagent else 'false'}",
         f"mainAgent: {'true' if main_agent else 'false'}",
         f"inheritCustomizations: {'true' if inherit_customizations else 'false'}",
+        f"inheritMcp: {'true' if perms.can_mcp else 'false'}",
         f"model: {model}",
         "permissions:",
         f"  read: {'true' if perms.read else 'false'}",
@@ -339,6 +342,10 @@ def scaffold_agent_markdown(
         fm_lines.append(f"  mcp: {'true' if perms.can_mcp else 'false'}")
     if perms.enable_write_tools:
         fm_lines.append("  enable_write_tools: true")
+    if perms.allowed_mcp_servers:
+        fm_lines.append("mcpServers:")
+        for s in perms.allowed_mcp_servers:
+            fm_lines.append(f"  - {s}")
 
     if skills:
         fm_lines.append("skills:")
@@ -406,7 +413,7 @@ def scaffold_agent_markdown(
     elif arch == AgentArchetype.CUSTODIAN:
         body_lines.extend([
             "1. **Macro Review & Deduplication Mandate (The 4-Pillar Architectural & Git Commit Gate)**:",
-            "   - **Pillar 4.1 (DRY & Deduplication Audit)**: Search repository (`grep_search`, `find_by_name`) to verify newly introduced helpers, utilities, constants, and test mocks do NOT duplicate existing logic. Reject with DRY defect report if duplicates found.",
+            "   - **Pillar 4.1 (DRY & Deduplication Audit)**: Search repository (`run_command` with `rg`/`grep`) to verify newly introduced helpers, utilities, constants, and test mocks do NOT duplicate existing logic. Reject with DRY defect report if duplicates found.",
             "   - **Pillar 4.2 (Architectural Fitness Gate)**: Execute `agyis audit aff` (zero boundary breaches, zero cycles, zero foreign language monoliths, zero unbounded state caches). Reject commit gate if any architectural smell or boundary breach is detected.",
             "   - **Pillar 4.3 (Packaging & Asset Decoupling Audit)**: Verify non-native assets (HTML, CSS, SQL, client JS scripts, templates) are decoupled into dedicated `assets/` directories and declared in manifests, rather than inlined as foreign code strings.",
             "   - **Pillar 4.4 (Git Porcelain & Atomic Staging Gate)**: Verify clean porcelain tree status (`git status --porcelain`), stage strictly intended deliverables (never blind `git add .` or `git add -A`), and seal an atomic conventional commit on HEAD so Stage 5 Auditor audits an immutable revision.",
@@ -459,14 +466,14 @@ def scaffold_agent_markdown(
             "   - Python: Hermetic CPython 3.12, no bare except, clean tempfile state.",
             "   - Shell: `set -euo pipefail`, ADR-013 pattern probing exit exception (`|| [ $? -eq 1 ]`).",
             "8. **Zero-Exploration Invariant**:",
-            "   - Prohibit blind `list_dir` / `find_by_name` sweeps across the repository. Open target files directly from instructions, or communicate back and halt immediately.",
+            "   - Prohibit blind filesystem sweeps across the repository. Open target files directly from instructions (`read_file`), or communicate back and halt immediately.",
         ])
     else:
         # Toolgroup restrictions
         body_lines.append("3. **Toolgroup Restrictions**:")
         body_lines.append(f"   - Allowed tools: {', '.join(tools)}.")
         if not perms.write:
-            body_lines.append("   - File modifications (`write_to_file`, `replace_file_content`, `edit_file`) are strictly disabled.")
+            body_lines.append("   - File modifications (`write_file`, `edit_file`) are strictly disabled.")
         if not perms.execute:
             body_lines.append("   - Command executions (`run_command`) are strictly disabled.")
         if not perms.subagent:
@@ -480,10 +487,10 @@ def scaffold_agent_markdown(
         if arch == AgentArchetype.CUSTODIAN:
             body_lines.append("5. **Targeted Macro & Deduplication Sweep Invariant**:")
             body_lines.append("   - Blind wandering without a query or hypothesis remains strictly prohibited.")
-            body_lines.append("   - Targeted repository sweeps (`grep_search`, `find_by_name`, `list_dir`) for symbol discovery, code deduplication audits, and macro consistency are explicitly mandated and prescribed.")
+            body_lines.append("   - Targeted repository sweeps (`run_command` with `rg`/`git`) for symbol discovery, code deduplication audits, and macro consistency are explicitly mandated and prescribed.")
         else:
             body_lines.append("5. **Zero-Exploration Invariant**:")
-            body_lines.append("   - Prohibit blind `list_dir` / `find_by_name` sweeps across the repository. Open target files directly from instructions, or communicate back and halt immediately.")
+            body_lines.append("   - Prohibit blind filesystem sweeps across the repository. Open target files directly from instructions (`read_file`), or communicate back and halt immediately.")
 
         if arch == AgentArchetype.INVESTIGATOR:
             body_lines.append("6. **Tool-Native Reverse Engineering Invariant (PSL-INV-004 §3)**:")

@@ -82,13 +82,10 @@ class AgentArchetype(str, Enum):
         raise ValueError(f"Unknown AgentArchetype: {val}")
 
 
-ANTIGRAVITY_PLATFORM_TOOLS: frozenset[str] = frozenset({
-    "view_file",
-    "list_dir",
-    "grep_search",
-    "find_by_name",
-    "write_to_file",
-    "replace_file_content",
+CANONICAL_PLATFORM_TOOLS: frozenset[str] = frozenset({
+    "read_file",
+    "write_file",
+    "edit_file",
     "run_command",
     "manage_task",
     "invoke_subagent",
@@ -97,103 +94,97 @@ ANTIGRAVITY_PLATFORM_TOOLS: frozenset[str] = frozenset({
     "define_subagent",
     "schedule",
     "generate_image",
-    "read_url_content",
     "search_web",
     "ask_question",
+    "finish",
+    "swarm",
+    "post_message",
+    "read_board",
+    "swarm_wait",
+    "run_workflow",
+    "search_marketplace",
+    "list_plugin_accounts",
+    "enter_plan_mode",
+    "exit_plan_mode",
+    "list_permissions",
 })
+
+LEGACY_PLATFORM_TOOL_ALIASES: Dict[str, str] = {
+    "view_file": "read_file",
+    "write_to_file": "write_file",
+    "replace_file_content": "edit_file",
+    "list_dir": "run_command",
+    "grep_search": "run_command",
+    "find_by_name": "run_command",
+    "read_url_content": "search_web",
+}
+
+ANTIGRAVITY_PLATFORM_TOOLS: frozenset[str] = CANONICAL_PLATFORM_TOOLS | frozenset(
+    LEGACY_PLATFORM_TOOL_ALIASES.keys()
+)
 
 CAPABILITY_BUNDLES: Dict[str, List[str]] = {
     "read_only": [
-        "view_file",
-        "list_dir",
-        "grep_search",
-        "find_by_name",
-        "read_url_content",
+        "read_file",
         "search_web",
         "send_message",
+        "read_board",
     ],
     "verifier": [
-        "view_file",
-        "list_dir",
-        "grep_search",
-        "find_by_name",
-        "read_url_content",
+        "read_file",
         "search_web",
+        "send_message",
+        "read_board",
         "run_command",
         "manage_task",
-        "send_message",
     ],
     "adversarial_verifier": [
-        "view_file",
-        "list_dir",
-        "grep_search",
-        "find_by_name",
-        "read_url_content",
+        "read_file",
         "search_web",
+        "send_message",
+        "read_board",
         "run_command",
         "manage_task",
-        "write_to_file",
-        "replace_file_content",
-        "send_message",
+        "write_file",
+        "edit_file",
     ],
     "builder": [
-        "view_file",
-        "list_dir",
-        "grep_search",
-        "find_by_name",
-        "read_url_content",
+        "read_file",
         "search_web",
+        "send_message",
+        "read_board",
         "run_command",
         "manage_task",
-        "write_to_file",
-        "replace_file_content",
-        "send_message",
+        "write_file",
+        "edit_file",
     ],
     "investigator": [
-        "view_file",
-        "list_dir",
-        "grep_search",
-        "find_by_name",
-        "read_url_content",
+        "read_file",
         "search_web",
+        "send_message",
+        "read_board",
         "run_command",
         "manage_task",
-        "write_to_file",
-        "replace_file_content",
-        "send_message",
+        "write_file",
+        "edit_file",
     ],
     "orchestrator": [
-        "view_file",
-        "list_dir",
-        "grep_search",
-        "find_by_name",
-        "read_url_content",
+        "read_file",
         "search_web",
-        "invoke_subagent",
         "send_message",
-        "manage_subagents",
-        "manage_task",
-        "ask_question",
-    ],
-    "full": [
-        "view_file",
-        "list_dir",
-        "grep_search",
-        "find_by_name",
-        "write_to_file",
-        "replace_file_content",
+        "read_board",
         "run_command",
-        "manage_task",
         "invoke_subagent",
-        "send_message",
         "manage_subagents",
-        "define_subagent",
-        "schedule",
-        "generate_image",
-        "read_url_content",
-        "search_web",
+        "manage_task",
         "ask_question",
+        "swarm",
+        "post_message",
+        "swarm_wait",
+        "run_workflow",
+        "schedule",
     ],
+    "full": sorted(CANONICAL_PLATFORM_TOOLS),
 }
 
 
@@ -277,6 +268,8 @@ class AgentSpec:
     subagent: bool = True
     main_agent: bool = True
     inherit_customizations: bool = True
+    inherit_mcp: bool = False
+    mcp_servers: Tuple[str, ...] = ()
     model: str = "inherit"
     source_file: Optional[Path] = None
 
@@ -351,6 +344,34 @@ def load_agent_spec(file_path: Path) -> AgentSpec:
         inherit_customizations = True
     else:
         inherit_customizations = bool(raw_inherit)
+    raw_inherit_mcp = fm.get("inheritMcp", fm.get("inherit_mcp"))
+    if isinstance(raw_inherit_mcp, str):
+        inherit_mcp = raw_inherit_mcp.strip().lower() in ("true", "1", "yes")
+    elif raw_inherit_mcp is not None:
+        inherit_mcp = bool(raw_inherit_mcp)
+    else:
+        inherit_mcp = bool(permissions.can_mcp)
+
+    raw_top_servers = fm.get("mcpServers", fm.get("mcp_servers"))
+    top_servers: Tuple[str, ...] = ()
+    if isinstance(raw_top_servers, (list, tuple)):
+        top_servers = tuple(str(s).strip() for s in raw_top_servers if str(s).strip())
+    elif isinstance(raw_top_servers, str):
+        top_servers = tuple(s.strip() for s in raw_top_servers.split(",") if s.strip())
+    if not top_servers:
+        top_servers = permissions.allowed_mcp_servers
+
+    if (inherit_mcp or top_servers) and not permissions.can_mcp:
+        permissions = ToolPermissions(
+            read=permissions.read,
+            write=permissions.write,
+            execute=permissions.execute,
+            subagent=permissions.subagent,
+            mcp=top_servers if top_servers else inherit_mcp,
+            mcp_servers=top_servers,
+            enable_write_tools=permissions.enable_write_tools,
+        )
+
     model = str(fm.get("model", "inherit"))
 
     return AgentSpec(
@@ -365,6 +386,8 @@ def load_agent_spec(file_path: Path) -> AgentSpec:
         subagent=subagent,
         main_agent=main_agent,
         inherit_customizations=inherit_customizations,
+        inherit_mcp=inherit_mcp,
+        mcp_servers=top_servers,
         model=model,
         source_file=file_path,
     )
@@ -471,6 +494,14 @@ def sync_agent_definitions(
 
         shutil.copy2(spec.source_file, dest_file)
         synced.append(dest_file)
+
+    init_src = src / "__init__.py"
+    if norm_filter is None and init_src.is_file():
+        init_dst = dst / "__init__.py"
+        if not init_dst.exists() or override or init_dst.read_bytes() != init_src.read_bytes():
+            if not (init_dst.exists() and not override and dedup and init_dst.read_bytes() == init_src.read_bytes()):
+                shutil.copy2(init_src, init_dst)
+                synced.append(init_dst)
 
     return synced
 

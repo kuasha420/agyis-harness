@@ -189,10 +189,14 @@ def cmd_agents(args: argparse.Namespace) -> int:
     # 2. agents validate [path_or_name]
     if action_or_name == "validate":
         target = target_name
+        is_json = bool(getattr(args, "json", False))
         if not target or target in ("all", "--all"):
             specs = list_agent_specs(DEFAULT_AGENTS_DIR)
             if not specs:
-                sys.stderr.write("Error: No agent specifications found to validate.\n")
+                if is_json:
+                    print(json.dumps({"valid": False, "total": 0, "errors": {"_global": ["No agent specifications found to validate."]}}, indent=2))
+                else:
+                    sys.stderr.write("Error: No agent specifications found to validate.\n")
                 return 1
             all_errors = {}
             for spec in specs:
@@ -200,6 +204,14 @@ def cmd_agents(args: argparse.Namespace) -> int:
                     errs = validate_agent_spec(spec.source_file)
                     if errs:
                         all_errors[spec.source_file.name] = errs
+            if is_json:
+                print(json.dumps({
+                    "valid": len(all_errors) == 0,
+                    "total": len(specs),
+                    "failed": len(all_errors),
+                    "errors": all_errors,
+                }, indent=2))
+                return 1 if all_errors else 0
             if all_errors:
                 sys.stderr.write(f"✘ {len(all_errors)} agent(s) failed validation:\n")
                 for fname, errs in all_errors.items():
@@ -230,10 +242,21 @@ def cmd_agents(args: argparse.Namespace) -> int:
                     found_file = spec.source_file
 
         if not found_file:
-            sys.stderr.write(f"Error: Agent file '{target}' not found.\n")
+            if is_json:
+                print(json.dumps({"valid": False, "target": target, "errors": [f"Agent file '{target}' not found."]}, indent=2))
+            else:
+                sys.stderr.write(f"Error: Agent file '{target}' not found.\n")
             return 1
 
         errors = validate_agent_spec(found_file)
+        if is_json:
+            print(json.dumps({
+                "valid": len(errors) == 0,
+                "agent": found_file.name,
+                "path": str(found_file),
+                "errors": errors,
+            }, indent=2))
+            return 1 if errors else 0
         if not errors:
             print(f"✔ Agent '{found_file.name}' is valid.")
             return 0

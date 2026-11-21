@@ -898,6 +898,81 @@ class TestSubagentCompletedState(unittest.TestCase):
             self.assertTrue(any("DEAD: dead_worker" in v for v in inv5_dead["violations"]))
             self.assertFalse(any(active_id[:8] in v for v in inv5_dead["violations"]))
 
+    def test_swarm_worker_done_parked_and_finish_states(self) -> None:
+        """Swarm workers ending in post_message([done])+swarm_wait or finish are COMPLETED, and swarm_wait is PARKED (not STALE/DEAD)."""
+        from harness.subagents.liveness import probe_subagent_liveness
+
+        parent_id = "root-coord-1111"
+        worker_done = "worker-done-2222"
+        worker_park = "worker-park-3333"
+        worker_fin = "worker-fin-4444"
+
+        self._write_transcript(
+            parent_id,
+            [
+                {
+                    "step_index": 1,
+                    "type": "PLANNER_RESPONSE",
+                    "tool_calls": [
+                        {"name": "swarm", "args": {"action": "add", "name": "worker-done", "brief": "do x"}},
+                    ],
+                }
+            ],
+            age_seconds=10,
+        )
+        self._write_transcript(
+            worker_done,
+            [
+                {"step_index": 1, "type": "USER_INPUT", "parent_conversation_id": parent_id, "content": "You are `worker-done`."},
+                {
+                    "step_index": 2,
+                    "type": "PLANNER_RESPONSE",
+                    "tool_calls": [
+                        {"name": "post_message", "args": {"text": "@coordinator [done] finished"}},
+                        {"name": "swarm_wait", "args": {"since": 5}},
+                    ],
+                },
+                {"step_index": 3, "type": "GENERIC", "content": "waiting"},
+            ],
+            age_seconds=3600,
+        )
+        self._write_transcript(
+            worker_park,
+            [
+                {"step_index": 1, "type": "USER_INPUT", "parent_conversation_id": parent_id, "content": "You are `worker-park`."},
+                {
+                    "step_index": 2,
+                    "type": "PLANNER_RESPONSE",
+                    "tool_calls": [{"name": "swarm_wait", "args": {"since": 5}}],
+                },
+            ],
+            age_seconds=3600,
+        )
+        self._write_transcript(
+            worker_fin,
+            [
+                {"step_index": 1, "type": "USER_INPUT", "parent_conversation_id": parent_id, "content": "You are `worker-fin`."},
+                {
+                    "step_index": 2,
+                    "type": "PLANNER_RESPONSE",
+                    "tool_calls": [{"name": "finish", "args": {"summary": "done"}}],
+                },
+                {"step_index": 3, "type": "GENERIC", "content": "finished"},
+            ],
+            age_seconds=3600,
+        )
+
+        statuses = probe_subagent_liveness(
+            workspace_dir=self.workspace,
+            brain_dir=self.brain,
+            conv_id=parent_id,
+        )
+        by_id = {s.conversation_id: s for s in statuses}
+        self.assertEqual(by_id[worker_done].liveness_state, "COMPLETED")
+        self.assertEqual(by_id[worker_park].liveness_state, "PARKED")
+        self.assertTrue(by_id[worker_park].is_parked)
+        self.assertEqual(by_id[worker_fin].liveness_state, "COMPLETED")
+
 
 
 if __name__ == "__main__":

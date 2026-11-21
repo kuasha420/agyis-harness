@@ -50,20 +50,20 @@ The scanner probes the following project files:
 
 ## 3. Verified Capability Bundles
 
-To prevent session freezes and maintain strict toolgroup scoping, custom agents must use pre-verified capability bundles from `ANTIGRAVITY_PLATFORM_TOOLS`:
+To prevent session freezes and maintain strict toolgroup scoping, custom agents must use pre-verified capability bundles from `CANONICAL_PLATFORM_TOOLS` (`ANTIGRAVITY_PLATFORM_TOOLS` also accepts legacy aliases for backwards compatibility):
 
 | Bundle | Allowed Tools | Permissions | Intended Roles |
 | :--- | :--- | :--- | :--- |
-| `read_only` | `view_file`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `search_web`, `send_message` | `read: true`, `write: false`, `execute: false`, `subagents: false` | Hammer, Code Reviewer, Security Inspector |
+| `read_only` | `read_file`, `search_web`, `send_message`, `read_board` | `read: true`, `write: false`, `execute: false`, `subagents: false` | Hammer, Code Reviewer, Security Inspector |
 | `verifier` | `read_only` + `run_command`, `manage_task` | `read: true`, `write: false`, `execute: true`, `subagents: false` | QA Verifier, Benchmark Auditor, Linter |
-| `adversarial_verifier` | `verifier` + `write_to_file`, `replace_file_content` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Test Generator, Fuzzer, Stress Oracle (/boost-inspired) |
-| `builder` | `verifier` + `write_to_file`, `replace_file_content` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Executioner, Implementer, Refactorer |
-| `investigator` | `verifier` + `write_to_file`, `replace_file_content` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Investigator, RCA & Reproduction Author |
-| `orchestrator` | `read_only` + `invoke_subagent`, `manage_subagents`, `manage_task`, `ask_question` | `read: true`, `write: false`, `execute: false`, `subagents: true` | Swarm Coordinator, Milestone Lead |
-| `full` | All 17 platform tools (`ANTIGRAVITY_PLATFORM_TOOLS`) | `read: true`, `write: true`, `execute: true`, `subagents: true`, `mcp: true`, `enable_write_tools: true` | Main Agent (`main` archetype), Lead Architect |
+| `adversarial_verifier` | `verifier` + `write_file`, `edit_file` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Test Generator, Fuzzer, Stress Oracle (/boost-inspired) |
+| `builder` | `verifier` + `write_file`, `edit_file` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Executioner, Implementer, Refactorer |
+| `investigator` | `verifier` + `write_file`, `edit_file` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Investigator, RCA & Reproduction Author |
+| `orchestrator` | `read_only` + `run_command`, `invoke_subagent`, `manage_subagents`, `manage_task`, `ask_question`, `swarm`, `post_message`, `swarm_wait`, `run_workflow`, `schedule` | `read: true`, `write: false`, `execute: true`, `subagents: true` | Swarm Coordinator, Milestone Lead |
+| `full` | All 24 canonical `v2.34.0` platform tools (`CANONICAL_PLATFORM_TOOLS`) | `read: true`, `write: true`, `execute: true`, `subagents: true`, `mcp: true`, `enable_write_tools: true`, `inheritMcp: true` | Main Agent (`main` archetype), Lead Architect |
 
 > [!CAUTION]
-> **Platform Hanging Bug**: Never declare tools outside `ANTIGRAVITY_PLATFORM_TOOLS` (such as `edit_file` or speculative MCP tool names) in frontmatter `tools:` or `allowed_tools:`. Doing so causes the Antigravity subagent dispatcher to hang without returning an error.
+> **Platform Hanging Bug**: Never declare tools outside `ANTIGRAVITY_PLATFORM_TOOLS` (such as speculative MCP tool names `call_mcp_tool`, `list_resources`, `read_resource`) in frontmatter `tools:` or `allowed_tools:`. Use canonical `v2.34.0` tools (`read_file`, `write_file`, `edit_file`, `run_command`, `swarm`, `post_message`, `read_board`, `swarm_wait`, `run_workflow`, `search_marketplace`, `list_plugin_accounts`, `finish`) and enable MCP via `inheritMcp: true` / `mcpServers: [...]`. Doing otherwise causes the Antigravity subagent dispatcher to fail or hang.
 
 ---
 
@@ -94,10 +94,10 @@ agyis agents validate .agents/agents/security_auditor.md
 
 The validation gate verifies:
 1. **Frontmatter Integrity**: Required keys (`name`, `archetype`, `role`, `description`, `permissions`).
-2. **Customization Inheritance**: Validates `inheritCustomizations: true` boolean frontmatter property to ensure workspace-level instructions and developer rules (`AGENTS.md`) propagate down.
-3. **Tool Existence**: Asserts all declared tools exist in `ANTIGRAVITY_PLATFORM_TOOLS`.
-4. **Contradiction Guard**: Rejects contradictory configs (e.g. declaring `write_to_file` when `permissions.write: false`).
-5. **Prompt Invariants**: Ensures `Zero-Exploration Invariant` is declared and explicitly references `list_dir` and `find_by_name`.
+2. **Customization & MCP Inheritance**: Validates `inheritCustomizations: true` and `inheritMcp` boolean frontmatter properties and `mcpServers` list so workspace-level instructions, rules (`AGENTS.md`), and MCP servers propagate down.
+3. **Tool Existence**: Asserts all declared tools exist in `ANTIGRAVITY_PLATFORM_TOOLS` (canonical `v2.34.0` tools + legacy aliases).
+4. **Contradiction Guard**: Rejects contradictory configs (e.g. declaring `write_file`/`edit_file`/`write_to_file` when `permissions.write: false`).
+5. **Prompt Invariants**: Ensures `Zero-Exploration Invariant` or `Targeted Macro & Deduplication Sweep Invariant` is declared.
 
 ### Synchronize Agent Definitions
 ```bash

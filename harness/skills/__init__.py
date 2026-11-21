@@ -32,11 +32,13 @@ class SkillSpec:
     path: Path
     body: str = ""
     frontmatter: Dict[str, Any] = field(default_factory=dict)
+    tier: str = "harness"
+    disable_slash_command: bool = False
+    disable_model_invocation: bool = False
 
 
-def list_skills(skills_dir: Optional[Path] = None) -> List[SkillSpec]:
-    """Scan and list all modular skills in the specified skills directory."""
-    src = skills_dir or DEFAULT_SKILLS_DIR
+def _scan_skills_dir(src: Path, tier: str = "harness") -> List[SkillSpec]:
+    """Scan a single skills directory for SKILL.md manifests."""
     if not src.exists() or not src.is_dir():
         return []
 
@@ -50,6 +52,8 @@ def list_skills(skills_dir: Optional[Path] = None) -> List[SkillSpec]:
         fm, body = parse_frontmatter(content)
         name = str(fm.get("name", item.name))
         desc = str(fm.get("description", ""))
+        disable_slash = bool(fm.get("disable-slash-command", fm.get("disable_slash_command", False)))
+        disable_model = bool(fm.get("disable-model-invocation", fm.get("disable_model_invocation", False)))
 
         specs.append(
             SkillSpec(
@@ -58,10 +62,52 @@ def list_skills(skills_dir: Optional[Path] = None) -> List[SkillSpec]:
                 path=skill_file,
                 body=body,
                 frontmatter=fm,
+                tier=tier,
+                disable_slash_command=disable_slash,
+                disable_model_invocation=disable_model,
             )
         )
-
     return specs
+
+
+def list_skills(
+    skills_dir: Optional[Path] = None,
+    include_external: bool = False,
+    workspace_root: Optional[Path] = None,
+    config_dir: Optional[Path] = None,
+    app_data_dir: Optional[Path] = None,
+) -> List[SkillSpec]:
+    """Scan and list modular skills (hermetic by default, multi-tier when include_external=True)."""
+    if skills_dir is not None or not include_external:
+        return _scan_skills_dir(skills_dir or DEFAULT_SKILLS_DIR, tier="harness")
+
+    from harness.subagents.liveness import get_app_data_dir
+    ws = Path(workspace_root) if workspace_root else REPO_ROOT
+    cfg = Path(config_dir) if config_dir else (Path.home() / ".gemini" / "config")
+    app_dir = get_app_data_dir(app_data_dir)
+
+    tier_dirs: List[Tuple[str, Path]] = [
+        ("workspace", ws / ".agents" / "skills"),
+        ("workspace_alt", ws / "_agents" / "skills"),
+        ("user", cfg / "skills"),
+    ]
+    plugins_dir = cfg / "plugins"
+    if plugins_dir.is_dir():
+        for plug in sorted(plugins_dir.iterdir()):
+            if plug.is_dir() and (plug / "skills").is_dir():
+                tier_dirs.append((f"plugin:{plug.name}", plug / "skills"))
+    tier_dirs.append(("builtin", app_dir / "builtin" / "skills"))
+    tier_dirs.append(("harness", DEFAULT_SKILLS_DIR))
+
+    seen: Set[str] = set()
+    merged: List[SkillSpec] = []
+    for tier_name, tdir in tier_dirs:
+        for spec in _scan_skills_dir(tdir, tier=tier_name):
+            norm = spec.name.strip().lower().replace("_", "-")
+            if norm not in seen:
+                seen.add(norm)
+                merged.append(spec)
+    return merged
 
 
 def get_skill(name: str, skills_dir: Optional[Path] = None) -> Optional[SkillSpec]:

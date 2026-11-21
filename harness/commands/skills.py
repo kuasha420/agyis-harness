@@ -138,7 +138,7 @@ def cmd_skills(args: argparse.Namespace) -> int:
         print(spec.body.strip())
         return 0
 
-    skills = list_skills()
+    skills = list_skills(include_external=True)
     if getattr(args, "json", False):
         print(
             json.dumps(
@@ -147,6 +147,7 @@ def cmd_skills(args: argparse.Namespace) -> int:
                         "name": s.name,
                         "description": s.description,
                         "path": str(s.path),
+                        "tier": s.tier,
                     }
                     for s in skills
                 ],

@@ -139,12 +139,13 @@ def rehydrate_subagent_session(
                 if not isinstance(t_args, dict):
                     t_args = {}
 
-                if t_name == "send_message":
+                if t_name in ("send_message", "post_message", "finish"):
                     has_send_message = True
 
-                if t_name in ("write_to_file", "replace_file_content", "edit_file"):
+                if t_name in ("write_to_file", "replace_file_content", "edit_file", "write_file"):
                     tf = str(
-                        t_args.get("TargetFile")
+                        t_args.get("Path")
+                        or t_args.get("TargetFile")
                         or t_args.get("file_path")
                         or t_args.get("path")
                         or ""
@@ -152,13 +153,13 @@ def rehydrate_subagent_session(
                     if tf and tf not in completed_files:
                         completed_files.append(tf)
 
-                    if t_name == "replace_file_content":
-                        target_c = str(t_args.get("TargetContent", ""))
-                        repl_c = str(t_args.get("ReplacementContent", ""))
+                    if t_name in ("replace_file_content", "edit_file"):
+                        target_c = str(t_args.get("Target") or t_args.get("TargetContent") or "")
+                        repl_c = str(t_args.get("Replacement") or t_args.get("ReplacementContent") or "")
                         diffs.append(
                             f"--- {tf}\n+++ {tf}\n- {target_c}\n+ {repl_c}"
                         )
-                    elif t_name == "write_to_file":
+                    elif t_name in ("write_to_file", "write_file"):
                         diffs.append(f"+++ {tf} (created/written)")
 
     # 4. Status determination & last step synthesis

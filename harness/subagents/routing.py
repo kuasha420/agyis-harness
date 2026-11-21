@@ -25,7 +25,7 @@ class WorkflowMode(str, Enum):
     """Execution topology modes for multi-agent workflows."""
     LADDER = "LADDER"  # Sequential specialist quality gates (Investigator -> Planner -> Builder -> Reviewer -> Custodian -> Auditor)
     PARALLEL_FANOUT = "PARALLEL_FANOUT"  # Coordinator-led parallel research / diagnostic exploration
-    TEAMWORK_DAG = "TEAMWORK_DAG"  # Native /teamwork-preview task graph with worktrees under .agents/teamwork/
+    TEAMWORK_DAG = "TEAMWORK_DAG"  # Native /swarm, run_workflow, or /teamwork task graph with worktrees under <appDataDir>/worktrees/
     BOOST_TOURNAMENT = "BOOST_TOURNAMENT"  # Native /boost multi-perspective competition (owl DeepCoder + DeepInvestigator)
 
 
@@ -101,7 +101,7 @@ CANONICAL_ROUTES: Tuple[WorkflowRoute, ...] = (
         starting_specialist="agyis_builder",
         pipeline_route="Builder -> Reviewer -> Custodian -> Auditor",
         mode=WorkflowMode.LADDER,
-        critical_invariants="Laser Executioner: Single contiguous replacements (replace_file_content). Zero scope creep.",
+        critical_invariants="Laser Executioner: Single contiguous replacements (edit_file). Zero scope creep.",
         primary_deliverable="In-flight diff + local test pass",
         empirical_precedent="Native slash command bypass patch (f13e63f)",
         stage_sequence=("EXECUTION", "CODE_REVIEW", "GIT_CUSTODY", "QA_AUDIT", "PROMOTION"),

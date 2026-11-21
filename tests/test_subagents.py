@@ -35,7 +35,7 @@ from harness.subagents import (
 class TestSpecialistSubagents(unittest.TestCase):
     """Test suite for specialist subagent definitions and registry operations."""
 
-    WRITE_TOOLS = {"write_to_file", "replace_file_content"}
+    WRITE_TOOLS = {"write_file", "edit_file"}
     EXEC_TOOLS = {"run_command", "manage_task"}
 
     def setUp(self) -> None:
@@ -136,28 +136,25 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIn("send_message", tool_set)
         self.assertIn("run_command", tool_set)
         self.assertIn("manage_task", tool_set)
-        self.assertIn("write_to_file", tool_set)
-        self.assertIn("replace_file_content", tool_set)
+        self.assertIn("write_file", tool_set)
+        self.assertIn("edit_file", tool_set)
 
     def test_reviewer_toolgroup_permissions(self) -> None:
-        """Reviewer (Hammer) must be strictly read-only: no write tools, no exec tools."""
+        """Reviewer (Hammer) must be strictly read-only on files (no write tools), with run_command for git diff."""
         reviewer = get_agent_spec("harness_reviewer")
         self.assertIsNotNone(reviewer)
         self.assertEqual(reviewer.archetype, AgentArchetype.HAMMER)
         self.assertFalse(reviewer.can_write, "Reviewer must not have write permission")
-        self.assertFalse(reviewer.can_execute, "Reviewer must not have exec permission")
+        self.assertTrue(reviewer.can_execute, "Reviewer must have exec permission for git diff")
         self.assertFalse(reviewer.can_subagent, "Reviewer must not spawn subagents")
 
-        # Must not contain any write or exec tools
+        # Must not contain any write tools
         tool_set = set(reviewer.allowed_tools)
         for wt in self.WRITE_TOOLS:
             self.assertNotIn(
                 wt, tool_set, f"Reviewer must NEVER include write tool '{wt}'"
             )
-        for et in self.EXEC_TOOLS:
-            self.assertNotIn(
-                et, tool_set, f"Reviewer must NEVER include exec tool '{et}'"
-            )
+        self.assertIn("run_command", tool_set, "Reviewer must include 'run_command'")
         self.assertIn("send_message", tool_set, "Reviewer must include 'send_message'")
 
     def test_auditor_toolgroup_permissions(self) -> None:
@@ -208,45 +205,49 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIn("send_message", tool_set, "Custodian must include 'send_message'")
 
     def test_planner_toolgroup_permissions(self) -> None:
-        """Planner must have read, write (artifact synthesis), subagent, and MCP enabled, but zero exec."""
+        """Planner must have read, write (artifact synthesis), exec (topology probes), subagent, and MCP enabled."""
         planner = get_agent_spec("planner")
         self.assertIsNotNone(planner)
         self.assertEqual(planner.archetype, AgentArchetype.PLANNER)
         self.assertTrue(planner.permissions.read)
         self.assertTrue(planner.can_write, "Planner must have write permission for artifact synthesis")
-        self.assertFalse(planner.can_execute, "Planner must not have exec permission")
+        self.assertTrue(planner.can_execute, "Planner must have exec permission for topology probes")
         self.assertTrue(planner.can_subagent, "Planner must have subagents enabled")
         self.assertTrue(planner.can_mcp, "Planner must have MCP access")
+        self.assertTrue(planner.inherit_mcp, "Planner must have inheritMcp enabled")
 
         tool_set = set(planner.allowed_tools)
-        self.assertIn("write_to_file", tool_set)
+        self.assertIn("write_file", tool_set)
         self.assertIn("ask_question", tool_set)
         self.assertIn("invoke_subagent", tool_set)
         self.assertIn("send_message", tool_set)
         self.assertIn("manage_subagents", tool_set)
-        self.assertNotIn("run_command", tool_set)
-        self.assertIn("view_file", tool_set)
+        self.assertIn("run_command", tool_set)
+        self.assertIn("read_file", tool_set)
         self.assertIn("manage_task", tool_set)
 
     def test_coordinator_toolgroup_permissions(self) -> None:
-        """Coordinator must have read, write (artifact synthesis), and subagent permissions, but zero exec."""
+        """Coordinator must have read, write (artifact synthesis), exec (CLI checks), and subagent permissions."""
         coord = get_agent_spec("coordinator")
         self.assertIsNotNone(coord)
         self.assertEqual(coord.archetype, AgentArchetype.COORDINATOR)
         self.assertTrue(coord.permissions.read)
         self.assertTrue(coord.can_write, "Coordinator must have write permission for artifact synthesis")
-        self.assertFalse(coord.can_execute, "Coordinator must not have exec permission")
+        self.assertTrue(coord.can_execute, "Coordinator must have exec permission for CLI checks")
         self.assertTrue(coord.can_subagent, "Coordinator must have subagent permission")
 
         tool_set = set(coord.allowed_tools)
-        self.assertIn("write_to_file", tool_set)
-        self.assertNotIn("replace_file_content", tool_set)
-        self.assertNotIn("run_command", tool_set)
+        self.assertIn("write_file", tool_set)
+        self.assertIn("run_command", tool_set)
         self.assertIn("invoke_subagent", tool_set)
         self.assertIn("send_message", tool_set)
         self.assertIn("manage_subagents", tool_set)
         self.assertIn("ask_question", tool_set)
         self.assertIn("schedule", tool_set)
+        self.assertIn("swarm", tool_set)
+        self.assertIn("post_message", tool_set)
+        self.assertIn("read_board", tool_set)
+        self.assertIn("swarm_wait", tool_set)
 
     def test_agyis_architect_toolgroup_permissions(self) -> None:
         """Main agent (agyis_architect) must have full permissions across read, write, exec, subagent, mcp."""
@@ -269,7 +270,8 @@ class TestSpecialistSubagents(unittest.TestCase):
             self.assertIn(et, tool_set, f"Main agent must include exec tool '{et}'")
         self.assertIn("invoke_subagent", tool_set)
         self.assertNotIn("call_mcp_tool", tool_set, "MCP tools must not be listed statically in allowed_tools")
-        self.assertEqual(len(main_spec.allowed_tools), 17)
+        self.assertLessEqual(len(main_spec.allowed_tools), 20)
+        self.assertEqual(len(main_spec.allowed_tools), 19)
 
         # Verify legacy alias also returns identical spec
         legacy_spec = get_agent_spec("psl_main")
@@ -384,7 +386,8 @@ class TestSpecialistSubagents(unittest.TestCase):
         target = self.isolated_path / "agents_target"
         synced = sync_agent_definitions(target_dir=target)
 
-        self.assertEqual(len(synced), 8)
+        self.assertEqual(len(synced), 9)
+        self.assertTrue((target / "__init__.py").exists())
         for expected_file in [
             "agyis_builder.md",
             "agyis_reviewer.md",
@@ -417,6 +420,11 @@ class TestSpecialistSubagents(unittest.TestCase):
                 mirrored_content,
                 f"Mirrored agent at {mirrored} is out of sync with source {spec.source_file}",
             )
+        self.assertEqual(
+            (DEFAULT_AGENTS_DIR / "__init__.py").read_text(encoding="utf-8"),
+            (DEFAULT_TARGET_DIR / "__init__.py").read_text(encoding="utf-8"),
+            ".agents/agents/__init__.py is out of sync with harness/agents/__init__.py",
+        )
 
     def test_zero_exploration_invariant_in_prompts(self) -> None:
         """All specialist subagent system prompts must enforce Zero-Exploration or Targeted Macro Sweep Invariant."""
@@ -432,15 +440,10 @@ class TestSpecialistSubagents(unittest.TestCase):
                     has_inv,
                     f"Agent {agent.name} missing exploration invariant in prompt",
                 )
-                self.assertIn(
-                    "list_dir",
-                    agent.system_prompt,
-                    f"Agent {agent.name} prompt must explicitly mention list_dir",
-                )
-                self.assertIn(
-                    "find_by_name",
-                    agent.system_prompt,
-                    f"Agent {agent.name} prompt must explicitly mention find_by_name",
+                self.assertLessEqual(
+                    len(agent.allowed_tools),
+                    20,
+                    f"Agent {agent.name} exceeds 20-tool ceiling ({len(agent.allowed_tools)})",
                 )
 
     def test_sync_agent_definitions_with_filter_and_dedup(self) -> None:
@@ -648,6 +651,91 @@ class TestSpecialistSubagents(unittest.TestCase):
                 not agent.permissions.write and agent.permissions.enable_write_tools,
                 f"Agent '{agent.name}' has contradictory write: false and enable_write_tools: true",
             )
+
+    def test_rehydrate_v234_write_edit_and_post_message(self) -> None:
+        """rehydrate_subagent_session parses write_file/edit_file (Path/Target/Replacement/Content) and post_message/finish."""
+        conv_dir = self.isolated_path / "conv-v234-rehydrate"
+        log_dir = conv_dir / ".system_generated" / "logs"
+        log_dir.mkdir(parents=True)
+        t_file = log_dir / "transcript.jsonl"
+        lines = [
+            json.dumps({
+                "step_index": 1,
+                "type": "USER_INPUT",
+                "content": "You are `agyis_builder` (executioner).\n<USER_REQUEST>Patch foo.py</USER_REQUEST>",
+            }),
+            json.dumps({
+                "step_index": 2,
+                "type": "MODEL_TURN",
+                "tool_calls": [
+                    {
+                        "name": "write_file",
+                        "args": {"Path": "/repo/new_mod.py", "Content": "x = 1\n"},
+                    },
+                    {
+                        "name": "edit_file",
+                        "args": {"Path": "/repo/foo.py", "Target": "a = 1", "Replacement": "a = 2"},
+                    },
+                    {
+                        "name": "post_message",
+                        "args": {"text": "@coordinator [done] Patched foo.py"},
+                    },
+                ],
+            }),
+        ]
+        t_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        res = rehydrate_subagent_session("conv-v234-rehydrate", brain_dir=self.isolated_path)
+        self.assertEqual(res["status"], "REHYDRATED_COMPLETED")
+        self.assertEqual(res["completed_files"], ["/repo/new_mod.py", "/repo/foo.py"])
+        self.assertTrue(any("+++ /repo/new_mod.py" in d for d in res["diffs"]))
+        self.assertTrue(any("- a = 1\n+ a = 2" in d for d in res["diffs"]))
+
+    def test_agents_validate_json_and_inherit_mcp(self) -> None:
+        """agyis agents validate --json emits structured JSON and validator accepts inheritMcp/mcpServers."""
+        import io
+        from unittest.mock import patch
+        from harness.cli import build_parser
+        from harness.commands.agents import cmd_agents
+        from harness.subagents import load_agent_spec, validate_agent_spec
+
+        parser = build_parser()
+        args = parser.parse_args(["agents", "validate", "--json"])
+        out = io.StringIO()
+        with patch("sys.stdout", out):
+            rc = cmd_agents(args)
+        self.assertEqual(rc, 0)
+        payload = json.loads(out.getvalue())
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["total"], 8)
+
+        agent_md = self.isolated_path / "mcp_agent.md"
+        agent_md.write_text(
+            "---\n"
+            "name: mcp_agent\n"
+            "archetype: planner\n"
+            "description: Planner with inheritMcp and mcpServers\n"
+            "inheritCustomizations: true\n"
+            "inheritMcp: true\n"
+            "mcpServers:\n"
+            "  - rea\n"
+            "permissions:\n"
+            "  read: true\n"
+            "  write: true\n"
+            "  execute: true\n"
+            "  subagents: true\n"
+            "tools:\n"
+            "  - read_file\n"
+            "  - write_file\n"
+            "  - run_command\n"
+            "  - swarm\n"
+            "---\n"
+            "# Planner\n\n## Zero-Exploration Invariant\nRead target files directly.\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(validate_agent_spec(agent_md), [])
+        spec = load_agent_spec(agent_md)
+        self.assertTrue(spec.inherit_mcp)
+        self.assertEqual(spec.mcp_servers, ("rea",))
 
 
 if __name__ == "__main__":

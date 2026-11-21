@@ -13,10 +13,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import errno
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None  # type: ignore[assignment]
 import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import time
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -31,6 +37,67 @@ from harness.trajectory.transcript_reader import (
 from harness.utils.context import get_active_brain_dir, get_active_conversation_id
 
 _GENERIC_ROLES = frozenset({"user", "assistant", "system", "tool", "model"})
+_PARENT_KEY_RE = re.compile(
+    r'"(?:parent_conversation_id|parentConversationId|root_conversation_id|antigravity\.google/root_conversation_id)"\s*:\s*"([^"]+)"'
+)
+
+
+def get_app_data_dir(app_data_dir: Optional[Path] = None) -> Path:
+    """Resolve the active Antigravity appDataDir (respects ANTIGRAVITY_APP_DATA_DIR)."""
+    if app_data_dir is not None:
+        return Path(app_data_dir).expanduser()
+    env_dir = os.environ.get("ANTIGRAVITY_APP_DATA_DIR", "").strip()
+    if env_dir:
+        return Path(env_dir).expanduser()
+    return Path.home() / ".gemini" / "antigravity"
+
+
+def resolve_active_root_conversation_id(
+    app_data_dir: Optional[Path] = None,
+    brain_dir: Optional[Path] = None,
+) -> Optional[str]:
+    """
+    Resolve active root conversation ID:
+    1. Explicit env vars (ANTIGRAVITY_CONVERSATION_ID, CONVERSATION_ID, AGYIS_CONVERSATION_ID)
+    2. Exclusive flock probe on <appDataDir>/presence/*.lock (live language_server root sessions)
+    3. Fallback to get_active_conversation_id()
+    """
+    for env_key in ("ANTIGRAVITY_CONVERSATION_ID", "CONVERSATION_ID", "AGYIS_CONVERSATION_ID"):
+        val = os.environ.get(env_key, "").strip()
+        if val:
+            return val
+
+    app_dir = get_app_data_dir(app_data_dir)
+    presence_dir = app_dir / "presence"
+    if fcntl is not None and presence_dir.is_dir():
+        locked_cids: List[Tuple[float, str]] = []
+        try:
+            for lock_file in presence_dir.glob("*.lock"):
+                if not lock_file.is_file():
+                    continue
+                fd = None
+                try:
+                    fd = os.open(str(lock_file), os.O_RDONLY)
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                except OSError as exc:
+                    if exc.errno in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK):
+                        b_sub = (brain_dir or (app_dir / "brain")) / lock_file.stem
+                        mtime = b_sub.stat().st_mtime if b_sub.exists() else lock_file.stat().st_mtime
+                        locked_cids.append((mtime, lock_file.stem))
+                finally:
+                    if fd is not None:
+                        try:
+                            os.close(fd)
+                        except OSError:
+                            pass
+        except OSError:
+            pass
+        if locked_cids:
+            locked_cids.sort(reverse=True)
+            return locked_cids[0][1]
+
+    return get_active_conversation_id()
 
 
 @dataclass(frozen=True)
@@ -89,18 +156,131 @@ def _is_globally_parked(workspace: Path) -> Tuple[bool, Set[str]]:
     return is_paused, parked_ids
 
 
-def _discover_active_session_subagents(b_dir: Path, active_conv_id: str) -> Set[str]:
-    """Discovers child subagent IDs/roles from decoded JSON steps of active_conv_id."""
+def _discover_active_session_subagents(
+    b_dir: Path,
+    active_conv_id: str,
+    app_data_dir: Optional[Path] = None,
+) -> Set[str]:
+    """Discovers child subagent IDs/roles from transcript, swarm plan.json, and conversation_summaries.db."""
+    tokens: Set[str] = set()
     t_path, resolved_id = find_transcript_path(active_conv_id, brain_dir=b_dir)
-    if t_path is None:
-        return set()
-    steps, _, _ = load_transcript_steps(t_path)
-    spawned = extract_spawned_subagents(steps, parent_cid=resolved_id)
-    tokens: Set[str] = set(spawned.keys())
-    for role in spawned.values():
-        if role and role.lower() not in _GENERIC_ROLES | {"subagent"}:
-            tokens.add(role)
+    if t_path is not None:
+        steps, _, _ = load_transcript_steps(t_path)
+        spawned = extract_spawned_subagents(steps, parent_cid=resolved_id)
+        tokens.update(spawned.keys())
+        for role in spawned.values():
+            if role and role.lower() not in _GENERIC_ROLES | {"subagent"}:
+                tokens.add(role)
+        # Parse native /swarm{action:"add"} calls
+        for st in steps:
+            if not isinstance(st, dict):
+                continue
+            raw_tcs = st.get("tool_calls") or st.get("toolCalls") or []
+            if not isinstance(raw_tcs, list):
+                continue
+            for tc in raw_tcs:
+                if not isinstance(tc, dict):
+                    continue
+                if str(tc.get("name", "")) in ("swarm", "swarm_manage"):
+                    args = tc.get("args") or {}
+                    if isinstance(args, dict) and args.get("action") == "add":
+                        base_name = str(args.get("name", "")).strip()
+                        if base_name:
+                            tokens.add(base_name)
+                        tasks = args.get("tasks")
+                        n_val = args.get("n")
+                        if isinstance(tasks, list) and base_name:
+                            for idx in range(1, len(tasks) + 1):
+                                tokens.add(f"{base_name}-{idx}")
+                        elif isinstance(n_val, int) and n_val > 1 and base_name:
+                            for idx in range(1, n_val + 1):
+                                tokens.add(f"{base_name}-{idx}")
+
+    # Check <brain>/<active_conv_id>/.system_generated/swarm/plan.json
+    swarm_plan = b_dir / active_conv_id / ".system_generated" / "swarm" / "plan.json"
+    if swarm_plan.is_file():
+        try:
+            plan_data = json.loads(swarm_plan.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(plan_data, dict):
+                for key in ("workers", "members", "agents", "nodes"):
+                    items = plan_data.get(key)
+                    if isinstance(items, list):
+                        for item in items:
+                            if isinstance(item, dict):
+                                for id_k in ("conversation_id", "conversationId", "id", "name", "agent_id"):
+                                    val = str(item.get(id_k, "")).strip()
+                                    if val:
+                                        tokens.add(val)
+        except Exception:
+            pass
+
+    # Check <appDataDir>/conversation_summaries.db (read-only)
+    app_dir = get_app_data_dir(app_data_dir)
+    summaries_db = app_dir / "conversation_summaries.db"
+    if summaries_db.is_file():
+        try:
+            conn = sqlite3.connect(f"file:{summaries_db}?mode=ro", uri=True, timeout=0.5)
+            try:
+                cur = conn.execute(
+                    "SELECT conversation_id, agent_name FROM conversation_summaries WHERE parent_conversation_id = ?",
+                    (active_conv_id,),
+                )
+                for row in cur.fetchall():
+                    if row and row[0]:
+                        tokens.add(str(row[0]).strip())
+                    if row and len(row) > 1 and row[1]:
+                        tokens.add(str(row[1]).strip())
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            pass
+
     return tokens
+
+
+def _is_swarm_or_workflow_tail_state(t_path: Path) -> Tuple[bool, bool]:
+    """
+    Returns (is_parked, is_completed) for v2.34.0 /swarm and run_workflow tails:
+    - finish tool call -> (False, True) [COMPLETED]
+    - post_message([done]) + swarm_wait -> (False, True) [COMPLETED]
+    - swarm_wait (without [done]) -> (True, False) [PARKED]
+    """
+    try:
+        steps, _, _ = load_transcript_steps(t_path)
+    except Exception:
+        return False, False
+    if not steps:
+        return False, False
+
+    tail = steps[-10:]
+    has_done_post = False
+    last_tool_name = ""
+    for st in tail:
+        if not isinstance(st, dict):
+            continue
+        tcs = st.get("tool_calls") or st.get("toolCalls") or []
+        if not isinstance(tcs, list):
+            continue
+        for tc in tcs:
+            if not isinstance(tc, dict):
+                continue
+            t_name = str(tc.get("name", "")).strip()
+            if not t_name:
+                continue
+            last_tool_name = t_name
+            if t_name == "finish":
+                return False, True
+            if t_name in ("post_message", "swarm_post_message"):
+                args = tc.get("args") or {}
+                txt = str(args.get("text", "") if isinstance(args, dict) else "").lower()
+                if "[done]" in txt:
+                    has_done_post = True
+
+    if last_tool_name == "swarm_wait":
+        if has_done_post:
+            return False, True
+        return True, False
+    return False, False
 
 
 def _parse_transcript_header(t_path: Path, default_cid: str) -> Tuple[str, str, str]:
@@ -159,52 +339,57 @@ def _scan_teamwork_progress(
     show_all: bool,
     is_custom_brain: bool,
     dead_threshold: int,
+    app_data_dir: Optional[Path] = None,
 ) -> Dict[str, Tuple[float, str, Optional[str], bool, bool]]:
-    teamwork_dir = ws / ".agents" / "teamwork"
+    teamwork_roots = [ws / ".agents" / "teamwork"]
+    if not is_custom_brain:
+        app_dir = get_app_data_dir(app_data_dir)
+        teamwork_roots.append(app_dir / "teamwork")
     teamwork_map: Dict[str, Tuple[float, str, Optional[str], bool, bool]] = {}
-    if not teamwork_dir.is_dir():
-        return teamwork_map
-    try:
-        for folder in teamwork_dir.iterdir():
-            if not folder.is_dir() or folder.name.startswith("."):
-                continue
-            prog_file = folder / "progress.md"
-            if not prog_file.is_file():
-                continue
-            epoch = prog_file.stat().st_mtime
-            iso_str: Optional[str] = None
-            is_parked = folder.name in parked_tokens
-            is_completed = False
-            content = ""
-            try:
-                content = prog_file.read_text(encoding="utf-8", errors="replace")
-                if "PARKED" in content or "status: parked" in content.lower():
-                    is_parked = True
-                in_prog = bool(re.search(r"^\s*[-*]?\s*Status:\s*IN[_ ]PROGRESS\b", content, re.I | re.M))
-                if not is_parked and not in_prog and re.search(r"^\s*[-*]?\s*Status:\s*(?:Complete|Completed|Done)\b", content, re.I | re.M):
-                    is_completed = True
-                m_visit = re.search(r"Last visited:\s*([0-9T:\-\+Z\.]+)", content)
-                if m_visit:
-                    parsed = _parse_iso_to_epoch(m_visit.group(1).strip())
-                    if parsed is not None:
-                        epoch, iso_str = parsed, m_visit.group(1).strip()
-            except Exception:
-                pass
-
-            age = max(0.0, round(now - epoch, 1))
-            if active_conv_id and not show_all:
-                matches = folder.name in active_child_tokens or any(tok in folder.name for tok in active_child_tokens)
-                if not matches and content and active_conv_id in content:
-                    matches = True
-                    active_child_tokens.add(folder.name)
-                if not matches:
+    for teamwork_dir in teamwork_roots:
+        if not teamwork_dir.is_dir():
+            continue
+        try:
+            for folder in teamwork_dir.iterdir():
+                if not folder.is_dir() or folder.name.startswith("."):
                     continue
-            elif not show_all and not is_custom_brain and age > dead_threshold:
-                continue
+                prog_file = folder / "progress.md"
+                if not prog_file.is_file():
+                    continue
+                epoch = prog_file.stat().st_mtime
+                iso_str: Optional[str] = None
+                is_parked = folder.name in parked_tokens
+                is_completed = False
+                content = ""
+                try:
+                    content = prog_file.read_text(encoding="utf-8", errors="replace")
+                    if "PARKED" in content or "status: parked" in content.lower():
+                        is_parked = True
+                    in_prog = bool(re.search(r"^\s*[-*]?\s*Status:\s*IN[_ ]PROGRESS\b", content, re.I | re.M))
+                    if not is_parked and not in_prog and re.search(r"^\s*[-*]?\s*Status:\s*(?:Complete|Completed|Done)\b", content, re.I | re.M):
+                        is_completed = True
+                    m_visit = re.search(r"Last visited:\s*([0-9T:\-\+Z\.]+)", content)
+                    if m_visit:
+                        parsed = _parse_iso_to_epoch(m_visit.group(1).strip())
+                        if parsed is not None:
+                            epoch, iso_str = parsed, m_visit.group(1).strip()
+                except Exception:
+                    pass
 
-            teamwork_map[folder.name] = (epoch, iso_str or _format_epoch_to_iso(epoch), str(prog_file), is_parked, is_completed)
-    except Exception:
-        pass
+                age = max(0.0, round(now - epoch, 1))
+                if active_conv_id and not show_all:
+                    matches = folder.name in active_child_tokens or any(tok in folder.name for tok in active_child_tokens)
+                    if not matches and content and active_conv_id in content:
+                        matches = True
+                        active_child_tokens.add(folder.name)
+                    if not matches:
+                        continue
+                elif not show_all and not is_custom_brain and age > dead_threshold:
+                    continue
+
+                teamwork_map[folder.name] = (epoch, iso_str or _format_epoch_to_iso(epoch), str(prog_file), is_parked, is_completed)
+        except Exception:
+            pass
     return teamwork_map
 
 
@@ -226,7 +411,7 @@ def probe_subagent_liveness(
     if conv_id is not None and str(conv_id).strip():
         active_conv_id: Optional[str] = str(conv_id).strip()
     else:
-        env_conv = get_active_conversation_id()
+        env_conv = resolve_active_root_conversation_id(brain_dir=b_dir)
         active_conv_id = env_conv if (env_conv and b_dir.is_dir() and (b_dir / env_conv).is_dir()) else None
 
     active_child_tokens = _discover_active_session_subagents(b_dir, active_conv_id) if (active_conv_id and not show_all) else set()
@@ -261,9 +446,11 @@ def probe_subagent_liveness(
                 if conv_id_str == active_conv_id or item.name == active_conv_id:
                     continue
                 is_child = conv_id_str in active_child_tokens or item.name in active_child_tokens
-                if not is_child and first_chunk and active_conv_id in first_chunk:
-                    is_child = True
-                    active_child_tokens.update((conv_id_str, item.name))
+                if not is_child and first_chunk:
+                    m_parent = _PARENT_KEY_RE.search(first_chunk)
+                    if m_parent and m_parent.group(1) == active_conv_id:
+                        is_child = True
+                        active_child_tokens.update((conv_id_str, item.name))
                 if not is_child:
                     continue
                 if not is_custom_brain and age > max(14400, dead_threshold * 2):
@@ -286,7 +473,10 @@ def probe_subagent_liveness(
                     break
 
             age = max(0.0, round(now - last_ts, 1))
-            state = _classify_liveness_state(is_exp_parked, _is_transcript_completed(t_path) or is_tw_done, is_paused_global, age, stale_threshold, dead_threshold)
+            tail_parked, tail_completed = _is_swarm_or_workflow_tail_state(t_path)
+            is_exp_parked = is_exp_parked or tail_parked
+            is_comp = _is_transcript_completed(t_path) or is_tw_done or tail_completed
+            state = _classify_liveness_state(is_exp_parked, is_comp, is_paused_global, age, stale_threshold, dead_threshold)
             seen_ids.update((conv_id_str, item.name))
             statuses.append(SubagentLivenessStatus(conv_id_str, role, iso_ts or _format_epoch_to_iso(last_ts), age, state, prog_path, state == "PARKED"))
 
@@ -312,4 +502,11 @@ def probe_subagent_liveness(
     return statuses
 
 
-__all__ = ["SubagentLivenessStatus", "_is_transcript_completed", "is_conversation_completed", "probe_subagent_liveness"]
+__all__ = [
+    "SubagentLivenessStatus",
+    "_is_transcript_completed",
+    "get_app_data_dir",
+    "is_conversation_completed",
+    "probe_subagent_liveness",
+    "resolve_active_root_conversation_id",
+]

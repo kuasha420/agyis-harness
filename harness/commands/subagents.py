@@ -228,7 +228,8 @@ def cmd_subagents(args: argparse.Namespace) -> int:
         if show_all:
             print(f"Agyis Subagent Liveness (All Sessions: {len(liveness_statuses)} subagents):")
         else:
-            resolved_id = get_active_conversation_id(conv_id)
+            from harness.subagents.liveness import resolve_active_root_conversation_id
+            resolved_id = conv_id or resolve_active_root_conversation_id(brain_dir=b_dir)
             if resolved_id:
                 print(f"Agyis Subagent Liveness (Session: {resolved_id[:12]}, {len(liveness_statuses)} active delegates):")
             else:
@@ -247,7 +248,8 @@ def cmd_subagents(args: argparse.Namespace) -> int:
         heartbeat = None
 
     brain_dir = getattr(args, "brain_dir", None)
-    statuses = list_active_subagent_statuses(brain_dir=brain_dir)
+    conv_id = getattr(args, "conv_id", None) or getattr(args, "session", None)
+    statuses = list_active_subagent_statuses(brain_dir=brain_dir, root_conv_id=conv_id)
 
     is_active = bool(
         heartbeat

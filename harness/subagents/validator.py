@@ -65,14 +65,26 @@ def validate_agent_spec(file_path: Path | str) -> List[str]:
             valid_archs = [a.value for a in AgentArchetype]
             errors.append(f"Invalid archetype '{raw_arch}'. Expected one of: {valid_archs}")
 
-    # Validate inheritCustomizations
-    for key in ("inheritCustomizations", "inherit_customizations"):
+    # Validate inheritCustomizations & inheritMcp
+    for key in ("inheritCustomizations", "inherit_customizations", "inheritMcp", "inherit_mcp"):
         if key in fm:
             val = fm[key]
             if not isinstance(val, bool) and not (
                 isinstance(val, str) and val.strip().lower() in ("true", "false")
             ):
                 errors.append(f"Field '{key}' must be a boolean (true or false)")
+
+    for key in ("mcpServers", "mcp_servers"):
+        if key in fm:
+            raw_top_servers = fm[key]
+            if isinstance(raw_top_servers, (list, tuple)):
+                for item in raw_top_servers:
+                    if not isinstance(item, str) or not item.strip():
+                        errors.append(
+                            f"Invalid entry in {key}: expected non-empty string server name, got {item!r}"
+                        )
+            elif not isinstance(raw_top_servers, str):
+                errors.append(f"Field '{key}' must be a list of server names")
 
     # Validate permissions
     raw_perms = fm.get("permissions", {})
@@ -125,7 +137,7 @@ def validate_agent_spec(file_path: Path | str) -> List[str]:
 
     # Contradiction checks
     if not perms.write:
-        write_tools = [t for t in declared_tools if t in ("write_to_file", "replace_file_content", "edit_file")]
+        write_tools = [t for t in declared_tools if t in ("write_file", "edit_file", "write_to_file", "replace_file_content")]
         if write_tools:
             errors.append(
                 f"Contradiction: agent has 'write: false' in permissions, but declares file mutation tools: {write_tools}"
@@ -145,7 +157,7 @@ def validate_agent_spec(file_path: Path | str) -> List[str]:
             )
 
     if not perms.subagent:
-        sub_tools = [t for t in declared_tools if t in ("invoke_subagent", "manage_subagents", "define_subagent")]
+        sub_tools = [t for t in declared_tools if t in ("invoke_subagent", "manage_subagents", "define_subagent", "swarm", "run_workflow")]
         if sub_tools:
             errors.append(
                 f"Contradiction: agent has 'subagent: false' in permissions, but declares subagent tools: {sub_tools}"
@@ -163,8 +175,6 @@ def validate_agent_spec(file_path: Path | str) -> List[str]:
             errors.append(
                 "System prompt must declare 'Zero-Exploration Invariant' or 'Targeted Macro & Deduplication Sweep Invariant'"
             )
-        if "list_dir" not in prompt or "find_by_name" not in prompt:
-            errors.append("System prompt exploration invariant must explicitly reference 'list_dir' and 'find_by_name'")
 
         if raw_arch in ("investigator", "rca", "root_cause_analyst") or name == "agyis_investigator":
             if "Tool-Native Reverse Engineering Invariant" not in prompt:

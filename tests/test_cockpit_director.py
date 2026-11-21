@@ -291,5 +291,35 @@ class TestCockpitBenchmark(unittest.TestCase):
         self.assertLess(elapsed, 0.20, f"Benchmark latency exceeded SLA: {elapsed:.4f}s >= 0.20s")
 
 
+class TestCockpitCheckpointScoping(unittest.TestCase):
+    """Regression tests for DRIFT-P1-14: checkpoint scoping and freshness in cockpit verify."""
+
+    def test_cockpit_verify_rejects_stale_unscoped_checkpoint(self) -> None:
+        import os
+        import time as _time
+        from harness.commands.cockpit import _audit_flight_director_invariants
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            cp_dir = ws / ".agents" / "artifacts" / "checkpoints"
+            cp_dir.mkdir(parents=True, exist_ok=True)
+            stale_cp = cp_dir / "unrelated-session-uuid.md"
+            stale_cp.write_text("# Old Checkpoint", encoding="utf-8")
+            old_ts = _time.time() - 90000
+            os.utime(stale_cp, (old_ts, old_ts))
+
+            with patch.dict(os.environ, {"ANTIGRAVITY_CONVERSATION_ID": "active-session-uuid"}):
+                _, results = _audit_flight_director_invariants(ws, allow_dirty=True)
+                inv4 = next(r for r in results if r["invariant"] == "Active Checkpoint Availability")
+                self.assertFalse(inv4["passed"])
+
+                # Now write fresh session-scoped checkpoint
+                fresh_cp = cp_dir / "active-session-uuid.md"
+                fresh_cp.write_text("# Fresh Checkpoint", encoding="utf-8")
+                _, results2 = _audit_flight_director_invariants(ws, allow_dirty=True)
+                inv4_2 = next(r for r in results2 if r["invariant"] == "Active Checkpoint Availability")
+                self.assertTrue(inv4_2["passed"])
+
+
 if __name__ == "__main__":
     unittest.main()

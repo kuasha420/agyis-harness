@@ -198,18 +198,45 @@ def list_active_subagent_statuses(
     if not b_dir.is_dir():
         return []
 
-    eff_parent = (
-        root_conv_id
-        if brain_dir is not None
-        else (root_conv_id or get_active_conversation_id())
-    )
+    if root_conv_id:
+        eff_parent: Optional[str] = root_conv_id
+    elif brain_dir is not None:
+        eff_parent = None
+    else:
+        from harness.subagents.liveness import resolve_active_root_conversation_id
+        eff_parent = resolve_active_root_conversation_id(brain_dir=b_dir)
+
     if eff_parent:
-        return discover_active_subagents(
+        discovered = discover_active_subagents(
             parent_cid=eff_parent,
             brain_dir=b_dir,
             db_dir=db_dir,
             include_completed=include_completed,
         )
+        from harness.subagents.liveness import (
+            _discover_active_session_subagents,
+            _is_swarm_or_workflow_tail_state,
+        )
+        child_tokens = _discover_active_session_subagents(b_dir, eff_parent)
+        seen_cids = {s.conversation_id for s in discovered}
+        for tok in sorted(child_tokens):
+            if tok in seen_cids or tok == eff_parent:
+                continue
+            cand_dir = b_dir / tok
+            if not cand_dir.is_dir():
+                continue
+            t_path, _ = find_transcript_path(cand_dir, brain_dir=b_dir)
+            if t_path is None:
+                continue
+            if not include_completed:
+                _, tail_comp = _is_swarm_or_workflow_tail_state(t_path)
+                if tail_comp or is_transcript_completed(t_path):
+                    continue
+            st = estimate_subagent_context(t_path, db_dir=db_dir)
+            if st.conversation_id not in seen_cids:
+                seen_cids.add(st.conversation_id)
+                discovered.append(st)
+        return discovered
 
     if brain_dir is None:
         return []

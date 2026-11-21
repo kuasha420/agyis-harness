@@ -57,24 +57,40 @@ def _classify_token_horizon(tokens: int, max_context_tokens: int = 256_000) -> T
         return "RED_ALERT", f"🔴 Compaction Imminent (>={red_k}k tokens)"
 
 
-def _get_active_checkpoint_info(workspace: Path) -> Dict[str, Any]:
-    """Inspects CID-scoped checkpoint under .agents/artifacts/checkpoints/ with legacy fallback."""
-    conv_id = get_active_conversation_id()
+def _get_active_checkpoint_info(
+    workspace: Path, conv_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Inspects CID-scoped checkpoint under .agents/artifacts/checkpoints/ with explicit freshness & session scope."""
+    if conv_id is None:
+        from harness.subagents.liveness import resolve_active_root_conversation_id
+        conv_id = resolve_active_root_conversation_id()
+
     cp_dir = workspace / ".agents" / "artifacts" / "checkpoints"
-    candidates: List[Path] = []
+    scoped_candidates: List[Path] = []
     if conv_id:
-        candidates.append(cp_dir / f"{conv_id}.md")
-    candidates.append(cp_dir / "session.md")
-    if cp_dir.is_dir():
-        candidates.extend(sorted((p for p in cp_dir.glob("*.md") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True))
-    candidates.extend([workspace / ".agents" / "artifacts" / "cockpit_checkpoint.md", workspace / ".agents" / "artifacts" / "compaction_checkpoint_latest.md"])
-    target_cp = next((c for c in candidates if c.exists()), candidates[0])
-    if not target_cp.exists():
+        scoped_candidates.append(cp_dir / f"{conv_id}.md")
+    scoped_candidates.extend([
+        cp_dir / "session.md",
+        workspace / ".agents" / "artifacts" / "cockpit_checkpoint.md",
+        workspace / ".agents" / "artifacts" / "compaction_checkpoint_latest.md",
+    ])
+
+    target_cp = next((c for c in scoped_candidates if c.exists()), None)
+    scoped_to_session = target_cp is not None
+    if target_cp is None and cp_dir.is_dir():
+        other_cps = sorted((p for p in cp_dir.glob("*.md") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
+        if other_cps:
+            target_cp = other_cps[0]
+            scoped_to_session = conv_id is None
+
+    if target_cp is None:
+        target_cp = scoped_candidates[0]
         return {
             "exists": False,
             "path": str(target_cp),
             "age_seconds": None,
             "is_fresh": False,
+            "scoped_to_session": False,
         }
 
     try:
@@ -85,6 +101,7 @@ def _get_active_checkpoint_info(workspace: Path) -> Dict[str, Any]:
             "path": str(target_cp),
             "age_seconds": round(age_s, 1),
             "is_fresh": age_s <= 3600.0,  # fresh within 60 mins
+            "scoped_to_session": scoped_to_session,
         }
     except Exception:
         return {
@@ -92,6 +109,7 @@ def _get_active_checkpoint_info(workspace: Path) -> Dict[str, Any]:
             "path": str(target_cp),
             "age_seconds": None,
             "is_fresh": False,
+            "scoped_to_session": False,
         }
 
 
@@ -184,26 +202,45 @@ def _audit_flight_director_invariants(
         "violations": orphaned_worktrees,
     })
 
-    # Invariant 4: Checkpoint availability
-    cp_info = _get_active_checkpoint_info(workspace)
-    inv4_passed = cp_info["exists"]
+    # Invariant 4: Checkpoint availability & freshness
+    from harness.subagents.liveness import (
+        get_app_data_dir,
+        is_conversation_completed,
+        probe_subagent_liveness,
+        resolve_active_root_conversation_id,
+    )
+
+    active_conv = resolve_active_root_conversation_id()
+    cp_info = _get_active_checkpoint_info(workspace, conv_id=active_conv)
+    inv4_passed = bool(
+        cp_info.get("exists")
+        and cp_info.get("is_fresh")
+        and cp_info.get("scoped_to_session", True)
+    )
+    cp_details = (
+        f"Age: {cp_info.get('age_seconds')}s"
+        if inv4_passed
+        else (
+            f"Stale/Unscoped ({cp_info.get('age_seconds')}s)"
+            if cp_info.get("exists")
+            else "Missing checkpoint"
+        )
+    )
     # Checkpoint missing is an advisory warning unless strict
     results.append({
         "invariant": "Active Checkpoint Availability",
-        "description": "Compaction checkpoint must be present in .agents/artifacts/.",
+        "description": "Fresh, session-scoped compaction checkpoint must be present in .agents/artifacts/checkpoints/.",
         "passed": inv4_passed,
-        "details": f"Age: {cp_info.get('age_seconds')}s" if inv4_passed else "Missing checkpoint",
+        "details": cp_details,
         "violations": [] if inv4_passed else [cp_info["path"]],
     })
 
     # Invariant 5: Subagent health and continuity liveness & transition truth
-    active_conv = get_active_conversation_id()
     brain_dir = get_active_brain_dir()
     if active_conv and not (brain_dir / active_conv).is_dir():
         active_conv = None
 
     raw_subagents = collect_active_subagents(workspace)
-    from harness.subagents.liveness import is_conversation_completed, probe_subagent_liveness
 
     subagents = []
     for s in raw_subagents:
@@ -228,16 +265,20 @@ def _audit_flight_director_invariants(
 
     truth_violations: list[str] = []
     teamwork_dir = workspace / ".agents" / "teamwork"
+    app_teamwork_dir = get_app_data_dir() / "teamwork"
     has_teamwork_subagents = False
-    if teamwork_dir.is_dir():
-        try:
-            for child in teamwork_dir.iterdir():
-                if child.is_dir() and not child.name.startswith("."):
-                    if any(p.is_file() for p in child.rglob("*")):
-                        has_teamwork_subagents = True
-                        break
-        except Exception:
-            pass
+    for tw_root in (teamwork_dir, app_teamwork_dir):
+        if tw_root.is_dir():
+            try:
+                for child in tw_root.iterdir():
+                    if child.is_dir() and not child.name.startswith("."):
+                        if any(p.is_file() for p in child.rglob("*")):
+                            has_teamwork_subagents = True
+                            break
+            except Exception:
+                pass
+        if has_teamwork_subagents:
+            break
 
     if not has_teamwork_subagents:
         transition_candidates = [
@@ -342,6 +383,7 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
         max_ctx = 256_000
         has_explicit_max = False
         scaled_fn = None
+        conv_id: Optional[str] = None
         try:
             from harness.hooks.token_proximity_guard import (
                 get_active_conversation_context_window,
@@ -349,13 +391,9 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
                 get_conversations_dir,
                 get_scaled_thresholds,
             )
+            from harness.subagents.liveness import resolve_active_root_conversation_id
             scaled_fn = get_scaled_thresholds
-            conv_id = (
-                os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
-                or os.environ.get("CONVERSATION_ID")
-                or os.environ.get("AGYIS_CONVERSATION_ID")
-                or get_active_conversation_id()
-            )
+            conv_id = resolve_active_root_conversation_id()
             if not conv_id:
                 conv_dir = get_conversations_dir()
                 if conv_dir.is_dir():
@@ -393,8 +431,14 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
         git_state = inspect_git_state(workspace)
         subagents = collect_active_subagents(workspace)
         stage_role = read_stage_role(workspace)
-        plan_path = find_active_plan(workspace_root=workspace)
-        cp_info = _get_active_checkpoint_info(workspace)
+        plan_path: Optional[Path] = None
+        if conv_id:
+            cid_plan = get_active_brain_dir() / conv_id / "implementation_plan.md"
+            if cid_plan.is_file():
+                plan_path = cid_plan
+        if plan_path is None:
+            plan_path = find_active_plan(workspace_root=workspace)
+        cp_info = _get_active_checkpoint_info(workspace, conv_id=conv_id)
 
         data: Dict[str, Any] = {
             "status": "ok",

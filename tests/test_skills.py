@@ -1374,6 +1374,47 @@ class TestSkillsHardening(unittest.TestCase):
                 f"{skill_md.parent.name}/SKILL.md ToC is missing top-level sections: {missing_sections}",
             )
 
+    def test_multi_tier_skill_discovery_and_v234_frontmatter(self) -> None:
+        """list_skills(include_external=True) discovers workspace/user/plugin/builtin tiers and v2.34.0 flags."""
+        from harness.skills import list_skills
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ws = root / "ws"
+            cfg = root / "cfg"
+            app = root / "app"
+            (ws / ".agents" / "skills" / "ws-skill").mkdir(parents=True)
+            (ws / ".agents" / "skills" / "ws-skill" / "SKILL.md").write_text(
+                "---\nname: ws-skill\ndescription: Workspace skill\ndisable-slash-command: true\n---\nBody\n",
+                encoding="utf-8",
+            )
+            (cfg / "skills" / "user-skill").mkdir(parents=True)
+            (cfg / "skills" / "user-skill" / "SKILL.md").write_text(
+                "---\nname: user-skill\ndescription: User skill\n---\nBody\n",
+                encoding="utf-8",
+            )
+            (app / "builtin" / "skills" / "native-swarm").mkdir(parents=True)
+            (app / "builtin" / "skills" / "native-swarm" / "SKILL.md").write_text(
+                "---\nname: native-swarm\ndescription: Builtin swarm skill\ndisable-model-invocation: true\n---\nBody\n",
+                encoding="utf-8",
+            )
+
+            discovered = list_skills(
+                include_external=True,
+                workspace_root=ws,
+                config_dir=cfg,
+                app_data_dir=app,
+            )
+            by_name = {s.name: s for s in discovered}
+            self.assertIn("ws-skill", by_name)
+            self.assertTrue(by_name["ws-skill"].disable_slash_command)
+            self.assertEqual(by_name["ws-skill"].tier, "workspace")
+            self.assertIn("user-skill", by_name)
+            self.assertEqual(by_name["user-skill"].tier, "user")
+            self.assertIn("native-swarm", by_name)
+            self.assertTrue(by_name["native-swarm"].disable_model_invocation)
+            self.assertEqual(by_name["native-swarm"].tier, "builtin")
+
 
 if __name__ == "__main__":
     unittest.main()
