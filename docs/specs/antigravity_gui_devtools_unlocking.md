@@ -96,3 +96,27 @@ These mechanisms are shipped in `agyis-harness` via `agyis gui` (`harness/cli.py
 - `agyis gui --devtools`: Reads `~/.config/Antigravity/DevToolsActivePort` and emits CDP targets and `chrome://inspect` URIs.
 - `agyis gui --trajectory-debug` / `--toggle` / `--no-popup`: Injects `jetski.developer.customFlagOverrides` and hotkeys over live CDP WebSocket without modifying binary files.
 - `agyis gui --hud` / `--hud-remove` / `--server` / `--service`: Deploys and manages the live SPA-route-synchronized Trajectory Token HUD overlay and background trajectory API (`--server-port 40624`).
+
+---
+
+## 5. v2.34.0 Upgrade Delta & Empirical Evidence (`2026-11-21`)
+
+Upgrading from Antigravity Desktop `v2.32.1-1` to `v2.34.0-1` (Electron `44.9.1`) introduced three verified behavioral shifts relative to the `v2.19.1`–`v2.32.1` baseline:
+
+1. **Opt-In CDP & Active `DevToolsActivePort` Deletion (`dist/main.js`, `dist/paths.js`, `dist/languageServer.js`):**
+   - `v2.32.1` `dist/main.js:133–135` unconditionally called `app.commandLine.appendSwitch('remote-debugging-port', '0')`.
+   - `v2.34.0` `dist/main.js` removed the unconditional switch. When `--remote-debugging-port` is absent on CLI, `dist/main.js:372–375` calls `removeStaleActivePortFile(activePortFile)`, deleting `~/.config/Antigravity/DevToolsActivePort`, and `dist/languageServer.js:282–289` withholds `AGY_BROWSER_ACTIVE_PORT_FILE`.
+   - `/usr/bin/antigravity` is a direct symlink to the `/opt/Antigravity/antigravity` ELF binary (not a `*-flags.conf` shell wrapper), `/usr/share/applications/antigravity.desktop` runs `Exec=/usr/bin/antigravity %U`, and `dist/main.js:83–87` enforces `app.requestSingleInstanceLock()`, so normal desktop launches emit no CDP port and block secondary `--remote-debugging-port` launches until restarted.
+2. **Ephemeral `#t=<bootstrapToken>` Auth Bootstrap (`dist/authBootstrap.js`, `language_server`, `main.js`):**
+   - `language_server` now runs with `AGY_REQUIRE_AUTHENTICATED_UI_BOOTSTRAP=1` (`dist/languageServer.js:278`) and serves `window.__APP_CONFIG__.csrfToken = ""` in `index.html`; unauthenticated ConnectRPC calls return HTTP `401` (`missing CSRF token`).
+   - `dist/authBootstrap.js` mints a single-use `#t=` token via `POST /auth/mint`, which `main.js` exchanges via `POST /auth` for `sessionToken` and stores in both `window.__APP_CONFIG__.csrfToken` and `localStorage["agy_session_csrf_token"]`.
+3. **Native Trajectory Debug View Trigger Change (`main.js` web bundle):**
+   - The `?trajectoryDebugOpen=true` query parameter is absent (`0` matches in `v2.34.0` `main.js`). `conversationView.openTrajectoryDebugView` now gates on both `trajectoryDebugTools` and `customSidePanels?.has("trajectoryDebug")` and opens a `customView` (`customPaneKey: "trajectoryDebug"`).
+
+| Evidence ID | Component / Target | Subject / Digest / Location | Verified Value / Finding |
+|---|---|---|---|
+| `EV-20261121-01` | Host Shell (`v2.34.0` `app.asar`) | `sha256:8934adef...` (`dist/main.js:372–376`) | Unconditional `--remote-debugging-port=0` removed; `removeStaleActivePortFile` deletes `DevToolsActivePort` when flag absent |
+| `EV-20261121-02` | Language Server Spawn (`v2.34.0` `app.asar`) | `dist/languageServer.js:278,282–289` | `AGY_REQUIRE_AUTHENTICATED_UI_BOOTSTRAP=1` set; `AGY_BROWSER_ACTIVE_PORT_FILE` passed only if `--remote-debugging-port` is present |
+| `EV-20261121-03` | Live Binary & Launcher (`2.34.0-1`) | `/opt/Antigravity/antigravity` (`sha256:3ba9114b...`), `PID 19680` | ELF fuses have `EnableNodeCliInspectArguments=enabled`; live cmdline `/opt/Antigravity/antigravity` lacks `--remote-debugging-port` |
+| `EV-20261121-04` | Language Server HTTP/RPC (`v2.34.0`) | `/opt/Antigravity/resources/bin/language_server` (`sha256:0a044fa3...`) | `GET /` serves `csrfToken: ""`; unauthenticated `Heartbeat`/`GetCascadeTrajectory` return HTTP `401`; `main.js` exchanges `#t=` via `POST /auth` into `window.__APP_CONFIG__.csrfToken` and `localStorage["agy_session_csrf_token"]` |
+| `EV-20261121-05` | React Frontend (`v2.34.0` `main.js`) | `https://127.0.0.1:40729/main.js` | `0` matches for `trajectoryDebugOpen`; `conversationView.openTrajectoryDebugView` requires `trajectoryDebugTools` + `customSidePanels.has("trajectoryDebug")` |
