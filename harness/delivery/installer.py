@@ -62,21 +62,43 @@ class PluginInstaller:
         else:
             self.default_target_dir = DEFAULT_PLUGIN_DIR
 
+        env_config_dir = os.environ.get("AGYIS_CONFIG_DIR") or os.environ.get("PSL_CONFIG_DIR")
         if config_dir is not None:
-            self.config_dir = Path(config_dir).resolve()
-        elif self.default_target_dir.parent.name == "plugins":
-            self.config_dir = self.default_target_dir.parent.parent.resolve()
+            self.config_dir = Path(config_dir).expanduser().resolve()
+            self._config_dir_explicit = True
+        elif env_config_dir and env_config_dir.strip():
+            self.config_dir = Path(env_config_dir.strip()).expanduser().resolve()
+            self._config_dir_explicit = True
+        elif default_target_dir is not None or (
+            "AGYIS_PLUGINS_DIR" in os.environ or "PSL_PLUGINS_DIR" in os.environ
+        ):
+            if self.default_target_dir.parent.name == "plugins":
+                self.config_dir = self.default_target_dir.parent.parent.resolve()
+            else:
+                self.config_dir = (self.default_target_dir.parent / "config").resolve()
+            self._config_dir_explicit = False
         else:
             self.config_dir = (Path.home() / ".gemini" / "config").resolve()
+            self._config_dir_explicit = False
 
+        env_surfaces = os.environ.get("AGYIS_SURFACES")
         if surfaces is not None:
-            self.surfaces = [Path(s).resolve() for s in surfaces]
+            self.surfaces = [Path(s).expanduser().resolve() for s in surfaces]
+            self._surfaces_explicit = True
+        elif env_surfaces and env_surfaces.strip():
+            self.surfaces = [
+                Path(p).expanduser().resolve()
+                for p in env_surfaces.split(os.pathsep)
+                if p.strip()
+            ]
+            self._surfaces_explicit = True
         else:
             base_gemini = self.config_dir.parent
             self.surfaces = [
                 (base_gemini / name).resolve()
                 for name in DEFAULT_SURFACE_NAMES
             ]
+            self._surfaces_explicit = False
 
         if bin_dir is not None:
             self.bin_dir = Path(bin_dir).resolve()
@@ -203,28 +225,104 @@ class PluginInstaller:
                 except OSError:
                     pass
 
-    def _enable_in_config(self, plugin_name: str = "agyis-harness") -> None:
-        """Ensures plugin is marked enabled in global ~/.gemini/config/config.json."""
-        config_path = Path.home() / ".gemini" / "config" / "config.json"
+    def _effective_config_dir(self, target: Path) -> Path:
+        """Resolves config_dir for a target, isolating custom targets from live ~/.gemini/config."""
+        if self._config_dir_explicit:
+            return self.config_dir
+        resolved_target = target.resolve()
+        live_plugins = (Path.home() / ".gemini" / "config" / "plugins").resolve()
+        if resolved_target != DEFAULT_PLUGIN_DIR.resolve() and resolved_target.parent != live_plugins:
+            if resolved_target.parent.name == "plugins":
+                return resolved_target.parent.parent.resolve()
+            return (resolved_target.parent / "config").resolve()
+        return self.config_dir
+
+    def _effective_surfaces(self, eff_config: Path) -> List[Path]:
+        """Resolves surfaces for an effective config_dir, avoiding live surfaces for custom targets."""
+        if self._surfaces_explicit:
+            return self.surfaces
+        base_gemini = eff_config.parent
+        return [(base_gemini / name).resolve() for name in DEFAULT_SURFACE_NAMES]
+
+    @staticmethod
+    def _write_json_atomic(config_path: Path, data: Dict[str, Any]) -> None:
+        """Atomically writes JSON config with 0o600 permissions via temp-file + os.replace."""
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(data, indent=2) + "\n"
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{config_path.name}.", suffix=".tmp", dir=str(config_path.parent)
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                os.fchmod(fh.fileno(), 0o600)
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_name, config_path)
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+
+    def _enable_in_config(
+        self,
+        plugin_name: str = "agyis-harness",
+        config_dir: Optional[Path] = None,
+    ) -> None:
+        """Ensures plugin is marked enabled in config_dir/config.json, preserving sibling keys."""
+        config_path = (config_dir or self.config_dir) / "config.json"
         try:
             data: Dict[str, Any] = {}
             if config_path.is_file():
                 data = json.loads(config_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                data = {}
             if "plugins" not in data or not isinstance(data["plugins"], dict):
                 data["plugins"] = {}
-            data["plugins"][plugin_name] = {"enabled": True}
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            existing_entry = data["plugins"].get(plugin_name)
+            if isinstance(existing_entry, dict):
+                entry = dict(existing_entry)
+                entry["enabled"] = True
+            else:
+                entry = {"enabled": True}
+            data["plugins"][plugin_name] = entry
+            self._write_json_atomic(config_path, data)
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    def _remove_from_config(
+        self,
+        plugin_name: str = "agyis-harness",
+        config_dir: Optional[Path] = None,
+    ) -> None:
+        """Removes plugin entry from config_dir/config.json atomically if present."""
+        config_path = (config_dir or self.config_dir) / "config.json"
+        if not config_path.is_file():
+            return
+        try:
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return
+            plugins = data.get("plugins")
+            if not isinstance(plugins, dict) or plugin_name not in plugins:
+                return
+            del plugins[plugin_name]
+            self._write_json_atomic(config_path, data)
         except (OSError, json.JSONDecodeError):
             pass
 
     def _enforce_single_source_agents(
-        self, target: Path, dry_run: bool = False
+        self,
+        target: Path,
+        dry_run: bool = False,
+        config_dir: Optional[Path] = None,
     ) -> List[str]:
         """Enforces single-source agent delivery (Issue #30)."""
         plugin_agents_dir = self._find_distributable_item("agents")
         return enforce_single_source_agents_impl(
-            plugin_agents_dir, self.config_dir, target, self.source_dir, dry_run=dry_run
+            plugin_agents_dir, config_dir or self.config_dir, target, self.source_dir, dry_run=dry_run
         )
 
     def _enforce_single_source_skills(
@@ -232,11 +330,12 @@ class PluginInstaller:
         target: Path,
         dry_run: bool = False,
         workspace_dir: Optional[Path] = None,
+        config_dir: Optional[Path] = None,
     ) -> List[str]:
         """Enforces single-source skill delivery (Issue #52)."""
         plugin_skills_dir = self._find_distributable_item("skills")
         return enforce_single_source_skills_impl(
-            config_dir=self.config_dir,
+            config_dir=config_dir or self.config_dir,
             workspace_dir=workspace_dir,
             dry_run=dry_run,
             plugin_skills_dir=plugin_skills_dir,
@@ -277,17 +376,25 @@ class PluginInstaller:
         """
         target = Path(target_dir) if target_dir is not None else self.default_target_dir
         self._verify_path_safety(target)
+        eff_config = self._effective_config_dir(target)
+        eff_surfaces = self._effective_surfaces(eff_config)
 
         # Enforce single-source agent delivery (Issue #30)
-        duplicates_removed = self._enforce_single_source_agents(target, dry_run=dry_run)
+        duplicates_removed = self._enforce_single_source_agents(
+            target, dry_run=dry_run, config_dir=eff_config
+        )
 
         # Enforce single-source skill delivery (Issue #52)
-        duplicates_removed.extend(self._enforce_single_source_skills(target, dry_run=dry_run))
+        duplicates_removed.extend(
+            self._enforce_single_source_skills(target, dry_run=dry_run, config_dir=eff_config)
+        )
 
         # Multi-surface sync if requested (Issues #29 & #23)
         surfaces_synced: List[Dict[str, Any]] = []
         if all_surfaces:
-            surfaces_synced = self.sync_surfaces(dry_run=dry_run)
+            surfaces_synced = self.sync_surfaces(
+                surfaces=eff_surfaces, config_dir=eff_config, dry_run=dry_run
+            )
 
         # Clean up legacy plugin directory if migrating to agyis-harness
         if target.name == "agyis-harness":
@@ -339,7 +446,7 @@ class PluginInstaller:
                 try:
                     if target.resolve() == self.source_dir.resolve():
                         self._install_bin(target)
-                        self._enable_in_config(target.name)
+                        self._enable_in_config(target.name, config_dir=eff_config)
                         return DeliveryResult(
                             success=True,
                             mode=DeliveryMode.SYMLINK.value,
@@ -362,7 +469,7 @@ class PluginInstaller:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.symlink_to(self.source_dir.resolve())
             self._install_bin(target)
-            self._enable_in_config(target.name)
+            self._enable_in_config(target.name, config_dir=eff_config)
 
             return DeliveryResult(
                 success=True,
@@ -385,7 +492,7 @@ class PluginInstaller:
             )
 
             self._install_bin(target)
-            self._enable_in_config(target.name)
+            self._enable_in_config(target.name, config_dir=eff_config)
 
             return DeliveryResult(
                 success=True,
@@ -427,7 +534,7 @@ class PluginInstaller:
             installed_items.append("harness")
 
             self._install_bin(target)
-            self._enable_in_config(target.name)
+            self._enable_in_config(target.name, config_dir=eff_config)
 
             return DeliveryResult(
                 success=True,
@@ -456,8 +563,11 @@ class PluginInstaller:
         """
         target = Path(target_dir) if target_dir is not None else self.default_target_dir
         self._verify_path_safety(target)
+        eff_config = self._effective_config_dir(target)
+        eff_surfaces = self._effective_surfaces(eff_config)
 
         if not dry_run:
+            self._remove_from_config(target.name, config_dir=eff_config)
             targets_to_unlink = (
                 [self.bin_dir / "agyis", self.bin_dir / "psl"]
                 + [d / "agyis" for d in self.aux_bin_dirs]
@@ -484,14 +594,14 @@ class PluginInstaller:
 
         # Clean up surface symlinks (Issues #29 & #23)
         if clean_surfaces:
-            for surface in self.surfaces:
+            for surface in eff_surfaces:
                 if not surface.exists():
                     continue
                 for item in SYNC_SURFACE_ITEMS:
                     surface_item = surface / item
                     if surface_item.is_symlink():
                         should_unlink = False
-                        canon = (self.config_dir / item).resolve()
+                        canon = (eff_config / item).resolve()
                         try:
                             if surface_item.resolve() == canon:
                                 should_unlink = True
@@ -505,7 +615,7 @@ class PluginInstaller:
                                     if not Path(raw_target).is_absolute()
                                     else Path(raw_target).resolve()
                                 )
-                                if raw_resolved == canon or str(self.config_dir) in raw_target:
+                                if raw_resolved == canon or str(eff_config) in raw_target:
                                     should_unlink = True
                             except OSError:
                                 pass

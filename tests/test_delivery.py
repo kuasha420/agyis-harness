@@ -63,27 +63,46 @@ class TestPluginDelivery(unittest.TestCase):
         self.bin_dir = self.isolated_base / "bin"
         self.aux_bin_1 = self.isolated_base / "gemini" / "antigravity" / "bin"
         self.aux_bin_2 = self.isolated_base / "gemini" / "antigravity-cli" / "bin"
+        self.config_dir = self.isolated_base / "gemini" / "config"
+        self.surfaces = [
+            self.isolated_base / "gemini" / "antigravity",
+            self.isolated_base / "gemini" / "antigravity-cli",
+            self.isolated_base / "gemini" / "antigravity-ide",
+        ]
         self.orig_bin_dir = os.environ.get("PSL_BIN_DIR")
         os.environ["PSL_BIN_DIR"] = str(self.bin_dir)
         self.orig_aux_bin_dirs = os.environ.get("PSL_AUX_BIN_DIRS")
         os.environ["PSL_AUX_BIN_DIRS"] = f"{self.aux_bin_1}:{self.aux_bin_2}"
+        self.orig_agyis_config_dir = os.environ.get("AGYIS_CONFIG_DIR")
+        os.environ["AGYIS_CONFIG_DIR"] = str(self.config_dir)
+        self.orig_psl_config_dir = os.environ.get("PSL_CONFIG_DIR")
+        os.environ["PSL_CONFIG_DIR"] = str(self.config_dir)
+        self.orig_agyis_surfaces = os.environ.get("AGYIS_SURFACES")
+        os.environ["AGYIS_SURFACES"] = os.pathsep.join(str(s) for s in self.surfaces)
 
     def tearDown(self) -> None:
-        if self.orig_bin_dir is not None:
-            os.environ["PSL_BIN_DIR"] = self.orig_bin_dir
-        else:
-            os.environ.pop("PSL_BIN_DIR", None)
-
-        if self.orig_aux_bin_dirs is not None:
-            os.environ["PSL_AUX_BIN_DIRS"] = self.orig_aux_bin_dirs
-        else:
-            os.environ.pop("PSL_AUX_BIN_DIRS", None)
+        for key, orig in (
+            ("PSL_BIN_DIR", self.orig_bin_dir),
+            ("PSL_AUX_BIN_DIRS", self.orig_aux_bin_dirs),
+            ("AGYIS_CONFIG_DIR", self.orig_agyis_config_dir),
+            ("PSL_CONFIG_DIR", self.orig_psl_config_dir),
+            ("AGYIS_SURFACES", self.orig_agyis_surfaces),
+        ):
+            if orig is not None:
+                os.environ[key] = orig
+            else:
+                os.environ.pop(key, None)
 
         self.temp_dir.cleanup()
 
     def test_symlink_installation_and_validation(self) -> None:
         """Symlink installation creates valid link to source and passes is_installed."""
-        installer = PluginInstaller(source_dir=REPO_ROOT, default_target_dir=self.target_dir)
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            config_dir=self.config_dir,
+            surfaces=self.surfaces,
+        )
 
         result = installer.install(mode=DeliveryMode.SYMLINK)
         self.assertTrue(result.success)
@@ -106,7 +125,12 @@ class TestPluginDelivery(unittest.TestCase):
 
     def test_copy_installation_and_file_integrity(self) -> None:
         """Copy installation packages distributable files and passes integrity checks."""
-        installer = PluginInstaller(source_dir=REPO_ROOT, default_target_dir=self.target_dir)
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            config_dir=self.config_dir,
+            surfaces=self.surfaces,
+        )
 
         result = installer.install(mode=DeliveryMode.COPY)
         self.assertTrue(result.success)
@@ -218,7 +242,12 @@ class TestPluginDelivery(unittest.TestCase):
 
     def test_dry_run_mode(self) -> None:
         """Dry-run mode does not mutate disk for install or uninstall."""
-        installer = PluginInstaller(source_dir=REPO_ROOT, default_target_dir=self.target_dir)
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            config_dir=self.config_dir,
+            surfaces=self.surfaces,
+        )
 
         # 1. Install dry-run
         res_inst = installer.install(mode=DeliveryMode.COPY, dry_run=True)
@@ -237,7 +266,12 @@ class TestPluginDelivery(unittest.TestCase):
 
     def test_idempotent_reinstallation(self) -> None:
         """Repeated install calls overwrite cleanly and succeed idempotently."""
-        installer = PluginInstaller(source_dir=REPO_ROOT, default_target_dir=self.target_dir)
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            config_dir=self.config_dir,
+            surfaces=self.surfaces,
+        )
 
         # Symlink then symlink
         r1 = installer.install(mode=DeliveryMode.SYMLINK)
@@ -259,7 +293,12 @@ class TestPluginDelivery(unittest.TestCase):
 
     def test_uninstall_symlink_and_copy(self) -> None:
         """Uninstall cleans destination without collateral damage to source repo."""
-        installer = PluginInstaller(source_dir=REPO_ROOT, default_target_dir=self.target_dir)
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            config_dir=self.config_dir,
+            surfaces=self.surfaces,
+        )
 
         # 1. Symlink uninstall
         installer.install(mode=DeliveryMode.SYMLINK)
@@ -287,7 +326,12 @@ class TestPluginDelivery(unittest.TestCase):
         with self.assertRaises(ValueError):
             PluginInstaller(source_dir=REPO_ROOT, default_target_dir=REPO_ROOT.parent)
 
-        installer = PluginInstaller(source_dir=REPO_ROOT, default_target_dir=self.target_dir)
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            config_dir=self.config_dir,
+            surfaces=self.surfaces,
+        )
         with self.assertRaises(ValueError):
             installer.install(target_dir=REPO_ROOT)
 
@@ -296,7 +340,12 @@ class TestPluginDelivery(unittest.TestCase):
 
     def test_product_vs_project_exclusions(self) -> None:
         """Project files (pipeline/, tests/, data/, docs/) are strictly excluded from package."""
-        installer = PluginInstaller(source_dir=REPO_ROOT, default_target_dir=self.target_dir)
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            config_dir=self.config_dir,
+            surfaces=self.surfaces,
+        )
         installer.install(mode=DeliveryMode.COPY)
 
         # Excluded directories must NOT exist in copied package
@@ -784,6 +833,123 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertFalse((surf / "agents").is_symlink())
         # Canonical config remains intact
         self.assertTrue((fake_cfg / "agents").is_dir())
+
+    def test_install_uninstall_never_mutates_live_home_config_or_surfaces(self) -> None:
+        """Installing/uninstalling to custom target_dir never touches live ~/.gemini/config/config.json or surfaces."""
+        fake_home = self.isolated_base / "fake_home"
+        live_cfg_dir = fake_home / ".gemini" / "config"
+        live_cfg_dir.mkdir(parents=True)
+        live_cfg_file = live_cfg_dir / "config.json"
+        original_payload = json.dumps(
+            {
+                "plugins": {
+                    "agyis-harness": {"enabled": True, "installedFrom": "live"},
+                }
+            },
+            indent=2,
+        ) + "\n"
+        live_cfg_file.write_text(original_payload, encoding="utf-8")
+
+        live_surface = fake_home / ".gemini" / "antigravity"
+        live_surface.mkdir(parents=True)
+        (live_cfg_dir / "skills").mkdir(parents=True)
+        (live_surface / "skills").symlink_to(live_cfg_dir / "skills")
+
+        custom_target_1 = self.isolated_base / "custom_1" / "agyis-harness"
+        custom_target_2 = self.isolated_base / "custom_2" / "agyis-harness"
+        env_clear = {
+            "AGYIS_CONFIG_DIR": "",
+            "PSL_CONFIG_DIR": "",
+            "AGYIS_SURFACES": "",
+            "AGYIS_PLUGINS_DIR": "",
+            "PSL_PLUGINS_DIR": "",
+        }
+        with patch.dict(os.environ, env_clear, clear=False):
+            for k in env_clear:
+                os.environ.pop(k, None)
+            with patch.object(Path, "home", return_value=fake_home):
+                installer_1 = PluginInstaller(
+                    source_dir=REPO_ROOT,
+                    default_target_dir=custom_target_1,
+                    bin_dir=self.bin_dir,
+                    aux_bin_dirs=[self.aux_bin_1],
+                )
+                self.assertNotEqual(installer_1.config_dir, live_cfg_dir.resolve())
+                self.assertNotIn(live_surface.resolve(), installer_1.surfaces)
+                installer_1.install(mode=DeliveryMode.COPY, all_surfaces=True)
+                installer_1.uninstall(clean_surfaces=True)
+
+                installer_2 = PluginInstaller(
+                    source_dir=REPO_ROOT,
+                    bin_dir=self.bin_dir,
+                    aux_bin_dirs=[self.aux_bin_1],
+                )
+                installer_2.install(mode=DeliveryMode.COPY, target_dir=custom_target_2, all_surfaces=True)
+                installer_2.uninstall(target_dir=custom_target_2, clean_surfaces=True)
+
+        self.assertEqual(live_cfg_file.read_text(encoding="utf-8"), original_payload)
+        self.assertTrue((live_surface / "skills").is_symlink())
+
+    def test_config_json_atomic_permissions_siblings_and_env_overrides(self) -> None:
+        """_enable_in_config and uninstall preserve sibling keys, enforce 0o600, and honor env overrides."""
+        import stat
+
+        env_cfg = self.isolated_base / "env_cfg"
+        env_surf_1 = self.isolated_base / "env_surf_1"
+        env_surf_2 = self.isolated_base / "env_surf_2"
+        env_plugin = env_cfg / "plugins" / "agyis-harness"
+        env_cfg.mkdir(parents=True, exist_ok=True)
+        cfg_file = env_cfg / "config.json"
+        cfg_file.write_text(
+            json.dumps(
+                {
+                    "theme": "dark",
+                    "plugins": {
+                        "agyis-harness": {"enabled": False, "installedFrom": "marketplace"},
+                        "other-plugin": {"enabled": True},
+                    },
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with patch.dict(
+            os.environ,
+            {
+                "AGYIS_CONFIG_DIR": str(env_cfg),
+                "AGYIS_SURFACES": os.pathsep.join([str(env_surf_1), str(env_surf_2)]),
+            },
+            clear=False,
+        ):
+            installer = PluginInstaller(
+                source_dir=REPO_ROOT,
+                default_target_dir=env_plugin,
+                bin_dir=self.bin_dir,
+                aux_bin_dirs=[self.aux_bin_1],
+            )
+            self.assertEqual(installer.config_dir, env_cfg.resolve())
+            self.assertEqual(installer.surfaces, [env_surf_1.resolve(), env_surf_2.resolve()])
+
+            res = installer.install(mode=DeliveryMode.COPY, all_surfaces=True)
+            self.assertTrue(res.success)
+            self.assertEqual(stat.S_IMODE(cfg_file.stat().st_mode), 0o600)
+            after_install = json.loads(cfg_file.read_text(encoding="utf-8"))
+            self.assertEqual(after_install["theme"], "dark")
+            self.assertEqual(
+                after_install["plugins"]["agyis-harness"],
+                {"enabled": True, "installedFrom": "marketplace"},
+            )
+            self.assertEqual(after_install["plugins"]["other-plugin"], {"enabled": True})
+
+            un_res = installer.uninstall(clean_surfaces=True)
+            self.assertTrue(un_res.success)
+            self.assertEqual(stat.S_IMODE(cfg_file.stat().st_mode), 0o600)
+            after_uninstall = json.loads(cfg_file.read_text(encoding="utf-8"))
+            self.assertEqual(after_uninstall["theme"], "dark")
+            self.assertNotIn("agyis-harness", after_uninstall["plugins"])
+            self.assertEqual(after_uninstall["plugins"]["other-plugin"], {"enabled": True})
 
     def test_tagged_rules_insertion_and_idempotence(self) -> None:
         """Workspace AGENTS.md preserves domain rules and manages tagged block idempotently."""
