@@ -13,8 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Tracked Follow-Up (Antigravity `v2.34.0` Stream 2)
-- Lifecycle hooks matcher/argument drift (`hooks.json`, `PostToolUse` `overwriteResult` & exit codes, `pre_invocation_hook.py` `systemMessage`, `token_proximity_guard.py:152`, and workstation live rollout).
+---
+
+## [1.0.0-rc13] - 2026-11-23
+
+### Features & Architecture
+- feat(hooks): complete Antigravity `v2.34.0` lifecycle hooks compatibility across all remaining Stream 2 drifts (`DRIFT-P0-02`, `DRIFT-P0-03`, `DRIFT-P1-08`, `DRIFT-P2-01`, `DRIFT-P2-02`, closing Epic `#118` — **29/29 verified drifts resolved**):
+  - Expand `harness/hooks/hooks.json` matchers (preserving root `hooks.json` symlink) and PreToolUse extractors for canonical `v2.34.0` tools (`write_file`, `edit_file`, `read_file`, `swarm`, `run_workflow`, `call_mcp_tool`, `mcp_.*`) and uppercase `Path`/`Content`/`Replacement` argument keys
+  - Implement Q5 read-only shell mutation guard (`_is_mutating_shell_command`) in `anti_drift_hook.py` with indexed quote masking and path-traversal rejection for read-only/planning/review roles while allowing safe quoted reads, `agyis_investigator` `scratch/` writes, and `agyis_custodian` git commits
+  - Normalize eager `mcp_*` tools to flat argument overwrites and guard `swarm{action:"kill"}` during pause gates in `command_safety_hook.py`
+  - Support `hookEventName`, `payload["error"]`, nested dict `error`/`isError`/`status` detection, and omitted-exit-code success in `runner.py`, `completion_fence_hook.py`, `fence_classifiers.py`, and `fence_tasks.py`; narrow REA 6.8/6.9 ledger dispositions to `("active", "out-of-scope")`
+  - Wire `PostToolUse` `{"overwriteResult": compacted}` in `output_compactor_hook.py` for `>2KB` succeeding `run_command` and `>32KB` `read_file`/`view_file` calls while preserving failing outputs and `<=32KB` reads 100% verbatim
+  - Fix `_velocity_from_telemetry_db` in `token_proximity_guard.py` against live `telemetry.db` schema (`steps.content_length + thinking_length` and `sessions.file_size_bytes`)
+  - Migrate all `pre_invocation_hook.py` advisories from deprecated `ephemeralMessage` to nested `systemMessage.systemMessage` (`0` hits in `harness/`), honor `StopHookArgs.continuationActive` in `fence_gates.py`, and support `ANTIGRAVITY_APP_DATA_DIR` in `fence_state.py` & `role_pinning.py`
+- test(hooks): add dedicated hermetic regression suite `tests/test_hooks_v2_34_compat.py` and migrate all 5 pre-invocation test suites to `systemMessage`
 
 ---
 
@@ -519,7 +531,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release candidate for Agyis Harness for Google Antigravity™.
 - Autonomous agent runtime harness, empirical audit telemetry pipeline, and lifecycle hooks immune system.
 
-[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc12...HEAD
+[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc13...HEAD
+[1.0.0-rc13]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc12...v1.0.0-rc13
 [1.0.0-rc12]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc11...v1.0.0-rc12
 [1.0.0-rc11]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc10...v1.0.0-rc11
 [1.0.0-rc10]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc9...v1.0.0-rc10

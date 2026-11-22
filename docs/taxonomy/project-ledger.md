@@ -11,9 +11,9 @@
 
 ---
 
-## 1. Current Release Baseline (`v1.0.0-rc12` — 2026-11-22)
+## 1. Current Release Baseline (`v1.0.0-rc13` — 2026-11-23)
 
-- **Automated Verification**: **2,462 hermetic tests** passing (`python3 -m harness.cli test`), with sub-second isolated module benchmarks (`<0.02s–0.75s`).
+- **Automated Verification**: **2,484 hermetic tests** passing (`python3 -m harness.cli test`), with sub-second isolated module benchmarks (`<0.02s–0.75s`).
 - **Architectural Fitness Function**: **100.0/100 AFF score** (`python3 -m harness.cli audit aff`), enforcing Product vs. Project isolation (`ADR-014`), DAG import acyclicity, bounded caches, and external asset separation (`PSL-INV-011`).
 - **Cleanroom Specification Gate**: Typed obligation ledgers and immutable SHA-256 evidence records verified cleanly via `python3 -m harness.cli verify --spec` and `agyis verify`.
 - **Single-Source Hygiene Gate**: `tests/test_skills_dedup_gate.py` + `harness/runtime/hygiene_checks.py` require `.agents/skills/` mirrors of `harness/skills/` to be symlinks (`../../harness/skills/<name>`), saving `~4,500` prompt tokens/turn across Layer 1–3 precedence.
@@ -52,6 +52,7 @@
 | **`v1.0.0-rc10` (Ph 35)** | 2026-11-10 | In-tree symlink skill deduplication gate, `ADR-031A/B` disambiguation, `28` current top-level CLI subcommands (`router` & `ladder` separate), **100.0/100 AFF** release gate | `1,981` tests (`~65s`) |
 | **`v1.0.0-rc11` (Ph 36–37)** | 2026-11-15 | Trajectory SSOT & Protobuf decoder, Phase 36 Modular HUD (ConnectRPC 60FPS), polyglot non-monorepo onboarding (#106), 57 bug bash remediations (DEF-BB-001..057), Knot Mesh decoupling, stdio buffered test runner | `2,356` tests (`59.1s`), AFF 100/100 |
 | **`v1.0.0-rc12` (v2.34 Compat)** | 2026-11-22 | Antigravity `v2.34.0` / `agy v1.5.14` / `IDE v2.8.0` / `rea@6.9.0` compatibility across Delivery/Hermeticity, Trajectory/Protobuf/512k, Subagents/Cockpit, GUI/HUD/ELF RE (`PR #116/#117` RE + 4 parallel streams; Stream 2 hooks queued in Epic) | `2,462` tests, AFF 100/100 |
+| **`v1.0.0-rc13` (v2.34 Complete)** | 2026-11-23 | Stream 2 Lifecycle Hooks compatibility (`DRIFT-P0-02/03`, `P1-08`, `P2-01/02`, Q5 read-only shell guard, `overwriteResult`, `systemMessage` migration, live `telemetry.db` SQL), live post-restart CDP/HUD & systemd rollout verified — **29/29 drifts resolved** (closes Epic `#118`) | `2,484` tests, AFF 100/100 |
 
 ---
 
