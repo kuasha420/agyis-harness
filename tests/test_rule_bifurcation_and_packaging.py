@@ -487,6 +487,8 @@ class TestReleaseWorkflowAndLockHygiene(unittest.TestCase):
         self.assertTrue(ci_path.is_file(), f"Missing {ci_path}")
         ci_text = ci_path.read_text(encoding="utf-8")
         for required in (
+            "fetch-depth: 0",
+            "fetch-tags: true",
             "uv lock --check",
             "uv sync --frozen --extra dev",
             "uv run --frozen python3 -m harness.cli verify --spec",
