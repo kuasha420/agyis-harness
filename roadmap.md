@@ -8,7 +8,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Repository**: `kuasha420/agyis-harness` (Private Development → Public Release)  
-**Last Updated**: 2026-11-23 (`v1.0.0-rc13`)  
+**Last Updated**: 2026-11-23 (`v1.0.0-rc14`)  
 
 ---
 
@@ -38,9 +38,9 @@ Dynamically scaled across **`256k`**, **Gemini 4 `512k`**, and **`1M`** context 
 
 ---
 
-## 3. Completed Baseline (`v1.0.0-rc13` — Full Gemini 4 & Antigravity `v2.34.0` Compatibility)
+## 3. Completed Baseline (`v1.0.0-rc14` — Full Gemini 4, Antigravity `v2.34.0` & CI Release Packaging)
 
-Phases 0.5 through `v1.0.0-rc13` (`Horizon 0` empirical ground truth, `Horizon 1` core foundation, `v1.0.0-rc11` bug bash & modular ConnectRPC HUD, and **29/29** Antigravity `v2.34.0` / `agy v1.5.14` / `IDE v2.8.0` / `rea@6.9.0` compatibility fixes across `rc12`–`rc13`) are complete and live-verified:
+Phases 0.5 through `v1.0.0-rc14` (`Horizon 0` empirical ground truth, `Horizon 1` core foundation, `v1.0.0-rc11` bug bash & modular ConnectRPC HUD, **29/29** Antigravity `v2.34.0` / `agy v1.5.14` / `IDE v2.8.0` / `rea@6.9.0` compatibility fixes across `rc12`–`rc13`, and hardened continuous CI & wheel release publishing in `rc14`) are complete and live-verified:
 - **Verified Surface**: **28** CLI subcommands (`router` & `ladder` separate), **30** modular skills (`>100` L ToC, `<24,576` B cap), **8** canonical `v2.34` agent personas, **7** `hooks.json` blocks (**8** `doctor` hook checks), **4** cleanroom RE specifications (including the 29-entry `v2.34.0` drift inventory), **7** official specs, and **4** human runbooks.
 - **Verified Quality Gate**: **2,486** hermetic tests, **100.0/100 AFF** score (`agyis audit aff`), **4** cleanroom RE specifications (`agyis verify --spec`), continuous CI (`.github/workflows/ci.yml`), and zero live `config.json` mutation.
 - **Release History**: [`CHANGELOG.md`](CHANGELOG.md)
@@ -49,7 +49,7 @@ Phases 0.5 through `v1.0.0-rc13` (`Horizon 0` empirical ground truth, `Horizon 1
 
 ---
 
-## 4. Post-RC13 Horizon 2 Priorities
+## 4. Post-RC14 Horizon 2 Priorities
 
 | Priority Track | Scope & Target Deliverables | Acceptance Gate |
 | :--- | :--- | :--- |

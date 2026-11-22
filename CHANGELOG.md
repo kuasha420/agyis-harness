@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0-rc14] - 2026-11-23
+
+### CI, Packaging & Documentation
+- ci(release): synchronize `uv.lock` with `pyproject.toml`, replace stale bare `verify` gate in `.github/workflows/release.yml` with `agents validate --json`, and restore automated wheel (`.whl`) and source distribution (`.tar.gz`) release artifact publication
+- ci(workflow): add continuous `.github/workflows/ci.yml` (`push` to `main`, `pull_request`, `workflow_dispatch`) with full git history/tags (`fetch-depth: 0`, `fetch-tags: true`), lockfile check, symlink & cleanroom spec checks, schema/AFF gates, full hermetic test suite, and isolated wheel smoke test
+- test(packaging): add `test_uv_lock_matches_pyproject_version` and `test_ci_workflow_present_and_hardened` in `tests/test_rule_bifurcation_and_packaging.py` to prevent future lockfile or CI contract drift
+- docs(entrypoints): refresh `README.md`, `roadmap.md`, `docs/user_guide.md`, `docs/developer_guide.md`, and `docs/taxonomy/project-ledger.md` for Gemini 4 (`512k`/`1M`), Antigravity `v2.34.0` compatibility, live CI badge, and `v1.0.0-rc14` release packaging
+
+---
+
 ## [1.0.0-rc13] - 2026-11-23
 
 ### Features & Architecture
@@ -531,7 +541,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release candidate for Agyis Harness for Google Antigravity™.
 - Autonomous agent runtime harness, empirical audit telemetry pipeline, and lifecycle hooks immune system.
 
-[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc13...HEAD
+[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc14...HEAD
+[1.0.0-rc14]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc13...v1.0.0-rc14
 [1.0.0-rc13]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc12...v1.0.0-rc13
 [1.0.0-rc12]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc11...v1.0.0-rc12
 [1.0.0-rc11]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc10...v1.0.0-rc11

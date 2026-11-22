@@ -155,7 +155,7 @@ class TestPluginDelivery(unittest.TestCase):
         info = installer.get_install_info(self.target_dir)
         self.assertTrue(info["installed"])
         self.assertEqual(info["mode"], "copy")
-        self.assertEqual(info["version"], "1.0.0-rc13")
+        self.assertEqual(info["version"], "1.0.0-rc14")
 
     def test_wheel_extracted_source_fallback_and_full_assets(self) -> None:
         """PluginInstaller resolves assets/plugin.json from harness/ fallback and delivers full assets in wheel mode."""

@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity_v2.34-4285F4.svg)](https://antigravity.google)
 [![Models](https://img.shields.io/badge/Models-Gemini_4_Ready_(512k%2F1M)-8E75B2.svg)](docs/specs/antigravity_v2_34_compatibility_inventory.md)
-[![Version](https://img.shields.io/badge/Version-v1.0.0--rc13-orange.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.0.0-rc13)
+[![Version](https://img.shields.io/badge/Version-v1.0.0--rc14-orange.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.0.0-rc14)
 [![CI](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/Tests-2486_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
 [![AFF](https://img.shields.io/badge/AFF-100%2F100-brightgreen.svg)](docs/taxonomy/project-ledger.md)
@@ -292,8 +292,8 @@ python3 -m harness.cli rules --lint  # Verify agent rules & zero echo duplicatio
 
 ## 🗺️ Master Roadmap & Architectural Horizons
 
-- **Horizon 0 & 1 (Completed — `v1.0.0-rc10` through `v1.0.0-rc13`)**: Empirical taxonomy, **7** lifecycle hook blocks (**8** runner checks), **28**-command CLI suite, **30** modular skills, **8** canonical `v2.34` personas, modular ConnectRPC Trajectory HUD, ELF/PE cleanroom RE tooling, and **29/29** Antigravity `v2.34.0` / Gemini 4 (`512k`/`1M`) compatibility drifts resolved.
-- **Horizon 2 (Active Post-RC13)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, RE & Audit Hardening, and remaining `install_workspace()` fallback cleanup.
+- **Horizon 0 & 1 (Completed — `v1.0.0-rc10` through `v1.0.0-rc14`)**: Empirical taxonomy, **7** lifecycle hook blocks (**8** runner checks), **28**-command CLI suite, **30** modular skills, **8** canonical `v2.34` personas, modular ConnectRPC Trajectory HUD, ELF/PE cleanroom RE tooling, **29/29** Antigravity `v2.34.0` / Gemini 4 (`512k`/`1M`) compatibility drifts resolved, and hardened CI/release wheel publishing.
+- **Horizon 2 (Active Post-RC14)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, RE & Audit Hardening, and remaining `install_workspace()` fallback cleanup.
 
 👉 **[roadmap.md](roadmap.md)** | **[CHANGELOG.md](CHANGELOG.md)** | **[docs/taxonomy/project-ledger.md](docs/taxonomy/project-ledger.md)** | **[docs/adr/README.md](docs/adr/README.md)**
 
