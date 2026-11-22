@@ -41,7 +41,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     exp_rea = bool(getattr(args, "experimental_rea", False))
     re_tool = bool(getattr(args, "re_toolchain", False) or getattr(args, "re", False))
-    ws_root = Path(args.workspace).resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
+    ws_root = Path(args.workspace).resolve() if getattr(args, "workspace", None) else None
     audit = psl_doctor.run_doctor(
         matrix_path,
         workspace_root=ws_root,
@@ -62,7 +62,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             matrix_path,
             experimental_rea=exp_rea,
             re_toolchain=re_tool,
-            workspace_dir=ws_root,
+            workspace_dir=ws_root or Path.cwd().resolve(),
         )
         for act in actions:
             print(f"  ✔ {act}")

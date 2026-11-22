@@ -233,6 +233,8 @@ def list_active_subagent_statuses(
                 if tail_comp or is_transcript_completed(t_path):
                     continue
             st = estimate_subagent_context(t_path, db_dir=db_dir)
+            if st.parent_conversation_id and st.parent_conversation_id != eff_parent:
+                continue
             if st.conversation_id not in seen_cids:
                 seen_cids.add(st.conversation_id)
                 discovered.append(st)

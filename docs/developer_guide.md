@@ -6,7 +6,7 @@
 # Agyis Harness — Developer & Architecture Guide
 
 **Target Audience**: Harness Contributors, Maintainers, and Autonomous Agent Architects  
-**Version**: `1.0.0-rc11` (`2026-11-15`)  
+**Version**: `1.0.0-rc12` (`2026-11-22`)  
 **Repository**: `agyis-harness` (Package module: `harness`)  
 
 ---

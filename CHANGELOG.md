@@ -13,23 +13,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Features & Reverse Engineering (ADR-028, PSL-INV-007, PSL-INV-009)
-- feat(re): implement PE32/PE32+ address inspection & translation CLI (`agyis re addr`)
-  - Bidirectional mapping across VA <-> RVA <-> File Offset with section permission parsing
-  - Sub-millisecond symbol correlation against dirtyroom functions, strings, and RTTI classes
-  - Full `--json` export support for downstream tool pipelines
-- feat(re): implement dual-mode cross-reference resolution (`agyis re xrefs`)
-  - Mode A (SQLite pre-analyzed cache): Sub-millisecond lookup on indexed `xrefs` table
-  - Mode B (Binary direct scan): Scans `.text` for relative CALL/JMP opcodes and `.rdata`/`.data` for 4-byte (PE32) and 8-byte (PE32+) pointer references
-  - Filters by `--type {all,code,data}` with symbol attribution and `--json` export
-- feat(re): implement smart procedure resolution in decompilation (`agyis re decompile`)
-  - Numeric interior virtual addresses auto-resolve to entry procedure symbols (e.g. `FUN_140bc8790 +0x5`)
-  - Eliminates manual entrypoint calculation prior to accelerated decompilation
-- fix(re): enforce hermetic test isolation and dynamic schema reflection
-  - Purged environment path sniffing in lifecycle hooks and REA runtime checks
-  - Implemented dynamic `PRAGMA table_info` reflection across legacy and pre-analyzed RTTI schemas
-  - Scoped dirtyroom symbol queries to target `binary_id` preventing multi-binary collision
-  - Hardened connection lifecycle with guaranteed closure on all exit paths
+### Tracked Follow-Up (Antigravity `v2.34.0` Stream 2)
+- Lifecycle hooks matcher/argument drift (`hooks.json`, `PostToolUse` `overwriteResult` & exit codes, `pre_invocation_hook.py` `systemMessage`, `token_proximity_guard.py:152`, and workstation live rollout).
+
+---
+
+## [1.0.0-rc12] - 2026-11-22
+
+### Features & Architecture
+- feat(gui,re,verify): Antigravity `v2.34.0` & `rea@6.9.0` compatibility across CDP/HUD/RE/cleanroom (`DRIFT-P0-06`, `P1-11..13`, `P2-05`, `P3-02`):
+  - Add live Antigravity PID `--remote-debugging-port` diagnostics and opt-in `agyis gui --install-launcher` (`harness/gui/launcher.py`)
+  - Upgrade `hud_rpc.js` / `hotkey.js` / `hud.js` for `agy_session_csrf_token` fallback, `trajectoryVerbosity: 3`, singular `executorMetadata`, `TokenType 8–10`, `CortexStepType.GENERIC (132)`, split routes `/c/<id1>+<id2>?focused=<id2>`, and DOM remount
+  - Add Linux ELF64/ELF32 section/VA/RVA/offset & `objdump -T/-t` support in `agyis re addr/xrefs/preanalyze` and align `ReviewedObligation` / `verify` with `rea@6.9.0`
+- feat(subagents,cockpit,skills): migrate `ANTIGRAVITY_PLATFORM_TOOLS`, `validator.py`, `scaffold.py`, and all 8 `agyis_*.md` agents to canonical `v2.34.0` tools (`read_file`, `write_file`, `edit_file`, `swarm`, `run_workflow`, `finish`, granting `run_command` to `agyis_reviewer`/`planner`/`coordinator`), `/swarm` liveness & rehydration, and CID-scoped `cockpit verify` (`DRIFT-P0-04`, `P1-01`, `P1-02`, `P1-05`, `P1-14`, `P2-03`, `P3-03`)
+- feat(trajectory): fix `ModelUsageStats` `thought`/`output` field swap, add `TokenType 8–10` & recursive `TokenGroup`, handle `step_type` `132`/`101` & `fn=29` `modified_tool_call`, add `flock` `presence/*.lock` & `/swarm` lineage, `transcript_full.jsonl` & `args.Path` parsing, `ANTIGRAVITY_APP_DATA_DIR` (`agy` CLI), `512k`/`1M` Gemini model windows, and decouple `sync.py` from `pipeline/*` (`DRIFT-P1-02..07`, `P1-14`, `P2-01`, `P2-06`)
+
+### Bug Fixes & Hardening
+- fix(delivery,clean,onboard,doctor,rules): isolate `PluginInstaller` `config_dir`/`surfaces` & hermetic `test_delivery.py` (`DRIFT-P0-01`); guard `agyis clean` against active/dirty worktrees and scan `.agents/artifacts/checkpoints/` (`DRIFT-P0-05`); deduplicate `GLOBAL_AGENTS.md` in `copy_install.py` & modernize coexistence/surface sync (`DRIFT-P1-09`); gate `onboard --dry-run` against `gh repo fork`, fix skill pruning, and prevent `.agents/commands/*` shadowing core CLI subcommands (`DRIFT-P1-10`); wire real `doctor --heal` checks (`DRIFT-P2-04`) and clean `plugin.json` (`DRIFT-P3-01`)
+- fix(re): implement PE32/PE32+ & ELF address inspection (`agyis re addr`), dual-mode cross-references (`agyis re xrefs`), smart procedure resolution (`agyis re decompile`), and hermetic test isolation
 
 ---
 
@@ -518,7 +519,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release candidate for Agyis Harness for Google Antigravity™.
 - Autonomous agent runtime harness, empirical audit telemetry pipeline, and lifecycle hooks immune system.
 
-[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc11...HEAD
+[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc12...HEAD
+[1.0.0-rc12]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc11...v1.0.0-rc12
 [1.0.0-rc11]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc10...v1.0.0-rc11
 [1.0.0-rc10]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc9...v1.0.0-rc10
 [1.0.0-rc9]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc8...v1.0.0-rc9

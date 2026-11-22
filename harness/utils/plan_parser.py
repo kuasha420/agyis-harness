@@ -185,6 +185,7 @@ def find_active_plan(
     4. Fallback to newest completed plan overall if all candidates completed.
     """
     import os
+    import tempfile
 
     # Tier 1 (Override): Respect PSL_PLAN_PATH if file exists
     env_plan = os.environ.get("PSL_PLAN_PATH")
@@ -213,6 +214,16 @@ def find_active_plan(
             return False
         return mname.endswith(".md") or mname == "plan.json" or mname.endswith(".plan.json")
 
+    def _is_isolated_temp_ws(ws_val: Optional[Path | str]) -> bool:
+        if not ws_val:
+            return False
+        try:
+            tmp_root = Path(tempfile.gettempdir()).resolve()
+            res = Path(ws_val).resolve()
+            return res == tmp_root or tmp_root in res.parents
+        except OSError:
+            return False
+
     # Tier 2 (Active Brain Directory)
     from harness.utils.context import (
         detect_presence_conversation_id,
@@ -226,24 +237,44 @@ def find_active_plan(
     brain_roots: list[Path] = []
     if brain_dir:
         brain_roots.append(Path(brain_dir))
-    env_brain = os.environ.get("ANTIGRAVITY_BRAIN_DIR")
+    env_brain = os.environ.get("ANTIGRAVITY_BRAIN_DIR") or os.environ.get("AGYIS_BRAIN_DIR")
     if env_brain and env_brain.strip():
         brain_roots.append(Path(env_brain.strip()))
 
-    cids: list[str] = []
-    primary_cid = get_active_conversation_id(conv_id)
-    if primary_cid:
-        cids.append(primary_cid)
-    for env_k in ("ANTIGRAVITY_CONVERSATION_ID", "AGYIS_CONVERSATION_ID", "GEMINI_CONVERSATION_ID"):
-        val = os.environ.get(env_k)
-        if val and val.strip() and val.strip() not in cids:
-            cids.append(val.strip())
-    if not cids and not brain_dir:
-        presence_cid = detect_presence_conversation_id()
-        if presence_cid:
-            cids.append(presence_cid)
-
     active_brain_base = get_active_brain_dir()
+    home_gemini = (Path.home() / ".gemini").resolve()
+    try:
+        brain_in_live_home = home_gemini in active_brain_base.resolve().parents
+    except OSError:
+        brain_in_live_home = True
+
+    explicit_test_override = bool(
+        conv_id
+        or brain_dir
+        or (os.environ.get("ANTIGRAVITY_BRAIN_DIR") or "").strip()
+        or (os.environ.get("AGYIS_BRAIN_DIR") or "").strip()
+        or (os.environ.get("AGYIS_CONVERSATION_ID") or "").strip()
+        or (os.environ.get("GEMINI_CONVERSATION_ID") or "").strip()
+        or not brain_in_live_home
+    )
+    skip_ambient_live_brain = _is_isolated_temp_ws(workspace_root) and not explicit_test_override
+
+    cids: list[str] = []
+    if isinstance(conv_id, str) and conv_id.strip() and conv_id.strip() != "default" and "/" not in conv_id:
+        cids.append(conv_id.strip())
+    elif not skip_ambient_live_brain:
+        primary_cid = get_active_conversation_id(conv_id)
+        if primary_cid:
+            cids.append(primary_cid)
+        for env_k in ("ANTIGRAVITY_CONVERSATION_ID", "AGYIS_CONVERSATION_ID", "GEMINI_CONVERSATION_ID"):
+            val = os.environ.get(env_k)
+            if val and val.strip() and val.strip() not in cids:
+                cids.append(val.strip())
+        if not cids and not brain_dir:
+            presence_cid = detect_presence_conversation_id()
+            if presence_cid:
+                cids.append(presence_cid)
+
     for cid in cids:
         brain_roots.append(active_brain_base / cid)
 

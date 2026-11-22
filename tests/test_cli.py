@@ -80,7 +80,7 @@ class TestPslCli(unittest.TestCase):
                 main(["--version"], prog="agyis")
             self.assertEqual(cm.exception.code, 0)
             self.assertEqual(mock_err.getvalue(), "")
-            self.assertIn("agyis-harness 1.0.0-rc11", mock_out.getvalue())
+            self.assertIn("agyis-harness 1.0.0-rc12", mock_out.getvalue())
 
     def test_cli_status(self):
         """Verifies `psl status` prints repository, skills, agents, and hook status."""
@@ -632,12 +632,17 @@ class TestPslCli(unittest.TestCase):
     def test_cli_sync_with_session_id_ingestion(self):
         """Verifies `psl sync --session-id <id>` ingests session before synchronizing."""
         mock_res = {"status": "success", "direction": "both", "push": None, "pull": None}
-        with patch("pipeline.analyze_live_session.find_session_dir", return_value=Path(self.temp_dir.name)) as mock_find, \
+        dummy_t = Path(self.temp_dir.name) / "transcript.jsonl"
+        dummy_t.write_text('{"step_index": 0, "type": "USER_INPUT", "content": "hi"}\n', encoding="utf-8")
+        with patch("harness.trajectory.transcript_reader.find_transcript_path", return_value=(dummy_t, None)) as mock_find, \
+             patch("harness.telemetry.config.resolve_db_path", return_value=Path(self.temp_dir.name) / "test.db"), \
+             patch("harness.telemetry.extractor.extract_session", return_value=None) as mock_extract, \
              patch("harness.telemetry.sync.sync_telemetry", return_value=mock_res) as mock_sync, \
              patch("sys.stdout", new_callable=io.StringIO):
             code = main(["sync", "--session-id", "test-sess-123"])
             self.assertEqual(code, 0)
             mock_find.assert_called_once_with("test-sess-123")
+            mock_extract.assert_called_once_with(dummy_t)
             mock_sync.assert_called_once()
 
     def test_cli_sync_systemd(self):
@@ -1145,7 +1150,7 @@ class TestCliDualExecutionMatrix(unittest.TestCase):
                 main(["--version"], prog="agyis")
             self.assertEqual(cm1.exception.code, 0)
             self.assertEqual(agyis_err.getvalue(), "")
-            self.assertIn("agyis-harness 1.0.0-rc11", agyis_out.getvalue())
+            self.assertIn("agyis-harness 1.0.0-rc12", agyis_out.getvalue())
 
         # psl --version
         with patch("sys.stdout", new_callable=io.StringIO) as psl_out, \
@@ -1154,7 +1159,7 @@ class TestCliDualExecutionMatrix(unittest.TestCase):
                 deprecated_psl_main(["--version"])
             self.assertEqual(cm2.exception.code, 0)
             self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
-            self.assertIn("agyis-harness 1.0.0-rc11", psl_out.getvalue())
+            self.assertIn("agyis-harness 1.0.0-rc12", psl_out.getvalue())
 
     def test_dual_bare_cli_help(self):
         """Verifies bare 'agyis' and 'psl' with no arguments print help with proper stderr isolation."""

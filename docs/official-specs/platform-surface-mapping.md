@@ -92,7 +92,7 @@ An official Antigravity plugin bundles manifests, MCP definitions, lifecycle hoo
 {
   "name": "agyis-harness",
   "displayName": "Agyis Harness for Google Antigravity™",
-  "version": "1.0.0-rc11",
+  "version": "1.0.0-rc12",
   "description": "Empirical audit pipeline and reference extension harness for Google Antigravity™",
   "author": { "name": "Purrfect Software Limited (PSL)" },
   "license": "Apache-2.0",
