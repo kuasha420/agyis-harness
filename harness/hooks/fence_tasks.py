@@ -329,11 +329,12 @@ def handle_post_tool_use(
             clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
     elif tool_name in ("run_command", "execute_command", "bash"):
         cmd = args.get("CommandLine") or args.get("command") or ""
-        exit_code = extract_exit_code(result) if isinstance(result, dict) else None
+        res_dict = result if isinstance(result, dict) else {}
+        exit_code = extract_exit_code(res_dict)
         if exit_code is None:
-            is_err = bool(result.get("error")) or bool(result.get("isError")) or bool(result.get("is_error")) or False
-            status = result.get("status")
-            if status != "error" and not is_err:
+            is_err = bool(res_dict.get("error")) or bool(res_dict.get("isError")) or bool(res_dict.get("is_error"))
+            status = str(res_dict.get("status") or "").strip().lower()
+            if status not in ("error", "failed") and not is_err:
                 exit_code = 0
         if exit_code == 0 and cmd:
             cmd_lower = cmd.lower()

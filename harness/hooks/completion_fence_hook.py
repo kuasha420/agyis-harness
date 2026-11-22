@@ -142,17 +142,30 @@ def _handle_post_tool_run_command(
     conv_id: str, state_dir: Path | None, cwd: Path | str | None, turn_id: str | None,
 ) -> None:
     """Processes PostToolUse state updates for shell commands."""
-    raw_out = str(payload.get("toolResponse") or payload.get("result") or payload.get("toolOutput") or "")
+    result_keys = ("toolResponse", "result", "toolOutput", "toolResult", "tool_result")
+    raw_out = str(next((payload.get(k) for k in result_keys if payload.get(k) is not None), "") or "")
     detached = check_background_task_detachment(tool_name, tool_args, raw_out, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
     check_shell_command_mutation(cmd, cwd=cwd, conv_id=conv_id, state_dir=state_dir, turn_id=turn_id)
     exit_code = extract_exit_code(payload)
-    if (
-        not detached
-        and exit_code is None
-        and not payload.get("error")
-        and any(k in payload for k in ("result", "toolResponse", "toolOutput", "toolResult", "tool_result"))
-    ):
-        exit_code = 0
+    if exit_code is None:
+        has_nested_err = any(
+            isinstance(payload.get(k), dict)
+            and (
+                bool(payload[k].get("error"))
+                or bool(payload[k].get("isError"))
+                or bool(payload[k].get("is_error"))
+                or str(payload[k].get("status", "")).strip().lower() in ("error", "failed")
+            )
+            for k in result_keys
+        )
+        if has_nested_err:
+            exit_code = 1
+        elif (
+            not detached
+            and not payload.get("error")
+            and any(k in payload for k in result_keys)
+        ):
+            exit_code = 0
     if exit_code is not None and cmd:
         check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
         if is_mutation_test_command(cmd):

@@ -121,6 +121,8 @@ class TestHooksV234Compat(unittest.TestCase):
             "sed -i 's/a/b/g' file.txt",
             "git reset --hard HEAD~1",
             "cat foo > harness/bar.py",
+            'echo evil > "harness/evil.py"',
+            "echo evil > /tmp/../harness/evil.py",
             "echo 1 >> output.txt",
             "python3 -c \"import os; open('test.txt', 'w').write('x')\"",
             "node -e \"const fs = require('fs'); fs.writeFileSync('a.txt', 'b')\"",
@@ -145,6 +147,7 @@ class TestHooksV234Compat(unittest.TestCase):
             "python3 -m harness.cli test",
             "pytest tests/ 2>&1 >/dev/null",
             "cat /dev/null > /tmp/test.log",
+            'echo hi > "/tmp/safe.log"',
             "echo test > .agents/artifacts/report.md",
         ]
         for cmd in safe_commands:
@@ -246,6 +249,38 @@ class TestHooksV234Compat(unittest.TestCase):
         )
         updated = load_state(conv_id="test-clean", state_dir=self.state_dir)
         self.assertFalse(updated.get("code_dirty", True))
+
+    def test_completion_fence_nested_dict_error_keeps_code_dirty(self) -> None:
+        from harness.hooks.fence_state import load_state, save_state
+        from harness.hooks.fence_tasks import handle_post_tool_use
+
+        save_state({"code_dirty": True, "active_turn_id": "t1"}, conv_id="test-dict-err", state_dir=self.state_dir)
+        payload_err = {
+            "hookEventName": "PostToolUse",
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "python3 -m harness.cli test"}},
+            "result": {"status": "error", "isError": True},
+        }
+        _handle_post_tool_run_command(
+            "run_command",
+            {"CommandLine": "python3 -m harness.cli test"},
+            payload_err,
+            cmd="python3 -m harness.cli test",
+            conv_id="test-dict-err",
+            state_dir=self.state_dir,
+            cwd=REPO_ROOT,
+            turn_id="t1",
+        )
+        updated = load_state(conv_id="test-dict-err", state_dir=self.state_dir)
+        self.assertTrue(updated.get("code_dirty", False))
+
+        # Non-dict result passed directly to handle_post_tool_use must not crash
+        handle_post_tool_use(
+            "run_command",
+            {"CommandLine": "agyis verify --spec"},
+            "raw-non-dict",  # type: ignore[arg-type]
+            conv_id="test-dict-err",
+            state_dir=self.state_dir,
+        )
 
     def test_continuation_active_allows_stop(self) -> None:
         payload = {"continuationActive": True}

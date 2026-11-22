@@ -207,6 +207,9 @@ _INLINE_FILE_WRITE_RE = re.compile(
 _FILE_REDIR_RE = re.compile(r"(?<![2&])>{1,2}\s*([^\s;&|]+)")
 
 
+_QUOTED_PLACEHOLDER_RE = re.compile(r"^__Q(\d+)__$")
+
+
 def _is_mutating_shell_command(cmd: str, allow_scratch: bool = False) -> bool:
     """Returns True when a shell command performs filesystem or git mutations."""
     if not cmd or not cmd.strip():
@@ -214,14 +217,27 @@ def _is_mutating_shell_command(cmd: str, allow_scratch: bool = False) -> bool:
     if _INLINE_FILE_WRITE_RE.search(cmd):
         return True
     stripped = _HARMLESS_REDIR_RE.sub(" ", cmd)
-    unquoted = _QUOTED_LITERAL_RE.sub(" ", stripped)
+    quoted_vals: List[str] = []
+
+    def _mask_quote(match: re.Match[str]) -> str:
+        idx = len(quoted_vals)
+        quoted_vals.append(match.group(0)[1:-1])
+        return f"__Q{idx}__"
+
+    unquoted = _QUOTED_LITERAL_RE.sub(_mask_quote, stripped)
     if _CMD_START_MUTATION_RE.search(unquoted) or _INPLACE_OR_GIT_MUTATION_RE.search(unquoted):
         return True
     for m in _FILE_REDIR_RE.finditer(unquoted):
         target = m.group(1)
-        if target == "/dev/null" or target.startswith(("/dev/null", "/tmp/", ".agents/artifacts/")):
+        qm = _QUOTED_PLACEHOLDER_RE.match(target)
+        if qm:
+            target = quoted_vals[int(qm.group(1))]
+        target_norm = target.replace("\\", "/").strip()
+        if ".." in Path(target_norm).parts:
+            return True
+        if target_norm == "/dev/null" or target_norm.startswith(("/dev/null", "/tmp/", ".agents/artifacts/")):
             continue
-        if allow_scratch and (target.startswith("scratch/") or "/scratch/" in target):
+        if allow_scratch and (target_norm.startswith("scratch/") or "/scratch/" in target_norm):
             continue
         return True
     return False
