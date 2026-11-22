@@ -340,6 +340,9 @@ def evaluate_stop(
     if os.environ.get("PSL_COMPLETION_FENCE_DISABLED", "").lower() in ("1", "true", "yes"):
         return {"decision": "allow"}
 
+    if payload and payload.get("continuationActive"):
+        return {"decision": "allow"}
+
     sync_background_tasks(conv_id=conv_id, state_dir=state_dir, cwd=cwd, brain_dir=brain_dir, payload=payload)
     state = load_state(conv_id=conv_id, state_dir=state_dir)
     effective_cwd = cwd if cwd is not None else (state.get("cwd") or Path.cwd())

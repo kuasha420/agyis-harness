@@ -8,7 +8,7 @@ Agyis Harness: PreInvocation Lifecycle Hook & Role-Tailored Compaction Advisory 
 
 Fail-Open Invariants:
 - Read-only SQLite access delegated to `harness.trajectory` SSOT.
-- Emits valid protojson: `{"injectSteps": []}` or nested `{"systemMessage": {"systemMessage": ..., "metadata": {}}}` / `{"ephemeralMessage": ...}`.
+- Emits valid protojson: `{"injectSteps": []}` or nested `{"systemMessage": {"systemMessage": ..., "metadata": {}}}`.
 - Process always exits 0.
 """
 
@@ -206,7 +206,7 @@ def evaluate_pre_invocation(
     """Evaluates PreInvocation event for sticky role pinning, soft epoch horizon, and compaction alerts."""
     payload = _parse_payload(payload_str)
     try:
-        conv_id, _ = resolve_conv_and_brain(payload, str(payload.get("conversationId") or payload.get("conversation_id") or ""))
+        conv_id, brain_path = resolve_conv_and_brain(payload, str(payload.get("conversationId") or payload.get("conversation_id") or ""))
         eff_ws = _resolve_workspace(payload, workspace_dir)
         to = get_compaction_sqlite_timeout(sqlite_timeout)
         db_metrics = read_db_trajectory_state(conv_id, db_dir=db_dir, timeout=to) if conv_id != "default" else None
@@ -247,7 +247,7 @@ def evaluate_pre_invocation(
             step_count = 0
             has_explicit_step = True
 
-        state_dir = resolve_cid_state_dir(conv_id, eff_ws, payload)
+        state_dir = resolve_cid_state_dir(conv_id, eff_ws, payload) or (brain_path / ".agyis" if brain_path else None)
         sticky = load_sticky_role_state(state_dir, conv_id)
         epoch_idx = db_metrics.epoch_index if db_metrics else 0
 
@@ -285,9 +285,9 @@ def evaluate_pre_invocation(
             if step_count >= SOFT_EPOCH_STEP_ADVISORY and (step_count == SOFT_EPOCH_STEP_ADVISORY or step_count % cadence == 0):
                 reanchor = build_role_reanchor_advisory(role, step_count, cadence)
                 soft_adv = f"[AGYIS EPOCH HORIZON ADVISORY: Epoch step {step_count}/{SOFT_EPOCH_STEP_ADVISORY} — consider verifying diff & checkpoints]"
-                inject_steps.append({"ephemeralMessage": f"{soft_adv}\n\n{reanchor}"})
+                inject_steps.append({"systemMessage": {"systemMessage": f"{soft_adv}\n\n{reanchor}", "metadata": {}}})
             elif step_count % cadence == 0:
-                inject_steps.append({"ephemeralMessage": build_role_reanchor_advisory(role, step_count, cadence)})
+                inject_steps.append({"systemMessage": {"systemMessage": build_role_reanchor_advisory(role, step_count, cadence), "metadata": {}}})
 
         is_specialist_stage = bool(stage_role_data and stage_num > 0 and conv_id != "default" and stage_cid == conv_id)
         is_subagent = has_parent_conversation(payload, conv_id) or is_specialist_stage
@@ -319,7 +319,7 @@ def evaluate_pre_invocation(
                     sys.stderr.flush()
 
             if not already_alerted:
-                inject_steps.append({"ephemeralMessage": build_compaction_advisory(role, tokens, eff_thresh, max_context_tokens=max_ctx, checkpoint_path=cp_rel, is_subagent=is_subagent)})
+                inject_steps.append({"systemMessage": {"systemMessage": build_compaction_advisory(role, tokens, eff_thresh, max_context_tokens=max_ctx, checkpoint_path=cp_rel, is_subagent=is_subagent), "metadata": {}}})
                 if alert_file and state_dir:
                     try:
                         state_dir.mkdir(parents=True, exist_ok=True)
@@ -334,7 +334,7 @@ def evaluate_pre_invocation(
                         pass
             else:
                 gauge_tag = "Subagent Auto-Compaction Ready" if is_subagent else "Compaction Checkpoint Active"
-                inject_steps.append({"ephemeralMessage": f"[AGYIS TOKEN GAUGE: ~{tokens:,} / {max_ctx:,} TOKENS | {gauge_tag}]"})
+                inject_steps.append({"systemMessage": {"systemMessage": f"[AGYIS TOKEN GAUGE: ~{tokens:,} / {max_ctx:,} TOKENS | {gauge_tag}]", "metadata": {}}})
         elif alert_file and alert_file.is_file():
             try:
                 updated = dict(existing_alert)

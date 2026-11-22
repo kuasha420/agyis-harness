@@ -181,7 +181,8 @@ def resolve_cid_state_dir(
         _, art_dir = resolve_conv_and_brain(payload, norm_cid)
         if art_dir is not None and art_dir.name == norm_cid:
             return art_dir / ".agyis"
-    brain_root = Path(os.path.expanduser(os.environ.get("AGYIS_BRAIN_DIR") or "~/.gemini/antigravity/brain"))
+    env_brain = os.environ.get("AGYIS_BRAIN_DIR")
+    brain_root = Path(os.path.expanduser(env_brain)) if env_brain else get_active_brain_dir()
     session_brain = brain_root / norm_cid
     if session_brain.is_dir():
         return session_brain / ".agyis"
@@ -343,7 +344,8 @@ def check_pillar_3_explicit_role(
                 return matched
 
     if eff_cid and eff_cid != "default":
-        brain_base = Path(os.path.expanduser(os.environ.get("AGYIS_BRAIN_DIR") or "~/.gemini/antigravity/brain"))
+        env_brain = os.environ.get("AGYIS_BRAIN_DIR")
+        brain_base = Path(os.path.expanduser(env_brain)) if env_brain else get_active_brain_dir()
         for b_cand in (brain_base / eff_cid / ".agyis" / "session_role.json", brain_base / eff_cid / "session_role.json"):
             matched = _read_role_json_file(b_cand)
             if matched:
@@ -620,7 +622,7 @@ def build_post_compaction_persona_prompt(role: str, checkpoint_path: Optional[st
 
 
 def build_role_reanchor_advisory(role: str, step_count: int, cadence: int) -> str:
-    """Returns intra-epoch periodic re-anchor ephemeralMessage directive."""
+    """Returns intra-epoch periodic re-anchor systemMessage directive."""
     return (
         f"[AGYIS ROLE RE-ANCHOR: {role.upper()} (STEP {step_count} | CADENCE {cadence})]\n"
         f"PERIODIC COGNITIVE ATTENTION AUDIT — Reinforcing active invariants for '{role}':\n"

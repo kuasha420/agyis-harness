@@ -485,7 +485,7 @@ def check_pause_safety(tool_name: str, arguments: Dict[str, Any], workspace_dir:
         norm = (tool_name or "").strip().lower()
         action = str(arguments.get("Action") or arguments.get("action") or "").strip().lower()
         cmd = str(arguments.get("CommandLine") or arguments.get("command") or "").strip()
-        if (norm == "manage_subagents" and action in ("kill", "kill_all", "cancel")) or (norm == "manage_task" and action in ("kill", "cancel")) or (norm == "run_command" and PAUSE_KILL_SHELL_REGEX.search(cmd)):
+        if (norm in ("manage_subagents", "swarm") and action in ("kill", "kill_all", "cancel")) or (norm == "manage_task" and action in ("kill", "cancel")) or (norm == "run_command" and PAUSE_KILL_SHELL_REGEX.search(cmd)):
             return ("deny", reason)
         return ("allow", None)
     except Exception as e:
@@ -521,14 +521,23 @@ def get_schema_properties(schema: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 def normalize_mcp_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Tuple[str, Optional[Dict[str, Any]], Optional[str]]:
     """Normalizes MCP tool arguments and enforces PSL-INV-009 >10MB Ghidra cache checks."""
-    if tool_name != "call_mcp_tool" or not isinstance(tool_args, dict):
+    is_direct_mcp = tool_name.startswith("mcp_") and "_" in tool_name[4:]
+    if tool_name != "call_mcp_tool" and not is_direct_mcp:
         return ("allow", None, None)
-    server_name = str(tool_args.get("ServerName") or tool_args.get("server_name") or tool_args.get("server") or "").strip()
-    subtool = str(tool_args.get("ToolName") or tool_args.get("tool_name") or tool_args.get("tool") or "").strip()
-    args_key = "Arguments" if "Arguments" in tool_args else ("arguments" if "arguments" in tool_args else "Arguments")
-    raw_arguments = tool_args.get(args_key)
-    if not isinstance(raw_arguments, dict):
+    if not isinstance(tool_args, dict):
         return ("allow", None, None)
+
+    if is_direct_mcp:
+        server_name, subtool = tool_name[4:].split("_", 1)
+        raw_arguments = tool_args
+        args_key = None
+    else:
+        server_name = str(tool_args.get("ServerName") or tool_args.get("server_name") or tool_args.get("server") or "").strip()
+        subtool = str(tool_args.get("ToolName") or tool_args.get("tool_name") or tool_args.get("tool") or "").strip()
+        args_key = "Arguments" if "Arguments" in tool_args else ("arguments" if "arguments" in tool_args else "Arguments")
+        raw_arguments = tool_args.get(args_key)
+        if not isinstance(raw_arguments, dict):
+            return ("allow", None, None)
 
     modified_args, reasons = dict(raw_arguments), []
     canonical_props = set(get_schema_properties(load_mcp_tool_schema(server_name, subtool)).keys())
@@ -613,6 +622,8 @@ def normalize_mcp_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Tuple[
                 pass
 
     if reasons:
+        if is_direct_mcp:
+            return ("allow", modified_args, "; ".join(reasons))
         return ("allow", {**tool_args, args_key: modified_args}, "; ".join(reasons))
     return ("allow", None, None)
 
@@ -691,10 +702,10 @@ def main() -> None:
         if pause_dec == "deny":
             print(json.dumps({"decision": "deny", "reason": pause_reason}))
             return
-        if tool_name in ("manage_subagents", "manage_task"):
+        if tool_name in ("manage_subagents", "manage_task", "swarm", "run_workflow"):
             print(json.dumps({"decision": "allow"}))
             return
-        if tool_name == "call_mcp_tool":
+        if tool_name == "call_mcp_tool" or tool_name.startswith("mcp_"):
             m_dec, m_ow, m_rsn = normalize_mcp_tool_call(tool_name, tool_args)
             print(json.dumps({"decision": m_dec, **({"overwrite": m_ow} if m_ow is not None else {}), **({"reason": m_rsn} if m_rsn else {})}))
             return

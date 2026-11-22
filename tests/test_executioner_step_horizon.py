@@ -93,7 +93,7 @@ class TestExecutionerStepHorizon(unittest.TestCase):
                     workspace_dir=self.workspace_dir,
                 )
                 for item in pre.get("injectSteps", []):
-                    msg = str(item.get("ephemeralMessage", ""))
+                    msg = str(item.get("systemMessage", {}).get("systemMessage", "")) if isinstance(item.get("systemMessage"), dict) else str(item.get("systemMessage", ""))
                     self.assertNotIn("HORIZON WARNING", msg)
                     self.assertNotIn("HORIZON INTERRUPT", msg)
                     self.assertNotIn("EPOCH HORIZON ADVISORY", msg)
@@ -128,8 +128,9 @@ class TestExecutionerStepHorizon(unittest.TestCase):
         res = evaluate_pre_invocation(payload, workspace_dir=self.workspace_dir)
         inject_steps = res.get("injectSteps", [])
         self.assertEqual(len(inject_steps), 1)
-        self.assertIn("ephemeralMessage", inject_steps[0])
-        msg = inject_steps[0]["ephemeralMessage"]
+        self.assertIn("systemMessage", inject_steps[0])
+        self.assertNotIn("ephemeralMessage", inject_steps[0])
+        msg = inject_steps[0]["systemMessage"]["systemMessage"]
         self.assertIn(f"[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/{SOFT_EPOCH_STEP_ADVISORY}", msg)
 
     def test_step_80_native_slash_command_bypass(self) -> None:
@@ -325,7 +326,7 @@ class TestEpochStepHorizonSqliteResolution(unittest.TestCase):
                     )
                     self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", fence_over.get("advisory", ""))
                     pre_over = evaluate_pre_invocation(payload_over, workspace_dir=db_dir, db_dir=db_dir)
-                    self.assertTrue(any("[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/" in s.get("ephemeralMessage", "") for s in pre_over.get("injectSteps", [])))
+                    self.assertTrue(any("[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/" in (s.get("systemMessage", {}).get("systemMessage", "") if isinstance(s.get("systemMessage"), dict) else "") for s in pre_over.get("injectSteps", [])))
             finally:
                 clear_locked_conversations()
 

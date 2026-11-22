@@ -341,17 +341,64 @@ class TestOutputCompactor(unittest.TestCase):
     # 5. CLI Subprocess & PostToolUse Contract Compliance
     # -------------------------------------------------------------------------
     def test_cli_post_tool_use_contract_success(self) -> None:
-        """PostToolUse contract requires stdout to be exact JSON `{}` and exit 0."""
+        """PostToolUse contract emits overwriteResult when output is compacted."""
         payload = json.dumps({
             "conversationId": "cli-test-ok",
             "stepIdx": 1,
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "echo ok"}},
             "output": "A" * 15000,
             "exitCode": 0,
         })
         with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
             with patch("sys.stdin", io.StringIO(payload)), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
                 compactor_main()
+                res = json.loads(mock_out.getvalue().strip())
+                self.assertIn("overwriteResult", res)
+                self.assertTrue(len(res["overwriteResult"]) < 15000)
+
+    def test_cli_post_tool_use_error_preservation(self) -> None:
+        """run_command with non-zero exit code preserves output and emits `{}`."""
+        payload = json.dumps({
+            "conversationId": "cli-test-err",
+            "stepIdx": 2,
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "false"}},
+            "output": "Error: " + ("E" * 5000),
+            "exitCode": 1,
+        })
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO(payload)), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                compactor_main()
                 self.assertEqual(mock_out.getvalue().strip(), "{}")
+
+    def test_cli_post_tool_use_read_file_verbatim(self) -> None:
+        """read_file output <= 32KB is preserved verbatim and emits `{}`."""
+        payload = json.dumps({
+            "conversationId": "cli-test-read-verbatim",
+            "stepIdx": 3,
+            "toolCall": {"name": "read_file", "args": {"Path": "/tmp/foo.txt"}},
+            "output": "F" * 15000,
+            "exitCode": 0,
+        })
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO(payload)), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                compactor_main()
+                self.assertEqual(mock_out.getvalue().strip(), "{}")
+
+    def test_cli_post_tool_use_read_file_compacted(self) -> None:
+        """read_file output > 32KB is compacted and emits overwriteResult."""
+        payload = json.dumps({
+            "conversationId": "cli-test-read-compacted",
+            "stepIdx": 4,
+            "toolCall": {"name": "read_file", "args": {"Path": "/tmp/large.txt"}},
+            "output": "F" * 40000,
+            "exitCode": 0,
+        })
+        with patch.dict(os.environ, {"PSL_HARNESS_STATE_DIR": str(self.state_dir)}):
+            with patch("sys.stdin", io.StringIO(payload)), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                compactor_main()
+                res = json.loads(mock_out.getvalue().strip())
+                self.assertIn("overwriteResult", res)
+                self.assertTrue(len(res["overwriteResult"]) < 40000)
 
     def test_cli_post_tool_use_contract_empty_stdin(self) -> None:
         """Empty stdin must gracefully output `{}` with exit code 0."""

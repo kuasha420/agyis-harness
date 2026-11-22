@@ -215,8 +215,9 @@ class TestSubagentLadderIntegration(unittest.TestCase):
         )
         inject_steps_80 = res_80.get("injectSteps", [])
         self.assertEqual(len(inject_steps_80), 1)
-        self.assertIn("ephemeralMessage", inject_steps_80[0])
-        msg_80 = inject_steps_80[0]["ephemeralMessage"]
+        self.assertIn("systemMessage", inject_steps_80[0])
+        self.assertNotIn("ephemeralMessage", inject_steps_80[0])
+        msg_80 = inject_steps_80[0]["systemMessage"]["systemMessage"]
         self.assertIn(f"[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/{SOFT_EPOCH_STEP_ADVISORY}", msg_80)
 
         # Assert exploratory sweeps and payload calls stay non-blocking (allow) at step 80

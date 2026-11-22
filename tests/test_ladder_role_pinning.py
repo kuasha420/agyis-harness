@@ -360,9 +360,10 @@ class TestRolePinningDualAnchorAndReAnchor(unittest.TestCase):
 
                 inject_steps = res.get("injectSteps", [])
                 self.assertEqual(len(inject_steps), 1)
-                self.assertIn("ephemeralMessage", inject_steps[0])
+                self.assertIn("systemMessage", inject_steps[0])
+                self.assertNotIn("ephemeralMessage", inject_steps[0])
 
-                msg = inject_steps[0]["ephemeralMessage"]
+                msg = inject_steps[0]["systemMessage"]["systemMessage"]
                 self.assertIn(f"[AGYIS ROLE RE-ANCHOR: DEEP_EXECUTION (STEP {step} | CADENCE 10)]", msg)
                 self.assertIn("PERIODIC COGNITIVE ATTENTION AUDIT", msg)
                 self.assertIn("Work Preservation", msg)
@@ -393,7 +394,7 @@ class TestRolePinningDualAnchorAndReAnchor(unittest.TestCase):
             workspace_dir=self.workspace_dir,
         )
         self.assertEqual(len(res_15.get("injectSteps", [])), 1)
-        self.assertIn("CADENCE 15", res_15["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("CADENCE 15", res_15["injectSteps"][0]["systemMessage"]["systemMessage"])
 
 
 class TestNativeSlashCommandsBypass(unittest.TestCase):
@@ -468,7 +469,8 @@ class TestNativeSlashCommandsBypass(unittest.TestCase):
         }
         res_10 = evaluate_pre_invocation(payload_10)
         self.assertEqual(len(res_10.get("injectSteps", [])), 1)
-        self.assertIn("ephemeralMessage", res_10["injectSteps"][0])
+        self.assertIn("systemMessage", res_10["injectSteps"][0])
+        self.assertNotIn("ephemeralMessage", res_10["injectSteps"][0])
 
 
 class TestSubSecondExecutionBenchmark(unittest.TestCase):

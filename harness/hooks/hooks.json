@@ -2,7 +2,7 @@
   "psl-anti-drift-guard": {
     "PreToolUse": [
       {
-        "matcher": "write_to_file|replace_file_content|edit_file",
+        "matcher": "write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|run_command",
         "hooks": [
           {
             "type": "command",
@@ -16,7 +16,7 @@
   "psl-anti-loop-guard": {
     "PreToolUse": [
       {
-        "matcher": "view_file|grep_search|run_command|manage_task",
+        "matcher": "read_file|view_file|grep_search|run_command|manage_task|swarm|run_workflow|write_file|edit_file|write_to_file|replace_file_content",
         "hooks": [
           {
             "type": "command",
@@ -30,7 +30,7 @@
   "psl-command-safety-guard": {
     "PreToolUse": [
       {
-        "matcher": "run_command|manage_task|manage_subagents",
+        "matcher": "run_command|manage_task|manage_subagents|swarm|run_workflow|call_mcp_tool|mcp_.*",
         "hooks": [
           {
             "type": "command",
@@ -44,7 +44,7 @@
   "psl-output-compactor": {
     "PostToolUse": [
       {
-        "matcher": "run_command|view_file",
+        "matcher": "run_command|read_file|view_file",
         "hooks": [
           {
             "type": "command",
@@ -58,7 +58,7 @@
   "psl-stop-verification-fence": {
     "PreToolUse": [
       {
-        "matcher": "write_to_file|replace_file_content|edit_file|run_command|execute_command|bash",
+        "matcher": "write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|run_command|execute_command|bash",
         "hooks": [
           {
             "type": "command",
@@ -70,7 +70,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "run_command|execute_command|bash|call_mcp_tool",
+        "matcher": "run_command|execute_command|bash|call_mcp_tool|mcp_.*",
         "hooks": [
           {
             "type": "command",

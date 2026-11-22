@@ -145,13 +145,22 @@ def _velocity_from_telemetry_db(db_path: Path, norm_cid: str, window_seconds: in
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT created_at, step_index FROM steps WHERE session_id = ? ORDER BY step_index ASC",
+            "SELECT created_at, step_index, COALESCE(content_length, 0) + COALESCE(thinking_length, 0) FROM steps WHERE session_id = ? ORDER BY step_index ASC",
             (norm_cid,),
         )
         rows = cur.fetchall()
-        cur.execute("SELECT total_tokens_est FROM sessions WHERE session_id = ?", (norm_cid,))
-        srow = cur.fetchone()
-        tot = int(srow[0] or 0) if srow else 0
+        tot = sum(int(r[2] or 0) for r in rows) // 4
+        if tot <= 0:
+            cur.execute("PRAGMA table_info(sessions)")
+            cols = {r[1] for r in cur.fetchall()}
+            if "file_size_bytes" in cols:
+                cur.execute("SELECT file_size_bytes FROM sessions WHERE session_id = ?", (norm_cid,))
+                srow = cur.fetchone()
+                tot = int((srow[0] or 0) // 4) if srow and srow[0] is not None else 0
+            elif "total_tokens_est" in cols:
+                cur.execute("SELECT total_tokens_est FROM sessions WHERE session_id = ?", (norm_cid,))
+                srow = cur.fetchone()
+                tot = int(srow[0] or 0) if srow and srow[0] is not None else 0
         ts_list = [t for r in rows if (t := parse_step_timestamp(r[0])) is not None]
         if len(ts_list) >= 2 and tot > 0:
             dur = max(1.0, ts_list[-1] - ts_list[0])

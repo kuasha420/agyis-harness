@@ -143,9 +143,16 @@ def _handle_post_tool_run_command(
 ) -> None:
     """Processes PostToolUse state updates for shell commands."""
     raw_out = str(payload.get("toolResponse") or payload.get("result") or payload.get("toolOutput") or "")
-    check_background_task_detachment(tool_name, tool_args, raw_out, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
+    detached = check_background_task_detachment(tool_name, tool_args, raw_out, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
     check_shell_command_mutation(cmd, cwd=cwd, conv_id=conv_id, state_dir=state_dir, turn_id=turn_id)
     exit_code = extract_exit_code(payload)
+    if (
+        not detached
+        and exit_code is None
+        and not payload.get("error")
+        and any(k in payload for k in ("result", "toolResponse", "toolOutput", "toolResult", "tool_result"))
+    ):
+        exit_code = 0
     if exit_code is not None and cmd:
         check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
         if is_mutation_test_command(cmd):
@@ -171,7 +178,7 @@ def _handle_tool_call_event(
     if cwd is None:
         cwd = tool_args.get("Cwd") or tool_args.get("cwd")
 
-    event = str(payload.get("hookEvent") or payload.get("hook_event") or payload.get("event") or "").strip().lower()
+    event = str(payload.get("hookEventName") or payload.get("hookEvent") or payload.get("hook_event") or payload.get("event") or "").strip().lower()
     if "post" in event:
         is_post = True
     elif "pre" in event:
@@ -197,7 +204,14 @@ def _handle_tool_call_event(
             return pre_check
 
     if tool_name in CODE_MUTATION_TOOLS:
-        target = tool_args.get("TargetFile") or tool_args.get("FilePath") or tool_args.get("AbsolutePath") or tool_args.get("file_path", "")
+        target = (
+            tool_args.get("Path")
+            or tool_args.get("TargetFile")
+            or tool_args.get("FilePath")
+            or tool_args.get("AbsolutePath")
+            or tool_args.get("file_path")
+            or tool_args.get("path", "")
+        )
         if target:
             record_edit(target, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
     elif tool_name in ("run_command", "execute_command", "bash"):
@@ -211,14 +225,26 @@ def _handle_tool_call_event(
             _handle_post_tool_run_command(tool_name, tool_args, payload, cmd, conv_id, state_dir, cwd, turn_id)
 
     if is_post:
-        raw_res = payload.get("toolResponse") or payload.get("result") or payload.get("toolOutput") or {}
+        raw_res = (
+            payload.get("toolResponse")
+            or payload.get("result")
+            or payload.get("toolOutput")
+            or payload.get("toolResult")
+            or payload.get("tool_result")
+            or {}
+        )
         if isinstance(raw_res, str):
             try:
-                res_dict = json.loads(raw_res)
+                parsed = json.loads(raw_res)
+                res_dict = dict(parsed) if isinstance(parsed, dict) else {"output": raw_res}
             except (json.JSONDecodeError, ValueError):
                 res_dict = {"output": raw_res}
         else:
-            res_dict = raw_res if isinstance(raw_res, dict) else {}
+            res_dict = dict(raw_res) if isinstance(raw_res, dict) else {}
+
+        if payload.get("error") and "error" not in res_dict:
+            res_dict["error"] = payload["error"]
+
         handle_post_tool_use(tool_name, tool_args, res_dict, conv_id=conv_id, state_dir=state_dir)
         return {}
     return {"decision": "allow"}

@@ -48,7 +48,7 @@ MAX_TASK_INSPECTION_CONSECUTIVE = 2
 MAX_TASK_INSPECTION_WINDOW_FREQUENCY = 3
 TASK_INSPECTION_WINDOW = 10
 
-CODE_EDIT_TOOLS = frozenset({"write_to_file", "replace_file_content"})
+CODE_EDIT_TOOLS = frozenset({"write_file", "edit_file", "write_to_file", "replace_file_content", "multi_replace_file_content"})
 
 TEST_VERIFICATION_PATTERNS = (
     r"(?:^|[\s;&|])(?:\./)?agyis\s+test\b",
@@ -123,7 +123,7 @@ def _is_peer_heartbeat(tool_name: str, tool_args: dict) -> bool:
       handoff.md, task.md, obligations.json) unless they reside within
       production source directories (harness/, src/, crates/, tests/).
     """
-    if tool_name != "view_file" or not isinstance(tool_args, dict):
+    if tool_name not in ("view_file", "read_file") or not isinstance(tool_args, dict):
         return False
 
     path = ""
@@ -152,9 +152,14 @@ def _is_peer_heartbeat(tool_name: str, tool_args: dict) -> bool:
 
 def _is_spec_file(tool_name: str, tool_args: dict) -> bool:
     """Helper to detect if a tool call is inspecting cleanroom specification or ledger files."""
-    if tool_name != "view_file":
+    if tool_name not in ("view_file", "read_file") or not isinstance(tool_args, dict):
         return False
-    path = str(tool_args.get("AbsolutePath") or tool_args.get("Path") or "")
+    path = ""
+    for key in PATH_KEYS:
+        val = tool_args.get(key)
+        if isinstance(val, str) and val.strip():
+            path = val.strip()
+            break
     norm = path.replace("\\", "/").strip()
     return any(p in norm for p in SPEC_DIR_PREFIXES) or norm.startswith("docs/specs/") or norm.startswith(".agents/ledger/")
 
@@ -214,8 +219,8 @@ def _is_task_log_inspection(sig: dict) -> bool:
     args = sig.get("args")
     if not isinstance(args, dict):
         return False
-    if name == "view_file":
-        path = str(args.get("AbsolutePath") or "")
+    if name in ("view_file", "read_file"):
+        path = str(args.get("AbsolutePath") or args.get("Path") or args.get("path") or args.get("file_path") or "")
         return (
             ".system_generated/tasks" in path
             or ".system_generated/logs" in path

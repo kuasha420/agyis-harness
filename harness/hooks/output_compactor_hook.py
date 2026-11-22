@@ -33,6 +33,7 @@ from harness.utils.state import atomic_write_json, atomic_write_text, get_state_
 
 # Configuration Constants
 MAX_OUTPUT_CHARS = 2048
+READ_FILE_MAX_OUTPUT_CHARS = 32768
 HEAD_CHARS = 500
 TAIL_CHARS = 1000
 PRESLICE_THRESHOLD = 200_000
@@ -227,7 +228,8 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
     tool_name = tool_call.get("name", "unknown") if isinstance(tool_call, dict) else "unknown"
 
     raw_output, exit_code, is_error = extract_output_and_status(payload)
-    compacted = compact_output(raw_output, exit_code=exit_code, is_error=is_error)
+    threshold = READ_FILE_MAX_OUTPUT_CHARS if tool_name in ("read_file", "view_file") else MAX_OUTPUT_CHARS
+    compacted = compact_output(raw_output, exit_code=exit_code, is_error=is_error, max_chars=threshold)
 
     was_compacted = len(compacted) < len(raw_output)
     saved_chars = max(0, len(raw_output) - len(compacted))
@@ -287,11 +289,14 @@ def main() -> None:
         if not isinstance(payload, dict):
             print(json.dumps({}))
             return
-        process_payload(payload)
+        record = process_payload(payload)
+        if record.get("wasCompacted"):
+            print(json.dumps({"overwriteResult": record["compactedOutput"]}))
+            return
     except Exception:
         pass
 
-    # PostToolUse contract expects an empty JSON object
+    # PostToolUse contract expects an empty JSON object when not modifying output
     print(json.dumps({}))
 
 

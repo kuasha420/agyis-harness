@@ -372,9 +372,15 @@ def get_brain_dir(
             if p.is_dir():
                 return p
 
-    # Standard Antigravity user location
-    candidate = Path.home() / ".gemini" / "antigravity" / "brain" / conv_id
-    if candidate.is_dir():
-        return candidate
+    from harness.utils.context import get_active_brain_dir
+
+    for base in (
+        get_active_brain_dir(),
+        Path.home() / ".gemini" / "antigravity" / "brain",
+        Path.home() / ".gemini" / "antigravity-cli" / "brain",
+    ):
+        candidate = base / conv_id
+        if candidate.is_dir():
+            return candidate
 
     return None

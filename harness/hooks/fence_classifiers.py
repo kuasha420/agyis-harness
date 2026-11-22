@@ -33,7 +33,10 @@ DECLARATIVE_SPEC_EXTENSIONS: frozenset[str] = frozenset({
 TIER_RANKS: dict[str, int] = {"spec": 0, "diff": 1, "affected": 2, "mutation": 2, "pkg": 3, "full": 4}
 
 EXECUTIONER_HORIZON_STEPS: int = SOFT_EPOCH_STEP_ADVISORY
-CODE_MUTATION_TOOLS: frozenset[str] = frozenset({"write_to_file", "replace_file_content", "edit_file"})
+CODE_MUTATION_TOOLS: frozenset[str] = frozenset({
+    "write_file", "edit_file", "write_to_file", "replace_file_content",
+    "multi_replace_file_content", "create_file", "insert_edit_into_file",
+})
 
 # Non-code files that do not trigger code dirty state
 EXEMPT_FILENAMES: frozenset[str] = frozenset({
@@ -294,6 +297,21 @@ def extract_exit_code(payload: dict) -> int | None:
             except (ValueError, TypeError):
                 pass
 
+    # 1b. Error payload inspection
+    err = payload.get("error")
+    if err:
+        if isinstance(err, dict):
+            sub_code = extract_exit_code(err)
+            return sub_code if sub_code is not None else 1
+        elif isinstance(err, str):
+            m = re.search(r"(?:failed with exit code|exited with code|exit status|exit code)\s*[:=]?\s*(\d+)", err, re.I)
+            if m:
+                try:
+                    return int(m.group(1))
+                except (ValueError, TypeError):
+                    pass
+            return 1
+
     # 2. Check nested structures: toolResponse, result, response, output, toolOutput, content, stdout
     for key in ("toolResponse", "result", "response", "output", "toolOutput", "content", "stdout"):
         val = payload.get(key)
@@ -321,7 +339,7 @@ def extract_exit_code(payload: dict) -> int | None:
             for text_key in ("output", "content", "stdout"):
                 text_val = val.get(text_key)
                 if isinstance(text_val, str):
-                    m = re.search(r"(?:failed with exit code|exited with code)\s*[:=]?\s*(\d+)", text_val, re.I)
+                    m = re.search(r"(?:failed with exit code|exited with code|exit status|exit code)\s*[:=]?\s*(\d+)", text_val, re.I)
                     if m:
                         try:
                             return int(m.group(1))
@@ -338,7 +356,7 @@ def extract_exit_code(payload: dict) -> int | None:
             except (json.JSONDecodeError, ValueError, TypeError):
                 pass
             # Regex match on string content
-            m = re.search(r"(?:failed with exit code|exited with code)\s*[:=]?\s*(\d+)", val, re.I)
+            m = re.search(r"(?:failed with exit code|exited with code|exit status|exit code)\s*[:=]?\s*(\d+)", val, re.I)
             if m:
                 try:
                     return int(m.group(1))
@@ -401,7 +419,7 @@ def is_manifest_verified(cwd: Path | str | None = None) -> bool:
             data = json.loads(ledger_path.read_text(encoding="utf-8"))
             reviewed = data.get("reviewed_obligations", [])
             for ob in reviewed:
-                if ob.get("disposition") not in ("satisfied", "verified", "waived", "active", "out-of-scope"):
+                if ob.get("disposition") not in ("active", "out-of-scope"):
                     return False
             return True
         except Exception:
@@ -424,7 +442,7 @@ def is_manifest_verified(cwd: Path | str | None = None) -> bool:
                 return False
             reviewed = data.get("reviewed_obligations", [])
             for ob in reviewed:
-                if ob.get("disposition") not in ("satisfied", "verified", "waived", "active", "out-of-scope"):
+                if ob.get("disposition") not in ("active", "out-of-scope"):
                     return False
             return True
 

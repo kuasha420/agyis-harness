@@ -18,6 +18,7 @@ from typing import Optional
 from harness.hooks.fence_classifiers import (
     SHELL_MUTATION_PATTERNS,
     classify_test_tier,
+    extract_exit_code,
     is_cleanroom_contract_file,
     is_code_file,
     is_ephemeral_scratch_path,
@@ -318,19 +319,19 @@ def handle_post_tool_use(
         inner_tool = args.get("ToolName", "")
         if inner_tool in ("verify_reconstruction", "evaluate_reconstruction_coverage"):
             status = result.get("status") if isinstance(result, dict) else None
-            is_err = result.get("isError") or result.get("is_error") if isinstance(result, dict) else False
+            is_err = bool(result.get("error")) or bool(result.get("isError")) or bool(result.get("is_error")) if isinstance(result, dict) else False
             if status != "error" and not is_err:
                 clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
     elif "verify_reconstruction" in tool_name or "evaluate_reconstruction_coverage" in tool_name:
         status = result.get("status") if isinstance(result, dict) else None
-        is_err = result.get("isError") or result.get("is_error") if isinstance(result, dict) else False
+        is_err = bool(result.get("error")) or bool(result.get("isError")) or bool(result.get("is_error")) if isinstance(result, dict) else False
         if status != "error" and not is_err:
             clear_spec_dirty(conv_id=conv_id, state_dir=state_dir)
     elif tool_name in ("run_command", "execute_command", "bash"):
         cmd = args.get("CommandLine") or args.get("command") or ""
-        exit_code = result.get("exit_code") or result.get("returncode")
+        exit_code = extract_exit_code(result) if isinstance(result, dict) else None
         if exit_code is None:
-            is_err = result.get("isError") or result.get("is_error") or False
+            is_err = bool(result.get("error")) or bool(result.get("isError")) or bool(result.get("is_error")) or False
             status = result.get("status")
             if status != "error" and not is_err:
                 exit_code = 0

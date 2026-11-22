@@ -1048,7 +1048,8 @@ class TestPreInvocationHookCompaction(unittest.TestCase):
         self.assertTrue(scoped_file.is_file())
         self.assertFalse((self.ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md").exists())
         inject_steps = res.get("injectSteps", [])
-        self.assertTrue(any("ephemeralMessage" in s for s in inject_steps))
+        self.assertTrue(any("systemMessage" in s for s in inject_steps))
+        self.assertFalse(any("ephemeralMessage" in s for s in inject_steps))
 
     def test_hook_auto_trigger_fail_open(self) -> None:
         """Mocking generate_compaction_checkpoint to raise does not crash evaluate_pre_invocation."""
@@ -1066,7 +1067,8 @@ class TestPreInvocationHookCompaction(unittest.TestCase):
             res = evaluate_pre_invocation(payload, workspace_dir=self.ws)
             inject_steps = res.get("injectSteps", [])
             # Assert advisory is still injected without crashing
-            self.assertTrue(any("ephemeralMessage" in s for s in inject_steps))
+            self.assertTrue(any("systemMessage" in s for s in inject_steps))
+            self.assertFalse(any("ephemeralMessage" in s for s in inject_steps))
 
     def test_post_compaction_persona_anchor(self) -> None:
         """Supplying '# Resuming from a compaction' in prompt triggers systemMessage with CID-scoped checkpoint link."""

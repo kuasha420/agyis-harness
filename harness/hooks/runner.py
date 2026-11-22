@@ -98,7 +98,7 @@ def is_pre_invocation_context(hook_name: str, payload_str: Optional[str] = None)
         try:
             data = json.loads(payload_str)
             if isinstance(data, dict):
-                event = str(data.get("hookEvent") or data.get("hook_event") or data.get("event") or "").strip().lower()
+                event = str(data.get("hookEventName") or data.get("hookEvent") or data.get("hook_event") or data.get("event") or "").strip().lower()
                 if (
                     "invocation" in event
                     or "pre-invocation" in event
@@ -132,7 +132,7 @@ def is_post_tool_use_context(hook_name: str, payload_str: Optional[str] = None) 
         try:
             data = json.loads(payload_str)
             if isinstance(data, dict):
-                event = str(data.get("hookEvent") or data.get("hook_event") or data.get("event") or "").strip().lower()
+                event = str(data.get("hookEventName") or data.get("hookEvent") or data.get("hook_event") or data.get("event") or "").strip().lower()
                 if "pre" in event:
                     return False
                 if "post" in event:
@@ -205,7 +205,7 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
         if is_post:
             try:
                 data = json.loads(payload_str) if payload_str else {}
-                if isinstance(data, dict) and "hookEvent" not in data and "event" not in data:
+                if isinstance(data, dict) and "hookEventName" not in data and "hookEvent" not in data and "event" not in data:
                     data["hookEvent"] = "PostToolUse"
                     payload_str = json.dumps(data)
             except Exception:

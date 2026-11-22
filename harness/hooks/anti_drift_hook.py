@@ -177,6 +177,56 @@ def check_drift(target_file: str, plan_files: set[str], strict: bool = False) ->
         }
 
 
+_MUTATION_TOOL_NAMES = frozenset({
+    "write_file",
+    "edit_file",
+    "write_to_file",
+    "replace_file_content",
+    "multi_replace_file_content",
+})
+
+_HARMLESS_REDIR_RE = re.compile(r"(?:\b[12]?>&\s*[12]\b|\b[12]?>\s*/dev/null\b|&\s*>\s*/dev/null\b)")
+_QUOTED_LITERAL_RE = re.compile(r"'[^']*'|\"(?:\\.|[^\"])*\"")
+_CMD_START_MUTATION_RE = re.compile(
+    r"(?:^|[;&|()]\s*|\b(?:sudo|env|xargs|nohup|exec|time|command)(?:\s+-[^\s]+)*\s+)"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)*"
+    r"(?:rm|rmdir|mv|cp|touch|mkdir|chmod|chown|truncate|dd|tee|ln|patch)\b",
+    re.I,
+)
+_INPLACE_OR_GIT_MUTATION_RE = re.compile(
+    r"\bsed\s+(?:-[a-zA-Z]*i|--in-place)\b"
+    r"|\bperl\s+-[a-zA-Z]*i\b"
+    r"|\bgit\s+(?:add|commit|push|reset|rebase|merge|cherry-pick|stash|clean|apply|restore|checkout\s+--|tag|branch\s+-[dDmM])\b",
+    re.I,
+)
+_INLINE_FILE_WRITE_RE = re.compile(
+    r"(?:\bpython3?(?:\.\d+)?\s+(?:-[^\s]+\s+)*-c\b[^\n]*(?:write_text|write_bytes|os\.remove|os\.unlink|shutil\.|open\([^)]*['\"][wa])"
+    r"|\bnode\s+(?:-[^\s]+\s+)*-e\b[^\n]*(?:fs\.writeFile|fs\.appendFile|fs\.rm|fs\.unlink|fs\.mkdir))",
+    re.I,
+)
+_FILE_REDIR_RE = re.compile(r"(?<![2&])>{1,2}\s*([^\s;&|]+)")
+
+
+def _is_mutating_shell_command(cmd: str, allow_scratch: bool = False) -> bool:
+    """Returns True when a shell command performs filesystem or git mutations."""
+    if not cmd or not cmd.strip():
+        return False
+    if _INLINE_FILE_WRITE_RE.search(cmd):
+        return True
+    stripped = _HARMLESS_REDIR_RE.sub(" ", cmd)
+    unquoted = _QUOTED_LITERAL_RE.sub(" ", stripped)
+    if _CMD_START_MUTATION_RE.search(unquoted) or _INPLACE_OR_GIT_MUTATION_RE.search(unquoted):
+        return True
+    for m in _FILE_REDIR_RE.finditer(unquoted):
+        target = m.group(1)
+        if target == "/dev/null" or target.startswith(("/dev/null", "/tmp/", ".agents/artifacts/")):
+            continue
+        if allow_scratch and (target.startswith("scratch/") or "/scratch/" in target):
+            continue
+        return True
+    return False
+
+
 def _extract_target_file(payload: dict) -> str:
     """Extracts target file path from tool arguments or payload."""
     tool_call = payload.get("toolCall", {})
@@ -185,12 +235,14 @@ def _extract_target_file(payload: dict) -> str:
         tool_args = {}
 
     target = (
-        tool_args.get("TargetFile")
+        tool_args.get("Path")
+        or tool_args.get("TargetFile")
         or tool_args.get("target_file")
         or tool_args.get("FilePath")
         or tool_args.get("file_path")
         or tool_args.get("AbsolutePath")
         or tool_args.get("path")
+        or payload.get("Path")
         or payload.get("TargetFile")
         or payload.get("target_file")
         or payload.get("FilePath")
@@ -232,7 +284,7 @@ def check_plan_mode_lock(payload: dict) -> Optional[dict]:
         tool_name = payload.get("tool_name") or payload.get("action") or ""
 
     tool_lower = tool_name.strip().lower()
-    if tool_lower in ("write_to_file", "replace_file_content", "edit_file"):
+    if tool_lower in _MUTATION_TOOL_NAMES:
         target_path = _extract_target_file(payload)
         if target_path and is_exempt_file(target_path):
             return None
@@ -340,7 +392,7 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
         tool_name = payload.get("tool_name") or payload.get("action") or ""
 
     tool_lower = tool_name.strip().lower()
-    if tool_lower in ("write_to_file", "replace_file_content", "edit_file"):
+    if tool_lower in _MUTATION_TOOL_NAMES:
         target_path = _extract_target_file(payload)
         if is_investigator:
             if target_path and is_exempt_file(target_path):
@@ -368,6 +420,22 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
             "decision": "deny",
             "reason": reason,
         }
+
+    if tool_lower in ("run_command", "execute_command", "bash"):
+        if not is_custodian and (is_reviewer or is_planner or is_coordinator or is_auditor or is_investigator or explicit_write_false):
+            tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else {}
+            if not isinstance(tool_args, dict):
+                tool_args = {}
+            cmd = tool_args.get("CommandLine") or tool_args.get("command") or payload.get("CommandLine") or payload.get("command") or ""
+            allow_scratch = is_investigator and not (is_reviewer or is_planner or is_coordinator or is_auditor)
+            if _is_mutating_shell_command(cmd, allow_scratch=allow_scratch):
+                return {
+                    "decision": "deny",
+                    "reason": (
+                        f"PSL Shell Mutation Guard: Agent role '{role or 'agent'}' is restricted from executing "
+                        "mutating shell commands (filesystem modifications, git write operations, or unexempted output redirections)."
+                    ),
+                }
 
     return None
 
@@ -415,7 +483,7 @@ def check_flight_director_write_guard(payload: dict) -> Optional[dict]:
         tool_name = payload.get("tool_name") or payload.get("action") or ""
     tool_lower = tool_name.strip().lower()
 
-    if tool_lower not in ("write_to_file", "replace_file_content", "edit_file"):
+    if tool_lower not in _MUTATION_TOOL_NAMES:
         return None
 
     target_path = _extract_target_file(payload)
@@ -580,9 +648,13 @@ def main() -> None:
         return
 
     content = (
-        tool_args.get("CodeContent")
+        tool_args.get("Content")
+        or tool_args.get("Replacement")
+        or tool_args.get("CodeContent")
         or tool_args.get("ReplacementContent")
         or tool_args.get("content")
+        or payload.get("Content")
+        or payload.get("Replacement")
         or payload.get("CodeContent")
         or payload.get("ReplacementContent")
         or payload.get("content")

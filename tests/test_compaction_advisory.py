@@ -12,7 +12,7 @@ Verifies:
 4. AC4: Work preservation contract (strictly prohibit git checkout/reset, keep partial work).
 5. AC5: Zero repo document pollution (local artifacts/scratch only, zero git churn).
 6. AC6: Autonomous post-compaction continuation (self-resumption directives).
-7. AC7: Ephemeral payload schema conformance ({"injectSteps": [{"ephemeralMessage": ...}]}).
+7. AC7: SystemMessage payload schema conformance ({"injectSteps": [{"systemMessage": ...}]}).
 8. AC8: Fail-open resilience, zero crash risk, and sub-millisecond execution benchmark (<5ms).
 9. AC9: Hook runner integration and hooks.json registration.
 """
@@ -94,14 +94,15 @@ class TestThresholdCalibrationAndTrigger(unittest.TestCase):
         payload = json.dumps({"tokens": 230_000, "role": "deep_execution"})
         res = evaluate_pre_invocation(payload, threshold=230_000)
         self.assertEqual(len(res.get("injectSteps", [])), 1)
-        self.assertIn("ephemeralMessage", res["injectSteps"][0])
+        self.assertIn("systemMessage", res["injectSteps"][0])
+        self.assertNotIn("ephemeralMessage", res["injectSteps"][0])
 
     def test_above_threshold_triggers_advisory(self):
         """Tokens above threshold trigger advisory."""
         payload = json.dumps({"tokens": 245_000, "role": "flight_director"})
         res = evaluate_pre_invocation(payload, threshold=230_000)
         self.assertEqual(len(res.get("injectSteps", [])), 1)
-        self.assertIn("COMPACTION IMMINENT", res["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("COMPACTION IMMINENT", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_env_override_agyis_threshold(self):
         """AGYIS_COMPACTION_THRESHOLD env var overrides default threshold."""
@@ -339,15 +340,17 @@ class TestEphemeralPayloadSchema(unittest.TestCase):
         self.assertEqual(res["injectSteps"], [])
 
     def test_schema_at_or_above_threshold(self):
-        """At/above threshold payload contains exactly one ephemeralMessage step."""
+        """At/above threshold payload contains exactly one systemMessage step."""
         res = evaluate_pre_invocation(json.dumps({"tokens": 240_000}))
         self.assertIsInstance(res, dict)
         self.assertIn("injectSteps", res)
         steps = res["injectSteps"]
         self.assertEqual(len(steps), 1)
-        self.assertIn("ephemeralMessage", steps[0])
-        self.assertIsInstance(steps[0]["ephemeralMessage"], str)
-        self.assertTrue(len(steps[0]["ephemeralMessage"]) > 50)
+        self.assertIn("systemMessage", steps[0])
+        self.assertNotIn("ephemeralMessage", steps[0])
+        self.assertIsInstance(steps[0]["systemMessage"], dict)
+        self.assertIsInstance(steps[0]["systemMessage"]["systemMessage"], str)
+        self.assertTrue(len(steps[0]["systemMessage"]["systemMessage"]) > 50)
 
 
 class TestFailOpenResilienceAndBenchmark(unittest.TestCase):
@@ -445,7 +448,7 @@ class TestRunnerIntegrationAndHooksJson(unittest.TestCase):
             self.assertEqual(code, 0)
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(len(res.get("injectSteps", [])), 1)
-            self.assertIn("COMPACTION IMMINENT", res["injectSteps"][0]["ephemeralMessage"])
+            self.assertIn("COMPACTION IMMINENT", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_hooks_json_configuration(self):
         """Asserts hooks.json registers psl-compaction-advisory under PreInvocation."""
@@ -479,7 +482,7 @@ class TestRunnerIntegrationAndHooksJson(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         res = json.loads(proc.stdout.strip())
         self.assertEqual(len(res.get("injectSteps", [])), 1)
-        self.assertIn("COMPACTION IMMINENT", res["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("COMPACTION IMMINENT", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_runner_resolves_compaction_advisory_aliases(self):
         """AC9: Asserts runner resolves 'compaction-advisory' and associated aliases."""
@@ -498,7 +501,7 @@ class TestRunnerIntegrationAndHooksJson(unittest.TestCase):
             self.assertEqual(code, 0)
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(len(res.get("injectSteps", [])), 1)
-            self.assertIn("COMPACTION IMMINENT", res["injectSteps"][0]["ephemeralMessage"])
+            self.assertIn("COMPACTION IMMINENT", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
     def test_runner_compaction_advisory_fail_open_schema(self):
         """AC8: Asserts runner compaction-advisory fail-open emits {'injectSteps': []} on corrupt input."""
@@ -545,7 +548,7 @@ class TestSqliteIntegration(unittest.TestCase):
         payload = json.dumps({"conversationId": conv_id, "role": "deep_execution"})
         res = evaluate_pre_invocation(payload, db_dir=self.db_dir)
         self.assertEqual(len(res.get("injectSteps", [])), 1)
-        msg = res["injectSteps"][0]["ephemeralMessage"]
+        msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("245,000 / 230,000 TOKENS", msg)
         self.assertIn("Deep Execution", msg)
 
@@ -1515,7 +1518,7 @@ class TestTokenBurstBoundaryHardening(unittest.TestCase):
 
         res_turn2 = evaluate_pre_invocation(payload, db_dir=self.db_dir)
         self.assertEqual(len(res_turn2.get("injectSteps", [])), 1)
-        msg = res_turn2["injectSteps"][0]["ephemeralMessage"]
+        msg = res_turn2["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("COMPACTION IMMINENT", msg)
         self.assertIn("245,000 / 230,000 TOKENS", msg)
         self.assertIn("~1 TURNS REMAINING", msg)
@@ -1528,7 +1531,7 @@ class TestTokenBurstBoundaryHardening(unittest.TestCase):
         payload_turn2 = json.dumps({"tokens": 245_000, "role": "flight_director"})
         res_turn2 = evaluate_pre_invocation(payload_turn2)
         self.assertEqual(len(res_turn2.get("injectSteps", [])), 1)
-        msg = res_turn2["injectSteps"][0]["ephemeralMessage"]
+        msg = res_turn2["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("COMPACTION IMMINENT", msg)
         self.assertIn("245,000 / 230,000 TOKENS", msg)
 
@@ -1562,7 +1565,7 @@ class TestTokenBurstBoundaryHardening(unittest.TestCase):
 
         res_turn2 = evaluate_pre_invocation(payload, db_dir=self.db_dir)
         self.assertEqual(len(res_turn2.get("injectSteps", [])), 1)
-        msg = res_turn2["injectSteps"][0]["ephemeralMessage"]
+        msg = res_turn2["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("ROLE: Deep Execution", msg)
         self.assertIn("245,000 / 230,000 TOKENS", msg)
 
@@ -1761,7 +1764,7 @@ class TestDefectRemediesAndAdversarialEdgeCases(unittest.TestCase):
         })
         res = evaluate_pre_invocation(payload, db_dir=self.db_dir)
         self.assertEqual(len(res.get("injectSteps", [])), 1)
-        msg = res["injectSteps"][0]["ephemeralMessage"]
+        msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("COMPACTION IMMINENT", msg)
         self.assertIn("245,000 / 230,000 TOKENS", msg)
 
@@ -1831,7 +1834,7 @@ class TestDefectRemediesAndAdversarialEdgeCases(unittest.TestCase):
         payload = json.dumps({"tokens": "245000", "role": "deep_execution"})
         res = evaluate_pre_invocation(payload)
         self.assertEqual(len(res.get("injectSteps", [])), 1)
-        self.assertIn("245,000 / 230,000 TOKENS", res["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("245,000 / 230,000 TOKENS", res["injectSteps"][0]["systemMessage"]["systemMessage"])
 
 
 class TestNativeSlashCommandBypass(unittest.TestCase):
@@ -2087,7 +2090,7 @@ class TestNativeSlashCommandBypass(unittest.TestCase):
             "role": "deep_execution",
         }))
         self.assertEqual(len(res_skill.get("injectSteps", [])), 1)
-        self.assertIn("245,000 / 230,000 TOKENS", res_skill["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("245,000 / 230,000 TOKENS", res_skill["injectSteps"][0]["systemMessage"]["systemMessage"])
 
         # 6. Standard developer prompt -> NOT bypassed, advisory emitted
         res_dev = evaluate_pre_invocation(json.dumps({
@@ -2096,7 +2099,7 @@ class TestNativeSlashCommandBypass(unittest.TestCase):
             "role": "deep_execution",
         }))
         self.assertEqual(len(res_dev.get("injectSteps", [])), 1)
-        self.assertIn("245,000 / 230,000 TOKENS", res_dev["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("245,000 / 230,000 TOKENS", res_dev["injectSteps"][0]["systemMessage"]["systemMessage"])
 
 
 
@@ -2299,7 +2302,7 @@ class TestDynamicContextWindowPropagation(unittest.TestCase):
             workspace_dir=self.ws,
         )
         self.assertEqual(len(res_first["injectSteps"]), 1)
-        self.assertIn("470,000 / 460,000 TOKENS", res_first["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("470,000 / 460,000 TOKENS", res_first["injectSteps"][0]["systemMessage"]["systemMessage"])
 
         res_second = evaluate_pre_invocation(
             {"conversationId": conv_high, "role": "deep_execution"},
@@ -2309,7 +2312,7 @@ class TestDynamicContextWindowPropagation(unittest.TestCase):
         self.assertEqual(len(res_second["injectSteps"]), 1)
         self.assertIn(
             "[AGYIS TOKEN GAUGE: ~470,000 / 512,000 TOKENS | Compaction Checkpoint Active]",
-            res_second["injectSteps"][0]["ephemeralMessage"],
+            res_second["injectSteps"][0]["systemMessage"]["systemMessage"],
         )
 
     def test_status_cockpit_and_checkpoint_512k_cli_integration(self):
@@ -2493,7 +2496,7 @@ class TestRc10AcceptanceGapRegressions(unittest.TestCase):
                 db_dir=self.db_dir,
                 workspace_dir=self.ws_dir,
             )
-            self.assertTrue(any("COMPACTION" in s.get("ephemeralMessage", "") for s in res_hi.get("injectSteps", [])))
+            self.assertTrue(any("COMPACTION" in (s.get("systemMessage", {}).get("systemMessage", "") if isinstance(s.get("systemMessage"), dict) else "") for s in res_hi.get("injectSteps", [])))
             self.assertTrue(alert_file.is_file())
             alert_hi = json.loads(alert_file.read_text(encoding="utf-8"))
             self.assertEqual(alert_hi["epoch"], 1)
@@ -2572,7 +2575,7 @@ class TestRc10AcceptanceGapRegressions(unittest.TestCase):
                 db_dir=self.db_dir,
                 workspace_dir=self.ws_dir,
             )
-            ephemeral = " ".join(s.get("ephemeralMessage", "") for s in res.get("injectSteps", []))
+            ephemeral = " ".join((s.get("systemMessage", {}).get("systemMessage", "") if isinstance(s.get("systemMessage"), dict) else "") for s in res.get("injectSteps", []))
             self.assertIn("AGYIS SUBAGENT CONTEXT CONTINUITY", ephemeral)
             self.assertNotIn("COMPACTION IMMINENT", ephemeral)
 
@@ -2599,7 +2602,7 @@ class TestRc10AcceptanceGapRegressions(unittest.TestCase):
                 db_dir=self.db_dir,
                 workspace_dir=self.ws_dir,
             )
-            msg_s0 = " ".join(s.get("ephemeralMessage", "") for s in res_s0.get("injectSteps", []))
+            msg_s0 = " ".join((s.get("systemMessage", {}).get("systemMessage", "") if isinstance(s.get("systemMessage"), dict) else "") for s in res_s0.get("injectSteps", []))
             self.assertIn("COMPACTION IMMINENT", msg_s0)
             self.assertNotIn("AGYIS SUBAGENT CONTEXT CONTINUITY", msg_s0)
 
@@ -2616,7 +2619,7 @@ class TestRc10AcceptanceGapRegressions(unittest.TestCase):
             {"tokens": 240_000, "step_count": 5, "role": ROLE_DEEP_EXECUTION},
             workspace_dir=ws_legacy,
         )
-        msg_legacy = " ".join(s.get("ephemeralMessage", "") for s in res_legacy.get("injectSteps", []))
+        msg_legacy = " ".join((s.get("systemMessage", {}).get("systemMessage", "") if isinstance(s.get("systemMessage"), dict) else "") for s in res_legacy.get("injectSteps", []))
         self.assertIn("COMPACTION IMMINENT", msg_legacy)
         self.assertNotIn("AGYIS SUBAGENT CONTEXT CONTINUITY", msg_legacy)
 
@@ -2633,7 +2636,7 @@ class TestRc10AcceptanceGapRegressions(unittest.TestCase):
             {"conversationId": sub_cid, "tokens": 240_000, "step_count": 5, "role": ROLE_DEEP_EXECUTION},
             workspace_dir=self.ws_dir,
         )
-        msg_sub = " ".join(s.get("ephemeralMessage", "") for s in res_sub.get("injectSteps", []))
+        msg_sub = " ".join((s.get("systemMessage", {}).get("systemMessage", "") if isinstance(s.get("systemMessage"), dict) else "") for s in res_sub.get("injectSteps", []))
         self.assertIn("AGYIS SUBAGENT CONTEXT CONTINUITY", msg_sub)
         self.assertNotIn("COMPACTION IMMINENT", msg_sub)
 
