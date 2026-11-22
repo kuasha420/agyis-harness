@@ -1,0 +1,88 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Arafat Zahan (@kuasha420)
+# Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
+# Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Hermetic Verification & Wheel Smoke Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 and uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Verify lockfile and install frozen dependencies
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --frozen --extra dev
+
+      - name: Verify root hooks.json symlink and cleanroom specs
+        run: |
+          set -euo pipefail
+          test -L hooks.json
+          test "$(readlink hooks.json)" = "harness/hooks/hooks.json"
+          uv run --frozen python3 -m harness.cli verify --spec
+
+      - name: Run static governance & schema gates
+        run: |
+          set -euo pipefail
+          uv run --frozen python3 -m harness.cli agents validate --json
+          uv run --frozen python3 -m harness.cli rules --lint
+          uv run --frozen python3 -m harness.cli audit aff
+
+      - name: Run full hermetic test suite
+        run: |
+          set -euo pipefail
+          uv run --frozen python3 -m harness.cli test
+
+      - name: Build and smoke-test wheel in isolated environment
+        run: |
+          set -euo pipefail
+          uv build --clear
+          shopt -s nullglob
+          WHL_FILES=(dist/agyis_harness-*.whl)
+          test "${#WHL_FILES[@]}" -eq 1
+          ABS_WHL="$(realpath "${WHL_FILES[0]}")"
+          TMP_SMOKE="$(mktemp -d)"
+          trap 'rm -rf "$TMP_SMOKE"' EXIT
+          cd "$TMP_SMOKE"
+          uv run --no-project --isolated --with "$ABS_WHL" python3 - <<'PY'
+          import importlib.resources as ir
+          from pathlib import Path
+          import harness
+          from harness.agents import resolve_agent_name
+
+          assert "site-packages" in str(Path(harness.__file__).resolve()), harness.__file__
+          assert resolve_agent_name("builder") == "agyis_builder"
+          assert (ir.files("harness.gui.assets") / "hud.js").is_file()
+          assert (ir.files("harness.hooks") / "hooks.json").is_file()
+          assert (ir.files("harness.runtime") / "matrix.json").is_file()
+          assert (ir.files("harness.agents") / "agyis_builder.md").is_file()
+          assert (ir.files("harness") / "plugin.json").is_file()
+          print("CI isolated wheel smoke test passed.")
+          PY
+          uv run --no-project --isolated --with "$ABS_WHL" agyis --version

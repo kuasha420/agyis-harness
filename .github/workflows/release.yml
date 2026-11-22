@@ -147,7 +147,7 @@ jobs:
         run: |
           set -euo pipefail
           uv run --frozen python3 -m harness.cli verify --spec
-          uv run --frozen python3 -m harness.cli verify
+          uv run --frozen python3 -m harness.cli agents validate --json
           uv run --frozen python3 -m harness.cli rules --lint
           uv run --frozen python3 -m harness.cli audit aff
           uv run --frozen python3 -m harness.cli test

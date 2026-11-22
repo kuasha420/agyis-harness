@@ -45,7 +45,7 @@ agyis-harness/
 │
 ├── pipeline/                 # [THE PROJECT] Telemetry extraction & empirical classification lab
 ├── data/                     # [THE PROJECT] Local empirical SQLite telemetry store (`telemetry.db`)
-├── docs/                     # [THE PROJECT] ADRs, 7 Official Specs, 3 RE Specs, 3 Runbooks, 2 Taxonomy, Archive Index (`0069329`)
+├── docs/                     # [THE PROJECT] ADRs (`001–035`), 7 Official Specs, 4 RE Specs, 4 Runbooks, 2 Taxonomy, Archive Index (`0069329`)
 └── tests/                    # [THE PROJECT] Hermetic unit, integration, contract & E2E tests
 ```
 
@@ -90,7 +90,7 @@ Authoritative flags, sub-actions, and platform boundaries live in [`cli-palette.
 | `psl-token-proximity-guard` | `PreToolUse` | [`token_proximity_guard.py`](../harness/hooks/token_proximity_guard.py) | `token-proximity` |
 | `psl-compaction-advisory` | `PreInvocation` | [`pre_invocation_hook.py`](../harness/hooks/pre_invocation_hook.py) | `pre-invocation` |
 
-All hooks fail open on malformed stdin. Full protojson payload contracts, thresholds (`256k` window / `180k` amber / `230k` red / `45`-step turn interrupt), and state machine rules live in [`lifecycle-hooks.md`](official-specs/lifecycle-hooks.md) and [`platform-surface-mapping.md`](official-specs/platform-surface-mapping.md).
+All hooks fail open on malformed stdin. Full protojson payload contracts, scaled thresholds (`256k` / Gemini 4 `512k` / `1M` windows at `70%` amber / `90%` red, `80`-step soft epoch horizon, nested `systemMessage` payloads, and `PostToolUse` `overwriteResult`), and state machine rules live in [`lifecycle-hooks.md`](official-specs/lifecycle-hooks.md) and [`platform-surface-mapping.md`](official-specs/platform-surface-mapping.md).
 
 ---
 
@@ -104,8 +104,8 @@ All hooks fail open on malformed stdin. Full protojson payload contracts, thresh
 
 ## 5. GUI HUD, Cleanroom Specs & Extensible Workspace CLI
 
-- **Electron CDP HUD (`agyis gui`)**: Assets under `harness/gui/assets/` track SPA routes (`/c/:id`) dynamically and purge stale DOM/style nodes on re-injection (`PSL-INV-010`).
-- **Cleanroom Verification (`agyis verify`)**: Validates **3** cleanroom RE specifications (**19** verified empirical evidence rows: `10` SHA-256 `ev_*` digests + `9` `EV-20261017` runtime checks; verified via `agyis verify --spec`) in `docs/specs/` (zero executable code permitted inside `docs/specs/`), and verifies typed `.agents/ledger/obligation_ledger.json` coverage via `agyis verify` (`ADR-028`, `PSL-INV-007`).
+- **Electron CDP HUD (`agyis gui`)**: Assets under `harness/gui/assets/` track SPA routes (including split routes `/c/<id1>+<id2>?focused=<id2>`), fall back to `localStorage["agy_session_csrf_token"]`, stream live ConnectRPC updates, and purge stale DOM/style nodes on re-injection (`PSL-INV-010`). Opt-in CDP desktop launcher management lives in `harness/gui/launcher.py`.
+- **Cleanroom Verification (`agyis verify`)**: Validates **4** cleanroom RE specifications (including `antigravity_v2_34_compatibility_inventory.md`; verified via `agyis verify --spec`) in `docs/specs/` (zero executable code permitted inside `docs/specs/`), and verifies typed `.agents/ledger/obligation_ledger.json` coverage via `agyis verify` (`rea@6.9.0` schema, `ADR-028`, `PSL-INV-007`).
 - **Dirtyroom Acceleration (`agyis re`) & Extensions (`agyis ext`)**: `.dirtyroom/` Ghidra `-noanalysis -readOnly` queries stay isolated under `PSL-INV-009` ([`rea-antigravity-architecture.md`](official-specs/rea-antigravity-architecture.md)); workspace extensions run inside `.agents/commands/` under `ADR-034`.
 
 ---
@@ -118,8 +118,10 @@ agyis test --diff                    # Diff-aware tests vs working tree (--affec
 agyis audit aff                      # Layer boundaries, DAG acyclicity, external assets, bounded caches
 agyis doctor                         # 3-tier runtime matrix, 8 hook runner checks, port 5432, symlinks
 agyis doctor --anti-synthetic        # Detect tautological / synthetic tests
-agyis verify --spec && agyis verify  # Cleanroom specs (19 empirical evidence rows) & obligation ledgers
+agyis verify --spec                  # Cleanroom specs (4 specifications in docs/specs/)
+agyis agents validate --json         # Validate all 8 canonical v2.34 agent schemas
 agyis rules --lint                   # Agent rule echo & formatting audit
+uv lock --check                      # Ensure uv.lock stays synced with pyproject.toml for CI
 agyis audit certify                  # Out-of-band Gate 2 certification (audit_verdict.json)
 ```
 

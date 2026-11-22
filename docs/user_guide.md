@@ -17,7 +17,7 @@
 
 - **Silent Runtime & Shell Failures**: Injects a certified CPython >= 3.12 runtime via `uv`, disables interactive terminal pagers (`PAGER=cat`), and neutralizes benign exit-code-1 returns on standalone `grep`/`diff` probes.
 - **Runaway Tool Loops & Polling**: Breaks 3+ identical consecutive tool invocations and blocks token-wasting `manage_task(status)` / log-tailing polling loops.
-- **Context Runway & Compaction Succession**: Monitors the **256k** context window (`180k` amber, `230k` red, `45`-step turn ceiling) before prompt dispatch and serializes checkpoints (`.agents/artifacts/compaction_checkpoint_latest.md` & `cockpit_checkpoint.md`).
+- **Context Runway & Compaction Succession**: Dynamically scales across **Gemini 4 (`512k`/`1M`)** and **`256k`** context windows (`70%` amber, `90%` red, `80`-step soft epoch horizon), emitting `v2.34.0` `systemMessage` advisories and serializing CID-scoped checkpoints (`.agents/artifacts/checkpoints/<conv_id>.md`).
 - **Premature Completion & Cleanroom Fences**: Blocks stopping until modified source (`code_dirty`) clears `agyis test` or modified cleanroom contracts (`spec_dirty`) clear `agyis verify --spec`.
 - **Single-Source Workspace Hygiene**: Onboards repositories on isolated branches without duplicating global rules or skills across precedence tiers.
 
@@ -31,9 +31,10 @@
 ## 2. Quick Start: Global Installation & Workstation Audit
 
 ```bash
-# Install Agyis globally as a Google Antigravity plugin (or across all IDE/CLI surfaces)
-agyis install
-agyis install --all-surfaces
+# Install Agyis globally as a frozen wheel across all Antigravity surfaces
+agyis install --global --wheel --all-surfaces
+# Optional: enable CDP DevTools desktop launcher & auto-unlock HUD service
+agyis gui --install-launcher && agyis gui --service install
 
 # Audit 3-tier runtime matrix, 8 hook runner checks & port 5432 collisions
 agyis doctor
@@ -80,10 +81,10 @@ Authoritative flags, sub-actions, and exit codes live in **[cli-palette.md](offi
 ## 5. Lifecycle Hooks & Runtime State
 
 Agyis registers **7** hook blocks in `hooks.json` covering **8** runner targets verified by `agyis doctor`:
-- `PreToolUse`: `command-safety`, `anti-loop`, `anti-drift` (plan boundaries + Auditor write-block), `token-proximity`, and `verification-fence` dirty tracking.
-- `PostToolUse`: `compactor` (2KB output cap preserving errors) and `post-verification-fence`.
-- `PreInvocation`: `pre-invocation` (256k/180k/230k runway & 45-step horizon advisory + checkpoint auto-save).
-- `Stop`: `verification-fence` (`code_dirty` vs `spec_dirty` clearance with 2-block anti-deadlock valve).
+- `PreToolUse`: `command-safety` (CPython `>=3.12`, eager/lazy MCP normalization, `/swarm` pause guard), `anti-loop`, `anti-drift` (plan boundaries, Auditor write-block, Q5 read-only shell guard), `token-proximity`, and `verification-fence` dirty tracking.
+- `PostToolUse`: `compactor` (`overwriteResult` on `>2KB` succeeding `run_command` & `>32KB` `read_file`, 100% verbatim on errors) and `post-verification-fence`.
+- `PreInvocation`: `pre-invocation` (scaled `256k`/`512k`/`1M` runway, `80`-step horizon, and `systemMessage` advisories + checkpoint auto-save).
+- `Stop`: `verification-fence` (`code_dirty` vs `spec_dirty` clearance with `continuationActive` awareness & 2-block anti-deadlock valve).
 
 Hook state persists under `/tmp/agyis_harness_state_{uid}` by default (override via `AGYIS_HARNESS_STATE_DIR` or `PSL_HARNESS_STATE_DIR`). For JSON payload schemas and event contracts, see **[lifecycle-hooks.md](official-specs/lifecycle-hooks.md)** and **[platform-surface-mapping.md](official-specs/platform-surface-mapping.md)**.
 
@@ -108,16 +109,18 @@ agyis sync --service install && agyis sync --service status
 
 ### Cleanroom Specs, RE & Antigravity GUI
 ```bash
-agyis verify --spec               # Verify 3 cleanroom RE specs (19 evidence rows: 10 SHA-256 ev_* + 9 EV-20261017 checks)
-agyis verify                      # Validate .agents/ledger/obligation_ledger.json
+agyis verify --spec               # Verify 4 cleanroom RE specs (including v2.34.0 drift inventory)
+agyis verify                      # Validate .agents/ledger/obligation_ledger.json (rea@6.9.0 schema)
 agyis re init && agyis re pre-analyze ./target.bin
+agyis re addr 0x401000 --binary ./target.bin # Inspect PE32/PE32+ & Linux ELF64/ELF32 addresses/symbols
 agyis re patch-rea --apply        # Apply zero-copy direct mount patch (bypasses 1.3GB disk clone)
 agyis re seed --pcap session.pcap # Ingest network packets into SQLite and link to runs
 agyis re daemon start             # Launch persistent REA MCP bridge supervisor (<0.8s queries)
 agyis re prime --top 25           # Pre-warm decompiler query cache on priority functions
 agyis re cache status             # Inspect decompiler query cache (<5ms responses, --json supported)
 agyis re clean                    # Safely purge orphan Ghidra locks, prune logs, and vacuum DB
-agyis gui                         # Unlock Trajectory Debug View over CDP WebSocket (--toggle, --devtools)
+agyis gui --install-launcher      # Install opt-in CDP desktop launcher override (--remote-debugging-port=0)
+agyis gui                         # Unlock Trajectory Debug HUD over CDP WebSocket (--toggle, --devtools, --service)
 ```
 *See [dirtyroom-operations.md](runbooks/dirtyroom-operations.md) and the Layer 1 `re-ops` skill (`--role re` / `--role cleanroom`) for full preparation, seeding, priming, 4-vector verification, and hygiene lifecycle.*
 

@@ -425,7 +425,7 @@ class TestReleaseWorkflowAndLockHygiene(unittest.TestCase):
         # Pre-build CI verification gates
         for gate in (
             "uv run --frozen python3 -m harness.cli verify --spec",
-            "uv run --frozen python3 -m harness.cli verify",
+            "uv run --frozen python3 -m harness.cli agents validate --json",
             "uv run --frozen python3 -m harness.cli rules --lint",
             "uv run --frozen python3 -m harness.cli audit aff",
             "uv run --frozen python3 -m harness.cli test",
@@ -467,6 +467,36 @@ class TestReleaseWorkflowAndLockHygiene(unittest.TestCase):
         self.assertIn("--clobber", wf_text)
         self.assertIn('--title "$TAG"', wf_text)
         self.assertIn("--prerelease=false", wf_text)
+
+    def test_uv_lock_matches_pyproject_version(self) -> None:
+        """uv.lock package version must stay synchronized with pyproject.toml so `uv lock --check` passes in CI."""
+        pyproject_data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        proj_ver = str(pyproject_data["project"]["version"]).strip().replace("-rc", "rc")
+        lock_data = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
+        pkgs = [p for p in lock_data.get("package", []) if p.get("name") == "agyis-harness"]
+        self.assertEqual(len(pkgs), 1, "Expected exactly one agyis-harness package entry in uv.lock")
+        self.assertEqual(
+            str(pkgs[0].get("version", "")).strip().replace("-rc", "rc"),
+            proj_ver,
+            "uv.lock is out of sync with pyproject.toml; run `uv lock`.",
+        )
+
+    def test_ci_workflow_present_and_hardened(self) -> None:
+        """.github/workflows/ci.yml runs lockfile, spec, schema, AFF, test, and wheel smoke checks on main/PRs."""
+        ci_path = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+        self.assertTrue(ci_path.is_file(), f"Missing {ci_path}")
+        ci_text = ci_path.read_text(encoding="utf-8")
+        for required in (
+            "uv lock --check",
+            "uv sync --frozen --extra dev",
+            "uv run --frozen python3 -m harness.cli verify --spec",
+            "uv run --frozen python3 -m harness.cli agents validate --json",
+            "uv run --frozen python3 -m harness.cli rules --lint",
+            "uv run --frozen python3 -m harness.cli audit aff",
+            "uv run --frozen python3 -m harness.cli test",
+            "uv build --clear",
+        ):
+            self.assertIn(required, ci_text)
 
 
 
