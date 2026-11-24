@@ -4,19 +4,21 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Cleanroom Reverse Engineering and Formal Reconstruction Module (ADR-028).
+Cleanroom Reverse Engineering and Formal Reconstruction Module (ADR-028, PSL-RE-001).
 """
 
 from harness.cleanroom.obligation import (
     EvidenceBundle,
-    ReviewedObligation,
     ObligationManifest,
-    validate_obligation_ledger,
+    ObligationTarget,
+    ReviewedObligation,
     scaffold_obligation_ledger,
+    validate_obligation_ledger,
 )
 
 __all__ = [
     "EvidenceBundle",
+    "ObligationTarget",
     "ReviewedObligation",
     "ObligationManifest",
     "validate_obligation_ledger",

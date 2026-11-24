@@ -11,10 +11,10 @@ Architectural Invariants Enforced:
 2. Arid-Line Suppression: Skip imports, type annotations, comments, docstrings, logs.
 3. 5-6 Mutation Operators: Condition invert, logic swap, boundary shift, return stub, void delete.
 4. Diversity Sampling: Cap at 5-6 mutants per modified function.
-5. Affected Test Execution: Strictly execute Tier 1A affected tests via harness.discovery.
-6. Actionable Feedback: Emit clear unified diff snippets and surviving mutant locations.
+5. Affected Test Execution: Strictly execute Tier 1A affected tests via harness.discovery (shell=False).
+6. Baseline Verification: Confirm unmutated tests pass before counting mutant failures as killed.
 7. Inline Pragma: Support '# agyis: no-mutant <reason>' for verified equivalent mutants.
-8. Crash Safety: Atomic in-memory backups, try...finally restoration, atexit, and signal traps.
+8. Crash Safety: Locked in-memory backups, try...finally restoration, atexit, and lock-free signal traps.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 import subprocess
+import sys
 from typing import Dict, List, Optional, Set, Tuple
 
 from harness.discovery import (
@@ -38,11 +39,11 @@ from harness.mutation.probe_diff import (
     generate_mutants_for_diff,
     generate_mutants_for_file,
     generate_mutants_for_function,
-    parse_diff_lines,
     run_micro_mutation_probe,
 )
 from harness.mutation.probe_operators import (
     ACTIVE_BACKUPS,
+    CANONICAL_OPERATORS,
     MUTATABLE_EXTENSIONS,
     PRAGMA_PATTERN,
     TYPE_ANNOTATION_ONLY,
@@ -58,6 +59,8 @@ from harness.mutation.probe_operators import (
     _restore_all_backups,
     _sig_handler,
     apply_operator,
+    check_baseline_cached,
+    clear_backup,
     extract_diff_mutation_candidates,
     generate_function_mutants,
     has_no_mutant_pragma,
@@ -65,17 +68,23 @@ from harness.mutation.probe_operators import (
     is_test_file,
     mutate_python_source,
     mutate_token_source,
+    parse_diff_lines,
+    register_backup,
+    resolve_repo_target,
+    run_targeted_test_cmd,
 )
+
+_RUNNER_ERROR_EXIT_CODES = frozenset({126, 127})
 
 __all__ = [
     "ACTIVE_BACKUPS",
+    "CANONICAL_OPERATORS",
     "FunctionMutant",
     "FunctionMutationCollector",
     "MUTATABLE_EXTENSIONS",
     "Mutant",
     "MutationCandidate",
     "MutationConfig",
-    "MutationReport",
     "MutationResult",
     "PRAGMA_PATTERN",
     "PythonAstMutator",
@@ -89,6 +98,7 @@ __all__ = [
     "_restore_all_backups",
     "_sig_handler",
     "apply_operator",
+    "clear_backup",
     "detect_ecosystem_tools",
     "extract_diff_mutation_candidates",
     "generate_function_mutants",
@@ -101,6 +111,7 @@ __all__ = [
     "mutate_python_source",
     "mutate_token_source",
     "parse_diff_lines",
+    "register_backup",
     "run_micro_mutation",
     "run_micro_mutation_probe",
 ]
@@ -113,12 +124,13 @@ def run_micro_mutation(
 ) -> MutationResult:
     """
     Executes diff-aware in-harness micro-mutation testing against uncommitted diffs.
-    Runs affected test suites for each mutant and reports surviving mutants.
-    Guarantees hermetic in-memory backups and zero source corruption.
+    Validates baseline test health, executes affected test suites with shell=False,
+    and guarantees repo-contained locked backups with zero source corruption.
     """
     _install_safety_handlers()
     cfg = config or MutationConfig()
-    repo_root = cfg.repo_root or Path.cwd().resolve()
+    repo_root = (cfg.repo_root or Path.cwd()).resolve()
+    allowed_ops = tuple(cfg.operators) if cfg.operators else CANONICAL_OPERATORS
 
     # 1. Diff Extraction
     if target_diff is not None:
@@ -133,7 +145,9 @@ def run_micro_mutation(
                 timeout=10,
             )
             diff_text = res.stdout if res.returncode == 0 else ""
-        except Exception:
+        except (subprocess.SubprocessError, OSError) as exc:
+            if cfg.verbose:
+                sys.stderr.write(f"[!] git diff failed in {repo_root}: {exc}\n")
             diff_text = ""
 
     # 2. Fast Path: Clean working tree
@@ -144,7 +158,10 @@ def run_micro_mutation(
     candidates = extract_diff_mutation_candidates(diff_text)
     if files:
         file_set = {str(Path(f).resolve()) for f in files} | {str(f) for f in files}
-        candidates = [c for c in candidates if str((repo_root / c.file_path).resolve()) in file_set or c.file_path in file_set]
+        candidates = [
+            c for c in candidates
+            if str((repo_root / c.file_path).resolve()) in file_set or c.file_path in file_set
+        ]
 
     if not candidates:
         return MutationResult(total_mutants=0, killed_mutants=0, survived_mutants=[], exit_code=0)
@@ -159,17 +176,21 @@ def run_micro_mutation(
     survived_mutants: List[SurvivingMutant] = []
     suppressed_by_pragma = 0
 
-    # 5. Plan mutants across candidate files
+    # 5. Plan mutants across repo-contained candidate files
     all_planned: List[Tuple[str, Path, str, FunctionMutant]] = []
 
     for rel_path, file_candidates in by_file.items():
-        file_path = repo_root / rel_path
-        if not file_path.is_file():
+        file_path = resolve_repo_target(repo_root, rel_path)
+        if file_path is None:
+            if cfg.verbose:
+                sys.stderr.write(f"[!] Skipping out-of-repo or symlinked target: {rel_path}\n")
             continue
 
         try:
             original_content = file_path.read_text(encoding="utf-8")
-        except Exception:
+        except (OSError, UnicodeDecodeError) as exc:
+            if cfg.verbose:
+                sys.stderr.write(f"[!] Could not read {file_path}: {exc}\n")
             continue
 
         lines = original_content.splitlines()
@@ -182,58 +203,49 @@ def run_micro_mutation(
                 continue
             line_text = lines[line_idx]
 
-            # Same line pragma
             if has_no_mutant_pragma(line_text):
                 suppressed_by_pragma += 1
                 continue
-
-            # Preceding line pragma
             if line_idx > 0 and has_no_mutant_pragma(lines[line_idx - 1]):
                 suppressed_by_pragma += 1
                 continue
-
             active_candidates.append(cand)
 
         if not active_candidates:
             continue
 
-        # Generate planned mutants
         is_python = rel_path.endswith(".py")
         if is_python:
             target_lines = {c.line_number for c in active_candidates}
-            # Walk AST to locate functions and candidates
             try:
                 tree = ast.parse(original_content)
-                # Map each target line to enclosing function name
                 func_map: Dict[int, str] = {}
                 for node in ast.walk(tree):
                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         start_l = node.lineno
                         end_l = getattr(node, "end_lineno", start_l + len(node.body))
-                        for l in range(start_l, end_l + 1):
-                            if l in target_lines:
-                                func_map[l] = node.name
+                        for ln in range(start_l, end_l + 1):
+                            if ln in target_lines:
+                                func_map[ln] = node.name
 
-                # Try operators on target lines
                 cands_by_func: Dict[str, List[Tuple[int, str]]] = {}
                 for cand in active_candidates:
-                    l = cand.line_number
-                    fname = func_map.get(l, "<module>")
-                    for op in ("condition_inversion", "logical_swap", "boundary_shift", "return_stub", "void_statement_delete", "literal_mutation"):
-                        cands_by_func.setdefault(fname, []).append((l, op))
+                    ln = cand.line_number
+                    fname = func_map.get(ln, "<module>")
+                    for op in allowed_ops:
+                        cands_by_func.setdefault(fname, []).append((ln, op))
 
                 for fname, op_cands in cands_by_func.items():
-                    # Diversity sample per function: cap at max_mutants_per_function
                     count = 0
                     seen_ops: Set[str] = set()
-                    for l, op in op_cands:
+                    for ln, op in op_cands:
                         if count >= cfg.max_mutants_per_function:
                             break
                         if op in seen_ops:
                             continue
                         file_mut_src, diff_snip = mutate_python_source(
                             original_content,
-                            target_line=l,
+                            target_line=ln,
                             operator=op,
                         )
                         if file_mut_src and file_mut_src != original_content:
@@ -244,20 +256,20 @@ def run_micro_mutation(
                                 FunctionMutant(
                                     mutated_code=file_mut_src,
                                     operator=op,
-                                    line_number=l,
+                                    line_number=ln,
                                     diff_snippet=diff_snip,
                                     function_name=fname,
                                 ),
                             ))
                             seen_ops.add(op)
                             count += 1
-            except (SyntaxError, OSError, ValueError, TypeError):
-                pass
+            except (SyntaxError, ValueError, TypeError) as exc:
+                if cfg.verbose:
+                    sys.stderr.write(f"[!] AST mutation planning failed for {rel_path}: {exc}\n")
         else:
-            # Polyglot TS/JS/Rust fallback
             for cand in active_candidates:
                 mut_line, op = mutate_token_source(cand.content, lang=Path(rel_path).suffix.lstrip("."))
-                if mut_line != cand.content:
+                if mut_line != cand.content and (not cfg.operators or op in allowed_ops):
                     file_lines = list(lines)
                     file_lines[cand.line_number - 1] = mut_line
                     file_mut_src = "\n".join(file_lines) + ("\n" if original_content.endswith("\n") else "")
@@ -290,73 +302,85 @@ def run_micro_mutation(
             ),
         )
 
-    # 7. Run planned mutants
+    # 7. Run planned mutants with baseline verification and locked backups
+    baseline_cache: Dict[str, Tuple[bool, str]] = {}
+    errors: List[str] = []
+
     for rel_path, file_path, original_content, pm in all_planned:
         total_mutants += 1
-        ACTIVE_BACKUPS[file_path] = original_content
-        file_path.write_text(pm.mutated_code, encoding="utf-8")
+        resolved = resolve_affected_tests(
+            repo_root=repo_root,
+            modified_files=[rel_path],
+            mode="diff",
+        )
+        if resolved.is_empty:
+            survived_mutants.append(SurvivingMutant(
+                file_path=rel_path,
+                function_name=pm.function_name,
+                line_number=pm.line_number,
+                operator=pm.operator,
+                diff_snippet=pm.diff_snippet,
+                test_target="<none>",
+            ))
+            if cfg.fail_fast:
+                break
+            continue
+
+        clean_cmd, guarded_env = inject_non_interactive_guards(resolved.runner_cmd)
+        if "PYTHONPATH" not in guarded_env or str(repo_root) not in guarded_env.get("PYTHONPATH", ""):
+            guarded_env["PYTHONPATH"] = f"{repo_root}:{guarded_env.get('PYTHONPATH', '')}".rstrip(":")
+
+        # Baseline test check on unmutated code once per unique command
+        base_ok, base_err = check_baseline_cached(
+            baseline_cache, clean_cmd, guarded_env, repo_root, cfg.timeout_sec
+        )
+        if not base_ok:
+            errors.append(base_err)
+            if cfg.verbose:
+                sys.stderr.write(f"[!] {base_err}\n")
+            if cfg.fail_fast:
+                break
+            continue
+
+        register_backup(file_path, original_content)
         try:
-            resolved = resolve_affected_tests(
-                repo_root=repo_root,
-                modified_files=[rel_path],
-                mode="diff",
-            )
-            if rel_path == "harness/cli.py" and "tests/test_cli.py" in resolved.runner_cmd:
-                extra_cli_tests = [
-                    t for t in ("tests/test_test_smells.py", "tests/test_micro_probe.py")
-                    if (repo_root / t).is_file()
-                ]
-                if extra_cli_tests:
-                    resolved.runner_cmd += " " + " ".join(extra_cli_tests)
-
-            if resolved.is_empty:
-                survived_mutants.append(SurvivingMutant(
-                    file_path=rel_path,
-                    function_name=pm.function_name,
-                    line_number=pm.line_number,
-                    operator=pm.operator,
-                    diff_snippet=pm.diff_snippet,
-                    test_target="<none>",
-                ))
-            else:
-                clean_cmd, guarded_env = inject_non_interactive_guards(resolved.runner_cmd)
-                if "PYTHONPATH" not in guarded_env or str(repo_root) not in guarded_env.get("PYTHONPATH", ""):
-                    guarded_env["PYTHONPATH"] = f"{repo_root}:{guarded_env.get('PYTHONPATH', '')}".rstrip(":")
-                try:
-                    proc = subprocess.run(
-                        clean_cmd,
-                        shell=True,
-                        env=guarded_env,
-                        cwd=str(repo_root),
-                        capture_output=True,
-                        text=True,
-                        timeout=cfg.timeout_sec,
-                    )
-                    if proc.returncode != 0:
-                        killed_mutants += 1
-                    else:
-                        survived_mutants.append(SurvivingMutant(
-                            file_path=rel_path,
-                            function_name=pm.function_name,
-                            line_number=pm.line_number,
-                            operator=pm.operator,
-                            diff_snippet=pm.diff_snippet,
-                            test_target=resolved.runner_cmd,
-                        ))
-                        if cfg.fail_fast:
-                            break
-                except subprocess.TimeoutExpired:
+            file_path.write_text(pm.mutated_code, encoding="utf-8")
+            if cfg.verbose:
+                sys.stderr.write(f"[*] Mutating {rel_path}:{pm.line_number} ({pm.operator})\n")
+            try:
+                proc = run_targeted_test_cmd(clean_cmd, guarded_env, repo_root, timeout=cfg.timeout_sec)
+                if proc.returncode in _RUNNER_ERROR_EXIT_CODES:
+                    errors.append(f"Test runner error (exit {proc.returncode}) for {rel_path}:{pm.line_number}")
+                elif proc.returncode != 0:
                     killed_mutants += 1
+                else:
+                    survived_mutants.append(SurvivingMutant(
+                        file_path=rel_path,
+                        function_name=pm.function_name,
+                        line_number=pm.line_number,
+                        operator=pm.operator,
+                        diff_snippet=pm.diff_snippet,
+                        test_target=resolved.runner_cmd,
+                    ))
+                    if cfg.fail_fast:
+                        break
+            except subprocess.TimeoutExpired:
+                killed_mutants += 1
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                errors.append(f"Mutation test execution error for {rel_path}:{pm.line_number}: {exc}")
         finally:
-            file_path.write_text(original_content, encoding="utf-8")
-            ACTIVE_BACKUPS.pop(file_path, None)
+            try:
+                file_path.write_text(original_content, encoding="utf-8")
+            finally:
+                clear_backup(file_path)
 
-    exit_code = 1 if len(survived_mutants) > 0 else 0
+    error_message = "; ".join(errors) if errors else None
+    exit_code = 1 if (len(survived_mutants) > 0 or len(errors) > 0) else 0
     return MutationResult(
         total_mutants=total_mutants,
         killed_mutants=killed_mutants,
         survived_mutants=survived_mutants,
         exit_code=exit_code,
         suppressed_by_pragma=suppressed_by_pragma,
+        error_message=error_message,
     )
-

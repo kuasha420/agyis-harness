@@ -3,79 +3,87 @@
 # Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
-"""Crash-safety handlers, mutation data models, and AST/token mutation operators."""
+"""Mutation data models and AST/token mutation operators."""
 
 from __future__ import annotations
 
 import ast
-import atexit
+import copy
 from dataclasses import dataclass, field
 import difflib
 from pathlib import Path
 import re
-import signal
-import sys
-import threading
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
-# Active file backups for crash safety: maps absolute Path -> original file text
-ACTIVE_BACKUPS: Dict[Path, str] = {}
-_SAFETY_HANDLERS_INSTALLED = False
-_SAFETY_LOCK = threading.Lock()
+from harness.mutation.probe_safety import (
+    ACTIVE_BACKUPS,
+    MUTATABLE_EXTENSIONS,
+    PRAGMA_PATTERN,
+    TYPE_ANNOTATION_ONLY,
+    MutationCandidate,
+    _SAFETY_HANDLERS_INSTALLED,
+    _SAFETY_LOCK,
+    _install_safety_handlers,
+    _restore_all_backups,
+    _sig_handler,
+    check_baseline_cached,
+    clear_backup,
+    extract_diff_mutation_candidates,
+    has_no_mutant_pragma,
+    is_arid_line,
+    is_test_file,
+    parse_diff_lines,
+    register_backup,
+    resolve_repo_target,
+    run_targeted_test_cmd,
+)
 
-MUTATABLE_EXTENSIONS: Set[str] = {".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go"}
+CANONICAL_OPERATORS: Tuple[str, ...] = (
+    "condition_inversion",
+    "logical_swap",
+    "boundary_shift",
+    "return_stub",
+    "void_statement_delete",
+    "literal_mutation",
+)
 
+__all__ = [
+    "ACTIVE_BACKUPS",
+    "CANONICAL_OPERATORS",
+    "FunctionMutant",
+    "MUTATABLE_EXTENSIONS",
+    "MutationCandidate",
+    "MutationConfig",
+    "MutationResult",
+    "PRAGMA_PATTERN",
+    "PythonAstMutator",
+    "SurvivingMutant",
+    "TYPE_ANNOTATION_ONLY",
+    "_SAFETY_HANDLERS_INSTALLED",
+    "_SAFETY_LOCK",
+    "_install_safety_handlers",
+    "_restore_all_backups",
+    "_sig_handler",
+    "apply_operator",
+    "check_baseline_cached",
+    "clear_backup",
+    "extract_diff_mutation_candidates",
+    "flip_bool_op",
+    "generate_function_mutants",
+    "has_no_mutant_pragma",
+    "invert_compare_op",
+    "is_arid_line",
+    "is_test_file",
+    "mutate_python_source",
+    "mutate_token_source",
+    "parse_diff_lines",
+    "register_backup",
+    "replace_source_segment_utf8",
+    "resolve_repo_target",
+    "run_targeted_test_cmd",
+    "swap_arith_op",
+]
 
-def is_test_file(path_str: str) -> bool:
-    """Checks whether a relative or absolute path represents a test file."""
-    p = Path(path_str)
-    if any(part in ("tests", "test", "__tests__") for part in p.parts):
-        return True
-    name = p.name
-    if name.startswith("test_") or name.endswith(
-        ("_test.py", ".test.ts", ".spec.ts", ".test.tsx", ".spec.tsx", ".test.js", ".spec.js")
-    ):
-        return True
-    return False
-
-
-def _restore_all_backups() -> None:
-    """Restores all active in-memory backups to disk on shutdown or interruption."""
-    with _SAFETY_LOCK:
-        for path, original_content in list(ACTIVE_BACKUPS.items()):
-            try:
-                if path.exists():
-                    path.write_text(original_content, encoding="utf-8")
-            except Exception:
-                pass
-        ACTIVE_BACKUPS.clear()
-
-
-def _sig_handler(signum: int, frame: Any) -> None:
-    """Signal trap for SIGINT and SIGTERM."""
-    _restore_all_backups()
-    sys.exit(128 + signum)
-
-
-def _install_safety_handlers() -> None:
-    """Installs atexit and signal traps for hermetic crash recovery."""
-    global _SAFETY_HANDLERS_INSTALLED
-    with _SAFETY_LOCK:
-        if _SAFETY_HANDLERS_INSTALLED:
-            return
-        atexit.register(_restore_all_backups)
-        try:
-            if threading.current_thread() is threading.main_thread():
-                signal.signal(signal.SIGINT, _sig_handler)
-                signal.signal(signal.SIGTERM, _sig_handler)
-        except (ValueError, AttributeError):
-            pass
-        _SAFETY_HANDLERS_INSTALLED = True
-
-
-# ---------------------------------------------------------------------------
-# Data Models
-# ---------------------------------------------------------------------------
 
 @dataclass
 class SurvivingMutant:
@@ -135,14 +143,6 @@ class MutationConfig:
 
 
 @dataclass
-class MutationCandidate:
-    """A target code line identified from a diff hunk."""
-    file_path: str
-    line_number: int
-    content: str
-
-
-@dataclass
 class FunctionMutant:
     """A planned mutant for a function or code block."""
     mutated_code: str
@@ -152,201 +152,97 @@ class FunctionMutant:
     function_name: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Pragmas and Arid-Line Filter
-# ---------------------------------------------------------------------------
+def _mask_strings_and_comments(line: str) -> str:
+    """Returns a same-length string with string literals and comments replaced by NUL bytes."""
+    chars = list(line)
+    n = len(chars)
+    i = 0
+    in_quote: Optional[str] = None
+    in_block_comment = False
 
-PRAGMA_PATTERN = re.compile(r"(?:#|//)\s*(?:agyis:\s*no-mutant|no-mutant:)", re.IGNORECASE)
-TYPE_ANNOTATION_ONLY = re.compile(r"^\s*[a-zA-Z_][a-zA-Z0-9_]*\s*:\s*[^=]+$")
-
-
-def has_no_mutant_pragma(line: str) -> bool:
-    """
-    Checks whether a line contains the inline escape pragma '# agyis: no-mutant' or '# no-mutant:'.
-    Matches arbitrary spacing, tabs, and unicode descriptions (case-insensitive).
-    """
-    return bool(PRAGMA_PATTERN.search(line))
-
-
-def is_arid_line(line: str) -> bool:
-    """
-    Checks whether a line is non-logic arid code:
-    - Imports: import os, from x import y, use std::..., require(...)
-    - Type definitions: type X = ..., interface Y, typedef ...
-    - Comments: # ..., // ..., /* ..., * ...
-    - Docstrings: \"\"\"...\"\"\", '''...'''
-    - Log/print statements: print(...), console.log(...), logger.info(...)
-    - Empty or whitespace lines
-    """
-    s = line.strip()
-    if not s:
-        return True
-    # Comments
-    if s.startswith("#") or s.startswith("//") or s.startswith("/*") or s.startswith("*"):
-        return True
-    # Docstrings
-    if s.startswith('"""') or s.startswith("'''"):
-        return True
-    # Imports
-    if s.startswith("import ") or s.startswith("from ") or s.startswith("use ") or "require(" in s:
-        return True
-    # Type definitions / annotations
-    if s.startswith("type ") or s.startswith("interface ") or s.startswith("typedef "):
-        return True
-    if TYPE_ANNOTATION_ONLY.match(s):
-        return True
-    # Log / print statements
-    if s.startswith("print(") or s.startswith("console.log(") or s.startswith("console.error(") or s.startswith("console.warn("):
-        return True
-    if re.match(r"^(?:logger|logging|log|console)\.(?:debug|info|warning|warn|error|critical|exception|log|trace)\b", s):
-        return True
-    if re.match(r"^sys\.(?:stdout|stderr)\.write\(", s):
-        return True
-    return False
-
-
-# ---------------------------------------------------------------------------
-# Diff Hunk Candidate Extraction
-# ---------------------------------------------------------------------------
-
-def extract_diff_mutation_candidates(diff_text: str) -> List[MutationCandidate]:
-    """
-    Extracts candidate modified lines from a unified git diff text.
-    Filters out non-code files, test files, arid lines, and pragma-marked lines.
-    Tracks precise 1-indexed target line numbers in the new file.
-    """
-    candidates: List[MutationCandidate] = []
-    current_file = ""
-    current_line = 0
-    in_hunk = False
-
-    for raw_line in diff_text.splitlines():
-        if raw_line.startswith("+++ "):
-            path_part = raw_line[4:].strip()
-            if path_part.startswith("b/"):
-                path_part = path_part[2:]
-            current_file = path_part
-            in_hunk = False
-        elif raw_line.startswith("@@ "):
-            match = re.search(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw_line)
-            if match:
-                current_line = int(match.group(1))
-                in_hunk = True
-            else:
-                in_hunk = False
-        elif in_hunk:
-            ext = Path(current_file).suffix
-            # Skip non-mutatable or test files
-            if current_file and (ext not in MUTATABLE_EXTENSIONS or is_test_file(current_file)):
-                if raw_line.startswith("+") and not raw_line.startswith("+++"):
-                    current_line += 1
-                elif raw_line.startswith(" "):
-                    current_line += 1
+    while i < n:
+        ch = chars[i]
+        if in_block_comment:
+            chars[i] = "\x00"
+            if ch == "*" and i + 1 < n and chars[i + 1] == "/":
+                chars[i + 1] = "\x00"
+                in_block_comment = False
+                i += 2
                 continue
+            i += 1
+            continue
+        if in_quote is not None:
+            chars[i] = "\x00"
+            if ch == "\\" and i + 1 < n:
+                chars[i + 1] = "\x00"
+                i += 2
+                continue
+            if ch == in_quote:
+                in_quote = None
+            i += 1
+            continue
+        if ch in ("'", '"', "`"):
+            in_quote = ch
+            chars[i] = "\x00"
+            i += 1
+            continue
+        if ch == "#" or (ch == "/" and i + 1 < n and chars[i + 1] == "/"):
+            for j in range(i, n):
+                chars[j] = "\x00"
+            break
+        if ch == "/" and i + 1 < n and chars[i + 1] == "*":
+            chars[i] = "\x00"
+            chars[i + 1] = "\x00"
+            in_block_comment = True
+            i += 2
+            continue
+        i += 1
+    return "".join(chars)
 
-            if raw_line.startswith("+") and not raw_line.startswith("+++"):
-                content = raw_line[1:]
-                if not is_arid_line(content) and not has_no_mutant_pragma(content):
-                    candidates.append(MutationCandidate(
-                        file_path=current_file,
-                        line_number=current_line,
-                        content=content,
-                    ))
-                current_line += 1
-            elif raw_line.startswith(" "):
-                current_line += 1
-            elif raw_line.startswith("-"):
-                pass
 
-    return candidates
+def _replace_masked(src: str, masked: str, token: str, repl: str, *, regex: bool = False) -> Optional[str]:
+    if regex:
+        m = re.search(token, masked)
+        return (src[: m.start()] + repl + src[m.end():]) if m else None
+    idx = masked.find(token)
+    return (src[:idx] + repl + src[idx + len(token):]) if idx != -1 else None
 
-
-# ---------------------------------------------------------------------------
-# Mutation Operators Engine
-# ---------------------------------------------------------------------------
 
 def apply_operator(src: str, operator: str) -> str:
-    """
-    Applies one of the 5-6 standard mutation operators to source code or line snippet:
-    1. condition_inversion: == <-> !=, < <-> >=, is <-> is not, in <-> not in
-    2. logical_swap: and <-> or, && <-> ||
-    3. boundary_shift: x + 1 <-> x - 1, > 0 <-> >= 0, < 0 <-> <= 0
-    4. return_stub: return x -> return None / False / True
-    5. void_statement_delete: drop side-effect call -> pass
-    6. literal_mutation: True <-> False
-    """
+    """Applies a mutation operator while preserving indentation and ignoring strings/comments."""
     s = src
+    masked = _mask_strings_and_comments(s)
+    indent = s[: len(s) - len(s.lstrip(" \t"))]
 
     if operator == "condition_inversion":
-        # Order matters: replace longer keywords first
-        if " is not " in s:
-            return s.replace(" is not ", " is ", 1)
-        if " is " in s:
-            return s.replace(" is ", " is not ", 1)
-        if " not in " in s:
-            return s.replace(" not in ", " in ", 1)
-        if " in " in s:
-            return s.replace(" in ", " not in ", 1)
-        if " != " in s:
-            return s.replace(" != ", " == ", 1)
-        if " == " in s:
-            return s.replace(" == ", " != ", 1)
-        if " >= " in s:
-            return s.replace(" >= ", " < ", 1)
-        if " <= " in s:
-            return s.replace(" <= ", " > ", 1)
-        if " > " in s:
-            return s.replace(" > ", " <= ", 1)
-        if " < " in s:
-            return s.replace(" < ", " >= ", 1)
-        if "if not " in s:
-            return s.replace("if not ", "if ", 1)
-        if re.search(r"\bnot\s+", s):
-            return re.sub(r"\bnot\s+", "", s, count=1)
+        for tok, rep in (
+            (" is not ", " is "), (" is ", " is not "), (" not in ", " in "), (" in ", " not in "),
+            (" != ", " == "), (" == ", " != "), (" >= ", " < "), (" <= ", " > "),
+            (" > ", " <= "), (" < ", " >= "), ("if not ", "if "),
+        ):
+            res = _replace_masked(s, masked, tok, rep)
+            if res is not None:
+                return res
+        res = _replace_masked(s, masked, r"\bnot\s+", "", regex=True)
+        if res is not None:
+            return res
 
     elif operator == "logical_swap":
-        if " and " in s:
-            return s.replace(" and ", " or ", 1)
-        if " or " in s:
-            return s.replace(" or ", " and ", 1)
-        if "&&" in s:
-            return s.replace("&&", "||", 1)
-        if "||" in s:
-            return s.replace("||", "&&", 1)
+        for tok, rep in ((" and ", " or "), (" or ", " and "), ("&&", "||"), ("||", "&&")):
+            res = _replace_masked(s, masked, tok, rep)
+            if res is not None:
+                return res
 
     elif operator == "boundary_shift":
-        if " += " in s:
-            return s.replace(" += ", " -= ", 1)
-        if " -= " in s:
-            return s.replace(" -= ", " += ", 1)
-        if " *= " in s:
-            return s.replace(" *= ", " /= ", 1)
-        if " /= " in s:
-            return s.replace(" /= ", " *= ", 1)
-        if " + 1" in s:
-            return s.replace(" + 1", " - 1", 1)
-        if " - 1" in s:
-            return s.replace(" - 1", " + 1", 1)
-        if " > 0" in s:
-            return s.replace(" > 0", " >= 0", 1)
-        if " < 0" in s:
-            return s.replace(" < 0", " <= 0", 1)
-        if " >= 0" in s:
-            return s.replace(" >= 0", " > 0", 1)
-        if " <= 0" in s:
-            return s.replace(" <= 0", " < 0", 1)
-        if " > " in s:
-            return s.replace(" > ", " >= ", 1)
-        if " < " in s:
-            return s.replace(" < ", " <= ", 1)
-        if " >= " in s:
-            return s.replace(" >= ", " > ", 1)
-        if " <= " in s:
-            return s.replace(" <= ", " < ", 1)
-        if " + " in s:
-            return s.replace(" + ", " - ", 1)
-        if " - " in s:
-            return s.replace(" - ", " + ", 1)
+        for tok, rep in (
+            (" += ", " -= "), (" -= ", " += "), (" *= ", " /= "), (" /= ", " *= "),
+            (" + 1", " - 1"), (" - 1", " + 1"), (" > 0", " >= 0"), (" < 0", " <= 0"),
+            (" >= 0", " > 0"), (" <= 0", " < 0"), (" > ", " >= "), (" < ", " <= "),
+            (" >= ", " > "), (" <= ", " < "), (" + ", " - "), (" - ", " + "),
+        ):
+            res = _replace_masked(s, masked, tok, rep)
+            if res is not None:
+                return res
 
     elif operator == "return_stub":
         m = re.match(r"^(\s*return)\s+(.+)$", s)
@@ -354,27 +250,22 @@ def apply_operator(src: str, operator: str) -> str:
             val = m.group(2).strip()
             if val == "True":
                 return m.group(1) + " False"
-            elif val == "False":
+            if val == "False":
                 return m.group(1) + " True"
-            elif val == "None":
+            if val == "None":
                 return m.group(1) + " False"
-            else:
-                return m.group(1) + " None"
-        if s.strip() == "return":
-            return "return False"
+            return m.group(1) + " None"
+        if masked.strip() == "return":
+            return f"{indent}return False"
 
     elif operator == "void_statement_delete":
-        return "pass"
+        return f"{indent}pass"
 
     elif operator == "literal_mutation":
-        if "True" in s:
-            return s.replace("True", "False", 1)
-        if "False" in s:
-            return s.replace("False", "True", 1)
-        if "true" in s:
-            return s.replace("true", "false", 1)
-        if "false" in s:
-            return s.replace("false", "true", 1)
+        for pat, rep in ((r"\bTrue\b", "False"), (r"\bFalse\b", "True"), (r"\btrue\b", "false"), (r"\bfalse\b", "true")):
+            res = _replace_masked(s, masked, pat, rep, regex=True)
+            if res is not None:
+                return res
 
     return s
 
@@ -398,7 +289,7 @@ def replace_source_segment_utf8(
     else:
         prefix = lines[lineno - 1].encode("utf-8")[:col_offset].decode("utf-8", errors="replace")
         suffix = lines[end_lineno - 1].encode("utf-8")[end_col_offset:].decode("utf-8", errors="replace")
-    new_lines = list(lines[:lineno - 1]) + [prefix + replacement + suffix] + list(lines[end_lineno:])
+    new_lines = list(lines[: lineno - 1]) + [prefix + replacement + suffix] + list(lines[end_lineno:])
     return "".join(new_lines)
 
 
@@ -441,10 +332,8 @@ def flip_bool_op(op: ast.boolop) -> Optional[ast.boolop]:
 
 
 class PythonAstMutator(ast.NodeTransformer):
-    """
-    Standard library ast.NodeTransformer that surgically mutates target nodes
-    on target_line and records coordinate spans for non-destructive replacement.
-    """
+    """AST NodeTransformer that surgically mutates target nodes on target_line."""
+
     def __init__(self, operator: str, target_line: Optional[int] = None):
         self.operator = operator
         self.target_line = target_line
@@ -461,38 +350,57 @@ class PythonAstMutator(ast.NodeTransformer):
         end_lineno = getattr(node, "end_lineno", None) or lineno
         return lineno <= self.target_line <= end_lineno
 
+    def _record_mutation(self, node: ast.AST, replacement_text: str) -> None:
+        self.mutated = True
+        self.span = (
+            node.lineno,
+            node.col_offset,
+            node.end_lineno or node.lineno,
+            node.end_col_offset or (node.col_offset + 5),
+        )
+        self.replacement_text = replacement_text
+
     def visit_Compare(self, node: ast.Compare) -> ast.AST:
         if not self.mutated and self._matches_line(node):
             if self.operator == "condition_inversion":
-                new_ops = [invert_compare_op(o) or o for o in node.ops]
-                node.ops = new_ops
-                self.mutated = True
-                self.span = (node.lineno, node.col_offset, node.end_lineno or node.lineno, node.end_col_offset or (node.col_offset + 5))
-                self.replacement_text = ast.unparse(node)
-                return node
+                if len(node.ops) == 1:
+                    new_op = invert_compare_op(node.ops[0])
+                    if new_op is not None:
+                        node.ops = [new_op]
+                        self._record_mutation(node, ast.unparse(node))
+                        return node
+                elif len(node.ops) > 1:
+                    negated = ast.UnaryOp(op=ast.Not(), operand=copy.deepcopy(node))
+                    self._record_mutation(node, f"not ({ast.unparse(node)})")
+                    return negated
             elif self.operator == "boundary_shift":
-                new_ops = []
+                new_ops: List[ast.cmpop] = []
+                changed = False
                 for o in node.ops:
-                    if isinstance(o, (ast.Gt, ast.GtE, ast.Lt, ast.LtE)):
-                        if isinstance(o, ast.Gt): new_ops.append(ast.GtE())
-                        elif isinstance(o, ast.GtE): new_ops.append(ast.Gt())
-                        elif isinstance(o, ast.Lt): new_ops.append(ast.LtE())
-                        else: new_ops.append(ast.Lt())
+                    if isinstance(o, ast.Gt):
+                        new_ops.append(ast.GtE())
+                        changed = True
+                    elif isinstance(o, ast.GtE):
+                        new_ops.append(ast.Gt())
+                        changed = True
+                    elif isinstance(o, ast.Lt):
+                        new_ops.append(ast.LtE())
+                        changed = True
+                    elif isinstance(o, ast.LtE):
+                        new_ops.append(ast.Lt())
+                        changed = True
                     else:
                         new_ops.append(o)
-                node.ops = new_ops
-                self.mutated = True
-                self.span = (node.lineno, node.col_offset, node.end_lineno or node.lineno, node.end_col_offset or (node.col_offset + 5))
-                self.replacement_text = ast.unparse(node)
-                return node
+                if changed:
+                    node.ops = new_ops
+                    self._record_mutation(node, ast.unparse(node))
+                    return node
         return self.generic_visit(node)
 
     def visit_UnaryOp(self, node: ast.UnaryOp) -> ast.AST:
         if not self.mutated and self._matches_line(node) and self.operator == "condition_inversion":
             if isinstance(node.op, ast.Not):
-                self.mutated = True
-                self.span = (node.lineno, node.col_offset, node.end_lineno or node.lineno, node.end_col_offset or (node.col_offset + 5))
-                self.replacement_text = ast.unparse(node.operand)
+                self._record_mutation(node, ast.unparse(node.operand))
                 return node.operand
         return self.generic_visit(node)
 
@@ -501,10 +409,8 @@ class PythonAstMutator(ast.NodeTransformer):
             new_op = flip_bool_op(node.op)
             if new_op is not None:
                 node.op = new_op
-            self.mutated = True
-            self.span = (node.lineno, node.col_offset, node.end_lineno or node.lineno, node.end_col_offset or (node.col_offset + 5))
-            self.replacement_text = ast.unparse(node)
-            return node
+                self._record_mutation(node, ast.unparse(node))
+                return node
         return self.generic_visit(node)
 
     def visit_BinOp(self, node: ast.BinOp) -> ast.AST:
@@ -512,9 +418,7 @@ class PythonAstMutator(ast.NodeTransformer):
             new_op = swap_arith_op(node.op, include_mult_div=False)
             if new_op is not None:
                 node.op = new_op
-                self.mutated = True
-                self.span = (node.lineno, node.col_offset, node.end_lineno or node.lineno, node.end_col_offset or (node.col_offset + 5))
-                self.replacement_text = ast.unparse(node)
+                self._record_mutation(node, ast.unparse(node))
                 return node
         return self.generic_visit(node)
 
@@ -523,9 +427,7 @@ class PythonAstMutator(ast.NodeTransformer):
             new_op = swap_arith_op(node.op, include_mult_div=True)
             if new_op is not None:
                 node.op = new_op
-                self.mutated = True
-                self.span = (node.lineno, node.col_offset, node.end_lineno or node.lineno, node.end_col_offset or (node.col_offset + 5))
-                self.replacement_text = ast.unparse(node)
+                self._record_mutation(node, ast.unparse(node))
                 return node
         return self.generic_visit(node)
 
@@ -537,18 +439,16 @@ class PythonAstMutator(ast.NodeTransformer):
                 node.value = ast.Constant(value=False)
             else:
                 node.value = ast.Constant(value=None)
-            self.mutated = True
-            self.span = (node.lineno, node.col_offset, node.end_lineno or node.lineno, node.end_col_offset or (node.col_offset + 5))
-            self.replacement_text = ast.unparse(node)
+            self._record_mutation(node, ast.unparse(node))
             return node
         return self.generic_visit(node)
 
     def visit_Expr(self, node: ast.Expr) -> ast.AST:
         if not self.mutated and self._matches_line(node) and self.operator == "void_statement_delete":
-            if isinstance(node.value, ast.Call) or (isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call)):
-                self.mutated = True
-                self.span = (node.lineno, node.col_offset, node.end_lineno or node.lineno, node.end_col_offset or (node.col_offset + 5))
-                self.replacement_text = "pass"
+            if isinstance(node.value, ast.Call) or (
+                isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call)
+            ):
+                self._record_mutation(node, "pass")
                 return ast.Pass()
         return self.generic_visit(node)
 
@@ -556,21 +456,13 @@ class PythonAstMutator(ast.NodeTransformer):
         if not self.mutated and self._matches_line(node) and self.operator == "literal_mutation":
             if type(node.value) is bool:
                 node.value = not node.value
-                self.mutated = True
-                self.span = (node.lineno, node.col_offset, node.end_lineno or node.lineno, node.end_col_offset or (node.col_offset + 5))
-                self.replacement_text = ast.unparse(node)
+                self._record_mutation(node, ast.unparse(node))
                 return node
         return node
 
 
 def mutate_python_source(src: str, target_line: int, operator: str) -> Tuple[str, str]:
-    """
-    Surgically mutates Python source code at 1-indexed target_line with operator.
-    Uses AST NodeTransformer with coordinate-based surgical slicing to preserve
-    comments, whitespace, and formatting across the file.
-    Validates that the resulting code compiles with ast.parse.
-    Returns (mutated_source, unified_diff_snippet).
-    """
+    """Surgically mutates Python source code at 1-indexed target_line with operator."""
     try:
         tree = ast.parse(src)
     except SyntaxError:
@@ -597,76 +489,56 @@ def mutate_python_source(src: str, target_line: int, operator: str) -> Tuple[str
 
 
 def mutate_token_source(code: str, lang: str = "ts") -> Tuple[str, str]:
-    """
-    Polyglot token-level mutation fallback for TypeScript/JavaScript and Rust.
-    Detects candidates and applies token swaps without external dependencies.
-    Returns (mutated_code, operator_name).
-    """
-    replacements = [
-        ("===", "!==", "condition_inversion"),
-        ("!==", "===", "condition_inversion"),
-        ("==", "!=", "condition_inversion"),
-        ("!=", "==", "condition_inversion"),
-        ("&&", "||", "logical_swap"),
-        ("||", "&&", "logical_swap"),
-        (" + 1", " - 1", "boundary_shift"),
-        (" - 1", " + 1", "boundary_shift"),
-        (" >= ", " < ", "condition_inversion"),
-        (" <= ", " > ", "condition_inversion"),
-        (" > 0", " >= 0", "boundary_shift"),
-        (" < 0", " <= 0", "boundary_shift"),
-        (" > ", " <= ", "condition_inversion"),
-        (" < ", " >= ", "condition_inversion"),
-    ]
+    """Polyglot token-level mutation fallback for TypeScript/JavaScript/Rust (string/comment-safe)."""
+    masked = _mask_strings_and_comments(code)
+    replacements = (
+        ("===", "!==", "condition_inversion"), ("!==", "===", "condition_inversion"),
+        ("==", "!=", "condition_inversion"), ("!=", "==", "condition_inversion"),
+        ("&&", "||", "logical_swap"), ("||", "&&", "logical_swap"),
+        (" + 1", " - 1", "boundary_shift"), (" - 1", " + 1", "boundary_shift"),
+        (" >= ", " < ", "condition_inversion"), (" <= ", " > ", "condition_inversion"),
+        (" > 0", " >= 0", "boundary_shift"), (" < 0", " <= 0", "boundary_shift"),
+        (" > ", " <= ", "condition_inversion"), (" < ", " >= ", "condition_inversion"),
+    )
 
     for token, repl, op in replacements:
-        if token in code:
-            return code.replace(token, repl, 1), op
+        mutated = _replace_masked(code, masked, token, repl)
+        if mutated is not None:
+            return mutated, op
 
-    if re.search(r"\btrue\b", code):
-        return re.sub(r"\btrue\b", "false", code, count=1), "literal_mutation"
-    if re.search(r"\bfalse\b", code):
-        return re.sub(r"\bfalse\b", "true", code, count=1), "literal_mutation"
+    for pat, repl in ((r"\btrue\b", "false"), (r"\bfalse\b", "true")):
+        mutated = _replace_masked(code, masked, pat, repl, regex=True)
+        if mutated is not None:
+            return mutated, "literal_mutation"
 
-    # Void call deletion in JS/TS/Rust: comment out call
-    CONTROL_KEYWORDS = {"if", "while", "for", "switch", "catch", "function", "return"}
-    if "=" not in code and "return" not in code:
-        tokens_in_line = set(re.findall(r"\b[a-zA-Z_]\w*\b", code))
-        if not (tokens_in_line & CONTROL_KEYWORDS):
-            m = re.search(r"\b([a-zA-Z_]\w*)\s*\([^;)]*\);?", code)
+    control_keywords = {"if", "while", "for", "switch", "catch", "function", "return"}
+    if "=" not in masked and "return" not in masked:
+        tokens_in_line = set(re.findall(r"\b[a-zA-Z_]\w*\b", masked))
+        if not (tokens_in_line & control_keywords):
+            m = re.search(r"\b([a-zA-Z_]\w*\s*\([^;)]*\);?)", masked)
             if m:
-                mutated = re.sub(r"([a-zA-Z_]\w*\s*\([^;)]*\);?)", r"/* \1 */", code, count=1)
+                orig_call = code[m.start(): m.end()]
+                mutated = code[: m.start()] + f"/* {orig_call} */" + code[m.end():]
                 if mutated != code and mutated.count("(") == mutated.count(")"):
                     return mutated, "void_statement_delete"
 
     return code, ""
 
 
-# ---------------------------------------------------------------------------
-# Diversity Sampling & Function Mutator
-# ---------------------------------------------------------------------------
-
 def generate_function_mutants(func_code: str, max_mutants: int = 6) -> List[FunctionMutant]:
-    """
-    Parses a Python function or code block and generates up to max_mutants (default 5-6)
-    diverse mutants across condition inversion, logic swap, boundary shift, return stub,
-    void statement delete, and literal mutation.
-    """
+    """Generates up to max_mutants diverse mutants for a Python function or block."""
     tree = ast.parse(func_code)
     func_name = ""
     by_op: Dict[str, List[Tuple[int, str]]] = {}
 
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if not func_name:
-                func_name = node.name
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not func_name:
+            func_name = node.name
         if not hasattr(node, "lineno"):
             continue
-
         line_num = node.lineno
         if isinstance(node, ast.Compare):
             by_op.setdefault("condition_inversion", []).append((line_num, "condition_inversion"))
-            # If relational comparison, also candidate for boundary shift
             for op_node in node.ops:
                 if isinstance(op_node, (ast.Lt, ast.LtE, ast.Gt, ast.GtE)):
                     by_op.setdefault("boundary_shift", []).append((line_num, "boundary_shift"))
@@ -686,7 +558,6 @@ def generate_function_mutants(func_code: str, max_mutants: int = 6) -> List[Func
         elif isinstance(node, ast.Constant) and isinstance(node.value, bool):
             by_op.setdefault("literal_mutation", []).append((line_num, "literal_mutation"))
 
-    # Diversity selection: round-robin across available operators
     selected: List[Tuple[int, str]] = []
     ops_list = list(by_op.keys())
     idx = 0
@@ -701,16 +572,15 @@ def generate_function_mutants(func_code: str, max_mutants: int = 6) -> List[Func
                 selected.append(cand)
 
     mutants: List[FunctionMutant] = []
-    for l, op in selected:
-        mut_src, diff = mutate_python_source(func_code, l, op)
+    for line_no, op in selected:
+        mut_src, diff = mutate_python_source(func_code, line_no, op)
         if mut_src and mut_src != func_code:
             mutants.append(FunctionMutant(
                 mutated_code=mut_src,
                 operator=op,
-                line_number=l,
+                line_number=line_no,
                 diff_snippet=diff,
                 function_name=func_name,
             ))
 
     return mutants
-

@@ -4,7 +4,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-PE32/PE32+ Address Translation and Reverse Engineering Symbol Resolution (ADR-028).
+PE32/PE32+ and ELF32/ELF64 Address Translation and Symbol Resolution (ADR-028, PSL-RE-001).
 Provides bi-directional VA <-> RVA <-> File Offset inspection and symbol database correlation.
 """
 
@@ -21,9 +21,68 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from harness.re.scaffold import resolve_binary_path
 
+_MAX_HEADER_READ_BYTES = 16 * 1024 * 1024
+_MAX_ELF_TABLE_BYTES = 4 * 1024 * 1024
+_MAX_SHSTRTAB_BYTES = 16 * 1024 * 1024
+_HEX_LETTER_CHARS = frozenset("abcdefABCDEF")
+
+_PE_MACHINE_MAP = {
+    0x014C: "x86",
+    0x8664: "x86_64",
+    0xAA64: "arm64",
+    0x01C0: "arm",
+    0x01C4: "arm",
+    0x0200: "ia64",
+}
+
+_ELF_MACHINE_MAP = {
+    3: "x86",
+    62: "x86_64",
+    40: "arm",
+    183: "arm64",
+    8: "mips",
+    20: "powerpc",
+    21: "powerpc",
+    243: "riscv",
+}
+
+_MACHO_CPU_MAP = {
+    7: "x86",
+    0x01000007: "x86_64",
+    12: "arm",
+    0x0100000C: "arm64",
+}
+
+
+def parse_int_address(val: Any, default: Optional[int] = None) -> Optional[int]:
+    """Parses an integer, hex string ('0x...' or unprefixed hex), or NULL safely."""
+    if val is None or isinstance(val, bool):
+        return default
+    if isinstance(val, int):
+        return val
+    if isinstance(val, str):
+        cleaned = val.strip()
+        if not cleaned:
+            return default
+        try:
+            low = cleaned.lower()
+            if low.startswith(("0x", "-0x", "+0x")):
+                return int(cleaned, 16)
+            if any(ch in _HEX_LETTER_CHARS for ch in cleaned):
+                return int(cleaned, 16)
+            if len(cleaned) >= 8 and cleaned.startswith("0") and all(ch in "0123456789" for ch in cleaned):
+                return int(cleaned, 16)
+            return int(cleaned, 10)
+        except ValueError:
+            return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
 
 class PESectionInfo(tuple):
-    """Tuple of (image_base, sections) with is_64bit and binary_format properties."""
+    """Tuple of (image_base, sections) with is_64bit, binary_format, and architecture properties."""
 
     def __new__(
         cls,
@@ -31,54 +90,104 @@ class PESectionInfo(tuple):
         sections: List[Dict[str, Any]],
         is_64bit: bool = True,
         binary_format: str = "PE",
+        architecture: Optional[str] = None,
     ):
         obj = super().__new__(cls, (image_base, sections))
         obj.image_base = image_base
         obj.sections = sections
         obj.is_64bit = is_64bit
         obj.binary_format = binary_format
+        obj.architecture = architecture
         return obj
 
 
+def detect_binary_architecture(binary_path: Path) -> Tuple[str, str]:
+    """Detects (format, architecture) from PE, ELF, or Mach-O binary headers."""
+    try:
+        with open(binary_path, "rb") as f:
+            hdr = f.read(64)
+            if len(hdr) >= 0x40 and hdr[:2] == b"MZ":
+                e_lfanew = struct.unpack_from("<I", hdr, 0x3C)[0]
+                if e_lfanew <= _MAX_HEADER_READ_BYTES:
+                    f.seek(e_lfanew)
+                    pe_coff = f.read(6)
+                    if len(pe_coff) == 6 and pe_coff[:4] == b"PE\x00\x00":
+                        machine = struct.unpack_from("<H", pe_coff, 4)[0]
+                        return "pe", _PE_MACHINE_MAP.get(machine, "unknown")
+                return "pe", "unknown"
+
+            if len(hdr) >= 20 and hdr[:4] == b"\x7fELF":
+                ei_data = hdr[5]
+                endian = "<" if ei_data == 1 else ">" if ei_data == 2 else "<"
+                e_machine = struct.unpack_from(endian + "H", hdr, 18)[0]
+                return "elf", _ELF_MACHINE_MAP.get(e_machine, "unknown")
+
+            if len(hdr) >= 8:
+                magic_be = struct.unpack_from(">I", hdr, 0)[0]
+                magic_le = struct.unpack_from("<I", hdr, 0)[0]
+                if magic_le in (0xFEEDFACE, 0xFEEDFACF):
+                    cputype = struct.unpack_from("<I", hdr, 4)[0]
+                    return "macho", _MACHO_CPU_MAP.get(cputype, "unknown")
+                if magic_be in (0xFEEDFACE, 0xFEEDFACF):
+                    cputype = struct.unpack_from(">I", hdr, 4)[0]
+                    return "macho", _MACHO_CPU_MAP.get(cputype, "unknown")
+                if magic_be in (0xCAFEBABE, 0xCAFEBABF):
+                    return "macho", "universal"
+    except OSError:
+        pass
+    ext_fmt = Path(binary_path).suffix.lstrip(".").lower()
+    return (ext_fmt or "unknown"), "unknown"
+
+
 def parse_pe_sections(binary_path: Path) -> PESectionInfo:
-    """Parses PE32/PE32+ header to extract ImageBase and Section Table.
-
-    Returns:
-        PESectionInfo (image_base, sections_list) with .is_64bit attribute.
-    """
+    """Parses PE32/PE32+ header to extract ImageBase, architecture, and Section Table."""
     with open(binary_path, "rb") as f:
-        # Read enough for DOS and PE header + sections table
-        hdr = f.read(8192)
+        f.seek(0, os.SEEK_END)
+        file_size = f.tell()
+        f.seek(0)
+        dos_hdr = f.read(0x40)
+        if len(dos_hdr) < 0x40 or dos_hdr[:2] != b"MZ":
+            raise ValueError(f"File '{binary_path}' is not a valid PE executable (missing MZ signature)")
 
-    if len(hdr) < 0x40 or hdr[:2] != b"MZ":
-        raise ValueError(f"File '{binary_path}' is not a valid PE executable (missing MZ signature)")
+        e_lfanew = struct.unpack_from("<I", dos_hdr, 0x3C)[0]
+        if e_lfanew < 0x40 or e_lfanew + 24 > file_size or e_lfanew > _MAX_HEADER_READ_BYTES:
+            raise ValueError(f"File '{binary_path}' is missing PE signature at offset 0x{e_lfanew:x}")
 
-    e_lfanew = struct.unpack_from("<I", hdr, 0x3C)[0]
-    if e_lfanew + 24 > len(hdr) or hdr[e_lfanew : e_lfanew + 4] != b"PE\x00\x00":
-        raise ValueError(f"File '{binary_path}' is missing PE signature at offset 0x{e_lfanew:x}")
+        f.seek(e_lfanew)
+        pe_coff = f.read(24)
+        if len(pe_coff) < 24 or pe_coff[:4] != b"PE\x00\x00":
+            raise ValueError(f"File '{binary_path}' is missing PE signature at offset 0x{e_lfanew:x}")
 
-    num_sections = struct.unpack_from("<H", hdr, e_lfanew + 6)[0]
-    opt_hdr_size = struct.unpack_from("<H", hdr, e_lfanew + 20)[0]
-    opt_magic = struct.unpack_from("<H", hdr, e_lfanew + 24)[0]
+        machine = struct.unpack_from("<H", pe_coff, 4)[0]
+        arch = _PE_MACHINE_MAP.get(machine, "unknown")
+        num_sections = struct.unpack_from("<H", pe_coff, 6)[0]
+        opt_hdr_size = struct.unpack_from("<H", pe_coff, 20)[0]
 
-    # OptionalHeader ImageBase offset:
-    # PE32 (0x10B): 4-byte ImageBase at offset +28
-    # PE32+ (0x20B): 8-byte ImageBase at offset +24
+        remaining_read = min(
+            max(opt_hdr_size + min(num_sections, 4096) * 40, 256),
+            max(0, file_size - (e_lfanew + 24)),
+            _MAX_HEADER_READ_BYTES,
+        )
+        tail = f.read(remaining_read)
+
+    if len(tail) < 32:
+        raise ValueError(f"Truncated PE optional header in '{binary_path}'")
+
+    opt_magic = struct.unpack_from("<H", tail, 0)[0]
     if opt_magic == 0x10B:
-        image_base = struct.unpack_from("<I", hdr, e_lfanew + 24 + 28)[0]
+        image_base = struct.unpack_from("<I", tail, 28)[0]
         is_64bit = False
     elif opt_magic == 0x20B:
-        image_base = struct.unpack_from("<Q", hdr, e_lfanew + 24 + 24)[0]
+        image_base = struct.unpack_from("<Q", tail, 24)[0]
         is_64bit = True
     else:
-        image_base = struct.unpack_from("<Q", hdr, e_lfanew + 24 + 24)[0]
+        image_base = struct.unpack_from("<Q", tail, 24)[0]
         is_64bit = True
 
-    sec_offset = e_lfanew + 24 + opt_hdr_size
+    sec_offset = opt_hdr_size
     sections: List[Dict[str, Any]] = []
-
     for i in range(num_sections):
-        sec_hdr = hdr[sec_offset + i * 40 : sec_offset + (i + 1) * 40]
+        sec_hdr = tail[sec_offset + i * 40 : sec_offset + (i + 1) * 40]
         if len(sec_hdr) < 40:
             break
         name = sec_hdr[:8].rstrip(b"\x00").decode("latin-1", errors="replace")
@@ -103,12 +212,15 @@ def parse_pe_sections(binary_path: Path) -> PESectionInfo:
             "is_data": not (is_code or is_execute),
         })
 
-    return PESectionInfo(image_base, sections, is_64bit=is_64bit, binary_format="PE")
+    return PESectionInfo(image_base, sections, is_64bit=is_64bit, binary_format="PE", architecture=arch)
 
 
 def parse_elf_sections(binary_path: Path) -> PESectionInfo:
     """Parses ELF32/ELF64 headers and section table using pure Python stdlib."""
     with open(binary_path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        file_size = f.tell()
+        f.seek(0)
         ehdr = f.read(64)
         if len(ehdr) < 52 or ehdr[:4] != b"\x7fELF":
             raise ValueError(f"File '{binary_path}' is not a valid ELF executable (missing ELF magic)")
@@ -116,6 +228,8 @@ def parse_elf_sections(binary_path: Path) -> PESectionInfo:
         ei_class = ehdr[4]
         ei_data = ehdr[5]
         endian = "<" if ei_data == 1 else ">" if ei_data == 2 else "<"
+        e_machine = struct.unpack_from(endian + "H", ehdr, 18)[0]
+        arch = _ELF_MACHINE_MAP.get(e_machine, "unknown")
 
         if ei_class == 2:
             if len(ehdr) < 64:
@@ -136,15 +250,15 @@ def parse_elf_sections(binary_path: Path) -> PESectionInfo:
         else:
             raise ValueError(f"Unsupported ELF class {ei_class} in '{binary_path}'")
 
-        # Determine image_base from lowest PT_LOAD p_vaddr
+        # Determine image_base from lowest PT_LOAD p_vaddr (bounded read)
         load_vaddrs: List[int] = []
-        if e_phoff > 0 and e_phnum > 0 and e_phentsize >= (56 if is_64bit else 32):
+        if e_phoff > 0 and e_phoff < file_size and e_phnum > 0 and e_phentsize >= (56 if is_64bit else 32):
+            ph_read_sz = min(e_phnum * e_phentsize, file_size - e_phoff, _MAX_ELF_TABLE_BYTES)
             f.seek(e_phoff)
-            ph_data = f.read(e_phnum * e_phentsize)
-            for i in range(e_phnum):
+            ph_data = f.read(ph_read_sz)
+            max_ph = len(ph_data) // e_phentsize
+            for i in range(max_ph):
                 off = i * e_phentsize
-                if off + e_phentsize > len(ph_data):
-                    break
                 p_type = struct.unpack_from(endian + "I", ph_data, off)[0]
                 if p_type == 1:  # PT_LOAD
                     p_vaddr = struct.unpack_from(
@@ -154,9 +268,11 @@ def parse_elf_sections(binary_path: Path) -> PESectionInfo:
         image_base = min(load_vaddrs) if load_vaddrs else 0
 
         sections: List[Dict[str, Any]] = []
-        if e_shoff > 0 and e_shnum > 0 and e_shentsize >= (64 if is_64bit else 40):
+        if e_shoff > 0 and e_shoff < file_size and e_shnum > 0 and e_shentsize >= (64 if is_64bit else 40):
+            sh_read_sz = min(e_shnum * e_shentsize, file_size - e_shoff, _MAX_ELF_TABLE_BYTES)
             f.seek(e_shoff)
-            sh_data = f.read(e_shnum * e_shentsize)
+            sh_data = f.read(sh_read_sz)
+            max_sh = len(sh_data) // e_shentsize
 
             def _read_shdr(idx: int) -> Tuple[int, int, int, int, int, int]:
                 off = idx * e_shentsize
@@ -171,15 +287,14 @@ def parse_elf_sections(binary_path: Path) -> PESectionInfo:
                 return sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size
 
             shstrtab = b""
-            if 0 <= e_shstrndx < e_shnum and (e_shstrndx + 1) * e_shentsize <= len(sh_data):
+            if 0 <= e_shstrndx < max_sh:
                 _, _, _, _, str_off, str_sz = _read_shdr(e_shstrndx)
-                if str_sz > 0:
+                if 0 < str_sz and 0 <= str_off < file_size:
+                    bounded_str_sz = min(str_sz, file_size - str_off, _MAX_SHSTRTAB_BYTES)
                     f.seek(str_off)
-                    shstrtab = f.read(str_sz)
+                    shstrtab = f.read(bounded_str_sz)
 
-            for i in range(e_shnum):
-                if (i + 1) * e_shentsize > len(sh_data):
-                    break
+            for i in range(max_sh):
                 sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size = _read_shdr(i)
                 if sh_type == 0:  # SHT_NULL
                     continue
@@ -209,7 +324,7 @@ def parse_elf_sections(binary_path: Path) -> PESectionInfo:
                     "is_data": is_alloc and not is_exec,
                 })
 
-    return PESectionInfo(image_base, sections, is_64bit=is_64bit, binary_format="ELF")
+    return PESectionInfo(image_base, sections, is_64bit=is_64bit, binary_format="ELF", architecture=arch)
 
 
 def parse_binary_sections(binary_path: Path) -> PESectionInfo:
@@ -228,12 +343,12 @@ def inspect_address(
     addr_input: Union[int, str],
     db_conn: Optional[sqlite3.Connection] = None,
 ) -> Dict[str, Any]:
-    """Translates an address between VA, RVA, File Offset, containing PE section, and symbol cache.
+    """Translates an address between VA, RVA, File Offset, containing section, and symbol cache.
 
     Args:
-        binary_path: Path to PE binary executable
+        binary_path: Path to PE or ELF binary executable
         addr_input: Input address (integer or hex/decimal string like '0x140bc8770')
-        db_conn: Optional open SQLite connection to symbols database (paladins_symbols or dirtyroom.db)
+        db_conn: Optional open SQLite connection to symbols database (dirtyroom.db)
 
     Returns:
         Structured breakdown containing VA, RVA, File Offset, Section info, and correlated symbol.
@@ -242,48 +357,50 @@ def inspect_address(
     if not bin_path.is_file():
         raise FileNotFoundError(f"Binary file not found: {bin_path}")
 
-    # Parse address input
     if isinstance(addr_input, str):
-        cleaned = addr_input.strip()
-        addr_int = int(cleaned, 0)
+        addr_int = parse_int_address(addr_input)
+        if addr_int is None:
+            raise ValueError(f"Invalid address input: {addr_input}")
     else:
         addr_int = int(addr_input)
 
     pe_info = parse_binary_sections(bin_path)
     image_base, sections = pe_info[0], pe_info[1]
     is_64bit = getattr(pe_info, "is_64bit", True)
-    binary_format = getattr(pe_info, "binary_format", "PE")
+    architecture = getattr(pe_info, "architecture", "unknown")
 
-    # Classify input address type
-    if addr_int >= image_base:
+    matching_rva_sec = next(
+        (s for s in sections if s["rva"] <= addr_int < s["rva"] + max(s["virtual_size"], s["raw_size"])),
+        None,
+    )
+    matching_fo_sec = next(
+        (s for s in sections if s["raw_offset"] <= addr_int < s["raw_offset"] + s["raw_size"] and s["raw_size"] > 0),
+        None,
+    )
+
+    # Classify input address type (handling PIE/SO ELF where image_base == 0)
+    if image_base > 0 and addr_int >= image_base:
         input_type = "VA"
         va = addr_int
         rva = va - image_base
+    elif matching_fo_sec and not matching_rva_sec:
+        input_type = "FileOffset"
+        delta = addr_int - matching_fo_sec["raw_offset"]
+        rva = matching_fo_sec["rva"] + delta
+        va = image_base + rva
+    elif matching_rva_sec and not matching_fo_sec:
+        input_type = "VA" if image_base == 0 else "RVA"
+        rva = addr_int
+        va = image_base + rva
+    elif image_base == 0:
+        input_type = "VA"
+        rva = addr_int
+        va = addr_int
     else:
-        matching_rva_sec = next(
-            (s for s in sections if s["rva"] <= addr_int < s["rva"] + max(s["virtual_size"], s["raw_size"])),
-            None,
-        )
-        matching_fo_sec = next(
-            (s for s in sections if s["raw_offset"] <= addr_int < s["raw_offset"] + s["raw_size"] and s["raw_size"] > 0),
-            None,
-        )
-        if matching_rva_sec and not matching_fo_sec:
-            input_type = "RVA"
-            rva = addr_int
-            va = image_base + rva
-        elif matching_fo_sec and not matching_rva_sec:
-            input_type = "FileOffset"
-            delta = addr_int - matching_fo_sec["raw_offset"]
-            rva = matching_fo_sec["rva"] + delta
-            va = image_base + rva
-        else:
-            # Default to RVA in reverse engineering context
-            input_type = "RVA"
-            rva = addr_int
-            va = image_base + rva
+        input_type = "RVA"
+        rva = addr_int
+        va = image_base + rva
 
-    # Locate containing PE section
     sec = next(
         (s for s in sections if s["rva"] <= rva < s["rva"] + max(s["virtual_size"], s["raw_size"])),
         None,
@@ -304,7 +421,8 @@ def inspect_address(
             from harness.re.scaffold import get_dirtyroom_db
             conn = get_dirtyroom_db()
             own_conn = conn is not None
-        except Exception:
+        except (sqlite3.Error, OSError, ImportError) as exc:
+            sys.stderr.write(f"[!] Warning: Could not open dirtyroom symbol database: {exc}\n")
             conn = None
 
     if conn is not None:
@@ -319,22 +437,26 @@ def inspect_address(
             except sqlite3.Error:
                 binary_id = None
 
-            # 1. Check for containing function: address <= va AND address + size > va
+            # 1. Containing function: handle positive size ranges and exact zero-size entries
             if binary_id is not None:
                 cur.execute(
-                    "SELECT name, address, size FROM functions WHERE binary_id = ? AND address <= ? AND address + size > ? ORDER BY address DESC LIMIT 1",
-                    (binary_id, va, va),
+                    "SELECT name, address, COALESCE(size, 0) FROM functions "
+                    "WHERE binary_id = ? AND ((COALESCE(size, 0) > 0 AND address <= ? AND address + COALESCE(size, 0) > ?) OR address = ?) "
+                    "ORDER BY address DESC LIMIT 1",
+                    (binary_id, va, va, va),
                 )
             else:
                 cur.execute(
-                    "SELECT name, address, size FROM functions WHERE address <= ? AND address + size > ? ORDER BY address DESC LIMIT 1",
-                    (va, va),
+                    "SELECT name, address, COALESCE(size, 0) FROM functions "
+                    "WHERE ((COALESCE(size, 0) > 0 AND address <= ? AND address + COALESCE(size, 0) > ?) OR address = ?) "
+                    "ORDER BY address DESC LIMIT 1",
+                    (va, va, va),
                 )
             fn_row = cur.fetchone()
             if fn_row:
                 fn_name = fn_row[0]
-                fn_addr = int(fn_row[1])
-                fn_size = int(fn_row[2])
+                fn_addr = parse_int_address(fn_row[1], default=0) or 0
+                fn_size = parse_int_address(fn_row[2], default=0) or 0
                 delta = va - fn_addr
                 symbol_info = {
                     "type": "function",
@@ -346,37 +468,40 @@ def inspect_address(
                     "delta_str": f"+0x{delta:x}" if delta > 0 else "+0x0",
                 }
             else:
-                # 2. Check for string matches in data sections or exact string address
+                # 2. String matches
                 try:
                     str_cols = [col[1] for col in cur.execute("PRAGMA table_info(strings)").fetchall()]
                     st_col = "string_type" if "string_type" in str_cols else ("encoding" if "encoding" in str_cols else "'ascii'")
                     if binary_id is not None and "binary_id" in str_cols:
                         cur.execute(
-                            f"SELECT address, value, {st_col}, length FROM strings WHERE binary_id = ? AND (address = ? OR (address <= ? AND address + length > ?)) LIMIT 1",
+                            f"SELECT address, value, {st_col}, COALESCE(length, 0) FROM strings "
+                            "WHERE binary_id = ? AND (address = ? OR (COALESCE(length, 0) > 0 AND address <= ? AND address + COALESCE(length, 0) > ?)) LIMIT 1",
                             (binary_id, va, va, va),
                         )
                     else:
                         cur.execute(
-                            f"SELECT address, value, {st_col}, length FROM strings WHERE address = ? OR (address <= ? AND address + length > ?) LIMIT 1",
+                            f"SELECT address, value, {st_col}, COALESCE(length, 0) FROM strings "
+                            "WHERE address = ? OR (COALESCE(length, 0) > 0 AND address <= ? AND address + COALESCE(length, 0) > ?) LIMIT 1",
                             (va, va, va),
                         )
                     s_row = cur.fetchone()
                     if s_row:
-                        s_addr = int(s_row[0])
+                        s_addr = parse_int_address(s_row[0], default=0) or 0
+                        s_len = parse_int_address(s_row[3], default=0) or 0
                         symbol_info = {
                             "type": "string",
                             "address": s_addr,
                             "address_hex": f"0x{s_addr:x}",
                             "value": s_row[1],
                             "string_type": s_row[2],
-                            "length": s_row[3],
+                            "length": s_len,
                             "offset": va - s_addr,
                             "delta_str": f"+0x{va - s_addr:x}" if (va - s_addr) > 0 else "+0x0",
                         }
                 except sqlite3.Error:
                     pass
 
-                # 3. Check for RTTI class / vtable references (Schema Reflection: Defect 4)
+                # 3. RTTI class / vtable references (Schema A & B)
                 if not symbol_info:
                     try:
                         rtti_cols = [col[1] for col in cur.execute("PRAGMA table_info(rtti_classes)").fetchall()]
@@ -386,7 +511,7 @@ def inspect_address(
                             td_expr = td_col if td_col else "NULL"
                             if td_col:
                                 cond = f"({vt_col} = ? OR {td_col} = ? OR ({vt_col} <= ? AND {vt_col} + 1024 > ?))"
-                                params = [va, va, va, va]
+                                params: List[Any] = [va, va, va, va]
                             else:
                                 cond = f"({vt_col} = ? OR ({vt_col} <= ? AND {vt_col} + 1024 > ?))"
                                 params = [va, va, va]
@@ -399,8 +524,8 @@ def inspect_address(
                             )
                             r_row = cur.fetchone()
                             if r_row:
-                                vt_addr = int(r_row[2]) if r_row[2] else 0
-                                td_addr = int(r_row[3]) if r_row[3] is not None else None
+                                vt_addr = parse_int_address(r_row[2], default=0) or 0
+                                td_addr = parse_int_address(r_row[3], default=None)
                                 symbol_info = {
                                     "type": "rtti",
                                     "class_name": r_row[0],
@@ -424,7 +549,7 @@ def inspect_address(
                             )
                             r_row = cur.fetchone()
                             if r_row:
-                                vt_addr = int(r_row[1]) if r_row[1] else 0
+                                vt_addr = parse_int_address(r_row[1], default=0) or 0
                                 symbol_info = {
                                     "type": "rtti",
                                     "class_name": r_row[0],
@@ -438,24 +563,24 @@ def inspect_address(
                     except sqlite3.Error:
                         pass
 
-                # 4. If in code section and not inside any function, find nearest preceding function
+                # 4. Nearest preceding function inside code section
                 if not symbol_info and sec and sec.get("is_code"):
                     try:
                         if binary_id is not None:
                             cur.execute(
-                                "SELECT name, address, size FROM functions WHERE binary_id = ? AND address <= ? ORDER BY address DESC LIMIT 1",
+                                "SELECT name, address, COALESCE(size, 0) FROM functions WHERE binary_id = ? AND address <= ? ORDER BY address DESC LIMIT 1",
                                 (binary_id, va),
                             )
                         else:
                             cur.execute(
-                                "SELECT name, address, size FROM functions WHERE address <= ? ORDER BY address DESC LIMIT 1",
+                                "SELECT name, address, COALESCE(size, 0) FROM functions WHERE address <= ? ORDER BY address DESC LIMIT 1",
                                 (va,),
                             )
                         near_row = cur.fetchone()
                         if near_row:
                             fn_name = near_row[0]
-                            fn_addr = int(near_row[1])
-                            fn_size = int(near_row[2])
+                            fn_addr = parse_int_address(near_row[1], default=0) or 0
+                            fn_size = parse_int_address(near_row[2], default=0) or 0
                             delta = va - fn_addr
                             symbol_info = {
                                 "type": "nearest_function",
@@ -472,7 +597,7 @@ def inspect_address(
             if own_conn:
                 conn.close()
 
-    result: Dict[str, Any] = {
+    return {
         "input": str(addr_input),
         "input_type": input_type,
         "va": va,
@@ -484,6 +609,7 @@ def inspect_address(
         "image_base": image_base,
         "image_base_hex": f"0x{image_base:x}",
         "is_64bit": is_64bit,
+        "architecture": architecture,
         "section": {
             "name": sec["name"],
             "permissions": sec["permissions"],
@@ -500,7 +626,14 @@ def inspect_address(
         else None,
         "symbol": symbol_info,
     }
-    return result
+
+
+def _safe_close_conn(conn: Optional[sqlite3.Connection]) -> None:
+    if conn is not None:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
 
 
 def execute_cmd_addr(args: argparse.Namespace, conn: Optional[sqlite3.Connection] = None) -> int:
@@ -511,18 +644,15 @@ def execute_cmd_addr(args: argparse.Namespace, conn: Optional[sqlite3.Connection
     if not bin_path:
         target_name = binary or "target binary"
         print(f"[!] Error: Binary '{target_name}' not found. Specify --binary or place in .dirtyroom/binaries/.", file=sys.stderr)
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+        _safe_close_conn(conn)
         return 1
 
     if conn is None:
         try:
             from harness.re.scaffold import get_dirtyroom_db
             conn = get_dirtyroom_db()
-        except Exception:
+        except (sqlite3.Error, OSError, ImportError) as exc:
+            sys.stderr.write(f"[!] Warning: Could not open dirtyroom database: {exc}\n")
             conn = None
 
     try:
@@ -531,11 +661,7 @@ def execute_cmd_addr(args: argparse.Namespace, conn: Optional[sqlite3.Connection
         print(f"[!] Error inspecting address '{addr_input}': {e}", file=sys.stderr)
         return 1
     finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+        _safe_close_conn(conn)
 
     if getattr(args, "json", False):
         print(json.dumps(info, indent=2))
@@ -545,13 +671,13 @@ def execute_cmd_addr(args: argparse.Namespace, conn: Optional[sqlite3.Connection
     print(f"  Binary:      {bin_path.name}")
     print(f"  VA:          {info['va_hex']} ({info['va']})")
     print(f"  RVA:         {info['rva_hex']} (+{info['rva']})")
-    fo_str = f"{info['file_offset_hex']} ({info['file_offset']})" if info['file_offset'] is not None else "N/A (unmapped/virtual-only)"
+    fo_str = f"{info['file_offset_hex']} ({info['file_offset']})" if info["file_offset"] is not None else "N/A (unmapped/virtual-only)"
     print(f"  File Offset: {fo_str}")
     if info.get("section"):
         sec = info["section"]
         print(f"  Section:     {sec['name']} [{sec['permissions']}] (RVA: {sec['rva_hex']}..0x{sec['rva'] + sec['virtual_size']:x})")
     else:
-        print(f"  Section:     None (outside mapped sections)")
+        print("  Section:     None (outside mapped sections)")
 
     sym = info.get("symbol")
     if sym:
@@ -568,7 +694,6 @@ def execute_cmd_addr(args: argparse.Namespace, conn: Optional[sqlite3.Connection
         else:
             print(f"  Symbol:      {sym}")
     else:
-        print(f"  Procedure:   (no symbol matched in dirtyroom symbol database)")
+        print("  Procedure:   (no symbol matched in dirtyroom symbol database)")
 
     return 0
-

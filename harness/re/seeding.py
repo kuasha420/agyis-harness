@@ -4,8 +4,8 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Turnkey Packet Capture Ingestion & Seed Engine (ADR-028, PSL-INV-007, PSL-INV-009).
-Ingests PCAP frames into dirtyroom SQLite database and links frames to binary analysis runs.
+Turnkey Packet Capture Ingestion & Seed Engine (ADR-028, PSL-RE-001).
+Streams PCAP frames into dirtyroom SQLite database in bounded batches and links frames to binary runs.
 """
 
 from __future__ import annotations
@@ -21,10 +21,13 @@ import sqlite3
 import struct
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from harness.re.registry import try_register_dirtyroom
 from harness.re.scaffold import get_dirtyroom_db, get_dirtyroom_root, resolve_binary_path
+
+_INSERT_BATCH_SIZE = 1000
+_LOOPBACK_IPV6_FAMILIES = frozenset({10, 24, 28, 30})
 
 
 def _utc_now_iso() -> str:
@@ -57,24 +60,38 @@ def ensure_db_schema_extended(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def parse_pcap_packets_python(pcap_path: Path, limit: Optional[int] = None) -> List[Dict[str, Any]]:
-    """Pure-Python libpcap reader. Hermetic, sub-millisecond, zero-dependency.
+def _decode_dlt_family(link_type: int, header_bytes: bytes, pcap_endian: str) -> Optional[int]:
+    """Decodes DLT_NULL (0, file/capture endianness) and DLT_LOOP (108, network big-endian)."""
+    if link_type == 108:
+        family = struct.unpack(">I", header_bytes)[0]
+    else:
+        family = struct.unpack(pcap_endian + "I", header_bytes)[0]
+        if family != 2 and family not in _LOOPBACK_IPV6_FAMILIES:
+            alt_endian = "<" if pcap_endian == ">" else ">"
+            alt_family = struct.unpack(alt_endian + "I", header_bytes)[0]
+            if alt_family == 2 or alt_family in _LOOPBACK_IPV6_FAMILIES:
+                family = alt_family
+    if family == 2:
+        return 0x0800
+    if family in _LOOPBACK_IPV6_FAMILIES:
+        return 0x86DD
+    return None
+
+
+def iter_pcap_packets_python(pcap_path: Path, limit: Optional[int] = None) -> Iterator[Dict[str, Any]]:
+    """Streaming pure-Python libpcap reader. Hermetic, bounded-memory, zero-dependency.
 
     Supports Ethernet (1), Linux SLL (113), Linux SLL2 (276), Loopback (0/108),
     and Raw IP (12/101), decoding IPv4 (TCP/UDP/ICMP), IPv6, and ARP frames.
     """
     if limit is not None and limit <= 0:
-        return []
+        return
     with open(pcap_path, "rb") as f:
         magic = f.read(4)
         if len(magic) < 4:
-            return []
+            return
 
         # Detect endianness & resolution
-        # 0xa1b2c3d4: big-endian, microsecond
-        # 0xd4c3b2a1: little-endian, microsecond
-        # 0xa1b23c4d: big-endian, nanosecond
-        # 0x4d3cb2a1: little-endian, nanosecond
         if magic == b"\xa1\xb2\xc3\xd4":
             endian = ">"
             ts_div = 1_000_000.0
@@ -88,17 +105,14 @@ def parse_pcap_packets_python(pcap_path: Path, limit: Optional[int] = None) -> L
             endian = "<"
             ts_div = 1_000_000_000.0
         else:
-            # Not standard libpcap
-            return []
+            return
 
         hdr_rest = f.read(20)
         if len(hdr_rest) < 20:
-            return []
+            return
         link_type = struct.unpack(endian + "HHIIII", hdr_rest)[5]
 
-        packets: List[Dict[str, Any]] = []
         frame_no = 0
-
         while True:
             if limit and frame_no >= limit:
                 break
@@ -135,8 +149,7 @@ def parse_pcap_packets_python(pcap_path: Path, limit: Optional[int] = None) -> L
                 eth_type = struct.unpack(">H", data[0:2])[0]
                 payload = data[20:]
             elif link_type in (0, 108) and len(data) >= 4:  # Loopback / Null
-                family = struct.unpack("=I", data[:4])[0]
-                eth_type = 0x0800 if family == 2 else (0x86DD if family in (10, 24, 28, 30) else None)
+                eth_type = _decode_dlt_family(link_type, data[:4], endian)
                 payload = data[4:]
             elif link_type in (12, 101) and len(data) > 0:  # Raw IP
                 v = data[0] >> 4
@@ -192,7 +205,7 @@ def parse_pcap_packets_python(pcap_path: Path, limit: Optional[int] = None) -> L
                 else:
                     summary = f"ARP packet ({incl_len} bytes)"
 
-            packets.append({
+            yield {
                 "frame_number": frame_no,
                 "timestamp": ts,
                 "proto": proto,
@@ -202,9 +215,12 @@ def parse_pcap_packets_python(pcap_path: Path, limit: Optional[int] = None) -> L
                 "dst_port": dst_port,
                 "payload_len": incl_len,
                 "summary": summary,
-            })
+            }
 
-        return packets
+
+def parse_pcap_packets_python(pcap_path: Path, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Materializes libpcap packets via streaming reader for compatibility callers."""
+    return list(iter_pcap_packets_python(pcap_path, limit=limit))
 
 
 def parse_pcap_packets_tshark(pcap_path: Path, limit: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -287,6 +303,16 @@ def parse_pcap_packets_tshark(pcap_path: Path, limit: Optional[int] = None) -> L
         return []
 
 
+def iter_pcap(pcap_path: Path, limit: Optional[int] = None) -> Iterator[Dict[str, Any]]:
+    """Streams packets via pure-Python reader, falling back to tshark if zero frames yielded."""
+    yielded = False
+    for pkt in iter_pcap_packets_python(pcap_path, limit=limit):
+        yielded = True
+        yield pkt
+    if not yielded:
+        yield from parse_pcap_packets_tshark(pcap_path, limit=limit)
+
+
 def parse_pcap(pcap_path: Path, limit: Optional[int] = None) -> List[Dict[str, Any]]:
     """Attempts pure-Python parsing first, falling back to tshark."""
     packets = parse_pcap_packets_python(pcap_path, limit=limit)
@@ -301,7 +327,7 @@ def seed_packets(
     limit: Optional[int] = None,
     dirtyroom_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Ingests PCAP frames into dirtyroom.db packets table and links to runs."""
+    """Streams PCAP frames into dirtyroom.db packets table in bounded batches and links to runs."""
     if limit is not None and limit <= 0:
         return {"success": False, "error": "Parameter 'limit' must be a positive integer."}
 
@@ -327,7 +353,6 @@ def seed_packets(
             elif (root / pcap_path).is_file():
                 resolved_pcap = root / pcap_path
         else:
-            # Auto-discover pcap
             pcaps_dir = root / "pcaps"
             if pcaps_dir.is_dir():
                 candidates = sorted(
@@ -362,7 +387,6 @@ def seed_packets(
         if row:
             binary_id = row[0]
         else:
-            # Register binary entry
             sha256 = "0" * 64
             file_size = 0
             if bin_path and bin_path.is_file():
@@ -371,8 +395,8 @@ def seed_packets(
                     file_size = st.st_size
                     with open(bin_path, "rb") as bf:
                         sha256 = hashlib.file_digest(bf, "sha256").hexdigest()
-                except OSError:
-                    pass
+                except OSError as exc:
+                    sys.stderr.write(f"[!] Warning: Could not hash binary '{bin_path}': {exc}\n")
             cursor.execute(
                 "INSERT INTO binaries (name, sha256, file_size, created_at) VALUES (?, ?, ?, ?)",
                 (resolved_bin_name, sha256, file_size, _utc_now_iso()),
@@ -388,9 +412,46 @@ def seed_packets(
         )
         run_id = cursor.lastrowid
 
-        # Parse packets
-        packets = parse_pcap(resolved_pcap, limit=limit)
-        if not packets:
+        # Stream packets and insert in bounded batches
+        pcap_stem = resolved_pcap.name
+        insert_sql = """
+            INSERT INTO packets (
+                pcap_name, frame_number, timestamp, proto,
+                src_ip, dst_ip, src_port, dst_port,
+                payload_len, summary, binary_id, run_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        batch: List[tuple] = []
+        total_ingested = 0
+
+        for p in iter_pcap(resolved_pcap, limit=limit):
+            batch.append(
+                (
+                    pcap_stem,
+                    p["frame_number"],
+                    p["timestamp"],
+                    p["proto"],
+                    p["src_ip"],
+                    p["dst_ip"],
+                    p["src_port"],
+                    p["dst_port"],
+                    p["payload_len"],
+                    p["summary"],
+                    binary_id,
+                    run_id,
+                )
+            )
+            if len(batch) >= _INSERT_BATCH_SIZE:
+                cursor.executemany(insert_sql, batch)
+                total_ingested += len(batch)
+                batch.clear()
+
+        if batch:
+            cursor.executemany(insert_sql, batch)
+            total_ingested += len(batch)
+            batch.clear()
+
+        if total_ingested == 0:
             finished_at = _utc_now_iso()
             cursor.execute("UPDATE runs SET finished_at = ?, exit_code = ? WHERE id = ?", (finished_at, 1, run_id))
             conn.commit()
@@ -402,37 +463,6 @@ def seed_packets(
                 "run_id": run_id,
             }
 
-        # Ingest frames in batch
-        pcap_stem = resolved_pcap.name
-        rows = [
-            (
-                pcap_stem,
-                p["frame_number"],
-                p["timestamp"],
-                p["proto"],
-                p["src_ip"],
-                p["dst_ip"],
-                p["src_port"],
-                p["dst_port"],
-                p["payload_len"],
-                p["summary"],
-                binary_id,
-                run_id,
-            )
-            for p in packets
-        ]
-
-        cursor.executemany(
-            """
-            INSERT INTO packets (
-                pcap_name, frame_number, timestamp, proto,
-                src_ip, dst_ip, src_port, dst_port,
-                payload_len, summary, binary_id, run_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            rows,
-        )
-
         # Finalize run
         finished_at = _utc_now_iso()
         cursor.execute("UPDATE runs SET finished_at = ? WHERE id = ?", (finished_at, run_id))
@@ -443,7 +473,7 @@ def seed_packets(
         result: Dict[str, Any] = {
             "success": True,
             "pcap": str(resolved_pcap),
-            "packets_ingested": len(packets),
+            "packets_ingested": total_ingested,
             "binary_name": resolved_bin_name,
             "binary_id": binary_id,
             "run_id": run_id,
@@ -479,7 +509,7 @@ def cmd_seed(args: argparse.Namespace) -> int:
         print(f"[!] Error: {res.get('error')}", file=sys.stderr)
         return 1
 
-    print(f"[+] Successfully seeded PCAP into dirtyroom database:")
+    print("[+] Successfully seeded PCAP into dirtyroom database:")
     print(f"    - Capture File:    {res['pcap']}")
     print(f"    - Packets Ingested: {res['packets_ingested']:,}")
     print(f"    - Linked Binary:    {res['binary_name']} (ID: {res['binary_id']})")
