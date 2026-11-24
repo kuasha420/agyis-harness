@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from harness.telemetry import config
 from harness.telemetry.db import compute_telemetry_lag, get_db_connection, iter_brain_transcripts
 from harness.telemetry.extractor import ensure_telemetry_schema, extract_session, upsert_session_telemetry
+from harness.telemetry.sync.push import push_local_sessions as _push_local_sessions
 from harness.utils.state import get_state_dir
 
 _MAX_MTIME_CACHE = 2000
@@ -102,8 +103,6 @@ def watch_and_sync(
     brain_dir: Optional[Path] = None, max_backoff_sec: float = 300.0, state_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Continuously harvests local transcripts and pushes deltas with exponential backoff."""
-    import harness.telemetry.sync as sync_mod
-
     target_db = config.resolve_db_path(db_path, must_exist=False)
     mtime_cache: Dict[str, Tuple[float, int]] = {}
     errors: List[str] = []
@@ -135,7 +134,9 @@ def watch_and_sync(
                 sys.stderr.write(f"[agyis-sync] Harvest iteration {iterations} error: {h_exc}\n")
                 iter_errors.append(f"Harvest iteration {iterations} error: {h_exc}")
             try:
-                push_res = sync_mod.push_local_sessions(endpoint=endpoint, token=token, db_path=target_db)
+                sync_pkg = sys.modules.get("harness.telemetry.sync")
+                push_fn = getattr(sync_pkg, "push_local_sessions", _push_local_sessions)
+                push_res = push_fn(endpoint=endpoint, token=token, db_path=target_db)
                 if isinstance(push_res, dict):
                     pushed = int(push_res.get("sessions_pushed") or 0)
                     total_pushed += pushed

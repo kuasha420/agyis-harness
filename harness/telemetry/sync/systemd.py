@@ -34,6 +34,21 @@ def get_service_unit_path(custom_path: Optional[Union[str, Path]] = None) -> Pat
     return get_default_service_path()
 
 
+def _quote_systemd_token(value: str) -> str:
+    """Quotes a systemd path/argument if it contains whitespace or metacharacters."""
+    if not value:
+        return '""'
+    if any(ch.isspace() or ch in ('"', "'", "\\", ";") for ch in value):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return value
+
+
+def _is_transient_dir(path: Path) -> bool:
+    parts = {p.lower() for p in path.parts}
+    return bool(parts.intersection({"worktrees", "site-packages", "dist-packages"})) or str(path).startswith("/tmp/")
+
+
 def generate_systemd_service(
     python_bin: Optional[str] = None,
     interval_sec: float = 5.0,
@@ -45,28 +60,28 @@ def generate_systemd_service(
     if working_dir:
         resolved_work_dir = Path(working_dir).resolve()
     else:
-        # Detect repo root
+        # Detect stable repo root without pinning to transient worktrees or site-packages
         cand = Path(__file__).resolve().parents[3]
-        if (cand / "harness").is_dir():
+        if (cand / "harness").is_dir() and not _is_transient_dir(cand):
             resolved_work_dir = cand
-        elif (Path.cwd() / "harness").is_dir():
+        elif (Path.cwd() / "harness").is_dir() and not _is_transient_dir(Path.cwd().resolve()):
             resolved_work_dir = Path.cwd().resolve()
         else:
             resolved_work_dir = Path.home()
 
-    work_dir = str(resolved_work_dir)
+    work_dir = _quote_systemd_token(str(resolved_work_dir))
 
     if python_bin:
-        exec_cmd = f"{python_bin} -m harness.cli sync --watch --interval {interval_sec}"
+        exec_cmd = f"{_quote_systemd_token(python_bin)} -m harness.cli sync --watch --interval {interval_sec}"
     elif agyis_bin:
-        exec_cmd = f"{agyis_bin} sync --watch --interval {interval_sec}"
+        exec_cmd = f"{_quote_systemd_token(agyis_bin)} sync --watch --interval {interval_sec}"
     else:
         discovered_agyis = shutil.which("agyis")
         if discovered_agyis:
-            exec_cmd = f"{discovered_agyis} sync --watch --interval {interval_sec}"
+            exec_cmd = f"{_quote_systemd_token(discovered_agyis)} sync --watch --interval {interval_sec}"
         else:
             py_path = sys.executable or "/usr/bin/python3"
-            exec_cmd = f"{py_path} -m harness.cli sync --watch --interval {interval_sec}"
+            exec_cmd = f"{_quote_systemd_token(py_path)} -m harness.cli sync --watch --interval {interval_sec}"
 
     return f"""[Unit]
 Description=Agyis Telemetry Background Sync Service

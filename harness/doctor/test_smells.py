@@ -118,12 +118,113 @@ class TSJSTestSmellScanner:
         self.exemptions: List[BoundaryExemptionRecord] = []
         self.scanned_tests = 0
 
+    @staticmethod
+    def _find_block_end(content: str, open_brace_idx: int, hard_limit: int) -> int:
+        """Finds matching closing '}' for a TS/JS block while ignoring strings and comments."""
+        depth = 0
+        i = open_brace_idx
+        n = min(len(content), hard_limit)
+        in_str: Optional[str] = None
+        in_line_comment = False
+        in_block_comment = False
+        while i < n:
+            ch = content[i]
+            nxt = content[i + 1] if i + 1 < n else ""
+            if in_line_comment:
+                if ch == "\n":
+                    in_line_comment = False
+                i += 1
+                continue
+            if in_block_comment:
+                if ch == "*" and nxt == "/":
+                    in_block_comment = False
+                    i += 2
+                    continue
+                i += 1
+                continue
+            if in_str is not None:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == in_str:
+                    in_str = None
+                i += 1
+                continue
+            if ch == "/" and nxt == "/":
+                in_line_comment = True
+                i += 2
+                continue
+            if ch == "/" and nxt == "*":
+                in_block_comment = True
+                i += 2
+                continue
+            if ch in ("'", '"', "`"):
+                in_str = ch
+                i += 1
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return i + 1
+            i += 1
+        return n
+
+    @staticmethod
+    def _strip_js_comments_preserve_lines(code: str) -> str:
+        """Replaces // and /* */ comments with spaces while preserving newlines and string literals."""
+        out: List[str] = []
+        i = 0
+        n = len(code)
+        in_str: Optional[str] = None
+        while i < n:
+            ch = code[i]
+            nxt = code[i + 1] if i + 1 < n else ""
+            if in_str is not None:
+                out.append(ch)
+                if ch == "\\" and i + 1 < n:
+                    out.append(nxt)
+                    i += 2
+                    continue
+                if ch == in_str:
+                    in_str = None
+                i += 1
+                continue
+            if ch in ("'", '"', "`"):
+                in_str = ch
+                out.append(ch)
+                i += 1
+                continue
+            if ch == "/" and nxt == "/":
+                while i < n and code[i] != "\n":
+                    out.append(" ")
+                    i += 1
+                continue
+            if ch == "/" and nxt == "*":
+                out.append(" ")
+                out.append(" ")
+                i += 2
+                while i < n:
+                    if code[i] == "*" and i + 1 < n and code[i + 1] == "/":
+                        out.append(" ")
+                        out.append(" ")
+                        i += 2
+                        break
+                    out.append("\n" if code[i] == "\n" else " ")
+                    i += 1
+                continue
+            out.append(ch)
+            i += 1
+        return "".join(out)
+
     def scan(self) -> Tuple[List[TestSmell], List[BoundaryExemptionRecord], int]:
         """Executes lexical analysis on the test file."""
-        # 1. Boundary inspection from imports or file path
+        # 1. Boundary inspection from imports or file stem
         boundary_modules = []
+        stem_tokens = {tok for tok in Path(self.file_path).stem.lower().replace("-", "_").replace(".", "_").split("_") if tok}
         for kw in BOUNDARY_PATH_KEYWORDS:
-            if kw in self.file_path.lower():
+            if kw in stem_tokens:
                 boundary_modules.append(f"path:{kw}")
 
         for mod in BOUNDARY_MODULES:
@@ -131,11 +232,6 @@ class TSJSTestSmellScanner:
                 boundary_modules.append(mod)
 
         # 2. Extract test/it blocks
-        # Regex captures:
-        # - it(...) / test(...) / xit(...) / xtest(...) / fit(...)
-        # - execution modifiers: .only, .skip, .todo, .concurrent, .failing
-        # - parameterized tests: .each(...) or .each`table`
-        # - callbacks: () => {, (done) => {, done => {, function() {, async function(done) {, function name() {
         test_block_pattern = re.compile(
             r'\b(?:it|test|xit|xtest|fit)'
             r'(?:\.(?!each\b)[a-zA-Z0-9_$]+)*'
@@ -155,7 +251,9 @@ class TSJSTestSmellScanner:
         for i, match in enumerate(matches):
             test_name = match.group("name")
             start_pos = match.start()
-            end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(self.content)
+            next_start = matches[i + 1].start() if i + 1 < len(matches) else len(self.content)
+            open_brace_idx = match.end() - 1
+            end_pos = self._find_block_end(self.content, open_brace_idx, next_start)
             block_code = self.content[start_pos:end_pos]
             start_line = self.content[:start_pos].count("\n") + 1
             end_line = start_line + block_code.count("\n")
@@ -177,14 +275,15 @@ class TSJSTestSmellScanner:
         end_line: int,
         boundary_modules: List[str],
     ) -> None:
-        block_lines = block_code.splitlines()
+        code_no_comments = self._strip_js_comments_preserve_lines(block_code)
+        block_lines = code_no_comments.splitlines()
 
         # SM001: Zero-State Tautology
-        mock_matchers = len(re.findall(r'\.(?:toHaveBeenCalled|toBeCalled)', block_code))
+        mock_matchers = len(re.findall(r'\.(?:toHaveBeenCalled|toBeCalled)', code_no_comments))
         state_matchers = len(
             re.findall(
                 r'\.(?:toBe|toEqual|toStrictEqual|toMatch|toContain|toHaveLength|toHaveProperty|toBeDefined|toBeNull|toBeTruthy|toBeFalsy|toThrow|toBeGreaterThan|toBeLessThan)\s*\(',
-                block_code,
+                code_no_comments,
             )
         )
 

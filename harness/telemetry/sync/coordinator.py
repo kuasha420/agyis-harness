@@ -11,12 +11,15 @@ from __future__ import annotations
 
 from pathlib import Path
 import sqlite3
+import sys
 from typing import Any, Callable, Dict, Optional, Union
 
 from harness.telemetry import config
 from harness.telemetry.config import resolve_db_path
 from harness.telemetry.db import get_db_connection
 from harness.telemetry.schema import ensure_sync_columns
+from harness.telemetry.sync.pull import pull_remote_sessions as _pull_remote_sessions
+from harness.telemetry.sync.push import push_local_sessions as _push_local_sessions
 
 
 def sync_telemetry(
@@ -96,9 +99,10 @@ def sync_telemetry(
                     "pull": None,
                 }
 
-        import harness.telemetry.sync as sync_mod
+        sync_pkg = sys.modules.get("harness.telemetry.sync")
+        push_fn = getattr(sync_pkg, "push_local_sessions", _push_local_sessions)
 
-        push_result = sync_mod.push_local_sessions(
+        push_result = push_fn(
             endpoint=endpoint,
             token=token,
             db_path=db_path,
@@ -122,9 +126,10 @@ def sync_telemetry(
             }
 
     if direction in ("both", "pull"):
-        import harness.telemetry.sync as sync_mod
+        sync_pkg = sys.modules.get("harness.telemetry.sync")
+        pull_fn = getattr(sync_pkg, "pull_remote_sessions", _pull_remote_sessions)
 
-        pull_result = sync_mod.pull_remote_sessions(
+        pull_result = pull_fn(
             endpoint=endpoint,
             token=token,
             db_path=db_path,

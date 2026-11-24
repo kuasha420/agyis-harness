@@ -5,6 +5,7 @@
 
 """REA (Reverse Engineer Anything) tooling and OpenJDK 21+ runtime checks."""
 
+import importlib
 import json
 import os
 import re
@@ -14,17 +15,19 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .tool_checks_common import (
+    check_node_toolchain,
+    parse_version,
+    version_less_than,
+)
+
 
 def _tc_attr(name: str, default: Any = None) -> Any:
-    """Resolve attributes via harness.runtime.tool_checks to honor test patches cleanly."""
+    """Resolve attributes via harness.runtime.tool_checks to honor test patches cleanly without circular imports."""
     mod = sys.modules.get("harness.runtime.tool_checks")
     if mod is not None and hasattr(mod, name):
         return getattr(mod, name)
-    if default is not None:
-        return default
-    from . import tool_checks as tc_mod
-
-    return getattr(tc_mod, name)
+    return default
 
 
 def find_rea_binary() -> Optional[Path]:
@@ -161,8 +164,23 @@ def _is_jdk21_or_higher(jdk_path: Path) -> bool:
     return False
 
 
+def _read_jdk_major(jdk_path: Path) -> int:
+    """Extracts numeric Java major version from release file or directory name (0 if unknown)."""
+    release_file = jdk_path / "release"
+    if release_file.is_file():
+        try:
+            content = release_file.read_text(encoding="utf-8", errors="ignore")
+            m = re.search(r'JAVA_VERSION="?(\d+)', content)
+            if m:
+                return int(m.group(1))
+        except OSError:
+            pass
+    m_name = re.search(r"(\d+)", jdk_path.name)
+    return int(m_name.group(1)) if m_name else 0
+
+
 def is_ghidra_12_2_installed(ghidra_dir: Optional[str] = None) -> bool:
-    """Checks whether Ghidra 12.2 is detected in the environment (DEF-BB-040)."""
+    """Checks whether Ghidra 12.2+ is detected in the environment (DEF-BB-040)."""
     path_cls = _tc_attr("Path", Path)
     candidates = []
     if ghidra_dir:
@@ -183,7 +201,8 @@ def is_ghidra_12_2_installed(ghidra_dir: Optional[str] = None) -> bool:
             if prop.is_file():
                 try:
                     txt = prop.read_text(encoding="utf-8", errors="ignore")
-                    if "application.version=12.2" in txt:
+                    m = re.search(r"application\.version\s*=\s*([0-9]+(?:\.[0-9]+)*)", txt)
+                    if m and not version_less_than(parse_version(m.group(1)), (12, 2)):
                         return True
                 except OSError:
                     pass
@@ -193,52 +212,37 @@ def is_ghidra_12_2_installed(ghidra_dir: Optional[str] = None) -> bool:
 def find_jdk21_path() -> Optional[Path]:
     """
     Discovers OpenJDK 21+ installation directory across environment and standard platform paths.
-    Validates that release file or java -version indicates >= 21.
-    If Ghidra 12.2 is detected, injects/prefers OpenJDK 27 (DEF-BB-040).
+    Validates that the candidate directory exists on disk and reports Java >= 21.
     """
     path_cls = _tc_attr("Path", Path)
     jdk_check = _tc_attr("_is_jdk21_or_higher", _is_jdk21_or_higher)
-    ghidra_12_check = _tc_attr("is_ghidra_12_2_installed", is_ghidra_12_2_installed)
 
     env_java_home = os.environ.get("JAVA_HOME")
     if env_java_home and env_java_home.strip():
         cand = path_cls(env_java_home.strip())
-        if cand.is_dir():
-            if jdk_check(cand):
-                return cand.resolve()
-        elif re.search(r"(?:^|[/-])(?:java-?)?2[1-9](?:[/-]|$)", str(cand)):
-            # Accommodate mock/symlink JDK 21+ paths that may not be mounted
-            return cand
+        if cand.is_dir() and jdk_check(cand):
+            return cand.resolve()
 
-    # If Ghidra 12.2 is detected, prefer Java 27 (DEF-BB-040)
-    if ghidra_12_check():
-        cand27 = path_cls("/usr/lib/jvm/java-27-openjdk")
-        try:
-            if cand27.is_dir() and jdk_check(cand27):
-                return cand27.resolve()
-        except OSError:
-            pass
-
-    system_candidates = [
-        # Linux / Arch / Fedora / Debian / Ubuntu
-        path_cls("/usr/lib/jvm/java-27-openjdk"),
-        path_cls("/usr/lib/jvm/java-21-openjdk"),
-        path_cls("/usr/lib/jvm/default"),
-        path_cls("/usr/lib/jvm/temurin-21"),
-        path_cls("/usr/lib/jvm/java-21-openjdk-amd64"),
-        path_cls("/usr/lib/jvm/java-21-openjdk-arm64"),
-        # macOS
-        path_cls("/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home"),
-        path_cls("/Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home"),
-        path_cls("/Library/Java/JavaVirtualMachines/zulu-21.jdk/Contents/Home"),
+    # Dynamically scan standard JVM roots and prefer highest installed JDK >= 21
+    discovered: List[Tuple[int, Path]] = []
+    jvm_roots = [
+        path_cls("/usr/lib/jvm"),
+        path_cls("/Library/Java/JavaVirtualMachines"),
     ]
-
-    for cand in system_candidates:
+    for root in jvm_roots:
         try:
-            if cand.is_dir() and jdk_check(cand):
-                return cand.resolve()
+            if not root.is_dir():
+                continue
+            for entry in root.iterdir():
+                cand = entry / "Contents" / "Home" if (entry / "Contents" / "Home").is_dir() else entry
+                if cand.is_dir() and jdk_check(cand):
+                    discovered.append((_read_jdk_major(cand), cand))
         except OSError:
             continue
+
+    if discovered:
+        discovered.sort(key=lambda item: (item[0], str(item[1])), reverse=True)
+        return discovered[0][1].resolve()
 
     return None
 
@@ -314,12 +318,7 @@ def configure_rea_mcp_server(
         jdk21_path = jdk_finder()
     elif isinstance(jdk21_path, (str, Path)):
         p = path_cls(jdk21_path)
-        if p.is_dir():
-            jdk21_path = p if jdk_check(p) else None
-        elif re.search(r"(?:^|[/-])(?:java-?)?2[1-9](?:[/-]|$)", str(p)):
-            jdk21_path = p
-        else:
-            jdk21_path = None
+        jdk21_path = p.resolve() if (p.is_dir() and jdk_check(p)) else None
 
     configured: List[Path] = []
     errors: List[str] = []
@@ -493,9 +492,9 @@ def check_rea_tooling(
     is_mcp_fn = _tc_attr("is_rea_mcp_configured", is_rea_mcp_configured)
     parse_prov_fn = _tc_attr("_parse_rea_providers", _parse_rea_providers)
     sub_mod = _tc_attr("subprocess", subprocess)
-    parse_ver_fn = _tc_attr("parse_version")
-    ver_lt_fn = _tc_attr("version_less_than")
-    node_chk_fn = _tc_attr("check_node_toolchain")
+    parse_ver_fn = _tc_attr("parse_version", parse_version)
+    ver_lt_fn = _tc_attr("version_less_than", version_less_than)
+    node_chk_fn = _tc_attr("check_node_toolchain", check_node_toolchain)
 
     # 1. Fast-path optimization (when experimental_rea=False)
     if not experimental_rea:
@@ -599,7 +598,13 @@ def check_rea_tooling(
         }
 
     node_compat = node_chk_fn(timeout=timeout)
-    if node_compat.get("status") == "WARNING":
+    if not node_compat.get("rea_compatible", False) or node_compat.get("status") in (
+        "WARNING",
+        "MISSING",
+        "UNKNOWN_VERSION",
+    ):
+        node_status = node_compat.get("status", "UNKNOWN")
+        node_ver = node_compat.get("version") or node_status
         return {
             "status": "warning",
             "binary": str(rea_bin),
@@ -609,8 +614,8 @@ def check_rea_tooling(
             "providers": providers,
             "mcp_configured": mcp_configured,
             "node_toolchain": node_compat,
-            "remediation": "Switch to Node 24 LTS via: pnpm env use --global 24",
-            "details": f"REA {version_str} verified, but Node.js {node_compat.get('version')} is incompatible with REA.",
+            "remediation": node_compat.get("remediation") or "Switch to Node 24 LTS via: pnpm env use --global 24",
+            "details": f"REA {version_str} verified, but Node.js ({node_ver}) is incompatible or unavailable for REA.",
         }
 
     if not mcp_configured:
@@ -629,11 +634,10 @@ def check_rea_tooling(
 
     rea_patch_info = None
     try:
-        from harness.re.patcher import check_patch
-
-        rea_patch_info = check_patch()
-    except Exception:
-        pass
+        patcher_mod = importlib.import_module("harness.re.patcher")
+        rea_patch_info = patcher_mod.check_patch()
+    except (ImportError, OSError, RuntimeError):
+        rea_patch_info = None
 
     return {
         "status": "ok",

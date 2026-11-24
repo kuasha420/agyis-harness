@@ -17,155 +17,42 @@ from __future__ import annotations
 
 import ast
 from collections import defaultdict
-from dataclasses import asdict, dataclass, field
 import fnmatch
 import os
 from pathlib import Path
 import re
-import sys
 import time
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
+from .aff_models import (
+    ArchitecturalFitnessReport,
+    BoundaryDefect,
+    BoundaryRule,
+    CycleDefect,
+    DEFAULT_BOUNDARY_RULES,
+    IGNORED_DIRS,
+    MAX_MODULE_LINES,
+    MAX_TOP_LEVEL_DEFS,
+    SmellDefect,
+    aff_exempt,
+)
 
-def aff_exempt(obj: Any = None) -> Any:
-    """Decorator or marker to exempt functions, classes, or modules from architectural fitness checks."""
-    if obj is None:
-        return lambda target: target
-    return obj
-
-
-@dataclass
-class BoundaryRule:
-    """Declares an architectural boundary constraint between source packages and target modules."""
-
-    source_pattern: str
-    forbidden_targets: List[str]
-    rule_name: str
-    severity: str = "CRITICAL"  # "CRITICAL", "MAJOR", "WARNING"
-    description: str = ""
-    remediation: str = ""
-    exemptions: List[str] = field(default_factory=list)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class BoundaryDefect:
-    """Represents an illegal import violating an architectural boundary rule."""
-
-    source_file: str
-    line_number: int
-    imported_module: str
-    rule_name: str
-    severity: str  # "CRITICAL", "MAJOR", "WARNING"
-    remediation: str
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class CycleDefect:
-    """Represents a circular dependency path detected across package modules."""
-
-    cycle_path: List[str]
-    severity: str = "CRITICAL"
-    remediation: str = ""
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class SmellDefect:
-    """Represents a structural anti-pattern or code smell detected via AST."""
-
-    file: str
-    line_number: int
-    smell_type: str  # "FOREIGN_LANGUAGE_MONOLITH", "GOD_COMPONENT", "UNBOUNDED_CACHE"
-    severity: str  # "CRITICAL", "MAJOR", "WARNING"
-    description: str
-    remediation: str
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class ArchitecturalFitnessReport:
-    """Consolidated assessment report containing fitness score, status, and defect breakdown."""
-
-    status: str  # "PASS", "FAIL", "WARNING"
-    score: float  # 0.0 to 100.0
-    boundary_defects: List[BoundaryDefect]
-    cycle_defects: List[CycleDefect]
-    smell_defects: List[SmellDefect]
-    benchmark_latency_s: float
-    scanned_files_count: int
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "status": self.status,
-            "score": round(self.score, 1),
-            "boundary_defects": [d.to_dict() for d in self.boundary_defects],
-            "cycle_defects": [d.to_dict() for d in self.cycle_defects],
-            "smell_defects": [d.to_dict() for d in self.smell_defects],
-            "benchmark_latency_s": round(self.benchmark_latency_s, 4),
-            "scanned_files_count": self.scanned_files_count,
-        }
-
-
-DEFAULT_BOUNDARY_RULES: List[BoundaryRule] = [
-    BoundaryRule(
-        source_pattern="harness/**",
-        forbidden_targets=["pipeline", "tests", "data", "scripts", "scratch"],
-        rule_name="BIFURCATION_INVARIANT",
-        severity="CRITICAL",
-        description="Distributable harness product runtime must never import project-level pipeline, tests, data, scripts, or scratch (ADR-014).",
-        remediation="Decouple product runtime from development pipeline scripts and test suites.",
-        exemptions=[
-            "harness/commands/audit.py",
-        ],
-    ),
-    BoundaryRule(
-        source_pattern="harness/runtime/**",
-        forbidden_targets=["harness.commands", "harness/commands", "harness.cli", "harness/cli"],
-        rule_name="LAYER_DIRECTION",
-        severity="CRITICAL",
-        description="Runtime core must never import command dispatchers or CLI entrypoints.",
-        remediation="Invert dependency or extract shared utility down into harness/runtime or harness/core.",
-    ),
-    BoundaryRule(
-        source_pattern="harness/**",
-        forbidden_targets=[".dirtyroom", "dirtyroom"],
-        rule_name="CLEANROOM_MEMBRANE",
-        severity="CRITICAL",
-        description="Harness product must maintain a strict cleanroom membrane and never import dirtyroom artifacts (PSL-INV-007).",
-        remediation="Maintain cleanroom isolation; reverse-engineering artifacts must remain quarantined in .dirtyroom/.",
-    ),
+__all__ = [
+    "ArchitecturalFitnessReport",
+    "BoundaryDefect",
+    "BoundaryRule",
+    "CycleDefect",
+    "DEFAULT_BOUNDARY_RULES",
+    "IGNORED_DIRS",
+    "MAX_MODULE_LINES",
+    "MAX_TOP_LEVEL_DEFS",
+    "SmellDefect",
+    "aff_exempt",
+    "audit_architectural_fitness",
+    "audit_dependency_cycles",
+    "audit_import_boundaries",
+    "audit_structural_smells",
 ]
-
-IGNORED_DIRS = {
-    ".git",
-    "__pycache__",
-    ".dirtyroom",
-    "node_modules",
-    ".venv",
-    "venv",
-    ".system_generated",
-    "build",
-    "dist",
-    ".cache",
-    ".next",
-    ".turbo",
-    ".agyis",
-    ".psl",
-}
-
-
-MAX_MODULE_LINES = 800
-MAX_TOP_LEVEL_DEFS = 25
 
 
 def _discover_files(base_dir: Path, suffix: str) -> List[Path]:
@@ -222,8 +109,8 @@ def _is_exempt_file(content: str) -> bool:
 
 
 def _is_exempt_line(line: str) -> bool:
-    """Detects line-level AFF exemption pragmas."""
-    return "# aff: exempt" in line or "# aff_exempt" in line or "# noqa" in line
+    """Detects explicit line-level AFF exemption pragmas (does NOT honor generic # noqa)."""
+    return "# aff: exempt" in line or "# aff_exempt" in line
 
 
 def _is_exempt_node(node: ast.AST) -> bool:
@@ -274,24 +161,39 @@ def _parse_module(
     return res
 
 
+def _iter_import_nodes(tree: ast.AST, skip_type_checking: bool = False) -> List[ast.AST]:
+    """Fast iterative statement-suite traversal yielding Import/ImportFrom nodes without walking expressions."""
+    imports: List[ast.AST] = []
+    stack: List[ast.AST] = list(getattr(tree, "body", ()))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            imports.append(node)
+            continue
+        if skip_type_checking and isinstance(node, ast.If):
+            t = node.test
+            if (isinstance(t, ast.Name) and t.id == "TYPE_CHECKING") or (
+                isinstance(t, ast.Attribute) and t.attr == "TYPE_CHECKING"
+            ):
+                stack.extend(node.orelse or ())
+                continue
+        for attr in ("body", "orelse", "finalbody"):
+            sub = getattr(node, attr, None)
+            if isinstance(sub, list):
+                stack.extend(sub)
+        for grp_attr in ("handlers", "cases"):
+            for item in getattr(node, grp_attr, None) or ():
+                if getattr(item, "body", None):
+                    stack.extend(item.body)
+    return imports
+
+
 def _has_cache_bounds(func_node: ast.AST, cache_val: ast.AST) -> bool:
-    """
-    Evaluates whether an enclosing function or method contains bounds/eviction logic
-    specifically tied to the target cache structure (DEFECT-04).
-    """
+    """Evaluates whether an enclosing function contains eviction/LRU bounds tied to cache_val (DEFECT-04)."""
     if isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         for dec in func_node.decorator_list:
-            dec_id = ""
-            if isinstance(dec, ast.Name):
-                dec_id = dec.id
-            elif isinstance(dec, ast.Attribute):
-                dec_id = dec.attr
-            elif isinstance(dec, ast.Call):
-                f = dec.func
-                if isinstance(f, ast.Name):
-                    dec_id = f.id
-                elif isinstance(f, ast.Attribute):
-                    dec_id = f.attr
+            tgt = dec.func if isinstance(dec, ast.Call) else dec
+            dec_id = tgt.id if isinstance(tgt, ast.Name) else (tgt.attr if isinstance(tgt, ast.Attribute) else "")
             if "lru_cache" in dec_id or dec_id == "cache":
                 return True
 
@@ -307,9 +209,6 @@ def _has_cache_bounds(func_node: ast.AST, cache_val: ast.AST) -> bool:
 
     for inner in ast.walk(func_node):
         if isinstance(inner, ast.Call):
-            if isinstance(inner.func, ast.Name) and inner.func.id == "len":
-                if inner.args and _matches_cache(inner.args[0]):
-                    return True
             if isinstance(inner.func, ast.Attribute) and inner.func.attr in ("pop", "popitem", "clear", "evict"):
                 if _matches_cache(inner.func.value):
                     return True
@@ -319,15 +218,11 @@ def _has_cache_bounds(func_node: ast.AST, cache_val: ast.AST) -> bool:
                 if isinstance(tgt, ast.Subscript) and _matches_cache(tgt.value):
                     return True
 
-        if isinstance(inner, ast.Compare):
-            has_len_cache = False
-            for comp_node in [inner.left] + inner.comparators:
-                if isinstance(comp_node, ast.Call) and isinstance(comp_node.func, ast.Name) and comp_node.func.id == "len":
-                    if comp_node.args and _matches_cache(comp_node.args[0]):
-                        has_len_cache = True
-                        break
-            if has_len_cache:
-                return True
+        if isinstance(inner, ast.Assign) and isinstance(inner.value, ast.Subscript):
+            if isinstance(inner.value.slice, ast.Slice) and _matches_cache(inner.value.value):
+                for tgt in inner.targets:
+                    if _matches_cache(tgt) or (isinstance(tgt, ast.Subscript) and _matches_cache(tgt.value)):
+                        return True
 
     return False
 
@@ -336,11 +231,13 @@ def audit_import_boundaries(
     root_dir: Path,
     rules: Optional[List[BoundaryRule]] = None,
     parsed_cache: Optional[Dict[Path, Tuple[Optional[str], Optional[ast.AST], Optional[SmellDefect]]]] = None,
+    target_pkg: Optional[str] = None,
 ) -> List[BoundaryDefect]:
     """
     Audits source files under root_dir for illegal import boundaries.
 
     Inspects ast.Import and ast.ImportFrom against specified rules (or DEFAULT_BOUNDARY_RULES).
+    Scopes filesystem walk to rule prefixes or target_pkg to maintain <0.25s latency.
     """
     active_rules = rules if rules is not None else DEFAULT_BOUNDARY_RULES
     if not active_rules:
@@ -349,7 +246,34 @@ def audit_import_boundaries(
     root_path = Path(root_dir).resolve()
     defects: List[BoundaryDefect] = []
 
-    py_files = _discover_python_files(root_path)
+    scan_dirs: List[Path] = []
+    if target_pkg and (root_path / target_pkg).is_dir():
+        scan_dirs = [root_path / target_pkg]
+    else:
+        concrete_roots: List[Path] = []
+        has_wildcard_root = False
+        for r in active_rules:
+            pat = r.source_pattern.strip().replace("\\", "/")
+            first_seg = pat.split("/", 1)[0]
+            if not first_seg or any(ch in first_seg for ch in ("*", "?", "[")):
+                has_wildcard_root = True
+                break
+            cand = root_path / first_seg
+            if cand.is_dir():
+                concrete_roots.append(cand)
+        if has_wildcard_root:
+            scan_dirs = [root_path]
+        else:
+            seen_roots: Set[Path] = set()
+            for cr in concrete_roots:
+                if cr not in seen_roots:
+                    seen_roots.add(cr)
+                    scan_dirs.append(cr)
+
+    py_files_set: Set[Path] = set()
+    for sdir in scan_dirs:
+        py_files_set.update(_discover_python_files(sdir))
+    py_files = sorted(py_files_set)
 
     for py_file in py_files:
         try:
@@ -380,7 +304,7 @@ def audit_import_boundaries(
         parts = rel_posix[:-3].split("/")
         base_parts = parts[:-1]
 
-        for node in ast.walk(tree):
+        for node in _iter_import_nodes(tree, skip_type_checking=False):
             line_no = getattr(node, "lineno", 1)
             raw_line = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
             if _is_exempt_line(raw_line):
@@ -405,6 +329,11 @@ def audit_import_boundaries(
                     else:
                         if node.module:
                             imported_modules.append(node.module)
+                            for alias in node.names:
+                                imported_modules.append(f"{node.module}.{alias.name}")
+                        else:
+                            for alias in node.names:
+                                imported_modules.append(alias.name)
                 else:
                     mod = node.module or ""
                     for alias in node.names:
@@ -486,10 +415,15 @@ def audit_dependency_cycles(
         if _is_exempt_file(content):
             continue
 
+        lines = content.splitlines()
         mod_parts = mod.split(".")
         base_parts = mod_parts[:-1] if p.name != "__init__.py" else mod_parts
 
-        for node in tree.body:
+        for node in _iter_import_nodes(tree, skip_type_checking=True):
+            line_no = getattr(node, "lineno", 1)
+            raw_line = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
+            if _is_exempt_line(raw_line):
+                continue
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     imp = alias.name
@@ -589,8 +523,42 @@ def audit_structural_smells(
         re.compile(r"<!DOCTYPE|<html|<body|<div|<script|</span|</table", re.I),
         re.compile(r"addEventListener|function\s*\(|const\s+\w+\s*=|document\.getElementById", re.I),
         re.compile(r"\{\s*display:\s*|@media\s+|font-family:|margin:\s*", re.I),
-        re.compile(r"CREATE\s+TABLE.*CREATE\s+TABLE|INSERT\s+INTO.*SELECT", re.I | re.DOTALL),
     ]
+    sql_monolith_pattern = re.compile(
+        r"CREATE\s+(?:TABLE|INDEX)|INSERT\s+INTO.*SELECT|ALTER\s+TABLE",
+        re.I | re.DOTALL,
+    )
+
+    def _has_multiline_block(src: str) -> bool:
+        for quote in ('"""', "'''"):
+            if src.count(quote) >= 2:
+                parts = src.split(quote)
+                for chunk in parts[1::2]:
+                    if len(chunk) >= 120 and chunk.count("\n") >= 39:
+                        return True
+        return False
+
+    def _iter_def_nodes(root_tree: ast.AST) -> Tuple[List[ast.ClassDef], List[ast.AST]]:
+        classes: List[ast.ClassDef] = []
+        funcs: List[ast.AST] = []
+        stack: List[ast.AST] = list(getattr(root_tree, "body", ()))
+        while stack:
+            n = stack.pop()
+            if isinstance(n, ast.ClassDef):
+                classes.append(n)
+                stack.extend(n.body)
+            elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                funcs.append(n)
+                stack.extend(n.body)
+            else:
+                for attr in ("body", "orelse", "finalbody"):
+                    sub = getattr(n, attr, None)
+                    if isinstance(sub, list):
+                        stack.extend(sub)
+                for h in getattr(n, "handlers", None) or ():
+                    if getattr(h, "body", None):
+                        stack.extend(h.body)
+        return classes, funcs
 
     for py_file in py_files:
         try:
@@ -626,40 +594,118 @@ def audit_structural_smells(
                 remediation="Refactor top-level procedures into cohesive domain classes or separate service modules.",
             ))
 
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                val_lines = node.value.splitlines()
-                if len(val_lines) > 100 and any(pat.search(node.value) for pat in frontend_patterns):
-                    line_no = getattr(node, "lineno", 1)
-                    raw_line = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
-                    if not _is_exempt_line(raw_line):
-                        smells.append(SmellDefect(
-                            file=rel_posix, line_number=line_no, smell_type="FOREIGN_LANGUAGE_MONOLITH", severity="MAJOR",
-                            description=f"Multiline string constant ({len(val_lines)} lines) contains embedded HTML/JS/CSS/SQL.",
-                            remediation="Decouple foreign language code into external static assets under assets/ and load via importlib.resources.",
-                        ))
+        # Track module-level mutable containers for UNBOUNDED_CACHE auditing
+        module_mutables: Set[str] = set()
+        for top_node in tree.body:
+            val_node = top_node.value if isinstance(top_node, (ast.Assign, ast.AnnAssign)) else None
+            if val_node is None:
+                continue
+            is_mut = isinstance(val_node, (ast.Dict, ast.List, ast.Set))
+            if isinstance(val_node, ast.Call):
+                fn_name = (
+                    val_node.func.id
+                    if isinstance(val_node.func, ast.Name)
+                    else (val_node.func.attr if isinstance(val_node.func, ast.Attribute) else "")
+                )
+                if fn_name in ("dict", "list", "set", "OrderedDict", "defaultdict"):
+                    is_mut = True
+            if is_mut:
+                tgts = top_node.targets if isinstance(top_node, ast.Assign) else [top_node.target]
+                for tgt in tgts:
+                    if isinstance(tgt, ast.Name):
+                        module_mutables.add(tgt.id)
 
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not _is_exempt_node(node):
-                for inner in ast.walk(node):
-                    if isinstance(inner, (ast.Assign, ast.AugAssign)):
-                        targets = inner.targets if isinstance(inner, ast.Assign) else [inner.target]
-                        for tgt in targets:
-                            if not isinstance(tgt, ast.Subscript):
-                                continue
-                            cache_name = ""
-                            if isinstance(tgt.value, ast.Attribute) and ("cache" in tgt.value.attr.lower() or "memo" in tgt.value.attr.lower()):
-                                cache_name = tgt.value.attr
-                            elif isinstance(tgt.value, ast.Name) and ("cache" in tgt.value.id.lower() or "memo" in tgt.value.id.lower()):
-                                cache_name = tgt.value.id
-                            if cache_name and not _has_cache_bounds(node, tgt.value):
-                                line_no = getattr(inner, "lineno", node.lineno)
-                                raw_line = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
-                                if not _is_exempt_line(raw_line):
-                                    smells.append(SmellDefect(
-                                        file=rel_posix, line_number=line_no, smell_type="UNBOUNDED_CACHE", severity="MAJOR",
-                                        description=f"Assignment to cache '{cache_name}[...]' inside method '{node.name}' without capacity checks (len()), LRU, or eviction.",
-                                        remediation="Implement capacity guard (e.g. if len(cache) >= limit), use functools.lru_cache, or bounded OrderedDict.",
-                                    ))
+        def _extract_cache_target_name(expr: ast.AST) -> str:
+            if isinstance(expr, ast.Attribute) and ("cache" in expr.attr.lower() or "memo" in expr.attr.lower()):
+                return expr.attr
+            if isinstance(expr, ast.Name):
+                if "cache" in expr.id.lower() or "memo" in expr.id.lower() or expr.id in module_mutables:
+                    return expr.id
+            return ""
+
+        class_nodes, func_nodes = _iter_def_nodes(tree)
+        for cls_node in class_nodes:
+            if _is_exempt_node(cls_node):
+                continue
+            class_methods = [
+                m for m in cls_node.body
+                if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and not _is_exempt_node(m)
+            ]
+            if len(class_methods) > MAX_TOP_LEVEL_DEFS:
+                smells.append(SmellDefect(
+                    file=rel_posix, line_number=getattr(cls_node, "lineno", 1),
+                    smell_type="GOD_COMPONENT", severity="MAJOR",
+                    description=f"Class '{cls_node.name}' defines {len(class_methods)} methods (threshold: {MAX_TOP_LEVEL_DEFS}).",
+                    remediation="Decompose God class into focused collaborator classes or service modules.",
+                ))
+
+        # Only walk AST for multiline strings if file actually contains a >=40-line triple-quoted block
+        if _has_multiline_block(content):
+            for node in ast.walk(tree):
+                str_payload: Optional[str] = None
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    if len(node.value) >= 120 and node.value.count("\n") >= 39:
+                        str_payload = node.value
+                elif isinstance(node, ast.JoinedStr):
+                    joined_parts = [
+                        v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str)
+                    ]
+                    if joined_parts:
+                        cand_str = "".join(joined_parts)
+                        if len(cand_str) >= 120 and cand_str.count("\n") >= 39:
+                            str_payload = cand_str
+                if str_payload is not None:
+                    val_lines = str_payload.splitlines()
+                    is_frontend = len(val_lines) > 100 and any(pat.search(str_payload) for pat in frontend_patterns)
+                    is_sql = len(val_lines) >= 40 and bool(sql_monolith_pattern.search(str_payload))
+                    if is_frontend or is_sql:
+                        line_no = getattr(node, "lineno", 1)
+                        raw_line = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
+                        if not _is_exempt_line(raw_line):
+                            smells.append(SmellDefect(
+                                file=rel_posix, line_number=line_no, smell_type="FOREIGN_LANGUAGE_MONOLITH", severity="MAJOR",
+                                description=f"Multiline string constant ({len(val_lines)} lines) contains embedded HTML/JS/CSS/SQL.",
+                                remediation="Decouple foreign language code into external static assets under assets/ and load via importlib.resources.",
+                            ))
+
+        for node in func_nodes:
+            if _is_exempt_node(node):
+                continue
+            func_end = getattr(node, "end_lineno", node.lineno)
+            func_src = "\n".join(lines[node.lineno - 1 : func_end]).lower()
+            has_candidate_ref = (
+                "cache" in func_src
+                or "memo" in func_src
+                or any(m.lower() in func_src for m in module_mutables)
+            )
+            if not has_candidate_ref:
+                continue
+            flagged_lines: Set[int] = set()
+            for inner in ast.walk(node):
+                mut_expr: Optional[ast.AST] = None
+                mut_desc = ""
+                if isinstance(inner, (ast.Assign, ast.AugAssign)):
+                    for tgt in (inner.targets if isinstance(inner, ast.Assign) else [inner.target]):
+                        if isinstance(tgt, ast.Subscript):
+                            cname = _extract_cache_target_name(tgt.value)
+                            if cname:
+                                mut_expr, mut_desc = tgt.value, f"Assignment to cache '{cname}[...]'"
+                                break
+                elif isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute):
+                    if inner.func.attr in ("append", "add", "setdefault", "update"):
+                        cname = _extract_cache_target_name(inner.func.value)
+                        if cname:
+                            mut_expr, mut_desc = inner.func.value, f"Unbounded mutation '{cname}.{inner.func.attr}(...)'"
+                if mut_expr is not None and not _has_cache_bounds(node, mut_expr):
+                    line_no = getattr(inner, "lineno", node.lineno)
+                    raw_line = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
+                    if line_no not in flagged_lines and not _is_exempt_line(raw_line):
+                        flagged_lines.add(line_no)
+                        smells.append(SmellDefect(
+                            file=rel_posix, line_number=line_no, smell_type="UNBOUNDED_CACHE", severity="MAJOR",
+                            description=f"{mut_desc} inside '{node.name}' without capacity eviction or LRU bounds.",
+                            remediation="Implement capacity guard with eviction (pop/popitem/clear/slice), functools.lru_cache, or bounded OrderedDict.",
+                        ))
 
     for js_file in _discover_asset_files(pkg_dir):
         try:
@@ -692,10 +738,13 @@ def audit_architectural_fitness(
     start_t = time.perf_counter()
     root = (Path(workspace_root) if workspace_root else Path.cwd()).resolve()
     pkg_dir = root / target_pkg if (root / target_pkg).is_dir() else root
-    scanned_count = len(_discover_python_files(pkg_dir)) + len(_discover_asset_files(pkg_dir))
+    py_count = len(_discover_python_files(pkg_dir))
+    js_count = len(_discover_asset_files(pkg_dir))
     parsed_cache: Dict[Path, Tuple[Optional[str], Optional[ast.AST], Optional[SmellDefect]]] = {}
 
-    boundary_defects = audit_import_boundaries(root_dir=root, rules=rules, parsed_cache=parsed_cache)
+    boundary_defects = audit_import_boundaries(
+        root_dir=root, rules=rules, parsed_cache=parsed_cache, target_pkg=target_pkg
+    )
     cycle_defects = audit_dependency_cycles(root_dir=root, target_pkg=target_pkg, parsed_cache=parsed_cache)
     smell_defects = audit_structural_smells(root_dir=root, target_pkg=target_pkg, parsed_cache=parsed_cache)
     elapsed = time.perf_counter() - start_t
@@ -720,5 +769,5 @@ def audit_architectural_fitness(
     return ArchitecturalFitnessReport(
         status=status, score=score,
         boundary_defects=boundary_defects, cycle_defects=cycle_defects, smell_defects=smell_defects,
-        benchmark_latency_s=elapsed, scanned_files_count=scanned_count,
+        benchmark_latency_s=elapsed, scanned_files_count=py_count, scanned_assets_count=js_count,
     )

@@ -39,10 +39,9 @@ URL_PASSWORD_PATTERN = re.compile(
     r"([a-zA-Z][a-zA-Z0-9+.-]*://[^:\s/@]*:)(?!\[REDACTED)([^@\s/]+)(@[^\s/]+)"
 )
 
-# CLI password flags (--password <val>, --password=<val>, --passwd <val>)
-# and API key CLI flags (--api-key <val>, --api-key=<val>)
+# CLI password/API key/token flags (--password <val>, --api-key=<val>, --token=<val>)
 CLI_FLAG_PATTERN = re.compile(
-    r"(--(?:password|passwd|api[_-]?key)(?:=|\s+))([\"']?)(?!\[REDACTED)([^\"'\s\r\n]+)\2",
+    r"(--(?:password|passwd|api[_-]?key|(?:access[_-]?|auth[_-]?)?token)(?:=|\s+))([\"']?)(?!\[REDACTED)([^\"'\s\r\n]+)\2",
     flags=re.IGNORECASE,
 )
 
@@ -88,12 +87,17 @@ MAILGUN_KEY_PATTERN = re.compile(
     r"key-[A-Za-z0-9_\-]{16,}"
 )
 
-# Assignments: password=..., api_key=..., aws_secret_access_key=..., secret_key=..., client_secret=...
+# Assignments: password=..., api_key=..., aws_secret_access_key=..., secret_key=..., client_secret=...,
+# token=..., access_token=..., auth_token=..., refresh_token=..., session_token=..., private_key=...
 ASSIGNMENT_PATTERN = re.compile(
     r"\b(?P<k_pwd>password|passwd)"
     r"(?P<sep>\s*[:=]\s*)(?P<q1>[\"']?)(?!\[REDACTED|none\b|null\b|false\b|true\b)(?P<v1>[^\"'\s\r\n]+)(?P=q1)"
     r"|\b(?P<k_api>api[_-]?key)"
     r"(?P<sep2>\s*[:=]\s*)(?P<q2>[\"']?)(?!\[REDACTED|none\b|null\b|false\b|true\b)(?P<v2>[^\"'\s\r\n]+)(?P=q2)"
+    r"|\b(?P<k_pk>private[_-]?key)"
+    r"(?P<sep4>\s*[:=]\s*)(?P<q4>[\"']?)(?!\[REDACTED|none\b|null\b|false\b|true\b)(?P<v4>[^\"'\s\r\n]+)(?P=q4)"
+    r"|\b(?P<k_tok>(?:access|auth|refresh|session|id)[_-]?token|token)"
+    r"(?P<sep5>\s*[:=]\s*)(?P<q5>[\"']?)(?!\[REDACTED|none\b|null\b|false\b|true\b)(?P<v5>[^\"'\s\r\n]+)(?P=q5)"
     r"|\b(?P<k_sec>aws[-_]?secret[-_]?access[-_]?key|secret[_-]?key|client[_-]?secret)"
     r"(?P<sep3>\s*[:=]\s*)(?P<q3>[\"']?)(?!\[REDACTED)(?P<v3>[^\"'\s\r\n]{8,})(?P=q3)",
     flags=re.IGNORECASE,
@@ -107,7 +111,12 @@ def _cli_flag_replacer(match: re.Match) -> str:
     flag = match.group(1)
     quote = match.group(2) or ""
     flag_lower = flag.lower()
-    marker = "[REDACTED_PASSWORD]" if "pass" in flag_lower else "[REDACTED_API_KEY]"
+    if "pass" in flag_lower:
+        marker = "[REDACTED_PASSWORD]"
+    elif "token" in flag_lower:
+        marker = "[REDACTED_SECRET]"
+    else:
+        marker = "[REDACTED_API_KEY]"
     return f"{flag}{quote}{marker}{quote}"
 
 
@@ -122,6 +131,16 @@ def _assignment_replacer(match: re.Match) -> str:
         sep = match.group("sep2")
         quote = match.group("q2") or ""
         return f"{key}{sep}{quote}[REDACTED_API_KEY]{quote}"
+    elif match.group("k_pk"):
+        key = match.group("k_pk")
+        sep = match.group("sep4")
+        quote = match.group("q4") or ""
+        return f"{key}{sep}{quote}[REDACTED_PRIVATE_KEY]{quote}"
+    elif match.group("k_tok"):
+        key = match.group("k_tok")
+        sep = match.group("sep5")
+        quote = match.group("q5") or ""
+        return f"{key}{sep}{quote}[REDACTED_SECRET]{quote}"
     else:
         key = match.group("k_sec")
         sep = match.group("sep3")
@@ -158,8 +177,15 @@ def strip_secrets(text: str) -> str:
 
     text_lower = text.lower()
 
-    # 3. CLI password and API key flags
-    if "--password" in text_lower or "--passwd" in text_lower or "--api" in text_lower:
+    # 3. CLI password, API key, and token flags
+    if (
+        "--password" in text_lower
+        or "--passwd" in text_lower
+        or "--api" in text_lower
+        or "--token" in text_lower
+        or "--access" in text_lower
+        or "--auth" in text_lower
+    ):
         text = CLI_FLAG_PATTERN.sub(_cli_flag_replacer, text)
         text_lower = text.lower()
 
@@ -199,12 +225,14 @@ def strip_secrets(text: str) -> str:
     if "key-" in text:
         text = MAILGUN_KEY_PATTERN.sub("[REDACTED_API_KEY]", text)
 
-    # 7. Assignments (password=..., api_key=..., secret_key=...)
+    # 7. Assignments (password=..., api_key=..., secret_key=..., token=..., private_key=...)
     if (
         "password" in text_lower
         or "passwd" in text_lower
         or "api" in text_lower
         or "secret" in text_lower
+        or "token" in text_lower
+        or "private" in text_lower
     ):
         text = ASSIGNMENT_PATTERN.sub(_assignment_replacer, text)
 
@@ -353,7 +381,9 @@ def sanitize_tool_call(
             elif mode == "metadata_only":
                 result[key] = f"[REDACTED len={len(str(value))}]"
             elif isinstance(value, str):
-                result[key] = anonymize_paths(value, workspace_root=workspace_root)
+                result[key] = anonymize_paths(
+                    strip_secrets(value), workspace_root=workspace_root
+                )
             else:
                 result[key] = value
 

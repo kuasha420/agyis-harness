@@ -28,7 +28,7 @@ def parse_iso_ts(ts_str: Optional[str]) -> Optional[datetime]:
     cleaned = ts_str.strip().replace("Z", "+00:00")
     try:
         return datetime.fromisoformat(cleaned)
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 
@@ -217,6 +217,44 @@ def upsert_session_telemetry(
         conn.commit()
 
 
+_MODEL_ID_PATTERN = re.compile(
+    r"\b(gemini-4-(?:neon|hydrogen)(?:-[a-z0-9._-]+)?|"
+    r"gemini-3\.8-flash(?:-[a-z0-9._-]+)?|"
+    r"gemini-[234](?:\.\d+)?-(?:pro|flash|ultra)(?:-[a-z0-9._-]+)?|"
+    r"claude-(?:sonnet|opus|haiku)-[0-9a-z._-]+|"
+    r"gpt-[45](?:\.\d+)?(?:-[a-z0-9._-]+)?)\b",
+    re.IGNORECASE,
+)
+
+_WORKSPACE_PATTERNS: Tuple[re.Pattern[str], ...] = (
+    re.compile(r"Active Workspaces:\s*\n\s*-\s*(/[^\n\r]+)"),
+    re.compile(r"Command Working Directory:\s*(/[^\n\r]+)"),
+    re.compile(r"(/(?:home|Users|root|workspace|var|opt|srv)(?:/[a-zA-Z0-9_.\-]+)*/Dev/[a-zA-Z0-9_.\-]+)"),
+)
+
+
+def _extract_step_model(step: Dict[str, Any]) -> Optional[str]:
+    """Extracts explicit model identifier from step fields or nested metadata (incl. Gemini 4 Neon/Hydrogen)."""
+    for key in ("model", "response_model", "responseModel", "model_id", "modelId"):
+        val = step.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    meta = step.get("metadata")
+    if isinstance(meta, dict):
+        for sub_key in ("modelUsage", "model_usage", "generatorMetadata", "generator_metadata"):
+            sub = meta.get(sub_key)
+            if isinstance(sub, dict):
+                for m_key in ("model", "responseModel", "response_model", "modelId"):
+                    val = sub.get(m_key)
+                    if isinstance(val, str) and val.strip():
+                        return val.strip()
+        for m_key in ("model", "responseModel", "response_model"):
+            val = meta.get(m_key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    return None
+
+
 def extract_session(
     transcript_path: Path,
 ) -> Optional[Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]]:
@@ -224,7 +262,7 @@ def extract_session(
     session_id = transcript_path.parts[-4]
     try:
         raw_size = transcript_path.stat().st_size
-    except Exception:
+    except OSError:
         return None
 
     with open(transcript_path, encoding="utf-8", errors="replace") as f:
@@ -235,7 +273,7 @@ def extract_session(
                     obj = json.loads(line)
                     if isinstance(obj, dict):
                         steps.append(obj)
-                except Exception:
+                except (json.JSONDecodeError, ValueError):
                     continue
 
     if not steps:
@@ -252,7 +290,7 @@ def extract_session(
     start_time, end_time = steps[0].get("created_at"), steps[-1].get("created_at")
     duration_s = calculate_duration(start_time, end_time)
 
-    model_detected = "Gemini 3.5/Flash/Pro (Default)"
+    model_detected = "Unknown"
     workspace_detected = ""
     tool_calls_extracted: List[Dict[str, Any]] = []
     interventions_extracted: List[Dict[str, Any]] = []
@@ -273,18 +311,25 @@ def extract_session(
         s_type, source = s.get("type", "UNKNOWN"), s.get("source", "UNKNOWN")
         content = str(s.get("content", ""))
 
-        s_model = s.get("model")
-        if isinstance(s_model, str) and s_model.strip():
-            model_detected = s_model.strip()
-        elif model_detected == "Gemini 3.5/Flash/Pro (Default)" and s_type in ("SYSTEM_MESSAGE", "USER_INPUT") and "Model Selection" in content:
-            m = re.search(r"Model Selection` from .*? to ([^.\n\r]+)", content)
-            if m:
-                model_detected = m.group(1).strip()
+        s_model = _extract_step_model(s)
+        if s_model:
+            model_detected = s_model
+        elif model_detected == "Unknown" and s_type in ("SYSTEM_MESSAGE", "USER_INPUT", "PLANNER_RESPONSE"):
+            if "Model Selection" in content:
+                m = re.search(r"Model Selection` from .*? to ([^.\n\r]+)", content)
+                if m:
+                    model_detected = m.group(1).strip()
+            if model_detected == "Unknown":
+                m_id = _MODEL_ID_PATTERN.search(content)
+                if m_id:
+                    model_detected = m_id.group(1).strip()
 
-        if not workspace_detected and "/Dev/" in content:
-            m = re.search(r"(/(?:home|Users|root|workspace|var|opt|srv)(?:/[a-zA-Z0-9_.\-]+)*/Dev/[a-zA-Z0-9_.\-]+)", content)
-            if m:
-                workspace_detected = m.group(1)
+        if not workspace_detected and content:
+            for ws_pat in _WORKSPACE_PATTERNS:
+                m = ws_pat.search(content)
+                if m:
+                    workspace_detected = m.group(1).strip()
+                    break
 
         if s_idx > 0 and (s_type == "USER_INPUT" or source == "USER_EXPLICIT"):
             clean_prompt = re.sub(

@@ -15,14 +15,9 @@
 (function(global) {
     "use strict";
 
-    function escapeHtml(val) {
-        return String(val ?? "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
-    }
+    const _u = () => global.__agyis_utils || {};
+    const escapeHtml = (val) => (_u().escapeHtml ? _u().escapeHtml(val) : String(val ?? ""));
+    const cssEscape = (val) => (_u().cssEscape ? _u().cssEscape(val) : String(val ?? ""));
 
     /**
      * Clamped segment width function (xtc).
@@ -274,7 +269,7 @@
                 segColor = "#16a34a";
                 segColorKey = "bg-green-600";
                 segLabel = `Step #${displayIdx}: Checkpoint`;
-            } else if ((s.type || "").includes("COMMAND") || (s.type || "").includes("TOOL") || (s.type || "").includes("FILE") || (s.type || "").includes("WRITE") || (s.type || "").includes("REPLACE") || (s.type || "").includes("SEARCH")) {
+            } else if ((s.type || "").includes("COMMAND") || (s.type || "").includes("TOOL") || (s.type || "").includes("FILE") || (s.type || "").includes("EDIT") || (s.type || "").includes("WRITE") || (s.type || "").includes("REPLACE") || (s.type || "").includes("SEARCH") || (s.type || "").includes("SWARM") || (s.type || "").includes("BOARD") || (s.type || "").includes("WORKFLOW") || (s.type || "").includes("TASK")) {
                 segColor = "#14b8a6";
                 segColorKey = "bg-teal-600";
             } else if (s.type === "SYSTEM") {
@@ -348,13 +343,20 @@
 
         const rows = [];
         for (let r = 0; r < rowCount; r++) rows.push([]);
+        const rowPx = Math.max(200, Number.isFinite(containerWidth) && containerWidth > 0 ? containerWidth : 800);
         let tCursor = 0;
+        let placedTotal = 0;
         segments.forEach((seg, sIdx) => {
-            let segTokens = Math.max(0, Math.round((seg.tokens || 0) * scaleFactor));
-            if (scaleFactor !== 1.0 && sIdx === segments.length - 1) segTokens = Math.max(0, activeTokensSum - tCursor);
+            const rawScaled = Math.max(0, (seg.tokens || 0) * scaleFactor);
+            let segTokens = Math.max(0, Math.round(rawScaled));
+            if (scaleFactor !== 1.0 && sIdx === segments.length - 1) {
+                const residual = Math.round(activeTokensSum - placedTotal);
+                segTokens = Math.max(0, residual);
+            }
             const segStart = tCursor;
             const segEnd = Math.min(rowCount * ROW_CAPACITY, tCursor + segTokens);
             tCursor = segStart + segTokens;
+            placedTotal += segTokens;
             let sliceCursor = segStart;
             while (sliceCursor < segEnd) {
                 const r = Math.min(rowCount - 1, Math.floor(sliceCursor / ROW_CAPACITY));
@@ -362,7 +364,10 @@
                 const sliceEnd = Math.min(segEnd, rowEndTokens);
                 const sliceTokens = Math.max(0, sliceEnd - sliceCursor);
                 const startFraction = Math.min(1, Math.max(0, (sliceCursor - r * ROW_CAPACITY) / ROW_CAPACITY));
-                const widthFraction = Math.min(1 - startFraction, Math.max(0, sliceTokens / ROW_CAPACITY));
+                // Apply xtc minimum clickable pixel floor for non-zero segments
+                const minSegPx = xtc({ tokens: sliceTokens }, rowPx / ROW_CAPACITY, 2);
+                const minFraction = Math.min(1 - startFraction, minSegPx / rowPx);
+                const widthFraction = Math.min(1 - startFraction, Math.max(minFraction, sliceTokens / ROW_CAPACITY));
                 if (sliceTokens > 0) {
                     rows[r].push({ segment: seg, startFraction, widthFraction, sliceTokens });
                 }
@@ -385,7 +390,8 @@
             uCursor = sliceEnd;
         }
 
-        const p = maxTokens || 256000;
+        const inferCtx = _u().inferModelContextWindow;
+        const p = maxTokens || (inferCtx ? inferCtx((cur && cur.model) || (state && state.sessionModel)) : 256000);
         const n = activeTokensSum;
         const rawFillPct = p > 0 ? (n / p) * 100 : 0;
         const clampedFillPct = Math.min(100, rawFillPct).toFixed(1);
@@ -518,7 +524,7 @@
                 if (itemKey) {
                     state.hoveredItemKey = itemKey;
                     // Highlight matching elements across inspector or timeline
-                    hudEl.querySelectorAll(`[data-item-key="${itemKey}"]`).forEach(matchedEl => {
+                    hudEl.querySelectorAll(`[data-item-key="${cssEscape(itemKey)}"]`).forEach(matchedEl => {
                         matchedEl.classList.add("context-cell-hovered");
                     });
                 }
@@ -533,7 +539,7 @@
                 const itemKey = el.getAttribute("data-item-key");
                 if (itemKey) {
                     state.hoveredItemKey = null;
-                    hudEl.querySelectorAll(`[data-item-key="${itemKey}"]`).forEach(matchedEl => {
+                    hudEl.querySelectorAll(`[data-item-key="${cssEscape(itemKey)}"]`).forEach(matchedEl => {
                         matchedEl.classList.remove("context-cell-hovered");
                     });
                 }

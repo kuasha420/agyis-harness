@@ -19,14 +19,8 @@
 (function(global) {
     "use strict";
 
-    function escapeHeaderHtml(val) {
-        return String(val ?? "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
-    }
+    const escapeHeaderHtml = (global.__agyis_utils && global.__agyis_utils.escapeHtml)
+        || (val => String(val ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch])));
 
     /**
      * Renders the top HUD navigation header HTML.
@@ -112,7 +106,7 @@
                         ${effectiveConvoList.map(c => {
                             const isSelected = cur && c.id === cur.conversation_id;
                             const pId = c.parentConversationId || c.parent_id;
-                            const subNote = pId ? ` • subagent of "${escapeHeaderHtml(String(pId).slice(0, 12))}..."` : "";
+                            const subNote = pId ? ` • subagent of "${String(pId).slice(0, 12)}..."` : "";
                             const titleText = `${c.summary || `Conversation ${c.id.slice(0, 8)}`}${subNote}`;
                             return `<option value="${escapeHeaderHtml(c.id)}" ${isSelected ? "selected" : ""}>${escapeHeaderHtml(titleText)}</option>`;
                         }).join("")}
@@ -161,15 +155,15 @@
             }
         });
 
-        // Refresh button
+        // Refresh button (refreshes active viewed conversation, falling back to URL context)
         hudEl.querySelector("#agyis-refresh-btn")?.addEventListener("click", () => {
-            const focusedId = (typeof window.detectActiveConversationContext === "function" ? window.detectActiveConversationContext() : null)
-                || (typeof window.__agyis_extract_convo_id === "function" ? window.__agyis_extract_convo_id() : null)
-                || state.convoId;
-            if (focusedId && typeof window.__agyis_hud_load_convo === "function") {
+            const targetId = state.convoId
+                || (typeof window.detectActiveConversationContext === "function" ? window.detectActiveConversationContext() : null)
+                || (typeof window.__agyis_extract_convo_id === "function" ? window.__agyis_extract_convo_id() : null);
+            if (targetId && typeof window.__agyis_hud_load_convo === "function") {
                 const btn = hudEl.querySelector("#agyis-refresh-btn");
                 if (btn) btn.textContent = "⏳...";
-                window.__agyis_hud_load_convo(focusedId).finally(() => {
+                Promise.resolve(window.__agyis_hud_load_convo(targetId)).finally(() => {
                     if (btn) btn.textContent = "🔄 Refresh";
                 });
             }
@@ -217,17 +211,23 @@
                 const arrow = hudEl.querySelector("#agyis-subagents-dropdown-toggle .agyis-subagents-arrow, #agyis-subagents-dropdown-toggle span:last-child");
                 if (arrow) arrow.style.transform = "rotate(0deg)";
 
-                const subTraj = cur && cur.subagent_trajectories ? cur.subagent_trajectories[sid] : null;
-                if (subTraj) {
-                    state.currentData = subTraj;
-                    state.convoId = sid || subTraj.conversation_id || state.convoId;
-                    if (subTraj.model) state.sessionModel = subTraj.model;
-                    const epochs = subTraj.epochs || [];
+                const applySubSnapshot = (subData) => {
+                    state.currentData = subData;
+                    state.convoId = sid || subData.conversation_id || state.convoId;
+                    if (subData.model) state.sessionModel = subData.model;
+                    const epochs = subData.epochs || [];
                     state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
-                    state.selectedIndex = Math.max(0, (subTraj.steps || []).length - 1);
+                    state.selectedIndex = Math.max(0, (subData.steps || []).length - 1);
                     if (renderCallback) renderCallback();
-                } else if (sid && typeof window.__agyis_hud_load_convo === "function") {
-                    window.__agyis_hud_load_convo(sid);
+                };
+
+                const subTraj = cur && cur.subagent_trajectories ? cur.subagent_trajectories[sid] : null;
+                if (sid && typeof window.__agyis_hud_load_convo === "function") {
+                    Promise.resolve(window.__agyis_hud_load_convo(sid)).then((loaded) => {
+                        if (!loaded && subTraj) applySubSnapshot(subTraj);
+                    });
+                } else if (subTraj) {
+                    applySubSnapshot(subTraj);
                 }
             });
         });

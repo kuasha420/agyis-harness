@@ -29,13 +29,18 @@ def get_gui_systemd_unit_dir(custom_dir: Optional[Union[str, Path]] = None) -> P
 
 
 def generate_gui_systemd_path_unit() -> str:
-    """Generates the systemd user path unit definition to monitor DevToolsActivePort creation."""
-    return """[Unit]
+    """Generates the systemd user path unit definition to monitor DevToolsActivePort changes."""
+    xdg_config = (os.environ.get("XDG_CONFIG_HOME") or "").strip()
+    if xdg_config:
+        watch_path = f"{Path(xdg_config)}/Antigravity/DevToolsActivePort"
+    else:
+        watch_path = "%h/.config/Antigravity/DevToolsActivePort"
+    return f"""[Unit]
 Description=Watch for Antigravity DevToolsActivePort Creation
 Documentation=https://github.com/kuasha420/agyis-harness
 
 [Path]
-PathChanged=%h/.config/Antigravity/DevToolsActivePort
+PathChanged={watch_path}
 Unit=antigravity-trajectory.service
 
 [Install]
@@ -50,20 +55,20 @@ def generate_gui_systemd_service_unit(working_dir: Optional[Union[str, Path]] = 
         resolved_work_dir = Path(working_dir).resolve()
     else:
         cand = Path(__file__).resolve().parents[2]
-        if (cand / "harness").is_dir():
+        cand_str = str(cand)
+        is_transient = ("worktrees" in cand.parts) or ("site-packages" in cand.parts) or ("/tmp/" in cand_str)
+        if (cand / "harness").is_dir() and not is_transient:
             resolved_work_dir = cand
-        elif (Path.cwd() / "harness").is_dir():
-            resolved_work_dir = Path.cwd().resolve()
         else:
             resolved_work_dir = Path.home()
 
     work_dir = str(resolved_work_dir)
     discovered_agyis = shutil.which("agyis")
     if discovered_agyis:
-        exec_cmd = f"{discovered_agyis} gui --no-popup --wait 15.0"
+        exec_cmd = f'"{discovered_agyis}" gui --no-popup --wait 15.0'
     else:
         py_path = sys.executable or "/usr/bin/python3"
-        exec_cmd = f"{py_path} -m harness.cli gui --no-popup --wait 15.0"
+        exec_cmd = f'"{py_path}" -m harness.cli gui --no-popup --wait 15.0'
 
     return f"""[Unit]
 Description=Antigravity In-Situ Trajectory Debug HUD Auto-Unlock
@@ -72,7 +77,8 @@ After=default.target
 
 [Service]
 Type=oneshot
-WorkingDirectory={work_dir}
+KillMode=process
+WorkingDirectory="{work_dir}"
 ExecStart={exec_cmd}
 MemoryMax=500M
 MemoryHigh=300M
@@ -248,11 +254,22 @@ def handle_gui_service_command(
         return 0
 
     if action == "uninstall":
-        for sc_args in (["stop", GUI_PATH_UNIT], ["disable", GUI_PATH_UNIT]):
+        warnings: List[str] = []
+        for sc_args in (
+            ["stop", GUI_PATH_UNIT],
+            ["disable", GUI_PATH_UNIT],
+            ["stop", GUI_SERVICE_UNIT],
+            ["disable", GUI_SERVICE_UNIT],
+        ):
             try:
-                systemctl_fn(sc_args)
-            except (FileNotFoundError, subprocess.SubprocessError, OSError):
-                pass
+                res_unit = systemctl_fn(sc_args)
+                if res_unit.returncode != 0:
+                    err_txt = (res_unit.stderr or "").strip()
+                    lower_err = err_txt.lower()
+                    if not any(tok in lower_err for tok in ("not loaded", "does not exist", "not found", "no such file")):
+                        warnings.append(f"{' '.join(sc_args)}: {err_txt or f'exit {res_unit.returncode}'}")
+            except (FileNotFoundError, subprocess.SubprocessError, OSError) as exc:
+                warnings.append(f"{' '.join(sc_args)}: {exc}")
 
         for fp in (path_file, service_file):
             if fp.exists():
@@ -280,8 +297,8 @@ def handle_gui_service_command(
 
         _emit_gui_service_msg(
             json_output,
-            {"service": "antigravity-trajectory", "action": "uninstall", "success": True},
-            "✔ Uninstalled antigravity-trajectory systemd units",
+            {"service": "antigravity-trajectory", "action": "uninstall", "success": True, "warnings": warnings},
+            "✔ Uninstalled antigravity-trajectory systemd units" + (f" ({len(warnings)} warning(s))" if warnings else ""),
         )
         return 0
 

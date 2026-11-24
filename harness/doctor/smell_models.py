@@ -46,11 +46,10 @@ BOUNDARY_PATH_KEYWORDS: Set[str] = {
     "socket",
     "subprocess",
     "docker",
-    "remote",
     "pty",
 }
 
-ADAPTER_PATTERNS = re.compile(r"(?:Adapter|Socket|Docker|Client|Process)", re.IGNORECASE)
+ADAPTER_PATTERNS = re.compile(r"(?:Adapter|Socket|Docker|Subprocess|Pty)", re.IGNORECASE)
 ADAPTER_DECORATORS: Set[str] = {"mock_network", "adapter_boundary"}
 
 # Standard mock assertion names on Python mock objects
@@ -388,7 +387,7 @@ TestSmellReport = SmellAuditReport
 
 
 PRAGMA_PATTERN = re.compile(
-    r'(?:#|//|/\*)\s*agyis:\s*no-smell(?:\s+([A-Za-z0-9_-]+))?(?:\s+(.*?))?(?:\*/)?$',
+    r'(?:#|//|/\*)\s*agyis:\s*no-smell(?:\s+([A-Za-z0-9_*, -]+))?(?:\s+(.*?))?(?:\*/)?$',
     re.IGNORECASE,
 )
 
@@ -398,22 +397,40 @@ MALFORMED_RULE_PATTERN = re.compile(r"^SM[-_0-9]\S*", re.IGNORECASE)
 
 def _extract_pragmas(lines: List[str]) -> Dict[int, Set[str]]:
     """
-    Extracts inline and block pragmas from source code lines.
-    Returns map of 1-based line number -> set of waived rule IDs (or {'*'} for all).
+    Extracts inline and function-header pragmas from source code lines.
+    Returns map of 1-based line number -> set of waived rule IDs (or {'*'} only for bare/explicit '*'/'ALL').
+    Arbitrary non-SM words do NOT silently waive all rules.
     """
     pragmas: Dict[int, Set[str]] = {}
     for idx, line in enumerate(lines, start=1):
         match = PRAGMA_PATTERN.search(line)
-        if match:
-            first_token = (match.group(1) or "").strip()
-            if not first_token:
-                pragmas[idx] = {"*"}
-            elif STRICT_RULE_ID_PATTERN.match(first_token):
-                pragmas[idx] = {first_token.upper()}
-            elif MALFORMED_RULE_PATTERN.match(first_token):
-                pass
-            else:
-                pragmas[idx] = {"*"}
+        if not match:
+            continue
+        raw_spec = (match.group(1) or "").strip()
+        if not raw_spec:
+            pragmas[idx] = {"*"}
+            continue
+        tokens = [t.strip() for t in re.split(r"[\s,]+", raw_spec) if t.strip()]
+        if not tokens:
+            pragmas[idx] = {"*"}
+            continue
+        first_token = tokens[0]
+        if first_token in ("*", "ALL", "all"):
+            pragmas[idx] = {"*"}
+        elif STRICT_RULE_ID_PATTERN.match(first_token):
+            rules = {first_token.upper()}
+            for tok in tokens[1:]:
+                if STRICT_RULE_ID_PATTERN.match(tok):
+                    rules.add(tok.upper())
+                else:
+                    break
+            pragmas[idx] = rules
+        elif MALFORMED_RULE_PATTERN.match(first_token):
+            # Malformed rule IDs (e.g. SM-001) must never waive
+            continue
+        else:
+            # Non-SM trailing prose without an explicit SM### code must not waive all rules
+            continue
     return pragmas
 
 
@@ -424,21 +441,10 @@ def _is_rule_suppressed(
     func_end: int,
     pragmas: Dict[int, Set[str]],
 ) -> bool:
-    """Checks whether a rule is suppressed for a given line or enclosing function."""
-    if line_number in pragmas:
-        rules = pragmas[line_number]
-        if "*" in rules or rule_id in rules:
-            return True
-
-    for pre_line in (func_start - 1, func_start):
-        if pre_line in pragmas:
-            rules = pragmas[pre_line]
-            if "*" in rules or rule_id in rules:
-                return True
-
-    for line in range(func_start, func_end + 1):
-        if line in pragmas:
-            rules = pragmas[line]
+    """Checks whether a rule is suppressed on the flagged line, immediately above it, or on the function header."""
+    for target_line in (line_number, line_number - 1, func_start - 1, func_start):
+        if target_line in pragmas:
+            rules = pragmas[target_line]
             if "*" in rules or rule_id in rules:
                 return True
 
@@ -553,8 +559,8 @@ def print_ansi_smell_report(report: SmellAuditReport) -> None:
             rel_file = hr.file_path
             try:
                 rel_file = str(Path(hr.file_path).relative_to(report.workspace_root))
-            except Exception:
-                pass
+            except ValueError:
+                rel_file = hr.file_path
             rule_alias = RuleIdStr._MAP.get(str(hr.rule_id).lower(), str(hr.rule_id))
             print(f"  [HARD REJECT] [{hr.rule_id}] {rel_file}:{hr.line_number} in {hr.test_name or 'test'} ({rule_alias})")
             print(f"    Message: {hr.message}")
@@ -571,8 +577,8 @@ def print_ansi_smell_report(report: SmellAuditReport) -> None:
             rel_file = w.file_path
             try:
                 rel_file = str(Path(w.file_path).relative_to(report.workspace_root))
-            except Exception:
-                pass
+            except ValueError:
+                rel_file = w.file_path
             print(f"  [{w.rule_id}] {rel_file}:{w.line_number} in {w.test_name or 'test'}")
             print(f"    Message: {w.message}")
             if w.remediation:
@@ -585,8 +591,8 @@ def print_ansi_smell_report(report: SmellAuditReport) -> None:
             rel_file = ex.file_path
             try:
                 rel_file = str(Path(ex.file_path).relative_to(report.workspace_root))
-            except Exception:
-                pass
+            except ValueError:
+                rel_file = ex.file_path
             adapters_str = ", ".join(ex.adapter_modules) if ex.adapter_modules else "system boundary"
             print(f"  [BOUNDARY_EXEMPT] {rel_file} ({ex.test_name})")
             print(f"    Exemption: {ex.reason} [{adapters_str}]")

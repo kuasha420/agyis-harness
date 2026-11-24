@@ -12,9 +12,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import random
 import sqlite3
 import time
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import urllib.error
 import urllib.request
 
@@ -28,7 +29,7 @@ from harness.telemetry.redaction import (
     strip_secrets,
 )
 from harness.telemetry.schema import ensure_sync_columns
-from harness.telemetry.sync.client import verify_auth_token
+from harness.telemetry.sync.client import validate_sync_endpoint, verify_auth_token
 from harness.telemetry.sync.constants import (
     DEFAULT_BATCH_SESSION_LIMIT,
     DEFAULT_BATCH_STEP_LIMIT,
@@ -66,7 +67,7 @@ def push_local_sessions(
     if not resolved_token:
         raise ValueError("Authentication token required for telemetry sync.")
 
-    endpoint_clean = resolved_endpoint.rstrip("/")
+    endpoint_clean = validate_sync_endpoint(resolved_endpoint)
     db_file = resolve_db_path(db_path, must_exist=True)
 
     if dry_run:
@@ -231,29 +232,43 @@ def push_local_sessions(
         finally:
             fetch_conn.close()
 
-        session_ws_map = {
-            s["session_id"]: (workspace_root or s.get("workspace_path"))
-            for s in batch_sessions
-        }
+        def _anonymize_for_roots(
+            text: str, roots: Tuple[Optional[Union[str, Path]], ...]
+        ) -> str:
+            cleaned = text
+            for root in roots:
+                if root:
+                    cleaned = anonymize_paths(cleaned, workspace_root=root)
+            return cleaned if roots else anonymize_paths(cleaned)
+
+        session_ws_roots: Dict[str, Tuple[Optional[Union[str, Path]], ...]] = {}
+        for s in batch_sessions:
+            roots_list: List[Union[str, Path]] = []
+            s_ws = s.get("workspace_path")
+            if s_ws:
+                roots_list.append(s_ws)
+            if workspace_root and str(workspace_root) != str(s_ws or ""):
+                roots_list.append(workspace_root)
+            session_ws_roots[s["session_id"]] = tuple(roots_list)
 
         sanitized_sessions: List[Dict[str, Any]] = []
         for s in batch_sessions:
             s_clean = dict(s)
-            ws = session_ws_map.get(s["session_id"])
+            roots = session_ws_roots.get(s["session_id"], ())
             if s_clean.get("workspace_path"):
-                s_clean["workspace_path"] = anonymize_paths(s_clean["workspace_path"], workspace_root=ws)
+                s_clean["workspace_path"] = _anonymize_for_roots(s_clean["workspace_path"], roots)
             if s_clean.get("transcript_path"):
-                s_clean["transcript_path"] = anonymize_paths(s_clean["transcript_path"], workspace_root=ws)
+                s_clean["transcript_path"] = _anonymize_for_roots(s_clean["transcript_path"], roots)
             sanitized_sessions.append(s_clean)
 
         sanitized_steps: List[Dict[str, Any]] = []
         for st in raw_steps:
             st_clean = dict(st)
             st_clean.pop("id", None)
-            ws = session_ws_map.get(st_clean.get("session_id"))
+            roots = session_ws_roots.get(st_clean.get("session_id"), ())
             if st_clean.get("content_snippet"):
-                st_clean["content_snippet"] = anonymize_paths(
-                    strip_secrets(st_clean["content_snippet"]), workspace_root=ws
+                st_clean["content_snippet"] = _anonymize_for_roots(
+                    strip_secrets(st_clean["content_snippet"]), roots
                 )
             sanitized_steps.append(st_clean)
 
@@ -261,21 +276,28 @@ def push_local_sessions(
         for tc in raw_tools:
             tc_clean = dict(tc)
             tc_clean.pop("id", None)
-            ws = session_ws_map.get(tc_clean.get("session_id"))
-            sanitized_tools.append(sanitize_tool_call(tc_clean, workspace_root=ws))
+            roots = session_ws_roots.get(tc_clean.get("session_id"), ())
+            primary_ws = roots[0] if roots else None
+            scrubbed_tc = sanitize_tool_call(tc_clean, workspace_root=primary_ws)
+            for extra_ws in roots[1:]:
+                scrubbed_tc = sanitize_tool_call(scrubbed_tc, workspace_root=extra_ws)
+            sanitized_tools.append(scrubbed_tc)
 
         sanitized_interventions: List[Dict[str, Any]] = []
         for ui in raw_interventions:
             ui_clean = dict(ui)
             ui_clean.pop("id", None)
-            ws = session_ws_map.get(ui_clean.get("session_id"))
+            roots = session_ws_roots.get(ui_clean.get("session_id"), ())
             if ui_clean.get("prompt_text"):
-                ui_clean["prompt_text"] = sanitize_intervention(
-                    ui_clean["prompt_text"], workspace_root=ws
+                cleaned_prompt = sanitize_intervention(
+                    ui_clean["prompt_text"], workspace_root=roots[0] if roots else None
                 )
+                for extra_ws in roots[1:]:
+                    cleaned_prompt = anonymize_paths(cleaned_prompt, workspace_root=extra_ws)
+                ui_clean["prompt_text"] = cleaned_prompt
             if ui_clean.get("preceding_error_snippet"):
-                ui_clean["preceding_error_snippet"] = anonymize_paths(
-                    strip_secrets(ui_clean["preceding_error_snippet"]), workspace_root=ws
+                ui_clean["preceding_error_snippet"] = _anonymize_for_roots(
+                    strip_secrets(ui_clean["preceding_error_snippet"]), roots
                 )
             sanitized_interventions.append(ui_clean)
 
@@ -324,8 +346,8 @@ def push_local_sessions(
                 # Retry on 502, 503, 504
                 if err.code in (502, 503, 504) and attempt < max_attempts - 1:
                     if eff_backoff > 0:
-                        import random
-                        backoff_sec = min(30.0, (2 ** attempt) + random.uniform(0.1, 1.0))
+                        jitter = random.uniform(0.0, min(1.0, eff_backoff))
+                        backoff_sec = min(30.0, eff_backoff * (2 ** attempt) + jitter)
                         time.sleep(backoff_sec)
                     continue
                 raise
@@ -333,8 +355,8 @@ def push_local_sessions(
                 # Retry transient network errors
                 if attempt < max_attempts - 1:
                     if eff_backoff > 0:
-                        import random
-                        backoff_sec = min(30.0, (2 ** attempt) + random.uniform(0.1, 1.0))
+                        jitter = random.uniform(0.0, min(1.0, eff_backoff))
+                        backoff_sec = min(30.0, eff_backoff * (2 ** attempt) + jitter)
                         time.sleep(backoff_sec)
                     continue
                 raise

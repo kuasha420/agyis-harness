@@ -15,30 +15,17 @@
 (function(global) {
     "use strict";
 
-    function escapeHtml(val) {
-        return String(val ?? "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
-    }
-
-    function formatBytes(bytes) {
-        if (!bytes || bytes <= 0) return "0 B";
-        const k = 1024;
-        const sizes = ["B", "KB", "MB", "GB"];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-    }
+    const _u = () => global.__agyis_utils || {};
+    const escapeHtml = (val) => (_u().escapeHtml ? _u().escapeHtml(val) : String(val ?? ""));
+    const formatBytes = (bytes) => (_u().formatBytes ? _u().formatBytes(bytes) : "0 B");
 
     function stepPillClassForType(type) {
         if (!type) return "agyis-hud-pill-blue";
         if (type === "PLANNER_RESPONSE" || type === "MODEL_OUTPUT") return "agyis-hud-pill-amber";
         if (type === "CHECKPOINT") return "agyis-hud-pill-green";
-        if (type.includes("COMMAND") || type.includes("TOOL")) return "agyis-hud-pill-teal";
-        if (type.includes("FILE") || type.includes("WRITE") || type.includes("REPLACE")) return "agyis-hud-pill-green";
-        if (type === "INVOKE_SUBAGENT") return "agyis-hud-pill-purple";
+        if (type.includes("COMMAND") || type.includes("TOOL") || type.includes("TASK") || type.includes("SEARCH")) return "agyis-hud-pill-teal";
+        if (type.includes("FILE") || type.includes("EDIT") || type.includes("READ") || type.includes("WRITE") || type.includes("REPLACE")) return "agyis-hud-pill-green";
+        if (type === "INVOKE_SUBAGENT" || type.includes("SWARM") || type.includes("BOARD") || type.includes("WORKFLOW") || type.includes("SUBAGENT")) return "agyis-hud-pill-purple";
         if (type === "SYSTEM") return "agyis-hud-pill-zinc";
         return "agyis-hud-pill-blue";
     }
@@ -104,7 +91,9 @@
                 ? global.renderTimelineView(steps, state, containerWidth)
                 : "<div style='padding: 20px;'>Timeline Module Loading...</div>";
         } else {
-            const maxTokens = (cur && cur.max_context_tokens) || 256000;
+            const inferCtx = _u().inferModelContextWindow;
+            const maxTokens = (cur && cur.max_context_tokens)
+                || (inferCtx ? inferCtx((cur && cur.model) || (state && state.sessionModel)) : 256000);
             const contextBarHtml = typeof global.renderContextBar === "function"
                 ? global.renderContextBar(cur, state, steps, activeEpoch, epochSteps, maxTokens, containerWidth)
                 : "<div style='padding: 20px;'>Context Bar Loading...</div>";
@@ -236,14 +225,23 @@
             const onMouseUp = () => {
                 document.removeEventListener("mousemove", onMouseMove);
                 document.removeEventListener("mouseup", onMouseUp);
+                if (typeof window !== "undefined") window.removeEventListener("blur", onMouseUp);
+                if (global.__agyis_splitter_cleanup === onMouseUp) {
+                    global.__agyis_splitter_cleanup = null;
+                }
                 try {
                     if (state.inspectorWidth) localStorage.setItem("jetski_debug_v2_inspector_width", String(state.inspectorWidth));
                     if (state.inspectorHeight) localStorage.setItem("jetski_debug_v2_inspector_height", String(state.inspectorHeight));
                 } catch (_) {}
             };
 
+            if (typeof global.__agyis_splitter_cleanup === "function") {
+                try { global.__agyis_splitter_cleanup(); } catch (_) {}
+            }
+            global.__agyis_splitter_cleanup = onMouseUp;
             document.addEventListener("mousemove", onMouseMove);
             document.addEventListener("mouseup", onMouseUp);
+            if (typeof window !== "undefined") window.addEventListener("blur", onMouseUp);
         });
 
         // Tab switching: Context Window vs Timeline
@@ -282,27 +280,10 @@
                 const idx = parseInt(rowEl.getAttribute("data-index") || "0", 10);
                 if (!isNaN(idx) && selectStepCallback) selectStepCallback(idx);
             });
-
-            rowEl.addEventListener("mouseenter", () => {
-                const itemKey = rowEl.getAttribute("data-item-key");
-                if (itemKey) {
-                    state.hoveredItemKey = itemKey;
-                    hudEl.querySelectorAll(`[data-item-key="${itemKey}"]`).forEach(mEl => {
-                        mEl.classList.add("context-cell-hovered");
-                    });
-                }
-            });
-
-            rowEl.addEventListener("mouseleave", () => {
-                const itemKey = rowEl.getAttribute("data-item-key");
-                if (itemKey) {
-                    state.hoveredItemKey = null;
-                    hudEl.querySelectorAll(`[data-item-key="${itemKey}"]`).forEach(mEl => {
-                        mEl.classList.remove("context-cell-hovered");
-                    });
-                }
-            });
         });
+        if (typeof _u().bindItemKeyHover === "function") {
+            _u().bindItemKeyHover(hudEl, state, ".agyis-step-grid-item");
+        }
 
         // Pagination buttons
         hudEl.querySelector("#agyis-page-prev")?.addEventListener("click", () => {

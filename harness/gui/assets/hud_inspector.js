@@ -14,22 +14,9 @@
 (function(global) {
     "use strict";
 
-    function escapeHtml(val) {
-        return String(val ?? "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
-    }
-
-    function formatBytes(bytes) {
-        if (!bytes || bytes <= 0) return "0 B";
-        const k = 1024;
-        const sizes = ["B", "KB", "MB", "GB"];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-    }
+    const _u = () => global.__agyis_utils || {};
+    const escapeHtml = (val) => (_u().escapeHtml ? _u().escapeHtml(val) : String(val ?? ""));
+    const cssEscape = (val) => (_u().cssEscape ? _u().cssEscape(val) : String(val ?? ""));
 
     function syntaxHighlightJson(jsonObj) {
         let jsonStr = typeof jsonObj !== "string" ? JSON.stringify(jsonObj, null, 2) : jsonObj;
@@ -60,15 +47,16 @@
 
         // Code blocks
         escaped = escaped.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (m, lang, code) => {
-            const badge = lang ? `<span style="font-size: 10px; color: #a1a1aa; font-family: monospace; text-transform: uppercase;">${lang}</span>` : "<span></span>";
-            const codeId = "code-" + Math.random().toString(36).substr(2, 9);
+            const safeLang = escapeHtml(lang);
+            const badge = safeLang ? `<span style="font-size: 10px; color: #a1a1aa; font-family: monospace; text-transform: uppercase;">${safeLang}</span>` : "<span></span>";
+            const codeId = "code-" + Math.random().toString(36).slice(2, 11);
             return `
                 <div class="agyis-codeblock-wrap">
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; background: #141416; border-bottom: 1px solid #27272a; border-top-left-radius: 6px; border-top-right-radius: 6px;">
                         ${badge}
                         <button class="agyis-hud-btn agyis-copy-code-btn" data-code-id="${codeId}" style="padding: 2px 6px; font-size: 10px;">📋 Copy</button>
                     </div>
-                    <pre id="${codeId}" class="agyis-codeblock" style="border: none; border-radius: 0 0 6px 6px; margin: 0; padding: 10px;"><code class="language-${lang || "none"}">${code.trim()}</code></pre>
+                    <pre id="${codeId}" class="agyis-codeblock" style="border: none; border-radius: 0 0 6px 6px; margin: 0; padding: 10px;"><code class="language-${safeLang || "none"}">${code.trim()}</code></pre>
                 </div>
             `;
         });
@@ -136,7 +124,8 @@
         if (cType === "RUN_COMMAND" || currentStep.command !== undefined) {
             const cmd = currentStep.command || (currentStep.tool_calls?.[0]?.args?.CommandLine || currentStep.tool_calls?.[0]?.args?.command || "");
             const exitCode = currentStep.exitCode !== undefined ? currentStep.exitCode : (currentStep.tool_calls?.[0]?.args?.exitCode ?? 0);
-            const exitBadgeClass = exitCode === 0 ? "agyis-hud-pill-green" : "agyis-hud-pill-red";
+            const exitNum = Number(exitCode);
+            const exitBadgeClass = (!Number.isNaN(exitNum) && exitNum === 0) ? "agyis-hud-pill-green" : "agyis-hud-pill-red";
             const outputRaw = currentStep.output || (currentStep.tool_calls?.[0]?.output || "");
             const cleanOutput = String(outputRaw).replace(/\u001b\[[0-9;]*[a-zA-Z]/g, "");
             const lineCount = cleanOutput ? cleanOutput.split(/\r?\n/).length : 0;
@@ -147,7 +136,7 @@
                             <span style="color: #38bdf8;">$</span>
                             <span>${escapeHtml(cmd)}</span>
                         </div>
-                        <span class="agyis-hud-pill ${exitBadgeClass}">exit ${exitCode}</span>
+                        <span class="agyis-hud-pill ${exitBadgeClass}">exit ${escapeHtml(exitCode)}</span>
                     </div>
                     <div style="padding: 4px 10px; font-size: 10px; color: #71717a; border-bottom: 1px solid #202023; display: flex; justify-content: space-between;">
                         <span>Terminal Output (${lineCount} lines)</span>
@@ -158,11 +147,12 @@
             `;
         }
 
-        // View File step
-        if (cType === "VIEW_FILE" || (currentStep.filePath && currentStep.fileContent !== undefined)) {
-            const fPath = currentStep.filePath || (currentStep.tool_calls?.[0]?.args?.AbsolutePath || currentStep.tool_calls?.[0]?.args?.filePath || "");
+        // View / Read File step (supports v2.34+ read_file Path arg)
+        if (cType === "VIEW_FILE" || cType === "READ_FILE" || (currentStep.filePath && currentStep.fileContent !== undefined)) {
+            const args = currentStep.tool_calls?.[0]?.args || {};
+            const fPath = currentStep.filePath || args.Path || args.AbsolutePath || args.path || args.filePath || "";
             const fContent = currentStep.fileContent || (currentStep.tool_calls?.[0]?.output || currentStep.content || "");
-            const lineCount = fContent ? fContent.split(/\r?\n/).length : 0;
+            const lineCount = fContent ? String(fContent).split(/\r?\n/).length : 0;
             return `
                 <div class="agyis-file-card" style="background: #141416; border: 1px solid #27272a; border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #1c1c1f; border-bottom: 1px solid #27272a;">
@@ -174,10 +164,12 @@
             `;
         }
 
-        // Unified Diff / Code Action step
-        if (cType === "CODE_ACTION" || currentStep.diffLines !== undefined) {
-            const fPath = currentStep.filePath || (currentStep.tool_calls?.[0]?.args?.TargetFile || "");
+        // Unified Diff / Code Action / Edit / Write step (supports v2.34+ edit_file/write_file Path arg)
+        if (cType === "CODE_ACTION" || cType === "EDIT_FILE" || cType === "WRITE_FILE" || cType === "REPLACE_FILE_CONTENT" || currentStep.diffLines !== undefined) {
+            const args = currentStep.tool_calls?.[0]?.args || {};
+            const fPath = currentStep.filePath || args.Path || args.TargetFile || args.path || args.filePath || "";
             const diffLines = currentStep.diffLines || [];
+            const editBody = args.Replacement || args.ReplacementContent || args.Content || args.CodeContent || "";
             const diffHtml = (Array.isArray(diffLines) && diffLines.length > 0)
                 ? diffLines.map(dl => {
                     const txt = (dl && dl.text !== undefined) ? dl.text : (typeof dl === "string" ? dl : JSON.stringify(dl));
@@ -189,7 +181,9 @@
                     else if (isDel) { lineBg = "rgba(239, 68, 68, 0.15)"; lineCol = "#fca5a5"; }
                     return `<div style="background: ${lineBg}; color: ${lineCol}; padding: 1px 8px; font-family: monospace; font-size: 11px; white-space: pre-wrap;">${escapeHtml(txt)}</div>`;
                 }).join("")
-                : `<div style="padding: 10px; color: #71717a; font-family: monospace; font-size: 11px;">No unified diff lines available</div>`;
+                : (editBody
+                    ? `<pre class="agyis-codeblock" style="border: none; margin: 0; padding: 10px;"><code>${escapeHtml(editBody)}</code></pre>`
+                    : `<div style="padding: 10px; color: #71717a; font-family: monospace; font-size: 11px;">No unified diff lines available</div>`);
             return `
                 <div class="agyis-diff-card" style="background: #141416; border: 1px solid #27272a; border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #1c1c1f; border-bottom: 1px solid #27272a;">
@@ -201,12 +195,12 @@
             `;
         }
 
-        // Delegate Subagent step
-        if (cType === "INVOKE_SUBAGENT" || currentStep.subagent !== undefined) {
+        // Delegate Subagent / Swarm step (supports v2.34+ swarm/define_subagent args)
+        if (cType === "INVOKE_SUBAGENT" || cType === "SWARM" || cType === "DEFINE_SUBAGENT" || currentStep.subagent !== undefined) {
             const sub = currentStep.subagent || (currentStep.tool_calls?.[0]?.args || {});
-            const typeName = sub.typeName || sub.agent_name || sub.name || "Specialist Subagent";
-            const role = sub.role || sub.agent_role || "Subagent Worker";
-            const prompt = sub.initialPrompt || sub.prompt || sub.objective || "";
+            const typeName = sub.typeName || sub.TypeName || sub.agent_name || sub.name || sub.Name || "Specialist Subagent";
+            const role = sub.role || sub.Role || sub.agent_role || sub.action || "Subagent Worker";
+            const prompt = sub.initialPrompt || sub.Prompt || sub.prompt || sub.brief || sub.objective || sub.Description || "";
             return `
                 <div class="agyis-subagent-card" style="background: #18181b; border: 1px solid #7c3aed; border-radius: 6px; padding: 12px; margin-bottom: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -239,13 +233,13 @@
                 <div class="agyis-checkpoint-card" style="background: #142e1d; border: 1px solid #16a34a; border-radius: 6px; padding: 14px; margin-bottom: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                         <span class="agyis-hud-pill agyis-hud-pill-green" style="font-size: 12px; font-weight: 700;">
-                            🛡️ Compaction Checkpoint #${currentStep.checkpoint_index || currentStep.step_index || state.selectedIndex}
+                            🛡️ Compaction Checkpoint #${escapeHtml(currentStep.checkpoint_index ?? currentStep.step_index ?? state.selectedIndex)}
                         </span>
                         <button id="agyis-jump-prev-epoch" class="agyis-hud-btn agyis-jump-prev-epoch" style="padding: 3px 8px; font-size: 11px; background: #166534; border: 1px solid #22c55e; cursor: pointer;">
                             Jump to Previous Epoch ◀
                         </button>
                     </div>
-                    <div style="font-family: monospace; font-size: 12px; color: #86efac; margin-bottom: 10px; font-weight: 600;">📊 ${reclaimedMetric}</div>
+                    <div style="font-family: monospace; font-size: 12px; color: #86efac; margin-bottom: 10px; font-weight: 600;">📊 ${escapeHtml(reclaimedMetric)}</div>
                     <div style="font-size: 10px; color: #86efac; margin-bottom: 4px; text-transform: uppercase;">Compacted Session Summary:</div>
                     <div style="background: #0d1f14; border: 1px solid #166534; border-radius: 4px; padding: 10px; max-height: 280px; overflow-y: auto;">
                         ${renderMarkdownPreview(cpSummary)}
@@ -294,7 +288,7 @@
                  style="background: #202023; border: 1px solid #3f3f46; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 6px;">
-                        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${sl.color || "#6366f1"};"></span>
+                        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${escapeHtml(sl.color || "#6366f1")};"></span>
                         <span style="font-weight: 700; color: #c084fc; font-size: 11px;">${escapeHtml(sl.name)}</span>
                     </div>
                     <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">${(sl.tokens || 0).toLocaleString()} tokens</span>
@@ -304,11 +298,11 @@
 
         const toolsHtml = toolSlices.map((tl, idx) => `
             <div class="agyis-inspector-item-card ${state.hoveredItemKey === `tool-def-${tl.name}` ? "context-cell-hovered" : ""}"
-                 data-item-key="tool-def-${tl.name}"
+                 data-item-key="tool-def-${escapeHtml(tl.name)}"
                  style="background: #202023; border: 1px solid #3f3f46; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 6px;">
-                        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${tl.color || "#06b6d4"};"></span>
+                        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${escapeHtml(tl.color || "#06b6d4")};"></span>
                         <span style="font-weight: 700; color: #22d3ee; font-family: monospace; font-size: 11px;">${escapeHtml(tl.name)}</span>
                         ${tl.server_name ? `<span class="agyis-hud-pill agyis-hud-pill-purple" style="font-size: 9px; padding: 1px 5px;">${escapeHtml(tl.server_name)}</span>` : ""}
                     </div>
@@ -358,9 +352,7 @@
         const gm = currentStep.generator_metadata || {};
         const em = currentStep.executor_metadata || {};
         const modelUsage = gm.usage || (currentStep.metadata && currentStep.metadata.modelUsage) || {};
-        const statusTransitions = em.statusTransitions || (currentStep.metadata && currentStep.metadata.statusTransitions) || [
-            { timestamp: new Date().toISOString(), status: currentStep.status || "STATUS_COMPLETED", executionId: `exec-${currentStep.step_index ?? state.selectedIndex}` },
-        ];
+        const statusTransitions = em.statusTransitions || (currentStep.metadata && currentStep.metadata.statusTransitions) || currentStep.statusTransitions || [];
 
         const inTokVal = currentStep.input_tokens || modelUsage.inputTokens || 0;
         const outTokVal = currentStep.output_tokens || modelUsage.outputTokens || 0;
@@ -368,17 +360,21 @@
         const cacheTokVal = currentStep.cache_read_tokens || modelUsage.cacheReadTokens || 0;
         const modelDisplay = currentStep.response_model || (cur && cur.model) || "—";
 
+        const transitionsRowsHtml = (Array.isArray(statusTransitions) && statusTransitions.length > 0)
+            ? statusTransitions.map(st => `
+                <tr>
+                    <td style="font-family: monospace; font-size: 10px;">${escapeHtml(st.timestamp || "-")}</td>
+                    <td><span class="agyis-hud-pill agyis-hud-pill-green">${escapeHtml(st.status || "-")}</span></td>
+                    <td style="font-family: monospace; font-size: 10px;">${escapeHtml(st.executionId || "-")}</td>
+                </tr>
+            `).join("")
+            : `<tr><td colspan="3" style="font-family: monospace; font-size: 10px; color: #a1a1aa;">No recorded transitions (status: ${escapeHtml(currentStep.status || "unknown")}${currentStep.created_at ? `, created_at: ${escapeHtml(currentStep.created_at)}` : ""})</td></tr>`;
+
         return `
             <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Status Transitions</h4>
             <table class="agyis-markdown-table" style="margin-bottom: 12px;">
                 <tr><th>Timestamp</th><th>Status</th><th>Execution ID</th></tr>
-                ${statusTransitions.map(st => `
-                    <tr>
-                        <td style="font-family: monospace; font-size: 10px;">${st.timestamp || "-"}</td>
-                        <td><span class="agyis-hud-pill agyis-hud-pill-green">${st.status || "-"}</span></td>
-                        <td style="font-family: monospace; font-size: 10px;">${st.executionId || "-"}</td>
-                    </tr>
-                `).join("")}
+                ${transitionsRowsHtml}
             </table>
             <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Model Usage Metrics</h4>
             <table class="agyis-markdown-table">
@@ -518,15 +514,35 @@
     function bindInspectorEvents(hudEl, state, currentStep, selectStepCallback) {
         if (!hudEl) return;
 
-        // Copy button
+        // Raw JSON Copy button
         hudEl.querySelector("#agyis-copy-btn")?.addEventListener("click", () => {
-            if (currentStep) {
+            if (currentStep && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
                 navigator.clipboard.writeText(JSON.stringify(currentStep, null, 2)).then(() => {
                     const btn = hudEl.querySelector("#agyis-copy-btn");
                     if (btn) btn.textContent = "✔ Copied!";
                     setTimeout(() => { if (btn) btn.textContent = "📋 Copy"; }, 1500);
+                }).catch(err => {
+                    console.warn("[agyis:hud] Failed to copy JSON:", err);
                 });
             }
+        });
+
+        // Markdown code block Copy buttons
+        hudEl.querySelectorAll(".agyis-copy-code-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const codeId = btn.getAttribute("data-code-id");
+                const preEl = codeId ? hudEl.querySelector("#" + cssEscape(codeId)) : null;
+                const text = preEl ? (preEl.textContent || "") : "";
+                if (text && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+                    navigator.clipboard.writeText(text).then(() => {
+                        btn.textContent = "✔ Copied!";
+                        setTimeout(() => { btn.textContent = "📋 Copy"; }, 1500);
+                    }).catch(err => {
+                        console.warn("[agyis:hud] Failed to copy code block:", err);
+                    });
+                }
+            });
         });
 
         // Subagent jump button in Trajectory tab
@@ -552,33 +568,21 @@
         // Jump to Previous Epoch button in Checkpoint card
         hudEl.querySelector("#agyis-jump-prev-epoch")?.addEventListener("click", () => {
             if (state.activeEpochIndex > 0) {
-                state.activeEpochIndex--;
-                if (typeof renderHud === "function") renderHud();
+                state.activeEpochIndex -= 1;
+                const epochs = (state.currentData && state.currentData.epochs) || [];
+                const prevEp = epochs[state.activeEpochIndex];
+                if (prevEp && typeof selectStepCallback === "function") {
+                    selectStepCallback(prevEp.start_index);
+                } else if (typeof global.__agyis_hud_render === "function") {
+                    global.__agyis_hud_render();
+                }
             }
         });
 
         // Hover syncing on prompt section and tool cards
-        hudEl.querySelectorAll(".agyis-inspector-item-card").forEach(el => {
-            el.addEventListener("mouseenter", () => {
-                const itemKey = el.getAttribute("data-item-key");
-                if (itemKey) {
-                    state.hoveredItemKey = itemKey;
-                    hudEl.querySelectorAll(`[data-item-key="${itemKey}"]`).forEach(mEl => {
-                        mEl.classList.add("context-cell-hovered");
-                    });
-                }
-            });
-
-            el.addEventListener("mouseleave", () => {
-                const itemKey = el.getAttribute("data-item-key");
-                if (itemKey) {
-                    state.hoveredItemKey = null;
-                    hudEl.querySelectorAll(`[data-item-key="${itemKey}"]`).forEach(mEl => {
-                        mEl.classList.remove("context-cell-hovered");
-                    });
-                }
-            });
-        });
+        if (typeof _u().bindItemKeyHover === "function") {
+            _u().bindItemKeyHover(hudEl, state, ".agyis-inspector-item-card");
+        }
     }
 
     // Export module onto window namespace

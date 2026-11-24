@@ -14,14 +14,8 @@
 (function(global) {
     "use strict";
 
-    function escapeHtml(val) {
-        return String(val ?? "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
-    }
+    const _u = () => global.__agyis_utils || {};
+    const escapeHtml = (val) => (_u().escapeHtml ? _u().escapeHtml(val) : String(val ?? ""));
 
     /**
      * Sub-minute (< 60s) duration formatting with ms or decimal seconds precision.
@@ -368,10 +362,17 @@
 
         // Timeline mode: steps (default) vs activity
         const mode = state.timelineMode || "steps";
+        const tlPageSize = 200;
+        const tlTotalPages = Math.max(1, Math.ceil(stepTimings.length / tlPageSize));
+        if (state.timelinePage === undefined || state.timelinePage < 0) state.timelinePage = tlTotalPages - 1;
+        if (state.timelinePage >= tlTotalPages) state.timelinePage = tlTotalPages - 1;
+        const tlStart = stepTimings.length > tlPageSize ? state.timelinePage * tlPageSize : 0;
+        const tlEnd = stepTimings.length > tlPageSize ? Math.min(stepTimings.length, tlStart + tlPageSize) : stepTimings.length;
+        const visibleTimings = stepTimings.slice(tlStart, tlEnd);
 
         let tracksHtml = "";
         if (mode === "steps") {
-            tracksHtml = stepTimings.map(s => {
+            tracksHtml = visibleTimings.map(s => {
                 const isSelected = s.arrayIndex === state.selectedIndex;
                 const isHovered = state.hoveredItemKey === `step-${s.arrayIndex}`;
                 const x0 = Math.max(0, scale.toPx(s.timing.startMs));
@@ -407,7 +408,7 @@
                 `;
             }).join("");
         } else {
-            // Activity Mode (compact horizontal lanes)
+            // Activity Mode (compact horizontal lanes, including v2.34+ tools)
             const activityLanes = [
                 {
                     id: "model",
@@ -425,13 +426,13 @@
                     id: "files",
                     label: "Files & Code",
                     color: "#10b981",
-                    predicate: s => s.type.includes("FILE") || s.type.includes("WRITE") || s.type.includes("REPLACE") || s.type.includes("DIFF") || (s.summary && (s.summary.startsWith("view_file") || s.summary.startsWith("replace_file") || s.summary.startsWith("write_to_file"))),
+                    predicate: s => s.type.includes("FILE") || s.type.includes("EDIT") || s.type.includes("READ") || s.type.includes("WRITE") || s.type.includes("REPLACE") || s.type.includes("DIFF") || s.type === "CODE_ACTION" || (s.summary && (s.summary.startsWith("read_file") || s.summary.startsWith("edit_file") || s.summary.startsWith("write_file") || s.summary.startsWith("view_file") || s.summary.startsWith("replace_file") || s.summary.startsWith("write_to_file"))),
                 },
                 {
                     id: "subagents",
                     label: "Search & Subagents",
                     color: "#a855f7",
-                    predicate: s => s.type.includes("SUBAGENT") || s.type.includes("SEARCH") || s.type.includes("FIND") || (s.summary && (s.summary.startsWith("grep_search") || s.summary.startsWith("find_by_name") || s.summary.startsWith("invoke_subagent") || s.summary.startsWith("send_message"))),
+                    predicate: s => s.type.includes("SUBAGENT") || s.type.includes("SWARM") || s.type.includes("BOARD") || s.type.includes("MESSAGE") || s.type.includes("WORKFLOW") || s.type.includes("TASK") || s.type.includes("SEARCH") || s.type.includes("FIND") || (s.summary && (s.summary.startsWith("grep_search") || s.summary.startsWith("search_web") || s.summary.startsWith("find_by_name") || s.summary.startsWith("invoke_subagent") || s.summary.startsWith("define_subagent") || s.summary.startsWith("swarm") || s.summary.startsWith("post_message") || s.summary.startsWith("read_board") || s.summary.startsWith("run_workflow") || s.summary.startsWith("manage_task") || s.summary.startsWith("send_message"))),
                 },
                 {
                     id: "checkpoints",
@@ -492,8 +493,20 @@
             `;
         }
 
-        const maxTokens = (state.currentData && state.currentData.max_context_tokens) || 256000;
+        const inferCtx = _u().inferModelContextWindow;
+        const maxTokens = (state.currentData && state.currentData.max_context_tokens)
+            || (inferCtx ? inferCtx((state.currentData && state.currentData.model) || state.sessionModel) : 256000);
         const maxCtxLabel = (maxTokens >= 1000000 && maxTokens % 1000000 === 0) ? (maxTokens / 1000000) + "M" : Math.round(maxTokens / 1000) + "k";
+        const timelinePaginationHtml = (mode === "steps" && stepTimings.length > tlPageSize) ? `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 12px; background: #141416; border-top: 1px solid #27272a; font-size: 10px; flex-shrink: 0;">
+                <div style="display: flex; gap: 4px; align-items: center;">
+                    <button id="agyis-tl-page-prev" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${state.timelinePage <= 0 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>◀ Earlier</button>
+                    <span style="font-family: monospace; color: #a1a1aa;">Steps ${tlStart + 1}-${tlEnd} of ${stepTimings.length}</span>
+                    <button id="agyis-tl-page-next" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${state.timelinePage >= tlTotalPages - 1 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>Later ▶</button>
+                </div>
+            </div>
+        ` : "";
+        const trackTotalWidth = 220 + width;
 
         return `
             <div class="agyis-timeline-pane" style="display: flex; flex-direction: column; height: 100%; background: #141416; overflow: hidden;">
@@ -513,12 +526,17 @@
                         <span style="font-size: 10px; color: #71717a; margin-left: 6px;" title="How long a quiet interval must be before it collapses">${collapsedGaps.length} idle collapsed</span>
                     </div>
                 </div>
-                <div class="agyis-timeline-ruler" style="height: 20px; position: relative; background: #18181b; border-bottom: 1px solid #27272a; margin-left: 220px; flex-shrink: 0;">
-                    ${ticksHtml}
+                <div class="agyis-timeline-scroll-wrap" style="flex: 1; overflow: auto; display: flex; flex-direction: column;">
+                    <div style="min-width: ${trackTotalWidth}px; display: flex; flex-direction: column;">
+                        <div class="agyis-timeline-ruler" style="height: 20px; position: sticky; top: 0; z-index: 5; background: #18181b; border-bottom: 1px solid #27272a; margin-left: 220px; flex-shrink: 0;">
+                            ${ticksHtml}
+                        </div>
+                        <div class="agyis-timeline-track-list" style="flex: 1;">
+                            ${tracksHtml}
+                        </div>
+                    </div>
                 </div>
-                <div class="agyis-timeline-track-list" style="flex: 1; overflow-y: auto; overflow-x: hidden;">
-                    ${tracksHtml}
-                </div>
+                ${timelinePaginationHtml}
             </div>
         `;
     }
@@ -535,6 +553,16 @@
         });
         hudEl.querySelector("#agyis-tl-mode-activity")?.addEventListener("click", () => {
             state.timelineMode = "activity";
+            if (renderCallback) renderCallback();
+        });
+        hudEl.querySelector("#agyis-tl-page-prev")?.addEventListener("click", () => {
+            if ((state.timelinePage || 0) > 0) {
+                state.timelinePage -= 1;
+                if (renderCallback) renderCallback();
+            }
+        });
+        hudEl.querySelector("#agyis-tl-page-next")?.addEventListener("click", () => {
+            state.timelinePage = (state.timelinePage || 0) + 1;
             if (renderCallback) renderCallback();
         });
 
@@ -558,27 +586,10 @@
                 const sIdx = parseInt(el.getAttribute("data-step-index") || "0", 10);
                 if (selectStepCallback) selectStepCallback(sIdx);
             });
-
-            el.addEventListener("mouseenter", () => {
-                const itemKey = el.getAttribute("data-item-key");
-                if (itemKey) {
-                    state.hoveredItemKey = itemKey;
-                    hudEl.querySelectorAll(`[data-item-key="${itemKey}"]`).forEach(mEl => {
-                        mEl.classList.add("context-cell-hovered");
-                    });
-                }
-            });
-
-            el.addEventListener("mouseleave", () => {
-                const itemKey = el.getAttribute("data-item-key");
-                if (itemKey) {
-                    state.hoveredItemKey = null;
-                    hudEl.querySelectorAll(`[data-item-key="${itemKey}"]`).forEach(mEl => {
-                        mEl.classList.remove("context-cell-hovered");
-                    });
-                }
-            });
         });
+        if (typeof _u().bindItemKeyHover === "function") {
+            _u().bindItemKeyHover(hudEl, state, ".agyis-timeline-step-row");
+        }
     }
 
     // Export module onto window namespace

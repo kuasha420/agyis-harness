@@ -70,7 +70,9 @@ def _extract_conversation_summary(convo_dir: Path, transcript_path: Path) -> str
     if transcript_path.is_file():
         try:
             with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
-                for line in f:
+                for idx, line in enumerate(f):
+                    if idx >= 120:
+                        break
                     if not line.strip():
                         continue
                     try:
@@ -96,28 +98,39 @@ def get_recent_conversations(brain_dir: Optional[Path] = None, limit: Optional[i
     if not base_brain.is_dir():
         return []
 
-    conversations: List[Dict[str, Any]] = []
+    # Stat and sort by mtime BEFORE reading summaries or transcript headers (PSL-INV-008)
+    candidates: List[tuple[float, Path, Path]] = []
     for d in base_brain.iterdir():
         if d.is_dir() and d.name != ".system_generated":
             t_log, _ = find_transcript_path(d)
             if t_log and t_log.is_file():
                 try:
-                    summary = _extract_conversation_summary(d, t_log)
-                    pid, _ = _load_meta_parent(d)
-                    if not pid:
-                        pid = _scan_transcript_parent_id(t_log)
-
-                    item: Dict[str, Any] = {
-                        "id": d.name,
-                        "summary": summary,
-                        "mtime": t_log.stat().st_mtime,
-                    }
-                    if pid:
-                        item["parent_id"] = pid
-                        item["parentConversationId"] = pid
-                    conversations.append(item)
+                    candidates.append((t_log.stat().st_mtime, d, t_log))
                 except OSError:
                     continue
 
-    conversations.sort(key=lambda c: c["mtime"], reverse=True)
-    return conversations[:limit] if limit is not None else conversations
+    candidates.sort(key=lambda entry: entry[0], reverse=True)
+    if limit is not None:
+        candidates = candidates[:max(0, limit)]
+
+    conversations: List[Dict[str, Any]] = []
+    for mtime, d, t_log in candidates:
+        try:
+            summary = _extract_conversation_summary(d, t_log)
+            pid, _ = _load_meta_parent(d)
+            if not pid:
+                pid = _scan_transcript_parent_id(t_log)
+
+            item: Dict[str, Any] = {
+                "id": d.name,
+                "summary": summary,
+                "mtime": mtime,
+            }
+            if pid:
+                item["parent_id"] = pid
+                item["parentConversationId"] = pid
+            conversations.append(item)
+        except OSError:
+            continue
+
+    return conversations

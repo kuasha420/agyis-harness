@@ -23,7 +23,7 @@ from harness.telemetry import config
 from harness.telemetry.config import resolve_db_path
 from harness.telemetry.db import get_db_connection
 from harness.telemetry.schema import ensure_sync_columns
-from harness.telemetry.sync.client import verify_auth_token
+from harness.telemetry.sync.client import validate_sync_endpoint, verify_auth_token
 from harness.telemetry.sync.constants import _get_retry_backoff
 
 
@@ -55,7 +55,7 @@ def pull_remote_sessions(
     if not resolved_token:
         raise ValueError("Authentication token required for telemetry sync.")
 
-    endpoint_clean = resolved_endpoint.rstrip("/")
+    endpoint_clean = validate_sync_endpoint(resolved_endpoint)
     db_file = resolve_db_path(db_path, must_exist=False)
     db_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -247,11 +247,45 @@ def pull_remote_sessions(
                     ))
                     sessions_inserted += 1
                 else:
-                    if existing_row["remote_synced_at"] is None:
-                        cur.execute(
-                            "UPDATE sessions SET remote_synced_at = ? WHERE session_id = ?",
-                            (remote_sync_time, s_id),
-                        )
+                    cur.execute(
+                        """
+                        UPDATE sessions
+                        SET end_time = COALESCE(?, end_time),
+                            duration_seconds = COALESCE(?, duration_seconds),
+                            total_steps = CASE
+                                WHEN ? IS NOT NULL AND (total_steps IS NULL OR ? >= total_steps)
+                                THEN ? ELSE total_steps END,
+                            model = COALESCE(?, model),
+                            file_size_bytes = CASE
+                                WHEN ? IS NOT NULL AND (file_size_bytes IS NULL OR ? >= file_size_bytes)
+                                THEN ? ELSE file_size_bytes END,
+                            has_errors = COALESCE(?, has_errors),
+                            tool_call_count = CASE
+                                WHEN ? IS NOT NULL AND (tool_call_count IS NULL OR ? >= tool_call_count)
+                                THEN ? ELSE tool_call_count END,
+                            tool_error_count = CASE
+                                WHEN ? IS NOT NULL AND (tool_error_count IS NULL OR ? >= tool_error_count)
+                                THEN ? ELSE tool_error_count END,
+                            intervention_count = CASE
+                                WHEN ? IS NOT NULL AND (intervention_count IS NULL OR ? >= intervention_count)
+                                THEN ? ELSE intervention_count END,
+                            remote_synced_at = COALESCE(?, remote_synced_at)
+                        WHERE session_id = ?
+                        """,
+                        (
+                            s.get("end_time"),
+                            s.get("duration_seconds"),
+                            s.get("total_steps"), s.get("total_steps"), s.get("total_steps"),
+                            s.get("model"),
+                            s.get("file_size_bytes"), s.get("file_size_bytes"), s.get("file_size_bytes"),
+                            s.get("has_errors"),
+                            s.get("tool_call_count"), s.get("tool_call_count"), s.get("tool_call_count"),
+                            s.get("tool_error_count"), s.get("tool_error_count"), s.get("tool_error_count"),
+                            s.get("intervention_count"), s.get("intervention_count"), s.get("intervention_count"),
+                            remote_sync_time,
+                            s_id,
+                        ),
+                    )
                 valid_session_ids.add(s_id)
 
             # Guard foreign key constraints: collect parent session IDs referenced
@@ -303,8 +337,7 @@ def pull_remote_sessions(
                 ))
 
             if step_rows:
-                cur.execute("SELECT COUNT(*) FROM steps")
-                count_before = cur.fetchone()[0]
+                changes_before = conn.total_changes
                 chunk_size = 1000
                 for i in range(0, len(step_rows), chunk_size):
                     chunk = step_rows[i:i + chunk_size]
@@ -314,9 +347,7 @@ def pull_remote_sessions(
                             content_length, content_snippet, has_thinking, thinking_length, tool_count
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, chunk)
-                cur.execute("SELECT COUNT(*) FROM steps")
-                count_after = cur.fetchone()[0]
-                steps_inserted += (count_after - count_before)
+                steps_inserted += (conn.total_changes - changes_before)
 
             tool_rows = []
             for tc in pulled_tools:
@@ -347,8 +378,7 @@ def pull_remote_sessions(
                 ))
 
             if tool_rows:
-                cur.execute("SELECT COUNT(*) FROM tool_calls")
-                count_before = cur.fetchone()[0]
+                changes_before = conn.total_changes
                 chunk_size = 1000
                 for i in range(0, len(tool_rows), chunk_size):
                     chunk = tool_rows[i:i + chunk_size]
@@ -360,9 +390,7 @@ def pull_remote_sessions(
                             output_length_chars, output_lines, arguments_length_chars, command_category, is_truncated
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, chunk)
-                cur.execute("SELECT COUNT(*) FROM tool_calls")
-                count_after = cur.fetchone()[0]
-                tools_inserted += (count_after - count_before)
+                tools_inserted += (conn.total_changes - changes_before)
 
             intervention_rows = []
             for ui in pulled_interventions:
@@ -382,8 +410,7 @@ def pull_remote_sessions(
                 ))
 
             if intervention_rows:
-                cur.execute("SELECT COUNT(*) FROM user_interventions")
-                count_before = cur.fetchone()[0]
+                changes_before = conn.total_changes
                 chunk_size = 1000
                 for i in range(0, len(intervention_rows), chunk_size):
                     chunk = intervention_rows[i:i + chunk_size]
@@ -393,9 +420,7 @@ def pull_remote_sessions(
                             preceding_tool_failed, preceding_tool_name, preceding_error_snippet, intervention_type
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, chunk)
-                cur.execute("SELECT COUNT(*) FROM user_interventions")
-                count_after = cur.fetchone()[0]
-                interventions_inserted += (count_after - count_before)
+                interventions_inserted += (conn.total_changes - changes_before)
 
             conn.commit()
         finally:

@@ -9,18 +9,24 @@ Environment auto-healing implementation for Agyis Harness (ADR-014 / Antigravity
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 from typing import Any, Dict, List, Optional
+
+MAX_DOWNLOADED_SKILL_BYTES = 256 * 1024
+DEFAULT_PKG_MANAGER_TIMEOUT = 120.0
 
 
 def provision_rea_skill(
     target_skills_dir: Path,
     link: bool = True,
     allow_download: bool = True,
+    expected_sha256: Optional[str] = None,
 ) -> Path | None:
     """Dynamically provisions the official reverse-engineer-anything skill without vendoring.
 
@@ -104,18 +110,35 @@ def provision_rea_skill(
         except OSError:
             return None
 
-    # 3. Fallback: on-demand fetch if allowed
+    # 3. Fallback: on-demand fetch if allowed (HTTPS-only, bounded size, frontmatter + optional SHA-256 verification)
     if allow_download:
         import urllib.request
         import urllib.error
 
-        base_url = "https://raw.githubusercontent.com/morluto/rea/main/skills/reverse-engineer-anything"
+        skill_url = "https://raw.githubusercontent.com/morluto/rea/main/skills/reverse-engineer-anything/SKILL.md"
+        if not skill_url.startswith("https://"):
+            return None
         try:
-            req = urllib.request.Request(f"{base_url}/SKILL.md", headers={"User-Agent": "agyis-harness"})
-            with urllib.request.urlopen(req, timeout=3.0) as resp:
+            req = urllib.request.Request(skill_url, headers={"User-Agent": "agyis-harness"})
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
                 if resp.status == 200:
+                    raw = resp.read(MAX_DOWNLOADED_SKILL_BYTES + 1)
+                    if not raw or len(raw) > MAX_DOWNLOADED_SKILL_BYTES:
+                        return None
+                    if expected_sha256:
+                        actual_digest = hashlib.sha256(raw).hexdigest().lower()
+                        if actual_digest != expected_sha256.strip().lower():
+                            return None
+                    try:
+                        decoded = raw.decode("utf-8")
+                    except UnicodeDecodeError:
+                        return None
+                    if not decoded.lstrip().startswith("---"):
+                        return None
                     dest_dir.mkdir(parents=True, exist_ok=True)
-                    (dest_dir / "SKILL.md").write_bytes(resp.read())
+                    tmp_skill = dest_dir / f"SKILL.md.tmp.{os.getpid()}"
+                    tmp_skill.write_bytes(raw)
+                    os.replace(tmp_skill, dest_dir / "SKILL.md")
                     return dest_dir
         except (urllib.error.URLError, OSError, TimeoutError, ValueError):
             return None
@@ -136,11 +159,19 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
         pnpm = shutil.which("pnpm")
         if pnpm:
             print("[*] Switching to Node 24 LTS via pnpm env use --global 24...")
-            proc = subprocess.run([pnpm, "env", "use", "--global", "24"], capture_output=True, text=True)
-            if proc.returncode == 0:
-                actions.append("Auto-healed Node.js runtime: switched to Node 24 LTS globally via 'pnpm env use --global 24'.")
-            else:
-                actions.append(f"Failed to auto-heal Node.js via pnpm: {proc.stderr.strip()}")
+            try:
+                proc = subprocess.run(
+                    [pnpm, "env", "use", "--global", "24"],
+                    capture_output=True,
+                    text=True,
+                    timeout=DEFAULT_PKG_MANAGER_TIMEOUT,
+                )
+                if proc.returncode == 0:
+                    actions.append("Auto-healed Node.js runtime: switched to Node 24 LTS globally via 'pnpm env use --global 24'.")
+                else:
+                    actions.append(f"Failed to auto-heal Node.js via pnpm: {proc.stderr.strip()}")
+            except subprocess.TimeoutExpired:
+                actions.append(f"Timed out switching Node.js via pnpm ({DEFAULT_PKG_MANAGER_TIMEOUT:.0f}s limit).")
         else:
             actions.append("Node.js is incompatible with REA, but pnpm is not available to auto-switch to Node 24.")
 
@@ -153,20 +184,36 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
         installed = False
         if pnpm:
             print("[*] Installing/updating rea-agents via pnpm...")
-            proc = subprocess.run([pnpm, "add", "-g", "rea-agents"], capture_output=True, text=True)
-            if proc.returncode == 0:
-                actions.append("Installed/updated 'rea-agents' globally via pnpm in user-space.")
-                installed = True
-            else:
-                actions.append(f"Failed to install rea-agents via pnpm: {proc.stderr.strip()}")
+            try:
+                proc = subprocess.run(
+                    [pnpm, "add", "-g", "rea-agents"],
+                    capture_output=True,
+                    text=True,
+                    timeout=DEFAULT_PKG_MANAGER_TIMEOUT,
+                )
+                if proc.returncode == 0:
+                    actions.append("Installed/updated 'rea-agents' globally via pnpm in user-space.")
+                    installed = True
+                else:
+                    actions.append(f"Failed to install rea-agents via pnpm: {proc.stderr.strip()}")
+            except subprocess.TimeoutExpired:
+                actions.append(f"Timed out installing rea-agents via pnpm ({DEFAULT_PKG_MANAGER_TIMEOUT:.0f}s limit).")
         if not installed and npm:
             print("[*] Installing/updating rea-agents via npm...")
-            proc = subprocess.run([npm, "install", "-g", "rea-agents"], capture_output=True, text=True)
-            if proc.returncode == 0:
-                actions.append("Installed/updated 'rea-agents' globally via npm in user-space.")
-                installed = True
-            else:
-                actions.append(f"Failed to install rea-agents via npm: {proc.stderr.strip()}")
+            try:
+                proc = subprocess.run(
+                    [npm, "install", "-g", "rea-agents"],
+                    capture_output=True,
+                    text=True,
+                    timeout=DEFAULT_PKG_MANAGER_TIMEOUT,
+                )
+                if proc.returncode == 0:
+                    actions.append("Installed/updated 'rea-agents' globally via npm in user-space.")
+                    installed = True
+                else:
+                    actions.append(f"Failed to install rea-agents via npm: {proc.stderr.strip()}")
+            except subprocess.TimeoutExpired:
+                actions.append(f"Timed out installing rea-agents via npm ({DEFAULT_PKG_MANAGER_TIMEOUT:.0f}s limit).")
         if not pnpm and not npm:
             actions.append("Package manager (pnpm/npm) not found to install rea-agents in user-space.")
 
@@ -179,19 +226,13 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
                 ghidra_dir = str(cand)
                 break
 
-    from harness.runtime.tool_checks import is_ghidra_12_2_installed
-    if not discovered_jdk and is_ghidra_12_2_installed(ghidra_dir):
-        cand27 = Path("/usr/lib/jvm/java-27-openjdk")
-        if cand27.is_dir():
-            discovered_jdk = cand27
-
     configured_paths, config_errors = configure_rea_mcp_server(
         jdk21_path=discovered_jdk,
         ghidra_dir=ghidra_dir,
     )
     for cfg_p in configured_paths:
         actions.append(
-            f"Wired 'rea' MCP server in {cfg_p} (JDK 21: {discovered_jdk or 'omitted'}, Ghidra: {ghidra_dir or '/opt/ghidra'})."
+            f"Wired 'rea' MCP server in {cfg_p} (JDK 21+: {discovered_jdk or 'omitted'}, Ghidra: {ghidra_dir or '/opt/ghidra'})."
         )
     for err in config_errors:
         actions.append(err)
@@ -202,7 +243,7 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
     if prov_path:
         actions.append(f"Provisioned 'reverse-engineer-anything' skill dynamically in {prov_path}.")
 
-    # 4. Apply REA Ghidra acceleration patch (PSL-INV-009)
+    # 4. Apply REA Ghidra acceleration patch (PSL-RE-001)
     try:
         from harness.re.patcher import check_patch, apply_patch
         patch_info = check_patch()
@@ -228,7 +269,7 @@ def heal_forensic_toolchain(
     if not ft:
         return actions
 
-    # 1. Auto-apply REA Ghidra acceleration patch (PSL-INV-009)
+    # 1. Auto-apply REA Ghidra acceleration patch (PSL-RE-001)
     try:
         from harness.re.patcher import apply_patch, check_patch
 
@@ -237,7 +278,7 @@ def heal_forensic_toolchain(
             p_res = apply_patch()
             if p_res.get("success"):
                 actions.append(
-                    f"Auto-applied REA Ghidra acceleration patch (PSL-INV-009) to {len(p_res.get('applied_files', []))} files."
+                    f"Auto-applied REA Ghidra acceleration patch (PSL-RE-001) to {len(p_res.get('applied_files', []))} files."
                 )
             else:
                 actions.append(f"Failed to auto-apply REA Ghidra patch: {p_res.get('error')}")
@@ -252,7 +293,6 @@ def heal_forensic_toolchain(
         if dr_root and (dr_root / "symbols").is_dir():
             existing_dbs = [
                 dr_root / "symbols" / "dirtyroom.db",
-                dr_root / "symbols" / "paladins_symbols.sqlite",
                 dr_root / "symbols.db",
                 dr_root / "symbols.sqlite",
             ]
@@ -325,15 +365,19 @@ def heal_environment(
                     # If host python is outdated or shimmed, ensure uv python 3.12 is ready
                     if uv_path:
                         print(f"[*] Provisioning hermetic Python 3.12 via {uv_path}...")
-                        proc = subprocess.run(
-                            [uv_path, "python", "install", "3.12"],
-                            capture_output=True,
-                            text=True,
-                        )
-                        if proc.returncode == 0:
-                            actions_taken.append("Installed/verified CPython 3.12 in user-space uv toolchain.")
-                        else:
-                            actions_taken.append(f"Failed to install Python 3.12 via uv: {proc.stderr.strip()}")
+                        try:
+                            proc = subprocess.run(
+                                [uv_path, "python", "install", "3.12"],
+                                capture_output=True,
+                                text=True,
+                                timeout=DEFAULT_PKG_MANAGER_TIMEOUT,
+                            )
+                            if proc.returncode == 0:
+                                actions_taken.append("Installed/verified CPython 3.12 in user-space uv toolchain.")
+                            else:
+                                actions_taken.append(f"Failed to install Python 3.12 via uv: {proc.stderr.strip()}")
+                        except subprocess.TimeoutExpired:
+                            actions_taken.append(f"Timed out installing Python 3.12 via uv ({DEFAULT_PKG_MANAGER_TIMEOUT:.0f}s limit).")
                 elif strat_type == "distro_package":
                     pkg_map = heal_strat.get("package_names", {})
                     pkg_name = pkg_map.get(os_family) or pkg_map.get("debian")
@@ -364,8 +408,8 @@ def heal_environment(
                 inst._install_bin(inst.default_target_dir)
                 actions_taken.append("Reinstalled agyis/psl CLI launchers into bin_dir and aux_bin_dirs.")
                 healed_cli = True
-        except Exception:
-            pass
+        except (ImportError, OSError, RuntimeError) as exc:
+            actions_taken.append(f"Could not auto-reinstall CLI launchers: {exc}")
         if not healed_cli and cli_binary.get("remediation"):
             actions_taken.append(
                 f"CLI Binary Remediation:\n    {cli_binary['remediation']}"
@@ -448,8 +492,8 @@ def heal_environment(
                 )
                 if res.returncode == 0:
                     actions_taken.append(f"Rebound conflicting DB port in {env_file}.")
-            except Exception:
-                pass
+            except (subprocess.SubprocessError, OSError) as exc:
+                actions_taken.append(f"Could not auto-rebind DB port in {env_file}: {exc}")
 
     if experimental_rea or audit.get("experimental_rea"):
         rea_actions = heal_rea_tooling(audit)

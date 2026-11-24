@@ -20,15 +20,26 @@ def get_db_connection(
     db_file: Union[str, Path],
     timeout: float = 30.0,
     row_factory: bool = True,
+    read_only: bool = False,
 ) -> sqlite3.Connection:
-    """Connect to SQLite database with WAL mode, busy timeout, and integrity invariants.
+    """Connect to SQLite database with WAL mode (for writers) or URI ?mode=ro (for readers).
 
     Parameters:
         db_file: Path to SQLite database file
         timeout: SQLite connection timeout in seconds (default: 30.0)
         row_factory: Whether to set conn.row_factory to sqlite3.Row (default: True)
+        read_only: If True, opens file in read-only URI mode (?mode=ro) without WAL write pragma.
     """
     path_str = str(db_file)
+    if read_only and path_str != ":memory:":
+        uri = f"{Path(path_str).resolve().as_uri()}?mode=ro"
+        conn = sqlite3.connect(uri, timeout=timeout, uri=True)
+        if row_factory:
+            conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA query_only = ON")
+        conn.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)}")
+        return conn
+
     if path_str != ":memory:":
         Path(path_str).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path_str, timeout=timeout)
@@ -63,8 +74,6 @@ def prune_historical_tool_arguments(
     Returns:
         Dictionary summarizing pruning and disk compaction statistics.
     """
-    import os
-
     if reference_time is None:
         reference_time = datetime.now(timezone.utc)
     elif reference_time.tzinfo is None:
@@ -265,7 +274,7 @@ def compute_telemetry_lag(
         res["unsynced_local"] = len(transcripts) if transcripts else 0
         return res
     try:
-        conn = get_db_connection(target_db, timeout=2.0, row_factory=False)
+        conn = get_db_connection(target_db, timeout=2.0, row_factory=False, read_only=True)
         try:
             cur = conn.cursor()
             cur.execute("SELECT session_id, COALESCE(file_size_bytes, 0) FROM sessions")

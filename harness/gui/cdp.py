@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import socket
 import struct
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 import urllib.error
 import urllib.parse
@@ -23,7 +24,20 @@ from harness.gui.launcher import (  # noqa: F401
     format_cdp_restart_instructions,
 )
 
-DEFAULT_DEVTOOLS_PORT_FILE = Path.home() / ".config" / "Antigravity" / "DevToolsActivePort"
+MAX_HANDSHAKE_BYTES = 65536
+MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024
+
+
+def get_default_devtools_port_file() -> Path:
+    """Resolves the default DevToolsActivePort path respecting XDG_CONFIG_HOME and OS."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Antigravity" / "DevToolsActivePort"
+    xdg_config = (os.environ.get("XDG_CONFIG_HOME") or "").strip()
+    base_dir = Path(xdg_config) if xdg_config else (Path.home() / ".config")
+    return base_dir / "Antigravity" / "DevToolsActivePort"
+
+
+DEFAULT_DEVTOOLS_PORT_FILE = get_default_devtools_port_file()
 
 
 class CDPError(Exception):
@@ -50,7 +64,7 @@ def get_devtools_active_port(port_file: Optional[Path] = None, verify_listening:
       Line 1: Integer port (e.g. 46391)
       Line 2: Browser target path (e.g. /devtools/browser/<uuid>)
     """
-    target_file = port_file or DEFAULT_DEVTOOLS_PORT_FILE
+    target_file = port_file or get_default_devtools_port_file()
     if not target_file.exists():
         raise FileNotFoundError(f"DevToolsActivePort file not found at: {target_file}")
 
@@ -200,7 +214,7 @@ class CDPWebSocketClient:
             self.close()
             raise CDPConnectionError(f"Failed to send WebSocket handshake: {exc}") from exc
 
-        # Read response headers until \r\n\r\n
+        # Read response headers until \r\n\r\n (bounded to MAX_HANDSHAKE_BYTES)
         buf = bytearray()
         while b"\r\n\r\n" not in buf:
             try:
@@ -216,6 +230,9 @@ class CDPWebSocketClient:
                 self.close()
                 raise CDPConnectionError("Socket closed prematurely during WebSocket handshake")
             buf.extend(chunk)
+            if len(buf) > MAX_HANDSHAKE_BYTES:
+                self.close()
+                raise CDPConnectionError("WebSocket handshake response exceeded maximum header size")
 
         header_bytes, _, remaining = buf.partition(b"\r\n\r\n")
         self._buffer.extend(remaining)
@@ -287,8 +304,6 @@ class CDPWebSocketClient:
             hdr = self._recv_exact(2)
             fin = bool(hdr[0] & 0x80)
             opcode = hdr[0] & 0x0F
-            if opcode != 0x0:
-                current_opcode = opcode
 
             has_mask = bool(hdr[1] & 0x80)
             payload_len = hdr[1] & 0x7F
@@ -298,19 +313,30 @@ class CDPWebSocketClient:
             elif payload_len == 127:
                 payload_len = struct.unpack(">Q", self._recv_exact(8))[0]
 
+            if payload_len > MAX_WS_PAYLOAD_BYTES or (
+                opcode not in (0x8, 0x9, 0xA)
+                and len(message_payload) + payload_len > MAX_WS_PAYLOAD_BYTES
+            ):
+                self.close()
+                raise CDPConnectionError(f"WebSocket frame payload exceeded cap ({payload_len} bytes)")
+
             mask = self._recv_exact(4) if has_mask else None
             raw_payload = self._recv_exact(payload_len)
             if mask:
                 raw_payload = bytes(b ^ mask[i % 4] for i, b in enumerate(raw_payload))
 
-            if current_opcode == 0x8:  # Connection close
+            # Handle RFC 6455 control frames without corrupting fragmented data opcode
+            if opcode == 0x8:  # Connection close
                 self.close()
                 raise CDPConnectionError("Remote server sent WebSocket close frame")
-            elif current_opcode == 0x9:  # Ping -> reply Pong
+            if opcode == 0x9:  # Ping -> reply Pong
                 self.send_frame(0xA, raw_payload)
                 continue
-            elif current_opcode == 0xA:  # Pong
+            if opcode == 0xA:  # Pong
                 continue
+
+            if opcode != 0x0:
+                current_opcode = opcode
 
             message_payload.extend(raw_payload)
             if fin:

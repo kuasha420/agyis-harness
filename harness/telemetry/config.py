@@ -135,33 +135,39 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     return result
 
 
+def _load_json_dict(path: Path) -> Dict[str, Any]:
+    """Loads a JSON object from disk, failing closed on malformed or unreadable config."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        raise ValueError(
+            f"Malformed or unreadable telemetry configuration at {path}: {exc}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Invalid telemetry configuration at {path}: expected a JSON object."
+        )
+    return data
+
+
 def load_config(
     workspace_root: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Any]:
     """Loads configuration dictionary by deep-merging global and workspace configs.
 
-    Precedence: defaults < global (~/.config/psl/config.json) < workspace (.psl/config.json).
+    Precedence: defaults < global (~/.config/agyis/config.json) < workspace (.agyis/config.json).
+    Fails closed (raises ValueError) if an existing configuration file is malformed so
+    denylists are never silently cleared.
     """
     config = dict(DEFAULT_CONFIG)
     global_p = get_config_path()
     if global_p.is_file():
-        try:
-            with open(global_p, "r", encoding="utf-8") as f:
-                g_data = json.load(f)
-                if isinstance(g_data, dict):
-                    config = _deep_merge(config, g_data)
-        except (json.JSONDecodeError, OSError):
-            pass
+        config = _deep_merge(config, _load_json_dict(global_p))
 
     ws_p = get_workspace_config_path(workspace_root)
     if ws_p and ws_p.is_file():
-        try:
-            with open(ws_p, "r", encoding="utf-8") as f:
-                ws_data = json.load(f)
-                if isinstance(ws_data, dict):
-                    config = _deep_merge(config, ws_data)
-        except (json.JSONDecodeError, OSError):
-            pass
+        config = _deep_merge(config, _load_json_dict(ws_p))
 
     return config
 
@@ -278,23 +284,15 @@ def get_sync_endpoint(
 
     ws_p = get_workspace_config_path(workspace_root)
     if ws_p and ws_p.is_file():
-        try:
-            with open(ws_p, "r", encoding="utf-8") as f:
-                ws_data = json.load(f)
-                if isinstance(ws_data, dict) and ws_data.get("endpoint"):
-                    return str(ws_data["endpoint"]).strip()
-        except (json.JSONDecodeError, OSError):
-            pass
+        ws_data = _load_json_dict(ws_p)
+        if ws_data.get("endpoint"):
+            return str(ws_data["endpoint"]).strip()
 
     global_p = get_config_path()
     if global_p.is_file():
-        try:
-            with open(global_p, "r", encoding="utf-8") as f:
-                g_data = json.load(f)
-                if isinstance(g_data, dict) and g_data.get("endpoint"):
-                    return str(g_data["endpoint"]).strip()
-        except (json.JSONDecodeError, OSError):
-            pass
+        g_data = _load_json_dict(global_p)
+        if g_data.get("endpoint"):
+            return str(g_data["endpoint"]).strip()
 
     return DEFAULT_CONFIG.get("endpoint", "http://localhost:8000")
 

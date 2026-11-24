@@ -58,7 +58,11 @@
                 const focusedPane = document.querySelector('div[data-pane-id]:not([data-pane-unfocused])');
                 if (focusedPane) {
                     const paneId = focusedPane.getAttribute("data-pane-id");
-                    if (paneId && !/^pane[-_]/i.test(paneId) && /^[0-9a-fA-F-]+$/.test(paneId)) {
+                    if (
+                        paneId
+                        && !/^pane[-_]/i.test(paneId)
+                        && (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(paneId) || (paneId.length >= 20 && /^[0-9a-zA-Z_-]+$/.test(paneId)))
+                    ) {
                         return paneId;
                     }
                 }
@@ -133,13 +137,17 @@
                     return true;
                 }
 
-                // Same conversation: unhide and sync to latest state
+                // Same conversation: unhide, sync/render immediately, and refresh live data
                 currentHud.style.display = "flex";
                 if (state && typeof global.__agyis_hud_sync === "function") {
                     global.__agyis_hud_sync(state);
                 }
                 if (typeof global.__agyis_hud_render === "function") {
                     global.__agyis_hud_render();
+                }
+                const targetId = activeConvoId || (state && state.convoId);
+                if (targetId && typeof global.__agyis_hud_load_convo === "function") {
+                    global.__agyis_hud_load_convo(targetId);
                 }
                 return true;
             } else {
@@ -160,18 +168,30 @@
     /**
      * Initializes the global keyboard hotkey listener and SPA route watcher.
      * Hotkeys: F12, Ctrl+Shift+T (Cmd+Shift+T on macOS), Escape (to dismiss).
+     * Always cleans up prior listeners/observers so re-injection updates cleanly.
      */
     function initAgyisHotkey() {
-        if (typeof window === "undefined" || global.__agyis_hotkey_initialized) return;
+        if (typeof window === "undefined") return;
+
+        if (typeof global.__agyis_hotkey_cleanup === "function") {
+            try {
+                global.__agyis_hotkey_cleanup();
+            } catch (_) {}
+        }
+        if (global.__agyis_hotkey_listener) {
+            window.removeEventListener("keydown", global.__agyis_hotkey_listener, true);
+        }
+        if (global.__agyis_focus_observer) {
+            try {
+                global.__agyis_focus_observer.disconnect();
+            } catch (_) {}
+            global.__agyis_focus_observer = null;
+        }
+
         global.__agyis_hotkey_initialized = true;
         global.__agyis_hud_hotkey_registered = true;
 
         let lastToggleTime = 0;
-
-        // Cleanup any previous listener
-        if (global.__agyis_hotkey_listener) {
-            window.removeEventListener("keydown", global.__agyis_hotkey_listener, true);
-        }
 
         const handleKeydown = (e) => {
             const isF12 = e.key === "F12";
@@ -202,7 +222,6 @@
                     if (isSearchFocused && hasText) {
                         return;
                     }
-                    // Do not close if focus is inside an open dropdown or modal
                     const menu = currentHud.querySelector("#agyis-subagents-menu");
                     if (menu && menu.style.display === "block") {
                         menu.style.display = "none";
@@ -218,7 +237,7 @@
         global.__agyis_hotkey_listener = handleKeydown;
         window.addEventListener("keydown", handleKeydown, true);
 
-        // SPA Route Sensitivity & Focus Transition Observer (PSL-INV-010)
+        // SPA Route Sensitivity & Focus Transition Observer (PSL-INV-007)
         const onRouteOrFocusChange = () => {
             const currentHud = document.getElementById(HUD_ID);
             if (!currentHud || currentHud.style.display === "none") return;
@@ -235,9 +254,15 @@
         window.addEventListener("popstate", onRouteOrFocusChange);
         window.addEventListener("agyis:routechange", onRouteOrFocusChange);
 
-        // Optional MutationObserver on body to detect focused pane attribute changes
-        if (typeof MutationObserver !== "undefined" && document.body) {
-            let focusDebounceTimer = null;
+        let focusDebounceTimer = null;
+        let domReadyHandler = null;
+        const attachFocusObserver = () => {
+            if (typeof MutationObserver === "undefined" || typeof document === "undefined" || !document.body) {
+                return false;
+            }
+            if (global.__agyis_focus_observer) {
+                try { global.__agyis_focus_observer.disconnect(); } catch (_) {}
+            }
             const focusObserver = new MutationObserver((mutations) => {
                 let relevant = false;
                 for (let i = 0; i < mutations.length; i++) {
@@ -260,9 +285,32 @@
             });
 
             global.__agyis_focus_observer = focusObserver;
+            return true;
+        };
+
+        if (!attachFocusObserver() && typeof document !== "undefined" && typeof document.addEventListener === "function") {
+            domReadyHandler = () => {
+                attachFocusObserver();
+            };
+            document.addEventListener("DOMContentLoaded", domReadyHandler, { once: true });
         }
 
-        console.log("[agyis:hotkey] In-situ hotkey and route observer initialized (F12, Ctrl+Shift+T).");
+        global.__agyis_hotkey_cleanup = () => {
+            window.removeEventListener("keydown", handleKeydown, true);
+            window.removeEventListener("popstate", onRouteOrFocusChange);
+            window.removeEventListener("agyis:routechange", onRouteOrFocusChange);
+            if (domReadyHandler && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+                document.removeEventListener("DOMContentLoaded", domReadyHandler);
+            }
+            if (focusDebounceTimer) {
+                clearTimeout(focusDebounceTimer);
+                focusDebounceTimer = null;
+            }
+            if (global.__agyis_focus_observer) {
+                try { global.__agyis_focus_observer.disconnect(); } catch (_) {}
+                global.__agyis_focus_observer = null;
+            }
+        };
     }
 
     // Export module onto window/global namespace

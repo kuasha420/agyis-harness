@@ -99,8 +99,8 @@ def discover_workspace_commands(
                                 workspace_root=ws,
                                 origin="manifest",
                             )
-            except Exception:
-                pass
+            except (OSError, json.JSONDecodeError, ValueError):
+                continue
 
     # 2. Inspect .agents/commands/ directory
     cmd_dir = ws / ".agents" / "commands"
@@ -135,8 +135,8 @@ def discover_workspace_commands(
                         elif clean_hl.startswith('"""') or clean_hl.startswith("'''"):
                             desc = clean_hl.strip("'\"").strip()
                             break
-                except Exception:
-                    pass
+                except OSError:
+                    desc = f"Workspace {cmd_type} command ({item.name})"
 
                 commands[name] = ExtensionCommand(
                     name=name,
