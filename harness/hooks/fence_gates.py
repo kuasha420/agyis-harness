@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sys
 from typing import Optional
 
 from harness.discovery import detect_project_test_runner, get_git_modified_files
@@ -18,7 +19,7 @@ from harness.hooks.fence_classifiers import (
     CODE_MUTATION_TOOLS, DECLARATIVE_SPEC_EXTENSIONS,
     ROLE_DEEP_EXECUTION, ROLE_FLIGHT_DIRECTOR, ROLE_SWARM_ORCHESTRATOR, TIER_RANKS,
     check_has_mutable_code, is_cleanroom_contract_file, is_code_file,
-    is_ephemeral_scratch_path, is_manifest_verified, is_test_file, normalize_role,
+    is_commit_or_pr_command, is_ephemeral_scratch_path, is_manifest_verified, is_test_file, normalize_role,
 )
 from harness.hooks.fence_state import clear_spec_dirty, get_brain_dir, load_state, save_state
 from harness.hooks.fence_tasks import sync_background_tasks
@@ -76,6 +77,22 @@ def check_pre_tool_use(
 check_completion_fence_pre_tool = check_pre_tool_use
 
 
+def _has_dispatched_subagents(effective_cwd: Path | str, payload: Optional[dict]) -> bool:
+    """Returns True when subagents were dispatched via teamwork dirs or explicit payload metadata."""
+    teamwork_dir = Path(effective_cwd) / ".agents" / "teamwork"
+    if teamwork_dir.is_dir():
+        try:
+            for child in teamwork_dir.iterdir():
+                if child.is_dir() and not child.name.startswith("."):
+                    return True
+        except OSError as exc:
+            sys.stderr.write(f"PSL Fence Warning: Failed reading teamwork dir '{teamwork_dir}': {exc}\n")
+
+    if payload and (payload.get("subagents_dispatched") or payload.get("dispatched_subagents")):
+        return True
+    return False
+
+
 def _evaluate_orchestrator_stop(
     state: dict,
     effective_cwd: Path | str,
@@ -85,19 +102,7 @@ def _evaluate_orchestrator_stop(
     payload: Optional[dict],
 ) -> dict:
     """Evaluates Persona Truth Gate and Gate 2 Auditor Verdict Fence for orchestrator roles."""
-    has_subagents = False
-    teamwork_dir = Path(effective_cwd) / ".agents" / "teamwork"
-    if teamwork_dir.is_dir():
-        try:
-            for child in teamwork_dir.iterdir():
-                if child.is_dir() and not child.name.startswith("."):
-                    has_subagents = True
-                    break
-        except Exception:
-            pass
-
-    if not has_subagents and payload and (payload.get("subagents_dispatched") or payload.get("dispatched_subagents")):
-        has_subagents = True
+    has_subagents = _has_dispatched_subagents(effective_cwd, payload)
 
     if has_subagents:
         from harness.subagents.truth import validate_transition_payload_truth
@@ -161,17 +166,25 @@ def _evaluate_orchestrator_stop(
     return {"decision": "allow"}
 
 
-def _evaluate_commit_gate(
+def evaluate_commit_gate(
     state: dict,
-    effective_cwd: Path | str,
-    verified_tier: str | None,
-    session_has_code: bool,
-    payload: Optional[dict],
+    effective_cwd: Path | str | None,
+    verified_tier: str | None = None,
+    session_has_code: Optional[bool] = None,
+    payload: Optional[dict] = None,
+    cmd: str = "",
 ) -> Optional[dict]:
-    """Evaluates commit verification gate when explicitly requested in payload."""
-    if not (payload and payload.get("gate_type") == "commit" and session_has_code):
+    """Canonical commit/PR verification gate shared by PreToolUse and Stop evaluators."""
+    if not (is_commit_or_pr_command(cmd) or (payload and payload.get("gate_type") == "commit")):
         return None
-    if TIER_RANKS.get(verified_tier or "", 0) < TIER_RANKS["pkg"]:
+    if session_has_code is None:
+        session_has_code = any(
+            is_code_file(f) or f == "<shell-mutation>" for f in state.get("session_modified_files", [])
+        ) or bool(state.get("code_dirty"))
+    if not session_has_code:
+        return None
+    eff_tier = verified_tier if verified_tier is not None else state.get("verified_tier")
+    if TIER_RANKS.get(eff_tier or "", 0) < TIER_RANKS["pkg"]:
         return {
             "decision": "deny",
             "reason": (
@@ -180,15 +193,14 @@ def _evaluate_commit_gate(
             ),
         }
     mutation_bypass = bool(os.environ.get("AGYIS_NO_MUTATION") == "1" or os.environ.get("PSL_FENCE_BYPASS") == "1")  # agyis: no-mutant bypass check
-    has_mutables = False
-    try:
-        from harness.mutation.micro_probe import generate_mutants_for_diff
-        if generate_mutants_for_diff(repo_root=Path(effective_cwd or Path.cwd())):
-            has_mutables = True
-    except Exception:
-        pass
+    has_mutables = check_has_mutable_code(state.get("session_modified_files", []), cwd=effective_cwd)
     if not has_mutables:
-        has_mutables = check_has_mutable_code(state.get("session_modified_files", []), cwd=effective_cwd)
+        try:
+            from harness.mutation.micro_probe import generate_mutants_for_diff
+            if generate_mutants_for_diff(repo_root=Path(effective_cwd or Path.cwd())):
+                has_mutables = True
+        except Exception as exc:
+            sys.stderr.write(f"PSL Fence Warning: Diff mutant scan failed: {exc}\n")
     if not mutation_bypass and has_mutables and not state.get("mutation_verified", False):  # agyis: no-mutant default false check
         return {
             "decision": "deny",
@@ -198,6 +210,23 @@ def _evaluate_commit_gate(
             ),
         }
     return None
+
+
+def _evaluate_commit_gate(
+    state: dict,
+    effective_cwd: Path | str,
+    verified_tier: str | None,
+    session_has_code: bool,
+    payload: Optional[dict],
+) -> Optional[dict]:
+    """Evaluates commit verification gate when explicitly requested in payload."""
+    return evaluate_commit_gate(
+        state=state,
+        effective_cwd=effective_cwd,
+        verified_tier=verified_tier,
+        session_has_code=session_has_code,
+        payload=payload,
+    )
 
 
 def _evaluate_smell_gate(
@@ -225,8 +254,8 @@ def _evaluate_smell_gate(
                 for smell in audit_file_smells(tf_path):
                     if getattr(smell, "severity", "").lower() in ("hard_rejection", "error", "reject", "hard_reject"):
                         hard_rejections.append(smell)
-            except Exception:
-                pass
+            except Exception as exc:
+                sys.stderr.write(f"PSL Fence Warning: AST smell audit failed for '{tf_path}': {exc}\n")
     if not hard_rejections:
         return None
 
@@ -354,13 +383,15 @@ def evaluate_stop(
         or os.environ.get("AGYIS_ROLE", "")
         or os.environ.get("PSL_AGENT_ROLE", "")
     ).lower()
+    is_planner = "planner" in role
     is_orchestrator = (
         any(r in role for r in ("cockpit", "orchestrator", "flight_director", "sentinel", "coordinator", "main", "main_agent"))
         or normalize_role(role) in (ROLE_FLIGHT_DIRECTOR, ROLE_SWARM_ORCHESTRATOR)
     ) and role not in ("agyis_builder", "agyis_reviewer", "agyis_custodian", "agyis_auditor")
 
     if is_orchestrator:
-        return _evaluate_orchestrator_stop(state, effective_cwd, conv_id, state_dir, brain_dir, payload)
+        if not is_planner or _has_dispatched_subagents(effective_cwd, payload):
+            return _evaluate_orchestrator_stop(state, effective_cwd, conv_id, state_dir, brain_dir, payload)
 
     if turn_id is not None:
         current_turn = state.get("active_turn_id")

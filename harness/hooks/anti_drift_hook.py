@@ -42,7 +42,7 @@ from harness.utils.plan_parser import (
     is_plan_completed,
     parse_plan_files,
 )
-from harness.utils.state import get_state_dir
+from harness.utils.state import atomic_write_json, get_state_dir, sanitize_conv_id
 
 # Pluggable modular domain validators (ADR-014 / ADR-031)
 DRIFT_VALIDATORS: List[Callable[..., Optional[dict]]] = [
@@ -180,12 +180,17 @@ def check_drift(target_file: str, plan_files: set[str], strict: bool = False) ->
 _MUTATION_TOOL_NAMES = frozenset({
     "write_file",
     "edit_file",
+    "create_file",
+    "insert_edit_into_file",
     "write_to_file",
     "replace_file_content",
     "multi_replace_file_content",
 })
 
-_HARMLESS_REDIR_RE = re.compile(r"(?:\b[12]?>&\s*[12]\b|\b[12]?>\s*/dev/null\b|&\s*>\s*/dev/null\b)")
+_HARMLESS_REDIR_RE = re.compile(
+    r"(?:(?<![A-Za-z0-9_])[12])?>&\s*(?:[12]\b|-)"
+    r"|(?:(?<![A-Za-z0-9_])[12]|&)?>{1,2}\s*/dev/null(?=$|[\s;&|)])"
+)
 _QUOTED_LITERAL_RE = re.compile(r"'[^']*'|\"(?:\\.|[^\"])*\"")
 _CMD_START_MUTATION_RE = re.compile(
     r"(?:^|[;&|()]\s*|\b(?:sudo|env|xargs|nohup|exec|time|command)(?:\s+-[^\s]+)*\s+)"
@@ -200,11 +205,12 @@ _INPLACE_OR_GIT_MUTATION_RE = re.compile(
     re.I,
 )
 _INLINE_FILE_WRITE_RE = re.compile(
-    r"(?:\bpython3?(?:\.\d+)?\s+(?:-[^\s]+\s+)*-c\b[^\n]*(?:write_text|write_bytes|os\.remove|os\.unlink|shutil\.|open\([^)]*['\"][wa])"
-    r"|\bnode\s+(?:-[^\s]+\s+)*-e\b[^\n]*(?:fs\.writeFile|fs\.appendFile|fs\.rm|fs\.unlink|fs\.mkdir))",
+    r"(?:\bpython3?(?:\.\d+)?\s+(?:-[^\s]+\s+)*-c\b[^\n]*"
+    r"(?:write_text|write_bytes|os\.remove|os\.unlink|os\.replace|os\.rename|os\.mkdir|os\.makedirs|\.unlink\s*\(|Path\([^)]*\)\.(?:rename|replace|mkdir|rmdir|touch)\s*\(|shutil\.|open\([^)]*(?:,\s*['\"][^'\"]*[wax+]|\bmode\s*=\s*['\"][^'\"]*[wax+]))"
+    r"|\bnode\s+(?:-[^\s]+\s+)*-e\b[^\n]*(?:fs\.writeFile|fs\.appendFile|fs\.rm|fs\.unlink|fs\.mkdir|fs\.rename))",
     re.I,
 )
-_FILE_REDIR_RE = re.compile(r"(?<![2&])>{1,2}\s*([^\s;&|]+)")
+_FILE_REDIR_RE = re.compile(r"(?:(?<![A-Za-z0-9_])[12]|&)?>{1,2}\s*([^\s;&|&]+)")
 
 
 _QUOTED_PLACEHOLDER_RE = re.compile(r"^__Q(\d+)__$")
@@ -312,6 +318,26 @@ def check_plan_mode_lock(payload: dict) -> Optional[dict]:
             ),
         }
 
+    if tool_lower in ("run_command", "execute_command", "bash"):
+        tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else {}
+        if not isinstance(tool_args, dict):
+            tool_args = {}
+        cmd = (
+            tool_args.get("CommandLine")
+            or tool_args.get("command")
+            or payload.get("CommandLine")
+            or payload.get("command")
+            or ""
+        )
+        if _is_mutating_shell_command(str(cmd), allow_scratch=True):
+            return {
+                "decision": "deny",
+                "reason": (
+                    "PSL Native Plan-Mode Lock (ADR-031): Session is in Plan Mode (/plan). "
+                    "Mutating shell commands are locked until plan approval."
+                ),
+            }
+
     return None
 
 
@@ -339,6 +365,8 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
         or payload.get("agent")
         or os.environ.get("PSL_SUBAGENT_ROLE")
         or os.environ.get("PSL_AGENT_ROLE")
+        or os.environ.get("AGYIS_ROLE")
+        or os.environ.get("ANTIGRAVITY_AGENT_ROLE")
         or ""
     )
     r_lower = role.strip().lower().replace("-", "_")
@@ -482,6 +510,7 @@ def check_flight_director_write_guard(payload: dict) -> Optional[dict]:
         or os.environ.get("PSL_SUBAGENT_ROLE")
         or os.environ.get("PSL_AGENT_ROLE")
         or os.environ.get("AGYIS_ROLE")
+        or os.environ.get("ANTIGRAVITY_AGENT_ROLE")
         or ""
     )
     r_lower = role.strip().lower().replace("-", "_")
@@ -507,7 +536,7 @@ def check_flight_director_write_guard(payload: dict) -> Optional[dict]:
         return None
 
     # Track direct product code modifications
-    conv_id = str(payload.get("conversationId") or payload.get("conversation_id") or "default")
+    conv_id = sanitize_conv_id(str(payload.get("conversationId") or payload.get("conversation_id") or "default"))
     state_dir = get_state_dir()
     edits_file = state_dir / f"cockpit_direct_edits_{conv_id}.json"
 
@@ -518,14 +547,15 @@ def check_flight_director_write_guard(payload: dict) -> Optional[dict]:
             data = json.loads(content)
             if isinstance(data, dict):
                 files_modified = set(data.get("files", []))
-        except Exception:
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            sys.stderr.write(f"PSL Anti-Drift: Failed reading cockpit edits state: {exc}\n")
             files_modified = set()
 
     files_modified.add(target_path)
     try:
-        edits_file.write_text(json.dumps({"files": sorted(list(files_modified))}), encoding="utf-8")
-    except Exception:
-        pass
+        atomic_write_json(edits_file, {"files": sorted(list(files_modified))})
+    except OSError as exc:
+        sys.stderr.write(f"PSL Anti-Drift: Failed writing cockpit edits state: {exc}\n")
 
     count = len(files_modified)
     if count > 3:
@@ -556,13 +586,14 @@ def check_flight_director_write_guard(payload: dict) -> Optional[dict]:
 
 def reset_flight_director_edits(conv_id: str = "default") -> None:
     """Resets the direct edit counter for a given conversation when subagent delegation occurs."""
+    safe_conv = sanitize_conv_id(conv_id)
     state_dir = get_state_dir()
-    edits_file = state_dir / f"cockpit_direct_edits_{conv_id}.json"
+    edits_file = state_dir / f"cockpit_direct_edits_{safe_conv}.json"
     if edits_file.exists():
         try:
             edits_file.unlink()
-        except OSError:
-            pass
+        except OSError as exc:
+            sys.stderr.write(f"PSL Anti-Drift: Failed resetting cockpit edits state: {exc}\n")
 
 
 
@@ -648,11 +679,21 @@ def main() -> None:
     artifact_dir = payload.get("artifactDirectoryPath")
 
     tool_call = payload.get("toolCall", {})
-    tool_name = tool_call.get("name", "")
-    tool_args = tool_call.get("args", {})
+    tool_name = tool_call.get("name", "") if isinstance(tool_call, dict) else ""
+    tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else {}
+    if not isinstance(tool_args, dict):
+        tool_args = {}
+
+    tool_lower = str(tool_name).strip().lower()
+    # Wire Flight Director edit counter reset when delegating to subagents/swarm/workflows
+    if tool_lower in ("invoke_subagent", "run_workflow") or (
+        tool_lower == "swarm"
+        and str(tool_args.get("action") or "").strip().lower() in ("add", "")
+    ):
+        reset_flight_director_edits(conv_id=str(conv_id or "default"))
 
     # Auto-record telemetry proof if run_command is executed with knot status / knot ledger
-    if tool_name in ("run_command", "execute_command", "bash"):
+    if tool_lower in ("run_command", "execute_command", "bash"):
         cmd = tool_args.get("CommandLine") or tool_args.get("command") or ""
         if cmd:
             record_telemetry_proof(cmd, conv_id=str(conv_id or "default"))

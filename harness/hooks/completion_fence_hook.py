@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 from harness.discovery import detect_project_test_runner, get_git_modified_files
@@ -31,7 +32,7 @@ from harness.hooks.fence_classifiers import (
     is_commit_or_pr_command, is_ephemeral_scratch_path, is_manifest_verified,
     is_mutation_test_command, is_test_command, is_test_file, normalize_role,
 )
-from harness.hooks.fence_gates import check_completion_fence_pre_tool, check_pre_tool_use, evaluate_stop
+from harness.hooks.fence_gates import check_completion_fence_pre_tool, check_pre_tool_use, evaluate_commit_gate, evaluate_stop
 from harness.hooks.fence_state import (
     clear_spec_dirty, get_brain_dir, get_state_file, load_state,
     record_edit, record_verification, reset_state, save_state,
@@ -109,32 +110,63 @@ def _handle_action(
 
 def _handle_pre_tool_commit_gate(cmd: str, payload: dict, conv_id: str, state_dir: Path | None, cwd: Path | str | None) -> dict | None:
     """Enforces full test suite and micro-mutation verification before git commit / PR commands."""
-    if not (is_commit_or_pr_command(cmd) or (payload.get("gate_type") == "commit")):
-        return None
     state = load_state(conv_id=conv_id, state_dir=state_dir)
-    session_has_code = any(is_code_file(f) or f == "<shell-mutation>" for f in state.get("session_modified_files", [])) or bool(state.get("code_dirty"))
-    if not session_has_code:
-        return None
-    if TIER_RANKS.get(state.get("verified_tier") or "", 0) < TIER_RANKS["pkg"]:
-        return {
-            "decision": "deny",
-            "reason": (
-                "Commit Verification Required: Git commit and PR creation require full package or workspace test suite "
-                "('agyis test', 'agyis test --full', or 'pnpm test:full') before committing."
-            ),
-        }
-    mutation_bypass = bool(os.environ.get("AGYIS_NO_MUTATION") == "1" or os.environ.get("PSL_FENCE_BYPASS") == "1")  # agyis: no-mutant bypass env check
     effective_cwd = cwd if cwd is not None else state.get("cwd")
-    has_mutables = check_has_mutable_code(state.get("session_modified_files", []), cwd=effective_cwd)
-    if not mutation_bypass and has_mutables and not state.get("mutation_verified", False):  # agyis: no-mutant default false check
-        return {
-            "decision": "deny",
-            "reason": (
-                "Commit Verification Required: Git commit and PR creation require verified diff-aware micro-mutation testing "
-                "('agyis test --mutation') on modified code before committing (unverified mutants)."
-            ),
-        }
-    return None
+    return evaluate_commit_gate(state=state, effective_cwd=effective_cwd, payload=payload, cmd=cmd)
+
+
+def _is_pre_tool_denied_by_guards(
+    tool_name: str, tool_args: dict, payload: dict, cwd: Path | str | None,
+) -> bool:
+    """Checks read-only PreToolUse safety/drift guards so denied edits never dirty code_dirty."""
+    if payload.get("decision") == "deny" or payload.get("denied") is True:
+        return True
+    try:
+        from harness.hooks.anti_drift_hook import check_auditor_write_block, check_plan_mode_lock
+        if check_plan_mode_lock(payload) is not None:
+            return True
+        if check_auditor_write_block(payload) is not None:
+            return True
+    except Exception as exc:
+        sys.stderr.write(f"PSL Fence Warning: PreToolUse drift precheck error: {exc}\n")
+    try:
+        from harness.hooks.command_safety_hook import DANGEROUS_PATTERNS, INTERACTIVE_COMMANDS, check_pause_safety
+        ws_dir = Path(cwd) if cwd and Path(cwd).is_dir() else None
+        p_dec, _ = check_pause_safety(tool_name, tool_args, workspace_dir=ws_dir)
+        if p_dec == "deny":
+            return True
+        if tool_name in ("run_command", "execute_command", "bash"):
+            cmd = str(tool_args.get("CommandLine") or tool_args.get("command") or "").strip()
+            if cmd:
+                if any(re.search(pat, cmd) for pat in DANGEROUS_PATTERNS):
+                    return True
+                first_tok = cmd.split()[0].split("/")[-1]
+                if first_tok in INTERACTIVE_COMMANDS:
+                    return True
+    except Exception as exc:
+        sys.stderr.write(f"PSL Fence Warning: PreToolUse safety precheck error: {exc}\n")
+    return False
+
+
+def _post_tool_has_error(payload: dict) -> bool:
+    """Returns True when a PostToolUse payload indicates the tool invocation failed."""
+    if payload.get("error") or payload.get("isError") is True or payload.get("is_error") is True:
+        return True
+    if str(payload.get("status", "")).strip().lower() in ("error", "failed"):
+        return True
+    ec = extract_exit_code(payload)
+    if ec is not None and ec != 0:
+        return True
+    for k in ("toolResponse", "result", "toolOutput", "toolResult", "tool_result", "response"):
+        sub = payload.get(k)
+        if isinstance(sub, dict) and (
+            bool(sub.get("error"))
+            or bool(sub.get("isError"))
+            or bool(sub.get("is_error"))
+            or str(sub.get("status", "")).strip().lower() in ("error", "failed")
+        ):
+            return True
+    return False
 
 
 def _handle_post_tool_run_command(
@@ -145,7 +177,6 @@ def _handle_post_tool_run_command(
     result_keys = ("toolResponse", "result", "toolOutput", "toolResult", "tool_result")
     raw_out = str(next((payload.get(k) for k in result_keys if payload.get(k) is not None), "") or "")
     detached = check_background_task_detachment(tool_name, tool_args, raw_out, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
-    check_shell_command_mutation(cmd, cwd=cwd, conv_id=conv_id, state_dir=state_dir, turn_id=turn_id)
     exit_code = extract_exit_code(payload)
     if exit_code is None:
         has_nested_err = any(
@@ -166,6 +197,8 @@ def _handle_post_tool_run_command(
             and any(k in payload for k in result_keys)
         ):
             exit_code = 0
+    if exit_code == 0 or (exit_code is None and not payload.get("error")):
+        check_shell_command_mutation(cmd, cwd=cwd, conv_id=conv_id, state_dir=state_dir, turn_id=turn_id)
     if exit_code is not None and cmd:
         check_command_verification(cmd, exit_code=exit_code, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
         if is_mutation_test_command(cmd):
@@ -211,10 +244,12 @@ def _handle_tool_call_event(
             state["active_turn_id"] = turn_id
             save_state(state, conv_id=conv_id, state_dir=state_dir)
 
+    pre_advisory: str | None = None
     if not is_post:
         pre_check = check_pre_tool_use(tool_name=tool_name, tool_args=tool_args, payload=payload, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
         if pre_check.get("decision") == "deny":
             return pre_check
+        pre_advisory = pre_check.get("advisory")
 
     if tool_name in CODE_MUTATION_TOOLS:
         target = (
@@ -226,14 +261,19 @@ def _handle_tool_call_event(
             or tool_args.get("path", "")
         )
         if target:
-            record_edit(target, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
+            if not is_post:
+                if not _is_pre_tool_denied_by_guards(tool_name, tool_args, payload, cwd):
+                    record_edit(target, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
+            elif not _post_tool_has_error(payload):
+                record_edit(target, conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id)
     elif tool_name in ("run_command", "execute_command", "bash"):
         cmd = tool_args.get("CommandLine") or tool_args.get("command") or ""
         if not is_post and cmd:
             deny = _handle_pre_tool_commit_gate(cmd, payload, conv_id, state_dir, cwd)
             if deny is not None:
                 return deny
-            check_shell_command_mutation(cmd, cwd=cwd, conv_id=conv_id, state_dir=state_dir, turn_id=turn_id)
+            if not _is_pre_tool_denied_by_guards(tool_name, tool_args, payload, cwd):
+                check_shell_command_mutation(cmd, cwd=cwd, conv_id=conv_id, state_dir=state_dir, turn_id=turn_id)
         elif is_post:
             _handle_post_tool_run_command(tool_name, tool_args, payload, cmd, conv_id, state_dir, cwd, turn_id)
 
@@ -260,6 +300,8 @@ def _handle_tool_call_event(
 
         handle_post_tool_use(tool_name, tool_args, res_dict, conv_id=conv_id, state_dir=state_dir)
         return {}
+    if pre_advisory:
+        return {"decision": "allow", "advisory": pre_advisory}
     return {"decision": "allow"}
 
 

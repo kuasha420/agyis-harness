@@ -109,7 +109,7 @@ def is_pre_invocation_context(hook_name: str, payload_str: Optional[str] = None)
                     return True
                 if "invocationNum" in data or "invocation_num" in data:
                     return True
-        except Exception:
+        except (json.JSONDecodeError, ValueError, TypeError):
             pass
 
     return False
@@ -125,6 +125,8 @@ def is_post_tool_use_context(hook_name: str, payload_str: Optional[str] = None) 
 
     normalized = (hook_name or "").strip().lower().replace("_", "-")
     canonical = ALIASES.get(normalized, normalized)
+    if normalized in ("stop", "stop-fence"):
+        return False
     if canonical == "compactor" or normalized.startswith("post-"):
         return True
 
@@ -132,12 +134,16 @@ def is_post_tool_use_context(hook_name: str, payload_str: Optional[str] = None) 
         try:
             data = json.loads(payload_str)
             if isinstance(data, dict):
-                event = str(data.get("hookEventName") or data.get("hookEvent") or data.get("hook_event") or data.get("event") or "").strip().lower()
-                if "pre" in event:
+                event = str(
+                    data.get("hookEventName")
+                    or data.get("hookEvent")
+                    or data.get("hook_event")
+                    or data.get("event")
+                    or ""
+                ).strip().lower()
+                if "pre" in event or "stop" in event:
                     return False
                 if "post" in event:
-                    return True
-                if "error" in data:
                     return True
                 if (
                     "toolResponse" in data
@@ -146,13 +152,24 @@ def is_post_tool_use_context(hook_name: str, payload_str: Optional[str] = None) 
                     or "tool_output" in data
                     or "toolResult" in data
                     or "tool_result" in data
-                    or "result" in data
-                    or "response" in data
                 ):
                     return True
-                if "exitCode" in data or "exit_code" in data or "output" in data:
+                # Only treat generic keys like error/result/response/exitCode/output
+                # as PostToolUse when tied to a tool call and not an explicit Stop payload.
+                if (
+                    data.get("action") == "evaluate_stop"
+                    or "stopReason" in data
+                    or "stop_reason" in data
+                ):
+                    return False
+                has_tool_call = any(
+                    k in data for k in ("toolCall", "tool_call", "toolName", "tool_name")
+                )
+                if has_tool_call and any(
+                    k in data for k in ("error", "result", "response", "exitCode", "exit_code", "output")
+                ):
                     return True
-        except Exception:
+        except (json.JSONDecodeError, ValueError, TypeError):
             pass
 
     return False
@@ -191,7 +208,8 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
                         payload_str = sys.stdin.read(10_485_760)
                 else:
                     payload_str = ""
-            except Exception:
+            except Exception as exc:
+                sys.stderr.write(f"[PSL HOOK RUNNER] Failed reading stdin for '{hook_name}': {exc}\n")
                 payload_str = ""
         elif isinstance(payload_str, (bytes, bytearray)):
             if len(payload_str) > 10_485_760:
@@ -205,10 +223,12 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
         if is_post:
             try:
                 data = json.loads(payload_str) if payload_str else {}
-                if isinstance(data, dict) and "hookEventName" not in data and "hookEvent" not in data and "event" not in data:
+                if isinstance(data, dict) and not any(
+                    k in data for k in ("hookEventName", "hookEvent", "hook_event", "event")
+                ):
                     data["hookEvent"] = "PostToolUse"
                     payload_str = json.dumps(data)
-            except Exception:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 pass
 
         sys.stdin = io.StringIO(payload_str)

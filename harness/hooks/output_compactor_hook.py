@@ -29,7 +29,7 @@ import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from harness.utils.state import atomic_write_json, atomic_write_text, get_state_dir
+from harness.utils.state import atomic_write_json, atomic_write_text, get_state_dir, sanitize_conv_id
 
 # Configuration Constants
 MAX_OUTPUT_CHARS = 2048
@@ -39,11 +39,32 @@ TAIL_CHARS = 1000
 PRESLICE_THRESHOLD = 200_000
 PRESLICE_CHUNK_SIZE = 100_000
 MAX_PRESERVED_DIAGNOSTIC_LINES = 50
+MAX_DIAGNOSTICS_LOG_BYTES = 262_144
 ERROR_KEYWORDS = ("exit code", "exit_code", "fatal", "error", "failure", "failed")
 
-
-
-STATE_DIR = get_state_dir()
+_NESTED_RESPONSE_KEYS = (
+    "toolResponse",
+    "tool_response",
+    "toolResult",
+    "tool_result",
+    "toolOutput",
+    "tool_output",
+    "response",
+    "result",
+)
+_OUTPUT_KEYS = (
+    "output",
+    "toolOutput",
+    "tool_output",
+    "content",
+    "toolResponse",
+    "tool_response",
+    "toolResult",
+    "tool_result",
+    "response",
+    "result",
+    "stdout",
+)
 
 
 def compact_output(
@@ -130,21 +151,68 @@ def compact_output(
     return compacted
 
 
+def _coerce_int(val: Any) -> Optional[int]:
+    """Safely coerces ints or digit strings to int, rejecting booleans."""
+    if val is None or isinstance(val, bool):
+        return None
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def _collect_status_containers(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Collects top-level payload plus nested response/result dicts (max depth 3)."""
+    containers: List[Dict[str, Any]] = []
+    queue: List[Tuple[Dict[str, Any], int]] = [(payload, 0)]
+    seen: set[int] = set()
+    while queue:
+        cur, depth = queue.pop(0)
+        obj_id = id(cur)
+        if obj_id in seen:
+            continue
+        seen.add(obj_id)
+        containers.append(cur)
+        if depth >= 3:
+            continue
+        for key in (*_NESTED_RESPONSE_KEYS, "data", "error"):
+            sub = cur.get(key)
+            if isinstance(sub, dict):
+                queue.append((sub, depth + 1))
+            elif isinstance(sub, str) and sub.lstrip().startswith("{"):
+                try:
+                    parsed = json.loads(sub)
+                    if isinstance(parsed, dict):
+                        queue.append((parsed, depth + 1))
+                except (json.JSONDecodeError, ValueError):
+                    pass
+    return containers
+
+
 def extract_output_and_status(payload: Dict[str, Any]) -> Tuple[str, int, bool]:
     """
     Extracts output string, exit code, and error status from a PostToolUse payload.
-    Supports payload fields:
-      - output, toolOutput, content, toolResponse, result, stdout
-      - error string or object
-      - exitCode, exit_code
+    Supports payload and nested response wrappers:
+      - output, toolOutput, tool_output, content, toolResponse, tool_response,
+        toolResult, tool_result, response, result, stdout
+      - error string or object, isError/is_error, status
+      - exitCode, exit_code, returncode, return_code
       - transcriptPath fallback
     """
     raw_output = ""
-    for key in ("output", "toolOutput", "content", "toolResponse", "result", "stdout"):
+    for key in _OUTPUT_KEYS:
         val = payload.get(key)
         if val is not None:
             if isinstance(val, dict):
-                raw_output = str(val.get("content") or val.get("output") or json.dumps(val))
+                text = (
+                    val.get("content")
+                    or val.get("output")
+                    or val.get("stdout")
+                    or val.get("stderr")
+                    or (val.get("result") if isinstance(val.get("result"), str) else None)
+                    or val.get("text")
+                )
+                raw_output = str(text) if text is not None else json.dumps(val)
             else:
                 raw_output = str(val)
             if raw_output:
@@ -153,7 +221,10 @@ def extract_output_and_status(payload: Dict[str, Any]) -> Tuple[str, int, bool]:
     # If output not directly in payload, attempt transcript lookup
     if not raw_output and payload.get("transcriptPath"):
         t_path = Path(payload["transcriptPath"])
-        step_idx = payload.get("stepIdx") or payload.get("step_index")
+        raw_step_idx = payload.get("stepIdx")
+        if raw_step_idx is None:
+            raw_step_idx = payload.get("step_index")
+        step_idx = _coerce_int(raw_step_idx)
         if t_path.exists() and step_idx is not None:
             try:
                 with open(t_path, encoding="utf-8", errors="replace") as f:
@@ -161,45 +232,58 @@ def extract_output_and_status(payload: Dict[str, Any]) -> Tuple[str, int, bool]:
                         if not line.strip():
                             continue
                         step_data = json.loads(line)
-                        s_idx = step_data.get("step_index")
+                        s_idx = _coerce_int(step_data.get("step_index"))
                         # Tool output is either at step_idx or step_idx + 1
                         if s_idx in (step_idx, step_idx + 1) and step_data.get("content"):
                             raw_output = str(step_data["content"])
                             break
-            except Exception:
-                pass
+            except (OSError, json.JSONDecodeError, ValueError, TypeError) as exc:
+                sys.stderr.write(f"PSL Compactor Warning: Failed reading transcript '{t_path}': {exc}\n")
 
-    # Status and exit code detection
+    # Status and exit code detection across top-level and nested response containers
     exit_code = 0
     is_error = False
+    for container in _collect_status_containers(payload):
+        if container.get("isError") is True or container.get("is_error") is True:
+            is_error = True
+            if exit_code == 0:
+                exit_code = 1
 
-    # 1. Explicit exit code
-    for code_key in ("exitCode", "exit_code"):
-        if code_key in payload and payload[code_key] is not None:
-            try:
-                exit_code = int(payload[code_key])
-                if exit_code != 0:
-                    is_error = True
-            except (ValueError, TypeError):
-                pass
+        for code_key in ("exitCode", "exit_code", "returncode", "return_code"):
+            parsed_code = _coerce_int(container.get(code_key))
+            if parsed_code is not None and parsed_code != 0:
+                exit_code = parsed_code
+                is_error = True
 
-    # 2. Error field in payload
-    error_val = payload.get("error")
-    if error_val:
-        is_error = True
-        err_str = str(error_val)
-        m = re.search(r"(?:exit status|exit code|code)\s*[:=]?\s*(\d+)", err_str, re.I)
-        if m:
-            exit_code = int(m.group(1))
-        elif exit_code == 0:
-            exit_code = 1
+        error_val = container.get("error")
+        if error_val:
+            is_error = True
+            if isinstance(error_val, dict):
+                sub_code = _coerce_int(
+                    error_val.get("exitCode")
+                    if error_val.get("exitCode") is not None
+                    else (
+                        error_val.get("exit_code")
+                        if error_val.get("exit_code") is not None
+                        else error_val.get("code")
+                    )
+                )
+                if sub_code is not None and sub_code != 0:
+                    exit_code = sub_code
+                elif exit_code == 0:
+                    exit_code = 1
+            else:
+                m = re.search(r"(?:exit status|exit code|code)\s*[:=]?\s*(\d+)", str(error_val), re.I)
+                if m:
+                    exit_code = int(m.group(1))
+                elif exit_code == 0:
+                    exit_code = 1
 
-    # 3. Status string
-    status = str(payload.get("status", "")).upper()
-    if status in ("ERROR", "FAILED"):
-        is_error = True
-        if exit_code == 0:
-            exit_code = 1
+        status = str(container.get("status", "")).strip().upper()
+        if status in ("ERROR", "FAILED", "FAIL", "FAILURE"):
+            is_error = True
+            if exit_code == 0:
+                exit_code = 1
 
     # 4. Content-based exit code detection
     if raw_output:
@@ -222,8 +306,13 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
     Processes the hook payload, executes compaction, caches state, and returns metrics.
     """
     target_state_dir = state_dir or get_state_dir()
-    conv_id = str(payload.get("conversationId") or "default")
-    step_idx = payload.get("stepIdx", payload.get("step_index", 0))
+    conv_id = sanitize_conv_id(payload.get("conversationId") or payload.get("conversation_id"), default="default")
+    raw_step = payload.get("stepIdx")
+    if raw_step is None:
+        raw_step = payload.get("step_index")
+    step_idx = _coerce_int(raw_step)
+    if step_idx is None:
+        step_idx = 0
     tool_call = payload.get("toolCall", {})
     tool_name = tool_call.get("name", "unknown") if isinstance(tool_call, dict) else "unknown"
 
@@ -251,8 +340,8 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
     # Cache state and diagnostics safely
     try:
         target_state_dir.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
+    except OSError as exc:
+        sys.stderr.write(f"PSL Compactor Warning: Failed creating state dir '{target_state_dir}': {exc}\n")
 
     try:
         # Write latest compaction metadata
@@ -264,16 +353,19 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
             atomic_write_text(target_state_dir / f"compacted_{conv_id}_{step_idx}.txt", compacted, encoding="utf-8")
             atomic_write_text(target_state_dir / "last_compacted_output.txt", compacted, encoding="utf-8")
 
-        # Append to diagnostic log
+        # Append to bounded diagnostic log (rotate at MAX_DIAGNOSTICS_LOG_BYTES)
+        log_path = target_state_dir / "compactor_diagnostics.log"
+        if log_path.is_file() and log_path.stat().st_size >= MAX_DIAGNOSTICS_LOG_BYTES:
+            os.replace(log_path, target_state_dir / "compactor_diagnostics.log.1")
         log_line = (
             f"[{record['timestamp']}] [{conv_id}] Step {step_idx} ({tool_name}): "
             f"{len(raw_output)} -> {len(compacted)} chars (saved {saved_chars}, "
             f"exit={exit_code}, compacted={was_compacted})\n"
         )
-        with open(target_state_dir / "compactor_diagnostics.log", "a", encoding="utf-8") as f:
+        with open(log_path, "a", encoding="utf-8") as f:
             f.write(log_line)
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"PSL Compactor Warning: Failed persisting compactor state: {exc}\n")
 
     return record
 
@@ -293,8 +385,8 @@ def main() -> None:
         if record.get("wasCompacted"):
             print(json.dumps({"overwriteResult": record["compactedOutput"]}))
             return
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"PSL Compactor Warning: Unhandled exception in compactor main: {exc}\n")
 
     # PostToolUse contract expects an empty JSON object when not modifying output
     print(json.dumps({}))

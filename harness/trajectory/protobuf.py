@@ -278,6 +278,9 @@ def _parse_cwm(buf: bytes) -> Tuple[int, int]:
     return est, mct
 
 
+_PB_UINT64_SENTINEL: int = (1 << 63) - 1  # Filters unsigned -1 (0xFFFFFFFFFFFFFFFF = 18446744073709551615)
+
+
 def _parse_csm(buf: bytes) -> Tuple[int, int, int]:
     """Parses chatStartMetadata -> (checkpoint_idx, estimatedTokensUsed, maxContextTokens)."""
     fields = parse_pb_fields(buf)
@@ -285,9 +288,9 @@ def _parse_csm(buf: bytes) -> Tuple[int, int, int]:
         return 0, 0, 0
     ckpt_fn1 = ckpt_fn2 = est = mct = 0
     for fn, wt, val in fields:
-        if fn == 1 and wt == 0 and isinstance(val, int) and val > 0:
+        if fn == 1 and wt == 0 and isinstance(val, int) and 0 < val < _PB_UINT64_SENTINEL:
             ckpt_fn1 = val
-        elif fn == 2 and wt == 0 and isinstance(val, int) and val > 0:
+        elif fn == 2 and wt == 0 and isinstance(val, int) and 0 < val < _PB_UINT64_SENTINEL:
             ckpt_fn2 = val
         elif fn == 10 and wt == 2 and isinstance(val, bytes):
             c_est, c_mct = _parse_cwm(val)

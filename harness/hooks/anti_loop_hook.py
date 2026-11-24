@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import re
 import sys
+from typing import Any
 
 from harness.trajectory.health import (
     ROLE_DEEP_EXECUTION,
@@ -30,7 +31,17 @@ from harness.trajectory.health import (
 from harness.trajectory.sqlite_reader import resolve_epoch_step_count
 from harness.utils.state import get_state_dir, load_history, save_history
 
-EXPLORATORY_SWEEP_TOOLS: frozenset[str] = frozenset({"list_dir", "find_by_name"})
+EXPLORATORY_SWEEP_TOOLS: frozenset[str] = frozenset({
+    "list_dir",
+    "find_by_name",
+    "grep_search",
+    "find_files",
+    "list_files",
+    "search_files",
+})
+_EXPLORATORY_SHELL_BINS: frozenset[str] = frozenset({
+    "ls", "find", "fd", "fdfind", "rg", "grep", "egrep", "fgrep", "tree", "du", "ag", "ack",
+})
 STEP_INTERRUPT_THRESHOLD: int = SOFT_EPOCH_STEP_ADVISORY
 EXECUTIONER_HORIZON_STEPS: int = SOFT_EPOCH_STEP_ADVISORY
 _normalize_role_str = normalize_role_str
@@ -48,7 +59,15 @@ MAX_TASK_INSPECTION_CONSECUTIVE = 2
 MAX_TASK_INSPECTION_WINDOW_FREQUENCY = 3
 TASK_INSPECTION_WINDOW = 10
 
-CODE_EDIT_TOOLS = frozenset({"write_file", "edit_file", "write_to_file", "replace_file_content", "multi_replace_file_content"})
+CODE_EDIT_TOOLS = frozenset({
+    "write_file",
+    "edit_file",
+    "create_file",
+    "insert_edit_into_file",
+    "write_to_file",
+    "replace_file_content",
+    "multi_replace_file_content",
+})
 
 TEST_VERIFICATION_PATTERNS = (
     r"(?:^|[\s;&|])(?:\./)?agyis\s+test\b",
@@ -210,7 +229,27 @@ def _is_manage_task_status(sig: dict) -> bool:
     args = sig.get("args")
     if not isinstance(args, dict):
         return False
-    return args.get("Action") == "status"
+    action = str(args.get("Action") or args.get("action") or "").strip().lower()
+    return action == "status"
+
+
+def _is_exploratory_sweep(tool_name: str, tool_args: Any) -> bool:
+    """Detects legacy exploratory sweep tools and v2.34+ run_command sweep invocations."""
+    if tool_name in EXPLORATORY_SWEEP_TOOLS:
+        return True
+    if tool_name == "run_command" and isinstance(tool_args, dict):
+        cmd = str(tool_args.get("CommandLine") or tool_args.get("command") or "").strip()
+        if not cmd:
+            return False
+        for tok in cmd.split():
+            if "=" in tok and not tok.startswith("-"):
+                continue
+            if tok in ("sudo", "env", "time", "command", "nohup"):
+                continue
+            if tok.startswith("-"):
+                continue
+            return tok.split("/")[-1] in _EXPLORATORY_SHELL_BINS
+    return False
 
 
 def _is_task_log_inspection(sig: dict) -> bool:
@@ -220,7 +259,12 @@ def _is_task_log_inspection(sig: dict) -> bool:
     if not isinstance(args, dict):
         return False
     if name in ("view_file", "read_file"):
-        path = str(args.get("AbsolutePath") or args.get("Path") or args.get("path") or args.get("file_path") or "")
+        path = ""
+        for key in PATH_KEYS:
+            val = args.get(key)
+            if isinstance(val, str) and val.strip():
+                path = val.strip()
+                break
         return (
             ".system_generated/tasks" in path
             or ".system_generated/logs" in path
@@ -248,6 +292,11 @@ def _is_task_log_inspection(sig: dict) -> bool:
     return False
 
 
+def _is_background_poll(sig: dict) -> bool:
+    """Returns True for background task log inspections or manage_task(Action='status') polls."""
+    return _is_task_log_inspection(sig) or _is_manage_task_status(sig)
+
+
 def check_anti_loop(
     tool_name: str,
     tool_args: dict,
@@ -271,12 +320,12 @@ def check_anti_loop(
       production code directories (harness/, src/, crates/, tests/).
     - Verification Reset Invariant: Code edits clear test runner frequency/repeats counters.
     - Idempotent Status Command Relaxation: git status, git branch, stat, pwd allow up to at least 8 executions.
-    - Non-Blocking Advisory: manage_task(Action='status') returns non-blocking advisory allow.
+    - Strict Background Polling Rate Limit: manage_task(Action='status') emits a non-blocking
+      advisory on the first 2 calls and denies at >= 3 consecutive or >= 3 in a 10-call window.
 
     Soft Epoch Horizon Advisory (Issue #109):
     - When role is ROLE_DEEP_EXECUTION and epoch step_count >= SOFT_EPOCH_STEP_ADVISORY (80),
-      exploratory sweep tools (list_dir, find_by_name) emit a non-blocking stderr advisory
-      encouraging targeted symbol lookups without blocking execution.
+      exploratory sweep tools emit a soft horizon advisory encouraging targeted lookups without blocking.
 
     Returns:
         {"decision": "allow"} or {"decision": "deny", "reason": ...}
@@ -295,20 +344,22 @@ def check_anti_loop(
 
     norm_role = _normalize_role_str(effective_role)
 
+    advisory_msg: str | None = None
     # Soft epoch horizon advisory (Issue #109 — never hard-block healthy agents on step count alone)
-    if tool_name in EXPLORATORY_SWEEP_TOOLS:
+    if _is_exploratory_sweep(tool_name, tool_args):
         if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_EPOCH_STEP_ADVISORY:
-            sys.stderr.write(
+            advisory_msg = (
                 f"[EPOCH HORIZON: {effective_step}/{SOFT_EPOCH_STEP_ADVISORY} STEPS] "
-                "Extended epoch reached — prefer targeted symbol lookups over broad sweeps.\n"
+                "Extended epoch reached — prefer targeted symbol lookups over broad sweeps."
             )
+            sys.stderr.write(advisory_msg + "\n")
             sys.stderr.flush()
 
     target_dir = state_dir or get_state_dir()
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
+    except OSError as exc:
+        sys.stderr.write(f"PSL Anti-Loop Warning: Failed creating state dir '{target_dir}': {exc}\n")
 
     history = load_history(conv_id, target_dir=target_dir)
 
@@ -321,34 +372,21 @@ def check_anti_loop(
         history = history[-HISTORY_WINDOW:]
         try:
             save_history(conv_id, history, target_dir=target_dir)
-        except OSError:
-            pass
-        return {"decision": "allow"}
+        except OSError as exc:
+            sys.stderr.write(f"PSL Anti-Loop Warning: Failed saving history: {exc}\n")
+        return {"decision": "allow", **({"advisory": advisory_msg} if advisory_msg else {})}
 
-    # -2. Non-Blocking Advisory for Background Tasks: manage_task(Action='status')
-    if _is_manage_task_status(sig):
-        history.append(sig)
-        history = history[-HISTORY_WINDOW:]
-        try:
-            save_history(conv_id, history, target_dir=target_dir)
-        except OSError:
-            pass
-        return {
-            "decision": "allow",
-            "reason": "Advisory: Background tasks notify reactively upon exit. Avoid polling status to conserve steps.",
-        }
-
-    # -3. Verification Reset Invariant:
+    # -2. Verification Reset Invariant:
     # When any code edit tool is called, automatically clear/reset the
     # sliding-window frequency counters or history for test verification commands.
     if _is_code_edit(sig):
         history = [item for item in history if not _is_test_verification_command(item)]
 
-    # 0. Background task log polling check (prevents manual background task sniffing loops)
-    if _is_task_log_inspection(sig):
+    # 0. Background task polling check (strictly denies >= 3 consecutive or >= 3 in 10-call window)
+    if _is_background_poll(sig):
         consecutive_inspections = 0
         for prev in reversed(history):
-            if _is_task_log_inspection(prev):
+            if _is_background_poll(prev):
                 consecutive_inspections += 1
             else:
                 break
@@ -363,7 +401,7 @@ def check_anti_loop(
             }
 
         window_tasks = (history + [sig])[-TASK_INSPECTION_WINDOW:]
-        freq_tasks = sum(1 for item in window_tasks if _is_task_log_inspection(item))
+        freq_tasks = sum(1 for item in window_tasks if _is_background_poll(item))
         if freq_tasks >= MAX_TASK_INSPECTION_WINDOW_FREQUENCY:
             return {
                 "decision": "deny",
@@ -372,6 +410,18 @@ def check_anti_loop(
                     f"within sliding window of {len(window_tasks)} calls. "
                     "Never poll background task logs or status. Stop calling tools and await reactive wakeup."
                 ),
+            }
+
+        if _is_manage_task_status(sig):
+            history.append(sig)
+            history = history[-HISTORY_WINDOW:]
+            try:
+                save_history(conv_id, history, target_dir=target_dir)
+            except OSError as exc:
+                sys.stderr.write(f"PSL Anti-Loop Warning: Failed saving history: {exc}\n")
+            return {
+                "decision": "allow",
+                "reason": "Advisory: Background tasks notify reactively upon exit. Avoid polling status to conserve steps.",
             }
 
     # 1. Consecutive matching signatures from end
@@ -459,10 +509,10 @@ def check_anti_loop(
     history = history[-HISTORY_WINDOW:]
     try:
         save_history(conv_id, history, target_dir=target_dir)
-    except OSError:
-        pass
+    except OSError as exc:
+        sys.stderr.write(f"PSL Anti-Loop Warning: Failed saving history: {exc}\n")
 
-    return {"decision": "allow"}
+    return {"decision": "allow", **({"advisory": advisory_msg} if advisory_msg else {})}
 
 
 def evaluate_tool_call(
@@ -516,8 +566,9 @@ def main() -> None:
         if not isinstance(payload, dict):
             print(json.dumps({"decision": "allow"}))
             return
-    except Exception:
+    except Exception as exc:
         # Default allow if input cannot be read
+        sys.stderr.write(f"PSL Anti-Loop Warning: Failed parsing stdin payload: {exc}\n")
         print(json.dumps({"decision": "allow"}))
         return
 

@@ -101,7 +101,7 @@ def inspect_git_state(workspace_dir: Union[Path, str]) -> GitState:
         try:
             res = subprocess.run(["git"] + args, cwd=str(ws), capture_output=True, text=True, timeout=1.5, check=False)
             return res.stdout.rstrip("\r\n")
-        except Exception:
+        except (subprocess.SubprocessError, OSError):
             return ""
 
     modified: List[str] = []
@@ -184,12 +184,13 @@ def collect_active_subagents(
     try:
         from harness.subagents.heartbeat import read_stage_heartbeat
         heartbeat_meta = read_stage_heartbeat(workspace_dir=ws)
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS CHECKPOINT] Failed reading stage heartbeat: {exc}\n")
 
     try:
         statuses = list_active_subagent_statuses(brain_dir=b_dir, root_conv_id=eff_parent)
-    except Exception:
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS CHECKPOINT] Failed listing active subagent statuses: {exc}\n")
         statuses = []
 
     entries: List[SubagentEntry] = []
@@ -364,9 +365,14 @@ def generate_compaction_checkpoint(
     active_artifact_brain = brain_dir or (cand_session_brain if cand_session_brain and cand_session_brain.is_dir() else None)
 
     git_state = inspect_git_state(ws)
+    subagent_brain = (
+        Path(brain_dir).parent
+        if (brain_dir is not None and raw_sess and Path(brain_dir).name == raw_sess)
+        else brain_dir
+    )
     subagents = collect_active_subagents(
         ws,
-        brain_dir=brain_dir,
+        brain_dir=subagent_brain,
         session_id=session_id if brain_dir is not None else raw_sess,
     )
     artifacts = collect_active_artifacts(ws, brain_dir=active_artifact_brain)
@@ -465,8 +471,8 @@ def generate_compaction_checkpoint(
         prune_stale_checkpoints(out_dir)
         if output_path is None:
             prune_stale_checkpoints(ws / ".agents" / "artifacts")
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS CHECKPOINT] Failed pruning stale checkpoints: {exc}\n")
 
     return CheckpointResult(content=markdown, output_path=out_file, latest_path=out_file, elapsed_ms=(time.perf_counter() - t0) * 1000.0)
 

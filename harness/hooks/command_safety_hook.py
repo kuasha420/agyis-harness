@@ -53,7 +53,13 @@ DANGEROUS_PATTERNS = [
 ]
 INTERACTIVE_COMMANDS = ["nano", "vim", "vi", "emacs", "less", "more", "top", "htop", "glances"]
 USER_TOOLCHAINS = ("agyis", "psl", "knot", "uv", "pnpm", "npm", "npx", "cargo", "rustc", "pytest", "ruff", "black", "mypy", "flake8", "tsc", "rea")
-USER_TOOLCHAIN_REGEX = re.compile(r"(?:^|[;&|]\s*|\b(?:sudo|xargs|nohup|exec|env|time|command)(?:\s+-[^\s]+)*\s+)\s*(?:/[^\s]+/)?\b(" + "|".join(USER_TOOLCHAINS) + r")\b")
+USER_TOOLCHAIN_REGEX = re.compile(
+    r"(?:^|[;&|]\s*|\b(?:sudo|xargs|nohup|exec|env|time|command)(?:\s+-[^\s]+)*\s+)"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|\"[^\"]*\"|[^\s]*)\s+)*"
+    r"(?:/[^\s]+/)?\b(" + "|".join(USER_TOOLCHAINS) + r")\b"
+)
+_EXPLICIT_PATH_ASSIGN_RE = re.compile(r"(?:^|[\s;|&])PATH=")
+_QUOTED_STR_RE = re.compile(r"'[^']*'|\"(?:\\.|[^\"])*\"")
 COMMON_PACKAGE_SUGGESTIONS: Dict[str, str] = {
     "pnpm": "Install pnpm via 'npm install -g pnpm' or Corepack: 'corepack enable pnpm'.",
     "pawthy": "Verify pawthy installation or check PATH in ~/.local/bin.",
@@ -78,8 +84,8 @@ INLINE_INTERPRETER_CONFIGS: List[Tuple[str, Any, str, str]] = [
 ]
 INLINE_INTERPRETER_PATTERNS = [cfg[1] for cfg in INLINE_INTERPRETER_CONFIGS]
 INLINE_SCRIPT_DENY_REASON = (
-    "[PSL-INV-002 VIOLATION] Multi-line or complex inline script detected (>250 chars or newlines). "
-    "In accordance with PSL-INV-002 §4, write multi-line scripts to a temporary scratch file "
+    "[PSL-INV-003 VIOLATION] Multi-line or complex inline script detected (>250 chars or newlines). "
+    "In accordance with PSL-INV-003, write multi-line scripts to a temporary scratch file "
     "('scratch/probe.py' or 'scratch/probe.sh') and execute the script file instead of fragile multi-line shell escaping."
 )
 PAUSE_GATE_FILES = (Path(".agents/artifacts/pause_gate.json"), Path(".pause_gate"), Path(".agents/artifacts/PARKED_STATE.md"), Path(".agents/teamwork/PARKED_STATE.md"))
@@ -89,7 +95,13 @@ REA_SEARCH_TOOLS: frozenset[str] = frozenset({"search_strings", "search_procedur
 REA_BYTE_TOOLS: frozenset[str] = frozenset({"read_bytes"})
 REA_INSPECTION_TOOLS: frozenset[str] = frozenset({"inspect_native_instruction", "goto_address", "address_name", "address_to_file_offset"})
 FILE_PATH_TOOLS: frozenset[str] = frozenset({"open_binary", "binary_overview"})
-RUN_COMMAND_ALLOWED_KEYS: frozenset[str] = frozenset({"CommandLine", "WaitMsBeforeAsync", "IsDaemon", "toolSummary"})
+RUN_COMMAND_ALLOWED_KEYS: frozenset[str] = frozenset({
+    "CommandLine",
+    "WaitMsBeforeAsync",
+    "IsDaemon",
+    "toolSummary",
+    "NotificationTimeoutSeconds",
+})
 
 _ACTIVE_CONVO_ID: Optional[str] = None
 
@@ -146,7 +158,8 @@ def get_user_path_shims() -> List[str]:
 
 def inject_path_shims(cmd: str) -> Tuple[str, bool]:
     """Prepends keyword-safe `export PATH="<shims>:$PATH"; <cmd>` for user toolchains."""
-    if not cmd.strip() or "PATH=" in cmd or not USER_TOOLCHAIN_REGEX.search(cmd):
+    has_path = bool(_EXPLICIT_PATH_ASSIGN_RE.search(_QUOTED_STR_RE.sub("__Q__", cmd)))
+    if not cmd.strip() or has_path or not USER_TOOLCHAIN_REGEX.search(cmd):
         return cmd, False
     shims = get_user_path_shims()
     cand_names = (".local/bin", ".cargo/bin", ".local/share/pnpm", ".npm-global/bin", ".pyenv/shims")
@@ -257,14 +270,14 @@ def promote_inline_script_to_scratch(cmd: str, workspace_dir: Optional[Path] = N
             script_hash = hashlib.sha256(script_body.encode("utf-8")).hexdigest()[:8]
             target_file, exec_path = resolve_scratch_target_path(ext, script_hash, workspace_dir)
             header = "//" if ext == ".js" else "#"
-            target_file.write_text(f"{header} Transparently promoted by PSL command_safety_hook (PSL-INV-002)\n{script_body}\n", encoding="utf-8")
+            target_file.write_text(f"{header} Transparently promoted by PSL command_safety_hook (PSL-INV-003)\n{script_body}\n", encoding="utf-8")
             if ext == ".sh":
                 target_file.chmod(target_file.stat().st_mode | 0o755)
             promoted_paths.append(exec_path)
             replace_start = match.start() + match.group(0)[: match.start(1) - match.start()].rfind(flag)
             modified_cmd = modified_cmd[:replace_start] + exec_path + modified_cmd[match.end() :]
         hint = (
-            f"[AGYIS COGNITIVE HINT] In accordance with PSL-INV-002 §4, your inline script was "
+            f"[AGYIS COGNITIVE HINT] In accordance with PSL-INV-003, your inline script was "
             f"transparently promoted to '{promoted_paths[-1]}' and executed. For subsequent complex scripts, "
             "author directly into temporary scratch files."
         )
@@ -283,8 +296,8 @@ def check_inline_script_hygiene(
     return promote_inline_script_to_scratch(cmd, workspace_dir=workspace_dir) if route_to_promotion else ("deny", INLINE_SCRIPT_DENY_REASON)
 
 
-def split_shell_pipes(cmd: str) -> Tuple[List[str], bool]:
-    """Splits command into pipeline segments respecting quotes, returning (segments, has_control_flow)."""
+def split_shell_pipes(cmd: str, split_compound: bool = False) -> Tuple[List[str], bool]:
+    """Splits command into pipeline (or compound) segments respecting quotes, returning (segments, has_control_flow)."""
     segments: List[str] = []
     cur: List[str] = []
     in_s = in_d = esc = has_cf = False
@@ -299,30 +312,56 @@ def split_shell_pipes(cmd: str) -> Tuple[List[str], bool]:
             cur.append(c); in_s = not in_s
         elif c == '"' and not in_s:
             cur.append(c); in_d = not in_d
-        elif not in_s and not in_d and c in (";", "&"):
-            has_cf = True; cur.append(c)
+        elif not in_s and not in_d and c in (";", "&", "\n"):
+            if c == "\n" and not split_compound:
+                cur.append(c)
+            else:
+                has_cf = True
+                if split_compound:
+                    if c == "&" and i + 1 < n and cmd[i + 1] == "&":
+                        i += 1
+                    seg = "".join(cur).strip()
+                    if seg:
+                        segments.append(seg)
+                    cur = []
+                else:
+                    cur.append(c)
         elif not in_s and not in_d and c == "|" and i + 1 < n and cmd[i + 1] == "|":
-            has_cf = True; cur.extend("||"); i += 2; continue
+            has_cf = True
+            if split_compound:
+                seg = "".join(cur).strip()
+                if seg:
+                    segments.append(seg)
+                cur = []
+            else:
+                cur.extend("||")
+            i += 2; continue
         elif not in_s and not in_d and c == "|":
-            segments.append("".join(cur).strip()); cur = []
+            seg = "".join(cur).strip()
+            if seg or not split_compound:
+                segments.append(seg)
+            cur = []
         else:
             cur.append(c)
         i += 1
-    if cur:
-        segments.append("".join(cur).strip())
-    if not in_s and not in_d and re.search(r"\b(?:if|then|else|fi|test)\b|\[\s*\[?", cmd):
+    tail = "".join(cur).strip()
+    if tail or (cur and not split_compound):
+        segments.append(tail)
+    if split_compound and re.match(r"^(?:for|if|while|until|case)\b|^[{(]", cmd.lstrip()):
+        has_cf = True
+    elif not split_compound and not in_s and not in_d and re.search(r"\b(?:if|then|else|fi|test)\b|\[\s*\[?", cmd):
         has_cf = True
     return segments, has_cf
 
 
 def should_sanitize_grep_or_diff(cmd: str) -> bool:
-    """Returns True if cmd is a simple standalone grep/diff pipeline eligible for remote exit-1 guard."""
-    if re.search(r"\|\|\s*(?:true|:|\s*\[\s*\\?\$\?\s*-eq\s*1\s*\])\b", cmd):
+    """Returns True if cmd is a simple standalone grep/diff/rg pipeline eligible for exit-1 guard."""
+    if re.search(r"\|\|\s*(?:true|:|\[\s*\\?\$\?\s*-eq\s*1\s*\])(?:\s|$|;|&)", cmd):
         return False
     segments, has_cf = split_shell_pipes(cmd)
     if has_cf or not segments or not segments[-1].split():
         return False
-    return segments[-1].split()[0].split("/")[-1] in ("grep", "egrep", "fgrep", "diff", "pgrep")
+    return extract_command_binary(segments[-1]) in ("grep", "egrep", "fgrep", "diff", "pgrep", "rg")
 
 
 def inject_disassembler_batch_flags(cmd: str) -> Tuple[str, bool, List[str]]:
@@ -372,7 +411,8 @@ def inject_rea_dirtyroom_env(cmd: str, workspace_dir: Optional[Path] = None) -> 
             f"AGYIS_DIRTYROOM={shlex.quote(str(dr))} "
         )
         return env_prefix + cmd, True, ["injected dirtyroom REA direct-mount environment"]
-    except Exception:
+    except Exception as exc:
+        sys.stderr.write(f"PSL Command Safety Warning: Failed to resolve dirtyroom REA env: {exc}\n")
         return cmd, False, []
 
 
@@ -413,16 +453,31 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
     mod_rea, rea_env_injected, rea_reasons = inject_rea_dirtyroom_env(modified_cmd, workspace_dir=workspace_dir)
     if rea_env_injected:
         modified_cmd = mod_rea; reasons.extend(rea_reasons)
-    if first_token in ("git", "gh") and not re.search(r"--no-pager|\bPAGER=", modified_cmd):
-        modified_cmd = f"PAGER=cat {modified_cmd}"; reasons.append("enforced non-interactive PAGER=cat")
-    if re.search(r"\b(?:systemctl|journalctl|udevadm)\b", modified_cmd) and not re.search(r"--no-pager|\bSYSTEMD_PAGER=|\bPAGER=", modified_cmd):
-        modified_cmd = f"SYSTEMD_PAGER=cat {modified_cmd}"; reasons.append("enforced non-interactive SYSTEMD_PAGER=cat")
+    segments, is_compound = split_shell_pipes(modified_cmd, split_compound=True)
+    cmd_bins = [b for b in (extract_command_binary(seg) for seg in segments) if b]
+    already_has_pager = bool(re.search(r"--no-pager|\bPAGER=", modified_cmd))
+    already_has_systemd_pager = bool(re.search(r"--no-pager|\bSYSTEMD_PAGER=|\bPAGER=", modified_cmd))
+    if any(b in ("git", "gh") for b in cmd_bins) and not already_has_pager:
+        if is_compound or first_token not in ("git", "gh"):
+            modified_cmd = f"export PAGER=cat; {modified_cmd}"
+        else:
+            modified_cmd = f"PAGER=cat {modified_cmd}"
+        reasons.append("enforced non-interactive PAGER=cat")
+    if any(b in ("systemctl", "journalctl", "udevadm") for b in cmd_bins) and not already_has_systemd_pager:
+        if is_compound or first_token not in ("systemctl", "journalctl", "udevadm"):
+            modified_cmd = f"export SYSTEMD_PAGER=cat; {modified_cmd}"
+        else:
+            modified_cmd = f"SYSTEMD_PAGER=cat {modified_cmd}"
+        reasons.append("enforced non-interactive SYSTEMD_PAGER=cat")
     mod_ssh, ssh_injected = inject_ssh_timeouts(modified_cmd)
     if ssh_injected:
         modified_cmd = mod_ssh; reasons.append("injected non-blocking SSH timeout and batch mode guards")
     mod_remote, remote_injected, remote_reasons = sanitize_ssh_remote_payload(modified_cmd)
     if remote_injected:
         modified_cmd = mod_remote; reasons.extend(remote_reasons)
+    if should_sanitize_grep_or_diff(modified_cmd):
+        modified_cmd = f"{modified_cmd} || [ $? -eq 1 ]"
+        reasons.append("sanitized pattern search against benign Exit Code 1")
     mod_path, path_injected = inject_path_shims(modified_cmd)
     if path_injected:
         modified_cmd = mod_path; reasons.append("injected user-space toolchain PATH shims")
@@ -435,7 +490,7 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
                 if modified_cmd.startswith('export PATH="'):
                     modified_cmd = f'export PATH="{hb_esc}:' + modified_cmd[len('export PATH="'):]
                     reasons.append("injected hermetic CPython >= 3.12 for PEP 701 f-string safety")
-                elif "PATH=" not in modified_cmd:
+                elif not _EXPLICIT_PATH_ASSIGN_RE.search(_QUOTED_STR_RE.sub("__Q__", modified_cmd)):
                     modified_cmd = f'export PATH="{hb_esc}:$PATH"; {modified_cmd}'
                     reasons.append("injected hermetic CPython >= 3.12 for PEP 701 f-string safety")
 
@@ -504,7 +559,8 @@ def load_mcp_tool_schema(server_name: str, tool_name: str) -> Optional[Dict[str,
             try:
                 if cand.is_file():
                     return json.loads(cand.read_text(encoding="utf-8"))
-            except Exception:
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                sys.stderr.write(f"PSL Command Safety Warning: Failed to load MCP schema '{cand}': {exc}\n")
                 continue
     return None
 
@@ -520,7 +576,7 @@ def get_schema_properties(schema: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def normalize_mcp_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Tuple[str, Optional[Dict[str, Any]], Optional[str]]:
-    """Normalizes MCP tool arguments and enforces PSL-INV-009 >10MB Ghidra cache checks."""
+    """Normalizes MCP tool arguments and enforces PSL-RE-001 >10MB Ghidra cache checks."""
     is_direct_mcp = tool_name.startswith("mcp_") and "_" in tool_name[4:]
     if tool_name != "call_mcp_tool" and not is_direct_mcp:
         return ("allow", None, None)
@@ -602,6 +658,7 @@ def normalize_mcp_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Tuple[
                         if gprs:
                             has_gpr = True
                     if not has_gpr and dr:
+                        conn = None
                         try:
                             from harness.re.scaffold import get_dirtyroom_db
                             conn = get_dirtyroom_db(dr)
@@ -610,16 +667,21 @@ def normalize_mcp_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Tuple[
                                 cur.execute("SELECT 1 FROM binaries WHERE name = ? LIMIT 1", (target_p.name,))
                                 if cur.fetchone():
                                     has_gpr = True
-                                conn.close()
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            sys.stderr.write(f"PSL Command Safety Warning: Failed querying dirtyroom DB for '{target_p.name}': {exc}\n")
+                        finally:
+                            if conn is not None:
+                                try:
+                                    conn.close()
+                                except Exception:
+                                    pass
                     env_gpr = os.environ.get("REA_GHIDRA_PROJECT_DIR")
                     if not has_gpr and env_gpr and Path(env_gpr).is_dir():
                         has_gpr = any(Path(env_gpr).glob("*.gpr"))
                     if not has_gpr:
-                        return ("deny", None, f"[PSL-INV-009 VIOLATION] Target binary '{target_p.name}' is {target_p.stat().st_size / (1024 * 1024):.1f} MB (>10 MB) without a pre-analyzed Ghidra project cache. Ad-hoc decompiler analysis will exceed 180s timeout. Run 'agyis re pre-analyze {target_p.name}' or set REA_GHIDRA_PROJECT_DIR first.")
-            except Exception:
-                pass
+                        return ("deny", None, f"[PSL-RE-001 VIOLATION] Target binary '{target_p.name}' is {target_p.stat().st_size / (1024 * 1024):.1f} MB (>10 MB) without a pre-analyzed Ghidra project cache. Ad-hoc decompiler analysis will exceed 180s timeout. Run 'agyis re pre-analyze {target_p.name}' or set REA_GHIDRA_PROJECT_DIR first.")
+            except Exception as exc:
+                sys.stderr.write(f"PSL Command Safety Warning: Error checking REA Ghidra cache: {exc}\n")
 
     if reasons:
         if is_direct_mcp:
@@ -664,8 +726,13 @@ def main() -> None:
     """Hook CLI entrypoint reading toolCall JSON from stdin and emitting allow/deny/overwrite."""
     global _ACTIVE_CONVO_ID
     try:
-        payload = json.load(sys.stdin)
-    except Exception:
+        raw_stdin = sys.stdin.read()
+        if not raw_stdin.strip():
+            print(json.dumps({"decision": "allow"}))
+            return
+        payload = json.loads(raw_stdin)
+    except Exception as exc:
+        sys.stderr.write(f"PSL Command Safety Warning: Error parsing stdin payload: {exc}\n")
         print(json.dumps({"decision": "allow"}))
         return
 

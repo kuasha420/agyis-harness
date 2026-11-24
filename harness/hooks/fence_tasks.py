@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import sys
 from typing import Optional
 
 from harness.hooks.fence_classifiers import (
@@ -214,7 +215,8 @@ def sync_background_tasks(
             to_del = [k for k in pending_tests if k == task_id or k.endswith("/" + task_id)]
             for k in to_del:
                 del pending_tests[k]
-        except Exception:
+        except Exception as exc:
+            sys.stderr.write(f"PSL Fence Warning: Failed syncing task message '{msg_file}': {exc}\n")
             continue
 
     state = load_state(conv_id=conv_id, state_dir=state_dir)

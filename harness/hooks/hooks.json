@@ -2,7 +2,7 @@
   "psl-anti-drift-guard": {
     "PreToolUse": [
       {
-        "matcher": "write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|run_command",
+        "matcher": "write_file|edit_file|create_file|insert_edit_into_file|write_to_file|replace_file_content|multi_replace_file_content|run_command|invoke_subagent|swarm|run_workflow",
         "hooks": [
           {
             "type": "command",
@@ -16,7 +16,7 @@
   "psl-anti-loop-guard": {
     "PreToolUse": [
       {
-        "matcher": "read_file|view_file|grep_search|run_command|manage_task|swarm|run_workflow|write_file|edit_file|write_to_file|replace_file_content",
+        "matcher": "read_file|view_file|grep_search|list_dir|find_by_name|run_command|manage_task|swarm|run_workflow|read_board|write_file|edit_file|create_file|insert_edit_into_file|write_to_file|replace_file_content|multi_replace_file_content",
         "hooks": [
           {
             "type": "command",
@@ -58,7 +58,7 @@
   "psl-stop-verification-fence": {
     "PreToolUse": [
       {
-        "matcher": "write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|run_command|execute_command|bash",
+        "matcher": "write_file|edit_file|create_file|insert_edit_into_file|write_to_file|replace_file_content|multi_replace_file_content|run_command|execute_command|bash",
         "hooks": [
           {
             "type": "command",
@@ -70,7 +70,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "run_command|execute_command|bash|call_mcp_tool|mcp_.*",
+        "matcher": "write_file|edit_file|create_file|insert_edit_into_file|write_to_file|replace_file_content|multi_replace_file_content|run_command|execute_command|bash|call_mcp_tool|mcp_.*",
         "hooks": [
           {
             "type": "command",

@@ -30,7 +30,7 @@ from harness.trajectory.health import (
     is_transcript_checkpoint_step,
 )
 from harness.trajectory.sqlite_reader import parse_step_timestamp, read_db_trajectory_state
-from harness.utils.context import get_active_brain_dir
+from harness.utils.context import get_active_brain_dir, get_brain_dir_candidates
 from harness.utils.tokens import estimate_tokens
 
 MAX_TRANSCRIPT_CACHE: int = 64
@@ -100,17 +100,21 @@ def find_transcript_path(
                 cid = p.parts[idx - 1]
         return p, cid
 
-    b_dir = get_active_brain_dir(brain_dir)
-    convo_dir = p if p.is_dir() else (b_dir / raw)
-    cid = convo_dir.name
-    for rel in (
-        convo_dir / ".system_generated" / "logs" / "transcript_full.jsonl",
-        convo_dir / "transcript_full.jsonl",
-        convo_dir / ".system_generated" / "logs" / "transcript.jsonl",
-        convo_dir / "transcript.jsonl",
-    ):
-        if rel.is_file():
-            return rel, cid
+    if p.is_dir():
+        convo_dirs = [p]
+        cid = p.name
+    else:
+        convo_dirs = [b_dir / raw for b_dir in get_brain_dir_candidates(brain_dir)]
+        cid = Path(raw).name
+    for convo_dir in convo_dirs:
+        for rel in (
+            convo_dir / ".system_generated" / "logs" / "transcript_full.jsonl",
+            convo_dir / "transcript_full.jsonl",
+            convo_dir / ".system_generated" / "logs" / "transcript.jsonl",
+            convo_dir / "transcript.jsonl",
+        ):
+            if rel.is_file():
+                return rel, cid
     return None, cid
 
 
@@ -520,11 +524,22 @@ def discover_active_subagents(
     if not parent_cid or not str(parent_cid).strip():
         return []
 
+    norm_parent = str(parent_cid).strip()
+    candidates = get_brain_dir_candidates(brain_dir)
     b_dir = get_active_brain_dir(brain_dir)
+    if brain_dir is None:
+        for cand_b in candidates:
+            if (cand_b / norm_parent).is_dir():
+                b_dir = cand_b
+                break
+        else:
+            for cand_b in candidates:
+                if cand_b.is_dir():
+                    b_dir = cand_b
+                    break
     if not b_dir.is_dir():
         return []
 
-    norm_parent = str(parent_cid).strip()
     parent_t_path, _ = find_transcript_path(norm_parent, brain_dir=b_dir)
     spawned_map: Dict[str, str] = {}
     if parent_t_path is not None:

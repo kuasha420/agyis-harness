@@ -195,7 +195,9 @@ def infer_model_context_window(model_name: Optional[str]) -> int:
             "gemini-4-neon",
             "gemini-3.8-flash-s",
             "gemini-3.8-flash-h",
-            "gemini 3.8 flash (high)",
+            "gemini-3.8-flash-medium",
+            "gemini-3.8-flash-low",
+            "gemini 3.8 flash",
         )
     ):
         return 512_000

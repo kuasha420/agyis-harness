@@ -28,7 +28,25 @@ def get_active_app_data_dir() -> Path:
     env_brain = os.environ.get("ANTIGRAVITY_BRAIN_DIR")
     if env_brain and env_brain.strip():
         return Path(env_brain.strip()).parent
-    return Path.home() / ".gemini" / "antigravity"
+    primary = Path.home() / ".gemini" / "antigravity"
+    cli_fallback = Path.home() / ".gemini" / "antigravity-cli"
+    if not primary.exists() and cli_fallback.exists():
+        return cli_fallback
+    return primary
+
+
+def get_app_data_dir_candidates() -> List[Path]:
+    """Returns ordered Antigravity appDataDir search candidates (respecting explicit env overrides)."""
+    env_app_data = os.environ.get("ANTIGRAVITY_APP_DATA_DIR")
+    if env_app_data and env_app_data.strip():
+        return [Path(env_app_data.strip())]
+    env_brain = os.environ.get("ANTIGRAVITY_BRAIN_DIR")
+    if env_brain and env_brain.strip():
+        return [Path(env_brain.strip()).parent]
+    return [
+        Path.home() / ".gemini" / "antigravity",
+        Path.home() / ".gemini" / "antigravity-cli",
+    ]
 
 
 def detect_presence_conversation_id(
@@ -39,54 +57,54 @@ def detect_presence_conversation_id(
     <appDataDir>/presence/<cid>.lock without blocking or holding any lock.
     """
     if presence_dir is not None and str(presence_dir).strip():
-        p_dir = Path(presence_dir)
+        p_dirs = [Path(presence_dir)]
     else:
         env_presence = os.environ.get("ANTIGRAVITY_PRESENCE_DIR")
         if env_presence and env_presence.strip():
-            p_dir = Path(env_presence.strip())
+            p_dirs = [Path(env_presence.strip())]
         else:
-            p_dir = get_active_app_data_dir() / "presence"
-
-    if not p_dir.is_dir():
-        return None
+            p_dirs = [d / "presence" for d in get_app_data_dir_candidates()]
 
     locked: List[Tuple[float, str]] = []
-    try:
-        entries = list(p_dir.glob("*.lock"))
-    except OSError:
-        return None
-
-    for lock_file in entries:
-        cid = lock_file.stem.strip()
-        if not cid:
+    for p_dir in p_dirs:
+        if not p_dir.is_dir():
             continue
-        fd = -1
         try:
-            fd = os.open(str(lock_file), os.O_RDONLY)
+            entries = list(p_dir.glob("*.lock"))
+        except OSError:
+            continue
+
+        for lock_file in entries:
+            cid = lock_file.stem.strip()
+            if not cid:
+                continue
+            fd = -1
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            except BlockingIOError:
+                fd = os.open(str(lock_file), os.O_RDONLY)
                 try:
-                    mtime = lock_file.stat().st_mtime
-                except OSError:
-                    mtime = 0.0
-                locked.append((mtime, cid))
-            except OSError as exc:
-                if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES):
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                except BlockingIOError:
                     try:
                         mtime = lock_file.stat().st_mtime
                     except OSError:
                         mtime = 0.0
                     locked.append((mtime, cid))
-        except OSError:
-            continue
-        finally:
-            if fd >= 0:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES):
+                        try:
+                            mtime = lock_file.stat().st_mtime
+                        except OSError:
+                            mtime = 0.0
+                        locked.append((mtime, cid))
+            except OSError:
+                continue
+            finally:
+                if fd >= 0:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
 
     if not locked:
         return None
@@ -170,7 +188,23 @@ def get_active_brain_dir(explicit_dir: Optional[Union[Path, str]] = None) -> Pat
     if env_gemini_brain and env_gemini_brain.strip():
         return Path(env_gemini_brain.strip())
 
-    return Path.home() / ".gemini" / "antigravity" / "brain"
+    primary = Path.home() / ".gemini" / "antigravity" / "brain"
+    cli_fallback = Path.home() / ".gemini" / "antigravity-cli" / "brain"
+    if not primary.exists() and cli_fallback.exists():
+        return cli_fallback
+    return primary
+
+
+def get_brain_dir_candidates(explicit_dir: Optional[Union[Path, str]] = None) -> List[Path]:
+    """Returns ordered brain directory search candidates (respecting explicit arg/env overrides)."""
+    if explicit_dir is not None and str(explicit_dir).strip():
+        return [Path(explicit_dir)]
+    if any(
+        (os.environ.get(k) or "").strip()
+        for k in ("ANTIGRAVITY_BRAIN_DIR", "ANTIGRAVITY_APP_DATA_DIR", "GEMINI_BRAIN_DIR")
+    ):
+        return [get_active_brain_dir()]
+    return [d / "brain" for d in get_app_data_dir_candidates()]
 
 
 def get_active_workspace(explicit_ws: Optional[Union[Path, str]] = None) -> Path:
@@ -194,7 +228,7 @@ def get_active_workspace(explicit_ws: Optional[Union[Path, str]] = None) -> Path
             top_level = Path(res.stdout.strip())
             if top_level.is_dir():
                 return top_level.resolve()
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         pass
 
     return Path.cwd().resolve()
@@ -202,8 +236,10 @@ def get_active_workspace(explicit_ws: Optional[Union[Path, str]] = None) -> Path
 
 __all__ = [
     "get_active_app_data_dir",
+    "get_app_data_dir_candidates",
     "detect_presence_conversation_id",
     "get_active_conversation_id",
     "get_active_brain_dir",
+    "get_brain_dir_candidates",
     "get_active_workspace",
 ]

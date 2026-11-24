@@ -248,11 +248,24 @@ def record_verification(
             return state
 
         state["code_dirty"] = False
-        state["spec_dirty"] = False
-        state["turn_mutated"] = False
-        state["turn_modified_files"] = []
-        state["last_modified_files"] = []
-        state["block_count"] = 0
+        if tier == "full":
+            state["spec_dirty"] = False
+            state["turn_modified_files"] = []
+            state["last_modified_files"] = []
+        else:
+            # Partial/code-only tiers (diff, affected, mutation, pkg) must NOT clear unverified spec_dirty state.
+            keep_spec = bool(state.get("spec_dirty", False))
+            state["last_modified_files"] = [
+                f for f in state.get("last_modified_files", [])
+                if keep_spec and is_cleanroom_contract_file(f)
+            ]
+            state["turn_modified_files"] = [
+                f for f in state.get("turn_modified_files", [])
+                if keep_spec and is_cleanroom_contract_file(f)
+            ]
+        if not state.get("spec_dirty", False):
+            state["turn_mutated"] = False
+            state["block_count"] = 0
         state["last_verified_at"] = datetime.now(timezone.utc).isoformat()
         if tier == "mutation":  # agyis: no-mutant tier string check
             state["mutation_verified"] = True
@@ -372,13 +385,9 @@ def get_brain_dir(
             if p.is_dir():
                 return p
 
-    from harness.utils.context import get_active_brain_dir
+    from harness.utils.context import get_brain_dir_candidates
 
-    for base in (
-        get_active_brain_dir(),
-        Path.home() / ".gemini" / "antigravity" / "brain",
-        Path.home() / ".gemini" / "antigravity-cli" / "brain",
-    ):
+    for base in get_brain_dir_candidates():
         candidate = base / conv_id
         if candidate.is_dir():
             return candidate

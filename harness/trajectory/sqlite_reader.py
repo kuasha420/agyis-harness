@@ -20,6 +20,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 from harness.trajectory.health import (
@@ -40,10 +41,12 @@ from harness.trajectory.protobuf import (
     extract_usage_from_protobuf,
     iter_pb_strings,
 )
+from harness.utils.context import get_app_data_dir_candidates
 from harness.utils.tokens import estimate_tokens
 
 import time as _time
 
+_PB_UINT64_SENTINEL: int = (1 << 63) - 1
 MAX_LOCKED_CIDS: int = 256
 LOCK_EXPIRY_SECONDS: float = 2.0
 _LOCKED_CONVERSATIONS: Dict[str, float] = {}
@@ -133,11 +136,11 @@ def parse_step_timestamp(val: Any) -> Optional[float]:
             pass
         try:
             return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
-        except Exception:
+        except (ValueError, TypeError):
             pass
         try:
             return datetime.strptime(s.split(".")[0], "%Y-%m-%d %H:%M:%S").timestamp()
-        except Exception:
+        except (ValueError, TypeError):
             pass
     return None
 
@@ -160,7 +163,7 @@ def _extract_step_fields(
                 data = parsed
                 if st_val is None:
                     st_val = data.get("step_type")
-        except Exception:
+        except (json.JSONDecodeError, ValueError, TypeError):
             pass
 
     meta_raw = row[col_map["metadata"]] if "metadata" in col_map else None
@@ -176,7 +179,7 @@ def _extract_step_fields(
                 meta_json = parsed
                 if st_val is None:
                     st_val = meta_json.get("step_type")
-        except Exception:
+        except (json.JSONDecodeError, ValueError, TypeError):
             pass
     elif isinstance(meta_raw, (bytes, bytearray)):
         meta_bytes = bytes(meta_raw)
@@ -299,7 +302,7 @@ def _prompt_from_json_val(raw: Any) -> str:
             return ""
         try:
             raw = json.loads(bytes(raw).decode("utf-8", errors="replace"))
-        except Exception:
+        except (json.JSONDecodeError, ValueError, TypeError):
             return ""
     elif isinstance(raw, str):
         stripped = raw.strip()
@@ -307,7 +310,7 @@ def _prompt_from_json_val(raw: Any) -> str:
             return stripped
         try:
             raw = json.loads(stripped)
-        except Exception:
+        except (json.JSONDecodeError, ValueError, TypeError):
             return ""
     if not isinstance(raw, dict):
         return ""
@@ -364,7 +367,7 @@ def _extract_tool_from_step(parsed: Dict[str, Any]) -> Optional[Tuple[str, str]]
                         tn = d.get("tool_name") or d.get("tool") or d.get("name")
                         args = d.get("arguments") or d.get("command") or d.get("args") or ""
                         return str(tn), str(args)
-                except Exception:
+                except (json.JSONDecodeError, ValueError, TypeError):
                     pass
             else:
                 tn, args = extract_tool_from_protobuf(raw_b)
@@ -398,14 +401,15 @@ def _read_gen_metadata(cursor: sqlite3.Cursor, tables: set[str]) -> Tuple[int, i
                     est = est or c_est or (int(t) if isinstance(t, (int, float)) else 0)
                     mct = mct or c_mct
                     model = model or str(d.get("model") or "")
-            except Exception:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 pass
         elif isinstance(raw, (bytes, bytearray)):
             gm = extract_usage_from_protobuf(bytes(raw))
             est = est or gm.estimated_tokens
             mct = mct or gm.max_context_tokens
             usage = usage or gm.total_prompt_tokens
-            ckpt_idx = ckpt_idx or gm.checkpoint_idx
+            if 0 < gm.checkpoint_idx < _PB_UINT64_SENTINEL:
+                ckpt_idx = ckpt_idx or gm.checkpoint_idx
             model = model or gm.model_name
             if not tb_extras and len(raw) > 5000:
                 tb = extract_token_breakdown_from_protobuf(bytes(raw))
@@ -475,9 +479,11 @@ def read_db_trajectory_state(
             or os.environ.get("GEMINI_CONVERSATIONS_DIR")
             or os.environ.get("ANTIGRAVITY_APP_DATA_DIR")
         ):
-            cli_cand = Path.home() / ".gemini" / "antigravity-cli" / "conversations" / f"{norm_cid}.db"
-            if cli_cand.is_file():
-                db_path = cli_cand
+            for app_dir in get_app_data_dir_candidates():
+                cand_db = app_dir / "conversations" / f"{norm_cid}.db"
+                if cand_db.is_file():
+                    db_path = cand_db
+                    break
         if not db_path.is_file():
             cand = Path(conversation_id)
             if cand.is_file():
@@ -645,7 +651,12 @@ def read_db_trajectory_state(
         if auth_tokens > 0:
             active_tokens = auth_tokens
         elif latest_cp_row is not None:
-            gen_for_new_epoch = gen_ckpt_idx >= latest_cp_idx and (gen_ckpt_idx > 0 or len(epoch_parsed) > 0)
+            valid_gen_ckpt = 0 <= gen_ckpt_idx < _PB_UINT64_SENTINEL
+            gen_for_new_epoch = (
+                valid_gen_ckpt
+                and gen_ckpt_idx >= latest_cp_idx
+                and (gen_ckpt_idx > 0 or len(epoch_parsed) > 0)
+            )
             if gen_for_new_epoch and gen_usage > 0:
                 active_tokens = gen_usage
             elif gen_for_new_epoch and gen_est > 0:
@@ -710,8 +721,8 @@ def read_db_trajectory_state(
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except sqlite3.Error as exc:
+                sys.stderr.write(f"[AGYIS TRAJECTORY] Failed closing SQLite connection: {exc}\n")
 
 
 _CUMULATIVE_STEP_KEYS = (
