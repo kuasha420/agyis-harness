@@ -4,7 +4,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Forensic Reverse Engineering & Cleanroom Toolchain Diagnostics (Issue #100, ADR-028, PSL-INV-009).
+Forensic Reverse Engineering & Cleanroom Toolchain Diagnostics (Issue #100, ADR-028, PSL-RE-001).
 Provides context-aware probing of decompilers, disassemblers, packet triage, and input daemons.
 """
 
@@ -26,6 +26,7 @@ from harness.runtime.tool_checks import find_jdk21_path, find_rea_binary, parse_
 # Standard package mappings for distro package manager remediation
 FORENSIC_PACKAGE_MAP = {
     "arch": {
+        "jdk21-openjdk": "jdk21-openjdk",
         "tshark": "wireshark-cli",
         "objdump": "binutils",
         "ydotoold": "ydotool",
@@ -33,6 +34,7 @@ FORENSIC_PACKAGE_MAP = {
         "gpu-screen-recorder": "gpu-screen-recorder",
     },
     "debian": {
+        "jdk21-openjdk": "openjdk-21-jdk",
         "tshark": "tshark",
         "objdump": "binutils",
         "ydotoold": "ydotool",
@@ -40,11 +42,17 @@ FORENSIC_PACKAGE_MAP = {
         "gpu-screen-recorder": "gpu-screen-recorder",
     },
     "fedora": {
+        "jdk21-openjdk": "java-21-openjdk",
         "tshark": "wireshark-cli",
         "objdump": "binutils",
         "ydotoold": "ydotool",
         "xdotool": "xdotool",
         "gpu-screen-recorder": "gpu-screen-recorder",
+    },
+    "darwin": {
+        "jdk21-openjdk": "openjdk@21",
+        "tshark": "wireshark",
+        "objdump": "binutils",
     },
 }
 
@@ -92,8 +100,8 @@ def get_dirtyroom_profile(workspace_dir: Optional[Path] = None) -> str:
                         val = clean.split("=", 1)[1].strip().strip("'\"")
                         if val:
                             return val.lower()
-            except Exception:
-                pass
+            except OSError:
+                return "static-cleanroom"
 
     return "static-cleanroom"
 
@@ -121,8 +129,8 @@ def probe_binary_with_version(
         m = re.search(r"([0-9]+(?:\.[0-9]+)+)", out)
         if m:
             version_str = m.group(1)
-    except Exception:
-        pass
+    except (subprocess.SubprocessError, OSError):
+        version_str = None
 
     return cand, version_str
 
@@ -212,14 +220,22 @@ def audit_forensic_toolchain(
                     m_num = re.search(r"\d+", j_ver)
                     if m_num:
                         java_major = int(m_num.group(0))
+            is_java_21 = java_major >= 21
             tools.append({
                 "name": "java",
                 "category": "core",
-                "status": "PASS" if java_major >= 17 else "WARN",
+                "status": "PASS" if is_java_21 else "WARN",
                 "path": str(j_bin),
                 "version": j_ver,
-                "details": f"Java runtime verified at {j_bin} (version {j_ver})",
+                "details": (
+                    f"Java 21+ runtime verified at {j_bin} (version {j_ver})"
+                    if is_java_21
+                    else f"Java runtime at {j_bin} is version {j_ver or 'unknown'} (< 21); OpenJDK 21+ required for Ghidra"
+                ),
             })
+            if not is_java_21:
+                missing_packages.append("jdk21-openjdk")
+                remediation_lines.append("Install OpenJDK 21+ (e.g. sudo pacman -S jdk21-openjdk / sudo apt install openjdk-21-jdk)")
         else:
             tools.append({
                 "name": "java",
@@ -254,7 +270,7 @@ def audit_forensic_toolchain(
         missing_packages.append("objdump")
         remediation_lines.append("Install binutils (e.g. sudo pacman -S binutils)")
 
-    # 4. REA MCP Acceleration Patch (PSL-INV-009)
+    # 4. REA MCP Acceleration Patch (PSL-RE-001)
     patch_info = check_patch()
     p_status = patch_info.get("status")
     launcher_path_str = str(patch_info["launcher_path"]) if patch_info.get("launcher_path") else None
@@ -265,7 +281,7 @@ def audit_forensic_toolchain(
             "status": "PASS",
             "path": launcher_path_str,
             "version": "active",
-            "details": "REA pre-analyzed Ghidra project acceleration patch active (PSL-INV-009)",
+            "details": "REA pre-analyzed Ghidra project acceleration patch active (PSL-RE-001)",
         })
     elif p_status in ("unapplied", "partial"):
         tools.append({

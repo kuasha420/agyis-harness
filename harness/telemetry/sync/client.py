@@ -12,9 +12,35 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from harness.telemetry import config
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def validate_sync_endpoint(endpoint: str) -> str:
+    """Validates telemetry sync endpoint, requiring HTTPS for non-loopback hosts.
+
+    Prevents transmitting GitHub PATs / Bearer tokens in plaintext over remote HTTP.
+    """
+    cleaned = str(endpoint or "").strip().rstrip("/")
+    if not cleaned:
+        raise ValueError("Sync endpoint required for telemetry sync.")
+    parsed = urllib.parse.urlparse(cleaned)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+    if scheme not in ("http", "https") or not host:
+        raise ValueError(
+            f"Invalid telemetry sync endpoint '{endpoint}': must be a valid http(s) URL."
+        )
+    if scheme == "http" and host not in _LOOPBACK_HOSTS:
+        raise ValueError(
+            f"Insecure telemetry sync endpoint '{endpoint}': HTTPS is required for "
+            "non-loopback hosts when transmitting authentication tokens."
+        )
+    return cleaned
 
 
 def verify_auth_token(
@@ -30,7 +56,7 @@ def verify_auth_token(
     if not resolved_token:
         raise ValueError("Authentication token required for token verification.")
 
-    endpoint_clean = resolved_endpoint.rstrip("/")
+    endpoint_clean = validate_sync_endpoint(resolved_endpoint)
     url = f"{endpoint_clean}/api/v1/auth/verify"
     payload = json.dumps({"token": resolved_token}).encode("utf-8")
     req = urllib.request.Request(
@@ -51,9 +77,9 @@ def verify_auth_token(
     except urllib.error.HTTPError as err:
         err_body = ""
         try:
-            err_body = err.read().decode("utf-8")
-        except Exception:
-            pass
+            err_body = err.read().decode("utf-8", errors="replace")
+        except (OSError, UnicodeDecodeError):
+            err_body = ""
         raise ValueError(
             f"Token verification failed (HTTP {err.code}): {err_body or err.reason}"
         ) from err

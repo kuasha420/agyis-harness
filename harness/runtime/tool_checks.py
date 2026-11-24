@@ -14,9 +14,17 @@ import os
 from pathlib import Path
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
+
+from .tool_checks_common import (
+    check_node_toolchain,
+    is_rea_node_compatible,
+    parse_version,
+    version_less_than,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -38,110 +46,6 @@ __all__ = [
     "parse_version",
     "version_less_than",
 ]
-
-
-def parse_version(v_str: str) -> Tuple[int, ...]:
-    """Parse version string into integer tuple for comparison."""
-    parts = re.findall(r"\d+", v_str)
-    return tuple(int(p) for p in parts) if parts else (0,)
-
-
-def version_less_than(v1: Tuple[int, ...], v2: Tuple[int, ...]) -> bool:
-    """Compare two version tuples with zero-padding for differing lengths."""
-    max_len = max(len(v1), len(v2))
-    v1_padded = v1 + (0,) * (max_len - len(v1))
-    v2_padded = v2 + (0,) * (max_len - len(v2))
-    return v1_padded < v2_padded
-
-
-def is_rea_node_compatible(version_str: str) -> bool:
-    """
-    Validates Node.js version against REA 6.8.0 compatibility requirements:
-    - 22.x: >= 22.23.4
-    - 24.x: >= 24.22.1
-    - 26.x+: >= 26.12.1
-    """
-    if not version_str or not isinstance(version_str, str):
-        return False
-    clean = version_str.strip().lstrip("v")
-    m = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?", clean)
-    if not m:
-        return False
-    major = int(m.group(1))
-    minor = int(m.group(2))
-    patch = int(m.group(3)) if m.group(3) is not None else 0
-    v = (major, minor, patch)
-    if major == 22:
-        return v >= (22, 23, 4)
-    elif major == 24:
-        return v >= (24, 22, 1)
-    elif major >= 26:
-        return v >= (26, 12, 1)
-    return False
-
-
-def check_node_toolchain(
-    node_bin: Optional[str | Path] = None,
-    timeout: float = 2.0,
-) -> Dict[str, Any]:
-    """Audit host Node.js version and compatibility with REA 6.8.0."""
-    resolved = shutil.which(str(node_bin)) if node_bin else shutil.which("node")
-    if not resolved:
-        return {
-            "status": "MISSING",
-            "binary": None,
-            "version": None,
-            "rea_compatible": False,
-            "details": "Node.js binary not found on PATH.",
-            "remediation": "Install Node 24 LTS via: pnpm env use --global 24",
-        }
-    version_str = None
-    try:
-        proc = subprocess.run(
-            [str(resolved), "-v"],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=timeout,
-        )
-        if proc.returncode == 0 and isinstance(proc.stdout, str) and proc.stdout.strip():
-            raw_out = proc.stdout.strip()
-            if not raw_out.lower().startswith("rea"):
-                m = re.search(r"v?(\d+\.\d+(?:\.\d+)?)", raw_out)
-                if m:
-                    version_str = m.group(1)
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
-        version_str = None
-
-    if version_str is None:
-        return {
-            "status": "UNKNOWN_VERSION",
-            "binary": str(resolved),
-            "version": None,
-            "rea_compatible": False,
-            "details": f"Node.js binary detected at {resolved}, but version could not be determined.",
-            "remediation": "Switch to Node 24 LTS via: pnpm env use --global 24",
-        }
-
-    compat = is_rea_node_compatible(version_str)
-    if not compat:
-        return {
-            "status": "WARNING",
-            "binary": str(resolved),
-            "version": version_str,
-            "rea_compatible": False,
-            "details": f"Node.js {version_str} does not meet REA requirements (22.x >= 22.23.4, 24.x >= 24.22.1, or >= 26.12.1).",
-            "remediation": "Switch to Node 24 LTS via: pnpm env use --global 24",
-        }
-
-    return {
-        "status": "OK",
-        "binary": str(resolved),
-        "version": version_str,
-        "rea_compatible": True,
-        "details": f"Node.js {version_str} meets REA requirements.",
-        "remediation": None,
-    }
 
 
 def detect_os_family() -> str:
@@ -333,6 +237,15 @@ def check_tool(
                 resolved_path = str(cand)
                 break
 
+    # For "python", honor hermetic_python_path if host python is missing
+    hermetic_str: Optional[str] = None
+    if hermetic_python_path is not None and (name == "python" or binary in ("python3", "python")):
+        hp = Path(hermetic_python_path)
+        if hp.is_file() and os.access(hp, os.X_OK):
+            hermetic_str = str(hp)
+            if not resolved_path:
+                resolved_path = hermetic_str
+
     # Check for pyenv/conda shim hijacking
     is_shim = False
     shim_details = None
@@ -344,6 +257,8 @@ def check_tool(
         elif "conda" in p_lower or "miniconda" in p_lower:
             is_shim = True
             shim_details = "conda environment active in PATH"
+        if is_shim and hermetic_str:
+            shim_details = f"{shim_details} (hermetic uv Python ready at {hermetic_str})"
 
     # Check for libpsl / non-harness collision if auditing psl or agyis
     is_collision = False
@@ -376,28 +291,47 @@ def check_tool(
             "spec": spec,
         }
 
-    # 2. Extract version
+    # 2. Extract version (prefer argv list / shell=False; shlex.quote if shell pipeline required)
     version_str = None
-    cmd = spec.get("version_command", f"{binary} --version")
-    if resolved_path:
-        if cmd.startswith(f"{binary} "):
-            cmd = f'"{resolved_path}" ' + cmd[len(binary) + 1:]
-        elif cmd == binary:
-            cmd = f'"{resolved_path}"'
+    raw_cmd = spec.get("version_command", f"{binary} --version")
+    needs_shell = any(tok in raw_cmd for tok in ("|", "&&", "||", ";", ">", "<", "`", "$("))
     regex = spec.get("version_regex", r"([0-9]+\.[0-9]+(?:\.[0-9]+)?)")
     try:
-        proc = subprocess.run(
-            cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-        combined_out = (proc.stdout + " " + proc.stderr).strip()
+        if needs_shell:
+            quoted_bin = shlex.quote(resolved_path)
+            if raw_cmd.startswith(f"{binary} "):
+                shell_cmd = f"{quoted_bin} " + raw_cmd[len(binary) + 1:]
+            elif raw_cmd == binary:
+                shell_cmd = quoted_bin
+            else:
+                shell_cmd = raw_cmd
+            proc = subprocess.run(
+                shell_cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+        else:
+            argv = shlex.split(raw_cmd)
+            if argv and argv[0] == binary:
+                argv[0] = resolved_path
+            elif not argv:
+                argv = [resolved_path, "--version"]
+            proc = subprocess.run(
+                argv,
+                shell=False,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+        stdout_s = proc.stdout if isinstance(proc.stdout, str) else ""
+        stderr_s = proc.stderr if isinstance(proc.stderr, str) else ""
+        combined_out = (stdout_s + " " + stderr_s).strip()
         m = re.search(regex, combined_out)
         if m:
             version_str = m.group(1)
-    except Exception:
+    except (subprocess.SubprocessError, OSError, ValueError):
         version_str = None
 
     # 3. Version comparison
@@ -416,7 +350,7 @@ def check_tool(
     elif is_shim or is_collision:
         status = "WARNING"
 
-    return {
+    result_dict = {
         "name": name,
         "binary": binary,
         "status": status,
@@ -429,6 +363,9 @@ def check_tool(
         "collision_details": collision_details,
         "spec": spec,
     }
+    if hermetic_str:
+        result_dict["hermetic_python_path"] = hermetic_str
+    return result_dict
 
 
 from .tool_checks_rea import (  # noqa: E402, F401

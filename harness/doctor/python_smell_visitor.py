@@ -147,7 +147,8 @@ class PythonTestSmellVisitor(ast.NodeVisitor):
         """Determine boundary adapter modules referenced by decorators, context managers, and imports."""
         func_boundary_modules: List[str] = list(self.class_boundary_modules)
         stem = Path(self.file_path).stem
-        if ADAPTER_PATTERNS.search(stem) or any(kw in str(self.file_path).lower() for kw in BOUNDARY_PATH_KEYWORDS):
+        stem_tokens = {tok for tok in stem.lower().replace("-", "_").split("_") if tok}
+        if ADAPTER_PATTERNS.search(stem) or bool(stem_tokens & BOUNDARY_PATH_KEYWORDS):
             func_boundary_modules.append(f"file:{stem}")
 
         self._collect_decorator_boundaries(node.decorator_list, func_boundary_modules, check_object=True)

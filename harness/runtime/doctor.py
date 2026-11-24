@@ -128,8 +128,9 @@ def check_telemetry_daemon() -> Optional[Dict[str, Any]]:
         from harness.telemetry.sync.daemon import compute_telemetry_lag, read_sync_status
         sync_health = read_sync_status()
         telemetry_lag = compute_telemetry_lag()
-    except Exception:
-        pass
+    except (ImportError, OSError, ValueError, RuntimeError):
+        sync_health = {}
+        telemetry_lag = {}
 
     if output == "active":
         failures = int(sync_health.get("consecutive_failures") or 0)
@@ -618,7 +619,13 @@ def main() -> int:
 
     exp_rea = getattr(args, "experimental_rea", False)
     re_tool = getattr(args, "re_toolchain", False)
-    audit = run_doctor(args.matrix, experimental_rea=exp_rea, re_toolchain=re_tool)
+    cwd = Path.cwd()
+    audit = run_doctor(
+        args.matrix,
+        workspace_root=cwd,
+        experimental_rea=exp_rea,
+        re_toolchain=re_tool,
+    )
 
     if args.json:
         print(json.dumps(audit, indent=2))
@@ -633,6 +640,7 @@ def main() -> int:
             args.matrix,
             experimental_rea=exp_rea,
             re_toolchain=re_tool,
+            workspace_dir=cwd,
         )
         for act in actions:
             print(f"  ✔ {act}")

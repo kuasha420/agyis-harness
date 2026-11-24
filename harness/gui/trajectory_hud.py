@@ -4,7 +4,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Trajectory Debug View HUD Builder & Data Loader (ADR-014 / ADR-035 / PSL-INV-010).
+Trajectory Debug View HUD Builder & Data Loader (ADR-014 / ADR-035 / PSL-INV-007).
 
 Reads live conversation transcripts, resolves subagent hierarchies, delegates SQLite
 metrics & lineage to `harness.trajectory`, and constructs a dynamic Chrome DevTools
@@ -26,6 +26,7 @@ from harness.gui.trajectory_convo_helpers import (
 from harness.trajectory.health import (
     DEFAULT_CONTEXT_WINDOW_TOKENS,
     TrajectoryMetrics,
+    infer_model_context_window,
     is_transcript_checkpoint_step,
 )
 from harness.trajectory.sqlite_reader import parse_step_timestamp, read_db_trajectory_state
@@ -48,13 +49,21 @@ _SYS_TAG_DEFS: Tuple[Tuple[str, str, str], ...] = (
 _TOOL_CATEGORY_SPEC: Tuple[Tuple[str, str, Tuple[str, ...]], ...] = (
     ("Filesystem Tools", "#06b6d4", ("read_file", "write_file", "edit_file", "replace_file_content", "write_to_file", "view_file")),
     ("Terminal Tools", "#0891b2", ("run_command", "bash")),
-    ("Subagents", "#0e7490", ("invoke_subagent", "define_subagent", "manage_subagents", "send_message")),
+    ("Subagents", "#0e7490", ("invoke_subagent", "define_subagent", "manage_subagents", "send_message", "swarm", "post_message", "read_board", "swarm_wait")),
 )
 _TC_TYPE_NEEDLES: Tuple[Tuple[str, str], ...] = (
-    ("run_command", "RUN_COMMAND"), ("view_file", "VIEW_FILE"), ("replace_file_content", "REPLACE_FILE_CONTENT"),
-    ("write_to_file", "WRITE_FILE"), ("grep_search", "GREP_SEARCH"), ("find_by_name", "FIND_FILES"),
-    ("find_files", "FIND_FILES"), ("send_message", "SEND_MESSAGE"), ("invoke_subagent", "INVOKE_SUBAGENT"),
-    ("subagent", "INVOKE_SUBAGENT"),
+    ("run_command", "RUN_COMMAND"), ("bash", "RUN_COMMAND"),
+    ("read_file", "READ_FILE"), ("view_file", "VIEW_FILE"),
+    ("edit_file", "EDIT_FILE"), ("replace_file_content", "REPLACE_FILE_CONTENT"),
+    ("write_file", "WRITE_FILE"), ("write_to_file", "WRITE_FILE"),
+    ("grep_search", "GREP_SEARCH"), ("search_web", "SEARCH_WEB"),
+    ("find_by_name", "FIND_FILES"), ("find_files", "FIND_FILES"),
+    ("post_message", "POST_MESSAGE"), ("send_message", "SEND_MESSAGE"),
+    ("read_board", "READ_BOARD"), ("swarm_wait", "SWARM_WAIT"),
+    ("swarm", "SWARM"), ("run_workflow", "RUN_WORKFLOW"),
+    ("define_subagent", "DEFINE_SUBAGENT"), ("manage_subagents", "MANAGE_SUBAGENTS"),
+    ("manage_task", "MANAGE_TASK"),
+    ("invoke_subagent", "INVOKE_SUBAGENT"), ("subagent", "INVOKE_SUBAGENT"),
 )
 
 
@@ -85,9 +94,11 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
         return "CHECKPOINT"
 
     if existing_type and existing_type in (
-        "PLANNER_RESPONSE", "USER_INPUT", "RUN_COMMAND", "VIEW_FILE",
-        "REPLACE_FILE_CONTENT", "WRITE_FILE", "GREP_SEARCH", "FIND_FILES",
-        "SEND_MESSAGE", "INVOKE_SUBAGENT", "MODEL_OUTPUT", "SYSTEM", "TOOL_CALL",
+        "PLANNER_RESPONSE", "USER_INPUT", "RUN_COMMAND", "VIEW_FILE", "READ_FILE",
+        "REPLACE_FILE_CONTENT", "EDIT_FILE", "WRITE_FILE", "GREP_SEARCH", "SEARCH_WEB", "FIND_FILES",
+        "SEND_MESSAGE", "POST_MESSAGE", "READ_BOARD", "SWARM_WAIT", "SWARM",
+        "RUN_WORKFLOW", "DEFINE_SUBAGENT", "MANAGE_SUBAGENTS", "MANAGE_TASK",
+        "INVOKE_SUBAGENT", "MODEL_OUTPUT", "SYSTEM", "TOOL_CALL",
         "CHECKPOINT", "CODE_ACTION", "GENERIC",
     ):
         return existing_type
@@ -267,13 +278,13 @@ def _resolve_lineage_and_subagents(
     for step in raw_steps:
         for tc in step.get("tool_calls", []):
             args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
-            if tc.get("name") == "invoke_subagent":
+            if tc.get("name") in ("invoke_subagent", "swarm", "define_subagent", "send_message", "post_message"):
                 combined = f"{tc.get('output', '')} {json.dumps(args)}"
                 for m_cid in re.findall(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[a-zA-Z0-9_-]{8,64})", combined):
                     if m_cid in spawned:
                         details_by_sid[m_cid] = (
-                            str(args.get("Role") or args.get("TypeName") or spawned[m_cid] or f"Subagent {m_cid[:8]}"),
-                            str(args.get("Prompt") or args.get("objective") or "")[:80],
+                            str(args.get("Role") or args.get("TypeName") or args.get("name") or spawned[m_cid] or f"Subagent {m_cid[:8]}"),
+                            str(args.get("Prompt") or args.get("brief") or args.get("objective") or "")[:80],
                         )
         if isinstance(step.get("invokeSubagent"), dict):
             for sub in step["invokeSubagent"].get("subagents", []):
@@ -296,15 +307,26 @@ def _resolve_lineage_and_subagents(
     resolved_parent = parent_id or meta_parent
     if resolved_parent is None and base_brain.is_dir():
         try:
-            cands = sorted(
-                (d for d in base_brain.iterdir() if d.is_dir() and d.name not in (conversation_id, ".system_generated")),
-                key=lambda d: d.stat().st_mtime,
-                reverse=True,
-            )[:30]
-            for d in cands:
-                t_log, _ = find_transcript_path(d)
-                if t_log and t_log.is_file() and conversation_id in t_log.read_text(encoding="utf-8", errors="replace"):
-                    resolved_parent = d.name
+            dated: List[Tuple[float, Path, Path]] = []
+            for d in base_brain.iterdir():
+                if d.is_dir() and d.name not in (conversation_id, ".system_generated"):
+                    t_log, _ = find_transcript_path(d)
+                    if t_log and t_log.is_file():
+                        try:
+                            dated.append((t_log.stat().st_mtime, d, t_log))
+                        except OSError:
+                            continue
+            dated.sort(key=lambda item: item[0], reverse=True)
+            for _, d, t_log in dated[:30]:
+                try:
+                    with open(t_log, "r", encoding="utf-8", errors="replace") as f:
+                        for line in f:
+                            if conversation_id in line:
+                                resolved_parent = d.name
+                                break
+                except OSError:
+                    continue
+                if resolved_parent is not None:
                     break
         except OSError:
             pass
@@ -346,7 +368,6 @@ def _resolve_session_metadata(
     if not session_model and db_metrics.model_name:
         session_model = db_metrics.model_name
 
-    max_ctx = DEFAULT_CONTEXT_WINDOW_TOKENS
     for raw in reversed(raw_steps):
         if isinstance(raw, dict):
             mct = _extract_cwm(raw).get("maxContextTokens") or _extract_cwm(raw).get("max_context_tokens")
@@ -359,8 +380,11 @@ def _resolve_session_metadata(
     if isinstance(mct_meta, (int, float)) and mct_meta > 0:
         return session_model, int(mct_meta)
 
-    if db_metrics.max_context_tokens > 0:
-        max_ctx = int(db_metrics.max_context_tokens)
+    if db_metrics.has_explicit_max_context and db_metrics.max_context_tokens > 0:
+        return session_model, int(db_metrics.max_context_tokens)
+    if session_model:
+        return session_model, infer_model_context_window(session_model)
+    max_ctx = int(db_metrics.max_context_tokens) if db_metrics.max_context_tokens > 0 else DEFAULT_CONTEXT_WINDOW_TOKENS
     return session_model, max_ctx
 
 
@@ -436,15 +460,27 @@ def _enrich_and_sort_steps(
             s["cacheReadTokens"] = int(usage.get("cacheReadTokens", 0) or 0)
             s["checkpointInputTokens"] = int(usage.get("inputTokens", 0) or 0)
 
-        t_ms = s.get("thinking_duration_ms") or meta.get("thinking_duration_ms") or meta.get("ttft_ms")
-        if t_ms is None:
-            t_ms = min(20000, max(600, int(len(str(s["thinking"])) * 1.6))) if s.get("thinking") else 0
-        s_ms = s.get("streaming_duration_ms") or meta.get("streaming_duration_ms")
-        if s_ms is None:
-            c_len = len(str(s.get("content") or "")) + sum(len(str(tc.get("output") or "")) for tc in s.get("tool_calls", []))
-            s_ms = min(45000, max(400, int(c_len * 1.8)))
-        s["thinking_duration_ms"] = int(t_ms or 0)
-        s["streaming_duration_ms"] = int(s_ms or 0)
+        t_ms: Optional[float] = s.get("thinking_duration_ms") or meta.get("thinking_duration_ms") or meta.get("ttft_ms")
+        if t_ms is None and isinstance(s.get("thinkingDuration"), dict):
+            td = s["thinkingDuration"]
+            t_ms = (float(td.get("seconds") or 0) * 1000.0) + (float(td.get("nanos") or 0) / 1e6)
+        c_ts = parse_step_timestamp(s.get("created_at") or s.get("createdAt") or s.get("timestamp") or meta.get("createdAt"))
+        v_ts = parse_step_timestamp(s.get("viewable_at") or s.get("viewableAt") or meta.get("viewableAt"))
+        st_ts = parse_step_timestamp(s.get("started_at") or s.get("startedAt") or meta.get("startedAt"))
+        comp_ts = parse_step_timestamp(s.get("completed_at") or s.get("completedAt") or s.get("finishedGeneratingAt") or meta.get("completedAt"))
+        if t_ms is None and c_ts is not None and v_ts is not None and v_ts >= c_ts:
+            t_ms = (v_ts - c_ts) * 1000.0
+
+        s_ms: Optional[float] = s.get("streaming_duration_ms") or meta.get("streaming_duration_ms")
+        if s_ms is None and isinstance(s.get("streamingDuration"), dict):
+            sd = s["streamingDuration"]
+            s_ms = (float(sd.get("seconds") or 0) * 1000.0) + (float(sd.get("nanos") or 0) / 1e6)
+        stream_start = v_ts if v_ts is not None else (st_ts if st_ts is not None else c_ts)
+        if s_ms is None and stream_start is not None and comp_ts is not None and comp_ts >= stream_start:
+            s_ms = (comp_ts - stream_start) * 1000.0
+
+        s["thinking_duration_ms"] = int(round(float(t_ms))) if t_ms is not None else 0
+        s["streaming_duration_ms"] = int(round(float(s_ms))) if s_ms is not None else 0
         s["total_duration_ms"] = s["thinking_duration_ms"] + s["streaming_duration_ms"]
 
         step_model = s.get("response_model") or s.get("model") or s.get("responseModel") or meta.get("responseModel") or meta.get("model") or model_usage.get("model")
@@ -643,16 +679,32 @@ def load_conversation_trajectory(
     parent_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Loads trajectory steps, SSOT metrics, and direct child subagents from disk & SQLite."""
-    visited = _visited if _visited is not None else set()
-    visited.add(conversation_id)
+    clean_cid = str(conversation_id or "").strip()
+    if (
+        not clean_cid
+        or clean_cid in (".", "..")
+        or "/" in clean_cid
+        or "\\" in clean_cid
+        or "\x00" in clean_cid
+        or ".." in clean_cid
+    ):
+        raise ValueError(f"Invalid conversation_id: {conversation_id!r}")
 
     base_brain = get_active_brain_dir(brain_dir)
-    convo_dir = base_brain / conversation_id
+    resolved_base = base_brain.resolve()
+    convo_dir = base_brain / clean_cid
+    resolved_convo = convo_dir.resolve()
+    if resolved_convo == resolved_base or not resolved_convo.is_relative_to(resolved_base):
+        raise ValueError(f"Conversation path escapes brain directory: {conversation_id!r}")
+
+    visited = _visited if _visited is not None else set()
+    visited.add(clean_cid)
+
     transcript_path, _ = find_transcript_path(convo_dir)
     raw_steps, raw_line_sizes, ts_map = load_transcript_steps(transcript_path) if transcript_path else ([], [], {})
-    db_metrics = read_db_trajectory_state(conversation_id, transcript_timestamps=ts_map)
+    db_metrics = read_db_trajectory_state(clean_cid, transcript_timestamps=ts_map)
 
-    resolved_parent_id, subagents, subagent_infos = _resolve_lineage_and_subagents(conversation_id, raw_steps, base_brain, parent_id)
+    resolved_parent_id, subagents, subagent_infos = _resolve_lineage_and_subagents(clean_cid, raw_steps, base_brain, parent_id)
     session_model, max_context_tokens = _resolve_session_metadata(convo_dir, raw_steps, db_metrics)
     steps, explicit_in_positions = _enrich_and_sort_steps(raw_steps, raw_line_sizes, session_model)
     checkpoints = [i for i, s in enumerate(steps) if s.get("type") == "CHECKPOINT"]
@@ -678,12 +730,12 @@ def load_conversation_trajectory(
         for sid in subagents:
             if sid not in visited:
                 try:
-                    subagent_trajectories[sid] = load_conversation_trajectory(sid, brain_dir=base_brain, _visited=visited, parent_id=conversation_id)
+                    subagent_trajectories[sid] = load_conversation_trajectory(sid, brain_dir=base_brain, _visited=visited, parent_id=clean_cid)
                 except (OSError, ValueError, KeyError, json.JSONDecodeError):
                     continue
 
     return {
-        "conversation_id": conversation_id,
+        "conversation_id": clean_cid,
         "transcript_path": str(transcript_path or (convo_dir / ".system_generated" / "logs" / "transcript.jsonl")),
         "summary": _extract_conversation_summary(convo_dir, transcript_path or (convo_dir / "transcript.jsonl")),
         "model": session_model,
@@ -691,7 +743,7 @@ def load_conversation_trajectory(
         "step_count": len(steps),
         "epochs": epochs,
         "epoch_index": len(checkpoints),
-        "epoch_steps": len(steps) - (checkpoints[-1] + 1 if checkpoints else 0),
+        "epoch_steps": len(steps) - checkpoints[-1] if checkpoints else len(steps),
         "checkpoint_count": len(checkpoints),
         "parent_id": resolved_parent_id,
         "subagents": subagents,
@@ -710,7 +762,7 @@ def load_conversation_trajectory(
 
 
 def _load_hud_template() -> str:
-    """Dynamically composes the HUD in-situ JS/CSS template from modular assets (PSL-INV-011)."""
+    """Dynamically composes the HUD in-situ JS/CSS template from modular assets (PSL-INV-008)."""
     assets = importlib.resources.files("harness.gui.assets")
     return (
         assets.joinpath("hud.js").read_text(encoding="utf-8")
@@ -721,6 +773,7 @@ def _load_hud_template() -> str:
         .replace("/* __HUD_INSPECTOR__ */", assets.joinpath("hud_inspector.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_DECK__ */", assets.joinpath("hud_deck.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_RPC__ */", assets.joinpath("hud_rpc.js").read_text(encoding="utf-8"), 1)
+        .replace("/* __HOTKEY__ */", assets.joinpath("hotkey.js").read_text(encoding="utf-8"), 1)
     )
 
 

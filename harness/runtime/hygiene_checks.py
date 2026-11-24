@@ -100,9 +100,9 @@ def check_duplicate_skills(
             try:
                 with open(ws_plugin_json, "r", encoding="utf-8") as f:
                     pdata = json.load(f)
-                    if pdata.get("name"):
-                        ws_plugin_names.add(pdata["name"])
-            except Exception:
+                    if isinstance(pdata, dict) and pdata.get("name"):
+                        ws_plugin_names.add(str(pdata["name"]))
+            except (OSError, json.JSONDecodeError, ValueError):
                 pass
 
         for plugin in sorted(plugins_dir.iterdir()):
@@ -295,36 +295,37 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
                 target_path = cand
                 break
 
+    legacy_failures: List[str] = []
     legacy_cli_hooks = Path.home() / ".gemini" / "antigravity-cli" / "hooks.json"
     if hooks_path is None and legacy_cli_hooks.exists() and not legacy_cli_hooks.is_symlink():
-        return {
-            "status": "WARNING",
-            "hooks_path": str(target_path) if target_path else str(legacy_cli_hooks),
-            "checked_hooks": [],
-            "failures": [
-                f"Legacy non-symlinked {legacy_cli_hooks} conflicts with canonical ~/.gemini/config/hooks.json."
-            ],
-            "remediation": "Run 'agyis doctor --heal' or symlink ~/.gemini/antigravity-cli/hooks.json to ~/.gemini/config/hooks.json.",
-        }
+        legacy_failures.append(
+            f"Legacy non-symlinked {legacy_cli_hooks} conflicts with canonical ~/.gemini/config/hooks.json."
+        )
 
     if target_path is None or not target_path.exists():
         missing_path = str(target_path) if target_path else str(REPO_ROOT / "hooks.json")
+        all_failures = legacy_failures + [f"hooks.json not found at {missing_path}."]
         return {
             "status": "WARNING",
             "hooks_path": missing_path,
             "checked_hooks": [],
-            "failures": [f"hooks.json not found at {missing_path}."],
-            "remediation": "Create hooks.json at workspace root or restore harness/hooks/hooks.json.",
+            "failures": all_failures,
+            "remediation": (
+                "Run 'agyis doctor --heal' or symlink ~/.gemini/antigravity-cli/hooks.json to ~/.gemini/config/hooks.json, "
+                "and restore hooks.json at workspace root or harness/hooks/hooks.json."
+                if legacy_failures
+                else "Create hooks.json at workspace root or restore harness/hooks/hooks.json."
+            ),
         }
 
     try:
         data = json.loads(target_path.read_text(encoding="utf-8"))
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, ValueError) as e:
         return {
             "status": "WARNING",
             "hooks_path": str(target_path),
             "checked_hooks": [],
-            "failures": [f"Malformed hooks.json: {e}"],
+            "failures": legacy_failures + [f"Malformed hooks.json: {e}"],
             "remediation": f"Ensure {target_path} contains valid JSON syntax.",
         }
 
@@ -347,7 +348,7 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
             "status": "WARNING",
             "hooks_path": str(target_path),
             "checked_hooks": [],
-            "failures": ["No hook commands found in hooks.json."],
+            "failures": legacy_failures + ["No hook commands found in hooks.json."],
             "remediation": "Configure at least one lifecycle hook in hooks.json.",
         }
 
@@ -377,7 +378,7 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
                 return HOOK_MODULES[clean]
             raise ValueError(f"Unknown hook '{name}'. Supported hooks: {', '.join(sorted(HOOK_MODULES.keys()))}")
 
-    failures: List[str] = []
+    failures: List[str] = list(legacy_failures)
     hooks_to_verify: Dict[str, str] = {}
 
     for cmd in hook_commands:
@@ -470,8 +471,8 @@ def _load_port_detector_module():
                     spec.loader.exec_module(mod)
                     _PORT_DETECTOR_MOD = mod
                     return mod
-            except Exception:
-                pass
+            except (ImportError, OSError, SyntaxError):
+                continue
     return None
 
 
@@ -487,8 +488,8 @@ def _fallback_check_database_port(
     try:
         if s.connect_ex(("127.0.0.1", port)) == 0:
             in_use = True
-    except Exception:
-        pass
+    except OSError:
+        in_use = False
     finally:
         s.close()
 

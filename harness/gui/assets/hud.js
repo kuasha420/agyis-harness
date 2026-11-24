@@ -25,6 +25,68 @@
     const isToggle = __PAYLOAD__ ? __PAYLOAD__.isToggle : false;
     let hud = document.getElementById(HUD_ID);
 
+    // Shared HUD utilities (deduplicated across components; PSL-INV-008)
+    const escapeHtml = (val) => String(val ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+    const formatBytes = (bytes) => {
+        if (!bytes || bytes <= 0) return "0 B";
+        const k = 1024;
+        const sizes = ["B", "KB", "MB", "GB"];
+        const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+    };
+
+    const cssEscape = (val) => {
+        const s = String(val ?? "");
+        if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+            return CSS.escape(s);
+        }
+        return s.replace(/([^\w-])/g, "\\$1");
+    };
+
+    const bindItemKeyHover = (hudEl, state, selector) => {
+        if (!hudEl || !hudEl.querySelectorAll) return;
+        hudEl.querySelectorAll(selector).forEach(el => {
+            el.addEventListener("mouseenter", () => {
+                const itemKey = el.getAttribute("data-item-key");
+                if (itemKey) {
+                    state.hoveredItemKey = itemKey;
+                    hudEl.querySelectorAll(`[data-item-key="${cssEscape(itemKey)}"]`).forEach(mEl => {
+                        mEl.classList.add("context-cell-hovered");
+                    });
+                }
+            });
+            el.addEventListener("mouseleave", () => {
+                const itemKey = el.getAttribute("data-item-key");
+                if (itemKey) {
+                    state.hoveredItemKey = null;
+                    hudEl.querySelectorAll(`[data-item-key="${cssEscape(itemKey)}"]`).forEach(mEl => {
+                        mEl.classList.remove("context-cell-hovered");
+                    });
+                }
+            });
+        });
+    };
+
+    const inferModelContextWindow = (modelName) => (
+        window.__agyis_utils && typeof window.__agyis_utils._rpcInferCtx === "function"
+            ? window.__agyis_utils._rpcInferCtx(modelName)
+            : 256000
+    );
+
+    window.__agyis_utils = Object.assign(window.__agyis_utils || {}, {
+        escapeHtml,
+        formatBytes,
+        cssEscape,
+        bindItemKeyHover,
+        inferModelContextWindow,
+    });
+
     function syncToLatestState(state) {
         if (!state || !state.currentData) return;
         const steps = state.currentData.steps || [];
@@ -75,25 +137,26 @@
     window.__agyis_extract_convo_id = extractHudFocusedConvoId;
 
     let existingHud = document.getElementById(HUD_ID);
+    let toggleOpenedFromHidden = false;
     if (existingHud && isToggle) {
         const isHidden = existingHud.style.display === "none";
         existingHud.style.display = isHidden ? "flex" : "none";
-        if (isHidden) {
-            const focusedConvoId = extractHudFocusedConvoId();
-            const state = window.__agyis_hud_state;
-            if (focusedConvoId && state && focusedConvoId !== state.convoId && typeof window.__agyis_hud_load_convo === "function") {
-                window.__agyis_hud_load_convo(focusedConvoId);
-            } else if (state) {
-                syncToLatestState(state);
-                if (typeof renderHud === "function") renderHud();
-                const selEl = document.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
-                if (selEl) selEl.scrollIntoView({ block: "nearest" });
-            }
+        if (!isHidden) {
+            return { success: true, open: false, toggled: true };
         }
-        return { success: true, open: isHidden, toggled: true };
+        // Opening via newly-injected --toggle script: purge stale DOM/styles and re-mount fresh HUD (PSL-INV-007)
+        toggleOpenedFromHidden = true;
     }
 
-    // Stale DOM Replacement: Purge existing HUD and styles on re-injection (PSL-INV-010)
+    const effectiveShouldOpen = toggleOpenedFromHidden ? true : shouldOpen;
+
+    // Stale DOM Replacement: Purge existing HUD and styles on re-injection (PSL-INV-007)
+    if (typeof window.__agyis_hud_route_cleanup === "function") {
+        try { window.__agyis_hud_route_cleanup(); } catch (_) {}
+    }
+    if (typeof window.__agyis_splitter_cleanup === "function") {
+        try { window.__agyis_splitter_cleanup(); } catch (_) {}
+    }
     if (existingHud) existingHud.remove();
     const existingStyles = document.getElementById(STYLES_ID);
     if (existingStyles) existingStyles.remove();
@@ -105,7 +168,7 @@
 
     hud = document.createElement("div");
     hud.id = HUD_ID;
-    hud.style.display = shouldOpen ? "flex" : "none";
+    hud.style.display = effectiveShouldOpen ? "flex" : "none";
 
     const steps = (initialData && initialData.steps) || [];
     const epochs = (initialData && initialData.epochs) || [];
@@ -201,7 +264,13 @@
         const activeEpoch = curEpochs[state.activeEpochIndex] || curEpochs[curEpochs.length - 1];
         const epochSteps = curSteps.slice(activeEpoch.start_index, activeEpoch.end_index + 1);
 
-        const containerWidth = window.innerWidth * 0.95;
+        const gridPaneEl = hud && hud.querySelector ? hud.querySelector(".agyis-grid-pane") : null;
+        const measuredGridW = gridPaneEl && gridPaneEl.clientWidth ? gridPaneEl.clientWidth : 0;
+        const winW = (typeof window !== "undefined" && window.innerWidth) ? window.innerWidth : 1200;
+        const fallbackW = (state.layoutOrientation === "vertical" || state.layoutOrientation === "stack")
+            ? Math.round(winW * 0.90)
+            : Math.max(420, Math.round(winW * 0.48));
+        const containerWidth = measuredGridW > 100 ? measuredGridW : fallbackW;
 
         // Render modular components
         const headerHtml = window.renderHudHeader ? window.renderHudHeader(state, cur, conversationList) : "";
@@ -245,12 +314,13 @@
         if (window.bindInspectorEvents) window.bindInspectorEvents(hud, state, currentStep, selectStep);
         if (window.initDeckSplitterAndNav) window.initDeckSplitterAndNav(hud, state, curSteps, filteredIndices, renderHud, selectStep);
 
+        if (window.__agyis_splitter_cleanup) {
+            try { window.__agyis_splitter_cleanup(); } catch (_) {}
+        }
         // Restore focus and cursor caret positions immediately after mounting
         if (activeElId) {
             try {
-                const escapedId = (typeof CSS !== "undefined" && typeof CSS.escape === "function")
-                    ? CSS.escape(activeElId)
-                    : activeElId.replace(/([^\w-])/g, "\\$1");
+                const escapedId = cssEscape(activeElId);
                 const restoredEl = hud.querySelector("#" + escapedId);
                 if (restoredEl) {
                     if (activeValue !== null && restoredEl.value !== activeValue) {
@@ -404,6 +474,13 @@
 
     renderHud();
     document.body.appendChild(hud);
+    if (toggleOpenedFromHidden) {
+        const state = window.__agyis_hud_state;
+        syncToLatestState(state);
+        if (typeof renderHud === "function") renderHud();
+        const selEl = state && hud.querySelector ? hud.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`) : null;
+        if (selEl) selEl.scrollIntoView({ block: "nearest" });
+    }
 
     // Initial check + SPA route sensitivity watcher (PSL-INV-010)
     const initialFocusedConvo = extractHudFocusedConvoId();
@@ -477,12 +554,18 @@
         const currentHud = document.getElementById(HUD_ID);
 
         if (isF12 || isCtrlShiftT) {
+            // Defer to hotkey.js's primary capture listener when registered so we never double-toggle
+            if (typeof window.__agyis_hotkey_listener === "function") {
+                return;
+            }
             e.preventDefault();
             e.stopImmediatePropagation();
             const now = Date.now();
             if (now - (window.__agyis_hud_last_toggle || 0) < 250) return;
             window.__agyis_hud_last_toggle = now;
-            if (currentHud) {
+            if (typeof window.toggleAgyisHud === "function") {
+                window.toggleAgyisHud();
+            } else if (currentHud) {
                 const isHidden = (currentHud.style.display === "none");
                 currentHud.style.display = isHidden ? "flex" : "none";
                 if (isHidden) {
@@ -496,6 +579,7 @@
                     }
                 }
             }
+            return;
         }
 
         if (e.key === "Escape" && currentHud && currentHud.style.display !== "none") {
@@ -516,6 +600,16 @@
                 if (typeof renderHud === "function") renderHud();
                 const freshInput = currentHud.querySelector("#agyis-search-input");
                 if (freshInput && typeof freshInput.focus === "function") freshInput.focus();
+                return;
+            }
+            const subMenu = currentHud.querySelector("#agyis-subagents-menu");
+            if ((state && state.subagentsDropdownOpen) || (subMenu && subMenu.style.display === "block")) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (state) state.subagentsDropdownOpen = false;
+                if (subMenu) subMenu.style.display = "none";
+                const arrow = currentHud.querySelector("#agyis-subagents-dropdown-toggle .agyis-subagents-arrow, #agyis-subagents-dropdown-toggle span:last-child");
+                if (arrow) arrow.style.transform = "rotate(0deg)";
                 return;
             }
             currentHud.style.display = "none";
@@ -546,4 +640,5 @@
         }
     };
     window.addEventListener("keydown", window.__agyis_hud_active_listener, true);
+    return { success: true, open: Boolean(effectiveShouldOpen), toggled: Boolean(isToggle) };
 })();
