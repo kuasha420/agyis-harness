@@ -19,6 +19,7 @@ from harness.delivery.constants import (
     SYNC_SURFACE_ITEMS,
     DeliveryMode,
     DeliveryResult,
+    is_packaged_wheel_install,
 )
 from harness.delivery.git_hygiene import (
     GitTopology,
@@ -31,6 +32,7 @@ from harness.delivery.git_hygiene import (
 from harness.delivery.surfaces import (
     enforce_single_source_rules,
     enforce_single_source_skills,
+    get_plugin_provided_skills,
     lint_rule_echo,
     find_workspace_root,
     sync_surfaces,
@@ -137,6 +139,7 @@ __all__ = [
     "SYNC_SURFACE_ITEMS",
     "DeliveryMode",
     "DeliveryResult",
+    "is_packaged_wheel_install",
     "PluginInstaller",
     "CoexistenceEngine",
     "GitTopology",
@@ -149,6 +152,7 @@ __all__ = [
     "find_workspace_root",
     "enforce_single_source_rules",
     "enforce_single_source_skills",
+    "get_plugin_provided_skills",
     "lint_rule_echo",
     "LEGACY_TAG_END",
     "LEGACY_TAG_START",

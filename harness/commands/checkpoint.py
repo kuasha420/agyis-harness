@@ -218,7 +218,7 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
                 from harness.hooks.token_proximity_guard import get_active_conversation_context_window
 
                 ctx_win = get_active_conversation_context_window(session_id)
-            except Exception:
+            except (ImportError, OSError, ValueError, KeyError, TypeError):
                 pass
 
         tokens = 0

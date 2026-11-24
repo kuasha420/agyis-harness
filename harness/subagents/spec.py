@@ -82,6 +82,8 @@ class AgentArchetype(str, Enum):
         raise ValueError(f"Unknown AgentArchetype: {val}")
 
 
+MAX_AGENT_TOOLS: int = 20
+
 CANONICAL_PLATFORM_TOOLS: frozenset[str] = frozenset({
     "read_file",
     "write_file",
@@ -90,7 +92,6 @@ CANONICAL_PLATFORM_TOOLS: frozenset[str] = frozenset({
     "manage_task",
     "invoke_subagent",
     "send_message",
-    "manage_subagents",
     "define_subagent",
     "schedule",
     "generate_image",
@@ -104,19 +105,21 @@ CANONICAL_PLATFORM_TOOLS: frozenset[str] = frozenset({
     "run_workflow",
     "search_marketplace",
     "list_plugin_accounts",
-    "enter_plan_mode",
-    "exit_plan_mode",
-    "list_permissions",
 })
 
 LEGACY_PLATFORM_TOOL_ALIASES: Dict[str, str] = {
     "view_file": "read_file",
     "write_to_file": "write_file",
     "replace_file_content": "edit_file",
+    "multi_replace_file_content": "edit_file",
     "list_dir": "run_command",
     "grep_search": "run_command",
     "find_by_name": "run_command",
     "read_url_content": "search_web",
+    "manage_subagents": "swarm",
+    "enter_plan_mode": "ask_question",
+    "exit_plan_mode": "finish",
+    "list_permissions": "list_plugin_accounts",
 }
 
 ANTIGRAVITY_PLATFORM_TOOLS: frozenset[str] = CANONICAL_PLATFORM_TOOLS | frozenset(
@@ -175,7 +178,6 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "read_board",
         "run_command",
         "invoke_subagent",
-        "manage_subagents",
         "manage_task",
         "ask_question",
         "swarm",
@@ -487,21 +489,12 @@ def sync_agent_definitions(
         dest_file = dst / spec.source_file.name
 
         if dest_file.exists() and not override:
-            is_identical = dest_file.read_bytes() == spec.source_file.read_bytes()
-            if dedup and is_identical:
-                continue
             continue
 
+        if dest_file.is_symlink():
+            dest_file.unlink()
         shutil.copy2(spec.source_file, dest_file)
         synced.append(dest_file)
-
-    init_src = src / "__init__.py"
-    if norm_filter is None and init_src.is_file():
-        init_dst = dst / "__init__.py"
-        if not init_dst.exists() or override or init_dst.read_bytes() != init_src.read_bytes():
-            if not (init_dst.exists() and not override and dedup and init_dst.read_bytes() == init_src.read_bytes()):
-                shutil.copy2(init_src, init_dst)
-                synced.append(init_dst)
 
     return synced
 

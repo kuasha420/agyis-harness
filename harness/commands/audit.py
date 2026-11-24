@@ -10,13 +10,49 @@ Telemetry laboratory CLI dispatcher (ADR-014).
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 from pathlib import Path
 import sys
+from typing import Any, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_DB = REPO_ROOT / "data" / "telemetry.db"
+
+
+def _import_pipeline_module(module_name: str, stage: str) -> Optional[Any]:
+    """Dynamically imports a `pipeline.*` stage module without static ADR-014 coupling."""
+    try:
+        return importlib.import_module(f"pipeline.{module_name}")
+    except ModuleNotFoundError as exc:
+        if exc.name == "pipeline" or (exc.name or "").startswith("pipeline."):
+            sys.stderr.write(
+                f"Error: Telemetry stage '{stage}' requires the 'pipeline' package from an "
+                "agyis-harness source checkout (not included in wheel distributions). "
+                "Run from a source checkout or use portable stages: aff, certify, verdict, prune.\n"
+            )
+            return None
+        raise
+
+
+def _run_pipeline_stage(module_name: str, arg: Any, stage: str) -> int:
+    """Imports and runs a pipeline stage `main()`, preserving non-zero exit codes."""
+    mod = _import_pipeline_module(module_name, stage)
+    if mod is None:
+        return 1
+    try:
+        rc = mod.main(arg)
+    except SystemExit as exc:
+        code = exc.code
+        if code is None:
+            return 0
+        return int(code) if isinstance(code, int) else 1
+    if isinstance(rc, bool):
+        return 0 if rc else 1
+    if isinstance(rc, int):
+        return rc
+    return 0
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
@@ -24,8 +60,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
     sub = getattr(args, "stage", None) or "all"
 
     if sub == "extract":
-        from pipeline import extract_transcripts
-        extra = []
+        extra: List[str] = []
         if getattr(args, "db", None):
             extra.extend(["--db", args.db])
         else:
@@ -34,9 +69,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
             extra.append("--backfill-volumes")
         if getattr(args, "conv_dir", None):
             extra.extend(["--conv-dir", args.conv_dir])
-        extract_transcripts.main(extra)
+        return _run_pipeline_stage("extract_transcripts", extra, sub)
     elif sub == "benchmark":
-        from pipeline import benchmark_reasoning_tiers
         extra = []
         if getattr(args, "db", None):
             extra.extend(["--db", args.db])
@@ -44,48 +78,34 @@ def cmd_audit(args: argparse.Namespace) -> int:
             extra.extend(["--output-json", str(args.output_json)])
         if getattr(args, "output_report", None):
             extra.extend(["--output-report", str(args.output_report)])
-        benchmark_reasoning_tiers.main(extra)
-        return 0
+        return _run_pipeline_stage("benchmark_reasoning_tiers", extra, sub)
     elif sub == "classify":
-        from pipeline import classify_failures
         extra = []
         if getattr(args, "db", None):
             extra.extend(["--db", args.db])
-        classify_failures.main(extra)
-        return 0
+        return _run_pipeline_stage("classify_failures", extra, sub)
     elif sub == "inventory":
-        from pipeline import inventory_customizations
-        inventory_customizations.main([])
-        return 0
+        return _run_pipeline_stage("inventory_customizations", [], sub)
     elif sub == "dynamics":
-        from pipeline import analyze_context_dynamics
         extra = []
         if getattr(args, "db", None):
             extra.extend(["--db", args.db])
-        analyze_context_dynamics.main(extra)
-        return 0
+        return _run_pipeline_stage("analyze_context_dynamics", extra, sub)
     elif sub == "traces":
-        from pipeline import extract_cognitive_traces
         extra = []
         if getattr(args, "db", None):
             extra.extend(["--db", args.db])
-        extract_cognitive_traces.main(extra)
-        return 0
+        return _run_pipeline_stage("extract_cognitive_traces", extra, sub)
     elif sub == "interventions":
-        from pipeline import summarize_interventions
         extra = []
         if getattr(args, "db", None):
             extra.extend(["--db", args.db])
-        summarize_interventions.main(extra)
-        return 0
+        return _run_pipeline_stage("summarize_interventions", extra, sub)
     elif sub == "volume":
-        from pipeline import analyze_volume_distributions
-        return analyze_volume_distributions.main(args)
+        return _run_pipeline_stage("analyze_volume_distributions", args, sub)
     elif sub == "deep":
-        from pipeline import analyze_ultra_deep_sessions
-        return analyze_ultra_deep_sessions.main(args)
+        return _run_pipeline_stage("analyze_ultra_deep_sessions", args, sub)
     elif sub == "clusters":
-        from pipeline import analyze_failure_clusters
         extra = []
         if getattr(args, "db", None):
             extra.extend(["--db", args.db])
@@ -93,18 +113,15 @@ def cmd_audit(args: argparse.Namespace) -> int:
             extra.extend(["--output-json", str(args.output_json)])
         if getattr(args, "output_report", None):
             extra.extend(["--output-report", str(args.output_report)])
-        return analyze_failure_clusters.main(extra)
+        return _run_pipeline_stage("analyze_failure_clusters", extra, sub)
     elif sub == "artifacts":
-        from pipeline import audit_artifacts
         extra = []
         if getattr(args, "output_json", None):
             extra.extend(["--json-out", str(args.output_json)])
         if getattr(args, "output_report", None):
             extra.extend(["--output", str(args.output_report)])
-        audit_artifacts.main(extra)
-        return 0
+        return _run_pipeline_stage("audit_artifacts", extra, sub)
     elif sub in ("configs", "project_configs", "project-configs"):
-        from pipeline import audit_project_configs
         extra = []
         if getattr(args, "db", None):
             extra.extend(["--db", args.db])
@@ -112,39 +129,25 @@ def cmd_audit(args: argparse.Namespace) -> int:
             extra.extend(["--json-out", str(args.output_json)])
         if getattr(args, "output_report", None):
             extra.extend(["--output", str(args.output_report)])
-        audit_project_configs.main(extra)
-        return 0
+        return _run_pipeline_stage("audit_project_configs", extra, sub)
     elif sub == "all":
         extra_db = ["--db", args.db] if getattr(args, "db", None) else ["--db", str(DEFAULT_DB)]
+        if _import_pipeline_module("inventory_customizations", "all") is None:
+            return 1
+
+        failed_stages: List[Tuple[str, int]] = []
 
         if getattr(args, "backfill", False) or getattr(args, "conv_dir", None):
             print("▶ [Pre] Harvesting Transcripts & Volume Backfill...")
-            from pipeline import extract_transcripts
             extract_extra = list(extra_db)
             if getattr(args, "backfill", False):
                 extract_extra.append("--backfill-volumes")
             if getattr(args, "conv_dir", None):
                 extract_extra.extend(["--conv-dir", args.conv_dir])
-            extract_transcripts.main(extract_extra)
+            rc = _run_pipeline_stage("extract_transcripts", extract_extra, "extract")
+            if rc != 0:
+                failed_stages.append(("extract", rc))
 
-        print("▶ [1/11] Scanning Customization & Extension Inventory...")
-        from pipeline import inventory_customizations
-        inventory_customizations.main([])
-
-        print("\n▶ [2/11] Classifying Failures & Workstation Metrics...")
-        from pipeline import classify_failures
-        classify_failures.main(extra_db)
-
-        print("\n▶ [3/11] Summarizing Operator Interventions...")
-        from pipeline import summarize_interventions
-        summarize_interventions.main(extra_db)
-
-        print("\n▶ [4/11] Analyzing Context Cliff & Token Dynamics...")
-        from pipeline import analyze_context_dynamics
-        analyze_context_dynamics.main(extra_db)
-
-        print("\n▶ [5/11] Analyzing Tool & Command Character Volume Distributions...")
-        from pipeline import analyze_volume_distributions
         vol_args = argparse.Namespace(
             db=getattr(args, "db", None) or str(DEFAULT_DB),
             backfill=getattr(args, "backfill", False),
@@ -152,44 +155,44 @@ def cmd_audit(args: argparse.Namespace) -> int:
             output_report=None,
             quiet=getattr(args, "quiet", False),
         )
-        analyze_volume_distributions.main(vol_args)
-
-        print("\n▶ [6/11] Analyzing Ultra-Deep 1,000+ Step Titan Sessions...")
-        from pipeline import analyze_ultra_deep_sessions
         deep_args = argparse.Namespace(
             db=getattr(args, "db", None) or str(DEFAULT_DB),
             output_json=None,
             output_report=None,
             quiet=getattr(args, "quiet", False),
         )
-        analyze_ultra_deep_sessions.main(deep_args)
-
-        print("\n▶ [7/11] Analyzing Model Failure Clusters & Hotspots...")
-        from pipeline import analyze_failure_clusters
-        analyze_failure_clusters.main(extra_db)
-
-        print("\n▶ [8/11] Benchmarking Reasoning Tiers...")
-        from pipeline import benchmark_reasoning_tiers
-        benchmark_reasoning_tiers.main(extra_db)
-
-        print("\n▶ [9/11] Extracting Cognitive & Chain-of-Thought Traces...")
-        from pipeline import extract_cognitive_traces
-        extract_cognitive_traces.main(extra_db)
-
-        print("\n▶ [10/11] Auditing Artifacts & Plan-Execution Drift...")
-        from pipeline import audit_artifacts
-        audit_artifacts.main([])
-
-        print("\n▶ [11/11] Auditing Project Rules & Skills Ecosystem...")
-        from pipeline import audit_project_configs
-        audit_project_configs.main(extra_db)
+        stages: List[Tuple[str, str, str, Any]] = [
+            ("inventory", "\n▶ [1/11] Scanning Customization & Extension Inventory...", "inventory_customizations", []),
+            ("classify", "\n▶ [2/11] Classifying Failures & Workstation Metrics...", "classify_failures", extra_db),
+            ("interventions", "\n▶ [3/11] Summarizing Operator Interventions...", "summarize_interventions", extra_db),
+            ("dynamics", "\n▶ [4/11] Analyzing Context Cliff & Token Dynamics...", "analyze_context_dynamics", extra_db),
+            ("volume", "\n▶ [5/11] Analyzing Tool & Command Character Volume Distributions...", "analyze_volume_distributions", vol_args),
+            ("deep", "\n▶ [6/11] Analyzing Ultra-Deep 1,000+ Step Titan Sessions...", "analyze_ultra_deep_sessions", deep_args),
+            ("clusters", "\n▶ [7/11] Analyzing Model Failure Clusters & Hotspots...", "analyze_failure_clusters", extra_db),
+            ("benchmark", "\n▶ [8/11] Benchmarking Reasoning Tiers...", "benchmark_reasoning_tiers", extra_db),
+            ("traces", "\n▶ [9/11] Extracting Cognitive & Chain-of-Thought Traces...", "extract_cognitive_traces", extra_db),
+            ("artifacts", "\n▶ [10/11] Auditing Artifacts & Plan-Execution Drift...", "audit_artifacts", []),
+            ("configs", "\n▶ [11/11] Auditing Project Rules & Skills Ecosystem...", "audit_project_configs", extra_db),
+        ]
+        for st_name, banner, mod_name, st_arg in stages:
+            print(banner.lstrip("\n") if st_name == "inventory" else banner)
+            rc = _run_pipeline_stage(mod_name, st_arg, st_name)
+            if rc != 0:
+                failed_stages.append((st_name, rc))
 
         print("\n" + "=" * 75)
+        if failed_stages:
+            summary = ", ".join(f"{name} (exit {code})" for name, code in failed_stages)
+            print(f" ✘ TELEMETRY PIPELINE FAILED: {summary}")
+            print("=" * 75)
+            return failed_stages[0][1] or 1
         print(" ✔ COMPLETE 360-DEGREE TELEMETRY PIPELINE EXECUTION FINISHED")
         print("=" * 75)
         return 0
     elif sub in ("session", "live"):
-        from pipeline import analyze_live_session
+        analyze_live_session = _import_pipeline_module("analyze_live_session", sub)
+        if analyze_live_session is None:
+            return 1
         session_id = getattr(args, "session_id", None)
         save_db = getattr(args, "save_db", False)
         out_path = getattr(args, "out", None)
@@ -213,7 +216,9 @@ def cmd_audit(args: argparse.Namespace) -> int:
         report = analyze_live_session.analyze_session(s_dir)
 
         if save_db:
-            from pipeline import extract_transcripts
+            extract_transcripts = _import_pipeline_module("extract_transcripts", sub)
+            if extract_transcripts is None:
+                return 1
             from harness.telemetry import config
             from harness.telemetry.db import get_db_connection
             from harness.telemetry.extractor import upsert_session_telemetry
@@ -325,6 +330,42 @@ def cmd_audit(args: argparse.Namespace) -> int:
                 test_suite_result["failed_tests"] = fail_total
                 test_suite_result["passed_tests"] = max(0, total - fail_total)
 
+        # Architectural Fitness Function (AFF) audit
+        aff_failed = False
+        aff_result = {
+            "status": "PASS",
+            "score": 100.0,
+            "scanned_files": 0,
+            "defects_count": 0,
+            "benchmark_latency_s": 0.0,
+        }
+        try:
+            from harness.runtime.aff import audit_architectural_fitness
+            aff_report = audit_architectural_fitness(workspace_root=cwd)
+            all_aff_defects = (
+                aff_report.boundary_defects + aff_report.cycle_defects + aff_report.smell_defects
+            )
+            has_crit_or_major = any(d.severity in ("CRITICAL", "MAJOR") for d in all_aff_defects)
+            aff_failed = (aff_report.status == "FAIL" or has_crit_or_major)
+            aff_result = {
+                "status": aff_report.status,
+                "score": round(aff_report.score, 2),
+                "scanned_files": aff_report.scanned_files_count,
+                "defects_count": len(all_aff_defects),
+                "benchmark_latency_s": round(aff_report.benchmark_latency_s, 4),
+            }
+        except Exception as exc:
+            aff_failed = True
+            aff_result = {
+                "status": "ERROR",
+                "score": 0.0,
+                "scanned_files": 0,
+                "defects_count": 1,
+                "benchmark_latency_s": 0.0,
+                "error": str(exc),
+            }
+            sys.stderr.write(f"⚠️  AFF audit error: {exc}\n")
+
         # Doctor audit
         doctor_result = {"ok_count": 0, "missing_count": 0, "outdated_count": 0}
         try:
@@ -339,8 +380,12 @@ def cmd_audit(args: argparse.Namespace) -> int:
         except Exception as exc:
             sys.stderr.write(f"⚠️  Doctor audit warning: {exc}\n")
 
-        if not skip_tests and test_suite_result["exit_code"] != 0 and verdict_str.upper() in ("VICTORY CONFIRMED", "PASS"):
-            verdict_str = "REJECTED"
+        if (not skip_tests and (test_suite_result["exit_code"] != 0 or test_suite_result["total_tests"] <= 0)) or aff_failed:
+            if verdict_str.upper() in ("VICTORY CONFIRMED", "PASS"):
+                verdict_str = "REJECTED"
+        elif skip_tests and verdict_str.upper() in ("VICTORY CONFIRMED", "PASS", "PROVISIONAL"):
+            # Never certify victory when tests were skipped (PSL-INV-001)
+            verdict_str = "PROVISIONAL"
 
         verdict_obj = generate_audit_verdict(
             workspace_dir=cwd,
@@ -348,6 +393,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
             verdict=verdict_str,
             test_suite_result=test_suite_result,
             doctor_result=doctor_result,
+            aff_result=aff_result,
             auditor_role="agyis_auditor",
         )
 
@@ -368,12 +414,23 @@ def cmd_audit(args: argparse.Namespace) -> int:
                 f"(latency: {test_suite_result['benchmark_latency_s']}s, exit code: {test_suite_result['exit_code']})"
             )
             print(
+                f"AFF Audit:      {aff_result['status']} ({aff_result['score']:.1f}/100, "
+                f"{aff_result['defects_count']} defects, {aff_result['benchmark_latency_s']}s)"
+            )
+            print(
                 f"Doctor Audit:   {doctor_result['ok_count']} ok, "
                 f"{doctor_result['missing_count']} missing, {doctor_result['outdated_count']} outdated"
             )
             print("=" * 70)
 
-        return 0 if (verdict_obj.verdict.upper() in ("VICTORY CONFIRMED", "PASS") and test_suite_result["exit_code"] == 0) else 1
+        certified = (
+            not skip_tests
+            and verdict_obj.verdict.upper() in ("VICTORY CONFIRMED", "PASS")
+            and test_suite_result["exit_code"] == 0
+            and test_suite_result["total_tests"] > 0
+            and not aff_failed
+        )
+        return 0 if certified else 1
 
     elif sub == "verdict":
         from harness.subagents.verdict import validate_audit_verdict

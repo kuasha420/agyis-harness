@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -22,11 +22,20 @@ def _resolve_default_plugin_dir() -> Path:
     env_dir = os.environ.get("AGYIS_PLUGINS_DIR") or os.environ.get("PSL_PLUGINS_DIR")
     if env_dir and env_dir.strip():
         return Path(env_dir.strip())
-    target = Path.home() / ".gemini" / "config" / "plugins" / "agyis-harness"
-    legacy = Path.home() / ".gemini" / "config" / "plugins" / "psl-agy-harness"
-    if not target.exists() and legacy.exists():
-        return legacy
-    return target
+    return Path.home() / ".gemini" / "config" / "plugins" / "agyis-harness"
+
+
+def is_packaged_wheel_install(source_dir: Optional[Path] = None) -> bool:
+    """Returns True when running from an installed wheel (site-packages) rather than a source checkout."""
+    root = (Path(source_dir) if source_dir is not None else REPO_ROOT).resolve()
+    has_pyproject = (root / "pyproject.toml").is_file()
+    if has_pyproject:
+        return False
+    if not (root / "plugin.json").is_file() and (root / "harness" / "plugin.json").is_file():
+        return True
+    if root.name in ("site-packages", "dist-packages"):
+        return True
+    return False
 
 
 DEFAULT_PLUGIN_DIR = _resolve_default_plugin_dir()

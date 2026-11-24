@@ -54,13 +54,19 @@ class RemoteRunner:
         self.socket_dir = socket_dir or get_socket_dir()
         self.default_timeout = default_timeout
 
-    def get_multiplex_options(self) -> List[str]:
+    @staticmethod
+    def _ssh_bin() -> str:
+        """Resolves SSH binary honoring ANTIGRAVITY_SSH_BIN override."""
+        return os.environ.get("ANTIGRAVITY_SSH_BIN") or "ssh"
+
+    def get_multiplex_options(self, socket_dir: Optional[Path] = None) -> List[str]:
         """
         Generates OpenSSH multiplexing and timeout flags.
         Uses cm_%C (%C = hash of identifying connection parameters) to stay
         strictly under the 108-byte UNIX domain socket path length limit.
         """
-        control_path = self.socket_dir / "cm_%C"
+        eff_dir = Path(socket_dir) if socket_dir is not None else self.socket_dir
+        control_path = eff_dir / "cm_%C"
         return [
             "-o", "ControlMaster=auto",
             "-o", f"ControlPath={control_path}",
@@ -68,6 +74,7 @@ class RemoteRunner:
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=10",
             "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=3",
         ]
 
     def build_command(
@@ -81,8 +88,7 @@ class RemoteRunner:
         """
         Builds the SSH argv list suitable for subprocess execution.
         """
-        ssh_bin = os.environ.get("ANTIGRAVITY_SSH_BIN") or "ssh"
-        cmd: List[str] = [ssh_bin]
+        cmd: List[str] = [self._ssh_bin()]
         cmd.extend(self.get_multiplex_options())
 
         if port is not None:
@@ -158,11 +164,13 @@ class RemoteRunner:
         target: str,
         port: Optional[int] = None,
         extra_options: Optional[List[str]] = None,
+        socket_dir: Optional[Path] = None,
     ) -> Optional[Path]:
         """
         Determines the ControlMaster socket path for a given target.
         Attempts to calculate the OpenSSH %C SHA-1 hash or probe OpenSSH configuration.
         """
+        eff_dir = Path(socket_dir) if socket_dir is not None else self.socket_dir
         computed_path: Optional[Path] = None
         try:
             import hashlib
@@ -177,15 +185,15 @@ class RemoteRunner:
 
             ident = f"{hostname}{remote_host}{remote_port}{remote_user}"
             digest = hashlib.sha1(ident.encode("utf-8")).hexdigest()
-            computed_path = self.socket_dir / f"cm_{digest}"
+            computed_path = eff_dir / f"cm_{digest}"
             if computed_path.exists():
                 return computed_path
-        except Exception:
+        except (OSError, ValueError):
             pass
 
         try:
-            cmd = ["ssh", "-G"]
-            cmd.extend(self.get_multiplex_options())
+            cmd = [self._ssh_bin(), "-G"]
+            cmd.extend(self.get_multiplex_options(socket_dir=eff_dir))
             if port is not None:
                 cmd.extend(["-p", str(port)])
             if extra_options:
@@ -215,8 +223,9 @@ class RemoteRunner:
         Attempts graceful shutdown via 'ssh -O exit' and removes any stale target socket.
         Does not affect ControlMaster sockets for other active hosts.
         """
-        cmd = ["ssh", "-O", "exit"]
-        cmd.extend(self.get_multiplex_options())
+        eff_dir = Path(socket_dir) if socket_dir is not None else self.socket_dir
+        cmd = [self._ssh_bin(), "-O", "exit"]
+        cmd.extend(self.get_multiplex_options(socket_dir=eff_dir))
         if port is not None:
             cmd.extend(["-p", str(port)])
         if extra_options:
@@ -228,7 +237,12 @@ class RemoteRunner:
             pass
 
         removed: List[Path] = []
-        target_sock = self.get_target_socket_path(target, port=port, extra_options=extra_options)
+        target_sock = self.get_target_socket_path(
+            target,
+            port=port,
+            extra_options=extra_options,
+            socket_dir=eff_dir,
+        )
         if target_sock and target_sock.exists():
             try:
                 target_sock.unlink()
@@ -246,15 +260,23 @@ class RemoteRunner:
             return []
 
         results: List[Dict[str, Any]] = []
-        for item in sorted(self.socket_dir.iterdir()):
+        try:
+            entries = sorted(self.socket_dir.iterdir())
+        except OSError:
+            return []
+        for item in entries:
             if item.name.startswith("cm_"):
-                stat_res = item.stat()
+                try:
+                    stat_res = item.stat()
+                    is_sock = item.is_socket()
+                except (FileNotFoundError, OSError):
+                    continue
                 results.append({
                     "path": str(item),
                     "name": item.name,
                     "mtime": stat_res.st_mtime,
                     "size": stat_res.st_size,
-                    "is_socket": item.is_socket(),
+                    "is_socket": is_sock,
                 })
         return results
 
@@ -266,11 +288,12 @@ class RemoteRunner:
         if not self.socket_dir.exists():
             return removed
 
+        ssh_bin = self._ssh_bin()
         for item in self.socket_dir.iterdir():
             if item.name.startswith("cm_"):
                 try:
                     subprocess.run(
-                        ["ssh", "-S", str(item), "-O", "exit", "dummy_host"],
+                        [ssh_bin, "-S", str(item), "-O", "exit", "dummy_host"],
                         capture_output=True,
                         timeout=2,
                     )

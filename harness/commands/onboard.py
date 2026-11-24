@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -26,9 +27,11 @@ from harness.delivery import (
     create_pull_request,
     enforce_single_source_rules,
     enforce_single_source_skills,
+    get_plugin_provided_skills,
     harmonize_workspace,
     install_workspace,
     purge_build_caches,
+    resolve_skills_for_workspace,
     verify_zero_git_pollution,
 )
 from harness.skills import (
@@ -39,8 +42,9 @@ from harness.skills import (
     detect_workspace_stack,
     detect_workspace_stacks,
     is_monorepo,
-    resolve_skills_to_sync,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 def cmd_onboard(
@@ -183,8 +187,8 @@ def cmd_onboard(
             patch_file.parent.mkdir(parents=True, exist_ok=True)
             try:
                 configure_git_exclude(ws)
-            except Exception:
-                pass
+            except OSError as exc:
+                _logger.debug("configure_git_exclude skipped before safety patch: %s", exc)
             diff_proc = subprocess.run(
                 ["git", "diff", "HEAD"],
                 cwd=ws,
@@ -227,7 +231,7 @@ def cmd_onboard(
             if dry_run:
                 topology.current_branch = branch_name
             else:
-                base_b = topology.active_base_branch or topology.default_branch or "main"
+                base_b = topology.active_base_branch or "main"
                 checkout_proc = subprocess.run(
                     ["git", "checkout", "-b", branch_name, base_b],
                     cwd=ws,
@@ -285,16 +289,23 @@ def cmd_onboard(
     if not dry_run:
         try:
             configure_git_exclude(ws)
-        except Exception:
-            pass
+        except OSError as exc:
+            _logger.debug("configure_git_exclude skipped: %s", exc)
 
-    # 9. Harmonize workspace (legacy .agent/ migration, rules tags, archive/prune)
+    # Resolve canonical config_dir up front to avoid installing+immediately-pruning plugin-shadowed skills
+    config_dir_path = (
+        Path(config_dir).resolve()
+        if config_dir is not None
+        else Path(os.environ.get("AGYIS_CONFIG_DIR") or os.environ.get("PSL_CONFIG_DIR") or (Path.home() / ".gemini" / "config")).resolve()
+    )
+
+    # 9. Harmonize workspace (legacy .agent/ migration, rules tags, archive/prune; skills handled in step 10/11)
     harm_res = harmonize_workspace(
         workspace_dir=subproject_path,
         dry_run=dry_run,
         prune_legacy=effective_prune,
         backup=True,
-        stack=lang,
+        stack=None,
     )
     if not harm_res.success:
         if json_output:
@@ -324,10 +335,10 @@ def cmd_onboard(
             skills_list = sorted(s_set)
 
     if not skills_list and skills is None:
-        skills_list = resolve_skills_to_sync(
+        skills_list = resolve_skills_for_workspace(
+            workspace_dir=subproject_path,
             stack=lang or "auto",
             role=role,
-            workspace_root=subproject_path,
         )
 
     detected_stacks = detect_workspace_stacks(subproject_path)
@@ -341,22 +352,29 @@ def cmd_onboard(
 
         db_check = check_database_port_conflicts(workspace_root=subproject_path)
 
-    if skills_list:
+    # Filter out skills already supplied by installed global plugins before writing to disk
+    plugin_shadowed = {
+        s.strip().lower().replace("_", "-")
+        for s in get_plugin_provided_skills(config_dir_path)
+    }
+    skills_to_install = [
+        s for s in skills_list if s.strip().lower().replace("_", "-") not in plugin_shadowed
+    ]
+
+    if skills_to_install:
         install_workspace(
             workspace_dir=subproject_path,
             stack=effective_stack,
-            skills=skills_list,
+            role=role,
+            skills=skills_to_install,
             include_agents=False,
             dedup=True,
             dry_run=dry_run,
+            update_rules=False,
         )
+    skills_list = skills_to_install
 
     # 12. Enforce single-source skill deduplication by default (Issue #52, rc4 learnings)
-    config_dir_path = (
-        Path(config_dir).resolve()
-        if config_dir is not None
-        else Path(os.environ.get("AGYIS_CONFIG_DIR") or os.environ.get("PSL_CONFIG_DIR") or (Path.home() / ".gemini" / "config")).resolve()
-    )
     pruned_skills = enforce_single_source_skills(
         config_dir=config_dir_path,
         workspace_dir=subproject_path,
@@ -390,8 +408,8 @@ def cmd_onboard(
                     timeout=30,
                     check=False,
                 )
-            except Exception:
-                pass
+            except (subprocess.SubprocessError, OSError) as exc:
+                _logger.debug("git push before PR creation failed: %s", exc)
 
             title = f"chore: onboard workspace to Agyis Harness"
             body = (

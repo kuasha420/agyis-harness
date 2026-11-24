@@ -45,7 +45,7 @@ def _handle_remove_readonly(func, path, exc_info):
         if os.path.exists(path):
             os.chmod(path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
         func(path)
-    except Exception:
+    except OSError:
         pass
 
 

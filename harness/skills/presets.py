@@ -55,17 +55,12 @@ ARCHITECTURAL_ROLE_PRESETS: Dict[str, List[str]] = {
         "psl-stack-backend",
         "db-ops",
     ],
-    "frontend": [
-        "modern-web-guidance",
-    ],
+    "frontend": [],
     "fullstack": [
-        "modern-web-guidance",
         "psl-stack-backend",
         "db-ops",
     ],
-    "mobile": [
-        "android-cli",
-    ],
+    "mobile": [],
     "desktop_gui": [
         "display-ops",
     ],

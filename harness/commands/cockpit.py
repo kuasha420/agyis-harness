@@ -16,12 +16,15 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
 import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+_logger = logging.getLogger(__name__)
 
 from harness.delivery import (
     collect_active_subagents,
@@ -42,11 +45,12 @@ from harness.subagents.stage_role import read_stage_role
 from harness.utils.plan_parser import find_active_plan
 
 
-def _classify_token_horizon(tokens: int, max_context_tokens: int = 256_000) -> Tuple[str, str]:
+def _classify_token_horizon(tokens: int, max_context_tokens: Optional[int] = None) -> Tuple[str, str]:
     """Classifies token count into Healthy, Amber, or Red Alert proximity zones."""
-    from harness.hooks.token_proximity_guard import get_scaled_thresholds
+    from harness.hooks.token_proximity_guard import CONTEXT_WINDOW_TOKENS, get_scaled_thresholds
 
-    amber_t, red_t = get_scaled_thresholds(max_context_tokens)
+    eff_max = max_context_tokens if (max_context_tokens and max_context_tokens > 0) else CONTEXT_WINDOW_TOKENS
+    amber_t, red_t = get_scaled_thresholds(eff_max)
     amber_k = int(round(amber_t / 1000))
     red_k = int(round(red_t / 1000))
     if tokens < amber_t:
@@ -154,8 +158,8 @@ def _audit_flight_director_invariants(
                     # Check if it's an allowed standard script e.g. agyis
                     if item.name not in ("agyis", "setup.py", "conftest.py"):
                         stray_root_files.append(item.name)
-    except Exception:
-        pass
+    except OSError as exc:
+        _logger.debug("Failed to inspect root directory %s: %s", workspace, exc)
     inv2_passed = len(stray_root_files) == 0
     if not inv2_passed:
         overall_pass = False
@@ -180,17 +184,20 @@ def _audit_flight_director_invariants(
         )
         if res.returncode == 0:
             lines = res.stdout.splitlines()
+            current_wt: Optional[str] = None
             for line in lines:
-                if line.startswith("worktree "):
-                    wt_path_str = line[len("worktree "):].strip()
-                    wt_path = Path(wt_path_str)
-                    if not wt_path.exists():
-                        orphaned_worktrees.append(wt_path_str)
-                elif line.strip() == "prunable":
-                    # Mark previous as prunable
-                    pass
-    except Exception:
-        pass
+                stripped = line.strip()
+                if not stripped:
+                    current_wt = None
+                elif line.startswith("worktree "):
+                    current_wt = line[len("worktree "):].strip()
+                    if not Path(current_wt).exists() and current_wt not in orphaned_worktrees:
+                        orphaned_worktrees.append(current_wt)
+                elif stripped == "prunable" or stripped.startswith("prunable "):
+                    if current_wt and current_wt not in orphaned_worktrees:
+                        orphaned_worktrees.append(current_wt)
+    except (subprocess.SubprocessError, OSError) as exc:
+        _logger.debug("git worktree inspection skipped: %s", exc)
     inv3_passed = len(orphaned_worktrees) == 0
     if not inv3_passed:
         overall_pass = False
@@ -275,8 +282,8 @@ def _audit_flight_director_invariants(
                         if any(p.is_file() for p in child.rglob("*")):
                             has_teamwork_subagents = True
                             break
-            except Exception:
-                pass
+            except OSError as exc:
+                _logger.debug("Skipping unreadable teamwork directory %s: %s", tw_root, exc)
         if has_teamwork_subagents:
             break
 
@@ -295,8 +302,8 @@ def _audit_flight_director_invariants(
                         if any(search_dir.glob("psl_stage_transition_*.json")):
                             has_teamwork_subagents = True
                             break
-                    except Exception:
-                        pass
+                    except OSError as exc:
+                        _logger.debug("Skipping unreadable transition dir %s: %s", search_dir, exc)
 
     if has_teamwork_subagents:
         try:
@@ -380,19 +387,21 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
             except ValueError:
                 tokens = 0
 
-        max_ctx = 256_000
+        from harness.trajectory.health import CONTEXT_WINDOW_TOKENS, get_scaled_thresholds
+
+        max_ctx = CONTEXT_WINDOW_TOKENS
         has_explicit_max = False
-        scaled_fn = None
+        scaled_fn = get_scaled_thresholds
         conv_id: Optional[str] = None
         try:
             from harness.hooks.token_proximity_guard import (
                 get_active_conversation_context_window,
                 get_active_conversation_tokens,
                 get_conversations_dir,
-                get_scaled_thresholds,
+                get_scaled_thresholds as guard_scaled_thresholds,
             )
             from harness.subagents.liveness import resolve_active_root_conversation_id
-            scaled_fn = get_scaled_thresholds
+            scaled_fn = guard_scaled_thresholds
             conv_id = resolve_active_root_conversation_id()
             if not conv_id:
                 conv_dir = get_conversations_dir()
@@ -403,13 +412,13 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
             if conv_id:
                 ctx_win = get_active_conversation_context_window(conv_id)
                 has_explicit_max = bool(ctx_win.get("has_explicit_max_context", False))
-                max_ctx = int(ctx_win.get("max_context_tokens") or 256_000)
+                max_ctx = int(ctx_win.get("max_context_tokens") or CONTEXT_WINDOW_TOKENS)
                 if tokens <= 0:
                     tokens = int(ctx_win.get("tokens") or 0)
                 if tokens <= 0:
                     tokens = get_active_conversation_tokens(conv_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.debug("Token proximity lookup unavailable: %s", exc)
 
         if not has_explicit_max:
             env_max = os.environ.get("AGYIS_MAX_CONTEXT_TOKENS")
@@ -421,11 +430,7 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
                 except ValueError:
                     pass
 
-        if scaled_fn is not None:
-            amber_t, red_t = scaled_fn(max_ctx)
-        else:
-            amber_t = int(round(max_ctx * 180_000 / 256_000))
-            red_t = int(round(max_ctx * 230_000 / 256_000))
+        amber_t, red_t = scaled_fn(max_ctx)
 
         zone_code, zone_label = _classify_token_horizon(tokens, max_context_tokens=max_ctx)
         git_state = inspect_git_state(workspace)
@@ -583,8 +588,9 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
             return 0
         else:
             print("❌ Overall Result: FAILED (Flight Director Invariant Violations Detected)")
-            print("Tip: Use --allow-dirty to permit in-flight uncommitted code modifications.")
-            return 0 if allow_dirty else 1
+            if not allow_dirty:
+                print("Tip: Use --allow-dirty to permit in-flight uncommitted code modifications.")
+            return 1
 
     else:
         print(f"Unknown cockpit action: {action}", file=sys.stderr)

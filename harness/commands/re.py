@@ -536,6 +536,14 @@ def cmd_disasm(args: argparse.Namespace) -> int:
     ]
     try:
         proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if proc.returncode != 0:
+            err_msg = (proc.stderr or proc.stdout or "").strip()
+            print(
+                f"[!] objdump exited with code {proc.returncode}"
+                + (f": {err_msg}" if err_msg else ""),
+                file=sys.stderr,
+            )
+            return proc.returncode
         lines = proc.stdout.splitlines()
         code_lines = [
             l
@@ -564,7 +572,7 @@ def cmd_addr(args: argparse.Namespace) -> int:
         if conn:
             try:
                 conn.close()
-            except Exception:
+            except (OSError, sqlite3.Error):
                 pass
 
 
@@ -579,7 +587,7 @@ def cmd_xrefs(args: argparse.Namespace) -> int:
         if conn:
             try:
                 conn.close()
-            except Exception:
+            except (OSError, sqlite3.Error):
                 pass
 
 
@@ -587,7 +595,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     """CLI dispatcher for 'agyis re'."""
     parser = argparse.ArgumentParser(
         prog="agyis re",
-        description="Agyis Cleanroom Reverse Engineering & Dirty-Room Toolsuite (ADR-028, PSL-INV-009)",
+        description="Agyis Cleanroom Reverse Engineering & Dirty-Room Toolsuite (ADR-028, PSL-RE-001)",
     )
     sub = parser.add_subparsers(dest="re_cmd", help="RE subcommand")
 

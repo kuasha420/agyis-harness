@@ -600,9 +600,9 @@ def harmonize_workspace(
                             with open(exclude_file, "a", encoding="utf-8") as f:
                                 for pat in missing:
                                     f.write(f"{pat}\n")
-                    except Exception:
+                    except OSError:
                         pass
-            except Exception:
+            except OSError:
                 pass
 
         # Build file manifest list

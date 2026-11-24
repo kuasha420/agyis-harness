@@ -37,7 +37,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     is_json = getattr(args, "json", False)
     is_scaffold = getattr(args, "scaffold", False)
 
-    # 0. Scaffold Mode: generate typed obligation ledger adhering to REA 6.8.0
+    # 0. Scaffold Mode: generate typed obligation ledger adhering to REA 6.9.0
     if is_scaffold:
         ledger_path = workspace / ".agents" / "ledger" / "obligation_ledger.json"
         from harness.cleanroom.obligation import scaffold_obligation_ledger
@@ -103,7 +103,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
             )
         try:
             clear_spec_dirty()
-        except Exception:
+        except OSError:
             pass
         return 0
 
@@ -137,7 +137,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                     print("✔ Cleanroom reconstruction verified via REA obligation engine.")
                 try:
                     clear_spec_dirty()
-                except Exception:
+                except OSError:
                     pass
                 return 0
             else:
@@ -258,6 +258,6 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
     try:
         clear_spec_dirty()
-    except Exception:
+    except OSError:
         pass
     return 0

@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import harness
 from harness.commands.subagents import format_subagents_table
@@ -21,6 +22,73 @@ from harness.runtime import doctor as psl_doctor
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_DB = REPO_ROOT / "data" / "telemetry.db"
+_logger = logging.getLogger(__name__)
+
+_HOOK_DESCRIPTIONS: Dict[str, str] = {
+    "command-safety": "CPython 3.12, pager, grep/diff sanitization",
+    "anti-loop": "repetitive tool call & polling breaker",
+    "compactor": "deterministic 2KB command / 32KB file compaction",
+    "verification-fence": "unverified code/spec edit completion guard",
+    "post-verification-fence": "verification command pass/fail state updater",
+    "anti-drift": "plan boundary, flight-director & auditor write guard",
+    "token-proximity": "proactive token horizon urgency monitor",
+    "pre-invocation": "PreInvocation compaction & role-pinning advisory",
+}
+
+
+def _load_live_hooks_summary() -> tuple[List[str], List[Dict[str, Any]]]:
+    """Reads live lifecycle hooks dynamically from harness/hooks/hooks.json (PSL-INV-007)."""
+    candidates = [
+        Path(__file__).resolve().parent.parent / "hooks" / "hooks.json",
+        REPO_ROOT / "hooks.json",
+    ]
+    hooks_file = next((p for p in candidates if p.is_file()), None)
+    if hooks_file is None:
+        return [], []
+
+    try:
+        raw = json.loads(hooks_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        _logger.debug("Failed to parse hooks.json at %s: %s", hooks_file, exc)
+        return [], []
+
+    if not isinstance(raw, dict):
+        return [], []
+
+    checks: List[str] = []
+    blocks: List[Dict[str, Any]] = []
+    seen_checks: set[str] = set()
+
+    for block_name, events_map in raw.items():
+        if not isinstance(events_map, dict):
+            continue
+        block_events: List[str] = []
+        block_checks: List[str] = []
+        for event_name, entries in events_map.items():
+            if not isinstance(entries, list):
+                continue
+            block_events.append(str(event_name))
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                for hook_def in entry.get("hooks", []) or []:
+                    if not isinstance(hook_def, dict):
+                        continue
+                    cmd = str(hook_def.get("command", "")).strip()
+                    if not cmd:
+                        continue
+                    check_name = cmd.split()[-1]
+                    if check_name not in block_checks:
+                        block_checks.append(check_name)
+                    if check_name not in seen_checks:
+                        seen_checks.add(check_name)
+                        checks.append(check_name)
+        blocks.append({
+            "name": str(block_name),
+            "events": block_events,
+            "checks": block_checks,
+        })
+    return checks, blocks
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -78,8 +146,8 @@ def cmd_status(args: argparse.Namespace) -> int:
             sync_payload["stale_local"] = lag.get("stale_local", 0)
             sync_payload["total_transcripts"] = lag.get("total_transcripts", 0)
             sync_payload["last_error"] = sync_st.get("last_error")
-        except Exception:
-            pass
+        except (OSError, ValueError, RuntimeError) as exc:
+            _logger.debug("Telemetry sync lag status unavailable: %s", exc)
 
         import os
         from harness.hooks.token_proximity_guard import (
@@ -138,8 +206,11 @@ def cmd_status(args: argparse.Namespace) -> int:
             from harness.subagents.heartbeat import read_stage_heartbeat
             workspace_dir = getattr(args, "workspace_dir", None)
             heartbeat = read_stage_heartbeat(workspace_dir=workspace_dir)
-        except Exception:
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            _logger.debug("Stage heartbeat unavailable: %s", exc)
             heartbeat = None
+
+        live_hook_checks, live_hook_blocks = _load_live_hooks_summary()
 
         report = {
             "version": harness.__version__,
@@ -149,14 +220,8 @@ def cmd_status(args: argparse.Namespace) -> int:
             "skills_count": len(skills),
             "subagents_count": len(agents),
             "telemetry_sync": sync_payload,
-            "active_hooks": [
-                "command-safety",
-                "anti-loop",
-                "output-compactor",
-                "verification-fence",
-                "anti-drift",
-                "token-proximity",
-            ],
+            "active_hooks": live_hook_checks,
+            "hook_blocks": live_hook_blocks,
             "token_metrics": token_metrics,
             "tokens": tokens,
             "max_context_tokens": max_ctx,
@@ -237,17 +302,23 @@ def cmd_status(args: argparse.Namespace) -> int:
             lag_parts.append(f"last_err={str(sync_st['last_error'])[:60]}")
         if lag_parts:
             print(f" Telemetry Sync:  {', '.join(lag_parts)}")
-    except Exception:
-        pass
+    except (OSError, ValueError, RuntimeError) as exc:
+        _logger.debug("Telemetry sync lag unavailable: %s", exc)
 
+    live_hook_checks, live_hook_blocks = _load_live_hooks_summary()
     print("-" * 70)
-    print(" Active Lifecycle Hooks:")
-    print("   ✔ command-safety   (PreToolUse: CPython 3.12, f-string, grep sanitization)")
-    print("   ✔ anti-loop        (PreToolUse: repetitive tool call breaker)")
-    print("   ✔ output-compactor (PostToolUse: deterministic 2KB output truncation)")
-    print("   ✔ verification-fence (Stop: unverified code edit completion guard)")
-    print("   ✔ anti-drift       (PreToolUse: plan boundary & cognitive anchor gate)")
-    print("   ✔ token-proximity (PreToolUse: proactive token urgency monitor & alert)")
+    print(f" Active Lifecycle Hooks ({len(live_hook_blocks)} blocks / {len(live_hook_checks)} checks from hooks.json):")
+    if live_hook_blocks:
+        for blk in live_hook_blocks:
+            events_str = "/".join(blk["events"]) or "unknown"
+            checks_str = ", ".join(blk["checks"])
+            desc = "; ".join(
+                _HOOK_DESCRIPTIONS[c] for c in blk["checks"] if c in _HOOK_DESCRIPTIONS
+            )
+            detail = f"{events_str}: {desc}" if desc else events_str
+            print(f"   ✔ {checks_str:<24} ({detail})")
+    else:
+        print("   ⚠ No hooks loaded from hooks.json")
     print("-" * 70)
     try:
         import os

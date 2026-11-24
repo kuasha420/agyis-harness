@@ -210,13 +210,20 @@ class RemoteTriage:
 
         report = "\n".join(lines_out).strip()
 
-        # Enforce deterministic <2KB bound
+        # Enforce deterministic <2KB bound (safe even for small max_bytes <= 60)
         report_bytes = report.encode("utf-8")
         if len(report_bytes) > max_bytes:
-            truncated = report_bytes[: max_bytes - 60].decode("utf-8", errors="ignore")
+            if max_bytes <= 0:
+                return ""
+            footer = "\n\n_(output bounded to <2KB)_"
+            footer_len = len(footer.encode("utf-8"))
+            if max_bytes <= footer_len + 4:
+                return report_bytes[:max_bytes].decode("utf-8", errors="ignore")
+            budget = max(0, max_bytes - footer_len - 4)
+            truncated = report_bytes[:budget].decode("utf-8", errors="ignore")
             if truncated.count("```") % 2 != 0:
                 truncated += "\n```"
-            truncated += "\n\n_(output bounded to <2KB)_"
+            truncated += footer
             return truncated
 
         return report
@@ -244,7 +251,12 @@ class RemoteTriage:
             timeout=timeout,
         )
 
-        raw_text = result.stdout or result.stderr
+        stdout_text = result.stdout or ""
+        stderr_text = result.stderr or ""
+        if stdout_text and stderr_text:
+            raw_text = f"{stdout_text.rstrip()}\n--- [STDERR] ---\n{stderr_text}"
+        else:
+            raw_text = stdout_text or stderr_text
         sections = cls.parse_sections(raw_text)
         report_md = cls.format_triage_markdown(
             raw_output=raw_text,
@@ -259,7 +271,8 @@ class RemoteTriage:
             "exit_code": result.returncode,
             "sections": sections,
             "report_markdown": report_md,
-            "raw_output": result.stdout,
+            "raw_output": raw_text,
+            "stderr": stderr_text,
         }
 
 

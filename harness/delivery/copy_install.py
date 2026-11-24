@@ -11,7 +11,46 @@ from __future__ import annotations
 
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 from typing import Callable, List, Optional
+
+
+def build_frozen_wheel(source_dir: Path, output_dir: Path) -> Path:
+    """Builds a binary wheel distribution using uv build (with pip fallback)."""
+    if not (source_dir / "pyproject.toml").is_file():
+        raise RuntimeError(
+            f"Cannot build frozen wheel: pyproject.toml not found in {source_dir}. "
+            "Use --copy mode when installing from a packaged wheel."
+        )
+    if shutil.which("uv"):
+        cmd = ["uv", "build", "--wheel", "--out-dir", str(output_dir)]
+    else:
+        cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "-w",
+            str(output_dir),
+            str(source_dir),
+        ]
+
+    res = subprocess.run(
+        cmd,
+        cwd=str(source_dir),
+        capture_output=True,
+        text=True,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(
+            f"Release wheel build failed (exit code {res.returncode}): {res.stderr or res.stdout}"
+        )
+    wheels = list(output_dir.glob("*.whl"))
+    if not wheels:
+        raise RuntimeError(f"No wheel artifact found in build output directory {output_dir}")
+    return wheels[0]
 
 
 def copy_distributable_tree(
@@ -100,26 +139,29 @@ def copy_distributable_tree(
 
     # 7. rules/
     rules_src = find_distributable_item("rules")
+    global_candidates = [
+        source_dir / "GLOBAL_AGENTS.md",
+        source_dir / "harness" / "GLOBAL_AGENTS.md",
+    ]
     if rules_src and rules_src.is_dir():
+        global_candidates.append(rules_src / "GLOBAL_AGENTS.md")
+    global_candidates.append(source_dir / "harness" / "rules" / "GLOBAL_AGENTS.md")
+    global_rules_src = next((p for p in global_candidates if p.exists()), None)
+
+    if (rules_src and rules_src.is_dir()) or global_rules_src is not None:
         rules_dst = target / "rules"
         if rules_dst.exists():
             shutil.rmtree(rules_dst)
         rules_dst.mkdir(parents=True, exist_ok=True)
 
         # Copy auxiliary markdown rules excluding repo-internal AGENTS.md
-        for f in rules_src.glob("*.md"):
-            if f.name not in ("AGENTS.md", "GLOBAL_AGENTS.md"):
-                shutil.copy2(f, rules_dst / f.name)
+        if rules_src and rules_src.is_dir():
+            for f in rules_src.glob("*.md"):
+                if f.name not in ("AGENTS.md", "GLOBAL_AGENTS.md"):
+                    shutil.copy2(f, rules_dst / f.name)
 
-        # Scoped rule isolation: ensure plugin distribution rules install GLOBAL_AGENTS.md into rules/AGENTS.md
-        # and do not copy repo-internal ADR-015 commands into the global plugin (Issue #53)
-        global_rules_src = source_dir / "GLOBAL_AGENTS.md"
-        if not global_rules_src.exists():
-            global_rules_src = rules_src / "GLOBAL_AGENTS.md"
-        if not global_rules_src.exists():
-            global_rules_src = source_dir / "harness" / "rules" / "GLOBAL_AGENTS.md"
-
-        if global_rules_src.exists():
+        # Scoped rule isolation: install GLOBAL_AGENTS.md into rules/AGENTS.md (Issue #53)
+        if global_rules_src is not None:
             shutil.copy2(global_rules_src, rules_dst / "AGENTS.md")
 
         installed_items.append("rules")
