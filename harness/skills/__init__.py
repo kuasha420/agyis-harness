@@ -178,7 +178,7 @@ def detect_workspace_stacks(
             }
             if "typescript" in deps:
                 is_ts = True
-        except Exception:
+        except (OSError, ValueError, TypeError):
             pass
 
         if not is_ts:
@@ -400,7 +400,7 @@ def detect_workspace_role(
                 )
             ):
                 has_backend = True
-        except Exception:
+        except (OSError, ValueError, TypeError):
             pass
 
     # 2. Inspect Python manifests
@@ -414,7 +414,7 @@ def detect_workspace_role(
                 py_text += (
                     pf.read_text(encoding="utf-8", errors="replace").lower() + "\n"
                 )
-            except Exception:
+            except (OSError, ValueError, TypeError):
                 pass
 
     if py_text:
@@ -460,7 +460,7 @@ def detect_workspace_role(
                 )
             ):
                 has_backend = True
-        except Exception:
+        except (OSError, ValueError, TypeError):
             pass
 
     # 4. Inspect Rust manifests
@@ -475,7 +475,7 @@ def detect_workspace_role(
                 for be in ("actix-web", "axum", "rocket", "diesel", "sqlx", "sea-orm")
             ):
                 has_backend = True
-        except Exception:
+        except (OSError, ValueError, TypeError):
             pass
 
     # 5. Infrastructure indicators
@@ -491,7 +491,7 @@ def detect_workspace_role(
                     for db in ("postgres", "mysql", "mariadb", "mongo", "redis")
                 ):
                     has_backend = True
-            except Exception:
+            except (OSError, ValueError, TypeError):
                 pass
             break
 
@@ -523,7 +523,7 @@ def is_monorepo(workspace_root: Path) -> bool:
             data = json.loads(pkg_json.read_text(encoding="utf-8"))
             if "workspaces" in data:
                 return True
-        except Exception:
+        except (OSError, ValueError, TypeError):
             pass
 
     for parent in ("apps", "services", "packages", "modules"):

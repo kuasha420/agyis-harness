@@ -10,12 +10,15 @@ Provides dual-gate verification fence integration for independent auditor sign-o
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Optional, Tuple
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,6 +47,7 @@ class AuditVerdict:
             "outdated_count": 0,
         }
     )
+    aff_audit: Optional[dict] = None
     path: Optional[Path] = None
 
     def to_dict(self) -> dict:
@@ -56,10 +60,13 @@ class AuditVerdict:
             "test_suite": dict(self.test_suite),
             "doctor_audit": dict(self.doctor_audit),
         }
+        if self.aff_audit is not None:
+            d["aff_audit"] = dict(self.aff_audit)
         return d
 
     @classmethod
     def from_dict(cls, d: dict, path: Optional[Path] = None) -> AuditVerdict:
+        raw_aff = d.get("aff_audit")
         return cls(
             protocol_version=str(d.get("protocol_version", "2026.1")),
             verdict=str(d.get("verdict", "VICTORY CONFIRMED")),
@@ -68,6 +75,7 @@ class AuditVerdict:
             timestamp=str(d.get("timestamp", "")),
             test_suite=dict(d.get("test_suite") or {}),
             doctor_audit=dict(d.get("doctor_audit") or {}),
+            aff_audit=dict(raw_aff) if isinstance(raw_aff, dict) else None,
             path=path,
         )
 
@@ -114,8 +122,8 @@ def _find_candidate_verdict_file(
                         name_lower = item.name.lower()
                         if "verdict" in name_lower:
                             candidates.append(item)
-            except Exception:
-                pass
+            except OSError as exc:
+                _logger.debug("Skipping unreadable verdict directory %s: %s", s_dir, exc)
 
     if candidates:
         # Sort by mtime descending
@@ -145,7 +153,7 @@ def validate_audit_verdict(
 
     try:
         data = json.loads(candidate_path.read_text(encoding="utf-8"))
-    except Exception as err:
+    except (OSError, json.JSONDecodeError) as err:
         return (False, f"Corrupted audit verdict file: {err}", None)
 
     if not isinstance(data, dict):
@@ -155,6 +163,12 @@ def validate_audit_verdict(
 
     # Verdict status validation
     v_norm = verdict_obj.verdict.strip().upper()
+    if v_norm == "PROVISIONAL":
+        return (
+            False,
+            "Provisional audit verdict cannot grant Gate 2 clearance (--skip-tests is non-certifying)",
+            verdict_obj,
+        )
     if v_norm not in ("VICTORY CONFIRMED", "PASS"):
         return (
             False,
@@ -162,10 +176,11 @@ def validate_audit_verdict(
             verdict_obj,
         )
 
-    # Test suite result validation
+    # Test suite failure check
     test_suite = verdict_obj.test_suite
     exit_code = test_suite.get("exit_code", -1)
     failed_tests = test_suite.get("failed_tests", 0)
+    total_tests = test_suite.get("total_tests", 0)
 
     if not allow_synthetic:
         if exit_code != 0 or failed_tests != 0:
@@ -197,8 +212,24 @@ def validate_audit_verdict(
                     f"Audit verdict is stale ({int(age_s)}s > {max_age_seconds}s limit)",
                     verdict_obj,
                 )
-        except Exception as err:
+        except ValueError as err:
             return (False, f"Unparseable audit verdict timestamp: {err}", verdict_obj)
+
+    if not allow_synthetic:
+        if isinstance(total_tests, bool) or not isinstance(total_tests, int) or total_tests <= 0:
+            return (
+                False,
+                f"Test suite reported zero executed tests (total_tests={total_tests}); unverified clearance rejected",
+                verdict_obj,
+            )
+        if isinstance(verdict_obj.aff_audit, dict):
+            aff_status = str(verdict_obj.aff_audit.get("status", "")).strip().upper()
+            if aff_status in ("FAIL", "ERROR"):
+                return (
+                    False,
+                    f"Architectural fitness audit reported {aff_status}",
+                    verdict_obj,
+                )
 
     return (True, None, verdict_obj)
 
@@ -211,6 +242,7 @@ def generate_audit_verdict(
     doctor_result: Optional[dict] = None,
     output_path: Optional[Path] = None,
     auditor_role: str = "agyis_auditor",
+    aff_result: Optional[dict] = None,
 ) -> AuditVerdict:
     """
     Generates and persists an AuditVerdict JSON artifact.
@@ -246,6 +278,7 @@ def generate_audit_verdict(
         timestamp=datetime.now(timezone.utc).isoformat(),
         test_suite=default_suite,
         doctor_audit=default_doctor,
+        aff_audit=dict(aff_result) if aff_result is not None else None,
         path=dest,
     )
 

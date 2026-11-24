@@ -139,11 +139,11 @@ def cmd_agents(args: argparse.Namespace) -> int:
         if not bundle_str:
             if sys.stdin.isatty():
                 print("Available capability bundles:")
-                print("  1) read_only    (view_file, list_dir, grep_search, find_by_name, read_url, search_web)")
+                print("  1) read_only    (read_file, search_web, send_message, read_board)")
                 print("  2) verifier     (read_only + run_command, manage_task)")
-                print("  3) builder      (verifier + write_to_file, replace_file_content)")
-                print("  4) orchestrator (read_only + invoke_subagent, send_message, manage_subagents, manage_task)")
-                print("  5) full         (all platform tools enabled)")
+                print("  3) builder      (verifier + write_file, edit_file)")
+                print("  4) orchestrator (read_only + run_command, invoke_subagent, manage_task, ask_question, swarm, post_message, swarm_wait, run_workflow, schedule)")
+                print("  5) full         (all 20 canonical Antigravity v2.34+ platform tools)")
                 try:
                     choice = input("Select capability bundle [1-5 or name] (default: auto): ").strip()
                 except (EOFError, KeyboardInterrupt):

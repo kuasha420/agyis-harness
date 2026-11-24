@@ -41,6 +41,24 @@ def _record_verification_all(success: bool, tier: str = "full") -> None:
                 completion_fence_hook.record_verification(success=success, conv_id=cid)
 
 
+def _is_agyis_source_repo(cwd: Path) -> bool:
+    """Returns True strictly when cwd is the agyis-harness source repository checkout."""
+    resolved_cwd = cwd.resolve()
+    resolved_repo = REPO_ROOT.resolve()
+    has_source_layout = (resolved_cwd / "tests").is_dir() and (resolved_cwd / "pyproject.toml").is_file()
+    if not has_source_layout:
+        return False
+    if resolved_cwd == resolved_repo:
+        return True
+    if (resolved_cwd / "harness" / "cli.py").is_file():
+        try:
+            pyproj = (resolved_cwd / "pyproject.toml").read_text(encoding="utf-8", errors="replace")
+            return '"agyis-harness"' in pyproj or "'agyis-harness'" in pyproj or "psl-agy-harness" in pyproj
+        except OSError:
+            return False
+    return False
+
+
 def cmd_test(args: argparse.Namespace) -> int:
     """Runs the test suite with diff-awareness and tier-gated verification."""
     cwd = Path.cwd().resolve()
@@ -150,10 +168,14 @@ def cmd_test(args: argparse.Namespace) -> int:
 
     # 3. Macro / Full Test Execution
     start_dir = getattr(args, "start_dir", None)
-    test_dir = Path(start_dir) if start_dir else (REPO_ROOT / "tests")
 
-    # In external workspace without start_dir and with detected runner:
-    if not start_dir and cwd != REPO_ROOT and not (cwd / "tests").is_dir():
+    if start_dir:
+        test_dir = Path(start_dir)
+    elif _is_agyis_source_repo(cwd):
+        test_dir = cwd / "tests"
+    else:
+        # In external repositories, always consult detect_project_test_runner(cwd)
+        # regardless of whether a local tests/ directory exists.
         external_runner = detect_project_test_runner(cwd)
         if external_runner:
             if getattr(args, "dry_run", False):
@@ -164,6 +186,14 @@ def cmd_test(args: argparse.Namespace) -> int:
             success = (run_res.returncode == 0)
             _record_verification_all(success=success, tier="full")
             return run_res.returncode
+
+        local_tests_dir = cwd / "tests"
+        if not local_tests_dir.is_dir():
+            sys.stderr.write(
+                f"Error: No recognized test runner or 'tests/' directory found in {cwd}\n"
+            )
+            return 1
+        test_dir = local_tests_dir
 
     # Standard python unittest discovery
     if not test_dir.exists():

@@ -13,9 +13,10 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from harness.delivery import DeliveryMode, PluginInstaller
+from harness.delivery.constants import is_packaged_wheel_install
 
 
 from harness.commands.init import cmd_init
@@ -27,6 +28,10 @@ def cmd_install(args: argparse.Namespace) -> int:
         setattr(args, "path", args.workspace if args.workspace is not True else None)
         return cmd_init(args)
 
+    bin_dir = Path(args.bin_dir) if getattr(args, "bin_dir", None) else None
+    installer = PluginInstaller(bin_dir=bin_dir)
+    is_wheel_pkg = is_packaged_wheel_install(installer.source_dir)
+
     if getattr(args, "wheel", False):
         mode = DeliveryMode.WHEEL
     elif getattr(args, "copy", False):
@@ -34,11 +39,9 @@ def cmd_install(args: argparse.Namespace) -> int:
     elif getattr(args, "symlink", False):
         mode = DeliveryMode.SYMLINK
     elif getattr(args, "global_install", False):
-        mode = DeliveryMode.WHEEL
+        mode = DeliveryMode.COPY if is_wheel_pkg else DeliveryMode.WHEEL
     else:
-        mode = DeliveryMode.SYMLINK
-    bin_dir = Path(args.bin_dir) if getattr(args, "bin_dir", None) else None
-    installer = PluginInstaller(bin_dir=bin_dir)
+        mode = DeliveryMode.COPY if is_wheel_pkg else DeliveryMode.SYMLINK
     target_dir = Path(args.target) if getattr(args, "target", None) else None
     all_surfaces = getattr(args, "all_surfaces", False)
     result = installer.install(
@@ -74,6 +77,8 @@ def cmd_install(args: argparse.Namespace) -> int:
             "experimental_rea": exp_rea,
             "rea_mcp_configured": rea_mcp_configured,
         }
+        if exp_rea:
+            payload["rea_skill_provisioned"] = rea_skill_provisioned
         if rea_mcp_errors:
             payload["rea_mcp_errors"] = rea_mcp_errors
         print(json.dumps(payload, indent=2))

@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import sys
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 from harness.delivery.cache import purge_workspace_build_caches
@@ -37,20 +38,6 @@ TAGGED_BLOCK_PATTERN = re.compile(
     r"<!-- Added by (?:AGYIS-HARNESS|PSL-HARNESS) -->[\s\S]*?<!-- End (?:AGYIS-HARNESS|PSL-HARNESS) -->"
 )
 
-STACK_SKILL_PRESETS: Dict[str, List[str]] = {
-    **STACK_PRESETS,
-    "audit": ["psl-audit-toolkit"],
-    "all": [
-        "psl-stack-typescript",
-        "psl-stack-python",
-        "psl-stack-systems",
-        "psl-stack-shell",
-        "psl-stack-backend",
-        "psl-audit-toolkit",
-    ],
-}
-
-
 def _dedup_skills(skills: Sequence[str]) -> List[str]:
     """Deduplicates skill identifiers in insertion order using normalized names."""
     seen: set[str] = set()
@@ -63,6 +50,28 @@ def _dedup_skills(skills: Sequence[str]) -> List[str]:
     return result
 
 
+_ALL_WORKSPACE_SKILLS: List[str] = _dedup_skills(
+    [
+        s
+        for group_skills in LANGUAGE_RUNTIME_PRESETS.values()
+        for s in group_skills
+    ]
+    + [
+        "psl-stack-backend",
+        "db-ops",
+        "psl-test-harmonize",
+        "psl-audit-toolkit",
+        "re-ops",
+    ]
+)
+
+STACK_SKILL_PRESETS: Dict[str, List[str]] = {
+    **STACK_PRESETS,
+    "audit": ["psl-audit-toolkit"],
+    "all": list(_ALL_WORKSPACE_SKILLS),
+}
+
+
 def resolve_skills_for_workspace(
     workspace_dir: Path | str,
     stack: Optional[str] = None,
@@ -72,9 +81,10 @@ def resolve_skills_for_workspace(
 ) -> List[str]:
     """Resolves workspace skills via decoupled Language Runtime, Architectural Role, and Subproject presets.
 
-    Preserves backward compatibility for legacy stack presets (``"audit"``, ``"all"``,
-    ``"generic"``, or unknown stack names) while delegating standard language/role/subproject
-    resolution to ``harness.skills.resolve_skills_to_sync``.
+    Supports legacy/composite stack presets (``"audit"``, ``"all"``, ``"generic"``,
+    ``"auto"``, and comma-separated language tokens) while delegating auto-detection
+    and standard language/role/subproject resolution to ``harness.skills.resolve_skills_to_sync``.
+    Unknown stack tokens emit a warning and are skipped without discarding valid sibling tokens.
     """
     if skills is not None:
         return _dedup_skills(skills)
@@ -88,36 +98,52 @@ def resolve_skills_for_workspace(
             f"Unknown architectural role '{role}'. Choose from: {', '.join(sorted(ARCHITECTURAL_ROLE_PRESETS.keys()))}"
         )
 
-    if stk_norm in ("audit", "all", "generic"):
-        resolved: List[str] = []
-        if stk_norm == "audit":
+    if not stk_norm or stk_norm == "auto":
+        resolved_skills = resolve_skills_to_sync(
+            stack="auto",
+            role=role_norm,
+            workspace_root=root_ws,
+            subproject=subproject,
+        )
+        return _dedup_skills(resolved_skills or [])
+
+    tokens = [t.strip().lower() for t in stk_norm.split(",") if t.strip()]
+    resolved: List[str] = []
+    valid_standard_tokens: List[str] = []
+
+    for tok in tokens:
+        if tok == "audit":
             resolved.append("psl-audit-toolkit")
-        elif stk_norm == "all":
-            resolved.extend([
-                "psl-stack-typescript",
-                "psl-stack-python",
-                "psl-stack-systems",
-                "psl-stack-shell",
-                "psl-stack-backend",
-                "psl-audit-toolkit",
-            ])
-        if role_norm:
-            resolved.extend(ARCHITECTURAL_ROLE_PRESETS[role_norm])
-        return _dedup_skills(resolved)
+        elif tok == "all":
+            resolved.extend(_ALL_WORKSPACE_SKILLS)
+        elif tok == "generic":
+            continue
+        elif tok == "auto":
+            auto_skills = resolve_skills_to_sync(
+                stack="auto",
+                role=None,
+                workspace_root=root_ws,
+                subproject=subproject,
+            )
+            resolved.extend(auto_skills or [])
+        elif tok in STACK_PRESETS or tok in LANGUAGE_RUNTIME_PRESETS:
+            valid_standard_tokens.append(tok)
+        else:
+            sys.stderr.write(f"Warning: Ignoring unknown stack preset token '{tok}'.\n")
 
-    if stk_norm and stk_norm != "auto" and stk_norm not in STACK_PRESETS:
-        tokens = [t.strip() for t in stk_norm.split(",") if t.strip()]
-        if not all(t in STACK_PRESETS or t in LANGUAGE_RUNTIME_PRESETS for t in tokens):
-            resolved = list(ARCHITECTURAL_ROLE_PRESETS[role_norm]) if role_norm else []
-            return _dedup_skills(resolved)
+    if valid_standard_tokens:
+        std_skills = resolve_skills_to_sync(
+            stack=valid_standard_tokens,
+            role=None,
+            workspace_root=root_ws,
+            subproject=subproject,
+        )
+        resolved.extend(std_skills or [])
 
-    resolved_skills = resolve_skills_to_sync(
-        stack=stk_norm or "auto",
-        role=role_norm,
-        workspace_root=root_ws,
-        subproject=subproject,
-    )
-    return list(resolved_skills or [])
+    if role_norm:
+        resolved.extend(ARCHITECTURAL_ROLE_PRESETS[role_norm])
+
+    return _dedup_skills(resolved)
 
 
 from harness.delivery.workspace_probe import (  # noqa: F401
@@ -162,6 +188,9 @@ def install_workspace(
     override: bool = False,
     source_dir: Optional[Path] = None,
     dry_run: bool = False,
+    role: Optional[str] = None,
+    subproject: Optional[Union[Path, str]] = None,
+    update_rules: bool = True,
 ) -> WorkspaceInstallResult:
     """
     Initializes a workspace with stack-tailored skills, tagged rules, and optional subagents.
@@ -169,11 +198,12 @@ def install_workspace(
     - Preserves existing rules in <ws>/AGENTS.md with tagged AGYIS delimiters (upgrading legacy PSL delimiters).
     - Installs stack skills to <ws>/.agents/skills/.
     - Installs subagents to <ws>/.agents/agents/ if requested.
-    - Enforces byte-comparison deduplication and non-destructive overwrite guards.
+    - Enforces non-destructive overwrite guards and content deduplication.
     - Emits actionable notice if legacy .agent/ configuration is detected.
     - Supports dry-run preview mode with zero filesystem modifications.
     """
-    ws = Path(workspace_dir).resolve()
+    root_ws = Path(workspace_dir).resolve()
+    ws = (root_ws / subproject).resolve() if subproject else root_ws
     if not ws.exists() and not dry_run:
         ws.mkdir(parents=True, exist_ok=True)
 
@@ -204,14 +234,16 @@ def install_workspace(
     # Detect repository license
     repo_license = detect_repository_license(ws)
 
-    # Skills installation
+    # Skills installation (language + role resolver, never legacy STACK_SKILL_PRESETS)
     src_skills = (src / "harness" / "skills") if (src / "harness" / "skills").is_dir() else (src / "skills")
     if skills is not None:
         selected_skills = list(skills)
     else:
         selected_skills = resolve_skills_for_workspace(
-            workspace_dir=ws,
-            stack=stack,
+            workspace_dir=root_ws,
+            stack=stack or "auto",
+            role=role,
+            subproject=subproject,
         )
 
     target_skills_dir = ws / ".agents" / "skills"
@@ -236,21 +268,8 @@ def install_workspace(
             real_dst_dir = dst_sk_dir.resolve() if is_symlink else dst_sk_dir
 
             dst_skill_file = real_dst_dir / "SKILL.md"
-            src_skill_file = sk_dir / "SKILL.md"
 
             if dst_skill_file.exists() and not override:
-                src_bytes = src_skill_file.read_bytes() if src_skill_file.exists() else b""
-                if repo_license and src_skill_file.exists():
-                    src_bytes = adapt_spdx_license(
-                        src_skill_file.read_text(encoding="utf-8", errors="replace"), repo_license
-                    ).encode("utf-8")
-                is_identical = (
-                    dst_skill_file.exists()
-                    and dst_skill_file.read_bytes() == src_bytes
-                )
-                if dedup and is_identical:
-                    skills_skipped.append(sk_dir.name)
-                    continue
                 skills_skipped.append(sk_dir.name)
                 continue
 
@@ -308,10 +327,6 @@ def install_workspace(
 
             dst_ag_file = target_agents_dir / ag_src.name
             if dst_ag_file.exists() and not override:
-                is_identical = dst_ag_file.read_bytes() == ag_src.read_bytes()
-                if dedup and is_identical:
-                    agents_skipped.append(ag_src.stem)
-                    continue
                 agents_skipped.append(ag_src.stem)
                 continue
 
@@ -328,7 +343,7 @@ def install_workspace(
             if cand.is_file():
                 universal_rules_file = cand
                 break
-    if universal_rules_file.is_file():
+    if update_rules and universal_rules_file.is_file():
         universal_text = universal_rules_file.read_text(encoding="utf-8").strip()
         if repo_license:
             universal_text = adapt_spdx_license(universal_text, repo_license)

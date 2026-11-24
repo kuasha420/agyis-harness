@@ -11,6 +11,8 @@ from pathlib import Path
 import re
 from typing import Any, Dict, Optional
 
+_PARSE_IO_ERRORS = (OSError, ValueError, KeyError, TypeError)
+
 STANDARD_VERB_DESCRIPTIONS: Dict[str, str] = {
     "test": "Run complete project test suite",
     "test:rust": "Run Rust / Cargo test suite",
@@ -104,7 +106,7 @@ def detect_test_command(workspace_path: Path | str) -> Optional[str]:
                 tools = toml_data.get("tool", {})
                 if isinstance(tools, dict) and "pytest" in tools:
                     has_pytest = True
-        except Exception:
+        except _PARSE_IO_ERRORS:
             pass
 
         if not has_pytest:
@@ -254,7 +256,7 @@ def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
                 for k in raw_scripts:
                     if k not in commands and len(commands) < 24:
                         commands[k] = format_node_cmd(k)
-        except Exception:
+        except _PARSE_IO_ERRORS:
             pass
 
     # 2. Python (pyproject.toml, setup.py, setup.cfg, requirements.txt, tests/, test/)
@@ -297,7 +299,7 @@ def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
 
                 toml_data = tomllib.loads(pyproj.read_text(encoding="utf-8"))
                 tools = toml_data.get("tool", {}) if isinstance(toml_data, dict) else {}
-            except Exception:
+            except (OSError, ValueError, KeyError, TypeError):
                 pass
 
         if "test" not in commands:
@@ -423,7 +425,7 @@ def extract_command_dictionary(workspace_dir: Path) -> Dict[str, str]:
             for t in valid_targets:
                 if t not in commands and len(commands) < 24:
                     commands[t] = f"make {t}"
-        except Exception:
+        except _PARSE_IO_ERRORS:
             pass
 
     return commands
@@ -467,7 +469,7 @@ def extract_command_descriptions(workspace_dir: Path) -> Dict[str, str]:
                     elif verb == "install":
                         if any(kw in cmd_lower for kw in ["/bin", "/usr", "~/.local", "cp "]):
                             descriptions["install"] = "Install binary into system / user path"
-        except Exception:
+        except _PARSE_IO_ERRORS:
             pass
 
     # 2. Makefile inspection
@@ -492,7 +494,7 @@ def extract_command_descriptions(workspace_dir: Path) -> Dict[str, str]:
                 elif t == "dev" and "dev" not in descriptions:
                     if any(kw in recipe for kw in ["cargo run", "go run", "python", "watch"]):
                         descriptions["dev"] = "Run local development instance"
-        except Exception:
+        except _PARSE_IO_ERRORS:
             pass
 
     return descriptions
@@ -523,7 +525,7 @@ def detect_repository_license(workspace_dir: Path) -> Optional[str]:
                 return lic.strip()
             if isinstance(lic, dict) and lic.get("type"):
                 return str(lic["type"]).strip()
-        except Exception:
+        except _PARSE_IO_ERRORS:
             pass
 
     # 2. pyproject.toml
@@ -542,7 +544,7 @@ def detect_repository_license(workspace_dir: Path) -> Optional[str]:
             poetry = data.get("tool", {}).get("poetry", {})
             if poetry.get("license"):
                 return str(poetry["license"]).strip()
-        except Exception:
+        except _PARSE_IO_ERRORS:
             pass
 
     # 3. Cargo.toml
@@ -553,7 +555,7 @@ def detect_repository_license(workspace_dir: Path) -> Optional[str]:
             m = re.search(r'license\s*=\s*"([^"]+)"', content)
             if m:
                 return m.group(1).strip()
-        except Exception:
+        except _PARSE_IO_ERRORS:
             pass
 
     # 4. LICENSE / LICENSE.md / LICENSE.txt / COPYING
@@ -584,7 +586,7 @@ def detect_repository_license(workspace_dir: Path) -> Optional[str]:
                     return "GPL-2.0"
                 if "ISC License" in text or "permission to use, copy, modify, and/or distribute this software" in text.lower():
                     return "ISC"
-            except Exception:
+            except (OSError, ValueError, KeyError, TypeError):
                 pass
 
     return None

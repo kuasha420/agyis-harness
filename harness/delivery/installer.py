@@ -13,7 +13,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import tempfile
 from typing import Any, Dict, List, Optional
@@ -27,8 +26,9 @@ from harness.delivery.constants import (
     SYNC_SURFACE_ITEMS,
     DeliveryMode,
     DeliveryResult,
+    is_packaged_wheel_install,
 )
-from harness.delivery.copy_install import copy_distributable_tree
+from harness.delivery.copy_install import build_frozen_wheel, copy_distributable_tree
 from harness.delivery.surfaces import (
     enforce_single_source_agents_impl,
     enforce_single_source_skills as enforce_single_source_skills_impl,
@@ -135,34 +135,31 @@ class PluginInstaller:
 
     def _build_frozen_wheel(self, output_dir: Path) -> Path:
         """Builds a binary wheel distribution using uv build (with pip fallback)."""
-        if shutil.which("uv"):
-            cmd = ["uv", "build", "--wheel", "--out-dir", str(output_dir)]
-        else:
-            cmd = [
-                sys.executable,
-                "-m",
-                "pip",
-                "wheel",
-                "--no-deps",
-                "-w",
-                str(output_dir),
-                str(self.source_dir),
-            ]
+        return build_frozen_wheel(self.source_dir, output_dir)
 
-        res = subprocess.run(
-            cmd,
-            cwd=str(self.source_dir),
-            capture_output=True,
-            text=True,
-        )
-        if res.returncode != 0:
-            raise RuntimeError(
-                f"Release wheel build failed (exit code {res.returncode}): {res.stderr or res.stdout}"
-            )
-        wheels = list(output_dir.glob("*.whl"))
-        if not wheels:
-            raise RuntimeError(f"No wheel artifact found in build output directory {output_dir}")
-        return wheels[0]
+    def _cleanup_legacy_plugin(
+        self,
+        target: Path,
+        eff_config: Path,
+        dry_run: bool = False,
+    ) -> Optional[str]:
+        """Removes legacy psl-agy-harness directory & config.json entry when targeting agyis-harness."""
+        if target.name != "agyis-harness":
+            return None
+        if not dry_run:
+            self._remove_from_config("psl-agy-harness", config_dir=eff_config)
+        legacy_dir = target.parent / "psl-agy-harness"
+        if not (legacy_dir.is_symlink() or legacy_dir.exists()):
+            return None
+        if not dry_run:
+            try:
+                if legacy_dir.is_symlink() or legacy_dir.is_file():
+                    legacy_dir.unlink()
+                elif legacy_dir.is_dir():
+                    shutil.rmtree(legacy_dir)
+            except OSError as exc:
+                sys.stderr.write(f"Warning: Failed to remove legacy plugin directory {legacy_dir}: {exc}\n")
+        return str(legacy_dir)
 
     def _verify_path_safety(self, target_dir: Path) -> None:
         """
@@ -210,6 +207,8 @@ class PluginInstaller:
         skills -> harness/skills, agents -> harness/agents, rules -> harness/rules,
         hooks.json -> harness/hooks/hooks.json, matrix.json -> harness/runtime/matrix.json.
         """
+        if not (self.source_dir / "pyproject.toml").is_file():
+            return
         links = {
             "skills": Path("harness/skills"),
             "agents": Path("harness/agents"),
@@ -365,7 +364,7 @@ class PluginInstaller:
 
     def install(
         self,
-        mode: DeliveryMode = DeliveryMode.SYMLINK,
+        mode: Optional[DeliveryMode] = None,
         dry_run: bool = False,
         target_dir: Optional[Path] = None,
         all_surfaces: bool = False,
@@ -373,8 +372,14 @@ class PluginInstaller:
         """
         Installs agyis-harness into the target plugin directory.
 
-        Supports SYMLINK mode (live link) and COPY mode (isolated packaged release).
+        Supports SYMLINK mode (live link in source checkouts) and COPY/WHEEL modes (isolated packaged release).
         """
+        if mode is None:
+            mode = (
+                DeliveryMode.COPY
+                if is_packaged_wheel_install(self.source_dir)
+                else DeliveryMode.SYMLINK
+            )
         target = Path(target_dir) if target_dir is not None else self.default_target_dir
         self._verify_path_safety(target)
         eff_config = self._effective_config_dir(target)
@@ -397,19 +402,10 @@ class PluginInstaller:
                 surfaces=eff_surfaces, config_dir=eff_config, dry_run=dry_run
             )
 
-        # Clean up legacy plugin directory if migrating to agyis-harness
-        if target.name == "agyis-harness":
-            legacy_dir = target.parent / "psl-agy-harness"
-            if legacy_dir.is_symlink() or legacy_dir.exists():
-                if not dry_run:
-                    try:
-                        if legacy_dir.is_symlink():
-                            legacy_dir.unlink()
-                        elif legacy_dir.is_dir():
-                            shutil.rmtree(legacy_dir)
-                    except OSError:
-                        pass
-                duplicates_removed.append(str(legacy_dir))
+        # Clean up legacy plugin directory & config entry if migrating to agyis-harness
+        legacy_removed = self._cleanup_legacy_plugin(target, eff_config, dry_run=dry_run)
+        if legacy_removed:
+            duplicates_removed.append(legacy_removed)
 
         # Distributables discovery
         distributables: List[str] = []
@@ -442,6 +438,20 @@ class PluginInstaller:
             )
 
         if mode == DeliveryMode.SYMLINK:
+            if is_packaged_wheel_install(self.source_dir):
+                return DeliveryResult(
+                    success=False,
+                    mode=mode.value,
+                    target_dir=target,
+                    source_dir=self.source_dir,
+                    items_installed=[],
+                    duplicates_removed=duplicates_removed,
+                    surfaces_synced=surfaces_synced,
+                    message=(
+                        "Symlink installation requires an agyis-harness source repository checkout; "
+                        "use --copy when installing from a packaged wheel."
+                    ),
+                )
             self._ensure_source_root_plugin_symlinks()
             if target.is_symlink():
                 try:
@@ -507,18 +517,29 @@ class PluginInstaller:
             )
 
         elif mode == DeliveryMode.WHEEL:
-            if target.is_symlink():
-                target.unlink()
-            elif target.exists():
-                if target.is_dir():
-                    shutil.rmtree(target)
-                else:
-                    target.unlink()
-            target.mkdir(parents=True, exist_ok=True)
-
             with tempfile.TemporaryDirectory() as tmp_dir:
                 tmp_out = Path(tmp_dir)
-                wheel_path = self._build_frozen_wheel(tmp_out)
+                try:
+                    wheel_path = self._build_frozen_wheel(tmp_out)
+                except RuntimeError as exc:
+                    return DeliveryResult(
+                        success=False,
+                        mode=mode.value,
+                        target_dir=target,
+                        source_dir=self.source_dir,
+                        items_installed=[],
+                        duplicates_removed=duplicates_removed,
+                        surfaces_synced=surfaces_synced,
+                        message=str(exc),
+                    )
+                if target.is_symlink():
+                    target.unlink()
+                elif target.exists():
+                    if target.is_dir():
+                        shutil.rmtree(target)
+                    else:
+                        target.unlink()
+                target.mkdir(parents=True, exist_ok=True)
                 with zipfile.ZipFile(wheel_path, "r") as zf:
                     zf.extractall(target)
                 target_dist = target / "dist"
@@ -581,17 +602,7 @@ class PluginInstaller:
                     except (PermissionError, OSError):
                         pass
 
-            # Also clean up legacy plugin directory if present
-            if target.name == "agyis-harness":
-                legacy_dir = target.parent / "psl-agy-harness"
-                if legacy_dir.is_symlink() or legacy_dir.exists():
-                    try:
-                        if legacy_dir.is_symlink():
-                            legacy_dir.unlink()
-                        elif legacy_dir.is_dir():
-                            shutil.rmtree(legacy_dir)
-                    except (PermissionError, OSError):
-                        pass
+            self._cleanup_legacy_plugin(target, eff_config, dry_run=False)
 
         # Clean up surface symlinks (Issues #29 & #23)
         if clean_surfaces:

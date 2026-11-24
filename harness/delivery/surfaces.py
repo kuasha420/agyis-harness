@@ -93,23 +93,12 @@ def enforce_single_source_agents_impl(
     return removed
 
 
-def enforce_single_source_skills(
+def get_plugin_provided_skills(
     config_dir: Path | str,
-    workspace_dir: Optional[Path | str] = None,
-    dry_run: bool = False,
     plugin_skills_dir: Optional[Path | str] = None,
-    target: Optional[Path] = None,
-    source_dir: Optional[Path] = None,
-) -> List[str]:
-    """
-    Enforces single-source skill delivery (Issue #52).
-    Removes standalone duplicate skill directories in ~/.gemini/config/skills/
-    if already supplied by the plugin bundle. Also prunes redundant workspace
-    duplicate skills from <workspace>/.agents/skills/ when workspace_dir is provided.
-    """
+) -> Set[str]:
+    """Returns directory names of skills already provided by installed global plugins."""
     cfg = Path(config_dir).resolve()
-    removed: List[str] = []
-
     plugin_skill_names: Set[str] = set()
     if plugin_skills_dir:
         p_dir = Path(plugin_skills_dir).resolve()
@@ -130,6 +119,27 @@ def enforce_single_source_skills(
                             if item.is_dir() and not item.name.startswith("."):
                                 if (item / "SKILL.md").is_file() or any(item.glob("*.md")):
                                     plugin_skill_names.add(item.name)
+    return plugin_skill_names
+
+
+def enforce_single_source_skills(
+    config_dir: Path | str,
+    workspace_dir: Optional[Path | str] = None,
+    dry_run: bool = False,
+    plugin_skills_dir: Optional[Path | str] = None,
+    target: Optional[Path] = None,
+    source_dir: Optional[Path] = None,
+) -> List[str]:
+    """
+    Enforces single-source skill delivery (Issue #52).
+    Removes standalone duplicate skill directories in ~/.gemini/config/skills/
+    if already supplied by the plugin bundle. Also prunes redundant workspace
+    duplicate skills from <workspace>/.agents/skills/ when workspace_dir is provided.
+    """
+    cfg = Path(config_dir).resolve()
+    removed: List[str] = []
+
+    plugin_skill_names = get_plugin_provided_skills(cfg, plugin_skills_dir=plugin_skills_dir)
 
     if not plugin_skill_names:
         return []
@@ -289,9 +299,21 @@ def sync_surfaces(
     return installer.sync_surfaces(surfaces=surfaces, config_dir=config_dir, dry_run=dry_run)
 
 
-# --- Single-Source Rule Deduplication Engine (Issues #70 & #71) ---
+# --- Single-Source Rule Deduplication Engine (Issues #70 & #71, Codex v2) ---
 
 UNIVERSAL_SECTION_KEYWORDS = [
+    # Codex v2 (PSL-INV-001 through PSL-INV-008 + PSL-RE-001)
+    "empirical verification & clean-room",
+    "epistemic honesty",
+    "tool determinism",
+    "context signal hygiene",
+    "risk-scaled planning",
+    "independent verification",
+    "live reality over static fakes",
+    "sovereign boundaries",
+    "cleanroom re & pre-analyzed ghidra",
+    # Legacy v1 universal sections (retained for clean onboarding migration)
+    "universal automated verification standard",
     "terminal invariants",
     "surgical contiguous edits",
     "context preservation",
@@ -299,9 +321,22 @@ UNIVERSAL_SECTION_KEYWORDS = [
     "human-in-the-loop",
     "cleanroom reverse engineering",
     "cockpit flight direction",
+    "pre-analyzed decompiler cache",
+    "anti-vibe-coding & dynamic lifecycle invariant",
+    "universal architectural fitness invariant",
 ]
 
 VERBATIM_RULE_ECHO_SNIPPETS = [
+    # Codex v2 (PSL-INV-001 through PSL-INV-008)
+    "Empirical Verification & Clean-Room Testing",
+    "Epistemic Honesty & Observed Evidence",
+    "Tool Determinism, Failure Transparency & Minimal Diffs",
+    "Context Signal Hygiene & Runway Discipline",
+    "Risk-Scaled Planning & Human Steering",
+    "Independent Verification & Subagent Governance",
+    "Live Reality Over Static Fakes",
+    "Architectural Fitness & Sovereign Boundaries",
+    # Legacy v1 verbatim echoes
     "Universal Automated Verification Standard",
     "Terminal Invariants & Grep Probing Exception",
     "Surgical Contiguous Edits Invariant (99.9% Tool Success)",
@@ -312,6 +347,9 @@ VERBATIM_RULE_ECHO_SNIPPETS = [
     "Human-in-the-Loop & Steering Alignment",
     "Universal Cleanroom Reverse Engineering & Reconstruction Invariants",
     "Cockpit Flight Direction & Dual-Auditor Gate",
+    "Pre-Analyzed Decompiler Cache Invariant",
+    "Anti-Vibe-Coding & Dynamic Lifecycle Invariant",
+    "Universal Architectural Fitness Invariant",
 ]
 
 
@@ -342,7 +380,10 @@ def enforce_single_source_rules(
     removed_sections: List[str] = []
     chars_removed = 0
 
-    inheritance_notice = "<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-011 -->\n\n"
+    inheritance_notice = "<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-008 (+ PSL-RE-001 on-demand) -->\n\n"
+    legacy_notice_pattern = re.compile(
+        r"<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-011 -->\n*",
+    )
     pruned_content: str = ""
 
     if agents_rules.exists() and not agents_rules.is_symlink():
@@ -352,7 +393,9 @@ def enforce_single_source_rules(
         file_removed_sections: List[str] = []
 
         preamble = sections[0]
-        if "<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-0" not in preamble:
+        if legacy_notice_pattern.search(preamble):
+            preamble = legacy_notice_pattern.sub(inheritance_notice, preamble, count=1)
+        elif "<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-008" not in preamble:
             match = re.search(r"((?:<!--.*?-->\n*)+)", preamble, re.DOTALL)
             if match and match.start() == 0:
                 preamble = match.group(0) + inheritance_notice + preamble[match.end():]
@@ -401,29 +444,31 @@ def enforce_single_source_rules(
                 harness_rules.write_text(pruned_content, encoding="utf-8")
 
     else:
-        # Handle root_rules symlink pointing to ../.agents/rules/AGENTS.md in consumer repositories
-        target_link = Path("../.agents/rules/AGENTS.md")
-        symlink_needed = False
+        # Handle root_rules symlink pointing to ../.agents/rules/AGENTS.md in consumer repositories.
+        # NEVER unlink an existing rules/AGENTS.md into a dangling symlink when .agents/rules/AGENTS.md is absent.
+        if agents_rules.exists():
+            target_link = Path("../.agents/rules/AGENTS.md")
+            symlink_needed = False
 
-        if root_rules.is_symlink():
-            try:
-                link_dst = os.readlink(root_rules)
-                if link_dst != str(target_link):
+            if root_rules.is_symlink():
+                try:
+                    link_dst = os.readlink(root_rules)
+                    if link_dst != str(target_link):
+                        symlink_needed = True
+                except (OSError, ValueError):
                     symlink_needed = True
-            except (OSError, ValueError):
+            else:
                 symlink_needed = True
-        elif root_rules.exists() or agents_rules.exists():
-            symlink_needed = True
 
-        if symlink_needed:
-            pruned_files.append(str(root_rules))
-            if not dry_run:
-                root_rules.parent.mkdir(parents=True, exist_ok=True)
-                if root_rules.is_symlink() or root_rules.is_file():
-                    root_rules.unlink()
-                elif root_rules.is_dir():
-                    shutil.rmtree(root_rules)
-                root_rules.symlink_to(target_link)
+            if symlink_needed:
+                pruned_files.append(str(root_rules))
+                if not dry_run:
+                    root_rules.parent.mkdir(parents=True, exist_ok=True)
+                    if root_rules.is_symlink() or root_rules.is_file():
+                        root_rules.unlink()
+                    elif root_rules.is_dir():
+                        shutil.rmtree(root_rules)
+                    root_rules.symlink_to(target_link)
 
 
     tokens_saved = chars_removed // 4

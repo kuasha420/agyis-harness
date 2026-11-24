@@ -403,6 +403,7 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_init.add_argument("--override", action="store_true", help="Force overwrite existing files")
     p_init.add_argument("--no-dedup", action="store_true", help="Disable content-hash deduplication")
     p_init.add_argument("--dry-run", action="store_true", help="Simulate workspace initialization without modifications")
+    p_init.add_argument("--config-dir", type=str, default=None, help="Optional custom configuration directory (overrides ~/.gemini/config)")
     p_init.add_argument("--yes", "-y", action="store_true", help="Non-interactive mode, apply defaults")
     p_init.add_argument("--json", action="store_true", help="Output result in JSON format")
     p_init.add_argument(
@@ -548,11 +549,11 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_install = subparsers.add_parser(
         "install", help="Install Agyis harness globally as Google Antigravity plugin or initialize workspace"
     )
-    p_install.add_argument("--global", "-g", dest="global_install", action="store_true", help="Install globally into user plugins directory (default)")
+    p_install.add_argument("--global", "-g", dest="global_install", action="store_true", help="Install globally into user plugins directory (frozen wheel from source checkout, copy mode from wheel)")
     p_install.add_argument("--bin-dir", type=Path, default=None, help="Custom binary directory for standalone CLI executable")
-    p_install.add_argument("--copy", action="store_true", help="Install via copy mode")
-    p_install.add_argument("--symlink", action="store_true", help="Install via symlink mode (default)")
-    p_install.add_argument("--wheel", action="store_true", help="Build and install frozen release wheel via uv build")
+    p_install.add_argument("--copy", action="store_true", help="Install via copy mode (default in packaged wheel installs)")
+    p_install.add_argument("--symlink", action="store_true", help="Install via symlink mode (default in source checkouts)")
+    p_install.add_argument("--wheel", action="store_true", help="Build and install frozen release wheel via uv build (source checkout only)")
     p_install.add_argument("--dry-run", action="store_true", help="Simulate installation without writing to disk")
     p_install.add_argument("--all-surfaces", action="store_true", help="Sync all Antigravity surfaces to canonical config")
     p_install.add_argument("--target", type=Path, default=None, help="Custom target installation directory")

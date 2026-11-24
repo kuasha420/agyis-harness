@@ -72,6 +72,7 @@ class TestAuditReport:
     missing_scripts: List[str] = field(default_factory=list)
     preserved_custom_scripts: List[str] = field(default_factory=list)
     ui_mounting_status: str = "unsupported"  # "optimal", "missing_dom_env", "unsupported", "configured"
+    has_dom_testing_library: bool = False
     vrt_status: str = "unsupported"  # "pixel_diff", "synthetic_existence_check", "missing", "unsupported"
     gaps: List[str] = field(default_factory=list)
     secondary_runners: List[Dict[str, Any]] = field(default_factory=list)
@@ -159,6 +160,7 @@ class TestHarmonizer:
         preserved_scripts: List[str] = []
         gaps: List[str] = []
         ui_mounting_status = "unsupported"
+        has_dom_testing_library = False
         vrt_status = "unsupported"
 
         # Check all candidate manifests
@@ -228,6 +230,10 @@ class TestHarmonizer:
                         gaps.append(f"Missing standardized tier script '{name}'")
 
                 # UI mounting checks
+                has_dom_testing_library = any(
+                    k.startswith("@testing-library/") or k in ("@vue/test-utils", "@sveltejs/testing-library")
+                    for k in deps
+                )
                 is_frontend = role in ("frontend", "fullstack") or any(
                     f in deps for f in ("react", "vue", "svelte", "@testing-library/react")
                 )
@@ -334,6 +340,7 @@ class TestHarmonizer:
             missing_scripts=missing_scripts,
             preserved_custom_scripts=preserved_scripts,
             ui_mounting_status=ui_mounting_status,
+            has_dom_testing_library=has_dom_testing_library,
             vrt_status=vrt_status,
             gaps=gaps,
             secondary_runners=secondary_runners,
@@ -402,7 +409,7 @@ class TestHarmonizer:
                             description=f"Inject standardized diff-aware test scripts into {audit.manifest_path.name}",
                         )
                     )
-            except Exception:
+            except (json.JSONDecodeError, OSError):
                 pass
 
         # B. Python / Makefile mutations
@@ -543,7 +550,7 @@ class TestHarmonizer:
             "ui_mounting": {
                 "detected_frontend": audit.detected_role in ("frontend", "fullstack"),
                 "environment": "happy-dom" if audit.ui_mounting_status == "optimal" else None,
-                "has_dom_testing_library": True,
+                "has_dom_testing_library": audit.has_dom_testing_library,
                 "vrt_pixel_diff": False,
                 "a11y_axe": False,
                 "anti_synthetic_score": "passing" if audit.ui_mounting_status == "optimal" else "warning",

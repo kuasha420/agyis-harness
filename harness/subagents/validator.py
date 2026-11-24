@@ -15,6 +15,9 @@ from typing import List
 from harness.utils.frontmatter import parse_frontmatter
 from harness.subagents.spec import (
     ANTIGRAVITY_PLATFORM_TOOLS,
+    CANONICAL_PLATFORM_TOOLS,
+    LEGACY_PLATFORM_TOOL_ALIASES,
+    MAX_AGENT_TOOLS,
     AgentArchetype,
     ToolPermissions,
 )
@@ -121,6 +124,11 @@ def validate_agent_spec(file_path: Path | str) -> List[str]:
 
     if not declared_tools:
         errors.append("Agent must declare at least one tool in 'tools' or 'allowed_tools'")
+    elif len(declared_tools) > MAX_AGENT_TOOLS:
+        errors.append(
+            f"Agent declares {len(declared_tools)} tools, exceeding the {MAX_AGENT_TOOLS}-tool ceiling "
+            "(PSL-INV-006 / Antigravity v2.34+)."
+        )
 
     for tool in declared_tools:
         if tool in ("call_mcp_tool", "list_resources", "read_resource"):
@@ -129,9 +137,15 @@ def validate_agent_spec(file_path: Path | str) -> List[str]:
                 "in 'tools' or 'allowed_tools'. Enable MCP via 'permissions: {mcp: true}' and 'inheritCustomizations: true' "
                 "instead. Listing MCP tools statically causes Antigravity executor resolution to crash."
             )
-        elif tool not in ANTIGRAVITY_PLATFORM_TOOLS:
+        elif tool in LEGACY_PLATFORM_TOOL_ALIASES:
+            replacement = LEGACY_PLATFORM_TOOL_ALIASES[tool]
             errors.append(
-                f"Unknown tool '{tool}' not recognized in ANTIGRAVITY_PLATFORM_TOOLS. "
+                f"Deprecated/legacy tool '{tool}' is not permitted in Antigravity v2.34+ agent specs; "
+                f"use canonical tool '{replacement}' instead."
+            )
+        elif tool not in CANONICAL_PLATFORM_TOOLS:
+            errors.append(
+                f"Unknown tool '{tool}' not recognized in CANONICAL_PLATFORM_TOOLS (ANTIGRAVITY_PLATFORM_TOOLS v2.34+). "
                 "Non-existent tools cause Antigravity subagent sessions to hang indefinitely."
             )
 

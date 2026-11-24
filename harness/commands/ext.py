@@ -12,8 +12,11 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from typing import List, Optional
+
+_VALID_EXT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 from harness.runtime.extensions import (
     discover_workspace_commands,
@@ -64,15 +67,23 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_init(args: argparse.Namespace) -> int:
     """Scaffolds a new workspace extension command in .agents/commands/."""
+    name = str(args.name or "").strip()
+    if not _VALID_EXT_NAME_RE.match(name) or ".." in name or "/" in name or "\\" in name:
+        print(
+            f"[!] Invalid extension name '{args.name}': must match ^[A-Za-z0-9][A-Za-z0-9_-]*$ "
+            "without path separators or traversal segments.",
+            file=sys.stderr,
+        )
+        return 1
+
     ws = Path(args.workspace).resolve() if getattr(args, "workspace", None) else get_workspace_root()
-    cmd_dir = ws / ".agents" / "commands"
+    cmd_dir = (ws / ".agents" / "commands").resolve()
     cmd_dir.mkdir(parents=True, exist_ok=True)
 
-    name = args.name
     cmd_type = getattr(args, "type", "py")
 
     if cmd_type == "py":
-        target_file = cmd_dir / f"{name}.py"
+        target_file = (cmd_dir / f"{name}.py").resolve()
         content = f"""#!/usr/bin/env python3
 # Workspace CLI command: {name}
 import sys
@@ -85,13 +96,17 @@ if __name__ == "__main__":
     sys.exit(main())
 """
     else:
-        target_file = cmd_dir / f"{name}.sh"
+        target_file = (cmd_dir / f"{name}.sh").resolve()
         content = f"""#!/usr/bin/env bash
 # Workspace CLI command: {name}
 set -euo pipefail
 
 echo "Executing workspace shell command '{name}' with args: $@"
 """
+
+    if not target_file.is_relative_to(cmd_dir):
+        print(f"[!] Refusing to write extension outside {cmd_dir}: {target_file}", file=sys.stderr)
+        return 1
 
     if target_file.exists():
         print(f"[!] File already exists: {target_file}", file=sys.stderr)

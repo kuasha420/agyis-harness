@@ -222,11 +222,9 @@ def scaffold_agent_markdown(
                 "ask_question",
                 "invoke_subagent",
                 "send_message",
-                "manage_subagents",
+                "swarm",
                 "read_board",
                 "post_message",
-                "enter_plan_mode",
-                "exit_plan_mode",
             ]
         else:
             resolved_bundle = "read_only"
@@ -493,7 +491,7 @@ def scaffold_agent_markdown(
             body_lines.append("   - Prohibit blind filesystem sweeps across the repository. Open target files directly from instructions (`read_file`), or communicate back and halt immediately.")
 
         if arch == AgentArchetype.INVESTIGATOR:
-            body_lines.append("6. **Tool-Native Reverse Engineering Invariant (PSL-INV-004 §3)**:")
+            body_lines.append("6. **Tool-Native Reverse Engineering Invariant (PSL-RE-001)**:")
             body_lines.append("   - When reverse engineering compiled binaries (PE, ELF, Mach-O), you must use native REA tooling (`rea analyze`, `rea decompile`, `rea search`). Custom python binary parsers are prohibited.")
 
     if custom_instructions and custom_instructions.strip():

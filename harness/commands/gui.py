@@ -22,11 +22,14 @@ from __future__ import annotations
 import argparse
 import importlib.resources
 import json
+import logging
 import os
 from pathlib import Path
 import sys
 import time
 from typing import Any, Dict, List, Optional, Union
+
+_logger = logging.getLogger(__name__)
 
 from harness.gui.cdp import (  # noqa: F401
     CDPConnectionError,
@@ -97,8 +100,8 @@ def discover_language_server_endpoint(
                 m = re.search(r"127\.0\.0\.1:(\d+)", line)
                 if m:
                     ports.append(int(m.group(1)))
-    except Exception:
-        pass
+    except (subprocess.SubprocessError, OSError, ValueError) as exc:
+        _logger.debug("ss port probe skipped: %s", exc)
 
     if not ports:
         return None
@@ -137,8 +140,8 @@ def discover_language_server_endpoint(
                                 return {"port": p, "url": f"{proto}://127.0.0.1:{p}", "proto": proto}
                     finally:
                         err.close()
-                except Exception:
-                    pass
+                except (urllib.error.URLError, OSError, TimeoutError) as exc:
+                    _logger.debug("Language server probe on %s failed: %s", url, exc)
 
     return None
 
@@ -167,8 +170,8 @@ def inject_trajectory_debug(
     # 0. Ensure background trajectory server daemon is listening (PSL-INV-010)
     try:
         ensure_trajectory_server(brain_dir=brain_dir)
-    except Exception:
-        pass
+    except OSError as exc:
+        _logger.debug("ensure_trajectory_server failed: %s", exc)
 
     target_flags = flags or DEFAULT_TARGET_FLAGS
     flags_json = json.dumps(target_flags)
@@ -236,16 +239,16 @@ def inject_trajectory_debug(
     persistent_script = _load_gui_asset("hotkey_persistent.js").replace("/* __HOTKEY_SCRIPT__ */", hotkey_script)
     try:
         client.send_command("Page.addScriptToEvaluateOnNewDocument", {"source": persistent_script})
-    except Exception:
-        pass
+    except (CDPError, TimeoutError, OSError) as exc:
+        _logger.debug("addScriptToEvaluateOnNewDocument failed: %s", exc)
 
     if connect_rpc_url or connect_rpc_port:
         try:
             port_val = json.dumps(connect_rpc_port)
             url_val = json.dumps(connect_rpc_url)
             client.evaluate(f"window.__AGYIS_CONNECT_PORT__ = {port_val}; window.__AGYIS_CONNECT_URL__ = {url_val};")
-        except Exception:
-            pass
+        except (CDPError, TimeoutError, OSError) as exc:
+            _logger.debug("Setting ConnectRPC globals failed: %s", exc)
 
     # 5. Set developer flags in localStorage for runtime backwards-compatibility
     flags_expr = (
@@ -255,8 +258,8 @@ def inject_trajectory_debug(
     )
     try:
         client.evaluate(flags_expr)
-    except Exception:
-        pass
+    except (CDPError, TimeoutError, OSError) as exc:
+        _logger.debug("Setting localStorage developer flags failed: %s", exc)
 
     # 6. Evaluate HUD script in active document
     res = client.evaluate(hud_script)

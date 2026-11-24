@@ -80,7 +80,7 @@ def build_succession_prompt(
     """
     Generates standardized succession prompt blueprint matching §3.4 of ADR-031 design spec.
     Enforces the 6 mandatory succession boot directives:
-    1. Read pre-compaction state checkpoint: view_file('.agents/artifacts/checkpoints/<session_id>.md').
+    1. Read pre-compaction state checkpoint: read_file('.agents/artifacts/checkpoints/<session_id>.md').
     2. Verify repo integrity: git status. Strict AC4 Work Preservation Contract.
     3. Inspect active plan: plan_path.
     4. Assume custody of active background subagents.
@@ -114,7 +114,7 @@ Your predecessor (Generation {current_gen}, Session `{session_id}`) transferred 
 You MUST execute the following sequence immediately upon awakening without pause or human prompting:
 
 1. [ ] **Read Pre-Compaction Checkpoint**:
-   Call `view_file('{resolved_cp}')` to restore complete situational awareness, active phase, subagent roster, and git diff.
+   Call `read_file('{resolved_cp}')` to restore complete situational awareness, active phase, subagent roster, and git diff.
 
 2. [ ] **Verify Repository Integrity (AC4 Work Preservation Contract)**:
    Run `git status` and `git diff --stat`.
@@ -123,7 +123,7 @@ You MUST execute the following sequence immediately upon awakening without pause
    > Strictly prohibit destructive resets: NEVER run `git checkout -- .`, `git reset --hard`, or `git clean -fd`.
 
 3. [ ] **Inspect Active Implementation Plan**:
-   Call `view_file('{resolved_plan}')` to verify task completion status and remaining phases.
+   Call `read_file('{resolved_plan}')` to verify task completion status and remaining phases.
 
 4. [ ] **Assume Subagent Custody**:
    Adopt conversation IDs for active subagents listed in Section 4 of the checkpoint.{subagents_note}

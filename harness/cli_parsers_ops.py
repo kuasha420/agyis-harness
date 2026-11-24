@@ -285,7 +285,7 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
         "--trigger-tokens",
         type=int,
         default=None,
-        help="Context tokens trigger threshold (default: auto-scaled from active context window or 230,000)",
+        help="Context tokens trigger threshold (default: auto-scaled at 90%% of active model context window)",
     )
     p_checkpoint.add_argument(
         "--max-age-mins",
@@ -345,7 +345,7 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
         "--trigger-tokens",
         type=int,
         default=argparse.SUPPRESS,
-        help="Context tokens trigger threshold (default: auto-scaled from active context window or 230,000)",
+        help="Context tokens trigger threshold (default: auto-scaled at 90%% of active model context window)",
     )
     p_cp_gen.add_argument(
         "--brain-dir",
@@ -401,7 +401,7 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
         "--trigger-tokens",
         type=int,
         default=argparse.SUPPRESS,
-        help="Context tokens trigger threshold (default: auto-scaled from active context window or 230,000)",
+        help="Context tokens trigger threshold (default: auto-scaled at 90%% of active model context window)",
     )
     p_cp_stat.add_argument(
         "--json",
@@ -621,6 +621,12 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
         help="Preview files and branches to be removed without modifying disk",
     )
     p_clean.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="Force removal of worktrees with untracked or modified files",
+    )
+    p_clean.add_argument(
         "--workspace",
         "-w",
         type=Path,
@@ -636,7 +642,7 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
     # re
     p_re = subparsers.add_parser(
         "re",
-        help="Cleanroom reverse engineering & dirty-room toolsuite (ADR-028, PSL-INV-009)",
+        help="Cleanroom reverse engineering & dirty-room toolsuite (ADR-028, PSL-RE-001)",
         description="Unified RE pipeline, sub-2s Ghidra project acceleration, and dirtyroom governance",
     )
     p_re.add_argument("re_args", nargs=argparse.REMAINDER, help="Arguments passed to 'agyis re'")

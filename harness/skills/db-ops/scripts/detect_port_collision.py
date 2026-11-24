@@ -53,7 +53,7 @@ def is_port_in_use(port: int, host: str = "127.0.0.1", timeout: float = 0.5) -> 
             s.settimeout(timeout)
             if s.connect_ex((host, port)) == 0:
                 return True
-    except Exception:
+    except OSError:
         pass
 
     # 2. Bind probe (is the address/port reserved by a socket or TIME_WAIT?)
@@ -63,8 +63,6 @@ def is_port_in_use(port: int, host: str = "127.0.0.1", timeout: float = 0.5) -> 
             s.bind((host, port))
     except OSError:
         return True
-    except Exception:
-        pass
 
     return False
 
@@ -126,7 +124,7 @@ def probe_docker_port_owner(
                 wd_path = Path(working_dir).resolve()
                 if effective_ws == wd_path or effective_ws in wd_path.parents or wd_path in effective_ws.parents:
                     is_self = True
-            except Exception:
+            except (OSError, RuntimeError, ValueError):
                 pass
 
         if not is_self:
@@ -419,10 +417,19 @@ def main(argv: Optional[List[str]] = None) -> int:
                 sys.stderr.write(f"{err_msg}\n")
             return 1
 
-        target_port = free_port if free_port is not None else (args.port + 1)
-        ok, msg = rebind_env_file(args.env, target_port)
-        rebind_message = msg
-        action_taken = "rebind" if ok else "rebind_failed"
+        if free_port is None:
+            err_msg = (
+                f"Error: All candidate ports in range {args.port}..{args.port + 10} are occupied; "
+                "cannot rebind .env without an available port."
+            )
+            rebind_message = err_msg
+            action_taken = "rebind_failed"
+            if not args.json:
+                sys.stderr.write(f"{err_msg}\n")
+        else:
+            ok, msg = rebind_env_file(args.env, free_port)
+            rebind_message = msg
+            action_taken = "rebind" if ok else "rebind_failed"
 
     output_payload: Dict[str, Any] = {
         "status": check_info.get("status", "UNKNOWN"),

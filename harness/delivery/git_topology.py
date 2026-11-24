@@ -198,7 +198,7 @@ class GitTopologyProbe:
                 parts = ref.split("/")
                 if parts:
                     active_base_branch = parts[-1]
-        except Exception:
+        except (subprocess.SubprocessError, OSError, json.JSONDecodeError, ValueError):
             pass
 
         if active_base_branch == "main":
@@ -226,7 +226,7 @@ class GitTopologyProbe:
                     )
                     if proc.returncode == 0:
                         active_base_branch = "develop"
-            except Exception:
+            except (subprocess.SubprocessError, OSError):
                 pass
 
         # 5. Parse remotes
@@ -270,7 +270,7 @@ class GitTopologyProbe:
                                 remotes[r_name].owner = owner
                                 remotes[r_name].repo = repo
                                 remotes[r_name].is_github = is_github
-        except Exception:
+        except (subprocess.SubprocessError, OSError, json.JSONDecodeError, ValueError):
             pass
 
         # 6. Working tree dirtiness
@@ -294,7 +294,7 @@ class GitTopologyProbe:
                         untracked_files.append(line[2:].strip().strip('"'))
                     else:
                         modified_files.append(line[2:].strip().strip('"'))
-        except Exception:
+        except (subprocess.SubprocessError, OSError, json.JSONDecodeError, ValueError):
             pass
         is_dirty = bool(untracked_files or modified_files)
 
@@ -316,7 +316,7 @@ class GitTopologyProbe:
         try:
             if ws.resolve() == REPO_ROOT.resolve():
                 is_harness_host = True
-        except Exception:
+        except (subprocess.SubprocessError, OSError, json.JSONDecodeError, ValueError):
             pass
 
         if not is_harness_host:
@@ -337,7 +337,7 @@ class GitTopologyProbe:
                     pj_data = json.loads((ws / "plugin.json").read_text(encoding="utf-8"))
                     if pj_data.get("name") in ("agyis-harness", "psl-agy-harness"):
                         is_harness_host = True
-                except Exception:
+                except (OSError, json.JSONDecodeError, ValueError):
                     pass
 
         # 9. GitHub authentication & permission checking
@@ -425,7 +425,7 @@ class GitTopologyProbe:
                                 active_base_branch = d_ref["name"]
                             elif isinstance(d_ref, str) and d_ref:
                                 active_base_branch = d_ref
-                    except Exception:
+                    except (subprocess.SubprocessError, OSError, json.JSONDecodeError, ValueError):
                         pass
                 pr_base_branch = active_base_branch
             else:
@@ -463,7 +463,7 @@ class GitTopologyProbe:
                                 active_base_branch = d_ref["name"]
                             elif isinstance(d_ref, str) and d_ref:
                                 active_base_branch = d_ref
-                    except Exception:
+                    except (subprocess.SubprocessError, OSError, json.JSONDecodeError, ValueError):
                         pass
 
                     pr_base_branch = active_base_branch
@@ -486,7 +486,7 @@ class GitTopologyProbe:
                                 check=False,
                             )
                             fork_exists = (chk_proc.returncode == 0)
-                        except Exception:
+                        except (subprocess.SubprocessError, OSError):
                             fork_exists = False
 
                         if not fork_exists and not dry_run:
@@ -500,7 +500,7 @@ class GitTopologyProbe:
                                     timeout=10,
                                     check=False,
                                 )
-                            except Exception:
+                            except (subprocess.SubprocessError, OSError):
                                 pass
 
                         if "fork" not in remotes:
@@ -516,7 +516,7 @@ class GitTopologyProbe:
                                         timeout=5,
                                         check=False,
                                     )
-                                except Exception:
+                                except (subprocess.SubprocessError, OSError):
                                     pass
                             remotes["fork"] = RemoteInfo(
                                 name="fork",

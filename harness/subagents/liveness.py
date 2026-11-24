@@ -118,7 +118,7 @@ def _parse_iso_to_epoch(iso_str: str) -> Optional[float]:
         clean_str = iso_str.strip().rstrip("Z")
         dt = datetime.fromisoformat(iso_str.strip()) if ("+" in clean_str or clean_str.count("-") > 2) else datetime.fromisoformat(clean_str).replace(tzinfo=timezone.utc)
         return dt.timestamp()
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return None
 
 
@@ -137,7 +137,7 @@ def _is_globally_parked(workspace: Path) -> Tuple[bool, Set[str]]:
             try:
                 if p.stat().st_mtime >= cutoff and json.loads(p.read_text(encoding="utf-8")).get("status") in ("paused", "pausing"):
                     is_paused = True
-            except Exception:
+            except (OSError, json.JSONDecodeError, ValueError, TypeError):
                 pass
 
     for p in (workspace / ".agents" / "artifacts" / "PARKED_STATE.md", workspace / ".agents" / "teamwork" / "PARKED_STATE.md"):
@@ -151,7 +151,7 @@ def _is_globally_parked(workspace: Path) -> Tuple[bool, Set[str]]:
                 for line in content.splitlines():
                     if "PARKED" in line:
                         parked_ids.update(tok.strip() for tok in re.findall(r"([0-9a-fA-F\-]{8,36}|[a-zA-Z0-9_-]+(?:_[a-zA-Z0-9]+)+)", line))
-            except Exception:
+            except (OSError, json.JSONDecodeError, ValueError, TypeError):
                 pass
     return is_paused, parked_ids
 
@@ -211,7 +211,7 @@ def _discover_active_session_subagents(
                                     val = str(item.get(id_k, "")).strip()
                                     if val:
                                         tokens.add(val)
-        except Exception:
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
             pass
 
     # Check <appDataDir>/conversation_summaries.db (read-only)
@@ -247,7 +247,7 @@ def _is_swarm_or_workflow_tail_state(t_path: Path) -> Tuple[bool, bool]:
     """
     try:
         steps, _, _ = load_transcript_steps(t_path)
-    except Exception:
+    except (OSError, ValueError, TypeError):
         return False, False
     if not steps:
         return False, False
@@ -300,10 +300,10 @@ def _parse_transcript_header(t_path: Path, default_cid: str) -> Tuple[str, str, 
                         if r.lower() in _GENERIC_ROLES:
                             r = ""
                         role = r or extract_role_from_text(str(obj1.get("content") or "")) or role
-                except Exception:
+                except (json.JSONDecodeError, ValueError, TypeError):
                     role = extract_role_from_text(first_line) or role
             first_chunk = first_line + (f.read(4096) if len(first_line) < 4096 else "")
-    except Exception:
+    except OSError:
         pass
     return conv_id_str, role, first_chunk
 
@@ -373,7 +373,7 @@ def _scan_teamwork_progress(
                         parsed = _parse_iso_to_epoch(m_visit.group(1).strip())
                         if parsed is not None:
                             epoch, iso_str = parsed, m_visit.group(1).strip()
-                except Exception:
+                except (OSError, ValueError):
                     pass
 
                 age = max(0.0, round(now - epoch, 1))
@@ -388,7 +388,7 @@ def _scan_teamwork_progress(
                     continue
 
                 teamwork_map[folder.name] = (epoch, iso_str or _format_epoch_to_iso(epoch), str(prog_file), is_parked, is_completed)
-        except Exception:
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
             pass
     return teamwork_map
 

@@ -11,11 +11,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 from typing import List, Optional
 
-from harness.delivery import install_workspace
+from harness.delivery import (
+    enforce_single_source_rules,
+    enforce_single_source_skills,
+    get_plugin_provided_skills,
+    install_workspace,
+    resolve_skills_for_workspace,
+)
 from harness.skills import (
     ARCHITECTURAL_ROLE_PRESETS,
     LANGUAGE_RUNTIME_PRESETS,
@@ -23,7 +30,6 @@ from harness.skills import (
     detect_workspace_role,
     detect_workspace_stack,
     is_monorepo,
-    resolve_skills_to_sync,
 )
 
 
@@ -37,12 +43,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     stack = getattr(args, "stack", None)
     skills_arg = getattr(args, "skills", None)
 
-    # Determine skills
+    # Determine skills via language+role resolver (supports all/audit/auto parity with onboard)
     skills_list: Optional[List[str]] = None
     if skills_arg:
         skills_list = [s.strip() for s in skills_arg.split(",") if s.strip()]
     else:
-        # Check if monorepo scanning applies
         if is_monorepo(raw_path) and not subproject and not stack and not role:
             mono_langs, mono_roles = detect_monorepo_stack(raw_path)
             skills_set: set[str] = set()
@@ -56,11 +61,10 @@ def cmd_init(args: argparse.Namespace) -> int:
                 skills_list = sorted(skills_set)
 
         if skills_list is None:
-            # Resolve skills via decoupled presets
-            skills_list = resolve_skills_to_sync(
+            skills_list = resolve_skills_for_workspace(
+                workspace_dir=target_ws,
                 stack=stack or "auto",
                 role=role,
-                workspace_root=target_ws,
             )
 
     include_agents = bool(getattr(args, "agents", False))
@@ -73,17 +77,60 @@ def cmd_init(args: argparse.Namespace) -> int:
     override = bool(getattr(args, "override", False))
     dry_run = bool(getattr(args, "dry_run", False))
 
+    config_dir_arg = getattr(args, "config_dir", None)
+    config_dir_path = (
+        Path(config_dir_arg).resolve()
+        if config_dir_arg is not None
+        else Path(
+            os.environ.get("AGYIS_CONFIG_DIR")
+            or os.environ.get("PSL_CONFIG_DIR")
+            or (Path.home() / ".gemini" / "config")
+        ).resolve()
+    )
+
+    # Avoid installing skills already provided by global plugins (PSL-INV-004)
+    plugin_shadowed = {
+        s.strip().lower().replace("_", "-")
+        for s in get_plugin_provided_skills(config_dir_path)
+    }
+    filtered_skills: Optional[List[str]] = skills_list
+    skipped_shadowed: List[str] = []
+    if skills_list is not None and plugin_shadowed and not override:
+        filtered_skills = []
+        for s in skills_list:
+            if s.strip().lower().replace("_", "-") in plugin_shadowed:
+                skipped_shadowed.append(s)
+            else:
+                filtered_skills.append(s)
+
     effective_stack = stack or detect_workspace_stack(target_ws) or "generic"
     effective_role = role or detect_workspace_role(target_ws)
 
     res = install_workspace(
         workspace_dir=target_ws,
         stack=effective_stack,
-        skills=skills_list,
+        role=role,
+        skills=filtered_skills,
         agents=agents_list,
         include_agents=include_agents,
         dedup=dedup,
         override=override,
+        dry_run=dry_run,
+    )
+
+    if skipped_shadowed:
+        for sk in skipped_shadowed:
+            if sk not in res.skills_skipped:
+                res.skills_skipped.append(sk)
+
+    pruned_skills = enforce_single_source_skills(
+        config_dir=config_dir_path,
+        workspace_dir=target_ws,
+        dry_run=dry_run,
+    )
+    enforce_single_source_rules(
+        workspace_dir=target_ws,
+        config_dir=config_dir_path,
         dry_run=dry_run,
     )
 

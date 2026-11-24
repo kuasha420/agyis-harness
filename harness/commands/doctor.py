@@ -49,14 +49,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         re_toolchain=re_tool,
     )
 
-    if getattr(args, "json", False):
-        print(json.dumps(audit, indent=2))
-        return 0
+    is_json = bool(getattr(args, "json", False))
+    do_heal = bool(getattr(args, "heal", False))
 
-    psl_doctor.print_cli_report(audit)
-
-    if getattr(args, "heal", False):
-        print("\n🔧 Executing Auto-Healing...")
+    if do_heal:
+        if not is_json:
+            psl_doctor.print_cli_report(audit)
+            print("\n🔧 Executing Auto-Healing...")
         actions = psl_doctor.heal_environment(
             audit,
             matrix_path,
@@ -64,9 +63,24 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             re_toolchain=re_tool,
             workspace_dir=ws_root or Path.cwd().resolve(),
         )
-        for act in actions:
-            print(f"  ✔ {act}")
-        print()
+        if not is_json:
+            for act in actions:
+                print(f"  ✔ {act}")
+            print()
+        audit = psl_doctor.run_doctor(
+            matrix_path,
+            workspace_root=ws_root,
+            experimental_rea=exp_rea,
+            re_toolchain=re_tool,
+        )
+        if is_json:
+            audit = dict(audit)
+            audit["heal_actions"] = actions
+    elif not is_json:
+        psl_doctor.print_cli_report(audit)
+
+    if is_json:
+        print(json.dumps(audit, indent=2))
 
     if audit["summary"]["missing"] > 0 or audit["summary"]["outdated"] > 0:
         return 1
