@@ -1,8 +1,8 @@
 ---
 title: Repository Onboarding, Agent Boundaries & Cross-Repo PR Runbook
 description: Human operator runbook for onboarding repositories with agyis onboard, maintaining 3-tier agent/skill boundaries, handling forks and cross-repo PRs, and checking port 5432 collisions.
-version: 2.0.0
-last_updated: 2026-11-11
+version: 2.1.0
+last_updated: 2026-11-25
 target_audience: [developer, operator, architect]
 related_adrs: [ADR-014, ADR-015, ADR-026, ADR-027, ADR-030, ADR-031B]
 ---
@@ -26,7 +26,7 @@ This human operator runbook establishes **`agyis onboard`** as the universal pat
 | **Python** | CPython >= 3.12 | `python3 --version` | Standard library only; zero external runtime dependencies. |
 | **Git** | 2.38+ | `git --version` | Safe worktree and exclude support. |
 | **GitHub CLI (`gh`)** | 2.30+ | `gh auth status` | Required for remote permission checks and PR creation. |
-| **Agyis Harness** | `1.0.0-rc10`+ | `agyis doctor` | Installed globally (`~/.local/bin/agyis`) or via `./agyis`. |
+| **Agyis Harness** | `1.0.0` | `agyis doctor` | Installed globally (`~/.local/bin/agyis`) or via `./agyis`. |
 
 For cross-organization PRs or fork provisioning, ensure `repo` and `read:org` scopes are active:
 
@@ -67,7 +67,8 @@ agyis onboard . --create-branch chore/agyis-harness-onboarding
 agyis onboard . --lang typescript --role frontend --create-branch --pr
 agyis onboard . --subproject services/billing --role backend --create-branch --pr
 
-# Preserve existing uncommitted edits into .agents/artifacts/wip-safety-pre-onboard.patch
+# Preserve existing uncommitted edits into .agents/artifacts/pre_onboard_safety.patch
+# (plus wip-safety-pre-onboard.patch backward-compat alias)
 agyis onboard . --allow-dirty --create-branch
 ```
 

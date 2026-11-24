@@ -6,8 +6,8 @@
 # Google Antigravity Desktop GUI Cleanroom DevTools & Trajectory Debug Specification
 
 - **Document Identifier:** `REA-SPEC-ANTIGRAVITY-GUI-DEVTOOLS-2026-10-17`  
-- **Governing Standard:** ADR-028 / Cleanroom Reconstruction (`PSL-INV-007`)  
-- **Target Application:** Google Antigravity Desktop (`/opt/Antigravity/antigravity`, v2.19.1, Linux/Wayland)  
+- **Governing Standard:** ADR-028 / Codex v2 (`PSL-RE-001`, `PSL-INV-002`, `PSL-INV-007`)  
+- **Target Application:** Google Antigravity Desktop (`/opt/Antigravity/antigravity`, baseline `v2.19.1` -> upgraded `v2.34.0+`, Linux/Wayland)  
 - **Analysis Authorities:** Cleanroom ASAR dissection, V8 bundle inspection, Chromium DevTools Protocol (CDP) introspection  
 
 ---
@@ -31,7 +31,7 @@ Antigravity Desktop runs an Electron host shell (`/opt/Antigravity/resources/app
  ├── Command Gate (FPb): vz(n && p ? rla : void 0, ...)
  │    ├── n = !!cascadeId && focusedPane && !isArchived && !isDeleted
  │    └── p = zj().get("trajectoryDebugTools") ?? false
- └── Display Trigger: location.search ?trajectoryDebugOpen=true renders modal EB unconditionally
+ └── Display Trigger: location.search ?trajectoryDebugOpen=true renders modal EB unconditionally (legacy v2.19.1–v2.32.1; removed in v2.34.0+)
 ```
 
 ### Empirical Gating Mechanisms
@@ -43,18 +43,22 @@ Antigravity Desktop runs an Electron host shell (`/opt/Antigravity/resources/app
    - Command palette registration checks `n && p` for `rla` (`conversationView.openTrajectoryDebugView`), `sla` (`copyConversationId`), and `tla` (`copyTrajectoryId`).
    - `trajectoryDebugTools` feature config defaults to `false` for external users (`userCohort: "external"` vs `["google"]`), unlocking on `runtimeGating.customFlag: "enable-trajectory-debug-tools"`.
    - `Yka` reads `window.localStorage.getItem("jetski.developer.customFlagOverrides")` via React hook `ek(...)` and injects enabled keys into `customFlags` via `Vka()`.
-   - Modal `EB` renders unconditionally whenever URL query parameter `?trajectoryDebugOpen=true` is set, bypassing guard `p`.
+   - Modal `EB` renders unconditionally whenever URL query parameter `?trajectoryDebugOpen=true` is set, bypassing guard `p` (applies to legacy `v2.19.1–v2.32.1`; removed in `v2.34.0+`, where `agyis gui` attaches directly via CDP WebSocket and mounts `#agyis-trajectory-hud`).
 
 ---
 
 ## 2. Cleanroom Unlock Protocols (Zero-Binary-Mutation)
 
-### A. Chromium DevTools Protocol (CDP) Attachment
-1. Read port from line 1 of `~/.config/Antigravity/DevToolsActivePort` (or launch `/opt/Antigravity/antigravity --remote-debugging-port=9222`).
-2. Attach via `chrome://inspect` (`Discover network targets` -> `127.0.0.1:<port>`) or query target WebSocket URLs at `http://127.0.0.1:<port>/json`.
+> [!NOTE]
+> **Historical `v2.19.1`–`v2.32.1` vs. Active `v2.34.0+` Behavior**: Protocols **B** (`localStorage["jetski.developer.customFlagOverrides"]`) and **C** (`?trajectoryDebugOpen=true`) below describe the legacy `v2.19.1`–`v2.32.1` webview surface and were **removed/gated in Antigravity `v2.34.0+`** (see §5). On `v2.34.0+`, use `agyis gui --install-launcher` (plus desktop restart) and the In-Situ Trajectory Debug HUD (`#agyis-trajectory-hud`, §4 & §5).
 
-### B. Feature Flag Injection (`localStorage`)
-Evaluating the following in any active page WebSocket target persists command-palette unlock across restarts:
+### A. Chromium DevTools Protocol (CDP) Attachment
+1. On `v2.34.0+`, run `agyis gui --install-launcher` and restart Antigravity from your desktop launcher so `--remote-debugging-port=0` is active (on legacy `v2.19.1`–`v2.32.1`, Antigravity passed `--remote-debugging-port=0` unconditionally).
+2. Read port from line 1 of `~/.config/Antigravity/DevToolsActivePort` (or launch `/opt/Antigravity/antigravity --remote-debugging-port=9222`).
+3. Attach via `chrome://inspect` (`Discover network targets` -> `127.0.0.1:<port>`) or query target WebSocket URLs at `http://127.0.0.1:<port>/json`.
+
+### B. Legacy Feature Flag Injection (`localStorage`, `v2.19.1`–`v2.32.1` only)
+Evaluating the following in any active page WebSocket target persists command-palette unlock across restarts on legacy `v2.19.1`–`v2.32.1` builds (`canApplyDeveloperOverrides` gates self-bootstrapping in `v2.34.0+`):
 ```javascript
 localStorage.setItem("jetski.developer.customFlagOverrides", JSON.stringify({
   "enable-trajectory-debug-tools": true,
@@ -65,8 +69,8 @@ localStorage.setItem("jetski.developer.customFlagOverrides", JSON.stringify({
 location.reload();
 ```
 
-### C. Direct Modal Activation (`?trajectoryDebugOpen=true`)
-Setting `url.searchParams.set("trajectoryDebugOpen", "true")` via `window.history.pushState` and dispatching `new PopStateEvent("popstate")` opens the live Trajectory Debug modal (`EB`) without reloading the webview.
+### C. Legacy Direct Modal Activation (`?trajectoryDebugOpen=true`, removed in `v2.34.0+`)
+On `v2.19.1`–`v2.32.1`, setting `url.searchParams.set("trajectoryDebugOpen", "true")` via `window.history.pushState` and dispatching `new PopStateEvent("popstate")` opened the native Trajectory Debug modal (`EB`) without reloading the webview. As documented in §5.3, `?trajectoryDebugOpen=true` is absent in `v2.34.0+`, and `agyis gui` mounts `#agyis-trajectory-hud` directly instead.
 
 *(For offline debugging requiring native in-window `F12`, `app.asar` patching requires setting `devTools: true` in `dist/utils.js`, disabling `hideDevTools(menu)` in `dist/menu.js`, and binding `F12` on `before-input-event` in `dist/keybindings.js`, though CDP protocols preserve update resilience.)*
 
@@ -94,8 +98,8 @@ All findings in this specification were validated empirically on host `<workstat
 
 These mechanisms are shipped in `agyis-harness` via `agyis gui` (`harness/cli.py` & `harness/gui/`):
 - `agyis gui --devtools`: Reads `~/.config/Antigravity/DevToolsActivePort` and emits CDP targets and `chrome://inspect` URIs.
-- `agyis gui --install-launcher`: Installs `~/.local/share/applications/antigravity.desktop` with `Exec=/usr/bin/antigravity --remote-debugging-port=0 %U` so desktop launches emit `DevToolsActivePort`.
-- `agyis gui --trajectory-debug` / `--toggle` / `--no-popup`: Performs best-effort `jetski.developer.customFlagOverrides` injection and mounts the In-Situ Trajectory Debug HUD (`#agyis-trajectory-hud`) with persistent `F12` / `Ctrl+Shift+T` hotkeys over live CDP WebSocket without modifying binary files.
+- `agyis gui --install-launcher`: Installs `~/.local/share/applications/antigravity.desktop` with `Exec=/usr/bin/antigravity --remote-debugging-port=0 %U` so desktop launches emit `DevToolsActivePort` (restart Antigravity from your desktop launcher after installation so the single-instance Electron process binds CDP).
+- `agyis gui --trajectory-debug` / `--toggle` / `--no-popup`: Mounts the In-Situ Trajectory Debug HUD (`#agyis-trajectory-hud`) with persistent `F12` / `Ctrl+Shift+T` hotkeys over live CDP WebSocket without modifying binary files (retaining best-effort legacy flag seeding only where supported).
 - `agyis gui --hud` / `--hud-remove` / `--server` / `--service`: Deploys and manages the live SPA-route-synchronized Trajectory Token HUD overlay and background trajectory API (`--server-port 40624`).
 
 ---

@@ -7,9 +7,9 @@
 ## Cleanroom Empirical Architecture Specification
 
 **Document Identifier:** `REA-SPEC-ANTIGRAVITY-COMPACTION-2026-10-17`  
-**Governing Standard:** ADR-028 / ADR-033 / Cleanroom Standards (`PSL-INV-007`)  
-**Analysis Provider:** REA v6.5.0 (`go-build-info`, `sqlite`, `asar-dissect`, `v8-bundle-tracer`)  
-**Target Architecture:** Google Antigravity v2.19.1 (Electron Shell + Jetski Cortex Language Server, CL `951519500`)  
+**Governing Standard:** ADR-028 / ADR-033 / ADR-035 / Codex v2 (`PSL-RE-001`, `PSL-INV-002`)  
+**Analysis Provider:** Captured via REA v6.5.0 (`go-build-info`, `sqlite`, `asar-dissect`, `v8-bundle-tracer`; schema-compatible with REA v6.9.0)  
+**Target Architecture:** Google Antigravity v2.19.1 baseline (Electron Shell + Jetski Cortex Language Server, CL `951519500`; live `step_type = 23` compatibility through `v2.34.0+`)  
 
 ---
 

@@ -1,12 +1,12 @@
 # TEST_INFRA.md — Agyis Harness v1.0.0 E2E Test Suite Infrastructure
 
 ## 1. Executive Summary & Verification Methodology
-This document defines the opaque-box End-to-End (E2E) Test Suite architecture for the **Agyis Harness v1.0.0 Full-Surface Bug Bash**, focusing on **Quadrant 1 (Real-Project Onboarding & Harmonization)** and **Quadrant 4 (Live In-Situ HUD Dogfooding)** as specified in `PROJECT.md` and `ORIGINAL_REQUEST.md`.
+This document defines the opaque-box End-to-End (E2E) Test Suite architecture for the **Agyis Harness v1.0.0** Bug Bash suite (`tests/test_e2e_bugbash.py`), focusing on **Quadrant 1 (Simulated Project Onboarding & Harmonization)** and **Quadrant 4 (In-Situ HUD Telemetry Contracts)** aligned with [`docs/official-specs/testing-contracts.md`](docs/official-specs/testing-contracts.md).
 
-All tests strictly adhere to the universal empirical agent invariants:
-- **PSL-INV-001 (Universal Automated Verification Standard)**: Fast (<0.05s per unit, sub-second execution per module), hermetic, exit-code verified test execution with zero external network dependencies.
-- **PSL-INV-007 (Clean-Room Verification Contract)**: Strict isolation using `tempfile.TemporaryDirectory()`, mocking external sockets/subprocesses, and asserting observable public CLI/API outputs.
-- **PSL-INV-010 (Anti-Vibe-Coding & Dynamic Lifecycle)**: Multi-session dynamic traversal, route switching, and state invalidation verification.
+All tests strictly adhere to **PSL Invariant Codex v2**:
+- **`PSL-INV-001` (Empirical Verification & Clean-Room Testing)**: Fast (<0.05s per unit, sub-second execution per module), hermetic (`tempfile.TemporaryDirectory()`, zero external network dependencies), non-synthetic, exit-code verified test execution.
+- **`PSL-INV-002` (Epistemic Honesty & Observed Evidence)**: Honest test scopes and zero fabricated pass/timing claims.
+- **`PSL-INV-007` (Live Reality Over Static Fakes)**: Multi-session dynamic traversal, SPA route switching (`/c/:id` + split views), API fallback paths, and stale DOM/style invalidation verification.
 
 ---
 
@@ -66,9 +66,9 @@ python3 -m unittest tests.test_e2e_bugbash.TestTier4RealWorldScenarios
 - `test_t1_f04_05_untracked_files_dirty_evaluation`: Verifies dirty state correctly considers untracked files subject to git status rules.
 
 ### Feature 5: Onboarding Safety Patch Generation
-- `test_t1_f05_01_pre_onboard_safety_patch_created`: Verifies `.agents/artifacts/pre_onboard_safety.patch` is generated when `--allow-dirty` is enabled.
+- `test_t1_f05_01_pre_onboard_safety_patch_created`: Verifies `.agents/artifacts/pre_onboard_safety.patch` (canonical) is generated when `--allow-dirty` is enabled.
 - `test_t1_f05_02_safety_patch_contains_git_diff`: Asserts safety patch contains the exact unified diff of uncommitted changes (`git diff HEAD`).
-- `test_t1_f05_03_backward_compatible_patch_symlink`: Asserts `wip-safety-pre-onboard.patch` is created as a symlink or alias to `pre_onboard_safety.patch`.
+- `test_t1_f05_03_backward_compatible_patch_symlink`: Asserts `wip-safety-pre-onboard.patch` backward-compat symlink/alias exists alongside canonical `pre_onboard_safety.patch`.
 - `test_t1_f05_04_dry_run_safety_patch_omission`: Asserts `--dry-run` does not write safety patch to disk but reports planned patch path.
 - `test_t1_f05_05_git_exclude_safety_patch`: Verifies `.agents/artifacts/` or safety patch files are added to `.git/info/exclude`.
 
@@ -258,15 +258,17 @@ python3 -m unittest tests.test_e2e_bugbash.TestTier4RealWorldScenarios
 
 ---
 
-## 6. Tier 4: Real-World Scenarios (7 Application Workloads)
+## 6. Tier 4: Simulated Application Scenarios (7 Hermetic Temp-Workspace Workloads)
 
-1. `test_t4_s01_modmail_bot_python_harmonization`: Real-world Discord bot repository (/home/kuasha/Dev/ModMail-Bot) legacy `.agent/` migration, rules upgrade, and skill frontmatter synthesis.
-2. `test_t4_s02_purrfect_download_manager_tauri_harmonization`: Hybrid Rust/Svelte desktop app (/home/kuasha/Dev/purrfect-download-manager) migration with `--apply --backup` archive creation and desktop GUI skill provisioning.
-3. `test_t4_s03_dream_emirates_app_dirty_onboarding`: React Native mobile repo (/home/kuasha/Dev/dream-emirates-app) uncommitted working tree onboarding with `--allow-dirty`, safety patch generation, and branch isolation.
-4. `test_t4_s04_chakra_ui_monorepo_subproject_onboarding`: Monorepo repository (/home/kuasha/Dev/chakra-ui) subproject targeting with `--subproject packages/react`, scoped cache purging, and localized rule fencing.
-5. `test_t4_s05_immortal_rust_cargo_test_harmonization`: Pure Rust workspace (/home/kuasha/Dev/immortal) cargo test audit, diff script injection, and `.agyis/test_manifest.json` generation.
-6. `test_t4_s06_jimha_node_vitest_test_harmonization`: Fullstack TypeScript repo (/home/kuasha/Dev/jimha) Vitest runner audit, package manager detection (`pnpm`), and backup patch creation.
-7. `test_t4_s07_live_insitu_hud_dogfooding_session`: Real Antigravity webview session simulation with dynamic `/c/:id` route transitions, active subagent tab extraction, and 60 FPS ConnectRPC frame rendering.
+All Tier 4 scenarios run inside isolated `tempfile.TemporaryDirectory()` fixtures modeling representative project archetypes (zero host filesystem reads):
+
+1. `test_t4_s01_*` (Python Bot Archetype): Hermetic Python app fixture legacy `.agent/` migration, rules upgrade, and skill frontmatter synthesis.
+2. `test_t4_s02_*` (Hybrid Rust/TS Desktop Archetype): Hermetic Rust + Vitest desktop fixture onboarding with `--role desktop_gui`, `--allow-dirty`, and legacy `.agent/` archiving.
+3. `test_t4_s03_*` (React Native Dirty-Tree Archetype): Hermetic React Native fixture uncommitted working tree onboarding with `--allow-dirty`, `pre_onboard_safety.patch` generation, and branch isolation.
+4. `test_t4_s04_*` (Monorepo Subproject Archetype): Hermetic monorepo fixture targeting `--subproject packages/react`, scoped cache purging, and localized rule fencing.
+5. `test_t4_s05_*` (Rust Cargo Workspace Archetype): Hermetic Rust workspace `Cargo.toml` test audit and `.agyis/test_manifest.json` generation.
+6. `test_t4_s06_*` (TypeScript Vitest Archetype): Hermetic Node/TS Vitest fixture runner audit, `pnpm` detection, and backup patch creation.
+7. `test_t4_s07_*` (In-Situ HUD Route & Subagent Archetype): Simulated Antigravity webview session with dynamic `/c/:id` route transitions, active subagent tab extraction, and ConnectRPC telemetry binding.
 
 ---
 

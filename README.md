@@ -8,13 +8,13 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity_v2.34-4285F4.svg)](https://antigravity.google)
 [![Models](https://img.shields.io/badge/Models-Gemini_4_Ready_(512k%2F1M)-8E75B2.svg)](docs/specs/antigravity_v2_34_compatibility_inventory.md)
-[![Version](https://img.shields.io/badge/Version-v1.0.0--rc14-orange.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.0.0-rc14)
+[![Version](https://img.shields.io/badge/Version-v1.0.0-brightgreen.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.0.0)
 [![CI](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/Tests-2486_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
 [![AFF](https://img.shields.io/badge/AFF-100%2F100-brightgreen.svg)](docs/taxonomy/project-ledger.md)
 
-> **The enterprise extension harness and developer CLI for Google Antigravity™ — ready for the Gemini 4 Model Family and the latest Antigravity stack (`Desktop v2.34.0` · `agy v1.5.14` · `IDE v2.8.0` · `REA v6.9.0`).**  
-> Eliminates context cliffs, runaway loops, terminal command panics, and prompt bloat through deterministic lifecycle hooks, hermetic runtime guarantees, an in-situ Trajectory Debug HUD, and turnkey repository onboarding.
+> **The enterprise extension harness and developer CLI for Google Antigravity™ — ready for the Gemini 4 Model Family (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M` scaled runway) and the Antigravity stack (`Desktop v2.34.0+` · `agy v1.5.15` · `IDE v2.8.0` · `REA v6.9.0`).**  
+> Eliminates context cliffs, runaway loops, terminal command panics, and prompt bloat through deterministic lifecycle hooks (`PSL-INV-001`–`008` + on-demand `PSL-RE-001`), hermetic runtime guarantees, an in-situ Trajectory Debug HUD, and turnkey repository onboarding.
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## 🛡️ Why Agyis? Deterministic Invariants
 
-Antigravity agents powered by the **Gemini 4 model family** (as well as Gemini 3.8 / 3.1 models) deliver strong tool reasoning, but long-horizon autonomous sessions still hit harness-level friction. Agyis solves these issues in **deterministic code, not prompt tokens** (see [`docs/taxonomy/empirical-baselines.md`](docs/taxonomy/empirical-baselines.md) and [`antigravity_v2_34_compatibility_inventory.md`](docs/specs/antigravity_v2_34_compatibility_inventory.md)):
+Antigravity agents powered by the **Gemini 4 model family (`gemini-4-neon`, `gemini-4-hydrogen`)** as well as Gemini 3.8 / 3.1 models deliver strong tool reasoning, but long-horizon autonomous sessions still hit harness-level friction. Agyis solves these issues in **deterministic code, not prompt tokens** (see [`docs/taxonomy/empirical-baselines.md`](docs/taxonomy/empirical-baselines.md) and [`antigravity_v2_34_compatibility_inventory.md`](docs/specs/antigravity_v2_34_compatibility_inventory.md)):
 
 | Friction Point | What Breaks in Raw Agent Sessions | How Agyis Deterministically Solves It |
 | :--- | :--- | :--- |
@@ -59,6 +59,8 @@ cd agyis-harness
 
 # Optional: Enable Opt-In CDP Launcher & Auto-Unlock Trajectory HUD Service
 agyis gui --install-launcher
+# Tip: Restart Antigravity completely from your desktop launcher after `--install-launcher`
+# so the single-instance Electron process binds `--remote-debugging-port=0` and emits `DevToolsActivePort`.
 agyis gui --service install
 
 # Option B: Standalone Zero-Clone Install (uv tool)
@@ -95,7 +97,7 @@ agyis onboard . --create-branch chore/agyis-onboard
 ### Step 4: Verify Hermetic Tests & Check Status
 
 ```bash
-# Run complete test suite (~65s full suite; sub-second unit/contract components)
+# Run complete test suite (~78s full suite; sub-second unit/contract components)
 agyis test
 
 # Inspect active hooks, cognitive attention horizon, and live subagents
@@ -106,12 +108,12 @@ agyis status
 
 Once onboarded, your development lifecycle with Google Antigravity is protected automatically:
 
-1. **Transparent Hook Protection**: Every tool invocation is safeguarded by **7** `hooks.json` registration blocks (**8** runner targets verified by `doctor`), covering Antigravity `v2.34.0` native tools (`write_file`, `edit_file`, `read_file`, `swarm`, `run_workflow`, `call_mcp_tool`, `mcp_.*`).
+1. **Transparent Hook Protection**: Every tool invocation is safeguarded by **7** `hooks.json` registration blocks (**8** runner targets verified by `doctor`), covering Antigravity `v2.34.0+` native tools (`write_file`, `edit_file`, `read_file`, `swarm`, `run_workflow`, `call_mcp_tool`, `mcp_.*`).
 2. **Hermetic Virtualenv Auto-Promotion**: Running `agyis` inside a repository containing `.venv/` automatically executes within `.venv/bin/python`.
-3. **Surgical Contiguous Edits**: Agents edit code using targeted single-block replacements (`edit_file` / `replace_file_content`, `99.25%` empirical success across `14,729` calls).
+3. **Surgical Contiguous Edits**: Agents edit code using targeted single-block replacements (`edit_file`, matching the `99.25%` historical success rate of contiguous edits across `14,729` calls).
 4. **Completion Fence Clearance**: Running `agyis test` clears `code_dirty`; running `agyis verify --spec` clears `spec_dirty` across `docs/specs/`.
-5. **Skill Hygiene & Deduplication**: Run `agyis skills --prune-duplicates` and `agyis rules --dedup` to eliminate redundant prompt overhead.
-6. **Dynamic Scaled Compaction**: Scales automatically across **Gemini 4 (`512k`/`1M`)** and **`256k`** context windows (`70%` amber / `90%` red, `80`-step soft epoch horizon), emitting live `PreInvocation` `systemMessage` directives and CID-scoped checkpoints (`agyis checkpoint create`).
+5. **Skill Hygiene & Deduplication**: Run `agyis skills --prune-duplicates` and `agyis rules --dedup` to eliminate redundant prompt overhead (`PSL Invariant Codex v2`: **8** core invariants `PSL-INV-001`–`008` + on-demand `PSL-RE-001`).
+6. **Dynamic Scaled Compaction**: Scales automatically across **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`)** and **`256k`** context windows (`70%` amber / `90%` red, `80`-step soft epoch horizon), emitting live `PreInvocation` `systemMessage` directives and CID-scoped checkpoints (`agyis checkpoint create`).
 
 ---
 
@@ -122,7 +124,7 @@ The flagship **`agyis onboard`** engine is the **Universal Golden Path** (`ADR-0
 ```mermaid
 flowchart TD
     Start["agyis onboard [path]"] --> Probe["1. Remote Topology Probe\n(Direct collaborator vs external fork)"]
-    Probe --> Safety["2. Dirty-Tree Safety Check\n(Export .agents/artifacts/wip-safety-pre-onboard.patch)"]
+    Probe --> Safety["2. Dirty-Tree Safety Check\n(Export .agents/artifacts/pre_onboard_safety.patch)"]
     Safety --> Branch["3. Feature Branch Isolation\n(Checkout chore/agyis-harness-onboarding)"]
     Branch --> Cache["4. Build Cache Invalidation\n(Purge .next/, .turbo/, node_modules/.cache)"]
     Cache --> Harm["5. 4-Phase Legacy Pruning\n(Deprecate .agent/ -> .agents/ with checksums)"]
@@ -141,7 +143,7 @@ agyis onboard . --create-branch chore/onboard-harness # Onboard on an isolated f
 agyis onboard . --lang typescript --role frontend     # Explicit language + architectural role
 agyis onboard . --subproject services/billing --role backend # Scoped monorepo subproject
 agyis onboard . --dry-run --json                      # Safe preview without disk/git mutation
-agyis onboard . --allow-dirty --create-branch         # Preserve dirty tree into wip safety patch
+agyis onboard . --allow-dirty --create-branch         # Preserve dirty tree into pre_onboard_safety.patch
 agyis onboard . --create-branch --pr                  # End-to-end onboarding with headless PR delivery
 ```
 
@@ -183,7 +185,7 @@ agyis router / agyis ladder      # Dynamic subagent router subcommands (alias: l
 agyis checkpoint [status|generate|create|verify|prune] # CID-scoped pre-compaction succession
 
 # 🔬 Dirtyroom RE & Extensible Commands
-agyis re {status,init,patch-rea,pre-analyze,addr,xrefs,decompile,daemon,cache,prime,find,pcap} # PE/ELF Cleanroom RE suite
+agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs,addr,cache,daemon,seed,prime,clean} # 15-subcommand PE/ELF Cleanroom RE suite
 agyis ext {list,run,init}        # Project-specific workspace extension commands (.agents/commands/)
 
 # 🪝 Deterministic Lifecycle Hooks Engine
@@ -243,8 +245,9 @@ Agyis declares **7** registration blocks in [`hooks.json`](hooks.json) (symlink 
            (7 hooks.json blocks, 30 modular skills, 8 canonical personas, certified runtimes)
 ```
 
+- **Codex v2 Governance (`8` + `1`)**: **8** core universal invariants (`PSL-INV-001`–`008` in `GLOBAL_AGENTS.md` / `harness/rules/`) plus the on-demand `PSL-RE-001` cleanroom RE pack housed in `harness/skills/re-ops/SKILL.md`.
 - **Modular Skills (`30`)**: Every `harness/skills/*/SKILL.md` over `100` lines carries a `## Table of Contents` and stays below `24,576` bytes; workspace skills mirroring plugin skills must be symlinks or pruned.
-- **Agent Personas (`8`)**: Standard `agyis_*` personas stay global; workspace `.agents/agents/` is reserved strictly for domain-unique specialists ([`docs/runbooks/repo-onboarding.md`](docs/runbooks/repo-onboarding.md#4-human-workspace--agent-boundary-controls)).
+- **Agent Personas (`8`)**: Standard `agyis_*` personas (`<=20` canonical `v2.34+` tools) stay global; workspace `.agents/agents/` is reserved strictly for domain-unique specialists ([`docs/runbooks/repo-onboarding.md`](docs/runbooks/repo-onboarding.md#4-human-workspace--agent-boundary-controls)).
 - **On-Demand REA Skill Healing**: `harness/runtime/healing.py` checks `rea-agents` packages and `~/.gemini/config/plugins/agyis-harness/skills/reverse-engineer-anything` rather than vendoring upstream skills in-tree.
 
 ---
@@ -278,10 +281,10 @@ Full reconciled tables and Issue #83 Route A/B/C scorecards:
 All **2,486** unit, integration, and contract tests run hermetically with zero external network dependencies and zero live `~/.gemini/config/config.json` mutation:
 
 ```bash
-./agyis test                         # Full hermetic suite (~70s; sub-second component modules)
+./agyis test                         # Full hermetic suite (~78s; sub-second component modules)
 python3 -m harness.cli verify --spec # Verify 4 cleanroom RE specifications in docs/specs/
-python3 -m harness.cli audit aff     # Enforce Product/Project isolation, DAG acyclicity & PSL-INV-011 (100/100)
-python3 -m harness.cli agents validate --json # Validate all 8 canonical v2.34 agent schemas
+python3 -m harness.cli audit aff     # Enforce Product/Project isolation, DAG acyclicity & PSL-INV-008 (100/100)
+python3 -m harness.cli agents validate --json # Validate all 8 canonical v2.34+ agent schemas (<=20 tools)
 python3 -m harness.cli rules --lint  # Verify agent rules & zero echo duplication
 ```
 
@@ -292,8 +295,8 @@ python3 -m harness.cli rules --lint  # Verify agent rules & zero echo duplicatio
 
 ## 🗺️ Master Roadmap & Architectural Horizons
 
-- **Horizon 0 & 1 (Completed — `v1.0.0-rc10` through `v1.0.0-rc14`)**: Empirical taxonomy, **7** lifecycle hook blocks (**8** runner checks), **28**-command CLI suite, **30** modular skills, **8** canonical `v2.34` personas, modular ConnectRPC Trajectory HUD, ELF/PE cleanroom RE tooling, **29/29** Antigravity `v2.34.0` / Gemini 4 (`512k`/`1M`) compatibility drifts resolved, and hardened CI/release wheel publishing.
-- **Horizon 2 (Active Post-RC14)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, RE & Audit Hardening, and remaining `install_workspace()` fallback cleanup.
+- **Horizon 0 & 1 (Completed — `v1.0.0` GA)**: Empirical taxonomy, **PSL Invariant Codex v2** (`PSL-INV-001`–`008` + `PSL-RE-001`), **7** lifecycle hook blocks (**8** runner checks), **28**-command CLI suite, **30** modular skills, **8** canonical `v2.34+` personas (`<=20` tool ceiling), modular ConnectRPC Trajectory HUD, ELF/PE cleanroom RE tooling, **29/29** Antigravity `v2.34.0` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`) compatibility drifts resolved, and hardened CI/release wheel publishing.
+- **Horizon 2 (Post-`v1.0.0`)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, and RE & Audit Hardening.
 
 👉 **[roadmap.md](roadmap.md)** | **[CHANGELOG.md](CHANGELOG.md)** | **[docs/taxonomy/project-ledger.md](docs/taxonomy/project-ledger.md)** | **[docs/adr/README.md](docs/adr/README.md)**
 

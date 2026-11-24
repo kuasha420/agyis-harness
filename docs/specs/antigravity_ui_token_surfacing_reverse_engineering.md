@@ -7,8 +7,8 @@
 ## Cleanroom Empirical Reverse Engineering Specification & Obligation Ledger
 
 **Document Identifier:** `REA-SPEC-ANTIGRAVITY-UI-TOKEN-SURFACING-2026-11-12`  
-**Governing Standards:** ADR-014, ADR-028, ADR-031, ADR-033, ADR-035, Cleanroom Invariants (`PSL-INV-007`), Architectural Fitness (`PSL-INV-011`), Anti-Vibe Dynamic Lifecycle (`PSL-INV-010`)  
-**Analysis Providers:** REA v6.5.0 (`inspect-go-binary`, `sqlite`, `asar-dissect`, `v8-bundle-tracer`), Teamwork Swarm Strands 1–4  
+**Governing Standards:** ADR-014, ADR-028, ADR-031, ADR-033, ADR-035, Codex v2 (`PSL-INV-002`, `PSL-INV-007`, `PSL-INV-008`, `PSL-RE-001`)  
+**Analysis Providers:** Captured via REA v6.5.0 (`inspect-go-binary`, `sqlite`, `asar-dissect`, `v8-bundle-tracer`; compatible with REA v6.9.0), Swarm Strands 1–4  
 **Target Stock Canonical Build:** Google Antigravity Desktop GUI v2.26.0 (Build `6546645232517120`, CL `951519500`) quarantined in `.dirtyroom/2.26.0/`, Antigravity v2.29.0 (`.dirtyroom/main-2.29.0.js`), & Engine Cortex Go language server (`/opt/Antigravity/resources/bin/language_server`)  
 **Historical Baselines:** Antigravity Desktop v2.19.1 (CL `951519500`), `/usr/bin/agy` CLI v1.3.1 (CL `985595000`)  
 
@@ -59,9 +59,9 @@ flowchart TD
 
 ---
 
-## 2. Immutable Evidence Index (`PSL-INV-007`)
+## 2. Immutable Evidence Index (`PSL-RE-001`, `PSL-INV-002`)
 
-All reverse engineering assertions, mathematical derivations, and schema mappings within this specification are strictly grounded in verifiable, immutable evidence records. In accordance with `PSL-INV-007`, no decompiled code, vendor assets, or proprietary symbol tables cross into version-controlled cleanroom code.
+All reverse engineering assertions, mathematical derivations, and schema mappings within this specification are strictly grounded in verifiable, immutable evidence records. In accordance with `PSL-RE-001`, no decompiled code, vendor assets, or proprietary symbol tables cross into version-controlled cleanroom code.
 
 | Evidence ID | Subject Path | SHA-256 Digest | Provider / Engine | Target Scope & Key Findings |
 |:---|:---|:---|:---|:---|
@@ -70,8 +70,8 @@ All reverse engineering assertions, mathematical derivations, and schema mapping
 | `ev_ovc_workspace` | `.dirtyroom/2.26.0/ovc_workspace_formatted.js` | `c45f6426a5a67dd4a3168ca360a762e46a2429fd126885506429c88aae2e6cbd` | REA `v8-bundle-tracer` | Formatted source of `ovc`: Horizontal clamp $[300, W-400]$, Vertical clamp $[150, H-200]$, below-min flex fallback, double-click reset. |
 | `ev_wtc_context_bar` | `.dirtyroom/2.26.0/Wtc_context_bar_formatted.js` | `8f513bde795bb5e781e7ad46a3c4dec753cd799831d277ad908e4f6de33c2d4f` | REA `v8-bundle-tracer` | Formatted source of `Wtc`: Multi-row dynamic packing `Atc`, `ztc` inflation tolerance gate, `xtc` 2px clamping, capacity normalization $t=(m/n)*p$. |
 | `ev_wtc_token_helpers` | `.dirtyroom/2.26.0/Wtc_token_helpers_formatted.js` | `d88120f8bb552bb9c9a34bd609d59eba0a854fb0d030ca9145b9c7891ab9f165` | REA `v8-bundle-tracer` | Token attribution extraction helpers `Gtc` (sections), `Htc` (sys prompt), `Itc` (native & MCP tools), `Vtc` (total model usage). |
-| `ev_modal_fvc` | `.dirtyroom/2.26.0/modal_Fvc_formatted.js` | `0954204f8157bed804c0778bcb5430a702cc23eb58c72db55b0dd658297bb3b0` | REA `v8-bundle-tracer` | Trajectory debug view container `Fvc`, route listener `trajectoryDebugOpen`, hotkey toggle bindings (F12, Ctrl+Shift+T). |
-| `ev_live_db_b5796a47` | `~/.gemini/antigravity/conversations/b5796a47-98bf-499f-b185-2d2f5f7977e0.db` | `c00e79994ff436d39aecf3461ae9800117894bde73b031d7cb0b903f95fcf16a` | REA `inspect-sqlite-database` | Live production database. Proves arithmetic parity: Group 1 (34,278) + Group 2 (6,107) + Group 7 (180,739) = 221,124 tokens = UsageMetadata. |
+| `ev_modal_fvc` | `.dirtyroom/2.26.0/modal_Fvc_formatted.js` | `0954204f8157bed804c0778bcb5430a702cc23eb58c72db55b0dd658297bb3b0` | REA `v8-bundle-tracer` | Trajectory debug view container `Fvc`, route listener `trajectoryDebugOpen` (legacy `2.26.0`), hotkey toggle bindings (F12, Ctrl+Shift+T). |
+| `ev_live_db_session` | `~/.gemini/antigravity/conversations/<session-uuid>.db` | `c00e79994ff436d39aecf3461ae9800117894bde73b031d7cb0b903f95fcf16a` | REA `inspect-sqlite-database` | Captured trajectory database. Proves arithmetic parity: Group 1 (34,278) + Group 2 (6,107) + Group 7 (180,739) = 221,124 tokens = UsageMetadata. |
 | `ev_stock_snc_navigation` | `.dirtyroom/snc_formatted.js` | `7d6848a3b7babc78daaa8e0fe56d1601fb25afaffd2a0fce7bd94571e9851bfa` | REA `v8-bundle-tracer` | Subagent Redux state machine (`convoState.type === "subagent"`), `rq`/`sq` selectors, `data-pane-id`/`data-pane-unfocused` focus detection, 1-click `← Parent` pill, `${count} Child Subagents` dropdown, and verbatim stock copy dictionary. |
 | `ev_stock_stream_rpc` | `/opt/Antigravity/resources/bin/language_server` | `cac05cef325e91df2f86215ba01ecdabd85fc6629057e0eb5eb59b0c51bf0419` | REA `inspect-go-binary` / live socket probe (`127.0.0.1:45069`) | ConnectRPC `StreamAgentStateUpdates` 5-byte envelope framing (`\x00` + 4-byte big-endian uint32 payload length), `x-codeium-csrf-token` header, 60 FPS rAF debouncing queue architecture (`StreamRenderCoordinator`). |
 | `ev_legacy_app_asar` | `/opt/Antigravity/resources/app.asar` | `9b36d0124ad1830119e7a6fcaeb34bfcfcf1daef50ecfa6067b8a7f9202a63d1` | REA `asar-dissect` | Electron host: `dist/preload.js` bridge, `dist/main.js`, `dist/hostBridgeServer.js`. |
@@ -233,9 +233,9 @@ In Antigravity's multi-pane desktop environment, multiple subagent and root pane
 
 ---
 
-### 3.8 Hotkey Dynamic SPA Freshness & Zero-Stale Invariant (`PSL-INV-010`)
+### 3.8 Hotkey Dynamic SPA Freshness & Zero-Stale Invariant (`PSL-INV-007`)
 
-Under `PSL-INV-010` (Anti-Vibe-Coding & Dynamic Lifecycle Contract), persistent diagnostic tools must continuously track active routes and focused context, never retaining stale session data.
+Under `PSL-INV-007` (Live Reality Over Static Fakes), persistent diagnostic tools must continuously track active routes and focused context, never retaining stale session data.
 
 When hotkey toggle (`F12`, `Ctrl+Shift+T`) is triggered in `hotkey.js`:
 $$\text{If } \text{focusedConvoId} \neq \text{activeState.convoId} \implies \text{PurgeDOM}(\text{"#agyis-trajectory-hud"}) \land \text{HydrateFresh}(\text{focusedConvoId})$$
@@ -301,14 +301,14 @@ In strict accordance with the Operator Directive, granular prompt sections and t
 | `OBL-UI-016` | `hud_styles.css` | Dead code, custom heuristics, and orphaned styles pruning. | Prunes `ROW_CAPACITY = 64000`, `_SYS_TAG_DEFS`, `.context-tooltip`, `.agyis-context-row`. | `tests/test_gui_hud.py` |
 | `OBL-UI-017` | `hud_header.js` & `hotkey.js` | Subagent window auto-detection & 1-click bidirectional traversal. | $\text{activeId} = \text{paneId} \mathbin{??} \text{urlId}$; renders `(subagent)`, `← Parent`, and `${N} Child Subagents`. | `tests/test_gui.py` / `tests/test_gui_hud.py` |
 | `OBL-UI-018` | `hud_rpc.js` | ConnectRPC 60 FPS streaming & CSRF contract. Enforces 5-byte envelope framing on requests and streaming response chunks. | $\text{Header} = [\text{flags}: \text{uint8}, \text{length}: \text{uint32be}]$; $Q \xrightarrow{\text{single rAF}} \text{DOM}$; $\le 16.6\text{ms}$. | `tests/test_gui_hud.py` / live stream test |
-| `OBL-UI-019` | `hotkey.js` & `hud.js` | Hotkey dynamic SPA freshness & zero-stale hydration (`PSL-INV-010`). Purges stale DOM on route/focus change. | $\text{if } C_{\text{focused}} \neq C_{\text{active}} \implies \text{PurgeDOM}(\text{"#agyis-trajectory-hud"}) \land \text{Hydrate}(C_{\text{focused}})$. | `tests/test_anti_vibe.py` / `tests/test_gui_hud.py` |
+| `OBL-UI-019` | `hotkey.js` & `hud.js` | Hotkey dynamic SPA freshness & zero-stale hydration (`PSL-INV-007`). Purges stale DOM on route/focus change. | $\text{if } C_{\text{focused}} \neq C_{\text{active}} \implies \text{PurgeDOM}(\text{"#agyis-trajectory-hud"}) \land \text{Hydrate}(C_{\text{focused}})$. | `tests/test_anti_vibe.py` / `tests/test_gui_hud.py` |
 
 ---
 
-## 6. Architectural Fitness & Governance Verification (PSL-INV-011)
+## 6. Architectural Fitness & Governance Verification (`PSL-INV-008`)
 
-In compliance with PSL Architectural Fitness Invariants (`PSL-INV-011`):
-1. **Module Length Bound**: Every proposed module in `harness/gui/assets/` and `harness/trajectory/` remains strictly under 800 lines (longest: `hud_rpc.js` at 673 lines).
+In compliance with PSL Architectural Fitness & Sovereign Boundaries (`PSL-INV-008`):
+1. **Module Length Bound**: Every module in `harness/gui/assets/` and `harness/trajectory/` remains strictly under 800 lines (longest: `hud_rpc.js` at 673 lines at capture baseline).
 2. **Zero Non-Native Multiline Strings**: All CSS and JavaScript assets reside in decoupled resource files loaded via `importlib.resources.files("harness.gui.assets")`. Zero multiline JS/HTML string constants exist in Python runtime code.
 3. **Directed Acyclic Graph (DAG) Compliance**: Frontend module dependencies flow monotonically from `hotkey.js` and `hud.js` downward into discrete child components without circular imports.
-4. **Read-Only Cleanroom Boundary**: Production files in `harness/gui/` and `harness/trajectory/` remain unmutated throughout the audit; all changes are cataloged in `phase4_draft_diffs.md`.
+4. **Cleanroom Boundary Verification**: All specifications in `docs/specs/` remain strictly declarative markdown verified via `agyis verify --spec` alongside `agyis audit aff`.

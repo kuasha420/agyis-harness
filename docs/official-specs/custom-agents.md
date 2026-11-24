@@ -7,17 +7,17 @@
 
 ## Executive Summary
 
-During empirical telemetry research and dual-mode agent platform discovery, an essential platform capability emerged: **agents defined in `.agents/agents/` are not merely background workers for `invoke_subagent`—they are surfaced directly in the Antigravity 2.0 chat interface as first-class, selectable entrypoint agents.**
+During empirical telemetry research and dual-mode agent platform discovery, an essential platform capability emerged: **agents defined in `.agents/agents/` are not merely background workers for `invoke_subagent`—they are surfaced directly in the Antigravity (`v2.34.0+`) chat interface as first-class, selectable entrypoint agents.**
 
 ![Antigravity New Conversation Agent Selector](../assets/antigravity_agent_menu.png)
 
-This dual-mode behavior (subagent + standalone entrypoint agent) enables `agyis-harness` to package, scaffold, and operate custom, workspace-aware agent personas (**Agyis Architect**, **Coordinator**, **Investigator**, **Planner**, **Builder**, **Reviewer**, **Custodian**, and **Auditor**) with scoped tool permissions, dedicated models, and deterministic hook guardrails.
+This dual-mode behavior (subagent + standalone entrypoint agent) enables `agyis-harness` to package, scaffold, and operate custom, workspace-aware agent personas (**Agyis Architect**, **Coordinator**, **Investigator**, **Planner**, **Builder**, **Reviewer**, **Custodian**, and **Auditor**) with scoped `<=20` canonical `v2.34+` tool permissions, inherited models (**Gemini 4 `gemini-4-neon`, `gemini-4-hydrogen`**, `512k`/`1M` scaled windows), and deterministic hook guardrails (`PSL-INV-006`).
 
 ---
 
 ## 1. Dual-Mode Agent Discovery & Platform Mechanics
 
-Antigravity operates a unified discovery and execution pipeline for agents across both the Desktop UI (Antigravity 2.0) and the CLI (`agy`).
+Antigravity operates a unified discovery and execution pipeline for agents across both the Desktop UI (`v2.34.0+`) and the CLI (`agy v1.5.15`).
 
 ```mermaid
 graph TD
@@ -66,24 +66,30 @@ name: codebase_planner
 archetype: planner
 description: Architectural dependency analysis and interactive implementation plan synthesis.
 role: Software Architect & Planner
-model: gemini-3.8-pro                    # Model pinning (flash, pro, inherit, or custom tier)
+model: inherit                           # Inherit active Gemini 4 (neon/hydrogen) / Flash / Pro session, or pin explicitly
 subagent: true                           # Can be spawned by parent via invoke_subagent
 mainAgent: true                          # Surfaced in UI New Conversation dropdown
+inheritCustomizations: true              # Propagate workspace rules & skills
+inheritMcp: true                         # Propagate MCP servers without static MCP tool names
 permissions:
   read: true
   write: false                           # Zero file modification
-  execute: false                         # Zero command execution
+  execute: true                          # Bounded read-only probes via run_command
   subagents: true                        # Can delegate research sweeps
   mcp: true                              # Access to docs/web context MCP
-allowed_tools:
-  - view_file
-  - list_dir
-  - grep_search
-  - find_by_name
-  - read_url_content
+tools:
+  - read_file
+  - run_command
   - search_web
+  - manage_task
+  - ask_question
   - invoke_subagent
+  - define_subagent
   - send_message
+  - read_board
+  - post_message
+  - swarm
+  - swarm_wait
 ---
 
 # Codebase Planner & System Architect
@@ -116,11 +122,11 @@ Reverse-engineering of the `/usr/bin/agy` platform binary and runtime tool schem
 "Model": { "enum": ["inherit", "flash_lite", "flash", "pro"] }
 ```
 - **The Effort Parameter Limitation**: The platform protobuf does NOT expose a dynamic `effort` (low/medium/high) parameter on `invoke_subagent`. Passing arbitrary strings or effort flags to in-session subagent calls is rejected by the schema.
-- **The Power of `Model: inherit`**: When a subagent specifies `model: inherit`, it automatically inherits both the parent session's active model (`gemini-3.8-flash` or `gemini-3.1-pro`) **and** the user-configured reasoning effort tier (e.g., High).
+- **The Power of `Model: inherit` & Gemini 4 (`512k`/`1M`)**: When a subagent specifies `model: inherit`, it automatically inherits both the parent session's active model (**Gemini 4 `gemini-4-neon` / `gemini-4-hydrogen` (`512k`/`1M` windows)**, or Gemini `3.8`/`3.1`) **and** the user-configured reasoning effort tier (e.g., High). `harness/trajectory/health.py` explicitly maps `gemini-4-hydrogen` and `gemini-4-neon` (`512_000`) and `1m`/`1000k` variants (`1_000_000`) so context gauges scale accurately without premature `256k` alerts.
 - **Standalone Entrypoint Flexibility**: When an agent is launched as a top-level conversation from the UI agent dropdown, it operates as a full session, unlocking specific model bindings and effort controls.
 
-#### 2. The Accuracy vs. Latency Paradox (`data/reasoning_benchmark_results.json`)
-In our empirical benchmark across multi-constraint deduction, Python mutable default simulation, conditional probability, and distributed causality:
+#### 2. The Accuracy vs. Latency Paradox (Historical `data/reasoning_benchmark_results.json`)
+In our historical empirical benchmark across multi-constraint deduction, Python mutable default simulation, conditional probability, and distributed causality (Gemini 3.8 cohort):
 
 | Model & Effort Tier | Tasks Passed | Accuracy | Avg Thinking Tokens | Avg Latency | Latency Multiplier |
 | :--- | :---: | :---: | :---: | :---: | :---: |
@@ -129,9 +135,9 @@ In our empirical benchmark across multi-constraint deduction, Python mutable def
 | **`gemini-3.8-flash-high` (High Effort)** | **4 / 4** | **100%** | **1,146.5** | **9.26s** | **2.55x** |
 
 **The Surprising Takeaway**:
-- For deterministic software engineering tasks, logic verification, and test execution, **`gemini-3.8-flash-low` delivered identical 100% accuracy while executing 2.55x faster and consuming 3.1x fewer thinking tokens** than High effort.
+- For deterministic software engineering tasks, logic verification, and test execution, low-effort fast tiers delivered identical 100% accuracy on bounded probes while executing 2.55x faster and consuming 3.1x fewer thinking tokens than High effort.
 - Forcing high reasoning effort onto routine verifiers, doctors, or auditors creates substantial latency drag without accuracy improvement.
-- **Product Rule**: Default custom and specialist agents to `inherit` or `flash` for high-throughput operational velocity, reserving `pro` / high effort strictly for complex multi-file architectural planning.
+- **Product Rule**: Default custom and specialist agents to `inherit` (inheriting active Gemini 4 `gemini-4-neon` / `gemini-4-hydrogen` or `flash` sessions) for high-throughput operational velocity, reserving `pro` / high effort strictly for complex multi-file architectural planning.
 
 #### 3. Thinking Perseveration & Attention Sink Collapse
 Our cognitive trace deep-dive (`0069329:docs/archive/taxonomy/cognitive-failure-taxonomy-deepdive.md`, indexed in [`docs/archive/README.md#taxonomy`](../archive/README.md#taxonomy), reconciled in [`docs/taxonomy/empirical-baselines.md`](../taxonomy/empirical-baselines.md) across `N=348` traces / `24,163` thinking blocks) demonstrated that under long context horizons (`>1,000` steps), unpruned thinking steps collapse into repetitive attractors:
@@ -161,7 +167,7 @@ config = LocalAgentConfig(
         SubagentConfig(
             name="test_runner",
             system_instructions="You run pytest suites and report structured failures.",
-            tools=["run_command", "view_file"],
+            tools=["run_command", "read_file"],
         )
     ]
 )
@@ -211,15 +217,15 @@ By surfacing specialized agents in the UI dropdown, the user naturally partition
 │ Conversation 1: Planner  │ Conversation 2:       │ Conversation 3:     │
 │                          │ Builder               │ Reviewer / Auditor  │
 │ Persona: agyis_planner   │ Persona: agyis_builder│ Persona: agyis_reviewer │
-│ Model: Gemini Pro/Inherit│ Model: Gemini Flash   │ Model: Gemini Flash │
-│ Tools: Read-Only         │ Tools: Write + Exec   │ Tools: Read-Only    │
+│ Model: Gemini 4 / Pro    │ Model: Gemini 4 / Flash │ Model: Gemini 4 / Flash │
+│ Tools: Read + Subagents  │ Tools: Write + Exec   │ Tools: Read + Exec  │
 │ Steps: ~15 steps         │ Steps: ~30 steps      │ Steps: ~10 steps    │
 │ Output: implementation_  │ Output: Clean delta   │ Output: Defect      │
 │         plan.md artifact │         + test pass   │         ledger / PR │
 └──────────────────────────┴───────────────────────┴─────────────────────┘
 ```
 
-Each delegated stage runs in a fresh, bounded subagent context (`<40k tokens`, well below the `180k` amber / `230k` red compaction runway of the `256k` window), eliminating the 200+ step cliff!
+Each delegated stage runs in a fresh, bounded subagent context (`<65%` window fill and `<80` active-epoch steps, well below the `70%` amber / `90%` red compaction runway across `512k`/`1M`/`256k` windows), eliminating the 200+ step cliff!
 
 ---
 
@@ -245,7 +251,7 @@ harness/agents/
 #### 1. Architecture Planner (`agyis_planner.md`)
 - **Archetype**: `planner`
 - **Default Model**: `inherit` (or `pro` for deep dependency mapping)
-- **Capability Bundle**: `orchestrator` (`read: true`, `write: false`, `execute: false`, `subagents: true`)
+- **Capability Bundle**: `orchestrator` (`read: true`, `write: false`, `execute: true`, `subagents: true`)
 - **Key Invariant**: **Artifact-First (`PSL-INV-005`)**. Never outputs raw chat plans; generates interactive `implementation_plan.md` artifacts.
 <!-- slide -->
 #### 2. Surgical Builder (`agyis_builder.md`)
@@ -253,7 +259,7 @@ harness/agents/
 - **Default Model**: `inherit`
 - **Capability Bundle**: `builder` (`read: true`, `write: true`, `execute: true`, `subagents: false`)
 - **Key Invariants**:
-  - **Surgical Contiguous Edits (`PSL-INV-003`)**: Enforces single-block replacements via `replace_file_content`.
+  - **Surgical Contiguous Edits (`PSL-INV-003`)**: Enforces single-block replacements via `edit_file`.
   - **Verification Before Completion (`PSL-INV-001`)**: Runs targeted verification and never swallows errors.
 <!-- slide -->
 #### 3. Victory Auditor (`agyis_auditor.md`)
@@ -261,13 +267,13 @@ harness/agents/
 - **Default Model**: `inherit`
 - **Capability Bundle**: `verifier` (`read: true`, `write: false`, `execute: true`, `subagents: false`)
 - **Key Invariants**:
-  - **Read-Only Audit Isolation (`PSL-INV-008`)**: Enforces `check_auditor_write_block` so verification cannot mutate product code or tests.
-  - **Verification Gate (`ADR-015`)**: Validates sub-second component benchmarks (`<1.0s`) and full hermetic suite pass (`agyis test` across all `tests/test_*.py` modules).
+  - **Read-Only Audit Isolation (`PSL-INV-006`)**: Enforces `check_auditor_write_block` so verification cannot mutate product code or tests.
+  - **Verification Gate (`ADR-015`, `PSL-INV-001`)**: Validates sub-second component benchmarks (`<1.0s`) and full hermetic suite pass (`agyis test` across `tests/test_*.py` + `tests/e2e/test_*.py`).
 <!-- slide -->
 #### 4. Flight Coordinator (`agyis_coordinator.md`)
 - **Archetype**: `coordinator`
 - **Default Model**: `inherit`
-- **Capability Bundle**: `orchestrator` (`read: true`, `write: false`, `execute: false`, `subagents: true`)
+- **Capability Bundle**: `orchestrator` (`read: true`, `write: true` artifacts only, `execute: true`, `subagents: true`)
 - **Key Invariants**:
   - Delegates implementation to `agyis_builder` and independent verification to `agyis_reviewer` / `agyis_auditor`.
   - Manages handoffs, compaction checkpoints, and project ledger updates.
@@ -304,16 +310,16 @@ python3 -m harness.cli agents rehydrate [target_name] --id <conv_id>
 When scaffolding an agent via `agyis agents create`, the scaffolding engine binds workspace context directly into the generated agent definition:
 
 1. **Active Runtimes & Matrix**: Injects detected stack tooling, test runners (`pytest`, `unittest`), and workspace verification commands from `matrix.json`.
-2. **Universal Invariants & ADRs**: Binds the agent to workspace invariants (`AGENTS.md`, `PSL-INV-001`..`PSL-INV-011`, ADR-012, ADR-013, ADR-015).
-3. **20-Tool Catalog Ceiling (`ANTIGRAVITY_PLATFORM_TOOLS`, Platform Hanging Bug)**: Frontmatter `tools` / `allowed_tools` are validated against the **17** static built-in platform primitives in `ANTIGRAVITY_PLATFORM_TOOLS` (`harness/subagents/spec.py`: `view_file`, `list_dir`, `grep_search`, `find_by_name`, `write_to_file`, `replace_file_content`, `run_command`, `manage_task`, `invoke_subagent`, `send_message`, `manage_subagents`, `define_subagent`, `schedule`, `generate_image`, `read_url_content`, `search_web`, `ask_question`). Setting `permissions.mcp: true` and `inheritCustomizations: true` binds up to **3** dynamic MCP primitives (`call_mcp_tool`, `list_resources`, `read_resource`), establishing a strict **20-tool safe ceiling**; uncatalogued static tool names trigger platform schema lookup hangs (**Platform Hanging Bug**).
-4. **Capability Bundles Matrix (`CAPABILITY_BUNDLES`)**: `harness/subagents/spec.py` defines **7** canonical capability bundles (5 exposed directly on `agyis agents create --bundle`):
-   - `read_only` (`read: true`, `write: false`, `execute: false`, `subagents: false`)
+2. **Universal Invariants & ADRs**: Binds the agent to workspace invariants (`AGENTS.md`, **Codex v2** `PSL-INV-001`–`PSL-INV-008` + on-demand `PSL-RE-001`, `ADR-012`, `ADR-013`, `ADR-015`).
+3. **`<=20`-Tool Catalog Ceiling & Canonical `v2.34+` Specs (`PSL-INV-006`)**: Frontmatter `tools` / `allowed_tools` are validated by `harness/subagents/validator.py` against `MAX_AGENT_TOOLS = 20` and the **20** canonical `v2.34+` built-in platform primitives in `CANONICAL_PLATFORM_TOOLS` (`harness/subagents/spec.py`: `read_file`, `write_file`, `edit_file`, `run_command`, `manage_task`, `invoke_subagent`, `send_message`, `define_subagent`, `schedule`, `generate_image`, `search_web`, `ask_question`, `finish`, `swarm`, `post_message`, `read_board`, `swarm_wait`, `run_workflow`, `search_marketplace`, `list_plugin_accounts`). `LEGACY_PLATFORM_TOOL_ALIASES` maps **12** obsolete v1 names (`view_file`, `write_to_file`, `replace_file_content`, `multi_replace_file_content`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `manage_subagents`, `enter_plan_mode`, `exit_plan_mode`, `list_permissions`, totaling **32** entries in `ANTIGRAVITY_PLATFORM_TOOLS`) solely so `validate_agent_spec()` rejects legacy tools with migration errors. Static MCP tool names (`call_mcp_tool`, `list_resources`, `read_resource`) are rejected; enable MCP via `inheritMcp: true` / `permissions: {mcp: true}` / `mcpServers: [...]`.
+4. **Capability Bundles Matrix (`CAPABILITY_BUNDLES`)**: `harness/subagents/spec.py` defines **7** canonical capability bundles (`<=20` tools each; 5 exposed directly on `agyis agents create --bundle`):
+   - `read_only` (`read_file`, `search_web`, `send_message`, `read_board`; `read: true`, `write: false`, `execute: false`, `subagents: false`)
    - `verifier` (`read_only` + `run_command`, `manage_task`; `execute: true`, `write: false`)
-   - `adversarial_verifier` (`verifier` + `write_to_file`, `replace_file_content` for test oracles/fuzzers)
-   - `builder` (`verifier` + `write_to_file`, `replace_file_content`)
-   - `investigator` (`verifier` + `write_to_file`, `replace_file_content` for scratch reproductions)
-   - `orchestrator` (`read_only` + `invoke_subagent`, `manage_subagents`, `manage_task`, `ask_question`; `subagents: true`)
-   - `full` (all platform tools + `permissions.mcp: true`, `enable_write_tools: true`)
+   - `adversarial_verifier` (`verifier` + `write_file`, `edit_file` for test oracles/fuzzers)
+   - `builder` (`verifier` + `write_file`, `edit_file`)
+   - `investigator` (`verifier` + `write_file`, `edit_file` for scratch reproductions)
+   - `orchestrator` (`read_only` + `run_command`, `invoke_subagent`, `define_subagent`, `manage_task`, `ask_question`, `swarm`, `post_message`, `swarm_wait`, `run_workflow`, `schedule`; `subagents: true`)
+   - `full` (all **20** canonical `CANONICAL_PLATFORM_TOOLS` + `permissions.mcp: true`, `enable_write_tools: true`)
 
 ---
 
@@ -331,16 +337,16 @@ sequenceDiagram
     participant Tool as Tool Execution Engine
 
     User->>Agent: "Verify test suite and fix any broken tests"
-    Agent->>LS: ToolCall: write_to_file("tests/test_foo.py", ...)
-    LS->>Hook: PreToolUse(agent="agyis_auditor", tool="write_to_file")
+    Agent->>LS: ToolCall: write_file("tests/test_foo.py", ...)
+    LS->>Hook: PreToolUse(agent="agyis_auditor", tool="write_file")
     Note over Hook: check_auditor_write_block detects write attempt by auditor
     Hook-->>LS: Exit 2 / Intercepted ("PSL Auditor Invariant: verification-only")
     LS-->>Agent: Error feedback: Tool execution denied by security fence
     Agent->>Agent: Recovers cleanly; reports verification findings without mutating code
 ```
 
-### Explicit Stage-Role Anchoring (`.agents/session_role.json`)
-`harness/subagents/stage_role.py` anchors the active ladder role inside `.agents/session_role.json`, validated by `validate_stage_role_schema()` (Draft `2020-12`) requiring exact keys `{"role", "specialist_agent", "stage", "stage_name", "task_id"}`:
+### Explicit Stage-Role Anchoring (`.agents/artifacts/checkpoints/<cid>/session_role.json`)
+`harness/subagents/stage_role.py` anchors the active ladder role inside CID-scoped `.agents/artifacts/checkpoints/<cid>/session_role.json` (with `.agents/session_role.json` fallback), validated by `validate_stage_role_schema()` (Draft `2020-12`) requiring exact keys `{"role", "specialist_agent", "stage", "stage_name", "task_id"}`:
 
 | Stage (`stage`) | Stage Name (`stage_name`) | Mainline Role (`role`) | `pre_invocation_hook.py` Prompt Anchor |
 | :---: | :--- | :--- | :--- |
@@ -359,8 +365,8 @@ Every platform persona pins explicit capability and boundary mandates (`cockpit_
 | `agyis_coordinator` | Ladder Lead (`coordinator`) | `orchestrator` | Pure orchestration (`Stage 0`); serialize transitions and await reactive wakeup (zero status polling). |
 | `agyis_planner` | Structural Architect (`planner`) | `read_only` | Plan-before-code only; inspect boundaries and author interactive specs without speculative mutations. |
 | `agyis_investigator` | Forensic RCA (`investigator`) | `investigator` | Read-only on production code; isolate reproductions in `scratch/` before proposing fixes. |
-| `agyis_builder` | Deep Executioner (`builder`) | `builder` | Single contiguous edits (`replace_file_content`); strict plan adherence; self-verify locally. |
-| `agyis_reviewer` | Gate 1 Hammer (`reviewer`) | `read_only` | Adversarial delta audit against `PSL-INV-001`..`PSL-INV-011` and cleanroom criteria; zero mutations. |
+| `agyis_builder` | Deep Executioner (`builder`) | `builder` | Single contiguous edits (`edit_file`); strict plan adherence; self-verify locally. |
+| `agyis_reviewer` | Gate 1 Hammer (`reviewer`) | `verifier` (`write: false`) | Adversarial delta audit against **Codex v2 (`PSL-INV-001`–`008`)** and cleanroom criteria; zero mutations. |
 | `agyis_custodian` | Git Custodian (`custodian`) | `verifier` | DRY staging audit, AC5 scratch filtering, atomic HEAD commits; never edits product features. |
 | `agyis_auditor` | Gate 2 Victory (`auditor`) | `verifier` | Strictly verification-only (`check_auditor_write_block`); execute native suites and certify HEAD. |
 | `agyis_architect` | Systems Hybrid (`architect`) | `full` | Cross-module architecture overhaul, boundary refactoring, and subagent worktree synthesis. |
@@ -370,10 +376,10 @@ Every platform persona pins explicit capability and boundary mandates (`cockpit_
 ## 7. Production Architecture & Operational Lifecycle
 
 1. **Package-Delivered Personas (`harness/agents/` & `.agents/agents/`)**:
-   - All **8** specialist agents (`agyis_architect`, `agyis_coordinator`, `agyis_investigator`, `agyis_planner`, `agyis_builder`, `agyis_reviewer`, `agyis_custodian`, `agyis_auditor`) ship with `subagent: true` and `mainAgent: true` for dual-mode UI and `invoke_subagent` discovery.
+   - All **8** specialist agents (`agyis_architect`, `agyis_coordinator`, `agyis_investigator`, `agyis_planner`, `agyis_builder`, `agyis_reviewer`, `agyis_custodian`, `agyis_auditor`) ship with `subagent: true` and `mainAgent: true` for dual-mode UI and `invoke_subagent` discovery (symlinked in-tree via `.agents/agents/`).
    - `agyis agents --sync` keeps workspace `.agents/agents/` synchronized with `harness/agents/`.
 2. **Validated Scaffolding & Bundles (`harness/commands/agents.py` & `harness/subagents/spec.py`)**:
    - `agyis agents create` maps the 8 `AgentArchetype` roles and CLI capability bundles (`read_only`, `verifier`, `builder`, `orchestrator`, `full`) backed by the 7 internal `CAPABILITY_BUNDLES`.
-   - `agyis agents validate` enforces frontmatter validity, `ANTIGRAVITY_PLATFORM_TOOLS` compliance (`17` static + `3` dynamic MCP = `20` max), and anti-hang protections.
+   - `agyis agents validate` enforces frontmatter validity, `<=20` canonical `v2.34+` tool compliance (`CANONICAL_PLATFORM_TOOLS`, rejecting obsolete v1 and static MCP tool names), and anti-hang protections (`PSL-INV-006`).
 3. **Telemetry Attribution & Context Runway**:
    - Session metadata tracks the active entrypoint persona and `.agents/session_role.json` anchor, enabling telemetry attribution (`agyis audit`) and sub-millisecond context health checks (`agyis subagents`).

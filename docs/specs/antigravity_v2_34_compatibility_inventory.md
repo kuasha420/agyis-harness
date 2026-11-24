@@ -6,8 +6,8 @@
 # Antigravity Platform Compatibility & Drift Inventory (`v2.34.0`)
 
 - **Document Identifier:** `REA-INV-ANTIGRAVITY-V2_34-2026-11-21`
-- **Governing Standards:** ADR-014, ADR-028, Cleanroom Invariants (`PSL-INV-007`), Anti-Vibe (`PSL-INV-010`)
-- **Purpose:** Canonical living inventory tracking breaking deltas and compatibility drift between `agyis-harness` (`v1.0.0-rc13`) and the upgraded Google Antigravity platform stack installed on `2026-11-21`.
+- **Governing Standards:** ADR-014, ADR-028, Codex v2 (`PSL-INV-002`, `PSL-INV-007`, `PSL-RE-001`)
+- **Purpose:** Canonical living inventory tracking breaking deltas and compatibility drift between `agyis-harness` (`v1.0.0`, evolved from the `v1.0.0-rc13` / `agy 1.5.14` baseline) and the upgraded Google Antigravity platform stack (`v2.34.0+` / `agy v1.5.15`).
 
 ---
 
@@ -18,7 +18,7 @@
 | **Antigravity Desktop Shell** | `antigravity` (`/opt/Antigravity/antigravity`) | `2.34.0-1` (Electron `44.9.1`) | `3ba9114b7fbaafaf548f72c5d1bc86b7dc81098a85361784359c2c1199625bfc` |
 | **Antigravity Desktop ASAR** | `/opt/Antigravity/resources/app.asar` | `2.34.0` | `8934adef0622c9271c92eea950a71848764a66f7b10023ccbd82e54b959adb0e` |
 | **Jetski Language Server** | `/opt/Antigravity/resources/bin/language_server` | `2.34.0` bundle | `0a044fa38f30dc14363a4450fb0f39f00000834e99b52f12b92ba98b24ad10b9` |
-| **Antigravity CLI** | `antigravity-cli` (`/usr/bin/agy`) | `1.5.14` | `37873b8062391b6202a3d3199ec012abc9e53aab720d26cd65699441497d8c94` |
+| **Antigravity CLI** | `antigravity-cli` (`/usr/bin/agy`) | `1.5.14` (baseline; `1.5.15` current host) | `37873b8062391b6202a3d3199ec012abc9e53aab720d26cd65699441497d8c94` *(1.5.14)* |
 | **Antigravity IDE** | `antigravity-ide` (`/opt/antigravity-ide/bin/antigravity-ide`) | `2.8.0-1` | `5916fa84c6f436635ce1314573bfe860605258867590664c22efd476d353f9207` |
 
 ---
@@ -63,9 +63,9 @@
 
 | Workstream Owner | Subsystem Scope | Audit Status |
 | :--- | :--- | :--- |
-| `audit-hooks` | `hooks.json`, `harness/hooks/*`, `harness/rules/*` vs. `v2.34.0` / `agy 1.5.14` native tool names & hook schemas | Completed (`#12`, `#14`) |
+| `audit-hooks` | `hooks.json`, `harness/hooks/*`, `harness/rules/*` vs. `v2.34.0` / `agy 1.5.14+` native tool names & hook schemas | Completed (`#12`, `#14`) |
 | `audit-trajectory` | `harness/trajectory/*`, `harness/telemetry/*`, `pipeline/*`, `sync`, `audit`, `status`, `checkpoint` vs. live SQLite/protobuf/transcripts | Completed (`#9`, `#14`) |
 | `audit-agents` | `harness/subagents/*`, `harness/agents/*`, `harness/skills/*`, `cockpit`, `router`, `subagents` vs. `v2.34.0` native tools, `/swarm`, builtin skills & slash commands | Completed (`#13`, `#14`) |
-| `audit-surfaces` | `harness/delivery/*`, `harness/harmonize/*`, `harness/doctor/*`, `harness/remote/*`, `harness/runtime/*`, `onboard`, `init`, `install`, `clean`, `ext` vs. `v2.34.0` / `agy 1.5.14` / `antigravity-ide 2.8.0` | Completed (`#10`, `#14`) |
+| `audit-surfaces` | `harness/delivery/*`, `harness/harmonize/*`, `harness/doctor/*`, `harness/remote/*`, `harness/runtime/*`, `onboard`, `init`, `install`, `clean`, `ext` vs. `v2.34.0` / `agy 1.5.14+` / `antigravity-ide 2.8.0` | Completed (`#10`, `#14`) |
 | `audit-gui-re` | `harness/gui/*`, `harness/re/*`, `harness/cleanroom/*`, `gui`, `re`, `verify` vs. `v2.34.0` `BaseWindow`/`WebContentsView`, HUD assets & `rea` tooling | Completed (`#11`, `#14`) — Remediated in Stream 5 |
 | `verifier` | Independent empirical cross-check, test suite / AFF / `verify --spec` baseline, and consolidated severity-ranked triage | Completed (`#14`) |

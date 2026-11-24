@@ -15,6 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0] - 2026-11-25
+
+### Features & Architecture
+- feat(codex-v2): adopt **PSL Invariant Codex v2** (`PSL-INV-001`–`008` core invariants + on-demand `PSL-RE-001` cleanroom RE domain pack in `re-ops`), deduplicate `GLOBAL_AGENTS.md` / `harness/rules/*` / `.agents/rules/AGENTS.md`, and symlink `.agents/agents/*` cleanly
+- feat(agents,gemini-4): enforce the `<=20` canonical `v2.34+` tool ceiling (`CANONICAL_PLATFORM_TOOLS`) across `harness/subagents/{spec,validator}.py` and all 8 `agyis_*.md` personas, and align context runway docs and health models for **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`)** and `agy v1.5.15`
+- feat(delivery,re,gui): migrate `install_workspace()` completely onto the decoupled language + role resolver, harden `harness/gui/server.py` (traversal guard, cache lock, `ANTIGRAVITY_APP_DATA_DIR`), `harness/telemetry/{config,client,db}.py`, `harness/re/*` (`ELF`/`PE`, `GhidraReleasePolicy`, daemon cleanup, SQLite schema), and `harness/cleanroom/obligation.py` strict `rea@6.9.0` schema
+
+### Bug Fixes & Hardening
+- fix(hooks,cli): remediate Slice 1–3 audit findings across `command_safety_hook.py`, `anti_loop_hook.py`, `output_compactor_hook.py`, `completion_fence_hook.py`, `anti_drift_hook.py`, `runner.py`, `audit certify` (`audit_architectural_fitness` + real test execution), `enforce_single_source_rules`, and `cmd_test` project runner routing
+- docs(launch): reconcile `README.md`, `roadmap.md`, `docs/user_guide.md`, `docs/developer_guide.md`, `docs/adr/README.md`, compacted `docs/taxonomy/project-ledger.md` (`<50` lines), all `7` `docs/official-specs/*`, `4` `docs/runbooks/*`, `4` `docs/specs/*`, `TEST_INFRA.md`, and `TEST_READY.md` for `v1.0.0` GA public launch
+
+---
+
 ## [1.0.0-rc14] - 2026-11-23
 
 ### CI, Packaging & Documentation
@@ -541,7 +554,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release candidate for Agyis Harness for Google Antigravity™.
 - Autonomous agent runtime harness, empirical audit telemetry pipeline, and lifecycle hooks immune system.
 
-[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc14...HEAD
+[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc14...v1.0.0
 [1.0.0-rc14]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc13...v1.0.0-rc14
 [1.0.0-rc13]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc12...v1.0.0-rc13
 [1.0.0-rc12]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc11...v1.0.0-rc12
