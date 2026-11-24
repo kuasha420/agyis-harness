@@ -4,100 +4,32 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Turnkey Dirty-Room Scaffolding & SQLite Symbol Database (ADR-028, PSL-INV-007, PSL-INV-009).
+Turnkey Dirty-Room Scaffolding & SQLite Symbol Database (ADR-028, PSL-RE-001).
 Provisions quarantined .dirtyroom directories, SQLite symbol caches, and environment configs.
 """
 
+from __future__ import annotations
+
+import glob
+import importlib.resources
 import os
 from pathlib import Path
+import shlex
 import sqlite3
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from harness.re.registry import try_register_dirtyroom
 
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS binaries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL,
-    sha256 TEXT NOT NULL,
-    file_size INTEGER NOT NULL,
-    architecture TEXT,
-    format TEXT,
-    created_at TEXT NOT NULL
-);
+SCHEMA_SQL = importlib.resources.files("harness.re.assets").joinpath("schema.sql").read_text(encoding="utf-8")
 
-CREATE TABLE IF NOT EXISTS functions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    binary_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    address TEXT NOT NULL,
-    size INTEGER,
-    signature TEXT,
-    is_exported INTEGER DEFAULT 0,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY(binary_id) REFERENCES binaries(id)
-);
-
-CREATE TABLE IF NOT EXISTS strings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    binary_id INTEGER NOT NULL,
-    value TEXT NOT NULL,
-    address TEXT,
-    length INTEGER,
-    encoding TEXT DEFAULT 'utf-8',
-    FOREIGN KEY(binary_id) REFERENCES binaries(id)
-);
-
-CREATE TABLE IF NOT EXISTS rtti_classes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    binary_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    vtable_address TEXT,
-    base_classes TEXT,
-    FOREIGN KEY(binary_id) REFERENCES binaries(id)
-);
-
-CREATE TABLE IF NOT EXISTS packets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pcap_name TEXT NOT NULL,
-    frame_number INTEGER NOT NULL,
-    timestamp REAL,
-    proto TEXT,
-    src_ip TEXT,
-    dst_ip TEXT,
-    src_port INTEGER,
-    dst_port INTEGER,
-    payload_len INTEGER,
-    summary TEXT,
-    binary_id INTEGER,
-    run_id INTEGER,
-    FOREIGN KEY(binary_id) REFERENCES binaries(id),
-    FOREIGN KEY(run_id) REFERENCES runs(id)
-);
-
-CREATE TABLE IF NOT EXISTS runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    command TEXT NOT NULL,
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    exit_code INTEGER,
-    log_path TEXT,
-    binary_id INTEGER,
-    FOREIGN KEY(binary_id) REFERENCES binaries(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(name);
-CREATE INDEX IF NOT EXISTS idx_functions_address ON functions(address);
-CREATE INDEX IF NOT EXISTS idx_strings_value ON strings(value);
-CREATE INDEX IF NOT EXISTS idx_rtti_name ON rtti_classes(name);
-CREATE INDEX IF NOT EXISTS idx_packets_pcap ON packets(pcap_name);
-CREATE INDEX IF NOT EXISTS idx_packets_binary ON packets(binary_id);
-CREATE INDEX IF NOT EXISTS idx_packets_run ON packets(run_id);
-"""
-
-DIRTYROOM_GITIGNORE = """# Dirty-Room Artifacts & Heavy Binaries Quarantine (PSL-INV-007 §1)
+DIRTYROOM_GITIGNORE = """# Dirty-Room Artifacts & Heavy Binaries Quarantine (PSL-RE-001)
+dirtyroom
+symbols/
+pcaps/
+ghidra/*.gpr
 ghidra/*.rep/
 ghidra/*.lock
+dirtyroom.env
 logs/*.log
 cache/
 *.tmp
@@ -112,7 +44,7 @@ cache/
 def get_dirtyroom_root(start_path: Optional[Path] = None) -> Optional[Path]:
     """Resolves the active .dirtyroom directory for the current workspace."""
     # 1. Environment variable override
-    for env_k in ("AGYIS_DIRTYROOM", "IMMORTAL_DIRTYROOM", "REA_DIRTYROOM"):
+    for env_k in ("AGYIS_DIRTYROOM", "REA_DIRTYROOM"):
         val = os.environ.get(env_k)
         if val:
             p = Path(val).resolve()
@@ -137,16 +69,30 @@ def resolve_binary_path(binary_name: Optional[str] = None, dirtyroom_root: Optio
         if direct.is_file():
             return direct
         if root:
-            candidates = [
-                root / "binaries" / binary_name,
-                root / binary_name,
-            ]
-            for c in candidates:
-                if c.is_file():
-                    return c
-            for match in root.rglob(binary_name):
-                if match.is_file():
-                    return match
+            root_resolved = root.resolve()
+            bin_dir_resolved = (root / "binaries").resolve() if (root / "binaries").exists() else root_resolved
+            if ".." not in Path(binary_name).parts and not Path(binary_name).is_absolute():
+                candidates = [
+                    root / "binaries" / binary_name,
+                    root / binary_name,
+                ]
+                for c in candidates:
+                    if c.is_file():
+                        try:
+                            c_res = c.resolve()
+                            if c_res.is_relative_to(root_resolved) or c_res.is_relative_to(bin_dir_resolved):
+                                return c
+                        except OSError:
+                            continue
+                if binary_name == Path(binary_name).name:
+                    escaped = glob.escape(binary_name)
+                    for match in root.rglob(escaped):
+                        if match.is_file():
+                            try:
+                                if match.resolve().is_relative_to(root_resolved):
+                                    return match
+                            except OSError:
+                                continue
         return None
 
     # Auto-detect binary from dirtyroom if binary_name not provided
@@ -176,6 +122,35 @@ def resolve_binary_path(binary_name: Optional[str] = None, dirtyroom_root: Optio
     return None
 
 
+def discover_dirtyroom_dbs(dirtyroom_root: Path) -> List[Path]:
+    """Discovers non-symlink SQLite symbol database candidates inside a dirtyroom."""
+    cands: List[Path] = [dirtyroom_root / "symbols" / "dirtyroom.db"]
+    sym_dir = dirtyroom_root / "symbols"
+    if sym_dir.is_dir():
+        try:
+            cands.extend(sorted(sym_dir.glob("*.db")) + sorted(sym_dir.glob("*.sqlite")))
+        except OSError:
+            pass
+    cands.extend([dirtyroom_root / "symbols.db", dirtyroom_root / "symbols.sqlite"])
+
+    root_res = dirtyroom_root.resolve()
+    seen: set[Path] = set()
+    valid: List[Path] = []
+    for c in cands:
+        try:
+            if c.is_symlink() or not c.is_file():
+                continue
+            rp = c.resolve()
+            if rp in seen or not rp.is_relative_to(root_res):
+                continue
+            if c.stat().st_size > 0:
+                seen.add(rp)
+                valid.append(c)
+        except OSError:
+            continue
+    return valid
+
+
 def get_dirtyroom_db(dirtyroom_root: Optional[Path] = None) -> Optional[sqlite3.Connection]:
     """Returns an open SQLite connection to the dirtyroom symbols database.
 
@@ -186,14 +161,7 @@ def get_dirtyroom_db(dirtyroom_root: Optional[Path] = None) -> Optional[sqlite3.
     if not root:
         return None
 
-    # Check candidates
-    cands = [
-        root / "symbols" / "dirtyroom.db",
-        root / "symbols" / "paladins_symbols.sqlite",
-        root / "symbols.db",
-        root / "symbols.sqlite",
-    ]
-    valid_cands = [c for c in cands if c.is_file() and c.stat().st_size > 0]
+    valid_cands = discover_dirtyroom_dbs(root)
     if not valid_cands:
         return None
 
@@ -237,6 +205,32 @@ def init_dirtyroom_db(db_path: Path) -> None:
         conn.close()
 
 
+def _ensure_dirtyroom_gitignore(gi_file: Path) -> None:
+    """Creates or idempotently upgrades .dirtyroom/.gitignore with full quarantine rules."""
+    if not gi_file.exists():
+        gi_file.write_text(DIRTYROOM_GITIGNORE, encoding="utf-8")
+        return
+
+    gi_text = gi_file.read_text(encoding="utf-8")
+    gi_lines = {line.strip() for line in gi_text.splitlines()}
+    required = [
+        ("dirtyroom", {"dirtyroom", "/dirtyroom", "dirtyroom/"}),
+        ("symbols/", {"symbols/", "symbols"}),
+        ("pcaps/", {"pcaps/", "pcaps"}),
+        ("ghidra/*.gpr", {"ghidra/*.gpr"}),
+        ("ghidra/*.rep/", {"ghidra/*.rep/", "ghidra/*.rep"}),
+        ("ghidra/*.lock", {"ghidra/*.lock"}),
+        ("dirtyroom.env", {"dirtyroom.env"}),
+        ("logs/*.log", {"logs/*.log", "logs/", "logs"}),
+        ("cache/", {"cache/", "cache"}),
+    ]
+    missing = [canonical for canonical, aliases in required if not (gi_lines & aliases)]
+    if missing:
+        sep = "" if (not gi_text or gi_text.endswith("\n")) else "\n"
+        with open(gi_file, "a", encoding="utf-8") as f:
+            f.write(f"{sep}" + "\n".join(missing) + "\n")
+
+
 def scaffold_dirtyroom(
     target_path: Path,
     project_name: str = "DirtyProject",
@@ -250,7 +244,7 @@ def scaffold_dirtyroom(
 
     # 1. Directory Structure
     subdirs = ["ghidra", "symbols", "logs", "pcaps", "cache/decompile"]
-    created_dirs: list[str] = []
+    created_dirs: List[str] = []
     for s in subdirs:
         d = dirty_dir / s
         if not d.exists():
@@ -264,39 +258,31 @@ def scaffold_dirtyroom(
         init_dirtyroom_db(db_file)
         db_created = True
 
-    # 2b. Non-dot symlink for Ghidra compatibility (DEF-BB-038)
-    # Ghidra rejects any path component starting with '.' in project locations
+    # Do NOT create an unhidden workspace-root 'dirtyroom -> .dirtyroom' symlink on init (PSL-RE-001).
     symlink_alias = target / "dirtyroom"
-    if not symlink_alias.exists() and not symlink_alias.is_symlink():
-        try:
-            symlink_alias.symlink_to(".dirtyroom", target_is_directory=True)
-        except OSError:
-            pass
+    existing_alias: Optional[str] = None
+    try:
+        if (symlink_alias.exists() or symlink_alias.is_symlink()) and symlink_alias.resolve() == dirty_dir.resolve():
+            existing_alias = str(symlink_alias)
+    except OSError:
+        existing_alias = None
 
-    # 3. Environment Export file
+    # 3. Shell-safe Environment Export file
     env_file = dirty_dir / "dirtyroom.env"
     if not env_file.exists():
-        ghidra_proj_dir = f"{target}/dirtyroom/ghidra" if (symlink_alias.exists() or symlink_alias.is_symlink()) else f"{dirty_dir}/ghidra"
-        env_content = f"""# Agyis Dirty-Room Environment Configuration (ADR-028, PSL-INV-009)
-export AGYIS_DIRTYROOM="{dirty_dir}"
-export REA_GHIDRA_PROJECT_DIR="{ghidra_proj_dir}"
-export REA_GHIDRA_PROJECT_NAME="{project_name}"
-export REA_DISASSEMBLER="ghidra"
-export REA_GHIDRA_DIRECT_MOUNT="1"
-"""
+        ghidra_proj_dir = str(Path(existing_alias) / "ghidra") if existing_alias else str(dirty_dir / "ghidra")
+        env_content = (
+            "# Agyis Dirty-Room Environment Configuration (ADR-028, PSL-RE-001)\n"
+            f"export AGYIS_DIRTYROOM={shlex.quote(str(dirty_dir))}\n"
+            f"export REA_GHIDRA_PROJECT_DIR={shlex.quote(ghidra_proj_dir)}\n"
+            f"export REA_GHIDRA_PROJECT_NAME={shlex.quote(project_name)}\n"
+            'export REA_DISASSEMBLER="ghidra"\n'
+            'export REA_GHIDRA_DIRECT_MOUNT="1"\n'
+        )
         env_file.write_text(env_content, encoding="utf-8")
 
-    # 4. .gitignore Quarantine
-    gi_file = dirty_dir / ".gitignore"
-    if not gi_file.exists():
-        gi_file.write_text(DIRTYROOM_GITIGNORE, encoding="utf-8")
-    else:
-        gi_text = gi_file.read_text(encoding="utf-8")
-        gi_lines = {line.strip() for line in gi_text.splitlines()}
-        if "cache/" not in gi_lines and "cache" not in gi_lines:
-            sep = "" if (not gi_text or gi_text.endswith("\n")) else "\n"
-            with open(gi_file, "a", encoding="utf-8") as f:
-                f.write(f"{sep}cache/\n")
+    # 4. .dirtyroom/.gitignore Quarantine
+    _ensure_dirtyroom_gitignore(dirty_dir / ".gitignore")
 
     # 5. Top-level .gitignore check
     root_gi = target / ".gitignore"
@@ -306,14 +292,19 @@ export REA_GHIDRA_DIRECT_MOUNT="1"
         existing_lines = {line.strip() for line in text.splitlines()}
         if ".dirtyroom/" not in existing_lines and ".dirtyroom" not in existing_lines:
             required_entries = [
+                ("dirtyroom", {"dirtyroom", "/dirtyroom", "dirtyroom/"}),
+                (".dirtyroom/symbols/", {".dirtyroom/symbols/", ".dirtyroom/symbols"}),
+                (".dirtyroom/pcaps/", {".dirtyroom/pcaps/", ".dirtyroom/pcaps"}),
+                (".dirtyroom/ghidra/*.gpr", {".dirtyroom/ghidra/*.gpr"}),
                 (".dirtyroom/ghidra/*.rep/", {".dirtyroom/ghidra/*.rep/", ".dirtyroom/ghidra/*.rep"}),
                 (".dirtyroom/logs/", {".dirtyroom/logs/", ".dirtyroom/logs"}),
                 (".dirtyroom/cache/", {".dirtyroom/cache/", ".dirtyroom/cache"}),
+                (".dirtyroom/dirtyroom.env", {".dirtyroom/dirtyroom.env"}),
             ]
             missing = [canonical for canonical, aliases in required_entries if not (existing_lines & aliases)]
             if missing:
                 sep = "" if (not text or text.endswith("\n")) else "\n"
-                header = "\n# Quarantined Dirty-Room Decompiler Caches (PSL-INV-007)\n" if len(missing) == len(required_entries) else ""
+                header = "\n# Quarantined Dirty-Room Decompiler Caches (PSL-RE-001)\n" if len(missing) == len(required_entries) else ""
                 with open(root_gi, "a", encoding="utf-8") as f:
                     f.write(f"{sep}{header}" + "\n".join(missing) + "\n")
                 root_gi_updated = True
@@ -323,7 +314,7 @@ export REA_GHIDRA_DIRECT_MOUNT="1"
     result: Dict[str, Any] = {
         "success": True,
         "dirtyroom_root": str(dirty_dir),
-        "symlink_alias": str(symlink_alias) if (symlink_alias.exists() or symlink_alias.is_symlink()) else None,
+        "symlink_alias": existing_alias,
         "created_dirs": created_dirs,
         "db_path": str(db_file),
         "db_created": db_created,

@@ -12,23 +12,30 @@ import copy
 from dataclasses import dataclass, field
 import difflib
 from pathlib import Path
-import re
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from harness.discovery import inject_non_interactive_guards, resolve_affected_tests
 from harness.mutation.probe_operators import (
     ACTIVE_BACKUPS,
     _install_safety_handlers,
+    check_baseline_cached,
+    clear_backup,
     flip_bool_op,
     has_no_mutant_pragma,
     invert_compare_op,
     is_arid_line,
     is_test_file,
+    parse_diff_lines,
+    register_backup,
     replace_source_segment_utf8,
+    resolve_repo_target,
+    run_targeted_test_cmd,
     swap_arith_op,
 )
+
+_RUNNER_ERROR_EXIT_CODES = frozenset({126, 127})
 
 
 def _mp_attr(name: str, default: Any) -> Any:
@@ -112,53 +119,6 @@ def _compute_unified_diff(original: str, mutated: str, file_path: str) -> str:
     return "".join(diff_lines)
 
 
-def parse_diff_lines(diff_text: str) -> Dict[str, Set[int]]:
-    """
-    Parses unified diff text to extract modified line numbers per file.
-    Returns mapping from relative file path to set of modified 1-indexed line numbers.
-    """
-    modified_lines: Dict[str, Set[int]] = {}
-    current_file: Optional[str] = None
-    current_line = 0
-
-    diff_file_pat = re.compile(r"^diff --git a/(.+?) b/(.+?)$")
-    hunk_pat = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
-
-    for line in diff_text.splitlines():
-        m_file = diff_file_pat.match(line)
-        if m_file:
-            current_file = m_file.group(2)
-            if current_file not in modified_lines:
-                modified_lines[current_file] = set()
-            continue
-
-        if line.startswith("+++ "):
-            path_part = line[4:].strip()
-            if path_part.startswith("b/"):
-                path_part = path_part[2:]
-            if path_part and path_part != "/dev/null":
-                current_file = path_part
-                if current_file not in modified_lines:
-                    modified_lines[current_file] = set()
-            continue
-
-        m_hunk = hunk_pat.match(line)
-        if m_hunk:
-            current_line = int(m_hunk.group(1))
-            continue
-
-        if current_file is not None and "current_line" in locals():
-            if line.startswith("+") and not line.startswith("+++"):
-                modified_lines[current_file].add(current_line)
-                current_line += 1
-            elif line.startswith(" "):
-                current_line += 1
-            elif line.startswith("-"):
-                pass
-
-    return modified_lines
-
-
 def detect_ecosystem_tools(repo_root: Path) -> Optional[str]:
     """Detects external mutation test runners configured in the repository."""
     repo_root = Path(repo_root)
@@ -177,11 +137,17 @@ def detect_ecosystem_tools(repo_root: Path) -> Optional[str]:
 
 
 class FunctionMutationCollector(ast.NodeVisitor):
-    """AST Visitor collecting candidate AST nodes for mutation in a function."""
+    """AST Visitor collecting candidate AST nodes in a single function (skips nested defs)."""
 
-    def __init__(self, target_lines: Set[int], source_lines: List[str]):
+    def __init__(
+        self,
+        target_lines: Set[int],
+        source_lines: List[str],
+        root_func: Optional[ast.AST] = None,
+    ):
         self.target_lines = target_lines
         self.source_lines = source_lines
+        self._root_func = root_func
 
         self.comparisons: List[ast.Compare] = []
         self.binops: List[ast.BinOp] = []
@@ -198,8 +164,22 @@ class FunctionMutationCollector(ast.NodeVisitor):
                 line_str = self.source_lines[lineno - 1]
                 if has_no_mutant_pragma(line_str) or is_arid_line(line_str):
                     return False
+                if lineno > 1 and has_no_mutant_pragma(self.source_lines[lineno - 2]):
+                    return False
             return True
         return False
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        if self._root_func is None or node is self._root_func:
+            self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        if self._root_func is None or node is self._root_func:
+            self.generic_visit(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        if self._root_func is None or node is self._root_func:
+            self.generic_visit(node)
 
     def visit_Compare(self, node: ast.Compare) -> None:
         if self._line_in_target(node):
@@ -250,22 +230,107 @@ def generate_mutants_for_function(
     source_lines: List[str],
     target_lines: Set[int],
     mutant_counter: List[int],
+    max_mutants: int = 6,
 ) -> List[Mutant]:
-    """Generates 5-6 mutants for a modified function using the 5 operators."""
-    collector = FunctionMutationCollector(target_lines, source_lines)
+    """Generates up to max_mutants diverse mutants across AST nodes in a modified function."""
+    collector = FunctionMutationCollector(target_lines, source_lines, root_func=func_node)
     collector.visit(func_node)
 
-    mutants: List[Mutant] = []
     func_name = func_node.name
+    buckets: List[List[Tuple[ast.AST, str, str]]] = []
 
-    def _add_mutant(node: ast.AST, operator: str, replacement: str) -> None:
-        mutant_counter[0] += 1
-        m_id = f"mutant_{mutant_counter[0]}"
+    # 1. Condition Inversion
+    cond_bucket: List[Tuple[ast.AST, str, str]] = []
+    for cmp_node in collector.comparisons:
+        if len(cmp_node.ops) == 1:
+            new_op = invert_compare_op(cmp_node.ops[0])
+            if new_op is not None:
+                mutated_cmp = copy.deepcopy(cmp_node)
+                mutated_cmp.ops = [new_op]
+                cond_bucket.append((cmp_node, "condition_inversion", ast.unparse(mutated_cmp)))
+        elif len(cmp_node.ops) > 1:
+            cond_bucket.append((cmp_node, "condition_inversion", f"not ({ast.unparse(cmp_node)})"))
+    if cond_bucket:
+        buckets.append(cond_bucket)
+
+    # 2. Boundary Shift (BinOp and AugAssign given distinct buckets so neither starves the other)
+    binop_bucket: List[Tuple[ast.AST, str, str]] = []
+    for binop in collector.binops:
+        new_op_bin = swap_arith_op(binop.op, include_mult_div=True)
+        if new_op_bin is not None:
+            mutated_bin = copy.deepcopy(binop)
+            mutated_bin.op = new_op_bin
+            binop_bucket.append((binop, "boundary_shift", ast.unparse(mutated_bin)))
+    if binop_bucket:
+        buckets.append(binop_bucket)
+
+    aug_bucket: List[Tuple[ast.AST, str, str]] = []
+    for aug in collector.augassigns:
+        new_op_aug = swap_arith_op(aug.op, include_mult_div=True)
+        if new_op_aug is not None:
+            mutated_aug = copy.deepcopy(aug)
+            mutated_aug.op = new_op_aug
+            aug_bucket.append((aug, "boundary_shift", ast.unparse(mutated_aug)))
+    if aug_bucket:
+        buckets.append(aug_bucket)
+
+    # 3. Logical Swap (canonical operator name)
+    logic_bucket: List[Tuple[ast.AST, str, str]] = []
+    for boolop in collector.boolops:
+        new_op_bool = flip_bool_op(boolop.op)
+        if new_op_bool is not None:
+            mutated_bop = copy.deepcopy(boolop)
+            mutated_bop.op = new_op_bool
+            logic_bucket.append((boolop, "logical_swap", ast.unparse(mutated_bop)))
+    for unop in collector.not_unaryops:
+        logic_bucket.append((unop, "logical_swap", ast.unparse(unop.operand)))
+    if logic_bucket:
+        buckets.append(logic_bucket)
+
+    # 4. Void Statement Delete (canonical operator name)
+    stmt_bucket: List[Tuple[ast.AST, str, str]] = [
+        (stmt, "void_statement_delete", "pass") for stmt in collector.statements
+    ]
+    if stmt_bucket:
+        buckets.append(stmt_bucket)
+
+    # 5. Return Stub (canonical operator name)
+    ret_bucket: List[Tuple[ast.AST, str, str]] = []
+    for ret_stmt in collector.returns:
+        if ret_stmt.value is None or (isinstance(ret_stmt.value, ast.Constant) and ret_stmt.value.value is None):
+            ret_bucket.append((ret_stmt, "return_stub", "return False"))
+        elif isinstance(ret_stmt.value, ast.Constant) and isinstance(ret_stmt.value.value, bool):
+            ret_bucket.append((ret_stmt, "return_stub", f"return {not ret_stmt.value.value}"))
+        else:
+            ret_bucket.append((ret_stmt, "return_stub", "return None"))
+    if ret_bucket:
+        buckets.append(ret_bucket)
+
+    # Round-robin diversity selection across all non-empty buckets up to max_mutants
+    selected: List[Tuple[ast.AST, str, str]] = []
+    seen_spans: Set[Tuple[int, int, str]] = set()
+    while len(selected) < max_mutants and any(buckets):
+        progressed = False
+        for bucket in buckets:
+            if len(selected) >= max_mutants:
+                break
+            while bucket:
+                node, op_name, replacement = bucket.pop(0)
+                key = (getattr(node, "lineno", 1), getattr(node, "col_offset", 0), op_name)
+                if key not in seen_spans:
+                    seen_spans.add(key)
+                    selected.append((node, op_name, replacement))
+                    progressed = True
+                    break
+        if not progressed:
+            break
+
+    mutants: List[Mutant] = []
+    for node, operator, replacement in selected:
         lineno = getattr(node, "lineno", 1)
         col_offset = getattr(node, "col_offset", 0)
         end_lineno = getattr(node, "end_lineno", lineno)
         end_col_offset = getattr(node, "end_col_offset", col_offset + len(replacement))
-
         mutated_src = _replace_source_segment(
             source=source_code,
             lineno=lineno,
@@ -274,74 +339,25 @@ def generate_mutants_for_function(
             end_col_offset=end_col_offset,
             replacement=replacement,
         )
-        diff_str = _compute_unified_diff(source_code, mutated_src, str(file_path))
-
+        if mutated_src == source_code:
+            continue
+        try:
+            ast.parse(mutated_src)
+        except SyntaxError:
+            continue
+        mutant_counter[0] += 1
         mutants.append(
             Mutant(
-                mutant_id=m_id,
+                mutant_id=f"mutant_{mutant_counter[0]}",
                 file_path=file_path,
                 function_name=func_name,
                 line_number=lineno,
                 operator=operator,
                 original_source=source_code,
                 mutated_source=mutated_src,
-                diff=diff_str,
+                diff=_compute_unified_diff(source_code, mutated_src, str(file_path)),
             )
         )
-
-    # 1. Condition Inversion: == <-> !=, < <-> >=, <= <-> >, in <-> not in, is <-> is not
-    if collector.comparisons:
-        cmp_node = collector.comparisons[0]
-        if len(cmp_node.ops) == 1:
-            new_op = invert_compare_op(cmp_node.ops[0])
-            if new_op is not None:
-                mutated_cmp = copy.deepcopy(cmp_node)
-                mutated_cmp.ops = [new_op]
-                _add_mutant(cmp_node, "condition_inversion", ast.unparse(mutated_cmp))
-
-    # 2. Boundary Shift: + 1 <-> - 1, + <-> -, * <-> /
-    if collector.binops:
-        binop = collector.binops[0]
-        new_op_bin = swap_arith_op(binop.op, include_mult_div=True)
-        if new_op_bin is not None:
-            mutated_bin = copy.deepcopy(binop)
-            mutated_bin.op = new_op_bin
-            _add_mutant(binop, "boundary_shift", ast.unparse(mutated_bin))
-    if collector.augassigns:
-        aug = collector.augassigns[0]
-        new_op_aug = swap_arith_op(aug.op, include_mult_div=True)
-        if new_op_aug is not None:
-            mutated_aug = copy.deepcopy(aug)
-            mutated_aug.op = new_op_aug
-            _add_mutant(aug, "boundary_shift", ast.unparse(mutated_aug))
-
-    # 3. Logical Flip: and <-> or, not x <-> x
-    if collector.boolops:
-        boolop = collector.boolops[0]
-        new_op_bool = flip_bool_op(boolop.op)
-        if new_op_bool is not None:
-            mutated_bop = copy.deepcopy(boolop)
-            mutated_bop.op = new_op_bool
-            _add_mutant(boolop, "logical_flip", ast.unparse(mutated_bop))
-    elif collector.not_unaryops:
-        unop = collector.not_unaryops[0]
-        _add_mutant(unop, "logical_flip", ast.unparse(unop.operand))
-
-    # 4. Statement Drop: Replace statement with pass
-    if collector.statements:
-        stmt = collector.statements[0]
-        _add_mutant(stmt, "statement_drop", "pass")
-
-    # 5. Return Negation / Replacement: return x -> return None, return True -> return False
-    if collector.returns:
-        ret_stmt = collector.returns[0]
-        if ret_stmt.value is None or (isinstance(ret_stmt.value, ast.Constant) and ret_stmt.value.value is None):
-            _add_mutant(ret_stmt, "return_negation", "return True")
-        elif isinstance(ret_stmt.value, ast.Constant) and isinstance(ret_stmt.value.value, bool):
-            new_val = not ret_stmt.value.value
-            _add_mutant(ret_stmt, "return_negation", f"return {new_val}")
-        else:
-            _add_mutant(ret_stmt, "return_negation", "return None")
 
     return mutants
 
@@ -352,13 +368,13 @@ def generate_mutants_for_file(
     mutant_counter: List[int],
 ) -> List[Mutant]:
     """Generates mutants for a single Python file across its modified functions."""
-    if not file_path.is_file() or file_path.suffix.lower() not in (".py", ".pyi"):
+    if not file_path.is_file() or file_path.is_symlink() or file_path.suffix.lower() not in (".py", ".pyi"):
         return []
 
     try:
         source_code = file_path.read_text(encoding="utf-8")
         tree = ast.parse(source_code, filename=str(file_path))
-    except Exception:
+    except (OSError, UnicodeDecodeError, SyntaxError):
         return []
 
     source_lines = source_code.splitlines(keepends=True)
@@ -370,15 +386,16 @@ def generate_mutants_for_file(
             fn_end = getattr(node, "end_lineno", fn_start + len(node.body))
             fn_lines = {ln for ln in target_lines if fn_start <= ln <= fn_end}
             if fn_lines:
-                fn_mutants = generate_mutants_for_function(
-                    file_path=file_path,
-                    func_node=node,
-                    source_code=source_code,
-                    source_lines=source_lines,
-                    target_lines=fn_lines,
-                    mutant_counter=mutant_counter,
+                mutants.extend(
+                    generate_mutants_for_function(
+                        file_path=file_path,
+                        func_node=node,
+                        source_code=source_code,
+                        source_lines=source_lines,
+                        target_lines=fn_lines,
+                        mutant_counter=mutant_counter,
+                    )
                 )
-                mutants.extend(fn_mutants)
 
     return mutants
 
@@ -387,14 +404,11 @@ def generate_mutants_for_diff(
     repo_root: Path,
     diff_text: Optional[str] = None,
 ) -> List[Mutant]:
-    """
-    Diff-aware mutant generator (Route A compatibility).
-    """
+    """Diff-aware mutant generator with repo containment and timeout guards."""
     repo_root = Path(repo_root).resolve()
     if diff_text is not None:
         diff_lines_map = parse_diff_lines(diff_text)
     else:
-        # Fallback to working tree git diff
         try:
             res = subprocess.run(
                 ["git", "diff", "HEAD"],
@@ -402,38 +416,57 @@ def generate_mutants_for_diff(
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=10.0,
             )
-            diff_lines_map = parse_diff_lines(res.stdout) if res.stdout else {}
-        except Exception:
+            diff_lines_map = parse_diff_lines(res.stdout) if res.returncode == 0 and res.stdout else {}
+        except (subprocess.SubprocessError, OSError) as exc:
+            sys.stderr.write(f"[!] Warning: git diff failed in {repo_root}: {exc}\n")
             diff_lines_map = {}
 
     mutants: List[Mutant] = []
     mutant_counter = [0]
 
     for rel_path, line_set in diff_lines_map.items():
-        if not line_set:
+        if not line_set or is_test_file(rel_path):
             continue
-        file_path = (repo_root / rel_path).resolve()
-        if not file_path.exists():
+        file_path = resolve_repo_target(repo_root, rel_path)
+        if file_path is None:
             continue
         if file_path.suffix.lower() in (".py", ".pyi"):
-            if is_test_file(rel_path):
-                continue
-            file_mutants = generate_mutants_for_file(file_path, line_set, mutant_counter)
-            mutants.extend(file_mutants)
+            mutants.extend(generate_mutants_for_file(file_path, line_set, mutant_counter))
 
     return mutants
+
+
+def _resolve_probe_test_cmd(
+    repo_root: Path,
+    file_path: Path,
+    explicit_test_cmd: Optional[str],
+) -> Optional[str]:
+    """Resolves a targeted test command for file_path without falling back to full unittest discover."""
+    if explicit_test_cmd:
+        return explicit_test_cmd
+    try:
+        rel_file = str(file_path.relative_to(repo_root))
+    except ValueError:
+        rel_file = str(file_path)
+    resolve_fn = _mp_attr("resolve_affected_tests", resolve_affected_tests)
+    resolved = resolve_fn(repo_root=repo_root, modified_files=[rel_file], mode="diff")
+    if not resolved.is_empty and resolved.runner_cmd:
+        return resolved.runner_cmd
+    stem_test = repo_root / "tests" / f"test_{file_path.stem}.py"
+    if stem_test.is_file():
+        return f"python3 -m unittest {stem_test.relative_to(repo_root)}"
+    return None
 
 
 def run_micro_mutation_probe(
     repo_root: Path,
     diff_text: Optional[str] = None,
     test_cmd: Optional[str] = None,
+    timeout_sec: float = 10.0,
 ) -> MutationReport:
-    """
-    Runs diff-aware micro-mutation probe against modified lines in repository.
-    (Route A compatibility entrypoint).
-    """
+    """Runs diff-aware micro-mutation probe with baseline check, shell=False, and strict pass gate."""
     _mp_attr("_install_safety_handlers", _install_safety_handlers)()
     repo_root = Path(repo_root).resolve()
     ecosystem_tool = detect_ecosystem_tools(repo_root)
@@ -471,46 +504,48 @@ def run_micro_mutation_probe(
     survived = 0
     errors = 0
     surviving_mutants: List[Mutant] = []
+    baseline_cache: Dict[str, Tuple[bool, str]] = {}
 
     for mutant in mutants:
-        original_content = mutant.file_path.read_text(encoding="utf-8")
-        ACTIVE_BACKUPS[mutant.file_path] = original_content
+        safe_path = resolve_repo_target(repo_root, mutant.file_path)
+        if safe_path is None:
+            mutant.status = "error"
+            mutant.error_message = f"Refused mutation outside repository root or symlink: {mutant.file_path}"
+            errors += 1
+            continue
+
+        cmd_to_run = _resolve_probe_test_cmd(repo_root, safe_path, test_cmd)
+        if not cmd_to_run:
+            mutant.status = "survived"
+            mutant.error_message = "No targeted test suite found for modified file"
+            survived += 1
+            surviving_mutants.append(mutant)
+            continue
+
+        clean_cmd, guarded_env = inject_non_interactive_guards(cmd_to_run)
+        if "PYTHONPATH" not in guarded_env or str(repo_root) not in guarded_env.get("PYTHONPATH", ""):
+            guarded_env["PYTHONPATH"] = f"{repo_root}:{guarded_env.get('PYTHONPATH', '')}".rstrip(":")
+
+        # Baseline check once per unique command before mutating source
+        base_ok, base_err = check_baseline_cached(
+            baseline_cache, clean_cmd, guarded_env, repo_root, timeout_sec
+        )
+        if not base_ok:
+            mutant.status = "error"
+            mutant.error_message = base_err
+            errors += 1
+            continue
+
+        original_content = safe_path.read_text(encoding="utf-8")
+        register_backup(safe_path, original_content)
         try:
-            mutant.file_path.write_text(mutant.mutated_source, encoding="utf-8")
-            if test_cmd:
-                cmd_to_run = test_cmd
-            else:
-                try:
-                    rel_file = str(mutant.file_path.relative_to(repo_root))
-                except ValueError:
-                    rel_file = str(mutant.file_path)
-                resolve_fn = _mp_attr("resolve_affected_tests", resolve_affected_tests)
-                resolved = resolve_fn(
-                    repo_root=repo_root,
-                    modified_files=[rel_file],
-                    mode="diff",
-                )
-                if not resolved.is_empty:
-                    cmd_to_run = resolved.runner_cmd
-                elif (repo_root / "tests").is_dir():
-                    cmd_to_run = "python3 -m unittest discover -s tests"
-                else:
-                    cmd_to_run = "python3 -m unittest"
-
-            clean_cmd, guarded_env = inject_non_interactive_guards(cmd_to_run)
-            if "PYTHONPATH" not in guarded_env or str(repo_root) not in guarded_env.get("PYTHONPATH", ""):
-                guarded_env["PYTHONPATH"] = f"{repo_root}:{guarded_env.get('PYTHONPATH', '')}".rstrip(":")
-
-            res = subprocess.run(
-                clean_cmd,
-                shell=True,
-                env=guarded_env,
-                cwd=str(repo_root),
-                capture_output=True,
-                text=True,
-                timeout=3.0,
-            )
-            if res.returncode != 0:
+            safe_path.write_text(mutant.mutated_source, encoding="utf-8")
+            res = run_targeted_test_cmd(clean_cmd, guarded_env, repo_root, timeout=timeout_sec)
+            if res.returncode in _RUNNER_ERROR_EXIT_CODES:
+                mutant.status = "error"
+                mutant.error_message = f"Test runner exited with command error code {res.returncode}"
+                errors += 1
+            elif res.returncode != 0:
                 mutant.status = "killed"
                 killed += 1
             else:
@@ -520,17 +555,19 @@ def run_micro_mutation_probe(
         except subprocess.TimeoutExpired:
             mutant.status = "killed"
             killed += 1
-        except Exception as ex:
+        except (OSError, ValueError, subprocess.SubprocessError) as ex:
             mutant.status = "error"
             mutant.error_message = str(ex)
             errors += 1
         finally:
-            mutant.file_path.write_text(original_content, encoding="utf-8")
-            ACTIVE_BACKUPS.pop(mutant.file_path, None)
+            try:
+                safe_path.write_text(original_content, encoding="utf-8")
+            finally:
+                clear_backup(safe_path)
 
     total = len(mutants)
     score = (killed / total) * 100.0 if total > 0 else 100.0
-    passed = (survived == 0)
+    passed = killed > 0 and survived == 0 and errors == 0
 
     lines: List[str] = [
         f"Micro-Mutation Probe: {total} mutants generated across diff.",
@@ -548,7 +585,9 @@ def run_micro_mutation_probe(
             "\nTip: Add assertions for these code paths, or annotate intentional exclusions with "
             "'# agyis: no-mutant <reason>'."
         )
-    else:
+    elif errors > 0:
+        lines.append(f"\n✖ MUTATION PROBE FAILED: {errors} execution/baseline error(s) prevented verification.")
+    elif passed:
         lines.append("\n✔ All mutants killed! Diff verification passed.")
 
     report_text = "\n".join(lines)

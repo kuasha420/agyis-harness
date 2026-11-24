@@ -4,7 +4,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Dirty-Room Hygiene, Orphan Lock Pruning & Database Optimization Engine (ADR-028, PSL-INV-009).
+Dirty-Room Hygiene, Orphan Lock Pruning & Database Optimization Engine (ADR-028, PSL-RE-001).
 Safely purges stale Ghidra .lock files, prunes old logs, and reclaims SQLite storage via VACUUM.
 """
 
@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from harness.re.cache import _format_size
 from harness.re.daemon import _is_pid_alive, _read_pid
-from harness.re.scaffold import get_dirtyroom_root
+from harness.re.scaffold import discover_dirtyroom_dbs, get_dirtyroom_root
 
 
 def _safe_stat_size(p: Path) -> int:
@@ -122,11 +122,15 @@ def clean_locks(
         }
 
     lock_files: List[Path] = []
+    ghidra_res = ghidra_dir.resolve()
     patterns = ["*.lock", "*.lock~", ".lock*", "*db.lock", "~*.lock"]
     for pat in patterns:
         for p in ghidra_dir.rglob(pat):
-            if p.is_file():
-                lock_files.append(p)
+            try:
+                if p.is_file() and not p.is_symlink() and p.resolve().is_relative_to(ghidra_res):
+                    lock_files.append(p)
+            except OSError:
+                continue
 
     # Deduplicate paths
     unique_locks = sorted(list(set(lock_files)))
@@ -182,10 +186,20 @@ def clean_logs(
         preserve_names.add("rea_daemon_status.json")
 
     candidates: List[Path] = []
+    logs_res = logs_dir.resolve()
     for pat in ["*.log", "*.tmp"]:
         for p in logs_dir.rglob(pat):
-            if p.is_file() and p.name not in preserve_names and not p.name.startswith("."):
-                candidates.append(p)
+            try:
+                if (
+                    p.is_file()
+                    and not p.is_symlink()
+                    and p.name not in preserve_names
+                    and not p.name.startswith(".")
+                    and p.resolve().is_relative_to(logs_res)
+                ):
+                    candidates.append(p)
+            except OSError:
+                continue
 
     unique_logs = sorted(list(set(candidates)))
 
@@ -225,13 +239,7 @@ def vacuum_database(
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Runs VACUUM, REINDEX, and ANALYZE on SQLite symbol database."""
-    candidates = [
-        dirtyroom_root / "symbols" / "dirtyroom.db",
-        dirtyroom_root / "symbols" / "paladins_symbols.sqlite",
-        dirtyroom_root / "symbols.db",
-        dirtyroom_root / "symbols.sqlite",
-    ]
-    target_dbs = [c for c in candidates if c.is_file() and _safe_stat_size(c) > 0]
+    target_dbs = discover_dirtyroom_dbs(dirtyroom_root)
     if not target_dbs:
         return {
             "success": False,

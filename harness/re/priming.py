@@ -4,7 +4,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Decompiler Query Cache Pre-Warming & Priming Engine (ADR-028, PSL-INV-009, Issue #113).
+Decompiler Query Cache Pre-Warming & Priming Engine (ADR-028, PSL-RE-001, Issue #113).
 Pre-populates decompiler query cache on priority functions to guarantee sub-millisecond retrieval.
 """
 
@@ -21,8 +21,12 @@ import sys
 import time
 from typing import Any, Dict, List, Optional
 
-from harness.re.cache import compute_cache_key, get_cache_dir
+from harness.re.cache import compute_cache_key, enforce_cache_limits, get_cache_dir
+from harness.re.registry import resolve_nondot_ghidra_dir
 from harness.re.scaffold import get_dirtyroom_db, get_dirtyroom_root, resolve_binary_path
+
+_LARGE_BINARY_THRESHOLD_BYTES = 10 * 1024 * 1024
+_DEFAULT_FAILFAST_TIMEOUT_S = 10.0
 
 
 def get_priority_functions(
@@ -64,11 +68,11 @@ def prime_cache(
     top: int = 20,
     symbols_file: Optional[Path] = None,
     binary_name: Optional[str] = None,
-    timeout: float = 60.0,
+    timeout: float = _DEFAULT_FAILFAST_TIMEOUT_S,
     dry_run: bool = False,
     dirtyroom_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Pre-warms the decompiler query cache on priority functions."""
+    """Pre-warms the decompiler query cache on priority functions (PSL-RE-001 compliant)."""
     if not symbols_file and top <= 0:
         return {"success": False, "error": "Parameter 'top' must be a positive integer.", "candidates": 0}
     if timeout <= 0:
@@ -151,21 +155,46 @@ def prime_cache(
             "candidates": 0,
         }
 
+    # PSL-RE-001 §1 Guard: Refuse priming >10MB binaries without a pre-analyzed Ghidra .gpr cache
+    nondot_ghidra = resolve_nondot_ghidra_dir(root)
+    raw_ghidra = root / "ghidra"
+    gprs = sorted(nondot_ghidra.glob("*.gpr")) if (nondot_ghidra and nondot_ghidra.is_dir()) else (
+        sorted(raw_ghidra.glob("*.gpr")) if raw_ghidra.is_dir() else []
+    )
+    if not dry_run and bin_path and bin_path.is_file():
+        try:
+            bin_size = bin_path.stat().st_size
+        except OSError:
+            bin_size = 0
+        if bin_size > _LARGE_BINARY_THRESHOLD_BYTES and not gprs:
+            size_mb = bin_size / (1024 * 1024)
+            return {
+                "success": False,
+                "error": (
+                    f"PSL-RE-001 §1 Violation: Binary '{resolved_bin_name}' ({size_mb:.1f} MB) exceeds 10MB "
+                    "and has no pre-analyzed Ghidra project (.gpr). Run 'agyis re pre-analyze' before priming."
+                ),
+                "binary": resolved_bin_name,
+                "candidates": len(targets),
+            }
+
     cache_dir = get_cache_dir(root, "decompile")
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     rea_bin = shutil.which("rea")
     env = os.environ.copy()
-    ghidra_dir = root / "ghidra"
-    if ghidra_dir.is_dir():
-        env["REA_GHIDRA_PROJECT_DIR"] = str(ghidra_dir)
-        gprs = sorted(ghidra_dir.glob("*.gpr"))
-        if gprs:
-            env["REA_GHIDRA_PROJECT_NAME"] = gprs[0].stem
-            env["REA_GHIDRA_PROJECT_PATH"] = str(gprs[0])
+    if nondot_ghidra and nondot_ghidra.is_dir():
+        env["REA_GHIDRA_PROJECT_DIR"] = str(nondot_ghidra)
+        nondot_gprs = sorted(nondot_ghidra.glob("*.gpr"))
+        if nondot_gprs:
+            env["REA_GHIDRA_PROJECT_NAME"] = nondot_gprs[0].stem
+            env["REA_GHIDRA_PROJECT_PATH"] = str(nondot_gprs[0])
     env["AGYIS_DIRTYROOM"] = str(root)
     env["REA_GHIDRA_DIRECT_MOUNT"] = "1"
     env["REA_GHIDRA_PROGRAM_NAME"] = resolved_bin_name
+
+    # PSL-RE-001 §2: enforce <=10s per-call fail-fast SLA
+    per_call_timeout = min(float(timeout), _DEFAULT_FAILFAST_TIMEOUT_S)
 
     cached_count = 0
     primed_count = 0
@@ -192,7 +221,7 @@ def prime_cache(
             results.append({"procedure": proc, "status": "failed", "error": "rea CLI not found in PATH"})
             continue
 
-        # Invoke REA decompile
+        # Invoke REA decompile under fail-fast SLA
         target_arg = str(bin_path) if bin_path else resolved_bin_name
         cmd = [rea_bin, "decompile", target_arg, "--procedure", str(proc)]
         try:
@@ -203,7 +232,7 @@ def prime_cache(
                 stderr=subprocess.PIPE,
                 text=True,
                 check=False,
-                timeout=timeout,
+                timeout=per_call_timeout,
             )
             if proc_res.returncode == 0 and proc_res.stdout.strip():
                 tmp_file = cache_file.with_suffix(f".c.tmp.{os.getpid()}")
@@ -217,10 +246,13 @@ def prime_cache(
                 results.append({"procedure": proc, "status": "failed", "error": err})
         except subprocess.TimeoutExpired:
             failed_count += 1
-            results.append({"procedure": proc, "status": "timeout", "error": f"Exceeded {timeout}s SLA"})
+            results.append({"procedure": proc, "status": "timeout", "error": f"Exceeded {per_call_timeout}s SLA"})
         except (subprocess.SubprocessError, OSError) as e:
             failed_count += 1
             results.append({"procedure": proc, "status": "failed", "error": str(e)})
+
+    if primed_count > 0:
+        enforce_cache_limits(root)
 
     elapsed_s = round(time.monotonic() - start_time, 2)
 
@@ -257,7 +289,7 @@ def cmd_prime(args: argparse.Namespace) -> int:
     file_arg = getattr(args, "file", None)
     binary_arg = getattr(args, "binary", None)
     raw_timeout = getattr(args, "timeout", None)
-    timeout_arg = 60.0 if raw_timeout is None else raw_timeout
+    timeout_arg = _DEFAULT_FAILFAST_TIMEOUT_S if raw_timeout is None else raw_timeout
     dry_run = getattr(args, "dry_run", False)
 
     res = prime_cache(

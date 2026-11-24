@@ -4,7 +4,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Agyis Cleanroom Reverse Engineering & Dirty-Room Toolchain (ADR-028, PSL-INV-009).
+Agyis Cleanroom Reverse Engineering & Dirty-Room Toolchain (ADR-028, PSL-RE-001).
 Provides turnkey dirtyroom scaffolding, pre-analyzed Ghidra acceleration,
 fast SQLite symbol caches, and REA MCP patch governance.
 """
