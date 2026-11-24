@@ -19,7 +19,7 @@ Detailed flow diagram and stage gate contracts for [SKILL.md](../SKILL.md).
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ STAGE 2: SURGICAL EXECUTION (`agyis_builder` / `agyis_architect`)       │◄────────────────────────┐
-│ - `agyis_builder` applies surgical contiguous edits (`replace_file_content`). │                     │
+│ - `agyis_builder` applies surgical contiguous edits (`edit_file`).      │                         │
 │ - Local self-verification via targeted component tests (<1.0s benchmark). │                         │
 │ - Produces diff summary and local test pass.                            │                         │
 └────────────────────────────────────┬────────────────────────────────────┘                         │
@@ -27,7 +27,7 @@ Detailed flow diagram and stage gate contracts for [SKILL.md](../SKILL.md).
                                      ▼                                                              │
 ┌─────────────────────────────────────────────────────────────────────────┐                         │
 │ STAGE 3: CODE REVIEW & QUALITY AUDIT (`agyis_reviewer` - The Hammer)    │                         │
-│ - Independent agent audits diff against the 11 Universal Invariants.    │                         │
+│ - Independent agent audits diff against the 8 Universal Invariants.     │                         │
 │ - Zero Error Swallowing Invariant & Zero Self-Certification.            │                         │
 │ - Emits PASS verdict OR Defect Ledger with file/line/rule citations.   │                         │
 └────────────────────────────────────┬────────────────────────────────────┘                         │
@@ -48,7 +48,7 @@ Detailed flow diagram and stage gate contracts for [SKILL.md](../SKILL.md).
 ┌─────────────────────────────────────────────────────────────────────────┐                         │
 │ STAGE 5: HERMETIC QA & VERIFICATION AUDIT (`agyis_auditor`)             │                         │
 │ - Strictly evaluates the COMMITTED git revision on HEAD (never dirty).  │                         │
-│ - Runs `agyis test` (~65s full suite) + <1.0s component benchmarks.     │                         │
+│ - Runs `agyis test` (2,486 hermetic tests) + <1.0s component benchmarks.│                         │
 │ - Asserts exit code 0 across all hermetic suites.                       │                         │
 └──────────────────┬───────────────────────────────┘                                                │
                    │                                                                                │

@@ -2,8 +2,8 @@
 name: re-ops
 description: >-
   Standardized cleanroom reverse engineering, dirty-room operations, pre-analyzed Ghidra
-  direct-mount acceleration, and 4-vector protocol/binary verification runbook (PSL-INV-007,
-  PSL-INV-009). Use when scaffolding quarantined .dirtyroom workspaces, executing agyis re
+  direct-mount acceleration, and 4-vector protocol/binary verification runbook (PSL-RE-001).
+  Use when scaffolding quarantined .dirtyroom workspaces, executing agyis re
   lifecycle commands, managing REA MCP bridge daemons and query caches, auditing binary
   branch gates, or validating typed cleanroom specifications and obligation ledgers.
 ---
@@ -12,9 +12,9 @@ description: >-
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Agyis Reverse Engineering Operations: Cleanroom & Dirty-Room Runbook
+# Agyis Reverse Engineering Operations: Cleanroom & Dirty-Room Runbook (`PSL-RE-001`)
 
-This skill establishes empirical, target-agnostic standard operating procedures for cleanroom reverse engineering, quarantined dirty-room management, pre-analyzed Ghidra direct-mount acceleration, and evidence-backed binary and protocol reconstruction under **PSL-INV-007** and **PSL-INV-009**.
+This skill houses the complete **`PSL-RE-001` On-Demand Domain Pack** (Cleanroom Reverse Engineering & Pre-Analyzed Ghidra Cache). It establishes empirical, target-agnostic standard operating procedures for quarantined dirty-room management, pre-analyzed Ghidra direct-mount acceleration, `rea@6.9.0` obligation ledgers, and evidence-backed binary and protocol reconstruction.
 
 ## Table of Contents
 1. [Cleanroom Separation and Quarantine Membrane](#1-cleanroom-separation-and-quarantine-membrane)
@@ -29,7 +29,7 @@ This skill establishes empirical, target-agnostic standard operating procedures 
 
 ## 1. Cleanroom Separation and Quarantine Membrane
 
-Every reverse engineering workspace MUST enforce a strict air-gap membrane (**PSL-INV-007**) separating proprietary analysis artifacts (**dirty room**) from distributable specifications and implementations (**clean room**).
+Every reverse engineering workspace MUST enforce a strict air-gap membrane (**PSL-RE-001 §1**) separating proprietary analysis artifacts (**dirty room**) from distributable specifications and implementations (**clean room**).
 
 ```
 +--------------------------------------------------------------------------------+
@@ -55,21 +55,21 @@ Every reverse engineering workspace MUST enforce a strict air-gap membrane (**PS
 +--------------------------------------------------------------------------------+
 ```
 
-### Core Quarantine Invariants (PSL-INV-007)
-1. **Zero Proprietary Code or Bytes in Git**: Never commit target binaries, raw disassembly listings, decompiled C/C++ pseudo-code, vendor symbol tables, or `.dirtyroom/` caches into version control.
-2. **Quarantined Workspace Layout**: Keep all analysis state inside `.dirtyroom/` (excluded via `.gitignore`) and expose the non-dot symlink `dirtyroom -> .dirtyroom` created by `agyis re init` so headless Ghidra never rejects leading-dot paths.
+### Core Quarantine Invariants (PSL-RE-001 §1)
+1. **Zero Proprietary Code or Bytes in Git**: Never commit target binaries, raw disassembly listings, decompiled C/C++ pseudo-code, vendor symbol tables, `.gpr`/`.rep` databases, or `.dirtyroom/` caches into version control.
+2. **Quarantined Workspace Layout**: Keep all dirty-room analysis state inside `.dirtyroom/` (excluded via `.gitignore`), resolving a non-dot Ghidra project path when launching headless Ghidra so leading-dot paths never cause rejection.
 3. **Pure Specification Transfer**: Only human/agent-authored specifications (`docs/specs/**`), declarative field schemas, hermetic fixtures, and typed obligation ledgers (`.agents/ledger/**`) may cross into version control.
-4. **No Speculative Assumptions**: Unobserved protocol paths, ambiguous structures, or incomplete findings must be tracked explicitly as residual unknowns until resolved by cited evidence.
+4. **No Speculative Assumptions (`PSL-INV-002`)**: Unobserved protocol paths, ambiguous structures, or incomplete findings must be tracked explicitly as residual unknowns until resolved by cited SHA-256 evidence.
 
 ---
 
 ## 2. Pre-Analyzed Ghidra Direct-Mount and Sub-2s Benchmark SLA
 
-### Invariant: Mandatory Pre-Analysis for Binaries > 10 MB (PSL-INV-009)
+### Invariant: Mandatory Pre-Analysis for Binaries > 10 MB (PSL-RE-001 §2)
 Never invoke ad-hoc headless decompilers or MCP analysis tools on target binaries exceeding **10 MB** without a pre-analyzed Ghidra project repository (`.gpr` + `.rep/`) mounted with `-noanalysis` and `-readOnly`.
 
 ### 2.1 Pre-Flight Toolchain Audit
-Verify JDK 21+, Ghidra 11.0+, REA CLI/MCP, SQLite, `objdump`, and `tshark` before starting analysis:
+Verify JDK 21+, Ghidra 11.0+, REA CLI/MCP (`rea@6.9.0`), SQLite, `objdump`, and `tshark` before starting analysis:
 ```bash
 # Deep opt-in RE toolchain audit (keeps standard 'agyis doctor' < 1.0s)
 agyis doctor --experimental-rea
@@ -79,7 +79,7 @@ agyis doctor --experimental-rea --heal
 ```
 
 ### 2.2 Three-Tier Acceleration Hierarchy
-To meet the **PSL-INV-009 §2** sub-2-second benchmark SLA and eliminate 8–10s cold JVM starts and multi-GB `.rep/` disk clones, select the right query path across the three acceleration tiers:
+To meet the **PSL-RE-001 §2** sub-2-second benchmark SLA and eliminate 8–10s cold JVM starts and multi-GB `.rep/` disk clones, select the right query path across the three acceleration tiers:
 
 ```
 +-----------------------------------------------------------------------------+
@@ -104,12 +104,12 @@ To meet the **PSL-INV-009 §2** sub-2-second benchmark SLA and eliminate 8–10s
 
 ## 3. Complete agyis re Lifecycle Palette
 
-The `agyis re` CLI provides a turnkey 14-subcommand lifecycle covering scaffolding, pre-analysis, seeding, acceleration, querying, and maintenance.
+The `agyis re` CLI provides a turnkey 15-subcommand lifecycle covering scaffolding, pre-analysis, seeding, acceleration, querying, and maintenance.
 
 ### 3.1 Provisioning, Patching & Pre-Analysis
 ```bash
 # 1. Scaffold quarantined .dirtyroom/{ghidra,symbols,logs,pcaps,cache/decompile}, SQLite DB,
-#    non-dot 'dirtyroom' symlink, .gitignore rules, and .dirtyroom/dirtyroom.env
+#    quarantine .gitignore rules, and .dirtyroom/dirtyroom.env
 agyis re init . --project TargetAnalysis
 
 # 2. Export direct-mount environment variables into active shell
@@ -201,7 +201,7 @@ agyis re daemon stop
 
 | Subcommand | Purpose | Key Flags |
 | :--- | :--- | :--- |
-| `agyis re init` | Scaffold `.dirtyroom/`, SQLite schema, `dirtyroom` symlink & env | `[path]`, `--project`, `--json` |
+| `agyis re init` | Scaffold `.dirtyroom/`, SQLite schema, quarantine `.gitignore` & env | `[path]`, `--project`, `--json` |
 | `agyis re status` | Report dirty-room, Ghidra `.gpr`/`.rep`, DB metrics & patch state | `--json` |
 | `agyis re patch-rea` | Check, apply, or revert REA zero-copy direct-mount patch | `--check`, `--apply`, `--revert`, `--json` |
 | `agyis re pre-analyze` | Run one-time headless Ghidra analysis & SQLite indexing (alias: `preanalyze`) | `<binary>`, `--project`, `--overwrite`, `--json` |
@@ -291,22 +291,22 @@ When an automated verification run hangs, disconnects unexpectedly, or fails to 
 1. **Scalar Width, Signedness & Type-Tag Mismatches**: Encoding an 8-byte integer in a 4-byte field group (or swapping signed/unsigned or endianness) corrupts downstream framing offsets and causes silent parser rejection. Catch with Vector 1 schema tests.
 2. **Ciphertext Replay in Plaintext Sessions**: Replaying raw captured bytes from an encrypted session into an unencrypted test stream injects invalid opcodes and triggers immediate peer teardown. Verify encryption state before carving Vector 2 fixtures.
 3. **Blocking Serial Socket I/O During Settle Delays**: Sleeping on a single-threaded read/write loop while waiting for peer initialization leaves incoming control or heartbeat frames unread, causing TCP buffer starvation and timeouts. Decouple async read and write loops.
-4. **Ghidra Leading-Dot Path & Orphan Lock Hazards**: Passing `.dirtyroom/ghidra` directly causes Ghidra headless rejection; crashed analyzers leave `*.lock` files that block read-only mounts. Always reference the non-dot `dirtyroom` symlink and clear stale locks with `agyis re clean --locks`.
+4. **Ghidra Leading-Dot Path & Orphan Lock Hazards**: Passing leading-dot paths directly causes Ghidra headless rejection; crashed analyzers leave `*.lock` files that block read-only mounts. Always resolve a non-dot Ghidra project path (or `.dirtyroom/dirtyroom.env` `REA_GHIDRA_PROJECT_DIR`) and clear stale locks with `agyis re clean --locks`.
 5. **Context Flood from Unbounded Disassembly Dumps**: Always default REA MCP tools to `detail: "summary"`, bound `agyis re disasm --limit` and `agyis re find --limit`, and paginate large analysis views via `inspect_analysis_view`.
 
 ---
 
 ## 6. Cleanroom Verification Gates and Obligation Ledgers
 
-Cleanroom claims must be backed by machine-verifiable ledgers in `.agents/ledger/obligation_ledger.json` and specification documents in `docs/specs/**` containing zero executable or copied vendor code.
+Under **PSL-RE-001 §3**, cleanroom claims must be backed by machine-verifiable ledgers in `.agents/ledger/obligation_ledger.json` and specification documents in `docs/specs/**` containing zero executable or copied vendor code.
 
 ### 6.1 Obligation Ledger & Residual Unknowns Lifecycle
-- **Scaffold Ledger**: Generate an REA 6.8.0+ typed obligation ledger template:
+- **Scaffold Ledger**: Generate an REA 6.9.0 typed obligation ledger template:
   ```bash
   agyis verify --scaffold
   ```
-- **Bind Immutable Evidence**: Every reviewed obligation must cite concrete evidence record IDs (`evidence_refs`), provider metadata (`ghidra`, `tshark`, `objdump`), and SHA-256 digests rather than ungrounded prose.
-- **Track Residual Unknowns**: Record unresolved behavioral questions with `record_unknown`, inspect open heads via `list_unknowns`, and close them exclusively through `verify_unknown_resolution` backed by observed evidence.
+- **Bind Immutable Evidence**: Every reviewed obligation must cite concrete evidence record IDs (`review_evidence_ids`), `manifest.bindings` entries, provider metadata (`ghidra`, `tshark`, `objdump`), and SHA-256 digests (`evidence_bundle.records`) rather than ungrounded prose.
+- **Track Residual Unknowns (`PSL-INV-002`)**: Record unresolved behavioral questions with `record_unknown`, inspect open heads via `list_unknowns`, and close them exclusively through `verify_unknown_resolution` backed by observed evidence.
 
 ### 6.2 Mandatory Verification Commands
 ```bash
@@ -326,6 +326,6 @@ rea evaluate-coverage
 ## 7. References and Layer Extensibility
 
 - **Dirty-Room Operations Runbook**: `docs/runbooks/dirtyroom-operations.md` (in `agyis-harness`) — End-to-end preparation, seeding, priming, maintenance, and troubleshooting matrix.
-- **REA Native Architecture Specification**: `docs/official-specs/rea-antigravity-architecture.md` (in `agyis-harness`) — `PSL-SPEC-2026-REA-001` covering the 207 MCP tools, 153 CLI commands, provider matrix, direct-mount benchmarks, and cleanroom contracts.
+- **REA Native Architecture Specification**: `docs/official-specs/rea-antigravity-architecture.md` (in `agyis-harness`) — `PSL-SPEC-2026-REA-001` covering the 255 MCP tools (`rea@6.9.0`), CLI commands, provider matrix, direct-mount benchmarks, and cleanroom contracts.
 - **Upstream REA Dynamic Skill**: `reverse-engineer-anything` (provisioned dynamically via `agyis doctor --experimental-rea --heal` or `agyis init --experimental-rea`; never vendored in-tree).
 - **3-Tier Skill Extensibility (Layer 1 vs. Layer 3)**: This `re-ops` skill is the target-agnostic **Layer 1** product skill distributed with `agyis-harness` (provisioned via `--role re`, `--role cleanroom`, or the `ops` skill group). Target-specific protocol constants, engine quirks, and workspace CLI extensions (`agyis ext`) belong exclusively in project-scoped **Layer 3** skills under `<workspace>/.agents/skills/` to preserve **ADR-014** Product vs. Project bifurcation.

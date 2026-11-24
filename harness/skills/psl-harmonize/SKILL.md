@@ -29,26 +29,26 @@ Trigger this skill whenever:
 ## 2. Harmonization Lifecycle
 
 ### Phase 1: Inspection & Diagnosis
-Run a non-destructive audit of the workspace configuration using the native Agyis CLI:
+Run a non-destructive audit of the workspace configuration using the native Agyis CLI (`agyis harmonize` defaults to dry-run mode unless `--apply` or `--yes` is supplied):
 
 ```bash
 # Audit workspace configuration status
 agyis status
 
-# Test harmonization in dry-run mode
+# Test harmonization in dry-run mode (default)
 agyis harmonize [path] --prune-legacy --backup --dry-run
 ```
 
 ### Phase 2: Automated Harmonization & Deterministic Pruning
-Antigravity and Agyis harness standardize on `.agents/` for workspace-local customizations (Layer 3). Rather than executing manual shell copy loops, use the unified CLI command:
+Antigravity and Agyis harness standardize on `.agents/` for workspace-local customizations (Layer 3). Rather than executing manual shell copy loops, pass `--apply` with the unified CLI command:
 
 ```bash
-agyis harmonize [path] --prune-legacy --backup
+agyis harmonize [path] --apply --prune-legacy --backup
 ```
 
 **Automated Guarantees (ADR-031B)**:
 1. **Asset Migration**: Custom agents and legacy workflows are migrated safely into `.agents/agents/` and `.agents/skills/<name>/SKILL.md`.
-2. **Pre-Pruning Backup**: Legacy contents are archived to `.agents/archive/agent-backup-<timestamp>.tar.gz`.
+2. **Pre-Pruning Backup**: Legacy contents are archived to `.agents/archive/legacy-agent-backup-<timestamp>.tar.gz`.
 3. **Deterministic 2-Step Pruning**:
    - Executes `git rm -rf .agent` for git-tracked files.
    - Filesystem sweep cleans untracked debris via `shutil.rmtree()`.
@@ -67,7 +67,7 @@ Agyis manages empirical invariants via a tagged block, ensuring project-specific
 1. **Preserve Existing Domain Rules**:
    Inspect `AGENTS.md`. If project-specific instructions exist, keep them intact outside the markers.
 2. **Synchronize via CLI**:
-   Run `agyis skills --sync` or `agyis install --workspace` to update the tagged block idempotently.
+   Run `agyis harmonize [path] --apply` or `agyis install --workspace` (or `agyis init [path]`) to update the tagged `AGENTS.md` block idempotently (`agyis skills --sync` syncs skills only).
 
 ### Phase 4: Verification & Coexistence Audit
 Verify that the workspace is fully harmonized:

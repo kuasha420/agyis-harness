@@ -23,9 +23,8 @@ This operational runbook governs non-destructive execution suspension across roo
 ## 1. Zero-Kill Rationale and The Phantom Pause Failure Mode
 
 ### The Panic-Kill Anti-Pattern (Session `f2855e28`)
-When approaching token limits or receiving an urgent pause directive from the operator, coordinators must **NEVER** invoke destructive termination primitives:
-- `manage_subagents(Action='kill_all')`
-- `manage_subagents(Action='kill')`
+When approaching token limits or receiving an urgent pause directive from the operator, coordinators must **NEVER** invoke destructive termination primitives as a pause mechanism:
+- `swarm(action='kill')` (permanent worker termination; deletes `share`/`branch` workspaces)
 - `manage_task(Action='kill')`
 - Shell `kill -9` / `pkill -9`
 
@@ -97,7 +96,7 @@ sequenceDiagram
    4. Reply with [PARK_ACK: <YOUR_UUID>] once quiesced.
    ```
 3. **Collect Acknowledgment Tokens**:
-   Inspect active subagent list via `manage_subagents(Action='list')`. Await reactive receipt of `[PARK_ACK: <UUID>]` from every child. If an intermediate orchestrator reports quiescence without acknowledging children, directly message the unacknowledged children.
+   Inspect active swarm/subagent roster via `swarm(action='status')` (and `read_board` / `agyis subagents --liveness`). Await reactive receipt (`swarm_wait` or turn wakeup) of `[PARK_ACK: <UUID>]` from every child. If an intermediate orchestrator reports quiescence without acknowledging children, directly message the unacknowledged children.
 4. **Finalize Parked State & Verify Quiescence**:
    Update `pause_gate.json` to `"status": "paused"` and finalize `PARKED_STATE.md`.
    Capture a carrier-grade working memory snapshot via `agyis checkpoint create`.

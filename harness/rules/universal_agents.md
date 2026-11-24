@@ -1,6 +1,6 @@
 ---
 trigger: manual
-description: Universal agent rules template for target workspace onboarding
+description: Universal agent rules template for target workspace onboarding (PSL Invariant Codex v2)
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
@@ -8,9 +8,9 @@ description: Universal agent rules template for target workspace onboarding
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Universal Empirical Agent Rules: Agyis Harness Guidelines
+# Universal Empirical Agent Rules: PSL Invariant Codex v2
 
-These operational rules govern cognitive behavior and human-in-the-loop alignment for software engineering projects powered by the **Agyis Harness**. All deterministic environment guarantees (runtime injection, pager normalization, surgical grep exit sanitization, output compaction, compaction runway advisories) are enforced transparently by harness hooks.
+These operational rules govern cognitive behavior and human-in-the-loop alignment for software engineering projects powered by the **Agyis Harness**. Deterministic environment guarantees (CPython >= 3.12 runtime injection, pager normalization, surgical grep/diff exit sanitization, output compaction, and compaction runway advisories) are enforced transparently by harness hooks.
 
 ---
 
@@ -35,6 +35,7 @@ agyis clean                                    # Clean stale checkpoints, dead w
 agyis skills                                   # List installed modular skills & stack triggers
 agyis rules --lint                             # Lint workspace skills and personas for rule echoes
 agyis agents                                   # List registered specialist subagents & bundles
+agyis agents validate --json                   # Validate <=20 tool ceiling and canonical v2.34+ tools
 agyis subagents --liveness                     # Inspect active subagents & heartbeat liveness
 agyis cockpit status                           # Print flight deck status, runway tokens & git state
 agyis router <workflow>                        # Display dynamic subagent router briefing & payload
@@ -49,107 +50,76 @@ agyis sync                                     # Bi-directional telemetry synchr
 
 ---
 
-## 2. Universal Automated Verification Standard (PSL-INV-001)
+## 2. Empirical Verification & Clean-Room Testing (PSL-INV-001)
 
-1. **Mandatory Project-Native Automated Verification**:
-   - Always execute the active repository's native verification command (`pnpm test`, `cargo test`, `pytest`, `go test`, `make test`, or `./agyis test` inside `agyis-harness`) before declaring a task "complete", "fixed", or "verified". Assert exit code 0.
-2. **Fast & Hermetic Test Hygiene**:
-   - Component unit and contract tests must execute cleanly and hermetically without slow network calls, unbounded sleeps, or whole-filesystem sweeps in verification loops.
-3. **Hermetic Isolation & Authentic Assertions**:
-   - Tests must use temporary directories and hermetic mocks rather than untracked external services or real product homework re-implemented in assertions.
-4. **Mandatory Build Cache Invalidation**:
-   - Prior to executing verification gates in rebase, migration, or onboarding workflows, purge stale build caches (`.next/`, `.turbo/`, `node_modules/.cache`) to prevent phantom build artifact regressions.
+1. **Mandatory Native Verification**:
+   - Execute the active repository's native verification command (`pnpm test`, `cargo test`, `pytest`, `go test`, `make test`, or `./agyis test` inside `agyis-harness`) after the final edit and assert exit code 0 before declaring any task "complete", "fixed", or "verified".
+2. **Hermetic Isolation & Authentic Tests**:
+   - Component tests must run rapidly and hermetically using `tempfile.TemporaryDirectory()` and in-memory mocks rather than external networks, unbounded sleeps, or product logic duplicated in assertions.
+3. **Mandatory Build Cache Invalidation**:
+   - Purge stale build caches (`.next/`, `.turbo/`, `node_modules/.cache`) prior to verification gates in multi-branch PR rebase, migration, or onboarding workflows.
 
 ---
 
-## 3. Terminal Invariants & Grep Probing Exception (PSL-INV-002)
+## 3. Epistemic Honesty & Observed Evidence (PSL-INV-002)
 
-1. **Pre-flight Tool Availability (Mitigate Exit Code 127)**:
-   - Verify tool availability (`command -v <bin>`) or handle fallback paths gracefully.
-2. **Context Flood Prevention**:
-   - Never execute unfiltered commands that dump thousands of lines. Pipe large outputs through `head -n <N>`, `tail -n <N>`, or `wc -l`.
-3. **Zero Error Swallowing & Pattern Probing Exception**:
-   - Error swallowing (bare `except:`, silent pipe failures without `set -euo pipefail`) is banned in production code; standalone terminal probes (`grep`, `diff`) without conditionals must append `|| [ $? -eq 1 ]` to handle benign empty matches cleanly.
-4. **Multi-line Script Hygiene**:
-   - Write multi-line scripts to temporary scratch files (`scratch/script.sh` or `scratch/script.py`) rather than escaping fragile multi-line `bash -c` one-liners.
-5. **Automated Database Port Collision Remediation**:
-   - When containerized DB services hit port 5432 collisions, use automated discovery and rebinding (`detect_port_collision.py --find-free --rebind --env .env`) rather than killing unrelated host services.
+1. **Observed-Only Reporting**:
+   - State as fact only file paths, symbol names, implemented behavior, and test/command outputs directly observed in files read/written or tool output; mark inferences explicitly as inferred.
+2. **Truthful Scope & Residual Unknowns**:
+   - State exact scopes and failures of mocked or filtered runs instead of reporting them as full passes; never extrapolate unprinted fields, counts, or timings, and track residual unknowns explicitly with required authorities.
 
 ---
 
-## 4. Surgical Contiguous Edits Invariant (PSL-INV-003)
+## 4. Tool Determinism, Failure Transparency & Minimal Diffs (PSL-INV-003)
 
-1. Always make single contiguous block replacements for targeted edits (`edit_file`).
-2. Do NOT overwrite whole files when modifying specific functions, classes, or blocks.
-3. Preserve surrounding comments, docstrings, imports, and formatting.
-
----
-
-## 5. Context Preservation, Dynamic Runway & Subagent Delegation (PSL-INV-004)
-
-1. **512k/1M Context Runway & 80-Step Soft Epoch Horizon Model**:
-   - Monitor the **context window** (512k/1M) carefully:
-     - **Amber (~70%)**: Approaching critical runway limit; focus on converging active deliverables.
-     - **Red (~90% / Compaction Trigger)**: Compaction imminent; emit or update `.agents/artifacts/checkpoints/<conversation_id>.md` via `agyis checkpoint generate` before handoff.
-     - **Soft Epoch Horizon (Per-Epoch Soft Budget = 80 steps)**: `SOFT_EPOCH_STEP_ADVISORY = 80` emits a non-blocking convergence advisory after 80 steps in the current epoch; open sweeps and in-flight edits remain allowed.
-2. **Anti-Loop & Reactive Wait Discipline**:
-   - Do NOT repeatedly call `read_file` on the same file within consecutive steps.
-   - Evolve search queries; do not repeat identical `run_command` (`rg`/`grep`) patterns.
-   - Never poll `manage_task(Action='status')` or repeatedly tail task logs; output one concise update and await reactive wakeup.
-3. **Tool-Native Primacy & Single-Source Skill Hygiene**:
-   - Exhaust native CLI flags/options before reading internal tool source or monkeypatching, and avoid duplicating global plugin skills in `.agents/skills/` without project-specific customization.
-4. **Subagent Delegation Protocol**:
-   - Decompose multi-phase refactoring, test debugging, or broad sweeps using `agyis_*` personas (`@agyis_investigator`, `@agyis_planner`, `@agyis_builder`, `@agyis_reviewer`, `@agyis_custodian`, `@agyis_auditor`, `@agyis_coordinator`, `@agyis_architect`) across the canonical lifecycle (`Investigator / Planner -> Builder -> Reviewer -> Custodian -> Auditor -> Coordinator`) inside isolated worktrees (`Workspace: "share"` or `"branch"`).
+1. **Zero Error Swallowing & Pattern Probing Exception**:
+   - Ban bare `except:`, `except Exception: pass`, and masked pipeline exits in production code; standalone terminal probes (`grep`, `rg`, `diff`) without conditionals append `|| [ $? -eq 1 ]` to handle benign empty matches cleanly.
+2. **Pre-Flight Checks, Scratch Scripts & Surgical Edits**:
+   - Verify required binaries (`command -v <bin>`), bound noisy outputs, place multi-line scripts in `scratch/*.py` or `scratch/*.sh`, and apply surgical contiguous edits (`edit_file`) preserving unrelated comments and docstrings.
+3. **Automated Database Port Collision Remediation**:
+   - Resolve container DB port 5432 collisions via automated discovery and rebinding (`detect_port_collision.py --find-free --rebind --env .env`) instead of killing unrelated host services.
 
 ---
 
-## 6. Artifact-First Planning Invariant & Dynamic Aperture (PSL-INV-005)
+## 5. Context Signal Hygiene & Runway Discipline (PSL-INV-004)
 
-1. **Anti-Chatbot Seduction**:
-   - Never propose multi-component architectural changes in raw chat; crystallize non-trivial designs into an interactive `implementation_plan.md` artifact before requesting operator confirmation.
-2. **Dynamic Sliding Aperture**:
-   - Maintain high resolution for active execution, medium resolution for near-term milestones, and low resolution for far-future scope.
-3. **Retroactive Horizon Compaction**:
-   - Compact completed phase findings into the project ledger, update the roadmap, commit clean changes, and instruct the operator to reset into a fresh session.
+1. **512k/1M Context Runway & 80-Step Soft Epoch Horizon**:
+   - Monitor context consumption proportionally across `512k`/`1M` windows: converge deliverables around `~70%` (amber), generate `.agents/artifacts/checkpoints/<conversation_id>.md` via `agyis checkpoint generate` at `~90%` (red), and honor the `80`-step soft epoch advisory (`SOFT_EPOCH_STEP_ADVISORY = 80`).
+2. **Anti-Loop, Reactive Wait & Single-Source Hygiene**:
+   - Never repeat identical `read_file` slices or search queries, never poll `manage_task(Action='status')` or tail task logs (await reactive wakeup), keep `.agents/` skills/rules/agents single-sourced via symlinks, exhaust native CLI flags before monkeypatching, and delegate broad sweeps to isolated workers (`workspace:"share"` or `"branch"`).
 
 ---
 
-## 7. Human-in-the-Loop & Steering Alignment (PSL-INV-006)
+## 6. Risk-Scaled Planning & Human Steering (PSL-INV-005)
 
-1. **Anti-Drift Commitment**: Anchor implementation decisions to the agreed plan and pause when unforeseen blockers or ambiguity arise.
-2. **Proactive Confirmation Gates**: Pause for explicit review before destructive operations (file deletion, force-push, service restarts/reboots).
-3. **Clear Error Reporting & Complete Deliveries**: Deliver complete packages (code + types + tests + docs). If a command fails twice, stop thrashing, state the error concisely, and propose concrete next options.
-
----
-
-## 8. Universal Cleanroom Reverse Engineering & Reconstruction Invariants (PSL-INV-007)
-
-1. **Dirty Room vs. Clean Room Isolation**: Keep binary/disassembly inspection (`.dirtyroom/`) strictly isolated from cleanroom specifications and source authoring.
-2. **Obligation Ledgers & Immutable Evidence**: Back cleanroom reconstructions with formal specifications, typed obligation ledgers, and immutable evidence digests.
-3. **Residual Unknowns Lifecycle**: Track unresolved structures formally with required authorities; never fill gaps with silent assumptions.
-4. **Formal Cleanroom Verification**: Evaluate obligation coverage (`agyis verify`) before closing cleanroom work.
+1. **Blast-Radius-Scaled Planning & Plan Anchoring**:
+   - Crystallize multi-component designs into an interactive `implementation_plan.md` artifact (high resolution for active work, medium for near-term milestones, low for far-future scope) and anchor implementation decisions to the agreed plan.
+2. **Confirmation Gates, Two-Failure Escalation & Milestone Compaction**:
+   - Pause for explicit confirmation before destructive operations (`git reset --hard`, force-push, deletions, reboots). If an approach fails twice consecutively, stop thrashing, report concisely, and propose options; compact milestones into project ledgers (`<50` lines), commit clean changes, and recommend a fresh session reset.
 
 ---
 
-## 9. Cockpit Flight Direction & Dual-Auditor Gate (PSL-INV-008)
+## 7. Independent Verification & Subagent Governance (PSL-INV-006)
 
-1. **Zero-Code-Thrash Flight Direction**: Root orchestration (`@agyis_coordinator`) decomposes milestones, evaluates trade-offs, and enforces governance via structured transition payloads (`mission_id`, `objective`, `deliverables`, `context_paths`, `verification_gate`).
-2. **Dual-Plane Communication & Dual-Auditor Gate**: Keep parent cockpit pairing distinct from child subagent `send_message` reporting, and pass multi-phase tasks through independent review (`@agyis_reviewer` + `@agyis_auditor`).
-
----
-
-## 10. Pre-Analyzed Decompiler Cache Invariant (PSL-INV-009)
-
-1. **Mandatory Pre-Analyzed Cache**: Never trigger unbounded full-binary Ghidra analysis passes during ad-hoc tool calls on binaries `>10 MB`; use pre-analyzed read-only project caches (`-noanalysis -readOnly`) returning queries in `<2.0s` while keeping `.dirtyroom/`, `.gpr`, and `.rep` files gitignored.
+1. **Author != Verifier & Zero Coordinator Code Thrash**:
+   - Code authors never self-certify; multi-phase deliverables traverse independent review (`@agyis_reviewer` + `@agyis_auditor`) on committed revisions while coordinators orchestrate via typed transition payloads without mutating product code directly.
+2. **Tool Ceiling & Truthful Delegate Liveness**:
+   - Agent definitions must declare `<=20` valid `v2.34+` tools (never obsolete v1 or static MCP names); verify delegate heartbeats via `agyis subagents --liveness` before reporting progress.
 
 ---
 
-## 11. Anti-Vibe-Coding & Dynamic Lifecycle Invariant (PSL-INV-010)
+## 8. Live Reality Over Static Fakes (PSL-INV-007)
 
-1. **Live State & Route Synchronization**: Never fake dynamic runtime views with static snapshots; track active SPA routes, purge stale DOM nodes/singletons on re-mount, and verify multi-session switching and API fallback paths in tests.
+1. **Dynamic Lifecycle & Route Synchronization**:
+   - Never fake dynamic runtime views with static snapshots; track active SPA routes (`/c/:id` and split views), purge stale DOM nodes/styles/singletons on re-mount, and test multi-session switching and API fallback paths across distinct fixtures.
 
 ---
 
-## 12. Universal Architectural Fitness Invariant (PSL-INV-011)
+## 9. Architectural Fitness & Sovereign Boundaries (PSL-INV-008)
 
-1. **Structural Governance**: Satisfy automated fitness gates (`agyis audit aff`), enforce strict layer boundaries (core library vs. workspace pipelines), extract large embedded foreign-language assets into `assets/`, bound in-memory cache sizes, and maintain a strictly acyclic import graph (DAG).
+1. **Structural Governance (`ADR-014`)**:
+   - Satisfy automated fitness gates (`agyis audit aff` `<0.25s`, `100/100` score), enforce strict layer boundaries (`harness/` vs `pipeline/`) with zero proprietary IP or secret leaks, externalize non-native assets into `assets/` via `importlib.resources`, cap in-memory caches, and keep import graphs strictly acyclic (DAG).
+
+---
+
+> **On-Demand Domain Pack — Cleanroom RE & Pre-Analyzed Ghidra Cache (`PSL-RE-001`)**: For binary reverse engineering, disassembly/decompilation, or cleanroom reconstruction, load `re-ops` (`harness/skills/re-ops/SKILL.md`) for `.dirtyroom/` quarantine, `rea@6.9.0` obligation ledgers, and `-noanalysis -readOnly` cache rules.

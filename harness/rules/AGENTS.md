@@ -3,27 +3,27 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-011 -->
+<!-- Inherits Universal Invariants from Global Plugin: PSL-INV-001 through PSL-INV-008 (plus on-demand PSL-RE-001) -->
 
 # Empirical Agent Rules: Agyis Harness Guidelines
 
-These operational rules govern cognitive behavior and human-in-the-loop alignment for **agyis-harness** (formerly `psl-agy-harness`). All deterministic environment guarantees (CPython >= 3.12 runtime injection, pager normalization, surgical grep exit sanitization, output compaction) are enforced transparently by harness hooks.
+These operational rules govern cognitive behavior and human-in-the-loop alignment for **agyis-harness** (formerly `psl-agy-harness`). Deterministic environment guarantees (CPython >= 3.12 runtime injection, pager normalization, surgical grep/diff exit sanitization, output compaction, and compaction runway advisories) are enforced transparently by harness hooks.
 
 ---
 
 ## 1. Explicit Project Command Dictionary (The Victory Pattern)
-*Derived from empirical CLI-first baseline repositories: explicit CLI palettes yield 10x lower human intervention rates:*
+*Explicit CLI palettes yield 10x lower human intervention rates:*
 
 ```bash
-# 🧪 Verification & Testing (Hermetic, 1,993 tests, clean dots)
-./agyis test                                   # Run complete project test suite (~65s suite, sub-second components)
+# 🧪 Verification & Testing (Hermetic, 2,486 tests, sub-second modules)
+./agyis test                                   # Run complete project test suite (~78s full suite, <1.0s modules)
 python3 -m harness.cli test                    # Run complete project test suite
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
 agyis verify                                   # Formally verify typed cleanroom obligations against evidence
 python3 -m unittest discover -s tests -v        # Standard unittest runner
 
 # 🩺 Environment Diagnostics, Auto-Healing & Port Collision
-agyis doctor                                   # Audit 3-tier runtime matrix & port 5432 collisions
+agyis doctor                                   # Audit 3-tier runtime matrix, AFF & port 5432 collisions
 agyis doctor --heal                            # Safe zero-sudo user-space repair
 agyis status                                   # Print harness health, active hooks, attention horizon & telemetry
 python3 harness/skills/db-ops/scripts/detect_port_collision.py --find-free --rebind --env .env # Auto-rebind DB port collision
@@ -33,15 +33,16 @@ agyis onboard [path] [flags]                   # Golden path onboarding (branch 
 agyis onboard . --create-branch chore/onboard  # Onboard target repository in isolated git branch
 agyis onboard . --allow-dirty                  # Proceed safely on dirty tree with pre-onboard safety patch
 agyis onboard . --skills db-ops,remote-ops     # Explicitly provision specialist skills override
-agyis init [path] [-s <stack>] [-r <role>]     # Initialize workspace project with stack skills & cleanroom ledgers
-agyis harmonize [path] [--dry-run]             # Harmonize legacy .agent/ directories into modern .agents/
+agyis init [path] [-s <stack>] [-r <role>]     # Initialize workspace project with stack skills & tagged rules
+agyis harmonize [path] [--dry-run|--apply]     # Harmonize legacy .agent/ directories into modern .agents/
 
 # 🪝 Lifecycle Hooks Dispatcher
 python3 -m harness.cli hook command-safety     # PreToolUse terminal safety guard
 python3 -m harness.cli hook anti-loop          # PreToolUse redundant call breaker
-python3 -m harness.cli hook compactor          # PostToolUse 2KB output compactor
+python3 -m harness.cli hook compactor          # PostToolUse 2KB/32KB output compactor
 python3 -m harness.cli hook anti-drift         # PreToolUse plan boundary and auditor write guard
 python3 -m harness.cli hook token-proximity-guard # PreToolUse attention horizon token guard
+python3 -m harness.cli hook pre-invocation     # PreInvocation runway & checkpoint advisory
 python3 -m harness.cli hook completion-fence   # Stop gate verification fence (code_dirty vs spec_dirty)
 
 # 📊 Empirical Telemetry Laboratory & Background Daemon
@@ -50,25 +51,26 @@ agyis sync --service install                   # Install background telemetry sy
 agyis sync --service status                    # Check background telemetry sync daemon status
 agyis sync --service start                     # Start background telemetry sync daemon
 agyis sync --service stop                      # Stop background telemetry sync daemon
-./agyis audit deep                             # Dissect 30 titan sessions (>=1k steps) & Knot inception
+./agyis audit deep                             # Dissect titan sessions (>=1k steps) & trajectories
 ./agyis audit volume                           # Analyze tool & command volume distributions
 ./agyis audit prune --days <N> [--vacuum]      # Prune older telemetry sessions & reclaim disk space (Phase 22)
-python3 -m harness.cli audit all               # Run full extraction, classification & summary
+python3 -m harness.cli audit all               # Run full extraction, classification & summary (source checkout)
 python3 -m harness.cli audit extract           # Ingest ~/.gemini/antigravity transcripts to telemetry.db
 python3 -m harness.cli audit classify          # Categorize trajectories into WHAT_WORKED / WHAT_FAILED
 python3 -m harness.cli audit inventory         # Catalog plugins, skills, hooks & MCP servers
-agyis audit certify                            # Run full suite, doctor audit & issue signed audit_verdict.json (Gate 2)
+agyis audit certify                            # Run full suite, AFF & doctor audit, issue signed audit_verdict.json
 agyis audit verdict                            # Inspect active out-of-band auditor clearance status (Gate 2)
 agyis audit aff                                # Audit architectural fitness, boundary violations & structural debt
 
 # 🧩 Skills, Rules & Subagents Discovery & Deduplication
 agyis skills                                   # List installed modular skills & triggers
-agyis skills --prune-duplicates                # Prune redundant workspace skills shadowing global plugin (~4,500 tokens/turn saved)
+agyis skills --prune-duplicates                # Prune redundant workspace skills shadowing global plugin
 agyis skills --prune-duplicates --dry-run      # Preview duplicate skill pruning without mutating disk
-agyis rules --lint                             # Lint agent rule files for duplicates & formatting issues (Phase 21)
-agyis rules --dedup                            # Harmonize & deduplicate redundant rule declarations (Phase 21)
+agyis rules --lint                             # Lint agent rule files for duplicates & rule echoes
+agyis rules --dedup                            # Harmonize & deduplicate redundant rule declarations
 agyis agents                                   # List registered specialist subagents & tools
-agyis subagents [--json]                       # Live active subagents status table & context health gauges (<2ms query)
+agyis agents validate --json                   # Validate <=20 tool ceiling and canonical v2.34+ tool specs
+agyis subagents [--json]                       # Live active subagents status table & context health gauges
 agyis subagents --liveness [--stale-threshold N] # Sub-second delegate heartbeat liveness inspection & state audit
 
 # 🖥️ Electron GUI DevTools & Trajectory Debugging (ADR-014)
@@ -76,6 +78,7 @@ agyis gui                                      # Unlock Trajectory Debug View vi
 agyis gui --devtools                           # Inspect DevToolsActivePort and print Chrome Inspect URLs
 agyis gui --no-popup                           # Prime DevTools flags and hotkeys (F12, Ctrl+Shift+T) without auto-popup
 agyis gui --toggle                             # Toggle Trajectory Debug View open/closed
+agyis gui --install-launcher                   # Install desktop launcher primed with Antigravity DevTools flags
 
 # 🛫 Cockpit Flight Director & Subagent Router (PSL-SPEC-2026-COCKPIT-DIRECTOR-001)
 agyis cockpit status                           # Print flight deck health, tokens, active subagents & git state
@@ -99,11 +102,10 @@ python3 -c "from harness.delivery import purge_build_caches; purge_build_caches(
 # sec-forensics:    Ephemeral RO triage (`docker run --rm -v /:/host:ro`), cloud key revocation, remote script streaming, PDF
 # media-ops:        yt-dlp stream acquisition ladder (`--impersonate chrome`), ffmpeg flips/rotations, hardware acceleration probe
 # db-ops:           Non-interactive psql/sqlite3 CLI, connection pool saturation, locks, WAL checkpoints, Docker DB triage
-# mesh-ops:         Knot hardware mesh coordination, Tailscale/WireGuard ping, ControlMaster sockets, state sync, KDE Connect
 # git-worktree-ops: Isolated worktree lifecycle, branch cleanup, orphan prune, stash hygiene, index.lock recovery
-# re-ops:           Cleanroom RE (PSL-INV-007/009), agyis re lifecycle, direct-mount Ghidra, 4-vector verification & escalation
+# re-ops:           Cleanroom RE (PSL-RE-001), agyis re lifecycle, direct-mount Ghidra, 4-vector verification & escalation
 
-# 🌐 Remote Operations & Cloud/Mesh Triage (ADR-027)
+# 🌐 Remote Operations & Cloud Triage (ADR-027)
 agyis remote exec <target> "<cmd>"             # Multiplexed SSH with login-shell promotion
 agyis remote script <target> <file>            # Stdin script streaming (zero disk footprint)
 agyis remote script <target> <file> --stage    # Staged execution with trap cleanup
@@ -111,8 +113,8 @@ agyis remote triage <target>                   # Compact (<2KB) multi-component 
 agyis remote socket status                     # List active OpenSSH ControlMaster sockets
 agyis remote socket cleanup                    # Remove active ControlMaster sockets
 
-# 🔬 REA & Cleanroom Reconstruction Tooling (ADR-028)
-rea --version                                  # Report REA CLI & SDK version (6.5.0 / 2.3.1)
+# 🔬 REA & Cleanroom Reconstruction Tooling (ADR-028, PSL-RE-001)
+rea --version                                  # Report REA CLI version (6.9.0 / 255 MCP tools)
 rea mcp doctor                                 # Audit REA stdio MCP catalog & checksums
 rea providers --json                           # List available disassembler engines (opt-in deep probe)
 agyis verify                                   # Formally verify typed cleanroom obligations against evidence
@@ -140,7 +142,7 @@ agyis re decompile <proc|addr> [--binary <bin>]   # Decompile procedure or inter
 
 ---
 
-## 3. Clean-Room Testing & Verification Contract (ADR-015)
+## 3. Clean-Room Testing & Verification Contract (ADR-015, PSL-INV-001)
 1. **Mandatory Automated Verification**:
    - Never declare a task "complete", "fixed", or "verified" without executing `python3 -m harness.cli test` and asserting exit code 0.
 2. **Sub-Second Benchmark Invariant**:
@@ -153,29 +155,26 @@ agyis re decompile <proc|addr> [--binary <bin>]   # Decompile procedure or inter
 
 ---
 
-## 4. Anti-Vibe-Coding & Dynamic Lifecycle Contract (PSL-INV-010)
+## 4. Live Reality Over Static Fakes & Dynamic Lifecycle Contract (PSL-INV-007)
 1. **Zero Static Snapshot Faking**:
    - Diagnostic tools and in-situ HUDs must never bake point-in-time runtime state or hardcoded mock fixtures. They must provide live dynamic query APIs or real-time event synchronization.
-2. **SPA Route Sensitivity & Focused Session Tracking**:
-   - In-situ browser tools operating within Antigravity must inspect active SPA routes (`/c/:id`) and hotkey triggers, dynamically switching context to the currently active conversation.
-3. **Mandatory Stale DOM & State Invalidation**:
-   - Re-injection or mounting of updated HUD components must purge stale DOM nodes and styles (`#agyis-trajectory-hud`, `#agyis-trajectory-hud-styles`) to ensure code and data changes apply immediately without application reboots.
+2. **SPA Route Sensitivity & Split-View Tracking**:
+   - In-situ browser tools operating within Antigravity must inspect active SPA routes (`/c/:id`, split views) and hotkey triggers, dynamically switching context to the currently active conversation.
+3. **Mandatory Stale DOM, Style & Singleton Invalidation**:
+   - Re-injection or mounting of updated HUD components must purge stale DOM nodes, styles, and listeners (`#agyis-trajectory-hud`, `#agyis-trajectory-hud-styles`) to ensure code and data changes apply immediately without application reboots.
 4. **Dynamic Traversal Testing Requirement**:
    - Multi-session switching, API failure fallbacks, and DOM replacement contracts must be formally tested. Single-fixture visual passes are strictly prohibited.
 
 ---
 
-## 5. Universal Architectural Fitness Contract (PSL-INV-011)
+## 5. Architectural Fitness & Sovereign Boundaries Contract (PSL-INV-008)
 1. **Automated Architectural Fitness Gates**:
-   - Production software systems must satisfy automated architectural fitness functions (`agyis audit aff` / `python3 -m harness.cli audit aff`). Fitness functions must continuously evaluate module boundary compliance, dependency acyclicity, and structural complexity metrics.
+   - Production software systems must satisfy automated architectural fitness functions (`agyis audit aff` / `python3 -m harness.cli audit aff` in `<0.25s`, `100.0/100` score). Fitness functions must continuously evaluate module boundary compliance, dependency acyclicity, and structural complexity metrics.
 2. **Zero Cross-Layer Boundary Breaches**:
-   - Systems must maintain strict physical and logical layer boundaries (e.g. ADR-014 Product vs. Project bifurcation, cleanroom vs. dirtyroom membrane). Lower-level or distributable core libraries (`harness/`) must never import from higher-level experimental pipelines (`pipeline/`), scratchpads, or application drivers.
+   - Systems must maintain strict physical and logical layer boundaries (e.g. ADR-014 Product vs. Project bifurcation, cleanroom vs. dirtyroom membrane). Lower-level or distributable core libraries (`harness/`) must never import from higher-level experimental pipelines (`pipeline/`), scratchpads, or application drivers, nor leak proprietary IP or secrets.
 3. **Zero Unseparated Foreign Language Monoliths**:
    - Non-native programming languages, markup, styles, or queries (e.g. multi-hundred-line JavaScript, HTML templates, CSS stylesheets, SQL queries) must NOT be embedded as raw multiline string constants inside core application code. Non-native assets must be cleanly decoupled into dedicated external files under `assets/` and loaded dynamically via package resource mechanisms (`importlib.resources`).
 4. **Bounded State & Cache Capacity**:
    - In-memory data structures, trajectory caches, session mappings, and AST parses must have explicit capacity limits (maximum item counts, LRU eviction, or TTL expiration). Unbounded dictionary or list growth in persistent runtime processes is strictly prohibited.
 5. **Dependency Cycle Prohibition**:
    - Import graphs must form a Directed Acyclic Graph (DAG). Circular dependencies across modules or packages are strictly prohibited and must be eliminated via dependency inversion or interface segregation.
-
----
-

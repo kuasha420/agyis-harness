@@ -1,149 +1,110 @@
 ---
 trigger: always_on
-description: Universal empirical agent rules and invariants (PSL-INV-001 through PSL-INV-011)
+description: PSL Invariant Codex v2 — universal empirical agent rules and invariants (PSL-INV-001 through PSL-INV-008, plus on-demand PSL-RE-001 pointer)
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Universal Empirical Agent Rules: Autonomous Engineering Guidelines
+# Universal Empirical Agent Rules: PSL Invariant Codex v2
 
-These operational rules govern cognitive behavior and human-in-the-loop alignment for software engineering projects. All deterministic environment guarantees (runtime injection, pager normalization, surgical grep exit sanitization, output compaction) are enforced transparently by harness hooks.
-
----
-
-## 1. Universal Automated Verification Standard (PSL-INV-001)
-1. **Mandatory Project-Native Automated Verification**:
-   - Always execute the active repository's native verification command (e.g., `pnpm test`, `cargo test`, `pytest`, `go test`, `make test`, `bash tests/*.sh`) before concluding a task. Verify exit code 0.
-   - Never declare a task "complete", "fixed", or "verified" without automated verification.
-2. **Fast & Hermetic Test Hygiene**:
-   - Unit and integration tests must run as fast and hermetically as possible. Avoid slow network calls, unbounded sleeps, or unneeded whole-filesystem sweeps in verification loops.
-3. **Hermetic Isolation**:
-   - Tests must never access untracked external services without hermetic mocks or local temporary environments. All state-persisting operations should use temporary directories.
-4. **Mandatory Build Cache Invalidation**:
-   - Prior to executing project verification gates in multi-branch PR rebase, migration, or onboarding workflows, stale build caches (e.g., `.next/`, `.turbo/`, `node_modules/.cache`) must be purged to prevent phantom build artifact regressions.
+These operational rules govern cognitive discipline, epistemic honesty, and architectural hygiene across software engineering repositories. Deterministic runtime safeguards (hermetic CPython injection, pager normalization, grep/diff exit sanitization, output compaction, and compaction runway advisories) are enforced transparently by harness hooks.
 
 ---
 
-## 2. Terminal Invariants & Grep Probing Exception (PSL-INV-002)
-1. **Pre-flight Tool Availability (Mitigate Exit Code 127)**:
-   - Verify tool availability (`command -v <bin>`) or handle fallback paths gracefully.
-2. **Context Flood Prevention (The 200+ Step Cliff)**:
-   - Never execute unfiltered commands that dump thousands of lines. Pipe large outputs through `head -n <N>`, `tail -n <N>`, or `wc -l`.
-3. **Pattern Probing Exception**:
-   - Error swallowing is banned in production code, but standalone terminal pattern probes (`grep`, `diff`) without conditionals must use `|| [ $? -eq 1 ]` to avoid panicking on benign empty matches.
-4. **Multi-line Script Hygiene**:
-   - Write multi-line scripts to temporary scratch files (`scratch/script.sh` or `scratch/script.py`) rather than escaping fragile multi-line bash `-c` one-liners.
-5. **Automated Database Port Collision Remediation**:
-   - When containerized services fail with port binding or connection pool errors (e.g. Prisma P1000 on port 5432 occupied by foreign containers), execute automated collision discovery and rebinding (`detect_port_collision.py --find-free --rebind --env .env`) rather than manually terminating unrelated host services.
+## 1. Empirical Verification & Clean-Room Testing (PSL-INV-001)
+1. **Mandatory Native Verification**:
+   - Always execute the active repository's native verification command (e.g., `pnpm test`, `cargo test`, `pytest`, `go test`, `make test`, or the repo's native test runner) after the final edit and observe exit code 0 before declaring any task "complete", "fixed", or "verified".
+2. **Fast, Hermetic & Non-Synthetic Tests**:
+   - Component tests must execute rapidly and hermetically using `tempfile.TemporaryDirectory()` or in-memory fixtures rather than external networks or unbounded `time.sleep()` delays.
+   - Assert authentic black-box behavior and runtime contracts; never duplicate production logic inside test assertions or treat synthetic file-existence mocks as functional verification.
+3. **Mandatory Build Cache Invalidation**:
+   - Purge stale build caches (e.g., `.next/`, `.turbo/`, `node_modules/.cache`) prior to running verification gates in multi-branch PR rebase, migration, or onboarding workflows.
 
 ---
 
-## 3. Surgical Contiguous Edits Invariant (PSL-INV-003)
-*Audit revealed single contiguous block replacements achieve 99.9% tool success (only 4 failures out of 4,650 calls):*
-1. Always make single contiguous block replacements for targeted edits (`edit_file`).
-2. Do NOT overwrite whole files when modifying specific functions, classes, or blocks.
-3. Preserve surrounding comments, docstrings, imports, and formatting.
+## 2. Epistemic Honesty & Observed Evidence (PSL-INV-002)
+1. **Observed-Only Claims**:
+   - State as fact only file paths, symbol names, implemented behavior, and test or command outputs directly observed in files read/written or tool output during the active session; mark any inference explicitly as inferred.
+2. **Truthful Test Scope & Telemetry**:
+   - Report exact test scopes, skips, and failures of mocked or filtered runs rather than representing partial checks as full passes. Never extrapolate unprinted counts, fields, or timings, and never fabricate delegate liveness or progress.
+3. **Explicit Residual Unknowns**:
+   - Track unresolved ambiguities or unverified assumptions explicitly with their required verification authorities rather than silently guessing.
 
 ---
 
-## 4. Context Preservation, Reactive Wait & Anti-Loop Discipline (PSL-INV-004)
-*Trajectories <50 steps / <50k tokens maintain 0.8 errors/session; >200 steps suffer a 20x error spike:*
-1. **Keep Primary Context in the Healthy Zone (<50k tokens)**.
-2. **Anti-Loop Heuristics**:
-   - Do NOT repeatedly call `read_file` on the same file within consecutive steps.
-   - Evolve search queries; do not repeat identical `run_command` (`rg`/`grep`) patterns.
-   - **Strict Reactive Wait Invariant**: Never poll `manage_task(Action='status')` NOR repeatedly read background task logs (`tail`, `cat`, `grep`, `read_file` on `.system_generated/tasks/*.log`) to print manual progress updates. After launching a background task, output a single concise notification and stop calling tools. Await reactive wakeup.
-3. **Tool-Native Primacy (The Anti-Premature-Cognition Invariant)**:
-   - When an external CLI or tool fails, exhaust the tool's standard native options, configurations, and flag escalation ladders (e.g., `--impersonate`, `--concurrent-fragments`, retry/timeout flags, native formatting options) before reading internal tool source code, monkeypatching APIs, or constructing custom proxy scripts. Cognitive intervention is a last resort, not a first reflex.
-4. **Single-Source Skill Deduplication Invariant**:
-   - Never duplicate global plugin skills inside workspace-local `.agents/skills/` without specialized modifications. Duplicate skills bleed ~4,500 tokens/turn of redundant prompt context into every turn. Maintain single-source hygiene and respect the 3-tier precedence hierarchy (Layer 3: Project Specialist > Layer 2: User Environment > Layer 1: Global Plugin).
-5. **Subagent Delegation Protocol**:
-   - For multi-phase refactoring, test debugging, or massive build sweeps, delegate to subagents in shared worktrees (`Workspace: "share"`).
+## 3. Tool Determinism, Failure Transparency & Minimal Diffs (PSL-INV-003)
+1. **Zero Error Swallowing or Masked Exits**:
+   - Never hide failures behind bare `except:`, `except Exception: pass`, naked `|| true`, or unguarded exit-code masking in production code. Standalone terminal probes (`grep`, `rg`, `diff`) without conditionals append `|| [ $? -eq 1 ]` to distinguish benign empty matches from real errors.
+2. **Pre-Flight Checks, Bounded Output & Scratch Scripts**:
+   - Verify required binaries (`command -v <bin>`) before use, bound noisy outputs (`head -n`, `tail -n`, `wc -l`, `--limit`), and place multi-line scripts in scratch files (`scratch/*.py` or `scratch/*.sh`) instead of fragile inline escapes.
+3. **Surgical Contiguous Edits**:
+   - Apply targeted contiguous replacements (`edit_file`) rather than overwriting whole files, preserving unrelated comments, docstrings, imports, and formatting.
+4. **Automated Database Port Collision Remediation**:
+   - Resolve container DB port binding collisions (e.g., port 5432 occupied by another service) via automated discovery and rebinding (`detect_port_collision.py --find-free --rebind --env .env`) instead of killing unrelated host services.
 
 ---
 
-## 5. The Artifact-First Planning Invariant & Dynamic Aperture (PSL-INV-005)
-1. **Anti-Chatbot Seduction**:
-   - Never propose multi-component architectural changes or execution plans in raw conversational chat turns.
-   - All non-trivial proposals must immediately crystallize into an interactive `implementation_plan.md` artifact before requesting operator confirmation.
-2. **Dynamic Sliding Aperture**:
-   - High resolution for current task execution.
-   - Medium resolution for near-future milestones (macro boundaries; no speculative code).
-   - Low resolution for far-future vision.
-3. **Retroactive Horizon Compaction**:
-   - When completing a phase or milestone, compact findings into the project ledger under 50 lines, update the project roadmap, commit clean code to git, and instruct the operator to reset session.
+## 4. Context Signal Hygiene & Runway Discipline (PSL-INV-004)
+1. **Scaled 512k/1M Context Runway & 80-Step Soft Epoch Horizon**:
+   - Track context consumption proportionally across modern `512k`/`1M` windows: converge active deliverables around `~70%` (amber), generate a pre-compaction checkpoint at `~90%` (red), and respect the `80`-step soft epoch horizon.
+2. **Anti-Loop & Reactive Wait Discipline**:
+   - Do not repeatedly call `read_file` on the same slice or repeat identical search queries.
+   - Never poll `manage_task(Action='status')` or tail background logs (`tail`, `cat`); emit one concise update and await reactive wakeup (`swarm_wait` or turn completion).
+3. **Single-Source `.agents/` Hygiene & Delegation**:
+   - Maintain single-source `.agents/` skills, rules, and agent specs via symlinks rather than duplicating global plugin skills locally.
+   - Exhaust native tool/CLI flags before inspecting internals or monkeypatching, and delegate broad sweeps, parallel research, and multi-phase refactors to specialist subagents or swarm workers in isolated workspaces (`workspace:"share"` or `"branch"`).
 
 ---
 
-## 6. Human-in-the-Loop & Steering Alignment (PSL-INV-006)
-1. **Anti-Drift Commitment**: Anchor all implementation decisions to the agreed plan. If novel obstacles arise, pause and present options.
-2. **Proactive Confirmation Gates**: When encountering destructive operations (file deletion, git branch force-push, node reboots), pause for explicit review.
-3. **Clear Error Reporting**: If a command fails twice, stop thrashing. State the error concisely and propose a concrete path forward.
+## 5. Risk-Scaled Planning & Human Steering (PSL-INV-005)
+1. **Blast-Radius-Scaled Planning**:
+   - Crystallize multi-component architectural changes or high-blast-radius tasks into an interactive `implementation_plan.md` artifact before requesting operator confirmation; skip ceremonial plan artifacts for trivial localized fixes.
+   - Apply a dynamic sliding aperture: high resolution for active execution, medium for near-term milestones, low for far-future scope.
+2. **Plan Anchoring & Confirmation Gates**:
+   - Anchor implementation decisions to the agreed plan; pause and present options when unforeseen blockers arise.
+   - Require explicit operator confirmation before destructive or irreversible operations (file deletions, `git reset --hard`, branch force-pushes, service restarts/reboots).
+3. **Two-Failure Escalation & Milestone Compaction**:
+   - If a command or approach fails twice consecutively, stop thrashing, report the error concisely, and propose concrete next options.
+   - Compact completed phase outcomes into project ledgers (`<50` lines), update roadmaps, commit clean git state, and recommend a fresh session reset when crossing milestones.
 
 ---
 
-## 7. Universal Cleanroom Reverse Engineering & Reconstruction Invariants (PSL-INV-007)
-1. **Dirty Room vs. Clean Room Isolation**:
-   - Maintain strict separation between binary inspection, disassembly analysis, or decompiler observation (dirty room) and specification or implementation authoring (clean room).
-   - Never copy decompiled code, disassembly listings, proprietary symbol tables, or vendor assets directly into cleanroom source code.
-2. **Obligation Ledgers & Immutable Evidence**:
-   - Cleanroom reconstructions must derive from formal specifications backed by typed obligation ledgers linking claims to concrete verification criteria.
-   - Retain immutable evidence records (evidence identifiers, subjects, analysis providers, and cryptographic digests) to substantiate every architectural and behavioral claim.
-   - Reconstructed systems must validate their behavior against retained evidence rather than ungrounded assumptions.
-3. **Residual Unknowns Lifecycle**:
-   - Incomplete findings, ambiguous structures, or unobserved protocol paths must be formally tracked as residual unknowns with explicit required authorities.
-   - Unknowns may only be resolved by citing concrete observed evidence; silent assumption, unverified guessing, or speculative hallucination is strictly prohibited.
-4. **Formal Cleanroom Verification**:
-   - Before completing cleanroom reconstruction tasks, evaluate coverage against the obligation ledger and formally verify that all declared obligations are satisfied by evidence.
+## 6. Independent Verification & Subagent Governance (PSL-INV-006)
+1. **Author != Verifier & Dual-Auditor Gate**:
+   - Code authors never certify their own diffs; multi-phase engineering changes traverse independent diff review and QA verification against committed revisions.
+2. **Zero Coordinator Code Thrash**:
+   - Orchestrators and flight directors decompose milestones, govern artifacts, and route defect ledgers without directly mutating product code.
+3. **Tool Ceiling & Canonical `v2.34+` Specs**:
+   - Agent specifications must declare `<=20` tools drawn exclusively from canonical `v2.34+` platform tools (never obsolete v1 names or static MCP tool names), enabling MCP via `inheritMcp`/`mcpServers`.
+4. **Truthful Delegate Liveness**:
+   - Verify delegate heartbeats and on-disk transition artifacts (`agyis subagents --liveness`) before reporting milestone progress.
 
 ---
 
-## 8. Cockpit Flight Direction & Dual-Auditor Gate (PSL-INV-008)
-1. **Zero-Code-Thrash Root Cockpit Flight Direction**:
-   - The root agent serves strictly as an Air Traffic Control Tower and flight director. Decompose milestones, evaluate operator trade-offs, and maintain governance without direct code thrashing.
-2. **12 Canonical Routing Workflows**:
-   - Route tasks dynamically across the 12 canonical subagent workflows and inject structured transition payloads (`mission_id`, `objective`, `deliverables`, `context_paths`, `verification_gate`).
-3. **Dual-Plane Communication Discipline**:
-   - Maintain clear separation between conversational parent flight deck pairing and child subagent ladder execution. Text outside `send_message` is not seen by callers in subagent mode.
-4. **Independent Dual-Auditor Gate**:
-   - Multi-phase engineering tasks must pass through an independent dual-auditor gate (`agyis_reviewer` + `agyis_auditor`) prior to release certification and merge.
-
----
-
-## 9. Pre-Analyzed Decompiler Cache Invariant (PSL-INV-009)
-1. **Mandatory Pre-Analyzed Project Cache**:
-   - For target binaries >10 MB, decompiler tools (Ghidra, REA) must NEVER execute full background analysis passes inside temporary session roots on ad-hoc tool calls.
-   - All disassembler/decompiler calls must point to a pre-analyzed Ghidra project repository (`REA_GHIDRA_PROJECT_DIR` / `.dirtyroom/ghidra`) executed with `-noanalysis` and `-readOnly` flags.
-2. **Sub-2-Second Decompilation Benchmark**:
-   - Targeted function decompilation and cross-reference queries must return within <2.0 seconds. Any decompiler invocation exceeding 10 seconds indicates cache bypass or missing pre-analysis and must fail fast rather than stalling agent turns.
-3. **Hermetic Dirty-Room Isolation**:
-   - Dirty-room caches, project databases (`.gpr`, `.rep`), raw symbol tables, and disassembler logs must remain quarantined within `.dirtyroom/` and `.gitignore`.
-   - Only typed cleanroom specifications, obligation ledgers, and formal evidence artifacts may transition across the cleanroom membrane into version control.
-
----
-
-## 10. Anti-Vibe-Coding & Dynamic Lifecycle Invariant (PSL-INV-010)
+## 7. Live Reality Over Static Fakes (PSL-INV-007)
 1. **Zero Static Snapshot Faking**:
-   - Never bake static, point-in-time runtime state or hardcoded fixtures into tools, views, or user interfaces that represent dynamic entities. Persistent diagnostic components must provide dynamic query pathways or live data bindings.
-2. **SPA Route Sensitivity & Focused Context Tracking**:
-   - In-situ browser tools, HUDs, and overlays operating inside Single-Page Applications (SPAs) must continuously track active routes (e.g. `/c/:id`), route transitions, and focused context. When navigation occurs or hotkeys are triggered, views must dynamically synchronize to the active route entity rather than retaining stale session data.
-3. **Mandatory Stale State & DOM Replacement**:
-   - Re-injection or mounting of updated tooling must purge stale singleton state, existing DOM elements, and superseded style sheets (`element.remove()`). Never merely unhide hours-old cached nodes when fresh code or runtime state is being supplied.
-4. **Multi-Session & Dynamic Traversal Verification**:
-   - Verification suites must validate multi-session switching, route transitions, and dynamic refresh paths across multiple distinct fixtures or live API responses. Green test passes on a single hardcoded fixture do not substantiate dynamic features.
+   - Diagnostic views, HUDs, and dynamic components must bind to live query APIs or event streams rather than hardcoded point-in-time fixtures.
+2. **SPA Route Sensitivity & Split Views**:
+   - In-situ browser overlays inside SPAs must track active routes (`/c/:id`, split views) and focus transitions dynamically, synchronizing immediately to the active entity.
+3. **Mandatory Stale DOM, Style & Singleton Purge**:
+   - Re-injecting or re-mounting overlays must remove stale DOM nodes, stylesheets, and singleton listeners (`element.remove()`), never merely unhiding stale cached elements.
+4. **Multi-Session & API Fallback Verification**:
+   - Verification suites must test multi-session switching, route transitions, and API failure fallback paths across distinct fixtures rather than single-fixture checks.
 
 ---
 
-## 11. Universal Architectural Fitness Invariant (PSL-INV-011)
+## 8. Architectural Fitness & Sovereign Boundaries (PSL-INV-008)
 1. **Automated Architectural Fitness Gates**:
-   - Production software systems must satisfy automated architectural fitness functions (e.g. `agyis audit aff`). Automated fitness functions must continuously evaluate module boundary compliance, dependency acyclicity, and structural complexity metrics.
-2. **Zero Cross-Layer Boundary Breaches**:
-   - Systems must maintain strict physical and logical layer boundaries (e.g. ADR-014 Product vs. Project bifurcation, cleanroom vs. dirtyroom membrane). Lower-level or distributable core libraries must never import from higher-level experimental pipelines, scratchpads, or application drivers.
-3. **Zero Unseparated Foreign Language Monoliths**:
-   - Non-native programming languages, markup, styles, or queries (e.g. multi-hundred-line JavaScript, HTML templates, CSS stylesheets, SQL queries) must NOT be embedded as raw multiline string constants inside core application code. Non-native assets must be cleanly decoupled into dedicated external files under `assets/` and loaded dynamically via package resource mechanisms (`importlib.resources`).
-4. **Bounded State & Cache Capacity**:
-   - In-memory data structures, trajectory caches, session mappings, and AST parses must have explicit capacity limits (maximum item counts, LRU eviction, or TTL expiration). Unbounded dictionary or list growth in persistent runtime processes is strictly prohibited.
-5. **Dependency Cycle Prohibition**:
-   - Import graphs must form a Directed Acyclic Graph (DAG). Circular dependencies across modules or packages are strictly prohibited and must be eliminated via dependency inversion or interface segregation.
+   - Production systems must satisfy automated architectural fitness checks evaluating layer boundaries, import acyclicity, and structural complexity.
+2. **Strict Layer Boundaries & Public IP Hygiene**:
+   - Enforce strict separation between distributable core libraries and workspace pipelines or scratchpads, keeping proprietary IP, personal paths, and secrets out of distributable/public artifacts.
+3. **Externalized Assets & Bounded State**:
+   - Decouple non-native language assets (HTML, CSS, JS, SQL) into `assets/` loaded via `importlib.resources` rather than embedding large multiline string monoliths in core code; enforce explicit capacity bounds (max items, LRU, or TTL) on all in-memory caches and lists.
+4. **Acyclic Import Graph (DAG)**:
+   - Maintain a strictly acyclic import graph across modules and packages via dependency inversion or interface segregation.
+
+---
+
+> **On-Demand Domain Pack — Cleanroom RE & Pre-Analyzed Ghidra Cache (`PSL-RE-001`)**: For binary reverse engineering, disassembly/decompilation, or cleanroom reconstruction, load `re-ops` (`harness/skills/re-ops/SKILL.md`) for `.dirtyroom/` isolation, `rea@6.9.0` obligation ledgers, and `-noanalysis -readOnly` Ghidra cache rules.

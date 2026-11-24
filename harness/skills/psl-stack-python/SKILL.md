@@ -23,7 +23,7 @@ This skill codifies empirical Python development standards, hermetic execution r
 - The harness dynamically discovers and prefers hermetic, isolated Python runtimes (e.g. from the `uv` python cache or isolated venvs) via `harness.runtime.doctor.find_hermetic_uv_python()` or `sys.executable`.
 - Never rely on mutating global system Python packages or running unpinned user-space dependencies.
 
-### 1.2 Exception Hygiene & Strict Failure Transparency (PSL-INV-002)
+### 1.2 Exception Hygiene & Strict Failure Transparency (PSL-INV-003)
 - **Absolute ban on bare `except:`** and `except Exception: pass`.
 - Every handled exception must either:
   1. Recover deterministically with an explicit fallback or retry, OR
@@ -66,8 +66,8 @@ This skill codifies empirical Python development standards, hermetic execution r
           self.temp_dir.cleanup()
   ```
 
-### 2.2 Sub-Second Component Test Invariant (ADR-015)
-- Individual unit and contract test modules must execute in **under 1.0 second** (sub-second component benchmark; full suite runs hermetically via `agyis test` in ~66s across 1,993 tests).
+### 2.2 Sub-Second Component Test Invariant (ADR-015, PSL-INV-001)
+- Individual unit and contract test modules must execute in **under 1.0 second** (sub-second component benchmark; full suite runs hermetically via `agyis test` across 2,486 tests).
 - Unit tests must be hermetic and in-memory:
   - Do not make external network requests.
   - Do not introduce `time.sleep()` delays; mock time or use deterministic event loops.

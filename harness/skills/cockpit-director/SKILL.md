@@ -33,11 +33,11 @@ description: >-
 > **The Root Cockpit is an Air Traffic Control Tower, not a construction site.**  
 > In long-horizon pairing sessions, the primary cockpit context window is the most valuable and fragile asset in the cognitive topology. It exists strictly to maintain situational awareness, conduct human-in-the-loop steering, evaluate trade-offs, and dispatch autonomous subagent pipelines. It does not lay bricks, pour concrete, or swing hammers.
 
-### The Empirical Context Cliff
-Empirical telemetry across 1,065+ production sessions establishes the unyielding law of cognitive trajectory health:
-- **🟢 Healthy Zone (<180k tokens / <50 steps)**: Sessions exhibit an error rate of only **0.8 errors per session**. Cognitive reasoning and instruction fidelity operate at peak reliability.
-- **🟡 Amber Zone (180k–229k tokens / 50–150 steps)**: Pre-compaction awareness mode. Complete active stages; avoid sprawling refactors.
-- **🔴 Compaction Imminent ($\ge 230$k tokens or Spawns $\ge 16$)**: Catastrophic **20x error spike**. Thrashing on previously resolved bugs, hallucinating tool states, and emergency compaction.
+### The Empirical Context Horizon
+Modern `512k`/`1M` context runways pair proportional token budgeting with an 80-step soft epoch horizon (`SOFT_EPOCH_STEP_ADVISORY = 80`):
+- **🟢 Healthy Zone (<70% context and <80 epoch steps)**: Peak reasoning fidelity and low error rate.
+- **🟡 Amber Zone (~70%–89% context or >=80 epoch steps)**: Soft convergence advisory (`pre-invocation` / `completion-fence`); complete active stages and avoid sprawling new sweeps.
+- **🔴 Compaction Imminent (>=90% context or Spawns >=16)**: Generate checkpoint state immediately, hand off cleanly, and reset or rotate subagent contexts.
 
 Direct code edits, uncompacted terminal dumps, and raw test traces in root accelerate descent toward the context cliff. Track C enforces total separation between Flight Direction and Downstream Execution (see [Flight Control Topology & Workflow Diagrams](references/flight-control-diagrams.md)).
 
@@ -48,16 +48,16 @@ Direct code edits, uncompacted terminal dumps, and raw test traces in root accel
 The Cockpit Flight Director is bound by an absolute prohibition against continuous code editing, in-line test debugging, and multi-line script execution in the root conversation window.
 
 ### Forbidden Root Anti-Patterns
-1. **Zero Code File Mutation**: The Flight Director must never call `replace_file_content` or `write_to_file` on product source files (`harness/**`, `src/**`, `lib/**`, `tests/**`). Direct code mutations are intercepted by the PreToolUse `anti_drift_hook` for flight director roles.
+1. **Zero Code File Mutation (`PSL-INV-006`)**: The Flight Director must never call `edit_file` or `write_file` on product source files (`harness/**`, `src/**`, `lib/**`, `tests/**`). Direct code mutations are intercepted by the PreToolUse `anti_drift_hook` for flight director roles.
 2. **Zero Dense In-Line Debugging**: The Flight Director must never analyze 500-line compiler errors, test failure stack traces, or binary coredumps in root context. Diagnostic analysis belongs exclusively in Tier 2 scratch scripts executed by `agyis_investigator`.
 3. **Zero Standalone Terminal Bash One-Liners**: Complex shell logic, multi-command pipelines, and sed/awk manipulations must never be executed via `bash -c` in root turns. Operational scripts must be written to `<artifactDir>/scratch/` and executed as hermetic files.
-4. **Zero Exploration Sweeps**: The Flight Director must never execute unbounded `list_dir` or `find_by_name` sweeps across the repository.
+4. **Zero Exploration Sweeps**: The Flight Director must never execute unbounded `run_command` (`find`/`rg`/`ls`) sweeps across the repository.
 
 ### Dedicated Scope of the Root Cockpit
 Root pairing context is preserved strictly for:
 1. **Strategic Direction & Milestone Decomposition**: Requirements clarification, domain modeling, and user journey synthesis.
 2. **Human-in-the-Loop Steering**: Reviewing architectural options, evaluating trade-offs, and seeking explicit confirmation on irreversible operations.
-3. **Subagent Ladder Dispatch & Governance**: Invoking specialized subagent pipelines via `subagent-router`, monitoring milestone progress via reactive wakeups, enforcing the Architectural Fitness Gate (`agyis audit aff`), and enforcing the Dual-Auditor Gate.
+3. **Subagent Ladder Dispatch & Governance (`PSL-INV-006`, `PSL-INV-008`)**: Invoking specialized subagent pipelines via `subagent-router`, monitoring milestone progress via reactive wakeups, enforcing the Architectural Fitness Gate (`agyis audit aff`), and enforcing the Dual-Auditor Gate.
 4. **Living Artifact Maintenance**: Updating `implementation_plan.md`, `project_ledger.md`, and `roadmap.md` (<50 lines retroactive compaction).
 
 ---
@@ -90,15 +90,15 @@ Communication in Track C is partitioned into two orthogonal, non-interfering pla
 1. **Concise Presentation**: Clean markdown, structured comparison tables, and Mermaid flowcharts. Zero dense code dumps or raw terminal logs.
 2. **Artifact-First Proposals (PSL-INV-005 & ADR-012)**: Non-trivial architectural changes must immediately crystallize into an interactive `implementation_plan.md` artifact.
 3. **Dynamic Sliding Aperture**: High resolution for immediate active milestone; medium resolution for near-future boundaries; low resolution for long-term vision.
-4. **Proactive Confirmation Gates (PSL-INV-006)**: Pause for explicit confirmation before git resets (`git reset --hard`), branch force-pushes, file deletions, or service restarts.
+4. **Proactive Confirmation Gates (PSL-INV-005)**: Pause for explicit confirmation before git resets (`git reset --hard`), branch force-pushes, file deletions, or service restarts.
 5. **Anti-Thrashing Rule**: If any tool invocation or command fails twice consecutively, stop immediately, state the error concisely, and present concrete options.
 
 ### 4.2 Plane 2: Machine/Agent Communication Channel
-1. **Subagent Privacy Invariant**: Text generated outside `send_message` by a subagent is never relayed to the parent orchestrator's context. Subagents must transmit findings, test results, and handoffs via `send_message`.
+1. **Subagent Privacy Invariant**: Text generated outside `send_message` by a subagent is never relayed to the parent orchestrator's context. Subagents must transmit findings, test results, and handoffs via `send_message` (or `post_message` in native swarms).
 2. **Cockpit Demarcation Invariant**: The Cockpit Flight Director is the sole agent authorized to address the human operator in raw chat turns. Subagents must never break encapsulation to query the user directly unless an explicit `ask_question` tool gate is authorized.
 3. **Strict Reactive Wait Invariant (PSL-INV-004 & ADR-032)**:
-   - When dispatching background tasks or subagents, emit a single concise progress notification and **IMMEDIATELY STOP CALLING TOOLS**.
-   - Zero polling loops (`manage_task`, `manage_subagents`, `tail -f` on task logs). Resumption is reactive.
+   - When dispatching background tasks, swarm workers, or subagents, emit a single concise progress notification and **IMMEDIATELY STOP CALLING TOOLS** (or call `swarm_wait` for swarm work).
+   - Zero polling loops (`manage_task(Action='status')`, `swarm(action='status')` loops, `tail -f` on task logs). Resumption is reactive.
 
 ### 4.3 Typed Stage Transition Payload (`psl_stage_transition_payload.json`)
 All stage handoffs along the execution pipeline must conform to the formal schema generated via `harness.subagents.routing.build_stage_transition_payload()`.
@@ -107,10 +107,11 @@ All stage handoffs along the execution pipeline must conform to the formal schem
 
 ## 5. Pillar 4: Compaction Lifecycle and Native Succession Protocol
 
-### Context Proximity Thresholds (ADR-031A)
-1. **🟢 Healthy Zone (<180,000 tokens)**: Normal autonomous operations and subagent dispatches.
-2. **🟡 Amber Zone (180,000 – 229,999 tokens)**: Pre-compaction awareness. Complete active stages; commit in-flight diffs to git on HEAD.
-3. **🔴 Compaction Imminent ($\ge 230,000$ tokens or Spawns $\ge 16$)**: PreInvocation hook injects advisory. Mandatory materialization of working memory via `agyis checkpoint generate` (`harness.delivery.compaction_checkpoint`) to `.agents/artifacts/compaction_checkpoint_latest.md`. Prompt operator for `/compact` or invoke horizontal succession (`invoke_subagent(TypeName="self", Workspace="inherit")`).
+### Context Proximity Thresholds (ADR-031A, PSL-INV-004)
+Scaled proportionally across `512k`/`1M` context windows (`SOFT_EPOCH_STEP_ADVISORY = 80`):
+1. **🟢 Healthy Zone (<70% tokens and <80 epoch steps)**: Normal autonomous operations and subagent dispatches.
+2. **🟡 Amber Zone (~70% – 89% tokens or >=80 epoch steps)**: Soft convergence advisory. Complete active stages; commit in-flight diffs cleanly.
+3. **🔴 Compaction Imminent (>=90% tokens or Spawns >= 16)**: PreInvocation hook injects `systemMessage` advisory. Materialize working memory via `agyis checkpoint generate` (`harness.delivery.compaction_checkpoint`) to `.agents/artifacts/compaction_checkpoint_latest.md`. Prompt operator for `/compact` or invoke horizontal succession (`invoke_subagent` / `swarm` fork).
 
 ### Autonomous Post-Compaction Continuation Directive
 When waking up in a compacted session or successor context:

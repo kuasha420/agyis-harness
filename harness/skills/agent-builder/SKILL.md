@@ -50,7 +50,7 @@ The scanner probes the following project files:
 
 ## 3. Verified Capability Bundles
 
-To prevent session freezes and maintain strict toolgroup scoping, custom agents must use pre-verified capability bundles from `CANONICAL_PLATFORM_TOOLS` (`ANTIGRAVITY_PLATFORM_TOOLS` also accepts legacy aliases for backwards compatibility):
+To prevent session freezes and maintain strict toolgroup scoping (`<=20` tool ceiling per `PSL-INV-006`), custom agents must use pre-verified capability bundles from `CANONICAL_PLATFORM_TOOLS` (`v2.34+` platform tools):
 
 | Bundle | Allowed Tools | Permissions | Intended Roles |
 | :--- | :--- | :--- | :--- |
@@ -59,11 +59,11 @@ To prevent session freezes and maintain strict toolgroup scoping, custom agents 
 | `adversarial_verifier` | `verifier` + `write_file`, `edit_file` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Test Generator, Fuzzer, Stress Oracle (/boost-inspired) |
 | `builder` | `verifier` + `write_file`, `edit_file` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Executioner, Implementer, Refactorer |
 | `investigator` | `verifier` + `write_file`, `edit_file` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Investigator, RCA & Reproduction Author |
-| `orchestrator` | `read_only` + `run_command`, `invoke_subagent`, `manage_subagents`, `manage_task`, `ask_question`, `swarm`, `post_message`, `swarm_wait`, `run_workflow`, `schedule` | `read: true`, `write: false`, `execute: true`, `subagents: true` | Swarm Coordinator, Milestone Lead |
-| `full` | All 24 canonical `v2.34.0` platform tools (`CANONICAL_PLATFORM_TOOLS`) | `read: true`, `write: true`, `execute: true`, `subagents: true`, `mcp: true`, `enable_write_tools: true`, `inheritMcp: true` | Main Agent (`main` archetype), Lead Architect |
+| `orchestrator` | `read_only` + `run_command`, `invoke_subagent`, `define_subagent`, `manage_task`, `ask_question`, `swarm`, `post_message`, `swarm_wait`, `run_workflow`, `schedule` | `read: true`, `write: false`, `execute: true`, `subagents: true` | Swarm Coordinator, Milestone Lead |
+| `full` | Core canonical `v2.34+` platform tools (`<=20` tools, trimmed from `CANONICAL_PLATFORM_TOOLS`) | `read: true`, `write: true`, `execute: true`, `subagents: true`, `mcp: true`, `enable_write_tools: true`, `inheritMcp: true` | Main Agent (`main` archetype), Lead Architect |
 
 > [!CAUTION]
-> **Platform Hanging Bug**: Never declare tools outside `ANTIGRAVITY_PLATFORM_TOOLS` (such as speculative MCP tool names `call_mcp_tool`, `list_resources`, `read_resource`) in frontmatter `tools:` or `allowed_tools:`. Use canonical `v2.34.0` tools (`read_file`, `write_file`, `edit_file`, `run_command`, `swarm`, `post_message`, `read_board`, `swarm_wait`, `run_workflow`, `search_marketplace`, `list_plugin_accounts`, `finish`) and enable MCP via `inheritMcp: true` / `mcpServers: [...]`. Doing otherwise causes the Antigravity subagent dispatcher to fail or hang.
+> **Platform Hanging Bug (`PSL-INV-006`)**: Never declare tools outside `CANONICAL_PLATFORM_TOOLS` — including obsolete v1 names (`view_file`, `write_to_file`, `replace_file_content`, `manage_subagents`, `enter_plan_mode`, `exit_plan_mode`) or speculative MCP tool names (`call_mcp_tool`, `list_resources`, `read_resource`) — in frontmatter `tools:` or `allowed_tools:`, and never exceed the `20`-tool ceiling. Use canonical `v2.34+` tools (`read_file`, `write_file`, `edit_file`, `run_command`, `swarm`, `post_message`, `read_board`, `swarm_wait`, `run_workflow`, `invoke_subagent`, `define_subagent`, `search_marketplace`, `list_plugin_accounts`, `finish`) and enable MCP via `inheritMcp: true` / `mcpServers: [...]`. Doing otherwise causes the Antigravity subagent dispatcher to fail or hang.
 
 ---
 
@@ -95,8 +95,8 @@ agyis agents validate .agents/agents/security_auditor.md
 The validation gate verifies:
 1. **Frontmatter Integrity**: Required keys (`name`, `archetype`, `role`, `description`, `permissions`).
 2. **Customization & MCP Inheritance**: Validates `inheritCustomizations: true` and `inheritMcp` boolean frontmatter properties and `mcpServers` list so workspace-level instructions, rules (`AGENTS.md`), and MCP servers propagate down.
-3. **Tool Existence**: Asserts all declared tools exist in `ANTIGRAVITY_PLATFORM_TOOLS` (canonical `v2.34.0` tools + legacy aliases).
-4. **Contradiction Guard**: Rejects contradictory configs (e.g. declaring `write_file`/`edit_file`/`write_to_file` when `permissions.write: false`).
+3. **Tool Existence & Ceiling**: Asserts all declared tools exist in canonical `v2.34+` `CANONICAL_PLATFORM_TOOLS` and total count is `<=20`.
+4. **Contradiction Guard**: Rejects contradictory configs (e.g. declaring `write_file`/`edit_file` when `permissions.write: false`).
 5. **Prompt Invariants**: Ensures `Zero-Exploration Invariant` or `Targeted Macro & Deduplication Sweep Invariant` is declared.
 
 ### Synchronize Agent Definitions
@@ -108,11 +108,11 @@ agyis agents --sync
 
 ## 5. UI Activation and Platform Behaviors
 
-1. **Native `@<subagent>` Prompt Syntax (Antigravity v1.2.9+)**:
+1. **Native `@<subagent>` Prompt Syntax (Antigravity `v2.34+`)**:
    - Subagents can be invoked directly inside any prompt turn using native `@<agent_name>` inline syntax (e.g. `@agyis_builder`, `@agyis_reviewer`, `@agyis_architect`).
    - Seamlessly hand off context across stages in the Subagent Ladder protocol without manual session reconstruction.
-2. **Tool Prerequisite Pruning in `/` Menu (Antigravity v1.2.16+)**:
-   - In Antigravity v1.2.16+, when invoking commands or subagents from the `/` menu, tools lacking declared prerequisite capabilities or masked by restrictive permissions are pruned from the execution environment.
+2. **Tool Prerequisite Pruning in `/` Menu (Antigravity `v2.34+`)**:
+   - In Antigravity `v2.34+`, when invoking commands or subagents from the `/` menu, tools lacking declared prerequisite capabilities or masked by restrictive permissions are pruned from the execution environment.
    - Using the `full` capability bundle and `inheritCustomizations: true` ensures all platform tools, MCP capabilities, and custom rule prompts remain accessible without unexpected tool pruning.
 3. **Project Scope (`.agents/agents/<name>.md`)**:
    - Files in `.agents/agents/` are automatically discovered by Antigravity for the active workspace.

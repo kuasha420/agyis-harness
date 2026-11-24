@@ -43,7 +43,7 @@ The Subagent Router enforces the **Dual-Sovereignty Principle** (Cognition vs. H
 - **The Harness governs boundaries, state verification, and physical execution guarantees**: Deterministic pre-tool-use write blocks for read-only agents, terminal command safety, output compaction (<2KB), and completion fence verification gates.
 
 Key cognitive benefits include:
-1. **Zero Context Carryover**: Subagents operate in lean, task-focused contexts (well below the 180k/230k compaction runway of the 256k window), preserving high reasoning capability and deterministic instruction following.
+1. **Zero Context Carryover**: Subagents operate in lean, task-focused contexts (well below the `~70%`/`~90%` compaction runway of the `512k`/`1M` window and `80`-step soft epoch horizon), preserving high reasoning capability and deterministic instruction following.
 2. **Cognitive Role Isolation**: Separates the builder from the reviewer. An agent that writes code never reviews or audits its own diffs.
 3. **Hermetic State Preservation**: High-level milestone state, plan artifacts, and empirical test logs are preserved in persistent markdown documents, resilient to conversational compaction or session resets.
 4. **Anti-Anchoring Invariant**: Reviewers and auditors approach incoming diffs skeptically to break them with real repository tests rather than passively confirming prior attempts.
@@ -78,10 +78,10 @@ For the complete visual flowchart and exhaustive 12-workflow decision matrix, se
 Every engineering milestone progressing through the sequential execution path advances through the **6-Stage Pipeline**:
 
 1. **Stage 1 — Planning and Operator Lock-In (`agyis_coordinator` / `agyis_planner`)**: Synthesizes architecture into `implementation_plan.md` and locks operator approval.
-2. **Stage 2 — Surgical Execution (`agyis_builder` / `agyis_architect`)**: Applies single contiguous edits (`replace_file_content`) and verifies locally via component tests (<1.0s benchmark).
-3. **Stage 3 — Code Review and Quality Audit (`agyis_reviewer` — The Hammer)**: Audits diffs against the 11 Universal Invariants, Zero Error Swallowing, and Zero Self-Certification; emits PASS or Defect Ledger.
+2. **Stage 2 — Surgical Execution (`agyis_builder` / `agyis_architect`)**: Applies single contiguous edits (`edit_file`) and verifies locally via component tests (<1.0s benchmark).
+3. **Stage 3 — Code Review and Quality Audit (`agyis_reviewer` — The Hammer)**: Audits diffs against the 8 Universal Invariants (`PSL-INV-001`..`PSL-INV-008`), Zero Error Swallowing, and Zero Self-Certification; emits PASS or Defect Ledger.
 4. **Stage 4 — Macro Architectural Audit and Git Commit Gate (`agyis_custodian`)**: Runs the 4-Pillar Quality Gate (DRY, `agyis audit aff`, Asset Decoupling, Git Porcelain), stages plan-declared targets only, and commits on `HEAD`.
-5. **Stage 5 — Hermetic QA and Verification Audit (`agyis_auditor`)**: Evaluates strictly the committed `HEAD` revision using `agyis test` (~65s full suite) + <1.0s benchmarks; returns failures to Stage 2/RCA and back through Hammer.
+5. **Stage 5 — Hermetic QA and Verification Audit (`agyis_auditor`)**: Evaluates strictly the committed `HEAD` revision using `agyis test` (2,486 hermetic tests) + <1.0s benchmarks; returns failures to Stage 2/RCA and back through Hammer.
 6. **Stage 6 — Phase Archival and Promotion (`cockpit-director` / `agyis_coordinator`)**: Archives delivery report to `.agents/artifacts/phase_X_delivery.md`, updates `docs/taxonomy/project-ledger.md`, retires subagents, and proposes Phase X+1.
 
 For the full visual 6-Stage Pipeline diagram and state-transition formulas, see:
@@ -112,7 +112,7 @@ When coordinating distributed campaigns across parallel feature worktrees, multi
 ### 5.3 Macro Architectural Audit & Git Commit Gate (The Custodian Mandate)
 > [!IMPORTANT]
 > The Custodian (`agyis_custodian`) is the sole entity authorized to stage and commit milestone deliverables, operating as the **4-Pillar Architectural & Git Commit Gate**:
-> 1. **Pillar 4.1: DRY & Deduplication Audit**: Custodian sweeps repo (`grep_search`, `find_by_name`) to verify newly introduced helpers, utilities, and constants do NOT duplicate existing logic.
+> 1. **Pillar 4.1: DRY & Deduplication Audit**: Custodian sweeps repo (`run_command` with `rg`/`git`) to verify newly introduced helpers, utilities, and constants do NOT duplicate existing logic.
 > 2. **Pillar 4.2: Architectural Fitness Gate (`agyis audit aff`)**: Custodian executes the native AFF engine to assert zero boundary breaches (ADR-014 bifurcation), zero dependency cycles, zero foreign language monoliths, and zero unbounded state caches.
 > 3. **Pillar 4.3: Packaging & Asset Decoupling Audit**: Verify non-native assets (HTML, CSS, SQL, client JS scripts, templates, icons) are cleanly decoupled into dedicated `assets/` directories and declared in packaging manifests.
 > 4. **Pillar 4.4: Git Porcelain & Atomic Staging Gate**: Verify porcelain tree status (`git status --porcelain`), deliberately stage only files specified in the approved plan (never blind `git add .`), and seal an atomic conventional commit on HEAD.
@@ -166,11 +166,11 @@ agyis cockpit route <letter> --json           # Machine-readable dispatch payloa
 # 📋 View Registered Workflows & Execution Modes
 agyis cockpit status                          # Flight deck overview & active subagents
 
-# 🩺 Swarm Liveness & Delegate Monitoring Loops
+# 🩺 Swarm Liveness & Delegate State Inspection
 agyis subagents --liveness                    # Deterministic delegate heartbeat inspection & liveness audit
 agyis subagents --liveness --stale-threshold 300 # Detect stalled or dead workers in multi-agent swarms
 agyis subagents --liveness --json             # Machine-readable liveness ledger for automated orchestration guards
 ```
 
-### Swarm Monitoring Invariant
-Orchestrators and coordinators must run `agyis subagents --liveness` in monitoring loops when awaiting delegate progress. If a delegate subagent stalls into `STALE` (>300s) or `DEAD` (>1800s) state without an active pause gate, the orchestrator must halt and intervene rather than hallucinating progress updates.
+### Reactive Wakeup & Swarm Liveness Invariant (`PSL-INV-004`, `PSL-INV-006`)
+Never poll `agyis subagents --liveness`, `manage_task(Action='status')`, or `swarm(action='status')` in loops. Await reactive wakeups (`swarm_wait` or turn completion) and run `agyis subagents --liveness` strictly on reactive wakeups, before reporting milestone progress, or when a scheduled timer fires. If a delegate stalls into `STALE` (>300s) or `DEAD` (>1800s) state without an active pause gate, halt and intervene rather than guessing progress.

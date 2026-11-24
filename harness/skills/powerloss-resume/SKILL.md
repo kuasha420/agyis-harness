@@ -48,7 +48,7 @@ flowchart TD
 
 ### Phase 2: Subagent & Background Task Discovery
 1. Discover active tasks and subagents:
-   - Run `manage_subagents(Action='list')` to check if the agent orchestrator retained subagent IDs in memory.
+   - Run `swarm(action='status')` (and `read_board`) to inspect active swarm members if present.
    - Run `manage_task(Action='list')` to check running background processes.
    - Run `agyis subagents --liveness` to inspect heartbeat freshness and classify surviving subagents (ACTIVE, STALE, PARKED, or DEAD).
 2. Inspect disk ledgers & compaction checkpoints:

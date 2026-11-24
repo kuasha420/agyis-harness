@@ -20,19 +20,19 @@ This skill codifies the delta-focused review workflow derived from high-performi
 
 1. **Delta Focus Over Full Re-Reads**:
    - When reviewing changes or addressing PR feedback, inspect ONLY the changed files and specific modified line ranges (`git diff -U3`).
-   - NEVER call `view_file` on entire 1,000-line files when review comments target a 5-line function.
+   - NEVER call `read_file` on entire 1,000-line files when review comments target a 5-line function.
 2. **Review Delay Fence**:
    - In active PR cycles, wait for automated test runners and linters to complete before attempting fixes. Do not race against active CI pipelines.
 3. **Surgical Contiguous Corrections**:
-   - Use `replace_file_content` to apply focused contiguous edits addressing specific feedback items.
+   - Use `edit_file` to apply focused contiguous edits addressing specific feedback items.
 4. **Mandatory Post-Fix Verification**:
    - After addressing review comments, immediately run the project test suite (`agyis test`, `pnpm test`, `pytest`, etc.) to prove the fix introduces zero regressions.
-5. **Delta-Aware Macro Smell Sensing**:
+5. **Delta-Aware Macro Smell Sensing (`PSL-INV-008`)**:
    - While maintaining strict delta focus on modified lines (`git diff -U3`), reviewers must actively evaluate whether an incoming diff compounds existing structural debt or introduces macro architectural smells:
      * **Foreign Language Monoliths**: Does the diff append more inline HTML/CSS/JS/SQL strings to an already monolithic string template instead of extracting to `assets/`?
      * **Cross-Boundary Coupling**: Does the diff introduce illegal cross-layer or cross-package imports (e.g. core distributable code importing experimental pipelines, or cleanroom leaking dirtyroom)?
      * **Unbounded State Caching**: Does the diff introduce dictionary or collection caches without explicit capacity bounds, LRU eviction, or TTL limits?
-     * **Compounding Complexity**: Does the diff add complexity to an existing God Component (>2,000 lines) without submodule decomposition?
+     * **Compounding Complexity**: Does the diff add complexity to an existing God Component (>800 lines or >25 top-level definitions) without submodule decomposition?
    - If any macro smell is compounded, Hammer flags the line in the defect ledger with concrete refactoring recommendations before approving the diff.
 
 ---
@@ -53,7 +53,7 @@ git diff --cached -U3
 
 ### Review Resolution Checklist
 1. Identify exact line numbers and variables referenced in the review comment.
-2. View targeted line slice using `view_file(StartLine=X, EndLine=Y)`.
-3. Apply surgical replacement via `replace_file_content`.
+2. View targeted line slice using `read_file(Path=..., StartLine=X, EndLine=Y)`.
+3. Apply surgical replacement via `edit_file`.
 4. Run project test suite: `agyis test` (or native test runner: `pnpm test`, `pytest`, `cargo test`).
 5. Stage and commit specifically with: `fix(<component>): resolve review feedback on <target>`.

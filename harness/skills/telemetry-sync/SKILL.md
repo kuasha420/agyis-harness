@@ -38,10 +38,10 @@ agyis sync
 Pull trajectories authored by a specific developer handle across devices (e.g. laptop, desktop, handheld), bypassing default anti-echo reflection filters:
 ```bash
 # Pull own transcripts authored on other devices
-agyis sync --pull --developer kuasha420
+agyis sync --pull --developer <github-handle>
 
 # Authenticated preview of remote transcripts authored by user
-agyis sync --pull --developer kuasha420 --dry-run
+agyis sync --pull --developer <github-handle> --dry-run
 ```
 
 ### 1.3 Fleet-Wide Corpus Ingestion

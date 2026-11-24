@@ -56,7 +56,7 @@ This skill establishes standardized execution contracts and hermetic benchmarkin
 
 ---
 
-## 2. Failure Transparency (PSL-INV-001 & PSL-INV-002)
+## 2. Failure Transparency (PSL-INV-001 & PSL-INV-003)
 
 - **Zero bare `except:` blocks**: Never mask assertion failures or exceptions.
 - **No Product Homework in Tests (PSL-INV-001)**: Tests verify outcomes through black-box expectations and contract assertions; never duplicate production logic inside test asserts.
