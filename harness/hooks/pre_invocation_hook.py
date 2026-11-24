@@ -54,6 +54,7 @@ from harness.trajectory import (
     ROLE_SWARM_ORCHESTRATOR,
     SOFT_EPOCH_STEP_ADVISORY,
     get_scaled_thresholds,
+    infer_model_context_window,
     normalize_cid,
     normalize_role_str,
     read_db_trajectory_state,
@@ -192,7 +193,7 @@ def _parse_payload(payload_str: Union[str, bytes, bytearray, Dict[str, Any]]) ->
             return {}
         parsed = json.loads(text) if text and text.strip() else {}
         return parsed if isinstance(parsed, dict) else {}
-    except Exception:
+    except (json.JSONDecodeError, ValueError, TypeError):
         return {}
 
 
@@ -222,7 +223,24 @@ def evaluate_pre_invocation(
         payload_mct = _parse_int_field(payload, ("maxContextTokens", "max_context_tokens")) or (
             _parse_int_field(cwm, ("maxContextTokens", "max_context_tokens")) if isinstance(cwm, dict) else None
         )
-        max_ctx = payload_mct or (db_metrics.max_context_tokens if db_metrics else CONTEXT_WINDOW_TOKENS)
+        payload_model = str(
+            payload.get("model")
+            or payload.get("modelName")
+            or payload.get("model_name")
+            or csm.get("model")
+            or csm.get("modelName")
+            or ""
+        ).strip()
+        if payload_mct:
+            max_ctx = payload_mct
+        elif db_metrics and db_metrics.has_explicit_max_context:
+            max_ctx = db_metrics.max_context_tokens
+        elif payload_model and not (db_metrics and db_metrics.model_name):
+            max_ctx = infer_model_context_window(payload_model)
+        elif db_metrics:
+            max_ctx = db_metrics.max_context_tokens
+        else:
+            max_ctx = CONTEXT_WINDOW_TOKENS
         eff_thresh = int(threshold) if threshold is not None else get_compaction_advisory_threshold(max_ctx)
         payload_tokens = _parse_int_field(payload, ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens")) or 0
         tokens = max(db_metrics.tokens if db_metrics else 0, payload_tokens)
@@ -238,8 +256,8 @@ def evaluate_pre_invocation(
                     eff_ws,
                     conversation_id=conv_id if conv_id != "default" else None,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                sys.stderr.write(f"[AGYIS PRE-INVOCATION HOOK] Failed reading stage role: {exc}\n")
         stage_num = int(stage_role_data.get("stage", 0) or 0) if stage_role_data else -1
         stage_cid = str(stage_role_data.get("conversation_id") or "").strip() if stage_role_data else ""
         stage_matches_cid = stage_role_data is not None and (conv_id == "default" or stage_cid == conv_id)
@@ -298,8 +316,8 @@ def evaluate_pre_invocation(
                 parsed_alert = json.loads(alert_file.read_text(encoding="utf-8"))
                 if isinstance(parsed_alert, dict):
                     existing_alert = parsed_alert
-            except Exception:
-                pass
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                sys.stderr.write(f"[AGYIS PRE-INVOCATION HOOK] Failed reading alert state '{alert_file}': {exc}\n")
         if tokens >= eff_thresh:
             already_alerted = bool(
                 existing_alert
@@ -313,7 +331,13 @@ def evaluate_pre_invocation(
                     from harness.delivery.compaction_checkpoint import generate_compaction_checkpoint
                     cp_target = eff_ws / ".agents" / "artifacts" / "checkpoints" / (f"{conv_id}.md" if conv_id != "default" else "session.md")
                     if not cp_target.is_file() or (time.time() - cp_target.stat().st_mtime) >= 5.0:
-                        generate_compaction_checkpoint(workspace_dir=eff_ws, session_id=conv_id if conv_id != "default" else None, orchestrator_role=role, trigger_tokens=eff_thresh)
+                        generate_compaction_checkpoint(
+                            workspace_dir=eff_ws,
+                            session_id=conv_id if conv_id != "default" else None,
+                            orchestrator_role=role,
+                            trigger_tokens=eff_thresh,
+                            brain_dir=brain_path,
+                        )
                 except Exception as exc:
                     sys.stderr.write(f"[AGYIS PRE-INVOCATION HOOK] Failed to serialize compaction checkpoint: {exc}\n")
                     sys.stderr.flush()
@@ -344,7 +368,8 @@ def evaluate_pre_invocation(
                 pass
 
         return {"injectSteps": inject_steps}
-    except Exception:
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS PRE-INVOCATION HOOK] Unexpected evaluation error: {exc}\n")
         return {"injectSteps": []}
 
 
@@ -366,8 +391,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         sys.stdout.write(json.dumps(res) + "\n")
         sys.stdout.flush()
-    except Exception:
-        pass
+    except OSError as exc:
+        sys.stderr.write(f"[PSL PRE-INVOCATION HOOK] Failed writing stdout: {exc}\n")
     return 0
 
 

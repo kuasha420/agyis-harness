@@ -20,7 +20,7 @@ import re
 import sys
 from typing import Optional
 
-from harness.utils.state import get_state_dir
+from harness.utils.state import get_state_dir, sanitize_conv_id
 
 CLUSTER_TABLE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\|\s*(?:Node|Host|Strand|Worker|Controller|Anchor|Device)\s*\|.*\|\s*(?:Status|Role|Hardware|Model|Ping|State|Last\s+Seen|Quota|Tailscale)\s*\|", re.I),
@@ -33,7 +33,8 @@ CLUSTER_TABLE_PATTERNS: tuple[re.Pattern[str], ...] = (
 def get_proof_file(conv_id: str = "default", state_dir: Path | None = None) -> Path:
     """Returns path to the telemetry proof record file for conversation."""
     target_dir = state_dir or get_state_dir()
-    return target_dir / f"telemetry_proof_{conv_id}.json"
+    safe_conv = sanitize_conv_id(conv_id)
+    return target_dir / f"telemetry_proof_{safe_conv}.json"
 
 
 def record_telemetry_proof(
@@ -93,7 +94,8 @@ def has_telemetry_proof(
         except (json.JSONDecodeError, OSError):
             pass
 
-    history_file = target_dir / f"history_{conv_id}.json"
+    safe_conv = sanitize_conv_id(conv_id)
+    history_file = target_dir / f"history_{safe_conv}.json"
     if history_file.exists():
         try:
             history = json.loads(history_file.read_text(encoding="utf-8"))
@@ -208,8 +210,8 @@ def check_ledger_persona_truth(
                     "are STALE or DEAD without an acknowledged handoff (Anti-Code-Monkey Invariant)."
                 ),
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"PSL Anti-Drift: Failed checking ledger persona truth: {exc}\n")
 
     return None
 

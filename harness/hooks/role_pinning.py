@@ -17,10 +17,13 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from harness.trajectory import (
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
+    RED_THRESHOLD,
     ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR,
@@ -43,6 +46,8 @@ NATIVE_SYSTEM_SLASH_COMMANDS: frozenset[str] = frozenset({
     "compact", "clear", "reset", "goal", "plan", "boost",
     "teamwork", "teamwork-preview", "grill-me", "browser",
     "schedule", "learn", "automation", "plugin",
+    "context", "model", "usage", "quota", "thinking",
+    "config", "skills", "swarm", "btw",
 })
 
 ORCHESTRATOR_KEYWORDS: Tuple[str, ...] = (
@@ -204,8 +209,8 @@ def load_sticky_role_state(state_dir: Optional[Path], conv_id: str) -> Optional[
             data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
             if isinstance(data, dict) and data.get("conversation_id") == normalize_cid(conv_id):
                 return data
-    except (OSError, Exception):
-        pass
+    except (OSError, json.JSONDecodeError, ValueError, TypeError) as exc:
+        sys.stderr.write(f"[AGYIS ROLE PINNING] Failed loading sticky role state '{path}': {exc}\n")
     return None
 
 
@@ -248,7 +253,7 @@ def has_parent_conversation(payload: Dict[str, Any], conv_id: str) -> bool:
                     data = json.loads(mp.read_text(encoding="utf-8", errors="ignore"))
                     if isinstance(data, dict) and (data.get("parent_conversation_id") or data.get("parentConversationId")):
                         return True
-            except Exception:
+            except (OSError, json.JSONDecodeError, ValueError, TypeError):
                 pass
         t_path, _ = find_transcript_path(convo_dir)
         if t_path is not None and t_path.is_file():
@@ -305,8 +310,8 @@ def _read_role_json_file(cand: Path, expected_cid: str = "") -> Optional[str]:
                     matched = normalize_role_str(data.get(rk))
                     if matched:
                         return matched
-    except (OSError, Exception):
-        pass
+    except (OSError, json.JSONDecodeError, ValueError, TypeError) as exc:
+        sys.stderr.write(f"[AGYIS ROLE PINNING] Failed reading role JSON '{cand}': {exc}\n")
     return None
 
 
@@ -372,8 +377,8 @@ def check_pillar_3_explicit_role(
                         matched = normalize_role_str(match_obj.group(1).strip())
                         if matched:
                             return matched
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS ROLE PINNING] Failed inspecting active plan role: {exc}\n")
 
     env_role = os.environ.get("AGYIS_ROLE") or os.environ.get("PSL_AGENT_ROLE") or os.environ.get("ANTIGRAVITY_AGENT_ROLE")
     return normalize_role_str(env_role) if env_role else None
@@ -489,7 +494,14 @@ def check_pillar_2_behavior(
         cur_tokens = max(tokens, payload_tok, m.tokens if m else 0)
         step_val = payload.get("step_count") or payload.get("stepCount") or payload.get("initialNumSteps") or 0
         total_steps = max(int(step_val) if isinstance(step_val, (int, float)) else 0, m.total_steps if m else 0)
-        if cur_tokens < 200_000 and total_steps < 100 and not payload.get("force_pillar_2"):
+        raw_win = payload.get("maxContextTokens") or payload.get("max_context_tokens")
+        eff_win = (
+            int(raw_win)
+            if isinstance(raw_win, (int, float)) and int(raw_win) > 0
+            else (m.max_context_tokens if m and m.max_context_tokens > 0 else DEFAULT_CONTEXT_WINDOW_TOKENS)
+        )
+        pillar2_tok_threshold = int(round(eff_win * 200_000 / DEFAULT_CONTEXT_WINDOW_TOKENS))
+        if cur_tokens < pillar2_tok_threshold and total_steps < 100 and not payload.get("force_pillar_2"):
             return None
 
         pairs = _collect_tool_pairs(payload, eff_cid, db_dir, timeout, m)
@@ -501,11 +513,20 @@ def check_pillar_2_behavior(
         is_swarm = False
         for tool_name, args in pairs:
             tn, al = tool_name.lower().strip(), args.lower()
-            if not is_child and (tn in ("invoke_subagent", "manage_task", "schedule") or "subagent" in tn):
+            if not is_child and (tn in ("invoke_subagent", "manage_task", "schedule", "swarm", "run_workflow") or "subagent" in tn):
                 subagent_spawns += 1
                 if any(k in al or k in tn for k in ("swarm", "mesh", "strand")):
                     is_swarm = True
-            elif tn in ("edit_file", "write_file", "replace_file_content", "write_to_file", "apply_diff"):
+            elif tn in (
+                "edit_file",
+                "write_file",
+                "create_file",
+                "insert_edit_into_file",
+                "replace_file_content",
+                "multi_replace_file_content",
+                "write_to_file",
+                "apply_diff",
+            ):
                 edit_test += 1
             elif tn in ("run_command", "bash", "terminal", "exec_command", "shell"):
                 if any(kw in al for kw in TEST_RUNNER_KEYWORDS):
@@ -527,8 +548,8 @@ def check_pillar_2_behavior(
             return ROLE_DEEP_EXECUTION
         if explicit_audit > 0 or read_grep > 0:
             return ROLE_FORENSIC_AUDITOR
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS ROLE PINNING] Pillar 2 behavior check error: {exc}\n")
     return None
 
 
@@ -585,8 +606,8 @@ def classify_agent_role(
             matched = normalize_role_str(str(root))
             if matched:
                 return matched
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS ROLE PINNING] Role classification fallback error: {exc}\n")
     return ROLE_FLIGHT_DIRECTOR
 
 
@@ -635,13 +656,18 @@ def build_role_reanchor_advisory(role: str, step_count: int, cadence: int) -> st
 def build_compaction_advisory(
     role: str,
     tokens: int,
-    threshold: int = 230_000,
+    threshold: int = RED_THRESHOLD,
     max_context_tokens: Optional[int] = None,
     checkpoint_path: Optional[str] = None,
     is_subagent: bool = False,
 ) -> str:
     """Generates role-tailored advisory directive alerting to imminent compaction (or subagent continuity)."""
-    win = max_context_tokens if (max_context_tokens and max_context_tokens > 0) else 256_000
+    if max_context_tokens and max_context_tokens > 0:
+        win = max_context_tokens
+    elif threshold > RED_THRESHOLD:
+        win = int(round(threshold * DEFAULT_CONTEXT_WINDOW_TOKENS / RED_THRESHOLD))
+    else:
+        win = DEFAULT_CONTEXT_WINDOW_TOKENS
     cp_hint = checkpoint_path or ".agents/artifacts/checkpoints/<session_id>.md"
     preserve = "STRICTLY PROHIBIT 'git checkout -- .', 'git reset --hard', and 'git clean -fd'. Keep all in-flight work intact on disk."
     if is_subagent:
@@ -652,8 +678,9 @@ def build_compaction_advisory(
             f"2. WORK PRESERVATION CONTRACT (MANDATORY): {preserve}\n"
             f"3. CHECKPOINT & COMPLETION: Save incremental findings cleanly to `{cp_hint}` and finish your complete deliverable before reporting back."
         )
-    runway_cap = int(round(win * 246_000 / 256_000))
-    est_turns = max(1, (runway_cap - tokens) // 3500) if tokens < runway_cap else 1
+    runway_cap = int(round(win * 246_000 / DEFAULT_CONTEXT_WINDOW_TOKENS))
+    tok_per_turn = max(3500, int(round(3500 * win / DEFAULT_CONTEXT_WINDOW_TOKENS)))
+    est_turns = max(1, (runway_cap - tokens) // tok_per_turn) if tokens < runway_cap else 1
     header = f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{est_turns} TURNS REMAINING)]\n"
 
     if role == ROLE_DEEP_EXECUTION:

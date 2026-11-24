@@ -31,6 +31,7 @@ from harness.trajectory import (
     COMPACTION_THRESHOLD,
     CONTEXT_WINDOW_TOKENS,
     CRITICAL_BURN_RATE_PER_MIN,
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
     MAX_SAFE_BURN_RATE_PER_MIN,
     RED_THRESHOLD,
     ROLE_DEEP_EXECUTION,
@@ -41,6 +42,7 @@ from harness.trajectory import (
     get_conversations_dir,
     get_scaled_thresholds,
     get_urgency_tier,
+    infer_model_context_window,
     is_checkpoint_step,
     is_conversation_locked,
     normalize_cid as _normalize_cid,
@@ -97,12 +99,12 @@ def _resolve_telemetry_db_fallback(conversation_id: str, db_dir: Optional[Path])
     if (base_dir / f"{norm}.db").is_file() or Path(conversation_id).is_file():
         return None
     try:
-        from harness.telemetry.config import get_telemetry_db_path
-        cand = get_telemetry_db_path()
-        if cand and cand.is_file():
+        from harness.telemetry.config import get_data_dir
+        cand = get_data_dir() / "telemetry.db"
+        if cand.is_file():
             return cand
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS TOKEN GUARD] Failed resolving telemetry DB path: {exc}\n")
     repo_telem = Path(__file__).resolve().parent.parent.parent / "data" / "telemetry.db"
     return repo_telem if repo_telem.is_file() else None
 
@@ -150,9 +152,9 @@ def _velocity_from_telemetry_db(db_path: Path, norm_cid: str, window_seconds: in
         )
         rows = cur.fetchall()
         tot = sum(int(r[2] or 0) for r in rows) // 4
+        cur.execute("PRAGMA table_info(sessions)")
+        cols = {r[1] for r in cur.fetchall()}
         if tot <= 0:
-            cur.execute("PRAGMA table_info(sessions)")
-            cols = {r[1] for r in cur.fetchall()}
             if "file_size_bytes" in cols:
                 cur.execute("SELECT file_size_bytes FROM sessions WHERE session_id = ?", (norm_cid,))
                 srow = cur.fetchone()
@@ -161,11 +163,27 @@ def _velocity_from_telemetry_db(db_path: Path, norm_cid: str, window_seconds: in
                 cur.execute("SELECT total_tokens_est FROM sessions WHERE session_id = ?", (norm_cid,))
                 srow = cur.fetchone()
                 tot = int(srow[0] or 0) if srow and srow[0] is not None else 0
+        model_name = ""
+        explicit_max_ctx = 0
+        for m_col in ("model", "model_name"):
+            if m_col in cols:
+                cur.execute(f"SELECT {m_col} FROM sessions WHERE session_id = ?", (norm_cid,))
+                mrow = cur.fetchone()
+                if mrow and mrow[0]:
+                    model_name = str(mrow[0]).strip()
+                    break
+        if "max_context_tokens" in cols:
+            cur.execute("SELECT max_context_tokens FROM sessions WHERE session_id = ?", (norm_cid,))
+            crow = cur.fetchone()
+            if crow and isinstance(crow[0], (int, float)) and int(crow[0]) > 0:
+                explicit_max_ctx = int(crow[0])
+        resolved_max = explicit_max_ctx or infer_model_context_window(model_name) or DEFAULT_CONTEXT_WINDOW_TOKENS
+        amber_t, red_t = get_scaled_thresholds(resolved_max)
         ts_list = [t for r in rows if (t := parse_step_timestamp(r[0])) is not None]
         if len(ts_list) >= 2 and tot > 0:
             dur = max(1.0, ts_list[-1] - ts_list[0])
             burn = (tot / dur) * 60.0
-            mins = max(0.0, (RED_THRESHOLD - tot) / burn) if burn > 0 else None
+            mins = max(0.0, (red_t - tot) / burn) if burn > 0 else None
             return {
                 "tokens": tot,
                 "burn_rate_tokens_per_min": burn,
@@ -175,10 +193,10 @@ def _velocity_from_telemetry_db(db_path: Path, norm_cid: str, window_seconds: in
                 "velocity_tier": "CRITICAL" if burn >= CRITICAL_BURN_RATE_PER_MIN else ("ELEVATED" if burn >= MAX_SAFE_BURN_RATE_PER_MIN else "SAFE"),
                 "sample_count": len(ts_list),
                 "window_seconds": window_seconds,
-                "max_context_tokens": CONTEXT_WINDOW_TOKENS,
-                "amber_threshold": AMBER_THRESHOLD,
-                "red_threshold": RED_THRESHOLD,
-                "compaction_threshold": COMPACTION_THRESHOLD,
+                "max_context_tokens": resolved_max,
+                "amber_threshold": amber_t,
+                "red_threshold": red_t,
+                "compaction_threshold": red_t,
             }
     finally:
         conn.close()
@@ -384,7 +402,7 @@ def run_token_proximity_guard(payload: Any, stderr: Optional[TextIO] = None) -> 
     if isinstance(payload, str):
         try:
             parsed = json.loads(payload) if payload.strip() else {}
-        except Exception:
+        except (json.JSONDecodeError, ValueError, TypeError):
             parsed = {}
     elif isinstance(payload, dict):
         parsed = payload
@@ -419,7 +437,8 @@ def main() -> None:
         payload = json.loads(raw_stdin) if raw_stdin.strip() else {}
         if not isinstance(payload, dict):
             payload = {}
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError, TypeError) as exc:
+        sys.stderr.write(f"[AGYIS TOKEN GUARD] Failed parsing stdin payload: {exc}\n")
         payload = {}
 
     conv_id = str(payload.get("conversationId") or payload.get("conversation_id") or "default")

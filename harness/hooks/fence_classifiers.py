@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+import sys
 import tempfile
 
 from harness.discovery import detect_project_test_runner, is_ephemeral_scratch_path
@@ -104,7 +105,7 @@ UNIVERSAL_TEST_RUNNER_PATTERNS: tuple[re.Pattern, ...] = (
     # 14. Cleanroom REA & spec verification
     re.compile(
         COMMAND_PREFIX
-        + r"(?:rea\s+(?:verify|verify-reconstruction|test|evaluate-coverage)\b|(?:\./)?agyis\s+verify\b)"
+        + r"(?:rea\s+(?:verify|verify-reconstruction|test|evaluate-coverage)\b|(?:\./)?(?:agyis|psl)\s+verify\b|python3?(?:\.\d+)?\s+-m\s+harness(?:\.cli)?\s+(?:verify|verify-cleanroom)\b)"
     ),
     # 15. Shell test suites
     re.compile(COMMAND_PREFIX + r"(?:(?:bash|sh)\s+|\./)tests?/[^\s]+\.sh\b"),
@@ -119,7 +120,7 @@ HARNESS_TEST_RUNNER_PATTERNS: tuple[re.Pattern, ...] = (
     re.compile(COMMAND_PREFIX + r"pytest(?=[\s;&|)]|$)"),
     re.compile(
         COMMAND_PREFIX
-        + r"(?:rea\s+(?:verify|verify-reconstruction|test|evaluate-coverage)\b|(?:\./)?agyis\s+verify\b)"
+        + r"(?:rea\s+(?:verify|verify-reconstruction|test|evaluate-coverage)\b|(?:\./)?(?:agyis|psl)\s+verify\b|python3?(?:\.\d+)?\s+-m\s+harness(?:\.cli)?\s+(?:verify|verify-cleanroom)\b)"
     ),
 )
 
@@ -272,7 +273,8 @@ def check_has_mutable_code(files: list[str], cwd: Path | str | None = None) -> b
                         mutated, op = mutate_token_source(content)
                         if op:
                             return True
-                except Exception:
+                except Exception as exc:
+                    sys.stderr.write(f"PSL Fence Warning: Failed mutable code check for '{f_path}': {exc}\n")
                     return True
             else:
                 return True
@@ -422,7 +424,8 @@ def is_manifest_verified(cwd: Path | str | None = None) -> bool:
                 if ob.get("disposition") not in ("active", "out-of-scope"):
                     return False
             return True
-        except Exception:
+        except Exception as exc:
+            sys.stderr.write(f"PSL Fence Warning: Failed validating obligation ledger '{ledger_path}': {exc}\n")
             return False
 
     # 2. Check manifest.json

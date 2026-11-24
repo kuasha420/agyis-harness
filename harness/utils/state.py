@@ -12,8 +12,23 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
+import sys
 import tempfile
 from typing import Any, List, Optional
+
+_SAFE_CONV_ID_RE = re.compile(r"[^a-zA-Z0-9_\-]+")
+
+
+def sanitize_conv_id(conv_id: Any, default: str = "default") -> str:
+    """Normalizes a conversation ID into a path-safe filename stem."""
+    raw = str(conv_id or "").strip()
+    if not raw:
+        return default
+    cleaned = _SAFE_CONV_ID_RE.sub("_", raw)
+    if not cleaned or not cleaned.strip("_"):
+        return default
+    return cleaned
 
 
 def get_state_dir(default_name: Optional[str] = None) -> Path:
@@ -78,7 +93,8 @@ def save_history(conv_id: str, history: List[Any], target_dir: Optional[Path] = 
     Eliminates file corruption under concurrent operations.
     """
     state_dir = target_dir or get_state_dir()
-    history_file = state_dir / f"history_{conv_id}.json"
+    safe_id = sanitize_conv_id(conv_id)
+    history_file = state_dir / f"history_{safe_id}.json"
     atomic_write_json(history_file, history)
     return history_file
 
@@ -88,18 +104,21 @@ def load_history(conv_id: str, target_dir: Optional[Path] = None) -> List[Any]:
     Loads session history from history_{conv_id}.json. Returns empty list if missing or corrupted.
     """
     state_dir = target_dir or get_state_dir()
-    history_file = state_dir / f"history_{conv_id}.json"
+    safe_id = sanitize_conv_id(conv_id)
+    history_file = state_dir / f"history_{safe_id}.json"
     if not history_file.exists():
         return []
     try:
         data = json.loads(history_file.read_text(encoding="utf-8"))
         return data if isinstance(data, list) else []
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        sys.stderr.write(f"PSL State Warning: Failed to load history '{history_file}': {exc}\n")
         return []
 
 
 __all__ = [
     "get_state_dir",
+    "sanitize_conv_id",
     "atomic_write_text",
     "atomic_write_json",
     "save_history",
