@@ -23,12 +23,15 @@ from collections import Counter
 from datetime import datetime, timezone
 import glob
 import json
+import logging
 import os
 from pathlib import Path
 import re
 import sqlite3
 import sys
 from typing import Any, Dict, List, Optional, Tuple
+
+_logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -73,14 +76,18 @@ def parse_transcript_lines(transcript_path: Path) -> List[Dict[str, Any]]:
     if not transcript_path.exists():
         return []
     lines: List[Dict[str, Any]] = []
+    malformed = 0
     with open(transcript_path, encoding="utf-8", errors="replace") as f:
-        for line in f:
+        for line_no, line in enumerate(f, 1):
             if not line.strip():
                 continue
             try:
                 lines.append(json.loads(line))
-            except Exception:
-                continue
+            except json.JSONDecodeError as exc:
+                malformed += 1
+                _logger.debug("Skipping malformed JSONL line %d in %s: %s", line_no, transcript_path, exc)
+    if malformed:
+        _logger.warning("Skipped %d malformed JSONL line(s) in %s", malformed, transcript_path)
     return lines
 
 
@@ -101,14 +108,16 @@ def discover_child_subagents(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]
                 if isinstance(subs, str):
                     try:
                         subs = json.loads(subs)
-                    except Exception:
+                    except json.JSONDecodeError as exc:
+                        _logger.debug("Invalid invoke_subagent Subagents JSON: %s", exc)
                         subs = []
                 if isinstance(subs, list) and subs:
                     sub0 = subs[0]
                     if isinstance(sub0, str):
                         try:
                             sub0 = json.loads(sub0)
-                        except Exception:
+                        except json.JSONDecodeError as exc:
+                            _logger.debug("Invalid invoke_subagent entry JSON: %s", exc)
                             sub0 = {}
                     if isinstance(sub0, dict):
                         pending_role = sub0.get("Role", "")
@@ -119,7 +128,8 @@ def discover_child_subagents(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]
                 if isinstance(args, str):
                     try:
                         args = json.loads(args)
-                    except Exception:
+                    except json.JSONDecodeError as exc:
+                        _logger.debug("Invalid swarm args JSON: %s", exc)
                         args = {}
                 if isinstance(args, dict):
                     act = str(args.get("action") or "").strip().strip('"').strip("'")
@@ -163,8 +173,8 @@ def discover_child_subagents(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]
                         pending_role = ""
                         pending_type = ""
                         pending_prompt = ""
-            except Exception:
-                pass
+            except json.JSONDecodeError as exc:
+                _logger.debug("Non-JSON GENERIC step content ignored: %s", exc)
 
     return subagents
 
@@ -178,8 +188,6 @@ def analyze_transcript(steps: List[Dict[str, Any]]) -> Dict[str, Any]:
     thinking_chars = 0
     start_time = None
     end_time = None
-
-    tool_details: List[Dict[str, Any]] = []
 
     for s in steps:
         t = s.get("type", "UNKNOWN")
@@ -204,13 +212,6 @@ def analyze_transcript(steps: List[Dict[str, Any]]) -> Dict[str, Any]:
         for tc in s.get("tool_calls", []):
             name = tc.get("name", "UNKNOWN")
             tools[name] += 1
-            args = tc.get("args", {})
-            tool_details.append({
-                "step_index": s.get("step_index"),
-                "name": name,
-                "summary": args.get("toolSummary", ""),
-                "action": args.get("toolAction", ""),
-            })
 
     duration_s = 0.0
     if start_time and end_time:
@@ -218,8 +219,8 @@ def analyze_transcript(steps: List[Dict[str, Any]]) -> Dict[str, Any]:
             t0 = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
             t1 = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
             duration_s = max(0.0, (t1 - t0).total_seconds())
-        except Exception:
-            pass
+        except (ValueError, TypeError) as exc:
+            _logger.debug("Invalid transcript timestamp range (%s -> %s): %s", start_time, end_time, exc)
 
     total_chars = content_chars + thinking_chars
 
@@ -366,13 +367,15 @@ def print_report(data: Dict[str, Any]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Live Session Telemetry & Topology Analyzer")
     parser.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID (UUID)")
-    parser.add_argument("--json", action="store_true", help="Output raw JSON data")
+    parser.add_argument("--json", action="store_true", help="Output bounded JSON summary to stdout")
+    parser.add_argument("--full-json", action="store_true", help="Emit full unfiltered JSON when combined with --json")
+    parser.add_argument("--max-subagents", type=int, default=25, help="Max subagents included in stdout JSON summary")
     parser.add_argument("--save-db", action="store_true", help="Sync session and subagents into data/telemetry.db")
     parser.add_argument("--out", type=Path, default=None, help="Optional output JSON path")
     args = parser.parse_args()
 
     if args.session_id:
-        session_dir = Path.home() / ".gemini" / "antigravity" / "brain" / args.session_id
+        session_dir = find_session_dir(args.session_id)
     else:
         session_dir = find_latest_session_dir()
 
@@ -387,35 +390,15 @@ def main() -> int:
         db_path = Path(__file__).resolve().parent.parent / "data" / "telemetry.db"
         t_path = session_dir / ".system_generated" / "logs" / "transcript.jsonl"
         conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.executescript(extract_transcripts.SCHEMA_SQL)
-        conn.commit()
-
-        # Ingest coordinator
-        res = extract_transcripts.extract_session(t_path)
-        if res:
-            s_row, step_rows, tool_rows, interv_rows = res
-            cur.execute("""
-                INSERT OR REPLACE INTO sessions (
-                    session_id, start_time, end_time, duration_seconds, total_steps,
-                    model, workspace_path, transcript_path, file_size_bytes, has_errors,
-                    tool_call_count, tool_error_count, intervention_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                s_row["session_id"], s_row["start_time"], s_row["end_time"],
-                s_row["duration_seconds"], s_row["total_steps"], s_row["model"],
-                s_row["workspace_path"], s_row["transcript_path"], s_row["file_size_bytes"],
-                s_row["has_errors"], s_row["tool_call_count"], s_row["tool_error_count"],
-                s_row["intervention_count"]
-            ))
+        try:
+            cur = conn.cursor()
+            cur.executescript(extract_transcripts.SCHEMA_SQL)
             conn.commit()
 
-        # Ingest subagents
-        for sa in report_data["subagents"]:
-            sub_p = session_dir.parent / sa["conversation_id"] / ".system_generated" / "logs" / "transcript.jsonl"
-            sub_res = extract_transcripts.extract_session(sub_p)
-            if sub_res:
-                s_row, _, _, _ = sub_res
+            # Ingest coordinator
+            res = extract_transcripts.extract_session(t_path)
+            if res:
+                s_row, step_rows, tool_rows, interv_rows = res
                 cur.execute("""
                     INSERT OR REPLACE INTO sessions (
                         session_id, start_time, end_time, duration_seconds, total_steps,
@@ -430,11 +413,47 @@ def main() -> int:
                     s_row["intervention_count"]
                 ))
                 conn.commit()
-        conn.close()
+
+            # Ingest subagents
+            for sa in report_data["subagents"]:
+                sub_p = session_dir.parent / sa["conversation_id"] / ".system_generated" / "logs" / "transcript.jsonl"
+                sub_res = extract_transcripts.extract_session(sub_p)
+                if sub_res:
+                    s_row, _, _, _ = sub_res
+                    cur.execute("""
+                        INSERT OR REPLACE INTO sessions (
+                            session_id, start_time, end_time, duration_seconds, total_steps,
+                            model, workspace_path, transcript_path, file_size_bytes, has_errors,
+                            tool_call_count, tool_error_count, intervention_count
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        s_row["session_id"], s_row["start_time"], s_row["end_time"],
+                        s_row["duration_seconds"], s_row["total_steps"], s_row["model"],
+                        s_row["workspace_path"], s_row["transcript_path"], s_row["file_size_bytes"],
+                        s_row["has_errors"], s_row["tool_call_count"], s_row["tool_error_count"],
+                        s_row["intervention_count"]
+                    ))
+                    conn.commit()
+        finally:
+            conn.close()
         print(f"✔ Synchronized session {report_data['session_id'][:8]} and {len(report_data['subagents'])} subagents into telemetry.db\n")
 
     if args.json:
-        print(json.dumps(report_data, indent=2))
+        if args.full_json:
+            print(json.dumps(report_data, indent=2))
+        else:
+            bounded_subagents = report_data["subagents"][: max(0, args.max_subagents)]
+            omitted = len(report_data["subagents"]) - len(bounded_subagents)
+            stdout_payload = {
+                "session_id": report_data["session_id"],
+                "analyzed_at": report_data["analyzed_at"],
+                "coordinator": report_data["coordinator"],
+                "subagents_total": len(report_data["subagents"]),
+                "subagents_omitted": omitted,
+                "subagents": bounded_subagents,
+                "collective_pipeline": report_data["collective_pipeline"],
+            }
+            print(json.dumps(stdout_payload, indent=2))
     else:
         print_report(report_data)
 

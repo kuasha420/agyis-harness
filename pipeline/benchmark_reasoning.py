@@ -5,13 +5,16 @@
 
 """
 Empirical benchmark suite for testing model reasoning accuracy, latency, and thinking tokens
-across Gemini 3.8 Flash reasoning effort levels (low, medium, high).
+across Gemini 4 Hydrogen, Gemini 4 Neon, and legacy effort tiers.
 """
 
 import json
+import logging
 import subprocess
 import time
 from typing import Any, Dict, List
+
+_logger = logging.getLogger(__name__)
 
 BENCHMARK_TASKS = [
     {
@@ -92,9 +95,9 @@ BENCHMARK_TASKS = [
 ]
 
 TIERS = [
-    {"model": "gemini-3.8-flash-low", "effort": "low"},
-    {"model": "gemini-3.8-flash-medium", "effort": "medium"},
-    {"model": "gemini-3.8-flash-high", "effort": "high"}
+    {"model": "gemini-4-hydrogen", "effort": "low"},
+    {"model": "gemini-4-hydrogen", "effort": "high"},
+    {"model": "gemini-4-neon", "effort": "high"},
 ]
 
 def run_probe(model: str, effort: str, prompt: str, print_timeout: int = 120) -> Dict[str, Any]:
@@ -112,16 +115,19 @@ def run_probe(model: str, effort: str, prompt: str, print_timeout: int = 120) ->
 
     if proc.returncode != 0:
         finished_reason = "error"
+        parse_error = None
         if proc.returncode == 3:
             finished_reason = "print_timeout"
         if proc.stdout:
             try:
                 err_data = json.loads(proc.stdout)
                 finished_reason = err_data.get("finished_reason") or err_data.get("finishedReason") or finished_reason
-            except Exception:
-                pass
+            except (json.JSONDecodeError, TypeError) as exc:
+                parse_error = str(exc)
+                _logger.warning("Failed parsing error JSON from agy probe stdout: %s", exc)
         return {
             "error": proc.stderr or proc.stdout,
+            "parse_error": parse_error,
             "returncode": proc.returncode,
             "finished_reason": finished_reason,
             "wall_duration": wall_duration

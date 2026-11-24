@@ -5,13 +5,15 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-PSL Harness for Google Antigravity™
+Agyis Harness for Google Antigravity™
 Reasoning Effort vs. Accuracy Benchmark Matrix (ADR-030 / Issue #3)
 
-Evaluates reasoning tier performance matrix across:
-- gemini-3.8-flash-low  (Low reasoning effort / reflexive execution)
-- gemini-3.8-flash-high (High reasoning effort / structured deliberation)
-- gemini-3.1-pro        (Deep reasoning effort / complex frontier planning)
+Evaluates reasoning tier performance matrix natively across Gemini 4 and historical tiers:
+- gemini-4-hydrogen     (Gemini 4 Hydrogen — 512K balanced deliberation & fast SWE execution)
+- gemini-4-neon         (Gemini 4 Neon — 512K/1M frontier architecture & deep reasoning)
+- gemini-3.8-flash-low  (Historical: Low reasoning effort / reflexive execution)
+- gemini-3.8-flash-high (Historical: High reasoning effort / structured deliberation)
+- gemini-3.1-pro        (Historical: Deep reasoning effort / complex frontier planning)
 
 Calculates:
 - accuracy (%)
@@ -37,8 +39,28 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 TIERS = [
     {
+        "id": "gemini-4-hydrogen",
+        "name": "Gemini 4 Hydrogen (512K Balanced)",
+        "model_key": "gemini-4-hydrogen",
+        "description": "High-throughput 512K SWE execution with calibrated deliberation and low latency.",
+        "baseline_accuracy": 94.5,
+        "baseline_steps": 16.4,
+        "baseline_thinking_tokens": 3400,
+        "baseline_latency_s": 14.2,
+    },
+    {
+        "id": "gemini-4-neon",
+        "name": "Gemini 4 Neon (512K/1M Frontier)",
+        "model_key": "gemini-4-neon",
+        "description": "Frontier-scale multi-file architecture synthesis, cleanroom verification, and swarm coordination.",
+        "baseline_accuracy": 98.1,
+        "baseline_steps": 23.0,
+        "baseline_thinking_tokens": 7600,
+        "baseline_latency_s": 31.5,
+    },
+    {
         "id": "gemini-3.8-flash-low",
-        "name": "Gemini 3.8 Flash (Low Effort)",
+        "name": "Gemini 3.8 Flash (Low Effort, Historical)",
         "model_key": "gemini-3.8-flash-low",
         "description": "Reflexive tool execution and fast pattern matching with minimal deliberation.",
         "baseline_accuracy": 78.5,
@@ -48,7 +70,7 @@ TIERS = [
     },
     {
         "id": "gemini-3.8-flash-high",
-        "name": "Gemini 3.8 Flash (High Effort)",
+        "name": "Gemini 3.8 Flash (High Effort, Historical)",
         "model_key": "gemini-3.8-flash-high",
         "description": "Extended chain-of-thought verification, self-critique, and anti-looping deliberation.",
         "baseline_accuracy": 92.4,
@@ -58,9 +80,9 @@ TIERS = [
     },
     {
         "id": "gemini-3.1-pro",
-        "name": "Gemini 3.1 Pro (Frontier Reasoning)",
+        "name": "Gemini 3.1 Pro (Frontier Reasoning, Historical)",
         "model_key": "gemini-3.1-pro",
-        "description": "Frontier-scale architecture design, deep multi-file analysis, and strict invariant adherence.",
+        "description": "Legacy frontier-scale architecture design and multi-file analysis.",
         "baseline_accuracy": 97.2,
         "baseline_steps": 25.4,
         "baseline_thinking_tokens": 8100,
@@ -70,17 +92,21 @@ TIERS = [
 
 
 def classify_session_tier(model_name: str, has_thinking: bool, thinking_len: int) -> str:
-    """Classifies a session model name into one of the three canonical benchmark reasoning tiers."""
+    """Classifies a session model name natively across Gemini 4 and historical reasoning tiers."""
     lower = model_name.lower()
-    if "pro" in lower or "gemini-4-neon" in lower:
+    if "gemini-4-neon" in lower or ("neon" in lower and "gemini-4" in lower) or lower == "neon":
+        return "gemini-4-neon"
+    if "gemini-4-hydrogen" in lower or ("hydrogen" in lower and "gemini-4" in lower) or lower == "hydrogen":
+        return "gemini-4-hydrogen"
+    if "pro" in lower:
         return "gemini-3.1-pro"
-    if "high" in lower or "gemini-4-hydrogen" in lower or lower.endswith("-h") or "flash-h" in lower:
+    if "high" in lower or lower.endswith("-h") or "flash-h" in lower:
         return "gemini-3.8-flash-high"
     if "low" in lower or lower.endswith("-s") or "flash-s" in lower:
         return "gemini-3.8-flash-low"
-    # Heuristic based on thinking length if generic Flash/Gemini
+    # Heuristic based on thinking length when model identifier is generic
     if has_thinking or thinking_len > 1500:
-        return "gemini-3.8-flash-high"
+        return "gemini-4-hydrogen"
     return "gemini-3.8-flash-low"
 
 
@@ -89,27 +115,29 @@ def evaluate_reasoning_tiers(
     output_json: Optional[Union[str, Path]] = None,
     output_report: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Any]:
-    """Computes empirical reasoning effort vs accuracy benchmark matrix across all three tiers."""
+    """Computes empirical reasoning effort vs accuracy benchmark matrix across all configured tiers."""
     target_db = Path(db_path) if db_path else Path("data/telemetry.db")
     tier_data: Dict[str, List[Dict[str, Any]]] = {t["id"]: [] for t in TIERS}
 
     if target_db.exists() and target_db.is_file():
         conn = sqlite3.connect(target_db)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
+        try:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
 
-        # Query session metrics and thinking token stats
-        cur.execute("""
-            SELECT s.session_id, s.model, s.total_steps, s.duration_seconds, s.has_errors,
-                   s.tool_call_count, s.tool_error_count,
-                   COALESCE(SUM(st.thinking_length), 0) AS total_thinking_len,
-                   COALESCE(MAX(st.has_thinking), 0) AS has_thinking
-            FROM sessions s
-            LEFT JOIN steps st ON s.session_id = st.session_id
-            GROUP BY s.session_id
-        """)
-        rows = [dict(r) for r in cur.fetchall()]
-        conn.close()
+            # Query session metrics and thinking token stats
+            cur.execute("""
+                SELECT s.session_id, s.model, s.total_steps, s.duration_seconds, s.has_errors,
+                       s.tool_call_count, s.tool_error_count,
+                       COALESCE(SUM(st.thinking_length), 0) AS total_thinking_len,
+                       COALESCE(MAX(st.has_thinking), 0) AS has_thinking
+                FROM sessions s
+                LEFT JOIN steps st ON s.session_id = st.session_id
+                GROUP BY s.session_id
+            """)
+            rows = [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
 
         for r in rows:
             m_name = str(r.get("model") or "")
@@ -219,10 +247,10 @@ def generate_benchmark_report(results: Dict[str, Any]) -> str:
 
 ## 1. Executive Summary
 
-This benchmark matrix evaluates performance trade-offs across three standardized reasoning effort tiers in the Google Antigravity developer runtime:
-1. **Low Reasoning Effort (`gemini-3.8-flash-low`)**: Sub-second reflexive tool invocation designed for high-frequency commands, probes, and repetitive edits.
-2. **High Reasoning Effort (`gemini-3.8-flash-high`)**: Deliberative multi-step planning with self-critique and verification fences to eliminate operational drift and loops.
-3. **Frontier Depth (`gemini-3.1-pro`)**: Deep architectural synthesis and complex multi-subagent coordination.
+This benchmark matrix evaluates performance trade-offs across Gemini 4 and historical reasoning tiers in the Google Antigravity developer runtime:
+1. **Gemini 4 Hydrogen (`gemini-4-hydrogen`)**: 512K balanced deliberation and fast SWE execution with anti-looping precision.
+2. **Gemini 4 Neon (`gemini-4-neon`)**: 512K/1M frontier reasoning, architectural synthesis, and swarm orchestration.
+3. **Historical Tiers (`gemini-3.8-flash-low`, `gemini-3.8-flash-high`, `gemini-3.1-pro`)**: Preserved for longitudinal telemetry comparison.
 
 ---
 
@@ -238,19 +266,18 @@ This benchmark matrix evaluates performance trade-offs across three standardized
 
 ```mermaid
 graph LR
-    subgraph "Flash Low (Reflex)"
-        FL[gemini-3.8-flash-low] -->|Latency: Fast (6-8s)| A1[High Throughput / Low Deliberation]
-        FL -->|Risk: Drift on Multi-Step| R1[Requires Anti-Loop Hook]
+    subgraph "Gemini 4 Hydrogen (512K Balanced)"
+        G4H[gemini-4-hydrogen] -->|Latency: Balanced (~14s)| A1[Optimal SWE Execution & Self-Check]
+        G4H -->|Context: 512K| R1[Standard Workhorse Tier]
     end
 
-    subgraph "Flash High (Deliberative)"
-        FH[gemini-3.8-flash-high] -->|Latency: Balanced (18-20s)| A2[Optimal Code Generation & Self-Check]
-        FH -->|Thinking: 3.5k Tokens| R2[Highest Accuracy-to-Cost Ratio]
+    subgraph "Gemini 4 Neon (512K/1M Frontier)"
+        G4N[gemini-4-neon] -->|Latency: Deep (~31s)| A2[Architecture & Cleanroom Synthesis]
+        G4N -->|Thinking: 7.6k Tokens| R2[Swarm Coordination & Hard Audits]
     end
 
-    subgraph "Pro 3.1 (Frontier)"
-        PRO[gemini-3.1-pro] -->|Latency: Deep (40-45s)| A3[Complex System Refactors]
-        PRO -->|Thinking: 8k+ Tokens| R3[Strict Invariant & Multi-Node Swarm]
+    subgraph "Historical Flash / Pro Baseline"
+        HIST[gemini-3.8-flash-low / high / 3.1-pro] -->|Longitudinal Baseline| A3[Legacy Trajectory Comparison]
     end
 ```
 
@@ -258,9 +285,9 @@ graph LR
 
 ## 4. Operational Invariants & Recommendations
 
-1. **Standard SWE Workflows**: `gemini-3.8-flash-high` provides the optimal balance of reasoning accuracy (92%+) and interactive responsiveness (~19s).
-2. **Exploration & Grep Sweeps**: Restrict to `gemini-3.8-flash-low` to preserve quota and minimize thinking overhead.
-3. **Critical Ladders & Swarm Operations**: Escalate to `gemini-3.1-pro` only for architecture definition, cross-node Linda Tuplespace synthesis, and audited security fencing.
+1. **Standard SWE Workflows**: `gemini-4-hydrogen` provides the optimal balance of reasoning accuracy, 512K context capacity, and interactive responsiveness.
+2. **Critical Ladders & Swarm Operations**: Escalate to `gemini-4-neon` for architecture definition, cleanroom obligation verification, and multi-agent swarm synthesis.
+3. **Legacy Telemetry Continuity**: Historical `gemini-3.8-flash-low`, `gemini-3.8-flash-high`, and `gemini-3.1-pro` records remain tracked natively for cross-generation comparisons.
 """
 
 

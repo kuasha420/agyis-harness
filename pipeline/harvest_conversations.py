@@ -25,6 +25,7 @@ import argparse
 from datetime import datetime, timezone
 import glob
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -32,6 +33,8 @@ import sqlite3
 import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
+
+_logger = logging.getLogger(__name__)
 
 from pipeline.extract_transcripts import (
     SCHEMA_SQL,
@@ -93,7 +96,8 @@ def parse_protobuf_fields(data: bytes) -> List[Tuple[int, int, Any]]:
                 fields.append((field_num, wire_type, val_bytes))
             else:
                 break
-        except Exception:
+        except (ValueError, IndexError, TypeError) as exc:
+            _logger.debug("Protobuf field parse halted at offset %d: %s", offset, exc)
             break
     return fields
 
@@ -109,8 +113,8 @@ def parse_proto_timestamp(data: bytes) -> Optional[str]:
                 break
         if secs is not None and 1000000000 < secs < 3000000000:
             return datetime.fromtimestamp(secs, tz=timezone.utc).isoformat()
-    except Exception:
-        pass
+    except (ValueError, OverflowError, OSError, TypeError) as exc:
+        _logger.debug("Invalid proto timestamp bytes: %s", exc)
     return None
 
 
@@ -145,8 +149,8 @@ def extract_execution_result(step_payload_bytes: bytes) -> Tuple[int, str]:
             output_val = subfields.get(21, b"")
             output = output_val.decode("utf-8", errors="replace") if isinstance(output_val, bytes) else str(output_val)
             return exit_code, output
-    except Exception:
-        pass
+    except (ValueError, TypeError, AttributeError) as exc:
+        _logger.debug("Failed decoding execution result payload: %s", exc)
 
     return 0, ""
 
@@ -164,9 +168,11 @@ def extract_conversation_db(
 
     try:
         raw_size = db_path.stat().st_size
-    except Exception:
+    except OSError as exc:
+        _logger.warning("Cannot stat conversation db %s: %s", db_path, exc)
         return None
 
+    conn: Optional[sqlite3.Connection] = None
     try:
         conn = sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True, timeout=0.5)
         conn.execute("PRAGMA query_only = ON")
@@ -176,7 +182,6 @@ def extract_conversation_db(
         cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = {r[0] for r in cur.fetchall()}
         if "steps" not in tables:
-            conn.close()
             return None
 
         # 1. Parse trajectory_meta
@@ -202,16 +207,13 @@ def extract_conversation_db(
                 for fn, wt, val in parse_protobuf_fields(blob_row[0]):
                     if fn == 2 and wt == 2:
                         meta_start_time = parse_proto_timestamp(val)
-                    elif fn == 18 and wt == 2:
-                        try:
-                            cand_ws = val.decode("utf-8", errors="replace")
-                            if "/" in cand_ws or cand_ws.startswith("file://"):
-                                workspace_detected = cand_ws
-                        except Exception:
-                            pass
+                    elif fn == 18 and wt == 2 and isinstance(val, bytes):
+                        cand_ws = val.decode("utf-8", errors="replace")
+                        if "/" in cand_ws or cand_ws.startswith("file://"):
+                            workspace_detected = cand_ws
 
         # 3. Model detection from executor_metadata or steps
-        model_detected = "Gemini 3.5/Flash/Pro (Default)"
+        model_detected = "Unknown"
         if "executor_metadata" in tables:
             cur.execute("SELECT data FROM executor_metadata WHERE data IS NOT NULL ORDER BY rowid DESC")
             for (ex_data,) in cur.fetchall():
@@ -229,10 +231,12 @@ def extract_conversation_db(
             ORDER BY idx ASC
         """)
         raw_steps = cur.fetchall()
-        conn.close()
     except Exception as exc:
         sys.stderr.write(f"Warning: Failed to read conversation db {db_path}: {exc}\n")
         return None
+    finally:
+        if conn is not None:
+            conn.close()
 
     if not raw_steps:
         # DB exists but has 0 steps
@@ -294,7 +298,8 @@ def extract_conversation_db(
                         tool_args_str = sub_dict[3].decode("utf-8", errors="replace")
                         try:
                             tool_args = json.loads(tool_args_str)
-                        except Exception:
+                        except (json.JSONDecodeError, TypeError) as exc:
+                            _logger.debug("Invalid tool args JSON at step %s in %s: %s", idx, db_path, exc)
                             tool_args = {}
                 elif fn in (6, 7) and wt == 2 and not tool_start_ts:
                     tool_start_ts = parse_proto_timestamp(val)
@@ -336,8 +341,13 @@ def extract_conversation_db(
                     sub_fields = parse_protobuf_fields(val)
                     for sfn, swt, sval in sub_fields:
                         if sfn == 2 and isinstance(sval, bytes) and not workspace_detected:
-                            cwd_val = sval.decode("utf-8", errors="replace")
-                            if "/Dev/" in cwd_val:
+                            cwd_val = sval.decode("utf-8", errors="replace").strip()
+                            if (
+                                (cwd_val.startswith("/") or cwd_val.startswith("file://") or bool(re.match(r"^[A-Za-z]:[/\\]", cwd_val)))
+                                and len(cwd_val) > 1
+                                and "\n" not in cwd_val
+                                and "\r" not in cwd_val
+                            ):
                                 workspace_detected = cwd_val
 
         # Check errors
@@ -522,137 +532,139 @@ def harvest_conversation_db(db_path: Path, target_db: Path) -> Dict[str, Any]:
     s_id = session_row["session_id"]
 
     conn = sqlite3.connect(target_db)
-    cur = conn.cursor()
-    cur.execute("PRAGMA synchronous = NORMAL")
-    cur.execute("PRAGMA journal_mode = WAL")
-    cur.execute("PRAGMA busy_timeout = 30000")
-    cur.executescript(SCHEMA_SQL)
-    ensure_volume_columns(conn)
-    ensure_sync_columns(conn)
+    try:
+        cur = conn.cursor()
+        cur.execute("PRAGMA synchronous = NORMAL")
+        cur.execute("PRAGMA journal_mode = WAL")
+        cur.execute("PRAGMA busy_timeout = 30000")
+        cur.executescript(SCHEMA_SQL)
+        ensure_volume_columns(conn)
+        ensure_sync_columns(conn)
 
-    # Ensure idempotence by deleting previous session records
-    cur.execute("DELETE FROM steps WHERE session_id = ?", (s_id,))
-    cur.execute("DELETE FROM tool_calls WHERE session_id = ?", (s_id,))
-    cur.execute("DELETE FROM user_interventions WHERE session_id = ?", (s_id,))
+        # Ensure idempotence by deleting previous session records
+        cur.execute("DELETE FROM steps WHERE session_id = ?", (s_id,))
+        cur.execute("DELETE FROM tool_calls WHERE session_id = ?", (s_id,))
+        cur.execute("DELETE FROM user_interventions WHERE session_id = ?", (s_id,))
 
-    # Preserve existing sync status and origin if session was already ingested
-    cur.execute("SELECT remote_synced_at, origin_developer, total_steps FROM sessions WHERE session_id = ?", (s_id,))
-    existing_row = cur.fetchone()
-    if existing_row:
-        existing_synced_at, existing_origin, existing_steps = existing_row[0], existing_row[1], existing_row[2]
-        new_steps = session_row.get("total_steps") or 0
-        if existing_steps is not None and new_steps > existing_steps:
-            session_row["remote_synced_at"] = None
-        elif existing_synced_at and not session_row.get("remote_synced_at"):
-            session_row["remote_synced_at"] = existing_synced_at
-        if existing_origin and existing_origin != "local":
-            session_row["origin_developer"] = existing_origin
+        # Preserve existing sync status and origin if session was already ingested
+        cur.execute("SELECT remote_synced_at, origin_developer, total_steps FROM sessions WHERE session_id = ?", (s_id,))
+        existing_row = cur.fetchone()
+        if existing_row:
+            existing_synced_at, existing_origin, existing_steps = existing_row[0], existing_row[1], existing_row[2]
+            new_steps = session_row.get("total_steps") or 0
+            if existing_steps is not None and new_steps > existing_steps:
+                session_row["remote_synced_at"] = None
+            elif existing_synced_at and not session_row.get("remote_synced_at"):
+                session_row["remote_synced_at"] = existing_synced_at
+            if existing_origin and existing_origin != "local":
+                session_row["origin_developer"] = existing_origin
 
-    cur.execute("""
-        INSERT OR REPLACE INTO sessions (
-            session_id, start_time, end_time, duration_seconds, total_steps,
-            model, workspace_path, transcript_path, file_size_bytes, has_errors,
-            tool_call_count, tool_error_count, intervention_count,
-            origin_developer, remote_synced_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        session_row["session_id"],
-        session_row["start_time"],
-        session_row["end_time"],
-        session_row["duration_seconds"],
-        session_row["total_steps"],
-        session_row["model"],
-        session_row["workspace_path"],
-        session_row["transcript_path"],
-        session_row["file_size_bytes"],
-        session_row["has_errors"],
-        session_row["tool_call_count"],
-        session_row["tool_error_count"],
-        session_row["intervention_count"],
-        session_row["origin_developer"],
-        session_row["remote_synced_at"],
-    ))
+        cur.execute("""
+            INSERT OR REPLACE INTO sessions (
+                session_id, start_time, end_time, duration_seconds, total_steps,
+                model, workspace_path, transcript_path, file_size_bytes, has_errors,
+                tool_call_count, tool_error_count, intervention_count,
+                origin_developer, remote_synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            session_row["session_id"],
+            session_row["start_time"],
+            session_row["end_time"],
+            session_row["duration_seconds"],
+            session_row["total_steps"],
+            session_row["model"],
+            session_row["workspace_path"],
+            session_row["transcript_path"],
+            session_row["file_size_bytes"],
+            session_row["has_errors"],
+            session_row["tool_call_count"],
+            session_row["tool_error_count"],
+            session_row["intervention_count"],
+            session_row["origin_developer"],
+            session_row["remote_synced_at"],
+        ))
 
-    if step_rows:
-        cur.executemany("""
-            INSERT OR IGNORE INTO steps (
-                session_id, step_index, step_type, source, status, created_at,
-                content_length, content_snippet, has_thinking, thinking_length, tool_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            (
-                s["session_id"],
-                s["step_index"],
-                s["step_type"],
-                s["source"],
-                s["status"],
-                s["created_at"],
-                s["content_length"],
-                s["content_snippet"],
-                s["has_thinking"],
-                s["thinking_length"],
-                s["tool_count"],
-            )
-            for s in step_rows
-        ])
+        if step_rows:
+            cur.executemany("""
+                INSERT OR IGNORE INTO steps (
+                    session_id, step_index, step_type, source, status, created_at,
+                    content_length, content_snippet, has_thinking, thinking_length, tool_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                (
+                    s["session_id"],
+                    s["step_index"],
+                    s["step_type"],
+                    s["source"],
+                    s["status"],
+                    s["created_at"],
+                    s["content_length"],
+                    s["content_snippet"],
+                    s["has_thinking"],
+                    s["thinking_length"],
+                    s["tool_count"],
+                )
+                for s in step_rows
+            ])
 
-    if tool_rows:
-        cur.executemany("""
-            INSERT OR IGNORE INTO tool_calls (
-                session_id, step_index, result_step_index, tool_name, arguments_json,
-                arguments_snippet, target_path, command_line, started_at, completed_at,
-                duration_seconds, status, exit_code, error_snippet, is_loop_candidate,
-                output_length_chars, output_lines, arguments_length_chars, command_category, is_truncated
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            (
-                t["session_id"],
-                t["step_index"],
-                t["result_step_index"],
-                t["tool_name"],
-                t["arguments_json"],
-                t["arguments_snippet"],
-                t["target_path"],
-                t["command_line"],
-                t["started_at"],
-                t["completed_at"],
-                t["duration_seconds"],
-                t["status"],
-                t["exit_code"],
-                t["error_snippet"],
-                t["is_loop_candidate"],
-                t["output_length_chars"],
-                t["output_lines"],
-                t["arguments_length_chars"],
-                t["command_category"],
-                t["is_truncated"],
-            )
-            for t in tool_rows
-        ])
+        if tool_rows:
+            cur.executemany("""
+                INSERT OR IGNORE INTO tool_calls (
+                    session_id, step_index, result_step_index, tool_name, arguments_json,
+                    arguments_snippet, target_path, command_line, started_at, completed_at,
+                    duration_seconds, status, exit_code, error_snippet, is_loop_candidate,
+                    output_length_chars, output_lines, arguments_length_chars, command_category, is_truncated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                (
+                    t["session_id"],
+                    t["step_index"],
+                    t["result_step_index"],
+                    t["tool_name"],
+                    t["arguments_json"],
+                    t["arguments_snippet"],
+                    t["target_path"],
+                    t["command_line"],
+                    t["started_at"],
+                    t["completed_at"],
+                    t["duration_seconds"],
+                    t["status"],
+                    t["exit_code"],
+                    t["error_snippet"],
+                    t["is_loop_candidate"],
+                    t["output_length_chars"],
+                    t["output_lines"],
+                    t["arguments_length_chars"],
+                    t["command_category"],
+                    t["is_truncated"],
+                )
+                for t in tool_rows
+            ])
 
-    if interv_rows:
-        cur.executemany("""
-            INSERT OR IGNORE INTO user_interventions (
-                session_id, step_index, created_at, prompt_text, prompt_length,
-                preceding_tool_failed, preceding_tool_name, preceding_error_snippet, intervention_type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            (
-                u["session_id"],
-                u["step_index"],
-                u["created_at"],
-                u["prompt_text"],
-                u["prompt_length"],
-                u["preceding_tool_failed"],
-                u["preceding_tool_name"],
-                u["preceding_error_snippet"],
-                u["intervention_type"],
-            )
-            for u in interv_rows
-        ])
+        if interv_rows:
+            cur.executemany("""
+                INSERT OR IGNORE INTO user_interventions (
+                    session_id, step_index, created_at, prompt_text, prompt_length,
+                    preceding_tool_failed, preceding_tool_name, preceding_error_snippet, intervention_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                (
+                    u["session_id"],
+                    u["step_index"],
+                    u["created_at"],
+                    u["prompt_text"],
+                    u["prompt_length"],
+                    u["preceding_tool_failed"],
+                    u["preceding_tool_name"],
+                    u["preceding_error_snippet"],
+                    u["intervention_type"],
+                )
+                for u in interv_rows
+            ])
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
 
     return {
         "status": "harvested",

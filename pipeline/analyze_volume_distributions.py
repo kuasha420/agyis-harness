@@ -54,198 +54,257 @@ def calculate_percentiles(values: List[int], percentiles: List[float]) -> Dict[s
 def analyze_volumes(
     db_path: Path,
     auto_backfill: bool = True,
-    verbose: bool = True
+    verbose: bool = True,
+    batch_size: int = 5000,
 ) -> Dict[str, Any]:
-    """Core analysis function querying telemetry.db and returning aggregated metrics."""
+    """Core analysis function querying telemetry.db in bounded batches and returning aggregated metrics."""
     conn = sqlite3.connect(db_path)
-    ensure_volume_columns(conn)
-    cur = conn.cursor()
-
-    # Check unpopulated rows
-    cur.execute("SELECT COUNT(*) FROM tool_calls WHERE output_length_chars IS NULL")
-    missing_count = cur.fetchone()[0]
-
-    if missing_count > 0 and auto_backfill:
-        if verbose:
-            print(f"[*] Found {missing_count} unpopulated tool calls. Running backfill...")
-        conn.close()
-        backfill_tool_volumes(db_path, verbose=verbose)
-        conn = sqlite3.connect(db_path)
+    try:
+        ensure_volume_columns(conn)
         cur = conn.cursor()
 
-    # 1. High-level aggregates
-    cur.execute("""
-        SELECT COUNT(*),
-               COALESCE(SUM(output_length_chars), 0),
-               COALESCE(SUM(arguments_length_chars), 0),
-               COALESCE(SUM(CASE WHEN is_truncated = 1 THEN 1 ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN status != 'SUCCESS' THEN 1 ELSE 0 END), 0)
-        FROM tool_calls
-    """)
-    row = cur.fetchone()
-    total_calls = row[0]
-    total_output_chars = row[1]
-    total_arguments_chars = row[2]
-    total_truncated = row[3]
-    total_errors = row[4]
+        # Check unpopulated rows
+        cur.execute("SELECT COUNT(*) FROM tool_calls WHERE output_length_chars IS NULL")
+        missing_count = cur.fetchone()[0]
 
-    # 2. Per-tool volume distributions
-    cur.execute("SELECT DISTINCT tool_name FROM tool_calls ORDER BY tool_name")
-    tool_names = [r[0] for r in cur.fetchall()]
+        if missing_count > 0 and auto_backfill:
+            if verbose:
+                print(f"[*] Found {missing_count} unpopulated tool calls. Running backfill...")
+            conn.close()
+            backfill_tool_volumes(db_path, verbose=verbose)
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
 
-    tool_stats = []
-    for t_name in tool_names:
+        # 1. High-level aggregates
         cur.execute("""
-            SELECT output_length_chars, arguments_length_chars, status, is_truncated
+            SELECT COUNT(*),
+                   COALESCE(SUM(output_length_chars), 0),
+                   COALESCE(SUM(arguments_length_chars), 0),
+                   COALESCE(SUM(CASE WHEN is_truncated = 1 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN status != 'SUCCESS' THEN 1 ELSE 0 END), 0)
             FROM tool_calls
-            WHERE tool_name = ?
-        """, (t_name,))
-        t_rows = cur.fetchall()
-        outputs = [r[0] or 0 for r in t_rows]
-        args_lens = [r[1] or 0 for r in t_rows]
-        error_count = sum(1 for r in t_rows if r[2] != "SUCCESS")
-        trunc_count = sum(1 for r in t_rows if r[3] == 1)
+        """)
+        row = cur.fetchone()
+        total_calls = row[0]
+        total_output_chars = row[1]
+        total_arguments_chars = row[2]
+        total_truncated = row[3]
+        total_errors = row[4]
 
-        cnt = len(outputs)
-        tot_out = sum(outputs)
-        tot_args = sum(args_lens)
-        pcts = calculate_percentiles(outputs, [0.50, 0.75, 0.90, 0.95, 0.99])
+        # 2. Per-tool volume distributions (aggregated in SQL + streamed sorted outputs for exact percentiles)
+        cur.execute("""
+            SELECT tool_name,
+                   COUNT(*),
+                   COALESCE(SUM(CASE WHEN status != 'SUCCESS' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN is_truncated = 1 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(output_length_chars), 0),
+                   COALESCE(SUM(arguments_length_chars), 0),
+                   COALESCE(MAX(output_length_chars), 0),
+                   COALESCE(SUM(CASE WHEN COALESCE(output_length_chars, 0) < 500 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN COALESCE(output_length_chars, 0) BETWEEN 500 AND 2048 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN COALESCE(output_length_chars, 0) > 2048 AND COALESCE(output_length_chars, 0) <= 10240 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN COALESCE(output_length_chars, 0) > 10240 AND COALESCE(output_length_chars, 0) <= 51200 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN COALESCE(output_length_chars, 0) > 51200 THEN 1 ELSE 0 END), 0)
+            FROM tool_calls
+            GROUP BY tool_name
+            ORDER BY COALESCE(SUM(output_length_chars), 0) DESC
+        """)
+        tool_agg_rows = cur.fetchall()
 
-        # Bucketing
-        b_lt_500 = sum(1 for v in outputs if v < 500)
-        b_500_2k = sum(1 for v in outputs if 500 <= v <= 2048)
-        b_2k_10k = sum(1 for v in outputs if 2048 < v <= 10240)
-        b_10k_50k = sum(1 for v in outputs if 10240 < v <= 51200)
-        b_gt_50k = sum(1 for v in outputs if v > 51200)
+        tool_stats = []
+        percentiles = [0.50, 0.75, 0.90, 0.95, 0.99]
+        for (
+            t_name,
+            cnt,
+            error_count,
+            trunc_count,
+            tot_out,
+            tot_args,
+            max_out,
+            b_lt_500,
+            b_500_2k,
+            b_2k_10k,
+            b_10k_50k,
+            b_gt_50k,
+        ) in tool_agg_rows:
+            pcts = {f"p{int(p * 100)}": 0 for p in percentiles}
+            if cnt > 0:
+                for p in percentiles:
+                    idx = max(0, min(cnt - 1, math.ceil(p * cnt) - 1))
+                    cur.execute(
+                        """
+                        SELECT COALESCE(output_length_chars, 0)
+                        FROM tool_calls
+                        WHERE tool_name = ?
+                        ORDER BY COALESCE(output_length_chars, 0) ASC
+                        LIMIT 1 OFFSET ?
+                        """,
+                        (t_name, idx),
+                    )
+                    p_row = cur.fetchone()
+                    pcts[f"p{int(p * 100)}"] = p_row[0] if p_row else 0
 
-        tool_stats.append({
-            "tool_name": t_name,
-            "call_count": cnt,
-            "error_count": error_count,
-            "truncated_count": trunc_count,
-            "total_output_chars": tot_out,
-            "estimated_output_tokens": estimate_tokens(tot_out),
-            "avg_output_chars": round(tot_out / cnt, 1) if cnt else 0,
-            "median_output_chars": pcts["p50"],
-            "p75_output_chars": pcts["p75"],
-            "p90_output_chars": pcts["p90"],
-            "p95_output_chars": pcts["p95"],
-            "p99_output_chars": pcts["p99"],
-            "max_output_chars": max(outputs) if outputs else 0,
-            "total_arguments_chars": tot_args,
-            "avg_arguments_chars": round(tot_args / cnt, 1) if cnt else 0,
-            "buckets": {
-                "lt_500": b_lt_500,
-                "500_to_2k": b_500_2k,
-                "2k_to_10k": b_2k_10k,
-                "10k_to_50k": b_10k_50k,
-                "gt_50k": b_gt_50k,
-            },
-            "pct_exceeding_2kb": round((b_2k_10k + b_10k_50k + b_gt_50k) / cnt * 100, 2) if cnt else 0.0
-        })
+            tool_stats.append({
+                "tool_name": t_name,
+                "call_count": cnt,
+                "error_count": error_count,
+                "truncated_count": trunc_count,
+                "total_output_chars": tot_out,
+                "estimated_output_tokens": estimate_tokens(tot_out),
+                "avg_output_chars": round(tot_out / cnt, 1) if cnt else 0,
+                "median_output_chars": pcts["p50"],
+                "p75_output_chars": pcts["p75"],
+                "p90_output_chars": pcts["p90"],
+                "p95_output_chars": pcts["p95"],
+                "p99_output_chars": pcts["p99"],
+                "max_output_chars": max_out,
+                "total_arguments_chars": tot_args,
+                "avg_arguments_chars": round(tot_args / cnt, 1) if cnt else 0,
+                "buckets": {
+                    "lt_500": b_lt_500,
+                    "500_to_2k": b_500_2k,
+                    "2k_to_10k": b_2k_10k,
+                    "10k_to_50k": b_10k_50k,
+                    "gt_50k": b_gt_50k,
+                },
+                "pct_exceeding_2kb": round((b_2k_10k + b_10k_50k + b_gt_50k) / cnt * 100, 2) if cnt else 0.0,
+            })
 
-    # Sort tools by total output volume descending
-    tool_stats.sort(key=lambda x: x["total_output_chars"], reverse=True)
+        # 3. Command category breakdown (chunked fetchmany for run_command)
+        cur.execute("""
+            SELECT COALESCE(command_category, 'unclassified') as cat,
+                   output_length_chars,
+                   command_line,
+                   status
+            FROM tool_calls
+            WHERE tool_name = 'run_command'
+        """)
+        category_counts: Dict[str, int] = {}
+        category_totals: Dict[str, int] = {}
+        category_gt_2k: Dict[str, int] = {}
+        category_errs: Dict[str, int] = {}
+        category_samples: Dict[str, List[Tuple[str, int]]] = {}
 
-    # 3. Command category breakdown (for run_command)
-    cur.execute("""
-        SELECT COALESCE(command_category, 'unclassified') as cat,
-               output_length_chars,
-               command_line,
-               status
-        FROM tool_calls
-        WHERE tool_name = 'run_command'
-    """)
-    cmd_rows = cur.fetchall()
+        while True:
+            batch = cur.fetchmany(batch_size)
+            if not batch:
+                break
+            for cat, out_len, cmd_line, status in batch:
+                v = out_len or 0
+                category_counts[cat] = category_counts.get(cat, 0) + 1
+                category_totals[cat] = category_totals.get(cat, 0) + v
+                if v > 2048:
+                    category_gt_2k[cat] = category_gt_2k.get(cat, 0) + 1
+                if status != "SUCCESS":
+                    category_errs[cat] = category_errs.get(cat, 0) + 1
+                if cmd_line:
+                    samples = category_samples.setdefault(cat, [])
+                    if len(samples) < 5 or v > samples[-1][1]:
+                        samples.append((cmd_line[:100], v))
+                        samples.sort(key=lambda s: s[1], reverse=True)
+                        if len(samples) > 5:
+                            samples.pop()
 
-    category_map: Dict[str, List[int]] = {}
-    category_errs: Dict[str, int] = {}
-    category_samples: Dict[str, List[Tuple[str, int]]] = {}
+        category_stats = []
+        for cat, cnt in category_counts.items():
+            tot = category_totals[cat]
+            gt_2k = category_gt_2k.get(cat, 0)
+            p50_idx = max(0, min(cnt - 1, math.ceil(0.50 * cnt) - 1))
+            p90_idx = max(0, min(cnt - 1, math.ceil(0.90 * cnt) - 1))
+            cur.execute(
+                """
+                SELECT COALESCE(output_length_chars, 0)
+                FROM tool_calls
+                WHERE tool_name = 'run_command' AND COALESCE(command_category, 'unclassified') = ?
+                ORDER BY COALESCE(output_length_chars, 0) ASC
+                LIMIT 1 OFFSET ?
+                """,
+                (cat, p50_idx),
+            )
+            r50 = cur.fetchone()
+            cur.execute(
+                """
+                SELECT COALESCE(output_length_chars, 0)
+                FROM tool_calls
+                WHERE tool_name = 'run_command' AND COALESCE(command_category, 'unclassified') = ?
+                ORDER BY COALESCE(output_length_chars, 0) ASC
+                LIMIT 1 OFFSET ?
+                """,
+                (cat, p90_idx),
+            )
+            r90 = cur.fetchone()
+            cur.execute(
+                """
+                SELECT COALESCE(MAX(output_length_chars), 0)
+                FROM tool_calls
+                WHERE tool_name = 'run_command' AND COALESCE(command_category, 'unclassified') = ?
+                """,
+                (cat,),
+            )
+            rmax = cur.fetchone()
+            category_stats.append({
+                "category": cat,
+                "call_count": cnt,
+                "error_count": category_errs.get(cat, 0),
+                "total_output_chars": tot,
+                "estimated_output_tokens": estimate_tokens(tot),
+                "avg_output_chars": round(tot / cnt, 1) if cnt else 0,
+                "median_output_chars": r50[0] if r50 else 0,
+                "p90_output_chars": r90[0] if r90 else 0,
+                "max_output_chars": rmax[0] if rmax else 0,
+                "count_exceeding_2kb": gt_2k,
+                "pct_exceeding_2kb": round(gt_2k / cnt * 100, 2) if cnt else 0.0,
+                "top_samples": category_samples.get(cat, []),
+            })
 
-    for cat, out_len, cmd_line, status in cmd_rows:
-        v = out_len or 0
-        category_map.setdefault(cat, []).append(v)
-        if status != "SUCCESS":
-            category_errs[cat] = category_errs.get(cat, 0) + 1
-        if cmd_line:
-            samples = category_samples.setdefault(cat, [])
-            if len(samples) < 5 or v > samples[-1][1]:
-                samples.append((cmd_line[:100], v))
-                samples.sort(key=lambda s: s[1], reverse=True)
-                if len(samples) > 5:
-                    samples.pop()
+        category_stats.sort(key=lambda x: x["total_output_chars"], reverse=True)
 
-    category_stats = []
-    for cat, vals in category_map.items():
-        cnt = len(vals)
-        tot = sum(vals)
-        pcts = calculate_percentiles(vals, [0.50, 0.90, 0.99])
-        gt_2k = sum(1 for v in vals if v > 2048)
-        category_stats.append({
-            "category": cat,
-            "call_count": cnt,
-            "error_count": category_errs.get(cat, 0),
-            "total_output_chars": tot,
-            "estimated_output_tokens": estimate_tokens(tot),
-            "avg_output_chars": round(tot / cnt, 1) if cnt else 0,
-            "median_output_chars": pcts["p50"],
-            "p90_output_chars": pcts["p90"],
-            "max_output_chars": max(vals) if vals else 0,
-            "count_exceeding_2kb": gt_2k,
-            "pct_exceeding_2kb": round(gt_2k / cnt * 100, 2) if cnt else 0.0,
-            "top_samples": category_samples.get(cat, [])
-        })
+        # 4. Compactor Threshold Simulation (chunked streaming without loading full table into RAM)
+        thresholds = [1024, 2048, 4096, 8192, 16384]
+        compacted_len = 500 + 1000 + 120
+        impacted_by_t = {t: 0 for t in thresholds}
+        saved_by_t = {t: 0 for t in thresholds}
+        preserved_by_t = {t: 0 for t in thresholds}
 
-    category_stats.sort(key=lambda x: x["total_output_chars"], reverse=True)
+        cur.execute("""
+            SELECT output_length_chars, status
+            FROM tool_calls
+            WHERE COALESCE(output_length_chars, 0) > ?
+        """, (min(thresholds),))
+        while True:
+            batch = cur.fetchmany(batch_size)
+            if not batch:
+                break
+            for out_len, status in batch:
+                v = out_len or 0
+                is_success = status == "SUCCESS"
+                for t_val in thresholds:
+                    if v <= t_val:
+                        continue
+                    if not is_success:
+                        preserved_by_t[t_val] += 1
+                        continue
+                    if v > compacted_len:
+                        impacted_by_t[t_val] += 1
+                        saved_by_t[t_val] += v - compacted_len
 
-    # 4. Compactor Threshold Simulation
-    # Models compaction savings across various thresholds while verifying 0 failure compaction
-    cur.execute("""
-        SELECT tool_name, output_length_chars, status
-        FROM tool_calls
-    """)
-    all_calls = cur.fetchall()
-
-    thresholds = [1024, 2048, 4096, 8192, 16384]
-    simulations = []
-
-    for t_val in thresholds:
-        impacted_calls = 0
-        total_saved_chars = 0
-        failures_preserved = 0
-
-        for t_name, out_len, status in all_calls:
-            v = out_len or 0
-            if v <= t_val:
-                continue
-
-            # Check failure preservation invariant (ADR-008)
-            if status != "SUCCESS":
-                failures_preserved += 1
-                continue  # Invariant: failures are never compacted
-
-            # Compactor preserves head (500) + tail (1000) + truncation notice (~120 chars)
-            compacted_len = 500 + 1000 + 120
-            if v > compacted_len:
-                impacted_calls += 1
-                saved = v - compacted_len
-                total_saved_chars += saved
-
-        saved_tokens = estimate_tokens(total_saved_chars)
-        pct_savings = round(total_saved_chars / total_output_chars * 100, 2) if total_output_chars else 0.0
-
-        simulations.append({
-            "threshold_bytes": t_val,
-            "threshold_label": f"{t_val // 1024}KB",
-            "impacted_calls": impacted_calls,
-            "saved_chars": total_saved_chars,
-            "saved_tokens": saved_tokens,
-            "pct_volume_reduction": pct_savings,
-            "failures_preserved": failures_preserved,
-            "failure_preservation_violations": 0
-        })
-
-    conn.close()
+        simulations = []
+        for t_val in thresholds:
+            total_saved_chars = saved_by_t[t_val]
+            saved_tokens = estimate_tokens(total_saved_chars)
+            pct_savings = round(total_saved_chars / total_output_chars * 100, 2) if total_output_chars else 0.0
+            simulations.append({
+                "threshold_bytes": t_val,
+                "threshold_label": f"{t_val // 1024}KB",
+                "impacted_calls": impacted_by_t[t_val],
+                "saved_chars": total_saved_chars,
+                "saved_tokens": saved_tokens,
+                "pct_volume_reduction": pct_savings,
+                "failures_preserved": preserved_by_t[t_val],
+                "failure_preservation_violations": 0,
+            })
+    finally:
+        conn.close()
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -278,7 +337,7 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     md.append("<!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->")
     md.append("")
     md.append("# 📊 Empirical Tool & Command Character Volume Distribution Report")
-    md.append("**Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  ")
+    md.append("**Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  ")
     md.append("**Publisher**: Purrfect Software Limited (PSL)  ")
     md.append(f"**Generated At**: {data['generated_at']}  ")
     md.append("**Data Source**: Workstation telemetry database (`data/telemetry.db`) across all ingested developer sessions  ")
@@ -356,7 +415,7 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     md.append("## 5. Architectural Findings & Next Steps\n")
     md.append("1. **2KB Sweet Spot Validated**: The 2KB threshold provides an optimal balance, reducing total output volume by over **20%** while compacting only the long-tail bloaters (>2KB) and leaving short commands completely unmodified.")
     md.append("2. **Category Heavyweights**: Test runners and package managers generate the largest individual payloads, highlighting the need for project-level test runner output compactors.")
-    md.append("3. **Input vs. Output Asymmetry**: File modification tools (`write_to_file`) are dominated by input arguments rather than outputs, confirming that output compaction correctly targets the read/exec tools (`run_command`, `view_file`, `grep_search`).\n")
+    md.append("3. **Input vs. Output Asymmetry**: File modification tools (`write_file`) are dominated by input arguments rather than outputs, confirming that output compaction correctly targets the read/exec tools (`run_command`, `read_file`).\n")
 
     return "\n".join(md)
 

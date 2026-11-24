@@ -24,10 +24,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
+
+_logger = logging.getLogger(__name__)
 
 
 from harness.utils.frontmatter import parse_frontmatter
@@ -128,8 +131,9 @@ def scan_plugins(plugins_dir: Path) -> list[dict[str, Any]]:
                         "size_bytes": rf.stat().st_size,
                         "estimated_tokens": estimate_tokens(content)
                     })
-                except OSError:
-                    continue
+                except OSError as exc:
+                    _logger.warning("Failed reading bundled rule %s: %s", rf, exc)
+                    bundled_rules.append({"name": rf.name, "path": str(rf), "error": str(exc)})
 
         # Check for bundled hooks
         hooks_file = plugin_root / "hooks.json"
@@ -332,8 +336,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                 for pname, pmeta in cfg_data["plugins"].items():
                     if isinstance(pmeta, dict) and "enabled" in pmeta:
                         enabled_map[pname] = bool(pmeta["enabled"])
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError) as exc:
+            _logger.warning("Failed reading config %s: %s", cfg_file, exc)
     plugins = [
         p for p in raw_plugins
         if enabled_map.get(p.get("name", ""), enabled_map.get(p.get("directory_name", ""), True))

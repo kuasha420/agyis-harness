@@ -60,6 +60,11 @@ data/reports/
 # Local agent artifacts, scratchpads, and sidecars
 scratch/
 .dirtyroom/
+.agyis/
+.psl/
+.agents/checkpoints/
+*.gpr
+*.rep/
 .system_generated/
 *.env
 *.env.*

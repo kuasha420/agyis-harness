@@ -5,7 +5,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-PSL Harness for Google Antigravity™
+Agyis Harness for Google Antigravity™
 Cross-Model Failure Cluster & Intervention Hotspot Analyzer.
 
 Mines data/telemetry.db for:
@@ -13,7 +13,7 @@ Mines data/telemetry.db for:
    grouped by model and command_category.
 2. Model-specific operational biases and error distributions.
 3. User interventions following tool failures and recurrent operator rescues.
-4. Concrete failure signatures justifying new modular skills (db-ops, mesh-ops, git-worktree-ops).
+4. Concrete failure signatures justifying modular skills (db-ops, remote-ops, git-worktree-ops).
 """
 
 from __future__ import annotations
@@ -275,9 +275,9 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     lines.extend([
         "",
         "### Key Model Bias Observations:",
-        "- **`gemini-3.8-flash-high`** (393 sessions, 54.4% of total): High endurance, but generates significant non-command loop candidates (over 10,192 redundant `view_file` / `list_dir` steps) and exit code 1 (933 failures) primarily from pattern probes and unhandled syntax edge cases.",
-        "- **`Gemini 3`** (64 sessions): Suffered higher rates of exit code 127 (`command not found`, 91 occurrences) and package manager locks, revealing aggressive assumption of installed system packages.",
-        "- **`gemini-3.8-flash-tiered`** (101 sessions): Demonstrates disciplined lower tool call error rate (2.7%), with primary failure modes clustered around test suite regressions and multi-branch git conflicts.",
+        "- **High-deliberation models (`gemini-4-hydrogen` / historical `gemini-3.8-flash-high`)**: High endurance, but unguarded trajectories generate redundant `read_file` / file-probe steps and exit code 1 failures from pattern probes and unhandled syntax edge cases.",
+        "- **Frontier models (`gemini-4-neon` / historical `Gemini 3` baseline)**: Complex multi-file architecture reasoning benefits from explicit command dictionaries and environment guards to avoid exit code 127 (`command not found`) and lock collisions.",
+        "- **Tiered Flash baselines**: Lower tool call error rates when paired with `PreToolUse` safety hooks and diff-scoped test suites.",
         "- **`GPT-OSS 120B (Medium)`** and singletons: Minimal footprint, primarily used in isolated exploratory tasks.",
         "",
         "---",
@@ -313,7 +313,7 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
 
     lines.extend([
         "",
-        "### B. Mesh & Remote Operations (`mesh-ops` Justification)",
+        "### B. Mesh & Remote Operations (`remote-ops` Justification)",
         "SSH connection dropouts (Exit Code 255), unverified Tailscale hostnames, and unpinned socket paths:",
         "",
     ])
@@ -372,7 +372,7 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
         "Based on the empirical failure clusters and operator intervention hotspots identified in this audit, we codify three new operational runbooks:",
         "",
         "1. **`db-ops`**: Standardized database diagnostic and inspection runbook for PostgreSQL / SQLite / Docker instances (connection pooling, active locks, vacuuming, non-interactive CLI invocations). Eliminates interactive prompts and hanging client queries.",
-        "2. **`mesh-ops`**: Knot hardware mesh coordination runbook (dynamic node discovery, Tailscale/WireGuard ping, state sync between Desktop, Laptop, and Handhelds). Resolves SSH exit code 255 dropouts and unverified mesh targets.",
+        "2. **`remote-ops`**: Standardized remote SSH execution runbook (ControlMaster multiplexing, stdin script streaming, login-shell PATH promotion, and compact health triage). Resolves SSH exit code 255 dropouts and unverified remote targets.",
         "3. **`git-worktree-ops`**: Safe multi-branch worktree management, branch cleanup, orphan prune, and stashes without index corruption. Resolves dirty tree checkout errors and orphaned worktree index locks.",
         "",
     ])

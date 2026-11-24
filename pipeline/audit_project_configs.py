@@ -143,28 +143,34 @@ def audit_workspace_config(ws_path_str: str) -> Dict[str, Any]:
     }
 
 
-def analyze_all_workspaces(db_path: Path) -> Dict[str, Any]:
+def analyze_all_workspaces(db_path: Path, limit: int = 100) -> Dict[str, Any]:
     conn = sqlite3.connect(db_path)
-    c = conn.cursor()
+    try:
+        c = conn.cursor()
 
-    c.execute("""
-        SELECT 
-            workspace_path,
-            COUNT(*) as session_count,
-            ROUND(AVG(total_steps), 1) as avg_steps,
-            SUM(tool_call_count) as total_tools,
-            SUM(tool_error_count) as total_errors,
-            ROUND(SUM(tool_error_count) * 100.0 / NULLIF(SUM(tool_call_count), 0), 2) as error_rate_pct,
-            SUM(intervention_count) as total_interventions,
-            ROUND(SUM(intervention_count) * 1.0 / COUNT(*), 2) as interv_per_sess,
-            SUM(CASE WHEN tool_error_count <= 1 AND intervention_count = 0 AND total_steps >= 15 THEN 1 ELSE 0 END) as autonomous_sessions
-        FROM sessions
-        WHERE workspace_path IS NOT NULL AND workspace_path != ""
-        GROUP BY workspace_path
-        ORDER BY session_count DESC
-    """)
-    rows = c.fetchall()
-    conn.close()
+        c.execute(
+            """
+            SELECT 
+                workspace_path,
+                COUNT(*) as session_count,
+                ROUND(AVG(total_steps), 1) as avg_steps,
+                SUM(tool_call_count) as total_tools,
+                SUM(tool_error_count) as total_errors,
+                ROUND(SUM(tool_error_count) * 100.0 / NULLIF(SUM(tool_call_count), 0), 2) as error_rate_pct,
+                SUM(intervention_count) as total_interventions,
+                ROUND(SUM(intervention_count) * 1.0 / COUNT(*), 2) as interv_per_sess,
+                SUM(CASE WHEN tool_error_count <= 1 AND intervention_count = 0 AND total_steps >= 15 THEN 1 ELSE 0 END) as autonomous_sessions
+            FROM sessions
+            WHERE workspace_path IS NOT NULL AND workspace_path != ""
+            GROUP BY workspace_path
+            ORDER BY session_count DESC
+            LIMIT ?
+            """,
+            (max(1, limit),),
+        )
+        rows = c.fetchall()
+    finally:
+        conn.close()
 
     workspace_analyses = []
     for r in rows:
@@ -195,8 +201,9 @@ def analyze_all_workspaces(db_path: Path) -> Dict[str, Any]:
     }
 
 
-def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
+def generate_markdown_report(data: Dict[str, Any], output_path: Path, max_rows: int = 50) -> None:
     workspaces = data["workspaces"]
+    displayed_workspaces = workspaces[:max_rows]
 
     md = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
@@ -204,7 +211,7 @@ def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # 🏛️ Empirical Project Rules & Skills Ecosystem Audit
-**Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
+**Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Generated At**: {data['timestamp']}  
@@ -216,7 +223,7 @@ def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
 
 Agent autonomy, error rates, and human intervention frequency are **heavily governed by the quality, calibration, and architecture of the project's rules and skills**. 
 
-When we evaluate the agent's behavior across distinct workspaces on this workstation, failures are rarely "pure model hallucinations"—they correlate directly with **harness misconfigurations, rule indirection, contradictory constraints, or missing domain commands**.
+When we evaluate the agent's behavior across distinct workspaces, failures are rarely "pure model hallucinations"—they correlate directly with **harness misconfigurations, rule indirection, contradictory constraints, or missing domain commands**.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
@@ -226,11 +233,14 @@ When we evaluate the agent's behavior across distinct workspaces on this worksta
 ├──────────────────────────────┼────────────┼───────────┼────────────┼───────────────────┤
 """
 
-    for w in workspaces:
+    for w in displayed_workspaces:
         p = w["performance"]
         c = w["config"]
         rule_desc = f"{c['rule_file_count']} files (~{c['total_rule_tokens']} tok), {c['skill_count']} skills" if c["exists"] else "None / Undetected"
         md += f"| `{w['repo_name']}` | {p['session_count']} | {p['error_rate_pct']}% | {p['interventions_per_session']} | {rule_desc} |\n"
+
+    if len(workspaces) > max_rows:
+        md += f"| *({len(workspaces) - max_rows} additional workspaces omitted)* | - | - | - | - |\n"
 
     md += """└──────────────────────────────┴────────────┴───────────┴────────────┴───────────────────┘
 ```
@@ -239,31 +249,30 @@ When we evaluate the agent's behavior across distinct workspaces on this worksta
 
 ## 🔍 Deep-Dive: 4 Architectural Ecosystem Profiles
 
-### Profile 1: The Golden Monorepo (`sunshine-physio-universalapp`)
+### Profile 1: The Golden Monorepo (Web + API)
 * **Metrics**: **99 sessions**, **326.1 avg steps**, **2.0% error rate**, **1.91 interventions/session**.
 * **Configuration Shape**:
-  - Root `AGENTS.md` (2,735 tokens) with razor-sharp monorepo boundaries (`packages/shared`, `apps/api`, `apps/web`).
+  - Root `AGENTS.md` (~2,700 tokens) with razor-sharp monorepo boundaries (`packages/shared`, `apps/api`, `apps/web`).
   - **Explicit Testing & DB Contracts**: Exact port defined (`Local PostgreSQL runs on port 5436`), exact migrations (`pnpm db:generate`, `pnpm db:migrate`), exact router abstraction (`createRouter()`).
   - **Strict Architectural Decision Tree**: Bound to an ultra-compact canonical cheat-sheet under 50 lines.
   - **Why It Succeeded**: The agent never had to probe ports, guess database commands, or invent validation layers. Autonomy remained consistently high over 99 multi-step sessions.
 
 ---
 
-### Profile 2: The Explicit Command Dictionary (`purrmission`)
+### Profile 2: The Explicit Command Dictionary (Bot + CLI Monorepo)
 * **Metrics**: **55 sessions**, **160.7 avg steps**, **3.8% error rate**, **1.67 interventions/session** (Lowest intervention rate among active multi-task repos).
 * **Configuration Shape**:
   - Root `AGENTS.md` with an **explicit command dictionary**:
     ```bash
-    pnpm --filter @purrfecthq/purrmission-bot test
-    pnpm --filter @psl-oss/pawthy test
+    pnpm --filter @example/app test
+    pnpm --filter @example/cli test
     pnpm prisma:generate
-    node scripts/gh-pr-review-comments.cjs
     ```
   - **Why It Succeeded**: Providing explicit, copy-pasteable CLI invocations eliminated Exit Code 127 (`command not found`) and Exit Code 2 (`syntax error`). The agent executed the exact filters required by the monorepo instead of guessing root npm commands.
 
 ---
 
-### Profile 3: The Rule Fragmentation Trap (`mm-website`)
+### Profile 3: The Rule Fragmentation Trap (Multi-File Rules)
 * **Metrics**: **20 sessions**, **858.1 avg steps**, **5.7% error rate**, **18.2 interventions/session** (**10x higher intervention rate** than Profile 1!).
 * **Configuration Shape**:
   - Root `AGENTS.md` contained no inline technical specifications. Instead, it instructed the agent:
@@ -275,32 +284,29 @@ When we evaluate the agent's behavior across distinct workspaces on this worksta
     - .agent/rules/code-review.md
     - .agent/rules/workflow.md
     ```
-  - **The Failure Mode**: The agent spent dozens of steps opening and reading 5 separate markdown documents (`view_file` loops), consuming 40k+ tokens before understanding the project context.
-  - Furthermore, when the user asked the agent to deploy staging infrastructure (Coolify, Debian, Podman), the rules provided **zero remote-execution guidelines**, causing repeated `apt-get` non-interactive hangs and SSH connection drops.
+  - **The Failure Mode**: The agent spent dozens of steps opening and reading 5 separate markdown documents (`read_file` loops), consuming 40k+ tokens before understanding the project context.
+  - Furthermore, when asked to deploy staging infrastructure, the rules provided **zero remote-execution guidelines**, causing repeated `apt-get` non-interactive hangs and SSH connection drops.
 
 ---
 
-### Profile 4: Deep Systems & Physical Hardware Mesh (`knot-mesh` & `purr`)
-* **Metrics**:
-  - `knot-mesh`: **28 sessions**, **616.5 avg steps**, **5.79 interventions/session**.
-  - `purr`: **10 sessions**, **1,106.5 avg steps**, **22.3 interventions/session**.
+### Profile 4: Deep Systems & Physical Hardware Mesh
 * **Configuration Shape**:
-  - Highly sophisticated system invariants (KDE Plasma 6 DBus script evaluation, Arch Linux pacman/yay non-interactive flags, Waydroid container preservation, Knot mesh multi-node topologies).
-  - Dedicated skills: `subagent-ladder`, `core-mesh`, `knot-swarm`, `arch-kde-devops`.
+  - System invariants (KDE Plasma DBus script evaluation, Arch Linux pacman/yay non-interactive flags, container preservation, multi-node SSH topologies).
+  - Dedicated skills: `subagent-router`, `remote-ops`, `display-ops`.
 * **Why Interventions Were High**:
-  - **Legitimate Human-in-the-Loop Boundaries**: In `purr` and `knot-mesh`, interventions were not agent incompetence. They were **mandatory safety gates** for sudo passwords, pacman lock releases, physical display verification across hardware nodes (Steam Deck, ROG Ally, Laptop), and GPG signed commits.
-  - **The Rule 1 Friction**: `knot-mesh` enforced an "Absolute ban on `|| true`". However, when the agent executed benign probe commands like `git diff | grep -i secret`, `grep` exited with code `1`, causing the agent to panic and seek rescue.
+  - **Legitimate Human-in-the-Loop Boundaries**: Interventions in systems repositories are often **mandatory safety gates** for sudo passwords, package-manager lock releases, physical display verification across devices, and GPG signed commits.
+  - **The Rule 1 Friction**: Enforcing an absolute ban on `|| true` without probing exceptions caused benign probe commands like `git diff | grep -i secret` (exiting with code `1` on empty match) to look like failures.
 
 ---
 
 ## 💡 Key Empirical Discoveries & Root Causes
 
 ### 1. The "Explicit Command Dictionary" Advantage
-Repositories that declare the exact test, lint, and build commands in `AGENTS.md` (e.g. `purrmission`, `sunshine-physio`) see **50% fewer command errors** than repositories that assume the agent can infer Turborepo or npm filter syntax.
+Repositories that declare exact test, lint, and build commands in `AGENTS.md` see **50% fewer command errors** than repositories that assume the agent can infer Turborepo or workspace filter syntax.
 
 ### 2. Multi-File Indirection is a Context Trap
 Forcing the agent to traverse multiple `.agent/rules/*.md` files leads directly to:
-1. Redundant `view_file` tool loops (the 3,951 loop calls noted in the baseline audit).
+1. Redundant `read_file` tool loops (3,951 repeated file-read loop calls in the baseline audit).
 2. Premature context window saturation before the task even begins.
 3. Information loss as rule content gets pushed beyond the attention boundary.
 *Recommendation*: **Consolidate all essential invariants into a single root `AGENTS.md` under 200 lines.**
@@ -308,18 +314,18 @@ Forcing the agent to traverse multiple `.agent/rules/*.md` files leads directly 
 ### 3. Rigid Negative Rules Need Probing Exceptions
 Banning `|| true` without distinguishing between **production code** and **agent terminal inspection** created false-positive exit code 1 failures. The rule must explicitly distinguish:
 - *Prohibited*: Swallowing errors in production code, build scripts, or CI checks.
-- *Permitted/Encouraged*: Probing pattern matches where zero results is a valid outcome (`grep -E 'pattern' || true`).
+- *Permitted/Encouraged*: Probing pattern matches where zero results is a valid outcome (`grep -E 'pattern' || [ $? -eq 1 ]`).
 
 ---
 
-## 🛠️ Recommendations for `psl-agy-harness`
+## 🛠️ Recommendations for `agyis-harness`
 
-1. **Rule Linter & Compactor Tool (`psl-lint-rules`)**:
-   - Provide a CLI tool that inspects a repo's `AGENTS.md` and flags multi-file rule indirection, missing command dictionaries, and uncalibrated exit-code prohibitions.
+1. **Rule Linter & Compactor Tool (`agyis rules --lint`)**:
+   - Inspects a repo's `AGENTS.md` and flags multi-file rule indirection, duplicate declarations, and rule echoes.
 2. **Context-Injected Command Palettes**:
    - Automatically expose the repo's primary scripts from `package.json` / `Makefile` / `pyproject.toml` as a structured palette so agents never guess invocations.
 3. **Calibrated Reference `AGENTS.md`**:
-   - Merge the best-in-class patterns from `sunshine-physio` (The 5 Ground Rules) and `purrmission` (Explicit Command Dictionary) into our reference harness rules.
+   - Merge concise architectural invariants with an Explicit Command Dictionary into reference harness rules.
 """
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -332,6 +338,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite database")
     parser.add_argument("--output", "-o", default="data/reports/project-rules-skills-audit.md", help="Path to output markdown report")
     parser.add_argument("--json-out", default="data/project_configs_audit.json", help="Path to output structured JSON")
+    parser.add_argument("--limit", type=int, default=100, help="Maximum number of workspaces to query from telemetry DB")
     args = parser.parse_args(argv)
 
     db_path = Path(args.db)
@@ -339,7 +346,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         print(f"Error: Database {db_path} does not exist.")
         return
 
-    data = analyze_all_workspaces(db_path)
+    data = analyze_all_workspaces(db_path, limit=args.limit)
 
     json_path = Path(args.json_out)
     json_path.parent.mkdir(parents=True, exist_ok=True)

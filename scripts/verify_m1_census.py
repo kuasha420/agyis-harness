@@ -1,43 +1,43 @@
 #!/usr/bin/env python3
 """
 Milestone 1 Census Empirical Verification Script.
-Checks all 21 PRs listed in FEEDBACK_MATRIX.md against live GitHub API.
-Validates:
-- PR exists
-- State is OPEN
-- Head branch is 'chore/agyis-harness-onboarding'
-- Base branch matches FEEDBACK_MATRIX.md target branch
-Also sweeps all 3 owners (purrfectsoft, kuasha420, sakibtamim) for any other open PRs on chore/agyis-harness-onboarding.
+Checks onboarding PRs from a fleet configuration against the live GitHub API.
+Validates PR existence, OPEN state, expected head branch, and base branch alignment,
+and optionally sweeps configured GitHub owners for unaccounted open onboarding PRs.
 """
 
+from __future__ import annotations
+
+import argparse
 import json
+import os
+from pathlib import Path
 import subprocess
 import sys
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
-EXPECTED_PRS = [
-    {"index": 1, "owner": "purrfectsoft", "repo": "chakra-ui-icons-compat", "pr": 1, "target": "develop"},
-    {"index": 2, "owner": "purrfectsoft", "repo": "bookcover-craft-api", "pr": 6, "target": "dev"},
-    {"index": 3, "owner": "purrfectsoft", "repo": "bookcover-craft", "pr": 4, "target": "staging"},
-    {"index": 4, "owner": "purrfectsoft", "repo": "arbiter", "pr": 1, "target": "develop"},
-    {"index": 5, "owner": "purrfectsoft", "repo": "jasper-hosted", "pr": 42, "target": "main"},
-    {"index": 6, "owner": "purrfectsoft", "repo": "chronicle-time-keeper", "pr": 16, "target": "develop"},
-    {"index": 7, "owner": "purrfectsoft", "repo": "sunshine-physio-webapp", "pr": 52, "target": "main"},
-    {"index": 8, "owner": "purrfectsoft", "repo": "purrmission", "pr": 4, "target": "master"},
-    {"index": 9, "owner": "purrfectsoft", "repo": "mm-website", "pr": 411, "target": "develop"},
-    {"index": 10, "owner": "purrfectsoft", "repo": "psl-website", "pr": 74, "target": "develop"},
-    {"index": 11, "owner": "purrfectsoft", "repo": "psl-scaffold", "pr": 11, "target": "develop"},
-    {"index": 12, "owner": "purrfectsoft", "repo": "psl-boilerplate", "pr": 1, "target": "develop"},
-    {"index": 13, "owner": "purrfectsoft", "repo": "purrfectcore-client", "pr": 543, "target": "develop"},
-    {"index": 14, "owner": "purrfectsoft", "repo": "purrfectcore-001", "pr": 611, "target": "develop"},
-    {"index": 15, "owner": "kuasha420", "repo": "jimha", "pr": 1, "target": "main"},
-    {"index": 16, "owner": "kuasha420", "repo": "knot-mesh", "pr": 80, "target": "main"},
-    {"index": 17, "owner": "kuasha420", "repo": "purr", "pr": 14, "target": "main"},
-    {"index": 18, "owner": "kuasha420", "repo": "react-native-template-ts-plus", "pr": 19, "target": "feat/resurrection"},
-    {"index": 19, "owner": "kuasha420", "repo": "purrmission", "pr": 161, "target": "master"},
-    {"index": 20, "owner": "sakibtamim", "repo": "purrfect-download-manager", "pr": 23, "target": "develop"},
-    {"index": 21, "owner": "sakibtamim", "repo": "Jasper", "pr": 172, "target": "master"},
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+DEFAULT_SAMPLE_PRS: List[Dict[str, Any]] = [
+    {"index": 1, "owner": "example-org", "repo": "sample-ts-app", "pr": 1, "target": "develop"},
+    {"index": 2, "owner": "example-org", "repo": "sample-py-service", "pr": 2, "target": "main"},
+    {"index": 3, "owner": "example-org", "repo": "sample-rust-cli", "pr": 3, "target": "main"},
 ]
+
+
+def load_prs_config(config_path: str | None) -> List[Dict[str, Any]]:
+    if not config_path:
+        return list(DEFAULT_SAMPLE_PRS)
+    raw = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        if isinstance(raw.get("prs"), list):
+            return raw["prs"]
+        if isinstance(raw.get("repos"), list):
+            return raw["repos"]
+    raise ValueError(f"Unsupported fleet config structure in {config_path}")
+
 
 def run_cmd(cmd: List[str]) -> str:
     res = subprocess.run(cmd, capture_output=True, text=True)
@@ -45,21 +45,59 @@ def run_cmd(cmd: List[str]) -> str:
         raise RuntimeError(f"Command {' '.join(cmd)} failed with code {res.returncode}: {res.stderr}")
     return res.stdout
 
-def main():
-    print("=== Milestone 1 Empirical Verification: 21 PR Census ===")
-    results = []
+
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Verify fleet onboarding PR census against GitHub.")
+    parser.add_argument(
+        "--repos-config",
+        default=os.environ.get("AGYIS_FLEET_CONFIG"),
+        help="Path to JSON file containing PR entries [{index, owner, repo, pr, target}, ...].",
+    )
+    parser.add_argument(
+        "--owners",
+        default=os.environ.get("AGYIS_FLEET_OWNERS", ""),
+        help="Comma-separated GitHub owners/orgs to sweep for open onboarding PRs.",
+    )
+    parser.add_argument(
+        "--head-branch",
+        default=os.environ.get("AGYIS_ONBOARD_BRANCH", "chore/agyis-harness-onboarding"),
+        help="Expected head branch name.",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(REPO_ROOT / "scripts" / "verify_m1_census_results.json"),
+        help="Output JSON report path.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: List[str] | None = None) -> int:
+    args = parse_args(argv)
+    if not args.repos_config:
+        print("Notice: --repos-config not supplied; using sample placeholder PR targets.", file=sys.stderr)
+    expected_prs = load_prs_config(args.repos_config)
+    owners = [o.strip() for o in args.owners.split(",") if o.strip()] or sorted(
+        {str(e.get("owner") or e.get("repo", "").split("/")[0]) for e in expected_prs if e.get("owner") or "/" in str(e.get("repo", ""))}
+    )
+
+    print(f"=== Milestone 1 Empirical Verification: {len(expected_prs)} PR Census ===")
+    results: List[Dict[str, Any]] = []
     all_passed = True
 
-    for entry in EXPECTED_PRS:
-        full_repo = f"{entry['owner']}/{entry['repo']}"
-        pr_num = entry['pr']
-        expected_target = entry['target']
-        expected_head = "chore/agyis-harness-onboarding"
+    for idx, entry in enumerate(expected_prs, 1):
+        entry_idx = entry.get("index", idx)
+        if "owner" in entry:
+            full_repo = f"{entry['owner']}/{entry['repo']}"
+        else:
+            full_repo = str(entry["repo"])
+        pr_num = entry.get("pr") or entry.get("pr_number")
+        expected_target = entry.get("target") or entry.get("target_base")
+        expected_head = args.head_branch
 
         cmd = [
             "gh", "pr", "view", str(pr_num),
             "--repo", full_repo,
-            "--json", "number,state,baseRefName,headRefName,title,url"
+            "--json", "number,state,baseRefName,headRefName,title,url",
         ]
         try:
             out = run_cmd(cmd)
@@ -70,16 +108,16 @@ def main():
             actual_title = data.get("title")
             actual_url = data.get("url")
 
-            is_open = (actual_state == "OPEN")
-            head_match = (actual_head == expected_head)
-            target_match = (actual_target == expected_target)
+            is_open = actual_state == "OPEN"
+            head_match = actual_head == expected_head
+            target_match = actual_target == expected_target
 
             passed = is_open and head_match and target_match
             if not passed:
                 all_passed = False
 
-            res_entry = {
-                "index": entry["index"],
+            results.append({
+                "index": entry_idx,
                 "repo": full_repo,
                 "pr": pr_num,
                 "expected_target": expected_target,
@@ -89,65 +127,60 @@ def main():
                 "state": actual_state,
                 "title": actual_title,
                 "url": actual_url,
-                "passed": passed
-            }
-            results.append(res_entry)
-            status_symbol = "✓" if passed else "✗"
-            print(f"[{status_symbol}] #{entry['index']} {full_repo}#{pr_num} state={actual_state} target={actual_target} head={actual_head}")
-            if not passed:
-                print(f"    FAIL: is_open={is_open}, head_match={head_match}, target_match={target_match}")
-        except Exception as e:
+                "passed": passed,
+            })
+            status_symbol = "PASS" if passed else "FAIL"
+            print(f"[{status_symbol}] #{entry_idx} {full_repo}#{pr_num} state={actual_state} target={actual_target} head={actual_head}")
+        except Exception as exc:
             all_passed = False
-            print(f"[✗] #{entry['index']} {full_repo}#{pr_num} ERROR: {e}")
+            print(f"[FAIL] #{entry_idx} {full_repo}#{pr_num} ERROR: {exc}", file=sys.stderr)
             results.append({
-                "index": entry["index"],
+                "index": entry_idx,
                 "repo": full_repo,
                 "pr": pr_num,
                 "passed": False,
-                "error": str(e)
+                "error": str(exc),
             })
 
-    print("\n=== Search Sweep Across 3 Owners for any other open PRs on chore/agyis-harness-onboarding ===")
-    owners = ["purrfectsoft", "kuasha420", "sakibtamim"]
-    discovered_prs = {}
+    print(f"\n=== Search Sweep Across {len(owners)} Owners for '{args.head_branch}' ===")
+    discovered_prs: Dict[str, List[Dict[str, Any]]] = {}
     for owner in owners:
         search_cmd = [
             "gh", "search", "prs",
-            "--head", "chore/agyis-harness-onboarding",
+            "--head", args.head_branch,
             "--owner", owner,
             "--state", "open",
-            "--json", "repository,number,title,state,url"
+            "--json", "repository,number,title,state,url",
         ]
-        out = run_cmd(search_cmd)
-        prs = json.loads(out)
+        try:
+            out = run_cmd(search_cmd)
+            prs = json.loads(out)
+        except Exception as exc:
+            all_passed = False
+            print(f"Owner {owner}: search ERROR: {exc}", file=sys.stderr)
+            prs = []
         discovered_prs[owner] = prs
         print(f"Owner {owner}: found {len(prs)} open PRs")
 
     total_discovered = sum(len(v) for v in discovered_prs.values())
-    print(f"Total discovered open PRs: {total_discovered} (Expected: 21)")
-
-    # Check for unexpected PRs
-    expected_set = {(e['owner'] + "/" + e['repo']).lower(): e['pr'] for e in EXPECTED_PRS}
-    discovered_set = {}
-    for owner, pr_list in discovered_prs.items():
+    expected_set = {
+        (f"{e['owner']}/{e['repo']}" if "owner" in e else str(e["repo"])).lower(): (e.get("pr") or e.get("pr_number"))
+        for e in expected_prs
+    }
+    discovered_set: Dict[str, int] = {}
+    for pr_list in discovered_prs.values():
         for p in pr_list:
-            nwo = p['repository']['nameWithOwner'].lower()
-            discovered_set[nwo] = p['number']
+            nwo = p["repository"]["nameWithOwner"].lower()
+            discovered_set[nwo] = p["number"]
 
     missing_in_census = set(discovered_set.keys()) - set(expected_set.keys())
     missing_in_github = set(expected_set.keys()) - set(discovered_set.keys())
-
-    if missing_in_census:
-        print(f"WARNING: Found open PRs not in census: {missing_in_census}")
+    if missing_in_census or missing_in_github:
         all_passed = False
-    else:
-        print("✓ Zero extra open PRs found on GitHub outside census.")
-
-    if missing_in_github:
-        print(f"WARNING: Census contains PRs not found in open search: {missing_in_github}")
-        all_passed = False
-    else:
-        print("✓ All census PRs accounted for in GitHub search.")
+        if missing_in_census:
+            print(f"WARNING: Found open PRs not in census: {sorted(missing_in_census)}")
+        if missing_in_github:
+            print(f"WARNING: Census contains PRs not found in open search: {sorted(missing_in_github)}")
 
     verdict = "APPROVE" if all_passed else "REQUEST_CHANGES"
     print(f"\nFINAL VERDICT: {verdict}")
@@ -155,15 +188,18 @@ def main():
     output_summary = {
         "verdict": verdict,
         "all_passed": all_passed,
-        "total_census_prs": len(EXPECTED_PRS),
+        "total_census_prs": len(expected_prs),
         "total_github_open_prs": total_discovered,
         "results": results,
-        "discovered_by_owner": {k: len(v) for k, v in discovered_prs.items()}
+        "discovered_by_owner": {k: len(v) for k, v in discovered_prs.items()},
     }
 
-    with open("/home/kuasha/Dev/psl-agy-harness/scripts/verify_m1_census_results.json", "w") as f:
-        json.dump(output_summary, f, indent=2)
-    print("Results dumped to /home/kuasha/Dev/psl-agy-harness/scripts/verify_m1_census_results.json")
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(output_summary, indent=2) + "\n", encoding="utf-8")
+    print(f"Results dumped to {out_path}")
+    return 0 if all_passed else 1
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

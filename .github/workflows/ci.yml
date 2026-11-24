@@ -56,6 +56,7 @@ jobs:
           uv run --frozen python3 -m harness.cli agents validate --json
           uv run --frozen python3 -m harness.cli rules --lint
           uv run --frozen python3 -m harness.cli audit aff
+          uv run --frozen python3 -m harness.cli doctor --anti-synthetic --test-path tests
 
       - name: Run full hermetic test suite
         run: |
@@ -86,6 +87,44 @@ jobs:
           assert (ir.files("harness.runtime") / "matrix.json").is_file()
           assert (ir.files("harness.agents") / "agyis_builder.md").is_file()
           assert (ir.files("harness") / "plugin.json").is_file()
-          print("CI isolated wheel smoke test passed.")
+          print("CI isolated wheel importlib.resources check passed.")
           PY
-          uv run --no-project --isolated --with "$ABS_WHL" agyis --version
+
+          uv venv "$TMP_SMOKE/venv" --python 3.12
+          uv pip install --python "$TMP_SMOKE/venv/bin/python" "$ABS_WHL"
+          SAMPLE_REPO="$TMP_SMOKE/sample-repo"
+          mkdir -p "$SAMPLE_REPO/pkg" "$SAMPLE_REPO/tests"
+          git -C "$SAMPLE_REPO" init -q
+          cat > "$SAMPLE_REPO/pkg/__init__.py" <<'EOF'
+          """Sample Python package."""
+          def add(a: int, b: int) -> int:
+              """Return sum."""
+              return a + b
+          EOF
+          cat > "$SAMPLE_REPO/tests/test_sample.py" <<'EOF'
+          from pathlib import Path
+          import sys
+          import unittest
+
+          sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+          from pkg import add
+
+          class SampleTest(unittest.TestCase):
+              def test_add(self) -> None:
+                  self.assertEqual(add(2, 3), 5)
+          EOF
+          export HOME="$TMP_SMOKE/home"
+          export AGYIS_CONFIG_DIR="$TMP_SMOKE/cfg"
+          export PSL_HARNESS_STATE_DIR="$TMP_SMOKE/state"
+          mkdir -p "$HOME" "$AGYIS_CONFIG_DIR" "$PSL_HARNESS_STATE_DIR"
+          cd "$SAMPLE_REPO"
+          "$TMP_SMOKE/venv/bin/agyis" --version
+          "$TMP_SMOKE/venv/bin/agyis" audit aff
+          "$TMP_SMOKE/venv/bin/agyis" init --yes --stack python
+          "$TMP_SMOKE/venv/bin/agyis" test
+          if "$TMP_SMOKE/venv/bin/agyis" audit inventory 2>"$TMP_SMOKE/audit_err.log"; then
+            echo "::error::Expected pipeline-only audit stage to exit non-zero in wheel distribution"
+            exit 1
+          fi
+          grep -q "source checkout" "$TMP_SMOKE/audit_err.log"
+          echo "CI isolated wheel end-to-end smoke test passed."

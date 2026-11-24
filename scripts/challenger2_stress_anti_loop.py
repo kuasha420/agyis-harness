@@ -129,8 +129,8 @@ class TestAntiLoopAdversarialBoundaries(unittest.TestCase):
     def test_generic_consecutive_boundary_strictly_3_allow_4_deny(self):
         """Verify generic commands allow exactly 3 consecutive calls and deny on the 4th."""
         test_tools = [
-            ("view_file", {"AbsolutePath": "/workspace/src/app.py"}),
-            ("grep_search", {"Query": "TODO", "SearchPath": "/workspace/src"}),
+            ("read_file", {"Path": "/workspace/src/app.py"}),
+            ("run_command", {"CommandLine": "rg TODO /workspace/src"}),
             ("run_command", {"CommandLine": "cargo build"}),
             ("run_command", {"CommandLine": "python3 script.py"}),
             ("run_command", {"CommandLine": "ls -la /tmp"}),
@@ -159,8 +159,8 @@ class TestAntiLoopAdversarialBoundaries(unittest.TestCase):
     def test_generic_window_boundary_strictly_3_allow_4_deny(self):
         """Verify rolling window of 15 allows 3 occurrences of generic command, 4th denied."""
         conv_id = "generic-window-test"
-        name = "grep_search"
-        args = {"Query": "find_me", "SearchPath": "/workspace"}
+        name = "read_file"
+        args = {"Path": "/workspace/find_me.py"}
 
         # Call 1
         res1 = check_anti_loop(name, args, conv_id=conv_id, state_dir=self.state_dir)
@@ -194,18 +194,18 @@ class TestAntiLoopAdversarialBoundaries(unittest.TestCase):
     # 3. Heartbeat Inspection Exemption: Never Blocked
     # =========================================================================
     def test_heartbeat_stress_50_consecutive_executions_never_blocked(self):
-        """Assert that view_file on progress.md or teamwork paths can be called 50+ times without denial."""
+        """Assert that read_file on progress.md or teamwork paths can be called 50+ times without denial."""
         conv_id = "heartbeat-stress-50"
         heartbeat_targets = [
-            {"AbsolutePath": "/home/kuasha/Dev/psl-agy-harness/.agents/teamwork/o13_m3_worker_1/progress.md"},
-            {"AbsolutePath": ".agents/teamwork/orchestrator_13/plan.md"},
-            {"AbsolutePath": "/workspace/.agents/teamwork/o13_m3_challenger_2/DISPATCH.md"},
-            {"AbsolutePath": "/workspace/subproject/progress.md"},
+            {"Path": "/workspace/agyis-harness/.agents/teamwork/worker_1/progress.md"},
+            {"Path": ".agents/teamwork/orchestrator/plan.md"},
+            {"Path": "/workspace/.agents/teamwork/challenger_2/DISPATCH.md"},
+            {"Path": "/workspace/subproject/progress.md"},
         ]
 
         for target in heartbeat_targets:
             for i in range(50):
-                res = check_anti_loop("view_file", target, conv_id=conv_id, state_dir=self.state_dir)
+                res = check_anti_loop("read_file", target, conv_id=conv_id, state_dir=self.state_dir)
                 self.assertEqual(
                     res.get("decision"),
                     "allow",
@@ -215,28 +215,31 @@ class TestAntiLoopAdversarialBoundaries(unittest.TestCase):
     # =========================================================================
     # 4. Background Task Polling & Advisory Boundaries
     # =========================================================================
-    def test_manage_task_status_25_consecutive_never_denied(self):
-        """manage_task(Action='status') is always advisory allow even under 25 consecutive calls."""
+    def test_manage_task_status_strict_rate_limit(self):
+        """manage_task(Action='status') emits advisory on calls 1-2 and denies on call 3."""
         conv_id = "manage-task-advisory-stress"
         args = {"Action": "status", "TaskId": "task-999"}
-        for i in range(25):
+        for i in range(2):
             res = check_anti_loop("manage_task", args, conv_id=conv_id, state_dir=self.state_dir)
-            self.assertEqual(res.get("decision"), "allow")
+            self.assertEqual(res.get("decision"), "allow", f"Call {i+1} unexpectedly denied: {res}")
             self.assertIn("Advisory", res.get("reason", ""))
+        tripped = check_anti_loop("manage_task", args, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(tripped.get("decision"), "deny")
+        self.assertIn("background task inspections", tripped.get("reason", ""))
 
     def test_task_log_inspection_hard_denial_boundary(self):
         """Directly reading background task logs (.system_generated/tasks/...log) is denied after 2 consecutive."""
         conv_id = "task-log-consec"
-        log_args = {"AbsolutePath": "/home/user/.gemini/brain/session/.system_generated/tasks/task-1.log"}
+        log_args = {"Path": "/home/user/.gemini/brain/session/.system_generated/tasks/task-1.log"}
 
         # Calls 1 and 2 allow
-        res1 = check_anti_loop("view_file", log_args, conv_id=conv_id, state_dir=self.state_dir)
+        res1 = check_anti_loop("read_file", log_args, conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res1["decision"], "allow")
-        res2 = check_anti_loop("view_file", log_args, conv_id=conv_id, state_dir=self.state_dir)
+        res2 = check_anti_loop("read_file", log_args, conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res2["decision"], "allow")
 
         # Call 3 is DENIED by task log check (MAX_TASK_INSPECTION_CONSECUTIVE = 2)
-        res3 = check_anti_loop("view_file", log_args, conv_id=conv_id, state_dir=self.state_dir)
+        res3 = check_anti_loop("read_file", log_args, conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res3["decision"], "deny")
         self.assertIn("consecutive background task inspections", res3["reason"])
 
@@ -249,11 +252,11 @@ class TestAntiLoopAdversarialBoundaries(unittest.TestCase):
         for i in range(20):
             # Code edit
             edit_res = check_anti_loop(
-                "replace_file_content",
+                "edit_file",
                 {
-                    "TargetFile": "/workspace/lib.py",
-                    "TargetContent": f"x = {i}",
-                    "ReplacementContent": f"x = {i+1}",
+                    "Path": "/workspace/lib.py",
+                    "Target": f"x = {i}",
+                    "Replacement": f"x = {i+1}",
                 },
                 conv_id=conv_id,
                 state_dir=self.state_dir,
@@ -280,7 +283,7 @@ class TestAntiLoopAdversarialBoundaries(unittest.TestCase):
         """A repeating 2-tool cycle (A -> B -> A -> B) of generic tools is denied."""
         conv_id = "cyclic-generic"
         tool_a = ("run_command", {"CommandLine": "ls -l /tmp"})
-        tool_b = ("grep_search", {"Query": "pattern", "SearchPath": "/tmp"})
+        tool_b = ("read_file", {"Path": "/tmp/pattern.txt"})
 
         # Cycle 1: A -> B
         check_anti_loop(tool_a[0], tool_a[1], conv_id=conv_id, state_dir=self.state_dir)
@@ -334,22 +337,20 @@ class TestAntiLoopAdversarialBoundaries(unittest.TestCase):
                     f"Expected fallback allow on input '{raw}', got {parsed}",
                 )
 
-    def test_hook_main_null_tool_call_attribute_error_edge_case(self):
+    def test_hook_main_null_tool_call_fails_open(self):
         """
-        Adversarial edge case:
-        Demonstrates that when payload is a valid JSON dict but has null toolCall or null args,
-        e.g. {"toolCall": null} or {"toolCall": {"name": "run_command", "args": null}},
-        anti_loop_hook main() raises an uncaught AttributeError because extraction occurs
-        outside the try...except block without dict coalescing.
+        Verify that when payload is a valid JSON dict with null toolCall or null args,
+        anti_loop_hook main() coalesces safely and fails open (decision: allow).
         """
-        vulnerable_inputs = [
+        edge_inputs = [
             '{"conversationId": "test", "toolCall": null}',
             '{"conversationId": "test", "toolCall": {"name": "run_command", "args": null}}',
         ]
-        for raw in vulnerable_inputs:
-            with patch("sys.stdin", io.StringIO(raw)):
-                with self.assertRaises(AttributeError):
-                    anti_loop_main()
+        for raw in edge_inputs:
+            with patch("sys.stdin", io.StringIO(raw)), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                anti_loop_main()
+                parsed = json.loads(mock_out.getvalue().strip())
+                self.assertEqual(parsed.get("decision"), "allow")
 
 
 if __name__ == "__main__":

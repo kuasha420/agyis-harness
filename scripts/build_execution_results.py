@@ -1,64 +1,104 @@
 #!/usr/bin/env python3
-"""Build complete execution_results.json."""
+"""Build consolidated fleet execution_results.json from PR checks and local verification outputs."""
 
+from __future__ import annotations
+
+import argparse
 import json
-import subprocess
 import os
+from pathlib import Path
+import subprocess
+import sys
+from typing import Any, Dict, List
 
-PRS = [
-    {"repo": "purrfectsoft/chakra-ui-icons-compat", "pr": 1, "target_base": "develop"},
-    {"repo": "purrfectsoft/bookcover-craft-api", "pr": 6, "target_base": "dev"},
-    {"repo": "purrfectsoft/bookcover-craft", "pr": 4, "target_base": "staging"},
-    {"repo": "purrfectsoft/arbiter", "pr": 1, "target_base": "develop"},
-    {"repo": "purrfectsoft/jasper-hosted", "pr": 42, "target_base": "main"},
-    {"repo": "purrfectsoft/chronicle-time-keeper", "pr": 16, "target_base": "develop"},
-    {"repo": "purrfectsoft/sunshine-physio-webapp", "pr": 52, "target_base": "main"},
-    {"repo": "purrfectsoft/purrmission", "pr": 4, "target_base": "master"},
-    {"repo": "purrfectsoft/mm-website", "pr": 411, "target_base": "develop"},
-    {"repo": "purrfectsoft/psl-website", "pr": 74, "target_base": "develop"},
-    {"repo": "purrfectsoft/psl-scaffold", "pr": 11, "target_base": "develop"},
-    {"repo": "purrfectsoft/psl-boilerplate", "pr": 1, "target_base": "develop"},
-    {"repo": "purrfectsoft/purrfectcore-client", "pr": 543, "target_base": "develop"},
-    {"repo": "purrfectsoft/purrfectcore-001", "pr": 611, "target_base": "develop"},
-    {"repo": "kuasha420/jimha", "pr": 1, "target_base": "main"},
-    {"repo": "kuasha420/knot-mesh", "pr": 80, "target_base": "main"},
-    {"repo": "kuasha420/purr", "pr": 14, "target_base": "main"},
-    {"repo": "kuasha420/react-native-template-ts-plus", "pr": 19, "target_base": "feat/resurrection"},
-    {"repo": "kuasha420/purrmission", "pr": 161, "target_base": "master"},
-    {"repo": "sakibtamim/purrfect-download-manager", "pr": 23, "target_base": "develop"},
-    {"repo": "sakibtamim/Jasper", "pr": 172, "target_base": "master"},
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+DEFAULT_SAMPLE_PRS: List[Dict[str, Any]] = [
+    {"repo": "example-org/sample-ts-app", "pr": 1, "target_base": "develop"},
+    {"repo": "example-org/sample-py-service", "pr": 2, "target_base": "main"},
+    {"repo": "example-org/sample-rust-cli", "pr": 3, "target_base": "main"},
 ]
 
-def run_cmd(cmd):
+
+def load_prs_config(config_path: str | None) -> List[Dict[str, Any]]:
+    if not config_path:
+        return list(DEFAULT_SAMPLE_PRS)
+    raw = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        if isinstance(raw.get("prs"), list):
+            return raw["prs"]
+        if isinstance(raw.get("repos"), list):
+            return raw["repos"]
+    raise ValueError(f"Unsupported fleet config structure in {config_path}")
+
+
+def run_cmd(cmd: List[str]) -> tuple[int, str, str]:
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return res.returncode, res.stdout.strip(), res.stderr.strip()
 
-def main():
+
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Aggregate fleet PR, sync, and verification results.")
+    parser.add_argument(
+        "--repos-config",
+        default=os.environ.get("AGYIS_FLEET_CONFIG"),
+        help="Path to JSON file containing PR targets.",
+    )
+    parser.add_argument(
+        "--phase2-results",
+        default=str(REPO_ROOT / "scripts" / "phase2_sync_results.json"),
+        help="Path to phase 2 sync results JSON.",
+    )
+    parser.add_argument(
+        "--phase4-results",
+        default=str(REPO_ROOT / "scripts" / "phase4_verification_results.json"),
+        help="Path to phase 4 verification results JSON.",
+    )
+    parser.add_argument(
+        "--branch",
+        default=os.environ.get("AGYIS_ONBOARD_BRANCH", "chore/agyis-harness-onboarding"),
+        help="Onboarding branch expected to be deleted after merge.",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(REPO_ROOT / "scripts" / "execution_results.json"),
+        help="Output consolidated JSON path.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: List[str] | None = None) -> int:
+    args = parse_args(argv)
+    if not args.repos_config:
+        print("Notice: --repos-config not supplied; using sample placeholder PR targets.", file=sys.stderr)
+    prs = load_prs_config(args.repos_config)
     print("Collecting live GitHub PR verification records...")
-    pr_records = []
-    for idx, item in enumerate(PRS, 1):
+    pr_records: List[Dict[str, Any]] = []
+
+    for idx, item in enumerate(prs, 1):
         repo = item["repo"]
-        pr_num = item["pr"]
+        pr_num = item.get("pr") or item.get("pr_number")
         target_base = item["target_base"]
-        
+
         code, stdout, stderr = run_cmd([
             "gh", "pr", "view", str(pr_num), "--repo", repo,
-            "--json", "state,mergeCommit,mergedAt,mergedBy,headRefName,baseRefName,title,url"
+            "--json", "state,mergeCommit,mergedAt,mergedBy,headRefName,baseRefName,title,url",
         ])
-        
+
         if code == 0:
             data = json.loads(stdout)
             state = data.get("state")
-            merge_commit = data.get("mergeCommit", {}).get("oid") if data.get("mergeCommit") else None
+            merge_commit = (data.get("mergeCommit") or {}).get("oid")
             merged_at = data.get("mergedAt")
-            merged_by = data.get("mergedBy", {}).get("login") if data.get("mergedBy") else None
-            
-            # Check remote branch deletion
-            b_code, b_out, b_err = run_cmd([
-                "gh", "api", f"repos/{repo}/branches/chore/agyis-harness-onboarding"
-            ])
-            remote_branch_deleted = (b_code != 0 and ("404" in b_out or "Branch not found" in b_out or "404" in b_err or "Branch not found" in b_err))
-            
+            merged_by = (data.get("mergedBy") or {}).get("login")
+
+            b_code, b_out, b_err = run_cmd(["gh", "api", f"repos/{repo}/branches/{args.branch}"])
+            remote_branch_deleted = b_code != 0 and (
+                "404" in b_out or "Branch not found" in b_out or "404" in b_err or "Branch not found" in b_err
+            )
+
             record = {
                 "index": idx,
                 "repo": repo,
@@ -74,8 +114,7 @@ def main():
                 "merged_by": merged_by,
                 "remote_branch_deleted": remote_branch_deleted,
                 "merge_command": f"gh pr merge {pr_num} --repo {repo} --merge --delete-branch",
-                "merge_result": "SUCCESS" if state == "MERGED" else "FAILED_UPSTREAM_COLLABORATOR_PERMISSION",
-                "notes": "Merged successfully via merge commit and remote branch deleted" if state == "MERGED" else "Upstream repository owned by sakibtamim requires collaborator write permission to execute MergePullRequest on GitHub."
+                "merge_result": "SUCCESS" if state == "MERGED" else "PENDING_OR_BLOCKED",
             }
         else:
             record = {
@@ -83,67 +122,51 @@ def main():
                 "repo": repo,
                 "pr_number": pr_num,
                 "target_base": target_base,
-                "error": stderr
+                "error": stderr,
             }
         pr_records.append(record)
 
-    # Read phase2 results
-    with open("/home/kuasha/Dev/psl-agy-harness/scripts/phase2_sync_results.json") as f:
-        sync_records = json.load(f)
+    sync_records = json.loads(Path(args.phase2_results).read_text(encoding="utf-8"))
+    p4_data = json.loads(Path(args.phase4_results).read_text(encoding="utf-8"))
 
-    # Read phase4 results
-    with open("/home/kuasha/Dev/psl-agy-harness/scripts/phase4_verification_results.json") as f:
-        p4_data = json.load(f)
-        
     wip_records = {
-        "bookcover-craft": {
-            "path": "/home/kuasha/Dev/bookcover-craft",
-            "base_branch": "staging",
-            "patch_file": "wip-safety-pre-onboarding.patch",
-            "patch_applied": True,
-            "modified_files": [
-                "package.json",
-                "src/app/(auth)/signin/page.tsx",
-                "src/templates/navigation/navbar-links.tsx (deleted)",
-                "yarn.lock"
-            ],
-            "status": "RESTORED_CLEANLY"
-        },
-        "bookcover-craft-api": {
-            "path": "/home/kuasha/Dev/bookcover-craft-api",
-            "base_branch": "dev",
-            "patch_file": "wip-safety-pre-onboarding.patch",
-            "patch_applied": True,
-            "modified_files": [
-                "src/common/auth/passport-facebook/facebook.strategy.ts"
-            ],
-            "status": "RESTORED_CLEANLY"
-        },
-        "other_18_repos_status": "ALL_18_WORKING_TREES_VERIFIED_100%_CLEAN"
+        rec["name"]: {
+            "path": rec.get("path"),
+            "base_branch": rec.get("base_branch"),
+            "patch_file": ".agents/artifacts/pre_onboard_safety.patch",
+            "status": "RESTORED_CLEANLY" if rec.get("wip_restored") else "CLEAN",
+        }
+        for rec in sync_records
+        if rec.get("wip_restored")
     }
+
+    doctor_results = p4_data.get("doctor_results", [])
+    test_results = p4_data.get("test_results", [])
 
     final_results = {
         "summary": {
-            "total_prs": len(PRS),
+            "total_prs": len(prs),
             "merged_prs": len([p for p in pr_records if p.get("state") == "MERGED"]),
-            "pending_permission_prs": len([p for p in pr_records if p.get("state") != "MERGED"]),
+            "pending_prs": len([p for p in pr_records if p.get("state") != "MERGED"]),
             "synced_repos": len(sync_records),
-            "wip_restored_repos": 2,
-            "clean_repos": 18,
-            "doctor_checks_passed": len([d for d in p4_data["doctor_results"] if d.get("exit_code") == 0]),
-            "native_test_suites_passed": len([t for t in p4_data["test_results"] if t.get("exit_code") == 0])
+            "wip_restored_repos": len(wip_records),
+            "clean_repos": len([r for r in sync_records if r.get("working_tree_clean")]),
+            "doctor_checks_passed": len([d for d in doctor_results if d.get("exit_code") == 0]),
+            "native_test_suites_passed": len([t for t in test_results if t.get("exit_code") == 0]),
         },
         "pull_requests": pr_records,
         "local_sync": sync_records,
         "wip_restoration": wip_records,
-        "doctor_verification": p4_data["doctor_results"],
-        "native_tests_verification": p4_data["test_results"]
+        "doctor_verification": doctor_results,
+        "native_tests_verification": test_results,
     }
 
-    output_path = "/home/kuasha/Dev/psl-agy-harness/.agents/teamwork/o9_worker_1/execution_results.json"
-    with open(output_path, "w") as f:
-        json.dump(final_results, f, indent=2)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(final_results, indent=2) + "\n", encoding="utf-8")
     print(f"Successfully generated {output_path}")
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

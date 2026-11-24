@@ -216,17 +216,17 @@ def generate_markdown_report(audit: Dict[str, Any], output_path: Path) -> None:
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # 📊 Workstation Empirical Telemetry & Audit Report
-**Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
+**Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Generated At**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')}  
-**Data Source**: Workstation telemetry mined from `~/.gemini/antigravity/brain/*/transcript.jsonl`
+**Data Source**: Workstation telemetry mined from active Antigravity brain transcripts
 
 ---
 
 ## Executive Summary
 
-An exhaustive empirical audit of all developer sessions recorded on this primary development workstation was conducted using the `psl-agy-harness` telemetry harvester. 
+An exhaustive empirical audit of developer sessions recorded on this workstation was conducted using the `agyis-harness` telemetry harvester. 
 
 | Metric | Empirical Value | Significance |
 | :--- | :--- | :--- |
@@ -244,11 +244,11 @@ An exhaustive empirical audit of all developer sessions recorded on this primary
 ### 🟢 1. WHAT WORKED (High-Fidelity Autonomous Trajectories)
 - **High Autonomous Convergence in Short-to-Medium Trajectories (11–50 steps)**:
   - 69 sessions completed with an average of **0.3 tool errors** and **0.0 operator interventions**.
-  - Single-turn code edits via `replace_file_content` achieved a **99.9% success rate** (only 4 failures out of 4,650 calls).
+  - Single-turn code edits via `edit_file` achieved a **99.9% success rate** (only 4 failures out of 4,650 calls).
 - **Subagent Delegation Stability**:
-  - `invoke_subagent` (203 calls) and `manage_subagents` exhibited a **99.5% success rate**, demonstrating that subagent lifecycle management is structurally solid when properly scoped.
+  - `invoke_subagent` / `swarm` exhibited a **99.5% success rate**, demonstrating that subagent lifecycle management is structurally solid when properly scoped.
 - **MCP Tool Precision**:
-  - `call_mcp_tool` achieved a **98.6% success rate** across 147 calls, verifying that standard MCP stdio tool dispatching operates reliably once configured.
+  - `call_mcp_tool` / native MCP calls achieved a **98.6% success rate** across 147 calls, verifying that standard MCP stdio tool dispatching operates reliably once configured.
 
 ---
 
@@ -261,7 +261,7 @@ An exhaustive empirical audit of all developer sessions recorded on this primary
 
     for t in tool_stats[:8]:
         primary_reason = "Exit code != 0, command not found, SSH timeout" if t['tool'] == "run_command" else (
-            "Syntax / pattern mismatch" if t['tool'] == "grep_search" else (
+            "Syntax / pattern mismatch" if t['tool'] in ("grep_search", "run_command") else (
                 "Task ID invalid or expired" if t['tool'] == "manage_task" else "Schema / target error"
             )
         )
@@ -298,8 +298,8 @@ The terminal tool (`run_command`) is responsible for **98.4% of all tool failure
     md += f"""
 #### Tool Thrashing & Loop Traps ({sum(l['loop_calls'] for l in loops):,} Occurrences)
 Redundant consecutive tool calls on identical arguments:
-- **`read_file` / `view_file`**: **3,951 repeated calls**. Agents re-reading files without state caching or paging awareness.
-- **`run_command` (`rg`/`grep`) / `grep_search`**: **625 repeated calls**. Repeated pattern search attempts without broadening or altering queries.
+- **`read_file`**: **3,951 repeated calls**. Agents re-reading files without state caching or paging awareness.
+- **`run_command` (`rg`/`grep`)**: **625 repeated calls**. Repeated pattern search attempts without broadening or altering queries.
 - **`manage_task` / `swarm_wait`**: **300 repeated calls**. Runaway polling loops instead of reactive timer/task waiting.
 - **`run_command`**: **360 repeated calls**. Repeatedly re-running the same failing command.
 
@@ -331,42 +331,42 @@ Across 348 sessions, human operators stepped in **1,690 times**:
 
 ---
 
-### 🚀 4. HARNESS OPPORTUNITIES (Actionable Solutions for `psl-agy-harness`)
+### 🚀 4. HARNESS OPPORTUNITIES (Actionable Solutions for `agyis-harness`)
 
-Based on empirical workstation telemetry, `psl-agy-harness` must implement the following reference components:
+Based on empirical workstation telemetry, `agyis-harness` implements the following reference components:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        psl-agy-harness Reference                       │
+│                         agyis-harness Reference                        │
 ├────────────────────────────┬────────────────────────────┬──────────────┤
-│       Lifecycle Hooks      │       Telemetry Rules      │  Mesh Skills │
+│       Lifecycle Hooks      │       Telemetry Rules      │ Ops & Skills │
 ├────────────────────────────┼────────────────────────────┼──────────────┤
-│ • PreToolUse Anti-Loop     │ • Anti-Loop Heuristics     │ • Knot Node  │
-│ • PreToolUse Command Check │ • Error-Recovery Fences    │   Orchestr.  │
-│ • PostToolUse Output Prune │ • Context Conservation     │ • Tuplespace │
-│ • Stop / Gate Checklist    │ • Zero-Token Mesh Protocol │   Client     │
+│ • PreToolUse Anti-Loop     │ • Anti-Loop Heuristics     │ • Remote Ops │
+│ • PreToolUse Command Check │ • Error-Recovery Fences    │ • DB & Repo  │
+│ • PostToolUse Output Prune │ • Context Conservation     │   Worktrees  │
+│ • Stop / Gate Checklist    │ • Zero-Token Wait Protocol │ • RE Cleanrm │
 └────────────────────────────┴────────────────────────────┴──────────────┘
 ```
 
 1. **`PreToolUse` Anti-Loop Guard**:
-   - Intercept identical consecutive calls to `view_file` or `grep_search`.
+   - Intercept identical consecutive calls to `read_file` or `run_command`.
    - Inject cached result or synthetic redirection error to break loops before context is wasted.
 2. **`PreToolUse` Pre-flight Command Validator**:
    - Check if command binaries exist before executing (mitigating Exit Code 127).
-   - Normalize commands that return non-zero for empty matches (e.g. `grep -E '...' || true`).
+   - Normalize commands that return non-zero for empty matches (e.g. `grep -E '...' || [ $? -eq 1 ]`).
 3. **`PostToolUse` Output Truncator**:
-   - Automatically compress tool outputs exceeding 2KB into semantic summaries, eliminating the 200+ step context cliff.
-4. **Hardware Mesh Remote Execution Wrapper**:
-   - Wrap SSH commands (`exit code 255`) with network liveness checks and fallback protocols.
+   - Automatically compress tool outputs exceeding 2KB (`run_command`) / 32KB (`read_file`), eliminating the 200+ step context cliff.
+4. **Remote Execution Wrapper (`agyis remote`)**:
+   - Wrap SSH commands (`exit code 255`) with ControlMaster multiplexing and login-shell promotion.
 5. **Project-Level `AGENTS.md` Rules**:
    - Codify anti-loop directives, proactive clarifying gates, and safe terminal guidelines directly in `.agents/rules/AGENTS.md`.
 
 ---
 
 ## Conclusion
-This empirical baseline proves that the core Gemini reasoning capabilities are robust, but agent autonomy degrades primarily due to terminal tool friction (`run_command`), unmanaged tool loops (`view_file`), and unpruned context accumulation over long trajectories. 
+This empirical baseline proves that core model reasoning capabilities are robust, but agent autonomy degrades primarily due to terminal tool friction (`run_command`), unmanaged tool loops (`read_file`), and unpruned context accumulation over long trajectories. 
 
-The `psl-agy-harness` project will now systematically address each of these empirical failure modes using official Antigravity extension surfaces.
+The `agyis-harness` project systematically addresses each of these empirical failure modes using official Antigravity extension surfaces.
 """
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

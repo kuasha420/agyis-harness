@@ -284,7 +284,7 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
         "",
     ]
     lines.append("# 🔬 The Ultra-Deep Horizon Microscope: 1,000+ Step Survival Analysis")
-    lines.append("**Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  ")
+    lines.append("**Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  ")
     lines.append("**Publisher**: Purrfect Software Limited (PSL)  ")
     lines.append(f"**Generated At**: {data['generated_at']}  ")
     lines.append("**Data Source**: Deep forensic mining of `data/telemetry.db` across all sessions with `>= 1,000` steps  ")
@@ -314,7 +314,7 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     lines.append("| :--- | :--- | :--- |")
     lines.append(f"| **Type A: High-Endurance Survivors** | **{m['archetype_distribution']['TYPE_A_SURVIVOR']}** | **<0.8 interventions/100 steps**. Relies on rigid command dictionaries, high test cadence, and surgical contiguous edits. Operates 250+ steps between interventions. |")
     lines.append(f"| **Type B: Systems Breakthroughs** | **{m['archetype_distribution']['TYPE_B_SYSTEMS_BREAKTHROUGH']}** | **Hardware mesh & Linux OS automation** (Knot, KDE, DBus, Wayland). Higher interventions due to mandatory safety gates (sudo passwords, physical pairing, GPG). |")
-    lines.append(f"| **Type C: Thrashing & Exhaustion Traps** | **{m['archetype_distribution']['TYPE_C_THRASHING_TRAP']}** | **>1.5 interventions/100 steps & >5% errors**. Dominant `run_command` loops (>55%), rule indirection, guessing deployment configs, infinite view_file loops. |")
+    lines.append(f"| **Type C: Thrashing & Exhaustion Traps** | **{m['archetype_distribution']['TYPE_C_THRASHING_TRAP']}** | **>1.5 interventions/100 steps & >5% errors**. Dominant `run_command` loops (>55%), rule indirection, guessing deployment configs, infinite `read_file` loops. |")
     lines.append("\n---\n")
 
     lines.append("## 3. Roster of the 30 Titan Sessions\n")
@@ -335,9 +335,9 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
 
     if knot.get("found"):
         lines.append("## 4. Historic Case Study: The Genesis of Knot (`8cbe936a`)\n")
-        lines.append("On **September 4, 2026**, an Antigravity session was initialized with the focused window at `/home/kuasha/Dev/8-Ball-Pool-Guide-Line`.\n")
+        lines.append("On **September 4, 2026**, an Antigravity systems engineering session was initialized on a local workstation project.\n")
         lines.append("- **Total Depth**: **3,357 steps** | **1,616 tool calls** | **80 errors (5.0%)** | **36 interventions (1.07/100s)**.")
-        lines.append("- **Tool Strategy**: Unlike thrashing sessions, this session executed **63 `search_web` queries** and **12 `read_url_content` calls**, actively ingesting real-world documentation for Avahi, mDNS, Input Leap, and TLS certificates rather than guessing shell commands.")
+        lines.append("- **Tool Strategy**: Unlike thrashing sessions, this session executed **63 `search_web` queries** and targeted documentation fetches, actively ingesting real-world protocol specs for Avahi, mDNS, Input Leap, and TLS certificates rather than guessing shell commands.")
         lines.append("\n### Chronological Inception Timeline\n")
         lines.append("| Step | Event Marker | Forensic Insight |")
         lines.append("| :--- | :--- | :--- |")
@@ -348,13 +348,13 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
         lines.append("> **Why the Knot Inception Session Survived 3,357 Steps**:")
         lines.append("> 1. **External Information Ingestion**: Used web search tools to consult official protocol docs instead of guessing in subshell loops.")
         lines.append("> 2. **Shared Mental Model**: Operator and agent engaged in architectural debates (e.g. Step 83-89 sudoers drop-in design) rather than raw command rescue.")
-        lines.append("> 3. **Defensive Command Wrapping**: Commands consistently used defensive fallback probes (`|| true`, `2>/dev/null`) to avoid panic stops.\n")
+        lines.append("> 3. **Defensive Command Wrapping**: Commands consistently used defensive fallback probes (`|| [ $? -eq 1 ]`, `2>/dev/null`) to avoid panic stops.\n")
 
     lines.append("---")
     lines.append("## 5. Why Did Some Sessions Survive While Others Thrashed?\n")
     lines.append("### Key Difference 1: Tool Dispatch Equilibrium")
-    lines.append("- **In Type A (`sunshine-physio`)**: `view_file` (40.8%), `run_command` (28.3%), `replace_file_content` (11.1%). Clean balance of reading, targeted surgical editing, and testing.")
-    lines.append("- **In Type C (`mm-website`)**: `run_command` accounted for **57.8% (2,371 commands!)**, with the agent guessing commands in a loop without writing working code.")
+    lines.append("- **In Type A (High-Endurance Survivor)**: `read_file` (40.8%), `run_command` (28.3%), `edit_file` (11.1%). Clean balance of reading, targeted surgical editing, and testing.")
+    lines.append("- **In Type C (Thrashing Trap)**: `run_command` accounted for **57.8% (2,371 commands!)**, with the agent guessing commands in a loop without writing working code.")
     lines.append("\n### Key Difference 2: Monorepo Explicit Palettes")
     lines.append("- Workspaces with copy-pasteable CLI palettes in `AGENTS.md` achieved **0.30–0.41 interventions per 100 steps** (running 250+ steps autonomously).")
     lines.append("- Workspaces with fragmented rule files forced models to re-read markdown files every few steps, polluting context until attention sink collapse triggered.")

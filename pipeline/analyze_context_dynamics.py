@@ -142,7 +142,7 @@ def analyze_context_dynamics(db_path: Path) -> Dict[str, Any]:
     c.execute("""
         SELECT content_length
         FROM steps
-        WHERE step_type IN ('RUN_COMMAND', 'VIEW_FILE', 'GENERIC') AND content_length > 2048
+        WHERE step_type IN ('RUN_COMMAND', 'READ_FILE', 'VIEW_FILE', 'GENERIC') AND content_length > 2048
     """)
     oversized_steps = [r[0] for r in c.fetchall()]
     total_oversized_chars = sum(oversized_steps)
@@ -180,10 +180,10 @@ def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
 # 📉 Context Cliff & Token Dynamics Empirical Report
-**Project**: PSL Harness for Google Antigravity™ (`psl-agy-harness`)  
+**Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Specification**: Horizon 1 — Context Dynamics Analysis  
 **Generated At**: {data['timestamp']}  
-**Data Source**: Telemetry database `data/telemetry.db` (140,005 steps across 348 sessions)
+**Data Source**: Telemetry database `data/telemetry.db`
 
 ---
 
@@ -228,7 +228,7 @@ Our empirical analysis maps context size directly against agent error rates and 
 
     md += f"""
 ### Key Findings:
-1. **Tool Outputs (`RUN_COMMAND` / `VIEW_FILE` / `GENERIC`) dominate context**: They account for the overwhelming majority of raw text entering the model's history.
+1. **Tool Outputs (`RUN_COMMAND` / `READ_FILE` / `GENERIC`) dominate context**: They account for the overwhelming majority of raw text entering the model's history.
 2. **Thinking Traces (`thinking`)**: Contributed **{sum(s['total_thinking_chars'] for s in step_vols):,} characters** (~{estimate_tokens(sum(s['total_thinking_chars'] for s in step_vols)):,} tokens) of internal Chain-of-Thought across 14,476 steps.
 
 ---
@@ -265,8 +265,8 @@ What happens if the harness mechanically truncates or summarizes tool output pay
 ## 5. Next Steps for Harness Implementation
 
 1. **Implement `harness/hooks/output_compactor_hook.py`**:
-   - Register on `PostToolUse` for `run_command` and `view_file`.
-   - Truncate output to 2KB when exit code is 0; preserve full diagnostic only when exit code != 0.
+   - Register on `PostToolUse` for `run_command` (>2KB) and `read_file` (>32KB).
+   - Emit `overwriteResult` compacted output when exit code is 0; preserve full diagnostic output when exit code != 0.
 2. **Incorporate into Active Reference Rules**:
    - Add prompt rules directing agents to pipe commands through `head -n 20` or `tail -n 20`.
 """

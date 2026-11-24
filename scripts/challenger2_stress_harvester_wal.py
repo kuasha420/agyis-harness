@@ -81,7 +81,7 @@ def create_mock_conversation_db(
     db_path: Path,
     session_id: str,
     step_count: int = 10,
-    model: str = "gemini-3.8-flash-high",
+    model: str = "gemini-4-hydrogen",
 ) -> None:
     """Populates a realistic mock conversation database."""
     conn = sqlite3.connect(db_path)

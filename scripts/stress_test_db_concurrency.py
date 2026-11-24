@@ -65,7 +65,7 @@ def scenario_1_multithreaded_contention(db_file: Path) -> Dict[str, Any]:
                         """,
                         (
                             session_id, "2026-10-15T00:00:00Z", "2026-10-15T00:05:00Z",
-                            300.0, 3, "gemini-2.5-pro", "/workspace", "/transcripts/1.jsonl",
+                            300.0, 3, "gemini-4-neon", "/workspace", "/transcripts/1.jsonl",
                             1024, 0, 2, 0, 0, "local", None
                         ),
                     )
@@ -189,7 +189,7 @@ def _proc_writer(proc_id: int, db_path: str, num_writes: int, error_queue: mp.Qu
                     """,
                     (
                         session_id, "2026-10-15T00:00:00Z", "2026-10-15T00:05:00Z",
-                        300.0, 3, "gemini-2.5-pro", "/workspace", "/transcripts/1.jsonl",
+                        300.0, 3, "gemini-4-neon", "/workspace", "/transcripts/1.jsonl",
                         1024, 0, 2, 0, 0, "local", None
                     ),
                 )
@@ -328,7 +328,7 @@ def scenario_3_snapshot_isolation_during_active_writer(db_file: Path) -> Dict[st
                     model, workspace_path, transcript_path, file_size_bytes, has_errors,
                     tool_call_count, tool_error_count, intervention_count,
                     origin_developer, remote_synced_at
-                ) VALUES ('isolated-session-long', '2026-10-15T01:00:00Z', NULL, 10.0, 0, 'gemini', '/p', '/t', 10, 0, 0, 0, 0, 'local', NULL)
+                ) VALUES ('isolated-session-long', '2026-10-15T01:00:00Z', NULL, 10.0, 0, 'gemini-4-hydrogen', '/p', '/t', 10, 0, 0, 0, 0, 'local', NULL)
                 """
             )
             writer_ready.set()
@@ -413,7 +413,7 @@ def scenario_4_synchronized_writer_burst(db_file: Path) -> Dict[str, Any]:
                         model, workspace_path, transcript_path, file_size_bytes, has_errors,
                         tool_call_count, tool_error_count, intervention_count,
                         origin_developer, remote_synced_at
-                    ) VALUES (?, '2026-10-15T02:00:00Z', NULL, 15.0, 0, 'gemini', '/p', '/t', 10, 0, 0, 0, 0, 'local', NULL)
+                    ) VALUES (?, '2026-10-15T02:00:00Z', NULL, 15.0, 0, 'gemini-4-hydrogen', '/p', '/t', 10, 0, 0, 0, 0, 'local', NULL)
                     """,
                     (session_id,),
                 )
@@ -553,7 +553,7 @@ def scenario_6_heavy_volume_burst(db_file: Path) -> Dict[str, Any]:
                         """,
                         (
                             session_id, "2026-10-15T03:00:00Z", "2026-10-15T03:05:00Z",
-                            300.0, 1, "gemini-2.5-pro", "/workspace", "/transcripts/h.jsonl",
+                            300.0, 1, "gemini-4-neon", "/workspace", "/transcripts/h.jsonl",
                             2048, 0, 1, 0, 0, "heavy_tester", None
                         ),
                     )
