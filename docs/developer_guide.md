@@ -6,7 +6,7 @@
 # Agyis Harness — Developer & Architecture Guide
 
 **Target Audience**: Harness Contributors, Maintainers, and Autonomous Agent Architects  
-**Version**: `1.0.0-rc14` (`2026-11-23`)  
+**Version**: `1.0.0` (`2026-11-25`)  
 **Repository**: `agyis-harness` (Package module: `harness`)  
 
 ---
@@ -25,8 +25,8 @@ agyis-harness/
 ├── harness/                  # [THE PRODUCT] Distributable core package
 │   ├── cli.py                # Unified 28-command `agyis` CLI dispatcher (`psl` legacy alias)
 │   ├── discovery.py          # Global/workspace resource discovery & root path resolution
-│   ├── agents/               # 8 canonical `agyis_*` specialist personas + alias bridge
-│   ├── cleanroom/            # Specification, obligation ledger, and REA reconstruction verifiers
+│   ├── agents/               # 8 canonical `agyis_*` specialist personas (<=20 v2.34+ tools)
+│   ├── cleanroom/            # Specification, obligation ledger (rea@6.9.0), and reconstruction verifiers
 │   ├── commands/             # 25 handler modules + __init__.py backing 28 top-level subcommands
 │   ├── delivery/             # Installer, harmonizer, onboarder, git topology, checkpoints
 │   ├── doctor/               # Modular diagnostics & health check runners
@@ -36,8 +36,8 @@ agyis-harness/
 │   ├── mutation/             # Atomic file mutation & backup/patch helpers
 │   ├── re/                   # Cleanroom reverse-engineering & REA integration modules
 │   ├── remote/               # ControlMaster SSH multiplexing & compact triage (<2KB)
-│   ├── rules/                # Curated agent governance (`GLOBAL_AGENTS.md` vs `AGENTS.md`)
-│   ├── runtime/              # Diagnostics, `healing.py` (`agyis-harness` REA path), hygiene checks
+│   ├── rules/                # Curated agent governance (Codex v2: PSL-INV-001..008 + PSL-RE-001)
+│   ├── runtime/              # Diagnostics, `healing.py` (`agyis-harness` REA path), hygiene checks, AFF
 │   ├── skills/               # 30 modular skills (`>100` L carry ToC, `<24,576` B cap; `.agents/skills/` symlinks)
 │   ├── subagents/            # Routing (`routing.py`), liveness, truth, succession, spec & scaffolding
 │   ├── telemetry/            # Session harvester, hub sync client & systemd user daemon
@@ -46,14 +46,14 @@ agyis-harness/
 ├── pipeline/                 # [THE PROJECT] Telemetry extraction & empirical classification lab
 ├── data/                     # [THE PROJECT] Local empirical SQLite telemetry store (`telemetry.db`)
 ├── docs/                     # [THE PROJECT] ADRs (`001–035`), 7 Official Specs, 4 RE Specs, 4 Runbooks, 2 Taxonomy, Archive Index (`0069329`)
-└── tests/                    # [THE PROJECT] Hermetic unit, integration, contract & E2E tests
+└── tests/                    # [THE PROJECT] 83 test_*.py + 4 e2e/test_*.py hermetic suites
 ```
 
 ### Key Non-Negotiable Architecture Rules
-1. **Zero Mandatory External Dependencies (`PSL-INV-011`)**: `harness/` uses **strictly Python 3.12+ standard library**. Never import `pytest`, `requests`, `pydantic`, or `pipeline/` inside `harness/` (enforced by `agyis audit aff`).
-2. **Externalized Foreign Assets (`PSL-INV-011`)**: Place browser/UI JS and CSS assets under `harness/gui/assets/` and load via `importlib.resources`, never as raw multiline Python strings.
-3. **Hermetic State Isolation (`harness/utils/state.py`)**: Persistent runtime state defaults to `/tmp/agyis_harness_state_{uid}` and honors `AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR` overrides. Tests must inject isolated `tempfile.TemporaryDirectory()` paths.
-4. **On-Demand REA Skill Provisioning (`harness/runtime/healing.py`)**: Searches installed `rea-agents` packages and `~/.gemini/config/plugins/agyis-harness/skills/reverse-engineer-anything` rather than vendoring upstream skills in-tree.
+1. **Zero Mandatory External Dependencies (`PSL-INV-008`)**: `harness/` uses **strictly Python 3.12+ standard library**. Never import `pytest`, `requests`, `pydantic`, or `pipeline/` inside `harness/` (enforced by `agyis audit aff`).
+2. **Externalized Foreign Assets (`PSL-INV-008`)**: Place browser/UI JS and CSS assets under `harness/gui/assets/` and load via `importlib.resources`, never as raw multiline Python strings.
+3. **Hermetic State Isolation (`harness/utils/state.py`, `PSL-INV-001`)**: Persistent runtime state defaults to `/tmp/agyis_harness_state_{uid}` and honors `AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR` overrides. Tests must inject isolated `tempfile.TemporaryDirectory()` paths.
+4. **On-Demand REA Skill Provisioning (`harness/runtime/healing.py`)**: Searches installed `rea-agents` packages and `~/.gemini/config/plugins/agyis-harness/skills/reverse-engineer-anything` rather than vendoring upstream skills in-tree; full cleanroom RE rules (`PSL-RE-001`) load on demand via `harness/skills/re-ops/SKILL.md`.
 
 ---
 
@@ -90,23 +90,23 @@ Authoritative flags, sub-actions, and platform boundaries live in [`cli-palette.
 | `psl-token-proximity-guard` | `PreToolUse` | [`token_proximity_guard.py`](../harness/hooks/token_proximity_guard.py) | `token-proximity` |
 | `psl-compaction-advisory` | `PreInvocation` | [`pre_invocation_hook.py`](../harness/hooks/pre_invocation_hook.py) | `pre-invocation` |
 
-All hooks fail open on malformed stdin. Full protojson payload contracts, scaled thresholds (`256k` / Gemini 4 `512k` / `1M` windows at `70%` amber / `90%` red, `80`-step soft epoch horizon, nested `systemMessage` payloads, and `PostToolUse` `overwriteResult`), and state machine rules live in [`lifecycle-hooks.md`](official-specs/lifecycle-hooks.md) and [`platform-surface-mapping.md`](official-specs/platform-surface-mapping.md).
+All hooks fail open on malformed stdin. Full protojson payload contracts, scaled thresholds (`256k` / **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`) `512k`** / `1M` windows at `70%` amber / `90%` red, `80`-step soft epoch horizon, nested `systemMessage` payloads, and `PostToolUse` `overwriteResult`), and state machine rules live in [`lifecycle-hooks.md`](official-specs/lifecycle-hooks.md) and [`platform-surface-mapping.md`](official-specs/platform-surface-mapping.md).
 
 ---
 
 ## 4. Agent Personas, Cockpit Director & Subagent Router
 
-- **8 Canonical `agyis_*` Personas** ([`harness/agents/__init__.py`](../harness/agents/__init__.py)): `agyis_architect`, `agyis_auditor`, `agyis_builder`, `agyis_coordinator`, `agyis_custodian`, `agyis_investigator`, `agyis_planner`, and `agyis_reviewer` (mapped from legacy aliases via `resolve_agent_name()`).
+- **8 Canonical `agyis_*` Personas** ([`harness/agents/__init__.py`](../harness/agents/__init__.py)): `agyis_architect`, `agyis_auditor`, `agyis_builder`, `agyis_coordinator`, `agyis_custodian`, `agyis_investigator`, `agyis_planner`, and `agyis_reviewer` (mapped from legacy aliases via `resolve_agent_name()`, enforcing `<=20` canonical `v2.34+` tools per `PSL-INV-006`).
 - **Cockpit & Routing**: Root sessions follow [`cockpit-director.md`](official-specs/cockpit-director.md) via `agyis cockpit` and `agyis router` (`agyis ladder`), with checkpoints serialized via `agyis checkpoint`.
-- **Custom Agents & Boundary Enforcement**: Frontmatter tool allowlists (`ANTIGRAVITY_PLATFORM_TOOLS`) and workspace boundaries are governed by [`custom-agents.md`](official-specs/custom-agents.md) and [`repo-onboarding.md`](runbooks/repo-onboarding.md).
+- **Custom Agents & Boundary Enforcement**: Frontmatter tool allowlists (`CANONICAL_PLATFORM_TOOLS` / `ANTIGRAVITY_PLATFORM_TOOLS`) and workspace boundaries are governed by [`custom-agents.md`](official-specs/custom-agents.md) and [`repo-onboarding.md`](runbooks/repo-onboarding.md).
 
 ---
 
 ## 5. GUI HUD, Cleanroom Specs & Extensible Workspace CLI
 
-- **Electron CDP HUD (`agyis gui`)**: Assets under `harness/gui/assets/` track SPA routes (including split routes `/c/<id1>+<id2>?focused=<id2>`), fall back to `localStorage["agy_session_csrf_token"]`, stream live ConnectRPC updates, and purge stale DOM/style nodes on re-injection (`PSL-INV-010`). Opt-in CDP desktop launcher management lives in `harness/gui/launcher.py`.
-- **Cleanroom Verification (`agyis verify`)**: Validates **4** cleanroom RE specifications (including `antigravity_v2_34_compatibility_inventory.md`; verified via `agyis verify --spec`) in `docs/specs/` (zero executable code permitted inside `docs/specs/`), and verifies typed `.agents/ledger/obligation_ledger.json` coverage via `agyis verify` (`rea@6.9.0` schema, `ADR-028`, `PSL-INV-007`).
-- **Dirtyroom Acceleration (`agyis re`) & Extensions (`agyis ext`)**: `.dirtyroom/` Ghidra `-noanalysis -readOnly` queries stay isolated under `PSL-INV-009` ([`rea-antigravity-architecture.md`](official-specs/rea-antigravity-architecture.md)); workspace extensions run inside `.agents/commands/` under `ADR-034`.
+- **Electron CDP HUD (`agyis gui`)**: Assets under `harness/gui/assets/` track SPA routes (including split routes `/c/<id1>+<id2>?focused=<id2>`), fall back to `localStorage["agy_session_csrf_token"]`, stream live ConnectRPC updates, and purge stale DOM/style nodes on re-injection (`PSL-INV-007`). Opt-in CDP desktop launcher management lives in `harness/gui/launcher.py`.
+- **Cleanroom Verification (`agyis verify`)**: Validates **4** cleanroom RE specifications (including `antigravity_v2_34_compatibility_inventory.md`; verified via `agyis verify --spec`) in `docs/specs/` (zero executable code permitted inside `docs/specs/`), and verifies typed `.agents/ledger/obligation_ledger.json` coverage via `agyis verify` (`rea@6.9.0` schema, `ADR-028`, `PSL-INV-002`, `PSL-RE-001`).
+- **Dirtyroom Acceleration (`agyis re`) & Extensions (`agyis ext`)**: `.dirtyroom/` Ghidra `-noanalysis -readOnly` queries stay isolated under `PSL-RE-001` ([`rea-antigravity-architecture.md`](official-specs/rea-antigravity-architecture.md)); workspace extensions run inside `.agents/commands/` under `ADR-034`.
 
 ---
 
@@ -119,13 +119,13 @@ agyis audit aff                      # Layer boundaries, DAG acyclicity, externa
 agyis doctor                         # 3-tier runtime matrix, 8 hook runner checks, port 5432, symlinks
 agyis doctor --anti-synthetic        # Detect tautological / synthetic tests
 agyis verify --spec                  # Cleanroom specs (4 specifications in docs/specs/)
-agyis agents validate --json         # Validate all 8 canonical v2.34 agent schemas
+agyis agents validate --json         # Validate all 8 canonical v2.34+ agent schemas (<=20 tools)
 agyis rules --lint                   # Agent rule echo & formatting audit
 uv lock --check                      # Ensure uv.lock stays synced with pyproject.toml for CI
 agyis audit certify                  # Out-of-band Gate 2 certification (audit_verdict.json)
 ```
 
 ### Contributor Rules
-1. **Surgical Contiguous Edits (`PSL-INV-003`)**: Prefer `replace_file_content` over whole-file rewrites on source files.
+1. **Surgical Contiguous Edits (`PSL-INV-003`)**: Prefer `edit_file` over whole-file rewrites on source files.
 2. **Product vs. Project Separation (`ADR-014`)**: Keep empirical data in `data/`, the frozen archive index in [`docs/archive/README.md`](archive/README.md), and scratch artifacts outside `harness/`.
 3. **Hermetic Verification (`PSL-INV-001`)**: Add or update hermetic tests under `tests/` (`tempfile.TemporaryDirectory()`, zero network calls) and see [`testing-contracts.md`](official-specs/testing-contracts.md), [`empirical-baselines.md`](taxonomy/empirical-baselines.md), [`project-ledger.md`](taxonomy/project-ledger.md), [`docs/adr/README.md`](adr/README.md), and [`docs/runbooks/git-and-worktree-hygiene.md`](runbooks/git-and-worktree-hygiene.md).

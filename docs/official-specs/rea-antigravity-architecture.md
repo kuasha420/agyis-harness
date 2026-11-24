@@ -41,104 +41,105 @@ Combining AGYIS and REA delivers an automated, evidence-backed workflow for anal
 ## 2. Complete REA System Architecture & Catalog
 
 REA exposes a symmetric two-tier interface for autonomous coding agents:
-1. **Model Context Protocol (MCP) Stdio Server**: 207 MCP tools, 6 Guided Prompts, and Evidence URI resources running on MCP Protocol `2025-11-25`.
-2. **Command Line Interface (CLI)**: 153 CLI subcommands supporting structured output formatting (`json`, `toon`, `yaml`, `markdown`, `jsonl`), token pagination, offset slicing, and non-interactive script piping.
+1. **Model Context Protocol (MCP) Stdio Server**: **255** MCP tools, **6** Guided Prompts, and Evidence URI resources running on MCP Protocol `2025-11-25`.
+2. **Command Line Interface (CLI)**: **196** CLI subcommands supporting structured output formatting (`json`, `toon`, `yaml`, `markdown`, `jsonl`), token pagination, offset slicing, and non-interactive script piping.
 
-### 2.1 Identity & Catalog Checksums
+### 2.1 Identity & Catalog Checksums (`rea@6.9.0`)
 Every build and delivery artifact is validated against canonical cryptographic digests:
 
 | Catalog Attribute | Authoritative Value | Verification Mechanism |
 | :--- | :--- | :--- |
-| **CLI Package Version** | `6.5.0` | `rea --version` / `package.json` |
+| **CLI Package Version** | `6.9.0` | `rea --version` / `package.json` |
 | **REA SDK Version** | `2.3.1` | Embedded SDK contract |
-| **Bundled Skill Version** | `"42"` | `metadata.version` in `SKILL.md` |
-| **MCP Tools Count** | **207 tools** | Stdio MCP `tools/list` handshake |
-| **Guided Prompts Count** | **6 prompts** | Stdio MCP `prompts/list` handshake |
-| **CLI Subcommands Count**| **153 subcommands** | `rea --help` subcommand tree |
-| **Tools Catalog SHA-256**| `805433f17bb4f709558ff20c04f96fe561fca2938fd0f459b1f8cc0f6b438ded` | `rea mcp doctor` digest |
-| **Prompts Catalog SHA-256**| `7152916ab48bd2a9677a5ad9cdbde0a51dc53c113934952ad096e93f5f18aa7e` | `rea mcp doctor` digest |
-| **Combined Catalog SHA-256**| `405725e736ec8dc8483435b970acbf20f9f26b9f1fd25203b992f5ab4cd2a4f4` | Composite toolset signature |
+| **Bundled Skill Version** | `"62"` | `skill.expected_version` (`reverse-engineer-anything`) |
+| **MCP Tools Count** | **255 tools** | Stdio MCP `tools/list` / `rea mcp doctor` |
+| **Guided Prompts Count** | **6 prompts** | Stdio MCP `prompts/list` / `rea mcp doctor` |
+| **CLI Subcommands Count**| **196 subcommands** | `rea providers --json` `catalog.counts.cli_commands` |
+| **Tools Catalog SHA-256**| `b3054fab57a222a4690d93cdba88805d7cbd2e6c0279dd596eecf213030c3797` | `rea providers --json` digest |
+| **Prompts Catalog SHA-256**| `60078bd8ef8bd152b51440e7579fba2059beec18fec5148dd0ec10ef013213fe` | `rea providers --json` digest |
+| **Combined Catalog SHA-256**| `2c725b48818ac5266198069330907c657f0fa2b6b8236065e5a191e20d95c2d7` | `rea mcp doctor` composite signature |
 
-### 2.2 Complete Breakdown of the 207 MCP Tools (18 Functional Domains)
+### 2.2 Complete Breakdown of the 255 MCP Tools (18 Functional Domains)
 
-The 207 MCP tools are organized across 18 specialized reverse engineering domains:
+The **255** MCP tools in `rea@6.9.0` are organized across 18 specialized reverse engineering domains:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                             REA 207 MCP TOOL DOMAIN TAXONOMY                          │
+│                            REA 6.9.0 (255 MCP TOOL TAXONOMY)                           │
 ├──────────────────────────┬──────────────────────────┬──────────────────────────────────┤
-│ 1. Binary Session (4)    │ 2. Native Disasm (6)     │ 3. Cross-References (5)          │
+│ 1. Binary Session (6)    │ 2. Native Disasm (16)    │ 3. Cross-References (8)          │
 │ • open_binary            │ • analyze_function       │ • xrefs                          │
 │ • close_binary           │ • procedure_pseudo_code  │ • find_xrefs_to_name             │
-│ • binary_session         │ • procedure_assembly     │ • address_name                   │
-│ • binary_overview        │ • read_function_instr... │ • set_address_name, set_addr...  │
+│ • reset_investigation    │ • procedure_assembly     │ • procedure_references           │
+│ • binary_session         │ • read_function_instr... │ • address_name, set_address_name │
+│ • binary_overview        │ • batch_decompile / all  │ • resolve_native_call_targets    │
 ├──────────────────────────┼──────────────────────────┼──────────────────────────────────┤
-│ 4. Call Graphs (4)       │ 5. Semantic Tracing (7)  │ 6. Memory & Byte Search (8)      │
-│ • procedure_callers      │ • trace_feature          │ • search_strings                 │
-│ • procedure_callees      │ • trace_call_path        │ • search_procedures              │
-│ • get_call_graph         │ • trace_native_values    │ • search_bytes, read_bytes       │
-│ • build_call_path        │ • trace_native_ui_action │ • list_strings, list_segments    │
+│ 4. Call Graphs (4)       │ 5. Semantic Tracing (9)  │ 6. Memory & Byte Search (14)     │
+│ • procedure_callers      │ • trace_feature          │ • search_strings, search_bytes   │
+│ • procedure_callees      │ • trace_call_path        │ • search_procedures, read_bytes  │
+│ • get_call_graph         │ • trace_native_values    │ • list_strings, list_segments    │
+│ • build_call_path        │ • trace_native_ui_action │ • list_procedures, inspect_by... │
 ├──────────────────────────┼──────────────────────────┼──────────────────────────────────┤
-│ 7. Annotations (10)      │ 8. Binary Metadata (6)   │ 9. Crash Analysis (1)            │
+│ 7. Annotations/Nav (13)  │ 8. Binary Metadata (27)  │ 9. Crash Analysis (1)            │
 │ • comment, set_comment   │ • inspect_binary_layout  │ • inspect_recorded_crash         │
 │ • inline_comment         │ • inspect_pe_resources   │                                  │
-│ • list_bookmarks         │ • inspect_go_binary      │                                  │
-│ • set/unset_bookmark     │ • inspect_rust_binary    │                                  │
-│ • goto/next/prev_address │ • inspect_sqlite_database│                                  │
+│ • annotate_native_func.. │ • inspect_go_binary      │                                  │
+│ • list/set/unset_bookm.. │ • inspect_rust_binary    │                                  │
+│ • get_navigation_context │ • inspect_sqlite_database│                                  │
 ├──────────────────────────┼──────────────────────────┼──────────────────────────────────┤
-│ 10. Apple / macOS (13)   │ 11. Managed / .NET (7)   │ 12. Electron & JS (13)           │
+│ 10. Apple / macOS (14)   │ 11. Managed / .NET (7)   │ 12. Electron & JS (14)           │
 │ • inspect_macho          │ • inspect_managed_art... │ • analyze_javascript_application │
 │ • inspect_plist          │ • inspect_managed_mem... │ • reconcile_javascript_runtime   │
 │ • inspect_signature      │ • inspect_managed_nat... │ • recover_javascript_sources     │
 │ • demangle_swift         │ • compare_managed_mem... │ • inspect_electron_fuses         │
 │ • analyze_swift_types    │ • verify_managed_nati... │ • list/inspect_electron_page     │
 │ • get_objc_classes       │ • import_managed_reco... │ • observe_javascript_runtime     │
-│ • decode_interface_bui...│ • project_managed_app... │ • compare_javascript_export...   │
+│ • project_apple_appli... │ • project_managed_app... │ • compare_source_to_bundle       │
 ├──────────────────────────┼──────────────────────────┼──────────────────────────────────┤
-│ 13. Web & Browser (14)   │ 14. Android & Mobile (15)│ 15. Android ADB Control (22)     │
+│ 13. Web & Browser (17)   │ 14. Android & Mobile (17)│ 15. Android ADB Control (24)     │
 │ • list_browser_targets   │ • inspect_android_pack...│ • list_adb_devices / inspect     │
 │ • inspect_web_page       │ • search_android_classes │ • list/pull/inspect_adb_package  │
 │ • observe_web_session    │ • inspect_android_class  │ • start/stop_adb_app             │
-│ • capture_browser_scen...│ • inspect_android_method │ • read_adb_logcat                │
-│ • discover_webmcp_tools  │ • decode_android_res...  │ • capture_adb_screen             │
-│ • inspect_web_network... │ • identify_flutter_build │ • install/uninstall_adb_package  │
-│ • compare_web_captures   │ • inspect_dart_aot       │ • list_adb_services / features   │
+│ • capture_browser_scen.. │ • inspect_android_method │ • read_adb_logcat                │
+│ • inspect_playwright_tr. │ • decode_android_res...  │ • capture_adb_screen             │
+│ • inspect_api_contract   │ • identify_flutter_build │ • install/uninstall_adb_package  │
+│ • compare_web_captures   │ • inspect_dart_aot       │ • resolve_adb_packages           │
 ├──────────────────────────┼──────────────────────────┼──────────────────────────────────┤
-│ 16. Firmware & WASM (7)  │ 17. Network Packets (4)  │ 18. Dynamic & Evidence (61)      │
+│ 16. Firmware & WASM (7)  │ 17. Network Packets (4)  │ 18. Dynamic, Build & Evidence(53)│
 │ • inspect_firmware_reg...│ • inspect_packet_capture │ • start/load/instrument_frida    │
 │ • extract_firmware       │ • inspect_pcap_capture   │ • start/console_gdb_session      │
-│ • inspect_wasm_artifact  │ • inspect_packet_fields  │ • execute/debug_rizin_command    │
-│ • compare_wasm_interf... │ • inspect_pcap_client    │ • export/import_evidence_bundle  │
-│ • inspect_evm_interface  │                          │ • build_reconstruction_ledger    │
-│ • decode_signal_record...│                          │ • evaluate_reconstruction_cov... │
+│ • inspect_wasm_artifact  │ • inspect_packet_fields  │ • start_rizin_debug_session      │
+│ • compare_wasm_interf... │ • inspect_pcap_client    │ • build_reconstruction_oblig...  │
+│ • inspect_evm_interface  │                          │ • evaluate_reconstruction_cov... │
+│ • decode_signal_record...│                          │ • verify_reconstruction          │
 │ • inspect_signal_decod...│                          │ • record/list/verify_unknowns    │
 └──────────────────────────┴──────────────────────────┴──────────────────────────────────┘
 ```
 
 #### Detailed Domain Matrix & Input/Output Contracts
 
-| # | Functional Domain | Tool Count | Core Tool Names | Primary Arguments | Return Payload | Failure / Error Invariant |
+| # | Functional Domain | Tool Count | Representative Tool Names | Primary Arguments | Return Payload | Failure / Error Invariant |
 |---|---|---|---|---|---|---|
-| 1 | **Binary Session** | 4 | `open_binary`, `close_binary`, `binary_session`, `binary_overview` | `path: string`, `provider_id?: string` | `document`, `target_sha256`, `architecture`, `endianness`, `format` | Fails closed if file is missing, corrupt, or unsupported. Returns empty state when target-free. |
-| 2 | **Native Disassembly** | 6 | `analyze_function`, `procedure_pseudo_code`, `procedure_assembly`, `read_function_instructions`, `batch_decompile`, `procedure_info` | `path?: string`, `address?: string`, `name?: string` | Complete function dossiers, basic block control flow graphs, pseudo-C listings. | Returns error if symbol unresolved; decompiler fallbacks preserve raw disassembly. |
-| 3 | **Cross References** | 5 | `xrefs`, `find_xrefs_to_name`, `address_name`, `set_address_name`, `set_addresses_names` | `address: string`, `direction?: "to"\|"from"`, `name?: string` | Relocation table with callers, callees, data read/write sites. | Empty list on zero references; does not guess references. |
+| 1 | **Binary Session** | 6 | `open_binary`, `close_binary`, `reset_investigation`, `binary_session`, `binary_overview`, `open_bundle_resources` | `path: string`, `provider_id?: string` | `document`, `target_sha256`, `architecture`, `endianness`, `format` | Fails closed if file is missing, corrupt, or unsupported. Returns empty state when target-free. |
+| 2 | **Native Disassembly** | 16 | `analyze_function`, `procedure_pseudo_code`, `procedure_assembly`, `read_function_instructions`, `batch_decompile`, `decompile_all`, `procedure_info`, `inspect_native_*` | `path?: string`, `address?: string`, `name?: string` | Complete function dossiers, basic block control flow graphs, pseudo-C listings. | Returns error if symbol unresolved; decompiler fallbacks preserve raw disassembly. |
+| 3 | **Cross References** | 8 | `xrefs`, `find_xrefs_to_name`, `procedure_references`, `address_name`, `set_address_name`, `set_addresses_names`, `resolve_native_call_targets`, `match_native_functions` | `address: string`, `direction?: "to"\|"from"`, `name?: string` | Relocation table with callers, callees, data read/write sites. | Empty list on zero references; does not guess references. |
 | 4 | **Call Graph** | 4 | `procedure_callers`, `procedure_callees`, `get_call_graph`, `build_call_path` | `root_address: string`, `depth?: number`, `from: string`, `to: string` | Directed acyclic graph (nodes, edges) mapping execution flow. | Bounds recursion at declared depth; preserves unresolved indirect call targets. |
-| 5 | **Semantic Tracing** | 7 | `trace_feature`, `trace_call_path`, `trace_native_values`, `trace_native_ui_action`, `observe_native_calls`, `observe_native_ui`, `capture_native_ui_scenario` | `feature: string`, `address: string`, `register?: string` | Step-by-step evidence chain from UI event or literal string to backend handler. | Negative search boundaries prevent infinite loops; flags unobserved leaps. |
-| 6 | **Memory & Search** | 8 | `search_strings`, `search_procedures`, `search_bytes`, `read_bytes`, `address_to_file_offset`, `list_strings`, `list_names`, `list_segments` | `pattern: string`, `hex_pattern: string`, `mask?: string` | Virtual address offset, section name, decoded string literal. | Returns empty match sets; error if mask length mismatches pattern. |
-| 7 | **Annotations** | 10 | `comment`, `set_comment`, `inline_comment`, `set_inline_comment`, `list_bookmarks`, `set_bookmark`, `unset_bookmark`, `goto_address`, `next_address`, `prev_address` | `address: string`, `comment?: string`, `note?: string` | Mutation confirmation and active session bookmark ledger. | Disassembler session state mutation; rollback on write collision. |
-| 8 | **Binary Metadata** | 6 | `inspect_binary_layout`, `inspect_pe_resources`, `inspect_go_binary`, `inspect_rust_binary`, `inspect_sqlite_database`, `inspect_with_objdump` | `path: string`, `table?: string`, `detail?: "summary"\|"full"` | Checksec mitigations (Canary, NX, PIE, RELRO), Go pclntab facts, Rust dep-v0 crates, SQLite tables. | Returns null metadata without panic when binary does not contain target runtime symbols. |
+| 5 | **Semantic Tracing** | 9 | `trace_feature`, `trace_call_path`, `trace_native_values`, `trace_native_ui_action`, `observe_native_calls`, `observe_native_ui`, `capture_native_ui_scenario`, `correlate_static_and_runtime`, `find_changed_behavior` | `feature: string`, `address: string`, `register?: string` | Step-by-step evidence chain from UI event or literal string to backend handler. | Negative search boundaries prevent infinite loops; flags unobserved leaps. |
+| 6 | **Memory & Search** | 14 | `search_strings`, `search_procedures`, `search_bytes`, `read_bytes`, `address_to_file_offset`, `list_strings`, `list_names`, `list_segments`, `list_procedures`, `inspect_byte_entropy` | `pattern: string`, `hex_pattern: string`, `mask?: string` | Virtual address offset, section name, decoded string literal. | Returns empty match sets; error if mask length mismatches pattern. |
+| 7 | **Annotations & Nav** | 13 | `comment`, `set_comment`, `inline_comment`, `set_inline_comment`, `annotate_native_function`, `list_bookmarks`, `set_bookmark`, `unset_bookmark`, `goto_address`, `next_address`, `prev_address`, `get_navigation_context`, `inspect_address_context` | `address: string`, `comment?: string`, `note?: string` | Mutation confirmation, navigation state, and active session bookmark ledger. | Disassembler session state mutation; rollback on write collision. |
+| 8 | **Binary Metadata** | 27 | `inspect_binary_layout`, `inspect_pe_resources`, `inspect_pe_load_config`, `inspect_pe_certificates`, `inspect_pe_imports`, `inspect_binary_hardening`, `audit_release_exposure`, `inspect_go_binary`, `inspect_rust_binary`, `inspect_il2cpp_metadata`, `inspect_python_pyc`, `inspect_erlang_beam`, `inspect_v8_code_cache`, `inspect_sqlite_database`, `inspect_with_objdump`, `inspect_ntfs_journal`, `inspect_gpu_code_objects` | `path: string`, `table?: string`, `detail?: "summary"\|"full"` | Checksec mitigations (Canary, NX, PIE, RELRO), Go pclntab facts, Rust dep-v0 crates, SQLite tables, bytecode/journal facts. | Returns null metadata without panic when binary does not contain target runtime symbols. |
 | 9 | **Crash Analysis** | 1 | `inspect_recorded_crash` | `path: string`, `include_debugger_context?: boolean` | Register states, faulting instruction, stack backtrace, signal taxonomy. | Preserves core dump memory isolation; fails if core header invalid. |
-| 10 | **Apple / macOS** | 13 | `inspect_macho`, `inspect_plist`, `inspect_signature`, `list_architectures`, `demangle_swift`, `analyze_swift_types`, `get_objc_classes`, `get_objc_protocols`, `decode_interface_builder`, `inspect_keyed_archive`, `inspect_asset_catalog`, `trace_dylib_resolution`, `project_apple_application_graph` | `path: string`, `mangled_name?: string` | Objective-C class hierarchies, Swift struct metadata, compiled NIB UI trees, dyld @rpath load graph. | Fails closed on signature tampering; gracefully returns unmangled string if not Swift. |
+| 10 | **Apple / macOS** | 14 | `inspect_macho`, `inspect_plist`, `inspect_signature`, `inspect_apple_ips`, `list_architectures`, `demangle_swift`, `analyze_swift_types`, `get_objc_classes`, `get_objc_protocols`, `decode_interface_builder`, `inspect_keyed_archive`, `inspect_asset_catalog`, `trace_dylib_resolution`, `project_apple_application_graph` | `path: string`, `mangled_name?: string` | Objective-C class hierarchies, Swift struct metadata, compiled NIB UI trees, dyld @rpath load graph. | Fails closed on signature tampering; gracefully returns unmangled string if not Swift. |
 | 11 | **Managed / .NET**| 7 | `inspect_managed_artifact`, `inspect_managed_members`, `inspect_managed_native_boundaries`, `compare_managed_members`, `verify_managed_native_boundaries`, `import_managed_reconstruction`, `project_managed_application_graph` | `path: string`, `managed_path: string`, `native_path: string` | CIL metadata tables, `ldstr` string pool, P/Invoke imports mapped to native DLL exports. | Flags calling convention mismatches; isolates unmanaged exports. |
-| 12 | **Electron & JS** | 13 | `analyze_javascript_application`, `reconcile_javascript_runtime`, `recover_javascript_sources`, `export_web_scripts`, `inspect_electron_fuses`, `list_electron_targets`, `inspect_electron_page`, `capture_electron_scenario`, `list_javascript_runtime_targets`, `observe_javascript_runtime`, `compare_javascript_export_shapes`, `trace_application_feature`, `trace_javascript_semantics` | `path: string`, `endpoint?: string`, `evidence_id?: string` | ASAR module graph, Electron IPC channel maps, hardcoded Electron fuses, recovered modules with SHA-256. | Detects disabled `--inspect` fuse (0x00) without launching app, preventing agent connection hang. |
-| 13 | **Web & Browser** | 14 | `list_browser_targets`, `inspect_web_page`, `observe_web_session`, `observe_web_execution`, `capture_browser_scenario`, `discover_webmcp_tools`, `inspect_web_event_listeners`, `inspect_web_network_capture`, `trace_web_module_imports`, `trace_web_source_location`, `compare_web_captures`, `capture_web_screenshot`, `compare_web_screenshots`, `analyze_web_bundle` | `endpoint: string`, `selector?: string`, `path?: string`, `format?: string` | DOM trees, live event listeners, parsed HAR/mitmproxy captures, sourcemap token mappings. | Never initiates live external HTTP traffic during capture analysis; parses offline capture files hermetically. |
-| 14 | **Android & Mobile**| 15 | `inspect_android_package`, `search_android_classes`, `inspect_android_class`, `inspect_android_method`, `trace_android_references`, `decode_android_resources`, `identify_flutter_build`, `inspect_dart_aot`, `inspect_apktool_client`, `project_android_application_graph`, `project_harmony_application_graph`, `inspect_jeb_client`, `open_jeb_project`, `list_jeb_units`, `decompile_jeb_item` | `path: string`, `class_name?: string`, `method_name?: string` | Decompiled Java methods via JADX, Flutter engine commit hashes, Dart snapshot string pools, resource XML. | Requires JDK 17+ and JADX JAR; fails with clean diagnostic message if JADX is unconfigured. |
-| 15 | **Android ADB** | 22 | `list_adb_devices`, `inspect_adb_device`, `list_adb_packages`, `pull_adb_package`, `read_adb_logcat`, `inspect_adb_package`, `start_adb_app`, `start_adb_activity`, `stop_adb_app`, `capture_adb_screen`, `list_adb_services`, `install_adb_package`, `uninstall_adb_package`, `pull_adb_file`, `push_adb_file`, `list_adb_processes`, `list_adb_directory`, `list_adb_features`, `inspect_adb_display`, `inspect_adb_window`, `read_adb_setting`, `collect_adb_bugreport` | `serial: string`, `package?: string`, `buffer?: string`, `lines?: number` | Device prop whitelist facts, APK binaries, bounded logcat slices, display dumpsys. | Bounds logcat lines to avoid terminal buffer overflow; requires authorized ADB device connection. |
+| 12 | **Electron & JS** | 14 | `analyze_javascript_application`, `reconcile_javascript_runtime`, `recover_javascript_sources`, `export_web_scripts`, `inspect_electron_fuses`, `list_electron_targets`, `inspect_electron_page`, `capture_electron_scenario`, `list_javascript_runtime_targets`, `observe_javascript_runtime`, `compare_javascript_export_shapes`, `trace_application_feature`, `trace_javascript_semantics`, `compare_source_to_bundle` | `path: string`, `endpoint?: string`, `evidence_id?: string` | ASAR module graph, Electron IPC channel maps, hardcoded Electron fuses, recovered modules with SHA-256. | Detects disabled `--inspect` fuse (0x00) without launching app, preventing agent connection hang. |
+| 13 | **Web & Browser** | 17 | `list_browser_targets`, `inspect_web_page`, `observe_web_session`, `observe_web_execution`, `capture_browser_scenario`, `discover_webmcp_tools`, `inspect_web_event_listeners`, `inspect_web_network_capture`, `trace_web_module_imports`, `trace_web_source_location`, `compare_web_captures`, `capture_web_screenshot`, `compare_web_screenshots`, `analyze_web_bundle`, `inspect_playwright_trace`, `inspect_api_contract`, `compare_static_and_observed_endpoints` | `endpoint: string`, `selector?: string`, `path?: string`, `format?: string` | DOM trees, live event listeners, parsed HAR/mitmproxy/Playwright captures, API contracts, sourcemap mappings. | Never initiates live external HTTP traffic during capture analysis; parses offline capture files hermetically. |
+| 14 | **Android & Mobile**| 17 | `inspect_android_package`, `inspect_android_jni_bindings`, `search_android_classes`, `inspect_android_class`, `inspect_android_method`, `trace_android_references`, `decode_android_resources`, `identify_flutter_build`, `inspect_dart_aot`, `inspect_apk_signature`, `inspect_apktool_client`, `project_android_application_graph`, `project_harmony_application_graph`, `inspect_jeb_client`, `open_jeb_project`, `list_jeb_units`, `decompile_jeb_item` | `path: string`, `class_name?: string`, `method_name?: string` | Decompiled Java methods via JADX, Flutter engine commit hashes, Dart snapshot string pools, JNI bindings, resource XML. | Requires JDK 17+ and JADX JAR; fails with clean diagnostic message if JADX is unconfigured. |
+| 15 | **Android ADB** | 24 | `inspect_adb_client`, `list_adb_devices`, `inspect_adb_device`, `list_adb_packages`, `pull_adb_package`, `read_adb_logcat`, `inspect_adb_package`, `start_adb_app`, `start_adb_activity`, `stop_adb_app`, `capture_adb_screen`, `list_adb_services`, `install_adb_package`, `uninstall_adb_package`, `pull_adb_file`, `push_adb_file`, `list_adb_processes`, `list_adb_directory`, `list_adb_features`, `inspect_adb_display`, `inspect_adb_window`, `read_adb_setting`, `collect_adb_bugreport`, `resolve_adb_packages` | `serial: string`, `package?: string`, `buffer?: string`, `lines?: number` | Device prop whitelist facts, APK binaries, bounded logcat slices, display dumpsys. | Bounds logcat lines to avoid terminal buffer overflow; requires authorized ADB device connection. |
 | 16 | **Firmware & WASM**| 7 | `inspect_firmware_regions`, `extract_firmware`, `inspect_wasm_artifact`, `compare_wasm_interfaces`, `inspect_evm_interface`, `decode_signal_recording`, `inspect_signal_decoders` | `path: string`, `decoder?: string`, `options?: object` | Carved flash partitions, disassembled WebAssembly (WAT), EVM bytecode function selectors, decoded logic traces. | Non-destructive carving; refuses to overwrite non-empty destination directories. |
 | 17 | **Network Packets**| 4 | `inspect_packet_capture`, `inspect_pcap_capture`, `inspect_packet_fields`, `inspect_pcap_client` | `path: string`, `filter?: string`, `fields?: string[]` | Dissected PCAP frames via TShark, DNS queries, TLS Server Name Indications (SNI). | Fails if TShark / Wireshark CLI missing; strictly operates on static PCAP files. |
-| 18 | **Dynamic & Cleanroom**| 61 | `start_frida_session`, `load_frida_script`, `instrument_with_frida`, `start_gdb_session`, `gdb_console`, `execute_rizin_command`, `cutter_command`, `capture_process_scenario`, `compare_process_captures`, `export_evidence_bundle`, `import_evidence_bundle`, `inspect_analysis_view`, `build_reconstruction_obligation_ledger`, `evaluate_reconstruction_coverage`, `verify_reconstruction`, `record_unknown`, `list_unknowns`, `verify_unknown_resolution`, `get_navigation_context`, `inspect_address_context`, etc. | `evidence_ids: string[]`, `spec_goal: string`, `claim: string`, `question: string` | Portable Evidence JSON bundles, typed obligation ledgers, mathematical coverage percentages, verified unknowns ledger. | Fail-closed evaluation; claims unsupported by concrete Evidence records are rejected. |
+| 18 | **Dynamic, Build & Cleanroom**| 53 | `start_frida_session`, `load_frida_script`, `instrument_with_frida`, `start_gdb_session`, `gdb_console`, `execute_rizin_command`, `cutter_command`, `start_rizin_debug_session`, `capture_process_scenario`, `compare_process_captures`, `export_evidence_bundle`, `import_evidence_bundle`, `inspect_analysis_view`, `build_reconstruction_obligation_ledger`, `evaluate_reconstruction_coverage`, `verify_reconstruction`, `record_unknown`, `list_unknowns`, `verify_unknown_resolution`, `start_build_computer`, `search_guidance`, etc. | `evidence_ids: string[]`, `spec_goal: string`, `claim: string`, `question: string` | Portable Evidence JSON bundles, typed obligation ledgers, mathematical coverage percentages, verified unknowns ledger. | Fail-closed evaluation; claims unsupported by concrete Evidence records are rejected. |
 
-### 2.3 CLI Subcommand Architecture (153 Commands)
+### 2.3 CLI Subcommand Architecture (196 Commands)
 The REA CLI (`rea <command> [args]`) mirrors the MCP toolset, providing non-interactive, pipeline-friendly execution for scripts and shell commands.
 
 - **Universal Formatting Flags**:
@@ -201,7 +202,7 @@ REA follows a strict **bring-your-own-provider** architecture for resource-inten
 ```
                                   ┌──────────────────────────────┐
                                   │    REA Unified Interface     │
-                                  │  (207 MCP / 153 CLI Tools)   │
+                                  │  (255 MCP / 196 CLI Tools)   │
                                   └──────────────┬───────────────┘
                                                  │
             ┌────────────────────────┬───────────┴───────────┬────────────────────────┐
@@ -321,9 +322,9 @@ To achieve complete, error-free integration between Google Antigravity and REA a
 ### 4.2 Token Conservation Analysis & Schema Pruning
 A major vulnerability in multi-hundred-tool MCP integrations is context window bloat during initial tool enumeration:
 - **`REA_MCP_INPUT_SCHEMA_PROFILE: "full"`**:
-  Ensures that when an agent consults REA tools via `call_mcp_tool`, Antigravity receives exhaustive property descriptions, required parameter lists, and parameter types for all 207 tools, preventing hallucinated arguments.
+  Ensures that when an agent invokes REA MCP tools (via `inheritMcp: true`), Antigravity receives exhaustive property descriptions, required parameter lists, and parameter types for all **255** tools, preventing hallucinated arguments.
 - **`REA_MCP_OUTPUT_SCHEMA_PROFILE: "off"`**:
-  Standard MCP schemas publish return payload schemas in addition to input schemas. For 207 tools, transmitting output schema definitions injects **~4,500 redundant tokens** into every single conversational turn. Setting the output schema profile to `"off"` eliminates this token tax entirely while leaving input validation 100% intact.
+  Standard MCP schemas publish return payload schemas in addition to input schemas. For **255** tools, transmitting output schema definitions injects thousands of redundant tokens into every single conversational turn. Setting the output schema profile to `"off"` eliminates this token tax entirely while leaving input validation 100% intact.
 
 ### 4.3 Client Frame Overflow Prevention
 Antigravity's JSON-RPC stdio transport buffers individual tool responses. If an agent executes an unfiltered disassembly dump (e.g. 50,000 lines of disassembly), the client frame can overflow or freeze the UI thread.
@@ -334,7 +335,7 @@ Antigravity's JSON-RPC stdio transport buffers individual tool responses. If an 
 3. **Paging via `inspect_analysis_view`**: Agents inspect specific slices or modules on demand using `inspect_analysis_view(evidence_id, view, page)` without re-running analysis or flooding context.
 
 ### 4.4 Skills Integration (First-Party `re-ops` + Dynamic Upstream Provisioning)
-- **First-Party Layer 1 Skill (`harness/skills/re-ops/SKILL.md`)**: Target-agnostic Agyis operational runbook covering cleanroom quarantine (`PSL-INV-007`), pre-analyzed Ghidra direct-mount acceleration (`PSL-INV-009`), the complete `agyis re` lifecycle palette, 4-vector cleanroom verification, and the 5-step REA surgical escalation ladder. Provisioned via `--role re`, `--role cleanroom`, or the `ops` skill group.
+- **First-Party Layer 1 Skill (`harness/skills/re-ops/SKILL.md`)**: Target-agnostic Agyis operational runbook housing the complete **`PSL-RE-001` On-Demand Domain Pack** — cleanroom quarantine (`PSL-RE-001 §1`), pre-analyzed Ghidra direct-mount acceleration (`PSL-RE-001 §2`), the complete 15-subcommand `agyis re` lifecycle palette, 4-vector cleanroom verification, and the 5-step REA surgical escalation ladder. Provisioned via `--role re`, `--role cleanroom`, or the `ops` skill group.
 - **Upstream Dynamic Skill (`reverse-engineer-anything`)**: Encapsulates upstream REA operational runbooks, disassembler choice matrices, and cleanroom verification protocols without vendoring external upstream markdown inside `harness/skills/`:
   - **Dynamic Discovery & Provisioning (`provision_rea_skill()` in `harness/runtime/healing.py`)**: Discovers upstream `skills/reverse-engineer-anything/SKILL.md` from `rea providers --json` package `root_path` or user `pnpm`/`npm` global stores, symlinking or downloading on-demand into target skills roots (`~/.gemini/config/skills/reverse-engineer-anything/SKILL.md` or workspace `.agents/skills/`).
   - **Triggers**: Executed on-demand via `agyis init --experimental-rea`, `agyis doctor --experimental-rea --heal`, or `agyis install -g --experimental-rea`.
@@ -367,34 +368,117 @@ Cleanroom deliverables are codified in two repository locations:
    - Contains zero copied decompiled code or vendor proprietary signatures (`agyis verify --spec`).
 2. **Obligation Ledgers (`.agents/ledger/**`)**:
    - Machine-verifiable contracts scaffolded via `agyis verify --scaffold` (`harness/cleanroom/obligation.py`):
-     - `obligation_ledger.json` (**Primary REA 6.8.0+ Schema**): Consolidates `evidence_bundle` (`providers`, `records`, `artifacts`), `reviewed_obligations`, and `manifest` (`bindings`, `contradictions`, `status`).
+     - `obligation_ledger.json` (**Primary `REA 6.9.0` strictObject Schema**): Root object containing strictly `evidence_bundle` (`artifacts`, `captures`, `environments`, `providers`, `records`, `scenarios`, `unknowns`), `reviewed_obligations`, and `manifest` (`bindings` list, `contradictions` list). Top-level `"$schema"` is prohibited in `REA 6.9.0`.
      - `manifest.json` (*Legacy fallback schema*): Bindings between obligations, evidence hashes, and `"satisfied"` verification proofs.
 
 ### 5.2 Typed Obligation Ledger Model (`.agents/ledger/obligation_ledger.json`)
-`validate_obligation_ledger()` validates each `.agents/ledger/obligation_ledger.json` file against the structured REA 6.8.0+ contract:
+`validate_obligation_ledger()` validates `.agents/ledger/obligation_ledger.json` against the strict `REA 6.9.0` contract (`harness/cleanroom/obligation.py`):
+- Root keys are strictly `{"evidence_bundle", "reviewed_obligations", "manifest"}` (omit deprecated `"$schema"`).
+- `reviewed_obligations` requires `"obligation_version": 1` (integer `>= 1`), a `target` strictObject (`artifact_sha256`, `application_node_id`, `semantic_node_id`, `location`), valid `"disposition"` in `{"active", "blocked", "out-of-scope"}`, and `review_evidence_ids` referencing `ev_<64-hex>` records.
+- `manifest.bindings` MUST be a `list` of binding objects (not a dict).
 
 ```json
 {
-  "$schema": "https://rea.dev/schemas/obligation-ledger-v1.json",
-  "version": "1.0.0",
   "evidence_bundle": {
-    "providers": [{ "id": "ghidra", "name": "Ghidra Headless Decompiler", "version": "11.0" }],
-    "records": [{ "record_id": "REC-001", "provider": "ghidra", "subject": "target_binary", "digest": "sha256:..." }],
-    "artifacts": [{ "artifact_id": "ART-001", "path": "docs/specs/protocol.md", "digest": "sha256:..." }]
+    "artifacts": [
+      {
+        "digest": { "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        "format": "markdown"
+      }
+    ],
+    "captures": [],
+    "environments": [],
+    "providers": [
+      { "id": "ghidra", "name": "Ghidra Headless Decompiler", "version": "11.0" }
+    ],
+    "records": [
+      {
+        "evidence_id": "ev_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "provider": { "id": "ghidra", "name": "Ghidra Headless Decompiler", "version": "11.0" },
+        "subject": {
+          "name": "target_binary",
+          "digest": { "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },
+          "format": "elf64",
+          "local_path": ".dirtyroom/binaries/target.bin",
+          "architecture": "x86_64"
+        },
+        "predicate_type": "static-disassembly",
+        "operation": "procedure_pseudo_code",
+        "confidence": "observed",
+        "authority": "shipped-artifact"
+      }
+    ],
+    "scenarios": [],
+    "unknowns": []
   },
   "reviewed_obligations": [
     {
       "obligation_id": "OBL-001",
-      "target": "packet_deserializer",
-      "disposition": "satisfied",
-      "rationale": "Validated against cleanroom binary disassembly capture REC-001",
-      "evidence_refs": ["REC-001"]
+      "obligation_version": 1,
+      "title": "Packet deserializer contract",
+      "application_layer": "protocol",
+      "family": "cleanroom",
+      "target": {
+        "artifact_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "application_node_id": null,
+        "semantic_node_id": null,
+        "location": "packet_deserializer"
+      },
+      "required": true,
+      "required_case_kinds": ["positive"],
+      "required_original_authority": "static",
+      "required_fixture_authority": "unit",
+      "required_verifier_authority": "unit",
+      "requires_parser_type": false,
+      "dependency_obligation_ids": [],
+      "residual_unknown_ids": [],
+      "unavailable_authority": [],
+      "required_next_evidence": [],
+      "disposition": "active",
+      "review_evidence_ids": ["ev_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]
     }
   ],
   "manifest": {
-    "bindings": { "target_binary": "target_binary" },
-    "contradictions": [],
-    "status": "verified"
+    "bindings": [
+      {
+        "obligation_id": "OBL-001",
+        "owner": {
+          "module_path": "src/protocol/deserializer.py",
+          "symbol": "decode_packet",
+          "owner_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "parser_type": null,
+        "original_cases": [
+          {
+            "kind": "positive",
+            "evidence_id": "ev_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "location": "0x401000"
+          }
+        ],
+        "fixtures": [
+          {
+            "fixture_id": "FIX-001",
+            "case_kind": "positive",
+            "authority": "unit",
+            "evidence_ids": ["ev_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]
+          }
+        ],
+        "verifier": {
+          "verifier_id": "VER-001",
+          "claim_id": "CLM-001",
+          "command": "python3 -m unittest tests/test_deserializer.py",
+          "authority": "unit",
+          "status": "pass",
+          "result_evidence_id": "ev_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "enumerated_obligation_ids": ["OBL-001"],
+          "nondeterminism": {
+            "mode": "total-order",
+            "specification": "Deterministic byte-stream framing"
+          }
+        }
+      }
+    ],
+    "contradictions": []
   }
 }
 ```
@@ -482,7 +566,7 @@ To resolve the frictions documented in Issues #44 and #45, the four primary life
        SPEC_DIR_PREFIXES = ("/docs/specs/", "docs/specs/", "/.agents/ledger/", ".agents/ledger/")
        SPEC_WINDOW_MAX_CALLS = 8  # Elevated from default 4 in 15-call window
        ```
-     - **Strict Consecutive Repeat Enforcement**: Regardless of the elevated window quota, consecutive identical `view_file` calls are strictly enforced: $\ge 3$ consecutive calls to the exact same specification path are immediately denied to prevent cognitive lockup.
+     - **Strict Consecutive Repeat Enforcement**: Regardless of the elevated window quota, consecutive identical `read_file`/`view_file` calls are strictly enforced: $\ge 3$ consecutive calls to the exact same specification path are immediately denied to prevent cognitive lockup.
   2. Register REA verification commands in `TEST_VERIFICATION_PATTERNS`:
      ```python
      TEST_VERIFICATION_PATTERNS = (
@@ -523,7 +607,7 @@ To resolve the frictions documented in Issues #44 and #45, the four primary life
                    clear_spec_dirty()
        ```
   3. **Formal Ledger & Manifest Clearance Schema (DEF-06)**:
-     - **Primary Obligation Ledger (`.agents/ledger/obligation_ledger.json`, REA 6.8.0+)**: `is_manifest_verified()` (`harness/hooks/fence_classifiers.py`) prioritizes `.agents/ledger/obligation_ledger.json` via `validate_obligation_ledger()` (`harness/cleanroom/obligation.py`), checking valid `evidence_bundle` (`providers`, `records`, `artifacts`), non-empty `reviewed_obligations` (`obligation_id`, `disposition`), and `manifest` (`bindings`, empty/resolved `contradictions`). Generated via `agyis verify --scaffold`.
+     - **Primary Obligation Ledger (`.agents/ledger/obligation_ledger.json`, `REA 6.9.0`)**: `is_manifest_verified()` (`harness/hooks/fence_classifiers.py`) prioritizes `.agents/ledger/obligation_ledger.json` via `validate_obligation_ledger()` (`harness/cleanroom/obligation.py`), checking valid `evidence_bundle` (`artifacts`, `captures`, `environments`, `providers`, `records`, `scenarios`, `unknowns`), non-empty `reviewed_obligations` (`obligation_id`, `obligation_version >= 1`, `target` strictObject, `disposition` in `{"active", "blocked", "out-of-scope"}`), and `manifest` (`bindings` list, zero unresolved `contradictions`), rejecting deprecated top-level `"$schema"`. Generated via `agyis verify --scaffold`.
      - **Legacy Clearance Manifest Fallback (`.agents/ledger/manifest.json`)**: If `obligation_ledger.json` is absent, `.agents/ledger/manifest.json` clears `spec_dirty` when conforming to the schema below:
        ```json
        {
@@ -615,9 +699,9 @@ agyis doctor                                   # Standard host audit (STRICT SUB
                                                # REA probed via zero-delay fast path; 0 warnings added
 
 agyis doctor --experimental-rea                # Comprehensive REA diagnostic sweep:
-                                               # • Probes rea binary version (>=6.0.0)
+                                               # • Probes rea binary version (6.9.0+ / 255 MCP tools)
                                                # • Probes mcp_config.json registration
-                                               # • Probes JDK 21+ & Ghidra 12.1+ installation
+                                               # • Probes JDK 21+ & Ghidra 11.0+/12.2+ installation
                                                # • Deep provider scan (rea providers --json)
 
 # ==============================================================================
@@ -651,9 +735,9 @@ In `harness/runtime/doctor.py`:
 
 ---
 
-## 8. Accelerated Decompilation Architecture: Direct Mount, Daemon Bridge & Query Cache (Issue #113, PSL-INV-009)
+## 8. Accelerated Decompilation Architecture: Direct Mount, Daemon Bridge & Query Cache (Issue #113, `PSL-RE-001`)
 
-To eliminate the severe latency bottlenecks encountered during reverse engineering operations on large closed-source binaries (>50MB, e.g. `ShippingPC-ChaosGame.exe`: 68MB, 356,000 procedures, 817,000 strings), Agyis Harness introduces a 3-tier acceleration architecture satisfying the sub-2-second decompilation benchmark required by **PSL-INV-009 §2**.
+To eliminate the severe latency bottlenecks encountered during reverse engineering operations on large closed-source binaries (`>10 MB`, e.g., `<68MB-PE32+-target.exe>` with `356,000` procedures and `817,000` strings), Agyis Harness introduces a 3-tier acceleration architecture satisfying the sub-2-second decompilation benchmark required by **`PSL-RE-001 §2`**.
 
 ### 8.1 Empirical Latency Benchmarks (Target: 68MB PE32+ Binary)
 
@@ -674,7 +758,7 @@ To eliminate the severe latency bottlenecks encountered during reverse engineeri
 
 ### 8.3 Optimization 2: Direct In-Place Mount (`REA_GHIDRA_DIRECT_MOUNT=1`)
 - **Mechanism**: Eliminates the 1.3GB disk cloning step in REA:
-  - Bypasses `copyExistingGhidraProject` in `dist/ghidra/GhidraProjectSnapshot.js`, `dist/mcp/binary-*.js`, and `dist/cli-runtime/binary-*.js`.
+  - Bypasses `copyExistingGhidraProject` in `dist/ghidra/GhidraProjectSnapshot.js`, `dist/ghidra/GhidraLauncher.js`, `dist/mcp/binary-*.js`, and `dist/cli-runtime/binary-*.js`, plus `GhidraReleasePolicy.js` for Ghidra `12.2+` compatibility.
   - Enforces `-noanalysis` and `-readOnly` flags when launching Ghidra's `analyzeHeadless` on the repository root.
   - Transparently injected via `harness/hooks/command_safety_hook.py` (`inject_rea_dirtyroom_env`) for any terminal command invoking `rea decompile/disasm/xrefs/read-bytes`.
 
@@ -707,7 +791,7 @@ All REA integration modules, hook gates, and cleanroom verifiers must satisfy de
 | Layer / Scope | Verification Command | Target Contract |
 | :--- | :--- | :--- |
 | **Cleanroom Specs Gate** | `agyis verify --spec` | Asserts `docs/specs/**` contains zero executable code files and clears `spec_dirty`. |
-| **Obligation Ledger Scaffold** | `agyis verify --scaffold` | Generates `.agents/ledger/obligation_ledger.json` (`REA 6.8.0+`) schema template. |
+| **Obligation Ledger Scaffold** | `agyis verify --scaffold` | Generates `.agents/ledger/obligation_ledger.json` (`REA 6.9.0` strictObject) schema template. |
 | **Full Reconstruction Gate** | `agyis verify` / `rea verify-reconstruction` | Validates `.agents/ledger/obligation_ledger.json` (and legacy `manifest.json`) obligations against evidence. |
 | **Zero-Delay Doctor** | `agyis doctor` | Confirms sub-second (`<1.0s`) baseline check without launching heavy disassembler scans. |
 | **Opt-In REA Audit** | `agyis doctor --experimental-rea` | Audits `rea`, `mcp_config.json`, JDK 21+, Ghidra, Hopper, IDA Pro, and JADX provider chains. |

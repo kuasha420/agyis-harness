@@ -9,7 +9,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Scope**: Project-Internal Test Standards & Product-Delivered Testing Invariants  
-**Last Updated**: 2026-11-11  
+**Last Updated**: 2026-11-25 (`v1.0.0`)  
 
 ---
 
@@ -36,22 +36,22 @@ All unit, integration, and replay tests inside `tests/` must adhere to five inva
 - All state-persisting components (`anti_loop_hook`, `output_compactor_hook`, `completion_fence_hook`, `token_proximity_guard`) resolve their default runtime directory at `/tmp/agyis_harness_state_{uid}` via `harness/utils/state.py` and support `state_dir: Optional[Path]` plus `AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR` environment overrides.
 - Fixtures must allocate isolated temporary directories (`tempfile.TemporaryDirectory()`) and clean up on teardown.
 
-### B. The Sub-Second Benchmark Invariant
-- Individual component test modules must execute cleanly in **under 1.0 second**, while the macro repository suite across all **77** `tests/test_*.py` modules executes hermetically (`./agyis test` or `python3 -m harness.cli test`) with zero external service dependencies.
+### B. The Sub-Second Benchmark Invariant (`PSL-INV-001`)
+- Individual component test modules must execute cleanly in **under 1.0 second**, while the macro repository suite across **83** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules (`87` total) executes hermetically (`./agyis test` or `python3 -m harness.cli test`) with zero external service dependencies.
 - Unbounded sleeps, slow model invocations, and whole-filesystem sweeps are strictly prohibited in unit and integration tests.
 - Hook dispatch overhead remains sub-millisecond in steady state (verified at `<0.25 ms` / `241.3 us` on `50 KB` payloads for the 2 KB output compactor).
 
 ### C. The Official Platform Contract Invariant
 Every lifecycle hook must be validated against Antigravity's camelCase protojson stdio contract ([`lifecycle-hooks.md`](lifecycle-hooks.md)):
 - **`PreToolUse`**: Accepts `conversationId`, `stepIdx`, `toolCall` (`name`, `args`) and emits valid decision JSON (`"allow"`, `"deny"`, `"ask"`, `"force_ask"`), optional shallow `overwrite`, and `reason`.
-- **`PostToolUse`**: Validates tool completion / `error` payloads and strictly emits `{}` with exit code `0`.
+- **`PostToolUse`**: Validates tool completion / `error` payloads and emits `{"overwriteResult": compacted}` when compacting `>2KB` succeeding `run_command` or `>32KB` `read_file`/`view_file` outputs, or `{}` when uncompacted/failing, exiting `0`.
 - **`PreInvocation` / `Stop`**: Emits valid `injectSteps` (with nested `systemMessage` envelopes) or `Stop` gating JSON (`decision: "continue"` vs allow), and all hooks fail open on malformed JSON or empty stdin.
 
 ### D. The Telemetry Replay Invariant
 - Defensive hooks include regression replay cases derived from historical failure trajectories recorded in `data/telemetry.db` (e.g., [test_command_safety.py](../../tests/test_command_safety.py) replays the PEP 701 f-string syntax trap to guarantee CPython >= 3.12 sanitization).
 
 ### E. Suite Layout & Execution Commands
-The `tests/` tree comprises **77** `tests/test_*.py` hermetic modules covering hooks, CLI commands, subagent contracts, delivery, cleanroom verification, and empirical pipeline stages (representative suites):
+The `tests/` tree comprises **83** `tests/test_*.py` + **4** `tests/e2e/test_*.py` hermetic modules (`87` total) covering hooks, CLI commands, subagent contracts, delivery, cleanroom verification, and empirical pipeline stages (representative suites):
 ```text
 tests/
 ├── test_agent_scaffold.py           # Agent scaffolding, workspace discovery, YAML frontmatter
@@ -71,7 +71,7 @@ tests/
 ├── test_remote_runner.py            # SSH runner, stdin script streaming, compact triage reports
 ├── test_skills.py                   # Skill discovery, <24,576 B cap, >100 L ToC, dynamic REA provisioning
 ├── test_subagent_context.py         # Microsecond token estimation, health zones (healthy/amber/red)
-├── test_subagents.py                # Specialist archetypes, 7 capability bundles, 17-tool validator
+├── test_subagents.py                # Specialist archetypes, 7 capability bundles, <=20 canonical v2.34+ tools
 ├── test_telemetry_sync.py           # Bi-directional sync, chunked push, anti-echo filter, ADR-014
 ├── test_verify.py                   # Cleanroom spec check & obligation_ledger.json schema verification
 └── test_volume_mining.py            # Tool character volume distributions, compaction simulations
@@ -92,7 +92,7 @@ python3 -m unittest discover -s tests -v
 `agyis-harness` enforces deterministic verification across onboarded consumer workspaces through three coordinated layers:
 
 ### A. The Harness Testing Rule (`rules/AGENTS.md`)
-Workspace rules codify the **Clean-Room Verification Invariant**:
+Workspace rules codify **PSL Invariant Codex v2 (`PSL-INV-001` Empirical Verification & Clean-Room Testing)**:
 1. **Mandatory Automated Verification**:
    - The agent is forbidden from declaring a task "done", "fixed", or "complete" without executing the project's canonical test suite and verifying exit code 0.
 2. **Explicit Command Anchoring**:

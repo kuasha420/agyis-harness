@@ -18,8 +18,8 @@
 
 Google Antigravity provides an extensible multi-tier agent execution runtime across three primary developer surfaces:
 
-1. **The Antigravity CLI (`agy`)**: Interactive TUI, non-interactive batch/print execution, structured streaming via NDJSON (`stream-json`), and terminal daemon management.
-2. **The Antigravity 2.0 Desktop Platform**: Electron-based orchestrator, Language Server Connect RPC introspection, HTML auxiliary generative UI, background task supervision (`manage_task`), terminal multiplexer, reactive scheduling (`schedule`), 9 system slash commands, and 4 hidden invokable subagent `TypeName`s.
+1. **The Antigravity CLI (`agy v1.5.15`)**: Interactive TUI, non-interactive batch/print execution, structured streaming via NDJSON (`stream-json`), and terminal daemon management.
+2. **The Antigravity Desktop Platform (`v2.34.0+`)**: Electron-based orchestrator, Language Server Connect RPC introspection, HTML auxiliary generative UI, background task supervision (`manage_task`), terminal multiplexer, reactive scheduling (`schedule`), 9 system slash commands, and 4 hidden invokable subagent `TypeName`s.
 3. **The Official Python SDK (`google-antigravity`)**: The three-pillar architecture (`Agent`, `Conversation`, `Connection` / `AgentClient`), capability configurations, 9-level declarative safety policies, and session leasing.
 4. **The Lifecycle Hooks Engine (`hooks.json` & SDK Hooks)**: Deterministic `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, and `Stop` interception outside the token context window (detailed contracts in [`lifecycle-hooks.md`](lifecycle-hooks.md)).
 5. **Model Context Protocol (MCP) Boundaries & Extension Packaging**: Stdio vs. Streamable HTTP/SSE transports, tool filtering allowlists/denylists, official plugin manifests (`plugin.json`), 5-tier discovery precedence, and context budget caps.
@@ -35,7 +35,7 @@ The empirical gap analysis in §7 matches these platform capabilities against au
 |                                    Antigravity Platform Runtime                                    |
 |                                                                                                    |
 |  +-----------------------------+  +-------------------------------+  +--------------------------+  |
-|  |     Antigravity CLI (agy)   |  |   Antigravity 2.0 Desktop     |  |   Official Python SDK    |  |
+|  |     Antigravity CLI (agy)   |  |  Antigravity Desktop (v2.34+) |  |   Official Python SDK    |  |
 |  |                             |  |   (Electron / IDE Host)       |  |  (google-antigravity)    |  |
 |  |  * Interactive TUI          |  |  * Chat Canvas & Slash Cmds   |  |  * Agent / AgentClient   |  |
 |  |  * Batch Print (-p)         |  |  * Connect RPC & Aux GenUI    |  |  * Conversation State    |  |
@@ -65,9 +65,9 @@ The empirical gap analysis in §7 matches these platform capabilities against au
 +-----------------------+              +--------------------------+             +--------------------+
 |  Built-in Tools       |              |  Model Context Protocol  |             |  Custom Extensions |
 |  * run_command        |              |  (FastMCP / JSON-RPC)    |             |  * Skills / Rules  |
-|  * view_file          |              |  * Stdio Subprocess      |             |  * Slash Commands  |
-|  * replace_file_content              |  * Streamable HTTP / SSE |             |  * Subagent Trees  |
-|  * manage_task        |              |  * Tool Filtering Filter |             |  * Official Plugins|
+|  * read_file          |              |  * Stdio Subprocess      |             |  * Slash Commands  |
+|  * write_file/edit_file              |  * Streamable HTTP / SSE |             |  * Subagent Trees  |
+|  * manage_task/swarm  |              |  * Tool Filtering Filter |             |  * Official Plugins|
 +-----------------------+              +--------------------------+             +--------------------+
 ```
 
@@ -92,12 +92,12 @@ An official Antigravity plugin bundles manifests, MCP definitions, lifecycle hoo
 {
   "name": "agyis-harness",
   "displayName": "Agyis Harness for Google Antigravity™",
-  "version": "1.0.0-rc14",
-  "description": "Empirical audit pipeline and reference extension harness for Google Antigravity™",
-  "author": { "name": "Purrfect Software Limited (PSL)" },
-  "license": "Apache-2.0",
-  "keywords": ["antigravity", "harness", "telemetry", "audit", "gemini"],
-  "disabled": false
+  "version": "1.0.0",
+  "description": "Autonomous agent runtime harness and immune system for Google Antigravity™",
+  "logo": "assets/logo.svg",
+  "author": {
+    "name": "Arafat Zahan (@kuasha420) & Purrfect Software Limited (PSL)"
+  }
 }
 ```
 
@@ -220,13 +220,13 @@ The desktop Language Server exposes an authenticated local Connect RPC endpoint 
 
 ---
 
-## 3. Surface Deconstruction: Antigravity 2.0 Desktop Platform
+## 3. Surface Deconstruction: Antigravity Desktop Platform (`v2.34.0+`)
 
-Antigravity 2.0 is an Electron-based workstation environment that hosts the Language Server runtime, orchestrating agent execution across multiple rich visual and asynchronous surfaces.
+Antigravity Desktop (`v2.34.0+`) is an Electron-based workstation environment that hosts the Language Server runtime, orchestrating agent execution across multiple rich visual and asynchronous surfaces.
 
 ```
 +----------------------------------------------------------------------------------------------------+
-|                                    Antigravity 2.0 Desktop UI                                      |
+|                                  Antigravity Desktop UI (v2.34+)                                   |
 |                                                                                                    |
 |  +--------------------+  +-------------------------------------+  +-----------------------------+  |
 |  | Left-Hand Sidebar  |  | Main Chat Canvas                    |  | Auxiliary Workspace Pane    |  |
@@ -244,7 +244,7 @@ Antigravity 2.0 is an Electron-based workstation environment that hosts the Lang
 ```
 
 ### 3.1 Auxiliary Generative UI (HTML Pane)
-Antigravity 2.0 integrates an internal browser viewport capable of rendering rich, interactive generative HTML artifacts. Agents produce HTML widgets via markdown code blocks or dedicated files:
+Antigravity Desktop integrates an internal browser viewport capable of rendering rich, interactive generative HTML artifacts. Agents produce HTML widgets via markdown code blocks or dedicated files:
 - **Rendering Model**: Isolated iframe sandbox supporting modern web standards (SVG, Canvas, CSS animations, JavaScript).
 - **Use Cases**: Live metric cockpits, topology graphs, audit dashboards, interactive approval forms, and component mockups.
 - **Contract**: Communication back to the agent is bridged via structured DOM events or clipboard transfers.
@@ -257,11 +257,11 @@ The desktop runtime provides an asynchronous execution engine managed via the bu
   - `kill`: Sends termination signals to running child processes.
   - `send_input`: Pushes interactive input to a running task's `stdin`.
 - **The Reactive Wakeup Invariant & Issue #41 Advisory Contract**:
-  - **Platform Semantic**: In Antigravity 2.0, background tasks automatically emit a reactive system event upon completion that resumes the agent turn.
+  - **Platform Semantic**: In Antigravity (`v2.34.0+`), background tasks automatically emit a reactive system event upon completion that resumes the agent turn.
   - **Harness Enforcement**: `anti_loop_hook.py` emits a non-blocking **advisory allow** (`{"decision": "allow", "reason": "Advisory: Background tasks notify reactively upon exit. Avoid polling status to conserve steps."}`) on `manage_task(Action='status')`, while hard-denying repeated polling reads of `.system_generated/tasks/` or `.system_generated/logs/` (Exit 2 / `"decision": "deny"`).
 
 ### 3.3 Terminal Multiplexer Subsystem (`run_command`)
-Shell execution within Antigravity 2.0 is handled through a persistent pseudo-terminal multiplexer:
+Shell execution within Antigravity (`v2.34.0+`) is handled through a persistent pseudo-terminal multiplexer:
 - **Parameters**:
   - `CommandLine` (required): Command string executed via `bash -c`.
   - `Cwd` (required): Absolute path to working directory.
@@ -370,7 +370,7 @@ from google.antigravity import Agent, LocalAgentConfig, types
 from google.antigravity.hooks import policy
 
 config = LocalAgentConfig(
-    model="gemini-3.8-flash",                               # Model target (default: gemini-3.8-flash)
+    model="gemini-4-neon",                                  # Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`) or `gemini-3.8-flash`
     system_instructions="Authoritative System Prompt",      # Root system instruction
     app_data_dir="/absolute/path/to/storage",               # Artifact storage override
     capabilities=types.CapabilitiesConfig(
@@ -403,7 +403,7 @@ config = LocalAgentConfig(
 The SDK evaluates tool calls against a strict **9-level priority hierarchy** (highest to lowest), short-circuiting on first match:
 1. **Specific Deny**: `policy.deny("run_command")`
 2. **Specific Ask**: `policy.ask_user("run_command", handler=my_handler)`
-3. **Specific Allow**: `policy.allow("view_file")`
+3. **Specific Allow**: `policy.allow("read_file")`
 4. **Prefix Wildcard Deny**: `policy.deny("mcp_server/*")`
 5. **Prefix Wildcard Ask**: `policy.ask_user("mcp_server/*", handler=my_handler)`
 6. **Prefix Wildcard Allow**: `policy.allow("mcp_server/*")`
@@ -450,9 +450,9 @@ The Lifecycle Hooks engine executes **deterministic code outside the model conte
 
 | Event | Layout / Matcher Target | Execution Point | Expected `stdout` Output |
 | :--- | :--- | :--- | :--- |
-| **`PreToolUse`** | Matcher-grouped regex (`run_command`, `view_file\|grep_search`, `*`) | Before tool dispatch | `{"decision": "allow"\|"deny"\|"ask"\|"force_ask", "overwrite": {...}, "reason": "..."}` |
-| **`PostToolUse`** | Matcher-grouped regex on tool name | Immediately after tool completion | **`{}`** (strictly empty JSON object, Exit `0`) |
-| **`PreInvocation`** | Flat list (no matcher) | Before inference dispatch | `{"injectSteps": [...]}` (`ephemeralMessage` / `userMessage` string; `systemMessage` nested dict) |
+| **`PreToolUse`** | Matcher-grouped regex (`write_file\|edit_file`, `run_command`, `swarm`, `mcp_.*`) | Before tool dispatch | `{"decision": "allow"\|"deny"\|"ask"\|"force_ask", "overwrite": {...}, "reason": "..."}` |
+| **`PostToolUse`** | Matcher-grouped regex on tool name (`run_command\|read_file\|view_file`) | Immediately after tool completion | **`{}`** or **`{"overwriteResult": "<compacted>"}`** (`>2KB` cmd / `>32KB` `read_file`; errors preserved `{}` verbatim, Exit `0`) |
+| **`PreInvocation`** | Flat list (no matcher) | Before inference dispatch | `{"injectSteps": [...]}` (nested `systemMessage` envelope required by harness hooks; `userMessage` string supported) |
 | **`PostInvocation`** | Flat list (no matcher) | After inference generates tool calls | `{"injectSteps": [...], "terminationBehavior": "force_continue"\|"terminate"\|""}` |
 | **`Stop`** | Flat list (no matcher) | Trajectory termination boundary | `{"decision": "continue", "reason": "..."}` or allow exit (9 `terminationReason` values; 2-block valve) |
 
@@ -460,7 +460,7 @@ The Lifecycle Hooks engine executes **deterministic code outside the model conte
 
 - **Common Ingress Metadata**: `conversationId`, `stepIdx` / `invocationNum` / `executionNum`, `workspacePaths`, `transcriptPath`, `artifactDirectoryPath`, `modelName`.
 - **Shallow `overwrite` Semantics (`PreToolUse`)**: Replaces matching top-level argument keys in-flight (`CommandLine`) before dispatch and transcript capture.
-- **`PreInvocation` Nested `systemMessage` Envelope**: Plain strings work for `{"ephemeralMessage": "..."}` and `{"userMessage": "..."}`, whereas `systemMessage` requires the nested envelope `{"systemMessage": {"systemMessage": "...", "metadata": {...}}}`.
+- **`PreInvocation` Nested `systemMessage` Envelope**: Harness hooks emit `{"systemMessage": {"systemMessage": "...", "metadata": {...}}}` exclusively (`ephemeralMessage` is deprecated/unused in `agyis-harness`).
 
 ---
 
@@ -508,14 +508,14 @@ Audited telemetry baselines in [`../taxonomy/empirical-baselines.md`](../taxonom
 
 | Empirical Failure Mode | Root Cause | Layer 1: Native Platform Feature | Layer 2: Lifecycle Hook (`hooks.json`) | Layer 3: Skills / CLI Tooling |
 | :--- | :--- | :--- | :--- | :--- |
-| **Exit Code 1 Search Probing** | Benign `grep` / `diff` exiting 1 on empty match treated as failure. | Native search tools (`grep_search`). | **`PreToolUse` (`command-safety`)**: Rewrites standalone probes via `overwrite` with `\|\| [ $? -eq 1 ]`. | Rule invariant (`PSL-INV-002`). |
-| **Exit Code 127 Missing Binaries** | Non-login subshells missing user dotfiles / `.venv` Python. | `LocalAgentConfig(env=...)`. | **`PreToolUse` (`command-safety`)**: Injects user toolchain `PATH` shims + `uv` CPython >= 3.12 (`ADR-013`, `ADR-023`). | `agyis doctor --heal`. |
-| **Remote SSH Hangouts (Exit 255)** | Unreachable remote targets hanging raw SSH commands. | Short-lived multiplexed transports. | **`PreToolUse` (`command-safety`)**: Injects `-o ConnectTimeout=5 -o BatchMode=yes` (`ADR-023`). | **`agyis remote` (`ADR-027`)** + `remote-ops` / `mesh-ops` skills. |
-| **Interactive TUI Hangs** | Unpiped pagers or interactive editors (`vim`, `nano`, `less`). | Headless `--print` / `PAGER=cat`. | **`PreToolUse` (`command-safety`)**: Rewrites `PAGER=cat`, blocks interactive TUI binaries. | Non-interactive skill contracts. |
-| **Redundant File / Search Loops** | Consecutive unchanged `view_file`, `grep_search`, or `run_command` loops. | Structured subagent delegation (`<40k` ctx). | **`PreToolUse` (`anti-loop`)**: Blocks repeat identical tool calls; allows evolved queries. | Zero-Exploration Invariant. |
+| **Exit Code 1 Search Probing** | Benign `grep` / `diff` exiting 1 on empty match treated as failure. | Native search probes (`rg` / shell). | **`PreToolUse` (`command-safety`)**: Rewrites standalone probes via `overwrite` with `\|\| [ $? -eq 1 ]`. | Rule invariant (`PSL-INV-003`). |
+| **Exit Code 127 Missing Binaries** | Non-login subshells missing user dotfiles / `.venv` Python. | `LocalAgentConfig(env=...)`. | **`PreToolUse` (`command-safety`)**: Injects user toolchain `PATH` shims + `uv` CPython >= 3.12 (`ADR-011`, `ADR-023`). | `agyis doctor --heal`. |
+| **Remote SSH Hangouts (Exit 255)** | Unreachable remote targets hanging raw SSH commands. | Short-lived multiplexed transports. | **`PreToolUse` (`command-safety`)**: Injects `-o ConnectTimeout=5 -o BatchMode=yes` (`ADR-023`). | **`agyis remote` (`ADR-027`)** + `remote-ops` skill. |
+| **Interactive TUI Hangs** | Unpiped pagers or interactive editors (`vim`, `nano`, `less`). | Headless `--print` / `PAGER=cat`. | **`PreToolUse` (`command-safety`)**: Rewrites `PAGER=cat` & `SYSTEMD_PAGER=cat`, blocks interactive TUI binaries. | Non-interactive skill contracts. |
+| **Redundant File / Search Loops** | Consecutive unchanged `read_file`, `edit_file`, or `run_command` loops. | Structured subagent delegation (`<65%` window). | **`PreToolUse` (`anti-loop`)**: Blocks repeat identical tool calls; allows evolved queries. | Zero-Exploration Invariant (`PSL-INV-004`). |
 | **Background Polling Inflation** | Polling async tasks or `.system_generated/{tasks,logs}/` files instead of stopping. | **Native Reactive Wakeup** (`<SYSTEM_MESSAGE>`). | **`PreToolUse` (`anti-loop`, Issue #41)**: Emits non-blocking **advisory allow** on `manage_task(Action='status')`; **Exit 2 deny** on repeated log-file polling. | Reactive Wait rule (`PSL-INV-004`, `ADR-032`). |
-| **Long-Context Saturation & Flood** | Unbounded stdout dumps pushing sessions toward `200k+` tokens (`45.9x` error burden). | `CompactionConfig`, `/compact`, checkpoint barriers. | **`PostToolUse` (`compactor`)** `2 KB` truncation + **`PreToolUse` (`token-proximity`)** / **`PreInvocation` (`pre-invocation`)** advisories (`180k`/`230k`). | `agyis checkpoint` + fresh subagents. |
-| **Premature Completion / Plan Drift** | Claiming done without tests or cleanroom spec verification, or mutating outside plan. | `/plan` mode + SDK review gates. | **`Stop` (`verification-fence`)** (`code_dirty` vs `spec_dirty`, 2-block valve) + **`PreToolUse` (`anti-drift`)**. | `agyis test` / `agyis verify --spec`. |
+| **Long-Context Saturation & Flood** | Unbounded stdout dumps pushing sessions toward `200k+` tokens (`45.9x` error burden). | `CompactionConfig`, `/compact`, checkpoint barriers. | **`PostToolUse` (`compactor`)** `overwriteResult` (`2KB`/`32KB`) + **`PreToolUse` (`token-proximity`)** / **`PreInvocation` (`pre-invocation`)** scaled (`512k`/`1M` at `70%`/`90%`, `80` steps). | `agyis checkpoint` + fresh subagents. |
+| **Premature Completion / Plan Drift** | Claiming done without tests or cleanroom spec verification, or mutating outside plan. | `/plan` mode + SDK review gates. | **`Stop` (`verification-fence`)** (`code_dirty` vs `spec_dirty`, 2-block valve) + **`PreToolUse` (`anti-drift`)** + Q5 shell guard. | `agyis test` / `agyis verify --spec`. |
 
 ---
 
@@ -524,26 +524,26 @@ Audited telemetry baselines in [`../taxonomy/empirical-baselines.md`](../taxonom
 1. **Tier 1 — Native Platform Primitives**:
    - Rely on native reactive task wakeups, native OS sandboxing, `CompactionConfig` / `/compact`, native `/plan` / `/boost` / `/teamwork-preview` workflows, and `enabled_tools` MCP allowlists.
 2. **Tier 2 — Deterministic Lifecycle Hooks (`hooks.json`, `7` blocks / `8` checks)**:
-   - `command_safety_hook.py`: Shallow `overwrite` normalization (`PAGER=cat`, `|| [ $? -eq 1 ]`, `uv` CPython injection, user `PATH` shims, SSH timeouts) and destructive blocks.
-   - `anti_loop_hook.py`: Repeat call circuit breaker, Issue #41 non-blocking `manage_task(Action='status')` advisory allow, and Exit 2 log-polling deny.
-   - `output_compactor_hook.py`: Deterministic **`2 KB`** output compactor (`<0.25 ms`).
-   - `anti_drift_hook.py` & `completion_fence_hook.py`: Plan adherence, read-only auditor write fence, and decoupled `code_dirty` / `spec_dirty` stop gating.
-   - `token_proximity_guard.py` & `pre_invocation_hook.py`: `180k`/`230k` runway gauges, role pinning, and `.agents/artifacts/compaction_checkpoint_latest.md` / `cockpit_checkpoint.md` succession.
+   - `command_safety_hook.py`: Shallow `overwrite` normalization (`PAGER=cat`, `SYSTEMD_PAGER=cat`, `|| [ $? -eq 1 ]`, `uv` CPython injection, user `PATH` shims, SSH timeouts, eager `mcp_*` normalization, `/swarm` kill guard) and destructive blocks.
+   - `anti_loop_hook.py`: Repeat call circuit breaker across canonical `v2.34+` tools, Issue #41 non-blocking `manage_task(Action='status')` advisory allow, and Exit 2 log-polling deny.
+   - `output_compactor_hook.py`: Deterministic **`2 KB` / `32 KB` `overwriteResult`** output compactor (`<0.25 ms`; errors 100% verbatim `{}`).
+   - `anti_drift_hook.py` & `completion_fence_hook.py`: Plan adherence, read-only auditor write fence, Q5 read-only shell mutation guard, and decoupled `code_dirty` / `spec_dirty` stop gating.
+   - `token_proximity_guard.py` & `pre_invocation_hook.py`: Scaled **`256k` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`) / `1M`** runway gauges (`70%`/`90%`, `80`-step epoch), role pinning, nested `systemMessage` advisories, and `.agents/artifacts/compaction_checkpoint_latest.md` / `cockpit_checkpoint.md` succession.
 3. **Tier 3 — Modular Skills, Agent Personas & Remote CLI**:
-   - Package **30** progressive-disclosure skills (`<24,576 B` cap, `>100 L` ToC) and **8** dual-mode agent personas (`agyis_architect`, `agyis_coordinator`, `agyis_investigator`, `agyis_planner`, `agyis_builder`, `agyis_reviewer`, `agyis_custodian`, `agyis_auditor`).
-   - Standardize remote execution through OpenSSH ControlMaster multiplexing via **`agyis remote`** (`ADR-027`) and `remote-ops` / `mesh-ops` skills, isolating network timeouts from context windows.
+   - Package **30** progressive-disclosure skills (`<24,576 B` cap, `>100 L` ToC) and **8** dual-mode agent personas (`agyis_architect`, `agyis_coordinator`, `agyis_investigator`, `agyis_planner`, `agyis_builder`, `agyis_reviewer`, `agyis_custodian`, `agyis_auditor`, `<=20` canonical `v2.34+` tools).
+   - Standardize remote execution through OpenSSH ControlMaster multiplexing via **`agyis remote`** (`ADR-027`) and the `remote-ops` skill, isolating network timeouts from context windows.
 
 ---
 
 ## 9. Definitive Platform Surface Comparison
 
-| Feature / Dimension | Antigravity CLI (`agy`) | Antigravity 2.0 Desktop | Official Python SDK | Lifecycle Hooks (`hooks.json`) |
+| Feature / Dimension | Antigravity CLI (`agy v1.5.15`) | Antigravity Desktop (`v2.34.0+`) | Official Python SDK | Lifecycle Hooks (`hooks.json`) |
 | :--- | :--- | :--- | :--- | :--- |
 | **Primary Consumer** | Terminal developer, CI/CD, batch runners | GUI developer, pair programming | Services, custom agent harnesses, evaluators | Safety guards, linters, policy enforcement |
 | **Execution Modality** | Interactive TUI, Batch `-p`, NDJSON stream | Visual Electron app, Connect RPC, Canvas | Programmatic async context manager | Synchronous hook subprocesses (stdio) |
-| **Reasoning Control** | `--effort low\|medium\|high` | Global & Project Settings menu | Endpoint model options / budget configs | N/A (runs before/after inference) |
+| **Reasoning Control** | `--effort low\|medium\|high` | Global & Project Settings menu (Gemini 4 `512k`/`1M`) | Endpoint model options / budget configs | N/A (runs before/after inference) |
 | **Tool Execution Safety** | `--dangerously-skip-permissions`, `--sandbox` | Global/Project Tool Policy (`strict`, `sandbox`) | 9-level declarative policy hierarchy (`policy.*`) | `PreToolUse` decision: `allow`, `deny`, `ask`, `force_ask` |
 | **Tool Argument Modification** | Flags only | Flags / UI confirmation | SDK wrapper functions | **`PreToolUse` shallow `overwrite`** |
-| **Context Management** | Native compaction | `/compact`, visual tabs, progressive artifacts | `CompactionConfig(token_threshold)` | `PostToolUse` `2 KB` compaction + `180k`/`230k` gauges |
+| **Context Management** | Native compaction | `/compact`, visual tabs, progressive artifacts | `CompactionConfig(token_threshold)` | `PostToolUse` `overwriteResult` (`2KB`/`32KB`) + scaled `70%/90%` (`512k`/`1M`) gauges |
 | **Task Concurrency** | Background daemon (`remote-control`) | `manage_task` pane + reactive wakeup bus | `asyncio` event loop + custom tasks | Advisory allow on `manage_task`; deny `.system_generated/{tasks,logs}/` polling |
 | **Completion Fencing** | Exit code / JSON schema validation | Interactive feedback gates (`/plan`) | Budget and stop hook delegates | **`Stop` hook `decision="continue"` (2-block valve)** |

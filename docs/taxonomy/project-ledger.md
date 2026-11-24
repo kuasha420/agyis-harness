@@ -3,87 +3,34 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Agyis Harness Project Ledger (Compacted Post-RC10 Horizon 0)
+# Agyis Harness Project Ledger (`v1.0.0` GA — Compacted)
 
-> **Historical Archive**: Phases 1–35 (2026-10-02 through `v1.0.0-rc10`) live verbatim at `0069329:docs/archive/ledger/project-ledger-rc10-historical.md` (indexed in [`docs/archive/README.md#ledger`](../archive/README.md#ledger)).
-> **Authoritative Baselines**: Reconciled empirical metrics and Route A/B/C scores live in [`docs/taxonomy/empirical-baselines.md`](empirical-baselines.md).
-> **Architecture Registry**: Decisions `ADR-001` through `ADR-035` are maintained in [`docs/adr/README.md`](../adr/README.md).
+> **Archive (`0069329`)**: [`project-ledger-rc10-historical.md`](../archive/README.md#ledger) · **Baselines**: [`empirical-baselines.md`](empirical-baselines.md) · **ADRs (`001–035`)**: [`docs/adr/README.md`](../adr/README.md)
 
----
+## 1. Current Release Baseline (`v1.0.0` — 2026-11-25)
+- **Verification**: **2,486 hermetic tests** across `83` `tests/test_*.py` + `4` `tests/e2e/test_*.py` modules (`python3 -m harness.cli test`), **4** cleanroom specs (`agyis verify --spec`), and `agyis audit aff` (`PSL-INV-008`).
+- **Surface Inventory**: **28** CLI subcommands (`router` & `ladder` separate; `changelogs` alias), **30** modular skills (`>100` L ToC, `<24,576` B cap), **8** `agyis_*` personas (`<=20` canonical `v2.34+` tools), **7** `hooks.json` blocks (**8** runner checks), **7** official specs, **4** runbooks.
+- **Platform Targets**: Antigravity Desktop `v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`, `rea@6.9.0` (`255` MCP tools), **Gemini 4** (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M` scaled runway, `70%`/`90%`, `80`-step soft horizon).
+- **Single-Source Hygiene**: `.agents/skills/` and `.agents/agents/` symlink to `../../harness/` (`~4,500` tok/turn saved); active hooks state defaults to `/tmp/agyis_harness_state_{uid}` (`AGYIS_HARNESS_STATE_DIR`).
 
-## 1. Current Release Baseline (`v1.0.0-rc14` — 2026-11-23)
+## 2. Compacted Milestone Chronology (Phases 1–37 -> `v1.0.0` GA)
 
-- **Automated Verification**: **2,486 hermetic tests** passing (`python3 -m harness.cli test`), with sub-second isolated module benchmarks (`<0.02s–0.75s`).
-- **Architectural Fitness Function**: **100.0/100 AFF score** (`python3 -m harness.cli audit aff`), enforcing Product vs. Project isolation (`ADR-014`), DAG import acyclicity, bounded caches, and external asset separation (`PSL-INV-011`).
-- **Cleanroom Specification Gate**: Typed obligation ledgers and immutable SHA-256 evidence records verified cleanly via `python3 -m harness.cli verify --spec` and `agyis verify`.
-- **Single-Source Hygiene Gate**: `tests/test_skills_dedup_gate.py` + `harness/runtime/hygiene_checks.py` require `.agents/skills/` mirrors of `harness/skills/` to be symlinks (`../../harness/skills/<name>`), saving `~4,500` prompt tokens/turn across Layer 1–3 precedence.
-- **Documentation Separation**: Legacy empirical reports, RFCs, telemetry audits, and discovery notes are compacted out of active context per `ADR-003` and frozen at commit `0069329` (indexed in [`docs/archive/README.md`](../archive/README.md)).
-
----
-
-## 2. Active System Architecture Pillars
-
-| Domain | Canonical Mechanism & Code Surfaces | Controlling Specs / ADRs |
-| :--- | :--- | :--- |
-| **Product Bifurcation** | Distributable zero-dependency `harness/` strictly decoupled from experimental `pipeline/`, `data/`, `tests/`, and `docs/` | `ADR-014`, `ADR-015` |
-| **Output Compaction** | `PostToolUse` 2KB smart compactor (`head 500B` + `tail 1,000B` + fatal/error extraction) with zero error-truncation invariant | `ADR-007`, `ADR-008` |
-| **Runtime Determinism** | `PreToolUse` `uv` CPython `>=3.12` injection, SSH `BatchMode` timeouts, inline script hygiene guard, `PSL_HARNESS_STATE_DIR` state isolation | `ADR-023`, `PSL-INV-002` |
-| **Loop & Drift Control** | `PreToolUse` repeated-call breaker, plan-boundary/auditor write fence, persona truth gate, `PreInvocation` `230k`/`180k` advisory, `Stop` gate (`code_dirty` vs `spec_dirty`) | `ADR-009`, `ADR-024`, `ADR-032`, `ADR-033` |
-| **Cockpit & Swarm** | Root Flight Director (`agyis cockpit`), 12 workflows (`agyis router`/`ladder`), checkpoints & parking, `agyis subagents --liveness`, dual-auditor `audit_verdict.json` gate | `ADR-025`, `ADR-031A`, `ADR-033`, `PSL-INV-008` |
-| **Custom Subagents** | Validated frontmatter (`17` static `ANTIGRAVITY_PLATFORM_TOOLS` + `3` dynamic `permissions.mcp` primitives = `20`-tool ceiling, zero-hang contract) for `agyis_investigator`, `agyis_architect`, `agyis_builder`, `agyis_reviewer`, `agyis_custodian`, `agyis_auditor` | `ADR-026`, Issue `#97` |
-| **Cleanroom & REA** | `.dirtyroom/` Ghidra `-noanalysis -readOnly` pre-analyzed cache (`<2s` SLA), `agyis re` (`init`, `patch-rea`, `pre-analyze`, `find`, `decompile`, `pcap`), typed obligation ledgers (`harness/cleanroom/`) | `ADR-028`, `PSL-INV-007`, `PSL-INV-009` |
-| **Delivery & Extensions** | Branch-isolated `agyis onboard` / `init` / `harmonize`, fork topology routing, port `5432` collision guard, `agyis sync` daemon, `.agents/commands/` extensions (`agyis ext`) | `ADR-027`, `ADR-030`, `ADR-031B`, `ADR-034` |
-
----
-
-## 3. Compacted RC Milestone Chronology (Phases 1–35)
-
-| Epoch / Release | Date | Architectural Inflection Summary | Verified Test Baseline |
+| Release / Epoch | Date | Milestone Inflection Summary | Test Baseline |
 | :--- | :---: | :--- | :---: |
-| **Phases 1–5.3** | 2026-10-02 | SQLite `telemetry.db`, Dynamic Aperture (`ADR-003`), POC `PostToolUse` 2KB compactor, `uv` CPython 3.12 injection, modular skills & CLI | `67` tests (`0.932s`) |
-| **Phases 1–10 (Core)** | 2026-10-02–05 | Deterministic `Stop` completion fence, `ADR-023`–`026`, `ADR-030`–`032`, telemetry gateway (`server/`), custom subagents, anti-drift | `237+` tests |
-| **`v1.0.0-rc4` (Ph 11)** | 2026-10-16 | Dynamic Repository Awareness (DRA) runner detection, initial cleanroom REA integration, single-source plugin skills | `847` tests (`12.7s`) |
-| **`v1.0.0-rc5` (Ph 12–14)** | 2026-10-17–18 | 18-repo fleet harmonization (`onboard`, port collision), Electron Trajectory Debug View (`agyis gui`), noise-free test runner | `1,065` tests (`20.2s`) |
-| **`v1.0.0-rc6` (Ph 15–16)** | 2026-10-18 | Automated release manifest tooling, `360_telemetry_audit_2026_10.md` baseline snapshot (`N=1,720` sessions) | `1,115` tests (`19.5s`) |
-| **Phases 17–29 (`rc7` Dev)** | 2026-10-18–26 | Anti-synthetic verification (`#51`), carrier-grade compaction & native succession (`ADR-031A`), Cockpit/Router harmonization, DB pruning (`#56`) | `1,120` -> `1,608+` |
-| **`v1.0.0-rc7` (Ph 30)** | 2026-10-27 | Closed 19/19 resilience/safety/cognitive issues (`#64`, `#69`, `#74`), single-source rule dedup, persona truth, dual-gate auditor fence | `1,729` tests (`17.18s`) |
-| **`v1.0.0-rc8` (Ph 31–33)** | 2026-10-27–28 | Native REA 6.8.0 schema/JDK healing (`#96`), granular MCP scoping & shell hygiene hook (`#97`), ELF/Rust cleanroom verification, worktree prune | `1,770` tests (`18.39s`) |
-| **`v1.0.0-rc9` (Ph 34)** | 2026-11-03 | `256k/230k/180k` cockpit thresholds & de-spammed advisory (`ADR-033`), pre-analyzed Ghidra cache (`PSL-INV-009`), extensible CLI (`ADR-034`) | `1,782` tests (`17.4s`) |
-| **`v1.0.0-rc10` (Ph 35)** | 2026-11-10 | In-tree symlink skill deduplication gate, `ADR-031A/B` disambiguation, `28` current top-level CLI subcommands (`router` & `ladder` separate), **100.0/100 AFF** release gate | `1,981` tests (`~65s`) |
-| **`v1.0.0-rc11` (Ph 36–37)** | 2026-11-15 | Trajectory SSOT & Protobuf decoder, Phase 36 Modular HUD (ConnectRPC 60FPS), polyglot non-monorepo onboarding (#106), 57 bug bash remediations (DEF-BB-001..057), Knot Mesh decoupling, stdio buffered test runner | `2,356` tests (`59.1s`), AFF 100/100 |
-| **`v1.0.0-rc12` (v2.34 Compat)** | 2026-11-22 | Antigravity `v2.34.0` / `agy v1.5.14` / `IDE v2.8.0` / `rea@6.9.0` compatibility across Delivery/Hermeticity, Trajectory/Protobuf/512k, Subagents/Cockpit, GUI/HUD/ELF RE (`PR #116/#117` RE + 4 parallel streams; Stream 2 hooks queued in Epic) | `2,462` tests, AFF 100/100 |
-| **`v1.0.0-rc13` (v2.34 Complete)** | 2026-11-23 | Stream 2 Lifecycle Hooks compatibility (`DRIFT-P0-02/03`, `P1-08`, `P2-01/02`, Q5 read-only shell guard, `overwriteResult`, `systemMessage` migration, live `telemetry.db` SQL), live post-restart CDP/HUD & systemd rollout verified — **29/29 drifts resolved** (closes Epic `#118`) | `2,484` tests, AFF 100/100 |
-| **`v1.0.0-rc14` (CI & Packaging)** | 2026-11-23 | Synced `uv.lock` with drift guard test, hardened `release.yml`, added continuous `ci.yml` (`fetch-depth: 0` + isolated wheel smoke test), refreshed entrypoint docs (`README`, `roadmap`, user/developer guides), and automated `.whl`/`.tar.gz` release publishing | `2,486` tests, AFF 100/100 |
+| **Phases 1–35 (`rc0–rc10`)** | 2026-10-02–11-10 | Telemetry SSOT, hooks (`command-safety`, `anti-loop`, `compactor`, `anti-drift`, `token-proximity`, `pre-invocation`, `completion-fence`), 28-cmd CLI, 30 skills, 8 agents, `ADR-001`–`034`, symlink gate | `1,981` tests |
+| **`v1.0.0-rc11` (Ph 36–37)** | 2026-11-15 | Modular ConnectRPC 60 FPS HUD, polyglot `onboard` (#106), 57 bug-bash fixes (`DEF-BB-001..057`), Knot Mesh decoupling (`gh:kuasha420/knot-mesh`), `ADR-035` | `2,356` tests |
+| **`v1.0.0-rc12`–`rc14`** | 2026-11-22–23 | **29/29** `v2.34.0` / Gemini 4 / `rea@6.9.0` / ELF RE compat fixes (Epic `#118`), `overwriteResult`, `systemMessage`, Q5 shell guard, `ci.yml` + `uv.lock` wheel releases | `2,486` tests |
+| **`v1.0.0` (GA Launch)** | 2026-11-25 | **Codex v2** (`PSL-INV-001`–`008` + `PSL-RE-001`), `<=20` `v2.34+` tools, `agy 1.5.15`, security/runtime hardening (`gui`, `re`, `telemetry`, `aff`, `cli`), full doc reconciliation | `2,486` tests |
 
----
+## 3. PSL Invariant Codex v2 (`PSL-INV-001`–`008` + `PSL-RE-001`)
+1. **`PSL-INV-001`–`003`**: Native exit-0 verification, hermetic `tempfile` tests, stale cache purge; observed-only claims & honest test scopes; zero error swallowing, `|| [ $? -eq 1 ]` probes, surgical `edit_file`, DB port rebind.
+2. **`PSL-INV-004`–`006`**: `512k`/`1M` (`70%`/`90%`, `80`-step epoch) runway, anti-loop, reactive wait, symlink hygiene; blast-radius `implementation_plan.md`, confirmation gates, `<50`-line ledgers; `author != verifier`, zero coordinator thrash, `<=20` `v2.34+` tools.
+3. **`PSL-INV-007`–`008` & `PSL-RE-001`**: Live SPA `/c/:id` & DOM purge; `ADR-014` boundaries, `agyis audit aff`, externalized `assets/`, bounded caches, DAG imports; on-demand `re-ops` cleanroom `.dirtyroom/` & `-noanalysis -readOnly` Ghidra cache.
 
-## 4. Active Post-RC10 Governance Invariants (`PSL-INV-001`–`011`)
-
-1. **Automated Verification (`PSL-INV-001`)**: Every completion claim requires exit-0 `python3 -m harness.cli test`, `verify --spec`, and `audit aff`; build caches (`.next/`, `.turbo/`, `node_modules/.cache`) must be purged before verification gates.
-2. **Terminal & Edit Safety (`PSL-INV-002`, `003`)**: Multi-line inline scripts belong in `scratch/`; zero-match pattern probes handle `|| [ $? -eq 1 ]`; targeted edits use contiguous `replace_file_content`.
-3. **Context Preservation (`PSL-INV-004`, `005`)**: Enforce reactive wait without status/log polling, maintain single-source Layer 1–3 skill hygiene, and compact milestone ledgers (`<50` lines/phase) via Dynamic Sliding Aperture.
-4. **Human-in-the-Loop Alignment (`PSL-INV-006`)**: Anchor implementation strictly to approved artifacts; pause for destructive actions or repeated command failures (`>=2`).
-5. **Cleanroom & Decompiler Cache (`PSL-INV-007`, `009`)**: Quarantine `.dirtyroom/` caches away from VCS; execute Ghidra with `-noanalysis -readOnly` (`<2s` SLA); resolve unknowns solely via typed obligation ledgers + SHA-256 evidence.
-6. **Cockpit & Anti-Vibe Governance (`PSL-INV-008`, `010`)**: Root Flight Director delegates without code thrash through dual-auditor certification; dynamic UI/HUD tooling tracks live SPA routes and purges stale DOM on re-mount.
-7. **Architectural Fitness (`PSL-INV-011`)**: Enforce zero cross-layer boundary breaches (`harness/` -> `pipeline/` banned), externalize non-native assets, cap in-memory caches, and keep import graphs strictly acyclic.
-
----
-
-## 5. Canonical Release Gate Commands
-
+## 4. Canonical Release Gate Commands & Horizon 2 Status
 ```bash
-python3 -m harness.cli test          # Complete hermetic suite (1,993 tests, ~66s)
-python3 -m harness.cli verify --spec # Cleanroom specification claim + SHA-256 evidence gate
-python3 -m harness.cli audit aff     # Architectural fitness function gate (100.0/100 AFF)
-python3 -m harness.cli doctor        # 3-tier runtime, port 5432, hook & plugin diagnostics
-python3 -m harness.cli rules --lint  # Agent rule formatting & duplicate check
+python3 -m harness.cli test && python3 -m harness.cli verify --spec && python3 -m harness.cli audit aff
+python3 -m harness.cli doctor && python3 -m harness.cli agents validate --json && python3 -m harness.cli rules --lint
 ```
-
----
-
-## 6. Open Post-RC10 Trackers
-
-- **Deferred Scope**: `ADR-029` remains explicitly deferred post-RC10 per [`docs/adr/README.md`](../adr/README.md).
-- **Active Post-RC10 Consolidation**:
-  - Historical doc archival & PII scrubbing across `docs/archive/` (Wave 1 complete; empirically reconciled in [`empirical-baselines.md`](empirical-baselines.md)).
-  - Master ADR registry consolidation, pipeline report repointing, cleanroom/official spec compaction, runbook deduplication, and skill `<24KB` + ToC gating.
+- **Closed Trackers**: Post-RC10 consolidation, RC11–RC14 `v2.34.0` compat, Codex v2 migration, and `install_workspace()` preset cleanup are complete.
+- **Deferred Horizon 2**: Only `ADR-029` (Spatial Terminal Multiplexing) remains explicitly `Deferred` per [`docs/adr/README.md`](../adr/README.md).

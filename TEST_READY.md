@@ -1,18 +1,21 @@
 # TEST_READY.md — Agyis Harness v1.0.0 E2E Bug Bash Test Suite
 
-## Status: READY & VERIFIED (100% Green)
+## Suite Overview & Observed Execution Scope
 
-The comprehensive opaque-box E2E test suite for **Agyis Harness v1.0.0 Full-Surface Bug Bash** (covering Quadrant 1: Real-Project Onboarding & Harmonization, and Quadrant 4: Live In-Situ HUD Dogfooding) has been fully authored, verified, and stabilized.
+This document indexes the E2E bug-bash regression suite in [`tests/test_e2e_bugbash.py`](tests/test_e2e_bugbash.py) (originally authored during the `v1.0.0-rc11` Full-Surface Bug Bash covering Quadrant 1 Onboarding/Harmonization and Quadrant 4 In-Situ HUD contracts).
+
+> [!NOTE]
+> Under **Codex v2 (`PSL-INV-001` / `PSL-INV-002`)**, module pass status must be accompanied by exact execution scope and anti-synthetic verification (`agyis doctor --anti-synthetic --test-path tests/test_e2e_bugbash.py`). Historical `DEF-BB-006`–`DEF-BB-014` defects listed in §4 were remediated across `v1.0.0-rc11` and `v1.0.0-rc12` (see [`CHANGELOG.md`](CHANGELOG.md)).
 
 ---
 
 ## 1. Test Runner & Verification Commands
 
-### Full Bug Bash Suite (161 Tests)
+### Bug Bash Suite (161 Hermetic Tests in `tests/test_e2e_bugbash.py`)
 ```bash
 python3 -m unittest tests/test_e2e_bugbash.py
 ```
-*Current benchmark*: **161 tests run in 4.47s** (all passing, exit code 0).
+*Observed benchmark*: **161 tests ran in 3.251s** (`OK` in isolated temp-workspace harness; see `agyis doctor --anti-synthetic` for ongoing synthetic-smell audits).
 
 ### Sub-Suite / Tier Execution
 ```bash
@@ -53,7 +56,7 @@ python3 -m harness.cli test
 
 ## 3. Feature Inventory Coverage Mapping
 
-| Feature # | Feature Name in `PROJECT.md` | Tier 1 Tests | Tier 2 Tests | Tier 3 Pairings | Tier 4 Workloads |
+| Feature # | Bug-Bash Feature Area | Tier 1 Tests | Tier 2 Tests | Tier 3 Pairings | Tier 4 Workloads |
 |-----------|------------------------------|--------------|--------------|-----------------|------------------|
 | **F1** | Harmonization Detection & Migration | `test_t1_f01_01`–`05` | `test_t2_f01_01`–`05` | C01, C05 | S01, S02, S04 |
 | **F2** | Harmonization Safety Archiving | `test_t1_f02_01`–`05` | `test_t2_f02_01`–`05` | C01, C02, C12 | S01 |
@@ -72,23 +75,23 @@ python3 -m harness.cli test
 
 ---
 
-## 4. Discovered Defects Escalated to Orchestrator
+## 4. Historical Bug-Bash Defect Disposition (Remediated in `rc11`–`rc12`)
 
-The test suite confirmed the presence and edge-case behavior of the following defects:
+The initial `v1.0.0-rc11` bug-bash run surfaced and drove remediation for the following defects (resolved in `v1.0.0-rc11` / `v1.0.0-rc12` per [`CHANGELOG.md`](CHANGELOG.md)):
 
-1. **DEF-BB-006 (Severity: P2)**: Safety patch naming disparity (`wip-safety-pre-onboard.patch` generated in some branches vs canonical `pre_onboard_safety.patch`).
-2. **DEF-BB-007 (Severity: P2)**: `harmonize_workspace` requires `prune_legacy=True` to activate `backup=True` safety archiving; running `--apply --backup` without `--prune-legacy` skips archive creation.
-3. **DEF-BB-008 (Severity: P2)**: `agyis harmonize [path]` ignores `--apply` flag when the target argument is not the string `"test"`.
-4. **DEF-BB-009 (Severity: P3)**: Cargo test harmonization alias injection disparity (`cargo-test` vs `cargo test --`).
-5. **DEF-BB-010 (Severity: P1)**: `hotkey.js` route extraction matches `/c/:id` regex before checking `?tab=subagent_convo__<uuid>`, and `commands/gui.py` regex strips query parameters before route resolution.
-6. **DEF-BB-011 (Severity: P2)**: HUD mount lifecycle calls unary `loadConversationViaRpc` instead of streaming via `InSituConnectClient.streamConversation`.
-7. **DEF-BB-012 (Severity: P3)**: Port fallback hardcoded to `40623` in `hud_rpc.js` when dynamic discovery is absent.
-8. **DEF-BB-013 (Severity: P2 - NEW)**: `harness/delivery/cache.py` `_assert_contained` raises `AssertionError: Path containment violation` when `subproject="."` because `resolved == ws_resolved` is not handled as within workspace.
-9. **DEF-BB-014 (Severity: P2 - NEW)**: `purge_workspace_build_caches` bounded monorepo traversal in `harness/delivery/cache.py` (line 158) scans the entire workspace rather than bounding cache directory traversal to the specified `subproject` root.
+1. **DEF-BB-006 (Severity: P2, Resolved)**: Safety patch naming unified on canonical `.agents/artifacts/pre_onboard_safety.patch` (with `wip-safety-pre-onboard.patch` backward-compat alias).
+2. **DEF-BB-007 (Severity: P2, Resolved)**: `harmonize_workspace` `--apply --backup` archive handling decoupled cleanly.
+3. **DEF-BB-008 (Severity: P2, Resolved)**: `agyis harmonize [path]` `--apply` flag parsing fixed.
+4. **DEF-BB-009 (Severity: P3, Resolved)**: Cargo test harmonization script injection standardized.
+5. **DEF-BB-010 (Severity: P1, Resolved)**: `hotkey.js` and `commands/gui.py` prioritize `?tab=subagent_convo__<uuid>` and split-view `?focused=<id>` over base `/c/:id` route matching.
+6. **DEF-BB-011 (Severity: P2, Resolved)**: HUD mount lifecycle uses live `InSituConnectClient.streamConversation` with fallback ladder.
+7. **DEF-BB-012 (Severity: P3, Resolved)**: Dynamic LS endpoint discovery supersedes hardcoded `40623` fallback when ConnectRPC endpoint is active.
+8. **DEF-BB-013 (Severity: P2, Resolved)**: `harness/delivery/cache.py` `_assert_contained` handles `subproject="."` (`resolved == ws_resolved`).
+9. **DEF-BB-014 (Severity: P2, Resolved)**: `purge_workspace_build_caches` bounds traversal to the targeted `subproject` root.
 
 ---
 
 ## 5. Artifact Reference
-- Specification & Tier Architecture: `TEST_INFRA.md`
-- Implementation File: `tests/test_e2e_bugbash.py`
-- Agent Workspace & Handoff: `.agents/teamwork/teamwork_test_writer_1/`
+- Specification & Tier Architecture: [`TEST_INFRA.md`](TEST_INFRA.md)
+- Implementation File: [`tests/test_e2e_bugbash.py`](tests/test_e2e_bugbash.py)
+- Official Testing Contracts: [`docs/official-specs/testing-contracts.md`](docs/official-specs/testing-contracts.md)

@@ -10,7 +10,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Binary Entrypoint**: `agyis` (Primary) / `psl` (Deprecated Alias) / `python3 -m harness.cli`  
-**Last Updated**: 2026-11-11  
+**Last Updated**: 2026-11-25 (`v1.0.0`)  
 
 ---
 
@@ -67,7 +67,7 @@ agyis [-h] [-v]
 * **Flags**:
   - `--matrix <path>`: Custom path to runtime matrix configuration (defaults to `harness/runtime/matrix.json`).
   - `--heal`: Executes safe zero-sudo user-space auto-healing via `uv` (provisions certified CPython >= 3.12).
-  - `--experimental-rea`: Audits Reverse Engineer Anything (REA >= 6.0.0), MCP server registration, dynamic JDK 21+ discovery ladder, Ghidra 12.1+ headless analyzer, and Hopper display socket contracts.
+  - `--experimental-rea`: Audits Reverse Engineer Anything (`REA 6.9.0`, `255` MCP tools), MCP server registration, dynamic JDK 21+ discovery ladder, Ghidra 11.0+/12.2+ headless analyzer, and Hopper display socket contracts.
   - `--re`: Audits reverse engineering & dirtyroom forensic toolchain (`ghidra`, `objdump`, `tshark`, `ydotool`).
   - `--anti-synthetic`: Audits test files for synthetic, tautological, and fake test smells.
   - `--test-path <path>`: Target directory or specific test file to audit (defaults to workspace test suites).
@@ -89,7 +89,7 @@ agyis [-h] [-v]
 
 ### 3. `test`
 * **Syntax**: `agyis test [-v] [-s <dir>] [--diff] [--branch <ref>] [--affected] [--pkg <name>] [--full] [--harmonize] [--dry-run] [--mutation] [--json]`
-* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **77** `tests/test_*.py` modules, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant) and clears verification fence flags on success.
+* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **83** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant) and clears verification fence flags on success.
 * **Flags**:
   - `-v`, `--verbose`: Enables detailed individual test case reporting.
   - `-s`, `--start-dir <path>`: Directory containing test suites (defaults to `tests/`).
@@ -124,7 +124,7 @@ agyis [-h] [-v]
   - `artifacts` / `configs` / `project-configs`: Audits workspace/plugin artifacts, configurations, and per-project overrides (also accepts `project_configs`).
   - `prune`: Prunes older telemetry sessions beyond `--days` (`--dry-run` supported).
   - `certify` / `verdict`: Runs full suite + doctor audit to issue/inspect out-of-band `audit_verdict.json` (Gate 2).
-  - `aff` (aliases: `macro`, `fitness`): Evaluates automated architectural fitness, module boundaries, and dependency acyclicity (PSL-INV-011).
+  - `aff` (aliases: `macro`, `fitness`): Evaluates automated architectural fitness, module boundaries, and dependency acyclicity (`PSL-INV-008`).
 * **Key Flags**: `--db <path>`, `--conv-dir <path>`, `--backfill`, `-s|--session-id <id>`, `--save-db`, `--out <path>`, `--json`, `--output-json <path>`, `--output-report <path>`, `--quiet`, `--days <N>`, `--dry-run`, `--task-id <id>`, `--verdict <verdict>`, `--skip-tests`, `-w|--workspace <path>`.
 
 ### 5. `skills`
@@ -151,14 +151,14 @@ agyis [-h] [-v]
   - `agyis agents`: Lists all 8 registered specialist subagents.
   - `agyis agents <name>`: Inspects agent specification, permissions, tools, and archetype.
   - `agyis agents create <name> -a <archetype> -b <bundle> [--scope project|global]`: Scaffolds verified agent definition.
-  - `agyis agents validate [target_name]`: Validates YAML frontmatter, tool allowlists, and hanging bug defenses.
+  - `agyis agents validate [target_name]`: Validates YAML frontmatter, `<=20` canonical `v2.34+` tool ceiling (`CANONICAL_PLATFORM_TOOLS`), and hanging bug defenses (`PSL-INV-006`).
   - `agyis agents rehydrate [target_name] [--id <conv_id>]`: Reconstructs agent conversation context from disk.
   - `agyis agents --sync`: Synchronizes agent definitions from `harness/agents/` to `.agents/agents/`.
-* **Key Flags**: `-a|--archetype {main,executioner,hammer,auditor,planner,coordinator,custodian,investigator}`, `-b|--bundle {read_only,verifier,builder,orchestrator,full}`, `--scope {project,global}`, `-m|--model <model>`, `--agents <list>`, `-w|--workspace [path]`, `--override`, `--no-dedup`, `--id`, `--recent-hours`, `--brain-dir`, `--json`.
+* **Key Flags**: `-a|--archetype {main,executioner,hammer,auditor,planner,coordinator,custodian,investigator}`, `-b|--bundle {read_only,verifier,adversarial_verifier,builder,investigator,orchestrator,full}`, `--scope {project,global}`, `-m|--model <model>`, `--agents <list>`, `-w|--workspace [path]`, `--override`, `--no-dedup`, `--id`, `--recent-hours`, `--brain-dir`, `--json`.
 
 ### 7. `subagents`
 * **Syntax**: `agyis subagents [--json] [--liveness] [--stale-threshold <sec>] [--dead-threshold <sec>] [-w|--workspace <path>] [--brain-dir <path>] [-a|--all] [--session|--conversation-id <id>]`
-* **Purpose**: Renders live subagent status and heartbeat liveness tables, estimating step count, character volume, token consumption, and context health zone (`HEALTHY/REUSE`, `AMBER/COMPACT_RECREATE`, `RED_ALERT/RETIRE`) in microseconds without API token overhead.
+* **Purpose**: Renders live subagent status and heartbeat liveness tables, estimating step count, character volume, token consumption, and context health zone (`HEALTHY/REUSE`, `AMBER/COMPACT_SOON`, `RED_ALERT/HANDOFF_OR_COMPACT`) in microseconds without API token overhead.
 
 ### 8. `status`
 * **Syntax**: `agyis status`
@@ -177,7 +177,6 @@ agyis [-h] [-v]
   - `script <target> <file> [--stage] [-p|--port <port>] [-t|--timeout <sec>] [args...]`: Streams local script to remote target via stdin (zero disk footprint) or stages with trap cleanup.
   - `triage <target> [--profile all|ports|services|resources|logs] [--service <svc>] [-n|--lines <lines>] [-p|--port <port>] [-t|--timeout <sec>] [--json]`: Gathers compact (<2KB) health report across OS metrics.
   - `socket [status|cleanup]`: Lists or closes active OpenSSH ControlMaster multiplexing sockets in `~/.cache/agyis/ssh/` (or `~/.cache/psl/ssh/`).
-  - `screens [--brain-dir <dir>] [--data <json>] [--json]`: Generates fleet screens carousel artifact.
 
 ### 10. `auth`
 * **Syntax**: `agyis auth <login|status|logout> [options]`
@@ -240,7 +239,7 @@ agyis [-h] [-v]
   - `--upstream-remote`: Explicit upstream canonical remote name (e.g. `upstream`, `canonical`, `<upstream-remote>`).
   - `--base-branch`: Explicit base branch to target (default: auto-detected default/active branch).
   - `--create-branch [name]`: Dedicated onboarding branch isolation (defaults to `chore/agyis-harness-onboarding`).
-  - `--allow-dirty`: Proceed on a dirty tree by automatically exporting `.agents/artifacts/wip-safety-pre-onboard.patch`.
+  - `--allow-dirty`: Proceed on a dirty tree by automatically exporting `.agents/artifacts/pre_onboard_safety.patch` (and `wip-safety-pre-onboard.patch` backward-compat alias).
   - `--purge-caches` / `--no-cache-purge`: Purge build caches (`.next`, `.turbo`) before verification (default: True).
   - `--prune-legacy` / `--no-prune`: Safely archive legacy `.agent/` to tar.gz and prune (default: True).
   - `--config-dir`: Optional custom configuration directory (overrides `~/.gemini/config`).
@@ -276,17 +275,18 @@ agyis [-h] [-v]
 * **Purpose**: Cleanroom specification and reconstruction verification engine (ADR-028).
 * **Flags**:
   - `--spec`: Verifies cleanroom specifications in `docs/specs/**`. Asserts zero executable code files exist inside specification directories and resets `spec_dirty = False` in the completion fence.
-  - `--scaffold`: Scaffolds a typed `.agents/ledger/obligation_ledger.json` adhering to REA 6.8.0 schema.
+  - `--scaffold`: Scaffolds a typed `.agents/ledger/obligation_ledger.json` adhering to `REA 6.9.0` strictObject schema.
   - Without `--spec` / `--scaffold`: When `.agents/ledger/obligation_ledger.json` exists, delegates to `rea build-reconstruction-obligation-ledger` and `rea evaluate-reconstruction-coverage` (otherwise attempts `rea verify-reconstruction`), falling back to native validation of `.agents/ledger/obligation_ledger.json` or `.agents/ledger/manifest.json` and `docs/specs/**` when `rea` is unavailable.
   - `--workspace`, `-w`: Target workspace root path (default: current directory).
   - `--json`: Structured JSON verification output.
 * **Exit Codes**: `0` on satisfied specifications/manifests; `1` if executable code exists in `docs/specs/` or if obligations remain unsatisfied.
 
 ### 18. `gui`
-* **Syntax**: `agyis gui [--devtools] [--trajectory-debug] [--toggle] [--no-popup] [--wait <sec>] [--port-file <path>] [--timeout <sec>] [--hud] [--hud-remove] [--server] [--server-port <port>] [--service {install,status,start,stop,uninstall}] [--json] [-v]`
+* **Syntax**: `agyis gui [--install-launcher] [--devtools] [--trajectory-debug] [--toggle] [--no-popup] [--wait <sec>] [--port-file <path>] [--timeout <sec>] [--hud] [--hud-remove] [--server] [--server-port <port>] [--service {install,status,start,stop,uninstall}] [--json] [-v]`
 * **Purpose**: Introspect and control Google Antigravity's Electron GUI via Chromium DevTools Protocol (CDP) WebSocket (ADR-014 / REA-SPEC-001).
 * **Flags**:
-  - `--trajectory-debug`: Injects developer flags into `localStorage` and opens Trajectory Debug View (`?trajectoryDebugOpen=true`) (default action).
+  - `--install-launcher`: Installs `~/.local/share/applications/antigravity.desktop` with `--remote-debugging-port=0 %U`; restart Antigravity completely from your desktop launcher so single-instance Electron binds CDP and emits `DevToolsActivePort`.
+  - `--trajectory-debug`: Performs best-effort `jetski.developer.customFlagOverrides` `localStorage` injection and mounts the In-Situ Trajectory Debug HUD (`#agyis-trajectory-hud`) over CDP WebSocket (default action; `?trajectoryDebugOpen=true` was removed in Antigravity `v2.34.0`).
   - `--no-popup`, `--no-open`, `--setup-only`: Injects flags and hotkeys (F12, Ctrl+Shift+T) without opening the modal popup.
   - `--toggle`: Toggles Trajectory Debug View open/closed state.
   - `--devtools`: Inspects active port and prints Chrome Inspect and direct webview URLs.
@@ -356,7 +356,7 @@ agyis [-h] [-v]
 
 ### 27. `re`
 * **Syntax**: `agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs,addr,cache,daemon,seed,prime,clean} [args]`
-* **Purpose**: Cleanroom reverse engineering toolsuite, Ghidra direct-mount acceleration, persistent MCP daemon bridge & query caching engine (ADR-028, ADR-034, PSL-INV-009, Issue #113).
+* **Purpose**: Cleanroom reverse engineering toolsuite, Ghidra direct-mount acceleration, persistent MCP daemon bridge & query caching engine (ADR-028, ADR-034, `PSL-RE-001`, Issue #113).
 * **Subcommands**:
   - `status [--json]`: Reports status of dirtyroom scaffolding, symbol database, and REA patches.
   - `init [path] [--project <name>] [--json]`: Turnkey dirtyroom scaffolding (`.dirtyroom/{ghidra,symbols,logs,pcaps,cache/decompile}`).

@@ -6,25 +6,25 @@
 # Agyis Harness — Canonical User & Operator Guide
 
 **Target Audience**: Engineers, Operators, and Teams Running Google Antigravity™  
-**Version**: `1.0.0-rc14` (`2026-11-23`)  
+**Version**: `1.0.0` (`2026-11-25`)  
 **Primary CLI Entrypoint**: `agyis` (backward-compatible alias: `psl`)  
 
 ---
 
 ## 1. What Agyis Harness Does
 
-**Agyis Harness (`agyis-harness`)** is the autonomous agent runtime harness and immune system for **Google Antigravity™**. Grounded in [`empirical-baselines.md`](taxonomy/empirical-baselines.md), it protects coding sessions and multi-agent runs deterministically in code:
+**Agyis Harness (`agyis-harness`)** is the autonomous agent runtime harness and immune system for **Google Antigravity™** (`Desktop v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`). Grounded in [`empirical-baselines.md`](taxonomy/empirical-baselines.md) and **PSL Invariant Codex v2** (`PSL-INV-001`–`008` core invariants + on-demand `PSL-RE-001` in `re-ops`), it protects coding sessions and multi-agent runs deterministically in code:
 
-- **Silent Runtime & Shell Failures**: Injects a certified CPython >= 3.12 runtime via `uv`, disables interactive terminal pagers (`PAGER=cat`), and neutralizes benign exit-code-1 returns on standalone `grep`/`diff` probes.
+- **Silent Runtime & Shell Failures**: Injects a certified CPython >= 3.12 runtime via `uv`, disables interactive terminal pagers (`PAGER=cat`, `SYSTEMD_PAGER=cat`), and neutralizes benign exit-code-1 returns on standalone `grep`/`rg`/`diff` probes.
 - **Runaway Tool Loops & Polling**: Breaks 3+ identical consecutive tool invocations and blocks token-wasting `manage_task(status)` / log-tailing polling loops.
-- **Context Runway & Compaction Succession**: Dynamically scales across **Gemini 4 (`512k`/`1M`)** and **`256k`** context windows (`70%` amber, `90%` red, `80`-step soft epoch horizon), emitting `v2.34.0` `systemMessage` advisories and serializing CID-scoped checkpoints (`.agents/artifacts/checkpoints/<conv_id>.md`).
+- **Context Runway & Compaction Succession**: Dynamically scales across **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`)** and **`256k`** context windows (`70%` amber, `90%` red, `80`-step soft epoch horizon), emitting `v2.34.0+` nested `systemMessage` advisories and serializing CID-scoped checkpoints (`.agents/artifacts/checkpoints/<conv_id>.md`).
 - **Premature Completion & Cleanroom Fences**: Blocks stopping until modified source (`code_dirty`) clears `agyis test` or modified cleanroom contracts (`spec_dirty`) clear `agyis verify --spec`.
-- **Single-Source Workspace Hygiene**: Onboards repositories on isolated branches without duplicating global rules or skills across precedence tiers.
+- **Single-Source Workspace Hygiene**: Onboards repositories on isolated branches without duplicating global rules, skills, or agents across precedence tiers.
 
 ### Three-Tier Precedence Hierarchy
 1. **Layer 3 — Workspace Local (`.agents/`)**: Repository-specific stack rules (`AGENTS.md`), project-only specialist skills/agents, and workspace commands (`agyis ext`).
 2. **Layer 2 — User Preferences (`~/.gemini/antigravity/`, `~/.gemini/config/`)**: Personal workstation defaults and user standalone skills (`~/.gemini/config/skills/`).
-3. **Layer 1 — Global Plugin (`~/.gemini/config/plugins/agyis-harness/`)**: Core **7** `hooks.json` blocks (**8** `doctor` hook runner checks), `GLOBAL_AGENTS.md`, **30** modular skills (`>100` lines include ToC, `<24,576` B cap), and **8** `agyis_*` agent personas.
+3. **Layer 1 — Global Plugin (`~/.gemini/config/plugins/agyis-harness/`)**: Core **7** `hooks.json` blocks (**8** `doctor` hook runner checks), `GLOBAL_AGENTS.md` (Codex v2), **30** modular skills (`>100` lines include ToC, `<24,576` B cap), and **8** `agyis_*` agent personas (`<=20` canonical `v2.34+` tools).
 
 ---
 
@@ -34,7 +34,10 @@
 # Install Agyis globally as a frozen wheel across all Antigravity surfaces
 agyis install --global --wheel --all-surfaces
 # Optional: enable CDP DevTools desktop launcher & auto-unlock HUD service
-agyis gui --install-launcher && agyis gui --service install
+agyis gui --install-launcher
+# Restart Antigravity from your desktop launcher after `--install-launcher`
+# so the single-instance Electron process launches with `--remote-debugging-port=0`.
+agyis gui --service install
 
 # Audit 3-tier runtime matrix, 8 hook runner checks & port 5432 collisions
 agyis doctor
@@ -100,10 +103,14 @@ agyis checkpoint create           # Save compaction_checkpoint_latest.md & cockp
 agyis clean --all                 # Prune expired checkpoints, dead worktrees, branches & scratch
 ```
 
-### Telemetry Hub & Fleet Sync ([telemetry-and-fleet.md](runbooks/telemetry-and-fleet.md))
+### Telemetry Hub & Fleet Sync (Optional Self-Hosted Hub — [telemetry-and-fleet.md](runbooks/telemetry-and-fleet.md))
 ```bash
+# Local transcript mining works standalone with zero remote hub:
+agyis audit extract
+
+# Optional: authenticate only when syncing across devices via a self-hosted/team hub
 agyis auth login --gh --endpoint <telemetry-hub-url>
-agyis audit extract && agyis sync
+agyis sync
 agyis sync --service install && agyis sync --service status
 ```
 
@@ -122,7 +129,7 @@ agyis re clean                    # Safely purge orphan Ghidra locks, prune logs
 agyis gui --install-launcher      # Install opt-in CDP desktop launcher override (--remote-debugging-port=0)
 agyis gui                         # Unlock Trajectory Debug HUD over CDP WebSocket (--toggle, --devtools, --service)
 ```
-*See [dirtyroom-operations.md](runbooks/dirtyroom-operations.md) and the Layer 1 `re-ops` skill (`--role re` / `--role cleanroom`) for full preparation, seeding, priming, 4-vector verification, and hygiene lifecycle.*
+*See [dirtyroom-operations.md](runbooks/dirtyroom-operations.md) and the Layer 1 `re-ops` skill (`PSL-RE-001`, `--role re` / `--role cleanroom`) for full preparation, seeding, priming, 4-vector verification, and hygiene lifecycle.*
 
 ---
 

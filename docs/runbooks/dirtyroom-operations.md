@@ -7,7 +7,7 @@
 
 This operational runbook codifies standard operating procedures for provisioning, seeding, accelerating, and maintaining isolated reverse engineering workspaces ("dirty-rooms") under the Antigravity Immune System (Agyis) harness.
 
-Governed by **PSL-INV-007** (Universal Cleanroom Reverse Engineering & Reconstruction Invariants) and **PSL-INV-009** (Pre-Analyzed Decompiler Cache & Direct Mount Invariant).
+Governed by **Codex v2 `PSL-RE-001`** (On-Demand Cleanroom Reverse Engineering & Pre-Analyzed Ghidra Cache, housed in [`re-ops`](../../harness/skills/re-ops/SKILL.md)) and **`PSL-INV-002`** (Epistemic Honesty & Observed Evidence).
 
 > **Agent Skill Companion**: Autonomous agents invoke the target-agnostic Layer 1 skill [`re-ops`](../../harness/skills/re-ops/SKILL.md) (provisioned via `--role re`, `--role cleanroom`, or the `ops` skill group) for progressive-disclosure access to this runbook, the 4-vector cleanroom verification methodology, and the 5-step REA surgical escalation ladder.
 
@@ -23,7 +23,7 @@ The Agyis Cleanroom RE toolchain requires a hermetic toolchain matrix across dis
 | :--- | :--- | :--- | :--- |
 | **Java Development Kit (JDK)** | OpenJDK 21+ | Headless Ghidra runtime | `/usr/lib/jvm/java-21+`, `JAVA_HOME` |
 | **Ghidra** | 11.0+ | Headless binary analyzer & decompiler | `/opt/ghidra/support/analyzeHeadless`, `GHIDRA_HOME` |
-| **REA Tooling** | 6.5.0+ (6.9.0+ rec) | Stdio Model Context Protocol (MCP) RE bridge | `rea` CLI in `PATH`, `pnpm global` |
+| **REA Tooling** | `6.9.0` (`255` MCP tools) | Stdio Model Context Protocol (MCP) RE bridge | `rea` CLI in `PATH`, `pnpm global` |
 | **SQLite** | 3.35.0+ | Fast indexed symbol/packet storage | In-tree Python SQLite3 / system CLI |
 | **GNU binutils (objdump)** | 2.38+ | Zero-timeout instruction disassembly | `/usr/bin/objdump` |
 | **Wireshark / TShark** | 3.6.0+ | Network packet capture dissection & filtering | `/usr/bin/tshark` |
@@ -59,7 +59,7 @@ A cleanroom reverse engineering project strictly bifurcates dirty artifacts (pro
 
 ```
 Workspace Root (Repository)
-├── .dirtyroom/                 <-- Quarantined by .gitignore (PSL-INV-007)
+├── .dirtyroom/                 <-- Quarantined by .gitignore (PSL-RE-001)
 │   ├── ghidra/                 <-- Pre-analyzed Ghidra project (.gpr + .rep/)
 │   ├── symbols/                <-- Indexed SQLite symbol database (dirtyroom.db)
 │   ├── logs/                   <-- Daemon logs, headless analysis trace logs
@@ -107,7 +107,7 @@ export REA_GHIDRA_DIRECT_MOUNT="1"
 
 Ghidra projects for large binaries ($>10\text{MB}$, often multi-hundred megabytes) take upwards of 1.5GB on disk. Standard REA spawns temporary analysis directories on every query, cloning the entire `.rep/` folder and stalling turns for 8–15 seconds.
 
-Apply the zero-copy direct mount patch (PSL-INV-009):
+Apply the zero-copy direct mount patch (`PSL-RE-001 §2`):
 
 ```bash
 # Check patch status
@@ -117,7 +117,7 @@ agyis re patch-rea --check
 agyis re patch-rea --apply
 ```
 
-This patches `GhidraLauncher.js`, `GhidraProjectSnapshot.js`, and the MCP/CLI binary bundles (`dist/mcp/binary-*.js`, `dist/cli-runtime/binary-*.js`) in `rea-agents` to enforce Ghidra `-noanalysis` and `-readOnly` flags against the existing pre-analyzed Ghidra project mounted via `dirtyroom/ghidra/` (`REA_GHIDRA_DIRECT_MOUNT=1`), bypassing temporary `.rep/` disk clones and unfreezing the decompiler pipeline.
+This patches `GhidraLauncher.js`, `GhidraProjectSnapshot.js`, `GhidraReleasePolicy.js` (for Ghidra `11.0+`/`12.2+` support), and the MCP/CLI binary bundles (`dist/mcp/binary-*.js`, `dist/cli-runtime/binary-*.js`) in `rea-agents` to enforce Ghidra `-noanalysis` and `-readOnly` flags against the existing pre-analyzed Ghidra project mounted via `dirtyroom/ghidra/` (`REA_GHIDRA_DIRECT_MOUNT=1`), bypassing temporary `.rep/` disk clones and unfreezing the decompiler pipeline.
 
 ---
 
@@ -210,7 +210,7 @@ agyis re decompile 0x140001050 --binary target.exe
 
 ## 4. Priming & Acceleration
 
-To satisfy **PSL-INV-009 §2** (sub-2-second benchmark invariant), the RE pipeline separates the **CLI Path** (Tier 1 disk cache + Tier 3 direct-mount CLI fallback) from the **Interactive MCP Path** (Tier 2 persistent REA MCP bridge daemon):
+To satisfy **PSL-RE-001 §2** (sub-2-second benchmark invariant), the RE pipeline separates the **CLI Path** (Tier 1 disk cache + Tier 3 direct-mount CLI fallback) from the **Interactive MCP Path** (Tier 2 persistent REA MCP bridge daemon):
 
 ```
 +-----------------------------------------------------------------------------+
@@ -339,7 +339,7 @@ agyis re daemon stop
 
 ---
 
-## 6. Cleanroom Quarantine Invariants (PSL-INV-007)
+## 6. Cleanroom Quarantine Invariants (`PSL-RE-001`)
 
 The ultimate deliverable of reverse engineering is cleanroom specifications and implementations. The dirtyroom is strictly quarantined.
 
@@ -348,20 +348,11 @@ The ultimate deliverable of reverse engineering is cleanroom specifications and 
 - **Never copy vendor disassembly into git**: No raw assembly listings, vendor C++ decompilations, or binary blobs in repository commits.
 - **Pure Specification Flow**: Only markdown specifications (`docs/specs/*.md`), JSON field schemas, and typed obligation ledgers may transition across the cleanroom membrane.
 
-### 6.2 Obligation Ledgers
-Every claim about an unmapped protocol, opcode, or struct layout must link to an immutable evidence record:
+### 6.2 Obligation Ledgers (`REA 6.9.0` strictObject Schema)
+Every claim about an unmapped protocol, opcode, or struct layout must link to an immutable SHA-256 evidence record (`ev_<64-hex>`) in `.agents/ledger/obligation_ledger.json`. Scaffold a valid starter template with `agyis verify --scaffold` (omitting deprecated `"$schema"`, populating `evidence_bundle`, `reviewed_obligations` with `obligation_version: 1`, `target` strictObject, and `disposition` in `{"active", "blocked", "out-of-scope"}`, and `manifest.bindings` as a `list` — see [`rea-antigravity-architecture.md#52-typed-obligation-ledger-model-agentsledgerobligation_ledgerjson`](../official-specs/rea-antigravity-architecture.md#52-typed-obligation-ledger-model-agentsledgerobligation_ledgerjson)):
 
-```json
-{
-  "obligation_id": "OBL-AUTH-001",
-  "subject": "Handshake Sequence",
-  "claim": "Client sends ProtocolHello (0x01) followed by Login Response (0x02)",
-  "evidence_type": "PCAP_FRAME",
-  "evidence_id": "frame_104",
-  "pcap_file": "session.pcap",
-  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "verification_gate": "cargo test test_golden_stream"
-}
+```bash
+agyis verify --scaffold
 ```
 
 Verify compliance before completing tasks:
@@ -382,8 +373,8 @@ agyis verify
 | :--- | :--- | :--- |
 | `Ghidra project contains leading dot` | Ghidra rejects `.dirtyroom` path components | Use symlink `dirtyroom -> .dirtyroom` created by `agyis re init` (DEF-BB-038). |
 | `Ghidra project locked / Read-only error` | Stale orphan `*.lock` from crashed process | Run `agyis re clean --locks` to clear stale locks safely. |
-| `PSL-INV-009 §1 Violation: Target binary exceeds 10MB` | Binary $>10\text{MB}$ invoked without pre-analysis | Run `agyis re pre-analyze <binary>` before decompiling. |
+| `PSL-RE-001 §2 Violation: Target binary exceeds 10MB` | Binary $>10\text{MB}$ invoked without pre-analysis | Run `agyis re pre-analyze <binary>` before decompiling. |
 | `Decompilation SLA timeout (>180s)` | Direct mount patch not applied; REA cloning `.rep/` | Run `agyis re patch-rea --apply` to enable direct mount. |
 | `Cold JVM startup latency (8-10s per query)` | REA MCP bridge daemon not running (interactive MCP) or Tier 1 cache cold (CLI) | Run `agyis re daemon start` for `<0.8s` interactive REA MCP queries, or pre-warm the Tier 1 CLI cache via `agyis re prime` (`<5ms` hits). |
 | `Dirtyroom database missing or locked` | SQLite database locked or fragmented | Run `agyis re clean --vacuum` to reindex and optimize pages. |
-| `PCAP ingestion fails on .pcapng` | Pure-Python parser requires libpcap format | Ensure `tshark` is installed (`sudo pacman -S wireshark-cli`). |
+| `PCAP ingestion fails on .pcapng` | Pure-Python parser requires libpcap format | Ensure `tshark` / `wireshark-cli` is installed via your OS package manager. |
