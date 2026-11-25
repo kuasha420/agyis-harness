@@ -380,8 +380,8 @@ class TestModularSkills(unittest.TestCase):
                 "stash",
             ),
             "re-ops": (
-                "PSL-INV-007",
-                "PSL-INV-009",
+                "PSL-RE-001",
+                "PSL-INV-002",
                 "agyis re init",
                 "agyis re patch-rea",
                 "agyis re pre-analyze",
@@ -675,10 +675,10 @@ class TestModularSkills(unittest.TestCase):
         # Boundary roles are empty lists
         self.assertEqual(ARCHITECTURAL_ROLE_PRESETS["cli"], [])
         self.assertEqual(ARCHITECTURAL_ROLE_PRESETS["library"], [])
-        # Composite role synthesizes frontend guidance, backend persistence, and db ops
+        # Composite role synthesizes backend persistence and db ops
         self.assertEqual(
             ARCHITECTURAL_ROLE_PRESETS["fullstack"],
-            ["modern-web-guidance", "psl-stack-backend", "db-ops"],
+            ["psl-stack-backend", "db-ops"],
         )
         # Backend role
         self.assertEqual(
@@ -688,12 +688,12 @@ class TestModularSkills(unittest.TestCase):
         # Frontend role
         self.assertEqual(
             ARCHITECTURAL_ROLE_PRESETS["frontend"],
-            ["modern-web-guidance"],
+            [],
         )
         # Mobile role
         self.assertEqual(
             ARCHITECTURAL_ROLE_PRESETS["mobile"],
-            ["android-cli"],
+            [],
         )
         # Desktop GUI role
         self.assertEqual(
@@ -724,14 +724,13 @@ class TestModularSkills(unittest.TestCase):
                 self.assertFalse((dest / "psl-stack-backend").exists())
 
     def test_composite_role_fullstack_provisioning(self) -> None:
-        """Composite role 'fullstack' provisions frontend, backend, and db-ops skills."""
+        """Composite role 'fullstack' provisions backend and db-ops skills alongside stack skills."""
         resolved = resolve_skills_to_sync(stack="typescript", role="fullstack")
         self.assertEqual(
             resolved,
             [
                 "psl-stack-typescript",
                 "psl-test-node",
-                "modern-web-guidance",
                 "psl-stack-backend",
                 "db-ops",
             ],
@@ -1057,7 +1056,7 @@ class TestReOpsSkillAndPresets(unittest.TestCase):
     """Hermetic contract tests for Layer 1 re-ops skill, presets, CLI role wiring, and ADR-014 purity."""
 
     def test_re_ops_skill_contract_and_complete_re_palette(self) -> None:
-        """re-ops must be discoverable and document PSL-INV-007/009, full agyis re lifecycle, 4-vector methodology, and 5-step ladder."""
+        """re-ops must be discoverable and document PSL-RE-001/PSL-INV-002, full agyis re lifecycle, 4-vector methodology, and 5-step ladder."""
         spec = get_skill("re-ops")
         self.assertIsNotNone(spec, "re-ops skill must be discoverable")
         self.assertEqual(spec.name, "re-ops")
@@ -1067,8 +1066,8 @@ class TestReOpsSkillAndPresets(unittest.TestCase):
         body = spec.body
         # Governance & verification contracts
         for required in (
-            "PSL-INV-007",
-            "PSL-INV-009",
+            "PSL-RE-001",
+            "PSL-INV-002",
             "agyis verify --spec",
             "agyis verify --scaffold",
             "agyis verify",

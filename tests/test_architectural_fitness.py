@@ -168,12 +168,12 @@ class TestArchitecturalFitnessEngine(unittest.TestCase):
         self.assertEqual(cleanroom_defects[0].source_file, "harness/tainted.py")
 
     def test_boundary_exemption_honored(self) -> None:
-        """Exempted paths and line pragmas are not flagged as boundary defects."""
+        """Explicit # aff: exempt pragma exempts a line, while harness/commands/audit.py is not exempted."""
         harness_dir = self.workspace / "harness"
         harness_dir.mkdir(parents=True, exist_ok=True)
         (harness_dir / "__init__.py").write_text("", encoding="utf-8")
 
-        # 1. Rule level exemption
+        # 1. Previously exempted path (harness/commands/audit.py) is now enforced
         audit_file = harness_dir / "commands" / "audit.py"
         audit_file.parent.mkdir(parents=True, exist_ok=True)
         audit_file.write_text("from pipeline import extract\n", encoding="utf-8")
@@ -186,7 +186,9 @@ class TestArchitecturalFitnessEngine(unittest.TestCase):
         )
 
         defects = audit_import_boundaries(root_dir=self.workspace)
-        self.assertEqual(len(defects), 0)
+        self.assertEqual(len(defects), 1)
+        self.assertEqual(defects[0].source_file, "harness/commands/audit.py")
+        self.assertEqual(defects[0].rule_name, "BIFURCATION_INVARIANT")
 
     def test_circular_import_detection_two_nodes(self) -> None:
         """Circular dependency A -> B -> A is detected with exact cycle path."""

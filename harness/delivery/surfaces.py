@@ -287,16 +287,49 @@ def sync_surfaces_impl(
     return results
 
 
+def _resolve_canonical_config_dir(config_dir: Optional[Path] = None) -> Path:
+    """Resolves canonical config directory respecting AGYIS_CONFIG_DIR/PSL_CONFIG_DIR."""
+    if config_dir is not None:
+        return Path(config_dir).expanduser().resolve()
+    env_cfg = os.environ.get("AGYIS_CONFIG_DIR") or os.environ.get("PSL_CONFIG_DIR")
+    if env_cfg and env_cfg.strip():
+        return Path(env_cfg.strip()).expanduser().resolve()
+    env_plugins = os.environ.get("AGYIS_PLUGINS_DIR") or os.environ.get("PSL_PLUGINS_DIR")
+    if env_plugins and env_plugins.strip():
+        pdir = Path(env_plugins.strip())
+        if pdir.parent.name == "plugins":
+            return pdir.parent.parent.resolve()
+        return (pdir.parent / "config").resolve()
+    return (Path.home() / ".gemini" / "config").resolve()
+
+
+def discover_surfaces(config_dir: Optional[Path] = None) -> List[Path]:
+    """Discovers Antigravity surface directories for synchronization (ADR-030)."""
+    env_surfaces = os.environ.get("AGYIS_SURFACES")
+    if env_surfaces and env_surfaces.strip():
+        return [
+            Path(p).expanduser().resolve()
+            for p in env_surfaces.split(os.pathsep)
+            if p.strip()
+        ]
+    cfg_root = _resolve_canonical_config_dir(config_dir)
+    base_gemini = cfg_root.parent
+    return [(base_gemini / name).resolve() for name in DEFAULT_SURFACE_NAMES]
+
+
 def sync_surfaces(
     surfaces: Optional[List[Path]] = None,
     config_dir: Optional[Path] = None,
     dry_run: bool = False,
 ) -> List[Dict[str, Any]]:
     """Standalone helper for multi-surface synchronization across Antigravity paths."""
-    from harness.delivery.installer import PluginInstaller
-
-    installer = PluginInstaller(config_dir=config_dir, surfaces=surfaces)
-    return installer.sync_surfaces(surfaces=surfaces, config_dir=config_dir, dry_run=dry_run)
+    cfg_root = _resolve_canonical_config_dir(config_dir)
+    target_surfaces = (
+        [Path(s).expanduser().resolve() for s in surfaces]
+        if surfaces is not None
+        else discover_surfaces(config_dir=cfg_root)
+    )
+    return sync_surfaces_impl(target_surfaces, cfg_root, dry_run=dry_run)
 
 
 # --- Single-Source Rule Deduplication Engine (Issues #70 & #71, Codex v2) ---

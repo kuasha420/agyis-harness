@@ -30,8 +30,8 @@ from harness.subagents import (
 
 def _get_repo_root() -> Path:
     from harness.delivery.surfaces import find_workspace_root
-    import harness.cli
-    test_override = getattr(harness.cli, "_TEST_WORKSPACE_ROOT", None)
+    cli_mod = sys.modules.get("harness.cli")
+    test_override = getattr(cli_mod, "_TEST_WORKSPACE_ROOT", None) if cli_mod else None
     if test_override:
         return Path(test_override)
     return find_workspace_root()

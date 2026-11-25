@@ -20,6 +20,8 @@ import time
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 # Active file backups for crash safety: maps absolute Path -> original file text
+MAX_ACTIVE_BACKUPS = 128
+MAX_SIGNAL_HANDLERS = 32
 ACTIVE_BACKUPS: Dict[Path, str] = {}
 _SAFETY_HANDLERS_INSTALLED = False
 _SAFETY_LOCK = threading.Lock()
@@ -85,6 +87,8 @@ def is_arid_line(line: str) -> bool:
 def register_backup(path: Path, original_content: str) -> None:
     """Thread-safely registers an original file backup prior to mutation."""
     with _SAFETY_LOCK:
+        if path not in ACTIVE_BACKUPS and len(ACTIVE_BACKUPS) >= MAX_ACTIVE_BACKUPS:
+            ACTIVE_BACKUPS.pop(next(iter(ACTIVE_BACKUPS)))
         ACTIVE_BACKUPS[path] = original_content
 
 
@@ -137,6 +141,8 @@ def _install_safety_handlers() -> None:
         try:
             if threading.current_thread() is threading.main_thread():
                 for sig in (signal.SIGINT, signal.SIGTERM):
+                    if sig not in _PREV_SIGNAL_HANDLERS and len(_PREV_SIGNAL_HANDLERS) >= MAX_SIGNAL_HANDLERS:
+                        _PREV_SIGNAL_HANDLERS.pop(next(iter(_PREV_SIGNAL_HANDLERS)))
                     _PREV_SIGNAL_HANDLERS[sig] = signal.getsignal(sig)
                     signal.signal(sig, _sig_handler)
         except (ValueError, AttributeError):

@@ -220,8 +220,12 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIn("write_file", tool_set)
         self.assertIn("ask_question", tool_set)
         self.assertIn("invoke_subagent", tool_set)
+        self.assertIn("define_subagent", tool_set)
         self.assertIn("send_message", tool_set)
-        self.assertIn("manage_subagents", tool_set)
+        self.assertIn("swarm", tool_set)
+        self.assertIn("read_board", tool_set)
+        self.assertIn("post_message", tool_set)
+        self.assertIn("swarm_wait", tool_set)
         self.assertIn("run_command", tool_set)
         self.assertIn("read_file", tool_set)
         self.assertIn("manage_task", tool_set)
@@ -240,8 +244,9 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIn("write_file", tool_set)
         self.assertIn("run_command", tool_set)
         self.assertIn("invoke_subagent", tool_set)
+        self.assertIn("define_subagent", tool_set)
         self.assertIn("send_message", tool_set)
-        self.assertIn("manage_subagents", tool_set)
+        self.assertIn("run_workflow", tool_set)
         self.assertIn("ask_question", tool_set)
         self.assertIn("schedule", tool_set)
         self.assertIn("swarm", tool_set)
@@ -382,12 +387,12 @@ class TestSpecialistSubagents(unittest.TestCase):
             AgentArchetype.from_string("non_existent_archetype")
 
     def test_sync_agent_definitions_to_isolated_directory(self) -> None:
-        """sync_agent_definitions correctly mirrors markdown files to destination."""
+        """sync_agent_definitions correctly mirrors 8 agent markdown files to destination without __init__.py."""
         target = self.isolated_path / "agents_target"
         synced = sync_agent_definitions(target_dir=target)
 
-        self.assertEqual(len(synced), 9)
-        self.assertTrue((target / "__init__.py").exists())
+        self.assertEqual(len(synced), 8)
+        self.assertFalse((target / "__init__.py").exists())
         for expected_file in [
             "agyis_builder.md",
             "agyis_reviewer.md",
@@ -404,8 +409,9 @@ class TestSpecialistSubagents(unittest.TestCase):
             self.assertIn("archetype:", content)
 
     def test_agents_agents_mirror_in_sync(self) -> None:
-        """The repository .agents/agents/ mirror must be in sync with harness/agents/."""
+        """The repository .agents/agents/ mirror must contain 8 symlinks pointing to harness/agents/ without __init__.py."""
         source_specs = list_agent_specs(DEFAULT_AGENTS_DIR)
+        self.assertEqual(len(source_specs), 8)
         for spec in source_specs:
             self.assertIsNotNone(spec.source_file)
             mirrored = DEFAULT_TARGET_DIR / spec.source_file.name
@@ -413,17 +419,18 @@ class TestSpecialistSubagents(unittest.TestCase):
                 mirrored.exists(),
                 f"Mirrored agent definition missing at {mirrored}",
             )
-            source_content = spec.source_file.read_text(encoding="utf-8")
-            mirrored_content = mirrored.read_text(encoding="utf-8")
-            self.assertEqual(
-                source_content,
-                mirrored_content,
-                f"Mirrored agent at {mirrored} is out of sync with source {spec.source_file}",
+            self.assertTrue(
+                mirrored.is_symlink(),
+                f"Mirrored agent at {mirrored} should symlink to {spec.source_file}",
             )
-        self.assertEqual(
-            (DEFAULT_AGENTS_DIR / "__init__.py").read_text(encoding="utf-8"),
-            (DEFAULT_TARGET_DIR / "__init__.py").read_text(encoding="utf-8"),
-            ".agents/agents/__init__.py is out of sync with harness/agents/__init__.py",
+            self.assertEqual(
+                mirrored.resolve(),
+                spec.source_file.resolve(),
+                f"Mirrored symlink {mirrored} resolves to wrong target",
+            )
+        self.assertFalse(
+            (DEFAULT_TARGET_DIR / "__init__.py").exists(),
+            ".agents/agents/__init__.py must not exist in symlinked agent mirror",
         )
 
     def test_zero_exploration_invariant_in_prompts(self) -> None:

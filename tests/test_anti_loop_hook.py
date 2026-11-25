@@ -203,23 +203,26 @@ class TestAntiLoopHookPhase2(unittest.TestCase):
         self.assertEqual(res_tripped["decision"], "deny")
         self.assertIn("identical consecutive executions", res_tripped.get("reason", ""))
 
-    # 3. Non-Blocking Advisory for Background Tasks
-    def test_manage_task_status_returns_non_blocking_advisory(self):
-        """manage_task(Action='status') returns a non-blocking advisory (decision: 'allow') instead of denying."""
+    # 3. Strict Background Polling Rate Limit (Denies >= 3 polls)
+    def test_manage_task_status_enforces_strict_poll_denial(self):
+        """manage_task(Action='status') emits advisory allow on first 2 calls and denies at >= 3 polls."""
         conv_id = "test-manage-task-advisory"
         task_args = {"Action": "status", "TaskId": "task-42"}
 
         expected_reason = "Advisory: Background tasks notify reactively upon exit. Avoid polling status to conserve steps."
 
-        # Verify that multiple consecutive invocations all return allow with the non-blocking advisory
-        for i in range(8):
+        for i in range(2):
             res = check_anti_loop("manage_task", task_args, conv_id=conv_id, state_dir=self.state_dir)
             self.assertEqual(
                 res["decision"],
                 "allow",
-                f"Call {i+1} of manage_task status was denied instead of returning advisory allow: {res}",
+                f"Call {i+1} of manage_task status should allow with advisory: {res}",
             )
             self.assertEqual(res.get("reason"), expected_reason)
+
+        denied = check_anti_loop("manage_task", task_args, conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(denied["decision"], "deny")
+        self.assertIn("background task", denied.get("reason", "").lower())
 
     def test_manage_task_non_status_checked_normally(self):
         """manage_task with Action != 'status' (e.g. Action='kill') is not given the status advisory and trips repeats."""

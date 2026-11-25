@@ -1224,7 +1224,6 @@ class TestHarmonizeDecoupledRoleAndSubproject(unittest.TestCase):
             "psl-test-python",
             "psl-stack-backend",
             "db-ops",
-            "modern-web-guidance",
             "psl-audit-toolkit",
             "psl-stack-shell",
             "psl-stack-systems",
@@ -1249,7 +1248,7 @@ class TestHarmonizeDecoupledRoleAndSubproject(unittest.TestCase):
         self.assertEqual(ts_backend, ["psl-stack-typescript", "psl-test-node", "psl-stack-backend", "db-ops"])
 
         ts_frontend = resolve_skills_for_workspace(ws, stack="typescript", role="frontend")
-        self.assertEqual(ts_frontend, ["psl-stack-typescript", "psl-test-node", "modern-web-guidance"])
+        self.assertEqual(ts_frontend, ["psl-stack-typescript", "psl-test-node"])
         self.assertNotIn("psl-stack-backend", ts_frontend)
 
         ts_cli = resolve_skills_for_workspace(ws, stack="typescript", role="cli")
@@ -1295,9 +1294,9 @@ class TestHarmonizeDecoupledRoleAndSubproject(unittest.TestCase):
         res_web = harmonize_workspace(monorepo, source_dir=self.src, subproject="apps/web")
         self.assertTrue(res_web.success)
         self.assertEqual(res_web.workspace_dir, web_dir.resolve())
-        self.assertEqual(set(res_web.skills_provisioned), {"psl-stack-typescript", "psl-test-node", "modern-web-guidance"})
+        self.assertEqual(set(res_web.skills_provisioned), {"psl-stack-typescript", "psl-test-node"})
         self.assertNotIn("psl-stack-backend", res_web.skills_provisioned)
-        self.assertTrue((web_dir / ".agents" / "skills" / "modern-web-guidance" / "SKILL.md").is_file())
+        self.assertTrue((web_dir / ".agents" / "skills" / "psl-stack-typescript" / "SKILL.md").is_file())
         self.assertFalse((monorepo / ".agents" / "skills").exists())
 
         res_api = harmonize_workspace(monorepo, source_dir=self.src, subproject="services/api", role="backend")

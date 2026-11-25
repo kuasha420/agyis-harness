@@ -50,28 +50,34 @@ class TestCommandSafetyHookPhase1(unittest.TestCase):
             # Ensure no backslash-quote stripping caused corruption
             self.assertNotIn('\\"', effective_cmd.replace(cmd, ""))
 
-    def test_grep_commands_do_not_get_automatic_tail_rewrite(self):
-        """Asserts that grep commands are not automatically rewritten with || [ $? -eq 1 ]."""
+    def test_grep_commands_get_exit1_sanitization(self):
+        """Asserts that standalone local grep/rg/diff pipelines receive || [ $? -eq 1 ] exit-1 sanitization."""
         grep_commands = [
-            "grep -rn 'needle' src/",
-            "grep 'TODO' README.md",
-            "git diff | grep 'class '",
-            "cat output.log | grep -E 'ERROR|WARN'",
-            "diff file1.txt file2.txt",
+            ("grep -rn 'needle' src/", "grep -rn 'needle' src/ || [ $? -eq 1 ]"),
+            ("grep 'TODO' README.md", "grep 'TODO' README.md || [ $? -eq 1 ]"),
+            ("git diff | grep 'class '", "PAGER=cat git diff | grep 'class ' || [ $? -eq 1 ]"),
+            ("cat output.log | grep -E 'ERROR|WARN'", "cat output.log | grep -E 'ERROR|WARN' || [ $? -eq 1 ]"),
+            ("diff file1.txt file2.txt", "diff file1.txt file2.txt || [ $? -eq 1 ]"),
+            ("rg 'needle' src/", "rg 'needle' src/ || [ $? -eq 1 ]"),
         ]
-        for cmd in grep_commands:
+        for cmd, expected in grep_commands:
             decision, mod_cmd, reason = sanitize_command(cmd)
             self.assertEqual(decision, "allow")
-            if mod_cmd is not None:
-                # If command is modified (e.g. PAGER=cat for git), it must NOT append the grep tail
-                self.assertNotIn("|| [ $? -eq 1 ]", mod_cmd)
-                self.assertNotIn("|| [ \\$? -eq 1 ]", mod_cmd)
-            else:
-                self.assertIsNone(mod_cmd)
+            self.assertEqual(mod_cmd, expected)
+            self.assertIn("Exit Code 1", reason or "")
 
-    def test_hook_main_json_preserves_quotes_and_does_not_mutate_grep(self):
+        for already_guarded in (
+            "grep -rn 'needle' src/ || [ $? -eq 1 ]",
+            "grep 'foo' file || true",
+            "if grep -q 'foo' file; then echo yes; fi",
+        ):
+            decision, mod_cmd, _ = sanitize_command(already_guarded)
+            self.assertEqual(decision, "allow")
+            self.assertIsNone(mod_cmd)
+
+    def test_hook_main_json_preserves_quotes_and_sanitizes_grep(self):
         """Asserts end-to-end stdin/stdout hook main() contract."""
-        # 1. Grep command should allow without CommandLine overwrite
+        # 1. Local grep command gets benign Exit Code 1 sanitization overwrite
         payload = {
             "toolCall": {
                 "name": "run_command",
@@ -82,9 +88,23 @@ class TestCommandSafetyHookPhase1(unittest.TestCase):
             safety_main()
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "allow")
+            self.assertEqual(res["overwrite"]["CommandLine"], "grep -rn 'foo' . || [ $? -eq 1 ]")
+            self.assertIn("Exit Code 1", res.get("reason", ""))
+
+        # 2. Already-guarded grep does not emit overwrite
+        guarded_payload = {
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "grep -rn 'foo' . || [ $? -eq 1 ]"},
+            }
+        }
+        with patch("sys.stdin", io.StringIO(json.dumps(guarded_payload))), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            safety_main()
+            res = json.loads(mock_out.getvalue().strip())
+            self.assertEqual(res["decision"], "allow")
             self.assertNotIn("overwrite", res)
 
-        # 2. Python inline script with double quotes should preserve quotes
+        # 3. Python inline script with double quotes should preserve quotes
         py_payload = {
             "toolCall": {
                 "name": "run_command",
@@ -261,7 +281,7 @@ class TestZeroKillPauseSafetyGuard(unittest.TestCase):
 
 
 class TestInlineScriptHygieneHook(unittest.TestCase):
-    """Hermetic unit tests for PSL-INV-002 §4 inline script hygiene hook (<0.05s SLA)."""
+    """Hermetic unit tests for PSL-INV-003 inline script hygiene hook (<0.05s SLA)."""
 
     def test_short_safe_inline_script_allowed(self):
         """Short safe one-liners without newlines or excessive length are allowed."""
@@ -285,14 +305,14 @@ class TestInlineScriptHygieneHook(unittest.TestCase):
         literal_cmd = "python3 -c \"import os\nprint(os.getcwd())\""
         decision, reason = check_inline_script_hygiene(literal_cmd)
         self.assertEqual(decision, "deny")
-        self.assertIn("PSL-INV-002 VIOLATION", reason)
+        self.assertIn("PSL-INV-003 VIOLATION", reason)
         self.assertIn("scratch/probe.py", reason)
 
         # Escaped newline (\n in command string)
         escaped_cmd = r'python3 -c "import os\nprint(os.getcwd())"'
         decision2, reason2 = check_inline_script_hygiene(escaped_cmd)
         self.assertEqual(decision2, "deny")
-        self.assertIn("PSL-INV-002 VIOLATION", reason2)
+        self.assertIn("PSL-INV-003 VIOLATION", reason2)
 
     def test_single_line_up_to_250_chars_allowed_and_over_250_denied(self):
         """Single-line inline script <= 250 chars is allowed; > 250 chars is denied (Issue #102)."""
@@ -320,7 +340,7 @@ class TestInlineScriptHygieneHook(unittest.TestCase):
         cmd_251 = f'python3 -c "{body_251}"'
         decision, reason = check_inline_script_hygiene(cmd_251)
         self.assertEqual(decision, "deny")
-        self.assertIn("PSL-INV-002 VIOLATION", reason)
+        self.assertIn("PSL-INV-003 VIOLATION", reason)
         self.assertIn(">250 chars or newlines", reason)
 
     def test_node_and_bash_multiline_and_long_scripts_denied(self):
@@ -329,17 +349,17 @@ class TestInlineScriptHygieneHook(unittest.TestCase):
         node_cmd = "node -e \"const fs = require('fs')\nconsole.log(fs.readdirSync('.'))\""
         decision_node, reason_node = check_inline_script_hygiene(node_cmd)
         self.assertEqual(decision_node, "deny")
-        self.assertIn("PSL-INV-002 VIOLATION", reason_node)
+        self.assertIn("PSL-INV-003 VIOLATION", reason_node)
 
         bash_cmd = "bash -c \"echo line1\necho line2\""
         decision_bash, reason_bash = check_inline_script_hygiene(bash_cmd)
         self.assertEqual(decision_bash, "deny")
-        self.assertIn("PSL-INV-002 VIOLATION", reason_bash)
+        self.assertIn("PSL-INV-003 VIOLATION", reason_bash)
 
         sh_cmd = "sh -c \"echo line1\necho line2\""
         decision_sh, reason_sh = check_inline_script_hygiene(sh_cmd)
         self.assertEqual(decision_sh, "deny")
-        self.assertIn("PSL-INV-002 VIOLATION", reason_sh)
+        self.assertIn("PSL-INV-003 VIOLATION", reason_sh)
 
     def test_inline_comment_bypass(self):
         """Directive comments (# agyis: allow-inline-script / # allow-inline) bypass hygiene deny."""
@@ -378,7 +398,7 @@ class TestInlineScriptHygieneHook(unittest.TestCase):
         dec_fallback, mod_fallback, reason_fallback = sanitize_command(cmd, promote_scratch=False)
         self.assertEqual(dec_fallback, "deny")
         self.assertIsNone(mod_fallback)
-        self.assertIn("PSL-INV-002 VIOLATION", reason_fallback)
+        self.assertIn("PSL-INV-003 VIOLATION", reason_fallback)
 
     def test_workspace_paths_preference_and_plugin_cwd_brain_fallback(self):
         """workspacePaths picks <ws>/scratch/ if present, <ws>/.agents/scratch/ otherwise, or brain scratch when cwd is a plugin dir."""

@@ -23,6 +23,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+import unittest.mock
 
 from harness.hooks.anti_loop_hook import (
     EXECUTIONER_HORIZON_STEPS as ANTI_LOOP_HORIZON_STEPS,
