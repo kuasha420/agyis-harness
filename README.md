@@ -12,9 +12,12 @@
 [![CI](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/Tests-2441_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
 [![AFF](https://img.shields.io/badge/AFF-100%2F100-brightgreen.svg)](docs/taxonomy/project-ledger.md)
+[![Website](https://img.shields.io/badge/Website-GitHub_Pages-1B4DFF.svg)](https://kuasha420.github.io/agyis-harness/)
 
 > **The enterprise extension harness and developer CLI for Google Antigravity™ — ready for the Gemini 4 Model Family (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M` scaled runway) and the Antigravity stack (`Desktop v2.34.0+` · `agy v1.5.15` · `IDE v2.8.0` · `REA v6.9.0`).**  
 > Eliminates context cliffs, runaway loops, terminal command panics, and prompt bloat through deterministic lifecycle hooks (`PSL-INV-001`–`008` + on-demand `PSL-RE-001`), hermetic runtime guarantees, an in-situ Trajectory Debug HUD, and turnkey repository onboarding.
+
+🌐 **Live Website:** [kuasha420.github.io/agyis-harness](https://kuasha420.github.io/agyis-harness/) · 🎨 **Brand Kit:** [Orbital Aegis Brand Assets](https://kuasha420.github.io/agyis-harness/brand/)
 
 ---
 

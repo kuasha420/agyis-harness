@@ -46,20 +46,21 @@
 
 @layer tokens {
   :root {
-    --bg: #f5f7fa;
-    --surface: #eaeff5;
-    --ink: #0b1220;
+    --bg: #f4f6fa;
+    --surface: #e8edf5;
+    --ink: #080e1a;
     --ink-muted: #445166;
-    --border: #d6dce5;
+    --border: #d2dae6;
     --accent: #1b4dff;
     --accent-hover: #143ed6;
 
-    --console-bg: #0b1220;
-    --console-surface: #121c30;
-    --console-border: #23314d;
-    --console-ink: #f5f7fa;
+    --console-bg: #080e1a;
+    --console-surface: #10192b;
+    --console-border: #1e2c47;
+    --console-ink: #f4f6fa;
     --console-muted: #9aa8be;
-    --console-accent: #7399ff;
+    --console-accent: #5c8aff;
+    --console-cyan: #26d0ce;
 
     --semantic-pass: #2ad089;
     --semantic-warn: #f5b74f;
@@ -117,6 +118,11 @@
     margin-inline: auto;
   }
 
+  .brand-page-title {
+    max-inline-size: none;
+    margin-inline: 0;
+  }
+
   h2 {
     font-size: var(--text-heading);
     font-weight: 700;
@@ -153,7 +159,8 @@
   }
 
   .section-benchmarks :where(a:any-link, button, [tabindex="0"]):focus-visible,
-  .workbench :where(a:any-link, button, [tabindex="0"]):focus-visible {
+  .workbench :where(a:any-link, button, [tabindex="0"]):focus-visible,
+  .brand-section-dark :where(a:any-link, button, [tabindex="0"]):focus-visible {
     outline-color: var(--console-accent);
   }
 }
@@ -192,7 +199,7 @@
     inset-inline: 0;
     z-index: 100;
     padding-block: 1.125rem;
-    background-color: rgb(245 247 250 / 0);
+    background-color: rgb(244 246 250 / 0);
     border-block-end: 1px solid transparent;
     transition:
       background-color 200ms var(--ease-out),
@@ -202,7 +209,7 @@
 
   .site-header.is-scrolled {
     padding-block: 0.75rem;
-    background-color: rgb(245 247 250 / 0.97);
+    background-color: rgb(244 246 250 / 0.97);
     backdrop-filter: blur(12px);
     border-block-end-color: var(--border);
   }
@@ -250,8 +257,17 @@
     transition: color 160ms var(--ease-out);
   }
 
-  .primary-nav a:hover {
+  .primary-nav a:hover,
+  .primary-nav a[aria-current="page"] {
     color: var(--ink);
+  }
+
+  .primary-nav a[aria-current="page"] {
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.45rem;
   }
 
   .nav-toggle {
@@ -292,7 +308,7 @@
   }
 
   .mobile-dialog::backdrop {
-    background-color: rgb(11 18 32 / 0.55);
+    background-color: rgb(8 14 26 / 0.58);
   }
 
   .mobile-dialog-inner {
@@ -346,16 +362,41 @@
     border-block-end: 1px solid var(--border);
   }
 
-  /* Hero */
+  /* Hero with Full-Bleed Architectural Prism Backdrop */
   .hero {
+    position: relative;
+    overflow: hidden;
     padding-block-start: clamp(5.25rem, 8.5vh, 6.75rem);
     padding-block-end: clamp(3.5rem, 6vw, 5.5rem);
+    background-color: var(--bg);
+  }
+
+  .hero-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .hero-backdrop img {
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+    object-position: 50% 42%;
+    opacity: 0.72;
+  }
+
+  .hero-backdrop::after {
+    content: "";
+    position: absolute;
+    inset: 0;
     background:
-      radial-gradient(ellipse 90% 55% at 50% 0%, rgb(27 77 255 / 0.11), transparent 72%),
-      linear-gradient(180deg, #edf2fb 0%, var(--bg) 52%);
+      linear-gradient(180deg, rgb(244 246 250 / 0.82) 0%, rgb(244 246 250 / 0.34) 44%, rgb(244 246 250 / 0.92) 100%);
   }
 
   .hero-inner {
+    position: relative;
+    z-index: 1;
     display: grid;
     justify-items: center;
     text-align: center;
@@ -363,7 +404,7 @@
   }
 
   .hero-copy {
-    color: var(--ink-muted);
+    color: var(--ink);
     max-inline-size: 52ch;
     margin-inline: auto;
   }
@@ -541,7 +582,7 @@
     margin-block-start: 0.25rem;
     padding: 0.875rem 1rem;
     border-radius: var(--radius-sm);
-    background-color: #070c16;
+    background-color: #050912;
     border: 1px solid var(--console-border);
     color: #d9e2f2;
     overflow-x: auto;
@@ -572,10 +613,26 @@
     color: var(--ink-muted);
   }
 
+  .hooks-art {
+    margin-block-start: 0.5rem;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background-color: var(--surface);
+  }
+
+  .hooks-art img {
+    inline-size: 100%;
+    block-size: auto;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+  }
+
   .hooks-intro code,
   .section-onboarding code,
   .section-cli code,
-  .section-install code {
+  .section-install code,
+  .brand-section code {
     color: var(--ink);
     background-color: var(--surface);
     padding: 0.125rem 0.375rem;
@@ -930,7 +987,7 @@
   .install-code {
     padding: 1rem;
     border-radius: var(--radius-sm);
-    background-color: #070c16;
+    background-color: #050912;
     border: 1px solid var(--console-border);
     color: var(--console-ink);
     overflow-x: auto;
@@ -945,6 +1002,251 @@
 
   .install-cta {
     margin-block-start: 2rem;
+  }
+
+  /* Brand Kit Page */
+  .brand-masthead {
+    padding-block-start: clamp(6rem, 10vh, 7.5rem);
+    padding-block-end: clamp(3rem, 5vw, 4.5rem);
+    border-block-end: 1px solid var(--border);
+  }
+
+  .brand-masthead-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+    gap: clamp(2rem, 5vw, 4rem);
+    align-items: center;
+  }
+
+  .brand-masthead-copy {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .brand-masthead-copy p {
+    color: var(--ink-muted);
+  }
+
+  .brand-summary-meta {
+    font-size: var(--text-sm);
+  }
+
+  .brand-masthead-emblem {
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--console-border);
+    background-color: var(--console-bg);
+  }
+
+  .brand-masthead-emblem img {
+    inline-size: 100%;
+    block-size: auto;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+  }
+
+  .brand-section {
+    padding-block: clamp(3.5rem, 6vw, 5.5rem);
+    border-block-end: 1px solid var(--border);
+  }
+
+  .brand-section-tint {
+    background-color: var(--surface);
+  }
+
+  .brand-section-dark {
+    color-scheme: dark;
+    background-color: var(--console-bg);
+    color: var(--console-ink);
+    border-block-end-color: var(--console-border);
+  }
+
+  .brand-section-dark p {
+    color: var(--console-muted);
+  }
+
+  .brand-section-dark code {
+    background-color: var(--console-surface);
+    color: var(--console-ink);
+  }
+
+  .specimen-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2rem;
+  }
+
+  .specimen-item {
+    display: grid;
+    gap: 1rem;
+    align-content: start;
+  }
+
+  .specimen-stage {
+    min-block-size: 11rem;
+    padding: 2rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    display: grid;
+    place-items: center;
+  }
+
+  .specimen-light {
+    background-color: var(--bg);
+  }
+
+  .specimen-dark {
+    background-color: var(--console-bg);
+    border-color: var(--console-border);
+  }
+
+  .specimen-meta {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .specimen-meta p {
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+  }
+
+  .asset-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    margin-block-start: 0.25rem;
+  }
+
+  .asset-links a {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 2.5rem;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 0.25em;
+  }
+
+  .asset-links a:hover {
+    color: var(--accent-hover);
+  }
+
+  .art-gallery {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2rem;
+  }
+
+  .art-card {
+    display: grid;
+    gap: 1rem;
+    align-content: start;
+  }
+
+  .art-card picture {
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background-color: var(--console-bg);
+    aspect-ratio: 16 / 10;
+    display: block;
+  }
+
+  .art-card-light picture {
+    background-color: var(--surface);
+  }
+
+  .art-card img {
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: contain;
+  }
+
+  .art-card figcaption {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .art-card figcaption p {
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+    margin-block-start: 0.25rem;
+  }
+
+  .swatch-ledger {
+    list-style: none;
+    padding: 0;
+    border-block-start: 1px solid var(--border);
+  }
+
+  .swatch-row {
+    display: grid;
+    grid-template-columns: 3.5rem minmax(0, 1fr) auto;
+    gap: 1.25rem;
+    align-items: center;
+    padding-block: 1.125rem;
+    border-block-end: 1px solid var(--border);
+  }
+
+  .swatch-chip {
+    inline-size: 3.5rem;
+    block-size: 2.5rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+  }
+
+  .swatch-info p {
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+  }
+
+  .type-spec-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: clamp(2rem, 5vw, 4.5rem);
+    align-items: start;
+  }
+
+  .type-specimen {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .type-sample-block {
+    margin-block-start: 0.75rem;
+    padding-block-start: 1.25rem;
+    border-block-start: 1px solid var(--console-border);
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .type-sample-display {
+    font-size: var(--text-heading);
+    font-weight: 700;
+    color: var(--console-ink);
+    line-height: 1.1;
+  }
+
+  .type-sample-mono {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--console-cyan);
+  }
+
+  .spec-rules-list {
+    list-style: none;
+    padding: 0;
+    border-block-start: 1px solid var(--console-border);
+  }
+
+  .spec-rules-list li {
+    padding-block: 1.25rem;
+    border-block-end: 1px solid var(--console-border);
+    display: grid;
+    gap: 0.375rem;
   }
 
   /* Footer */
@@ -998,7 +1300,11 @@
     .hooks-layout,
     .pipeline-panel-grid,
     .telemetry-grid,
-    .precedence-stack li {
+    .precedence-stack li,
+    .brand-masthead-grid,
+    .specimen-grid,
+    .art-gallery,
+    .type-spec-grid {
       grid-template-columns: minmax(0, 1fr);
     }
 
@@ -1028,9 +1334,19 @@
     }
 
     .install-box-top,
-    .cmd-row {
+    .cmd-row,
+    .art-card figcaption {
       flex-direction: column;
       align-items: flex-start;
+    }
+
+    .swatch-row {
+      grid-template-columns: 2.75rem minmax(0, 1fr);
+    }
+
+    .swatch-row .copy-btn {
+      grid-column: 2;
+      justify-self: start;
     }
   }
 
@@ -1038,7 +1354,8 @@
     [role="tab"],
     .copy-btn,
     .primary-nav a,
-    .footer-links a {
+    .footer-links a,
+    .asset-links a {
       min-block-size: 2.75rem;
     }
   }
@@ -1049,12 +1366,12 @@
     @supports ((animation-timeline: scroll()) and (animation-range: 0% 100%)) {
       @keyframes header-elevate {
         from {
-          background-color: rgb(245 247 250 / 0);
+          background-color: rgb(244 246 250 / 0);
           border-block-end-color: transparent;
           padding-block: 1.125rem;
         }
         to {
-          background-color: rgb(245 247 250 / 0.97);
+          background-color: rgb(244 246 250 / 0.97);
           border-block-end-color: var(--border);
           padding-block: 0.75rem;
         }

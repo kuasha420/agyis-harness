@@ -1,27 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
   <defs>
-    <linearGradient id="agyis-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#4285F4"/>
-      <stop offset="50%" stop-color="#9C27B0"/>
-      <stop offset="100%" stop-color="#EA4335"/>
+    <linearGradient id="agyis-edge" x1="16" y1="12" x2="112" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1B4DFF"/>
+      <stop offset="52%" stop-color="#5C8AFF"/>
+      <stop offset="100%" stop-color="#26D0CE"/>
     </linearGradient>
-    <linearGradient id="shield-grad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#1E1E2E"/>
-      <stop offset="100%" stop-color="#11111B"/>
+    <linearGradient id="agyis-body" x1="64" y1="12" x2="64" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#101C33"/>
+      <stop offset="100%" stop-color="#080E1A"/>
     </linearGradient>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="3" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
   </defs>
-  <!-- Outer Shield -->
-  <path d="M64 12 L108 28 C108 72 84 104 64 116 C44 104 20 72 20 28 Z" fill="url(#shield-grad)" stroke="url(#agyis-grad)" stroke-width="4" stroke-linejoin="round" />
-  <!-- Antigravity Rings / Immune System Core -->
-  <circle cx="64" cy="56" r="22" fill="none" stroke="url(#agyis-grad)" stroke-width="3" stroke-dasharray="6 3" opacity="0.9" filter="url(#glow)"/>
-  <ellipse cx="64" cy="56" rx="30" ry="12" fill="none" stroke="#00E5FF" stroke-width="2" transform="rotate(-25 64 56)" opacity="0.8"/>
-  <ellipse cx="64" cy="56" rx="30" ry="12" fill="none" stroke="#FF4081" stroke-width="2" transform="rotate(25 64 56)" opacity="0.8"/>
-  <!-- Central Pulse / Spark -->
-  <polygon points="64,44 68,52 76,56 68,60 64,68 60,60 52,56 60,52" fill="#FFFFFF" filter="url(#glow)"/>
-  <!-- Base Chevron Accent -->
-  <path d="M52 86 L64 96 L76 86" fill="none" stroke="url(#agyis-grad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M40 12 L88 12 L112 32 L112 74 L64 116 L16 74 L16 32 Z" fill="url(#agyis-body)" stroke="url(#agyis-edge)" stroke-width="4" stroke-linejoin="miter"/>
+  <path d="M43 19 L85 19 L105 35.5 L105 70.5 L64 106.5 L23 70.5 L23 35.5 Z" fill="none" stroke="#233659" stroke-width="1.5"/>
+  <polygon points="31,83 52,31 61,31 42,83" fill="#F4F6FA"/>
+  <polygon points="97,83 76,31 67,31 86,83" fill="#F4F6FA"/>
+  <polygon points="64,47 64,63 53,63" fill="#A8C5FF"/>
+  <polygon points="64,47 75,63 64,63" fill="#5C8AFF"/>
+  <polygon points="53,63 64,63 64,79" fill="#1B4DFF"/>
+  <polygon points="64,63 75,63 64,79" fill="#26D0CE"/>
+  <path d="M54 91 L64 99.5 L74 91" fill="none" stroke="url(#agyis-edge)" stroke-width="3.2" stroke-linecap="square" stroke-linejoin="miter"/>
 </svg>

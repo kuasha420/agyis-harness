@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="og-scrim" x1="0" y1="315" x2="900" y2="315" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#080E1A" stop-opacity="0.94"/>
+      <stop offset="68%" stop-color="#080E1A" stop-opacity="0.72"/>
+      <stop offset="100%" stop-color="#080E1A" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="og-mark-edge" x1="16" y1="12" x2="112" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1B4DFF"/>
+      <stop offset="52%" stop-color="#5C8AFF"/>
+      <stop offset="100%" stop-color="#26D0CE"/>
+    </linearGradient>
+    <linearGradient id="og-mark-body" x1="64" y1="12" x2="64" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#101C33"/>
+      <stop offset="100%" stop-color="#080E1A"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="900" height="630" fill="url(#og-scrim)"/>
+  <g transform="translate(72, 72) scale(0.5)">
+    <path d="M40 12 L88 12 L112 32 L112 74 L64 116 L16 74 L16 32 Z" fill="url(#og-mark-body)" stroke="url(#og-mark-edge)" stroke-width="4" stroke-linejoin="miter"/>
+    <path d="M43 19 L85 19 L105 35.5 L105 70.5 L64 106.5 L23 70.5 L23 35.5 Z" fill="none" stroke="#233659" stroke-width="1.5"/>
+    <polygon points="31,83 52,31 61,31 42,83" fill="#F4F6FA"/>
+    <polygon points="97,83 76,31 67,31 86,83" fill="#F4F6FA"/>
+    <polygon points="64,47 64,63 53,63" fill="#A8C5FF"/>
+    <polygon points="64,47 75,63 64,63" fill="#5C8AFF"/>
+    <polygon points="53,63 64,63 64,79" fill="#1B4DFF"/>
+    <polygon points="64,63 75,63 64,79" fill="#26D0CE"/>
+    <path d="M54 91 L64 99.5 L74 91" fill="none" stroke="url(#og-mark-edge)" stroke-width="3.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  </g>
+  <text x="154" y="116" fill="#F4F6FA" font-family="Instrument Sans, Inter, system-ui, -apple-system, sans-serif" font-size="34" font-weight="700" letter-spacing="-0.8">Agyis Harness</text>
+  <text x="72" y="256" fill="#F4F6FA" font-family="Instrument Sans, Inter, system-ui, -apple-system, sans-serif" font-size="72" font-weight="700" letter-spacing="-2.4">Deterministic</text>
+  <text x="72" y="334" fill="#F4F6FA" font-family="Instrument Sans, Inter, system-ui, -apple-system, sans-serif" font-size="72" font-weight="700" letter-spacing="-2.4">guardrails for</text>
+  <text x="72" y="412" fill="#5C8AFF" font-family="Instrument Sans, Inter, system-ui, -apple-system, sans-serif" font-size="72" font-weight="700" letter-spacing="-2.4">Antigravity.</text>
+  <text x="72" y="540" fill="#9AA8BE" font-family="JetBrains Mono, monospace" font-size="22" font-weight="500">Version 1.0.0  ·  agyis-harness.io</text>
+</svg>

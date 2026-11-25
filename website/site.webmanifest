@@ -1,0 +1,21 @@
+{
+  "name": "Agyis Harness",
+  "short_name": "Agyis",
+  "description": "Deterministic guardrails and developer CLI for Google Antigravity and Gemini 4.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#F4F6FA",
+  "theme_color": "#080E1A",
+  "icons": [
+    {
+      "src": "./assets/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./assets/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
