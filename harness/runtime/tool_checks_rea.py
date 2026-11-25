@@ -59,7 +59,7 @@ def find_rea_binary() -> Optional[Path]:
             pass
 
     try:
-        home = path_cls.home()
+        home = path_cls.home() if hasattr(path_cls, "home") else Path.home()
         candidates.extend(
             [
                 home / ".local/share/pnpm/rea",

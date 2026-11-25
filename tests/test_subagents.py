@@ -21,6 +21,7 @@ import unittest
 from harness.subagents import (
     DEFAULT_AGENTS_DIR,
     DEFAULT_TARGET_DIR,
+    SWARM_RUNTIME_TOOLS,
     AgentArchetype,
     AgentSpec,
     ToolPermissions,
@@ -222,13 +223,15 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIn("invoke_subagent", tool_set)
         self.assertIn("define_subagent", tool_set)
         self.assertIn("send_message", tool_set)
-        self.assertIn("swarm", tool_set)
-        self.assertIn("read_board", tool_set)
-        self.assertIn("post_message", tool_set)
-        self.assertIn("swarm_wait", tool_set)
         self.assertIn("run_command", tool_set)
         self.assertIn("read_file", tool_set)
         self.assertIn("manage_task", tool_set)
+        for srt in SWARM_RUNTIME_TOOLS:
+            self.assertNotIn(
+                srt,
+                tool_set,
+                f"Planner must not declare runtime-injected swarm tool '{srt}' statically",
+            )
 
     def test_coordinator_toolgroup_permissions(self) -> None:
         """Coordinator must have read, write (artifact synthesis), exec (CLI checks), and subagent permissions."""
@@ -249,10 +252,12 @@ class TestSpecialistSubagents(unittest.TestCase):
         self.assertIn("run_workflow", tool_set)
         self.assertIn("ask_question", tool_set)
         self.assertIn("schedule", tool_set)
-        self.assertIn("swarm", tool_set)
-        self.assertIn("post_message", tool_set)
-        self.assertIn("read_board", tool_set)
-        self.assertIn("swarm_wait", tool_set)
+        for srt in SWARM_RUNTIME_TOOLS:
+            self.assertNotIn(
+                srt,
+                tool_set,
+                f"Coordinator must not declare runtime-injected swarm tool '{srt}' statically",
+            )
 
     def test_agyis_architect_toolgroup_permissions(self) -> None:
         """Main agent (agyis_architect) must have full permissions across read, write, exec, subagent, mcp."""
@@ -275,8 +280,10 @@ class TestSpecialistSubagents(unittest.TestCase):
             self.assertIn(et, tool_set, f"Main agent must include exec tool '{et}'")
         self.assertIn("invoke_subagent", tool_set)
         self.assertNotIn("call_mcp_tool", tool_set, "MCP tools must not be listed statically in allowed_tools")
+        for srt in SWARM_RUNTIME_TOOLS:
+            self.assertNotIn(srt, tool_set, f"Swarm runtime tool '{srt}' must not be listed statically in allowed_tools")
         self.assertLessEqual(len(main_spec.allowed_tools), 20)
-        self.assertEqual(len(main_spec.allowed_tools), 19)
+        self.assertEqual(len(main_spec.allowed_tools), 15)
 
         # Verify legacy alias also returns identical spec
         legacy_spec = get_agent_spec("psl_main")
@@ -734,7 +741,7 @@ class TestSpecialistSubagents(unittest.TestCase):
             "  - read_file\n"
             "  - write_file\n"
             "  - run_command\n"
-            "  - swarm\n"
+            "  - invoke_subagent\n"
             "---\n"
             "# Planner\n\n## Zero-Exploration Invariant\nRead target files directly.\n",
             encoding="utf-8",

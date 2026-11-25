@@ -22,8 +22,6 @@ tools:
   - run_command
   - manage_task
   - send_message
-  - read_board
-  - post_message
   - search_web
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->

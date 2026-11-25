@@ -120,8 +120,11 @@ class TestTier4Scenarios(OpaqueBoxTestCase):
         """Simulates automated bug reporting workflow harvesting doctor telemetry into issue templates."""
         # Step 1: Harvest doctor diagnostics
         code, out, _ = self.run_cli(["doctor", "--json"])
-        self.assertEqual(code, 0)
+        self.assertIn(code, (0, 1))
         audit = json.loads(out)
+        summary = audit.get("summary", {})
+        expected_code = 1 if (summary.get("missing", 0) > 0 or summary.get("outdated", 0) > 0) else 0
+        self.assertEqual(code, expected_code)
         python_info = f"Python: CPython {audit.get('hermetic_python_available', 'standard')}"
 
         # Step 2: Query active harness version

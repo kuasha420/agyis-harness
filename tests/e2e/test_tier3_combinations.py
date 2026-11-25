@@ -72,10 +72,13 @@ class TestTier3Combinations(OpaqueBoxTestCase):
     def test_c5_doctor_toolchain_audit_plus_template_correlation(self) -> None:
         """Assures doctor audit metrics correspond to host_toolchain_versions in issue template."""
         code, out, _ = self.run_cli(["doctor", "--json"])
-        self.assertEqual(code, 0)
+        self.assertIn(code, (0, 1))
         report = json.loads(out)
         self.assertIn("os_family", report)
         self.assertIn("summary", report)
+        summary = report["summary"]
+        expected_code = 1 if (summary.get("missing", 0) > 0 or summary.get("outdated", 0) > 0) else 0
+        self.assertEqual(code, expected_code)
 
         template_path = REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
         if template_path.exists():

@@ -20,8 +20,6 @@ tools:
   - manage_task
   - schedule
   - send_message
-  - read_board
-  - post_message
   - search_web
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->

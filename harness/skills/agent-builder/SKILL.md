@@ -54,16 +54,16 @@ To prevent session freezes and maintain strict toolgroup scoping (`<=20` tool ce
 
 | Bundle | Allowed Tools | Permissions | Intended Roles |
 | :--- | :--- | :--- | :--- |
-| `read_only` | `read_file`, `search_web`, `send_message`, `read_board` | `read: true`, `write: false`, `execute: false`, `subagents: false` | Hammer, Code Reviewer, Security Inspector |
+| `read_only` | `read_file`, `search_web`, `send_message` | `read: true`, `write: false`, `execute: false`, `subagents: false` | Hammer, Code Reviewer, Security Inspector |
 | `verifier` | `read_only` + `run_command`, `manage_task` | `read: true`, `write: false`, `execute: true`, `subagents: false` | QA Verifier, Benchmark Auditor, Linter |
 | `adversarial_verifier` | `verifier` + `write_file`, `edit_file` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Test Generator, Fuzzer, Stress Oracle (/boost-inspired) |
 | `builder` | `verifier` + `write_file`, `edit_file` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Executioner, Implementer, Refactorer |
 | `investigator` | `verifier` + `write_file`, `edit_file` | `read: true`, `write: true`, `execute: true`, `subagents: false` | Investigator, RCA & Reproduction Author |
-| `orchestrator` | `read_only` + `run_command`, `invoke_subagent`, `define_subagent`, `manage_task`, `ask_question`, `swarm`, `post_message`, `swarm_wait`, `run_workflow`, `schedule` | `read: true`, `write: false`, `execute: true`, `subagents: true` | Swarm Coordinator, Milestone Lead |
+| `orchestrator` | `read_only` + `run_command`, `invoke_subagent`, `define_subagent`, `manage_task`, `ask_question`, `run_workflow`, `schedule` | `read: true`, `write: false`, `execute: true`, `subagents: true` | Swarm Coordinator, Milestone Lead |
 | `full` | Core canonical `v2.34+` platform tools (`<=20` tools, trimmed from `CANONICAL_PLATFORM_TOOLS`) | `read: true`, `write: true`, `execute: true`, `subagents: true`, `mcp: true`, `enable_write_tools: true`, `inheritMcp: true` | Main Agent (`main` archetype), Lead Architect |
 
 > [!CAUTION]
-> **Platform Hanging Bug (`PSL-INV-006`)**: Never declare tools outside `CANONICAL_PLATFORM_TOOLS` — including obsolete v1 names (`view_file`, `write_to_file`, `replace_file_content`, `manage_subagents`, `enter_plan_mode`, `exit_plan_mode`) or speculative MCP tool names (`call_mcp_tool`, `list_resources`, `read_resource`) — in frontmatter `tools:` or `allowed_tools:`, and never exceed the `20`-tool ceiling. Use canonical `v2.34+` tools (`read_file`, `write_file`, `edit_file`, `run_command`, `swarm`, `post_message`, `read_board`, `swarm_wait`, `run_workflow`, `invoke_subagent`, `define_subagent`, `search_marketplace`, `list_plugin_accounts`, `finish`) and enable MCP via `inheritMcp: true` / `mcpServers: [...]`. Doing otherwise causes the Antigravity subagent dispatcher to fail or hang.
+> **Platform Hanging Bug (`PSL-INV-006`)**: Never declare tools outside `CANONICAL_PLATFORM_TOOLS` — including obsolete v1 names (`view_file`, `write_to_file`, `replace_file_content`, `manage_subagents`, `enter_plan_mode`, `exit_plan_mode`), speculative MCP tool names (`call_mcp_tool`, `list_resources`, `read_resource`), or runtime-injected swarm board tools (`swarm`, `post_message`, `read_board`, `swarm_wait`) — in frontmatter `tools:` or `allowed_tools:`, and never exceed the `20`-tool ceiling. Swarm board tools (like MCP tools) are runtime-injected by Antigravity Swarm sessions; declaring them statically crashes `invoke_subagent` executor resolution. Use canonical `v2.34+` tools (`read_file`, `write_file`, `edit_file`, `run_command`, `run_workflow`, `invoke_subagent`, `define_subagent`, `search_marketplace`, `list_plugin_accounts`, `finish`) and enable MCP via `inheritMcp: true` / `mcpServers: [...]`. Doing otherwise causes the Antigravity subagent dispatcher to fail or hang.
 
 ---
 

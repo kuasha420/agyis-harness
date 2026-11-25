@@ -84,6 +84,15 @@ class AgentArchetype(str, Enum):
 
 MAX_AGENT_TOOLS: int = 20
 
+# Swarm board tools are injected at runtime by Antigravity Swarm sessions.
+# Listing them statically in agent frontmatter crashes `invoke_subagent` executor resolution.
+SWARM_RUNTIME_TOOLS: frozenset[str] = frozenset({
+    "swarm",
+    "post_message",
+    "read_board",
+    "swarm_wait",
+})
+
 CANONICAL_PLATFORM_TOOLS: frozenset[str] = frozenset({
     "read_file",
     "write_file",
@@ -98,10 +107,6 @@ CANONICAL_PLATFORM_TOOLS: frozenset[str] = frozenset({
     "search_web",
     "ask_question",
     "finish",
-    "swarm",
-    "post_message",
-    "read_board",
-    "swarm_wait",
     "run_workflow",
     "search_marketplace",
     "list_plugin_accounts",
@@ -116,7 +121,7 @@ LEGACY_PLATFORM_TOOL_ALIASES: Dict[str, str] = {
     "grep_search": "run_command",
     "find_by_name": "run_command",
     "read_url_content": "search_web",
-    "manage_subagents": "swarm",
+    "manage_subagents": "invoke_subagent",
     "enter_plan_mode": "ask_question",
     "exit_plan_mode": "finish",
     "list_permissions": "list_plugin_accounts",
@@ -131,13 +136,11 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "read_file",
         "search_web",
         "send_message",
-        "read_board",
     ],
     "verifier": [
         "read_file",
         "search_web",
         "send_message",
-        "read_board",
         "run_command",
         "manage_task",
     ],
@@ -145,7 +148,6 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "read_file",
         "search_web",
         "send_message",
-        "read_board",
         "run_command",
         "manage_task",
         "write_file",
@@ -155,7 +157,6 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "read_file",
         "search_web",
         "send_message",
-        "read_board",
         "run_command",
         "manage_task",
         "write_file",
@@ -165,7 +166,6 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "read_file",
         "search_web",
         "send_message",
-        "read_board",
         "run_command",
         "manage_task",
         "write_file",
@@ -175,14 +175,10 @@ CAPABILITY_BUNDLES: Dict[str, List[str]] = {
         "read_file",
         "search_web",
         "send_message",
-        "read_board",
         "run_command",
         "invoke_subagent",
         "manage_task",
         "ask_question",
-        "swarm",
-        "post_message",
-        "swarm_wait",
         "run_workflow",
         "schedule",
     ],

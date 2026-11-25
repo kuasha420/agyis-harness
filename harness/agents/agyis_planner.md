@@ -25,10 +25,6 @@ tools:
   - invoke_subagent
   - define_subagent
   - send_message
-  - read_board
-  - post_message
-  - swarm
-  - swarm_wait
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->

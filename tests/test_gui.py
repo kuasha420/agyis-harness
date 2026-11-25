@@ -1706,9 +1706,15 @@ class TestGUISystemdService(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_generate_gui_systemd_units_content(self) -> None:
-        path_unit = generate_gui_systemd_path_unit()
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XDG_CONFIG_HOME", None)
+            path_unit = generate_gui_systemd_path_unit()
         self.assertIn("PathChanged=%h/.config/Antigravity/DevToolsActivePort", path_unit)
         self.assertIn("Unit=antigravity-trajectory.service", path_unit)
+
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": "/tmp/custom-xdg"}, clear=False):
+            xdg_path_unit = generate_gui_systemd_path_unit()
+        self.assertIn("PathChanged=/tmp/custom-xdg/Antigravity/DevToolsActivePort", xdg_path_unit)
 
         service_unit = generate_gui_systemd_service_unit()
         self.assertIn("MemoryMax=500M", service_unit)

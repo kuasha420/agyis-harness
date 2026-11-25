@@ -24,10 +24,6 @@ tools:
   - manage_task
   - ask_question
   - schedule
-  - swarm
-  - post_message
-  - read_board
-  - swarm_wait
   - run_workflow
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->

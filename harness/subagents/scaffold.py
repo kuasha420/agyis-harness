@@ -222,9 +222,6 @@ def scaffold_agent_markdown(
                 "ask_question",
                 "invoke_subagent",
                 "send_message",
-                "swarm",
-                "read_board",
-                "post_message",
             ]
         else:
             resolved_bundle = "read_only"

@@ -32,6 +32,7 @@ from harness.subagents import (
     CANONICAL_PLATFORM_TOOLS,
     CAPABILITY_BUNDLES,
     REPO_ROOT,
+    SWARM_RUNTIME_TOOLS,
     AgentArchetype,
     ToolPermissions,
     inspect_workspace_context,
@@ -240,12 +241,12 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
             "ask_question",
             "invoke_subagent",
             "send_message",
-            "swarm",
-            "read_board",
-            "post_message",
         ]:
             self.assertIn(expected_tool, fm["tools"])
             self.assertIn(expected_tool, fm["allowed_tools"])
+        for swarm_tool in SWARM_RUNTIME_TOOLS:
+            self.assertNotIn(swarm_tool, fm["tools"])
+            self.assertNotIn(swarm_tool, fm["allowed_tools"])
         self.assertIn("Artifact-First Planning", prompt)
 
         # Validate spec
@@ -441,6 +442,48 @@ You are `mcp_agent`.
             any("MCP tools (call_mcp_tool, list_resources, read_resource) cannot be listed" in e for e in errors),
             f"Expected MCP tool rejection error, got: {errors}",
         )
+
+    def test_validate_agent_spec_rejects_swarm_runtime_tools(self) -> None:
+        """Rejects agent specs declaring runtime-injected swarm board tools in tools or allowed_tools."""
+        for swarm_tool in ("read_board", "post_message", "swarm", "swarm_wait"):
+            with self.subTest(swarm_tool=swarm_tool):
+                swarm_md = f"""---
+name: swarm_static_agent
+archetype: coordinator
+description: Static swarm board tool declaration test.
+role: Swarm Coordinator
+subagent: true
+mainAgent: true
+model: inherit
+permissions:
+  read: true
+  write: false
+  execute: true
+  subagents: true
+tools:
+  - read_file
+  - {swarm_tool}
+allowed_tools:
+  - read_file
+  - {swarm_tool}
+---
+
+# Swarm Coordinator
+You are `swarm_static_agent`.
+## Operational Invariants
+1. Zero-Exploration Invariant: Inspect target files directly.
+"""
+                swarm_path = self.workspace / f"swarm_{swarm_tool}_agent.md"
+                swarm_path.write_text(swarm_md, encoding="utf-8")
+                errors = validate_agent_spec(swarm_path)
+                self.assertTrue(
+                    any(
+                        f"Invalid tool '{swarm_tool}': swarm board tools" in e
+                        and "crashes invoke_subagent executor resolution" in e
+                        for e in errors
+                    ),
+                    f"Expected swarm runtime tool rejection error for {swarm_tool}, got: {errors}",
+                )
 
     def test_validate_agent_spec_detects_contradictions(self) -> None:
         """Rejects agent specs declaring write tools when permissions.write is false."""

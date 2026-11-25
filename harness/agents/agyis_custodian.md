@@ -19,8 +19,6 @@ tools:
   - run_command
   - manage_task
   - send_message
-  - read_board
-  - post_message
 ---
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->

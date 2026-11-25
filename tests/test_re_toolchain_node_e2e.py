@@ -589,6 +589,9 @@ class TestGlobalReaDirectMountNodeE2E(unittest.TestCase):
         runtime_tmp = self.root / "rea_v4_runtime"
         runtime_tmp.mkdir()
 
+        unreg_small_bin = self.root / "unreg_small.bin"
+        unreg_small_bin.write_bytes(b"\x7fELF" + b"\x00" * 4092)
+
         driver = self.root / "v4_e2e_driver.mjs"
         driver.write_text(
             'import assert from "node:assert/strict";\n'
@@ -623,7 +626,7 @@ class TestGlobalReaDirectMountNodeE2E(unittest.TestCase):
             'assert.equal(argsUnregSha[2], "-import");\n'
             'const argsUnregBin = ghidraHeadlessArguments({\n'
             '    ...baseOpts,\n'
-            '    targetPath: "/bin/ls",\n'
+            '    targetPath: process.env.UNREG_SMALL_BIN,\n'
             '});\n'
             'assert.equal(argsUnregBin[2], "-import");\n'
             '// Case C: Direct external binary path matched strictly via .rep/idata/*.prp in registry\n'
@@ -683,6 +686,7 @@ class TestGlobalReaDirectMountNodeE2E(unittest.TestCase):
             "UNREG_SYM_TARGET": str(ws_unreg / ".dirtyroom" / "binaries" / "SymOnly.exe"),
             "EXPECTED_UNREG_DIR": str(ws_unreg / "dirtyroom" / "ghidra"),
             "RUNTIME_TMP": str(runtime_tmp),
+            "UNREG_SMALL_BIN": str(unreg_small_bin),
             "CORRUPT_REG": str(corrupt_reg),
         }
         proc = subprocess.run(

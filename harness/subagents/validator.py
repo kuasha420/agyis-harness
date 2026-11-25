@@ -18,6 +18,7 @@ from harness.subagents.spec import (
     CANONICAL_PLATFORM_TOOLS,
     LEGACY_PLATFORM_TOOL_ALIASES,
     MAX_AGENT_TOOLS,
+    SWARM_RUNTIME_TOOLS,
     AgentArchetype,
     ToolPermissions,
 )
@@ -136,6 +137,12 @@ def validate_agent_spec(file_path: Path | str) -> List[str]:
                 f"Invalid tool '{tool}': MCP tools (call_mcp_tool, list_resources, read_resource) cannot be listed "
                 "in 'tools' or 'allowed_tools'. Enable MCP via 'permissions: {mcp: true}' and 'inheritCustomizations: true' "
                 "instead. Listing MCP tools statically causes Antigravity executor resolution to crash."
+            )
+        elif tool in SWARM_RUNTIME_TOOLS:
+            errors.append(
+                f"Invalid tool '{tool}': swarm board tools (swarm, post_message, read_board, swarm_wait) "
+                "are runtime-injected by Antigravity Swarm sessions and cannot be listed statically in "
+                "'tools' or 'allowed_tools'. Listing them statically crashes invoke_subagent executor resolution."
             )
         elif tool in LEGACY_PLATFORM_TOOL_ALIASES:
             replacement = LEGACY_PLATFORM_TOOL_ALIASES[tool]

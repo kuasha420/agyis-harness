@@ -567,8 +567,10 @@ class TestAutoHealingREANode(unittest.TestCase):
                     return missing_mac
                 return Path(p)
 
+            _fake_path.home = lambda: td_path
+
             with patch("harness.runtime.tool_checks.check_node_toolchain", return_value=mock_node_check), \
-                 patch.dict(os.environ, {"JAVA_HOME": ""}), \
+                 patch.dict(os.environ, {"JAVA_HOME": "", "HOME": str(td_path)}), \
                  patch(
                      "harness.runtime.tool_checks_rea._tc_attr",
                      side_effect=lambda name, default=None: _fake_path if name == "Path" else default,
