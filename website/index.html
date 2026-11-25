@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agyis Harness 1.0.0 | Deterministic guardrails for Google Antigravity</title>
+  <meta name="description" content="Enterprise extension harness and 28-command developer CLI for Google Antigravity and Gemini 4. Eliminates output floods, runaway loops, and premature completions in deterministic code.">
+  <meta property="og:title" content="Agyis Harness 1.0.0">
+  <meta property="og:description" content="Deterministic lifecycle hooks, hermetic verification, and turnkey repository onboarding for Google Antigravity and Gemini 4.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://agyis-harness.io">
+  <link rel="icon" href="./assets/logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body id="top">
+  <a href="#main-content" class="skip-link visually-hidden">Skip to main content</a>
+  <div id="status-announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="#top" class="brand">
+        <img src="./assets/logo.svg" alt="" width="28" height="28">
+        <span class="brand-name">Agyis Harness</span>
+      </a>
+      <nav class="primary-nav" aria-label="Primary">
+        <ul>
+          <li><a href="#hooks">Hooks</a></li>
+          <li><a href="#onboarding">Onboarding</a></li>
+          <li><a href="#cli">CLI</a></li>
+          <li><a href="#benchmarks">Benchmarks</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+        </ul>
+      </nav>
+      <button type="button" class="nav-toggle" aria-haspopup="dialog" aria-label="Open navigation menu">Menu</button>
+    </div>
+  </header>
+
+  <dialog id="mobile-nav-dialog" class="mobile-dialog" aria-labelledby="mobile-nav-title">
+    <div class="mobile-dialog-inner">
+      <div class="mobile-dialog-header">
+        <h2 id="mobile-nav-title" class="mobile-dialog-title">Navigation</h2>
+        <button type="button" class="dialog-close" data-dialog-close aria-label="Close navigation menu">Close</button>
+      </div>
+      <nav aria-label="Mobile">
+        <ul class="mobile-nav-list">
+          <li><a href="#hooks">Hooks</a></li>
+          <li><a href="#onboarding">Onboarding</a></li>
+          <li><a href="#cli">CLI</a></li>
+          <li><a href="#benchmarks">Benchmarks</a></li>
+          <li><a href="#install">Install v1.0.0</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </dialog>
+
+  <main>
+    <section class="hero" aria-labelledby="main-content">
+      <div class="container hero-inner">
+        <h1 id="main-content" tabindex="-1">Deterministic guardrails for Antigravity.</h1>
+        <p class="hero-copy">Version 1.0.0 stops output floods, runaway loops, and premature completions in code, keeping Gemini 4 sessions fast and verified.</p>
+        <div class="hero-cta">
+          <a href="#install" class="btn-primary">Install v1.0.0</a>
+        </div>
+
+        <div class="workbench" data-tabs="hero-workbench">
+          <div class="workbench-header">
+            <div class="tablist console-tablist" focusgroup="tablist nomemory" role="tablist" aria-label="Interactive hook simulations">
+              <button type="button" role="tab" id="wb-tab-compactor" aria-selected="true" focusgroupstart>Output compaction</button>
+              <button type="button" role="tab" id="wb-tab-loop" aria-selected="false">Loop breaker</button>
+              <button type="button" role="tab" id="wb-tab-fence" aria-selected="false">Completion fence</button>
+              <button type="button" role="tab" id="wb-tab-runway" aria-selected="false">Runway monitor</button>
+            </div>
+          </div>
+
+          <div class="tab-panels workbench-panels">
+            <div role="tabpanel" aria-labelledby="wb-tab-compactor" tabindex="0">
+              <div class="tab-panel-inner workbench-grid">
+                <div class="trace-col">
+                  <h2 class="trace-label">Without Agyis</h2>
+                  <p class="trace-meta"><code>run_command</code> returns 14.2 KB verbatim into active context</p>
+                  <pre class="trace-code"><code>test_hook_dispatcher.py::test_compactor PASSED
+test_hook_dispatcher.py::test_anti_loop PASSED
+... 418 passing test lines omitted ...
+Total added to prompt window: 14,540 bytes
+200k+ surge: 45.9x errors, 32.0x interventions</code></pre>
+                </div>
+                <div class="trace-col trace-col-protected">
+                  <h2 class="trace-label trace-label-pass">With Agyis: psl-output-compactor</h2>
+                  <p class="trace-meta"><code>PostToolUse</code> emits compacted <code>overwriteResult</code> (39.69% volume saved)</p>
+                  <pre class="trace-code"><code>{
+  "overwriteResult": "[14.2 KB -> 1.8 KB | exit 0]\n2,441 tests passed (AFF 100/100)"
+}
+// Failing commands (exitCode != 0) stay 100% verbatim</code></pre>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="wb-tab-loop" hidden="until-found">
+              <div class="tab-panel-inner workbench-grid">
+                <div class="trace-col">
+                  <h2 class="trace-label">Without Agyis</h2>
+                  <p class="trace-meta">Agent repeats identical tool queries and background log tails</p>
+                  <pre class="trace-code"><code>[call 1] read_file("harness/hooks/compactor.py", 1, 200)
+[call 2] read_file("harness/hooks/compactor.py", 1, 200)
+[call 3] read_file("harness/hooks/compactor.py", 1, 200)
+[call 4] manage_task(Action="status") polling loop
+Observed across 1,734 sessions: 21,410 loop candidates</code></pre>
+                </div>
+                <div class="trace-col trace-col-protected">
+                  <h2 class="trace-label trace-label-pass">With Agyis: psl-anti-loop-guard</h2>
+                  <p class="trace-meta"><code>PreToolUse</code> denies 3+ identical consecutive calls across v2.34 tools</p>
+                  <pre class="trace-code"><code>{
+  "decision": "deny",
+  "hook": "psl-anti-loop-guard",
+  "reason": "Blocked 3rd identical read_file call; also blocks manage_task status polling loops."
+}</code></pre>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="wb-tab-fence" hidden="until-found">
+              <div class="tab-panel-inner workbench-grid">
+                <div class="trace-col">
+                  <h2 class="trace-label">Without Agyis</h2>
+                  <p class="trace-meta">Agent finishes turn while code or cleanroom specs remain unverified</p>
+                  <pre class="trace-code"><code>edit_file("harness/runtime/healing.py") -> OK
+Agent response: "Fix is complete and verified."
+Actual state: test suite not executed after final edit
+Dirty flags: code_dirty=true, spec_dirty=false</code></pre>
+                </div>
+                <div class="trace-col trace-col-protected">
+                  <h2 class="trace-label trace-label-pass">With Agyis: psl-stop-verification-fence</h2>
+                  <p class="trace-meta"><code>Stop</code> gate blocks completion until native tests or spec checks exit 0</p>
+                  <pre class="trace-code"><code>{
+  "decision": "block",
+  "state": { "code_dirty": true, "spec_dirty": false },
+  "required": "Run `agyis test` (exit 0) to clear code_dirty, or `agyis verify --spec` for docs/specs/."
+}</code></pre>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="wb-tab-runway" hidden="until-found">
+              <div class="tab-panel-inner workbench-grid">
+                <div class="trace-col">
+                  <h2 class="trace-label">Without Agyis</h2>
+                  <p class="trace-meta">Context overflows 256k/512k/1M runway with no checkpoint saved</p>
+                  <pre class="trace-code"><code>Step 112: unguarded tool output hits saturation threshold
+Average interventions in 200k+ trajectories: 39.00 (32.0x baseline)
+State lost on sudden compaction without CID succession ledger</code></pre>
+                </div>
+                <div class="trace-col trace-col-protected">
+                  <h2 class="trace-label trace-label-pass">With Agyis: psl-compaction-advisory</h2>
+                  <p class="trace-meta"><code>PreInvocation</code> + <code>token-proximity-guard</code> scale 256k, 512k, and 1M windows</p>
+                  <pre class="trace-code"><code>{
+  "window": "gemini-4-neon (1M)",
+  "thresholds": { "amber": "70%", "red": "90%", "epochHorizon": 80 },
+  "checkpoint": ".agents/artifacts/checkpoints/<conv_id>.md"
+}</code></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="hooks" class="section-hooks">
+      <div class="container hooks-layout">
+        <div class="hooks-intro">
+          <h2>Every tool call checked before and after execution</h2>
+          <p>Prompt instructions drift as context grows. Agyis enforces runtime invariants in deterministic Python hooks registered through seven blocks in <code>hooks.json</code> and verified by eight checks in <code>agyis doctor</code>.</p>
+          <p>All runtime state isolates cleanly under <code>AGYIS_HARNESS_STATE_DIR</code>, targeting Antigravity Desktop v2.34.0+, <code>agy</code> v1.5.15, IDE v2.8.0, and Gemini 4.</p>
+          <p class="inline-action">
+            <a class="text-link" href="https://github.com/kuasha420/agyis-harness/blob/main/docs/official-specs/lifecycle-hooks.md" target="_blank" rel="noopener noreferrer">Read the lifecycle hooks contract</a>
+          </p>
+        </div>
+
+        <ol class="hooks-ledger">
+          <li class="hook-entry">
+            <p class="hook-meta"><code>PreToolUse</code> / <code>psl-command-safety-guard</code></p>
+            <h3>Sanitize shell execution and MCP tool calls</h3>
+            <p>Injects certified CPython 3.12+ via <code>uv</code>, enforces <code>PAGER=cat</code> and <code>SYSTEMD_PAGER=cat</code>, normalizes eager and lazy MCP tool arguments, guards <code>swarm</code> kill actions during pauses, and shields benign Exit 1 probes.</p>
+          </li>
+          <li class="hook-entry">
+            <p class="hook-meta"><code>PreToolUse</code> / <code>psl-anti-loop-guard</code></p>
+            <h3>Break repeated reads and status polling loops</h3>
+            <p>Tracks canonical v2.34 tools including <code>read_file</code>, <code>write_file</code>, <code>edit_file</code>, <code>swarm</code>, and <code>run_workflow</code>, denying three or more identical consecutive calls and blocking background polling loops.</p>
+          </li>
+          <li class="hook-entry">
+            <p class="hook-meta"><code>PostToolUse</code> / <code>psl-output-compactor</code></p>
+            <h3>Compact verbose passes while keeping errors intact</h3>
+            <p>Rewrites succeeding <code>run_command</code> outputs above 2 KB and <code>read_file</code> outputs above 32 KB via <code>overwriteResult</code>, leaving every failing command (<code>exitCode != 0</code> or error payload) 100% verbatim.</p>
+          </li>
+          <li class="hook-entry">
+            <p class="hook-meta"><code>PreToolUse</code>, <code>PostToolUse</code>, <code>Stop</code> / <code>psl-stop-verification-fence</code></p>
+            <h3>Block done declarations until tests or specs pass</h3>
+            <p>Tracks decoupled <code>code_dirty</code> and <code>spec_dirty</code> states across tool calls, honors <code>StopHookArgs.continuationActive</code>, and requires <code>agyis test</code> or <code>agyis verify --spec</code> before ending a turn.</p>
+          </li>
+          <li class="hook-entry">
+            <p class="hook-meta"><code>PreToolUse</code> / <code>psl-anti-drift-guard</code></p>
+            <h3>Keep read-only roles and plan locks enforced</h3>
+            <p>Guards plan boundaries, native plan-mode locks, auditor write restrictions, and the Q5 read-only shell mutation fence across reviewer, planner, coordinator, auditor, and investigator personas.</p>
+          </li>
+          <li class="hook-entry">
+            <p class="hook-meta"><code>PreToolUse</code> / <code>psl-token-proximity-guard</code></p>
+            <h3>Monitor scaled 256k, 512k, and 1M context budgets</h3>
+            <p>Reads active-epoch token accumulation in read-only SQLite URI mode (honoring <code>ANTIGRAVITY_APP_DATA_DIR</code>) and scales alerts across Gemini 4 <code>gemini-4-neon</code> and <code>gemini-4-hydrogen</code> windows.</p>
+          </li>
+          <li class="hook-entry">
+            <p class="hook-meta"><code>PreInvocation</code> / <code>psl-compaction-advisory</code></p>
+            <h3>Pin roles and save checkpoints before compaction</h3>
+            <p>Tracks the 80-step soft epoch horizon, writes CID-scoped checkpoints to <code>.agents/artifacts/checkpoints/</code> at 70% amber and 90% red thresholds, and emits nested <code>systemMessage</code> advisories.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="onboarding" class="section-onboarding">
+      <div class="container">
+        <div class="section-header">
+          <h2>Onboard any repository in one command</h2>
+          <p><code>agyis onboard .</code> executes an atomic 10-phase pipeline that isolates branches, invalidates stale caches, prunes duplicate skills, checks database ports, and runs native verification before delivering a pull request.</p>
+        </div>
+
+        <div class="onboarding-stage" data-tabs="onboarding-phases">
+          <div class="tablist pipeline-tablist" focusgroup="tablist nomemory" role="tablist" aria-label="Ten-phase onboarding pipeline">
+            <button type="button" role="tab" id="ob-tab-1" aria-selected="true" focusgroupstart>1. Remote topology probe</button>
+            <button type="button" role="tab" id="ob-tab-2" aria-selected="false">2. Dirty-tree safety patch</button>
+            <button type="button" role="tab" id="ob-tab-3" aria-selected="false">3. Feature branch isolation</button>
+            <button type="button" role="tab" id="ob-tab-4" aria-selected="false">4. Build cache invalidation</button>
+            <button type="button" role="tab" id="ob-tab-5" aria-selected="false">5. Legacy .agent pruning</button>
+            <button type="button" role="tab" id="ob-tab-6" aria-selected="false">6. Skill provisioning</button>
+            <button type="button" role="tab" id="ob-tab-7" aria-selected="false">7. Database port audit</button>
+            <button type="button" role="tab" id="ob-tab-8" aria-selected="false">8. Skill deduplication</button>
+            <button type="button" role="tab" id="ob-tab-9" aria-selected="false">9. Native test verification</button>
+            <button type="button" role="tab" id="ob-tab-10" aria-selected="false">10. Resilient PR delivery</button>
+          </div>
+
+          <div class="tab-panels pipeline-panels">
+            <div role="tabpanel" aria-labelledby="ob-tab-1">
+              <div class="tab-panel-inner pipeline-panel-grid">
+                <div>
+                  <h3>1. Remote topology probe</h3>
+                  <p>Inspects git remotes before touching files to determine whether the repository is a direct collaborator checkout or an external fork, routing push and PR targets safely.</p>
+                </div>
+                <div class="cmd-card">
+                  <div class="cmd-row">
+                    <code>agyis onboard . --dry-run --json</code>
+                    <button type="button" class="copy-btn" data-copy="agyis onboard . --dry-run --json" aria-label="Copy agyis onboard dry-run command">Copy</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="ob-tab-2" hidden="until-found">
+              <div class="tab-panel-inner pipeline-panel-grid">
+                <div>
+                  <h3>2. Dirty-tree safety patch</h3>
+                  <p>Prevents silent loss of local changes on uncommitted repositories by exporting a recovery patch to <code>.agents/artifacts/pre_onboard_safety.patch</code> when <code>--allow-dirty</code> is enabled.</p>
+                </div>
+                <div class="cmd-card">
+                  <div class="cmd-row">
+                    <code>agyis onboard . --allow-dirty --create-branch</code>
+                    <button type="button" class="copy-btn" data-copy="agyis onboard . --allow-dirty --create-branch" aria-label="Copy agyis onboard allow-dirty command">Copy</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="ob-tab-3" hidden="until-found">
+              <div class="tab-panel-inner pipeline-panel-grid">
+                <div>
+                  <h3>3. Feature branch isolation</h3>
+                  <p>Checks out an isolated onboarding branch such as <code>chore/agyis-harness-onboarding</code> so baseline commits on <code>main</code> remain untouched during setup.</p>
+                </div>
+                <div class="cmd-card">
+                  <div class="cmd-row">
+                    <code>agyis onboard . --create-branch chore/onboard-harness</code>
+                    <button type="button" class="copy-btn" data-copy="agyis onboard . --create-branch chore/onboard-harness" aria-label="Copy agyis onboard create-branch command">Copy</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="ob-tab-4" hidden="until-found">
+              <div class="tab-panel-inner pipeline-panel-grid">
+                <div>
+                  <h3>4. Build cache invalidation</h3>
+                  <p>Purges stale <code>.next/</code>, <code>.turbo/</code>, and <code>node_modules/.cache</code> directories before running verification gates so phantom build artifacts cannot mask regressions.</p>
+                </div>
+                <div class="cmd-card">
+                  <div class="cmd-row">
+                    <code>agyis clean --all</code>
+                    <button type="button" class="copy-btn" data-copy="agyis clean --all" aria-label="Copy agyis clean all command">Copy</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="ob-tab-5" hidden="until-found">
+              <div class="tab-panel-inner pipeline-panel-grid">
+                <div>
+                  <h3>5. Legacy .agent pruning</h3>
+                  <p>Migrates legacy <code>.agent/</code> directories and workflow files into modern <code>.agents/</code> structure with checksum verification so rules and skills load cleanly.</p>
+                </div>
+                <div class="cmd-card">
+                  <div class="cmd-row">
+                    <code>agyis harmonize . --apply</code>
+                    <button type="button" class="copy-btn" data-copy="agyis harmonize . --apply" aria-label="Copy agyis harmonize apply command">Copy</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="ob-tab-6" hidden="until-found">
+              <div class="tab-panel-inner pipeline-panel-grid">
+                <div>
+                  <h3>6. Skill provisioning</h3>
+                  <p>Detects the project language runtime and architectural role, or accepts explicit flags such as <code>--lang typescript --role frontend</code> and monorepo <code>--subproject</code> paths.</p>
+                </div>
+                <div class="cmd-card">
+                  <div class="cmd-row">
+                    <code>agyis onboard . --lang typescript --role frontend</code>
+                    <button type="button" class="copy-btn" data-copy="agyis onboard . --lang typescript --role frontend" aria-label="Copy agyis onboard lang and role command">Copy</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="ob-tab-7" hidden="until-found">
+              <div class="tab-panel-inner pipeline-panel-grid">
+                <div>
+                  <h3>7. Database port audit</h3>
+                  <p>Inspects host port <code>5432</code> collisions on backend and fullstack repositories and rebinds <code>.env</code> cleanly without terminating unrelated host database services.</p>
+                </div>
+                <div class="cmd-card">
+                  <div class="cmd-row">
+                    <code>agyis doctor</code>
+                    <button type="button" class="copy-btn" data-copy="agyis doctor" aria-label="Copy agyis doctor command">Copy</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="ob-tab-8" hidden="until-found">
+              <div class="tab-panel-inner pipeline-panel-grid">
+                <div>
+                  <h3>8. Skill deduplication</h3>
+                  <p>Prunes workspace skills in <code>.agents/skills/</code> that shadow global plugin skills, recovering roughly 4,500 prompt tokens on every agent turn.</p>
+                </div>
+                <div class="cmd-card">
+                  <div class="cmd-row">
+                    <code>agyis skills --prune-duplicates</code>
+                    <button type="button" class="copy-btn" data-copy="agyis skills --prune-duplicates" aria-label="Copy agyis skills prune-duplicates command">Copy</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="ob-tab-9" hidden="until-found">
+              <div class="tab-panel-inner pipeline-panel-grid">
+                <div>
+                  <h3>9. Native test verification</h3>
+                  <p>Executes the target repository native test runner in a clean-room pass and confirms exit code 0 before considering the onboarding branch ready for review.</p>
+                </div>
+                <div class="cmd-card">
+                  <div class="cmd-row">
+                    <code>agyis test</code>
+                    <button type="button" class="copy-btn" data-copy="agyis test" aria-label="Copy agyis test command">Copy</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="ob-tab-10" hidden="until-found">
+              <div class="tab-panel-inner pipeline-panel-grid">
+                <div>
+                  <h3>10. Resilient PR delivery</h3>
+                  <p>Optionally pushes the isolated onboarding branch and opens a pull request via <code>gh pr create</code> with fork-aware upstream resolution.</p>
+                </div>
+                <div class="cmd-card">
+                  <div class="cmd-row">
+                    <code>agyis onboard . --create-branch --pr</code>
+                    <button type="button" class="copy-btn" data-copy="agyis onboard . --create-branch --pr" aria-label="Copy agyis onboard PR command">Copy</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="cli" class="section-cli">
+      <div class="container">
+        <div class="section-header">
+          <h2>One CLI for diagnostics, routing, and cleanroom audits</h2>
+          <p>The unified <code>agyis</code> binary exposes 28 top-level subcommands with automatic <code>.venv/bin/python</code> promotion and structured JSON flags.</p>
+        </div>
+
+        <div class="cli-explorer" data-tabs="cli-groups">
+          <div class="tablist" focusgroup="tablist nomemory" role="tablist" aria-label="Agyis CLI command groups">
+            <button type="button" role="tab" id="cli-tab-onboard" aria-selected="true" focusgroupstart>Onboarding &amp; hygiene</button>
+            <button type="button" role="tab" id="cli-tab-diag" aria-selected="false">Diagnostics &amp; tests</button>
+            <button type="button" role="tab" id="cli-tab-skills" aria-selected="false">Skills &amp; agents</button>
+            <button type="button" role="tab" id="cli-tab-cockpit" aria-selected="false">Flight deck</button>
+            <button type="button" role="tab" id="cli-tab-re" aria-selected="false">Cleanroom RE</button>
+            <button type="button" role="tab" id="cli-tab-remote" aria-selected="false">Remote, sync &amp; GUI</button>
+          </div>
+
+          <div class="tab-panels cli-panels">
+            <div role="tabpanel" aria-labelledby="cli-tab-onboard">
+              <div class="tab-panel-inner table-scroll">
+                <table class="cli-table">
+                  <caption>Onboarding and workspace hygiene commands</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Command</th>
+                      <th scope="col">Purpose</th>
+                      <th scope="col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>agyis onboard [path]</code></td>
+                      <td>Run the atomic 10-phase repository onboarding pipeline with optional branch and PR creation.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis onboard ." aria-label="Copy agyis onboard command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis init [path] [-s stack]</code></td>
+                      <td>Initialize workspace rules, language skills, and cleanroom obligation ledgers.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis init ." aria-label="Copy agyis init command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis harmonize [path]</code></td>
+                      <td>Audit and migrate legacy <code>.agent/</code> configs into <code>.agents/</code> with checksum verification.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis harmonize . --dry-run" aria-label="Copy agyis harmonize command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis clean [--all]</code></td>
+                      <td>Purge stale checkpoints, orphan worktrees, scratchpads, and build caches.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis clean --all" aria-label="Copy agyis clean command">Copy</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="cli-tab-diag" hidden="until-found">
+              <div class="tab-panel-inner table-scroll">
+                <table class="cli-table">
+                  <caption>Diagnostics, status, and verification commands</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Command</th>
+                      <th scope="col">Purpose</th>
+                      <th scope="col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>agyis doctor [--heal]</code></td>
+                      <td>Audit Python 3.12+, Node 20+, git, gh, ripgrep, 8 hook runner checks, and port 5432 collisions.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis doctor" aria-label="Copy agyis doctor command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis status</code></td>
+                      <td>Print active hooks, scaled attention horizon, installed skills, and live subagents.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis status" aria-label="Copy agyis status command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis test [-v]</code></td>
+                      <td>Execute the full 2,441-test hermetic verification suite and clear <code>code_dirty</code>.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis test" aria-label="Copy agyis test command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis verify [--spec]</code></td>
+                      <td>Validate the 4 cleanroom RE specifications in <code>docs/specs/</code> and typed <code>rea@6.9.0</code> obligation ledgers.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis verify --spec" aria-label="Copy agyis verify command">Copy</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="cli-tab-skills" hidden="until-found">
+              <div class="tab-panel-inner table-scroll">
+                <table class="cli-table">
+                  <caption>Modular skills, rules, and agent persona commands</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Command</th>
+                      <th scope="col">Purpose</th>
+                      <th scope="col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>agyis skills [--prune-duplicates]</code></td>
+                      <td>Inspect the 30 modular skills and prune duplicate workspace copies shadowing global plugins.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis skills --prune-duplicates" aria-label="Copy agyis skills command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis rules [--lint] [--dedup]</code></td>
+                      <td>Lint global and workspace rule files for duplicate declarations and rule echoes.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis rules --lint" aria-label="Copy agyis rules lint command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis agents validate --json</code></td>
+                      <td>Validate the 8 canonical personas against the 20-tool ceiling and v2.34+ schemas.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis agents validate --json" aria-label="Copy agyis agents validate command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis subagents --liveness</code></td>
+                      <td>Inspect live subagent context health gauges and delegate heartbeat liveness on disk.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis subagents --liveness" aria-label="Copy agyis subagents liveness command">Copy</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="cli-tab-cockpit" hidden="until-found">
+              <div class="tab-panel-inner table-scroll">
+                <table class="cli-table">
+                  <caption>Cockpit flight director, routing, and checkpoint commands</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Command</th>
+                      <th scope="col">Purpose</th>
+                      <th scope="col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>agyis cockpit status</code></td>
+                      <td>Show flight deck health, scaled 512k/1M token budgets, active subagents, and git state.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis cockpit status" aria-label="Copy agyis cockpit status command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis cockpit route &lt;A-L|alias&gt;</code></td>
+                      <td>Generate a structured dispatch briefing across the 12 canonical engineering workflows.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis cockpit route A" aria-label="Copy agyis cockpit route command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis router / agyis ladder</code></td>
+                      <td>Dynamic subagent routing across Ladder, Fan-Out, Teamwork, and Boost modes.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis router victory" aria-label="Copy agyis router command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis checkpoint [status|create|verify]</code></td>
+                      <td>Capture and verify CID-scoped pre-compaction succession state under <code>.agents/artifacts/checkpoints/</code>.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis checkpoint status" aria-label="Copy agyis checkpoint status command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis ext {list,run,init}</code></td>
+                      <td>Discover and execute project-local extension commands from <code>.agents/commands/</code>.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis ext list" aria-label="Copy agyis ext list command">Copy</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="cli-tab-re" hidden="until-found">
+              <div class="tab-panel-inner table-scroll">
+                <table class="cli-table">
+                  <caption>Cleanroom reverse engineering and Ghidra cache commands</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Command</th>
+                      <th scope="col">Purpose</th>
+                      <th scope="col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>agyis re {status,init,clean}</code></td>
+                      <td>Scaffold and manage quarantined <code>.dirtyroom</code> workspaces enforcing PSL-RE-001 boundaries.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis re status" aria-label="Copy agyis re status command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis re patch-rea [--check|--apply]</code></td>
+                      <td>Manage direct-mount Ghidra acceleration (<code>-noanalysis -readOnly</code>) and zero-copy bypass.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis re patch-rea --check" aria-label="Copy agyis re patch-rea command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis re addr &lt;address&gt;</code></td>
+                      <td>Translate VA, RVA, and file offsets with symbol resolution and JSON output.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis re addr 0x1000 --json" aria-label="Copy agyis re addr command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis re {decompile,xrefs,disasm}</code></td>
+                      <td>Run dual-mode cross-reference scans and auto-resolved procedure decompilation.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis re cache status" aria-label="Copy agyis re cache status command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis re daemon [status|start|stop]</code></td>
+                      <td>Manage the persistent REA bridge supervisor daemon and sub-5ms decompiler cache.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis re daemon status" aria-label="Copy agyis re daemon status command">Copy</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="cli-tab-remote" hidden="until-found">
+              <div class="tab-panel-inner table-scroll">
+                <table class="cli-table">
+                  <caption>Remote operations, telemetry sync, GUI HUD, and release commands</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Command</th>
+                      <th scope="col">Purpose</th>
+                      <th scope="col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>agyis remote {exec,script,triage}</code></td>
+                      <td>Run multiplexed SSH commands, stdin-streamed scripts, and compact sub-2 KB host triage.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis remote socket status" aria-label="Copy agyis remote socket status command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis sync [--service status]</code></td>
+                      <td>Synchronize session transcripts into telemetry storage and manage the systemd user daemon.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis sync" aria-label="Copy agyis sync command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis audit {all,aff,certify}</code></td>
+                      <td>Mine empirical telemetry, enforce the 100/100 Architectural Fitness Gate, and issue signed verdicts.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis audit aff" aria-label="Copy agyis audit aff command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis gui [--install-launcher]</code></td>
+                      <td>Enable the opt-in CDP launcher and unlock the live ConnectRPC Trajectory Debug HUD.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis gui --install-launcher" aria-label="Copy agyis gui command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td><code>agyis install / agyis uninstall</code></td>
+                      <td>Deploy frozen wheels across Antigravity surfaces or cleanly remove plugin registrations.</td>
+                      <td><button type="button" class="copy-btn" data-copy="agyis install --global --wheel --all-surfaces" aria-label="Copy agyis install command">Copy</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="benchmarks" class="section-benchmarks">
+      <div class="container">
+        <div class="section-header section-header-dark">
+          <h2>Grounded in 2,875 audited agent sessions</h2>
+          <p>Every guard in Agyis 1.0.0 traces back to reconciled empirical measurements across 598,911 steps, 424,817 tool calls, and 5,604 operator interventions.</p>
+        </div>
+
+        <div class="telemetry-grid">
+          <figure class="telemetry-figure">
+            <svg role="img" aria-label="Empirical telemetry impact bars comparing output savings, intervention disconnect, and contiguous edit reliability" viewBox="0 0 560 320" width="560" height="320" class="telemetry-svg">
+              <title>Reconciled empirical telemetry measurements from 2,875 agent sessions</title>
+              <g font-family="Instrument Sans, sans-serif" font-size="14" fill="#F5F7FA">
+                <text x="0" y="28">Contiguous edit success (14,729 calls)</text>
+                <rect x="0" y="40" width="460" height="16" rx="2" fill="#23314D"></rect>
+                <rect x="0" y="40" width="456.5" height="16" rx="2" fill="#2AD089"></rect>
+                <text x="472" y="53" fill="#2AD089" font-weight="600">99.25%</text>
+
+                <text x="0" y="98">Interventions after passing tool calls (N=3,275)</text>
+                <rect x="0" y="110" width="460" height="16" rx="2" fill="#23314D"></rect>
+                <rect x="0" y="110" width="456.3" height="16" rx="2" fill="#7399FF"></rect>
+                <text x="472" y="123" fill="#7399FF" font-weight="600">99.21%</text>
+
+                <text x="0" y="168">Output volume saved at 2 KB cap (237,583 calls)</text>
+                <rect x="0" y="180" width="460" height="16" rx="2" fill="#23314D"></rect>
+                <rect x="0" y="180" width="182.6" height="16" rx="2" fill="#7399FF"></rect>
+                <text x="472" y="193" fill="#F5F7FA" font-weight="600">39.69%</text>
+
+                <text x="0" y="238">Session context reclaimed by compaction</text>
+                <rect x="0" y="250" width="460" height="16" rx="2" fill="#23314D"></rect>
+                <rect x="0" y="250" width="98" height="16" rx="2" fill="#7399FF"></rect>
+                <text x="472" y="263" fill="#F5F7FA" font-weight="600">21.31%</text>
+
+                <text x="0" y="304" fill="#9AA8BE" font-size="13">200k+ sessions average 57.79 errors (45.9x) and 39.00 interventions (32.0x) vs &lt;20k.</text>
+              </g>
+            </svg>
+            <figcaption>Metrics reconciled from <code>classified_failures.json</code>, <code>context_dynamics_summary.json</code>, and <code>volume_distributions.json</code>.</figcaption>
+          </figure>
+
+          <div class="table-scroll">
+            <table class="data-table">
+              <caption>Version 1.0.0 empirical baseline and verification ledger</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Metric</th>
+                  <th scope="col">Observed figure</th>
+                  <th scope="col">Scope</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Hermetic test suite</td>
+                  <td class="num">2,441 passing</td>
+                  <td>Zero network dependencies (~24s full, &lt;1.0s modules)</td>
+                </tr>
+                <tr>
+                  <td>Architectural Fitness Gate</td>
+                  <td class="num">100.0 / 100</td>
+                  <td>DAG acyclicity and Product/Project isolation</td>
+                </tr>
+                <tr>
+                  <td>Volume saved by 2 KB compaction</td>
+                  <td class="num">39.69%</td>
+                  <td>~22.44M tokens across 237,583 calls (0 error truncations)</td>
+                </tr>
+                <tr>
+                  <td>Benign Exit 1 probes isolated</td>
+                  <td class="num">19.24%</td>
+                  <td>619 empty grep/diff matches across 3,217 Exit 1 failures</td>
+                </tr>
+                <tr>
+                  <td>Modular skills and personas</td>
+                  <td class="num">30 skills / 8 agents</td>
+                  <td>20-tool ceiling, 29/29 Gemini 4 drifts resolved</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="precedence-block">
+          <h3>Three-tier customization precedence</h3>
+          <p class="precedence-sub">Workspaces override machine defaults without duplicating global skills or mutating plugin bundles.</p>
+          <ol class="precedence-stack">
+            <li>
+              <span class="tier-name">Layer 3: Workspace local (<code>.agents/</code>)</span>
+              <span class="tier-desc">Highest precedence. Project-specific rules, bespoke specialists, and local commands.</span>
+            </li>
+            <li>
+              <span class="tier-name">Layer 2: Workstation user (<code>~/.gemini/config/</code>)</span>
+              <span class="tier-desc">Developer preferences, credentials, and personal agents across workspaces.</span>
+            </li>
+            <li>
+              <span class="tier-name">Layer 1: Global plugin (<code>agyis-harness</code>)</span>
+              <span class="tier-desc">Default baseline providing 7 hook blocks, 30 modular skills, and 8 canonical personas.</span>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="section-install">
+      <div class="container">
+        <div class="section-header">
+          <h2>Install Agyis Harness 1.0.0</h2>
+          <p>Deploy the workstation plugin and <code>agyis</code> CLI in under five minutes, then run <code>agyis doctor</code> to verify your host matrix.</p>
+        </div>
+
+        <div class="install-workbench" data-tabs="install-methods">
+          <div class="tablist" focusgroup="tablist nomemory" role="tablist" aria-label="Installation methods">
+            <button type="button" role="tab" id="inst-tab-wheel" aria-selected="true" focusgroupstart>Release wheel</button>
+            <button type="button" role="tab" id="inst-tab-uv" aria-selected="false">Zero-clone uv tool</button>
+            <button type="button" role="tab" id="inst-tab-hud" aria-selected="false">Trajectory HUD</button>
+          </div>
+
+          <div class="tab-panels install-panels">
+            <div role="tabpanel" aria-labelledby="inst-tab-wheel">
+              <div class="tab-panel-inner install-box">
+                <div class="install-box-top">
+                  <p>Recommended: clone the v1.0.0 repository and deploy the frozen wheel across all Antigravity surfaces.</p>
+                  <button type="button" class="copy-btn" data-copy="git clone https://github.com/kuasha420/agyis-harness.git&#10;cd agyis-harness&#10;./agyis install --global --wheel --all-surfaces&#10;agyis doctor" aria-label="Copy release wheel install commands">Copy</button>
+                </div>
+                <pre class="install-code"><code>git clone https://github.com/kuasha420/agyis-harness.git
+cd agyis-harness
+./agyis install --global --wheel --all-surfaces
+agyis doctor</code></pre>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="inst-tab-uv" hidden="until-found">
+              <div class="tab-panel-inner install-box">
+                <div class="install-box-top">
+                  <p>Install the standalone CLI tool directly via <code>uv</code> without maintaining a local checkout.</p>
+                  <button type="button" class="copy-btn" data-copy="uv tool install git+https://github.com/kuasha420/agyis-harness.git&#10;agyis install --copy --all-surfaces&#10;agyis doctor" aria-label="Copy uv tool install commands">Copy</button>
+                </div>
+                <pre class="install-code"><code>uv tool install git+https://github.com/kuasha420/agyis-harness.git
+agyis install --copy --all-surfaces
+agyis doctor</code></pre>
+              </div>
+            </div>
+
+            <div role="tabpanel" aria-labelledby="inst-tab-hud" hidden="until-found">
+              <div class="tab-panel-inner install-box">
+                <div class="install-box-top">
+                  <p>Enable the opt-in CDP desktop launcher and background ConnectRPC Trajectory Debug HUD service.</p>
+                  <button type="button" class="copy-btn" data-copy="agyis gui --install-launcher&#10;agyis gui --service install" aria-label="Copy Trajectory HUD setup commands">Copy</button>
+                </div>
+                <pre class="install-code"><code>agyis gui --install-launcher
+# Restart Antigravity from your desktop launcher so Electron binds DevToolsActivePort
+agyis gui --service install</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="install-cta">
+          <a href="https://github.com/kuasha420/agyis-harness/releases/tag/v1.0.0" class="btn-primary" target="_blank" rel="noopener noreferrer">View v1.0.0 release on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a href="#top" class="brand">
+          <img src="./assets/logo.svg" alt="" width="24" height="24">
+          <span class="brand-name">Agyis Harness</span>
+        </a>
+        <p>Apache License 2.0 under the CSP-IP Framework (ICARO-42/b Ordinance). Copyright &copy; 2026 Arafat Zahan (@kuasha420) &amp; Purrfect Software Limited (PSL).</p>
+      </div>
+      <nav aria-label="Footer">
+        <ul class="footer-links">
+          <li><a href="https://github.com/kuasha420/agyis-harness" target="_blank" rel="noopener noreferrer">Repository</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness/releases/tag/v1.0.0" target="_blank" rel="noopener noreferrer">Releases</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness/blob/main/docs/user_guide.md" target="_blank" rel="noopener noreferrer">User guide</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness/blob/main/docs/official-specs/cli-palette.md" target="_blank" rel="noopener noreferrer">CLI spec</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness/blob/main/roadmap.md" target="_blank" rel="noopener noreferrer">Roadmap</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">Changelog</a></li>
+        </ul>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
