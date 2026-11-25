@@ -1317,9 +1317,9 @@ class TestTier5AdversarialCoverageHardening(OpaqueBoxTestCase):
 
         # Chained comparison: condition_inversion on line 6 (1 < x <= 10)
         mut_cond, diff_cond = mutate_python_source(code, 6, "condition_inversion")
-        self.assertIn("1 >= x > 10", mut_cond)
+        self.assertIn("not (1 < x <= 10)", mut_cond)
         self.assertIn("-        if 1 < x <= 10:", diff_cond)
-        self.assertIn("+        if 1 >= x > 10:", diff_cond)
+        self.assertIn("+        if not (1 < x <= 10):", diff_cond)
         ast.parse(mut_cond)  # Verify compile validity
 
         # Chained comparison: boundary_shift on line 6 (1 < x <= 10)

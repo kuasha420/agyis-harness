@@ -19,6 +19,7 @@ Verifies:
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 from pathlib import Path
@@ -557,7 +558,7 @@ import unittest
 from unittest.mock import MagicMock
 
 class TestUserService(unittest.TestCase):
-    # agyis: no-smell intentional tautology for harness verification
+    # agyis: no-smell ALL intentional tautology for harness verification
     def test_mock_only(self):
         m = MagicMock()
         m.act()
@@ -599,7 +600,7 @@ class TestUserService(unittest.TestCase):
     def test_ts_js_comment_no_smell_suppresses(self):
         code = """
 describe('Legacy', () => {
-    // agyis: no-smell legacy component test
+    // agyis: no-smell SM002 legacy component test
     it('calls directly', () => {
         const vdom = Header({ title: 'test' });
         expect(vdom).toBeDefined();
@@ -1072,8 +1073,8 @@ describe('Prettier Echo', () => {
         sm004 = [s for s in smells if s.rule_id == SmellType.ECHO_ASSERTION.value]
         self.assertEqual(len(sm004), 1)
 
-    def test_pragma_english_words_smoke_and_small_waive_all(self):
-        code = """
+    def test_pragma_english_words_smoke_and_small_do_not_silently_waive(self):
+        code_english = """
 import unittest
 from unittest.mock import MagicMock
 
@@ -1084,8 +1085,13 @@ class TestPragma(unittest.TestCase):
         m.run()
         m.run.assert_called_once()
 """
-        smells = audit_file_smells("test_pragma.py", content=code)
-        self.assertEqual(len(smells), 0)
+        smells_english = audit_file_smells("test_pragma.py", content=code_english)
+        self.assertEqual(len(smells_english), 1)
+        self.assertEqual(smells_english[0].rule_id, SmellType.ZERO_STATE_TAUTOLOGY.value)
+
+        code_explicit = code_english.replace("# agyis: no-smell Smoke test only", "# agyis: no-smell * Smoke test only")
+        smells_explicit = audit_file_smells("test_pragma.py", content=code_explicit)
+        self.assertEqual(len(smells_explicit), 0)
 
     def test_pragma_malformed_rule_does_not_silently_waive(self):
         code = """
@@ -1121,7 +1127,8 @@ class TestPragmaSM004(unittest.TestCase):
         self.assertEqual(len(sm004), 0)
 
     def test_cli_nonexistent_test_path_exits_code_1(self):
-        exit_code = run_anti_synthetic_doctor(target_path="/tmp/nonexistent_path_42")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            exit_code = run_anti_synthetic_doctor(target_path="/tmp/nonexistent_path_42")
         self.assertEqual(exit_code, 1)
 
 

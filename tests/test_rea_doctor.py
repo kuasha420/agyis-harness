@@ -161,7 +161,9 @@ class TestReaDoctorDeepAudit(unittest.TestCase):
             proc = MagicMock()
             proc.returncode = 0
             proc.stderr = ""
-            if "--version" in cmd:
+            if "-v" in cmd or (cmd and "node" in str(cmd[0])):
+                proc.stdout = "v24.22.1\n"
+            elif "--version" in cmd:
                 proc.stdout = "rea 6.5.0\n"
             elif "providers" in cmd:
                 proc.stdout = mock_candidates
@@ -310,6 +312,9 @@ class TestReaAutoHealing(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_home = Path(tmp_dir)
             cfg_p = tmp_home / ".gemini" / "config" / "mcp_config.json"
+            fake_jdk = tmp_home / "jdk-21"
+            fake_jdk.mkdir(parents=True)
+            (fake_jdk / "release").write_text('JAVA_VERSION="21.0.3"\n', encoding="utf-8")
 
             def mock_subproc(cmd, *args, **kwargs):
                 proc = MagicMock()
@@ -320,7 +325,7 @@ class TestReaAutoHealing(unittest.TestCase):
 
             with patch("pathlib.Path.home", return_value=tmp_home), \
                  patch("shutil.which", side_effect=lambda x: "/usr/bin/pnpm" if x == "pnpm" else None), \
-                 patch.dict(os.environ, {"JAVA_HOME": "/usr/lib/jvm/java-21", "GHIDRA_INSTALL_DIR": "/opt/ghidra"}), \
+                 patch.dict(os.environ, {"JAVA_HOME": str(fake_jdk), "GHIDRA_INSTALL_DIR": "/opt/ghidra"}), \
                  patch("sys.stdout", new_callable=io.StringIO), \
                  patch("harness.re.patcher.check_patch", return_value={"status": "applied"}), \
                  patch("harness.re.patcher.apply_patch", return_value={"success": True, "applied_files": []}), \
@@ -340,7 +345,7 @@ class TestReaAutoHealing(unittest.TestCase):
                 self.assertEqual(rea_server["command"], "rea")
                 self.assertEqual(rea_server["args"], ["mcp"])
                 self.assertEqual(rea_server["env"]["GHIDRA_INSTALL_DIR"], "/opt/ghidra")
-                self.assertEqual(rea_server["env"]["JAVA_HOME"], "/usr/lib/jvm/java-21")
+                self.assertEqual(rea_server["env"]["JAVA_HOME"], str(fake_jdk.resolve()))
                 self.assertEqual(rea_server["env"]["REA_MCP_INPUT_SCHEMA_PROFILE"], "full")
                 self.assertEqual(rea_server["env"]["REA_MCP_OUTPUT_SCHEMA_PROFILE"], "off")
 

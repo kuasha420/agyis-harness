@@ -405,8 +405,7 @@ class TestTier1Features(OpaqueBoxTestCase):
 
     def _load_template_content(self, filename: str) -> str:
         template_path = REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / filename
-        if not template_path.exists():
-            self.skipTest(f"Pending implementation in Milestone M4: {filename} not yet created")
+        self.assertTrue(template_path.is_file(), f"Expected issue template {template_path} to exist")
         return template_path.read_text(encoding="utf-8")
 
     def test_f6_01_bug_report_template_exists_and_valid_yaml(self) -> None:
