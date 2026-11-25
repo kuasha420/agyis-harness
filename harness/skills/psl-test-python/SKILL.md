@@ -33,7 +33,7 @@ This skill establishes standardized execution contracts and hermetic benchmarkin
 - Target hermetic CPython 3.12+ runtimes (`python3` or `uv run python`).
 
 ### 1.2 Sub-Second Benchmark Invariant (ADR-015)
-- Individual unit and contract test modules (and `pytest` component suites) must complete execution in strictly **under 1.0 second**, while the full repository `agyis test` sweep completes in `~65s` across all modules.
+- Individual unit and contract test modules (and `pytest` component suites) must complete execution in strictly **under 1.0 second**, while the full repository `agyis test` sweep completes in `~24s` across all modules.
 - Enforce in-memory mocks, deterministic loops, and zero artificial `time.sleep()` delays.
 - Eliminate external network requests and unnecessary disk thrashing.
 

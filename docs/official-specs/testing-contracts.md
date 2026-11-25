@@ -37,7 +37,7 @@ All unit, integration, and replay tests inside `tests/` must adhere to five inva
 - Fixtures must allocate isolated temporary directories (`tempfile.TemporaryDirectory()`) and clean up on teardown.
 
 ### B. The Sub-Second Benchmark Invariant (`PSL-INV-001`)
-- Individual component test modules must execute cleanly in **under 1.0 second**, while the macro repository suite across **83** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules (`87` total) executes hermetically (`./agyis test` or `python3 -m harness.cli test`) with zero external service dependencies.
+- Individual component test modules must execute cleanly in **under 1.0 second**, while the macro repository suite across **104** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules (`108` total) executes hermetically (`./agyis test` or `python3 -m harness.cli test`) with zero external service dependencies.
 - Unbounded sleeps, slow model invocations, and whole-filesystem sweeps are strictly prohibited in unit and integration tests.
 - Hook dispatch overhead remains sub-millisecond in steady state (verified at `<0.25 ms` / `241.3 us` on `50 KB` payloads for the 2 KB output compactor).
 
@@ -51,7 +51,7 @@ Every lifecycle hook must be validated against Antigravity's camelCase protojson
 - Defensive hooks include regression replay cases derived from historical failure trajectories recorded in `data/telemetry.db` (e.g., [test_command_safety.py](../../tests/test_command_safety.py) replays the PEP 701 f-string syntax trap to guarantee CPython >= 3.12 sanitization).
 
 ### E. Suite Layout & Execution Commands
-The `tests/` tree comprises **83** `tests/test_*.py` + **4** `tests/e2e/test_*.py` hermetic modules (`87` total) covering hooks, CLI commands, subagent contracts, delivery, cleanroom verification, and empirical pipeline stages (representative suites):
+The `tests/` tree comprises **104** `tests/test_*.py` + **4** `tests/e2e/test_*.py` hermetic modules (`108` total) covering hooks, CLI commands, subagent contracts, delivery, cleanroom verification, and empirical pipeline stages (representative suites):
 ```text
 tests/
 ├── test_agent_scaffold.py           # Agent scaffolding, workspace discovery, YAML frontmatter

@@ -10,7 +10,7 @@
 [![Models](https://img.shields.io/badge/Models-Gemini_4_Ready_(512k%2F1M)-8E75B2.svg)](docs/specs/antigravity_v2_34_compatibility_inventory.md)
 [![Version](https://img.shields.io/badge/Version-v1.0.0-brightgreen.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.0.0)
 [![CI](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-2486_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
+[![Tests](https://img.shields.io/badge/Tests-2441_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
 [![AFF](https://img.shields.io/badge/AFF-100%2F100-brightgreen.svg)](docs/taxonomy/project-ledger.md)
 
 > **The enterprise extension harness and developer CLI for Google Antigravity™ — ready for the Gemini 4 Model Family (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M` scaled runway) and the Antigravity stack (`Desktop v2.34.0+` · `agy v1.5.15` · `IDE v2.8.0` · `REA v6.9.0`).**  
@@ -97,7 +97,7 @@ agyis onboard . --create-branch chore/agyis-onboard
 ### Step 4: Verify Hermetic Tests & Check Status
 
 ```bash
-# Run complete test suite (~78s full suite; sub-second unit/contract components)
+# Run complete test suite (~24s full suite; sub-second unit/contract components)
 agyis test
 
 # Inspect active hooks, cognitive attention horizon, and live subagents
@@ -278,10 +278,10 @@ Full reconciled tables and Issue #83 Route A/B/C scorecards:
 
 ## 🧪 Verification & Testing Contract
 
-All **2,486** unit, integration, and contract tests run hermetically with zero external network dependencies and zero live `~/.gemini/config/config.json` mutation:
+All **2,441** unit, integration, and contract tests run hermetically with zero external network dependencies and zero live `~/.gemini/config/config.json` mutation:
 
 ```bash
-./agyis test                         # Full hermetic suite (~78s; sub-second component modules)
+./agyis test                         # Full hermetic suite (~24s; sub-second component modules)
 python3 -m harness.cli verify --spec # Verify 4 cleanroom RE specifications in docs/specs/
 python3 -m harness.cli audit aff     # Enforce Product/Project isolation, DAG acyclicity & PSL-INV-008 (100/100)
 python3 -m harness.cli agents validate --json # Validate all 8 canonical v2.34+ agent schemas (<=20 tools)

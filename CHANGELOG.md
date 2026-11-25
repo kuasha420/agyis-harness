@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes & Hardening
 - fix(hooks,cli): remediate Slice 1–3 audit findings across `command_safety_hook.py`, `anti_loop_hook.py`, `output_compactor_hook.py`, `completion_fence_hook.py`, `anti_drift_hook.py`, `runner.py`, `audit certify` (`audit_architectural_fitness` + real test execution), `enforce_single_source_rules`, and `cmd_test` project runner routing
+- test(hermetic,aff): pass `2,441` hermetic tests across `108` modules in `~24s` (`0` anti-synthetic hard rejections), reach `100.0/100` AFF in `~0.035s` with `audit.py` exemption removed, and sanitize/elevate `scripts/`, `pipeline/`, and `PROJECT.md`
 - docs(launch): reconcile `README.md`, `roadmap.md`, `docs/user_guide.md`, `docs/developer_guide.md`, `docs/adr/README.md`, compacted `docs/taxonomy/project-ledger.md` (`<50` lines), all `7` `docs/official-specs/*`, `4` `docs/runbooks/*`, `4` `docs/specs/*`, `TEST_INFRA.md`, and `TEST_READY.md` for `v1.0.0` GA public launch
 
 ---

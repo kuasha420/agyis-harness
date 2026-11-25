@@ -46,7 +46,7 @@ agyis-harness/
 ├── pipeline/                 # [THE PROJECT] Telemetry extraction & empirical classification lab
 ├── data/                     # [THE PROJECT] Local empirical SQLite telemetry store (`telemetry.db`)
 ├── docs/                     # [THE PROJECT] ADRs (`001–035`), 7 Official Specs, 4 RE Specs, 4 Runbooks, 2 Taxonomy, Archive Index (`0069329`)
-└── tests/                    # [THE PROJECT] 83 test_*.py + 4 e2e/test_*.py hermetic suites
+└── tests/                    # [THE PROJECT] 104 test_*.py + 4 e2e/test_*.py hermetic suites
 ```
 
 ### Key Non-Negotiable Architecture Rules

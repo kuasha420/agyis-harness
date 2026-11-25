@@ -89,7 +89,7 @@ agyis [-h] [-v]
 
 ### 3. `test`
 * **Syntax**: `agyis test [-v] [-s <dir>] [--diff] [--branch <ref>] [--affected] [--pkg <name>] [--full] [--harmonize] [--dry-run] [--mutation] [--json]`
-* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **83** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant) and clears verification fence flags on success.
+* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **104** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules = `108` total, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant) and clears verification fence flags on success.
 * **Flags**:
   - `-v`, `--verbose`: Enables detailed individual test case reporting.
   - `-s`, `--start-dir <path>`: Directory containing test suites (defaults to `tests/`).
