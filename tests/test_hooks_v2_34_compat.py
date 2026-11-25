@@ -288,22 +288,77 @@ class TestHooksV234Compat(unittest.TestCase):
         self.assertEqual(decision, {"decision": "allow"})
 
     def test_rea_cleanroom_manifest_dispositions(self) -> None:
-        from harness.cleanroom.obligation import scaffold_obligation_ledger
+        import hashlib
+        from harness.cleanroom.obligation import ReviewedObligation, scaffold_obligation_ledger
         ledger_path = self.state_dir / ".agents" / "ledger" / "obligation_ledger.json"
         scaffold_obligation_ledger(ledger_path)
 
-        data = json.loads(ledger_path.read_text(encoding="utf-8"))
-        data["reviewed_obligations"] = [
-            {"obligation_id": "OBL-1", "title": "Test 1", "disposition": "active"},
-            {"obligation_id": "OBL-2", "title": "Test 2", "disposition": "out-of-scope"},
-        ]
-        ledger_path.write_text(json.dumps(data), encoding="utf-8")
+        bin_sha = hashlib.sha256(b"sample-cleanroom-binary").hexdigest()
+        ev_id = f"ev_{hashlib.sha256(b'evidence-record-1').hexdigest()}"
+        owner_sha = hashlib.sha256(b"owner-module").hexdigest()
+
+        def _make_ledger(disps: list[str]) -> dict:
+            obs = []
+            bindings = []
+            for idx, disp in enumerate(disps, start=1):
+                ob_id = f"OBL-{idx}"
+                obs.append(
+                    ReviewedObligation(
+                        obligation_id=ob_id,
+                        disposition=disp,
+                        title=f"Test {idx}",
+                        target={
+                            "artifact_sha256": bin_sha,
+                            "application_node_id": None,
+                            "semantic_node_id": None,
+                            "location": f"src/m{idx}.py:fn_{idx}",
+                        },
+                        review_evidence_ids=[ev_id],
+                    ).to_dict()
+                )
+                bindings.append({
+                    "obligation_id": ob_id,
+                    "owner": {"module_path": f"src/m{idx}.py", "symbol": f"fn_{idx}", "owner_sha256": owner_sha},
+                    "parser_type": None,
+                    "original_cases": [{"kind": "positive", "evidence_id": ev_id, "location": f"0x100{idx}"}],
+                    "fixtures": [{"fixture_id": f"FIX-{idx}", "case_kind": "positive", "authority": "unit", "evidence_ids": [ev_id]}],
+                    "verifier": {
+                        "verifier_id": f"VER-{idx}",
+                        "claim_id": f"CLM-{idx}",
+                        "command": "python3 -m unittest",
+                        "authority": "unit",
+                        "status": "pass",
+                        "result_evidence_id": ev_id,
+                        "enumerated_obligation_ids": [ob_id],
+                        "nondeterminism": {"mode": "total-order", "specification": "deterministic"},
+                    },
+                })
+            return {
+                "evidence_bundle": {
+                    "providers": [{"id": "rea", "name": "rea-agents", "version": "6.9.0"}],
+                    "records": [{
+                        "evidence_id": ev_id,
+                        "provider": {"id": "rea", "name": "rea-agents", "version": "6.9.0"},
+                        "subject": {"name": "sample.bin", "digest": {"sha256": bin_sha}, "format": "elf", "local_path": "sample.bin", "architecture": "x86_64"},
+                        "predicate_type": "decompile",
+                        "operation": "procedure_pseudo_code",
+                        "confidence": "observed",
+                        "authority": "shipped-artifact",
+                    }],
+                    "artifacts": [{"digest": {"sha256": bin_sha}, "format": "elf"}],
+                    "captures": [],
+                    "environments": [],
+                    "scenarios": [],
+                    "unknowns": [],
+                },
+                "reviewed_obligations": obs,
+                "manifest": {"bindings": bindings, "contradictions": []},
+            }
+
+        ledger_path.write_text(json.dumps(_make_ledger(["active", "out-of-scope"])), encoding="utf-8")
         self.assertTrue(is_manifest_verified(self.state_dir))
 
-        data["reviewed_obligations"] = [
-            {"obligation_id": "OBL-1", "title": "Test 1", "disposition": "satisfied"},
-        ]
-        ledger_path.write_text(json.dumps(data), encoding="utf-8")
+        ledger_path.write_text(json.dumps(_make_ledger(["satisfied"])), encoding="utf-8")
         self.assertFalse(is_manifest_verified(self.state_dir))
 
     # -------------------------------------------------------------------------

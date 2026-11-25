@@ -90,16 +90,8 @@ MAILGUN_KEY_PATTERN = re.compile(
 # Assignments: password=..., api_key=..., aws_secret_access_key=..., secret_key=..., client_secret=...,
 # token=..., access_token=..., auth_token=..., refresh_token=..., session_token=..., private_key=...
 ASSIGNMENT_PATTERN = re.compile(
-    r"\b(?P<k_pwd>password|passwd)"
-    r"(?P<sep>\s*[:=]\s*)(?P<q1>[\"']?)(?!\[REDACTED|none\b|null\b|false\b|true\b)(?P<v1>[^\"'\s\r\n]+)(?P=q1)"
-    r"|\b(?P<k_api>api[_-]?key)"
-    r"(?P<sep2>\s*[:=]\s*)(?P<q2>[\"']?)(?!\[REDACTED|none\b|null\b|false\b|true\b)(?P<v2>[^\"'\s\r\n]+)(?P=q2)"
-    r"|\b(?P<k_pk>private[_-]?key)"
-    r"(?P<sep4>\s*[:=]\s*)(?P<q4>[\"']?)(?!\[REDACTED|none\b|null\b|false\b|true\b)(?P<v4>[^\"'\s\r\n]+)(?P=q4)"
-    r"|\b(?P<k_tok>(?:access|auth|refresh|session|id)[_-]?token|token)"
-    r"(?P<sep5>\s*[:=]\s*)(?P<q5>[\"']?)(?!\[REDACTED|none\b|null\b|false\b|true\b)(?P<v5>[^\"'\s\r\n]+)(?P=q5)"
-    r"|\b(?P<k_sec>aws[-_]?secret[-_]?access[-_]?key|secret[_-]?key|client[_-]?secret)"
-    r"(?P<sep3>\s*[:=]\s*)(?P<q3>[\"']?)(?!\[REDACTED)(?P<v3>[^\"'\s\r\n]{8,})(?P=q3)",
+    r"\b(?P<key>password|passwd|api[_-]?key|private[_-]?key|(?:access|auth|refresh|session|id)[_-]?token|token|aws[-_]?secret[-_]?access[-_]?key|secret[_-]?key|client[_-]?secret)"
+    r"(?P<sep>\s*[:=]\s*)(?P<q>[\"']?)(?!\[REDACTED|none\b|null\b|false\b|true\b)(?P<val>[^\"'\s\r\n]+)(?P=q)",
     flags=re.IGNORECASE,
 )
 
@@ -121,31 +113,22 @@ def _cli_flag_replacer(match: re.Match) -> str:
 
 
 def _assignment_replacer(match: re.Match) -> str:
-    if match.group("k_pwd"):
-        key = match.group("k_pwd")
-        sep = match.group("sep")
-        quote = match.group("q1") or ""
-        return f"{key}{sep}{quote}[REDACTED_PASSWORD]{quote}"
-    elif match.group("k_api"):
-        key = match.group("k_api")
-        sep = match.group("sep2")
-        quote = match.group("q2") or ""
-        return f"{key}{sep}{quote}[REDACTED_API_KEY]{quote}"
-    elif match.group("k_pk"):
-        key = match.group("k_pk")
-        sep = match.group("sep4")
-        quote = match.group("q4") or ""
-        return f"{key}{sep}{quote}[REDACTED_PRIVATE_KEY]{quote}"
-    elif match.group("k_tok"):
-        key = match.group("k_tok")
-        sep = match.group("sep5")
-        quote = match.group("q5") or ""
-        return f"{key}{sep}{quote}[REDACTED_SECRET]{quote}"
+    key = match.group("key")
+    sep = match.group("sep")
+    quote = match.group("q") or ""
+    val = match.group("val")
+    key_lower = key.lower()
+    if "secret" in key_lower and len(val) < 8:
+        return match.group(0)
+    if "pass" in key_lower:
+        marker = "[REDACTED_PASSWORD]"
+    elif "api" in key_lower:
+        marker = "[REDACTED_API_KEY]"
+    elif "private" in key_lower:
+        marker = "[REDACTED_PRIVATE_KEY]"
     else:
-        key = match.group("k_sec")
-        sep = match.group("sep3")
-        quote = match.group("q3") or ""
-        return f"{key}{sep}{quote}[REDACTED_SECRET]{quote}"
+        marker = "[REDACTED_SECRET]"
+    return f"{key}{sep}{quote}{marker}{quote}"
 
 
 def strip_secrets(text: str) -> str:

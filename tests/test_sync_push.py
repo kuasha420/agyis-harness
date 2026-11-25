@@ -66,7 +66,7 @@ class TestSyncPushRetryBackoff(unittest.TestCase):
         mock_urlopen.side_effect = [err_503, mock_resp]
 
         result = push_local_sessions(
-            endpoint="http://hub.test",
+            endpoint="https://hub.test",
             token="test-token",
             db_path=self.db_path,
             retry_backoff=1.0,
@@ -93,7 +93,7 @@ class TestSyncPushRetryBackoff(unittest.TestCase):
         mock_urlopen.side_effect = [err_502, err_504, mock_resp]
 
         result = push_local_sessions(
-            endpoint="http://hub.test",
+            endpoint="https://hub.test",
             token="test-token",
             db_path=self.db_path,
             retry_backoff=1.0,
@@ -119,7 +119,7 @@ class TestSyncPushRetryBackoff(unittest.TestCase):
         mock_urlopen.side_effect = [err_503, mock_resp]
 
         result = push_local_sessions(
-            endpoint="http://hub.test",
+            endpoint="https://hub.test",
             token="test-token",
             db_path=self.db_path,
             retry_backoff=0.0,
@@ -138,7 +138,7 @@ class TestSyncPushRetryBackoff(unittest.TestCase):
 
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             push_local_sessions(
-                endpoint="http://hub.test",
+                endpoint="https://hub.test",
                 token="test-token",
                 db_path=self.db_path,
                 retry_backoff=1.0,

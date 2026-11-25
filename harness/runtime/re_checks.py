@@ -125,7 +125,9 @@ def probe_binary_with_version(
             timeout=timeout,
             check=False,
         )
-        out = (proc.stdout + " " + proc.stderr).strip()
+        stdout = proc.stdout if isinstance(proc.stdout, str) else ""
+        stderr = proc.stderr if isinstance(proc.stderr, str) else ""
+        out = f"{stdout} {stderr}".strip()
         m = re.search(r"([0-9]+(?:\.[0-9]+)+)", out)
         if m:
             version_str = m.group(1)

@@ -247,7 +247,19 @@ class TestCompletionFenceTruthGate(unittest.TestCase):
         prog.write_text(f"- Last visited: {now_iso}\n", encoding="utf-8")
 
         from harness.subagents.verdict import generate_audit_verdict
-        generate_audit_verdict(workspace_dir=self.workspace, task_id="TASK-1", verdict="VICTORY CONFIRMED")
+        generate_audit_verdict(
+            workspace_dir=self.workspace,
+            task_id="TASK-1",
+            verdict="VICTORY CONFIRMED",
+            test_suite_result={
+                "exit_code": 0,
+                "total_tests": 10,
+                "passed_tests": 10,
+                "failed_tests": 0,
+                "benchmark_latency_s": 0.1,
+            },
+            aff_result={"status": "PASS", "score": 100.0},
+        )
 
         payload = {"role": "agyis_coordinator"}
         res = evaluate_stop(

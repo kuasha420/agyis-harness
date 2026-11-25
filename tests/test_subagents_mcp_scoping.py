@@ -131,7 +131,7 @@ permissions:
     - "rea"
     - ""
 tools:
-  - view_file
+  - read_file
   - run_command
 ---
 # Prompt
@@ -161,7 +161,7 @@ permissions:
     - rea
     - chrome-devtools
 tools:
-  - view_file
+  - read_file
   - run_command
 ---
 # Prompt
