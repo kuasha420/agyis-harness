@@ -352,7 +352,10 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_sync.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID to ingest before syncing")
     p_sync.add_argument("--json", action="store_true", help="Output sync summary in JSON format")
     p_sync.add_argument("--all-developers", "--all", action="store_true", dest="all_developers", help="Pull telemetry across all developers and devices (bypasses anti-echo filter)")
+    p_sync.add_argument("--include-self", action="store_true", help="Include own remote sessions from other machines when pulling")
     p_sync.add_argument("--developer", type=str, default=None, help="Filter pulled telemetry by specific developer username (or '*' for all)")
+    p_sync.add_argument("--machine", type=str, default=None, help="Filter pulled telemetry by origin machine identifier")
+    p_sync.add_argument("--batch-limit", type=int, default=None, help="Page size limit for pull requests")
     p_sync.add_argument("--since", type=str, default=None, help="Pull telemetry deltas since a specific ISO timestamp watermark")
 
     ROLE_CHOICES = [

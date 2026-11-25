@@ -29,10 +29,13 @@ SCHEMA_SQL = _load_schema_sql()
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Initializes tables and indexes on a connection."""
+    """Initializes tables and indexes on a connection, safely migrating existing DBs."""
     cur = conn.cursor()
+    cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sessions'")
+    if cur.fetchone():
+        ensure_sync_columns(conn)
     cur.executescript(SCHEMA_SQL)
-    conn.commit()
+    ensure_sync_columns(conn)
 
 
 def ensure_sync_columns(conn: sqlite3.Connection) -> None:
@@ -50,6 +53,18 @@ def ensure_sync_columns(conn: sqlite3.Connection) -> None:
     new_cols = [
         ("origin_developer", "TEXT DEFAULT 'local'"),
         ("remote_synced_at", "TEXT DEFAULT NULL"),
+        ("origin_machine", "TEXT"),
+        ("client_surface", "TEXT"),
+        ("source_kind", "TEXT"),
+        ("model_slug", "TEXT"),
+        ("model_display_name", "TEXT"),
+        ("max_context_tokens", "INTEGER"),
+        ("total_input_tokens", "INTEGER"),
+        ("total_cache_read_tokens", "INTEGER"),
+        ("total_output_tokens", "INTEGER"),
+        ("total_thought_tokens", "INTEGER"),
+        ("peak_context_tokens", "INTEGER"),
+        ("server_seq", "INTEGER"),
     ]
     for col_name, col_type in new_cols:
         if col_name not in existing_cols:
@@ -58,8 +73,21 @@ def ensure_sync_columns(conn: sqlite3.Connection) -> None:
             except sqlite3.OperationalError:
                 pass
 
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sync_watermarks (
+            scope_key TEXT PRIMARY KEY,
+            last_synced_at TEXT,
+            last_server_seq INTEGER DEFAULT 0,
+            updated_at TEXT
+        )
+        """
+    )
+
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_origin ON sessions(origin_developer)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_synced ON sessions(remote_synced_at)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_machine ON sessions(origin_machine)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_server_seq ON sessions(server_seq)")
 
     cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
     existing_tables = {row[0] for row in cur.fetchall()}

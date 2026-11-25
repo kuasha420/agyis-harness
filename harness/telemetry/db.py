@@ -220,25 +220,15 @@ def prune_historical_tool_arguments(
 
 def iter_brain_transcripts(brain_dir: Optional[Path] = None) -> List[Tuple[str, Path, float, int]]:
     """Returns non-empty (session_id, transcript_path, mtime, size) tuples from brain storage."""
-    from harness.utils.context import get_active_brain_dir
+    from harness.utils.context import get_brain_dir_candidates
 
-    targets: List[Path] = [get_active_brain_dir(brain_dir)]
-    if brain_dir is None and not (
-        os.environ.get("ANTIGRAVITY_BRAIN_DIR")
-        or os.environ.get("ANTIGRAVITY_APP_DATA_DIR")
-        or os.environ.get("GEMINI_BRAIN_DIR")
-    ):
-        cli_brain = Path.home() / ".gemini" / "antigravity-cli" / "brain"
-        if cli_brain.is_dir() and cli_brain not in targets:
-            targets.append(cli_brain)
-
-    found: List[Tuple[str, Path, float, int]] = []
-    seen_ids: set[str] = set()
+    targets: List[Path] = get_brain_dir_candidates(brain_dir)
+    found_by_id: Dict[str, Tuple[str, Path, float, int]] = {}
     for target in targets:
         if not target.is_dir():
             continue
         for entry in target.iterdir():
-            if entry.name in seen_ids or not entry.is_dir():
+            if not entry.is_dir():
                 continue
             t_full = entry / ".system_generated" / "logs" / "transcript_full.jsonl"
             t_compact = entry / ".system_generated" / "logs" / "transcript.jsonl"
@@ -247,10 +237,74 @@ def iter_brain_transcripts(brain_dir: Optional[Path] = None) -> List[Tuple[str, 
                 st = t_path.stat()
             except OSError:
                 continue
-            if st.st_size > 0:
-                seen_ids.add(entry.name)
-                found.append((entry.name, t_path, st.st_mtime, st.st_size))
-    return found
+            if st.st_size <= 0:
+                continue
+            prev = found_by_id.get(entry.name)
+            if prev is None:
+                found_by_id[entry.name] = (entry.name, t_path, st.st_mtime, st.st_size)
+            else:
+                prev_full = prev[1].name == "transcript_full.jsonl"
+                curr_full = t_path.name == "transcript_full.jsonl"
+                if (curr_full and not prev_full) or (curr_full == prev_full and st.st_size > prev[3]):
+                    found_by_id[entry.name] = (entry.name, t_path, st.st_mtime, st.st_size)
+    return list(found_by_id.values())
+
+
+def get_sync_watermark(
+    conn: sqlite3.Connection,
+    scope_key: str,
+) -> Optional[Tuple[Optional[str], int]]:
+    """Reads (last_synced_at, last_server_seq) for scope_key from sync_watermarks."""
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_watermarks'")
+    if not cur.fetchone():
+        return None
+    cur.execute(
+        "SELECT last_synced_at, COALESCE(last_server_seq, 0) FROM sync_watermarks WHERE scope_key = ?",
+        (scope_key,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return row[0], int(row[1] or 0)
+
+
+def set_sync_watermark(
+    conn: sqlite3.Connection,
+    scope_key: str,
+    last_synced_at: Optional[str],
+    last_server_seq: int = 0,
+    updated_at: Optional[str] = None,
+    commit: bool = True,
+) -> None:
+    """Atomically and monotonically upserts a per-scope sync watermark entry."""
+    from harness.telemetry.models import normalize_utc_iso
+
+    norm_synced = normalize_utc_iso(last_synced_at)
+    ts_now = normalize_utc_iso(updated_at) or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO sync_watermarks (scope_key, last_synced_at, last_server_seq, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(scope_key) DO UPDATE SET
+            last_synced_at = CASE
+                WHEN excluded.last_synced_at IS NOT NULL
+                     AND (sync_watermarks.last_synced_at IS NULL OR excluded.last_synced_at > sync_watermarks.last_synced_at)
+                THEN excluded.last_synced_at
+                ELSE sync_watermarks.last_synced_at
+            END,
+            last_server_seq = CASE
+                WHEN excluded.last_server_seq > COALESCE(sync_watermarks.last_server_seq, 0)
+                THEN excluded.last_server_seq
+                ELSE COALESCE(sync_watermarks.last_server_seq, 0)
+            END,
+            updated_at = excluded.updated_at
+        """,
+        (scope_key, norm_synced, int(last_server_seq or 0), ts_now),
+    )
+    if commit:
+        conn.commit()
 
 
 def compute_telemetry_lag(

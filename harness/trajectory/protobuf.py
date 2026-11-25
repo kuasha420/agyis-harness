@@ -82,6 +82,8 @@ class ProtobufUsageMetrics:
     checkpoint_idx: int = 0
     model_name: str = ""
     token_breakdown: Optional[ProtobufTokenBreakdown] = None
+    model_slug: str = ""
+    model_display_name: str = ""
 
     @property
     def total_prompt_tokens(self) -> int:
@@ -104,20 +106,180 @@ def parse_protobuf_varint(data: bytes, offset: int = 0) -> Tuple[int, int]:
     return res, idx
 
 
-def _read_varint_checked(data: bytes, offset: int) -> Optional[Tuple[int, int]]:
-    res = 0
-    shift = 0
-    idx = offset
-    while idx < len(data):
-        b = data[idx]
-        idx += 1
-        res |= (b & 0x7F) << shift
-        if not (b & 0x80):
-            return res, idx
-        shift += 7
-        if shift > 70:
-            return None
-    return None
+class _ProtobufDecoders:
+    """Internal wire-format submessage decoders for Antigravity protobuf blobs."""
+
+    @staticmethod
+    def read_varint_checked(data: bytes, offset: int) -> Optional[Tuple[int, int]]:
+        res = 0
+        shift = 0
+        idx = offset
+        while idx < len(data):
+            b = data[idx]
+            idx += 1
+            res |= (b & 0x7F) << shift
+            if not (b & 0x80):
+                return res, idx
+            shift += 7
+            if shift > 70:
+                return None
+        return None
+
+    @staticmethod
+    def looks_binary_msg(raw: bytes, fields: List[Tuple[int, int, Any]]) -> bool:
+        """Heuristic separating nested protobuf submessages from plain UTF-8 prose."""
+        if not fields:
+            return False
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return True
+        if not all(1 <= fn <= 64 and wt in (0, 1, 2, 5) for fn, wt, _ in fields[:4]):
+            return False
+        if any(b < 32 and b not in (9, 10, 13) for b in raw[:32]):
+            return True
+        # CortexStepUserInput.items (fn 19 -> sfn 3) wraps UTF-8 in `0x0a <len> <text>`
+        # where <len> can be printable ASCII (>= 32), so raw[:32] has no control bytes.
+        if len(raw) >= 3 and raw[0] in (0x0A, 0x12, 0x1A, 0x22) and fields[0][1] == 2:
+            if all(1 <= fn <= 32 and wt in (0, 1, 2, 5) for fn, wt, _ in fields):
+                return True
+        return False
+
+    @staticmethod
+    def parse_usage_msg(buf: bytes) -> Tuple[int, int, int, int]:
+        """Parses UsageMetadata message -> (input, cache_read, output, thought)."""
+        fields = parse_pb_fields(buf)
+        if not fields:
+            return 0, 0, 0, 0
+        inp = cache = out = thought = candidates = 0
+        for fn, wt, val in fields:
+            if wt == 0 and isinstance(val, int) and val > 0:
+                if fn == 2:
+                    inp = val
+                elif fn == 3:
+                    candidates = val
+                elif fn == 5:
+                    cache = val
+                elif fn == 9:
+                    thought = val
+                elif fn == 10:
+                    out = val
+        if out == 0 and candidates > 0:
+            out = max(0, candidates - thought)
+        return inp, cache, out, thought
+
+    @staticmethod
+    def parse_cwm(buf: bytes) -> Tuple[int, int]:
+        """Parses contextWindowMetadata -> (estimatedTokensUsed, maxContextTokens)."""
+        fields = parse_pb_fields(buf)
+        if not fields:
+            return 0, 0
+        est = mct = 0
+        for fn, wt, val in fields:
+            if wt == 0 and isinstance(val, int) and val > 0:
+                if fn == 1:
+                    est = val
+                elif fn == 4:
+                    mct = val
+        return est, mct
+
+    @staticmethod
+    def parse_csm(buf: bytes) -> Tuple[int, int, int]:
+        """Parses chatStartMetadata -> (checkpoint_idx, estimatedTokensUsed, maxContextTokens)."""
+        fields = parse_pb_fields(buf)
+        if not fields:
+            return 0, 0, 0
+        ckpt_fn1 = ckpt_fn2 = est = mct = 0
+        for fn, wt, val in fields:
+            if fn == 1 and wt == 0 and isinstance(val, int) and 0 < val < _PB_UINT64_SENTINEL:
+                ckpt_fn1 = val
+            elif fn == 2 and wt == 0 and isinstance(val, int) and 0 < val < _PB_UINT64_SENTINEL:
+                ckpt_fn2 = val
+            elif fn == 10 and wt == 2 and isinstance(val, bytes):
+                c_est, c_mct = _ProtobufDecoders.parse_cwm(val)
+                est = est or c_est
+                mct = mct or c_mct
+        return (ckpt_fn2 or ckpt_fn1), est, mct
+
+    @staticmethod
+    def decode_model_text(val: bytes) -> str:
+        try:
+            text = val.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            return ""
+        if not text or any(ord(c) < 32 for c in text):
+            return ""
+        return text
+
+    @staticmethod
+    def collect_recursive_token_children(buf: bytes, depth: int = 0) -> Tuple[str, int, List[ProtobufTokenChild]]:
+        """Recursively parses TokenGroup {1: name, 2: children, 3: num_tokens}."""
+        if depth > 8:
+            return "", 0, []
+        c_name = ""
+        c_tok = 0
+        sub_children: List[ProtobufTokenChild] = []
+        for sfn, swt, sval in parse_pb_fields(buf) or []:
+            if sfn == 1 and swt == 2 and isinstance(sval, bytes):
+                c_name = sval.decode("utf-8", errors="replace")
+            elif sfn == 3 and swt == 0 and isinstance(sval, int):
+                c_tok = sval
+            elif sfn == 2 and swt == 2 and isinstance(sval, bytes):
+                sc_name, sc_tok, nested = _ProtobufDecoders.collect_recursive_token_children(sval, depth + 1)
+                if nested:
+                    sub_children.extend(nested)
+                elif sc_name:
+                    sub_children.append(ProtobufTokenChild(sc_name, sc_tok))
+        return c_name, c_tok, sub_children
+
+    @staticmethod
+    def parse_token_group_node(buf: bytes) -> ProtobufTokenGroupNode:
+        """Parses TopLevelTokenGroup message (fn 1 of TokenBreakdown)."""
+        fields = parse_pb_fields(buf) or []
+        name = ""
+        ttype = source = tokens = 0
+        children: List[ProtobufTokenChild] = []
+        mcp_servers: List[Tuple[str, Tuple[ProtobufTokenChild, ...]]] = []
+
+        for fn, wt, val in fields:
+            if fn == 1 and wt == 2 and isinstance(val, bytes):
+                name = val.decode("utf-8", errors="replace")
+            elif fn == 2 and wt == 0 and isinstance(val, int):
+                ttype = val
+            elif fn == 3 and wt == 0 and isinstance(val, int):
+                source = val
+            elif fn == 4 and wt == 0 and isinstance(val, int):
+                tokens = val
+            elif fn == 5 and wt == 2 and isinstance(val, bytes):
+                c_name, c_tok, sub_children = _ProtobufDecoders.collect_recursive_token_children(val)
+                if sub_children and ttype == 4:
+                    mcp_servers.append((c_name, tuple(sub_children)))
+                elif sub_children:
+                    children.append(ProtobufTokenChild(c_name, c_tok))
+                    children.extend(sub_children)
+                else:
+                    children.append(ProtobufTokenChild(c_name, c_tok))
+
+        return ProtobufTokenGroupNode(
+            name=name,
+            token_type=ttype,
+            source=source,
+            num_tokens=tokens,
+            children=tuple(children),
+            mcp_servers=tuple(mcp_servers),
+        )
+
+    @staticmethod
+    def decode_tool_msg(buf: bytes) -> Tuple[str, str]:
+        name = args = ""
+        for sfn, swt, sval in parse_pb_fields(buf) or []:
+            if swt != 2 or not isinstance(sval, bytes):
+                continue
+            if sfn == 2 and not name:
+                name = sval.decode("utf-8", errors="replace")
+            elif sfn == 3 and not args:
+                args = sval.decode("utf-8", errors="replace")
+        return name, args
 
 
 def parse_pb_fields(buf: bytes) -> Optional[List[Tuple[int, int, Any]]]:
@@ -127,7 +289,7 @@ def parse_pb_fields(buf: bytes) -> Optional[List[Tuple[int, int, Any]]]:
     fields: List[Tuple[int, int, Any]] = []
     idx = 0
     while idx < len(buf):
-        tv = _read_varint_checked(buf, idx)
+        tv = _ProtobufDecoders.read_varint_checked(buf, idx)
         if tv is None:
             return None
         tag, idx = tv
@@ -135,13 +297,13 @@ def parse_pb_fields(buf: bytes) -> Optional[List[Tuple[int, int, Any]]]:
         if fn == 0:
             return None
         if wt == 0:
-            vv = _read_varint_checked(buf, idx)
+            vv = _ProtobufDecoders.read_varint_checked(buf, idx)
             if vv is None:
                 return None
             val, idx = vv
             fields.append((fn, wt, val))
         elif wt == 2:
-            lv = _read_varint_checked(buf, idx)
+            lv = _ProtobufDecoders.read_varint_checked(buf, idx)
             if lv is None:
                 return None
             length, idx = lv
@@ -176,7 +338,7 @@ def iter_pb_strings(buf: bytes, *, max_depth: int = 4, min_len: int = 1) -> List
             if wt != 2 or not isinstance(val, bytes) or not val:
                 continue
             nested = parse_pb_fields(val) if depth < max_depth else None
-            if nested and any(fn > 0 for fn, _, _ in nested) and _looks_binary_msg(val, nested):
+            if nested and any(fn > 0 for fn, _, _ in nested) and _ProtobufDecoders.looks_binary_msg(val, nested):
                 _walk(val, depth + 1)
                 continue
             try:
@@ -192,26 +354,6 @@ def iter_pb_strings(buf: bytes, *, max_depth: int = 4, min_len: int = 1) -> List
 
     _walk(buf, 0)
     return found
-
-
-def _looks_binary_msg(raw: bytes, fields: List[Tuple[int, int, Any]]) -> bool:
-    """Heuristic separating nested protobuf submessages from plain UTF-8 prose."""
-    if not fields:
-        return False
-    try:
-        raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return True
-    if not all(1 <= fn <= 64 and wt in (0, 1, 2, 5) for fn, wt, _ in fields[:4]):
-        return False
-    if any(b < 32 and b not in (9, 10, 13) for b in raw[:32]):
-        return True
-    # CortexStepUserInput.items (fn 19 -> sfn 3) wraps UTF-8 in `0x0a <len> <text>`
-    # where <len> can be printable ASCII (>= 32), so raw[:32] has no control bytes.
-    if len(raw) >= 3 and raw[0] in (0x0A, 0x12, 0x1A, 0x22) and fields[0][1] == 2:
-        if all(1 <= fn <= 32 and wt in (0, 1, 2, 5) for fn, wt, _ in fields):
-            return True
-    return False
 
 
 def extract_timestamp_from_protobuf(raw_bytes: bytes) -> Optional[float]:
@@ -240,63 +382,7 @@ def extract_timestamp_from_protobuf(raw_bytes: bytes) -> Optional[float]:
     return None
 
 
-def _parse_usage_msg(buf: bytes) -> Tuple[int, int, int, int]:
-    """Parses UsageMetadata message -> (input, cache_read, output, thought)."""
-    fields = parse_pb_fields(buf)
-    if not fields:
-        return 0, 0, 0, 0
-    inp = cache = out = thought = candidates = 0
-    for fn, wt, val in fields:
-        if wt == 0 and isinstance(val, int) and val > 0:
-            if fn == 2:
-                inp = val
-            elif fn == 3:
-                candidates = val
-            elif fn == 5:
-                cache = val
-            elif fn == 9:
-                thought = val
-            elif fn == 10:
-                out = val
-    if out == 0 and candidates > 0:
-        out = max(0, candidates - thought)
-    return inp, cache, out, thought
-
-
-def _parse_cwm(buf: bytes) -> Tuple[int, int]:
-    """Parses contextWindowMetadata -> (estimatedTokensUsed, maxContextTokens)."""
-    fields = parse_pb_fields(buf)
-    if not fields:
-        return 0, 0
-    est = mct = 0
-    for fn, wt, val in fields:
-        if wt == 0 and isinstance(val, int) and val > 0:
-            if fn == 1:
-                est = val
-            elif fn == 4:
-                mct = val
-    return est, mct
-
-
 _PB_UINT64_SENTINEL: int = (1 << 63) - 1  # Filters unsigned -1 (0xFFFFFFFFFFFFFFFF = 18446744073709551615)
-
-
-def _parse_csm(buf: bytes) -> Tuple[int, int, int]:
-    """Parses chatStartMetadata -> (checkpoint_idx, estimatedTokensUsed, maxContextTokens)."""
-    fields = parse_pb_fields(buf)
-    if not fields:
-        return 0, 0, 0
-    ckpt_fn1 = ckpt_fn2 = est = mct = 0
-    for fn, wt, val in fields:
-        if fn == 1 and wt == 0 and isinstance(val, int) and 0 < val < _PB_UINT64_SENTINEL:
-            ckpt_fn1 = val
-        elif fn == 2 and wt == 0 and isinstance(val, int) and 0 < val < _PB_UINT64_SENTINEL:
-            ckpt_fn2 = val
-        elif fn == 10 and wt == 2 and isinstance(val, bytes):
-            c_est, c_mct = _parse_cwm(val)
-            est = est or c_est
-            mct = mct or c_mct
-    return (ckpt_fn2 or ckpt_fn1), est, mct
 
 
 def extract_usage_from_protobuf(raw_bytes: bytes) -> ProtobufUsageMetrics:
@@ -306,7 +392,8 @@ def extract_usage_from_protobuf(raw_bytes: bytes) -> ProtobufUsageMetrics:
         return ProtobufUsageMetrics()
 
     inp = cache = out = thought = est = mct = ckpt = 0
-    model = ""
+    model_slug = ""
+    model_display_name = ""
 
     for fn, wt, val in outer:
         if wt != 2 or not isinstance(val, bytes):
@@ -317,39 +404,49 @@ def extract_usage_from_protobuf(raw_bytes: bytes) -> ProtobufUsageMetrics:
                 if swt != 2 or not isinstance(sval, bytes):
                     continue
                 if sfn == 9:
-                    c_ckpt, c_est, c_mct = _parse_csm(sval)
+                    c_ckpt, c_est, c_mct = _ProtobufDecoders.parse_csm(sval)
                     ckpt = ckpt or c_ckpt
                     est = est or c_est
                     mct = mct or c_mct
+                    for ssfn, sswt, ssval in parse_pb_fields(sval) or []:
+                        if sswt == 2 and isinstance(ssval, bytes):
+                            if ssfn == 19 and not model_slug:
+                                model_slug = _ProtobufDecoders.decode_model_text(ssval)
+                            elif ssfn == 21 and not model_display_name:
+                                model_display_name = _ProtobufDecoders.decode_model_text(ssval)
                 elif sfn == 4 and inp == 0 and cache == 0:
-                    inp, cache, out, thought = _parse_usage_msg(sval)
+                    inp, cache, out, thought = _ProtobufDecoders.parse_usage_msg(sval)
                 elif sfn == 17 and inp == 0 and cache == 0:
                     for ssfn, sswt, ssval in parse_pb_fields(sval) or []:
                         if ssfn == 2 and sswt == 2 and isinstance(ssval, bytes):
-                            inp, cache, out, thought = _parse_usage_msg(ssval)
+                            inp, cache, out, thought = _ProtobufDecoders.parse_usage_msg(ssval)
                             break
-                elif sfn in (19, 21) and not model:
-                    try:
-                        model = sval.decode("utf-8")
-                    except UnicodeDecodeError:
-                        pass
+                elif sfn == 19 and not model_slug:
+                    model_slug = _ProtobufDecoders.decode_model_text(sval)
+                elif sfn == 21 and not model_display_name:
+                    model_display_name = _ProtobufDecoders.decode_model_text(sval)
         elif fn == 9:
-            u_in, u_ca, u_out, u_th = _parse_usage_msg(val)
+            u_in, u_ca, u_out, u_th = _ProtobufDecoders.parse_usage_msg(val)
             if u_in + u_ca > 0:
                 inp, cache, out, thought = u_in, u_ca, u_out, u_th
-            _, c_est, c_mct = _parse_csm(val)
+            _, c_est, c_mct = _ProtobufDecoders.parse_csm(val)
             mct = mct or c_mct
             if u_in == 0 and u_ca == 0 and c_est > 0 and est == 0:
                 est = c_est
+            for sfn, swt, sval in parse_pb_fields(val) or []:
+                if swt == 2 and isinstance(sval, bytes):
+                    if sfn == 19 and not model_slug:
+                        model_slug = _ProtobufDecoders.decode_model_text(sval)
+                    elif sfn == 21 and not model_display_name:
+                        model_display_name = _ProtobufDecoders.decode_model_text(sval)
         elif fn == 10:
-            c_est, c_mct = _parse_cwm(val)
+            c_est, c_mct = _ProtobufDecoders.parse_cwm(val)
             est = est or c_est
             mct = mct or c_mct
-        elif fn in (19, 21) and not model:
-            try:
-                model = val.decode("utf-8")
-            except UnicodeDecodeError:
-                pass
+        elif fn == 19 and not model_slug:
+            model_slug = _ProtobufDecoders.decode_model_text(val)
+        elif fn == 21 and not model_display_name:
+            model_display_name = _ProtobufDecoders.decode_model_text(val)
 
     return ProtobufUsageMetrics(
         input_tokens=inp,
@@ -359,65 +456,9 @@ def extract_usage_from_protobuf(raw_bytes: bytes) -> ProtobufUsageMetrics:
         estimated_tokens=est,
         max_context_tokens=mct,
         checkpoint_idx=ckpt,
-        model_name=model,
-    )
-
-
-def _collect_recursive_token_children(buf: bytes, depth: int = 0) -> Tuple[str, int, List[ProtobufTokenChild]]:
-    """Recursively parses TokenGroup {1: name, 2: children, 3: num_tokens}."""
-    if depth > 8:
-        return "", 0, []
-    c_name = ""
-    c_tok = 0
-    sub_children: List[ProtobufTokenChild] = []
-    for sfn, swt, sval in parse_pb_fields(buf) or []:
-        if sfn == 1 and swt == 2 and isinstance(sval, bytes):
-            c_name = sval.decode("utf-8", errors="replace")
-        elif sfn == 3 and swt == 0 and isinstance(sval, int):
-            c_tok = sval
-        elif sfn == 2 and swt == 2 and isinstance(sval, bytes):
-            sc_name, sc_tok, nested = _collect_recursive_token_children(sval, depth + 1)
-            if nested:
-                sub_children.extend(nested)
-            elif sc_name:
-                sub_children.append(ProtobufTokenChild(sc_name, sc_tok))
-    return c_name, c_tok, sub_children
-
-
-def _parse_token_group_node(buf: bytes) -> ProtobufTokenGroupNode:
-    """Parses TopLevelTokenGroup message (fn 1 of TokenBreakdown)."""
-    fields = parse_pb_fields(buf) or []
-    name = ""
-    ttype = source = tokens = 0
-    children: List[ProtobufTokenChild] = []
-    mcp_servers: List[Tuple[str, Tuple[ProtobufTokenChild, ...]]] = []
-
-    for fn, wt, val in fields:
-        if fn == 1 and wt == 2 and isinstance(val, bytes):
-            name = val.decode("utf-8", errors="replace")
-        elif fn == 2 and wt == 0 and isinstance(val, int):
-            ttype = val
-        elif fn == 3 and wt == 0 and isinstance(val, int):
-            source = val
-        elif fn == 4 and wt == 0 and isinstance(val, int):
-            tokens = val
-        elif fn == 5 and wt == 2 and isinstance(val, bytes):
-            c_name, c_tok, sub_children = _collect_recursive_token_children(val)
-            if sub_children and ttype == 4:
-                mcp_servers.append((c_name, tuple(sub_children)))
-            elif sub_children:
-                children.append(ProtobufTokenChild(c_name, c_tok))
-                children.extend(sub_children)
-            else:
-                children.append(ProtobufTokenChild(c_name, c_tok))
-
-    return ProtobufTokenGroupNode(
-        name=name,
-        token_type=ttype,
-        source=source,
-        num_tokens=tokens,
-        children=tuple(children),
-        mcp_servers=tuple(mcp_servers),
+        model_name=model_slug or model_display_name,
+        model_slug=model_slug,
+        model_display_name=model_display_name,
     )
 
 
@@ -469,7 +510,7 @@ def extract_token_breakdown_from_protobuf(buf: bytes) -> Optional[ProtobufTokenB
         if fn == 2 and wt == 0 and isinstance(val, int):
             total_tokens = val
         elif fn == 1 and wt == 2 and isinstance(val, bytes):
-            g = _parse_token_group_node(val)
+            g = _ProtobufDecoders.parse_token_group_node(val)
             groups.append(g)
             if g.token_type == 1:
                 sys_tokens += g.num_tokens
@@ -534,10 +575,7 @@ def extract_compaction_summary_from_protobuf(raw_bytes: bytes) -> str:
             if fn == 30 and wt == 2 and isinstance(val, bytes):
                 for sfn, swt, sval in parse_pb_fields(val) or []:
                     if sfn == 5 and swt == 2 and isinstance(sval, bytes):
-                        try:
-                            return sval.decode("utf-8", errors="replace").strip()
-                        except Exception:
-                            pass
+                        return sval.decode("utf-8", errors="replace").strip()
     for text in iter_pb_strings(raw_bytes, min_len=20):
         if "<summary>" in text or "# Task Overview" in text or "Task Overview" in text:
             return text.strip()
@@ -593,21 +631,31 @@ def extract_tool_from_protobuf(raw_bytes: bytes) -> Tuple[str, str]:
     if not raw_bytes or not isinstance(raw_bytes, (bytes, bytearray, memoryview)):
         return "", ""
     fields = parse_pb_fields(bytes(raw_bytes)) or []
-    fallback_pair: Tuple[str, str] = ("", "")
-    for target_fn in (29, 4):
-        for fn, wt, val in fields:
-            if fn == target_fn and wt == 2 and isinstance(val, bytes):
-                name = args = ""
-                for sfn, swt, sval in parse_pb_fields(val) or []:
-                    if swt != 2 or not isinstance(sval, bytes):
-                        continue
-                    if sfn == 2:
-                        name = sval.decode("utf-8", errors="replace")
-                    elif sfn == 3:
-                        args = sval.decode("utf-8", errors="replace")
-                if name:
-                    if target_fn == 29:
-                        return name, args
-                    if not fallback_pair[0]:
-                        fallback_pair = (name, args)
-    return fallback_pair
+    candidate_sets: List[List[Tuple[int, int, Any]]] = [fields]
+    for fn, wt, val in fields:
+        if fn == 1 and wt == 2 and isinstance(val, bytes):
+            sub_fields = parse_pb_fields(val)
+            if sub_fields:
+                candidate_sets.append(sub_fields)
+
+    mod_name = mod_args = orig_name = orig_args = ""
+    for f_set in candidate_sets:
+        for fn, wt, val in f_set:
+            if wt != 2 or not isinstance(val, bytes):
+                continue
+            if fn == 29:
+                n, a = _ProtobufDecoders.decode_tool_msg(val)
+                if n and not mod_name:
+                    mod_name = n
+                if a and not mod_args:
+                    mod_args = a
+            elif fn == 4:
+                n, a = _ProtobufDecoders.decode_tool_msg(val)
+                if n and not orig_name:
+                    orig_name = n
+                if a and not orig_args:
+                    orig_args = a
+
+    final_name = mod_name or orig_name
+    final_args = mod_args if mod_name or mod_args else orig_args
+    return (final_name, final_args) if final_name else ("", "")

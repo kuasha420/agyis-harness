@@ -43,7 +43,16 @@ def cmd_sync(args: argparse.Namespace) -> int:
         endpoint = getattr(args, "remote", None)
         if not getattr(args, "json", False):
             print(f"[*] Starting background telemetry watch & sync daemon (interval={interval}s)...")
-        res = watch_and_sync(interval_sec=interval, db_path=db_path, endpoint=endpoint)
+        watch_kwargs: Dict[str, Any] = {"interval_sec": interval, "db_path": db_path, "endpoint": endpoint}
+        if getattr(args, "pull", False):
+            watch_kwargs["pull_in_watch"] = True
+        if getattr(args, "include_self", False):
+            watch_kwargs["include_self"] = True
+        if getattr(args, "developer", None):
+            watch_kwargs["developer"] = args.developer
+        if getattr(args, "machine", None):
+            watch_kwargs["machine"] = args.machine
+        res = watch_and_sync(**watch_kwargs)
         if getattr(args, "json", False):
             print(json.dumps(res, indent=2))
         else:
@@ -97,7 +106,9 @@ def cmd_sync(args: argparse.Namespace) -> int:
     on_progress = None
     if not getattr(args, "json", False):
         def on_progress(batch_num: int, total_batches: int, stats: Dict[str, Any]) -> None:
-            if total_batches > 1:
+            if stats.get("phase") == "pull":
+                print(f"  • Pulling page {batch_num}/{total_batches} ({stats.get('sessions', 0)} sessions, {stats.get('steps', 0)} steps)...")
+            elif total_batches > 1:
                 print(f"  • Pushing batch {batch_num}/{total_batches} ({stats.get('sessions', 0)} sessions, {stats.get('steps', 0)} steps)...")
 
     from harness.telemetry.sync import sync_telemetry
@@ -112,8 +123,14 @@ def cmd_sync(args: argparse.Namespace) -> int:
     }
     if getattr(args, "all_developers", False):
         sync_kwargs["all_developers"] = True
+    if getattr(args, "include_self", False):
+        sync_kwargs["include_self"] = True
     if getattr(args, "developer", None):
         sync_kwargs["developer"] = args.developer
+    if getattr(args, "machine", None):
+        sync_kwargs["machine"] = args.machine
+    if getattr(args, "batch_limit", None) is not None:
+        sync_kwargs["batch_limit"] = args.batch_limit
     if getattr(args, "since", None):
         sync_kwargs["since"] = args.since
     if review:

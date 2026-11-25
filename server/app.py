@@ -144,10 +144,15 @@ async def sync_pull_endpoint(request: Request) -> JSONResponse:
     since = request.query_params.get("since", "1970-01-01T00:00:00Z")
     limit_str = request.query_params.get("limit", "100")
     offset_str = request.query_params.get("offset", "0")
+    after_seq_raw = request.query_params.get("after_seq")
+    cursor = request.query_params.get("cursor")
     all_devs_raw = (request.query_params.get("all_developers") or "").strip().lower()
     include_self_raw = (request.query_params.get("include_self") or "").strip().lower()
     all_developers = all_devs_raw in ("true", "1", "yes") or include_self_raw in ("true", "1", "yes")
     developer = request.query_params.get("developer")
+    developers_raw = request.query_params.get("developers")
+    developers = [d.strip() for d in developers_raw.split(",") if d.strip()] if developers_raw else None
+    machine = request.query_params.get("machine")
 
     try:
         limit = min(max(int(limit_str), 1), 1000)
@@ -159,14 +164,25 @@ async def sync_pull_endpoint(request: Request) -> JSONResponse:
     except ValueError:
         offset = 0
 
+    after_seq: Optional[int] = None
+    if after_seq_raw is not None and str(after_seq_raw).strip():
+        try:
+            after_seq = max(int(after_seq_raw), 0)
+        except ValueError:
+            after_seq = None
+
     storage: Storage = getattr(request.app.state, "storage", None) or get_storage()
-    data = storage.query_delta(
+    data = storage.fetch_delta(
         since=since,
         requesting_user=auth_res.username,
         limit=limit,
         all_developers=all_developers,
         developer=developer,
         offset=offset,
+        after_seq=after_seq,
+        cursor=cursor,
+        machine=machine,
+        developers=developers,
     )
 
     return JSONResponse({
@@ -176,10 +192,36 @@ async def sync_pull_endpoint(request: Request) -> JSONResponse:
         "offset": offset,
         "total_matching": data.get("total_matching", len(data["sessions"])),
         "has_more": data.get("has_more", False),
+        "next_after_seq": data.get("next_after_seq"),
+        "next_cursor": data.get("next_cursor"),
         "sessions": data["sessions"],
         "steps": data["steps"],
         "tool_calls": data["tool_calls"],
         "user_interventions": data["user_interventions"],
+    })
+
+
+async def sync_inventory_endpoint(request: Request) -> JSONResponse:
+    """Bearer-authenticated anonymized inventory endpoint returning per-dev/machine/surface spans."""
+    token = extract_token(request)
+    auth_res = verify_github_token(token)
+    if not auth_res.authenticated:
+        return JSONResponse(
+            {
+                "status": "error",
+                "error": auth_res.error or "Unauthorized",
+            },
+            status_code=auth_res.status_code,
+        )
+
+    developer = request.query_params.get("developer")
+    machine = request.query_params.get("machine")
+    storage: Storage = getattr(request.app.state, "storage", None) or get_storage()
+    inv = storage.get_inventory(developer=developer, machine=machine)
+    return JSONResponse({
+        "status": "ok",
+        "requested_by": auth_res.username,
+        **inv,
     })
 
 
@@ -191,6 +233,7 @@ def create_app(database_url: Optional[str] = None) -> Starlette:
         # Primary sync endpoints
         Route("/api/v1/sync/push", sync_push_endpoint, methods=["POST"]),
         Route("/api/v1/sync/pull", sync_pull_endpoint, methods=["GET"]),
+        Route("/api/v1/sync/inventory", sync_inventory_endpoint, methods=["GET"]),
         # Backward compatibility aliases
         Route("/api/v1/telemetry/batch", sync_push_endpoint, methods=["POST"]),
         Route("/api/v1/telemetry/delta", sync_pull_endpoint, methods=["GET"]),

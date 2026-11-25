@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from harness.telemetry import config
 from harness.telemetry.db import compute_telemetry_lag, get_db_connection, iter_brain_transcripts
 from harness.telemetry.extractor import ensure_telemetry_schema, extract_session, upsert_session_telemetry
+from harness.telemetry.sync.pull import pull_remote_sessions as _pull_remote_sessions
 from harness.telemetry.sync.push import push_local_sessions as _push_local_sessions
 from harness.utils.state import get_state_dir
 
@@ -89,7 +90,8 @@ def harvest_local_transcripts(
                 conn.rollback()
                 sys.stderr.write(f"[agyis-sync] Harvest failed for {p}: {exc}\n")
                 if error_sink is not None:
-                    error_sink.append(f"{p.parts[-4]}: {exc}")
+                    cid_lbl = p.parts[-4] if len(p.parts) >= 4 else p.parent.name
+                    error_sink.append(f"{cid_lbl}: {exc}")
     finally:
         conn.close()
     return stored
@@ -101,12 +103,21 @@ def watch_and_sync(
     stop_event: Optional[threading.Event] = None,
     on_iteration: Optional[Callable[[int, Dict[str, Any]], None]] = None,
     brain_dir: Optional[Path] = None, max_backoff_sec: float = 300.0, state_dir: Optional[Path] = None,
+    pull_in_watch: bool = False, include_self: bool = False,
+    developer: Optional[str] = None, machine: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Continuously harvests local transcripts and pushes deltas with exponential backoff."""
+    """Continuously harvests local transcripts and pushes (and optionally pulls) deltas with backoff."""
     target_db = config.resolve_db_path(db_path, must_exist=False)
+    effective_pull = bool(pull_in_watch)
+    if not effective_pull:
+        try:
+            effective_pull = bool(config.load_config().get("sync_pull_in_watch", False))
+        except ValueError:
+            effective_pull = False
+
     mtime_cache: Dict[str, Tuple[float, int]] = {}
     errors: List[str] = []
-    iterations = total_pushed = total_harvested = consecutive_failures = 0
+    iterations = total_pushed = total_pulled = total_harvested = consecutive_failures = 0
     last_success_at = last_harvest_at = last_error = None
     try:
         conn = get_db_connection(target_db, row_factory=False)
@@ -123,7 +134,7 @@ def watch_and_sync(
         while True:
             iterations += 1
             iter_errors: List[str] = []
-            harvested = pushed = 0
+            harvested = pushed = pulled = 0
             push_unconfigured = False
             try:
                 harvested = harvest_local_transcripts(target_db, mtime_cache, brain_dir=brain_dir, error_sink=iter_errors)
@@ -146,6 +157,23 @@ def watch_and_sync(
                 sys.stderr.write(f"[agyis-sync] Push iteration {iterations} error: {p_exc}\n")
                 iter_errors.append(f"Push iteration {iterations} error: {p_exc}")
 
+            if effective_pull:
+                try:
+                    sync_pkg = sys.modules.get("harness.telemetry.sync")
+                    pull_fn = getattr(sync_pkg, "pull_remote_sessions", _pull_remote_sessions)
+                    pull_res = pull_fn(
+                        endpoint=endpoint, token=token, db_path=target_db,
+                        include_self=include_self, developer=developer, machine=machine,
+                    )
+                    if isinstance(pull_res, dict):
+                        pulled = int(pull_res.get("sessions_pulled") or 0)
+                        total_pulled += pulled
+                except ValueError:
+                    push_unconfigured = True
+                except Exception as pl_exc:
+                    sys.stderr.write(f"[agyis-sync] Pull iteration {iterations} error: {pl_exc}\n")
+                    iter_errors.append(f"Pull iteration {iterations} error: {pl_exc}")
+
             now_iso, base_iv = _utc_now_iso(), max(0.0, float(interval_sec))
             if iter_errors:
                 consecutive_failures += 1
@@ -158,12 +186,14 @@ def watch_and_sync(
             backoff_val = sleep_sec if consecutive_failures > 0 else 0.0
             payload = {
                 "iteration": iterations, "sessions_harvested": harvested, "sessions_pushed": pushed,
+                "sessions_pulled": pulled,
                 "harvest_errors": len(iter_errors), "push_unconfigured": push_unconfigured,
                 "consecutive_failures": consecutive_failures, "backoff_sec": backoff_val,
             }
             _write_sync_status({
                 "status": status_str, "updated_at": now_iso, "last_success_at": last_success_at,
                 "last_harvest_at": last_harvest_at or last_success_at, "last_harvested_sessions": harvested,
+                "sessions_pulled": pulled,
                 "harvest_errors": len(iter_errors), "consecutive_failures": consecutive_failures,
                 "backoff_sec": backoff_val, "last_error": last_error, "recent_errors": errors[-_MAX_RECENT_ERRORS:],
             }, state_dir=state_dir)
@@ -180,7 +210,8 @@ def watch_and_sync(
         pass
     return {
         "status": "completed", "iterations": iterations, "total_sessions_pushed": total_pushed,
-        "total_sessions_harvested": total_harvested, "consecutive_failures": consecutive_failures, "errors": errors,
+        "total_sessions_pulled": total_pulled, "total_sessions_harvested": total_harvested,
+        "consecutive_failures": consecutive_failures, "errors": errors,
     }
 
 

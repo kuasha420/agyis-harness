@@ -20,8 +20,9 @@ import urllib.error
 import urllib.request
 
 from harness.telemetry import config
-from harness.telemetry.config import resolve_db_path
+from harness.telemetry.config import infer_client_surface, resolve_db_path, resolve_machine_id
 from harness.telemetry.db import get_db_connection
+from harness.telemetry.models import normalize_utc_iso
 from harness.telemetry.redaction import (
     anonymize_paths,
     sanitize_intervention,
@@ -150,7 +151,7 @@ def push_local_sessions(
                 "steps_pushed": 0,
                 "tool_calls_pushed": 0,
                 "user_interventions_pushed": 0,
-                "synced_at": None if dry_run else datetime.now(timezone.utc).isoformat(),
+                "synced_at": None if dry_run else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "dry_run": dry_run,
                 "batches_count": 0,
             }
@@ -251,9 +252,26 @@ def push_local_sessions(
                 roots_list.append(workspace_root)
             session_ws_roots[s["session_id"]] = tuple(roots_list)
 
+        _ADDITIVE_SESSION_KEYS = (
+            "origin_machine", "client_surface", "source_kind",
+            "model_slug", "model_display_name", "max_context_tokens",
+            "total_input_tokens", "total_cache_read_tokens", "total_output_tokens",
+            "total_thought_tokens", "peak_context_tokens",
+        )
         sanitized_sessions: List[Dict[str, Any]] = []
         for s in batch_sessions:
             s_clean = dict(s)
+            raw_transcript = s.get("transcript_path")
+            raw_ws = s.get("workspace_path")
+            if not s_clean.get("origin_machine"):
+                s_clean["origin_machine"] = resolve_machine_id(raw_ws or workspace_root)
+            if not s_clean.get("client_surface"):
+                s_clean["client_surface"] = infer_client_surface(raw_transcript)
+            for ts_key in ("start_time", "end_time", "remote_synced_at"):
+                if s_clean.get(ts_key) is not None:
+                    s_clean[ts_key] = normalize_utc_iso(s_clean[ts_key])
+            for add_key in _ADDITIVE_SESSION_KEYS:
+                s_clean.setdefault(add_key, None)
             roots = session_ws_roots.get(s["session_id"], ())
             if s_clean.get("workspace_path"):
                 s_clean["workspace_path"] = _anonymize_for_roots(s_clean["workspace_path"], roots)
@@ -265,6 +283,8 @@ def push_local_sessions(
         for st in raw_steps:
             st_clean = dict(st)
             st_clean.pop("id", None)
+            if st_clean.get("created_at") is not None:
+                st_clean["created_at"] = normalize_utc_iso(st_clean["created_at"])
             roots = session_ws_roots.get(st_clean.get("session_id"), ())
             if st_clean.get("content_snippet"):
                 st_clean["content_snippet"] = _anonymize_for_roots(
@@ -276,6 +296,9 @@ def push_local_sessions(
         for tc in raw_tools:
             tc_clean = dict(tc)
             tc_clean.pop("id", None)
+            for ts_key in ("started_at", "completed_at"):
+                if tc_clean.get(ts_key) is not None:
+                    tc_clean[ts_key] = normalize_utc_iso(tc_clean[ts_key])
             roots = session_ws_roots.get(tc_clean.get("session_id"), ())
             primary_ws = roots[0] if roots else None
             scrubbed_tc = sanitize_tool_call(tc_clean, workspace_root=primary_ws)
@@ -287,6 +310,8 @@ def push_local_sessions(
         for ui in raw_interventions:
             ui_clean = dict(ui)
             ui_clean.pop("id", None)
+            if ui_clean.get("created_at") is not None:
+                ui_clean["created_at"] = normalize_utc_iso(ui_clean["created_at"])
             roots = session_ws_roots.get(ui_clean.get("session_id"), ())
             if ui_clean.get("prompt_text"):
                 cleaned_prompt = sanitize_intervention(
@@ -361,7 +386,7 @@ def push_local_sessions(
                     continue
                 raise
 
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         update_conn = get_db_connection(db_file)
         try:
             update_cur = update_conn.cursor()

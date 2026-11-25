@@ -13,7 +13,26 @@ CREATE TABLE IF NOT EXISTS sessions (
     tool_error_count INTEGER,
     intervention_count INTEGER,
     origin_developer TEXT DEFAULT 'local',
-    remote_synced_at TEXT DEFAULT NULL
+    remote_synced_at TEXT DEFAULT NULL,
+    origin_machine TEXT,
+    client_surface TEXT,
+    source_kind TEXT,
+    model_slug TEXT,
+    model_display_name TEXT,
+    max_context_tokens INTEGER,
+    total_input_tokens INTEGER,
+    total_cache_read_tokens INTEGER,
+    total_output_tokens INTEGER,
+    total_thought_tokens INTEGER,
+    peak_context_tokens INTEGER,
+    server_seq INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS sync_watermarks (
+    scope_key TEXT PRIMARY KEY,
+    last_synced_at TEXT,
+    last_server_seq INTEGER DEFAULT 0,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS steps (

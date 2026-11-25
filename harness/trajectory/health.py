@@ -188,11 +188,39 @@ def infer_model_context_window(model_name: Optional[str]) -> int:
     lower = model_name.lower()
     if "1m" in lower or "1000k" in lower or "1048576" in lower:
         return 1_000_000
+    if any(tag in lower for tag in ("gpt-oss-120b", "gpt oss 120b")):
+        return 80_000
+    if any(
+        tag in lower
+        for tag in (
+            "claude-sonnet-4-6",
+            "claude-sonnet-4.6",
+            "claude sonnet 4.6",
+            "claude-4-6-sonnet",
+            "claude-4.6-sonnet",
+        )
+    ):
+        return 160_000
+    if any(
+        tag in lower
+        for tag in (
+            "claude-sonnet-5-5",
+            "claude-sonnet-5.5",
+            "claude sonnet 5.5",
+            "claude-5-5-sonnet",
+            "claude-5.5-sonnet",
+        )
+    ):
+        return 840_000
     if "512k" in lower or any(
         tag in lower
         for tag in (
             "gemini-4-hydrogen",
             "gemini-4-neon",
+            "gemini-4-argon",
+            "gemini 4 hydrogen",
+            "gemini 4 neon",
+            "gemini 4 argon",
             "gemini-3.8-flash-s",
             "gemini-3.8-flash-h",
             "gemini-3.8-flash-medium",
