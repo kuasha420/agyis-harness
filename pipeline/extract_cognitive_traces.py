@@ -26,7 +26,8 @@ import re
 import sqlite3
 from typing import Any, Dict, List, Optional
 
-from harness.utils.context import get_active_brain_dir
+from harness.trajectory.protobuf import extract_tool_from_protobuf
+from harness.utils.context import get_brain_dir_candidates
 
 _logger = logging.getLogger(__name__)
 
@@ -64,10 +65,135 @@ def classify_thinking(text: str) -> List[str]:
     return matches
 
 
+def _extract_events_from_jsonl(
+    p: Path,
+    category_counts: Dict[str, int],
+) -> List[Dict[str, Any]]:
+    session_events: List[Dict[str, Any]] = []
+    with open(p, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            step_data = json.loads(line)
+            th = step_data.get("thinking", "")
+            if th:
+                cats = classify_thinking(th)
+                for cat in cats:
+                    category_counts[cat] += 1
+                s_idx = step_data.get("step_index", 0)
+                tc = step_data.get("tool_calls", [])
+                if cats or tc:
+                    session_events.append({
+                        "step_index": s_idx,
+                        "thinking_chars": len(th),
+                        "thinking_snippet": th[:400].replace("\n", " "),
+                        "cognitive_categories": cats,
+                        "tool_call_names": [t.get("name") for t in tc if isinstance(t, dict)],
+                    })
+    return session_events
+
+
+def _extract_events_from_conv_db(
+    db_file: Path,
+    category_counts: Dict[str, int],
+) -> List[Dict[str, Any]]:
+    from pipeline.harvest_conversations import parse_protobuf_fields
+
+    events: List[Dict[str, Any]] = []
+    conn: Optional[sqlite3.Connection] = None
+    try:
+        conn = sqlite3.connect(f"file:{db_file.resolve()}?mode=ro", uri=True, timeout=0.5)
+        conn.execute("PRAGMA query_only = ON")
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='steps'")
+        if not cur.fetchone():
+            return events
+        cur.execute("SELECT idx, step_type, metadata, step_payload FROM steps ORDER BY idx ASC")
+        rows = cur.fetchall()
+    except (sqlite3.Error, OSError) as exc:
+        _logger.warning("Failed reading conversation db %s for cognitive traces: %s", db_file, exc)
+        return events
+    finally:
+        if conn is not None:
+            conn.close()
+
+    for idx, step_type, meta_bytes, payload_bytes in rows:
+        th = ""
+        if isinstance(payload_bytes, (bytes, bytearray)):
+            for fn, wt, val in parse_protobuf_fields(bytes(payload_bytes)):
+                if fn == 20 and wt == 2 and isinstance(val, bytes):
+                    for sfn, _, sval in parse_protobuf_fields(val):
+                        if sfn == 3 and isinstance(sval, bytes):
+                            msg = sval.decode("utf-8", errors="replace")
+                            if msg.startswith("**") and "**" in msg[2:]:
+                                th = msg[: msg.find("**", 2) + 2]
+                            elif step_type == 15:
+                                th = msg
+                            break
+        if not th:
+            continue
+        cats = classify_thinking(th)
+        for cat in cats:
+            category_counts[cat] += 1
+        tc_names: List[str] = []
+        if isinstance(meta_bytes, (bytes, bytearray)):
+            tname, _ = extract_tool_from_protobuf(bytes(meta_bytes))
+            if tname:
+                tc_names.append(tname)
+        if cats or tc_names:
+            events.append({
+                "step_index": idx,
+                "thinking_chars": len(th),
+                "thinking_snippet": th[:400].replace("\n", " "),
+                "cognitive_categories": cats,
+                "tool_call_names": tc_names,
+            })
+    return events
+
+
+def _extract_events_from_telemetry_db(
+    conn: sqlite3.Connection,
+    s_id: str,
+    category_counts: Dict[str, int],
+) -> List[Dict[str, Any]]:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT s.step_index, s.thinking_length, s.content_snippet,
+               GROUP_CONCAT(t.tool_name)
+        FROM steps s
+        LEFT JOIN tool_calls t ON (s.session_id = t.session_id AND s.step_index = t.step_index)
+        WHERE s.session_id = ? AND s.has_thinking = 1
+        GROUP BY s.step_index
+        ORDER BY s.step_index ASC
+        """,
+        (s_id,),
+    )
+    events: List[Dict[str, Any]] = []
+    for s_idx, th_len, c_snip, tools_csv in cur.fetchall():
+        text = str(c_snip or "")
+        cats = classify_thinking(text) if text else []
+        for cat in cats:
+            category_counts[cat] += 1
+        t_names = [t for t in str(tools_csv or "").split(",") if t]
+        if cats or t_names or (th_len or 0) > 0:
+            events.append({
+                "step_index": s_idx,
+                "thinking_chars": int(th_len or len(text)),
+                "thinking_snippet": text[:400].replace("\n", " "),
+                "cognitive_categories": cats,
+                "tool_call_names": t_names,
+            })
+    return events
+
+
 def extract_cognitive_traces(db_path: Path) -> Dict[str, Any]:
     conn = sqlite3.connect(db_path)
     try:
         c = conn.cursor()
+
+        c.execute("SELECT COUNT(*) FROM sessions")
+        total_sessions = int(c.fetchone()[0] or 0)
 
         # 1. Total thinking volume
         c.execute("""
@@ -75,11 +201,14 @@ def extract_cognitive_traces(db_path: Path) -> Dict[str, Any]:
             FROM steps
             WHERE has_thinking = 1
         """)
-        total_thinking_steps, total_chars, avg_chars = c.fetchone()
+        row_th = c.fetchone()
+        total_thinking_steps = int((row_th[0] if row_th else 0) or 0)
+        total_chars = int((row_th[1] if row_th else 0) or 0)
+        avg_chars = float((row_th[2] if row_th else 0) or 0.0)
 
         # 2. Correlate thinking with failures and loops
         c.execute("""
-            SELECT 
+            SELECT
                 t.session_id,
                 t.step_index,
                 t.tool_name,
@@ -98,81 +227,73 @@ def extract_cognitive_traces(db_path: Path) -> Dict[str, Any]:
         """)
         failure_loop_events = c.fetchall()
 
-        # 3. Find top 100 worst sessions by error + loop density with available transcripts
+        # 3. Find top 100 worst sessions by error + loop density
         c.execute("""
             SELECT session_id, total_steps, tool_error_count, intervention_count,
-                   (tool_error_count * 2 + intervention_count * 3) as severity_score,
+                   (COALESCE(tool_error_count, 0) * 2 + COALESCE(intervention_count, 0) * 3) as severity_score,
                    model, workspace_path, transcript_path
             FROM sessions
             ORDER BY severity_score DESC
         """)
         worst_sessions = c.fetchall()
+
+        top_100_trajectories = []
+        category_counts = {cat: 0 for cat in COGNITIVE_PATTERNS}
+        user_home = str(Path.home())
+        brain_dirs = get_brain_dir_candidates()
+        parse_errors: List[Dict[str, str]] = []
+
+        for s_id, steps, errs, intervs, score, model, ws, t_path in worst_sessions:
+            jsonl_cands: List[Path] = []
+            db_cands: List[Path] = []
+            if t_path:
+                expanded = Path(str(t_path).replace("[USER_HOME]", user_home))
+                if expanded.suffix == ".jsonl":
+                    if expanded.name == "transcript.jsonl":
+                        jsonl_cands.append(expanded.with_name("transcript_full.jsonl"))
+                    jsonl_cands.append(expanded)
+                elif expanded.suffix == ".db":
+                    db_cands.append(expanded)
+            for b_dir in brain_dirs:
+                jsonl_cands.append(b_dir / s_id / ".system_generated" / "logs" / "transcript_full.jsonl")
+                jsonl_cands.append(b_dir / s_id / ".system_generated" / "logs" / "transcript.jsonl")
+                db_cands.append(b_dir.parent / "conversations" / f"{s_id}.db")
+
+            p_jsonl = next((cand for cand in jsonl_cands if cand.exists() and cand.is_file()), None)
+            session_events: List[Dict[str, Any]] = []
+            if p_jsonl is not None:
+                try:
+                    session_events = _extract_events_from_jsonl(p_jsonl, category_counts)
+                except (OSError, json.JSONDecodeError, ValueError) as exc:
+                    _logger.warning("Failed parsing transcript %s for cognitive traces: %s", p_jsonl, exc)
+                    parse_errors.append({"path": str(p_jsonl), "error": str(exc)})
+            else:
+                p_db = next((cand for cand in db_cands if cand.exists() and cand.is_file()), None)
+                if p_db is not None:
+                    session_events = _extract_events_from_conv_db(p_db, category_counts)
+                if not session_events:
+                    session_events = _extract_events_from_telemetry_db(conn, s_id, category_counts)
+
+            if session_events:
+                top_100_trajectories.append({
+                    "session_id": s_id,
+                    "workspace": ws,
+                    "total_steps": steps or 0,
+                    "errors": errs or 0,
+                    "interventions": intervs or 0,
+                    "severity_score": score or 0,
+                    "model": model,
+                    "events_count": len(session_events),
+                    "key_events": session_events[:10],
+                })
+                if len(top_100_trajectories) >= 100:
+                    break
     finally:
         conn.close()
 
-    # Extract thinking text from transcript files for top 100
-    top_100_trajectories = []
-    category_counts = {cat: 0 for cat in COGNITIVE_PATTERNS}
-    total_thinking_mined = 0
-    user_home = str(Path.home())
-    brain_dir = get_active_brain_dir()
-    parse_errors: List[Dict[str, str]] = []
-
-    for s_id, steps, errs, intervs, score, model, ws, t_path in worst_sessions:
-        candidates = []
-        if t_path:
-            candidates.append(Path(str(t_path).replace("[USER_HOME]", user_home)))
-        candidates.append(brain_dir / s_id / ".system_generated" / "logs" / "transcript.jsonl")
-        p = next((c for c in candidates if c.exists() and c.is_file() and c.suffix == ".jsonl"), None)
-        if not p:
-            continue
-
-        session_events = []
-        try:
-            with open(p, encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    step_data = json.loads(line)
-                    th = step_data.get("thinking", "")
-                    if th:
-                        total_thinking_mined += 1
-                        cats = classify_thinking(th)
-                        for cat in cats:
-                            category_counts[cat] += 1
-
-                        s_idx = step_data.get("step_index", 0)
-                        tc = step_data.get("tool_calls", [])
-                        if cats or tc:
-                            session_events.append({
-                                "step_index": s_idx,
-                                "thinking_chars": len(th),
-                                "thinking_snippet": th[:400].replace("\n", " "),
-                                "cognitive_categories": cats,
-                                "tool_call_names": [t.get("name") for t in tc if isinstance(t, dict)]
-                            })
-        except (OSError, json.JSONDecodeError, ValueError) as exc:
-            _logger.warning("Failed parsing transcript %s for cognitive traces: %s", p, exc)
-            parse_errors.append({"path": str(p), "error": str(exc)})
-            continue
-
-        if session_events:
-            top_100_trajectories.append({
-                "session_id": s_id,
-                "workspace": ws,
-                "total_steps": steps,
-                "errors": errs,
-                "interventions": intervs,
-                "severity_score": score,
-                "model": model,
-                "events_count": len(session_events),
-                "key_events": session_events[:10]  # Compacted representation
-            })
-            if len(top_100_trajectories) >= 100:
-                break
-
     return {
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
+        "total_sessions": total_sessions,
         "total_thinking_steps": total_thinking_steps,
         "total_thinking_chars": total_chars,
         "avg_thinking_chars": round(avg_chars, 1) if avg_chars else 0,
@@ -187,6 +308,9 @@ def extract_cognitive_traces(db_path: Path) -> Dict[str, Any]:
 def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
     cats = data["cognitive_pattern_distribution"]
     trajs = data["top_100_trajectories"]
+    total_sessions = data.get("total_sessions", 0)
+    total_thinking_steps = data.get("total_thinking_steps") or 0
+    total_thinking_chars = data.get("total_thinking_chars") or 0
 
     md = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
@@ -197,13 +321,13 @@ def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
 **Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Specification**: Horizon 1 — Two-Tier Cognitive Dynamics  
 **Generated At**: {data['timestamp']}  
-**Data Source**: Thinking traces from active Antigravity brain transcripts (`transcript.jsonl`)
+**Data Source**: Thinking traces from Antigravity brain transcripts and conversation SQLite DBs
 
 ---
 
 ## 1. Executive Summary: What Happens Inside the Model's Reasoning?
 
-Across 348 sessions, the model produced **{data['total_thinking_steps']:,} thinking traces** comprising **{data['total_thinking_chars']:,} characters** (~{data['total_thinking_chars'] // 4:,} tokens) of internal Chain-of-Thought.
+Across {total_sessions:,} sessions, the model produced **{total_thinking_steps:,} thinking traces** comprising **{total_thinking_chars:,} characters** (~{total_thinking_chars // 4:,} tokens) of internal Chain-of-Thought.
 
 When correlated against tool failures, loop traps, and operator interventions, we discover clear cognitive markers that precede operational breakdowns:
 

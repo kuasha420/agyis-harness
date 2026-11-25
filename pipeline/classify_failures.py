@@ -29,157 +29,176 @@ from typing import Any, Dict, List, Tuple
 
 def run_classification_audit(db_path: Path) -> Dict[str, Any]:
     conn = sqlite3.connect(db_path)
-    c = conn.cursor()
+    try:
+        c = conn.cursor()
 
-    # High level stats
-    c.execute("SELECT COUNT(*), SUM(total_steps), SUM(tool_call_count), SUM(tool_error_count), SUM(intervention_count) FROM sessions")
-    sess_cnt, total_steps, total_tools, total_errors, total_interventions = c.fetchone()
+        # Reconciled high-level stats (compute tool counts/errors directly from tool_calls)
+        c.execute("SELECT COUNT(*), COALESCE(SUM(total_steps), 0) FROM sessions")
+        sess_cnt, total_steps = c.fetchone()
+        c.execute("SELECT COUNT(*), COALESCE(SUM(CASE WHEN status != 'SUCCESS' OR (exit_code IS NOT NULL AND exit_code != 0) THEN 1 ELSE 0 END), 0) FROM tool_calls")
+        total_tools, total_errors = c.fetchone()
+        c.execute("SELECT COUNT(*) FROM user_interventions")
+        total_interventions = c.fetchone()[0] or 0
 
-    # Tool stats
-    c.execute("""
-        SELECT tool_name, COUNT(*) as total,
-               SUM(CASE WHEN status != 'SUCCESS' THEN 1 ELSE 0 END) as fails,
-               ROUND(SUM(CASE WHEN status != 'SUCCESS' THEN 1.0 ELSE 0 END) * 100.0 / COUNT(*), 2) as fail_pct
-        FROM tool_calls
-        GROUP BY tool_name
-        ORDER BY fails DESC
-    """)
-    tool_stats = [
-        {"tool": r[0], "total": r[1], "fails": r[2], "fail_rate_pct": r[3]}
-        for r in c.fetchall()
-    ]
+        # Tool stats
+        c.execute("""
+            SELECT tool_name, COUNT(*) as total,
+                   SUM(CASE WHEN status != 'SUCCESS' OR (exit_code IS NOT NULL AND exit_code != 0) THEN 1 ELSE 0 END) as fails,
+                   ROUND(SUM(CASE WHEN status != 'SUCCESS' OR (exit_code IS NOT NULL AND exit_code != 0) THEN 1.0 ELSE 0 END) * 100.0 / COUNT(*), 2) as fail_pct
+            FROM tool_calls
+            GROUP BY tool_name
+            ORDER BY fails DESC, total DESC
+        """)
+        tool_stats = [
+            {"tool": r[0], "total": r[1], "fails": r[2], "fail_rate_pct": r[3]}
+            for r in c.fetchall()
+        ]
 
-    # Command exit codes
-    c.execute("""
-        SELECT exit_code, COUNT(*) as cnt
-        FROM tool_calls
-        WHERE tool_name = 'run_command' AND status != 'SUCCESS'
-        GROUP BY exit_code
-        ORDER BY cnt DESC
-        LIMIT 10
-    """)
-    exit_codes = [{"exit_code": r[0], "count": r[1]} for r in c.fetchall()]
+        # Command exit codes
+        c.execute("""
+            SELECT exit_code, COUNT(*) as cnt
+            FROM tool_calls
+            WHERE tool_name = 'run_command' AND (status != 'SUCCESS' OR (exit_code IS NOT NULL AND exit_code != 0))
+            GROUP BY exit_code
+            ORDER BY cnt DESC
+            LIMIT 10
+        """)
+        exit_codes = [{"exit_code": r[0], "count": r[1]} for r in c.fetchall()]
 
-    # Forensic breakdown of Exit Code 1
-    c.execute("SELECT COUNT(*) FROM tool_calls WHERE tool_name = 'run_command' AND exit_code = 1")
-    total_ec1 = c.fetchone()[0] or 0
+        # Forensic breakdown of Exit Code 1
+        c.execute("SELECT COUNT(*) FROM tool_calls WHERE tool_name = 'run_command' AND exit_code = 1")
+        total_ec1 = c.fetchone()[0] or 0
 
-    c.execute("""
-        SELECT COUNT(*) FROM tool_calls 
-        WHERE tool_name = 'run_command' AND exit_code = 1 
-          AND (command_line LIKE '%grep%' OR command_line LIKE '%diff%')
-    """)
-    ec1_grep_diff = c.fetchone()[0] or 0
+        c.execute("""
+            SELECT COUNT(*) FROM tool_calls
+            WHERE tool_name = 'run_command' AND exit_code = 1
+              AND (command_line LIKE '%grep%' OR command_line LIKE '%diff%' OR command_line LIKE '%rg %')
+        """)
+        ec1_grep_diff = c.fetchone()[0] or 0
 
-    c.execute("""
-        SELECT COUNT(*) FROM tool_calls 
-        WHERE tool_name = 'run_command' AND exit_code = 1 
-          AND error_snippet LIKE '%f-string expression part cannot include a backslash%'
-    """)
-    ec1_fstring_bs = c.fetchone()[0] or 0
+        c.execute("""
+            SELECT COUNT(*) FROM tool_calls
+            WHERE tool_name = 'run_command' AND exit_code = 1
+              AND error_snippet LIKE '%f-string expression part cannot include a backslash%'
+        """)
+        ec1_fstring_bs = c.fetchone()[0] or 0
 
-    c.execute("""
-        SELECT COUNT(*) FROM tool_calls 
-        WHERE tool_name = 'run_command' AND exit_code = 1 
-          AND error_snippet LIKE '%SyntaxError%'
-    """)
-    ec1_syntax_total = c.fetchone()[0] or 0
+        c.execute("""
+            SELECT COUNT(*) FROM tool_calls
+            WHERE tool_name = 'run_command' AND exit_code = 1
+              AND error_snippet LIKE '%SyntaxError%'
+        """)
+        ec1_syntax_total = c.fetchone()[0] or 0
 
-    c.execute("""
-        SELECT COUNT(*) FROM tool_calls 
-        WHERE tool_name = 'run_command' AND exit_code = 1 
-          AND (error_snippet LIKE '%Traceback%' AND error_snippet NOT LIKE '%SyntaxError%')
-    """)
-    ec1_traceback = c.fetchone()[0] or 0
+        c.execute("""
+            SELECT COUNT(*) FROM tool_calls
+            WHERE tool_name = 'run_command' AND exit_code = 1
+              AND (error_snippet LIKE '%Traceback%' AND error_snippet NOT LIKE '%SyntaxError%')
+        """)
+        ec1_traceback = c.fetchone()[0] or 0
 
-    ec1_other = total_ec1 - (ec1_grep_diff + ec1_syntax_total + ec1_traceback)
+        ec1_other = max(0, total_ec1 - (ec1_grep_diff + ec1_syntax_total + ec1_traceback))
 
-    exit_code_1_breakdown = {
-        "total": total_ec1,
-        "grep_diff_benign": ec1_grep_diff,
-        "grep_diff_pct": round(ec1_grep_diff * 100.0 / total_ec1, 2) if total_ec1 else 0,
-        "python_syntax_total": ec1_syntax_total,
-        "python_syntax_pct": round(ec1_syntax_total * 100.0 / total_ec1, 2) if total_ec1 else 0,
-        "fstring_backslash": ec1_fstring_bs,
-        "fstring_backslash_pct": round(ec1_fstring_bs * 100.0 / total_ec1, 2) if total_ec1 else 0,
-        "python_traceback": ec1_traceback,
-        "python_traceback_pct": round(ec1_traceback * 100.0 / total_ec1, 2) if total_ec1 else 0,
-        "other_cli": ec1_other,
-        "other_cli_pct": round(ec1_other * 100.0 / total_ec1, 2) if total_ec1 else 0,
-    }
-
-    # Loop candidates by tool
-    c.execute("""
-        SELECT tool_name, COUNT(*) as cnt
-        FROM tool_calls
-        WHERE is_loop_candidate = 1
-        GROUP BY tool_name
-        ORDER BY cnt DESC
-    """)
-    loops_by_tool = [{"tool": r[0], "loop_calls": r[1]} for r in c.fetchall()]
-
-    # Context cliff / session depth
-    c.execute("""
-        SELECT 
-            CASE 
-                WHEN total_steps BETWEEN 1 AND 10 THEN '1-10 steps'
-                WHEN total_steps BETWEEN 11 AND 50 THEN '11-50 steps'
-                WHEN total_steps BETWEEN 51 AND 200 THEN '51-200 steps'
-                ELSE '200+ steps'
-            END as step_bucket,
-            COUNT(*) as session_count,
-            ROUND(AVG(total_steps), 1) as avg_steps,
-            ROUND(AVG(tool_error_count), 2) as avg_errors,
-            ROUND(AVG(intervention_count), 2) as avg_interventions
-        FROM sessions
-        GROUP BY step_bucket
-        ORDER BY MIN(total_steps) ASC
-    """)
-    depth_stats = [
-        {
-            "bucket": r[0],
-            "sessions": r[1],
-            "avg_steps": r[2],
-            "avg_errors": r[3],
-            "avg_interventions": r[4]
+        exit_code_1_breakdown = {
+            "total": total_ec1,
+            "grep_diff_benign": ec1_grep_diff,
+            "grep_diff_pct": round(ec1_grep_diff * 100.0 / total_ec1, 2) if total_ec1 else 0,
+            "python_syntax_total": ec1_syntax_total,
+            "python_syntax_pct": round(ec1_syntax_total * 100.0 / total_ec1, 2) if total_ec1 else 0,
+            "fstring_backslash": ec1_fstring_bs,
+            "fstring_backslash_pct": round(ec1_fstring_bs * 100.0 / total_ec1, 2) if total_ec1 else 0,
+            "python_traceback": ec1_traceback,
+            "python_traceback_pct": round(ec1_traceback * 100.0 / total_ec1, 2) if total_ec1 else 0,
+            "other_cli": ec1_other,
+            "other_cli_pct": round(ec1_other * 100.0 / total_ec1, 2) if total_ec1 else 0,
         }
-        for r in c.fetchall()
-    ]
 
-    # Clean sessions (>15 steps, 0 or 1 error, 0 interventions)
-    c.execute("""
-        SELECT session_id, total_steps, tool_call_count, model, workspace_path
-        FROM sessions
-        WHERE tool_error_count <= 1 AND intervention_count = 0 AND total_steps >= 20
-        ORDER BY total_steps DESC
-        LIMIT 10
-    """)
-    clean_sessions = [
-        {"session_id": r[0], "steps": r[1], "tools": r[2], "model": r[3], "workspace": r[4]}
-        for r in c.fetchall()
-    ]
+        # Loop candidates by tool
+        c.execute("""
+            SELECT tool_name, COUNT(*) as cnt
+            FROM tool_calls
+            WHERE is_loop_candidate = 1
+            GROUP BY tool_name
+            ORDER BY cnt DESC
+        """)
+        loops_by_tool = [{"tool": r[0], "loop_calls": r[1]} for r in c.fetchall()]
 
-    # Interventions breakdown
-    c.execute("""
-        SELECT intervention_type, COUNT(*) as cnt
-        FROM user_interventions
-        GROUP BY intervention_type
-        ORDER BY cnt DESC
-    """)
-    interventions_breakdown = [{"type": r[0], "count": r[1]} for r in c.fetchall()]
+        # Context cliff / session depth using reconciled tool_calls error counts
+        c.execute("""
+            WITH sess_err AS (
+                SELECT session_id,
+                       SUM(CASE WHEN status != 'SUCCESS' OR (exit_code IS NOT NULL AND exit_code != 0) THEN 1 ELSE 0 END) as tc_errors
+                FROM tool_calls
+                GROUP BY session_id
+            ),
+            sess_int AS (
+                SELECT session_id, COUNT(*) as ui_cnt
+                FROM user_interventions
+                GROUP BY session_id
+            )
+            SELECT
+                CASE
+                    WHEN COALESCE(s.total_steps, 0) BETWEEN 0 AND 10 THEN '1-10 steps'
+                    WHEN s.total_steps BETWEEN 11 AND 50 THEN '11-50 steps'
+                    WHEN s.total_steps BETWEEN 51 AND 200 THEN '51-200 steps'
+                    ELSE '200+ steps'
+                END as step_bucket,
+                COUNT(*) as session_count,
+                ROUND(AVG(COALESCE(s.total_steps, 0)), 1) as avg_steps,
+                ROUND(AVG(COALESCE(se.tc_errors, 0)), 2) as avg_errors,
+                ROUND(AVG(COALESCE(si.ui_cnt, 0)), 2) as avg_interventions
+            FROM sessions s
+            LEFT JOIN sess_err se ON s.session_id = se.session_id
+            LEFT JOIN sess_int si ON s.session_id = si.session_id
+            GROUP BY step_bucket
+            ORDER BY MIN(COALESCE(s.total_steps, 0)) ASC
+        """)
+        depth_stats = [
+            {
+                "bucket": r[0],
+                "sessions": r[1],
+                "avg_steps": r[2],
+                "avg_errors": r[3],
+                "avg_interventions": r[4],
+            }
+            for r in c.fetchall()
+        ]
 
-    # Frequent failing commands
-    c.execute("""
-        SELECT command_line, exit_code, COUNT(*) as cnt
-        FROM tool_calls
-        WHERE tool_name = 'run_command' AND status != 'SUCCESS' AND command_line IS NOT NULL
-        GROUP BY command_line
-        ORDER BY cnt DESC
-        LIMIT 10
-    """)
-    failing_cmds = [{"command": r[0], "exit_code": r[1], "occurrences": r[2]} for r in c.fetchall()]
+        # Clean sessions (>= 20 steps, <= 1 error, 0 interventions)
+        c.execute("""
+            SELECT session_id, total_steps, tool_call_count, model, workspace_path
+            FROM sessions
+            WHERE COALESCE(tool_error_count, 0) <= 1 AND COALESCE(intervention_count, 0) = 0 AND COALESCE(total_steps, 0) >= 20
+            ORDER BY total_steps DESC
+            LIMIT 10
+        """)
+        clean_sessions = [
+            {"session_id": r[0], "steps": r[1], "tools": r[2], "model": r[3], "workspace": r[4]}
+            for r in c.fetchall()
+        ]
 
-    conn.close()
+        # Interventions breakdown
+        c.execute("""
+            SELECT intervention_type, COUNT(*) as cnt
+            FROM user_interventions
+            GROUP BY intervention_type
+            ORDER BY cnt DESC
+        """)
+        interventions_breakdown = [{"type": r[0], "count": r[1]} for r in c.fetchall()]
+
+        # Frequent failing commands
+        c.execute("""
+            SELECT command_line, exit_code, COUNT(*) as cnt
+            FROM tool_calls
+            WHERE tool_name = 'run_command' AND (status != 'SUCCESS' OR (exit_code IS NOT NULL AND exit_code != 0))
+              AND command_line IS NOT NULL
+            GROUP BY command_line
+            ORDER BY cnt DESC
+            LIMIT 10
+        """)
+        failing_cmds = [{"command": r[0], "exit_code": r[1], "occurrences": r[2]} for r in c.fetchall()]
+    finally:
+        conn.close()
 
     return {
         "overview": {
@@ -209,6 +228,15 @@ def generate_markdown_report(audit: Dict[str, Any], output_path: Path) -> None:
     loops = audit["loops_by_tool"]
     depth_stats = audit["depth_stats"]
     interventions = audit["interventions"]
+    clean_sessions = audit.get("clean_sessions", [])
+    total_err = overview["total_tool_errors"] or 0
+    total_int = overview["total_interventions"] or 0
+    run_cmd_stat = next((t for t in tool_stats if t["tool"] == "run_command"), {"fails": 0})
+    run_cmd_fails = run_cmd_stat["fails"]
+    run_cmd_share = round(run_cmd_fails * 100.0 / total_err, 1) if total_err else 0.0
+    by_bucket = {d["bucket"]: d for d in depth_stats}
+    b_low = by_bucket.get("1-10 steps", {})
+    b_high = by_bucket.get("200+ steps", {})
 
     md = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
@@ -220,36 +248,35 @@ def generate_markdown_report(audit: Dict[str, Any], output_path: Path) -> None:
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Generated At**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')}  
-**Data Source**: Workstation telemetry mined from active Antigravity brain transcripts
+**Data Source**: Reconciled workstation telemetry in `data/telemetry.db`
 
 ---
 
 ## Executive Summary
 
-An exhaustive empirical audit of developer sessions recorded on this workstation was conducted using the `agyis-harness` telemetry harvester. 
+An empirical audit of **{overview['total_sessions']:,} developer sessions** was conducted using `agyis-harness`.
 
 | Metric | Empirical Value | Significance |
 | :--- | :--- | :--- |
-| **Total Sessions Audited** | **{overview['total_sessions']}** | Broad empirical baseline spanning multiple major engineering initiatives. |
+| **Total Sessions Audited** | **{overview['total_sessions']:,}** | Reconciled empirical baseline across IDE and CLI surfaces. |
 | **Total Trajectory Steps** | **{overview['total_steps']:,}** | Deep step-by-step telemetry covering planning, coding, and debugging. |
-| **Total Tool Executions** | **{overview['total_tool_calls']:,}** | High volume of tool interactions across file systems, terminals, and MCP. |
-| **Tool Failures Encountered** | **{overview['total_tool_errors']:,}** ({overview['overall_tool_error_rate_pct']}%) | Concrete failure states requiring either recovery or operator rescue. |
-| **Human Operator Interventions** | **{overview['total_interventions']:,}** ({overview['overall_session_intervention_rate']} / session) | Direct steering, confirmations, corrections, or rescue prompts. |
-| **Repeated Tool Loop Calls** | **{sum(l['loop_calls'] for l in loops):,}** | Redundant tool thrashing consuming context and latency. |
+| **Total Tool Executions** | **{overview['total_tool_calls']:,}** | Deduplicated tool executions across file systems, terminals, and MCP. |
+| **Tool Failures Encountered** | **{total_err:,}** ({overview['overall_tool_error_rate_pct']}%) | Reconciled directly from `tool_calls` failure and exit-code status. |
+| **Human Operator Interventions** | **{total_int:,}** ({overview['overall_session_intervention_rate']} / session) | Direct steering, confirmations, corrections, or rescue prompts. |
+| **Repeated Tool Loop Calls** | **{sum(l['loop_calls'] for l in loops):,}** | Redundant consecutive identical tool calls consuming context. |
 
 ---
 
 ## 🔬 The Empirical Taxonomy: 4 Operational Buckets
 
 ### 🟢 1. WHAT WORKED (High-Fidelity Autonomous Trajectories)
-- **High Autonomous Convergence in Short-to-Medium Trajectories (11–50 steps)**:
-  - 69 sessions completed with an average of **0.3 tool errors** and **0.0 operator interventions**.
-  - Single-turn code edits via `edit_file` achieved a **99.9% success rate** (only 4 failures out of 4,650 calls).
-- **Subagent Delegation Stability**:
-  - `invoke_subagent` / `swarm` exhibited a **99.5% success rate**, demonstrating that subagent lifecycle management is structurally solid when properly scoped.
-- **MCP Tool Precision**:
-  - `call_mcp_tool` / native MCP calls achieved a **98.6% success rate** across 147 calls, verifying that standard MCP stdio tool dispatching operates reliably once configured.
+- **Clean Autonomous Sessions (`>= 20` steps, `<= 1` error, `0` interventions)**: **{len(clean_sessions)}** top-depth sample sessions tracked cleanly.
+"""
+    for t in [x for x in tool_stats if x["total"] >= 10 and x["fail_rate_pct"] <= 5.0][:4]:
+        success_pct = round(100.0 - float(t["fail_rate_pct"] or 0.0), 1)
+        md += f"- **`{t['tool']}`**: **{success_pct}% success rate** across **{t['total']:,}** calls ({t['fails']:,} failures).\n"
 
+    md += f"""
 ---
 
 ### 🔴 2. WHAT FAILED (Mechanistic & Operational Breakdowns)
@@ -268,8 +295,8 @@ An exhaustive empirical audit of developer sessions recorded on this workstation
         md += f"| `{t['tool']}` | {t['total']:,} | {t['fails']:,} | {t['fail_rate_pct']}% | {primary_reason} |\n"
 
     md += f"""
-#### Exit Code Distribution for `run_command` (2,192 Total Failures)
-The terminal tool (`run_command`) is responsible for **98.4% of all tool failures** across the workstation.
+#### Exit Code Distribution for `run_command` ({run_cmd_fails:,} Total Failures)
+The terminal tool (`run_command`) accounts for **{run_cmd_share}%** of all reconciled tool failures ({run_cmd_fails:,} / {total_err:,}).
 """
     for ec in exit_codes[:7]:
         desc = "General error (test failure, git diff grep non-zero, process failure)" if ec['exit_code'] == 1 else (
@@ -289,8 +316,8 @@ The terminal tool (`run_command`) is responsible for **98.4% of all tool failure
 ##### Forensic Sub-Distribution of Exit Code 1 ({ec1.get('total', 0):,} Total Occurrences)
 | Failure Sub-Category | Occurrences | % of Exit Code 1 | Root Cause & Mitigation |
 | :--- | :--- | :--- | :--- |
-| **Grep / Diff Pattern No-Match** | {ec1.get('grep_diff_benign', 0):,} | {ec1.get('grep_diff_pct', 0)}% | Benign zero-match exits; mitigated by PreToolUse surgical `|| [ $? -eq 1 ]` sanitization |
-| **Python Syntax Errors** | {ec1.get('python_syntax_total', 0):,} | {ec1.get('python_syntax_pct', 0)}% | Parsing failures in `python3 -c` (includes {ec1.get('fstring_backslash', 0)} f-string backslash errors); mitigated by Hermetic Python >= 3.12 injection |
+| **Grep / Diff Pattern No-Match** | {ec1.get('grep_diff_benign', 0):,} | {ec1.get('grep_diff_pct', 0)}% | Benign zero-match exits; mitigated by PreToolUse `\\|\\| [ $? -eq 1 ]` sanitization |
+| **Python Syntax Errors** | {ec1.get('python_syntax_total', 0):,} | {ec1.get('python_syntax_pct', 0)}% | Parsing failures in `python3 -c` (includes {ec1.get('fstring_backslash', 0)} f-string backslash errors); mitigated by CPython >= 3.12 |
 | **Python Runtime Tracebacks** | {ec1.get('python_traceback', 0):,} | {ec1.get('python_traceback_pct', 0)}% | Unhandled exceptions and missing library imports in inline scripts |
 | **Other CLI / Build Failures** | {ec1.get('other_cli', 0):,} | {ec1.get('other_cli_pct', 0)}% | Test suite failures, compile errors, linter violations |
 """
@@ -298,75 +325,39 @@ The terminal tool (`run_command`) is responsible for **98.4% of all tool failure
     md += f"""
 #### Tool Thrashing & Loop Traps ({sum(l['loop_calls'] for l in loops):,} Occurrences)
 Redundant consecutive tool calls on identical arguments:
-- **`read_file`**: **3,951 repeated calls**. Agents re-reading files without state caching or paging awareness.
-- **`run_command` (`rg`/`grep`)**: **625 repeated calls**. Repeated pattern search attempts without broadening or altering queries.
-- **`manage_task` / `swarm_wait`**: **300 repeated calls**. Runaway polling loops instead of reactive timer/task waiting.
-- **`run_command`**: **360 repeated calls**. Repeatedly re-running the same failing command.
+"""
+    for l in loops[:6]:
+        md += f"- **`{l['tool']}`**: **{l['loop_calls']:,} repeated calls**.\n"
 
+    md += """
 #### The Context Cliff: Trajectory Length vs Error Escalation
 """
     for d in depth_stats:
-        md += f"- **{d['bucket']}** ({d['sessions']} sessions): Avg Errors = **{d['avg_errors']}**, Avg Operator Interventions = **{d['avg_interventions']}**\n"
+        md += f"- **{d['bucket']}** ({d['sessions']:,} sessions): Avg Errors = **{d['avg_errors']}**, Avg Operator Interventions = **{d['avg_interventions']}**\n"
 
     md += f"""
 > [!CAUTION]
-> **The 200+ Step Cliff**: When session trajectories exceed 200 steps, the average tool error rate jumps **20x** (from 1.0 to 20.5), and human operator interventions jump **40x** (from 0.4 to 16.3). Unpruned tool outputs and compounding errors cause severe context degradation.
+> **Measured 200+ Step Scaling**: At `200+ steps` ({b_high.get('sessions', 0):,} sessions), average errors reach **{b_high.get('avg_errors', 0)}/session** and operator interventions reach **{b_high.get('avg_interventions', 0)}/session** (compared to **{b_low.get('avg_errors', 0)}** errors and **{b_low.get('avg_interventions', 0)}** interventions in `1-10 steps`).
 
 ---
 
 ### 🟡 3. OPERATOR GUIDANCE (Human-in-the-Loop Interventions)
 
-Across 348 sessions, human operators stepped in **1,690 times**:
+Across **{overview['total_sessions']:,} sessions**, human operators intervened **{total_int:,} times**:
 """
     for it in interventions:
-        md += f"- **`{it['type']}`**: **{it['count']:,}** occurrences ({round(it['count']*100.0/overview['total_interventions'], 1)}%)\n"
+        pct = round(it['count'] * 100.0 / total_int, 1) if total_int else 0.0
+        md += f"- **`{it['type']}`**: **{it['count']:,}** occurrences ({pct}%)\n"
 
     md += """
-#### Core Steering Triggers Observed
-1. **Stop & Hold Fences (69 occurrences)**: Operator explicitly commanding agent to halt runaway execution or pause before making risky destructive mutations.
-2. **Trajectory Drift Redirection (4 occurrences)**: Operator correcting the agent after it deviated from the agreed implementation plan (`"Oh no you drifted - what was the initial plan I shared?"`).
-3. **Mesh & Hardware Orchestration (13 occurrences)**: Directing actions across remote Knot mesh nodes (Desktop Anchor, Laptop CUDA, ROG Ally, Steam Deck) where agent attempted local commands or failed SSH calls (`"Wait we need to onboard the new account in steam deck from desktop"`).
-4. **Credential & Secret Provisioning (98 occurrences)**: Supplying passwords, API keys, and environment tokens that cannot be checked into VCS.
-5. **Architectural & Design Plan Approvals (261 occurrences)**: Confirming implementation plans and verifying safety fences before proceeding.
-
 ---
 
-### 🚀 4. HARNESS OPPORTUNITIES (Actionable Solutions for `agyis-harness`)
+### 🚀 4. HARNESS OPPORTUNITIES (Actionable Safeguards in `agyis-harness`)
 
-Based on empirical workstation telemetry, `agyis-harness` implements the following reference components:
-
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                         agyis-harness Reference                        │
-├────────────────────────────┬────────────────────────────┬──────────────┤
-│       Lifecycle Hooks      │       Telemetry Rules      │ Ops & Skills │
-├────────────────────────────┼────────────────────────────┼──────────────┤
-│ • PreToolUse Anti-Loop     │ • Anti-Loop Heuristics     │ • Remote Ops │
-│ • PreToolUse Command Check │ • Error-Recovery Fences    │ • DB & Repo  │
-│ • PostToolUse Output Prune │ • Context Conservation     │   Worktrees  │
-│ • Stop / Gate Checklist    │ • Zero-Token Wait Protocol │ • RE Cleanrm │
-└────────────────────────────┴────────────────────────────┴──────────────┘
-```
-
-1. **`PreToolUse` Anti-Loop Guard**:
-   - Intercept identical consecutive calls to `read_file` or `run_command`.
-   - Inject cached result or synthetic redirection error to break loops before context is wasted.
-2. **`PreToolUse` Pre-flight Command Validator**:
-   - Check if command binaries exist before executing (mitigating Exit Code 127).
-   - Normalize commands that return non-zero for empty matches (e.g. `grep -E '...' || [ $? -eq 1 ]`).
-3. **`PostToolUse` Output Truncator**:
-   - Automatically compress tool outputs exceeding 2KB (`run_command`) / 32KB (`read_file`), eliminating the 200+ step context cliff.
-4. **Remote Execution Wrapper (`agyis remote`)**:
-   - Wrap SSH commands (`exit code 255`) with ControlMaster multiplexing and login-shell promotion.
-5. **Project-Level `AGENTS.md` Rules**:
-   - Codify anti-loop directives, proactive clarifying gates, and safe terminal guidelines directly in `.agents/rules/AGENTS.md`.
-
----
-
-## Conclusion
-This empirical baseline proves that core model reasoning capabilities are robust, but agent autonomy degrades primarily due to terminal tool friction (`run_command`), unmanaged tool loops (`read_file`), and unpruned context accumulation over long trajectories. 
-
-The `agyis-harness` project systematically addresses each of these empirical failure modes using official Antigravity extension surfaces.
+1. **`PreToolUse` Anti-Loop Guard**: Intercept consecutive identical `read_file` or `run_command` thrashing before context is wasted.
+2. **`PreToolUse` Pre-flight Command Validator**: Normalize benign non-zero probes (`grep`/`diff`) and guard missing toolchain binaries.
+3. **`PostToolUse` Output Truncator**: Compact tool outputs exceeding 2KB (`run_command`) / 32KB (`read_file`) while preserving full failure diagnostics.
+4. **Remote Execution Wrapper (`agyis remote`)**: ControlMaster SSH multiplexing and login-shell promotion.
 """
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

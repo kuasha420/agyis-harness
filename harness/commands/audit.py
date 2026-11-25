@@ -30,7 +30,7 @@ def _import_pipeline_module(module_name: str, stage: str) -> Optional[Any]:
             sys.stderr.write(
                 f"Error: Telemetry stage '{stage}' requires the 'pipeline' package from an "
                 "agyis-harness source checkout (not included in wheel distributions). "
-                "Run from a source checkout or use portable stages: aff, certify, verdict, prune.\n"
+                "Run from a source checkout or use portable stages: aff, certify, verdict, prune, db-integrity.\n"
             )
             return None
         raise
@@ -226,10 +226,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
             db_path = config.resolve_db_path(getattr(args, "db", None))
             conn = get_db_connection(db_path)
             try:
-                extract_transcripts.ensure_sync_columns(conn)
-                cur = conn.cursor()
-                cur.executescript(extract_transcripts.SCHEMA_SQL)
-                conn.commit()
+                extract_transcripts.ensure_telemetry_schema(conn)
 
                 from harness.trajectory.transcript_reader import find_transcript_path
 
@@ -281,6 +278,45 @@ def cmd_audit(args: argparse.Namespace) -> int:
         else:
             print_prune_summary(result, db_path)
         return 0
+    elif sub == "db-integrity":
+        from harness.telemetry.integrity import audit_database_integrity, repair_database_integrity
+
+        raw_db = getattr(args, "db", None)
+        db_path = Path(raw_db) if raw_db else DEFAULT_DB
+        if not db_path.exists():
+            sys.stderr.write(f"Error: Database file not found at {db_path}\n")
+            return 1
+
+        do_repair = getattr(args, "repair", False)
+        dry_run = getattr(args, "dry_run", False)
+        as_json = getattr(args, "json", False)
+
+        result = repair_database_integrity(db_path, dry_run=dry_run) if do_repair else audit_database_integrity(db_path)
+        if as_json:
+            print(json.dumps(result, indent=2))
+        else:
+            print_integrity_summary(result, db_path)
+        return 0
+    elif sub == "eras":
+        extra = []
+        if getattr(args, "db", None):
+            extra.extend(["--db", str(args.db)])
+        if getattr(args, "json", False):
+            extra.append("--json")
+        if getattr(args, "output_json", None):
+            extra.extend(["--output-json", str(args.output_json)])
+        if getattr(args, "output_report", None):
+            extra.extend(["--output-report", str(args.output_report)])
+        return _run_pipeline_stage("analyze_eras", extra, sub)
+    elif sub == "export-site":
+        extra = []
+        if getattr(args, "db", None):
+            extra.extend(["--db", str(args.db)])
+        if getattr(args, "out", None):
+            extra.extend(["--out", str(args.out)])
+        if getattr(args, "json", False):
+            extra.append("--json")
+        return _run_pipeline_stage("export_website_metrics", extra, sub)
     elif sub == "certify":
         from harness.subagents.verdict import generate_audit_verdict
         import re
@@ -583,5 +619,33 @@ def print_prune_summary(result: dict, db_path: Path) -> None:
         reclaimed_str = format_bytes(result["disk_bytes_reclaimed"])
         print(f"Database Size:   {before_str} -> {after_str} (reclaimed: {reclaimed_str})")
     print(f"Vacuum:          {vacuum_str}")
+    print("=" * 70)
+
+
+def print_integrity_summary(result: dict, db_path: Path) -> None:
+    """Renders human-readable summary for database integrity audit and repair."""
+    audit = result.get("audit_after") or result.get("audit_before") or result
+    counts = audit.get("counts", {})
+    dups = audit.get("duplicate_tool_calls", {})
+    mm = audit.get("counter_mismatches", {})
+    non_utc = audit.get("non_utc_timestamps", {})
+    print("=" * 70)
+    print(" 🛡️  Agyis Telemetry Database Integrity Audit")
+    print("=" * 70)
+    print(f"Database:        {db_path}")
+    print(f"Status:          {'HEALTHY' if audit.get('healthy') else 'NEEDS_REPAIR'}")
+    if result.get("repaired"):
+        act = result.get("actions", {})
+        print(f"Repaired:        Dropped {act.get('tool_calls_dropped_total', 0):,} duplicate tool_calls, "
+              f"updated {act.get('sessions_counters_updated', 0):,} session counters")
+    elif result.get("dry_run"):
+        print("Mode:            DRY RUN (no database modifications)")
+    print("-" * 70)
+    print(f"Rows:            {counts.get('sessions', 0):,} sessions | {counts.get('steps', 0):,} steps | "
+          f"{counts.get('tool_calls', 0):,} tool_calls | {counts.get('user_interventions', 0):,} interventions")
+    print(f"Duplicates:      {dups.get('total', 0):,} (pass1={dups.get('pass1_same_step', 0):,}, pass2={dups.get('pass2_cross_source', 0):,})")
+    print(f"Mismatches:      calls={mm.get('tool_call_count', 0)}, errors={mm.get('tool_error_count', 0)}, "
+          f"interventions={mm.get('intervention_count', 0)}, steps={mm.get('total_steps', 0)}, orphans={mm.get('zero_step_orphans', 0)}")
+    print(f"Non-UTC TS:      {non_utc.get('total', 0):,}")
     print("=" * 70)
 

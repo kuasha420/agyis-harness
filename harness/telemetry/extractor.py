@@ -166,7 +166,7 @@ def _infer_source_kind_rank(source_kind: Optional[str], transcript_path: Optiona
         low = str(transcript_path).lower()
         if low.endswith("transcript_full.jsonl"):
             return 3
-        if low.endswith("transcript.jsonl"):
+        if low.endswith(".jsonl"):
             return 2
         if low.endswith(".db"):
             return 1
@@ -239,12 +239,18 @@ def upsert_session_telemetry(
         incoming_rank = _infer_source_kind_rank(s_row.get("source_kind"), s_row.get("transcript_path"))
         if incoming_rank < existing_rank:
             # Preserve richer transcript source and child rows; enrich only missing/superior metadata.
+            inc_model = s_row.get("model")
+            if inc_model in (None, "", "Unknown", "Gemini 3.5/Flash/Pro (Default)"):
+                inc_model = None
             cur.execute(
                 """
                 UPDATE sessions
                 SET origin_machine = COALESCE(origin_machine, ?),
                     client_surface = COALESCE(client_surface, ?),
-                    model = CASE WHEN model IS NULL OR model = 'Unknown' THEN COALESCE(?, model) ELSE model END,
+                    model = CASE
+                        WHEN model IS NULL OR model IN ('', 'Unknown', 'Gemini 3.5/Flash/Pro (Default)')
+                        THEN COALESCE(?, model)
+                        ELSE model END,
                     model_slug = COALESCE(model_slug, ?),
                     model_display_name = COALESCE(model_display_name, ?),
                     max_context_tokens = COALESCE(max_context_tokens, ?),
@@ -268,7 +274,7 @@ def upsert_session_telemetry(
                 (
                     s_row.get("origin_machine"),
                     s_row.get("client_surface"),
-                    s_row.get("model"),
+                    inc_model,
                     s_row.get("model_slug"),
                     s_row.get("model_display_name"),
                     s_row.get("max_context_tokens"),

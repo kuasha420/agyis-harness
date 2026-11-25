@@ -32,7 +32,16 @@ def get_db_connection(
     """
     path_str = str(db_file)
     if read_only and path_str != ":memory:":
-        uri = f"{Path(path_str).resolve().as_uri()}?mode=ro"
+        resolved = Path(path_str).resolve()
+        wal_path = Path(f"{resolved}-wal")
+        has_nonempty_wal = wal_path.exists() and wal_path.stat().st_size > 0
+        db_unwritable = resolved.exists() and (
+            (resolved.stat().st_mode & 0o222) == 0 or not os.access(resolved, os.W_OK)
+        )
+        dir_unwritable = not os.access(resolved.parent, os.W_OK)
+        is_immutable = resolved.exists() and (db_unwritable or dir_unwritable) and not has_nonempty_wal
+        query = "?mode=ro&immutable=1" if is_immutable else "?mode=ro"
+        uri = f"{resolved.as_uri()}{query}"
         conn = sqlite3.connect(uri, timeout=timeout, uri=True)
         if row_factory:
             conn.row_factory = sqlite3.Row

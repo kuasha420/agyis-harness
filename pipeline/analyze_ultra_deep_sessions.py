@@ -176,8 +176,9 @@ def analyze_ultra_deep_sessions(db_path: Path) -> Dict[str, Any]:
 
     # Query all >= 1000 step sessions
     cur.execute("""
-        SELECT session_id, total_steps, tool_call_count, tool_error_count, intervention_count,
-               duration_seconds, start_time, workspace_path
+        SELECT session_id, COALESCE(total_steps, 0), COALESCE(tool_call_count, 0),
+               COALESCE(tool_error_count, 0), COALESCE(intervention_count, 0),
+               COALESCE(duration_seconds, 0.0), start_time, workspace_path
         FROM sessions
         WHERE total_steps >= 1000
         ORDER BY total_steps DESC
@@ -185,33 +186,34 @@ def analyze_ultra_deep_sessions(db_path: Path) -> Dict[str, Any]:
     rows = cur.fetchall()
 
     total_deep_sessions = len(rows)
-    total_deep_steps = sum(r[1] for r in rows)
-    total_deep_tools = sum(r[2] for r in rows)
-    total_deep_errors = sum(r[3] for r in rows)
-    total_deep_interventions = sum(r[4] for r in rows)
+    total_deep_steps = sum(r[1] or 0 for r in rows)
+    total_deep_tools = sum(r[2] or 0 for r in rows)
+    total_deep_errors = sum(r[3] or 0 for r in rows)
+    total_deep_interventions = sum(r[4] or 0 for r in rows)
 
     # General population comparison
     cur.execute("""
-        SELECT COUNT(*), SUM(total_steps), SUM(tool_call_count), SUM(tool_error_count), SUM(intervention_count)
+        SELECT COUNT(*), COALESCE(SUM(total_steps), 0), COALESCE(SUM(tool_call_count), 0),
+               COALESCE(SUM(tool_error_count), 0), COALESCE(SUM(intervention_count), 0)
         FROM sessions
     """)
     all_row = cur.fetchone()
-    all_sessions_count = all_row[0]
-    all_steps_count = all_row[1]
-    all_tools_count = all_row[2]
-    all_errors_count = all_row[3]
-    all_interventions_count = all_row[4]
+    all_sessions_count = all_row[0] or 0
+    all_steps_count = all_row[1] or 0
+    all_tools_count = all_row[2] or 0
+    all_errors_count = all_row[3] or 0
+    all_interventions_count = all_row[4] or 0
 
     sessions_data = []
     archetype_counts = {"TYPE_A_SURVIVOR": 0, "TYPE_B_SYSTEMS_BREAKTHROUGH": 0, "TYPE_C_THRASHING_TRAP": 0}
 
     for r in rows:
         s_id = r[0]
-        steps = r[1]
-        calls = r[2]
-        errs = r[3]
-        intervs = r[4]
-        dur_s = r[5]
+        steps = r[1] or 0
+        calls = r[2] or 0
+        errs = r[3] or 0
+        intervs = r[4] or 0
+        dur_s = r[5] or 0.0
         start_ts = r[6]
         ws = r[7] or ""
 
@@ -259,10 +261,12 @@ def analyze_ultra_deep_sessions(db_path: Path) -> Dict[str, Any]:
             "total_titan_steps": total_deep_steps,
             "titan_steps_share_pct": round(total_deep_steps * 100.0 / all_steps_count, 1) if all_steps_count else 0.0,
             "total_titan_tools": total_deep_tools,
+            "titan_tools_share_pct": round(total_deep_tools * 100.0 / all_tools_count, 1) if all_tools_count else 0.0,
             "total_titan_errors": total_deep_errors,
             "total_titan_interventions": total_deep_interventions,
             "all_sessions_count": all_sessions_count,
             "all_steps_count": all_steps_count,
+            "all_tools_count": all_tools_count,
             "archetype_distribution": archetype_counts
         },
         "sessions": sessions_data,
@@ -291,9 +295,11 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     lines.append("\n---\n")
 
     lines.append("## 1. Executive Summary: The Titan Population\n")
-    lines.append(f"While the typical agent trajectory faces a severe cognitive degradation cliff beyond **50–200 steps**, exactly **{m['total_titan_sessions']} sessions** on this workstation broke through the horizon and survived into **1,000 to 10,717 steps**.")
-    lines.append(f"- **Titan Steps Count**: **{m['total_titan_steps']:,} steps** (**{m['titan_steps_share_pct']}% of our entire 140,005-step historical corpus**!).")
-    lines.append(f"- **Titan Tool Calls**: **{m['total_titan_tools']:,} tool calls** (60.7% of all workstation executions).")
+    max_titan_steps = max((s["total_steps"] for s in sessions), default=0)
+    tools_share = m.get("titan_tools_share_pct", 0.0)
+    lines.append(f"While typical trajectories degrade over deep context horizons, **{m['total_titan_sessions']:,} sessions** broke through `>= 1,000` steps (up to **{max_titan_steps:,} steps**).")
+    lines.append(f"- **Titan Steps Count**: **{m['total_titan_steps']:,} steps** (**{m['titan_steps_share_pct']}% of the {m['all_steps_count']:,}-step corpus**).")
+    lines.append(f"- **Titan Tool Calls**: **{m['total_titan_tools']:,} tool calls** ({tools_share}% of all workstation executions).")
     lines.append(f"- **Titan Errors & Interventions**: **{m['total_titan_errors']:,} errors** and **{m['total_titan_interventions']:,} human interventions**.")
     lines.append("\n```text")
     lines.append("┌────────────────────────────────────────────────────────────────────────┐")
@@ -312,12 +318,12 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     lines.append("Our forensic clustering reveals that ultra-deep sessions do not fail or succeed uniformly; they bifurcate into **3 distinct operational archetypes**:\n")
     lines.append("| Archetype | Sessions | Characteristics & Dynamics |")
     lines.append("| :--- | :--- | :--- |")
-    lines.append(f"| **Type A: High-Endurance Survivors** | **{m['archetype_distribution']['TYPE_A_SURVIVOR']}** | **<0.8 interventions/100 steps**. Relies on rigid command dictionaries, high test cadence, and surgical contiguous edits. Operates 250+ steps between interventions. |")
-    lines.append(f"| **Type B: Systems Breakthroughs** | **{m['archetype_distribution']['TYPE_B_SYSTEMS_BREAKTHROUGH']}** | **Hardware mesh & Linux OS automation** (Knot, KDE, DBus, Wayland). Higher interventions due to mandatory safety gates (sudo passwords, physical pairing, GPG). |")
-    lines.append(f"| **Type C: Thrashing & Exhaustion Traps** | **{m['archetype_distribution']['TYPE_C_THRASHING_TRAP']}** | **>1.5 interventions/100 steps & >5% errors**. Dominant `run_command` loops (>55%), rule indirection, guessing deployment configs, infinite `read_file` loops. |")
+    lines.append(f"| **Type A: High-Endurance Survivors** | **{m['archetype_distribution']['TYPE_A_SURVIVOR']}** | **<0.9 interventions/100 steps & <5.5% errors**. Rigid command dictionaries, high test cadence, surgical contiguous edits. |")
+    lines.append(f"| **Type B: Systems Breakthroughs** | **{m['archetype_distribution']['TYPE_B_SYSTEMS_BREAKTHROUGH']}** | **Hardware mesh & Linux OS automation** (Knot, KDE, DBus, Wayland). Higher interventions due to mandatory safety gates. |")
+    lines.append(f"| **Type C: Thrashing & Exhaustion Traps** | **{m['archetype_distribution']['TYPE_C_THRASHING_TRAP']}** | **>=1.5 interventions/100 steps or >=5% errors**. Unbounded command loops and repeated file re-reads. |")
     lines.append("\n---\n")
 
-    lines.append("## 3. Roster of the 30 Titan Sessions\n")
+    lines.append(f"## 3. Roster of the {m['total_titan_sessions']} Titan Sessions\n")
     lines.append("| Session | Steps | Calls | Errors (%) | Interventions (/100s) | Hours | Archetype | Workspace |")
     lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
     for s in sessions:
@@ -334,9 +340,11 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     lines.append("\n---\n")
 
     if knot.get("found"):
+        k_err_pct = round(knot["tool_errors"] * 100.0 / knot["tool_calls"], 1) if knot.get("tool_calls") else 0.0
+        k_int_rate = round(knot["interventions"] * 100.0 / knot["total_steps"], 2) if knot.get("total_steps") else 0.0
         lines.append("## 4. Historic Case Study: The Genesis of Knot (`8cbe936a`)\n")
-        lines.append("On **September 4, 2026**, an Antigravity systems engineering session was initialized on a local workstation project.\n")
-        lines.append("- **Total Depth**: **3,357 steps** | **1,616 tool calls** | **80 errors (5.0%)** | **36 interventions (1.07/100s)**.")
+        lines.append(f"On **{knot.get('date', '2026-09-04')}**, an Antigravity systems engineering session was initialized on a local workstation project.\n")
+        lines.append(f"- **Total Depth**: **{knot['total_steps']:,} steps** | **{knot['tool_calls']:,} tool calls** | **{knot['tool_errors']:,} errors ({k_err_pct}%)** | **{knot['interventions']:,} interventions ({k_int_rate}/100s)**.")
         lines.append("- **Tool Strategy**: Unlike thrashing sessions, this session executed **63 `search_web` queries** and targeted documentation fetches, actively ingesting real-world protocol specs for Avahi, mDNS, Input Leap, and TLS certificates rather than guessing shell commands.")
         lines.append("\n### Chronological Inception Timeline\n")
         lines.append("| Step | Event Marker | Forensic Insight |")

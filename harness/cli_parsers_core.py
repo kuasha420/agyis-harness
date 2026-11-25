@@ -132,6 +132,7 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
             "all", "extract", "benchmark", "classify", "inventory", "dynamics",
             "traces", "interventions", "volume", "deep", "session", "live", "clusters",
             "artifacts", "configs", "project_configs", "project-configs", "prune",
+            "db-integrity", "eras", "export-site",
             "certify", "verdict", "aff", "macro", "fitness",
         ],
         help="Audit pipeline stage to run (default: all)",
@@ -141,13 +142,14 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_audit.add_argument("--backfill", action="store_true", help="Force volume backfill from transcripts")
     p_audit.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID for session audit")
     p_audit.add_argument("--save-db", action="store_true", help="Sync audited session into data/telemetry.db")
-    p_audit.add_argument("--out", type=Path, default=None, help="Export session analysis JSON path")
+    p_audit.add_argument("--out", type=Path, default=None, help="Export output path or directory")
     p_audit.add_argument("--json", action="store_true", help="Output session report in JSON format")
     p_audit.add_argument("--output-json", type=Path, default=None, help="Export analysis JSON path")
     p_audit.add_argument("--output-report", type=Path, default=None, help="Export analysis report Markdown path")
     p_audit.add_argument("--quiet", action="store_true", help="Suppress verbose stdout in pipeline stages")
     p_audit.add_argument("--days", type=int, default=90, help="Days threshold for historical argument pruning (default: 90)")
-    p_audit.add_argument("--dry-run", action="store_true", help="Simulate pruning without modifying database")
+    p_audit.add_argument("--dry-run", action="store_true", help="Simulate mutation without modifying database")
+    p_audit.add_argument("--repair", action="store_true", help="Apply repairs during db-integrity audit")
     p_audit.add_argument("--task-id", type=str, default="DEFAULT", help="Task or issue ID for audit certification")
     p_audit.add_argument("--verdict", type=str, default="VICTORY CONFIRMED", help="Auditor verdict (VICTORY CONFIRMED, PASS, REJECTED)")
     p_audit.add_argument("--skip-tests", action="store_true", help="Skip test suite execution during audit certification")

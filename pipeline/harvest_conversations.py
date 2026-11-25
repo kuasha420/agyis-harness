@@ -32,19 +32,26 @@ import re
 import sqlite3
 import sys
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 _logger = logging.getLogger(__name__)
 
-from pipeline.extract_transcripts import (
+from harness.telemetry.config import infer_client_surface, resolve_machine_id
+from harness.telemetry.db import get_db_connection
+from harness.telemetry.extractor import (
     SCHEMA_SQL,
     calculate_duration,
     classify_command,
     classify_intervention,
     ensure_sync_columns,
+    ensure_telemetry_schema,
     ensure_volume_columns,
     parse_iso_ts,
+    upsert_session_telemetry,
 )
+from harness.telemetry.models import normalize_model, normalize_utc_iso
+from harness.telemetry.sibling_db import read_sibling_gen_metadata
+from harness.trajectory.protobuf import extract_tool_from_protobuf
 
 
 def decode_varint(data: bytes, offset: int = 0) -> Tuple[int, int]:
@@ -103,7 +110,7 @@ def parse_protobuf_fields(data: bytes) -> List[Tuple[int, int, Any]]:
 
 
 def parse_proto_timestamp(data: bytes) -> Optional[str]:
-    """Extracts an ISO 8601 UTC timestamp from a protobuf google.protobuf.Timestamp message."""
+    """Extracts a UTC ISO 8601 ('...Z') timestamp from a google.protobuf.Timestamp message."""
     try:
         fields = parse_protobuf_fields(data)
         secs = None
@@ -112,7 +119,7 @@ def parse_proto_timestamp(data: bytes) -> Optional[str]:
                 secs = val
                 break
         if secs is not None and 1000000000 < secs < 3000000000:
-            return datetime.fromtimestamp(secs, tz=timezone.utc).isoformat()
+            return normalize_utc_iso(datetime.fromtimestamp(secs, tz=timezone.utc).isoformat())
     except (ValueError, OverflowError, OSError, TypeError) as exc:
         _logger.debug("Invalid proto timestamp bytes: %s", exc)
     return None
@@ -212,17 +219,24 @@ def extract_conversation_db(
                         if "/" in cand_ws or cand_ws.startswith("file://"):
                             workspace_detected = cand_ws
 
-        # 3. Model detection from executor_metadata or steps
-        model_detected = "Unknown"
+        # 3. Model detection from gen_metadata (protobuf) first, then executor_metadata (never fallback to Default)
+        exec_model = ""
         if "executor_metadata" in tables:
             cur.execute("SELECT data FROM executor_metadata WHERE data IS NOT NULL ORDER BY rowid DESC")
             for (ex_data,) in cur.fetchall():
                 if isinstance(ex_data, bytes):
                     ex_str = ex_data.decode("latin1", errors="replace")
-                    m = re.search(r"(gemini-[a-zA-Z0-9.\-_]+|gpt-[a-zA-Z0-9.\-_]+|claude-[a-zA-Z0-9.\-_]+)", ex_str, re.IGNORECASE)
+                    m = re.search(
+                        r"(gemini-[a-zA-Z0-9.\-_]+|gpt-[a-zA-Z0-9.\-_]+|claude-[a-zA-Z0-9.\-_]+)",
+                        ex_str,
+                        re.IGNORECASE,
+                    )
                     if m:
-                        model_detected = m.group(1).strip()
-                        break
+                        cand = m.group(1).strip().rstrip(".-_")
+                        info = normalize_model(cand)
+                        if info.attribution_status == "attributed":
+                            exec_model = cand
+                            break
 
         # 4. Fetch all steps
         cur.execute("""
@@ -237,6 +251,33 @@ def extract_conversation_db(
     finally:
         if conn is not None:
             conn.close()
+
+    gen_meta = read_sibling_gen_metadata(db_path)
+    model_slug = gen_meta.get("model_slug")
+    model_display_name = gen_meta.get("model_display_name")
+    model_detected = model_slug or model_display_name or exec_model or "Unknown"
+    norm_model = normalize_model(model_detected, model_slug=model_slug, model_display_name=model_display_name)
+    if norm_model.attribution_status == "unattributed_legacy":
+        model_detected = "Unknown"
+    if not model_slug and norm_model.attribution_status == "attributed":
+        model_slug = model_detected if (" " not in model_detected and "(" not in model_detected) else norm_model.canonical_model
+    if not model_display_name and model_detected != "Unknown" and (" " in model_detected or "(" in model_detected):
+        model_display_name = model_detected
+
+    meta_start_time = normalize_utc_iso(meta_start_time)
+    base_meta = {
+        "origin_machine": resolve_machine_id(workspace_detected or None),
+        "client_surface": infer_client_surface(db_path),
+        "source_kind": "sqlite_db",
+        "model_slug": model_slug,
+        "model_display_name": model_display_name,
+        "max_context_tokens": gen_meta.get("max_context_tokens") or norm_model.context_window_tokens,
+        "total_input_tokens": gen_meta.get("total_input_tokens"),
+        "total_cache_read_tokens": gen_meta.get("total_cache_read_tokens"),
+        "total_output_tokens": gen_meta.get("total_output_tokens"),
+        "total_thought_tokens": gen_meta.get("total_thought_tokens"),
+        "peak_context_tokens": gen_meta.get("peak_context_tokens"),
+    }
 
     if not raw_steps:
         # DB exists but has 0 steps
@@ -256,6 +297,7 @@ def extract_conversation_db(
             "intervention_count": 0,
             "origin_developer": "local",
             "remote_synced_at": None,
+            **base_meta,
         }
         return session_row, [], [], []
 
@@ -283,28 +325,28 @@ def extract_conversation_db(
         tool_start_ts = None
         tool_end_ts = None
 
-        # Parse metadata protobuf
+        # Parse metadata protobuf (fn=1 created_at, fn=29 modified_tool_call > fn=4 tool_call, fn=6/7/8/22/32 ts)
         if metadata_bytes and isinstance(metadata_bytes, bytes):
             m_fields = parse_protobuf_fields(metadata_bytes)
             for fn, wt, val in m_fields:
                 if fn == 1 and wt == 2:
                     created_at = parse_proto_timestamp(val)
-                elif fn == 4 and wt == 2:
-                    sub_fields = parse_protobuf_fields(val)
-                    sub_dict = {sfn: sval for sfn, swt, sval in sub_fields}
-                    if 2 in sub_dict and isinstance(sub_dict[2], bytes):
-                        tool_name = sub_dict[2].decode("utf-8", errors="replace")
-                    if 3 in sub_dict and isinstance(sub_dict[3], bytes):
-                        tool_args_str = sub_dict[3].decode("utf-8", errors="replace")
-                        try:
-                            tool_args = json.loads(tool_args_str)
-                        except (json.JSONDecodeError, TypeError) as exc:
-                            _logger.debug("Invalid tool args JSON at step %s in %s: %s", idx, db_path, exc)
-                            tool_args = {}
                 elif fn in (6, 7) and wt == 2 and not tool_start_ts:
                     tool_start_ts = parse_proto_timestamp(val)
                 elif fn in (8, 22, 32) and wt == 2:
                     tool_end_ts = parse_proto_timestamp(val)
+            pb_tname, pb_targs_str = extract_tool_from_protobuf(metadata_bytes)
+            if pb_tname:
+                tool_name = pb_tname
+                tool_args_str = pb_targs_str
+                if tool_args_str:
+                    try:
+                        parsed_args = json.loads(tool_args_str)
+                        if isinstance(parsed_args, dict):
+                            tool_args = parsed_args
+                    except (json.JSONDecodeError, TypeError) as exc:
+                        _logger.debug("Invalid tool args JSON at step %s in %s: %s", idx, db_path, exc)
+                        tool_args = {}
 
         if not created_at and meta_start_time:
             created_at = meta_start_time
@@ -496,8 +538,8 @@ def extract_conversation_db(
             })
 
     # Finalize session durations
-    start_time = first_step_time or meta_start_time
-    end_time = last_step_time or start_time
+    start_time = normalize_utc_iso(first_step_time or meta_start_time)
+    end_time = normalize_utc_iso(last_step_time or start_time)
     duration_s = calculate_duration(start_time, end_time) or 0.0
 
     session_row = {
@@ -516,13 +558,14 @@ def extract_conversation_db(
         "intervention_count": len(interventions_extracted),
         "origin_developer": "local",
         "remote_synced_at": None,
+        **base_meta,
     }
 
     return session_row, step_rows, tool_calls_extracted, interventions_extracted
 
 
 def harvest_conversation_db(db_path: Path, target_db: Path) -> Dict[str, Any]:
-    """Ingests a single conversation DB into target_db (telemetry.db)."""
+    """Ingests a single conversation DB into target_db without clobbering richer .jsonl transcripts."""
     target_db.parent.mkdir(parents=True, exist_ok=True)
     res = extract_conversation_db(db_path)
     if not res:
@@ -531,143 +574,24 @@ def harvest_conversation_db(db_path: Path, target_db: Path) -> Dict[str, Any]:
     session_row, step_rows, tool_rows, interv_rows = res
     s_id = session_row["session_id"]
 
-    conn = sqlite3.connect(target_db)
+    conn = get_db_connection(target_db, row_factory=False)
     try:
+        ensure_telemetry_schema(conn)
         cur = conn.cursor()
-        cur.execute("PRAGMA synchronous = NORMAL")
-        cur.execute("PRAGMA journal_mode = WAL")
-        cur.execute("PRAGMA busy_timeout = 30000")
-        cur.executescript(SCHEMA_SQL)
-        ensure_volume_columns(conn)
-        ensure_sync_columns(conn)
-
-        # Ensure idempotence by deleting previous session records
-        cur.execute("DELETE FROM steps WHERE session_id = ?", (s_id,))
-        cur.execute("DELETE FROM tool_calls WHERE session_id = ?", (s_id,))
-        cur.execute("DELETE FROM user_interventions WHERE session_id = ?", (s_id,))
-
-        # Preserve existing sync status and origin if session was already ingested
-        cur.execute("SELECT remote_synced_at, origin_developer, total_steps FROM sessions WHERE session_id = ?", (s_id,))
-        existing_row = cur.fetchone()
-        if existing_row:
-            existing_synced_at, existing_origin, existing_steps = existing_row[0], existing_row[1], existing_row[2]
-            new_steps = session_row.get("total_steps") or 0
-            if existing_steps is not None and new_steps > existing_steps:
-                session_row["remote_synced_at"] = None
-            elif existing_synced_at and not session_row.get("remote_synced_at"):
-                session_row["remote_synced_at"] = existing_synced_at
-            if existing_origin and existing_origin != "local":
-                session_row["origin_developer"] = existing_origin
-
-        cur.execute("""
-            INSERT OR REPLACE INTO sessions (
-                session_id, start_time, end_time, duration_seconds, total_steps,
-                model, workspace_path, transcript_path, file_size_bytes, has_errors,
-                tool_call_count, tool_error_count, intervention_count,
-                origin_developer, remote_synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            session_row["session_id"],
-            session_row["start_time"],
-            session_row["end_time"],
-            session_row["duration_seconds"],
-            session_row["total_steps"],
-            session_row["model"],
-            session_row["workspace_path"],
-            session_row["transcript_path"],
-            session_row["file_size_bytes"],
-            session_row["has_errors"],
-            session_row["tool_call_count"],
-            session_row["tool_error_count"],
-            session_row["intervention_count"],
-            session_row["origin_developer"],
-            session_row["remote_synced_at"],
-        ))
-
-        if step_rows:
-            cur.executemany("""
-                INSERT OR IGNORE INTO steps (
-                    session_id, step_index, step_type, source, status, created_at,
-                    content_length, content_snippet, has_thinking, thinking_length, tool_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [
-                (
-                    s["session_id"],
-                    s["step_index"],
-                    s["step_type"],
-                    s["source"],
-                    s["status"],
-                    s["created_at"],
-                    s["content_length"],
-                    s["content_snippet"],
-                    s["has_thinking"],
-                    s["thinking_length"],
-                    s["tool_count"],
-                )
-                for s in step_rows
-            ])
-
-        if tool_rows:
-            cur.executemany("""
-                INSERT OR IGNORE INTO tool_calls (
-                    session_id, step_index, result_step_index, tool_name, arguments_json,
-                    arguments_snippet, target_path, command_line, started_at, completed_at,
-                    duration_seconds, status, exit_code, error_snippet, is_loop_candidate,
-                    output_length_chars, output_lines, arguments_length_chars, command_category, is_truncated
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [
-                (
-                    t["session_id"],
-                    t["step_index"],
-                    t["result_step_index"],
-                    t["tool_name"],
-                    t["arguments_json"],
-                    t["arguments_snippet"],
-                    t["target_path"],
-                    t["command_line"],
-                    t["started_at"],
-                    t["completed_at"],
-                    t["duration_seconds"],
-                    t["status"],
-                    t["exit_code"],
-                    t["error_snippet"],
-                    t["is_loop_candidate"],
-                    t["output_length_chars"],
-                    t["output_lines"],
-                    t["arguments_length_chars"],
-                    t["command_category"],
-                    t["is_truncated"],
-                )
-                for t in tool_rows
-            ])
-
-        if interv_rows:
-            cur.executemany("""
-                INSERT OR IGNORE INTO user_interventions (
-                    session_id, step_index, created_at, prompt_text, prompt_length,
-                    preceding_tool_failed, preceding_tool_name, preceding_error_snippet, intervention_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [
-                (
-                    u["session_id"],
-                    u["step_index"],
-                    u["created_at"],
-                    u["prompt_text"],
-                    u["prompt_length"],
-                    u["preceding_tool_failed"],
-                    u["preceding_tool_name"],
-                    u["preceding_error_snippet"],
-                    u["intervention_type"],
-                )
-                for u in interv_rows
-            ])
-
-        conn.commit()
+        cur.execute("SELECT source_kind, transcript_path FROM sessions WHERE session_id = ?", (s_id,))
+        existing = cur.fetchone()
+        was_richer = bool(
+            existing and (
+                existing[0] in ("transcript_full", "transcript")
+                or str(existing[1] or "").lower().endswith(".jsonl")
+            )
+        )
+        upsert_session_telemetry(conn, session_row, step_rows, tool_rows, interv_rows, commit=True)
     finally:
         conn.close()
 
     return {
-        "status": "harvested",
+        "status": "enriched" if was_richer else "harvested",
         "session_id": s_id,
         "total_steps": len(step_rows),
         "tool_call_count": len(tool_rows),
@@ -677,39 +601,65 @@ def harvest_conversation_db(db_path: Path, target_db: Path) -> Dict[str, Any]:
     }
 
 
-def harvest_all_conversations(conv_dir: Path, target_db: Path) -> int:
-    """Discovers and ingests all conversation DBs from conv_dir into target_db."""
-    if not conv_dir.exists() or not conv_dir.is_dir():
+def get_default_conversation_dirs() -> List[Path]:
+    """Returns ordered IDE and CLI Antigravity conversation directories (respecting explicit env overrides)."""
+    from harness.utils.context import get_app_data_dir_candidates
+
+    env_dir = (
+        os.environ.get("AGYIS_CONVERSATIONS_DIR")
+        or os.environ.get("ANTIGRAVITY_CONVERSATIONS_DIR")
+        or os.environ.get("GEMINI_CONVERSATIONS_DIR")
+    )
+    if env_dir and env_dir.strip():
+        return [Path(env_dir.strip()).expanduser()]
+    return [app_dir / "conversations" for app_dir in get_app_data_dir_candidates()]
+
+
+def harvest_all_conversations(
+    conv_dir: Optional[Union[Path, Iterable[Path]]],
+    target_db: Path,
+) -> int:
+    """Discovers and ingests all conversation DBs from conv_dir (or IDE+CLI defaults) into target_db."""
+    if conv_dir is None:
+        dirs = get_default_conversation_dirs()
+    elif isinstance(conv_dir, (str, Path)):
+        dirs = [Path(conv_dir)]
+    else:
+        dirs = [Path(d) for d in conv_dir]
+
+    db_files: List[Path] = []
+    for d in dirs:
+        if d.exists() and d.is_dir():
+            db_files.extend(d.glob("*.db"))
+    if not db_files:
         return 0
 
-    db_files = sorted(conv_dir.glob("*.db"), key=lambda p: os.path.getmtime(p), reverse=True)
+    db_files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
     harvested = 0
     for p in db_files:
         res = harvest_conversation_db(p, target_db)
-        if res.get("status") == "harvested":
+        if res.get("status") in ("harvested", "enriched"):
             harvested += 1
-
     return harvested
 
 
 def main(argv: Optional[List[str]] = None) -> None:
-    from harness.trajectory.sqlite_reader import get_conversations_dir
-
     parser = argparse.ArgumentParser(description="Harvest Antigravity SQLite conversation DBs into telemetry.db.")
     parser.add_argument("--db", default="data/telemetry.db", help="Path to SQLite telemetry database")
     parser.add_argument(
         "--conv-dir",
-        default=str(get_conversations_dir()),
-        help="Path to conversations directory containing .db files",
+        default=None,
+        help="Path to conversations directory containing .db files (default: both IDE and CLI dirs)",
     )
     args = parser.parse_args(argv)
 
-    conv_dir = Path(args.conv_dir)
+    conv_dirs: Optional[Union[Path, List[Path]]] = Path(args.conv_dir) if args.conv_dir else None
     target_db = Path(args.db)
 
-    print(f"[*] Scanning conversation databases in {conv_dir}...")
+    desc = str(conv_dirs) if conv_dirs else ", ".join(str(d) for d in get_default_conversation_dirs())
+    print(f"[*] Scanning conversation databases in {desc}...")
     t0 = time.time()
-    count = harvest_all_conversations(conv_dir, target_db)
+    count = harvest_all_conversations(conv_dirs, target_db)
     dt = time.time() - t0
     print(f"[✓] Harvested {count} conversation databases into {target_db} in {dt:.2f}s")
 

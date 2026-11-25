@@ -386,54 +386,28 @@ def main() -> int:
     report_data = analyze_session(session_dir)
 
     if args.save_db:
+        from harness.telemetry.db import get_db_connection
+        from harness.telemetry.extractor import ensure_telemetry_schema, upsert_session_telemetry
+        from harness.trajectory.transcript_reader import find_transcript_path
         from pipeline import extract_transcripts
+
         db_path = Path(__file__).resolve().parent.parent / "data" / "telemetry.db"
-        t_path = session_dir / ".system_generated" / "logs" / "transcript.jsonl"
-        conn = sqlite3.connect(db_path)
+        conn = get_db_connection(db_path, row_factory=False)
         try:
-            cur = conn.cursor()
-            cur.executescript(extract_transcripts.SCHEMA_SQL)
-            conn.commit()
-
-            # Ingest coordinator
-            res = extract_transcripts.extract_session(t_path)
-            if res:
-                s_row, step_rows, tool_rows, interv_rows = res
-                cur.execute("""
-                    INSERT OR REPLACE INTO sessions (
-                        session_id, start_time, end_time, duration_seconds, total_steps,
-                        model, workspace_path, transcript_path, file_size_bytes, has_errors,
-                        tool_call_count, tool_error_count, intervention_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    s_row["session_id"], s_row["start_time"], s_row["end_time"],
-                    s_row["duration_seconds"], s_row["total_steps"], s_row["model"],
-                    s_row["workspace_path"], s_row["transcript_path"], s_row["file_size_bytes"],
-                    s_row["has_errors"], s_row["tool_call_count"], s_row["tool_error_count"],
-                    s_row["intervention_count"]
-                ))
-                conn.commit()
-
-            # Ingest subagents
+            ensure_telemetry_schema(conn)
+            targets: List[Path] = []
+            root_tp, _ = find_transcript_path(session_dir)
+            if root_tp:
+                targets.append(root_tp)
             for sa in report_data["subagents"]:
-                sub_p = session_dir.parent / sa["conversation_id"] / ".system_generated" / "logs" / "transcript.jsonl"
-                sub_res = extract_transcripts.extract_session(sub_p)
-                if sub_res:
-                    s_row, _, _, _ = sub_res
-                    cur.execute("""
-                        INSERT OR REPLACE INTO sessions (
-                            session_id, start_time, end_time, duration_seconds, total_steps,
-                            model, workspace_path, transcript_path, file_size_bytes, has_errors,
-                            tool_call_count, tool_error_count, intervention_count
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        s_row["session_id"], s_row["start_time"], s_row["end_time"],
-                        s_row["duration_seconds"], s_row["total_steps"], s_row["model"],
-                        s_row["workspace_path"], s_row["transcript_path"], s_row["file_size_bytes"],
-                        s_row["has_errors"], s_row["tool_call_count"], s_row["tool_error_count"],
-                        s_row["intervention_count"]
-                    ))
-                    conn.commit()
+                sub_tp, _ = find_transcript_path(session_dir.parent / sa["conversation_id"])
+                if sub_tp:
+                    targets.append(sub_tp)
+            for tp in targets:
+                res = extract_transcripts.extract_session(tp)
+                if res:
+                    upsert_session_telemetry(conn, *res, commit=False)
+            conn.commit()
         finally:
             conn.close()
         print(f"✔ Synchronized session {report_data['session_id'][:8]} and {len(report_data['subagents'])} subagents into telemetry.db\n")

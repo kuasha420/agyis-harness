@@ -104,7 +104,11 @@ def ensure_sync_columns(conn: sqlite3.Connection) -> None:
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_interventions_uniq ON user_interventions(session_id, step_index)")
 
     if "tool_calls" in existing_tables and "idx_tool_calls_uniq" not in existing_indexes:
-        cur.execute("DELETE FROM tool_calls WHERE id NOT IN (SELECT MIN(id) FROM tool_calls GROUP BY session_id, step_index, tool_name, started_at, arguments_snippet)")
+        cur.execute(
+            "DELETE FROM tool_calls WHERE started_at IS NOT NULL AND id NOT IN ("
+            "SELECT MIN(id) FROM tool_calls WHERE started_at IS NOT NULL "
+            "GROUP BY session_id, step_index, tool_name, started_at, arguments_snippet)"
+        )
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_calls_uniq ON tool_calls(session_id, step_index, tool_name, started_at, arguments_snippet)")
 
     conn.commit()

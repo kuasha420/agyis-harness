@@ -37,6 +37,8 @@ import sqlite3
 import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from harness.telemetry.models import normalize_model
+
 TIERS = [
     {
         "id": "gemini-4-hydrogen",
@@ -57,6 +59,16 @@ TIERS = [
         "baseline_steps": 23.0,
         "baseline_thinking_tokens": 7600,
         "baseline_latency_s": 31.5,
+    },
+    {
+        "id": "gemini-4-argon",
+        "name": "Gemini 4 Argon (512K Autonomous)",
+        "model_key": "gemini-4-argon",
+        "description": "512K Gemini 4 tier for deep long-horizon engineering trajectories.",
+        "baseline_accuracy": 96.0,
+        "baseline_steps": 20.0,
+        "baseline_thinking_tokens": 5200,
+        "baseline_latency_s": 22.0,
     },
     {
         "id": "gemini-3.8-flash-low",
@@ -88,135 +100,228 @@ TIERS = [
         "baseline_thinking_tokens": 8100,
         "baseline_latency_s": 42.1,
     },
+    {
+        "id": "claude-sonnet-5-5",
+        "name": "Claude Sonnet 5.5 (840K)",
+        "model_key": "claude-sonnet-5-5",
+        "description": "Anthropic Claude Sonnet 5.5 long-context reasoning tier.",
+        "baseline_accuracy": 95.0,
+        "baseline_steps": 19.0,
+        "baseline_thinking_tokens": 4800,
+        "baseline_latency_s": 24.0,
+    },
+    {
+        "id": "claude-opus-4",
+        "name": "Claude Opus 4",
+        "model_key": "claude-opus-4",
+        "description": "Anthropic Claude Opus 4 frontier reasoning tier.",
+        "baseline_accuracy": 96.5,
+        "baseline_steps": 22.0,
+        "baseline_thinking_tokens": 6000,
+        "baseline_latency_s": 30.0,
+    },
+    {
+        "id": "gpt-oss-120b",
+        "name": "GPT-OSS 120B",
+        "model_key": "gpt-oss-120b",
+        "description": "Open-weights 120B reasoning baseline.",
+        "baseline_accuracy": 88.0,
+        "baseline_steps": 14.0,
+        "baseline_thinking_tokens": 2200,
+        "baseline_latency_s": 16.0,
+    },
 ]
 
 
-def classify_session_tier(model_name: str, has_thinking: bool, thinking_len: int) -> str:
-    """Classifies a session model name natively across Gemini 4 and historical reasoning tiers."""
-    lower = model_name.lower()
-    if "gemini-4-neon" in lower or ("neon" in lower and "gemini-4" in lower) or lower == "neon":
-        return "gemini-4-neon"
-    if "gemini-4-hydrogen" in lower or ("hydrogen" in lower and "gemini-4" in lower) or lower == "hydrogen":
-        return "gemini-4-hydrogen"
-    if "pro" in lower:
+def classify_session_tier(
+    model_name: str,
+    has_thinking: bool,
+    thinking_len: int,
+    model_slug: Optional[str] = None,
+    model_display_name: Optional[str] = None,
+) -> str:
+    """Classifies a session model via normalize_model() across Gemini 4, Gemini 3.x, Claude, GPT-OSS, and isolated legacy."""
+    info = normalize_model(model_name, model_slug=model_slug, model_display_name=model_display_name)
+    if info.attribution_status == "unattributed_legacy":
+        return "unattributed_legacy"
+    if info.attribution_status == "unknown":
+        return "unknown"
+
+    canon = info.canonical_model
+    effort = info.reasoning_effort
+    if canon == "gemini-3.8-flash":
+        if effort == "low":
+            return "gemini-3.8-flash-low"
+        if effort in ("high", "xhigh"):
+            return "gemini-3.8-flash-high"
+        if "tiered" in (model_name or "").lower():
+            return "gemini-3.8-flash-tiered"
+        return "gemini-3.8-flash-high" if (has_thinking or thinking_len > 1500) else "gemini-3.8-flash-low"
+    if canon == "gemini-3.1-pro":
         return "gemini-3.1-pro"
-    if "high" in lower or lower.endswith("-h") or "flash-h" in lower:
-        return "gemini-3.8-flash-high"
-    if "low" in lower or lower.endswith("-s") or "flash-s" in lower:
-        return "gemini-3.8-flash-low"
-    # Heuristic based on thinking length when model identifier is generic
-    if has_thinking or thinking_len > 1500:
-        return "gemini-4-hydrogen"
-    return "gemini-3.8-flash-low"
+    return canon
+
+
+def _aggregate_tier_rows(
+    t_id: str,
+    sessions: List[Dict[str, Any]],
+    cfg: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    count = len(sessions)
+    if count > 0:
+        total_steps = sum(int(s.get("total_steps") or 0) for s in sessions)
+        avg_steps = round(total_steps / count, 1)
+        total_dur = sum(float(s.get("duration_seconds") or 0.0) for s in sessions)
+        avg_latency = round(total_dur / count, 2)
+        tot_th_tok = 0
+        for s in sessions:
+            pb_th = int(s.get("total_thought_tokens") or 0)
+            char_th = round(int(s.get("total_thinking_len") or 0) / 4)
+            tot_th_tok += max(pb_th, char_th)
+        avg_thinking_tokens = round(tot_th_tok / count)
+        successful_sessions = sum(1 for s in sessions if int(s.get("has_errors") or 0) == 0)
+        accuracy = round((successful_sessions / count) * 100.0, 1)
+        total_calls = sum(int(s.get("tool_call_count") or 0) for s in sessions)
+        total_errs = sum(int(s.get("tool_error_count") or 0) for s in sessions)
+        err_rate_pct = round((total_errs / total_calls) * 100.0, 2) if total_calls else 0.0
+        source = "unattributed_legacy" if t_id in ("unattributed_legacy", "unknown") else "empirical"
+    elif cfg is not None:
+        avg_steps = cfg["baseline_steps"]
+        avg_latency = cfg["baseline_latency_s"]
+        avg_thinking_tokens = cfg["baseline_thinking_tokens"]
+        accuracy = cfg["baseline_accuracy"]
+        total_calls = total_errs = 0
+        err_rate_pct = 0.0
+        source = "calibrated_baseline"
+    else:
+        avg_steps = avg_latency = avg_thinking_tokens = accuracy = total_calls = total_errs = err_rate_pct = 0
+        source = "empirical"
+
+    return {
+        "tier_id": t_id,
+        "name": cfg["name"] if cfg else t_id,
+        "description": cfg["description"] if cfg else f"Observed canonical model tier ({t_id})",
+        "session_count": count,
+        "accuracy_percent": accuracy,
+        "average_steps": avg_steps,
+        "average_thinking_tokens": avg_thinking_tokens,
+        "average_wall_clock_seconds": avg_latency,
+        "total_tool_calls": total_calls,
+        "total_tool_errors": total_errs,
+        "tool_error_rate_pct": err_rate_pct,
+        "data_source": source,
+    }
 
 
 def evaluate_reasoning_tiers(
     db_path: Optional[Union[str, Path]] = None,
     output_json: Optional[Union[str, Path]] = None,
     output_report: Optional[Union[str, Path]] = None,
+    write_files: bool = True,
 ) -> Dict[str, Any]:
-    """Computes empirical reasoning effort vs accuracy benchmark matrix across all configured tiers."""
+    """Computes empirical reasoning effort vs accuracy benchmark matrix across normalized model tiers."""
     target_db = Path(db_path) if db_path else Path("data/telemetry.db")
     tier_data: Dict[str, List[Dict[str, Any]]] = {t["id"]: [] for t in TIERS}
+    canon_data: Dict[str, List[Dict[str, Any]]] = {}
+    isolated_data: Dict[str, List[Dict[str, Any]]] = {"unattributed_legacy": [], "unknown": []}
 
     if target_db.exists() and target_db.is_file():
         conn = sqlite3.connect(target_db)
         try:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
-
-            # Query session metrics and thinking token stats
-            cur.execute("""
+            cur.execute("PRAGMA table_info(sessions)")
+            sess_cols = {r[1] for r in cur.fetchall()}
+            extra_sel = [
+                f"s.{col}" if col in sess_cols else f"NULL AS {col}"
+                for col in ("model_slug", "model_display_name", "total_thought_tokens")
+            ]
+            cur.execute(
+                f"""
                 SELECT s.session_id, s.model, s.total_steps, s.duration_seconds, s.has_errors,
-                       s.tool_call_count, s.tool_error_count,
+                       s.tool_call_count, s.tool_error_count, {', '.join(extra_sel)},
                        COALESCE(SUM(st.thinking_length), 0) AS total_thinking_len,
                        COALESCE(MAX(st.has_thinking), 0) AS has_thinking
                 FROM sessions s
                 LEFT JOIN steps st ON s.session_id = st.session_id
                 GROUP BY s.session_id
-            """)
+                """
+            )
             rows = [dict(r) for r in cur.fetchall()]
         finally:
             conn.close()
 
         for r in rows:
             m_name = str(r.get("model") or "")
+            m_slug = r.get("model_slug")
+            m_disp = r.get("model_display_name")
             t_len = int(r.get("total_thinking_len") or 0)
             has_t = bool(r.get("has_thinking"))
-            tier_id = classify_session_tier(m_name, has_t, t_len)
-            tier_data[tier_id].append(r)
+            info = normalize_model(m_name, model_slug=m_slug, model_display_name=m_disp)
+            tier_id = classify_session_tier(m_name, has_t, t_len, model_slug=m_slug, model_display_name=m_disp)
+            if tier_id in ("unattributed_legacy", "unknown"):
+                isolated_data[tier_id].append(r)
+            else:
+                tier_data.setdefault(tier_id, []).append(r)
+                canon_data.setdefault(info.canonical_model, []).append(r)
 
     results: Dict[str, Any] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "database": str(target_db),
         "tiers": {},
+        "canonical_models": {},
+        "isolated_unattributed": {},
         "summary": {},
     }
 
-    tier_metrics_list = []
-
+    tier_cfg_map = {t["id"]: t for t in TIERS}
+    tier_metrics_list: List[Dict[str, Any]] = []
     for t in TIERS:
         t_id = t["id"]
-        sessions = tier_data.get(t_id, [])
-        count = len(sessions)
-
-        if count > 0:
-            total_steps = sum(s.get("total_steps", 0) for s in sessions)
-            avg_steps = round(total_steps / count, 1)
-            total_dur = sum(s.get("duration_seconds", 0.0) or 0.0 for s in sessions)
-            avg_latency = round(total_dur / count, 2)
-            total_thinking_len = sum(s.get("total_thinking_len", 0) for s in sessions)
-            # Estimate tokens as ~4 chars per token
-            avg_thinking_tokens = round((total_thinking_len / count) / 4)
-            successful_sessions = sum(1 for s in sessions if s.get("has_errors", 0) == 0)
-            accuracy = round((successful_sessions / count) * 100.0, 1)
-            source = "empirical"
-        else:
-            # Fallback to empirical calibration baseline
-            avg_steps = t["baseline_steps"]
-            avg_latency = t["baseline_latency_s"]
-            avg_thinking_tokens = t["baseline_thinking_tokens"]
-            accuracy = t["baseline_accuracy"]
-            source = "calibrated_baseline"
-
-        tier_res = {
-            "tier_id": t_id,
-            "name": t["name"],
-            "description": t["description"],
-            "session_count": count,
-            "accuracy_percent": accuracy,
-            "average_steps": avg_steps,
-            "average_thinking_tokens": avg_thinking_tokens,
-            "average_wall_clock_seconds": avg_latency,
-            "data_source": source,
-        }
+        tier_res = _aggregate_tier_rows(t_id, tier_data.get(t_id, []), cfg=t)
         results["tiers"][t_id] = tier_res
         tier_metrics_list.append(tier_res)
 
+    for t_id, s_list in sorted(tier_data.items()):
+        if t_id not in tier_cfg_map and s_list:
+            tier_res = _aggregate_tier_rows(t_id, s_list, cfg=None)
+            results["tiers"][t_id] = tier_res
+            tier_metrics_list.append(tier_res)
+
+    for c_id, s_list in sorted(canon_data.items(), key=lambda x: len(x[1]), reverse=True):
+        results["canonical_models"][c_id] = _aggregate_tier_rows(c_id, s_list, cfg=tier_cfg_map.get(c_id))
+
+    for iso_id, s_list in isolated_data.items():
+        if s_list:
+            results["isolated_unattributed"][iso_id] = _aggregate_tier_rows(iso_id, s_list, cfg=None)
+
+    attributed_nonempty = [t for t in tier_metrics_list if t["session_count"] > 0] or tier_metrics_list
     results["summary"] = {
-        "total_evaluated_tiers": len(TIERS),
-        "fastest_tier": min(tier_metrics_list, key=lambda x: x["average_wall_clock_seconds"])["tier_id"],
-        "highest_accuracy_tier": max(tier_metrics_list, key=lambda x: x["accuracy_percent"])["tier_id"],
+        "total_evaluated_tiers": len(results["tiers"]),
+        "total_attributed_sessions": sum(t["session_count"] for t in tier_metrics_list),
+        "isolated_unattributed_sessions": sum(len(v) for v in isolated_data.values()),
+        "fastest_tier": min(attributed_nonempty, key=lambda x: x["average_wall_clock_seconds"])["tier_id"],
+        "highest_accuracy_tier": max(attributed_nonempty, key=lambda x: x["accuracy_percent"])["tier_id"],
     }
 
-    # Generate output files
-    json_path = Path(output_json) if output_json else Path("data/reasoning_benchmark_results.json")
-    json_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
+    if write_files:
+        json_path = Path(output_json) if output_json else Path("data/reasoning_benchmark_results.json")
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2)
 
-    report_path = (
-        Path(output_report)
-        if output_report
-        else Path("data/reports/reasoning-tier-benchmark-report.md")
-    )
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_md = generate_benchmark_report(results)
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write(report_md)
+        report_path = (
+            Path(output_report)
+            if output_report
+            else Path("data/reports/reasoning-tier-benchmark-report.md")
+        )
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_md = generate_benchmark_report(results)
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(report_md)
 
-    results["output_json"] = str(json_path)
-    results["output_report"] = str(report_path)
+        results["output_json"] = str(json_path)
+        results["output_report"] = str(report_path)
     return results
 
 
