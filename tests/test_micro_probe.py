@@ -399,7 +399,21 @@ class TestMicroProbeUnit(unittest.TestCase):
                 mock_res.runner_cmd = "python3 -m unittest"
                 mock_resolve.return_value = mock_res
 
-                with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="pytest", timeout=0.1)):
+                # Baseline run succeeds first; subsequent mutant runs time out and count as killed.
+                calls = {"n": 0}
+
+                def _baseline_ok_then_timeout(*args, **kwargs):
+                    calls["n"] += 1
+                    if calls["n"] == 1:
+                        return subprocess.CompletedProcess(
+                            args=["python3", "-m", "unittest"],
+                            returncode=0,
+                            stdout="OK\n",
+                            stderr="",
+                        )
+                    raise subprocess.TimeoutExpired(cmd="pytest", timeout=0.1)
+
+                with patch("subprocess.run", side_effect=_baseline_ok_then_timeout):
                     res = run_micro_mutation(target_diff=diff, config=cfg)
                     self.assertGreater(res.killed_mutants, 0)
                     self.assertEqual(len(res.survived_mutants), 0)

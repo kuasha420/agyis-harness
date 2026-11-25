@@ -283,8 +283,18 @@ class TestVerifyCommand(unittest.TestCase):
         self.assertEqual(data["evidence_bundle"]["records"], [])
 
         ob = ReviewedObligation(obligation_id="OBL-1", disposition="active", target="foo")
-        self.assertEqual(ob.obligation_version, "1.0.0")
+        self.assertEqual(ob.obligation_version, 1)
         self.assertIsInstance(ob.review_evidence_ids, list)
+        ob_dict = ob.to_dict()
+        self.assertEqual(
+            ob_dict["target"],
+            {
+                "artifact_sha256": None,
+                "application_node_id": None,
+                "semantic_node_id": None,
+                "location": "foo",
+            },
+        )
 
 
 if __name__ == "__main__":

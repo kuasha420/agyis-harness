@@ -224,7 +224,7 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
             self.assertEqual(traj["steps"][1]["response_model"], "claude-3-7-sonnet")
             self.assertEqual(traj["steps"][2]["response_model"], "claude-3-7-sonnet")
 
-        # Zero occurrences of gemini-2.5-pro in hud.js (PSL-INV-010)
+        # Zero occurrences of gemini-2.5-pro in hud.js (PSL-INV-007)
         from harness.gui.trajectory_hud import _load_hud_template
         template = _load_hud_template()
         self.assertNotIn("gemini-2.5-pro", template)

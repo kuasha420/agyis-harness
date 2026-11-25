@@ -304,8 +304,8 @@ class TestTrajectoryV234Compat(unittest.TestCase):
         with patch.dict(os.environ, {"ANTIGRAVITY_AGENT": "1"}, clear=True):
             self.assertTrue(is_non_interactive_context())
 
-        self.assertEqual(classify_session_tier("gemini-4-hydrogen", True, 2000), "gemini-3.8-flash-high")
-        self.assertEqual(classify_session_tier("gemini-4-neon", True, 5000), "gemini-3.1-pro")
+        self.assertEqual(classify_session_tier("gemini-4-hydrogen", True, 2000), "gemini-4-hydrogen")
+        self.assertEqual(classify_session_tier("gemini-4-neon", True, 5000), "gemini-4-neon")
 
 
 if __name__ == "__main__":

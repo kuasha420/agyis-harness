@@ -296,8 +296,7 @@ class TestTier2Boundaries(OpaqueBoxTestCase):
 
     def _get_template_path(self, filename: str) -> Path:
         p = REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / filename
-        if not p.exists():
-            self.skipTest(f"Pending implementation in Milestone M4: {filename} not yet created")
+        self.assertTrue(p.is_file(), f"Expected issue template {p} to exist")
         return p
 
     def test_b6_01_malformed_yaml_syntax_detection(self) -> None:
@@ -316,8 +315,7 @@ class TestTier2Boundaries(OpaqueBoxTestCase):
     def test_b6_03_non_yaml_files_ignored(self) -> None:
         """Assures non-YAML files in .github/ISSUE_TEMPLATE/ (if any) are not treated as issue forms."""
         template_dir = REPO_ROOT / ".github" / "ISSUE_TEMPLATE"
-        if not template_dir.exists():
-            self.skipTest("Pending implementation in Milestone M4: ISSUE_TEMPLATE directory not yet created")
+        self.assertTrue(template_dir.is_dir(), f"Expected {template_dir} to exist")
         for file in template_dir.iterdir():
             if file.suffix not in (".yml", ".yaml"):
                 self.assertNotEqual(file.suffix, ".yml")
@@ -356,10 +354,30 @@ class TestTier2Boundaries(OpaqueBoxTestCase):
         self.assertTrue(rea_info.get("fast_path", False))
         self.assertNotEqual(rea_info.get("status"), "warning")
 
-        # Adverse condition: restricted PATH where 'rea' binary is completely missing
-        with unittest.mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}):
+        # Adverse condition: restricted PATH/HOME where 'rea' binary is completely missing
+        # while keeping pnpm/node/uv available on PATH so unrelated missing tools don't fail exit code.
+        no_rea_bin = self.ws / "no_rea_bin"
+        no_rea_bin.mkdir(parents=True, exist_ok=True)
+        kept_path_parts = []
+        for raw_dir in os.environ.get("PATH", "").split(os.pathsep):
+            if not raw_dir:
+                continue
+            p = Path(raw_dir)
+            if (p / "rea").exists():
+                for item in p.iterdir():
+                    if item.name != "rea" and not (no_rea_bin / item.name).exists():
+                        try:
+                            (no_rea_bin / item.name).symlink_to(item)
+                        except OSError:
+                            pass
+            else:
+                kept_path_parts.append(raw_dir)
+        restricted_path = os.pathsep.join([str(no_rea_bin)] + kept_path_parts)
+
+        with unittest.mock.patch.dict(os.environ, {"PATH": restricted_path, "HOME": str(self.ws)}):
+            os.environ.pop("PNPM_HOME", None)
             code_no_rea, out_no_rea, err_no_rea = self.run_cli(["doctor", "--json"])
-            self.assertEqual(code_no_rea, 0)
+            self.assertEqual(code_no_rea, code)
             data_no_rea = self.parse_json_stdout(out_no_rea)
             self.assertFalse(data_no_rea.get("experimental_rea", False))
             rea_no_rea = data_no_rea.get("rea_tooling", {})

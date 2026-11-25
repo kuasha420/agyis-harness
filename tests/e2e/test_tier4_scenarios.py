@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import unittest
+import unittest.mock
 import uuid
 
 from harness.delivery.constants import REPO_ROOT
@@ -128,10 +129,9 @@ class TestTier4Scenarios(OpaqueBoxTestCase):
         self.assertEqual(code, 0)
         self.assertTrue(len(version_out.strip()) > 0)
 
-        # Step 3: Verify issue template availability (skip if pending Milestone M4)
+        # Step 3: Verify issue template availability
         template_path = REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
-        if not template_path.exists():
-            self.skipTest("Pending implementation in Milestone M4: bug_report.yml not yet created")
+        self.assertTrue(template_path.is_file(), f"Expected issue template {template_path} to exist")
 
         tmpl_content = template_path.read_text(encoding="utf-8")
 
@@ -153,8 +153,9 @@ class TestTier4Scenarios(OpaqueBoxTestCase):
         """
         conv_id = f"journey6_conv_{uuid.uuid4().hex[:8]}"
 
-        # Step 1: Initialize cleanroom workspace
-        code_init, out_init, err_init = self.run_cli(["init", "--experimental-rea", str(self.ws)])
+        # Step 1: Initialize cleanroom workspace (avoid slow external rea subprocess probe)
+        with unittest.mock.patch("harness.runtime.healing.provision_rea_skill"):
+            code_init, out_init, err_init = self.run_cli(["init", "--experimental-rea", str(self.ws)])
         self.assertEqual(code_init, 0)
         self.assertTrue((self.ws / ".agents" / "ledger").is_dir())
 
