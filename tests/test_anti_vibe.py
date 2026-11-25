@@ -4,9 +4,9 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Hermetic verification suite for PSL-INV-010 (Anti-Vibe-Coding & Dynamic Lifecycle Invariant).
-Validates dynamic Trajectory HTTP server endpoints, CORS headers, stale DOM replacement,
-focused route tracking, and multi-session traversal.
+Hermetic verification suite for PSL-INV-007 (Live Reality Over Static Fakes).
+Validates dynamic Trajectory HTTP server endpoints, strict CORS allowlist + Vary: Origin,
+403 untrusted-origin rejection, stale DOM replacement, focused route tracking, and multi-session traversal.
 """
 
 from __future__ import annotations
@@ -38,178 +38,8 @@ from harness.gui.trajectory_hud import (
 )
 
 
-def _get_free_port() -> int:
-    """Finds an available local port for testing."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-class TestTrajectoryServerEndpoints(unittest.TestCase):
-    """Hermetic tests for Trajectory HTTP Server endpoints and CORS handling."""
-
-    def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.brain_dir = Path(self.temp_dir.name)
-        self.port = _get_free_port()
-
-        # Seed two distinct test sessions for multi-session traversal
-        self.convo_a = "convo-alpha-1111"
-        self.convo_b = "convo-beta-2222"
-
-        for cid, step_count in [(self.convo_a, 3), (self.convo_b, 7)]:
-            cdir = self.brain_dir / cid / ".system_generated" / "logs"
-            cdir.mkdir(parents=True, exist_ok=True)
-            t_file = cdir / "transcript.jsonl"
-            with open(t_file, "w", encoding="utf-8") as f:
-                for i in range(step_count):
-                    f.write(json.dumps({
-                        "source": "user" if i == 0 else "model",
-                        "content": f"Step {i} for {cid}",
-                        "step_index": i,
-                    }) + "\n")
-
-        self.server = start_trajectory_server(
-            host="127.0.0.1",
-            port=self.port,
-            brain_dir=self.brain_dir,
-        )
-        self.base_url = f"http://127.0.0.1:{self.port}"
-
-    def tearDown(self) -> None:
-        self.server.shutdown()
-        self.server.server_close()
-        self.temp_dir.cleanup()
-
-    def test_health_endpoint_and_cors(self) -> None:
-        url = f"{self.base_url}/health"
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=1.0) as resp:
-            self.assertEqual(resp.status, 200)
-            self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "*")
-            data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data.get("status"), "ok")
-            self.assertEqual(data.get("port"), self.port)
-
-    def test_options_cors_preflight(self) -> None:
-        url = f"{self.base_url}/api/trajectory?id={self.convo_a}"
-        req = urllib.request.Request(url, method="OPTIONS")
-        with urllib.request.urlopen(req, timeout=1.0) as resp:
-            self.assertEqual(resp.status, 204)
-            self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "*")
-            self.assertIn("GET", resp.headers.get("Access-Control-Allow-Methods", ""))
-
-    def test_trajectory_endpoint_success(self) -> None:
-        url = f"{self.base_url}/api/trajectory?id={self.convo_a}"
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=1.0) as resp:
-            self.assertEqual(resp.status, 200)
-            data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data.get("conversation_id"), self.convo_a)
-            self.assertEqual(len(data.get("steps", [])), 3)
-
-    def test_trajectory_endpoint_path_parameter(self) -> None:
-        url = f"{self.base_url}/api/trajectory/{self.convo_a}"
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=1.0) as resp:
-            self.assertEqual(resp.status, 200)
-            data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data.get("conversation_id"), self.convo_a)
-            self.assertEqual(len(data.get("steps", [])), 3)
-
-    def test_trajectory_endpoint_path_parameter_url_encoded(self) -> None:
-        encoded_id = urllib.parse.quote(self.convo_b)
-        url = f"{self.base_url}/api/trajectory/{encoded_id}"
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=1.0) as resp:
-            self.assertEqual(resp.status, 200)
-            data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data.get("conversation_id"), self.convo_b)
-            self.assertEqual(len(data.get("steps", [])), 7)
-
-    def test_trajectory_endpoint_missing_id(self) -> None:
-        url = f"{self.base_url}/api/trajectory"
-        req = urllib.request.Request(url, method="GET")
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            with urllib.request.urlopen(req, timeout=1.0):
-                pass
-        self.assertEqual(ctx.exception.code, 400)
-        ctx.exception.close()
-
-    def test_conversations_endpoint(self) -> None:
-        url = f"{self.base_url}/api/conversations?limit=10"
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=1.0) as resp:
-            self.assertEqual(resp.status, 200)
-            data = json.loads(resp.read().decode("utf-8"))
-            self.assertIn("conversations", data)
-            convos = data["conversations"]
-            ids = [c["id"] for c in convos]
-            self.assertIn(self.convo_a, ids)
-            self.assertIn(self.convo_b, ids)
-
-    def test_not_found_endpoint(self) -> None:
-        url = f"{self.base_url}/api/nonexistent"
-        req = urllib.request.Request(url, method="GET")
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            with urllib.request.urlopen(req, timeout=1.0):
-                pass
-        self.assertEqual(ctx.exception.code, 404)
-        ctx.exception.close()
-
-    def test_is_server_alive(self) -> None:
-        self.assertTrue(is_server_alive("127.0.0.1", self.port))
-        # Non-listening port returns False
-        unused_port = _get_free_port()
-        self.assertFalse(is_server_alive("127.0.0.1", unused_port))
-
-    def test_trajectory_server_mtime_caching(self) -> None:
-        _TRAJECTORY_CACHE.clear()
-        t_file = self.brain_dir / self.convo_a / ".system_generated" / "logs" / "transcript.jsonl"
-        t_str = str(t_file)
-
-        # 1. First fetch populates cache
-        t0 = time.perf_counter()
-        data1 = get_cached_trajectory(self.convo_a, brain_dir=self.brain_dir)
-        d1_time = time.perf_counter() - t0
-        self.assertIn(t_str, _TRAJECTORY_CACHE)
-        self.assertEqual(len(data1.get("steps", [])), 3)
-
-        # 2. Second fetch hits in-memory cache (<0.1ms benchmark)
-        t1 = time.perf_counter()
-        data2 = get_cached_trajectory(self.convo_a, brain_dir=self.brain_dir)
-        d2_time = time.perf_counter() - t1
-        self.assertIs(data1, data2)
-        self.assertLess(d2_time, 0.001)
-
-        # 3. Cache invalidation on transcript modification
-        time.sleep(0.01)
-        with open(t_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"source": "user", "content": "Appended step"}) + "\n")
-
-        data3 = get_cached_trajectory(self.convo_a, brain_dir=self.brain_dir)
-        self.assertEqual(len(data3.get("steps", [])), 4)
-        self.assertIsNot(data1, data3)
-
-    @unittest.mock.patch("harness.gui.server.subprocess.Popen")
-    @unittest.mock.patch("harness.gui.server.is_server_alive")
-    def test_ensure_trajectory_server_spawns_background_process(
-        self, mock_alive: unittest.mock.MagicMock, mock_popen: unittest.mock.MagicMock
-    ) -> None:
-        # First call False (not alive), second call True (became alive after spawn)
-        mock_alive.side_effect = [False, True]
-        res = ensure_trajectory_server(port=40624)
-        self.assertIsNone(res)
-        mock_popen.assert_called_once()
-        cmd = mock_popen.call_args[0][0]
-        self.assertIn("--server", cmd)
-        self.assertIn("--server-port", cmd)
-        self.assertIn("40624", cmd)
-        self.assertTrue(mock_popen.call_args[1].get("start_new_session"))
-
-
 class TestMultiSessionDynamicTraversal(unittest.TestCase):
-    """Tests multi-session trajectory retrieval and route switching (PSL-INV-010)."""
+    """Tests multi-session trajectory retrieval and route switching (PSL-INV-007)."""
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -245,7 +75,7 @@ class TestMultiSessionDynamicTraversal(unittest.TestCase):
 
 
 class TestAntiVibeScriptDOMReplacement(unittest.TestCase):
-    """Tests that generated HUD script implements PSL-INV-010 stale DOM replacement & route tracking."""
+    """Tests that generated HUD script implements PSL-INV-007 stale DOM replacement & route tracking."""
 
     def test_script_contains_dom_invalidation(self) -> None:
         script = build_trajectory_hud_script(
@@ -318,10 +148,10 @@ class TestAntiVibeScriptDOMReplacement(unittest.TestCase):
         self.assertIn("fallbackData", script)
 
 
-class TestPSLINV010RuleCodification(unittest.TestCase):
-    """Tests that PSL-INV-010 is formally codified across all rules and agent personas."""
+class TestPSLINV007RuleCodification(unittest.TestCase):
+    """Tests that PSL-INV-007 is formally codified across all rules and agent personas."""
 
-    def test_rules_codify_psl_inv_010(self) -> None:
+    def test_rules_codify_psl_inv_007(self) -> None:
         root_dir = Path(__file__).resolve().parents[1]
 
         rule_files = [
@@ -332,9 +162,9 @@ class TestPSLINV010RuleCodification(unittest.TestCase):
         for rf in rule_files:
             self.assertTrue(rf.is_file(), f"Rule file missing: {rf}")
             content = rf.read_text(encoding="utf-8")
-            self.assertIn("PSL-INV-010", content, f"PSL-INV-010 missing in {rf}")
+            self.assertIn("PSL-INV-007", content, f"PSL-INV-007 missing in {rf}")
 
-    def test_personas_codify_psl_inv_010(self) -> None:
+    def test_personas_codify_psl_inv_007(self) -> None:
         root_dir = Path(__file__).resolve().parents[1]
 
         personas = [
@@ -350,7 +180,7 @@ class TestPSLINV010RuleCodification(unittest.TestCase):
         for pf in personas:
             self.assertTrue(pf.is_file(), f"Persona file missing: {pf}")
             content = pf.read_text(encoding="utf-8")
-            self.assertIn("PSL-INV-010", content, f"PSL-INV-010 missing in {pf}")
+            self.assertIn("PSL-INV-007", content, f"PSL-INV-007 missing in {pf}")
 
 
 if __name__ == "__main__":

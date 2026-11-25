@@ -37,10 +37,11 @@ class TestPslDoctor(unittest.TestCase):
         self.assertEqual(parse_version("unknown"), (0,))
 
     def test_version_comparisons(self):
-        self.assertTrue(parse_version("3.12.0") >= parse_version("3.12.0"))
-        self.assertTrue(parse_version("3.12.8") > parse_version("3.12.0"))
-        self.assertTrue(parse_version("3.10.13") < parse_version("3.12.0"))
-        self.assertTrue(parse_version("10.5.0") > parse_version("8.7.0"))
+        self.assertEqual(parse_version("v3.12.0"), parse_version("3.12.0"))
+        self.assertGreater(parse_version("3.12.8"), parse_version("3.12.0"))
+        self.assertLess(parse_version("3.10.13"), parse_version("3.12.0"))
+        self.assertGreater(parse_version("10.5.0"), parse_version("8.7.0"))
+        self.assertEqual(parse_version("OpenSSH_9.5p1"), (9, 5, 1))
 
     def test_detect_os_family(self):
         os_fam = detect_os_family()

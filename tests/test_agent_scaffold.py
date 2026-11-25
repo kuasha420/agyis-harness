@@ -240,7 +240,9 @@ class TestAgentScaffoldAndValidation(unittest.TestCase):
             "ask_question",
             "invoke_subagent",
             "send_message",
-            "manage_subagents",
+            "swarm",
+            "read_board",
+            "post_message",
         ]:
             self.assertIn(expected_tool, fm["tools"])
             self.assertIn(expected_tool, fm["allowed_tools"])
@@ -309,9 +311,9 @@ permissions:
   execute: false
   subagents: false
 tools:
-  - view_file
+  - read_file
 allowed_tools:
-  - view_file
+  - read_file
 ---
 
 # Reviewer
@@ -341,9 +343,9 @@ permissions:
   execute: false
   subagents: false
 tools:
-  - view_file
+  - read_file
 allowed_tools:
-  - view_file
+  - read_file
 ---
 
 # Reviewer
@@ -492,9 +494,9 @@ permissions:
   subagents: false
   enable_write_tools: true
 tools:
-  - view_file
+  - read_file
 allowed_tools:
-  - view_file
+  - read_file
 ---
 
 # Reviewer
@@ -525,9 +527,9 @@ permissions:
   execute: false
   subagents: false
 tools:
-  - view_file
+  - read_file
 allowed_tools:
-  - view_file
+  - read_file
 ---
 
 # Reviewer

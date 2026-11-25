@@ -137,16 +137,26 @@ class TestCommandSafety(unittest.TestCase):
         self.assertFalse(should_sanitize_grep_or_diff("grep 'foo' file || [ $? -eq 1 ]"))
         self.assertFalse(should_sanitize_grep_or_diff("cat log.txt | grep 'foo' | sort"))
 
-    def test_decoupled_grep_tail_rewrite(self):
-        # Grep commands must NOT have || [ $? -eq 1 ] appended automatically
+    def test_local_grep_tail_rewrite_and_compound_exclusion(self):
+        # Simple grep/rg commands receive benign exit-1 sanitization
         decision, mod, reason = sanitize_command("grep -rn 'needle' src/")
         self.assertEqual(decision, "allow")
-        self.assertIsNone(mod)
+        self.assertEqual(mod, "grep -rn 'needle' src/ || [ $? -eq 1 ]")
+        self.assertIn("Exit Code 1", reason or "")
 
-        # Pipeline with git still receives PAGER=cat but no grep tail rewrite
+        decision_rg, mod_rg, _ = sanitize_command("rg -n 'needle' src/")
+        self.assertEqual(decision_rg, "allow")
+        self.assertEqual(mod_rg, "rg -n 'needle' src/ || [ $? -eq 1 ]")
+
+        # Pipeline with git receives PAGER=cat and terminal grep exit-1 sanitization
         decision, mod, reason = sanitize_command("git diff | grep 'class '")
         self.assertEqual(decision, "allow")
-        self.assertEqual(mod, "PAGER=cat git diff | grep 'class '")
+        self.assertEqual(mod, "PAGER=cat git diff | grep 'class ' || [ $? -eq 1 ]")
+
+        # Compound conditionals are excluded from tail rewrite
+        decision_cmp, mod_cmp, _ = sanitize_command("grep -rn 'needle' src/ && echo found")
+        self.assertEqual(decision_cmp, "allow")
+        self.assertIsNone(mod_cmp)
 
     def test_fstring_and_double_quotes_preserved_without_corruption(self):
         """Verifies that bash commands containing double quotes inside expressions are not corrupted."""
@@ -320,56 +330,88 @@ class TestCommandSafety(unittest.TestCase):
 
     def test_historical_fstring_failures_replay(self):
         """
-        Replays exact failing command lines from telemetry.db (session 270b7abc)
-        under the sanitized command to verify they now succeed with exit code 0.
+        Replays representative multi-line f-string failing command lines from a synthetic
+        SQLite tool_calls fixture under sanitize_command() to verify hermetic promotion and denial.
         """
-        db_path = Path(__file__).parent.parent / "data/telemetry.db"
-        if not db_path.exists():
-            self.skipTest("telemetry.db not present")
+        import tempfile
+        from harness.telemetry.schema import SCHEMA_SQL
 
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        c.execute("""
-            SELECT command_line FROM tool_calls 
-            WHERE session_id = '270b7abc-9b59-4f50-9c49-de3ed7e04f06' AND step_index = 176
-        """)
-        rows = c.fetchall()
-        conn.close()
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            db_path = tmp_path / "synthetic_telemetry.db"
+            conn = sqlite3.connect(db_path)
+            conn.executescript(SCHEMA_SQL)
+            sample_cmd = (
+                "python3 -c \"import json\n"
+                "data = {'k': 'v'}\n"
+                "print(f'val={data[\\\"k\\\"]}')\""
+            )
+            conn.execute(
+                """
+                INSERT INTO sessions (
+                    session_id, start_time, end_time, duration_seconds, total_steps,
+                    model, workspace_path, transcript_path, file_size_bytes, has_errors,
+                    tool_call_count, tool_error_count, intervention_count, origin_developer
+                ) VALUES (
+                    '270b7abc-9b59-4f50-9c49-de3ed7e04f06', '2026-10-01T00:00:00Z',
+                    '2026-10-01T00:05:00Z', 300.0, 200, 'gemini-4-neon',
+                    '/workspace/app', 't.jsonl', 1024, 1, 1, 1, 0, 'test'
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO tool_calls (
+                    session_id, step_index, tool_name, command_line, arguments_snippet, status, exit_code
+                ) VALUES (
+                    '270b7abc-9b59-4f50-9c49-de3ed7e04f06', 176, 'run_command', ?, '{}', 'FAILED', 1
+                )
+                """,
+                (json.dumps(sample_cmd),),
+            )
+            conn.commit()
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT command_line FROM tool_calls
+                WHERE session_id = '270b7abc-9b59-4f50-9c49-de3ed7e04f06' AND step_index = 176
+                """
+            )
+            rows = c.fetchall()
+            conn.close()
 
-        for (raw_cmd,) in rows:
-            cmd = json.loads(raw_cmd) if raw_cmd.startswith('"') else raw_cmd
-            # Under PSL-INV-002 §4 and Issue #101 (RC10), this complex multi-line command is
-            # transparently promoted to a temporary scratch file and allowed
-            decision, mod_cmd, reason = sanitize_command(cmd)
-            self.assertEqual(decision, "allow")
-            self.assertIsNotNone(mod_cmd)
-            self.assertTrue(".agents/scratch/exec_" in mod_cmd or "scratch/exec_" in mod_cmd)
-            self.assertIn("[AGYIS COGNITIVE HINT]", reason or "")
-
-            # When promote_scratch is False, verify it is safely denied per PSL-INV-002 §4
-            denied_dec, denied_mod, denied_reason = sanitize_command(cmd, promote_scratch=False)
-            self.assertEqual(denied_dec, "deny")
-            self.assertIn("PSL-INV-002 VIOLATION", denied_reason or "")
-
-            # When bypassed via PSL_ALLOW_INLINE_SCRIPTS=1, verify hermetic Python injection occurs
-            old_bypass = os.environ.get("PSL_ALLOW_INLINE_SCRIPTS")
-            try:
-                os.environ["PSL_ALLOW_INLINE_SCRIPTS"] = "1"
-                decision, mod_cmd, reason = sanitize_command(cmd)
+            self.assertEqual(len(rows), 1)
+            for (raw_cmd,) in rows:
+                cmd = json.loads(raw_cmd) if raw_cmd.startswith('"') else raw_cmd
+                # Under PSL-INV-003 and Issue #101 (RC10), this complex multi-line command is
+                # transparently promoted to a temporary scratch file and allowed
+                decision, mod_cmd, reason = sanitize_command(cmd, workspace_dir=tmp_path)
                 self.assertEqual(decision, "allow")
                 self.assertIsNotNone(mod_cmd)
-                self.assertIn("cpython-3.12", mod_cmd)
-                self.assertIn("PATH=", mod_cmd)
+                self.assertTrue(".agents/scratch/exec_" in mod_cmd or "scratch/exec_" in mod_cmd)
+                self.assertIn("[AGYIS COGNITIVE HINT]", reason or "")
 
-                # Under PSL-SPEC-2026-DRA-001 Section 6.2.1, naive regex substitution was eliminated
-                # from command_safety_hook to preserve bash quoting. Verify hermetic Python injection
-                # occurred without mutating raw script syntax.
-                self.assertIn("python3 -c", mod_cmd)
-            finally:
-                if old_bypass is not None:
-                    os.environ["PSL_ALLOW_INLINE_SCRIPTS"] = old_bypass
-                else:
-                    os.environ.pop("PSL_ALLOW_INLINE_SCRIPTS", None)
+                # When promote_scratch is False, verify it is safely denied per PSL-INV-003
+                denied_dec, denied_mod, denied_reason = sanitize_command(cmd, promote_scratch=False)
+                self.assertEqual(denied_dec, "deny")
+                self.assertIsNone(denied_mod)
+                self.assertIn("PSL-INV-003 VIOLATION", denied_reason or "")
+
+                # When bypassed via PSL_ALLOW_INLINE_SCRIPTS=1, verify hermetic Python injection occurs
+                old_bypass = os.environ.get("PSL_ALLOW_INLINE_SCRIPTS")
+                try:
+                    os.environ["PSL_ALLOW_INLINE_SCRIPTS"] = "1"
+                    decision, mod_cmd, reason = sanitize_command(cmd)
+                    self.assertEqual(decision, "allow")
+                    self.assertIsNotNone(mod_cmd)
+                    self.assertIn("cpython-3.12", mod_cmd)
+                    self.assertIn("PATH=", mod_cmd)
+                    self.assertIn("python3 -c", mod_cmd)
+                finally:
+                    if old_bypass is not None:
+                        os.environ["PSL_ALLOW_INLINE_SCRIPTS"] = old_bypass
+                    else:
+                        os.environ.pop("PSL_ALLOW_INLINE_SCRIPTS", None)
 
     def test_knot_exec_and_psl_remote_exec_ssh_pattern_matching(self):
         """Verifies SSH_PATTERN regex matches knot exec, agyis remote exec, and psl remote exec."""
@@ -667,7 +709,7 @@ class TestRC10Cluster1ToolResilience(unittest.TestCase):
             self.assertIn("[AGYIS COGNITIVE HINT]", reason)
             self.assertTrue(scratch_file.is_file())
             content = scratch_file.read_text(encoding="utf-8")
-            self.assertTrue(content.startswith("# Transparently promoted by PSL command_safety_hook (PSL-INV-002)\n"))
+            self.assertTrue(content.startswith("# Transparently promoted by PSL command_safety_hook (PSL-INV-003)\n"))
             self.assertIn("import os\nprint(os.environ.get('USER'))", content)
 
     def test_scratch_promotion_bash_and_sh_executable(self):
@@ -710,7 +752,7 @@ class TestRC10Cluster1ToolResilience(unittest.TestCase):
             self.assertTrue(scratch_js.is_absolute() and scratch_js.is_relative_to(ws / ".agents" / "scratch"))
             self.assertTrue(mod.endswith(".js"))
             content = scratch_js.read_text(encoding="utf-8")
-            self.assertTrue(content.startswith("// Transparently promoted by PSL command_safety_hook (PSL-INV-002)\n"))
+            self.assertTrue(content.startswith("// Transparently promoted by PSL command_safety_hook (PSL-INV-003)\n"))
 
     def test_scratch_promotion_fallback_on_write_failure(self):
         """When scratch file creation fails, promotion gracefully falls back to deny (#101)."""
@@ -721,7 +763,7 @@ class TestRC10Cluster1ToolResilience(unittest.TestCase):
             decision, mod, reason = promote_inline_script_to_scratch(cmd)
             self.assertEqual(decision, "deny")
             self.assertIsNone(mod)
-            self.assertIn("PSL-INV-002 VIOLATION", reason)
+            self.assertIn("PSL-INV-003 VIOLATION", reason)
 
     def test_combined_cwd_and_scratch_promotion_end_to_end(self):
         """End-to-end foreign Cwd sanitization + workspacePaths absolute scratch promotion (#101 + #104)."""
