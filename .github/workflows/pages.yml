@@ -3,12 +3,11 @@
 # Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL)
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
-name: Deploy GitHub Pages
+name: Deploy Orbital Aegis Website to GitHub Pages
 
 on:
   push:
-    branches:
-      - main
+    branches: ["main"]
     paths:
       - "website/**"
       - ".github/workflows/pages.yml"
@@ -20,29 +19,47 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: "pages"
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Deploy Static Site
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
+    name: Validate & Stage Pages Artifact
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure GitHub Pages
+      - name: Verify required static routes and data bundles
+        run: |
+          test -f website/index.html
+          test -f website/telemetry/index.html
+          test -f website/cognitive/index.html
+          test -f website/hud-re/index.html
+          test -f website/brand/index.html
+          test -f website/data/manifest.json
+          test -f website/data/overview.json
+          test -f website/data/eras.json
+          test -f website/data/models.json
+          test -f website/data/fleet_and_team.json
+          test -f website/data/deep_metrics.json
+
+      - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: website
+          path: "website"
 
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

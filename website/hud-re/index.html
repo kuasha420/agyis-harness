@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trajectory HUD, Cleanroom RE &amp; Operations | Agyis Harness 1.0.0</title>
+  <meta name="description" content="Orbital Aegis Trajectory HUD (:40624 playback / :40623 ConnectRPC), Cleanroom Reverse Engineering (PSL-RE-001, 15 agyis re subcommands, 18-key obligation ledger), Remote Ops, Sync, and AFF 100.0/100.">
+  <meta property="og:title" content="Trajectory HUD, Cleanroom RE &amp; Operations | Agyis Harness 1.0.0">
+  <meta property="og:description" content="In-situ Trajectory HUD anatomy, Cleanroom RE toolchain, 18-key obligation ledger schema, and operational runbooks.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://kuasha420.github.io/agyis-harness/hud-re/">
+  <meta property="og:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Trajectory HUD &amp; Cleanroom RE | Agyis Harness 1.0.0">
+  <meta name="twitter:description" content="Orbital Aegis Trajectory HUD schematic, 15 agyis re subcommands, 18-key ledger, and AFF 100.0/100.">
+  <meta name="twitter:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
+  <meta name="theme-color" content="#080E1A">
+  <link rel="icon" href="../favicon.ico" sizes="any">
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+  <link rel="manifest" href="../site.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    @layer components {
+      .ops-band {
+        padding-block: clamp(2.5rem, 5vw, 4rem);
+        border-block-end: 1px solid var(--border);
+      }
+
+      .ops-band--dark {
+        background-color: var(--console-bg);
+        color: var(--console-ink);
+        border-block-end-color: var(--console-border);
+      }
+
+      .ops-band--dark p {
+        color: var(--console-muted);
+      }
+
+      .ops-band--dark h2,
+      .ops-band--dark h3 {
+        color: var(--console-ink);
+      }
+
+      .tabular-num,
+      .kpi-value,
+      .data-table td,
+      .data-table th {
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Orbital Aegis HUD Anatomical Schematic */
+      .hud-titlebar-inset {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.5rem 1rem;
+        background-color: #0b1322;
+        border-block-end: 1px dashed #283a5e;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: #9aa8be;
+        flex-wrap: wrap;
+      }
+
+      .hud-bar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+        background-color: #10192b;
+        border-block-end: 1px solid #1e2c47;
+        flex-wrap: wrap;
+      }
+
+      .hud-brand-group {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.625rem;
+        font-size: var(--text-sm);
+        font-weight: 600;
+        color: #f4f6fa;
+        flex-wrap: wrap;
+      }
+
+      .hud-wtc-pill {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        padding: 0.1875rem 0.625rem;
+        border-radius: 9999px;
+        background-color: rgba(27, 77, 255, 0.16);
+        border: 1px solid rgba(92, 138, 255, 0.35);
+        color: #5c8aff;
+      }
+
+      .hud-body {
+        padding: 1.25rem 1rem;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 1.125rem;
+        min-inline-size: 0;
+      }
+
+      .hud-controls-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.875rem;
+      }
+
+      .hud-wtc-track-wrap {
+        background-color: #0b1322;
+        border: 1px solid #1e2c47;
+        border-radius: var(--radius-sm);
+        padding: 0.875rem;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.625rem;
+        min-inline-size: 0;
+      }
+
+      .hud-wtc-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: #9aa8be;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .hud-wtc-rows {
+        display: grid;
+        gap: 0.375rem;
+      }
+
+      .hud-wtc-row {
+        display: flex;
+        block-size: 1.25rem;
+        border-radius: 4px;
+        overflow: hidden;
+        background-color: #10192b;
+        border: 1px solid #1e2c47;
+      }
+
+      .hud-wtc-seg {
+        block-size: 100%;
+        min-inline-size: 2px;
+        transition-property: opacity;
+        transition-duration: 140ms;
+        transition-timing-function: var(--ease-out);
+      }
+
+      .hud-wtc-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1.125rem;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: #9aa8be;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .hud-wtc-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+      }
+
+      .hud-swatch {
+        inline-size: 0.625rem;
+        block-size: 0.625rem;
+        border-radius: 2px;
+        display: inline-block;
+      }
+
+      .hud-math-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        gap: 0.75rem;
+      }
+
+      .hud-math-card {
+        padding: 0.875rem;
+        border-radius: var(--radius-sm);
+        background-color: #10192b;
+        border: 1px solid #1e2c47;
+        display: grid;
+        gap: 0.3rem;
+        min-width: 0;
+      }
+
+      .hud-math-card code {
+        color: #26d0ce;
+        font-weight: 600;
+        background-color: transparent;
+        padding: 0;
+      }
+
+      .hud-math-card p {
+        font-size: var(--text-sm);
+        color: #9aa8be;
+      }
+
+      .segmented-group {
+        display: inline-flex;
+        flex-wrap: wrap;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        background-color: var(--surface);
+      }
+
+      .ops-band--dark .segmented-group,
+      .hud-schematic .segmented-group {
+        border-color: #1e2c47;
+        background-color: #080e1a;
+      }
+
+      .segmented-btn {
+        appearance: none;
+        border: 0;
+        border-inline-end: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink-muted);
+        padding: 0.45rem 0.85rem;
+        font-size: var(--text-sm);
+        font-weight: 500;
+        cursor: pointer;
+        min-block-size: 2.75rem;
+        transition-property: background-color, color;
+        transition-duration: 150ms;
+        transition-timing-function: var(--ease-out);
+      }
+
+      .ops-band--dark .segmented-btn,
+      .hud-schematic .segmented-btn {
+        border-inline-end-color: #1e2c47;
+        color: #9aa8be;
+      }
+
+      .segmented-btn:last-child {
+        border-inline-end: 0;
+      }
+
+      .segmented-btn:hover {
+        color: var(--ink);
+        background-color: var(--bg);
+      }
+
+      .ops-band--dark .segmented-btn:hover,
+      .hud-schematic .segmented-btn:hover {
+        color: #f4f6fa;
+        background-color: #10192b;
+      }
+
+      .segmented-btn[aria-checked="true"],
+      .segmented-btn[aria-pressed="true"],
+      .segmented-btn.is-active {
+        background-color: #1b4dff;
+        color: #f4f6fa;
+      }
+
+      .control-field {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: var(--text-sm);
+        min-width: 0;
+      }
+
+      .control-field select,
+      .control-field input[type="search"] {
+        background-color: var(--bg);
+        color: var(--ink);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 0.5rem 0.75rem;
+        font-size: var(--text-sm);
+        min-block-size: 2.75rem;
+        max-inline-size: 100%;
+      }
+
+      .ops-band--dark .control-field select,
+      .ops-band--dark .control-field input[type="search"],
+      .hud-schematic .control-field select {
+        background-color: #0b1322;
+        color: #f4f6fa;
+        border-color: #1e2c47;
+      }
+
+      .re-panel {
+        padding: 1.375rem;
+        border-radius: var(--radius-md);
+        background-color: var(--console-surface);
+        border: 1px solid var(--console-border);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.875rem;
+        min-width: 0;
+        max-inline-size: 100%;
+      }
+
+      .re-panel > * {
+        min-inline-size: 0;
+      }
+
+      .code-panel {
+        max-inline-size: 100%;
+        min-inline-size: 0;
+        background-color: var(--console-bg);
+        border: 1px solid var(--console-border);
+        border-radius: var(--radius-sm);
+        padding: 1rem;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        line-height: 1.55;
+        color: var(--console-ink);
+        margin: 0;
+      }
+
+      .code-panel pre,
+      .code-panel code {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .key-chip-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr));
+        gap: 0.5rem;
+        margin-block: 1rem;
+      }
+
+      .key-selector-btn {
+        appearance: none;
+        text-align: start;
+        padding: 0.625rem 0.875rem;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--console-border);
+        background-color: var(--console-surface);
+        color: var(--console-ink);
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        cursor: pointer;
+        min-block-size: 2.75rem;
+        overflow-wrap: anywhere;
+        transition-property: background-color, border-color, color;
+        transition-duration: 140ms;
+        transition-timing-function: var(--ease-out);
+      }
+
+      .key-selector-btn:hover {
+        border-color: var(--console-accent);
+      }
+
+      .key-selector-btn.is-active {
+        background-color: var(--accent);
+        border-color: var(--accent);
+        color: #f4f6fa;
+      }
+
+      .pillar-card {
+        padding: 1.25rem;
+        border-radius: var(--radius-md);
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        display: grid;
+        gap: 0.5rem;
+        min-width: 0;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .segmented-btn,
+        .key-selector-btn,
+        .hud-wtc-seg {
+          transition: none;
+        }
+      }
+    }
+  </style>
+  <script type="module" defer src="../app.js"></script>
+  <script type="module" defer src="./hud-re.js"></script>
+</head>
+<body id="top" data-route="hud-re" data-data-root="../data/">
+  <a href="#main-content" class="skip-link visually-hidden">Skip to main content</a>
+  <div id="status-announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+
+  <header class="site-header">
+    <nav id="site-nav" class="container nav-inner" aria-label="Primary">
+      <a href="../" class="brand-link">
+        <img src="../assets/logo.svg" alt="" width="30" height="30">
+        <span class="brand-name">Agyis Harness</span>
+      </a>
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-nav-links" aria-label="Toggle navigation menu">Menu</button>
+      <ul id="site-nav-links" class="nav-links">
+        <li><a href="../" class="nav-link">Platform</a></li>
+        <li><a href="../telemetry/" class="nav-link">Telemetry</a></li>
+        <li><a href="../cognitive/" class="nav-link">Cognitive</a></li>
+        <li><a href="../hud-re/" class="nav-link is-active" aria-current="page">HUD &amp; RE</a></li>
+        <li><a href="../brand/" class="nav-link">Brand</a></li>
+        <li><a href="../#install" class="nav-cta">Install</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <section class="page-hero" aria-labelledby="main-content">
+      <div class="container">
+        <h1 id="main-content" tabindex="-1">Trajectory HUD, cleanroom RE, and operations</h1>
+        <p>Live Electron trajectory inspection (:40623 ConnectRPC and :40624 playback), quarantined cleanroom reverse engineering (PSL-RE-001 with 15 <code>agyis re</code> subcommands and an 18-key obligation ledger), and zero-defect architectural fitness operations.</p>
+      </div>
+    </section>
+
+    <nav class="subnav" aria-label="HUD, RE, and operations sections">
+      <div class="container subnav-inner">
+        <ul class="subnav-links">
+          <li><a href="#trajectory-hud">Trajectory HUD</a></li>
+          <li><a href="#cleanroom-re">Cleanroom RE</a></li>
+          <li><a href="#obligation-ledger">18-key ledger</a></li>
+          <li><a href="#operations">Operations &amp; AFF</a></li>
+        </ul>
+      </div>
+    </nav>
+
+    <section id="trajectory-hud" class="page-section page-section--dark ops-band ops-band--dark" aria-labelledby="hud-heading">
+      <div class="container">
+        <h2 id="hud-heading">Orbital Aegis Trajectory HUD anatomy (PSL-INV-007)</h2>
+        <p>Built from externalized browser assets under <code>harness/gui/assets/</code> (<code>playback_shell.html</code>, <code>hud_styles.css</code>, <code>hud_context_bar.js</code>, <code>hud_header.js</code>). Live overlays query ConnectRPC (port <code>40623</code>) directly while headless offline playback runs on <code>http://127.0.0.1:40624/</code> with a bounded 32-entry / 64 MB LRU cache.</p>
+
+        <div class="methodology-note">
+          <strong>Illustrative architectural schematic (PSL-INV-007):</strong> The interactive panel below models the HUD layout and proportional <code>xtc</code> / <code>ytc</code> / <code>ztc</code> / <code>Atc</code> math for documentation. Production HUD sessions never bake static snapshots and always query live RPC or local playback state.
+        </div>
+
+        <div class="hud-schematic" aria-label="Illustrative Orbital Aegis Trajectory HUD schematic">
+          <div class="hud-titlebar-inset">
+            <span>Titlebar safe inset guard: <code>top: var(--pane-titlebar-height, 40px)</code> (38-40px macOS/Linux chrome clearance)</span>
+            <span>Stale DOM purge: <code>#agyis-trajectory-hud</code> &amp; <code>#agyis-trajectory-hud-styles</code> via <code>element.remove()</code></span>
+          </div>
+
+          <div class="hud-bar-header">
+            <div class="hud-brand-group">
+              <img src="../assets/logo.svg" alt="" width="20" height="20">
+              <span>Agyis Trajectory Playback</span>
+              <span class="hud-wtc-pill">HTTP :40624</span>
+              <span class="hud-wtc-pill">2.35.2 RPC parity</span>
+              <span class="hud-wtc-pill" id="hud-wtc-workspace-pill">Wtc: agyis-harness (512k)</span>
+            </div>
+            <label class="control-field" for="hud-route-select">
+              <span>SPA route / split focus</span>
+              <select id="hud-route-select">
+                <option value="root">/c/9bbbcf1e (Root coordinator)</option>
+                <option value="child">/c/ffa96935 (Split pane: agyis_builder child)</option>
+                <option value="auditor">/c/4285221e (Split pane: agyis_auditor verifier)</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="hud-body">
+            <div class="hud-controls-row">
+              <div>
+                <strong style="font-size: var(--text-sm);">Option B disjoint checkpoint switcher</strong>
+                <p id="hud-route-status" style="font-size: var(--text-sm); margin-block-start: 0.2rem;">Active route: /c/9bbbcf1e (Root session, 2 child subagents attached)</p>
+              </div>
+              <div id="hud-checkpoint-controls" class="segmented-group" role="radiogroup" aria-label="Disjoint checkpoint scope">
+                <button type="button" class="segmented-btn is-active" role="radio" aria-checked="true" data-cp="cp1">Checkpoint 1 (Pre-compaction)</button>
+                <button type="button" class="segmented-btn" role="radio" aria-checked="false" data-cp="cp2">Checkpoint 2 (Post-compaction)</button>
+                <button type="button" class="segmented-btn" role="radio" aria-checked="false" data-cp="all">Combined view</button>
+              </div>
+            </div>
+
+            <div class="hud-wtc-track-wrap">
+              <div class="hud-wtc-meta">
+                <span id="hud-wtc-capacity">Window: 512,000 tokens | Used: 342,400 (66.9%)</span>
+                <span id="hud-wtc-packing">Atc layout: 2 rows | ztc inflation: 4.1% (&lt;= 10% gate)</span>
+              </div>
+              <div id="hud-wtc-rows" class="hud-wtc-rows" aria-live="polite"></div>
+              <div id="hud-wtc-legend" class="hud-wtc-legend"></div>
+            </div>
+
+            <div class="hud-math-grid">
+              <div class="hud-math-card">
+                <code>xtc(segment, pxPerToken, 2px)</code>
+                <p>Sub-pixel clamping enforcing a minimum 2px clickable width for every non-zero token segment.</p>
+              </div>
+              <div class="hud-math-card">
+                <code>ytc(segments, capacity, width, rows)</code>
+                <p>Evaluates visual pixel budget and clamping inflation across candidate row counts.</p>
+              </div>
+              <div class="hud-math-card">
+                <code>ztc(segments, ..., maxRows=8)</code>
+                <p>Two-gate optimizer terminating when inflation &lt;= 10% or marginal row gain &lt; 2% width.</p>
+              </div>
+              <div class="hud-math-card">
+                <code>Atc(segments, capacity, width)</code>
+                <p>Multi-row continuous slice packer scaling overflow cleanly across proportional tracks.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="cleanroom-re" class="page-section page-section--dark ops-band ops-band--dark" aria-labelledby="re-heading">
+      <div class="container">
+        <div class="split-grid" style="align-items: center;">
+          <div>
+            <h2 id="re-heading">Cleanroom reverse engineering (PSL-RE-001 &amp; rea@6.9.0)</h2>
+            <p>Enforces a hard physical quarantine between binary inspection inside <code>.dirtyroom/</code> and verified cleanroom specifications under <code>docs/specs/**</code>. Integrates <code>rea@6.9.0</code> (255 MCP tools), headless Ghidra pre-analysis, direct-mount read-only acceleration (<code>-noanalysis -readOnly</code>), a persistent bridge supervisor daemon, and a sub-5ms SQLite decompiler query cache.</p>
+            <div class="kpi-strip" style="margin-block-start: 1.25rem;">
+              <div class="kpi-card">
+                <span class="kpi-value">15</span>
+                <span class="kpi-label"><code>agyis re</code> subcommands</span>
+              </div>
+              <div class="kpi-card">
+                <span class="kpi-value">&lt;5ms</span>
+                <span class="kpi-label">SQLite decompiler cache</span>
+              </div>
+              <div class="kpi-card">
+                <span class="kpi-value">255</span>
+                <span class="kpi-label"><code>rea@6.9.0</code> MCP tools</span>
+              </div>
+            </div>
+          </div>
+
+          <figure class="art-card art-card--4x3">
+            <picture>
+              <source srcset="../assets/art/art-telemetry-optics.webp" type="image/webp">
+              <img src="../assets/art/art-telemetry-optics.png" alt="Dual-chamber 3D studio cleanroom optical quarantine lens separating smoked-glass binary pulses on the left across a cyan laser membrane into emerald and cobalt crystalline specifications on the right" width="1200" height="900" decoding="async" loading="lazy">
+            </picture>
+            <figcaption>Dirtyroom Quarantine Membrane (<code>.dirtyroom/</code>) separated by a deterministic verification plane from cleanroom specifications (<code>docs/specs/**</code>).</figcaption>
+          </figure>
+        </div>
+
+        <h3 style="margin-block-start: 2.25rem;">Interactive <code>agyis re</code> command palette (all 15 subcommands from <code>harness/commands/re.py</code>)</h3>
+
+        <div class="control-bar" style="margin-block: 1rem;">
+          <label class="control-field" for="re-search-input">
+            <span>Search</span>
+            <input type="search" id="re-search-input" placeholder="Command or flag (e.g. decompile, xrefs, cache)">
+          </label>
+          <div id="re-category-group" class="segmented-group" role="group" aria-label="Filter agyis re subcommands">
+            <button type="button" class="segmented-btn is-active" data-re-cat="all" aria-pressed="true">All (15)</button>
+            <button type="button" class="segmented-btn" data-re-cat="workspace" aria-pressed="false">Workspace &amp; Ghidra (4)</button>
+            <button type="button" class="segmented-btn" data-re-cat="query" aria-pressed="false">Static &amp; symbol query (4)</button>
+            <button type="button" class="segmented-btn" data-re-cat="decompile" aria-pressed="false">Decompile &amp; cache (4)</button>
+            <button type="button" class="segmented-btn" data-re-cat="maintenance" aria-pressed="false">PCAP &amp; hygiene (3)</button>
+          </div>
+        </div>
+
+        <article id="re-selected-card" class="re-panel" style="margin-block-end: 1.25rem;" aria-live="polite"></article>
+
+        <div class="table-card-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Subcommand</th>
+                <th scope="col">Category</th>
+                <th scope="col">Key flags</th>
+                <th scope="col">Purpose</th>
+              </tr>
+            </thead>
+            <tbody id="re-commands-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="obligation-ledger" class="page-section page-section--dark ops-band ops-band--dark" aria-labelledby="ledger-heading">
+      <div class="container">
+        <h2 id="ledger-heading">Typed cleanroom obligation ledger (18 strictObject keys)</h2>
+        <p>Verified verbatim against <code>_REVIEWED_OBLIGATION_KEYS</code> in <code>harness/cleanroom/obligation.py</code>. Validated by <code>agyis verify</code> and <code>agyis verify --spec</code>. Top-level ledgers require exactly <code>evidence_bundle</code> (7 arrays: <code>artifacts</code>, <code>captures</code>, <code>environments</code>, <code>providers</code>, <code>records</code>, <code>scenarios</code>, <code>unknowns</code>), <code>reviewed_obligations</code>, and <code>manifest</code> (<code>bindings</code>, <code>contradictions</code>), with zero top-level <code>$schema</code> key permitted.</p>
+
+        <div class="control-bar" style="margin-block: 1rem;">
+          <div id="ledger-group-controls" class="segmented-group" role="group" aria-label="Filter obligation schema keys">
+            <button type="button" class="segmented-btn is-active" data-ledger-cat="all" aria-pressed="true">All 18 keys</button>
+            <button type="button" class="segmented-btn" data-ledger-cat="identity" aria-pressed="false">Identity &amp; scope (5)</button>
+            <button type="button" class="segmented-btn" data-ledger-cat="authority" aria-pressed="false">Target &amp; authority (7)</button>
+            <button type="button" class="segmented-btn" data-ledger-cat="gaps" aria-pressed="false">Dependencies &amp; gaps (4)</button>
+            <button type="button" class="segmented-btn" data-ledger-cat="proof" aria-pressed="false">Disposition &amp; proof (2)</button>
+          </div>
+        </div>
+
+        <div id="ledger-key-buttons" class="key-chip-grid" aria-label="18 reviewed obligation keys"></div>
+        <article id="ledger-key-detail" class="re-panel" aria-live="polite"></article>
+      </div>
+    </section>
+
+    <section id="operations" class="page-section ops-band" aria-labelledby="ops-heading">
+      <div class="container">
+        <h2 id="ops-heading">Operations, remote triage, sync, and architectural fitness</h2>
+        <p>Continuous structural verification paired with zero-footprint SSH operations, opt-in delta synchronization, and deterministic workspace lifecycle hygiene.</p>
+
+        <div class="kpi-strip" style="margin-block: 1.25rem;" aria-label="Live Architectural Fitness Function metrics">
+          <div class="kpi-card">
+            <span class="kpi-value" id="aff-score">100.0/100</span>
+            <span class="kpi-label" id="aff-status">AFF status: PASS</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-value" id="aff-files">164</span>
+            <span class="kpi-label">Python source files scanned</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-value" id="aff-assets">16</span>
+            <span class="kpi-label">Externalized assets verified</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-value" id="aff-defects">0</span>
+            <span class="kpi-label">Boundary / DAG / cache defects (&lt;0.25s)</span>
+          </div>
+        </div>
+
+        <div class="card-grid-2" style="margin-block-end: 1.75rem;">
+          <article class="pillar-card">
+            <h3>Pillar 1: Product vs project layer bifurcation</h3>
+            <p>Distributable core libraries under <code>harness/</code> never import from experimental pipelines (<code>pipeline/</code>), local scratchpads, or workspace drivers (ADR-014).</p>
+          </article>
+          <article class="pillar-card">
+            <h3>Pillar 2: Acyclic import graph (DAG)</h3>
+            <p>Every internal module dependency forms a strict directed acyclic graph verified automatically on every <code>agyis audit aff</code> run.</p>
+          </article>
+          <article class="pillar-card">
+            <h3>Pillar 3: Externalized non-native assets</h3>
+            <p>HTML, CSS, JavaScript, and SQL schemas live under dedicated <code>assets/</code> directories loaded via <code>importlib.resources</code> rather than multiline string monoliths.</p>
+          </article>
+          <article class="pillar-card">
+            <h3>Pillar 4: Bounded state and LRU caches</h3>
+            <p>Persistent runtime caches enforce explicit max-entry, byte, or TTL capacity limits (e.g., 32 entries / 64 MB trajectory cache, 300s auth cache).</p>
+          </article>
+        </div>
+
+        <h3 style="margin-block-end: 0.75rem;">Operational command reference</h3>
+        <div class="table-card-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Domain</th>
+                <th scope="col">Command</th>
+                <th scope="col">Operational contract</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td data-label="Domain">Remote Ops</td>
+                <td data-label="Command"><code>agyis remote exec &lt;target&gt; "&lt;cmd&gt;"</code></td>
+                <td data-label="Operational contract">Multiplexed OpenSSH ControlMaster execution with login-shell promotion</td>
+              </tr>
+              <tr>
+                <td data-label="Domain">Remote Ops</td>
+                <td data-label="Command"><code>agyis remote script &lt;target&gt; &lt;file&gt; [--stage]</code></td>
+                <td data-label="Operational contract">Zero-footprint stdin script streaming (or trap-cleaned staged run)</td>
+              </tr>
+              <tr>
+                <td data-label="Domain">Remote Ops</td>
+                <td data-label="Command"><code>agyis remote triage &lt;target&gt;</code></td>
+                <td data-label="Operational contract">Compact (&lt;2KB) multi-component cloud, Coolify, PM2, and mesh health report</td>
+              </tr>
+              <tr>
+                <td data-label="Domain">Remote Ops</td>
+                <td data-label="Command"><code>agyis remote socket status|cleanup</code></td>
+                <td data-label="Operational contract">Inspect or cleanly prune active OpenSSH ControlMaster sockets</td>
+              </tr>
+              <tr>
+                <td data-label="Domain">Sync &amp; Auth</td>
+                <td data-label="Command"><code>agyis auth</code> / <code>agyis sync</code></td>
+                <td data-label="Operational contract">GitHub PAT org check (300s cache) and opt-in delta push/pull with self-hosted OSS <code>server/</code></td>
+              </tr>
+              <tr>
+                <td data-label="Domain">Sync Daemon</td>
+                <td data-label="Command"><code>agyis sync --service install|status|start|stop</code></td>
+                <td data-label="Operational contract">Zero-sudo systemd user background telemetry replication service (ADR-030)</td>
+              </tr>
+              <tr>
+                <td data-label="Domain">Fitness Gate</td>
+                <td data-label="Command"><code>agyis audit aff</code></td>
+                <td data-label="Operational contract">Sub-0.25s structural fitness audit scoring 100.0/100 across all 4 pillars</td>
+              </tr>
+              <tr>
+                <td data-label="Domain">Cache Hygiene</td>
+                <td data-label="Command"><code>agyis clean --caches</code></td>
+                <td data-label="Operational contract">Invokes <code>purge_build_caches()</code> (.next, .turbo, node_modules/.cache) alongside checkpoint/worktree cleanup</td>
+              </tr>
+              <tr>
+                <td data-label="Domain">Onboarding</td>
+                <td data-label="Command"><code>agyis onboard --verify --commit [--rea|--no-verify|--pr]</code></td>
+                <td data-label="Operational contract">Branch-isolated repository onboarding, cache purge, verification gate, and atomic commit or PR delivery</td>
+              </tr>
+              <tr>
+                <td data-label="Domain">Checkpoints</td>
+                <td data-label="Command"><code>agyis checkpoint status|create|verify|prune</code></td>
+                <td data-label="Operational contract">Carrier-grade pre-compaction CID checkpoint capture and succession</td>
+              </tr>
+              <tr>
+                <td data-label="Domain">Release &amp; Ext</td>
+                <td data-label="Command"><code>agyis ext</code> / <code>agyis changelog</code> / <code>agyis release-notes</code></td>
+                <td data-label="Operational contract">Antigravity extension diagnostics, changelog generation, and release notes synthesis</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a href="../" class="brand-link">
+          <img src="../assets/logo.svg" alt="" width="24" height="24">
+          <span class="brand-name">Agyis Harness</span>
+        </a>
+        <p>Copyright (c) 2026 Arafat Zahan (@kuasha420). Corporate Stewardship &amp; Infrastructure: Purrfect Software Limited (PSL), governed by ICARO-42/b Ordinance (Company-Supported Personal IP Framework). Released under Apache License 2.0.</p>
+        <p class="footer-legal">Google Antigravity&trade; is a trademark of Google LLC. Agyis Harness is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Google LLC.</p>
+      </div>
+      <nav aria-label="Footer">
+        <ul class="footer-links">
+          <li><a href="../">Platform</a></li>
+          <li><a href="../telemetry/">Telemetry</a></li>
+          <li><a href="../cognitive/">Cognitive</a></li>
+          <li><a href="./" aria-current="page">HUD &amp; RE</a></li>
+          <li><a href="../brand/">Brand</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness" target="_blank" rel="noopener noreferrer">Repository</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness/releases/tag/v1.0.0" target="_blank" rel="noopener noreferrer">Releases</a></li>
+        </ul>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

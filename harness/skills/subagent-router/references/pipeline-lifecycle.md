@@ -48,7 +48,7 @@ Detailed flow diagram and stage gate contracts for [SKILL.md](../SKILL.md).
 ┌─────────────────────────────────────────────────────────────────────────┐                         │
 │ STAGE 5: HERMETIC QA & VERIFICATION AUDIT (`agyis_auditor`)             │                         │
 │ - Strictly evaluates the COMMITTED git revision on HEAD (never dirty).  │                         │
-│ - Runs `agyis test` (2,548 hermetic tests) + <1.0s component benchmarks.│                         │
+│ - Runs `agyis test` (2,559 hermetic tests) + <1.0s component benchmarks.│                         │
 │ - Asserts exit code 0 across all hermetic suites.                       │                         │
 └──────────────────┬───────────────────────────────┘                                                │
                    │                                                                                │

@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cognitive Architecture &amp; Subagent Ladder | Agyis Harness 1.0.0</title>
+  <meta name="description" content="PSL Invariant Codex v2, 19+4 / max 20 tool ceiling, 8 specialist personas, Cockpit Flight Director A-L 12-workflow router, 512k/840k/1M checkpoint runway, and 30 provisionable skills.">
+  <meta property="og:title" content="Cognitive Architecture &amp; Subagent Ladder | Agyis Harness 1.0.0">
+  <meta property="og:description" content="Multi-agent governance, PSL Codex v2, tool ceiling validation, 12 canonical routing workflows, and 30 modular workspace skills.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://kuasha420.github.io/agyis-harness/cognitive/">
+  <meta property="og:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Cognitive Architecture | Agyis Harness 1.0.0">
+  <meta name="twitter:description" content="PSL Codex v2, 8 specialist personas, A-L 12-workflow router, and 30 modular skills.">
+  <meta name="twitter:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
+  <meta name="theme-color" content="#080E1A">
+  <link rel="icon" href="../favicon.ico" sizes="any">
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+  <link rel="manifest" href="../site.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    @layer components {
+      .cog-band {
+        padding-block: clamp(2.5rem, 5vw, 4rem);
+        border-block-end: 1px solid var(--border);
+      }
+
+      .cog-band--dark {
+        background-color: var(--console-bg);
+        color: var(--console-ink);
+        border-block-end-color: var(--console-border);
+      }
+
+      .cog-band--dark p {
+        color: var(--console-muted);
+      }
+
+      .cog-band--dark h2,
+      .cog-band--dark h3 {
+        color: var(--console-ink);
+      }
+
+      .tabular-num,
+      .kpi-value,
+      .data-table td,
+      .data-table th {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .segmented-group {
+        display: inline-flex;
+        flex-wrap: wrap;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        background-color: var(--surface);
+      }
+
+      .cog-band--dark .segmented-group {
+        border-color: var(--console-border);
+        background-color: var(--console-bg);
+      }
+
+      .segmented-btn {
+        appearance: none;
+        border: 0;
+        border-inline-end: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink-muted);
+        padding: 0.5rem 0.875rem;
+        font-size: var(--text-sm);
+        font-weight: 500;
+        cursor: pointer;
+        min-block-size: 2.75rem;
+        transition-property: background-color, color;
+        transition-duration: 160ms;
+        transition-timing-function: var(--ease-out);
+      }
+
+      .cog-band--dark .segmented-btn {
+        border-inline-end-color: var(--console-border);
+        color: var(--console-muted);
+      }
+
+      .segmented-btn:last-child {
+        border-inline-end: 0;
+      }
+
+      .segmented-btn:hover {
+        color: var(--ink);
+        background-color: var(--bg);
+      }
+
+      .cog-band--dark .segmented-btn:hover {
+        color: var(--console-ink);
+        background-color: var(--console-surface);
+      }
+
+      .segmented-btn[aria-pressed="true"],
+      .segmented-btn[aria-checked="true"],
+      .segmented-btn.is-active {
+        background-color: var(--accent);
+        color: #f4f6fa;
+      }
+
+      .codex-card {
+        padding: 1.375rem;
+        border-radius: var(--radius-md);
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        display: grid;
+        gap: 0.625rem;
+        align-content: start;
+        min-width: 0;
+      }
+
+      .codex-id {
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        font-weight: 600;
+        color: var(--accent);
+      }
+
+      .codex-layer {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: var(--ink-muted);
+      }
+
+      .tool-list-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
+        gap: 0.625rem;
+        margin-block-start: 1rem;
+      }
+
+      .tool-cell {
+        padding: 0.625rem 0.875rem;
+        border-radius: var(--radius-sm);
+        background-color: var(--console-surface);
+        border: 1px solid var(--console-border);
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        color: var(--console-ink);
+        overflow-wrap: anywhere;
+      }
+
+      .tool-cell-sub {
+        display: block;
+        font-size: 0.75rem;
+        color: var(--console-muted);
+        margin-block-start: 0.2rem;
+      }
+
+      .inspector-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 17rem) minmax(0, 1fr);
+        gap: 1.25rem;
+        margin-block-start: 1.25rem;
+        align-items: start;
+      }
+
+      .selector-list {
+        display: grid;
+        gap: 0.375rem;
+        min-width: 0;
+      }
+
+      .selector-item {
+        appearance: none;
+        text-align: start;
+        padding: 0.625rem 0.875rem;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--console-border);
+        background-color: var(--console-surface);
+        color: var(--console-muted);
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+        min-block-size: 2.75rem;
+        transition-property: background-color, border-color, color;
+        transition-duration: 150ms;
+        transition-timing-function: var(--ease-out);
+      }
+
+      .selector-item:hover {
+        color: var(--console-ink);
+        border-color: var(--console-accent);
+      }
+
+      .selector-item.is-active {
+        background-color: var(--accent);
+        border-color: var(--accent);
+        color: #f4f6fa;
+      }
+
+      .selector-item code {
+        color: inherit;
+        background-color: transparent;
+        padding: 0;
+      }
+
+      .inspector-panel {
+        padding: 1.5rem;
+        border-radius: var(--radius-md);
+        background-color: var(--console-surface);
+        border: 1px solid var(--console-border);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 1rem;
+        min-width: 0;
+        max-inline-size: 100%;
+      }
+
+      .inspector-panel > * {
+        min-inline-size: 0;
+      }
+
+      .detail-kv-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+        gap: 0.75rem;
+      }
+
+      .detail-kv {
+        padding: 0.75rem;
+        border-radius: var(--radius-sm);
+        background-color: var(--console-bg);
+        border: 1px solid var(--console-border);
+        min-width: 0;
+      }
+
+      .detail-kv-label {
+        display: block;
+        font-size: 0.8125rem;
+        color: var(--console-muted);
+      }
+
+      .detail-kv-val {
+        display: block;
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        color: var(--console-ink);
+        margin-block-start: 0.2rem;
+        overflow-wrap: anywhere;
+      }
+
+      .code-panel {
+        max-inline-size: 100%;
+        min-inline-size: 0;
+        background-color: var(--console-bg);
+        border: 1px solid var(--console-border);
+        border-radius: var(--radius-sm);
+        padding: 1rem;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        line-height: 1.55;
+        color: var(--console-ink);
+        margin: 0;
+      }
+
+      .code-panel pre,
+      .code-panel code {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .route-grid-buttons {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+        gap: 0.5rem;
+        margin-block: 1rem;
+      }
+
+      .runway-bar-list {
+        display: grid;
+        gap: 0.875rem;
+        margin-block-start: 1rem;
+      }
+
+      .runway-row {
+        display: grid;
+        gap: 0.375rem;
+      }
+
+      .runway-row-head {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 0.25rem 1rem;
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .runway-track {
+        block-size: 0.75rem;
+        border-radius: 9999px;
+        background-color: var(--console-surface);
+        border: 1px solid var(--console-border);
+        overflow: hidden;
+        display: flex;
+      }
+
+      .runway-seg-safe { background-color: var(--semantic-pass); width: 70%; }
+      .runway-seg-amber { background-color: var(--semantic-warn); width: 20%; }
+      .runway-seg-red { background-color: var(--semantic-fail); width: 10%; }
+
+      .control-field {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: var(--text-sm);
+        min-width: 0;
+      }
+
+      .control-field select,
+      .control-field input[type="search"] {
+        background-color: var(--bg);
+        color: var(--ink);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 0.5rem 0.75rem;
+        font-size: var(--text-sm);
+        min-block-size: 2.75rem;
+        max-inline-size: 100%;
+      }
+
+      .cog-band--dark .control-field select,
+      .cog-band--dark .control-field input[type="search"] {
+        background-color: var(--console-bg);
+        color: var(--console-ink);
+        border-color: var(--console-border);
+      }
+
+      .preset-box {
+        padding: 1.25rem;
+        border-radius: var(--radius-md);
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.875rem;
+        margin-block-end: 1.5rem;
+        min-inline-size: 0;
+        max-inline-size: 100%;
+      }
+
+      .skill-card {
+        padding: 1.125rem;
+        border-radius: var(--radius-sm);
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        display: grid;
+        gap: 0.375rem;
+        align-content: start;
+        min-width: 0;
+      }
+
+      .skill-card code {
+        font-weight: 600;
+        color: var(--accent);
+        background-color: transparent;
+        padding: 0;
+      }
+
+      .skill-meta {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: var(--ink-muted);
+      }
+
+      @media (max-width: 820px) {
+        .inspector-layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .segmented-btn,
+        .selector-item {
+          transition: none;
+        }
+      }
+    }
+  </style>
+  <script type="module" defer src="../app.js"></script>
+  <script type="module" defer src="./cognitive.js"></script>
+</head>
+<body id="top" data-route="cognitive" data-data-root="../data/">
+  <a href="#main-content" class="skip-link visually-hidden">Skip to main content</a>
+  <div id="status-announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+
+  <header class="site-header">
+    <nav id="site-nav" class="container nav-inner" aria-label="Primary">
+      <a href="../" class="brand-link">
+        <img src="../assets/logo.svg" alt="" width="30" height="30">
+        <span class="brand-name">Agyis Harness</span>
+      </a>
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-nav-links" aria-label="Toggle navigation menu">Menu</button>
+      <ul id="site-nav-links" class="nav-links">
+        <li><a href="../" class="nav-link">Platform</a></li>
+        <li><a href="../telemetry/" class="nav-link">Telemetry</a></li>
+        <li><a href="../cognitive/" class="nav-link is-active" aria-current="page">Cognitive</a></li>
+        <li><a href="../hud-re/" class="nav-link">HUD &amp; RE</a></li>
+        <li><a href="../brand/" class="nav-link">Brand</a></li>
+        <li><a href="../#install" class="nav-cta">Install</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <section class="page-hero" aria-labelledby="main-content">
+      <div class="container">
+        <div class="split-grid" style="align-items: center;">
+          <div>
+            <h1 id="main-content" tabindex="-1">Cognitive architecture and subagent ladder</h1>
+            <p>Agyis pairs deterministic lifecycle hooks with explicit behavioral invariants, strict tool-ceiling enforcement, role-isolated specialist personas, and 12 canonical routing workflows verified against shipped source modules.</p>
+            <div class="kpi-strip" style="margin-block-start: 1.5rem;" aria-label="Cognitive inventory metrics">
+              <div class="kpi-card">
+                <span class="kpi-value" id="cog-kpi-agents">8</span>
+                <span class="kpi-label">Specialist personas</span>
+              </div>
+              <div class="kpi-card">
+                <span class="kpi-value">19+4 / 20</span>
+                <span class="kpi-label">Canonical + swarm / max ceiling</span>
+              </div>
+              <div class="kpi-card">
+                <span class="kpi-value">12</span>
+                <span class="kpi-label">Canonical workflows (A to L)</span>
+              </div>
+              <div class="kpi-card">
+                <span class="kpi-value" id="cog-kpi-skills">30</span>
+                <span class="kpi-label">Provisionable workspace skills</span>
+              </div>
+            </div>
+          </div>
+
+          <figure class="art-card art-card--4x3">
+            <picture>
+              <source srcset="../assets/art/art-cognitive-lattice.webp" type="image/webp">
+              <img src="../assets/art/art-cognitive-lattice.png" alt="Isometric 3D architectural lattice of 8 obsidian and sapphire nodes connected by cobalt and cyan optical filaments converging into a central verification prism" width="1200" height="900" decoding="async" fetchpriority="high">
+            </picture>
+            <figcaption>Directed-acyclic subagent verification lattice: 8 specialist personas converging through independent review and Gate 2 certification.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <nav class="subnav" aria-label="Cognitive architecture sections">
+      <div class="container subnav-inner">
+        <ul class="subnav-links">
+          <li><a href="#codex">PSL Codex v2</a></li>
+          <li><a href="#personas">Tool ceiling &amp; personas</a></li>
+          <li><a href="#router">Cockpit &amp; A-L router</a></li>
+          <li><a href="#runway">Runway &amp; Gate 2</a></li>
+          <li><a href="#skills">30 skills catalog</a></li>
+        </ul>
+      </div>
+    </nav>
+
+    <section id="codex" class="page-section cog-band" aria-labelledby="codex-heading">
+      <div class="container">
+        <h2 id="codex-heading">PSL Invariant Codex v2</h2>
+        <p>Eight universal invariants plus the on-demand cleanroom reverse engineering domain pack govern every session. Deterministic mechanics (compaction, loop breaking, exit sanitization, stop fences, token gauges) execute in hooks while cognitive discipline anchors author behavior.</p>
+
+        <div class="control-bar" style="margin-block: 1.25rem;">
+          <div id="codex-filter-group" class="segmented-group" role="group" aria-label="Filter PSL Codex invariants">
+            <button type="button" class="segmented-btn is-active" data-codex-cat="all" aria-pressed="true">All (9)</button>
+            <button type="button" class="segmented-btn" data-codex-cat="verification" aria-pressed="false">Verification &amp; honesty</button>
+            <button type="button" class="segmented-btn" data-codex-cat="runtime" aria-pressed="false">Hooks &amp; runtime</button>
+            <button type="button" class="segmented-btn" data-codex-cat="governance" aria-pressed="false">Multi-agent &amp; fitness</button>
+            <button type="button" class="segmented-btn" data-codex-cat="re" aria-pressed="false">On-demand RE</button>
+          </div>
+        </div>
+
+        <div id="codex-cards-grid" class="card-grid-3"></div>
+      </div>
+    </section>
+
+    <section id="personas" class="page-section page-section--dark cog-band cog-band--dark" aria-labelledby="personas-heading">
+      <div class="container">
+        <h2 id="personas-heading">Tool ceiling and specialist persona matrix</h2>
+        <p>Defined in <code>harness/subagents/spec.py</code> and validated via <code>agyis agents validate --json</code>. Every specialist declares at most <code>MAX_AGENT_TOOLS = 20</code> tools drawn exclusively from Antigravity v2.34+ canonical names, never static MCP tool names or runtime-injected swarm board tools.</p>
+
+        <div class="control-bar" style="margin-block-start: 1.25rem;">
+          <div id="tool-group-controls" class="segmented-group" role="radiogroup" aria-label="Platform tool taxonomy group">
+            <button type="button" class="segmented-btn is-active" role="radio" aria-checked="true" data-tool-group="canonical">Canonical platform (19)</button>
+            <button type="button" class="segmented-btn" role="radio" aria-checked="false" data-tool-group="swarm">Swarm runtime (4)</button>
+            <button type="button" class="segmented-btn" role="radio" aria-checked="false" data-tool-group="plan">Root plan mode (2)</button>
+            <button type="button" class="segmented-btn" role="radio" aria-checked="false" data-tool-group="legacy">Legacy aliases (9)</button>
+          </div>
+        </div>
+
+        <p id="tool-group-description" style="margin-block-start: 0.75rem;"></p>
+        <div id="tool-group-grid" class="tool-list-grid" aria-live="polite"></div>
+
+        <h3 style="margin-block-start: 2.25rem;">Registered specialist personas (8 specs in <code>harness/agents/*.md</code>)</h3>
+        <p>Select a persona to inspect its exact archetype, declared tool list, write-permission boundary, subagent spawning authority, and <code>inheritMcp</code> configuration.</p>
+
+        <div class="inspector-layout">
+          <div id="persona-selector-list" class="selector-list" role="listbox" aria-label="Specialist personas"></div>
+          <article id="persona-detail-panel" class="inspector-panel" aria-live="polite"></article>
+        </div>
+
+        <div class="table-card-container" style="margin-block-start: 1.75rem;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Persona</th>
+                <th scope="col">Archetype</th>
+                <th scope="col">Tools</th>
+                <th scope="col">Write posture</th>
+                <th scope="col">Subagents</th>
+                <th scope="col">inheritMcp</th>
+              </tr>
+            </thead>
+            <tbody id="persona-summary-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="router" class="page-section page-section--dark cog-band cog-band--dark" aria-labelledby="router-heading">
+      <div class="container">
+        <h2 id="router-heading">Cockpit Flight Director and 12-workflow router (A to L)</h2>
+        <p>Defined verbatim in <code>harness/subagents/routing.py</code> (Protocol <code>2026.1</code>). Invoke via <code>agyis cockpit route &lt;letter|alias&gt;</code>, <code>agyis router &lt;alias&gt;</code>, or <code>agyis ladder &lt;alias&gt;</code>.</p>
+
+        <div class="card-grid-2" style="margin-block: 1.25rem;">
+          <div class="inspector-panel">
+            <h3>Four multi-agent execution modes</h3>
+            <ul style="padding-inline-start: 1.25rem; display: grid; gap: 0.5rem; color: var(--console-muted);">
+              <li><strong style="color: var(--console-ink);"><code>LADDER</code>:</strong> Sequential specialist quality gates (Investigator, Planner, Builder, Reviewer, Custodian, Auditor).</li>
+              <li><strong style="color: var(--console-ink);"><code>PARALLEL_FANOUT</code>:</strong> Coordinator-led parallel research and diagnostic tracks without context cross-contamination.</li>
+              <li><strong style="color: var(--console-ink);"><code>TEAMWORK_DAG</code>:</strong> Native <code>/swarm</code>, <code>run_workflow</code>, or <code>/teamwork</code> task graphs with isolated worktrees.</li>
+              <li><strong style="color: var(--console-ink);"><code>BOOST_TOURNAMENT</code>:</strong> Native <code>/boost</code> multi-perspective competition pairing Deep Coding Agents with High-Reliability Reviewers.</li>
+            </ul>
+          </div>
+          <div class="inspector-panel">
+            <h3>Stage transition dispatch contract</h3>
+            <p>Every stage handoff validates against <code>psl_stage_transition_payload.json</code> (Protocol <code>2026.1</code>) enforcing required keys for <code>diff_summary</code>, <code>verification</code>, <code>artifacts</code>, and <code>defect_ledger</code>.</p>
+            <pre class="code-panel"><code>agyis cockpit status
+agyis cockpit route A
+agyis cockpit verify --allow-dirty</code></pre>
+          </div>
+        </div>
+
+        <div class="control-bar">
+          <label class="control-field" for="route-search-input">
+            <span>Filter route</span>
+            <input type="search" id="route-search-input" placeholder="Letter, alias, or title (e.g. rca, victory)">
+          </label>
+          <label class="control-field" for="route-mode-select">
+            <span>Mode</span>
+            <select id="route-mode-select">
+              <option value="all">All 12 routes</option>
+              <option value="LADDER">LADDER (11)</option>
+              <option value="PARALLEL_FANOUT">PARALLEL_FANOUT (1)</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="route-selector-grid" class="route-grid-buttons" aria-label="Workflow route selector"></div>
+        <article id="route-detail-panel" class="inspector-panel" aria-live="polite"></article>
+
+        <div class="table-card-container" style="margin-block-start: 1.75rem;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Route</th>
+                <th scope="col">Alias</th>
+                <th scope="col">Entry specialist</th>
+                <th scope="col">Mode</th>
+                <th scope="col">Pipeline sequence</th>
+                <th scope="col">Primary deliverable</th>
+              </tr>
+            </thead>
+            <tbody id="routes-table-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="runway" class="page-section page-section--dark cog-band cog-band--dark" aria-labelledby="runway-heading">
+      <div class="container">
+        <div class="split-grid">
+          <article class="inspector-panel">
+            <h2 id="runway-heading">Proportional context runway and checkpoints</h2>
+            <p>Context token gauges scale proportionally across modern model windows instead of hardcoding fixed token ceilings. Converge active deliverables near 70% (amber), emit a pre-compaction CID checkpoint at 90% (red), and honor the 80-step soft checkpoint horizon.</p>
+
+            <div class="runway-bar-list">
+              <div class="runway-row">
+                <div class="runway-row-head">
+                  <span>Gemini 4 Hydrogen / Neon / Argon</span>
+                  <span>512k window (358k amber | 461k red)</span>
+                </div>
+                <div class="runway-track" aria-hidden="true">
+                  <span class="runway-seg-safe"></span><span class="runway-seg-amber"></span><span class="runway-seg-red"></span>
+                </div>
+              </div>
+              <div class="runway-row">
+                <div class="runway-row-head">
+                  <span>Claude Sonnet 5.5</span>
+                  <span>840k window (588k amber | 756k red)</span>
+                </div>
+                <div class="runway-track" aria-hidden="true">
+                  <span class="runway-seg-safe"></span><span class="runway-seg-amber"></span><span class="runway-seg-red"></span>
+                </div>
+              </div>
+              <div class="runway-row">
+                <div class="runway-row-head">
+                  <span>1M frontier explicit context</span>
+                  <span>1,000k window (700k amber | 900k red)</span>
+                </div>
+                <div class="runway-track" aria-hidden="true">
+                  <span class="runway-seg-safe"></span><span class="runway-seg-amber"></span><span class="runway-seg-red"></span>
+                </div>
+              </div>
+            </div>
+
+            <pre class="code-panel"><code>agyis checkpoint status
+agyis checkpoint create
+agyis checkpoint verify
+agyis checkpoint prune</code></pre>
+          </article>
+
+          <article class="inspector-panel">
+            <h2>Gate 2 dual-auditor certification</h2>
+            <p>Code authors never self-certify production diffs (PSL-INV-006). Before branch promotion, independent Reviewer and Auditor specialists evaluate the clean committed revision on HEAD.</p>
+            <ul style="padding-inline-start: 1.25rem; display: grid; gap: 0.5rem; color: var(--console-muted);">
+              <li><strong style="color: var(--console-ink);"><code>agyis_reviewer</code> (Hammer):</strong> Delta-focused diff review (<code>git diff -U3</code>) checking DRY duplication and architectural smells.</li>
+              <li><strong style="color: var(--console-ink);"><code>agyis_custodian</code> (Commit Gate):</strong> Enforces 4-pillar AFF hygiene and atomic commits without repo document pollution.</li>
+              <li><strong style="color: var(--console-ink);"><code>agyis_auditor</code> (Victory Auditor):</strong> Executes the full hermetic test suite, <code>agyis audit aff</code> (100.0/100), and <code>agyis doctor</code>, writing signed <code>.agents/artifacts/audit_verdict.json</code>.</li>
+            </ul>
+            <pre class="code-panel"><code>agyis audit certify --task-id TASK-001
+agyis audit verdict</code></pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="skills" class="page-section cog-band" aria-labelledby="skills-heading">
+      <div class="container">
+        <h2 id="skills-heading">Provisionable skills catalog (30 skills, 9 languages, 12 roles)</h2>
+        <p>Verified against <code>overview.json.workspace_inventory.skills.names</code> and exact preset mappings in <code>harness/skills/presets.py</code>. Single-source symlink provisioning keeps repository <code>.agents/skills/</code> clean without duplicating global plugin skills.</p>
+
+        <div class="preset-box">
+          <h3>Language and role preset resolver (<code>harness/skills/presets.py</code>)</h3>
+          <div class="control-bar">
+            <label class="control-field" for="preset-lang-select">
+              <span>Language runtime (9)</span>
+              <select id="preset-lang-select">
+                <option value="python">python</option>
+                <option value="typescript">typescript</option>
+                <option value="node">node</option>
+                <option value="javascript">javascript</option>
+                <option value="rust">rust</option>
+                <option value="cargo">cargo</option>
+                <option value="go">go</option>
+                <option value="systems">systems</option>
+                <option value="shell">shell</option>
+              </select>
+            </label>
+            <label class="control-field" for="preset-role-select">
+              <span>Architectural role (12)</span>
+              <select id="preset-role-select">
+                <option value="backend">backend</option>
+                <option value="frontend">frontend</option>
+                <option value="fullstack">fullstack</option>
+                <option value="mobile">mobile</option>
+                <option value="desktop_gui">desktop_gui</option>
+                <option value="cli">cli</option>
+                <option value="library">library</option>
+                <option value="media">media</option>
+                <option value="audio">audio</option>
+                <option value="infra">infra</option>
+                <option value="re">re</option>
+                <option value="cleanroom">cleanroom</option>
+              </select>
+            </label>
+          </div>
+          <div id="preset-output-line" style="font-family: var(--font-mono); font-size: var(--text-sm);"></div>
+        </div>
+
+        <div class="control-bar" style="margin-block-end: 1.25rem;">
+          <label class="control-field" for="skill-search-input">
+            <span>Search skills</span>
+            <input type="search" id="skill-search-input" placeholder="Skill name or domain (e.g. db-ops, pytest)">
+          </label>
+          <div id="skill-category-group" class="segmented-group" role="group" aria-label="Filter skills by category">
+            <button type="button" class="segmented-btn is-active" data-skill-cat="all" aria-pressed="true">All (30)</button>
+            <button type="button" class="segmented-btn" data-skill-cat="stack" aria-pressed="false">Stack (5)</button>
+            <button type="button" class="segmented-btn" data-skill-cat="testing" aria-pressed="false">Testing (5)</button>
+            <button type="button" class="segmented-btn" data-skill-cat="ops" aria-pressed="false">Workstation &amp; ops (8)</button>
+            <button type="button" class="segmented-btn" data-skill-cat="workflow" aria-pressed="false">Workflow &amp; continuity (9)</button>
+            <button type="button" class="segmented-btn" data-skill-cat="telemetry" aria-pressed="false">Telemetry (2)</button>
+            <button type="button" class="segmented-btn" data-skill-cat="re" aria-pressed="false">Cleanroom RE (1)</button>
+          </div>
+        </div>
+
+        <p id="skills-count-status" style="font-family: var(--font-mono); font-size: var(--text-sm); margin-block-end: 0.75rem; font-variant-numeric: tabular-nums;">Showing 30 of 30 verified workspace skills</p>
+        <div id="skills-grid" class="card-grid-3"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a href="../" class="brand-link">
+          <img src="../assets/logo.svg" alt="" width="24" height="24">
+          <span class="brand-name">Agyis Harness</span>
+        </a>
+        <p>Copyright (c) 2026 Arafat Zahan (@kuasha420). Corporate Stewardship &amp; Infrastructure: Purrfect Software Limited (PSL), governed by ICARO-42/b Ordinance (Company-Supported Personal IP Framework). Released under Apache License 2.0.</p>
+        <p class="footer-legal">Google Antigravity&trade; is a trademark of Google LLC. Agyis Harness is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Google LLC.</p>
+      </div>
+      <nav aria-label="Footer">
+        <ul class="footer-links">
+          <li><a href="../">Platform</a></li>
+          <li><a href="../telemetry/">Telemetry</a></li>
+          <li><a href="./" aria-current="page">Cognitive</a></li>
+          <li><a href="../hud-re/">HUD &amp; RE</a></li>
+          <li><a href="../brand/">Brand</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness" target="_blank" rel="noopener noreferrer">Repository</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness/releases/tag/v1.0.0" target="_blank" rel="noopener noreferrer">Releases</a></li>
+        </ul>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
