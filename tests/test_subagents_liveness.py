@@ -973,6 +973,94 @@ class TestSubagentCompletedState(unittest.TestCase):
         self.assertTrue(by_id[worker_park].is_parked)
         self.assertEqual(by_id[worker_fin].liveness_state, "COMPLETED")
 
+    def test_resolve_active_root_conversation_id_climbs_lineage_with_isolation(self) -> None:
+        """resolve_active_root_conversation_id climbs child->root via SQLite lineage (<=6 hops) with host isolation."""
+        import sqlite3
+        from harness.subagents.liveness import resolve_active_root_conversation_id
+
+        app_dir = self.root / "app_data"
+        brain_dir = app_dir / "brain"
+        brain_dir.mkdir(parents=True, exist_ok=True)
+        db_path = app_dir / "conversation_summaries.db"
+        root_cid = "9bbbcf1e-cefe-4948-af78-c7224ed40592"
+        mid_cid = "aaaaaaaa-1111-4111-8111-111111111111"
+        child_cid = "37de4565-ed7d-4b28-a7d2-9804b2a61dbb"
+
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute(
+                "CREATE TABLE conversation_summaries "
+                "(conversation_id TEXT PRIMARY KEY, parent_conversation_id TEXT, agent_name TEXT, nesting_depth INTEGER)"
+            )
+            conn.executemany(
+                "INSERT INTO conversation_summaries VALUES (?, ?, ?, ?)",
+                [
+                    (root_cid, None, "agyis_coordinator", 0),
+                    (mid_cid, root_cid, "agyis_architect", 1),
+                    (child_cid, mid_cid, "agyis_builder", 2),
+                    # Deep >6 hop chain to verify bounded hop limit
+                    ("hop-6", "hop-7", "agyis_builder", 7),
+                    ("hop-5", "hop-6", "agyis_builder", 6),
+                    ("hop-4", "hop-5", "agyis_builder", 5),
+                    ("hop-3", "hop-4", "agyis_builder", 4),
+                    ("hop-2", "hop-3", "agyis_builder", 3),
+                    ("hop-1", "hop-2", "agyis_builder", 2),
+                    ("hop-0", "hop-1", "agyis_builder", 1),
+                    # Cycle guard
+                    ("cyc-a", "cyc-b", "agyis_builder", 1),
+                    ("cyc-b", "cyc-a", "agyis_builder", 1),
+                ],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        with patch.dict(os.environ, {"ANTIGRAVITY_CONVERSATION_ID": child_cid}, clear=False):
+            resolved = resolve_active_root_conversation_id(app_data_dir=app_dir)
+            self.assertEqual(resolved, root_cid)
+
+            # Host isolation: explicit isolated brain_dir must NOT leak into app_dir or host DB
+            iso_brain = self.root / "isolated_app" / "brain"
+            iso_brain.mkdir(parents=True)
+            self.assertEqual(resolve_active_root_conversation_id(brain_dir=iso_brain), child_cid)
+
+            # Temp state dir isolation without explicit app_data_dir also must NOT query host DB
+            temp_state = self.root / "temp_state"
+            temp_state.mkdir(parents=True)
+            with patch.dict(os.environ, {"AGYIS_HARNESS_STATE_DIR": str(temp_state)}, clear=False):
+                self.assertEqual(resolve_active_root_conversation_id(), child_cid)
+
+        # Bounded <= 6 hops on deep chain
+        with patch.dict(os.environ, {"ANTIGRAVITY_CONVERSATION_ID": "hop-0"}, clear=False):
+            self.assertEqual(resolve_active_root_conversation_id(app_data_dir=app_dir), "hop-6")
+
+        # Cycle safety
+        with patch.dict(os.environ, {"ANTIGRAVITY_CONVERSATION_ID": "cyc-a"}, clear=False):
+            self.assertEqual(resolve_active_root_conversation_id(app_data_dir=app_dir), "cyc-b")
+
+        # Integration with cockpit verify: child CID in env finds root checkpoint + ignores stale legacy
+        cp_dir = self.workspace / ".agents" / "artifacts" / "checkpoints"
+        cp_dir.mkdir(parents=True, exist_ok=True)
+        root_cp = cp_dir / f"{root_cid}.md"
+        root_cp.write_text("# Root Checkpoint", encoding="utf-8")
+        stale_legacy = self.workspace / ".agents" / "artifacts" / "cockpit_checkpoint.md"
+        stale_legacy.write_text("# Stale", encoding="utf-8")
+        old_ts = time.time() - 86400
+        os.utime(stale_legacy, (old_ts, old_ts))
+
+        with patch.dict(
+            os.environ,
+            {
+                "AGYIS_APP_DATA_DIR": str(app_dir),
+                "ANTIGRAVITY_APP_DATA_DIR": str(app_dir),
+                "ANTIGRAVITY_CONVERSATION_ID": child_cid,
+            },
+            clear=False,
+        ):
+            _, results = _audit_flight_director_invariants(self.workspace, allow_dirty=True)
+            inv4 = next(r for r in results if r["invariant"] == "Active Checkpoint Availability")
+            self.assertTrue(inv4["passed"], f"Expected root checkpoint via child lineage to pass Invariant 4: {inv4}")
+
 
 
 if __name__ == "__main__":

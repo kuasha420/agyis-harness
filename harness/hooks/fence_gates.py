@@ -25,6 +25,7 @@ from harness.hooks.fence_state import clear_spec_dirty, get_brain_dir, load_stat
 from harness.hooks.fence_tasks import sync_background_tasks
 from harness.hooks.role_lineage import resolve_hook_role_and_agent
 from harness.hooks.wire_compat import emit_stderr_diagnostic, enqueue_pending_advisory
+from harness.subagents.liveness import TEAMWORK_IGNORED_DIRS
 from harness.trajectory.health import SOFT_EPOCH_STEP_ADVISORY
 from harness.trajectory.sqlite_reader import resolve_epoch_step_count
 from harness.utils.workspace import is_harness_workspace
@@ -97,7 +98,7 @@ def _has_dispatched_subagents(effective_cwd: Path | str, payload: Optional[dict]
     if teamwork_dir.is_dir():
         try:
             for child in teamwork_dir.iterdir():
-                if child.is_dir() and not child.name.startswith("."):
+                if child.is_dir() and not child.name.startswith(".") and child.name not in TEAMWORK_IGNORED_DIRS:
                     return True
         except OSError as exc:
             sys.stderr.write(f"PSL Fence Warning: Failed reading teamwork dir '{teamwork_dir}': {exc}\n")

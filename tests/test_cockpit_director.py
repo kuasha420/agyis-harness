@@ -320,6 +320,80 @@ class TestCockpitCheckpointScoping(unittest.TestCase):
                 inv4_2 = next(r for r in results2 if r["invariant"] == "Active Checkpoint Availability")
                 self.assertTrue(inv4_2["passed"])
 
+    def test_checkpoint_prefers_scoped_and_recent_over_stale_legacy(self) -> None:
+        """_get_active_checkpoint_info prefers scoped/recent checkpoints/*.md before stale legacy global files."""
+        import os
+        import time as _time
+        from harness.commands.cockpit import _get_active_checkpoint_info
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            art_dir = ws / ".agents" / "artifacts"
+            cp_dir = art_dir / "checkpoints"
+            cp_dir.mkdir(parents=True, exist_ok=True)
+
+            stale_legacy = art_dir / "cockpit_checkpoint.md"
+            stale_legacy.write_text("# Stale Legacy", encoding="utf-8")
+            old_ts = _time.time() - 86400
+            os.utime(stale_legacy, (old_ts, old_ts))
+
+            recent_cp = cp_dir / "other-recent-root.md"
+            recent_cp.write_text("# Recent Checkpoint", encoding="utf-8")
+
+            # Without matching conv_id (e.g. conv_id=None), fresher recent cp_dir/*.md beats stale legacy
+            with patch.dict(os.environ, {"AGYIS_HARNESS_STATE_DIR": str(ws / "state")}, clear=False):
+                os.environ.pop("ANTIGRAVITY_CONVERSATION_ID", None)
+                os.environ.pop("CONVERSATION_ID", None)
+                os.environ.pop("AGYIS_CONVERSATION_ID", None)
+                info_recent = _get_active_checkpoint_info(ws, conv_id=None)
+                self.assertTrue(info_recent["exists"])
+                self.assertTrue(info_recent["is_fresh"])
+                self.assertEqual(Path(info_recent["path"]), recent_cp)
+
+            # With explicit conv_id whose own file exists, scoped cp_dir/<cid>.md wins unconditionally
+            scoped_cp = cp_dir / "root-session-123.md"
+            scoped_cp.write_text("# Scoped Checkpoint", encoding="utf-8")
+            older_ts = _time.time() - 600
+            os.utime(scoped_cp, (older_ts, older_ts))
+            info_scoped = _get_active_checkpoint_info(ws, conv_id="root-session-123")
+            self.assertTrue(info_scoped["exists"])
+            self.assertTrue(info_scoped["scoped_to_session"])
+            self.assertEqual(Path(info_scoped["path"]), scoped_cp)
+
+    def test_cockpit_invariants_exclude_backups_and_scratch_teamwork_dirs(self) -> None:
+        """cockpit verify ignores .agents/teamwork/backups/ and scratch/ while catching real teamwork dispatches."""
+        from harness.commands.cockpit import _audit_flight_director_invariants
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            app_dir = ws / "app"
+            (app_dir / "brain").mkdir(parents=True)
+            art_dir = ws / ".agents" / "artifacts"
+            art_dir.mkdir(parents=True)
+            (art_dir / "compaction_checkpoint_latest.md").write_text("# Checkpoint", encoding="utf-8")
+
+            tw_dir = ws / ".agents" / "teamwork"
+            backup_dir = tw_dir / "backups" / "powerloss_20261126"
+            backup_dir.mkdir(parents=True)
+            (backup_dir / "git_diff_backup.patch").write_text("diff --git a/a b/a\n", encoding="utf-8")
+            (tw_dir / "scratch").mkdir(parents=True)
+            (tw_dir / "scratch" / "probe.txt").write_text("tmp", encoding="utf-8")
+
+            with patch.dict(os.environ, {"ANTIGRAVITY_APP_DATA_DIR": str(app_dir)}, clear=False):
+                _, results = _audit_flight_director_invariants(ws, allow_dirty=False)
+                inv5 = next(r for r in results if r["invariant"] == "Subagent Cognitive Health")
+                self.assertTrue(inv5["passed"], f"backups/scratch falsely triggered truth check: {inv5}")
+                self.assertEqual(inv5["violations"], [])
+
+                # Adding a real teamwork task dir triggers transition payload truth check
+                real_dir = tw_dir / "squad_1"
+                real_dir.mkdir(parents=True)
+                (real_dir / "DISPATCH.md").write_text("# Squad 1", encoding="utf-8")
+                _, results_real = _audit_flight_director_invariants(ws, allow_dirty=False)
+                inv5_real = next(r for r in results_real if r["invariant"] == "Subagent Cognitive Health")
+                self.assertFalse(inv5_real["passed"])
+                self.assertTrue(any("Missing stage transition payload" in v for v in inv5_real["violations"]))
+
 
 if __name__ == "__main__":
     unittest.main()

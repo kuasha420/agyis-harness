@@ -73,19 +73,56 @@ def _get_active_checkpoint_info(
     scoped_candidates: List[Path] = []
     if conv_id:
         scoped_candidates.append(cp_dir / f"{conv_id}.md")
-    scoped_candidates.extend([
-        cp_dir / "session.md",
+    scoped_candidates.append(cp_dir / "session.md")
+
+    legacy_candidates: List[Path] = [
         workspace / ".agents" / "artifacts" / "cockpit_checkpoint.md",
         workspace / ".agents" / "artifacts" / "compaction_checkpoint_latest.md",
-    ])
+    ]
 
-    target_cp = next((c for c in scoped_candidates if c.exists()), None)
+    target_cp = next((c for c in scoped_candidates if c.is_file()), None)
     scoped_to_session = target_cp is not None
-    if target_cp is None and cp_dir.is_dir():
-        other_cps = sorted((p for p in cp_dir.glob("*.md") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
+
+    if target_cp is None:
+        other_cps: List[Path] = []
+        if cp_dir.is_dir():
+            try:
+                other_cps = sorted(
+                    (p for p in cp_dir.glob("*.md") if p.is_file()),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+            except OSError:
+                other_cps = []
+
+        existing_legacy = [c for c in legacy_candidates if c.is_file()]
+        legacy_cp: Optional[Path] = None
+        if existing_legacy:
+            try:
+                legacy_cp = max(existing_legacy, key=lambda p: p.stat().st_mtime)
+            except OSError:
+                legacy_cp = existing_legacy[0]
+
         if other_cps:
-            target_cp = other_cps[0]
-            scoped_to_session = conv_id is None
+            newest_cp = other_cps[0]
+            if legacy_cp is None:
+                target_cp = newest_cp
+                scoped_to_session = conv_id is None
+            else:
+                try:
+                    newest_mtime = newest_cp.stat().st_mtime
+                    legacy_mtime = legacy_cp.stat().st_mtime
+                except OSError:
+                    newest_mtime, legacy_mtime = 0.0, 0.0
+                if newest_mtime >= legacy_mtime:
+                    target_cp = newest_cp
+                    scoped_to_session = conv_id is None
+                else:
+                    target_cp = legacy_cp
+                    scoped_to_session = True
+        elif legacy_cp is not None:
+            target_cp = legacy_cp
+            scoped_to_session = True
 
     if target_cp is None:
         target_cp = scoped_candidates[0]
@@ -211,6 +248,7 @@ def _audit_flight_director_invariants(
 
     # Invariant 4: Checkpoint availability & freshness
     from harness.subagents.liveness import (
+        TEAMWORK_IGNORED_DIRS,
         get_app_data_dir,
         is_conversation_completed,
         probe_subagent_liveness,
@@ -278,7 +316,7 @@ def _audit_flight_director_invariants(
         if tw_root.is_dir():
             try:
                 for child in tw_root.iterdir():
-                    if child.is_dir() and not child.name.startswith("."):
+                    if child.is_dir() and not child.name.startswith(".") and child.name not in TEAMWORK_IGNORED_DIRS:
                         if any(p.is_file() for p in child.rglob("*")):
                             has_teamwork_subagents = True
                             break

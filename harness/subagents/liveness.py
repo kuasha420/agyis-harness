@@ -26,6 +26,7 @@ import sqlite3
 import time
 from typing import Dict, List, Optional, Set, Tuple
 
+from harness.trajectory.lineage import read_conversation_lineage
 from harness.trajectory.transcript_reader import (
     extract_role_from_text,
     extract_spawned_subagents,
@@ -37,6 +38,8 @@ from harness.trajectory.transcript_reader import (
 from harness.utils.context import get_active_brain_dir, get_active_conversation_id
 
 _GENERIC_ROLES = frozenset({"user", "assistant", "system", "tool", "model"})
+TEAMWORK_IGNORED_DIRS: frozenset[str] = frozenset({"backups", "scratch"})
+_MAX_LINEAGE_HOPS = 6
 _PARENT_KEY_RE = re.compile(
     r'"(?:parent_conversation_id|parentConversationId|root_conversation_id|antigravity\.google/root_conversation_id)"\s*:\s*"([^"]+)"'
 )
@@ -52,20 +55,48 @@ def get_app_data_dir(app_data_dir: Optional[Path] = None) -> Path:
     return Path.home() / ".gemini" / "antigravity"
 
 
+def _climb_to_root_conversation_id(
+    cid: str,
+    app_data_dir: Optional[Path] = None,
+    brain_dir: Optional[Path] = None,
+    max_hops: int = _MAX_LINEAGE_HOPS,
+) -> str:
+    """Walks up parent_conversation_id lineage (bounded <= 6 hops) to return the root ancestor CID."""
+    curr = cid.strip()
+    if not curr:
+        return curr
+    seen: Set[str] = {curr}
+    for _ in range(max_hops):
+        parent_cid, _, _ = read_conversation_lineage(
+            curr,
+            app_data_dir=app_data_dir,
+            brain_dir=brain_dir,
+        )
+        if not parent_cid:
+            break
+        parent_clean = parent_cid.strip()
+        if not parent_clean or parent_clean in seen:
+            break
+        seen.add(parent_clean)
+        curr = parent_clean
+    return curr
+
+
 def resolve_active_root_conversation_id(
     app_data_dir: Optional[Path] = None,
     brain_dir: Optional[Path] = None,
 ) -> Optional[str]:
     """
     Resolve active root conversation ID:
-    1. Explicit env vars (ANTIGRAVITY_CONVERSATION_ID, CONVERSATION_ID, AGYIS_CONVERSATION_ID)
+    1. Explicit env vars (ANTIGRAVITY_CONVERSATION_ID, CONVERSATION_ID, AGYIS_CONVERSATION_ID),
+       walking up parent lineage (<= 6 hops) when pointing to a child subagent CID
     2. Exclusive flock probe on <appDataDir>/presence/*.lock (live language_server root sessions)
-    3. Fallback to get_active_conversation_id()
+    3. Fallback to get_active_conversation_id() (with root lineage climb)
     """
     for env_key in ("ANTIGRAVITY_CONVERSATION_ID", "CONVERSATION_ID", "AGYIS_CONVERSATION_ID"):
         val = os.environ.get(env_key, "").strip()
         if val:
-            return val
+            return _climb_to_root_conversation_id(val, app_data_dir=app_data_dir, brain_dir=brain_dir)
 
     app_dir = get_app_data_dir(app_data_dir)
     presence_dir = app_dir / "presence"
@@ -95,9 +126,14 @@ def resolve_active_root_conversation_id(
             pass
         if locked_cids:
             locked_cids.sort(reverse=True)
-            return locked_cids[0][1]
+            return _climb_to_root_conversation_id(
+                locked_cids[0][1], app_data_dir=app_data_dir, brain_dir=brain_dir,
+            )
 
-    return get_active_conversation_id()
+    fallback_cid = get_active_conversation_id()
+    if fallback_cid:
+        return _climb_to_root_conversation_id(fallback_cid, app_data_dir=app_data_dir, brain_dir=brain_dir)
+    return None
 
 
 @dataclass(frozen=True)
@@ -351,7 +387,7 @@ def _scan_teamwork_progress(
             continue
         try:
             for folder in teamwork_dir.iterdir():
-                if not folder.is_dir() or folder.name.startswith("."):
+                if not folder.is_dir() or folder.name.startswith(".") or folder.name in TEAMWORK_IGNORED_DIRS:
                     continue
                 prog_file = folder / "progress.md"
                 if not prog_file.is_file():
@@ -504,6 +540,7 @@ def probe_subagent_liveness(
 
 __all__ = [
     "SubagentLivenessStatus",
+    "TEAMWORK_IGNORED_DIRS",
     "_is_transcript_completed",
     "get_app_data_dir",
     "is_conversation_completed",

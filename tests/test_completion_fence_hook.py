@@ -2006,6 +2006,40 @@ class TestGate2AuditorFence(unittest.TestCase):
             )
             self.assertEqual(res.get("decision"), "allow")
 
+    def test_backups_and_scratch_excluded_from_teamwork_dispatches(self):
+        """Powerloss backups/ and scratch/ under .agents/teamwork/ do not trigger Gate 2; genuine dispatches still do."""
+        from harness.hooks.fence_gates import _has_dispatched_subagents
+
+        with tempfile.TemporaryDirectory() as tmp_ws:
+            ws_path = Path(tmp_ws)
+            tw_dir = ws_path / ".agents" / "teamwork"
+            backup_dir = tw_dir / "backups" / "powerloss_20261126_120000"
+            backup_dir.mkdir(parents=True)
+            (backup_dir / "git_diff_backup.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+            (tw_dir / "scratch").mkdir(parents=True)
+            (tw_dir / "scratch" / "temp.txt").write_text("scratch", encoding="utf-8")
+            (tw_dir / ".hidden_cache").mkdir(parents=True)
+            (tw_dir / ".hidden_cache" / "state.json").write_text("{}", encoding="utf-8")
+
+            self.assertFalse(_has_dispatched_subagents(ws_path, None))
+            stop_res = evaluate_stop(
+                conv_id="coord-backup-only",
+                state_dir=self.state_dir,
+                cwd=ws_path,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(stop_res.get("decision"), "allow")
+
+            # Genuine teamwork dispatches MUST still be detected
+            for task_dir_name in ("squad_1", "worker-1", "bugbash_phase2"):
+                sub_dir = tw_dir / task_dir_name
+                sub_dir.mkdir(parents=True, exist_ok=True)
+                self.assertTrue(_has_dispatched_subagents(ws_path, None))
+                (sub_dir / "DISPATCH.md").write_text("# Dispatch", encoding="utf-8")
+                self.assertTrue(_has_dispatched_subagents(ws_path, None))
+                (sub_dir / "DISPATCH.md").unlink()
+                sub_dir.rmdir()
+
 
 class TestCompletionFenceDecomposition(unittest.TestCase):
     """Verifies decomposed completion_fence_hook facade compatibility and AFF health."""
