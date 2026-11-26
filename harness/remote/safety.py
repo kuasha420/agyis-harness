@@ -43,16 +43,41 @@ REMOTE_TOOLCHAIN_REGEX = re.compile(
 )
 
 
+def _ssh_socket_dir_path() -> Path:
+    """Resolve the active SSH ControlPath socket directory from env or user cache."""
+    state_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
+    if state_dir:
+        return Path(state_dir) / "ssh"
+    return Path.home() / ".cache/psl/ssh"
+
+
+def get_ssh_timeout_options() -> str:
+    """
+    Build OpenSSH ControlMaster / timeout option flags.
+    Uses SSH_TIMEOUT_OPTIONS when no custom state dir env override is set, and binds
+    ControlPath inside the active state dir when AGYIS_HARNESS_STATE_DIR or
+    PSL_HARNESS_STATE_DIR is configured.
+    """
+    state_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
+    if not state_dir:
+        return SSH_TIMEOUT_OPTIONS
+    ssh_dir = _ssh_socket_dir_path()
+    return (
+        "-o ControlMaster=auto "
+        f"-o ControlPath={ssh_dir}/cm_%C "
+        "-o ControlPersist=10m "
+        "-o BatchMode=yes "
+        "-o ConnectTimeout=10 "
+        "-o ServerAliveInterval=15"
+    )
+
+
 def ensure_ssh_socket_dir() -> Path:
     """
     Ensures ~/.cache/psl/ssh/ socket directory exists with 0700 permissions.
     Supports AGYIS_HARNESS_STATE_DIR and PSL_HARNESS_STATE_DIR if configured.
     """
-    state_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
-    if state_dir:
-        ssh_dir = Path(state_dir) / "ssh"
-    else:
-        ssh_dir = Path.home() / ".cache/psl/ssh"
+    ssh_dir = _ssh_socket_dir_path()
     try:
         ssh_dir.mkdir(parents=True, exist_ok=True)
         ssh_dir.chmod(0o700)
@@ -65,7 +90,7 @@ def inject_ssh_timeouts(cmd: str) -> Tuple[str, bool]:
     """
     When ssh is called without -o ConnectTimeout= or -o ControlMaster=, injects:
     OpenSSH multiplexing and non-blocking timeout options:
-    -o ControlMaster=auto -o ControlPath=~/.cache/psl/ssh/cm_%C -o ControlPersist=10m
+    -o ControlMaster=auto -o ControlPath=.../cm_%C -o ControlPersist=10m
     -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15.
     Idempotent.
     """
@@ -91,7 +116,7 @@ def inject_ssh_timeouts(cmd: str) -> Tuple[str, bool]:
 
     ensure_ssh_socket_dir()
 
-    injected = f"{prefix}{ssh_bin} {SSH_TIMEOUT_OPTIONS}{sep}"
+    injected = f"{prefix}{ssh_bin} {get_ssh_timeout_options()}{sep}"
     res = (cmd[:span_start] + injected + cmd[span_end:]).strip()
     return res, True
 

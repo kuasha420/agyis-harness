@@ -10,7 +10,7 @@
 [![Models](https://img.shields.io/badge/Models-Gemini_4_Ready_(512k%2F1M)-8E75B2.svg)](docs/specs/antigravity_v2_34_compatibility_inventory.md)
 [![Version](https://img.shields.io/badge/Version-v1.0.0-brightgreen.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.0.0)
 [![CI](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-2441_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
+[![Tests](https://img.shields.io/badge/Tests-2506_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
 [![AFF](https://img.shields.io/badge/AFF-100%2F100-brightgreen.svg)](docs/taxonomy/project-ledger.md)
 [![Website](https://img.shields.io/badge/Website-GitHub_Pages-1B4DFF.svg)](https://kuasha420.github.io/agyis-harness/)
 
@@ -257,7 +257,7 @@ Agyis declares **7** registration blocks in [`hooks.json`](hooks.json) (symlink 
 
 ## 📊 Ground Truth: Empirical Telemetry Foundation
 
-Agyis Harness is grounded in reconciled empirical audits (`data/*.json` and read-only `data/telemetry.db` — live snapshot: **2,875 sessions, 598,911 steps, 424,817 tool calls, 5,604 interventions**):
+Agyis Harness is grounded in reconciled empirical audits (`data/*.json`, `website/data/*.json`, and read-only `data/telemetry.db` — canonical Gate 0 snapshot `2026-05-24`–`2026-11-25`: **3,856 sessions (`3,552` IDE / `304` CLI), 742,273 steps, 405,666 deduplicated tool calls (`256,841` duplicate rows repaired), 13,128 tool errors (`3.24%`), 7,056 interventions (`1.83/sess`), 92 titan sessions (`236,861` steps / `31.9%`), 12 chronological eras, `58.3%` `>2KB` output compaction savings (`0` failure-preservation violations)**):
 
 <details>
 <summary><strong>Click to expand reconciled empirical baseline metrics</strong></summary>
@@ -281,13 +281,14 @@ Full reconciled tables and Issue #83 Route A/B/C scorecards:
 
 ## 🧪 Verification & Testing Contract
 
-All **2,441** unit, integration, and contract tests run hermetically with zero external network dependencies and zero live `~/.gemini/config/config.json` mutation:
+All **2,506** unit, integration, and contract tests across **115 modules** (`111` `tests/test_*.py` + `4` `tests/e2e/test_*.py`) run hermetically with zero external network dependencies and zero live `~/.gemini/config/config.json` mutation:
 
 ```bash
 ./agyis test                         # Full hermetic suite (~24s; sub-second component modules)
 python3 -m harness.cli verify --spec # Verify 4 cleanroom RE specifications in docs/specs/
 python3 -m harness.cli audit aff     # Enforce Product/Project isolation, DAG acyclicity & PSL-INV-008 (100/100)
-python3 -m harness.cli agents validate --json # Validate all 8 canonical v2.34+ agent schemas (<=20 tools)
+python3 -m harness.cli audit sync-check # Verify manifest, live test counts, tool catalog & empirical parity
+python3 -m harness.cli agents validate --json # Validate all 8 canonical v2.34+/2.35.2 agent schemas (<=20 tools)
 python3 -m harness.cli rules --lint  # Verify agent rules & zero echo duplication
 ```
 

@@ -189,7 +189,17 @@ def _collect_status_containers(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     return containers
 
 
-def extract_output_and_status(payload: Dict[str, Any]) -> Tuple[str, int, bool]:
+_COMMAND_TOOL_NAMES: frozenset[str] = frozenset({
+    "run_command",
+    "execute_command",
+    "bash",
+    "shell",
+    "terminal",
+    "exec_command",
+})
+
+
+def extract_output_and_status(payload: Dict[str, Any], tool_name: Optional[str] = None) -> Tuple[str, int, bool]:
     """
     Extracts output string, exit code, and error status from a PostToolUse payload.
     Supports payload and nested response wrappers:
@@ -285,8 +295,24 @@ def extract_output_and_status(payload: Dict[str, Any]) -> Tuple[str, int, bool]:
             if exit_code == 0:
                 exit_code = 1
 
-    # 4. Content-based exit code detection
-    if raw_output:
+    # 4. Content-based exit code detection (strictly gated to command-execution tools)
+    eff_tool = tool_name
+    tc_obj = payload.get("toolCall") if isinstance(payload.get("toolCall"), dict) else {}
+    if eff_tool is None:
+        eff_tool = tc_obj.get("name") or payload.get("tool_name") or ""
+    tc_args = tc_obj.get("args") if isinstance(tc_obj.get("args"), dict) else {}
+    has_cmd_args = bool(
+        tc_args.get("CommandLine")
+        or tc_args.get("command")
+        or payload.get("CommandLine")
+        or payload.get("command")
+    )
+    eff_tool_lower = str(eff_tool or "").strip().lower()
+    is_command_tool = eff_tool_lower in _COMMAND_TOOL_NAMES or (
+        eff_tool_lower in ("", "unknown") and has_cmd_args
+    )
+
+    if raw_output and is_command_tool:
         m_exit = re.search(r"(?:failed with exit code|exited with code)\s*[:=]?\s*(\d+)", raw_output, re.I)
         if m_exit:
             code = int(m_exit.group(1))
@@ -316,7 +342,7 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
     tool_call = payload.get("toolCall", {})
     tool_name = tool_call.get("name", "unknown") if isinstance(tool_call, dict) else "unknown"
 
-    raw_output, exit_code, is_error = extract_output_and_status(payload)
+    raw_output, exit_code, is_error = extract_output_and_status(payload, tool_name=tool_name)
     threshold = READ_FILE_MAX_OUTPUT_CHARS if tool_name in ("read_file", "view_file") else MAX_OUTPUT_CHARS
     compacted = compact_output(raw_output, exit_code=exit_code, is_error=is_error, max_chars=threshold)
 

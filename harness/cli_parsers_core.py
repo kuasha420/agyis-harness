@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from harness.hooks.runner import ALIASES, HOOK_MODULES
 from harness.runtime.tool_checks_common import register_rea_flags
 
 
@@ -58,16 +59,7 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_hook = subparsers.add_parser("hook", help="Run a lifecycle hook handler directly")
     p_hook.add_argument(
         "hook_name",
-        choices=[
-            "command-safety", "safety",
-            "anti-loop", "loop",
-            "output-compactor", "compactor",
-            "verification-fence", "fence", "stop-fence", "stop", "completion-fence",
-            "anti-drift", "drift", "anti_drift",
-            "token-proximity", "token-proximity-guard", "token", "token_proximity_guard",
-            "pre-invocation", "preinvocation",
-            "compaction-advisory", "compaction_advisory", "compaction", "advisory",
-        ],
+        choices=sorted(set(HOOK_MODULES) | set(ALIASES)),
         help="Name of the lifecycle hook to invoke",
     )
 
@@ -141,9 +133,14 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
             "traces", "interventions", "volume", "deep", "session", "live", "clusters",
             "artifacts", "configs", "project_configs", "project-configs", "prune",
             "db-integrity", "eras", "export-site",
-            "certify", "verdict", "aff", "macro", "fitness",
+            "certify", "verdict", "aff", "macro", "fitness", "sync-check",
         ],
         help="Audit pipeline stage to run (default: all)",
+    )
+    p_audit.add_argument(
+        "--include-site",
+        action="store_true",
+        help="Include static website/*.html surface checks during audit sync-check",
     )
     p_audit.add_argument("--db", type=str, default=None, help="Path to SQLite database")
     p_audit.add_argument("--conv-dir", type=str, default=None, help="Path to conversations directory containing .db files")

@@ -1590,9 +1590,12 @@ class TestSyntheticSmellsAndMicroMutationFence(unittest.TestCase):
         self.assertEqual(st2["block_count"], 2)
 
         # 3rd attempt: anti-deadlock valve trips and allows
+        from harness.hooks.wire_compat import drain_pending_advisories
+
         res3 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
-        self.assertEqual(res3["decision"], "allow")
-        self.assertIn("Anti-deadlock valve tripped", res3.get("warning", ""))
+        self.assertEqual(res3, {"decision": "allow"})
+        queued = drain_pending_advisories(conv_id, state_dir=self.state_dir)
+        self.assertTrue(any("Anti-deadlock valve tripped" in item for item in queued))
 
     def test_handoff_gate_blocks_when_mutation_verified_false(self):
         """Handoff gate blocks when code is modified and mutation_verified is False."""
@@ -1749,9 +1752,12 @@ class TestSyntheticSmellsAndMicroMutationFence(unittest.TestCase):
         self.assertEqual(st2["block_count"], 2)
 
         # 3rd attempt: anti-deadlock valve trips and allows
+        from harness.hooks.wire_compat import drain_pending_advisories
+
         res3 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
-        self.assertEqual(res3["decision"], "allow")
-        self.assertIn("Anti-deadlock valve tripped", res3.get("warning", ""))
+        self.assertEqual(res3, {"decision": "allow"})
+        queued = drain_pending_advisories(conv_id, state_dir=self.state_dir)
+        self.assertTrue(any("Anti-deadlock valve tripped" in item for item in queued))
 
     def test_sub_second_latency_invariant(self):
         """Validates that evaluate_stop with AST smell and mutation checks executes in <0.10s."""
@@ -1931,14 +1937,17 @@ class TestGate2AuditorFence(unittest.TestCase):
         self.assertIn("Dual-Gate Verification Fence (Gate 2)", res2.get("reason", ""))
 
         # 3. Third evaluation: anti-deadlock valve trips
+        from harness.hooks.wire_compat import drain_pending_advisories
+
         res3 = evaluate_stop(
             conv_id=conv_id,
             state_dir=self.state_dir,
             cwd=self.ws,
             payload={"role": "agyis_coordinator"},
         )
-        self.assertEqual(res3.get("decision"), "allow")
-        self.assertIn("Anti-deadlock valve tripped after 2 Gate 2 verification blocks", res3.get("warning", ""))
+        self.assertEqual(res3, {"decision": "allow"})
+        queued = drain_pending_advisories(conv_id, state_dir=self.state_dir)
+        self.assertTrue(any("Anti-deadlock valve tripped after 2 Gate 2 verification blocks" in item for item in queued))
 
     def test_coordinator_gate2_rejected_verdict(self):
         """Coordinator is blocked when auditor verdict is REJECTED."""

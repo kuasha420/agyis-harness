@@ -100,6 +100,7 @@ CANONICAL_PLATFORM_TOOLS: frozenset[str] = frozenset({
     "run_command",
     "manage_task",
     "invoke_subagent",
+    "manage_subagents",
     "send_message",
     "define_subagent",
     "schedule",
@@ -108,8 +109,16 @@ CANONICAL_PLATFORM_TOOLS: frozenset[str] = frozenset({
     "ask_question",
     "finish",
     "run_workflow",
+    "update_focus",
+    "update_steps",
     "search_marketplace",
     "list_plugin_accounts",
+})
+
+# Root-session plan mode tools (Antigravity 2.35.2): invalid in subagent frontmatter specs.
+ROOT_PLAN_MODE_TOOLS: frozenset[str] = frozenset({
+    "enter_plan_mode",
+    "exit_plan_mode",
 })
 
 LEGACY_PLATFORM_TOOL_ALIASES: Dict[str, str] = {
@@ -121,14 +130,13 @@ LEGACY_PLATFORM_TOOL_ALIASES: Dict[str, str] = {
     "grep_search": "run_command",
     "find_by_name": "run_command",
     "read_url_content": "search_web",
-    "manage_subagents": "invoke_subagent",
-    "enter_plan_mode": "ask_question",
-    "exit_plan_mode": "finish",
     "list_permissions": "list_plugin_accounts",
 }
 
-ANTIGRAVITY_PLATFORM_TOOLS: frozenset[str] = CANONICAL_PLATFORM_TOOLS | frozenset(
-    LEGACY_PLATFORM_TOOL_ALIASES.keys()
+ANTIGRAVITY_PLATFORM_TOOLS: frozenset[str] = (
+    CANONICAL_PLATFORM_TOOLS
+    | ROOT_PLAN_MODE_TOOLS
+    | frozenset(LEGACY_PLATFORM_TOOL_ALIASES.keys())
 )
 
 CAPABILITY_BUNDLES: Dict[str, List[str]] = {

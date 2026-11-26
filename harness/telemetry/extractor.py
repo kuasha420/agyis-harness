@@ -377,7 +377,8 @@ def upsert_session_telemetry(
 
 
 _MODEL_ID_PATTERN = re.compile(
-    r"\b(gemini-4-(?:neon|hydrogen|argon|1m)(?:-[a-z0-9._-]+)?|"
+    r"\b(gemini-4-(?:neon|hydrogen|argon|carbon|1m)(?:-[a-z0-9._-]+)?|"
+    r"gemini-pro-(?:orchestrator|coordinator)(?:-[a-z0-9._-]+)?|"
     r"gemini-3\.8-flash(?:-[a-z0-9._-]+)?|"
     r"gemini-[234](?:\.\d+)?-(?:pro|flash|ultra)(?:-[a-z0-9._-]+)?|"
     r"claude-(?:sonnet|opus|haiku)-[0-9a-z._-]+|"

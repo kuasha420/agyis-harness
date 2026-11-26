@@ -15,7 +15,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 *Explicit CLI palettes yield 10x lower human intervention rates:*
 
 ```bash
-# 🧪 Verification & Testing (Hermetic, 2,441 tests, sub-second modules)
+# 🧪 Verification & Testing (Hermetic, 2,506 tests, sub-second modules)
 ./agyis test                                   # Run complete project test suite (~24s full suite, <1.0s modules)
 python3 -m harness.cli test                    # Run complete project test suite
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
@@ -61,6 +61,7 @@ python3 -m harness.cli audit inventory         # Catalog plugins, skills, hooks 
 agyis audit certify                            # Run full suite, AFF & doctor audit, issue signed audit_verdict.json
 agyis audit verdict                            # Inspect active out-of-band auditor clearance status (Gate 2)
 agyis audit aff                                # Audit architectural fitness, boundary violations & structural debt
+agyis audit sync-check                         # Audit manifest versions, live test counts, tools & empirical baselines
 
 # 🧩 Skills, Rules & Subagents Discovery & Deduplication
 agyis skills                                   # List installed modular skills & triggers

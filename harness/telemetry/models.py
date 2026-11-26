@@ -20,7 +20,7 @@ from harness.trajectory.health import DEFAULT_CONTEXT_WINDOW_TOKENS, infer_model
 _UNKNOWN_SENTINELS = frozenset({"", "unknown", "none", "null", "n/a", "na", "default"})
 
 _EFFORT_RE = re.compile(
-    r"(?:^|[\s\-_(/])(extra[\s\-_]?high|xhigh|high|medium|med|low|minimal)(?:$|[\s\-_)/])",
+    r"(?:^|[\s\-_(/])(extra[\s\-_]?high|xhigh|max|high|medium|med|low|minimal)(?:$|[\s\-_)/])",
     re.IGNORECASE,
 )
 
@@ -28,7 +28,18 @@ _MODEL_RULES: Tuple[Tuple[re.Pattern[str], str, str], ...] = (
     (re.compile(r"\bgemini[\s\-_]+4[\s\-_]+neon\b", re.IGNORECASE), "gemini-4", "gemini-4-neon"),
     (re.compile(r"\bgemini[\s\-_]+4[\s\-_]+hydrogen\b", re.IGNORECASE), "gemini-4", "gemini-4-hydrogen"),
     (re.compile(r"\bgemini[\s\-_]+4[\s\-_]+argon\b", re.IGNORECASE), "gemini-4", "gemini-4-argon"),
+    (re.compile(r"\bgemini[\s\-_]+4[\s\-_]+carbon\b", re.IGNORECASE), "gemini-4", "gemini-4-carbon"),
     (re.compile(r"\bgemini[\s\-_]+4[\s\-_]+1m\b", re.IGNORECASE), "gemini-4", "gemini-4-1m"),
+    (re.compile(r"\bgemini[\s\-_]+pro[\s\-_]+orchestrator[\s\-_]+neon\b", re.IGNORECASE), "gemini-4", "gemini-pro-orchestrator-neon"),
+    (re.compile(r"\bgemini[\s\-_]+pro[\s\-_]+orchestrator[\s\-_]+argon\b", re.IGNORECASE), "gemini-4", "gemini-pro-orchestrator-argon"),
+    (re.compile(r"\bgemini[\s\-_]+pro[\s\-_]+orchestrator[\s\-_]+g1[\s\-_]+pro\b", re.IGNORECASE), "gemini-4", "gemini-pro-orchestrator-g1-pro"),
+    (re.compile(r"\bgemini[\s\-_]+pro[\s\-_]+orchestrator\b|\borchestrator\s*\([^)]*\)", re.IGNORECASE), "gemini-4", "gemini-pro-orchestrator"),
+    (re.compile(r"\bgemini[\s\-_]+pro[\s\-_]+coordinator\b", re.IGNORECASE), "gemini-4", "gemini-pro-coordinator"),
+    (
+        re.compile(r"\bclaude[\s\-_]+(?:opus[\s\-_]+5[._\-]5|5[._\-]5[\s\-_]+opus)\b", re.IGNORECASE),
+        "claude-5.5",
+        "claude-opus-5-5",
+    ),
     (re.compile(r"\bgemini[\s\-_]+4\b", re.IGNORECASE), "gemini-4", "gemini-4"),
     (re.compile(r"\bgemini[\s\-_]+3[._\-]8[\s\-_]+flash\b", re.IGNORECASE), "gemini-3.8", "gemini-3.8-flash"),
     (re.compile(r"\bgemini[\s\-_]+3[._\-]8\b", re.IGNORECASE), "gemini-3.8", "gemini-3.8"),

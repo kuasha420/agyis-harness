@@ -986,13 +986,14 @@ class TestTier1FeatureCoverage(OpaqueBoxTestCase):
         self.assertEqual(res2.get("decision"), "continue")
 
         # Block 3 -> Safety valve tripped
+        from harness.hooks.wire_compat import drain_pending_advisories
+
         res3 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir, cwd=self.ws)
-        self.assertEqual(res3.get("decision"), "allow", "Safety valve must trip on 3rd attempt")
+        self.assertEqual(res3, {"decision": "allow"}, "Safety valve must trip on 3rd attempt")
+        queued = drain_pending_advisories(conv_id, state_dir=self.state_dir)
         self.assertTrue(
-            res3.get("safety_valve_tripped", False)
-            or "anti-deadlock" in res3.get("warning", "").lower()
-            or "safety valve" in str(res3).lower(),
-            f"Expected safety valve or anti-deadlock warning, got: {res3}",
+            any("anti-deadlock" in item.lower() or "safety valve" in item.lower() for item in queued),
+            f"Expected anti-deadlock diagnostic in queue, got: {queued}",
         )
 
     # -----------------------------------------------------------------------

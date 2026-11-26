@@ -38,28 +38,43 @@ _EXACT_ROLE_ALIASES: Dict[str, Tuple[str, ...]] = {
         ROLE_DEEP_EXECUTION, "agyis_builder", "agyis_custodian", "agyis_architect",
         "architect", "implementer", "master_implementer", "executioner", "builder",
         "custodian", "harness_custodian", "git_custodian", "harness_builder",
-        "deep_coding", "deep_coder", "coder", "execution",
+        "deep_coding", "deep_coder", "deepcoder", "coder", "execution", "fixer", "worker",
         "monolithic_swe_pairing", "monolithic", "monolith", "swe_pairing", "pairing", "swe",
     ),
     ROLE_FORENSIC_AUDITOR: (
         ROLE_FORENSIC_AUDITOR, "agyis_reviewer", "agyis_auditor", "agyis_investigator",
         "reviewer", "harness_reviewer", "harness_auditor", "investigator", "detective",
         "forensic", "verifier", "auditor", "hammer", "forensics", "inspector",
+        "challenger", "explorer", "research", "researcher",
     ),
     ROLE_SWARM_ORCHESTRATOR: (
         ROLE_SWARM_ORCHESTRATOR, "orchestrator", "swarm", "mesh_coordinator", "mesh",
     ),
     ROLE_FLIGHT_DIRECTOR: (
         ROLE_FLIGHT_DIRECTOR, "agyis_coordinator", "agyis_planner", "planner",
-        "coordinator", "cockpit_director", "flight", "director", "cockpit", "root",
+        "coordinator", "cockpit_director", "flight", "flight_lead", "director", "cockpit", "root",
     ),
 }
 
 _SUBSTRING_ROLE_TOKENS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
-    (ROLE_DEEP_EXECUTION, ("executioner", "builder", "custodian", "deep_execution", "deep_coding", "monolith", "swe_pairing", "architect")),
-    (ROLE_FORENSIC_AUDITOR, ("hammer", "auditor", "forensic", "reviewer", "investigator", "detective", "verifier")),
+    (
+        ROLE_DEEP_EXECUTION,
+        (
+            "executioner", "builder", "custodian", "deep_execution", "deep_coding",
+            "deepcoder", "monolith", "swe_pairing", "architect",
+            "_fixer", "fixer_", "fixer-", "fix_", "_worker",
+        ),
+    ),
+    (
+        ROLE_FORENSIC_AUDITOR,
+        (
+            "hammer", "auditor", "audit-", "audit_", "forensic", "reviewer",
+            "investigator", "detective", "verifier",
+            "challenger", "explorer", "research", "researcher",
+        ),
+    ),
     (ROLE_SWARM_ORCHESTRATOR, ("orchestrator", "swarm")),
-    (ROLE_FLIGHT_DIRECTOR, ("flight", "cockpit", "planner")),
+    (ROLE_FLIGHT_DIRECTOR, ("flight_director", "flight_lead", "cockpit", "planner")),
 )
 
 
@@ -209,6 +224,11 @@ def infer_model_context_window(model_name: Optional[str]) -> int:
             "claude sonnet 5.5",
             "claude-5-5-sonnet",
             "claude-5.5-sonnet",
+            "claude-opus-5-5",
+            "claude-opus-5.5",
+            "claude opus 5.5",
+            "claude-5-5-opus",
+            "claude-5.5-opus",
         )
     ):
         return 840_000
@@ -218,9 +238,16 @@ def infer_model_context_window(model_name: Optional[str]) -> int:
             "gemini-4-hydrogen",
             "gemini-4-neon",
             "gemini-4-argon",
+            "gemini-4-carbon",
             "gemini 4 hydrogen",
             "gemini 4 neon",
             "gemini 4 argon",
+            "gemini 4 carbon",
+            "gemini-pro-orchestrator",
+            "gemini pro orchestrator",
+            "gemini-pro-coordinator",
+            "gemini pro coordinator",
+            "orchestrator (",
             "gemini-3.8-flash-s",
             "gemini-3.8-flash-h",
             "gemini-3.8-flash-medium",

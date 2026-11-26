@@ -41,6 +41,7 @@ from harness.trajectory.health import (
     is_transcript_checkpoint_step,
     normalize_role_str,
 )
+from harness.trajectory.lineage import read_conversation_lineage
 from harness.trajectory.protobuf import (
     ProtobufUsageMetrics,
     extract_compaction_summary_from_protobuf,
@@ -127,6 +128,7 @@ __all__ = [
     "parse_pb_fields",
     "parse_protobuf_varint",
     "parse_step_timestamp",
+    "read_conversation_lineage",
     "read_db_trajectory_state",
     "record_locked_conversation",
     "resolve_epoch_step_count",

@@ -81,7 +81,7 @@ Every engineering milestone progressing through the sequential execution path ad
 2. **Stage 2 — Surgical Execution (`agyis_builder` / `agyis_architect`)**: Applies single contiguous edits (`edit_file`) and verifies locally via component tests (<1.0s benchmark).
 3. **Stage 3 — Code Review and Quality Audit (`agyis_reviewer` — The Hammer)**: Audits diffs against the 8 Universal Invariants (`PSL-INV-001`..`PSL-INV-008`), Zero Error Swallowing, and Zero Self-Certification; emits PASS or Defect Ledger.
 4. **Stage 4 — Macro Architectural Audit and Git Commit Gate (`agyis_custodian`)**: Runs the 4-Pillar Quality Gate (DRY, `agyis audit aff`, Asset Decoupling, Git Porcelain), stages plan-declared targets only, and commits on `HEAD`.
-5. **Stage 5 — Hermetic QA and Verification Audit (`agyis_auditor`)**: Evaluates strictly the committed `HEAD` revision using `agyis test` (2,441 hermetic tests) + <1.0s benchmarks; returns failures to Stage 2/RCA and back through Hammer.
+5. **Stage 5 — Hermetic QA and Verification Audit (`agyis_auditor`)**: Evaluates strictly the committed `HEAD` revision using `agyis test` (2,506 hermetic tests) + <1.0s benchmarks; returns failures to Stage 2/RCA and back through Hammer.
 6. **Stage 6 — Phase Archival and Promotion (`cockpit-director` / `agyis_coordinator`)**: Archives delivery report to `.agents/artifacts/phase_X_delivery.md`, updates `docs/taxonomy/project-ledger.md`, retires subagents, and proposes Phase X+1.
 
 For the full visual 6-Stage Pipeline diagram and state-transition formulas, see:

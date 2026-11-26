@@ -25,6 +25,7 @@ import sqlite3
 import sys
 from typing import Any, Dict, Optional, TextIO
 
+from harness.hooks.role_lineage import resolve_hook_role_and_agent
 from harness.trajectory import (
     AMBER_THRESHOLD,
     CHECKPOINT_STEP_TYPE,
@@ -417,7 +418,24 @@ def run_token_proximity_guard(payload: Any, stderr: Optional[TextIO] = None) -> 
         max(0, raw_step - metrics.epoch_start_idx) if (raw_step is not None and metrics.epoch_start_idx > 0)
         else (metrics.epoch_steps if metrics.total_steps > 0 else raw_step)
     )
-    role = parsed.get("role") or parsed.get("agent_role") or parsed.get("subagent_role") or parsed.get("archetype") or os.environ.get("AGYIS_ROLE") or os.environ.get("PSL_AGENT_ROLE")
+    explicit_role = (
+        parsed.get("role")
+        or parsed.get("agent_role")
+        or parsed.get("subagent_role")
+        or parsed.get("archetype")
+    )
+    resolved_role, exact_agent = resolve_hook_role_and_agent(
+        parsed,
+        role=str(explicit_role) if explicit_role else None,
+        conv_id=conv_id,
+    )
+    role = (
+        resolved_role
+        or exact_agent
+        or explicit_role
+        or os.environ.get("AGYIS_ROLE")
+        or os.environ.get("PSL_AGENT_ROLE")
+    )
 
     _evaluate_and_emit_gauge(
         metrics,

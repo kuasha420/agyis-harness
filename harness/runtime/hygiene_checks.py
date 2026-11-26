@@ -274,27 +274,58 @@ def check_node_script_hygiene(workspace_root: Optional[Path] = None) -> Dict[str
     }
 
 
+def _collect_hooks_targets(hooks_path: Optional[Path]) -> List[Path]:
+    """Return deduplicated hooks.json target paths to audit."""
+    if hooks_path is not None:
+        p = Path(hooks_path)
+        return [p] if p.exists() else []
+    candidates = (
+        Path.cwd() / "hooks.json",
+        Path.home() / ".gemini" / "config" / "hooks.json",
+        Path.home() / ".gemini" / "config" / "plugins" / "agyis-harness" / "hooks.json",
+        REPO_ROOT / "hooks.json",
+        REPO_ROOT / "harness" / "hooks" / "hooks.json",
+    )
+    seen: Set[Path] = set()
+    targets: List[Path] = []
+    for cand in candidates:
+        if cand.is_file():
+            try:
+                resolved = cand.resolve()
+            except OSError:
+                resolved = cand
+            if resolved not in seen:
+                seen.add(resolved)
+                targets.append(cand)
+    return targets
+
+
+def _extract_direct_script_token(tokens: List[str]) -> Optional[str]:
+    """Detect Format C direct Python script hook commands (e.g. `python3 /path/to/script.py`)."""
+    if not tokens:
+        return None
+    head = Path(tokens[0]).name.lower()
+    if head.endswith(".py"):
+        return tokens[0]
+    if re.match(r"^python(?:\d+(?:\.\d+)*)?$", head):
+        for tok in tokens[1:]:
+            if tok in ("-c", "-m"):
+                return None
+            if tok.startswith("-"):
+                continue
+            if tok.endswith(".py"):
+                return tok
+            return None
+    return None
+
+
 def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
     """
-    Audits hooks.json (canonical in repo or workspace), verifies every registered
-    hook module can be dynamically loaded and provides a callable main().
-    (Issue #31 / ADR-016)
+    Audits hooks.json targets (canonical, user config, plugin, and workspace),
+    verifies every registered hook module exposes callable main() or every
+    direct Python script target exists and compiles cleanly.
+    (Issue #31 / ADR-016 / Task 1.2C.5)
     """
-    target_path: Optional[Path] = None
-    if hooks_path is not None:
-        target_path = Path(hooks_path)
-    else:
-        for cand in (
-            Path.cwd() / "hooks.json",
-            Path.home() / ".gemini" / "config" / "hooks.json",
-            Path.home() / ".gemini" / "config" / "plugins" / "agyis-harness" / "hooks.json",
-            REPO_ROOT / "hooks.json",
-            REPO_ROOT / "harness/hooks/hooks.json",
-        ):
-            if cand.is_file():
-                target_path = cand
-                break
-
     legacy_failures: List[str] = []
     legacy_cli_hooks = Path.home() / ".gemini" / "antigravity-cli" / "hooks.json"
     if hooks_path is None and legacy_cli_hooks.exists() and not legacy_cli_hooks.is_symlink():
@@ -302,12 +333,14 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
             f"Legacy non-symlinked {legacy_cli_hooks} conflicts with canonical ~/.gemini/config/hooks.json."
         )
 
-    if target_path is None or not target_path.exists():
-        missing_path = str(target_path) if target_path else str(REPO_ROOT / "hooks.json")
+    targets = _collect_hooks_targets(hooks_path)
+    if not targets:
+        missing_path = str(hooks_path) if hooks_path is not None else str(REPO_ROOT / "hooks.json")
         all_failures = legacy_failures + [f"hooks.json not found at {missing_path}."]
         return {
             "status": "WARNING",
             "hooks_path": missing_path,
+            "audited_paths": [],
             "checked_hooks": [],
             "failures": all_failures,
             "remediation": (
@@ -316,40 +349,6 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
                 if legacy_failures
                 else "Create hooks.json at workspace root or restore harness/hooks/hooks.json."
             ),
-        }
-
-    try:
-        data = json.loads(target_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, ValueError) as e:
-        return {
-            "status": "WARNING",
-            "hooks_path": str(target_path),
-            "checked_hooks": [],
-            "failures": legacy_failures + [f"Malformed hooks.json: {e}"],
-            "remediation": f"Ensure {target_path} contains valid JSON syntax.",
-        }
-
-    hook_commands: List[str] = []
-
-    def _extract_commands(node: Any) -> None:
-        if isinstance(node, dict):
-            if "command" in node and isinstance(node["command"], str):
-                hook_commands.append(node["command"])
-            for val in node.values():
-                _extract_commands(val)
-        elif isinstance(node, list):
-            for elem in node:
-                _extract_commands(elem)
-
-    _extract_commands(data)
-
-    if not hook_commands:
-        return {
-            "status": "WARNING",
-            "hooks_path": str(target_path),
-            "checked_hooks": [],
-            "failures": legacy_failures + ["No hook commands found in hooks.json."],
-            "remediation": "Configure at least one lifecycle hook in hooks.json.",
         }
 
     try:
@@ -380,43 +379,84 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
 
     failures: List[str] = list(legacy_failures)
     hooks_to_verify: Dict[str, str] = {}
+    scripts_to_verify: Dict[str, Path] = {}
 
-    for cmd in hook_commands:
-        tokens = shlex.split(cmd.strip())
-        if not tokens:
+    def _extract_commands(node: Any, out: List[str]) -> None:
+        if isinstance(node, dict):
+            if "command" in node and isinstance(node["command"], str):
+                out.append(node["command"])
+            for val in node.values():
+                _extract_commands(val, out)
+        elif isinstance(node, list):
+            for elem in node:
+                _extract_commands(elem, out)
+
+    for target_path in targets:
+        try:
+            data = json.loads(target_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            failures.append(f"Malformed hooks.json at {target_path}: {exc}")
             continue
 
-        hook_name: Optional[str] = None
-        module_to_load: Optional[str] = None
+        file_commands: List[str] = []
+        _extract_commands(data, file_commands)
+        if not file_commands:
+            failures.append(f"No hook commands found in hooks.json at {target_path}.")
+            continue
 
-        # Format A: python3 -m harness.hooks.runner <hook_name>
-        for i, tok in enumerate(tokens):
-            if tok in ("harness.hooks.runner", "runner") and i + 1 < len(tokens):
-                hook_name = tokens[i + 1]
-                break
-            if tok == "hook" and i > 0 and "cli" in tokens[i - 1] and i + 1 < len(tokens):
-                hook_name = tokens[i + 1]
-                break
-
-        if hook_name:
-            try:
-                module_to_load = resolve_hook_module(hook_name)
-            except ValueError as ve:
-                failures.append(str(ve))
+        for cmd in file_commands:
+            tokens = shlex.split(cmd.strip())
+            if not tokens:
                 continue
-        else:
+
+            hook_name: Optional[str] = None
+            module_to_load: Optional[str] = None
+
+            # Format A: python3 -m harness.hooks.runner <hook_name>
+            for i, tok in enumerate(tokens):
+                if tok in ("harness.hooks.runner", "runner") and i + 1 < len(tokens):
+                    hook_name = tokens[i + 1]
+                    break
+                if tok == "hook" and i > 0 and "cli" in tokens[i - 1] and i + 1 < len(tokens):
+                    hook_name = tokens[i + 1]
+                    break
+
+            if hook_name:
+                try:
+                    module_to_load = resolve_hook_module(hook_name)
+                except ValueError as ve:
+                    failures.append(str(ve))
+                    continue
+                hooks_to_verify[hook_name] = module_to_load
+                continue
+
             # Format B: python3 -m <direct_module>
             for i, tok in enumerate(tokens):
                 if tok == "-m" and i + 1 < len(tokens):
                     module_to_load = tokens[i + 1]
                     hook_name = module_to_load
                     break
+            if module_to_load and hook_name:
+                hooks_to_verify[hook_name] = module_to_load
+                continue
 
-        if not module_to_load or not hook_name:
+            # Format C: python3 /path/to/script.py (or direct script.py)
+            script_tok = _extract_direct_script_token(tokens)
+            if script_tok:
+                raw_script = Path(script_tok).expanduser()
+                resolved_script = raw_script
+                if not raw_script.is_absolute():
+                    for base_dir in (target_path.parent, Path.cwd(), REPO_ROOT):
+                        cand_script = base_dir / raw_script
+                        if cand_script.is_file():
+                            resolved_script = cand_script
+                            break
+                    else:
+                        resolved_script = target_path.parent / raw_script
+                scripts_to_verify[script_tok] = resolved_script
+                continue
+
             failures.append(f"Could not resolve hook module from command: '{cmd}'")
-            continue
-
-        hooks_to_verify[hook_name] = module_to_load
 
     checked_hooks: List[str] = []
     for hook_name, module_path in sorted(hooks_to_verify.items()):
@@ -431,6 +471,17 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
         except SystemExit as se:
             failures.append(f"Hook module '{module_path}' exited on load with status: {se}")
 
+    for script_label, script_path in sorted(scripts_to_verify.items()):
+        if not script_path.is_file():
+            failures.append(f"Hook script not found: '{script_path}'")
+            continue
+        try:
+            source = script_path.read_text(encoding="utf-8")
+            compile(source, str(script_path), "exec")
+            checked_hooks.append(script_label)
+        except (OSError, SyntaxError, ValueError) as exc:
+            failures.append(f"Invalid Python hook script '{script_path}': {exc}")
+
     status = "OK" if not failures else "WARNING"
     remediation = None
     if failures:
@@ -438,8 +489,9 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
 
     return {
         "status": status,
-        "hooks_path": str(target_path),
-        "checked_hooks": sorted(list(set(checked_hooks))),
+        "hooks_path": str(targets[0]),
+        "audited_paths": [str(p) for p in targets],
+        "checked_hooks": sorted(set(checked_hooks)),
         "failures": failures,
         "remediation": remediation,
     }

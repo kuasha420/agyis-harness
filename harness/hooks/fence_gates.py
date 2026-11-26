@@ -23,9 +23,27 @@ from harness.hooks.fence_classifiers import (
 )
 from harness.hooks.fence_state import clear_spec_dirty, get_brain_dir, load_state, save_state
 from harness.hooks.fence_tasks import sync_background_tasks
+from harness.hooks.role_lineage import resolve_hook_role_and_agent
+from harness.hooks.wire_compat import emit_stderr_diagnostic, enqueue_pending_advisory
 from harness.trajectory.health import SOFT_EPOCH_STEP_ADVISORY
 from harness.trajectory.sqlite_reader import resolve_epoch_step_count
 from harness.utils.workspace import is_harness_workspace
+
+_STOP_BYPASS_TERMINATION_REASONS: frozenset[str] = frozenset({
+    "USER_CANCELED",
+    "ERROR",
+    "MAX_TOKEN_BUDGET_EXCEEDED",
+    "MAX_INVOCATIONS",
+    "MAX_FORCED_INVOCATIONS",
+    "TERMINAL_CUSTOM_HOOK",
+})
+
+
+def _emit_stop_deadlock_diagnostic(conv_id: str, msg: str, state_dir: Path | None) -> dict:
+    """Emit Stop anti-deadlock diagnostic to stderr and bounded PreInvocation queue without phantom wire keys."""
+    emit_stderr_diagnostic(msg)
+    enqueue_pending_advisory(conv_id, msg, state_dir=state_dir)
+    return {"decision": "allow"}
 
 
 def check_pre_tool_use(
@@ -41,35 +59,31 @@ def check_pre_tool_use(
     """
     Evaluates PreToolUse constraints including the Soft Epoch Horizon Advisory (Issue #109).
     When role is ROLE_DEEP_EXECUTION and epoch step_count >= SOFT_EPOCH_STEP_ADVISORY (80):
-    Attaches a non-blocking horizon advisory on code mutation tools (write_to_file,
-    replace_file_content, edit_file) without blocking execution.
+    emits stderr diagnostics and queues a bounded PreInvocation nudge on code mutation tools
+    without blocking execution or emitting phantom wire keys.
     Exempts non-executioner roles (flight_director, forensic_auditor).
     """
     effective_step = resolve_epoch_step_count(payload, conv_id=conv_id, explicit_step=step_count)
 
-    effective_role = role
-    if effective_role is None and payload:
-        for rk in ("role", "agent_role", "subagent_role", "archetype", "agentType", "agent_type"):
-            rv = payload.get(rk)
-            if isinstance(rv, str) and rv.strip():
-                effective_role = rv.strip()
-                break
-    if not effective_role:
-        effective_role = os.environ.get("AGYIS_ROLE") or os.environ.get("PSL_AGENT_ROLE")
-
-    norm_role = normalize_role(effective_role)
+    resolved_role, exact_agent = resolve_hook_role_and_agent(
+        payload,
+        role=role,
+        conv_id=conv_id,
+        state_dir=state_dir,
+    )
+    norm_role = normalize_role(resolved_role or exact_agent)
     if norm_role and norm_role != ROLE_DEEP_EXECUTION:
         return {"decision": "allow"}
 
     if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_EPOCH_STEP_ADVISORY:
         if tool_name in CODE_MUTATION_TOOLS:
-            return {
-                "decision": "allow",
-                "advisory": (
-                    f"[EPOCH HORIZON: {effective_step}/{SOFT_EPOCH_STEP_ADVISORY} STEPS] "
-                    "Extended epoch reached — verify diffs, update checkpoints, or compact when convenient."
-                ),
-            }
+            msg = (
+                f"[EPOCH HORIZON: {effective_step}/{SOFT_EPOCH_STEP_ADVISORY} STEPS] "
+                "Extended epoch reached — verify diffs, update checkpoints, or compact when convenient."
+            )
+            emit_stderr_diagnostic(msg)
+            enqueue_pending_advisory(conv_id, msg, state_dir=state_dir)
+            return {"decision": "allow"}
 
     return {"decision": "allow"}
 
@@ -123,10 +137,11 @@ def _evaluate_orchestrator_stop(
                 }
             state["block_count"] = 0
             save_state(state, conv_id=conv_id, state_dir=state_dir)
-            return {
-                "decision": "allow",
-                "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite persona truth violation.",
-            }
+            return _emit_stop_deadlock_diagnostic(
+                conv_id,
+                "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite persona truth violation.",
+                state_dir,
+            )
 
         auditor_fence_disabled = (
             os.environ.get("PSL_AUDITOR_FENCE_DISABLED", "").lower() in ("1", "true", "yes")
@@ -153,13 +168,11 @@ def _evaluate_orchestrator_stop(
                     }
                 state["gate2_block_count"] = 0
                 save_state(state, conv_id=conv_id, state_dir=state_dir)
-                return {
-                    "decision": "allow",
-                    "warning": (
-                        "Anti-deadlock valve tripped after 2 Gate 2 verification blocks. "
-                        "Exiting despite missing/rejected auditor verdict."
-                    ),
-                }
+                return _emit_stop_deadlock_diagnostic(
+                    conv_id,
+                    "Anti-deadlock valve tripped after 2 Gate 2 verification blocks. Exiting despite missing/rejected auditor verdict.",
+                    state_dir,
+                )
             state["gate2_block_count"] = 0
             save_state(state, conv_id=conv_id, state_dir=state_dir)
 
@@ -276,7 +289,11 @@ def _evaluate_smell_gate(
     state["turn_modified_files"] = []
     state["block_count"] = 0
     save_state(state, conv_id=conv_id, state_dir=state_dir)
-    return {"decision": "allow", "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite synthetic test smell."}
+    return _emit_stop_deadlock_diagnostic(
+        conv_id,
+        "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite synthetic test smell.",
+        state_dir,
+    )
 
 
 def _evaluate_handoff_gate(
@@ -311,7 +328,11 @@ def _evaluate_handoff_gate(
         state["handoff_modified"] = False  # agyis: no-mutant handoff flag reset
         state["block_count"] = 0
         save_state(state, conv_id=conv_id, state_dir=state_dir)
-        return {"decision": "allow", "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite unverified handoff."}
+        return _emit_stop_deadlock_diagnostic(
+            conv_id,
+            "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite unverified handoff.",
+            state_dir,
+        )
 
     if TIER_RANKS.get(verified_tier or "", 0) < TIER_RANKS["affected"]:
         block_count = state.get("block_count", 0)
@@ -369,25 +390,43 @@ def evaluate_stop(
     if os.environ.get("PSL_COMPLETION_FENCE_DISABLED", "").lower() in ("1", "true", "yes"):
         return {"decision": "allow"}
 
-    if payload and payload.get("continuationActive"):
-        return {"decision": "allow"}
+    if payload:
+        if payload.get("continuationActive"):
+            return {"decision": "allow"}
+        term_reason = str(payload.get("terminationReason") or payload.get("termination_reason") or "").strip().upper()
+        err_val = payload.get("error")
+        has_err = bool(err_val) and (not isinstance(err_val, str) or bool(err_val.strip()))
+        if term_reason in _STOP_BYPASS_TERMINATION_REASONS or has_err:
+            return {"decision": "allow"}
 
     sync_background_tasks(conv_id=conv_id, state_dir=state_dir, cwd=cwd, brain_dir=brain_dir, payload=payload)
     state = load_state(conv_id=conv_id, state_dir=state_dir)
     effective_cwd = cwd if cwd is not None else (state.get("cwd") or Path.cwd())
 
-    role = (
+    eff_brain_parent = (
+        Path(brain_dir).parent
+        if (brain_dir is not None and Path(brain_dir).name == conv_id)
+        else (Path(brain_dir) if brain_dir is not None else None)
+    )
+    resolved_role, exact_agent = resolve_hook_role_and_agent(
+        payload,
+        conv_id=conv_id,
+        state_dir=state_dir,
+        brain_dir=eff_brain_parent,
+    )
+    raw_role = (
         (payload.get("agent_role") if payload else "")
         or (payload.get("agentRole") if payload else "")
         or (payload.get("role") if payload else "")
         or os.environ.get("AGYIS_ROLE", "")
         or os.environ.get("PSL_AGENT_ROLE", "")
-    ).lower()
-    is_planner = "planner" in role
+    ).strip().lower()
+    eff_role_token = (exact_agent or resolved_role or raw_role or "").strip().lower()
+    is_planner = "planner" in eff_role_token or "planner" in raw_role
     is_orchestrator = (
-        any(r in role for r in ("cockpit", "orchestrator", "flight_director", "sentinel", "coordinator", "main", "main_agent"))
-        or normalize_role(role) in (ROLE_FLIGHT_DIRECTOR, ROLE_SWARM_ORCHESTRATOR)
-    ) and role not in ("agyis_builder", "agyis_reviewer", "agyis_custodian", "agyis_auditor")
+        any(r in eff_role_token for r in ("cockpit", "orchestrator", "flight_director", "sentinel", "coordinator", "main", "main_agent"))
+        or (resolved_role in (ROLE_FLIGHT_DIRECTOR, ROLE_SWARM_ORCHESTRATOR))
+    ) and eff_role_token not in ("agyis_builder", "agyis_reviewer", "agyis_custodian", "agyis_auditor", "agyis_investigator")
 
     if is_orchestrator:
         if not is_planner or _has_dispatched_subagents(effective_cwd, payload):
@@ -497,7 +536,11 @@ def evaluate_stop(
         state["turn_modified_files"] = []
         state["block_count"] = 0
         save_state(state, conv_id=conv_id, state_dir=state_dir)
-        return {"decision": "allow", "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite unverified edits."}
+        return _emit_stop_deadlock_diagnostic(
+            conv_id,
+            "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite unverified edits.",
+            state_dir,
+        )
 
     block_count = state.get("block_count", 0)
     if block_count < 2:
@@ -530,4 +573,8 @@ def evaluate_stop(
     state["turn_modified_files"] = []
     state["block_count"] = 0
     save_state(state, conv_id=conv_id, state_dir=state_dir)
-    return {"decision": "allow", "warning": "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite unverified edits."}
+    return _emit_stop_deadlock_diagnostic(
+        conv_id,
+        "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite unverified edits.",
+        state_dir,
+    )

@@ -157,18 +157,26 @@ class TestExecutionerStepHorizon(unittest.TestCase):
         }
         self.assertEqual(handle_pre_tool_use(payload, state_dir=self.workspace_dir).get("decision"), "allow")
 
+        import contextlib
+        import io
+        from harness.hooks.wire_compat import drain_pending_advisories
+
         for tool in ("write_to_file", "replace_file_content", "edit_file"):
             with self.subTest(tool=tool):
-                res = check_pre_tool_use(
-                    tool,
-                    {"TargetFile": "/workspace/src/app.py", "CodeContent": "# update"},
-                    conv_id="test-soft-fence-80",
-                    state_dir=self.workspace_dir,
-                    step_count=80,
-                    role=FENCE_ROLE_DEEP_EXECUTION,
-                )
-                self.assertEqual(res.get("decision"), "allow")
-                self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", res.get("advisory", ""))
+                err_buf = io.StringIO()
+                with contextlib.redirect_stderr(err_buf):
+                    res = check_pre_tool_use(
+                        tool,
+                        {"TargetFile": "/workspace/src/app.py", "CodeContent": "# update"},
+                        conv_id="test-soft-fence-80",
+                        state_dir=self.workspace_dir,
+                        step_count=80,
+                        role=FENCE_ROLE_DEEP_EXECUTION,
+                    )
+                self.assertEqual(res, {"decision": "allow"})
+                self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", err_buf.getvalue())
+                queued = drain_pending_advisories("test-soft-fence-80", state_dir=self.workspace_dir)
+                self.assertTrue(any("[EPOCH HORIZON: 80/80 STEPS]" in item for item in queued))
 
     def test_non_executioner_roles_exempt_from_epoch_horizon_advisories(self) -> None:
         """Non-executioner roles (flight_director, forensic_auditor) stay allow with no executioner fence."""
@@ -296,11 +304,11 @@ class TestEpochStepHorizonSqliteResolution(unittest.TestCase):
                     anti_res = check_anti_loop(
                         "list_dir", {"DirectoryPath": "/workspace"}, conv_id=conv_id, state_dir=db_dir, payload=payload
                     )
-                    self.assertNotIn("EPOCH HORIZON", anti_res.get("advisory", ""))
+                    self.assertEqual(anti_res, {"decision": "allow"})
                     fence_res = check_pre_tool_use(
                         "write_to_file", {"TargetFile": "/workspace/a.py"}, payload=payload, conv_id=conv_id, state_dir=db_dir
                     )
-                    self.assertNotIn("EPOCH HORIZON", fence_res.get("advisory", ""))
+                    self.assertEqual(fence_res, {"decision": "allow"})
                     pre_res = evaluate_pre_invocation(payload, workspace_dir=db_dir, db_dir=db_dir)
                     self.assertEqual(pre_res, {"injectSteps": []})
 
@@ -318,16 +326,22 @@ class TestEpochStepHorizonSqliteResolution(unittest.TestCase):
 
                     payload_over = {"conversationId": conv_id, "stepIdx": 180, "role": "deep_execution"}
                     self.assertEqual(resolve_epoch_step_count(payload_over, conv_id=conv_id, db_dir=db_dir), 80)
-                    anti_over = check_anti_loop(
-                        "list_dir", {"DirectoryPath": "/workspace"}, conv_id=conv_id, state_dir=db_dir, payload=payload_over
-                    )
-                    self.assertEqual(anti_over.get("decision"), "allow")
-                    fence_over = check_pre_tool_use(
-                        "write_to_file", {"TargetFile": "/workspace/a.py"}, payload=payload_over, conv_id=conv_id, state_dir=db_dir
-                    )
-                    self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", fence_over.get("advisory", ""))
-                    pre_over = evaluate_pre_invocation(payload_over, workspace_dir=db_dir, db_dir=db_dir)
-                    self.assertTrue(any("[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/" in (s.get("systemMessage", {}).get("systemMessage", "") if isinstance(s.get("systemMessage"), dict) else "") for s in pre_over.get("injectSteps", [])))
+                    with unittest.mock.patch.dict(os.environ, {"AGYIS_HARNESS_STATE_DIR": str(db_dir)}):
+                        anti_over = check_anti_loop(
+                            "list_dir", {"DirectoryPath": "/workspace"}, conv_id=conv_id, state_dir=db_dir, payload=payload_over
+                        )
+                        self.assertEqual(anti_over, {"decision": "allow"})
+                        fence_over = check_pre_tool_use(
+                            "write_to_file", {"TargetFile": "/workspace/a.py"}, payload=payload_over, conv_id=conv_id, state_dir=db_dir
+                        )
+                        self.assertEqual(fence_over, {"decision": "allow"})
+                        pre_over = evaluate_pre_invocation(payload_over, workspace_dir=db_dir, db_dir=db_dir)
+                    step_msgs = [
+                        (s.get("systemMessage", {}).get("systemMessage", "") if isinstance(s.get("systemMessage"), dict) else "")
+                        for s in pre_over.get("injectSteps", [])
+                    ]
+                    self.assertTrue(any("[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/" in m for m in step_msgs))
+                    self.assertTrue(any("[EPOCH HORIZON: 80/80 STEPS]" in m for m in step_msgs))
             finally:
                 clear_locked_conversations()
 

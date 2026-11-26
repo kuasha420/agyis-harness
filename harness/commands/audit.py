@@ -372,6 +372,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
             "status": "PASS",
             "score": 100.0,
             "scanned_files": 0,
+            "scanned_assets": 0,
             "defects_count": 0,
             "benchmark_latency_s": 0.0,
         }
@@ -387,6 +388,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
                 "status": aff_report.status,
                 "score": round(aff_report.score, 2),
                 "scanned_files": aff_report.scanned_files_count,
+                "scanned_assets": aff_report.scanned_assets_count,
                 "defects_count": len(all_aff_defects),
                 "benchmark_latency_s": round(aff_report.benchmark_latency_s, 4),
             }
@@ -396,6 +398,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
                 "status": "ERROR",
                 "score": 0.0,
                 "scanned_files": 0,
+                "scanned_assets": 0,
                 "defects_count": 1,
                 "benchmark_latency_s": 0.0,
                 "error": str(exc),
@@ -524,6 +527,19 @@ def cmd_audit(args: argparse.Namespace) -> int:
             for d in (report.boundary_defects + report.cycle_defects + report.smell_defects)
         )
         return 1 if (report.status == "FAIL" or has_critical_or_major) else 0
+    elif sub == "sync-check":
+        from harness.delivery.sync_check import format_sync_check_report, run_sync_check
+
+        cwd = Path(getattr(args, "workspace", None) or Path.cwd()).resolve()
+        as_json = getattr(args, "json", False)
+        include_site = bool(getattr(args, "include_site", False))
+
+        report = run_sync_check(workspace_root=cwd, include_site=include_site)
+        if as_json:
+            print(json.dumps(report, indent=2))
+        else:
+            print(format_sync_check_report(report))
+        return 0 if report.get("status") == "PASS" else 1
     else:
         sys.stderr.write(f"Error: Unknown audit stage '{sub}'.\n")
         return 1
@@ -544,7 +560,7 @@ def print_aff_report(report: Any, cwd: Path) -> None:
     print("=" * 75)
     print(f" Status:          {report.status}")
     print(f" Fitness Score:   {report.score:.1f}/100")
-    print(f" Scanned Files:   {report.scanned_files_count} Python files")
+    print(f" Scanned Files:   {report.scanned_files_count} Python files, {report.scanned_assets_count} JS assets")
     print(f" Latency:         {report.benchmark_latency_s:.4f}s (<0.25s benchmark)")
     print(f" Workspace Root:  {cwd}")
     print("-" * 75)

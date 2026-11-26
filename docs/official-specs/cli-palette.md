@@ -90,7 +90,7 @@ agyis [-h] [-v]
 
 ### 3. `test`
 * **Syntax**: `agyis test [-v] [-s <dir>] [--diff] [--branch <ref>] [--affected] [--pkg <name>] [--full] [--harmonize] [--dry-run] [--mutation] [--json]`
-* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **104** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules = `108` total, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant) and clears verification fence flags on success.
+* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **111** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules = `115` total, **2,506** tests, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant) and clears verification fence flags on success.
 * **Flags**:
   - `-v`, `--verbose`: Enables detailed individual test case reporting.
   - `-s`, `--start-dir <path>`: Directory containing test suites (defaults to `tests/`).
@@ -126,7 +126,8 @@ agyis [-h] [-v]
   - `prune`: Prunes older telemetry sessions beyond `--days` (`--dry-run` supported).
   - `certify` / `verdict`: Runs full suite + doctor audit to issue/inspect out-of-band `audit_verdict.json` (Gate 2).
   - `aff` (aliases: `macro`, `fitness`): Evaluates automated architectural fitness, module boundaries, and dependency acyclicity (`PSL-INV-008`).
-* **Key Flags**: `--db <path>`, `--conv-dir <path>`, `--backfill`, `-s|--session-id <id>`, `--save-db`, `--out <path>`, `--json`, `--output-json <path>`, `--output-report <path>`, `--quiet`, `--days <N>`, `--dry-run`, `--task-id <id>`, `--verdict <verdict>`, `--skip-tests`, `-w|--workspace <path>`.
+  - `sync-check`: Audits manifest versions, live discovered test/module counts, tool registry parity, surface inventory, and Gate 0 empirical baselines (`--include-site` also checks static `website/*.html`).
+* **Key Flags**: `--db <path>`, `--conv-dir <path>`, `--backfill`, `-s|--session-id <id>`, `--save-db`, `--out <path>`, `--json`, `--output-json <path>`, `--output-report <path>`, `--quiet`, `--days <N>`, `--dry-run`, `--task-id <id>`, `--verdict <verdict>`, `--skip-tests`, `--include-site`, `-w|--workspace <path>`.
 
 ### 5. `skills`
 * **Syntax**: `agyis skills [name] [--sync] [-g|--group <grp>] [-s|--stack <stk>] [--skills <list>] [--override] [-w|--workspace [path]] [--no-dedup] [--prune-duplicates] [--dry-run] [--config-dir <path>] [--json]`

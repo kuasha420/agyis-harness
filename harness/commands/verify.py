@@ -102,7 +102,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 f"✔ Cleanroom specifications verified ({len(spec_files)} specifications found in docs/specs/)."
             )
         try:
-            clear_spec_dirty()
+            clear_spec_dirty(clear_all=True)
         except OSError:
             pass
         return 0
@@ -136,7 +136,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                         print(res_build.stdout.strip())
                     print("✔ Cleanroom reconstruction verified via REA obligation engine.")
                 try:
-                    clear_spec_dirty()
+                    clear_spec_dirty(clear_all=True)
                 except OSError:
                     pass
                 return 0
@@ -257,7 +257,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
         )
 
     try:
-        clear_spec_dirty()
+        clear_spec_dirty(clear_all=True)
     except OSError:
         pass
     return 0

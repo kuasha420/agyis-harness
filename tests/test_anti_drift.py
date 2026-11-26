@@ -539,17 +539,25 @@ class TestAntiDriftHook(unittest.TestCase):
             res = check_flight_director_write_guard(payload)
             self.assertIsNone(res, f"Expected allow without warning for file {i}")
 
-        # 4. Direct edit 4 triggers advisory warning
+        # 4. Direct edit 4 emits stderr diagnostic + enqueues one-shot PreInvocation advisory (strict wire return)
+        import contextlib
+        import io
+        from harness.hooks.wire_compat import drain_pending_advisories
+        from harness.utils.state import get_state_dir
+
+        drain_pending_advisories(conv_id, state_dir=get_state_dir())
         payload4 = {
             "role": "flight_director",
             "conversation_id": conv_id,
             "toolCall": {"name": "replace_file_content", "args": {"TargetFile": "src/mod_4.py"}},
         }
-        res4 = check_flight_director_write_guard(payload4)
-        self.assertIsNotNone(res4)
-        self.assertEqual(res4["decision"], "allow")
-        self.assertIn("PSL Flight Director Advisory", res4["warning"])
-        self.assertEqual(res4["direct_edits_count"], 4)
+        err_buf = io.StringIO()
+        with contextlib.redirect_stderr(err_buf):
+            res4 = check_flight_director_write_guard(payload4)
+        self.assertEqual(res4, {"decision": "allow"})
+        self.assertIn("PSL Flight Director Advisory", err_buf.getvalue())
+        queued = drain_pending_advisories(conv_id, state_dir=get_state_dir())
+        self.assertTrue(any("PSL Flight Director Advisory" in item for item in queued))
 
         # 5. Clean up
         reset_flight_director_edits(conv_id)
@@ -641,7 +649,7 @@ class TestAntiDriftHook(unittest.TestCase):
 
     def test_planner_and_coordinator_write_block(self):
         """Planner and coordinator subagents are blocked from mutating files."""
-        for role in ("planner", "architect", "coordinator", "orchestrator"):
+        for role in ("planner", "coordinator", "orchestrator"):
             payload = {
                 "role": role,
                 "toolCall": {
@@ -656,7 +664,7 @@ class TestAntiDriftHook(unittest.TestCase):
 
     def test_planner_write_blocked_for_code_files(self):
         """Planner cannot mutate code files directly."""
-        for role in ("planner", "architect"):
+        for role in ("planner", "agyis_planner"):
             payload = {
                 "role": role,
                 "toolCall": {
@@ -676,7 +684,7 @@ class TestAntiDriftHook(unittest.TestCase):
             "/brain/test/plan.md",
             "scratch/notes.txt",
         ]
-        for role in ("planner", "architect", "coordinator", "orchestrator"):
+        for role in ("planner", "coordinator", "orchestrator"):
             for path in exempt_paths:
                 payload = {
                     "role": role,
@@ -772,8 +780,8 @@ class TestAntiDriftHook(unittest.TestCase):
                 self.assertIsNone(res, f"Expected allow for {role} writing to {path}")
 
     def test_architect_and_builder_not_blocked(self):
-        """agyis_architect and agyis_builder are permitted to mutate code files without block."""
-        for role in ("agyis_architect", "agyis_builder", "harness_builder", "builder", "main"):
+        """architect, agyis_architect, and agyis_builder are permitted to mutate code files without block."""
+        for role in ("architect", "agyis_architect", "agyis_builder", "harness_builder", "builder", "main"):
             for tool in ("write_to_file", "replace_file_content", "edit_file"):
                 payload = {
                     "role": role,

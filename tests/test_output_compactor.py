@@ -281,13 +281,21 @@ class TestOutputCompactor(unittest.TestCase):
         self.assertFalse(r3["wasCompacted"])
         self.assertEqual(r3["compactedOutput"], large_error)
 
-        # 4. Text containing exit code failure pattern
+        # 4. Text containing exit code failure pattern on command execution tool
         text_with_exit_code = f"{large_error}\nCommand failed with exit code: 1"
-        p4 = {"output": text_with_exit_code}
+        p4 = {"toolCall": {"name": "run_command", "args": {"CommandLine": "cmd"}}, "output": text_with_exit_code}
         r4 = process_payload(p4, state_dir=self.state_dir)
         self.assertFalse(r4["wasCompacted"])
         self.assertEqual(r4["exitCode"], 1)
         self.assertTrue(r4["isError"])
+
+        # 5. Non-command read_file (>32KB) containing exit code text must still compact
+        huge_read = ("x" * 35000) + "\nCommand failed with exit code: 1"
+        p5 = {"toolCall": {"name": "read_file", "args": {"AbsolutePath": "/tmp/app.log"}}, "output": huge_read}
+        r5 = process_payload(p5, state_dir=self.state_dir)
+        self.assertTrue(r5["wasCompacted"])
+        self.assertEqual(r5["exitCode"], 0)
+        self.assertFalse(r5["isError"])
 
     # -------------------------------------------------------------------------
     # 4. Edge Cases: Empty Input, Invalid JSON, Boundary Lengths

@@ -38,6 +38,7 @@ from harness.hooks.role_pinning import (
     check_pillar_2_behavior,
     check_pillar_3_explicit_role,
     classify_agent_role,
+    classify_agent_role_details,
     get_role_pinning_cadence,
     has_parent_conversation,
     is_native_slash_command,
@@ -46,6 +47,7 @@ from harness.hooks.role_pinning import (
     resolve_conv_and_brain,
     save_sticky_role_state,
 )
+from harness.hooks.wire_compat import drain_pending_advisories
 from harness.trajectory import (
     CONTEXT_WINDOW_TOKENS,
     ROLE_DEEP_EXECUTION,
@@ -76,6 +78,7 @@ CALIBRATION_METADATA: Dict[str, Any] = {
     "danger_zone_velocity_per_turn": "2,500 - 4,800 tokens",
 }
 
+_ORIG_CLASSIFY_AGENT_ROLE = classify_agent_role
 _normalize_role_str = normalize_role_str
 _PROMPT_KEYS = ("lastUserInput", "last_user_input", "prompt", "user_prompt", "userPrompt",
                 "message", "text", "query", "input", "initial_prompt", "task", "command",
@@ -284,12 +287,47 @@ def evaluate_pre_invocation(
             )
         )
 
-        role = classify_agent_role(
-            payload, conversation_id=conv_id, db_dir=db_dir, workspace_dir=eff_ws,
-            tokens=tokens, timeout=to, db_metrics=db_metrics, is_post_compaction=is_post_compaction,
-        )
-        if state_dir and conv_id != "default" and (not sticky or int(sticky.get("epoch", -1)) != epoch_idx):
-            save_sticky_role_state(state_dir, {"conversation_id": conv_id, "epoch": epoch_idx, "role": role, "pinned_at": time.time()})
+        if classify_agent_role is not _ORIG_CLASSIFY_AGENT_ROLE:
+            role = classify_agent_role(
+                payload, conversation_id=conv_id, db_dir=db_dir, workspace_dir=eff_ws,
+                tokens=tokens, timeout=to, db_metrics=db_metrics, is_post_compaction=is_post_compaction,
+            )
+            role_meta: Dict[str, Any] = {"agent_name": None, "parent_conversation_id": None, "source": "custom", "is_fallback": False}
+        else:
+            role, role_meta = classify_agent_role_details(
+                payload, conversation_id=conv_id, db_dir=db_dir, workspace_dir=eff_ws,
+                tokens=tokens, timeout=to, db_metrics=db_metrics, is_post_compaction=is_post_compaction,
+            )
+
+        agent_name = role_meta.get("agent_name")
+        parent_cid = role_meta.get("parent_conversation_id")
+        role_source = str(role_meta.get("source") or "unknown")
+        is_fallback = bool(role_meta.get("is_fallback", False))
+
+        if state_dir and conv_id != "default":
+            needs_persist = (
+                not sticky
+                or int(sticky.get("epoch", -1)) != epoch_idx
+                or normalize_role_str(sticky.get("role")) != role
+                or (agent_name is not None and sticky.get("agent_name") != agent_name)
+                or (parent_cid is not None and sticky.get("parent_conversation_id") != parent_cid)
+                or (bool(sticky.get("is_fallback")) and not is_fallback)
+                or ("source" not in sticky)
+            )
+            if needs_persist:
+                save_sticky_role_state(
+                    state_dir,
+                    {
+                        "conversation_id": conv_id,
+                        "epoch": epoch_idx,
+                        "role": role,
+                        "agent_name": agent_name,
+                        "parent_conversation_id": parent_cid,
+                        "source": role_source,
+                        "is_fallback": is_fallback,
+                        "pinned_at": time.time(),
+                    },
+                )
 
         cadence = get_role_pinning_cadence()
         cp_rel = f".agents/artifacts/checkpoints/{conv_id}.md" if conv_id != "default" else ".agents/artifacts/checkpoints/session.md"
@@ -308,7 +346,8 @@ def evaluate_pre_invocation(
                 inject_steps.append({"systemMessage": {"systemMessage": build_role_reanchor_advisory(role, step_count, cadence), "metadata": {}}})
 
         is_specialist_stage = bool(stage_role_data and stage_num > 0 and conv_id != "default" and stage_cid == conv_id)
-        is_subagent = has_parent_conversation(payload, conv_id) or is_specialist_stage
+        eff_brain_parent = brain_path.parent if (brain_path is not None and brain_path.name == conv_id) else None
+        is_subagent = bool(parent_cid) or has_parent_conversation(payload, conv_id, brain_dir=eff_brain_parent, db_dir=db_dir) or is_specialist_stage
         alert_file = state_dir / f".compaction_alert_{conv_id}.json" if state_dir and conv_id != "default" else None
         existing_alert: Dict[str, Any] = {}
         if alert_file and alert_file.is_file():
@@ -366,6 +405,15 @@ def evaluate_pre_invocation(
                 alert_file.write_text(json.dumps(updated), encoding="utf-8")
             except OSError:
                 pass
+
+        if conv_id != "default" or (os.environ.get("AGYIS_HARNESS_STATE_DIR") or "").strip() or (os.environ.get("PSL_HARNESS_STATE_DIR") or "").strip():
+            drained: List[str] = drain_pending_advisories(conv_id)
+            if state_dir is not None and conv_id != "default":
+                for extra_msg in drain_pending_advisories(conv_id, state_dir=state_dir):
+                    if extra_msg not in drained:
+                        drained.append(extra_msg)
+            for adv_msg in drained:
+                inject_steps.append({"systemMessage": {"systemMessage": adv_msg, "metadata": {}}})
 
         return {"injectSteps": inject_steps}
     except Exception as exc:

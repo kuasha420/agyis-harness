@@ -13,18 +13,24 @@ Intercepts consecutive redundant tool calls to prevent agent thrashing loops
 
 from __future__ import annotations
 
+import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import sys
 from typing import Any
 
+from harness.hooks.role_lineage import resolve_hook_role_and_agent
+from harness.hooks.wire_compat import (
+    PRE_TOOL_WIRE_KEYS,
+    emit_stderr_diagnostic,
+    enqueue_pending_advisory,
+    strip_wire_keys,
+)
 from harness.trajectory.health import (
     ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR,
-    ROLE_SWARM_ORCHESTRATOR,
     SOFT_EPOCH_STEP_ADVISORY,
     normalize_role_str,
 )
@@ -91,6 +97,20 @@ _NON_FUNCTIONAL_METADATA_KEYS: frozenset[str] = frozenset({
     "WaitMsBeforeAsync",
     "timeout",
 })
+
+
+def _compact_history_args(args: Any, max_len: int = 512) -> Any:
+    """Hash and truncate oversized string arguments before storing anti-loop signatures."""
+    if isinstance(args, str):
+        if len(args) > max_len:
+            digest16 = hashlib.sha256(args.encode("utf-8", errors="replace")).hexdigest()[:16]
+            return f"__sha256:{digest16}:{len(args)}:{args[:64]}..."
+        return args
+    if isinstance(args, dict):
+        return {k: _compact_history_args(v, max_len=max_len) for k, v in args.items()}
+    if isinstance(args, list):
+        return [_compact_history_args(item, max_len=max_len) for item in args]
+    return args
 
 
 def _normalize_tool_args(args: Any) -> Any:
@@ -332,19 +352,20 @@ def check_anti_loop(
     """
     effective_step = resolve_epoch_step_count(payload, conv_id=conv_id, explicit_step=step_count)
 
-    effective_role = role
-    if effective_role is None and payload:
-        for rk in ("role", "agent_role", "subagent_role", "archetype", "agentType", "agent_type"):
-            rv = payload.get(rk)
-            if isinstance(rv, str) and rv.strip():
-                effective_role = rv.strip()
-                break
-    if not effective_role:
-        effective_role = os.environ.get("AGYIS_ROLE") or os.environ.get("PSL_AGENT_ROLE")
+    target_dir = state_dir or get_state_dir()
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        sys.stderr.write(f"PSL Anti-Loop Warning: Failed creating state dir '{target_dir}': {exc}\n")
 
-    norm_role = _normalize_role_str(effective_role)
+    resolved_role, exact_agent = resolve_hook_role_and_agent(
+        payload,
+        role=role,
+        conv_id=conv_id,
+        state_dir=state_dir,
+    )
+    norm_role = _normalize_role_str(resolved_role or exact_agent)
 
-    advisory_msg: str | None = None
     # Soft epoch horizon advisory (Issue #109 — never hard-block healthy agents on step count alone)
     if _is_exploratory_sweep(tool_name, tool_args):
         if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_EPOCH_STEP_ADVISORY:
@@ -352,19 +373,14 @@ def check_anti_loop(
                 f"[EPOCH HORIZON: {effective_step}/{SOFT_EPOCH_STEP_ADVISORY} STEPS] "
                 "Extended epoch reached — prefer targeted symbol lookups over broad sweeps."
             )
-            sys.stderr.write(advisory_msg + "\n")
-            sys.stderr.flush()
-
-    target_dir = state_dir or get_state_dir()
-    try:
-        target_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        sys.stderr.write(f"PSL Anti-Loop Warning: Failed creating state dir '{target_dir}': {exc}\n")
+            emit_stderr_diagnostic(advisory_msg)
+            enqueue_pending_advisory(conv_id, advisory_msg, state_dir=target_dir)
 
     history = load_history(conv_id, target_dir=target_dir)
 
-    # Current signature
-    sig = {"name": tool_name, "args": tool_args}
+    # Current signature (compacted before history matching/persistence to keep state bounded)
+    raw_sig = {"name": tool_name, "args": tool_args}
+    sig = {"name": tool_name, "args": _compact_history_args(tool_args)}
 
     # -1. Peer Heartbeat Exemption (progress.md or teamwork metadata inspection)
     if _is_peer_heartbeat(tool_name, tool_args):
@@ -374,16 +390,16 @@ def check_anti_loop(
             save_history(conv_id, history, target_dir=target_dir)
         except OSError as exc:
             sys.stderr.write(f"PSL Anti-Loop Warning: Failed saving history: {exc}\n")
-        return {"decision": "allow", **({"advisory": advisory_msg} if advisory_msg else {})}
+        return {"decision": "allow"}
 
     # -2. Verification Reset Invariant:
     # When any code edit tool is called, automatically clear/reset the
     # sliding-window frequency counters or history for test verification commands.
-    if _is_code_edit(sig):
+    if _is_code_edit(raw_sig):
         history = [item for item in history if not _is_test_verification_command(item)]
 
     # 0. Background task polling check (strictly denies >= 3 consecutive or >= 3 in 10-call window)
-    if _is_background_poll(sig):
+    if _is_background_poll(raw_sig):
         consecutive_inspections = 0
         for prev in reversed(history):
             if _is_background_poll(prev):
@@ -412,7 +428,7 @@ def check_anti_loop(
                 ),
             }
 
-        if _is_manage_task_status(sig):
+        if _is_manage_task_status(raw_sig):
             history.append(sig)
             history = history[-HISTORY_WINDOW:]
             try:
@@ -432,7 +448,7 @@ def check_anti_loop(
         else:
             break
 
-    is_idempotent = _is_idempotent_status_command(sig)
+    is_idempotent = _is_idempotent_status_command(raw_sig)
     if is_idempotent:
         effective_max_repeats = MAX_IDEMPOTENT_FREQUENCY_REPEATS
     else:
@@ -512,7 +528,7 @@ def check_anti_loop(
     except OSError as exc:
         sys.stderr.write(f"PSL Anti-Loop Warning: Failed saving history: {exc}\n")
 
-    return {"decision": "allow", **({"advisory": advisory_msg} if advisory_msg else {})}
+    return {"decision": "allow"}
 
 
 def evaluate_tool_call(
@@ -573,7 +589,7 @@ def main() -> None:
         return
 
     result = handle_pre_tool_use(payload)
-    print(json.dumps(result))
+    print(json.dumps(strip_wire_keys(result, allowed_keys=PRE_TOOL_WIRE_KEYS)))
 
 
 if __name__ == "__main__":

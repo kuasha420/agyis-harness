@@ -293,14 +293,11 @@ def record_verification(
     return state
 
 
-def clear_spec_dirty(
+def _clear_single_spec_dirty(
     conv_id: str = "default",
     state_dir: Path | None = None,
 ) -> dict:
-    """
-    Clears spec_dirty state following cleanroom verification.
-    If code_dirty is False, removes cleanroom spec files from last_modified_files and resets block_count.
-    """
+    """Clears spec_dirty state for a single conversation ID."""
     state = load_state(conv_id=conv_id, state_dir=state_dir)
     state["spec_dirty"] = False
     if not state.get("code_dirty", False):
@@ -318,6 +315,48 @@ def clear_spec_dirty(
     state["last_verified_at"] = datetime.now(timezone.utc).isoformat()
     save_state(state, conv_id=conv_id, state_dir=state_dir)
     return state
+
+
+def clear_spec_dirty(
+    conv_id: str = "default",
+    state_dir: Path | None = None,
+    *,
+    clear_all: bool = False,
+) -> dict:
+    """
+    Clears spec_dirty state following cleanroom verification.
+    If clear_all=True, clears spec_dirty across all verification_state_*.json files
+    in the active state directory (used by headless CLI `agyis verify`).
+    If code_dirty is False, removes cleanroom spec files from last_modified_files and resets block_count.
+    """
+    if not clear_all:
+        return _clear_single_spec_dirty(conv_id=conv_id, state_dir=state_dir)
+
+    target_dir = _resolve_state_dir(state_dir)
+    target_state: Optional[dict] = None
+    expected_file = get_state_file(conv_id, target_dir)
+    seen_target = False
+    if target_dir.is_dir():
+        for state_file in sorted(target_dir.glob("verification_state_*.json")):
+            if not state_file.is_file():
+                continue
+            stem_cid = state_file.stem[len("verification_state_"):]
+            raw_cid = stem_cid
+            try:
+                loaded = json.loads(state_file.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    cand_cid = str(loaded.get("conversation_id") or "").strip()
+                    if cand_cid and get_state_file(cand_cid, target_dir) == state_file:
+                        raw_cid = cand_cid
+            except (OSError, json.JSONDecodeError, ValueError):
+                pass
+            updated = _clear_single_spec_dirty(conv_id=raw_cid, state_dir=target_dir)
+            if state_file == expected_file:
+                target_state = updated
+                seen_target = True
+    if not seen_target:
+        target_state = _clear_single_spec_dirty(conv_id=conv_id, state_dir=target_dir)
+    return target_state or load_state(conv_id=conv_id, state_dir=state_dir)
 
 
 def reset_state(
