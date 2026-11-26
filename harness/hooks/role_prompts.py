@@ -115,7 +115,7 @@ def build_post_compaction_persona_prompt(role: str, checkpoint_path: Optional[st
 
 
 def build_role_reanchor_advisory(role: str, step_count: int, cadence: int) -> str:
-    """Returns intra-epoch periodic re-anchor systemMessage directive."""
+    """Returns intra-checkpoint periodic re-anchor systemMessage directive."""
     return (
         f"[AGYIS ROLE RE-ANCHOR: {role.upper()} (STEP {step_count} | CADENCE {cadence})]\n"
         f"PERIODIC COGNITIVE ATTENTION AUDIT — Reinforcing active invariants for '{role}':\n"

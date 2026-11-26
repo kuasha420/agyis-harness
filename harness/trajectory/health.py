@@ -23,7 +23,7 @@ COMPACTION_THRESHOLD: int = RED_THRESHOLD
 
 SUBAGENT_ELEVATED_PCT: float = 0.65
 SUBAGENT_HIGH_PCT: float = 0.80
-SOFT_EPOCH_STEP_ADVISORY: int = 80
+SOFT_CHECKPOINT_STEP_ADVISORY: int = 80
 
 MAX_SAFE_BURN_RATE_PER_MIN: float = 2000.0
 CRITICAL_BURN_RATE_PER_MIN: float = 4000.0
@@ -105,7 +105,7 @@ class SubagentContextStatus:
     latency_ms: float
     parent_conversation_id: Optional[str] = None
     max_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
-    epoch_step_count: int = 0
+    checkpoint_step_count: int = 0
     is_provisional: bool = False
     transcript_path: str = ""
     last_updated: Optional[str] = None
@@ -113,7 +113,7 @@ class SubagentContextStatus:
 
 @dataclass(frozen=True)
 class TokenBreakdown:
-    """Honest per-epoch context breakdown: measured buckets + explicit unattributed gap."""
+    """Honest per-checkpoint context breakdown: measured buckets + explicit unattributed gap."""
 
     user: int = 0
     model: int = 0
@@ -298,17 +298,17 @@ def classify_context_health(
     max_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
 ) -> Tuple[str, str]:
     """
-    Grades conversation health from active-epoch window percentage and epoch step depth.
+    Grades conversation health from active-checkpoint window percentage and checkpoint step depth.
     Replaces fixed 40k/80k premature retirement cutoffs with model-scaled ratios:
-      - HEALTHY / REUSE: < 65% fill AND < 80 epoch steps
-      - AMBER / COMPACT_SOON: 65%..80% fill OR >= 80 epoch steps
+      - HEALTHY / REUSE: < 65% fill AND < 80 checkpoint steps
+      - AMBER / COMPACT_SOON: 65%..80% fill OR >= 80 checkpoint steps
       - RED_ALERT / HANDOFF_OR_COMPACT: >= 80% fill
     """
     window = max(1, int(max_context_tokens or DEFAULT_CONTEXT_WINDOW_TOKENS))
     ratio = max(0, int(estimated_tokens)) / float(window)
     if ratio >= SUBAGENT_HIGH_PCT:
         return "RED_ALERT", "HANDOFF_OR_COMPACT"
-    if ratio >= SUBAGENT_ELEVATED_PCT or step_count >= SOFT_EPOCH_STEP_ADVISORY:
+    if ratio >= SUBAGENT_ELEVATED_PCT or step_count >= SOFT_CHECKPOINT_STEP_ADVISORY:
         return "AMBER", "COMPACT_SOON"
     return "HEALTHY", "REUSE"
 
@@ -325,9 +325,9 @@ class TrajectoryMetrics:
     max_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
     has_explicit_max_context: bool = False
     total_steps: int = 0
-    epoch_steps: int = 0
-    epoch_index: int = 0
-    epoch_start_idx: int = 0
+    checkpoint_steps: int = 0
+    checkpoint_index: int = 0
+    checkpoint_start_idx: int = 0
     checkpoint_count: int = 0
     compaction_summary: str = ""
     turn0_prompt: str = ""

@@ -1803,7 +1803,7 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
         total_tokens = data["total_tokens"]
         breakdown = data["token_breakdown"]
 
-        # Active epoch post-checkpoint only (excludes pre-checkpoint 1200+3000+1500 steps)
+        # Active checkpoint window post-checkpoint only (excludes pre-checkpoint 1200+3000+1500 steps)
         self.assertEqual(total_tokens, 2500)
         self.assertEqual(sum(breakdown.values()), total_tokens)
         self.assertEqual(breakdown["checkpoint"], 2000)
@@ -1827,7 +1827,7 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
         self.assertIn("-webkit-app-region: no-drag;", script)
         # Cumulative token sync in JS
         self.assertIn("rawSegmentsSum = segments.reduce", script)
-        self.assertIn("activeTokensSum = selectedEpochTotal > 0 ? selectedEpochTotal : rawSegmentsSum", script)
+        self.assertIn("activeTokensSum = selectedCheckpointTotal > 0 ? selectedCheckpointTotal : rawSegmentsSum", script)
 
     def test_hud_assets_do_not_clobber_minified_globals(self) -> None:
         """Regression: HUD injection must never export short Closure-minified globals (e.g. xtc/ytc/ztc/Atc)."""
@@ -1836,7 +1836,7 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
             (entry for entry in assets_dir.iterdir() if entry.name.endswith(".js")),
             key=lambda entry: entry.name,
         )
-        self.assertGreaterEqual(len(js_entries), 11)
+        self.assertGreaterEqual(len(js_entries), 13)
 
         offenders = []
         for entry in js_entries:
@@ -1893,7 +1893,7 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
         trajectory = {
             "conversation_id": "convo-vm-no-clobber", "model": "claude-sonnet-4", "total_tokens": 12500, "max_context_tokens": 200000,
             "steps": [{"step_index": 0, "type": "USER_INPUT", "content": "Hello", "tokens": 500}, {"step_index": 1, "type": "PLANNER_RESPONSE", "content": "World", "tokens": 2000}],
-            "epochs": [{"epoch_index": 0, "start_index": 0, "end_index": 1, "step_count": 2, "total_tokens": 12500}],
+            "checkpoints": [{"checkpoint_index": 0, "start_index": 0, "end_index": 1, "step_count": 2, "total_tokens": 12500}],
             "system_prompt_slices": [{"name": "identity", "tag": "identity", "tokens": 4000}],
             "tool_def_slices": [{"name": "run_command", "tokens": 6000}],
         }
@@ -2048,8 +2048,8 @@ class TestGUISystemdService(unittest.TestCase):
         self.assertEqual(args_status.service, "status")
 
 
-class TestCheckpointEpochPartitioning(unittest.TestCase):
-    """Tests trajectory partitioning into epochs based on CHECKPOINT steps (ADR-014 / PSL-INV-007)."""
+class TestCheckpointPartitioning(unittest.TestCase):
+    """Tests disjoint Option B trajectory partitioning into checkpoint windows (ADR-014 / PSL-INV-007)."""
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -2066,21 +2066,24 @@ class TestCheckpointEpochPartitioning(unittest.TestCase):
             for s in steps:
                 f.write(json.dumps(s) + "\n")
 
-    def test_epoch_partitioning_no_checkpoints(self) -> None:
+    def test_checkpoint_partitioning_no_checkpoints(self) -> None:
         convo_id = "convo-no-cp"
         steps = [{"source": "user", "content": f"msg {i}"} for i in range(5)]
         self._create_convo_transcript(convo_id, steps)
 
         data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
-        epochs = data.get("epochs", [])
-        self.assertEqual(len(epochs), 1)
-        self.assertEqual(epochs[0]["epoch_index"], 0)
-        self.assertEqual(epochs[0]["start_index"], 0)
-        self.assertEqual(epochs[0]["end_index"], 4)
-        self.assertEqual(epochs[0]["step_count"], 5)
-        self.assertFalse(epochs[0]["has_checkpoint"])
+        checkpoints = data.get("checkpoints", [])
+        self.assertEqual(len(checkpoints), 1)
+        self.assertEqual(checkpoints[0]["checkpoint_index"], 0)
+        self.assertEqual(checkpoints[0]["start_index"], 0)
+        self.assertEqual(checkpoints[0]["end_index"], 4)
+        self.assertEqual(checkpoints[0]["step_count"], 5)
+        self.assertFalse(checkpoints[0]["has_checkpoint"])
+        self.assertEqual(checkpoints[0]["summary"], "Initial Trajectory")
+        self.assertEqual(data["checkpoint_index"], 0)
+        self.assertEqual(data["checkpoint_steps"], 5)
 
-    def test_epoch_partitioning_single_checkpoint(self) -> None:
+    def test_checkpoint_partitioning_single_checkpoint(self) -> None:
         convo_id = "convo-single-cp"
         steps = []
         for i in range(10):
@@ -2091,25 +2094,28 @@ class TestCheckpointEpochPartitioning(unittest.TestCase):
         self._create_convo_transcript(convo_id, steps)
 
         data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
-        epochs = data.get("epochs", [])
-        self.assertEqual(len(epochs), 2)
+        checkpoints = data.get("checkpoints", [])
+        self.assertEqual(len(checkpoints), 2)
 
-        # Epoch 0: step 0 to step 4 (inclusive)
-        self.assertEqual(epochs[0]["epoch_index"], 0)
-        self.assertEqual(epochs[0]["start_index"], 0)
-        self.assertEqual(epochs[0]["end_index"], 4)
-        self.assertEqual(epochs[0]["step_count"], 5)
-        self.assertTrue(epochs[0]["has_checkpoint"])
-        self.assertEqual(epochs[0]["summary"], "Compacted at 4")
+        # Window 0: steps 0..3 (disjoint pre-checkpoint Initial Trajectory)
+        self.assertEqual(checkpoints[0]["checkpoint_index"], 0)
+        self.assertEqual(checkpoints[0]["start_index"], 0)
+        self.assertEqual(checkpoints[0]["end_index"], 3)
+        self.assertEqual(checkpoints[0]["step_count"], 4)
+        self.assertFalse(checkpoints[0]["has_checkpoint"])
+        self.assertEqual(checkpoints[0]["summary"], "Initial Trajectory")
 
-        # Epoch 1: step 4 to step 9 (inclusive)
-        self.assertEqual(epochs[1]["epoch_index"], 1)
-        self.assertEqual(epochs[1]["start_index"], 4)
-        self.assertEqual(epochs[1]["end_index"], 9)
-        self.assertEqual(epochs[1]["step_count"], 6)
-        self.assertTrue(epochs[1]["has_checkpoint"])
+        # Window 1: steps 4..9 (checkpoint c0..N-1)
+        self.assertEqual(checkpoints[1]["checkpoint_index"], 1)
+        self.assertEqual(checkpoints[1]["start_index"], 4)
+        self.assertEqual(checkpoints[1]["end_index"], 9)
+        self.assertEqual(checkpoints[1]["step_count"], 6)
+        self.assertTrue(checkpoints[1]["has_checkpoint"])
+        self.assertEqual(checkpoints[1]["summary"], "Compacted at 4")
+        self.assertEqual(data["checkpoint_index"], 1)
+        self.assertEqual(data["checkpoint_steps"], 6)
 
-    def test_epoch_partitioning_multiple_checkpoints(self) -> None:
+    def test_checkpoint_partitioning_multiple_checkpoints(self) -> None:
         convo_id = "convo-multi-cp"
         steps = []
         for i in range(12):
@@ -2122,22 +2128,43 @@ class TestCheckpointEpochPartitioning(unittest.TestCase):
         self._create_convo_transcript(convo_id, steps)
 
         data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
-        epochs = data.get("epochs", [])
-        self.assertEqual(len(epochs), 3)
+        checkpoints = data.get("checkpoints", [])
+        self.assertEqual(len(checkpoints), 3)
 
-        self.assertEqual(epochs[0]["start_index"], 0)
-        self.assertEqual(epochs[0]["end_index"], 3)
-        self.assertEqual(epochs[0]["step_count"], 4)
+        self.assertEqual((checkpoints[0]["start_index"], checkpoints[0]["end_index"]), (0, 2))
+        self.assertEqual(checkpoints[0]["step_count"], 3)
+        self.assertFalse(checkpoints[0]["has_checkpoint"])
+        self.assertEqual(checkpoints[0]["summary"], "Initial Trajectory")
 
-        self.assertEqual(epochs[1]["start_index"], 3)
-        self.assertEqual(epochs[1]["end_index"], 7)
-        self.assertEqual(epochs[1]["step_count"], 5)
+        self.assertEqual((checkpoints[1]["start_index"], checkpoints[1]["end_index"]), (3, 6))
+        self.assertEqual(checkpoints[1]["step_count"], 4)
+        self.assertTrue(checkpoints[1]["has_checkpoint"])
+        self.assertEqual(checkpoints[1]["summary"], "First summary")
 
-        self.assertEqual(epochs[2]["start_index"], 7)
-        self.assertEqual(epochs[2]["end_index"], 11)
-        self.assertEqual(epochs[2]["step_count"], 5)
+        self.assertEqual((checkpoints[2]["start_index"], checkpoints[2]["end_index"]), (7, 11))
+        self.assertEqual(checkpoints[2]["step_count"], 5)
+        self.assertTrue(checkpoints[2]["has_checkpoint"])
+        self.assertEqual(checkpoints[2]["summary"], "Second summary")
 
-    def test_epoch_partitioning_last_step_checkpoint(self) -> None:
+    def test_checkpoint_partitioning_first_step_checkpoint(self) -> None:
+        convo_id = "convo-first-cp"
+        steps = [
+            {"type": "CHECKPOINT", "compaction_summary": "Compacted at start"},
+            {"source": "user", "content": "msg 1"},
+            {"source": "model", "content": "reply 2"},
+        ]
+        self._create_convo_transcript(convo_id, steps)
+
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        checkpoints = data.get("checkpoints", [])
+        self.assertEqual(len(checkpoints), 1)
+        self.assertEqual((checkpoints[0]["start_index"], checkpoints[0]["end_index"]), (0, 2))
+        self.assertEqual(checkpoints[0]["step_count"], 3)
+        self.assertTrue(checkpoints[0]["has_checkpoint"])
+        self.assertEqual(checkpoints[0]["summary"], "Compacted at start")
+        self.assertEqual(data["checkpoint_index"], 0)
+
+    def test_checkpoint_partitioning_last_step_checkpoint(self) -> None:
         convo_id = "convo-last-cp"
         steps = []
         for i in range(5):
@@ -2148,19 +2175,24 @@ class TestCheckpointEpochPartitioning(unittest.TestCase):
         self._create_convo_transcript(convo_id, steps)
 
         data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
-        epochs = data.get("epochs", [])
-        self.assertEqual(len(epochs), 1)
-        self.assertEqual(epochs[0]["start_index"], 0)
-        self.assertEqual(epochs[0]["end_index"], 4)
-        self.assertEqual(epochs[0]["step_count"], 5)
-        self.assertTrue(epochs[0]["has_checkpoint"])
+        checkpoints = data.get("checkpoints", [])
+        self.assertEqual(len(checkpoints), 2)
+        self.assertEqual((checkpoints[0]["start_index"], checkpoints[0]["end_index"]), (0, 3))
+        self.assertEqual(checkpoints[0]["step_count"], 4)
+        self.assertFalse(checkpoints[0]["has_checkpoint"])
+        self.assertEqual((checkpoints[1]["start_index"], checkpoints[1]["end_index"]), (4, 4))
+        self.assertEqual(checkpoints[1]["step_count"], 1)
+        self.assertTrue(checkpoints[1]["has_checkpoint"])
+        self.assertEqual(checkpoints[1]["summary"], "Summary at end")
+        self.assertEqual(data["checkpoint_index"], 1)
 
-    def test_epoch_partitioning_empty(self) -> None:
+    def test_checkpoint_partitioning_empty(self) -> None:
         convo_id = "convo-empty"
         self._create_convo_transcript(convo_id, [])
 
         data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
-        self.assertEqual(data.get("epochs", []), [])
+        self.assertEqual(data.get("checkpoints", []), [])
+        self.assertEqual(data["checkpoint_index"], 0)
 
 
 class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
@@ -2174,8 +2206,8 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
                 {"step_index": 1, "type": "MODEL_OUTPUT", "tokens": 12000, "content": "World"},
             ],
             "max_context_tokens": 256000,
-            "epochs": [
-                {"epoch_index": 0, "start_index": 0, "end_index": 1, "step_count": 2, "has_checkpoint": False, "summary": "Initial"}
+            "checkpoints": [
+                {"checkpoint_index": 0, "start_index": 0, "end_index": 1, "step_count": 2, "has_checkpoint": False, "summary": "Initial"}
             ],
         }
         script = build_trajectory_hud_script(
@@ -2194,14 +2226,14 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertIn("agyis-context-row-track", script)
         self.assertIn("Math.round((rIdx * ROW_CAPACITY) / 1000)", script)
 
-    def test_hud_script_contains_epoch_switcher(self) -> None:
-        sample_data = {"conversation_id": "test-ep", "steps": []}
-        script = build_trajectory_hud_script("test-ep", sample_data, [], open_view=True)
+    def test_hud_script_contains_checkpoint_switcher(self) -> None:
+        sample_data = {"conversation_id": "test-cp", "steps": []}
+        script = build_trajectory_hud_script("test-cp", sample_data, [], open_view=True)
 
-        self.assertIn("agyis-epoch-prev", script)
-        self.assertIn("agyis-epoch-next", script)
-        self.assertIn("Prev Epoch", script)
-        self.assertIn("Next Epoch", script)
+        self.assertIn("agyis-checkpoint-prev", script)
+        self.assertIn("agyis-checkpoint-next", script)
+        self.assertIn("Prev Checkpoint", script)
+        self.assertIn("Next Checkpoint", script)
 
     def test_hud_script_contains_pagination_and_debouncing(self) -> None:
         sample_data = {"conversation_id": "test-page", "steps": []}
@@ -2216,21 +2248,21 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertIn("150", script)
 
     def test_hud_script_contains_sync_to_latest_state(self) -> None:
-        """BUILD-TOGGLE-LATEST-EPOCH-STEP-PAGE-001: Assert syncToLatestState exists and is called across entrypoints."""
+        """BUILD-TOGGLE-LATEST-CHECKPOINT-STEP-PAGE-001: Assert syncToLatestState exists and is called across entrypoints."""
         sample_data = {
             "conversation_id": "test-sync-latest",
             "steps": [{"step_index": i, "type": "USER_PROMPT"} for i in range(105)],
-            "epochs": [
-                {"epoch_index": 0, "start_index": 0, "end_index": 49},
-                {"epoch_index": 1, "start_index": 50, "end_index": 99},
-                {"epoch_index": 2, "start_index": 100, "end_index": 104},
+            "checkpoints": [
+                {"checkpoint_index": 0, "start_index": 0, "end_index": 49},
+                {"checkpoint_index": 1, "start_index": 50, "end_index": 99},
+                {"checkpoint_index": 2, "start_index": 100, "end_index": 104},
             ],
         }
         script = build_trajectory_hud_script("test-sync-latest", sample_data, [], open_view=True, toggle=True)
 
         # 1. Assert helper function is defined
         self.assertIn("function syncToLatestState(state)", script)
-        self.assertIn("state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;", script)
+        self.assertIn("state.activeCheckpointIndex = checkpoints.length > 0 ? checkpoints.length - 1 : -1;", script)
         self.assertIn("state.selectedIndex = Math.max(0, steps.length - 1);", script)
         self.assertIn("const totalPages = Math.max(1, Math.ceil(totalSteps / pageSize));", script)
         self.assertIn("state.tablePage = totalPages - 1;", script)
@@ -2240,9 +2272,9 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertIn("syncToLatestState(state);", script)
         self.assertIn("if (typeof renderHud === \"function\") renderHud();", script)
 
-        # 3. Assert initial state initialization sets latest epoch, step, and table page and syncs
+        # 3. Assert initial state initialization sets latest checkpoint, step, and table page and syncs
         self.assertIn("window.__agyis_hud_state = {", script)
-        self.assertIn("activeEpochIndex: epochs.length > 0 ? epochs.length - 1 : -1,", script)
+        self.assertIn("activeCheckpointIndex: checkpoints.length > 0 ? checkpoints.length - 1 : -1,", script)
         self.assertIn("tablePage: Math.max(0, Math.ceil(steps.length / 50) - 1),", script)
         self.assertIn("syncToLatestState(window.__agyis_hud_state);", script)
 
@@ -2261,65 +2293,43 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertTrue(display_pos != -1 and scroll_pos != -1 and display_pos < scroll_pos)
 
     def test_sync_to_latest_state_node_evaluation(self) -> None:
-        """BUILD-TOGGLE-LATEST-EPOCH-STEP-PAGE-001: Execute syncToLatestState in node to assert exact runtime behavior."""
+        """BUILD-TOGGLE-LATEST-CHECKPOINT-STEP-PAGE-001: Execute real hud_utils.js syncToLatestState in node."""
         import subprocess
 
-        js_harness = """
-        function syncToLatestState(state) {
-            if (!state || !state.currentData) return;
-            const steps = state.currentData.steps || [];
-            const epochs = state.currentData.epochs || [];
-
-            // 1. Show latest epoch
-            state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
-
-            // 2. Select latest step
-            state.selectedIndex = Math.max(0, steps.length - 1);
-
-            // 3. Show latest 50 steps on steps list (last table page)
-            const totalSteps = steps.length;
-            const pageSize = 50;
-            const totalPages = Math.max(1, Math.ceil(totalSteps / pageSize));
-            state.tablePage = totalPages - 1;
-        }
-
+        utils_js = importlib.resources.files("harness.gui.assets").joinpath("hud_utils.js").read_text(encoding="utf-8")
+        js_harness = (
+            "global.window = {};\n"
+            + utils_js
+            + """
         const cases = [
-            // Case 0: Empty trajectory
-            { currentData: { steps: [], epochs: [] } },
-            // Case 1: 30 steps (single page, 1 epoch)
-            { currentData: { steps: new Array(30).fill({}), epochs: [{ epoch_index: 0 }] } },
-            // Case 2: 50 steps (exact 1 page boundary)
-            { currentData: { steps: new Array(50).fill({}), epochs: [{ epoch_index: 0 }] } },
-            // Case 3: 51 steps (page 1)
-            { currentData: { steps: new Array(51).fill({}), epochs: [{ epoch_index: 0 }, { epoch_index: 1 }] } },
-            // Case 4: 120 steps across 3 epochs (page 2, last step 119, epoch 2)
-            { currentData: { steps: new Array(120).fill({}), epochs: [{ epoch_index: 0 }, { epoch_index: 1 }, { epoch_index: 2 }] } }
+            { currentData: { steps: [], checkpoints: [] } },
+            { currentData: { steps: new Array(30).fill({}), checkpoints: [{ checkpoint_index: 0 }] } },
+            { currentData: { steps: new Array(50).fill({}), checkpoints: [{ checkpoint_index: 0 }] } },
+            { currentData: { steps: new Array(51).fill({}), checkpoints: [{ checkpoint_index: 0 }, { checkpoint_index: 1 }] } },
+            { currentData: { steps: new Array(220).fill({}), checkpoints: [{ checkpoint_index: 0 }, { checkpoint_index: 1 }, { checkpoint_index: 2 }] } }
         ];
 
         const results = cases.map(st => {
-            syncToLatestState(st);
+            window.__agyis_utils.syncToLatestState(st);
             return {
-                activeEpochIndex: st.activeEpochIndex,
+                activeCheckpointIndex: st.activeCheckpointIndex,
                 selectedIndex: st.selectedIndex,
-                tablePage: st.tablePage
+                tablePage: st.tablePage,
+                timelinePage: st.timelinePage
             };
         });
 
         console.log(JSON.stringify(results));
         """
+        )
         try:
             res = subprocess.run(["node", "-e", js_harness], capture_output=True, text=True, check=True)
             results = json.loads(res.stdout.strip())
-            # Case 0: Empty
-            self.assertEqual(results[0], {"activeEpochIndex": -1, "selectedIndex": 0, "tablePage": 0})
-            # Case 1: 30 steps
-            self.assertEqual(results[1], {"activeEpochIndex": 0, "selectedIndex": 29, "tablePage": 0})
-            # Case 2: 50 steps
-            self.assertEqual(results[2], {"activeEpochIndex": 0, "selectedIndex": 49, "tablePage": 0})
-            # Case 3: 51 steps
-            self.assertEqual(results[3], {"activeEpochIndex": 1, "selectedIndex": 50, "tablePage": 1})
-            # Case 4: 120 steps
-            self.assertEqual(results[4], {"activeEpochIndex": 2, "selectedIndex": 119, "tablePage": 2})
+            self.assertEqual(results[0], {"activeCheckpointIndex": -1, "selectedIndex": 0, "tablePage": 0, "timelinePage": 0})
+            self.assertEqual(results[1], {"activeCheckpointIndex": 0, "selectedIndex": 29, "tablePage": 0, "timelinePage": 0})
+            self.assertEqual(results[2], {"activeCheckpointIndex": 0, "selectedIndex": 49, "tablePage": 0, "timelinePage": 0})
+            self.assertEqual(results[3], {"activeCheckpointIndex": 1, "selectedIndex": 50, "tablePage": 1, "timelinePage": 0})
+            self.assertEqual(results[4], {"activeCheckpointIndex": 2, "selectedIndex": 219, "tablePage": 4, "timelinePage": 1})
         except FileNotFoundError:
             pass
 
@@ -2388,8 +2398,8 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertIn("agyis-subagent-card", script)
         self.assertIn("agyis-checkpoint-card", script)
         self.assertIn("Compaction Checkpoint", script)
-        self.assertIn("Jump to Previous Epoch", script)
-        self.assertIn("agyis-jump-prev-epoch", script)
+        self.assertIn("Jump to Previous Checkpoint", script)
+        self.assertIn("agyis-jump-prev-checkpoint", script)
 
         # Timing Header Guard
         self.assertIn("isModelStep && totalDurationMs > 0", script)

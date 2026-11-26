@@ -7,7 +7,7 @@
 Agyis Harness: Sticky Role Classification, State Isolation & Prompt Builders (#110, #111).
 
 Consumes `harness.trajectory` SSOT metrics and transcripts rather than re-parsing SQLite
-or protobufs, pins roles per `(conversation_id, epoch_index)` at Turn 0 / compaction,
+or protobufs, pins roles per `(conversation_id, checkpoint_index)` at Turn 0 / compaction,
 eliminates mid-flight Pillar 2 auto-flipping, and isolates per-CID state files.
 """
 
@@ -98,7 +98,7 @@ TEST_RUNNER_KEYWORDS: Tuple[str, ...] = (
 
 
 def get_role_pinning_cadence(override: Optional[int] = None) -> int:
-    """Returns effective cadence for intra-epoch periodic role re-anchors (default 10)."""
+    """Returns effective cadence for intra-checkpoint periodic role re-anchors (default 10)."""
     for candidate in (override, os.environ.get("AGYIS_ROLE_PINNING_CADENCE")):
         if candidate is not None:
             try:
@@ -614,8 +614,8 @@ def classify_agent_role_details(
 
         if not is_post_compaction and eff_cid not in _EPHEMERAL_CIDS:
             sticky = load_sticky_role_state(resolve_cid_state_dir(eff_cid, workspace_dir, payload), eff_cid)
-            epoch_idx = db_metrics.epoch_index if db_metrics is not None else 0
-            if sticky and int(sticky.get("epoch", 0)) == epoch_idx:
+            cp_idx = db_metrics.checkpoint_index if db_metrics is not None else 0
+            if sticky and int(sticky.get("checkpoint", sticky.get("epoch", 0))) == cp_idx:
                 pinned = normalize_role_str(sticky.get("role"))
                 sticky_agent = sticky.get("agent_name")
                 sticky_agent_role = normalize_role_str(sticky_agent) if isinstance(sticky_agent, str) else None

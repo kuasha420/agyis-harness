@@ -24,7 +24,7 @@ from pathlib import Path
 import re
 import sqlite3
 import time
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from harness.trajectory.lineage import read_conversation_lineage
 from harness.trajectory.transcript_reader import (
@@ -281,14 +281,41 @@ def _is_swarm_or_workflow_tail_state(t_path: Path) -> Tuple[bool, bool]:
     - post_message([done]) + swarm_wait -> (False, True) [COMPLETED]
     - swarm_wait (without [done]) -> (True, False) [PARKED]
     """
-    try:
-        steps, _, _ = load_transcript_steps(t_path)
-    except (OSError, ValueError, TypeError):
+    if not t_path.is_file():
         return False, False
-    if not steps:
+    try:
+        with open(t_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            file_size = f.tell()
+            if file_size == 0:
+                return False, False
+            offset = max(0, file_size - 65536)
+            f.seek(offset, os.SEEK_SET)
+            chunk = f.read().decode("utf-8", errors="replace")
+    except OSError:
         return False, False
 
-    tail = steps[-10:]
+    lines = chunk.splitlines()
+    if offset > 0 and len(lines) > 1:
+        lines = lines[1:]
+
+    tail_rev: List[Dict[str, Any]] = []
+    for raw in reversed(lines):
+        stripped = raw.strip("\x00 \t\r\n")
+        if not stripped.startswith("{"):
+            continue
+        try:
+            obj = json.loads(stripped)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(obj, dict):
+            tail_rev.append(obj)
+            if len(tail_rev) >= 10:
+                break
+    if not tail_rev:
+        return False, False
+
+    tail = list(reversed(tail_rev))
     has_done_post = False
     last_tool_name = ""
     for st in tail:

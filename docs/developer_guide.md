@@ -90,7 +90,7 @@ Authoritative flags, sub-actions, and platform boundaries live in [`cli-palette.
 | `psl-token-proximity-guard` | `PreToolUse` | [`token_proximity_guard.py`](../harness/hooks/token_proximity_guard.py) | `token-proximity` |
 | `psl-compaction-advisory` | `PreInvocation` | [`pre_invocation_hook.py`](../harness/hooks/pre_invocation_hook.py) | `pre-invocation` |
 
-All hooks fail open on malformed stdin. Full protojson payload contracts, scaled thresholds (`256k` / **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`) `512k`** / `1M` windows at `70%` amber / `90%` red, `80`-step soft epoch horizon, nested `systemMessage` payloads, and `PostToolUse` `overwriteResult`), and state machine rules live in [`lifecycle-hooks.md`](official-specs/lifecycle-hooks.md) and [`platform-surface-mapping.md`](official-specs/platform-surface-mapping.md).
+All hooks fail open on malformed stdin. Full protojson payload contracts, scaled thresholds (`256k` / **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`) `512k`** / `1M` windows at `70%` amber / `90%` red, `80`-step soft checkpoint horizon, nested `systemMessage` payloads, and `PostToolUse` `overwriteResult`), and state machine rules live in [`lifecycle-hooks.md`](official-specs/lifecycle-hooks.md) and [`platform-surface-mapping.md`](official-specs/platform-surface-mapping.md).
 
 ---
 

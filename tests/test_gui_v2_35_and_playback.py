@@ -68,10 +68,12 @@ class TestGuiV235ParityAndOrbitalAegis(unittest.TestCase):
         return json.loads(proc.stdout.strip().splitlines()[-1])
 
     def test_step_offset_and_generator_metadata_pagination_in_node(self) -> None:
-        rpc_js = importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js").read_text(encoding="utf-8")
+        assets = importlib.resources.files("harness.gui.assets")
+        stream_js = assets.joinpath("hud_stream.js").read_text(encoding="utf-8")
+        rpc_js = assets.joinpath("hud_rpc.js").read_text(encoding="utf-8")
         out = self._run_node(
             "global.window = { location: { origin: 'https://127.0.0.1:40623' } };\n"
-            + rpc_js
+            + stream_js + "\n" + rpc_js
             + r"""
 const stepCalls = [];
 const genCalls = [];
@@ -131,10 +133,12 @@ global.fetch = async (url, init) => {
         self.assertIs(ytc_layout_pass, trajectory_catalog.ytc_layout_pass)
         self.assertIs(ztc_row_count, trajectory_catalog.ztc_row_count)
 
-        rpc_js = importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js").read_text(encoding="utf-8")
+        assets = importlib.resources.files("harness.gui.assets")
+        stream_js = assets.joinpath("hud_stream.js").read_text(encoding="utf-8")
+        rpc_js = assets.joinpath("hud_rpc.js").read_text(encoding="utf-8")
         out = self._run_node(
             "global.window = {};\n"
-            + rpc_js
+            + stream_js + "\n" + rpc_js
             + r"""
 const infer = window.__agyis_utils.inferModelContextWindow;
 const v235Tools = [
@@ -242,8 +246,8 @@ console.log(JSON.stringify({ pane2, hudPane2, bgTask, sideQ, paneAttr, subWin })
             re.IGNORECASE,
         )
         for name in (
-            "hud_styles.css", "hud_theme.js", "hud_header.js", "hud_context_bar.js",
-            "hud_timeline.js", "hud_inspector.js", "hud_deck.js", "telemetry_hud.js",
+            "hud_styles.css", "hud_theme.js", "hud_utils.js", "hud_header.js", "hud_context_bar.js",
+            "hud_timeline.js", "hud_inspector.js", "hud_deck.js", "hud_stream.js", "telemetry_hud.js",
             "playback_shell.html", "playback_boot.js",
         ):
             txt = assets.joinpath(name).read_text(encoding="utf-8")
@@ -263,11 +267,12 @@ console.log(JSON.stringify({ pane2, hudPane2, bgTask, sideQ, paneAttr, subWin })
         self.assertIn("SHIELD_MARK_SVG", script)
 
         theme_js = assets.joinpath("hud_theme.js").read_text(encoding="utf-8")
+        utils_js = assets.joinpath("hud_utils.js").read_text(encoding="utf-8")
         header_js = assets.joinpath("hud_header.js").read_text(encoding="utf-8")
         insp_js = assets.joinpath("hud_inspector.js").read_text(encoding="utf-8")
         out = self._run_node(
             "global.window = {};\n"
-            + theme_js + "\n" + header_js + "\n" + insp_js + "\n"
+            + theme_js + "\n" + utils_js + "\n" + header_js + "\n" + insp_js + "\n"
             + r"""
 const headerHtml = window.renderHudHeader({ layoutOrientation: "horizontal" }, { conversation_id: "oa-1", steps: [] }, []);
 const html1 = window.renderMarkdownPreview("```py\nprint(1)\n```\n\n```js\nconsole.log(2)\n```");
@@ -291,7 +296,7 @@ console.log(JSON.stringify({
             log_dir.mkdir(parents=True)
             (log_dir / "transcript.jsonl").write_text(json.dumps({"source": "user", "content": "Hello"}) + "\n", encoding="utf-8")
             port = _free_port()
-            srv = start_trajectory_server(host="127.0.0.1", port=port, brain_dir=brain)
+            srv = start_trajectory_server(host="127.0.0.1", port=port, brain_dir=brain, poll_interval=0.05)
             try:
                 base = f"http://127.0.0.1:{port}"
                 with urllib.request.urlopen(f"{base}/", timeout=1.0) as resp:
@@ -309,6 +314,10 @@ console.log(JSON.stringify({
                 with urllib.request.urlopen(f"{base}/assets/playback_boot.js", timeout=1.0) as resp:
                     self.assertEqual(resp.status, 200)
                     self.assertIn("javascript", resp.headers.get("Content-Type", ""))
+                for new_asset in ("hud_utils.js", "hud_stream.js"):
+                    with urllib.request.urlopen(f"{base}/assets/{new_asset}", timeout=1.0) as resp:
+                        self.assertEqual(resp.status, 200)
+                        self.assertIn("javascript", resp.headers.get("Content-Type", ""))
 
                 for bad_path in ("/assets/../../pyproject.toml", "/assets/%2e%2e/pyproject.toml", "/assets/hud.js", "/assets/__init__.py"):
                     with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -320,14 +329,13 @@ console.log(JSON.stringify({
                 srv.server_close()
 
         assets = importlib.resources.files("harness.gui.assets")
-        boot_js = assets.joinpath("playback_boot.js").read_text(encoding="utf-8")
-        theme_js = assets.joinpath("hud_theme.js").read_text(encoding="utf-8")
-        header_js = assets.joinpath("hud_header.js").read_text(encoding="utf-8")
-        ctx_js = assets.joinpath("hud_context_bar.js").read_text(encoding="utf-8")
-        tl_js = assets.joinpath("hud_timeline.js").read_text(encoding="utf-8")
-        insp_js = assets.joinpath("hud_inspector.js").read_text(encoding="utf-8")
-        deck_js = assets.joinpath("hud_deck.js").read_text(encoding="utf-8")
-        rpc_js = assets.joinpath("hud_rpc.js").read_text(encoding="utf-8")
+        pb_assets = "\n".join(
+            assets.joinpath(n).read_text(encoding="utf-8")
+            for n in (
+                "hud_theme.js", "hud_utils.js", "hud_header.js", "hud_context_bar.js",
+                "hud_timeline.js", "hud_inspector.js", "hud_deck.js", "hud_stream.js", "hud_rpc.js", "playback_boot.js",
+            )
+        )
         out = self._run_node(
             """
 const els = {};
@@ -357,7 +365,7 @@ global.fetch = async (url) => {
             return {
                 conversation_id: "pb-1", model: "gemini-4-carbon", total_tokens: 1200, max_context_tokens: 512000,
                 steps: [{ step_index: 0, type: "USER_INPUT", content: "hi", tokens: 200 }],
-                epochs: [{ epoch_index: 0, start_index: 0, end_index: 0, total_tokens: 1200, token_breakdown: { user: 200 } }],
+                checkpoints: [{ checkpoint_index: 0, start_index: 0, end_index: 0, total_tokens: 1200, token_breakdown: { user: 200 } }],
                 token_breakdown: { user: 200 },
             };
         } };
@@ -365,7 +373,7 @@ global.fetch = async (url) => {
     return { ok: false, status: 404 };
 };
 """
-            + "\n".join((theme_js, header_js, ctx_js, tl_js, insp_js, deck_js, rpc_js, boot_js))
+            + pb_assets
             + r"""
 (async () => {
     await new Promise(r => setTimeout(r, 25));
@@ -441,6 +449,553 @@ global.fetch = async (url) => {
                 )
                 unit = generate_gui_systemd_path_unit(surface="antigravity-ide")
                 self.assertIn("Antigravity IDE/DevToolsActivePort", unit)
+
+    def test_checkpoint_navigation_selection_rpc_timeline_and_playback_regression_in_node(self) -> None:
+        """Consolidated sub-second Node VM verification of all 14 RCA regressions across Electron HUD & :40624 playback."""
+        node_bin = shutil.which("node")
+        if not node_bin:
+            self.skipTest("node binary unavailable")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            brain = Path(tmp)
+            convo_id = "repro-checkpoints"
+            log_dir = brain / convo_id / ".system_generated" / "logs"
+            log_dir.mkdir(parents=True)
+            raw_steps = []
+            for i in range(120):
+                if i == 40:
+                    raw_steps.append({
+                        "step_index": i,
+                        "type": "CHECKPOINT",
+                        "checkpoint": {"checkpointIndex": 0, "sessionSummary": "Checkpoint at step 40"},
+                        "metadata": {"retryInfos": [{"usage": {"cacheReadTokens": 190000, "inputTokens": 9000}}]},
+                    })
+                elif i == 80:
+                    raw_steps.append({
+                        "step_index": i,
+                        "type": "CHECKPOINT",
+                        "checkpoint": {"checkpointIndex": 1, "sessionSummary": "Checkpoint at step 80"},
+                        "metadata": {"retryInfos": [{"usage": {"cacheReadTokens": 210000, "inputTokens": 11000}}]},
+                    })
+                elif i == 20:
+                    raw_steps.append({
+                        "step_index": i,
+                        "type": "PLANNER_RESPONSE",
+                        "content": "read_file /tmp/notes.md",
+                        "tokens": 120,
+                        "timestamp": "2026-11-26T10:00:20Z",
+                    })
+                elif i == 35:
+                    raw_steps.append({
+                        "step_index": i,
+                        "source": "model",
+                        "content": "Running build",
+                        "tool_calls": [{"name": "run_command", "args": {"CommandLine": "toolneedle"}}],
+                        "tokens": 135,
+                        "timestamp": "2026-11-26T10:00:35Z",
+                    })
+                elif i == 50:
+                    raw_steps.append({
+                        "step_index": i,
+                        "type": "PLANNER_RESPONSE",
+                        "thinking": "Deep reasoning on step 50",
+                        "content": "Answer 50",
+                        "tokens": 150,
+                        "timestamp": "2026-11-26T10:00:50Z",
+                    })
+                else:
+                    raw_steps.append({
+                        "step_index": i,
+                        "source": "user" if i % 4 == 0 else "model",
+                        "content": f"Step content {i} " + ("alpha " if i in (10, 60, 110) else ""),
+                        "tokens": 100 + i,
+                        "timestamp": f"2026-11-26T10:{i // 60:02d}:{i % 60:02d}Z",
+                    })
+            (log_dir / "transcript.jsonl").write_text("\n".join(json.dumps(s) for s in raw_steps) + "\n", encoding="utf-8")
+            traj = load_conversation_trajectory(convo_id, brain_dir=brain)
+
+        self.assertEqual(traj["steps"][40]["checkpoint_index"], 0)
+        self.assertEqual(traj["steps"][80]["checkpoint_index"], 1)
+
+        hud_script = build_trajectory_hud_script(
+            convo_id="repro-checkpoints",
+            trajectory_data=traj,
+            conversations=[{"id": "repro-checkpoints", "summary": "Repro", "mtime": 1700000000}],
+            open_view=True,
+            toggle=False,
+        )
+        assets = importlib.resources.files("harness.gui.assets")
+        pb_script = "\n".join(
+            assets.joinpath(name).read_text(encoding="utf-8")
+            for name in (
+                "hud_theme.js", "hud_utils.js", "hud_header.js", "hud_context_bar.js",
+                "hud_timeline.js", "hud_inspector.js", "hud_deck.js", "hud_stream.js", "hud_rpc.js", "playback_boot.js",
+            )
+        )
+
+        # Compact Node VM harness with full HTML-parsing DOM for both Electron HUD and :40624 playback
+        node_driver = r"""
+const fs = require("fs");
+const vm = require("vm");
+const bundle = JSON.parse(fs.readFileSync(0, "utf8"));
+
+function createDomSandbox(initialPath) {
+    const scrollCalls = [];
+    const rafQueue = [];
+    const winListeners = [];
+    const realSetTimeout = setTimeout;
+    const VOID_TAGS = new Set(["INPUT", "BR", "HR", "IMG", "META", "LINK", "PATH", "LINE", "RECT", "CIRCLE", "POLYGON", "STOP"]);
+    let doc = null;
+    class FakeEl {
+        constructor(tag) {
+            this.tagName = String(tag || "div").toUpperCase();
+            this.id = ""; this.className = ""; this.parentNode = null;
+            this.style = { display: "flex", transform: "" };
+            this._innerHTML = ""; this._textContent = undefined; this.children = [];
+            this.value = ""; this.selectionStart = 0; this.selectionEnd = 0;
+            this.scrollTop = 0; this.scrollLeft = 0; this.clientWidth = 1000; this.clientHeight = 600;
+            this.open = false; this.disabled = false; this._attrs = null; this._listeners = null; this._classes = null;
+            this.classList = {
+                add: (c) => { (this._classes || (this._classes = new Set())).add(c); },
+                remove: (c) => { if (this._classes) this._classes.delete(c); },
+                contains: (c) => Boolean(this._classes && this._classes.has(c)),
+                toggle: (c) => { const s = this._classes || (this._classes = new Set()); if (s.has(c)) s.delete(c); else s.add(c); },
+            };
+        }
+        get innerHTML() { return this._innerHTML; }
+        set innerHTML(v) { this._innerHTML = String(v ?? ""); this._textContent = undefined; parseHtml(this._innerHTML, this); }
+        get textContent() { return this._textContent !== undefined ? this._textContent : this._innerHTML.replace(/<[^>]+>/g, ""); }
+        set textContent(v) { this._textContent = String(v ?? ""); this._innerHTML = this._textContent; }
+        addEventListener(t, h, o) { const l = this._listeners || (this._listeners = {}); (l[t] = l[t] || []).push({ handler: h, opts: o }); }
+        removeEventListener(t, h) { if (this._listeners && this._listeners[t]) this._listeners[t] = this._listeners[t].filter(l => l.handler !== h); }
+        dispatchEvent(ev) {
+            if (!ev.preventDefault) ev.preventDefault = () => {};
+            if (!ev.stopPropagation) ev.stopPropagation = () => {};
+            if (!ev.stopImmediatePropagation) ev.stopImmediatePropagation = () => {};
+            if (this._listeners && this._listeners[ev.type]) for (const item of this._listeners[ev.type]) item.handler.call(this, ev);
+        }
+        appendChild(ch) {
+            if (ch.parentNode && ch.parentNode !== this) ch.parentNode.children = ch.parentNode.children.filter(c => c !== ch);
+            ch.parentNode = this; this.children.push(ch); return ch;
+        }
+        remove() { if (this.parentNode) { this.parentNode.children = this.parentNode.children.filter(c => c !== this); this.parentNode = null; } }
+        contains(t) { return t === this || this.children.some(ch => ch === t || ch.contains(t)); }
+        focus() { doc.activeElement = this; }
+        blur() { if (doc.activeElement === this) doc.activeElement = doc.body; }
+        setSelectionRange(s, e) { this.selectionStart = s; this.selectionEnd = e; }
+        getAttribute(k) { return this._attrs && Object.prototype.hasOwnProperty.call(this._attrs, k) ? this._attrs[k] : null; }
+        setAttribute(k, v) { (this._attrs || (this._attrs = {}))[k] = String(v); if (k === "id") this.id = String(v); if (k === "open") this.open = true; }
+        removeAttribute(k) { if (this._attrs) delete this._attrs[k]; if (k === "open") this.open = false; if (k === "disabled") this.disabled = false; }
+        scrollIntoView(opts) { scrollCalls.push({ id: this.id, className: this.className, dataIndex: this.getAttribute("data-index"), dataStepIndex: this.getAttribute("data-step-index"), opts }); }
+        querySelector(sel) { return this._query(sel, 1)[0] || null; }
+        querySelectorAll(sel) { return this._query(sel, 0); }
+        _query(sel, limit) {
+            const out = [];
+            const specs = sel.split(/\s+/).filter(Boolean).map((part) => {
+                let rem = part;
+                const attrs = [], clss = [];
+                let idM = null;
+                rem = rem.replace(/\[([^\]=]+)(?:="([^"]*)")?\]/g, (_, k, v) => { attrs.push([k, v]); return ""; });
+                rem = rem.replace(/\.([a-zA-Z0-9_-]+)/g, (_, c) => { clss.push(c); return ""; });
+                rem = rem.replace(/#([a-zA-Z0-9_-]+)/g, (_, id) => { idM = id; return ""; });
+                return { tag: rem ? rem.toUpperCase() : null, idM, clss, attrs };
+            });
+            const matchSpec = (node, sp) => {
+                if (sp.idM && node.id !== sp.idM) return false;
+                if (sp.tag && node.tagName !== sp.tag) return false;
+                for (let i = 0; i < sp.clss.length; i++) if (!node._classes || !node._classes.has(sp.clss[i])) return false;
+                for (let i = 0; i < sp.attrs.length; i++) {
+                    const [k, v] = sp.attrs[i], act = node.getAttribute(k);
+                    if (v === undefined ? act === null : act !== v) return false;
+                }
+                return true;
+            };
+            const lastIdx = specs.length - 1, ancs = [this];
+            const walk = (node) => {
+                if (limit && out.length >= limit) return;
+                if (lastIdx === 0) { if (matchSpec(node, specs[0])) { out.push(node); if (limit && out.length >= limit) return; } }
+                else if (matchSpec(node, specs[lastIdx])) {
+                    let ai = ancs.length - 1, pi = lastIdx - 1;
+                    while (pi >= 0 && ai >= 0) { if (matchSpec(ancs[ai], specs[pi])) pi--; ai--; }
+                    if (pi < 0) { out.push(node); if (limit && out.length >= limit) return; }
+                }
+                if (node.children.length) {
+                    ancs.push(node);
+                    for (let i = 0; i < node.children.length; i++) { walk(node.children[i]); if (limit && out.length >= limit) break; }
+                    ancs.pop();
+                }
+            };
+            for (let i = 0; i < this.children.length; i++) { walk(this.children[i]); if (limit && out.length >= limit) break; }
+            return out;
+        }
+    }
+    const makeEl = (tag) => new FakeEl(tag);
+    const parseAttrs = (attrStr, el) => {
+        if (!attrStr) return;
+        let am;
+        if (attrStr.includes("id=")) { am = /\bid=["']([^"']*)["']/.exec(attrStr); if (am) { el.id = am[1]; (el._attrs || (el._attrs = {})).id = am[1]; } }
+        if (attrStr.includes("class=")) { am = /\bclass=["']([^"']*)["']/.exec(attrStr); if (am) { el.className = am[1]; (el._attrs || (el._attrs = {})).class = am[1]; const cs = el._classes || (el._classes = new Set()); for (const c of am[1].split(/\s+/)) if (c) cs.add(c); } }
+        if (attrStr.includes("data-")) {
+            const dr = /\b(data-[a-zA-Z0-9_-]+)=["']([^"']*)["']/g;
+            while ((am = dr.exec(attrStr)) !== null) (el._attrs || (el._attrs = {}))[am[1]] = am[2];
+        }
+        if (attrStr.includes("value=")) { am = /\bvalue=["']([^"']*)["']/.exec(attrStr); if (am) { el.value = am[1]; (el._attrs || (el._attrs = {})).value = am[1]; } }
+        if (/\bopen(?=\s|$)/.test(attrStr)) { el.open = true; (el._attrs || (el._attrs = {})).open = ""; }
+        if (/\bdisabled(?=\s|$)/.test(attrStr)) { el.disabled = true; (el._attrs || (el._attrs = {})).disabled = ""; }
+    };
+    const parseHtml = (html, parent) => {
+        parent.children = [];
+        const stack = [parent];
+        const tagRe = /<\/?([a-zA-Z0-9-]+)([^>]*)>/g;
+        let m;
+        while ((m = tagRe.exec(html)) !== null) {
+            const full = m[0], tag = m[1].toUpperCase(), attrStr = m[2] || "";
+            if (full.startsWith("</")) {
+                if (stack.length > 1) {
+                    const closed = stack.pop();
+                    closed._innerHTML = html.slice(closed._contentStart, m.index);
+                    closed._textContent = undefined;
+                }
+                continue;
+            }
+            const selfClose = full.endsWith("/>") || VOID_TAGS.has(tag);
+            const el = new FakeEl(tag);
+            el._contentStart = m.index + full.length;
+            parseAttrs(attrStr, el);
+            const top = stack[stack.length - 1];
+            el.parentNode = top; top.children.push(el);
+            if (!selfClose) stack.push(el);
+        }
+    };
+    doc = {
+        head: makeEl("head"), body: makeEl("body"), activeElement: null, readyState: "complete",
+        getElementById(id) { return this.head.querySelector("#" + id) || this.body.querySelector("#" + id); },
+        createElement: makeEl,
+        querySelector(sel) { return this.body.querySelector(sel) || this.head.querySelector(sel); },
+        querySelectorAll(sel) { return this.body.querySelectorAll(sel); },
+        addEventListener() {}, removeEventListener() {},
+    };
+    doc.activeElement = doc.body;
+    const sandbox = {
+        document: doc, innerWidth: 1280, innerHeight: 800,
+        location: { origin: "https://127.0.0.1:40623", pathname: initialPath, search: "" },
+        history: { pushState() {}, replaceState() {} },
+        localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+        CSS: { escape: (s) => String(s ?? "").replace(/([^\w-])/g, "\\$1") },
+        Event: class Event { constructor(t) { this.type = t; } },
+        URLSearchParams, AbortController, TextEncoder, TextDecoder, crypto: globalThis.crypto,
+        console, setTimeout: (fn, ms) => realSetTimeout(fn, ms >= 100 ? 10 : ms), clearTimeout, setInterval, clearInterval, Promise,
+        requestAnimationFrame: (cb) => { rafQueue.push(cb); return rafQueue.length; },
+        cancelAnimationFrame: () => {},
+        fetch: async () => ({ ok: false, status: 503, async json() { return null; } }),
+        addEventListener(t, h, cap) { winListeners.push({ t, h, cap: Boolean(cap) }); },
+        removeEventListener(t, h) { const i = winListeners.findIndex(x => x.t === t && x.h === h); if (i !== -1) winListeners.splice(i, 1); },
+        dispatchEvent(ev) {
+            if (!ev.preventDefault) ev.preventDefault = () => {};
+            if (!ev.stopPropagation) ev.stopPropagation = () => {};
+            if (!ev.stopImmediatePropagation) ev.stopImmediatePropagation = () => {};
+            for (const l of winListeners.filter(x => x.t === ev.type && x.cap)) l.h.call(sandbox, ev);
+            for (const l of winListeners.filter(x => x.t === ev.type && !x.cap)) l.h.call(sandbox, ev);
+        },
+        __scrollCalls: scrollCalls,
+        __flushRaf: () => { while (rafQueue.length) rafQueue.shift()(0); },
+    };
+    sandbox.window = sandbox.global = sandbox.globalThis = sandbox.self = sandbox;
+    vm.createContext(sandbox);
+    return { sandbox, doc, makeEl, scrollCalls };
+}
+
+(async () => {
+    // --- Context A: Electron HUD ---
+    const { sandbox: sA, doc: docA, scrollCalls: callsA } = createDomSandbox("/c/repro-checkpoints");
+    vm.runInContext(bundle.hudScript, sA);
+    const hud = docA.getElementById("agyis-trajectory-hud");
+    const st = sA.__agyis_hud_state;
+
+    // 1 & 2: Click CHECKPOINT #80 in Window 2 (stays in 2), then move to Window 1 and click CHECKPOINT #40 (stays in 1)
+    const cpBefore80 = st.activeCheckpointIndex;
+    hud.querySelector('.agyis-context-segment[data-step-index="80"]').dispatchEvent({ type: "click" });
+    const cpAfterClick80 = st.activeCheckpointIndex;
+    hud.querySelector("#agyis-checkpoint-prev").dispatchEvent({ type: "click" });
+    hud.querySelector('.agyis-context-segment[data-step-index="40"]').dispatchEvent({ type: "click" });
+    const cpAfterClick40 = st.activeCheckpointIndex;
+
+    // 3: Check disabled Jump-to-Previous when activeCheckpointIndex === 0, then Next Checkpoint -> 1
+    st.activeCheckpointIndex = 0; st.selectedIndex = 0;
+    sA.__agyis_hud_render();
+    const prevBtnDisabledAt0 = hud.querySelector("#agyis-checkpoint-prev").disabled;
+    hud.querySelector("#agyis-checkpoint-next").dispatchEvent({ type: "click" });
+    const cpAfterNextBtn = st.activeCheckpointIndex;
+
+    // Check Jump-to-Previous disabled on CHECKPOINT at Window 0
+    const cp0JumpDisabled = sA.buildInspectorHtml({ step_index: 0, type: "CHECKPOINT", content: "cp0" }, { activeCheckpointIndex: 0, activeTab: "step" }, {}).includes("disabled");
+
+    // 4 & 7: From Window 2 (step 100), click Prev Checkpoint -> Window 1 & page 0 + row in DOM
+    st.tablePage = 2; sA.__agyis_hud_render();
+    hud.querySelector('.agyis-step-grid-item[data-index="100"]').dispatchEvent({ type: "click" });
+    const cpWhen100 = st.activeCheckpointIndex;
+    hud.querySelector("#agyis-checkpoint-prev").dispatchEvent({ type: "click" });
+    const cpAfterPrevFrom2 = st.activeCheckpointIndex;
+    hud.querySelector("#agyis-checkpoint-prev").dispatchEvent({ type: "click" });
+    const pageAfterCpPrev0 = st.tablePage;
+    const selectedRowInDom = Boolean(hud.querySelector(`.agyis-step-grid-item[data-index="${st.selectedIndex}"]`));
+
+    // 5: Jump to Previous Checkpoint card button from Window 2 while at #80 -> Window 1
+    st.activeCheckpointIndex = 2; st.selectedIndex = 80; sA.__agyis_hud_render();
+    hud.querySelector("#agyis-jump-prev-checkpoint").dispatchEvent({ type: "click" });
+    const cpAfterJumpPrev = st.activeCheckpointIndex;
+
+    // 6: Stream update while inspecting #80 in Window 2 + details/inspector scroll preservation on step 50
+    const makeFrame = (flags, obj) => {
+        const b = new TextEncoder().encode(JSON.stringify(obj)), u = new Uint8Array(5 + b.length);
+        u[0] = flags; new DataView(u.buffer).setUint32(1, b.length, false); u.set(b, 5); return u;
+    };
+    let streamCount = 121;
+    sA.fetch = async (url) => {
+        if (url.includes("StreamAgentStateUpdates")) {
+            const stepsArr = st.rootData.steps.map((s, idx) => ({
+                stepIndex: idx,
+                type: s.type === "CHECKPOINT" ? "CORTEX_STEP_TYPE_CHECKPOINT" : "CORTEX_STEP_TYPE_USER_INPUT",
+                content: s.content || "", thinking: s.thinking || "",
+                checkpoint: s.type === "CHECKPOINT" ? { sessionSummary: s.compaction_summary || "cp" } : undefined,
+            }));
+            for (let x = 120; x < streamCount; x++) stepsArr.push({ stepIndex: x, type: "CORTEX_STEP_TYPE_USER_INPUT", content: "new " + x });
+            const frames = [makeFrame(0x00, { update: { conversationId: "repro-checkpoints", mainTrajectoryUpdate: { stepsUpdate: { indices: stepsArr.map((_, i) => i), steps: stepsArr, totalLength: stepsArr.length } } } }), makeFrame(0x02, {})];
+            let fi = 0;
+            return { ok: true, status: 200, body: { getReader: () => ({ async read() { return fi < frames.length ? { done: false, value: frames[fi++] } : { done: true }; } }) } };
+        }
+        return { ok: false, status: 404, async json() { return null; } };
+    };
+    st.currentData = JSON.parse(JSON.stringify(st.rootData));
+    st.activeCheckpointIndex = 2; st.selectedIndex = 80;
+    sA.__agyis_hud_start_stream("repro-checkpoints");
+    await new Promise(r => setTimeout(r, 2)); sA.__flushRaf();
+    const cpAfterStreamAt80 = st.activeCheckpointIndex;
+
+    // Select step 50, collapse <details> + scroll inspector, receive stream tick
+    st.selectedIndex = 50; st.activeCheckpointIndex = 1; sA.__agyis_hud_render();
+    const det50 = hud.querySelector("details.agyis-thinking-block");
+    det50.open = false; det50.removeAttribute("open");
+    hud.querySelector("#agyis-inspector-body").scrollTop = 210;
+    streamCount = 122;
+    sA.__agyis_hud_start_stream("repro-checkpoints");
+    await new Promise(r => setTimeout(r, 2)); sA.__flushRaf();
+    const thinkingOpenAfterStream = hud.querySelector("details.agyis-thinking-block").open;
+    const inspScrollAfterStream = hud.querySelector("#agyis-inspector-body").scrollTop;
+
+    // 8 & Timeline 5D: Timeline scrollTop/Left + scrollIntoView + untimestamped CHECKPOINT x0 > 0 + exclusive Activity lane
+    st.mainDeckTab = "timeline"; st.timelineMode = "steps"; sA.__agyis_hud_render();
+    const tlHtml = hud.innerHTML;
+    const cpBarMatch = tlHtml.match(/#40[\s\S]*?agyis-timeline-step-bar"[^>]*style="[^"]*left:\s*([\d.]+)px/);
+    const cp40LeftPx = cpBarMatch ? parseFloat(cpBarMatch[1]) : -1;
+    st.timelineMode = "activity"; sA.__agyis_hud_render();
+    const actHtml = hud.innerHTML;
+    const filesLaneHasZero = actHtml.includes("Files &amp; Code") || actHtml.includes("Files & Code") ? /Files &(?:amp;)? Code<\/span>[\s\S]*?\(0\)/.test(actHtml) : false;
+    st.timelineMode = "steps"; sA.__agyis_hud_render();
+    const tlWrapBefore = hud.querySelector(".agyis-timeline-scroll-wrap");
+    tlWrapBefore.scrollTop = 450; tlWrapBefore.scrollLeft = 200;
+    callsA.length = 0;
+    hud.querySelector('.agyis-timeline-step-row[data-step-index="85"]').dispatchEvent({ type: "click" });
+    const tlWrapAfter = hud.querySelector(".agyis-timeline-scroll-wrap");
+    const tlScrollTopAfter = tlWrapAfter.scrollTop, tlScrollLeftAfter = tlWrapAfter.scrollLeft;
+    const tlLastScroll = callsA[callsA.length - 1] || {};
+
+    // 9: Step grid scrollTop + instant scrollIntoView (no behavior:"smooth")
+    st.mainDeckTab = "context"; st.tablePage = 0; sA.__agyis_hud_render();
+    hud.querySelector(".agyis-step-grid-body").scrollTop = 320;
+    callsA.length = 0;
+    hud.querySelector('.agyis-step-grid-item[data-index="15"]').dispatchEvent({ type: "click" });
+    const gridScrollTopAfter = hud.querySelector(".agyis-step-grid-body").scrollTop;
+    const gridLastScroll = callsA[callsA.length - 1] || {};
+
+    // 10: Search debounce/caret/first-Enter/filter-aware j/k/next/modifier-guard/Esc/Clear/compaction_summary
+    const si = hud.querySelector("#agyis-search-input");
+    si.focus(); si.value = "alpha"; si.setSelectionRange(2, 2);
+    si.dispatchEvent({ type: "input", target: si });
+    await new Promise(r => setTimeout(r, 18));
+    const searchInitMatchIdx = st.currentMatchIdx;
+    const searchCounterBeforeEnter = hud.querySelector(".agyis-hud-search-counter")._innerHTML;
+    const caretAfterInput = [hud.querySelector("#agyis-search-input").selectionStart, hud.querySelector("#agyis-search-input").selectionEnd];
+    hud.querySelector("#agyis-search-input").dispatchEvent({ type: "keydown", key: "Enter", shiftKey: false });
+    const firstEnterSelected = st.selectedIndex;
+    sA.dispatchEvent({ type: "keydown", key: "j", target: docA.body });
+    const afterFilterJ = st.selectedIndex;
+    sA.dispatchEvent({ type: "keydown", key: "ArrowDown", ctrlKey: true, target: docA.body });
+    const afterCtrlArrow = st.selectedIndex;
+    hud.querySelector("#agyis-step-next").dispatchEvent({ type: "click" });
+    const afterFilterNextBtn = st.selectedIndex;
+    sA.dispatchEvent({ type: "keydown", key: "k", target: docA.body });
+    const afterFilterK = st.selectedIndex;
+    hud.querySelector("#agyis-search-clear").dispatchEvent({ type: "click" });
+    const pageAfterClearSearch = st.tablePage;
+    const matchIdxAfterClear = st.currentMatchIdx;
+
+    // Search compaction_summary
+    st.filterQuery = "Checkpoint at step 80"; sA.__agyis_hud_render();
+    const cpSummaryMatches = st.searchMatchIndices.slice();
+    st.filterQuery = ""; sA.__agyis_hud_render();
+
+    // 11: Hover cleanup across segment click
+    st.activeCheckpointIndex = 2; sA.__agyis_hud_render();
+    const seg90 = hud.querySelector('.agyis-context-segment[data-step-index="90"]');
+    seg90.dispatchEvent({ type: "mouseenter" });
+    const hoveredBeforeClick = st.hoveredItemKey;
+    seg90.dispatchEvent({ type: "click" });
+    const hoveredAfterClick = st.hoveredItemKey;
+
+    // 12: ConnectRPC buildHudTrajectoryData parity (23, retryInfos, cumulative reset, sparse gm.stepIndex, Option B)
+    const rpcTraj = sA.buildHudTrajectoryData("rpc-cp", [
+        { stepIndex: 1000, type: "CORTEX_STEP_TYPE_USER_INPUT", content: "hi", tokens: 80 },
+        { stepIndex: 1001, type: 23, checkpoint: { checkpointIndex: 0, sessionSummary: "cp1" } },
+        { stepIndex: 1002, type: "CORTEX_STEP_TYPE_USER_INPUT", content: "mid", tokens: 40 },
+        { stepIndex: 1003, type: "CORTEX_STEP_TYPE_CHECKPOINT", checkpoint: { checkpointIndex: 1, sessionSummary: "cp2" }, metadata: { retryInfos: [{ usage: { cacheReadTokens: 50000, inputTokens: 3000 } }] } },
+        { stepIndex: 1004, type: "CORTEX_STEP_TYPE_USER_INPUT", content: "late", tokens: 25 },
+    ], [{ stepIndex: 1002, chatStartMetadata: { contextWindowMetadata: { estimatedTokensUsed: 12345 } } }], [], null);
+
+    // 13 (Electron HUD): Refresh preserves cursor on same convo when not at end
+    st.selectedIndex = 75;
+    sA.loadConversationViaRpc = async () => JSON.parse(JSON.stringify(st.rootData));
+    hud.querySelector("#agyis-refresh-btn").dispatchEvent({ type: "click" });
+    await new Promise(r => setTimeout(r, 2));
+    const hudRefreshSelected = st.selectedIndex;
+
+    // --- Context B: :40624 Playback Shell ---
+    const { sandbox: sB, doc: docB, makeEl: makeElB } = createDomSandbox("/");
+    const pbHud = makeElB("div"); pbHud.id = "agyis-trajectory-hud"; docB.body.appendChild(pbHud);
+    const pbSel = makeElB("select"); pbSel.id = "agyis-playback-convo"; docB.body.appendChild(pbSel);
+    const pbStatus = makeElB("span"); pbStatus.id = "agyis-playback-status"; docB.body.appendChild(pbStatus);
+    const pbReload = makeElB("button"); pbReload.id = "agyis-playback-reload"; docB.body.appendChild(pbReload);
+    const pbLive = makeElB("input"); pbLive.id = "agyis-playback-live"; docB.body.appendChild(pbLive);
+    let pbPayload = JSON.parse(JSON.stringify(bundle.traj));
+    sB.fetch = async (url) => {
+        if (url.startsWith("/api/conversations")) return { ok: true, status: 200, async json() { return { conversations: [{ id: "repro-checkpoints", summary: "Repro" }] }; } };
+        if (url.startsWith("/api/trajectory")) return { ok: true, status: 200, async json() { return JSON.parse(JSON.stringify(pbPayload)); } };
+        return { ok: false, status: 404 };
+    };
+    vm.runInContext(bundle.pbScript, sB);
+    await new Promise(r => setTimeout(r, 4));
+    const stB = sB.__agyis_hud_state;
+    const pbCpBefore80 = stB.activeCheckpointIndex;
+    pbHud.querySelector('.agyis-context-segment[data-step-index="80"]').dispatchEvent({ type: "click" });
+    const pbCpAfter80 = stB.activeCheckpointIndex;
+    const pbTablePageAfter80 = stB.tablePage;
+
+    // Search over tool_calls in :40624
+    stB.filterQuery = "toolneedle"; sB.__agyis_hud_render();
+    const pbToolMatches = stB.searchMatchIndices.slice();
+    stB.filterQuery = ""; sB.__agyis_hud_render();
+
+    // Refresh button preserves cursor in :40624
+    stB.tablePage = 2; sB.__agyis_hud_render();
+    pbHud.querySelector('.agyis-step-grid-item[data-index="105"]').dispatchEvent({ type: "click" });
+    pbHud.querySelector("#agyis-refresh-btn").dispatchEvent({ type: "click" });
+    await new Promise(r => setTimeout(r, 2));
+    const pbSelAfterRefresh = stB.selectedIndex;
+
+    // Keyboard nav k works & Esc does NOT hide playback HUD
+    sB.dispatchEvent({ type: "keydown", key: "k", target: docB.body });
+    const pbSelAfterK = stB.selectedIndex;
+    sB.dispatchEvent({ type: "keydown", key: "Escape", target: docB.body });
+    const pbHudDisplayAfterEsc = pbHud.style.display;
+
+    // Live reload wasAtEnd tail-follow
+    pbHud.querySelector('.agyis-step-grid-item[data-index="119"]').dispatchEvent({ type: "click" });
+    const extraStep = { step_index: 120, type: "USER_INPUT", content: "tail 120", tokens: 50 };
+    pbPayload.steps.push(extraStep);
+    pbPayload.checkpoints[2].end_index = 120;
+    await sB.__agyis_hud_load_convo("repro-checkpoints", true);
+    const pbSelAfterLiveTail = stB.selectedIndex;
+
+    console.log(JSON.stringify({
+        cpBefore80, cpAfterClick80, cpAfterClick40, prevBtnDisabledAt0, cpAfterNextBtn, cp0JumpDisabled,
+        cpWhen100, cpAfterPrevFrom2, pageAfterCpPrev0, selectedRowInDom, cpAfterJumpPrev,
+        cpAfterStreamAt80, thinkingOpenAfterStream, inspScrollAfterStream,
+        cp40LeftPx, filesLaneHasZero, tlScrollTopAfter, tlScrollLeftAfter, tlLastScroll,
+        gridScrollTopAfter, gridLastScroll,
+        searchInitMatchIdx, searchCounterBeforeEnter, caretAfterInput, firstEnterSelected,
+        afterFilterJ, afterCtrlArrow, afterFilterNextBtn, afterFilterK, pageAfterClearSearch, matchIdxAfterClear, cpSummaryMatches,
+        hoveredBeforeClick, hoveredAfterClick,
+        rpcCpLen: rpcTraj.checkpoints.length,
+        rpcCp0: [rpcTraj.checkpoints[0].start_index, rpcTraj.checkpoints[0].end_index, rpcTraj.checkpoints[0].has_checkpoint, rpcTraj.checkpoints[0].summary],
+        rpcCp1: [rpcTraj.checkpoints[1].start_index, rpcTraj.checkpoints[1].end_index, rpcTraj.checkpoints[1].summary, rpcTraj.checkpoints[1].total_tokens],
+        rpcType1: rpcTraj.steps[1].type,
+        rpcCacheRead3: rpcTraj.steps[3].cacheReadTokens,
+        rpcCum3: rpcTraj.steps[3].cumulative_tokens,
+        rpcTok3: rpcTraj.steps[3].tokens,
+        hudRefreshSelected,
+        pbCpBefore80, pbCpAfter80, pbTablePageAfter80, pbToolMatches, pbSelAfterRefresh, pbSelAfterK, pbHudDisplayAfterEsc, pbSelAfterLiveTail,
+    }));
+})();
+"""
+        proc = subprocess.run(
+            [node_bin, "-e", node_driver],
+            input=json.dumps({"hudScript": hud_script, "pbScript": pb_script, "traj": traj}),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, f"Node regression failed:\nSTDOUT:{proc.stdout}\nSTDERR:{proc.stderr}")
+        out = json.loads(proc.stdout.strip().splitlines()[-1])
+
+        # Fix 1: CHECKPOINT jump-back, Prev/Next Checkpoint, Jump to Previous, Stream tick
+        self.assertEqual(out["cpBefore80"], 2)
+        self.assertEqual(out["cpAfterClick80"], 2)
+        self.assertEqual(out["cpAfterClick40"], 1)
+        self.assertTrue(out["prevBtnDisabledAt0"])
+        self.assertEqual(out["cpAfterNextBtn"], 1)
+        self.assertTrue(out["cp0JumpDisabled"])
+        self.assertEqual(out["cpWhen100"], 2)
+        self.assertEqual(out["cpAfterPrevFrom2"], 1)
+        self.assertEqual(out["cpAfterJumpPrev"], 1)
+        self.assertEqual(out["cpAfterStreamAt80"], 2)
+        # Fix 2: Pagination sync
+        self.assertEqual(out["pageAfterCpPrev0"], 0)
+        self.assertTrue(out["selectedRowInDom"])
+        # Fix 3: Scroll & <details> preservation + instant scrollIntoView
+        self.assertFalse(out["thinkingOpenAfterStream"])
+        self.assertEqual(out["inspScrollAfterStream"], 210)
+        self.assertEqual(out["tlScrollTopAfter"], 450)
+        self.assertEqual(out["tlScrollLeftAfter"], 200)
+        self.assertEqual(out["tlLastScroll"]["dataStepIndex"], "85")
+        self.assertEqual(out["tlLastScroll"]["opts"], {"block": "nearest", "inline": "nearest"})
+        self.assertEqual(out["gridScrollTopAfter"], 320)
+        self.assertEqual(out["gridLastScroll"]["opts"], {"block": "nearest", "inline": "nearest"})
+        # Fix 5D: Timeline interpolation & exclusive Activity lane
+        self.assertGreater(out["cp40LeftPx"], 0.0)
+        self.assertTrue(out["filesLaneHasZero"])
+        # Fix 4: Search init/caret/first-Enter/filter-nav/clear/compaction_summary/modifier guard
+        self.assertEqual(out["searchInitMatchIdx"], -1)
+        self.assertEqual(out["searchCounterBeforeEnter"], "-/3")
+        self.assertEqual(out["caretAfterInput"], [2, 2])
+        self.assertEqual(out["firstEnterSelected"], 10)
+        self.assertEqual(out["afterFilterJ"], 60)
+        self.assertEqual(out["afterCtrlArrow"], 60)
+        self.assertEqual(out["afterFilterNextBtn"], 110)
+        self.assertEqual(out["afterFilterK"], 60)
+        self.assertEqual(out["pageAfterClearSearch"], 1)
+        self.assertEqual(out["matchIdxAfterClear"], -1)
+        self.assertEqual(out["cpSummaryMatches"], [80])
+        # Fix 5A: Sticky hover cleared
+        self.assertEqual(out["hoveredBeforeClick"], "step-90")
+        self.assertIsNone(out["hoveredAfterClick"])
+        # Fix 5B: ConnectRPC parity & Option B disjoint windows
+        self.assertEqual(out["rpcCpLen"], 3)
+        self.assertEqual(out["rpcCp0"], [0, 0, False, "Initial Trajectory"])
+        self.assertEqual(out["rpcCp1"], [1, 2, "cp1", 12345])
+        self.assertEqual(out["rpcType1"], "CHECKPOINT")
+        self.assertEqual(out["rpcCacheRead3"], 50000)
+        self.assertEqual(out["rpcCum3"], out["rpcTok3"])
+        # Fix 5C: Refresh & :40624 Playback parity
+        self.assertEqual(out["hudRefreshSelected"], 75)
+        self.assertEqual(out["pbCpBefore80"], 2)
+        self.assertEqual(out["pbCpAfter80"], 2)
+        self.assertEqual(out["pbTablePageAfter80"], 1)
+        self.assertEqual(out["pbToolMatches"], [35])
+        self.assertEqual(out["pbSelAfterRefresh"], 105)
+        self.assertEqual(out["pbSelAfterK"], 104)
+        self.assertNotEqual(out["pbHudDisplayAfterEsc"], "none")
+        self.assertEqual(out["pbSelAfterLiveTail"], 120)
 
 
 if __name__ == "__main__":

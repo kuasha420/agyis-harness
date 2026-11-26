@@ -396,17 +396,26 @@ class TestWave12CompatAndGuards(unittest.TestCase):
         cid_exec = "exec-sticky-001"
         cid_fd = "fd-sticky-002"
         cid_ws = "ws-sticky-003"
-        for cid, role in ((cid_exec, "deep_execution"), (cid_fd, "flight_director")):
+        cid_legacy = "legacy-sticky-005"
+        for cid, role in ((cid_exec, "deep_execution"),):
             agyis_dir = brain_dir / cid / ".agyis"
             agyis_dir.mkdir(parents=True)
             (agyis_dir / f"role_state_{cid}.json").write_text(
-                json.dumps({"conversation_id": cid, "epoch": 0, "role": role}),
+                json.dumps({"conversation_id": cid, "checkpoint": 0, "role": role, "source": "pillar_1"}),
+                encoding="utf-8",
+            )
+        # Legacy persisted sticky role_state_<cid>.json with "epoch" key (backwards-compat fallback)
+        for cid, role in ((cid_fd, "flight_director"), (cid_legacy, "deep_execution")):
+            agyis_dir = brain_dir / cid / ".agyis"
+            agyis_dir.mkdir(parents=True)
+            (agyis_dir / f"role_state_{cid}.json").write_text(
+                json.dumps({"conversation_id": cid, "epoch": 0, "role": role, "source": "pillar_1"}),
                 encoding="utf-8",
             )
         ws_cp = ws_dir / ".agents" / "artifacts" / "checkpoints" / cid_ws
         ws_cp.mkdir(parents=True)
         (ws_cp / f"role_state_{cid_ws}.json").write_text(
-            json.dumps({"conversation_id": cid_ws, "epoch": 0, "role": "deep_execution"}),
+            json.dumps({"conversation_id": cid_ws, "checkpoint": 0, "role": "deep_execution"}),
             encoding="utf-8",
         )
 
@@ -424,7 +433,21 @@ class TestWave12CompatAndGuards(unittest.TestCase):
             )
             self.assertEqual(res_exec["decision"], "allow")
             exec_advisories = drain_pending_advisories(cid_exec, state_dir=state_dir)
-            self.assertTrue(any("EPOCH HORIZON: 85/80" in m for m in exec_advisories))
+            self.assertTrue(any("CHECKPOINT HORIZON: 85/80" in m for m in exec_advisories))
+
+            # Verify legacy "epoch" sticky state is honored in pre_invocation_hook & role_pinning
+            res_legacy_pre = evaluate_pre_invocation(
+                {"conversationId": cid_legacy, "step_count": 80},
+                workspace_dir=ws_dir,
+            )
+            legacy_msgs = [
+                s.get("systemMessage", {}).get("systemMessage", "")
+                for s in res_legacy_pre.get("injectSteps", [])
+                if isinstance(s.get("systemMessage"), dict)
+            ]
+            self.assertTrue(any("[AGYIS CHECKPOINT HORIZON ADVISORY: Checkpoint step 80/80" in m for m in legacy_msgs))
+            self.assertTrue(any("DEEP_EXECUTION" in m for m in legacy_msgs))
+            self.assertFalse(any("POST-COMPACTION" in m for m in legacy_msgs))
 
             res_fd = check_anti_loop(
                 "grep_search",

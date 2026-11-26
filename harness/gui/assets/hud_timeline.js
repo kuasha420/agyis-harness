@@ -67,6 +67,7 @@
 
         const h = c ?? e ?? f ?? g;
         const k = g ?? f ?? e ?? c;
+        const hasTimestamp = h !== undefined && h > 0;
         let totalMs = (h !== undefined && k !== undefined && k >= h) ? (k - h) : 0;
         const cortexType = step.type || "STEP";
 
@@ -76,6 +77,7 @@
             return {
                 startMs: h || 0,
                 endMs: k || (h || 0),
+                hasTimestamp,
                 totalMs: totalMs,
                 thinkingDurationMs: 0,
                 phases: totalMs > 0 ? [{
@@ -133,6 +135,7 @@
             return {
                 startMs: h || 0,
                 endMs: k || (h || 0),
+                hasTimestamp,
                 totalMs: totalMs,
                 thinkingDurationMs: thinkingMs,
                 phases: phases,
@@ -185,6 +188,7 @@
         return {
             startMs: h || 0,
             endMs: k || (h || 0),
+            hasTimestamp,
             totalMs: totalMs,
             thinkingDurationMs: 0,
             phases: phases,
@@ -344,18 +348,55 @@
                 summary: s.thinking || s.content || (s.tool_calls?.[0]?.name) || "",
                 tokens: s.tokens || 0,
                 timing: timing,
+                effectiveStartMs: timing.hasTimestamp ? timing.startMs : 0,
+                effectiveEndMs: timing.hasTimestamp ? timing.endMs : 0,
             };
         });
 
-        // Determine domain
-        const validStartMs = stepTimings.map(s => s.timing.startMs).filter(t => t > 0);
-        const validEndMs = stepTimings.map(s => s.timing.endMs).filter(t => t > 0);
+        // Determine domain from timestamped steps, then interpolate untimestamped steps chronologically
+        const validStartMs = stepTimings.filter(s => s.timing.hasTimestamp && s.timing.startMs > 0).map(s => s.timing.startMs);
+        const validEndMs = stepTimings.filter(s => s.timing.hasTimestamp && s.timing.endMs > 0).map(s => s.timing.endMs);
         const domainStart = validStartMs.length > 0 ? Math.min(...validStartMs) : 0;
-        const domainEnd = validEndMs.length > 0 ? Math.max(...validEndMs) : (domainStart + 60000);
+        let domainEnd = validEndMs.length > 0 ? Math.max(...validEndMs) : (domainStart + Math.max(60000, stepTimings.length * 1000));
+
+        if (validStartMs.length === 0) {
+            const sliceMs = (domainEnd - domainStart) / Math.max(1, stepTimings.length);
+            stepTimings.forEach((s, idx) => {
+                s.effectiveStartMs = domainStart + idx * sliceMs;
+                s.effectiveEndMs = s.effectiveStartMs + Math.max(100, s.timing.totalMs || sliceMs * 0.5);
+            });
+        } else {
+            let idx = 0;
+            while (idx < stepTimings.length) {
+                if (stepTimings[idx].timing.hasTimestamp) { idx++; continue; }
+                const runStart = idx;
+                while (idx < stepTimings.length && !stepTimings[idx].timing.hasTimestamp) idx++;
+                const runEnd = idx - 1;
+                const runLen = runEnd - runStart + 1;
+                const prevEndMs = runStart > 0 ? stepTimings[runStart - 1].effectiveEndMs : null;
+                const nextStartMs = idx < stepTimings.length ? stepTimings[idx].effectiveStartMs : null;
+                for (let k = 0; k < runLen; k++) {
+                    const curS = stepTimings[runStart + k];
+                    const dur = Math.max(0, curS.timing.totalMs || 0);
+                    if (prevEndMs !== null && nextStartMs !== null) {
+                        const posMs = prevEndMs + ((k + 1) / (runLen + 1)) * Math.max(0, nextStartMs - prevEndMs);
+                        curS.effectiveStartMs = posMs;
+                        curS.effectiveEndMs = Math.min(nextStartMs, posMs + dur);
+                    } else if (prevEndMs !== null) {
+                        curS.effectiveStartMs = prevEndMs;
+                        curS.effectiveEndMs = prevEndMs + dur;
+                    } else if (nextStartMs !== null) {
+                        curS.effectiveStartMs = domainStart;
+                        curS.effectiveEndMs = Math.min(nextStartMs, domainStart + dur);
+                    }
+                    if (curS.effectiveEndMs > domainEnd) domainEnd = curS.effectiveEndMs;
+                }
+            }
+        }
         const totalDuration = Math.max(1, domainEnd - domainStart);
 
         // Gaps & Scale
-        const intervals = stepTimings.map(s => ({ startMs: s.timing.startMs, endMs: s.timing.endMs }));
+        const intervals = stepTimings.map(s => ({ startMs: s.effectiveStartMs, endMs: s.effectiveEndMs }));
         const rawGaps = Auc(intervals, domainStart, domainEnd);
         const collapsedGaps = Buc(rawGaps, width, 60000);
         const scale = createContinuousScale(domainStart, domainEnd, collapsedGaps, width - 40);
@@ -375,8 +416,8 @@
             tracksHtml = visibleTimings.map(s => {
                 const isSelected = s.arrayIndex === state.selectedIndex;
                 const isHovered = state.hoveredItemKey === `step-${s.arrayIndex}`;
-                const x0 = Math.max(0, scale.toPx(s.timing.startMs));
-                const x1 = Math.max(x0 + 2, scale.toPx(s.timing.endMs));
+                const x0 = Math.max(0, scale.toPx(s.effectiveStartMs));
+                const x1 = Math.max(x0 + 2, scale.toPx(s.effectiveEndMs));
                 const barWidth = Math.max(2, x1 - x0);
 
                 const phasesHtml = s.timing.phases.map(p => `
@@ -408,31 +449,32 @@
                 `;
             }).join("");
         } else {
-            // Activity Mode (compact horizontal lanes, including v2.34+ / 2.35.2 tools)
+            // Activity Mode (compact horizontal lanes with exclusive ownership, including v2.34+ / 2.35.2 tools)
+            const isModelOrUser = (s) => s.type === "PLANNER_RESPONSE" || s.type === "MODEL_OUTPUT" || s.type === "USER_INPUT";
             const activityLanes = [
                 {
                     id: "model",
                     label: "Model & Thinking",
                     color: "#F5B74F",
-                    predicate: s => s.type === "PLANNER_RESPONSE" || s.type === "MODEL_OUTPUT" || s.type === "USER_INPUT",
+                    predicate: s => isModelOrUser(s),
                 },
                 {
                     id: "terminal",
                     label: "Terminal Execution",
                     color: "#26D0CE",
-                    predicate: s => s.type.includes("COMMAND") || s.type.includes("BASH") || (s.summary && (s.summary.startsWith("run_command") || s.summary.startsWith("bash"))),
+                    predicate: s => s.type.includes("COMMAND") || s.type.includes("BASH") || (!isModelOrUser(s) && s.summary && (s.summary.startsWith("run_command") || s.summary.startsWith("bash"))),
                 },
                 {
                     id: "files",
                     label: "Files & Code",
                     color: "#2AD089",
-                    predicate: s => s.type.includes("FILE") || s.type.includes("EDIT") || s.type.includes("READ") || s.type.includes("WRITE") || s.type.includes("REPLACE") || s.type.includes("DIFF") || s.type.includes("RESOURCE") || s.type === "CODE_ACTION" || (s.summary && (s.summary.startsWith("read_file") || s.summary.startsWith("edit_file") || s.summary.startsWith("write_file") || s.summary.startsWith("view_file") || s.summary.startsWith("replace_file") || s.summary.startsWith("write_to_file") || s.summary.startsWith("read_resource") || s.summary.startsWith("list_resources"))),
+                    predicate: s => s.type.includes("FILE") || s.type.includes("EDIT") || s.type.includes("READ") || s.type.includes("WRITE") || s.type.includes("REPLACE") || s.type.includes("DIFF") || s.type.includes("RESOURCE") || s.type === "CODE_ACTION" || (!isModelOrUser(s) && s.summary && (s.summary.startsWith("read_file") || s.summary.startsWith("edit_file") || s.summary.startsWith("write_file") || s.summary.startsWith("view_file") || s.summary.startsWith("replace_file") || s.summary.startsWith("write_to_file") || s.summary.startsWith("read_resource") || s.summary.startsWith("list_resources"))),
                 },
                 {
                     id: "subagents",
                     label: "Search & Subagents",
                     color: "#5C8AFF",
-                    predicate: s => /SUBAGENT|SWARM|BOARD|MESSAGE|WORKFLOW|TASK|SEARCH|FIND|PLAN|FOCUS|STEPS|QUESTION|MCP|MARKETPLACE|PLUGIN/.test(s.type) || (s.summary && /^(grep_search|search_web|find_by_name|invoke_subagent|define_subagent|swarm|post_message|read_board|run_workflow|manage_task|send_message|update_focus|update_steps|enter_plan_mode|exit_plan_mode|ask_question|search_marketplace|list_plugin_accounts|call_mcp_tool)/.test(s.summary)),
+                    predicate: s => /SUBAGENT|SWARM|BOARD|MESSAGE|WORKFLOW|TASK|SEARCH|FIND|PLAN|FOCUS|STEPS|QUESTION|MCP|MARKETPLACE|PLUGIN/.test(s.type) || (!isModelOrUser(s) && s.summary && /^(grep_search|search_web|find_by_name|invoke_subagent|define_subagent|swarm|post_message|read_board|run_workflow|manage_task|send_message|update_focus|update_steps|enter_plan_mode|exit_plan_mode|ask_question|search_marketplace|list_plugin_accounts|call_mcp_tool)/.test(s.summary)),
                 },
                 {
                     id: "checkpoints",
@@ -441,14 +483,20 @@
                     predicate: s => s.type === "CHECKPOINT" || s.type === "SYSTEM",
                 },
             ];
+            const laneStepsMap = new Map();
+            activityLanes.forEach(l => laneStepsMap.set(l.id, []));
+            stepTimings.forEach(s => {
+                const matchedLane = activityLanes.find(l => l.predicate(s)) || activityLanes[0];
+                laneStepsMap.get(matchedLane.id).push(s);
+            });
 
             tracksHtml = activityLanes.map(lane => {
-                const laneSteps = stepTimings.filter(s => lane.predicate(s) || (lane.id === "model" && !activityLanes.slice(1).some(l => l.predicate(s))));
+                const laneSteps = laneStepsMap.get(lane.id) || [];
                 const laneBarsHtml = laneSteps.map(s => {
                     const isSelected = s.arrayIndex === state.selectedIndex;
                     const isHovered = state.hoveredItemKey === `step-${s.arrayIndex}`;
-                    const x0 = Math.max(0, scale.toPx(s.timing.startMs));
-                    const x1 = Math.max(x0 + 4, scale.toPx(s.timing.endMs));
+                    const x0 = Math.max(0, scale.toPx(s.effectiveStartMs));
+                    const x1 = Math.max(x0 + 4, scale.toPx(s.effectiveEndMs));
                     const barWidth = Math.max(4, x1 - x0);
                     const durLabel = formatDuration(s.timing.totalMs);
 

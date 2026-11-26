@@ -41,12 +41,12 @@ class TestSubagentContext(unittest.TestCase):
 
     def test_classify_context_health_boundaries(self) -> None:
         """Assert window-scaled boundary conditions for HEALTHY, AMBER, and RED_ALERT."""
-        # HEALTHY (<65% fill of 256k window AND <80 epoch steps)
+        # HEALTHY (<65% fill of 256k window AND <80 checkpoint steps)
         self.assertEqual(classify_context_health(0, 0), ("HEALTHY", "REUSE"))
         self.assertEqual(classify_context_health(39_999, 39), ("HEALTHY", "REUSE"))
         self.assertEqual(classify_context_health(166_399, 79), ("HEALTHY", "REUSE"))
 
-        # AMBER (65%-80% fill OR >=80 epoch steps while <80% fill)
+        # AMBER (65%-80% fill OR >=80 checkpoint steps while <80% fill)
         self.assertEqual(classify_context_health(166_400, 10), ("AMBER", "COMPACT_SOON"))
         self.assertEqual(classify_context_health(10_000, 80), ("AMBER", "COMPACT_SOON"))
         self.assertEqual(classify_context_health(204_799, 95), ("AMBER", "COMPACT_SOON"))
@@ -82,7 +82,7 @@ class TestSubagentContext(unittest.TestCase):
         self.assertLess(status.latency_ms, 5.0)
 
     def test_estimate_subagent_context_amber_by_steps(self) -> None:
-        """Transcripts >=80 active-epoch steps evaluate to AMBER and COMPACT_SOON."""
+        """Transcripts >=80 active-checkpoint steps evaluate to AMBER and COMPACT_SOON."""
         t_path = self.tmp / "transcript.jsonl"
         lines = [
             json.dumps({"step_index": i, "content": f"Brief step {i}"})
@@ -354,7 +354,7 @@ class TestSubagentLargeTranscriptBoundedScan(unittest.TestCase):
             status = estimate_subagent_context(p, max_context_tokens=256000)
             elapsed = time.perf_counter() - t0
             self.assertGreater(p.stat().st_size, 2 * 1024 * 1024)
-            self.assertEqual(status.epoch_step_count, 210)
+            self.assertEqual(status.checkpoint_step_count, 210)
             self.assertLess(status.step_count, 250)
             self.assertLess(status.token_count, 200_000)
             self.assertLess(elapsed, 0.5)

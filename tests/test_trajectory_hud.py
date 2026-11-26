@@ -333,21 +333,21 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
             self.assertEqual(traj["max_context_tokens"], 512000)
             self.assertEqual(traj["total_tokens"], 374475)
 
-    def test_active_epoch_breakdown_excludes_pre_checkpoint_inflation(self):
-        """When explicit_cum_tokens > 0 and checkpoints exist, token_breakdown only counts active epoch steps."""
+    def test_active_checkpoint_breakdown_excludes_pre_checkpoint_inflation(self):
+        """When explicit_cum_tokens > 0 and checkpoints exist, token_breakdown only counts active checkpoint window steps."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base_brain = Path(tmpdir)
-            convo_id = "convo-active-epoch-breakdown"
+            convo_id = "convo-active-cp-breakdown"
             convo_dir = base_brain / convo_id
             convo_dir.mkdir(parents=True, exist_ok=True)
 
             steps_data = [
-                # Historical pre-checkpoint epoch (must NOT inflate active epoch breakdown)
+                # Historical pre-checkpoint window (must NOT inflate active checkpoint breakdown)
                 {"role": "user", "type": "USER_INPUT", "content": "Old prompt", "tokens": 150000},
                 {"role": "assistant", "type": "TOOL_CALL", "tool_calls": [{"name": "run_command"}], "tokens": 80000},
                 # Checkpoint
                 {"role": "system", "type": "CHECKPOINT", "content": "<summary>Compacted</summary>", "tokens": 4000},
-                # Active post-checkpoint epoch
+                # Active post-checkpoint window
                 {"role": "user", "type": "USER_INPUT", "content": "New question", "tokens": 1000},
                 {
                     "role": "assistant",
@@ -480,8 +480,8 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
             self.assertEqual(traj["subagents"], [child_id])
             self.assertTrue(all("\\" not in sid for sid in traj["subagents"]))
 
-    def test_non_checkpoint_summary_tags_do_not_split_epochs(self):
-        """#107.1: <summary> and <CONTEXT_SUMMARY> inside tools/GENERIC/assistant prose do NOT split epochs."""
+    def test_non_checkpoint_summary_tags_do_not_split_checkpoints(self):
+        """#107.1: <summary> and <CONTEXT_SUMMARY> inside tools/GENERIC/assistant prose do NOT split checkpoints."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base_brain = Path(tmpdir)
             cid = "test-non-checkpoint-tags"
@@ -512,7 +512,12 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
                     "content": "Discussing <summary> and <CONTEXT_SUMMARY> tags in prose",
                     "tool_calls": [{"name": "view_file", "args": {}, "output": "<summary>nested</summary>"}],
                 },
-                {"step_index": 5, "type": "CHECKPOINT", "content": "<summary>Actual compaction checkpoint</summary>"},
+                {
+                    "step_index": 5,
+                    "type": "CHECKPOINT",
+                    "checkpoint": {"checkpointIndex": 0, "sessionSummary": "Actual compaction checkpoint"},
+                    "content": "<summary>Actual compaction checkpoint</summary>",
+                },
                 {"step_index": 6, "type": "PLANNER_RESPONSE", "content": "Resumed cleanly", "tokens": 350},
             ]
             (base_brain / cid / "transcript.jsonl").write_text(
@@ -521,10 +526,16 @@ class TestTrajectoryHudNativeUpc(unittest.TestCase):
             )
             traj = load_conversation_trajectory(cid, brain_dir=base_brain)
             self.assertEqual(traj["checkpoint_count"], 1)
-            self.assertEqual(len(traj["epochs"]), 2)
-            self.assertEqual((traj["epochs"][0]["start_index"], traj["epochs"][0]["end_index"]), (0, 5))
-            self.assertEqual((traj["epochs"][1]["start_index"], traj["epochs"][1]["end_index"]), (5, 6))
-            self.assertEqual(traj["epoch_index"], 1)
+            self.assertEqual(len(traj["checkpoints"]), 2)
+            self.assertEqual((traj["checkpoints"][0]["start_index"], traj["checkpoints"][0]["end_index"]), (0, 4))
+            self.assertFalse(traj["checkpoints"][0]["has_checkpoint"])
+            self.assertEqual(traj["checkpoints"][0]["summary"], "Initial Trajectory")
+            self.assertEqual((traj["checkpoints"][1]["start_index"], traj["checkpoints"][1]["end_index"]), (5, 6))
+            self.assertTrue(traj["checkpoints"][1]["has_checkpoint"])
+            self.assertEqual(traj["checkpoints"][1]["summary"], "Actual compaction checkpoint")
+            self.assertEqual(traj["checkpoint_index"], 1)
+            self.assertEqual(traj["checkpoint_steps"], 2)
+            self.assertEqual(traj["steps"][5]["checkpoint_index"], 0)
 
     def test_find_transcript_path_prefers_transcript_full(self):
         """#108.3: find_transcript_path prefers transcript_full.jsonl over compact transcript.jsonl."""

@@ -16,14 +16,13 @@ from pathlib import Path
 import time
 from typing import Any, Dict, Optional
 
-from harness.delivery import (
+from harness.delivery.compaction_checkpoint import (
     collect_active_subagents,
     generate_compaction_checkpoint,
     inspect_git_state,
     prune_stale_checkpoints,
     resolve_checkpoint_retention,
 )
-from harness.utils import theme
 from harness.utils.context import (
     get_active_brain_dir,
     get_active_conversation_id,
@@ -116,6 +115,8 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
                 )
             )
         else:
+            from harness.utils import theme
+
             print(theme.badge("PASS", "Compaction Checkpoint Generated"))
             print(f"  Artifact:   {res.output_path} ({len(res.content):,} bytes)")
             print(f"  Latest:     {res.latest_path}")
@@ -146,6 +147,8 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
                     )
                 )
             else:
+                from harness.utils import theme
+
                 print(theme.badge("FAIL", f"No latest checkpoint found at: {expected_file}"))
             return 1
 
@@ -171,6 +174,8 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
                 )
             )
         else:
+            from harness.utils import theme
+
             if valid:
                 print(
                     theme.badge(
@@ -292,6 +297,8 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
             }
             print(json.dumps(data, indent=2))
         else:
+            from harness.utils import theme
+
             print(theme.banner("Agyis Compaction & Checkpoint Status"))
             print(f" Token Level:       {tokens:,} / {trigger_threshold:,} ({proximity_pct}%)")
             git_badge = theme.badge("DIRTY", "DIRTY") if git_state.is_dirty else theme.badge("CLEAN", "CLEAN")
@@ -333,6 +340,8 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
                 )
             )
         else:
+            from harness.utils import theme
+
             mode_prefix = "[DRY-RUN] " if dry_run else ""
             action_word = "Would prune" if dry_run else "Pruned"
             print(

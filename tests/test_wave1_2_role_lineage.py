@@ -465,7 +465,7 @@ class TestRoleNormalizationAndTurnZeroPinning(unittest.TestCase):
             agyis_dir = self.brain_dir / cid / ".agyis"
             agyis_dir.mkdir(parents=True, exist_ok=True)
             (agyis_dir / f"role_state_{cid}.json").write_text(
-                json.dumps({"conversation_id": cid, "epoch": 0, "role": ROLE_FLIGHT_DIRECTOR, "pinned_at": 1.0}),
+                json.dumps({"conversation_id": cid, "checkpoint": 0, "role": ROLE_FLIGHT_DIRECTOR, "pinned_at": 1.0}),
                 encoding="utf-8",
             )
         # WAL-lag session has parent metadata in .metadata, no DB row yet
@@ -550,7 +550,7 @@ class TestRoleNormalizationAndTurnZeroPinning(unittest.TestCase):
         )
         # Poison sticky file must be ignored in favor of conversation_summaries.db lineage
         (self.state_dir / f"role_state_{cid_cust}.json").write_text(
-            json.dumps({"conversation_id": cid_cust, "epoch": 0, "role": ROLE_FLIGHT_DIRECTOR}),
+            json.dumps({"conversation_id": cid_cust, "checkpoint": 0, "role": ROLE_FLIGHT_DIRECTOR}),
             encoding="utf-8",
         )
         with patch.dict(

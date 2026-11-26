@@ -310,7 +310,8 @@ class TestCompactionCheckpoint(unittest.TestCase):
         self.assertTrue(res.latest_path.is_file())
 
         # Assert all 6 sections are present
-        self.assertIn("# ◆ Agyis Compaction & Succession Checkpoint", content)
+        self.assertIn("# ◆ Agyis Compaction & Succession Checkpoint (Timestamp `", content)
+        self.assertNotIn("(Epoch `", content)
         self.assertIn("## 1. Executive Succession Mandate & Handoff Summary", content)
         self.assertIn("## 2. Git Working Tree & Repository State", content)
         self.assertIn("## 3. Active Implementation Plan & Milestone Progression", content)
@@ -472,8 +473,8 @@ class TestCompactionCheckpoint(unittest.TestCase):
         art_dir.mkdir(parents=True, exist_ok=True)
 
         # Create 8 sequential checkpoint files
-        for epoch in range(100, 108):
-            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        for ts_idx in range(100, 108):
+            (art_dir / f"compaction_checkpoint_{ts_idx}.md").write_text(f"Checkpoint {ts_idx}\n", encoding="utf-8")
         latest = art_dir / "compaction_checkpoint_latest.md"
         latest.write_text("Latest content\n", encoding="utf-8")
 
@@ -503,8 +504,8 @@ class TestCompactionCheckpoint(unittest.TestCase):
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
 
-        for epoch in range(10, 16):
-            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        for ts_idx in range(10, 16):
+            (art_dir / f"compaction_checkpoint_{ts_idx}.md").write_text(f"Checkpoint {ts_idx}\n", encoding="utf-8")
 
         old_val = os.environ.get("AGYIS_CHECKPOINT_RETENTION")
         try:
@@ -527,8 +528,8 @@ class TestCompactionCheckpoint(unittest.TestCase):
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
 
-        for epoch in range(200, 206):
-            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        for ts_idx in range(200, 206):
+            (art_dir / f"compaction_checkpoint_{ts_idx}.md").write_text(f"Checkpoint {ts_idx}\n", encoding="utf-8")
         latest = art_dir / "compaction_checkpoint_latest.md"
         latest.write_text("Latest content\n", encoding="utf-8")
 
@@ -564,8 +565,8 @@ class TestCompactionCheckpoint(unittest.TestCase):
 
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
-        for epoch in range(300, 304):
-            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        for ts_idx in range(300, 304):
+            (art_dir / f"compaction_checkpoint_{ts_idx}.md").write_text(f"Checkpoint {ts_idx}\n", encoding="utf-8")
         latest = art_dir / "compaction_checkpoint_latest.md"
         latest.write_text("Latest\n", encoding="utf-8")
 
@@ -579,8 +580,8 @@ class TestCompactionCheckpoint(unittest.TestCase):
         art_dir.mkdir(parents=True, exist_ok=True)
 
         # Create 6 older checkpoints
-        for epoch in range(1000, 1006):
-            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Old {epoch}\n", encoding="utf-8")
+        for ts_idx in range(1000, 1006):
+            (art_dir / f"compaction_checkpoint_{ts_idx}.md").write_text(f"Old {ts_idx}\n", encoding="utf-8")
 
         # Generate a new CID-scoped checkpoint
         res = generate_compaction_checkpoint(self.ws, session_id="rot-sess-1")
@@ -782,8 +783,8 @@ class TestCheckpointCLI(unittest.TestCase):
 
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
-        for epoch in range(500, 507):
-            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        for ts_idx in range(500, 507):
+            (art_dir / f"compaction_checkpoint_{ts_idx}.md").write_text(f"Checkpoint {ts_idx}\n", encoding="utf-8")
         latest = art_dir / "compaction_checkpoint_latest.md"
         latest.write_text("Latest\n", encoding="utf-8")
 
@@ -826,8 +827,8 @@ class TestCheckpointCLI(unittest.TestCase):
 
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
-        for epoch in range(600, 606):
-            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        for ts_idx in range(600, 606):
+            (art_dir / f"compaction_checkpoint_{ts_idx}.md").write_text(f"Checkpoint {ts_idx}\n", encoding="utf-8")
         latest = art_dir / "compaction_checkpoint_latest.md"
         latest.write_text("Latest\n", encoding="utf-8")
 
@@ -864,8 +865,8 @@ class TestCheckpointCLI(unittest.TestCase):
 
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
-        for epoch in range(700, 707):
-            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        for ts_idx in range(700, 707):
+            (art_dir / f"compaction_checkpoint_{ts_idx}.md").write_text(f"Checkpoint {ts_idx}\n", encoding="utf-8")
         latest = art_dir / "compaction_checkpoint_latest.md"
         latest.write_text("Latest\n", encoding="utf-8")
 
@@ -887,8 +888,8 @@ class TestCheckpointCLI(unittest.TestCase):
 
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
-        for epoch in range(800, 803):
-            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        for ts_idx in range(800, 803):
+            (art_dir / f"compaction_checkpoint_{ts_idx}.md").write_text(f"Checkpoint {ts_idx}\n", encoding="utf-8")
         latest = art_dir / "compaction_checkpoint_latest.md"
         latest.write_text("Latest\n", encoding="utf-8")
 
@@ -918,8 +919,8 @@ class TestCheckpointCLI(unittest.TestCase):
 
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
-        for epoch in range(900, 906):
-            (art_dir / f"compaction_checkpoint_{epoch}.md").write_text(f"Epoch {epoch}\n", encoding="utf-8")
+        for ts_idx in range(900, 906):
+            (art_dir / f"compaction_checkpoint_{ts_idx}.md").write_text(f"Checkpoint {ts_idx}\n", encoding="utf-8")
         latest = art_dir / "compaction_checkpoint_latest.md"
         latest.write_text("Latest\n", encoding="utf-8")
 

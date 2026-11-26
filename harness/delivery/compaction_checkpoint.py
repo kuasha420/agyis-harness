@@ -97,30 +97,49 @@ def inspect_git_state(workspace_dir: Union[Path, str]) -> GitState:
     """Collects git branch, commit hash, and dirty working tree status hermetically."""
     ws = Path(workspace_dir)
 
-    def _run_git(args: List[str]) -> str:
+    def _run_git(args: List[str]) -> Tuple[int, str]:
         try:
             res = subprocess.run(["git"] + args, cwd=str(ws), capture_output=True, text=True, timeout=1.5, check=False)
-            return res.stdout.rstrip("\r\n")
+            return res.returncode, res.stdout.rstrip("\r\n")
         except (subprocess.SubprocessError, OSError):
-            return ""
+            return 1, ""
+
+    status_rc, status_out = _run_git(["status", "--porcelain"])
+    if status_rc != 0:
+        return GitState(
+            branch="detached",
+            commit_hash="unknown",
+            commit_short="unknown",
+            is_dirty=False,
+            modified_files=[],
+            untracked_files=[],
+            diff_stat="",
+        )
 
     modified: List[str] = []
     untracked: List[str] = []
-    for line in (_run_git(["status", "--porcelain"]) or "").splitlines():
+    for line in status_out.splitlines():
         line = line.rstrip("\r\n")
         if len(line) < 3:
             continue
         target_list = untracked if line[:2].startswith("??") else modified
         target_list.append(line[3:].strip())
 
+    _, branch_out = _run_git(["branch", "--show-current"])
+    rev_rc, rev_out = _run_git(["rev-parse", "HEAD", "--short", "HEAD"])
+    rev_lines = rev_out.splitlines() if rev_rc == 0 else []
+    commit_hash = rev_lines[0].strip() if len(rev_lines) >= 1 and rev_lines[0].strip() else "unknown"
+    commit_short = rev_lines[1].strip() if len(rev_lines) >= 2 and rev_lines[1].strip() else "unknown"
+    diff_stat = _run_git(["diff", "--stat"])[1].strip() if modified else ""
+
     return GitState(
-        branch=_run_git(["branch", "--show-current"]).strip() or "detached",
-        commit_hash=_run_git(["rev-parse", "HEAD"]).strip() or "unknown",
-        commit_short=_run_git(["rev-parse", "--short", "HEAD"]).strip() or "unknown",
+        branch=branch_out.strip() or "detached",
+        commit_hash=commit_hash,
+        commit_short=commit_short,
         is_dirty=bool(modified or untracked),
         modified_files=modified,
         untracked_files=untracked,
-        diff_stat=_run_git(["diff", "--stat"]).strip(),
+        diff_stat=diff_stat,
     )
 
 
@@ -354,7 +373,7 @@ def generate_compaction_checkpoint(
     if trigger_tokens is None:
         trigger_tokens = COMPACTION_THRESHOLD
     t0 = time.perf_counter()
-    epoch = int(time.time())
+    unix_ts = int(time.time())
     iso_time = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     ws = Path(workspace_dir)
@@ -416,7 +435,7 @@ def generate_compaction_checkpoint(
 
     t_preview_ms = (time.perf_counter() - t0) * 1000.0
     markdown = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
-# ◆ Agyis Compaction & Succession Checkpoint (Epoch `{epoch}`)
+# ◆ Agyis Compaction & Succession Checkpoint (Timestamp `{unix_ts}`)
 
 > **Predecessor Session**: `{sess}`  
 > **Predecessor Role**: `{orchestrator_role}`  

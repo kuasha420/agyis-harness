@@ -26,8 +26,8 @@ from harness.hooks.fence_tasks import sync_background_tasks
 from harness.hooks.role_lineage import resolve_hook_role_and_agent
 from harness.hooks.wire_compat import emit_stderr_diagnostic, enqueue_pending_advisory
 from harness.subagents.liveness import TEAMWORK_IGNORED_DIRS
-from harness.trajectory.health import SOFT_EPOCH_STEP_ADVISORY
-from harness.trajectory.sqlite_reader import resolve_epoch_step_count
+from harness.trajectory.health import SOFT_CHECKPOINT_STEP_ADVISORY
+from harness.trajectory.sqlite_reader import resolve_checkpoint_step_count
 from harness.utils.workspace import is_harness_workspace
 
 _STOP_BYPASS_TERMINATION_REASONS: frozenset[str] = frozenset({
@@ -58,13 +58,13 @@ def check_pre_tool_use(
     cwd: Path | str | None = None,
 ) -> dict:
     """
-    Evaluates PreToolUse constraints including the Soft Epoch Horizon Advisory (Issue #109).
-    When role is ROLE_DEEP_EXECUTION and epoch step_count >= SOFT_EPOCH_STEP_ADVISORY (80):
+    Evaluates PreToolUse constraints including the Soft Checkpoint Horizon Advisory (Issue #109).
+    When role is ROLE_DEEP_EXECUTION and checkpoint step_count >= SOFT_CHECKPOINT_STEP_ADVISORY (80):
     emits stderr diagnostics and queues a bounded PreInvocation nudge on code mutation tools
     without blocking execution or emitting phantom wire keys.
     Exempts non-executioner roles (flight_director, forensic_auditor).
     """
-    effective_step = resolve_epoch_step_count(payload, conv_id=conv_id, explicit_step=step_count)
+    effective_step = resolve_checkpoint_step_count(payload, conv_id=conv_id, explicit_step=step_count)
 
     resolved_role, exact_agent = resolve_hook_role_and_agent(
         payload,
@@ -76,11 +76,11 @@ def check_pre_tool_use(
     if norm_role and norm_role != ROLE_DEEP_EXECUTION:
         return {"decision": "allow"}
 
-    if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_EPOCH_STEP_ADVISORY:
+    if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_CHECKPOINT_STEP_ADVISORY:
         if tool_name in CODE_MUTATION_TOOLS:
             msg = (
-                f"[EPOCH HORIZON: {effective_step}/{SOFT_EPOCH_STEP_ADVISORY} STEPS] "
-                "Extended epoch reached — verify diffs, update checkpoints, or compact when convenient."
+                f"[CHECKPOINT HORIZON: {effective_step}/{SOFT_CHECKPOINT_STEP_ADVISORY} STEPS] "
+                "Extended checkpoint window reached — verify diffs, update checkpoints, or compact when convenient."
             )
             emit_stderr_diagnostic(msg)
             enqueue_pending_advisory(conv_id, msg, state_dir=state_dir)

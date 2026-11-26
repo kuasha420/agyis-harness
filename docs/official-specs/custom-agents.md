@@ -225,7 +225,7 @@ By surfacing specialized agents in the UI dropdown, the user naturally partition
 └──────────────────────────┴───────────────────────┴─────────────────────┘
 ```
 
-Each delegated stage runs in a fresh, bounded subagent context (`<65%` window fill and `<80` active-epoch steps, well below the `70%` amber / `90%` red compaction runway across `512k`/`1M`/`256k` windows), eliminating the 200+ step cliff!
+Each delegated stage runs in a fresh, bounded subagent context (`<65%` window fill and `<80` active-checkpoint steps, well below the `70%` amber / `90%` red compaction runway across `512k`/`1M`/`256k` windows), eliminating the 200+ step cliff!
 
 ---
 

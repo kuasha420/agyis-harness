@@ -181,9 +181,11 @@
 
         const steps = orderedRaw.map((rs, idx) => {
             const stepIdx = rs.stepIndex !== undefined ? rs.stepIndex : (rs.step_index !== undefined ? rs.step_index : idx);
-            let cortexType = rs.type || rs.stepType || "STEP";
+            let cortexType = rs.type !== undefined ? rs.type : (rs.stepType !== undefined ? rs.stepType : "STEP");
             if (cortexType === 132 || cortexType === "132") {
                 cortexType = "GENERIC";
+            } else if (cortexType === 23 || cortexType === "23" || Boolean(rs.checkpoint)) {
+                cortexType = "CHECKPOINT";
             } else if (typeof cortexType === "string" && cortexType.startsWith("CORTEX_STEP_TYPE_")) {
                 cortexType = cortexType.replace("CORTEX_STEP_TYPE_", "");
             }
@@ -206,24 +208,6 @@
             const gm = nextAlignedMeta(genStream, stepIdx, idx, isModelStep);
             const em = nextAlignedMeta(execStream, stepIdx, idx, isExecStep);
 
-            const tsMs = parseStepTimestampMs(rs, gm, em);
-            const gmUsage = (gm && gm.usage) || (rs.metadata && rs.metadata.modelUsage) || {};
-
-            const inTok = Number(rs.input_tokens || gmUsage.inputTokens || 0);
-            const outTok = Number(rs.output_tokens || gmUsage.outputTokens || 0);
-            const thinkTok = Number(rs.thinking_tokens || gmUsage.thinkingOutputTokens || 0);
-            const cacheTok = Number(rs.cache_read_tokens || gmUsage.cacheReadTokens || 0);
-            const hasAuthUsage = inTok > 0 || outTok > 0 || cacheTok > 0;
-
-            const approxTok = Math.max(1, Math.round((JSON.stringify(rs).length || 100) / 3.5));
-            const stepTokens = hasAuthUsage ? (outTok > 0 ? outTok : inTok) : (rs.tokens || approxTok);
-
-            cumulativeTokens += stepTokens;
-
-            const thinkingDurationMs = rs.thinking_duration_ms || (rs.thinkingDuration ? ((rs.thinkingDuration.seconds || 0) * 1000 + ((rs.thinkingDuration.nanos || 0) / 1e6)) : 0);
-            const streamingDurationMs = rs.streaming_duration_ms || (rs.streamingDuration ? ((rs.streamingDuration.seconds || 0) * 1000 + ((rs.streamingDuration.nanos || 0) / 1e6)) : 0);
-            const totalDurationMs = thinkingDurationMs + streamingDurationMs;
-
             const extraFields = {};
             if (rs.runCommand) Object.assign(extraFields, { command: rs.runCommand.commandLine || "", exitCode: rs.runCommand.exitCode, output: (rs.runCommand.combinedOutput && rs.runCommand.combinedOutput.full) || "", cwd: rs.runCommand.cwd || "" });
             if (rs.viewFile) Object.assign(extraFields, { filePath: rs.viewFile.absolutePathUri || "", fileContent: rs.viewFile.content || "", endLine: rs.viewFile.endLine });
@@ -233,12 +217,57 @@
                 extraFields.filePath = actSpec.createFile?.path?.absoluteUri || actSpec.editFile?.path?.absoluteUri || "";
             }
             if (rs.invokeSubagent) extraFields.subagent = (rs.invokeSubagent.subagents && rs.invokeSubagent.subagents[0]) || null;
-            if (rs.checkpoint) Object.assign(extraFields, { sessionSummary: rs.checkpoint.sessionSummary || "", checkpoint_index: rs.checkpoint.checkpointIndex });
+            if (rs.checkpoint && typeof rs.checkpoint === "object") {
+                const cpSum = rs.checkpoint.sessionSummary || rs.checkpoint.userIntent || rs.checkpoint.summary || "";
+                extraFields.sessionSummary = rs.checkpoint.sessionSummary || "";
+                if (cpSum) extraFields.compaction_summary = String(cpSum).trim();
+                const cpIdx = rs.checkpoint.checkpointIndex ?? rs.checkpoint.checkpoint_index;
+                if (cpIdx !== undefined) extraFields.checkpoint_index = cpIdx;
+            } else if (typeof rs.checkpoint === "string" && rs.checkpoint.trim()) {
+                extraFields.compaction_summary = rs.checkpoint.trim();
+            }
+            if (!extraFields.compaction_summary && (rs.compaction_summary || rs.sessionSummary || rs.userIntent)) {
+                extraFields.compaction_summary = String(rs.compaction_summary || rs.sessionSummary || rs.userIntent).trim();
+            }
+            if (cortexType === "CHECKPOINT" && !extraFields.compaction_summary) {
+                const m = String(rs.content || rs.thinking || "").match(/<(?:CONTEXT_SUMMARY|summary)>([\s\S]*?)<\/(?:CONTEXT_SUMMARY|summary)>/i);
+                if (m && m[1]) extraFields.compaction_summary = m[1].trim();
+            }
+            const retries = (rs.metadata && Array.isArray(rs.metadata.retryInfos)) ? rs.metadata.retryInfos : [];
+            const retryUsage = (retries[0] && typeof retries[0] === "object" && retries[0].usage) || {};
+            if (cortexType === "CHECKPOINT" || rs.checkpoint) {
+                extraFields.cacheReadTokens = Number(retryUsage.cacheReadTokens || 0);
+                extraFields.checkpointInputTokens = Number(retryUsage.inputTokens || 0);
+            }
             if (rs.generic) {
                 extraFields.generic = rs.generic;
                 if (rs.generic.toolName) extraFields.toolName = rs.generic.toolName;
                 if (rs.generic.output !== undefined) extraFields.output = rs.generic.output;
             }
+
+            const tsMs = parseStepTimestampMs(rs, gm, em);
+            const gmUsage = (gm && gm.usage) || (rs.metadata && rs.metadata.modelUsage) || {};
+
+            const inTok = Number(rs.input_tokens || gmUsage.inputTokens || extraFields.checkpointInputTokens || 0);
+            const outTok = Number(rs.output_tokens || gmUsage.outputTokens || 0);
+            const thinkTok = Number(rs.thinking_tokens || gmUsage.thinkingOutputTokens || 0);
+            const cacheTok = Number(rs.cache_read_tokens || gmUsage.cacheReadTokens || 0);
+            const hasAuthUsage = inTok > 0 || outTok > 0 || cacheTok > 0;
+
+            const approxTok = cortexType === "CHECKPOINT"
+                ? Math.max(1, Math.round(String(extraFields.compaction_summary || rs.content || "").length / 3.5))
+                : Math.max(1, Math.round((JSON.stringify(rs).length || 100) / 3.5));
+            const stepTokens = hasAuthUsage ? (outTok > 0 ? outTok : inTok) : (rs.tokens || approxTok);
+
+            if (cortexType === "CHECKPOINT") {
+                cumulativeTokens = stepTokens;
+            } else if (stepTokens > 0) {
+                cumulativeTokens += stepTokens;
+            }
+
+            const thinkingDurationMs = rs.thinking_duration_ms || (rs.thinkingDuration ? ((rs.thinkingDuration.seconds || 0) * 1000 + ((rs.thinkingDuration.nanos || 0) / 1e6)) : 0);
+            const streamingDurationMs = rs.streaming_duration_ms || (rs.streamingDuration ? ((rs.streamingDuration.seconds || 0) * 1000 + ((rs.streamingDuration.nanos || 0) / 1e6)) : 0);
+            const totalDurationMs = thinkingDurationMs + streamingDurationMs;
 
             return Object.assign({
                 step_index: stepIdx, type: cortexType, status: rs.status || "STATUS_COMPLETED",
@@ -298,67 +327,78 @@
         const sysPromptTok = systemPromptSlices.reduce((acc, s) => acc + (s.tokens || 0), 0);
         const toolDefsTok = toolDefSlices.reduce((acc, s) => acc + (s.tokens || 0), 0);
 
-        // Calculate epochs based on CHECKPOINT steps
-        const checkpoints = [];
+        // Calculate checkpoint windows based on CHECKPOINT steps (Option B disjoint partitioning)
+        const cpIndices = [];
         steps.forEach((s, i) => {
             if (s.type === "CHECKPOINT" || Boolean(orderedRaw[i] && orderedRaw[i].checkpoint)) {
-                checkpoints.push(i);
+                cpIndices.push(i);
             }
         });
 
-        const epochs = [];
-        if (checkpoints.length === 0) {
+        const checkpoints = [];
+        if (cpIndices.length === 0) {
             if (steps.length > 0) {
-                epochs.push({ epoch_index: 0, start_index: 0, end_index: steps.length - 1, step_count: steps.length, has_checkpoint: false, summary: "Initial Trajectory" });
+                checkpoints.push({
+                    checkpoint_index: 0, start_index: 0, end_index: steps.length - 1,
+                    step_count: steps.length, has_checkpoint: false, summary: "Initial Trajectory",
+                });
             }
         } else {
-            const c0 = checkpoints[0];
-            epochs.push({ epoch_index: 0, start_index: 0, end_index: c0, step_count: c0 + 1, has_checkpoint: true, summary: steps[c0].compaction_summary || `Checkpoint #${c0}` });
-            for (let k = 0; k < checkpoints.length; k++) {
-                const curCp = checkpoints[k];
-                const endIdx = (k + 1 < checkpoints.length) ? checkpoints[k + 1] : (curCp < steps.length - 1 ? steps.length - 1 : -1);
-                if (endIdx >= 0) {
-                    epochs.push({
-                        epoch_index: epochs.length,
+            const c0 = cpIndices[0];
+            if (c0 > 0) {
+                checkpoints.push({
+                    checkpoint_index: 0, start_index: 0, end_index: c0 - 1,
+                    step_count: c0, has_checkpoint: false, summary: "Initial Trajectory",
+                });
+            }
+            for (let k = 0; k < cpIndices.length; k++) {
+                const curCp = cpIndices[k];
+                const endIdx = (k + 1 < cpIndices.length) ? (cpIndices[k + 1] - 1) : (steps.length - 1);
+                if (endIdx >= curCp) {
+                    checkpoints.push({
+                        checkpoint_index: checkpoints.length,
                         start_index: curCp,
                         end_index: endIdx,
                         step_count: endIdx - curCp + 1,
                         has_checkpoint: true,
-                        summary: steps[curCp].compaction_summary || `Checkpoint #${curCp}`,
+                        summary: steps[curCp].compaction_summary || steps[curCp].sessionSummary || `Checkpoint #${curCp}`,
                     });
                 }
             }
         }
 
-        const computeEpochMetrics = (epSteps, epStart, epEnd, isLastEpoch) => {
+        const computeCheckpointMetrics = (cpSteps, cpStart, isLastWindow) => {
             let explicitUsageTokens = 0;
-            let epochCacheTokens = 0;
-            let epochEstTokens = 0;
-            for (let i = epSteps.length - 1; i >= 0; i--) {
-                const st = epSteps[i];
+            let cpCacheTokens = 0;
+            let cpEstTokens = 0;
+            const cpStepIndices = new Set(cpSteps.map(s => s.step_index));
+            for (let i = cpSteps.length - 1; i >= 0; i--) {
+                const st = cpSteps[i];
                 if (st.type === "CHECKPOINT") continue;
-                if (epochCacheTokens === 0 && st.cache_read_tokens > 0) epochCacheTokens = st.cache_read_tokens;
+                if (cpCacheTokens === 0 && st.cache_read_tokens > 0) cpCacheTokens = st.cache_read_tokens;
                 if (explicitUsageTokens === 0 && st._hasAuthUsage) {
                     explicitUsageTokens = st.input_tokens + st.cache_read_tokens;
                 }
-                if (epochEstTokens === 0) {
-                    epochEstTokens = extractEstFromObj(st.generator_metadata) || extractEstFromObj(orderedRaw[epStart + i]);
+                if (cpEstTokens === 0) {
+                    cpEstTokens = extractEstFromObj(st.generator_metadata) || extractEstFromObj(orderedRaw[cpStart + i]);
                 }
             }
-            if (epochEstTokens === 0) {
+            if (cpEstTokens === 0) {
                 for (let gIdx = genMetas.length - 1; gIdx >= 0; gIdx--) {
                     const gm = genMetas[gIdx];
-                    const gmStep = (gm && gm.stepIndex !== undefined) ? gm.stepIndex : -1;
-                    if (gmStep >= epStart && gmStep <= epEnd) {
-                        epochEstTokens = extractEstFromObj(gm);
-                        if (epochEstTokens > 0) break;
+                    const gmIndices = [];
+                    if (gm && gm.stepIndex !== undefined && gm.stepIndex !== null) gmIndices.push(gm.stepIndex);
+                    if (gm && Array.isArray(gm.stepIndices)) gmIndices.push(...gm.stepIndices);
+                    if (gmIndices.some(si => cpStepIndices.has(si))) {
+                        cpEstTokens = extractEstFromObj(gm);
+                        if (cpEstTokens > 0) break;
                     }
                 }
             }
-            if (isLastEpoch && epochEstTokens === 0) epochEstTokens = latestEstimatedTokens;
+            if (isLastWindow && cpEstTokens === 0) cpEstTokens = latestEstimatedTokens;
 
             let actualUserTok = 0, actualModelTok = 0, actualThoughtTok = 0, actualToolTok = 0, actualCheckpointTok = 0, actualSystemTok = 0;
-            epSteps.forEach(s => {
+            cpSteps.forEach(s => {
                 const t = s.type;
                 const tok = s.tokens || 0;
                 if (t === "USER_INPUT") actualUserTok += tok;
@@ -373,21 +413,22 @@
             });
 
             const activeMeasuredSum = sysPromptTok + toolDefsTok + actualCheckpointTok + actualUserTok + actualModelTok + actualThoughtTok + actualToolTok + actualSystemTok;
-            const epTotalTokens = explicitUsageTokens > 0
+            const cpTotalTokens = explicitUsageTokens > 0
                 ? explicitUsageTokens
-                : (epochEstTokens > 0 ? Math.max(epochEstTokens, activeMeasuredSum) : activeMeasuredSum);
-            const epIsProvisional = (explicitUsageTokens === 0) && (epTotalTokens > 0);
-            const epUnattrTok = Math.max(0, epTotalTokens - activeMeasuredSum);
+                : (cpEstTokens > 0 ? Math.max(cpEstTokens, activeMeasuredSum) : activeMeasuredSum);
+            const cpIsProvisional = (explicitUsageTokens === 0) && (cpTotalTokens > 0);
+            const cpUnattrTok = Math.max(0, cpTotalTokens - activeMeasuredSum);
             return {
-                total_tokens: epTotalTokens, unattributed: epUnattrTok, cache_tokens: epochCacheTokens, is_provisional: epIsProvisional,
-                token_breakdown: { system_prompt: sysPromptTok, tool_defs: toolDefsTok, checkpoint: actualCheckpointTok, user: actualUserTok, model: actualModelTok, thought: actualThoughtTok, tool: actualToolTok, system: actualSystemTok, unattributed: epUnattrTok },
+                total_tokens: cpTotalTokens, unattributed: cpUnattrTok, cache_tokens: cpCacheTokens, is_provisional: cpIsProvisional,
+                utilization_pct: maxContextTokens > 0 ? Math.round(Math.min(100, (cpTotalTokens / maxContextTokens) * 1000)) / 10 : 0,
+                token_breakdown: { system_prompt: sysPromptTok, tool_defs: toolDefsTok, checkpoint: actualCheckpointTok, user: actualUserTok, model: actualModelTok, thought: actualThoughtTok, tool: actualToolTok, system: actualSystemTok, unattributed: cpUnattrTok },
             };
         };
 
-        epochs.forEach((ep, eIdx) => Object.assign(ep, computeEpochMetrics(steps.slice(ep.start_index, ep.end_index + 1), ep.start_index, ep.end_index, eIdx === epochs.length - 1)));
+        checkpoints.forEach((cp, cIdx) => Object.assign(cp, computeCheckpointMetrics(steps.slice(cp.start_index, cp.end_index + 1), cp.start_index, cIdx === checkpoints.length - 1)));
 
-        const lastEpoch = epochs.length > 0 ? epochs[epochs.length - 1] : null;
-        const latestMetrics = lastEpoch || computeEpochMetrics(steps, 0, Math.max(0, steps.length - 1), true);
+        const lastCheckpoint = checkpoints.length > 0 ? checkpoints[checkpoints.length - 1] : null;
+        const latestMetrics = lastCheckpoint || computeCheckpointMetrics(steps, 0, true);
         const { total_tokens: totalTokens, cache_tokens: cacheTokens, is_provisional: isProvisional, token_breakdown: ssotBreakdown } = latestMetrics;
 
         // Extract subagents
@@ -429,262 +470,24 @@
             }
         }
 
+        const checkpointSteps = cpIndices.length > 0 ? steps.length - cpIndices[cpIndices.length - 1] : steps.length;
         return {
             conversation_id: convoId, summary: convoSummary, model: resolvedModelName, steps, step_count: steps.length,
-            epochs, parent_id: parentId, subagents, subagent_infos: subagentInfos, subagent_trajectories: {},
+            checkpoints, checkpoint_index: checkpoints.length > 0 ? checkpoints.length - 1 : 0,
+            checkpoint_steps: checkpointSteps, checkpoint_count: cpIndices.length,
+            parent_id: parentId, subagents, subagent_infos: subagentInfos, subagent_trajectories: {},
             total_tokens: totalTokens, max_context_tokens: maxContextTokens, cache_tokens: cacheTokens, is_provisional: isProvisional,
             burn_rate_tokens_per_min: 0, token_breakdown: ssotBreakdown, system_prompt_slices: systemPromptSlices, tool_def_slices: toolDefSlices,
         };
-    }
-
-    const MAX_PENDING_DELTAS = 256;
-    const MAX_STREAM_SLICE = 2000;
-
-    function _writeBoundedSlice(arr, idx, val, offsetKey, stateObj) {
-        if (!Number.isInteger(idx) || idx < 0) return;
-        const offset = stateObj[offsetKey] || 0;
-        if (idx < offset) return;
-        const rel = idx - offset;
-        if (rel >= MAX_STREAM_SLICE) {
-            const shift = rel - MAX_STREAM_SLICE + 1;
-            arr.splice(0, Math.min(arr.length, shift));
-            stateObj[offsetKey] = offset + shift;
-        }
-        arr[idx - (stateObj[offsetKey] || 0)] = val;
-    }
-
-    /**
-     * 60 FPS Jitter-Free StreamRenderCoordinator (Strand 2 Architecture).
-     * Decouples network delta ingress (20-60Hz) from DOM mutations via a bounded queue,
-     * reconciling updates into a unified state and triggering a single render pass per 16.6ms frame.
-     */
-    class StreamRenderCoordinator {
-        constructor(renderCallback) {
-            this._renderCallback = renderCallback;
-            this._pendingDeltas = [];
-            this._rafId = null;
-            this._rafKind = null;
-            this._state = {
-                conversationId: "", trajectoryId: "", stepsInSlice: [], generatorMetadatasInSlice: [], executorMetadatasInSlice: [],
-                _stepsOffset: 0, _genOffset: 0, _execOffset: 0, totalStepsLength: 0, activeTokens: 0, maxContextTokens: 0, tokenBreakdown: null, isStreaming: false,
-            };
-            this._dirty = { steps: false, tokens: false, timeline: false };
-        }
-
-        destroy() {
-            if (this._rafId !== null) {
-                if (this._rafKind === "raf" && typeof cancelAnimationFrame === "function") cancelAnimationFrame(this._rafId);
-                else clearTimeout(this._rafId);
-                this._rafId = null;
-                this._rafKind = null;
-            }
-            this._pendingDeltas.length = 0;
-        }
-
-        ingestUpdate(update) {
-            if (!update) return;
-            while (this._pendingDeltas.length >= MAX_PENDING_DELTAS) this._reconcileUpdate(this._pendingDeltas.shift());
-            this._pendingDeltas.push(update);
-            if (!this._rafId && typeof requestAnimationFrame !== "undefined") {
-                this._rafKind = "raf";
-                this._rafId = requestAnimationFrame(this._flushAndRender.bind(this));
-            } else if (!this._rafId) {
-                this._rafKind = "timeout";
-                this._rafId = setTimeout(this._flushAndRender.bind(this), 16);
-            }
-        }
-
-        _flushAndRender() {
-            this._rafId = null;
-            this._rafKind = null;
-            if (this._pendingDeltas.length === 0) return;
-            while (this._pendingDeltas.length > 0) this._reconcileUpdate(this._pendingDeltas.shift());
-            if (this._dirty.steps || this._dirty.tokens || this._dirty.timeline) {
-                if (typeof this._renderCallback === "function") this._renderCallback(this._state, this._dirty);
-                this._dirty.steps = this._dirty.tokens = this._dirty.timeline = false;
-            }
-        }
-
-        _reconcileUpdate(update) {
-            if (!update) return;
-            this._state.conversationId = update.conversationId || this._state.conversationId;
-            this._state.trajectoryId = update.trajectoryId || this._state.trajectoryId;
-            if (update.contextWindowUsage) {
-                const cwu = update.contextWindowUsage;
-                if (cwu.estimatedTokensUsed !== undefined) { this._state.activeTokens = cwu.estimatedTokensUsed; this._dirty.tokens = true; }
-                if (cwu.maxContextTokens !== undefined) { this._state.maxContextTokens = cwu.maxContextTokens; this._dirty.tokens = true; }
-                if (cwu.tokenGroups) { this._state.tokenBreakdown = { groups: cwu.tokenGroups }; this._dirty.tokens = true; }
-            }
-            const mtu = update.mainTrajectoryUpdate;
-            if (!mtu) return;
-            if (mtu.stepsUpdate) {
-                const { indices, steps, totalLength } = mtu.stepsUpdate;
-                if (indices && steps) {
-                    for (let i = 0; i < indices.length; i++) _writeBoundedSlice(this._state.stepsInSlice, indices[i], steps[i], "_stepsOffset", this._state);
-                    this._dirty.steps = this._dirty.timeline = true;
-                }
-                if (totalLength !== undefined) this._state.totalStepsLength = totalLength;
-            }
-            if (mtu.generatorMetadatasUpdate) {
-                const { indices, generatorMetadatas } = mtu.generatorMetadatasUpdate;
-                if (indices && generatorMetadatas) {
-                    for (let i = 0; i < indices.length; i++) {
-                        const gm = generatorMetadatas[i];
-                        _writeBoundedSlice(this._state.generatorMetadatasInSlice, indices[i], gm, "_genOffset", this._state);
-                        const cwm = gm?.chatModel?.chatStartMetadata?.contextWindowMetadata;
-                        if (cwm) {
-                            this._state.activeTokens = cwm.estimatedTokensUsed || this._state.activeTokens;
-                            if (cwm.maxContextTokens || cwm.maxTokens) this._state.maxContextTokens = cwm.maxContextTokens || cwm.maxTokens;
-                            if (cwm.tokenBreakdown) { this._state.tokenBreakdown = cwm.tokenBreakdown; this._dirty.tokens = true; }
-                        }
-                    }
-                }
-            }
-            if (mtu.executorMetadatasUpdate) {
-                const { indices, executorMetadatas, executorMetadata } = mtu.executorMetadatasUpdate;
-                const execList = executorMetadatas || executorMetadata;
-                if (indices && execList) {
-                    for (let i = 0; i < indices.length; i++) _writeBoundedSlice(this._state.executorMetadatasInSlice, indices[i], execList[i], "_execOffset", this._state);
-                    this._dirty.steps = true;
-                }
-            }
-        }
-    }
-
-    /**
-     * Resolves ConnectRPC endpoint (port, baseUrl, csrfToken, trajectoryServerUrl) from options, payloads, or window environment.
-     */
-    function resolveRpcEndpoint(options = {}) {
-        const loc = typeof window !== "undefined" ? window.location : null;
-        const isLoopback = !!(loc && (loc.hostname === "127.0.0.1" || loc.hostname === "localhost" || (loc.origin && (loc.origin.includes("127.0.0.1") || loc.origin.includes("localhost")))));
-        const isHttps = !!(loc && loc.protocol === "https:");
-        const locPort = (isHttps && isLoopback && loc.port) ? parseInt(loc.port, 10) : (isHttps && isLoopback && loc.origin && loc.origin.match(/:(\d+)/) ? parseInt(loc.origin.match(/:(\d+)/)[1], 10) : null);
-        const appCfg = typeof window !== "undefined" && window.__APP_CONFIG__;
-        const payload = typeof __PAYLOAD__ !== "undefined" ? __PAYLOAD__ : null;
-        const port = options.port || (payload && payload.connectRpcPort) || (typeof window !== "undefined" && window.__AGYIS_CONNECT_PORT__) || (appCfg && appCfg.connectRpcPort) || locPort || 40623;
-        const dynamicUrl = options.baseUrl || (payload && payload.connectRpcUrl) || (typeof window !== "undefined" && window.__AGYIS_CONNECT_URL__) || (appCfg && appCfg.connectRpcUrl);
-        const proto = (loc && loc.protocol === "http:") ? "http:" : "https:";
-        const fallbackOrigin = (isHttps && isLoopback && loc && loc.origin && loc.origin.startsWith("http")) ? loc.origin : null;
-        const baseUrl = dynamicUrl || fallbackOrigin || (loc && loc.origin && loc.origin.startsWith("http") ? loc.origin : `${proto}//127.0.0.1:${port}`);
-        const trajectoryServerUrl = options.trajectoryServerUrl
-            || (payload && payload.trajectoryServerUrl)
-            || (typeof window !== "undefined" && window.__AGYIS_TRAJECTORY_URL__)
-            || `http://127.0.0.1:${options.httpPort || (payload && payload.trajectoryServerPort) || 40624}`;
-        let sessionCsrf = "";
-        try {
-            if (typeof localStorage !== "undefined" && localStorage && typeof localStorage.getItem === "function") {
-                sessionCsrf = localStorage.getItem("agy_session_csrf_token") || "";
-            }
-        } catch (_) {}
-        const csrfToken = options.csrfToken || (appCfg && appCfg.csrfToken) || sessionCsrf || "";
-        return { port, baseUrl, csrfToken, trajectoryServerUrl };
-    }
-
-    /**
-     * In-Situ ConnectRPC Streaming & Unary Client.
-     * Enforces Connect envelope framing (flags: uint8 + length: uint32be) and CSRF protection.
-     */
-    class InSituConnectClient {
-        constructor(options = {}) {
-            const ep = resolveRpcEndpoint(options);
-            this.port = ep.port;
-            this.baseUrl = ep.baseUrl;
-            this.csrfToken = ep.csrfToken;
-            this.trajectoryServerUrl = ep.trajectoryServerUrl;
-            this.activeAbortController = null;
-            this.activeCoordinator = null;
-        }
-
-        async _fetchRemainingStreamSlice(conversationId, coordinator, startIndex, totalLength, signal) {
-            const headers = { "Content-Type": "application/json", "Connect-Protocol-Version": "1" };
-            if (this.csrfToken) headers["x-codeium-csrf-token"] = this.csrfToken;
-            let cursor = startIndex;
-            while (cursor < totalLength && cursor < 20000) {
-                if (signal && signal.aborted) break;
-                const body = JSON.stringify({ cascadeId: conversationId, trajectoryVerbosity: 3, stepOffset: cursor });
-                const res = await fetch(`${this.baseUrl}/exa.language_server_pb.LanguageServerService/GetCascadeTrajectorySteps`, { method: "POST", headers, body, signal }).catch(() => null);
-                if (!res || !res.ok) break;
-                const data = await res.json().catch(() => null);
-                const pageSteps = data && Array.isArray(data.steps) ? data.steps : [];
-                if (pageSteps.length === 0) break;
-                if (pageSteps[0] && pageSteps[0].stepIndex !== undefined && pageSteps[0].stepIndex < cursor) break;
-                const indices = pageSteps.map((s, idx) => (s && s.stepIndex !== undefined ? s.stepIndex : cursor + idx));
-                coordinator.ingestUpdate({ conversationId, mainTrajectoryUpdate: { stepsUpdate: { indices, steps: pageSteps, totalLength } } });
-                cursor += pageSteps.length;
-            }
-        }
-
-        /** Connects to StreamAgentStateUpdates over persistent HTTP/2 Connect streaming. */
-        async streamConversation(conversationId, onStateChange) {
-            if (this.activeAbortController) this.activeAbortController.abort("Switching conversation");
-            if (this.activeCoordinator) this.activeCoordinator.destroy();
-            this.activeAbortController = new AbortController();
-            const signal = this.activeAbortController.signal;
-            const coordinator = new StreamRenderCoordinator(onStateChange);
-            this.activeCoordinator = coordinator;
-            const subscriberId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `sub-${Date.now()}`;
-            const reqBody = {
-                conversationId, subscriberId, trajectoryVerbosity: 3,
-                initialStepsPageBounds: { startIndex: 0, endIndexExclusive: 500 },
-                initialGeneratorMetadatasPageBounds: { startIndex: 0, endIndexExclusive: 500 },
-                initialExecutorMetadatasPageBounds: { startIndex: 0, endIndexExclusive: 500 },
-            };
-            const jsonBytes = new TextEncoder().encode(JSON.stringify(reqBody));
-            const framedReq = new Uint8Array(5 + jsonBytes.length);
-            framedReq[0] = 0x00;
-            new DataView(framedReq.buffer).setUint32(1, jsonBytes.length, false);
-            framedReq.set(jsonBytes, 5);
-            const url = `${this.baseUrl}/exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates`;
-            const headers = { "Content-Type": "application/connect+json", "Connect-Protocol-Version": "1" };
-            if (this.csrfToken) headers["x-codeium-csrf-token"] = this.csrfToken;
-            const response = await fetch(url, { method: "POST", headers, body: framedReq, signal });
-            if (!response.ok) throw new Error(`ConnectRPC stream failed with HTTP ${response.status}`);
-            const reader = response.body.getReader();
-            let buffer = new Uint8Array(0), paginatedTail = false;
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                const newBuf = new Uint8Array(buffer.length + value.length);
-                newBuf.set(buffer);
-                newBuf.set(value, buffer.length);
-                buffer = newBuf;
-                while (buffer.length >= 5) {
-                    const flags = buffer[0];
-                    const length = new DataView(buffer.buffer, buffer.byteOffset, 5).getUint32(1, false);
-                    if (buffer.length < 5 + length) break;
-                    const payloadBytes = buffer.slice(5, 5 + length);
-                    const rest = buffer.subarray(5 + length);
-                    buffer = rest.length > 0 ? new Uint8Array(rest) : new Uint8Array(0);
-                    if (flags === 0x00) {
-                        try {
-                            const message = JSON.parse(new TextDecoder().decode(payloadBytes));
-                            if (message.update) {
-                                coordinator.ingestUpdate(message.update);
-                                const totalLen = message.update.mainTrajectoryUpdate?.stepsUpdate?.totalLength;
-                                if (!paginatedTail && Number.isFinite(totalLen) && totalLen > 500) {
-                                    paginatedTail = true;
-                                    this._fetchRemainingStreamSlice(conversationId, coordinator, 500, totalLen, signal).catch(err => console.warn("[InSituConnectClient] Paginated tail fetch failed:", err));
-                                }
-                            }
-                        } catch (e) { console.error("[InSituConnectClient] JSON decode error:", e); }
-                    } else if (flags === 0x02) {
-                        const endStr = new TextDecoder().decode(payloadBytes);
-                        let endMsg = null;
-                        try { endMsg = endStr ? JSON.parse(endStr) : null; }
-                        catch (_) { console.warn("[InSituConnectClient] Invalid EndStreamResponse JSON:", endStr); }
-                        if (endMsg && endMsg.error) throw new Error(`ConnectRPC stream ended with error: ${endMsg.error.message || endMsg.error.code || JSON.stringify(endMsg.error)}`);
-                        return;
-                    }
-                }
-            }
-        }
     }
 
     /** ConnectRPC conversation loader with pagination and strict same-session fallback ladder. */
     async function loadConversationViaRpc(convoId) {
         if (!convoId) return null;
         try {
-            const { baseUrl, csrfToken, trajectoryServerUrl } = resolveRpcEndpoint();
+            const { baseUrl, csrfToken, trajectoryServerUrl } = typeof global.resolveRpcEndpoint === "function"
+                ? global.resolveRpcEndpoint()
+                : { baseUrl: "https://127.0.0.1:40623", csrfToken: "", trajectoryServerUrl: "http://127.0.0.1:40624" };
 
             const headers = { "Content-Type": "application/json", "Connect-Protocol-Version": "1" };
             if (csrfToken) headers["x-codeium-csrf-token"] = csrfToken;
@@ -763,16 +566,10 @@
             return buildHudTrajectoryData(convoId, rawSteps, genMetas, execMetas, chatModelData);
         } catch (err) {
             console.warn("[agyis] ConnectRPC trajectory fetch failed:", err);
-            if (typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.initialData) {
-                const fallbackData = __PAYLOAD__.initialData;
-                if (fallbackData.conversation_id === convoId) return fallbackData;
-            }
-            return null;
+            const fallbackData = typeof __PAYLOAD__ !== "undefined" && __PAYLOAD__ && __PAYLOAD__.initialData;
+            return (fallbackData && fallbackData.conversation_id === convoId) ? fallbackData : null;
         }
     }
 
-    Object.assign(global, {
-        buildHudTrajectoryData, extractProtobufBreakdownSlices, loadConversationViaRpc,
-        StreamRenderCoordinator, InSituConnectClient, resolveRpcEndpoint,
-    });
+    Object.assign(global, { buildHudTrajectoryData, extractProtobufBreakdownSlices, loadConversationViaRpc });
 })(typeof window !== "undefined" ? window : globalThis);

@@ -35,6 +35,7 @@ _SDK_INJECTION_MARKERS: Tuple[str, ...] = (
     "[agyis subagent context",
     "[agyis system directive:",
     "[agyis post-compaction succession directive]",
+    "[agyis checkpoint horizon advisory:",
     "[agyis epoch horizon advisory:",
     "[agyis token gauge:",
 )

@@ -233,10 +233,12 @@ class TestPhase2HudLifecycle(unittest.TestCase):
         self.assertEqual(res["afterCtrlShiftT"], "none")
 
     def test_t1_f05_04_05_escape_search_vs_close_hud(self) -> None:
-        """F05.04-F05.05: Real hud.js Escape clears non-empty search without closing, then closes when empty."""
+        """F05.04-F05.05: Real hud_utils.js + hud.js Escape clears non-empty search without closing, then closes when empty."""
+        utils_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_utils.js")))
         hud_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({utils_js}, 'utf8'));
         eval(fs.readFileSync({hud_js}, 'utf8'));
         const curHud = document.getElementById("agyis-trajectory-hud");
         curHud.style.display = "flex";
@@ -261,10 +263,12 @@ class TestPhase2HudLifecycle(unittest.TestCase):
     # --- F06: 60 FPS ConnectRPC Streaming & Caret Retention ---
 
     def test_t1_f06_01_02_03_caret_and_focus_preserved_across_hud_render(self) -> None:
-        """F06.01-F06.03: Real hud.js preserves search input value, focus, and caret selectionStart/End on renderHud()."""
+        """F06.01-F06.03: Real hud_utils.js + hud.js preserves search input value, focus, and caret selectionStart/End on renderHud()."""
+        utils_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_utils.js")))
         hud_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({utils_js}, 'utf8'));
         eval(fs.readFileSync({hud_js}, 'utf8'));
         window.__agyis_hud_state.rootData = {{ steps: [{{ step_index: 0 }}], conversation_id: "convo-root" }};
         window.__agyis_hud_state.currentData = window.__agyis_hud_state.rootData;
@@ -287,14 +291,23 @@ class TestPhase2HudLifecycle(unittest.TestCase):
         self.assertTrue(res["isFocused"])
 
     def test_t1_f06_04_05_stream_historical_lock_and_latest_auto_follow(self) -> None:
-        """F06.04-F06.05: Real hud.js + hud_rpc.js preserves historical selectedIndex=5 and auto-follows when at latest step."""
+        """F06.04-F06.05: Real hud.js + hud_rpc.js preserves historical selectedIndex=5/checkpoint and auto-follows at latest step."""
+        utils_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_utils.js")))
+        stream_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_stream.js")))
         hud_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud.js")))
         rpc_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({utils_js}, 'utf8'));
+        eval(fs.readFileSync({stream_js}, 'utf8'));
         eval(fs.readFileSync({rpc_js}, 'utf8'));
 
-        const makeSteps = (n) => Array.from({{ length: n }}, (_, i) => ({{ stepIndex: i, type: "CORTEX_STEP_TYPE_USER_INPUT", content: "s" + i }}));
+        const makeSteps = (n) => Array.from({{ length: n }}, (_, i) => ({{
+            stepIndex: i,
+            type: i === 10 ? "CORTEX_STEP_TYPE_CHECKPOINT" : "CORTEX_STEP_TYPE_USER_INPUT",
+            content: "s" + i,
+            checkpoint: i === 10 ? {{ sessionSummary: "cp10" }} : undefined
+        }}));
         let streamFrames = [
             makeConnectFrame(0x00, {{ update: {{ conversationId: "convo-stream", mainTrajectoryUpdate: {{ stepsUpdate: {{ indices: Array.from({{ length: 25 }}, (_, i) => i), steps: makeSteps(25), totalLength: 25 }} }} }} }}),
             makeConnectFrame(0x02, {{}})
@@ -304,15 +317,24 @@ class TestPhase2HudLifecycle(unittest.TestCase):
         eval(fs.readFileSync({hud_js}, 'utf8'));
         const st = window.__agyis_hud_state;
         st.convoId = "convo-stream";
-        st.rootData = {{ conversation_id: "convo-stream", steps: makeSteps(20), epochs: [{{ epoch_index: 0, start_index: 0, end_index: 19 }}] }};
+        st.rootData = {{
+            conversation_id: "convo-stream",
+            steps: makeSteps(20),
+            checkpoints: [
+                {{ checkpoint_index: 0, start_index: 0, end_index: 9 }},
+                {{ checkpoint_index: 1, start_index: 10, end_index: 19 }}
+            ]
+        }};
         st.currentData = st.rootData;
 
-        // Historical inspection lock at step 5 (< 19)
-        st.selectedIndex = 5;
+        // Historical inspection lock at CHECKPOINT step 10 in Window 1
+        st.selectedIndex = 10;
+        st.activeCheckpointIndex = 1;
         window.__agyis_hud_start_stream("convo-stream");
         await new Promise(r => setTimeout(r, 15));
         global.__flushRaf();
         const historicalSelected = st.selectedIndex;
+        const historicalCheckpoint = st.activeCheckpointIndex;
 
         // Auto-follow when at latest step (24 of 25)
         st.selectedIndex = 24;
@@ -325,25 +347,28 @@ class TestPhase2HudLifecycle(unittest.TestCase):
         global.__flushRaf();
         const followSelected = st.selectedIndex;
 
-        console.log(JSON.stringify({{ historicalSelected, followSelected }}));
+        console.log(JSON.stringify({{ historicalSelected, historicalCheckpoint, followSelected }}));
         """)
-        self.assertEqual(res["historicalSelected"], 5)
+        self.assertEqual(res["historicalSelected"], 10)
+        self.assertEqual(res["historicalCheckpoint"], 1)
         self.assertEqual(res["followSelected"], 29)
 
     # --- F07: Subagent State Synchronization ---
 
     def test_t1_f07_01_to_05_subagent_click_updates_data_model_and_bounds(self) -> None:
-        """F07.01-F07.05: Real hud_header.js updates currentData, convoId, sessionModel, selectedIndex, or triggers load_convo."""
+        """F07.01-F07.05: Real hud_header.js updates currentData, convoId, sessionModel, selectedIndex, tablePage, or triggers load_convo."""
+        utils_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_utils.js")))
         header_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_header.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({utils_js}, 'utf8'));
         eval(fs.readFileSync({header_js}, 'utf8'));
 
         const subData = {{
             conversation_id: "subagent-1",
             model: "gemini-4-neon",
-            epochs: [{{ epoch_index: 0, start_index: 0, end_index: 3 }}],
-            steps: [{{ step: 0 }}, {{ step: 1 }}, {{ step: 2 }}, {{ step: 3 }}]
+            checkpoints: [{{ checkpoint_index: 0, start_index: 0, end_index: 54 }}],
+            steps: Array.from({{ length: 55 }}, (_, i) => ({{ step: i }}))
         }};
         const cur = {{
             conversation_id: "parent-root",
@@ -361,7 +386,9 @@ class TestPhase2HudLifecycle(unittest.TestCase):
             sessionModel: "claude-3-7-sonnet",
             currentData: cur,
             selectedIndex: 0,
-            activeEpochIndex: 0
+            activeCheckpointIndex: 0,
+            tablePage: 0,
+            timelinePage: 2
         }};
         window.__agyis_hud_state = state;
 
@@ -372,7 +399,9 @@ class TestPhase2HudLifecycle(unittest.TestCase):
             stateConvoId: state.convoId,
             sessionModel: state.sessionModel,
             selectedIndex: state.selectedIndex,
-            activeEpochIndex: state.activeEpochIndex
+            activeCheckpointIndex: state.activeCheckpointIndex,
+            tablePage: state.tablePage,
+            timelinePage: state.timelinePage
         }};
 
         let requestedUncached = null;
@@ -390,14 +419,17 @@ class TestPhase2HudLifecycle(unittest.TestCase):
         self.assertEqual(snap["currentConvoId"], "subagent-1")
         self.assertEqual(snap["stateConvoId"], "subagent-1")
         self.assertEqual(snap["sessionModel"], "gemini-4-neon")
-        self.assertEqual(snap["selectedIndex"], 3)
-        self.assertEqual(snap["activeEpochIndex"], 0)
+        self.assertEqual(snap["selectedIndex"], 54)
+        self.assertEqual(snap["activeCheckpointIndex"], 0)
+        self.assertEqual(snap["tablePage"], 1)
+        self.assertEqual(snap["timelinePage"], 0)
         self.assertEqual(res["requestedUncached"], "uncached-sub-789")
 
     # --- F08: Async Navigation Sequencing ---
 
     def test_t1_f08_01_to_05_async_navigation_sequence_guard(self) -> None:
         """F08.01-F08.05: Real hud.js __agyis_hud_load_convo discards superseded out-of-order responses and skips null IDs."""
+        utils_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_utils.js")))
         hud_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud.js")))
         res = self._run_node(f"""
         const fs = require('fs');
@@ -407,6 +439,7 @@ class TestPhase2HudLifecycle(unittest.TestCase):
             requested.push(id);
             return new Promise(resolve => {{ resolvers[id] = resolve; }});
         }};
+        eval(fs.readFileSync({utils_js}, 'utf8'));
         eval(fs.readFileSync({hud_js}, 'utf8'));
 
         // Null/empty convoId never triggers RPC fetch
@@ -465,10 +498,12 @@ class TestPhase2HudLifecycle(unittest.TestCase):
         self.assertEqual(res["toggles"], 1)
 
     def test_t2_b06_01_sparse_stream_step_indices(self) -> None:
-        """B06.01: Real StreamRenderCoordinator bounds sparse stepIndex=100 slice cleanly."""
+        """B06.01: Real StreamRenderCoordinator (hud_stream.js) bounds sparse stepIndex=100 slice cleanly."""
+        stream_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_stream.js")))
         rpc_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({stream_js}, 'utf8'));
         eval(fs.readFileSync({rpc_js}, 'utf8'));
         let seen = null;
         const coord = new window.StreamRenderCoordinator((st) => {{ seen = st; }});
@@ -491,13 +526,15 @@ class TestPhase2HudLifecycle(unittest.TestCase):
         self.assertEqual(res["total"], 101)
 
     def test_t3_c01_triage_streaming_concurrency(self) -> None:
-        """C01: Executes RemoteTriage.format_triage_markdown alongside real hud_rpc.js StreamRenderCoordinator."""
+        """C01: Executes RemoteTriage.format_triage_markdown alongside real hud_stream.js StreamRenderCoordinator."""
         md = RemoteTriage.format_triage_markdown("=== HOST ===\nLinux mesh-node 7.2\n", "mesh-node")
         self.assertIn("Host & Resources", md)
 
+        stream_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_stream.js")))
         rpc_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({stream_js}, 'utf8'));
         eval(fs.readFileSync({rpc_js}, 'utf8'));
         let seen = null;
         const coord = new window.StreamRenderCoordinator((st) => {{ seen = st; }});
@@ -514,11 +551,15 @@ class TestPhase2HudLifecycle(unittest.TestCase):
 
     def test_t3_c02_dropdown_switch_aborts_prior_stream(self) -> None:
         """C02: Switching conversation via real InSituConnectClient + hud.js aborts prior stream cleanly."""
+        utils_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_utils.js")))
+        stream_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_stream.js")))
         hud_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud.js")))
         rpc_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js")))
         header_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_header.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({utils_js}, 'utf8'));
+        eval(fs.readFileSync({stream_js}, 'utf8'));
         eval(fs.readFileSync({rpc_js}, 'utf8'));
         eval(fs.readFileSync({header_js}, 'utf8'));
         const signals = {{}};
@@ -550,11 +591,15 @@ class TestPhase2HudLifecycle(unittest.TestCase):
         self.assertEqual(res["activeConvo"], "convo-2")
 
     def test_t4_s02_titanium_500_step_trajectory_streaming(self) -> None:
-        """S02: Real hud_rpc.js + hud.js handles 550 streamed steps with checkpoint epochs and page lock."""
+        """S02: Real hud_rpc.js + hud.js handles 550 streamed steps with checkpoints and page lock."""
+        utils_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_utils.js")))
+        stream_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_stream.js")))
         hud_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud.js")))
         rpc_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({utils_js}, 'utf8'));
+        eval(fs.readFileSync({stream_js}, 'utf8'));
         eval(fs.readFileSync({rpc_js}, 'utf8'));
         eval(fs.readFileSync({hud_js}, 'utf8'));
 
@@ -577,12 +622,16 @@ class TestPhase2HudLifecycle(unittest.TestCase):
 
         console.log(JSON.stringify({{
             totalSteps: traj.steps.length,
+            checkpointCount: traj.checkpoints.length,
+            firstCpStart: traj.checkpoints[0].start_index,
             selectedIndex: state.selectedIndex,
             tablePage: state.tablePage,
             lastType: traj.steps[500].type
         }}));
         """)
         self.assertEqual(res["totalSteps"], 550)
+        self.assertEqual(res["checkpointCount"], 6)
+        self.assertEqual(res["firstCpStart"], 0)
         self.assertEqual(res["selectedIndex"], 50)
         self.assertEqual(res["tablePage"], 1)
         self.assertEqual(res["lastType"], "CHECKPOINT")

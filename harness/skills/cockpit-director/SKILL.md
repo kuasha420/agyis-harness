@@ -34,9 +34,9 @@ description: >-
 > In long-horizon pairing sessions, the primary cockpit context window is the most valuable and fragile asset in the cognitive topology. It exists strictly to maintain situational awareness, conduct human-in-the-loop steering, evaluate trade-offs, and dispatch autonomous subagent pipelines. It does not lay bricks, pour concrete, or swing hammers.
 
 ### The Empirical Context Horizon
-Modern `512k`/`1M` context runways pair proportional token budgeting with an 80-step soft epoch horizon (`SOFT_EPOCH_STEP_ADVISORY = 80`):
-- **🟢 Healthy Zone (<70% context and <80 epoch steps)**: Peak reasoning fidelity and low error rate.
-- **🟡 Amber Zone (~70%–89% context or >=80 epoch steps)**: Soft convergence advisory (`pre-invocation` / `completion-fence`); complete active stages and avoid sprawling new sweeps.
+Modern `512k`/`1M` context runways pair proportional token budgeting with an 80-step soft checkpoint horizon (`SOFT_CHECKPOINT_STEP_ADVISORY = 80`):
+- **🟢 Healthy Zone (<70% context and <80 checkpoint steps)**: Peak reasoning fidelity and low error rate.
+- **🟡 Amber Zone (~70%–89% context or >=80 checkpoint steps)**: Soft convergence advisory (`pre-invocation` / `completion-fence`); complete active stages and avoid sprawling new sweeps.
 - **🔴 Compaction Imminent (>=90% context or Spawns >=16)**: Generate checkpoint state immediately, hand off cleanly, and reset or rotate subagent contexts.
 
 Direct code edits, uncompacted terminal dumps, and raw test traces in root accelerate descent toward the context cliff. Track C enforces total separation between Flight Direction and Downstream Execution (see [Flight Control Topology & Workflow Diagrams](references/flight-control-diagrams.md)).
@@ -108,9 +108,9 @@ All stage handoffs along the execution pipeline must conform to the formal schem
 ## 5. Pillar 4: Compaction Lifecycle and Native Succession Protocol
 
 ### Context Proximity Thresholds (ADR-031A, PSL-INV-004)
-Scaled proportionally across `512k`/`1M` context windows (`SOFT_EPOCH_STEP_ADVISORY = 80`):
-1. **🟢 Healthy Zone (<70% tokens and <80 epoch steps)**: Normal autonomous operations and subagent dispatches.
-2. **🟡 Amber Zone (~70% – 89% tokens or >=80 epoch steps)**: Soft convergence advisory. Complete active stages; commit in-flight diffs cleanly.
+Scaled proportionally across `512k`/`1M` context windows (`SOFT_CHECKPOINT_STEP_ADVISORY = 80`):
+1. **🟢 Healthy Zone (<70% tokens and <80 checkpoint steps)**: Normal autonomous operations and subagent dispatches.
+2. **🟡 Amber Zone (~70% – 89% tokens or >=80 checkpoint steps)**: Soft convergence advisory. Complete active stages; commit in-flight diffs cleanly.
 3. **🔴 Compaction Imminent (>=90% tokens or Spawns >= 16)**: PreInvocation hook injects `systemMessage` advisory. Materialize working memory via `agyis checkpoint generate` (`harness.delivery.compaction_checkpoint`) to `.agents/artifacts/compaction_checkpoint_latest.md`. Prompt operator for `/compact` or invoke horizontal succession (`invoke_subagent` / `swarm` fork).
 
 ### Autonomous Post-Compaction Continuation Directive

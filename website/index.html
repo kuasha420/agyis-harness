@@ -234,12 +234,12 @@ State lost without CID succession checkpoint</code></pre>
           <li class="hook-entry">
             <p class="hook-meta"><code>PreToolUse</code> / <code>psl-token-proximity-guard</code></p>
             <h3>Monitor scaled 256k, 512k, and 1M context budgets</h3>
-            <p>Reads active-epoch token accumulation in read-only SQLite URI mode (honoring <code>ANTIGRAVITY_APP_DATA_DIR</code>) and scales alerts across Gemini 4 <code>gemini-4-neon</code> and <code>gemini-4-hydrogen</code> windows.</p>
+            <p>Reads active-checkpoint token accumulation in read-only SQLite URI mode (honoring <code>ANTIGRAVITY_APP_DATA_DIR</code>) and scales alerts across Gemini 4 <code>gemini-4-neon</code> and <code>gemini-4-hydrogen</code> windows.</p>
           </li>
           <li class="hook-entry">
             <p class="hook-meta"><code>PreInvocation</code> / <code>psl-compaction-advisory</code></p>
             <h3>Pin roles and save checkpoints before compaction</h3>
-            <p>Tracks the 80-step soft epoch horizon, writes CID-scoped checkpoints to <code>.agents/artifacts/checkpoints/</code> at 70% amber and 90% red thresholds, and emits nested <code>systemMessage</code> advisories.</p>
+            <p>Tracks the 80-step soft checkpoint horizon, writes CID-scoped checkpoints to <code>.agents/artifacts/checkpoints/</code> at 70% amber and 90% red thresholds, and emits nested <code>systemMessage</code> advisories.</p>
           </li>
         </ol>
       </div>

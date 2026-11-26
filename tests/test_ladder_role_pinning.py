@@ -11,7 +11,7 @@ Verifies:
 - Materialization, schema validation, reading, and clearing of .agents/session_role.json.
 - Pillar 3 explicit cognitive role resolution via check_pillar_3_explicit_role.
 - Turn 0 dual-anchor systemMessage injection (stage entry and post-compaction).
-- Intra-epoch periodic ephemeralMessage re-anchor advisories (turns 10, 20, 30).
+- Intra-checkpoint periodic ephemeralMessage re-anchor advisories (turns 10, 20, 30).
 - Native system slash commands bypassing role injection.
 - Hermetic execution under 0.20s benchmark latency SLA.
 """
@@ -351,8 +351,8 @@ class TestRolePinningDualAnchorAndReAnchor(unittest.TestCase):
                 self.assertIsInstance(inject_steps[0]["systemMessage"], dict)
                 self.assertIn("DEEP EXECUTION", inject_steps[0]["systemMessage"]["systemMessage"])
 
-    def test_intra_epoch_periodic_reanchors(self) -> None:
-        """Turns 10, 20, 30 inject intra-epoch ephemeralMessage re-anchor advisories."""
+    def test_intra_checkpoint_periodic_reanchors(self) -> None:
+        """Turns 10, 20, 30 inject intra-checkpoint ephemeralMessage re-anchor advisories."""
         for step in (10, 20, 30, 40):
             with self.subTest(step=step):
                 payload = {"step_count": step, "role": "deep_execution"}

@@ -143,10 +143,10 @@
     const getPromptPalette = () => (global.__agyis_theme && global.__agyis_theme.PROMPT_PALETTE) || {};
 
     /**
-     * Builds individual segments from protobuf token breakdown groups (Group 1 & 2) and epoch steps.
+     * Builds individual segments from protobuf token breakdown groups (Group 1 & 2) and checkpoint window steps.
      * Implements the Operator Directive for granular individual section and tool attributions.
      */
-    function extractGranularSegments(cur, state, steps, activeEpoch, epochSteps, maxTokens) {
+    function extractGranularSegments(cur, state, steps, activeCheckpoint, checkpointSteps, maxTokens) {
         const segments = [];
         const breakdown = cur.token_breakdown || {};
         const promptPalette = getPromptPalette();
@@ -223,25 +223,25 @@
             });
         }
 
-        // 3. Compaction Checkpoint Milestone (if epoch starts with or contains checkpoint)
-        const hasCpInEpoch = epochSteps.some(s => s.type === "CHECKPOINT");
-        const epochCpTok = (activeEpoch && activeEpoch.token_breakdown && activeEpoch.token_breakdown.checkpoint) || breakdown.checkpoint || 0;
-        if (!hasCpInEpoch && activeEpoch && activeEpoch.has_checkpoint && epochCpTok > 0) {
+        // 3. Compaction Checkpoint Milestone (if checkpoint window starts with or contains checkpoint)
+        const hasCpInWindow = checkpointSteps.some(s => s.type === "CHECKPOINT");
+        const windowCpTok = (activeCheckpoint && activeCheckpoint.token_breakdown && activeCheckpoint.token_breakdown.checkpoint) || breakdown.checkpoint || 0;
+        if (!hasCpInWindow && activeCheckpoint && activeCheckpoint.has_checkpoint && windowCpTok > 0) {
             segments.push({
                 id: "checkpoint-summary",
-                itemKey: `checkpoint-${activeEpoch.start_index}`,
+                itemKey: `checkpoint-${activeCheckpoint.start_index}`,
                 type: "checkpoint",
                 label: "Compaction Checkpoint",
-                tokens: epochCpTok,
+                tokens: windowCpTok,
                 color: "#2AD089",
                 colorKey: "bg-green-600",
-                tooltipContent: activeEpoch.summary || "Compacted Context Summary",
+                tooltipContent: activeCheckpoint.summary || "Compacted Context Summary",
             });
         }
 
-        // 4. Epoch Steps (User prompts, Model outputs, Tool calls)
-        epochSteps.forEach((s, offset) => {
-            const arrIdx = activeEpoch ? (activeEpoch.start_index + offset) : offset;
+        // 4. Checkpoint Window Steps (User prompts, Model outputs, Tool calls)
+        checkpointSteps.forEach((s, offset) => {
+            const arrIdx = activeCheckpoint ? (activeCheckpoint.start_index + offset) : offset;
             const displayIdx = s.step_index !== undefined ? s.step_index : arrIdx;
             const sTok = s.tokens || Math.round((s.size_bytes || 100) / 3.5);
             let segColor = "#1B4DFF";
@@ -283,8 +283,8 @@
         });
 
         // 5. Unattributed Overhead (Remains 0 in honest SSOT mode)
-        const unattrTok = Math.max(0, (activeEpoch && activeEpoch.unattributed !== undefined)
-            ? activeEpoch.unattributed
+        const unattrTok = Math.max(0, (activeCheckpoint && activeCheckpoint.unattributed !== undefined)
+            ? activeCheckpoint.unattributed
             : ((breakdown && breakdown.unattributed) || 0));
         if (unattrTok > 0) {
             segments.push({
@@ -306,15 +306,15 @@
      * Main context bar rendering function.
      * Computes normalized capacity t = (m/n)*p and runs Atc multi-row layout.
      */
-    function renderContextBar(cur, state, steps, activeEpoch, epochSteps, maxTokens, containerWidth) {
-        const segments = extractGranularSegments(cur, state, steps, activeEpoch, epochSteps, maxTokens);
+    function renderContextBar(cur, state, steps, activeCheckpoint, checkpointSteps, maxTokens, containerWidth) {
+        const segments = extractGranularSegments(cur, state, steps, activeCheckpoint, checkpointSteps, maxTokens);
         const rawSegmentsSum = segments.reduce((acc, seg) => acc + (seg.tokens || 0), 0);
-        const epochs = (cur && cur.epochs) || [];
-        const isLatestEpoch = (state.activeEpochIndex === -1 || state.activeEpochIndex === epochs.length - 1);
-        const selectedEpochTotal = (activeEpoch && activeEpoch.total_tokens !== undefined)
-            ? (activeEpoch.total_tokens || 0)
-            : (isLatestEpoch ? (cur.total_tokens || 0) : rawSegmentsSum);
-        const activeTokensSum = selectedEpochTotal > 0 ? selectedEpochTotal : rawSegmentsSum;
+        const checkpoints = (cur && cur.checkpoints) || [];
+        const isLatestCheckpoint = (state.activeCheckpointIndex === -1 || state.activeCheckpointIndex === checkpoints.length - 1);
+        const selectedCheckpointTotal = (activeCheckpoint && activeCheckpoint.total_tokens !== undefined)
+            ? (activeCheckpoint.total_tokens || 0)
+            : (isLatestCheckpoint ? (cur.total_tokens || 0) : rawSegmentsSum);
+        const activeTokensSum = selectedCheckpointTotal > 0 ? selectedCheckpointTotal : rawSegmentsSum;
         const totalTokens = activeTokensSum;
 
         const ROW_CAPACITY = Math.max(64000, Math.ceil(maxTokens / 4));
@@ -382,15 +382,15 @@
         const n = activeTokensSum;
         const rawFillPct = p > 0 ? (n / p) * 100 : 0;
         const clampedFillPct = Math.min(100, rawFillPct).toFixed(1);
-        const effProvisional = (activeEpoch && activeEpoch.is_provisional !== undefined) ? activeEpoch.is_provisional : (cur && cur.is_provisional);
-        const effCacheTokens = (activeEpoch && typeof activeEpoch.cache_tokens === "number") ? activeEpoch.cache_tokens : ((cur && cur.cache_tokens) || 0);
+        const effProvisional = (activeCheckpoint && activeCheckpoint.is_provisional !== undefined) ? activeCheckpoint.is_provisional : (cur && cur.is_provisional);
+        const effCacheTokens = (activeCheckpoint && typeof activeCheckpoint.cache_tokens === "number") ? activeCheckpoint.cache_tokens : ((cur && cur.cache_tokens) || 0);
         const estBadge = effProvisional ? ' <span class="agyis-hud-pill agyis-hud-pill-amber" title="Provisional estimate">~est</span>' : "";
         const burnRate = (cur && cur.burn_rate_tokens_per_min) || 0;
         const burnBadge = burnRate > 0 ? ` <span class="agyis-hud-pill agyis-hud-pill-teal">${burnRate.toFixed(0)} tok/m</span>` : "";
         const cacheHitBadge = effCacheTokens > 0 ? ` <span class="agyis-hud-pill agyis-hud-pill-green">Cache: ${(effCacheTokens / 1000).toFixed(1)}k</span>` : "";
 
-        const activeEpIdx = state.activeEpochIndex >= 0 ? state.activeEpochIndex : 0;
-        const activeEp = epochs[activeEpIdx] || activeEpoch || { start_index: 0, end_index: steps.length - 1 };
+        const activeCpIdx = state.activeCheckpointIndex >= 0 ? state.activeCheckpointIndex : 0;
+        const activeCp = checkpoints[activeCpIdx] || activeCheckpoint || { start_index: 0, end_index: steps.length - 1 };
 
         // Render rows HTML
         const trackHeight = rowCount <= 1 ? 24 : 14;
@@ -440,9 +440,9 @@
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 11px; font-weight: 700; color: #5C8AFF;">Context Window (${rowCount} row${rowCount > 1 ? "s" : ""})</span>
                         <div style="display: inline-flex; align-items: center; gap: 4px; background: #0B1322; border: 1px solid #1E2C47; border-radius: 6px; padding: 2px 6px;">
-                            <button id="agyis-epoch-prev" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${activeEpIdx <= 0 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>◀ Prev Epoch</button>
-                            <span style="font-size: 10px; font-family: var(--agyis-font-mono, monospace); color: #F4F6FA; padding: 0 4px;">Epoch ${activeEpIdx + 1} of ${Math.max(1, epochs.length)} (Steps #${activeEp.start_index}-#${activeEp.end_index})</span>
-                            <button id="agyis-epoch-next" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${activeEpIdx >= epochs.length - 1 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>Next Epoch ▶</button>
+                            <button id="agyis-checkpoint-prev" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${activeCpIdx <= 0 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>◀ Prev Checkpoint</button>
+                            <span style="font-size: 10px; font-family: var(--agyis-font-mono, monospace); color: #F4F6FA; padding: 0 4px;">Checkpoint ${activeCpIdx + 1} of ${Math.max(1, checkpoints.length)} (Steps #${activeCp.start_index}-#${activeCp.end_index})</span>
+                            <button id="agyis-checkpoint-next" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${activeCpIdx >= checkpoints.length - 1 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>Next Checkpoint ▶</button>
                         </div>
                     </div>
                     <div style="font-family: var(--agyis-font-mono, monospace); font-size: 11px; color: #9AA8BE; display: flex; align-items: center; gap: 6px;">
@@ -472,26 +472,26 @@
     /**
      * Binds mouse and click events for the context bar, including bidirectional hover syncing.
      */
-    function bindContextBarEvents(hudEl, state, cur, epochs, renderCallback, selectStepCallback) {
+    function bindContextBarEvents(hudEl, state, cur, checkpoints, renderCallback, selectStepCallback) {
         if (!hudEl) return;
 
-        // Epoch navigation
-        hudEl.querySelector("#agyis-epoch-prev")?.addEventListener("click", () => {
-            if (state.activeEpochIndex > 0) {
-                state.activeEpochIndex -= 1;
-                if (epochs[state.activeEpochIndex] && selectStepCallback) {
-                    selectStepCallback(epochs[state.activeEpochIndex].start_index);
+        // Checkpoint navigation
+        hudEl.querySelector("#agyis-checkpoint-prev")?.addEventListener("click", () => {
+            if (state.activeCheckpointIndex > 0) {
+                state.activeCheckpointIndex -= 1;
+                if (checkpoints[state.activeCheckpointIndex] && selectStepCallback) {
+                    selectStepCallback(checkpoints[state.activeCheckpointIndex].start_index, { preserveCheckpoint: true });
                 } else if (renderCallback) {
                     renderCallback();
                 }
             }
         });
 
-        hudEl.querySelector("#agyis-epoch-next")?.addEventListener("click", () => {
-            if (state.activeEpochIndex < epochs.length - 1) {
-                state.activeEpochIndex += 1;
-                if (epochs[state.activeEpochIndex] && selectStepCallback) {
-                    selectStepCallback(epochs[state.activeEpochIndex].start_index);
+        hudEl.querySelector("#agyis-checkpoint-next")?.addEventListener("click", () => {
+            if (state.activeCheckpointIndex < checkpoints.length - 1) {
+                state.activeCheckpointIndex += 1;
+                if (checkpoints[state.activeCheckpointIndex] && selectStepCallback) {
+                    selectStepCallback(checkpoints[state.activeCheckpointIndex].start_index, { preserveCheckpoint: true });
                 } else if (renderCallback) {
                     renderCallback();
                 }
@@ -538,7 +538,7 @@
                 if (stepIdxAttr !== null && stepIdxAttr !== undefined && stepIdxAttr !== "") {
                     const sIdx = parseInt(stepIdxAttr, 10);
                     if (!isNaN(sIdx) && selectStepCallback) {
-                        selectStepCallback(sIdx);
+                        selectStepCallback(sIdx, { preserveCheckpoint: true });
                     }
                 }
             });

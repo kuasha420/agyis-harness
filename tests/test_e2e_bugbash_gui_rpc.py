@@ -161,9 +161,11 @@ class TestBugBashGuiRpcAndCdp(unittest.TestCase):
 
     def test_t1_f12_01_02_04_05_connect_client_framing_csrf_and_stream(self) -> None:
         """F12.1, F12.2, F12.4, F12.5: Executes real InSituConnectClient Connect framing, CSRF header, and streaming."""
+        stream_path = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_stream.js")))
         rpc_path = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({stream_path}, 'utf8'));
         eval(fs.readFileSync({rpc_path}, 'utf8'));
 
         let capturedUrl = null;
@@ -213,9 +215,11 @@ class TestBugBashGuiRpcAndCdp(unittest.TestCase):
 
     def test_t1_f12_03_stream_render_coordinator_raf_batching(self) -> None:
         """F12.3: Real StreamRenderCoordinator coalesces synchronous bursts into a single RAF callback."""
+        stream_path = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_stream.js")))
         rpc_path = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({stream_path}, 'utf8'));
         eval(fs.readFileSync({rpc_path}, 'utf8'));
 
         let renderCalls = 0;
@@ -239,10 +243,12 @@ class TestBugBashGuiRpcAndCdp(unittest.TestCase):
         self.assertEqual(res["lastStepCount"], 5)
 
     def test_t2_f12_01_to_05_connect_boundaries(self) -> None:
-        """F12.B1-B5: Real hud_rpc.js handles 100KB Connect frame, AbortController cancel, null delta, burst, empty CSRF."""
+        """F12.B1-B5: Real hud_stream.js + hud_rpc.js handles 100KB Connect frame, AbortController cancel, null delta, burst, empty CSRF."""
+        stream_path = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_stream.js")))
         rpc_path = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({stream_path}, 'utf8'));
         eval(fs.readFileSync({rpc_path}, 'utf8'));
 
         // B5: Missing CSRF omits header
@@ -409,12 +415,14 @@ class TestBugBashGuiRpcAndCdp(unittest.TestCase):
     def test_t3_c10_subagent_detection_and_connectrpc_stream(self) -> None:
         """C10 (F11 x F12): Real detectActiveConversationContext feeds subagent ID into InSituConnectClient."""
         hotkey_path = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hotkey.js")))
+        stream_path = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_stream.js")))
         rpc_path = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_rpc.js")))
         subagent_id = "22222222-2222-2222-2222-222222222222"
         res = self._run_node(f"""
         const fs = require('fs');
         window.location = {{ origin: "https://127.0.0.1:40623", pathname: "/c/parent-1", search: "?tab=subagent_convo__{subagent_id}" }};
         eval(fs.readFileSync({hotkey_path}, 'utf8'));
+        eval(fs.readFileSync({stream_path}, 'utf8'));
         eval(fs.readFileSync({rpc_path}, 'utf8'));
 
         const activeSub = window.detectActiveConversationContext();

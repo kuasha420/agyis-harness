@@ -94,7 +94,8 @@
         const q = (state.filterQuery || "").trim().toLowerCase();
         const steps = (cur && cur.steps) || [];
         const matchCount = state.searchMatchIndices ? state.searchMatchIndices.length : 0;
-        const matchDisplay = q ? `${matchCount > 0 ? (state.currentMatchIdx || 0) + 1 : 0}/${matchCount}` : `${steps.length}/${steps.length}`;
+        const hasActiveMatch = typeof state.currentMatchIdx === "number" && state.currentMatchIdx >= 0 && state.currentMatchIdx < matchCount;
+        const matchDisplay = q ? (matchCount === 0 ? "0/0" : `${hasActiveMatch ? state.currentMatchIdx + 1 : "-"}/${matchCount}`) : `${steps.length}/${steps.length}`;
 
         const isSide = (state.layoutOrientation || "horizontal") === "horizontal" || state.layoutOrientation === "side";
         const isStack = state.layoutOrientation === "vertical" || state.layoutOrientation === "stack";
@@ -168,7 +169,8 @@
             if (targetId && typeof window.__agyis_hud_load_convo === "function") {
                 const btn = hudEl.querySelector("#agyis-refresh-btn");
                 if (btn) btn.innerHTML = `${svgIcon("refresh")} ...`;
-                Promise.resolve(window.__agyis_hud_load_convo(targetId)).finally(() => {
+                const preserve = Boolean(state.convoId && targetId === state.convoId);
+                Promise.resolve(window.__agyis_hud_load_convo(targetId, { preserveCursor: preserve })).finally(() => {
                     if (btn) btn.innerHTML = `${svgIcon("refresh")} Refresh`;
                 });
             }
@@ -216,23 +218,32 @@
                 const arrow = hudEl.querySelector("#agyis-subagents-dropdown-toggle .agyis-subagents-arrow, #agyis-subagents-dropdown-toggle span:last-child");
                 if (arrow) arrow.style.transform = "rotate(0deg)";
 
-                const applySubSnapshot = (subData) => {
-                    state.currentData = subData;
-                    state.convoId = sid || subData.conversation_id || state.convoId;
-                    if (subData.model) state.sessionModel = subData.model;
-                    const epochs = subData.epochs || [];
-                    state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
-                    state.selectedIndex = Math.max(0, (subData.steps || []).length - 1);
+                const applySnapshotState = (targetData, fallbackCid) => {
+                    state.currentData = targetData;
+                    state.convoId = fallbackCid || targetData.conversation_id || targetData.id || state.convoId;
+                    if (targetData.model) state.sessionModel = targetData.model;
+                    if (typeof window.__agyis_hud_sync === "function") {
+                        window.__agyis_hud_sync(state);
+                    } else if (global.__agyis_utils && typeof global.__agyis_utils.syncToLatestState === "function") {
+                        global.__agyis_utils.syncToLatestState(state);
+                    } else {
+                        const checkpoints = targetData.checkpoints || [];
+                        const steps = targetData.steps || [];
+                        state.activeCheckpointIndex = checkpoints.length > 0 ? checkpoints.length - 1 : -1;
+                        state.selectedIndex = Math.max(0, steps.length - 1);
+                        state.tablePage = Math.max(0, Math.ceil(steps.length / (state.pageSize || 50)) - 1);
+                        state.timelinePage = Math.max(0, Math.ceil(steps.length / 200) - 1);
+                    }
                     if (renderCallback) renderCallback();
                 };
 
                 const subTraj = cur && cur.subagent_trajectories ? cur.subagent_trajectories[sid] : null;
                 if (sid && typeof window.__agyis_hud_load_convo === "function") {
                     Promise.resolve(window.__agyis_hud_load_convo(sid)).then((loaded) => {
-                        if (!loaded && subTraj) applySubSnapshot(subTraj);
+                        if (!loaded && subTraj) applySnapshotState(subTraj, sid);
                     });
                 } else if (subTraj) {
-                    applySubSnapshot(subTraj);
+                    applySnapshotState(subTraj, sid);
                 }
             });
         });
@@ -245,53 +256,91 @@
                 state.currentData = state.rootData;
                 state.convoId = state.rootData.conversation_id || state.rootData.id || state.convoId;
                 if (state.rootData.model) state.sessionModel = state.rootData.model;
-                const epochs = state.rootData.epochs || [];
-                state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
-                state.selectedIndex = Math.max(0, (state.rootData.steps || []).length - 1);
+                if (typeof window.__agyis_hud_sync === "function") {
+                    window.__agyis_hud_sync(state);
+                } else if (global.__agyis_utils && typeof global.__agyis_utils.syncToLatestState === "function") {
+                    global.__agyis_utils.syncToLatestState(state);
+                } else {
+                    const checkpoints = state.rootData.checkpoints || [];
+                    const steps = state.rootData.steps || [];
+                    state.activeCheckpointIndex = checkpoints.length > 0 ? checkpoints.length - 1 : -1;
+                    state.selectedIndex = Math.max(0, steps.length - 1);
+                    state.tablePage = Math.max(0, Math.ceil(steps.length / (state.pageSize || 50)) - 1);
+                    state.timelinePage = Math.max(0, Math.ceil(steps.length / 200) - 1);
+                }
                 if (renderCallback) renderCallback();
             }
         });
 
-        // Debounced search input
-        let searchDebounceTimer = null;
+        // Debounced search input (stores timer on state.searchDebounceTimer and preserves caret)
         hudEl.querySelector("#agyis-search-input")?.addEventListener("input", (e) => {
             const val = e.target.value;
-            clearTimeout(searchDebounceTimer);
-            searchDebounceTimer = setTimeout(() => {
+            const selStart = typeof e.target.selectionStart === "number" ? e.target.selectionStart : val.length;
+            const selEnd = typeof e.target.selectionEnd === "number" ? e.target.selectionEnd : val.length;
+            if (state.searchDebounceTimer) clearTimeout(state.searchDebounceTimer);
+            state.searchDebounceTimer = setTimeout(() => {
+                state.searchDebounceTimer = null;
                 state.filterQuery = val;
-                state.currentMatchIdx = 0;
-                state.tablePage = 0;
+                state.currentMatchIdx = -1;
+                const curSteps = (cur && cur.steps) || [];
+                const utils = global.__agyis_utils || {};
+                const nextFiltered = typeof utils.computeFilteredIndices === "function"
+                    ? utils.computeFilteredIndices(curSteps, val)
+                    : [];
+                const pageSize = state.pageSize || 50;
+                const matchPos = nextFiltered.indexOf(state.selectedIndex);
+                state.tablePage = matchPos >= 0 ? Math.floor(matchPos / pageSize) : 0;
                 if (renderCallback) renderCallback();
                 const inputEl = hudEl.querySelector("#agyis-search-input");
-                if (inputEl) {
+                if (inputEl && (typeof document === "undefined" || document.activeElement !== inputEl) && typeof inputEl.focus === "function") {
                     inputEl.focus();
-                    inputEl.setSelectionRange(val.length, val.length);
+                    if (typeof inputEl.setSelectionRange === "function") {
+                        inputEl.setSelectionRange(selStart, selEnd);
+                    }
                 }
             }, 150);
         });
 
-        // Search keyboard navigation (Enter: Next match, Shift+Enter: Prev match, Esc: Clear)
+        // Search keyboard navigation (Enter: Next match starting at 0, Shift+Enter: Prev match, Esc: Clear)
         hudEl.querySelector("#agyis-search-input")?.addEventListener("keydown", (e) => {
             if (e.key === "Enter" && state.searchMatchIndices && state.searchMatchIndices.length > 0) {
                 e.preventDefault();
                 const len = state.searchMatchIndices.length;
-                state.currentMatchIdx = e.shiftKey
-                    ? ((state.currentMatchIdx || 0) - 1 + len) % len
-                    : ((state.currentMatchIdx || 0) + 1) % len;
+                const curMatch = typeof state.currentMatchIdx === "number" ? state.currentMatchIdx : -1;
+                if (curMatch < 0 || curMatch >= len) {
+                    state.currentMatchIdx = e.shiftKey ? (len - 1) : 0;
+                } else {
+                    state.currentMatchIdx = e.shiftKey
+                        ? (curMatch - 1 + len) % len
+                        : (curMatch + 1) % len;
+                }
                 if (selectStepCallback) {
                     selectStepCallback(state.searchMatchIndices[state.currentMatchIdx]);
                 }
             } else if (e.key === "Escape") {
+                if (state.searchDebounceTimer) {
+                    clearTimeout(state.searchDebounceTimer);
+                    state.searchDebounceTimer = null;
+                }
+                if (e.target && typeof e.target.value === "string") e.target.value = "";
                 state.filterQuery = "";
-                state.tablePage = 0;
+                state.currentMatchIdx = -1;
+                state.tablePage = Math.floor(Math.max(0, state.selectedIndex || 0) / (state.pageSize || 50));
                 if (renderCallback) renderCallback();
             }
         });
 
         // Clear search button
         hudEl.querySelector("#agyis-search-clear")?.addEventListener("click", () => {
+            if (state.searchDebounceTimer) {
+                clearTimeout(state.searchDebounceTimer);
+                state.searchDebounceTimer = null;
+            }
+            const inputEl = hudEl.querySelector("#agyis-search-input");
+            if (inputEl && typeof inputEl.value === "string") inputEl.value = "";
             state.filterQuery = "";
-            state.tablePage = 0;
+            state.currentMatchIdx = -1;
+            state.tablePage = Math.floor(Math.max(0, state.selectedIndex || 0) / (state.pageSize || 50));
             if (renderCallback) renderCallback();
         });
     }

@@ -5,7 +5,7 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-HUD JS dynamic context, epoch partitioning, and Antigravity v2.34.0 GUI compatibility tests.
+HUD JS dynamic context, checkpoint partitioning, and Antigravity v2.34.0 GUI compatibility tests.
 Split from test_gui.py for sub-second ADR-015 verification.
 """
 
@@ -29,10 +29,10 @@ from harness.gui.trajectory_hud import (
 )
 
 
-class TestHudJsDynamicContextAndEpochs(unittest.TestCase):
-    """Track 6: End-to-end Node.js evaluation of hud.js epoch boundaries and dynamic context capacity."""
+class TestHudJsDynamicContextAndCheckpoints(unittest.TestCase):
+    """Track 6: End-to-end Node.js evaluation of hud.js checkpoint boundaries and dynamic context capacity."""
 
-    def test_hud_js_epoch_splitting_nested_cwm_and_dynamic_rows_in_node(self) -> None:
+    def test_hud_js_checkpoint_splitting_nested_cwm_and_dynamic_rows_in_node(self) -> None:
         import shutil
         import subprocess
 
@@ -138,7 +138,7 @@ async function fetch(url, opts) {
 
         harness_suffix = """
 (async () => {
-    // Scenario 1: 512k model with chatStartMetadata.checkpointIndex back-references (must NOT split epochs)
+    // Scenario 1: 512k model with chatStartMetadata.checkpointIndex back-references (must NOT split checkpoints)
     mockScenario = {
         steps: [
             { type: "CORTEX_STEP_TYPE_USER_INPUT", userInput: { userResponse: "Fix context window" } },
@@ -192,16 +192,16 @@ async function fetch(url, opts) {
     };
     const data1m = await window.__agyis_hud_load_convo("convo-1m");
     const html1m = hudContainer.innerHTML;
-    // Switch back to historical Epoch 0: must render Epoch 0's own ~20k tokens / 1 row, NOT Epoch 1's 800k / unattributed
-    window.__agyis_hud_state.activeEpochIndex = 0;
+    // Switch back to historical Checkpoint 0: must render Checkpoint 0's own ~20k tokens / 1 row, NOT Checkpoint 1's 800k / unattributed
+    window.__agyis_hud_state.activeCheckpointIndex = 0;
     window.__agyis_hud_render();
-    const html1mEp0 = hudContainer.innerHTML;
-    window.__agyis_hud_state.activeEpochIndex = 1;
+    const html1mCp0 = hudContainer.innerHTML;
+    window.__agyis_hud_state.activeCheckpointIndex = 1;
     window.__agyis_hud_state.mainDeckTab = "timeline";
     window.__agyis_hud_render();
     const timelineHtml1m = hudContainer.innerHTML;
 
-    // Scenario 3: Small estimatedTokensUsed (< activeEpochTokens + 7000) keeps total_tokens == sum(token_breakdown)
+    // Scenario 3: Small estimatedTokensUsed (< activeCheckpointTokens + 7000) keeps total_tokens == sum(token_breakdown)
     mockScenario = {
         steps: [
             { type: "CORTEX_STEP_TYPE_USER_INPUT", content: "A".repeat(35000) },
@@ -294,11 +294,11 @@ async function fetch(url, opts) {
             { type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE", plannerResponse: { response: "Analyzing <summary> tag in markdown" } },
             {
                 type: "CORTEX_STEP_TYPE_CHECKPOINT",
-                checkpoint: { sessionSummary: "Real epoch boundary checkpoint" },
+                checkpoint: { sessionSummary: "Real checkpoint boundary" },
             },
             {
                 type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
-                plannerResponse: { response: "Epoch 2 resumed step" },
+                plannerResponse: { response: "Checkpoint 2 resumed step" },
                 metadata: { modelUsage: { inputTokens: 8000, cacheReadTokens: 48000 } },
             },
         ],
@@ -311,27 +311,28 @@ async function fetch(url, opts) {
     };
     window.__agyis_hud_state.filterQuery = "";
     window.__agyis_hud_state.mainDeckTab = "context";
-    const dataS6 = await window.__agyis_hud_load_convo("convo-s6-epoch-and-tools");
+    const dataS6 = await window.__agyis_hud_load_convo("convo-s6-cp-and-tools");
     window.__agyis_hud_render();
-    const htmlS6Ep1 = hudContainer.innerHTML;
-    window.__agyis_hud_state.activeEpochIndex = 0;
+    const htmlS6Cp1 = hudContainer.innerHTML;
+    window.__agyis_hud_state.activeCheckpointIndex = 0;
     window.__agyis_hud_render();
-    const htmlS6Ep0 = hudContainer.innerHTML;
+    const htmlS6Cp0 = hudContainer.innerHTML;
 
     console.log(JSON.stringify({
-        s1_epochs: data512.epochs.length,
-        s1_has_cp: data512.epochs[0].has_checkpoint,
+        s1_checkpoints: data512.checkpoints.length,
+        s1_has_cp: data512.checkpoints[0].has_checkpoint,
         s1_max_ctx: data512.max_context_tokens,
         s1_total_tok: data512.total_tokens,
         s1_html: html512,
         s1_timeline: timelineHtml512,
-        s2_epochs: data1m.epochs.length,
+        s2_checkpoints: data1m.checkpoints.length,
+        s2_cp_ranges: data1m.checkpoints.map(c => [c.start_index, c.end_index, c.has_checkpoint]),
         s2_max_ctx: data1m.max_context_tokens,
         s2_total_tok: data1m.total_tokens,
         s2_user_tok: data1m.token_breakdown.user,
         s2_breakdown_sum: Object.values(data1m.token_breakdown || {}).reduce((a, b) => a + b, 0),
         s2_html: html1m,
-        s2_ep0_html: html1mEp0,
+        s2_cp0_html: html1mCp0,
         s2_timeline: timelineHtml1m,
         s3_total_tok: dataSmall.total_tokens,
         s3_breakdown_sum: Object.values(dataSmall.token_breakdown || {}).reduce((a, b) => a + b, 0),
@@ -344,14 +345,15 @@ async function fetch(url, opts) {
         s5_loads: loadCalls,
         s5_subagents: s5Subagents,
         s5_html: htmlEscaped,
-        s6_epochs: dataS6.epochs.length,
+        s6_checkpoints: dataS6.checkpoints.length,
+        s6_cp_ranges: dataS6.checkpoints.map(c => [c.start_index, c.end_index, c.has_checkpoint]),
         s6_view_tok: (dataS6.steps[1] && dataS6.steps[1].tokens) || 0,
         s6_cmd_tok: (dataS6.steps[2] && dataS6.steps[2].tokens) || 0,
-        s6_ep1_cache: dataS6.epochs[1] ? dataS6.epochs[1].cache_tokens : -1,
+        s6_cp1_cache: dataS6.checkpoints[1] ? dataS6.checkpoints[1].cache_tokens : -1,
         s6_total_tok: dataS6.total_tokens,
         s6_max_ctx: dataS6.max_context_tokens,
-        s6_ep0_html: htmlS6Ep0,
-        s6_ep1_html: htmlS6Ep1,
+        s6_cp0_html: htmlS6Cp0,
+        s6_cp1_html: htmlS6Cp1,
     }));
 })();
 """
@@ -365,7 +367,7 @@ async function fetch(url, opts) {
         out = json.loads(res.stdout.strip())
 
         # Scenario 1 assertions (374,475 / 512,000 -> ceil(374475 / 128000) = 3 rows: 0k, 128k, 256k)
-        self.assertEqual(out["s1_epochs"], 1, "chatStartMetadata.checkpointIndex must NOT split epochs")
+        self.assertEqual(out["s1_checkpoints"], 1, "chatStartMetadata.checkpointIndex must NOT split checkpoints")
         self.assertFalse(out["s1_has_cp"])
         self.assertEqual(out["s1_max_ctx"], 512000)
         self.assertEqual(out["s1_total_tok"], 374475)
@@ -378,11 +380,12 @@ async function fetch(url, opts) {
         self.assertNotIn("/ 384,000 tokens", out["s1_html"])
 
         # Scenario 2 assertions (800,000 / 1,000,000 -> ceil(800000 / 250000) = 4 rows: 0k, 250k, 500k, 750k)
-        self.assertEqual(out["s2_epochs"], 2)
+        self.assertEqual(out["s2_checkpoints"], 2)
+        self.assertEqual(out["s2_cp_ranges"], [[0, 0, False], [1, 3, True]])
         self.assertEqual(out["s2_max_ctx"], 1000000)
         self.assertEqual(out["s2_total_tok"], 800000)
-        # Pre-checkpoint step had 20,000 tokens ("A"*70000 / 3.5); active epoch user step ("Continue") is ~2 tokens
-        self.assertLess(out["s2_user_tok"], 100, "Pre-checkpoint user tokens must NOT inflate active epoch breakdown")
+        # Pre-checkpoint step had 20,000 tokens ("A"*70000 / 3.5); active checkpoint user step ("Continue") is ~2 tokens
+        self.assertLess(out["s2_user_tok"], 100, "Pre-checkpoint user tokens must NOT inflate active checkpoint breakdown")
         self.assertEqual(out["s2_breakdown_sum"], 800000)
         for label in ("0k", "250k", "500k", "750k"):
             self.assertIn(f">{label}</span>", out["s2_html"])
@@ -402,11 +405,11 @@ async function fetch(url, opts) {
         self.assertIn("100.0% over", out["s4_html"])
         self.assertIn("Cache: 280.0k", out["s4_html"])
 
-        # Historical Epoch 0 assertions: must use Epoch 0's ~20k measured tokens and 1 row, NOT Epoch 1's 800k/Unattributed
-        self.assertIn("Epoch 1 of 2", out["s2_ep0_html"])
-        self.assertIn("Context Window (1 row)", out["s2_ep0_html"])
-        self.assertNotIn("800,000", out["s2_ep0_html"])
-        self.assertNotIn("Unattributed Overhead", out["s2_ep0_html"])
+        # Historical Checkpoint 0 assertions: must use Window 0's ~20k measured tokens and 1 row, NOT Window 1's 800k/Unattributed
+        self.assertIn("Checkpoint 1 of 2", out["s2_cp0_html"])
+        self.assertIn("Context Window (1 row)", out["s2_cp0_html"])
+        self.assertNotIn("800,000", out["s2_cp0_html"])
+        self.assertNotIn("Unattributed Overhead", out["s2_cp0_html"])
 
         # Scenario 5 assertions: SPA routechange/popstate, subagent UUID filtering, HTML escaping
         self.assertIn("route_test_1", out["s5_loads"])
@@ -418,18 +421,19 @@ async function fetch(url, opts) {
         self.assertIn("&lt;img src=x", out["s5_html"])
 
         # Scenario 6 assertions (#107.1, #108.2, #108.4, #108.5)
-        self.assertEqual(out["s6_epochs"], 2, "Fake <summary>/<CONTEXT_SUMMARY> inside non-checkpoint steps must NOT split epochs")
+        self.assertEqual(out["s6_checkpoints"], 2, "Fake <summary>/<CONTEXT_SUMMARY> inside non-checkpoint steps must NOT split checkpoints")
+        self.assertEqual(out["s6_cp_ranges"], [[0, 3, False], [4, 5, True]])
         self.assertGreater(out["s6_view_tok"], 1500, "viewFile.content chars must be included in stepTok before breakdown")
         self.assertGreater(out["s6_cmd_tok"], 1500, "runCommand.combinedOutput.full chars must be included in stepTok before breakdown")
-        self.assertEqual(out["s6_ep1_cache"], 48000)
+        self.assertEqual(out["s6_cp1_cache"], 48000)
         self.assertEqual(out["s6_total_tok"], 56000)
         self.assertEqual(out["s6_max_ctx"], 512000)
-        # Historical Epoch 0 vs Authoritative Epoch 1 header badges (#108.4)
-        self.assertIn("~est", out["s6_ep0_html"])
-        self.assertNotIn("Cache: 48.0k", out["s6_ep0_html"])
-        self.assertNotIn("~est", out["s6_ep1_html"])
-        self.assertIn("Cache: 48.0k", out["s6_ep1_html"])
-        self.assertIn("Active Context: <b style=\"color: #26D0CE;\">56,000</b>", out["s6_ep1_html"])
+        # Historical Window 0 vs Authoritative Window 1 header badges (#108.4)
+        self.assertIn("~est", out["s6_cp0_html"])
+        self.assertNotIn("Cache: 48.0k", out["s6_cp0_html"])
+        self.assertNotIn("~est", out["s6_cp1_html"])
+        self.assertIn("Cache: 48.0k", out["s6_cp1_html"])
+        self.assertIn("Active Context: <b style=\"color: #26D0CE;\">56,000</b>", out["s6_cp1_html"])
 
     def test_extract_hud_focused_convo_id_precedence_in_node(self) -> None:
         import importlib.resources
@@ -581,6 +585,7 @@ console.log("PASS");
             self.skipTest("node binary unavailable")
 
         assets = importlib.resources.files("harness.gui.assets")
+        hud_stream_js = assets.joinpath("hud_stream.js").read_text(encoding="utf-8")
         hud_rpc_js = assets.joinpath("hud_rpc.js").read_text(encoding="utf-8")
 
         node_script = """
@@ -588,7 +593,7 @@ global.window = {
     location: { protocol: "https:", hostname: "127.0.0.1", port: "33315", origin: "https://127.0.0.1:33315" },
     __APP_CONFIG__: { csrfToken: "csrf-test" },
 };
-""" + hud_rpc_js + """
+""" + hud_stream_js + "\n" + hud_rpc_js + """
 const client1 = new window.InSituConnectClient();
 if (client1.port !== 33315) {
     console.error("FAIL: client1.port expected 33315, got " + client1.port);
@@ -627,6 +632,7 @@ console.log("PASS");
             self.skipTest("node binary unavailable")
 
         assets = importlib.resources.files("harness.gui.assets")
+        hud_stream_js = assets.joinpath("hud_stream.js").read_text(encoding="utf-8")
         hud_rpc_js = assets.joinpath("hud_rpc.js").read_text(encoding="utf-8")
 
         node_script = """
@@ -636,7 +642,7 @@ global.requestAnimationFrame = function(cb) {
     return rafCallbacks.length;
 };
 global.window = {};
-""" + hud_rpc_js + """
+""" + hud_stream_js + "\n" + hud_rpc_js + """
 let renderCallCount = 0;
 let lastRenderedState = null;
 const coordinator = new window.StreamRenderCoordinator((state, dirty) => {
@@ -761,11 +767,17 @@ class TestV234GuiAndHudCompatibility(unittest.TestCase):
     def test_hud_js_assets_v234_contracts(self) -> None:
         from harness.commands.gui import _load_gui_asset
 
+        stream_js = _load_gui_asset("hud_stream.js")
+        self.assertIn("agy_session_csrf_token", stream_js)
+        self.assertIn("update.contextWindowUsage", stream_js)
+
+        utils_js = _load_gui_asset("hud_utils.js")
+        self.assertIn("resolveCheckpointForStep", utils_js)
+        self.assertIn("bindHudKeyboardNav", utils_js)
+
         rpc_js = _load_gui_asset("hud_rpc.js")
-        self.assertIn("agy_session_csrf_token", rpc_js)
         self.assertIn("trajectoryVerbosity: 3", rpc_js)
         self.assertIn("execJson.executorMetadata", rpc_js)
-        self.assertIn("update.contextWindowUsage", rpc_js)
         self.assertIn("cwm.maxContextTokens", rpc_js)
         self.assertIn("gType === 8 || gType === 9 || gType === 10", rpc_js)
         self.assertIn('"GENERIC"', rpc_js)

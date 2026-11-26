@@ -6,8 +6,8 @@
 """
 Unified Antigravity Trajectory, Telemetry, and Context SSOT Engine (ADR-035).
 
-Consolidates protobuf decoding, read-only SQLite inspection, compaction epoch
-splitting, active-epoch burn rate velocity, streaming transcript parsing,
+Consolidates protobuf decoding, read-only SQLite inspection, compaction checkpoint
+splitting, active-checkpoint burn rate velocity, streaming transcript parsing,
 per-conversation subagent lineage discovery, and honest token attribution.
 """
 
@@ -27,7 +27,7 @@ from harness.trajectory.health import (
     ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR,
     ROLE_SWARM_ORCHESTRATOR,
-    SOFT_EPOCH_STEP_ADVISORY,
+    SOFT_CHECKPOINT_STEP_ADVISORY,
     SUBAGENT_ELEVATED_PCT,
     SUBAGENT_HIGH_PCT,
     SubagentContextStatus,
@@ -63,7 +63,7 @@ from harness.trajectory.sqlite_reader import (
     parse_step_timestamp,
     read_db_trajectory_state,
     record_locked_conversation,
-    resolve_epoch_step_count,
+    resolve_checkpoint_step_count,
     unlock_conversation,
 )
 from harness.trajectory.transcript_reader import (
@@ -92,7 +92,7 @@ __all__ = [
     "ROLE_FLIGHT_DIRECTOR",
     "ROLE_FORENSIC_AUDITOR",
     "ROLE_SWARM_ORCHESTRATOR",
-    "SOFT_EPOCH_STEP_ADVISORY",
+    "SOFT_CHECKPOINT_STEP_ADVISORY",
     "SUBAGENT_ELEVATED_PCT",
     "SUBAGENT_HIGH_PCT",
     "SubagentContextStatus",
@@ -131,6 +131,6 @@ __all__ = [
     "read_conversation_lineage",
     "read_db_trajectory_state",
     "record_locked_conversation",
-    "resolve_epoch_step_count",
+    "resolve_checkpoint_step_count",
     "unlock_conversation",
 ]

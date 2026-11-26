@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Wave 1.4 — Bug Fixes & Standardization
+- fix(gui,hud): stabilize Trajectory HUD `CHECKPOINT` selection via Option B disjoint checkpoint window partitioning (`0..c0-1`, `c_k..c_{k+1}-1`), `resolveCheckpointForStep` reverse-scan preservation, `hud_stream.js` & `hud_utils.js` modular extraction, unified search/filter/scroll preservation, and `:40624` playback parity
+- refactor(checkpoint): standardize trajectory, hook, subagent, rule, skill, agent, documentation, and landing-page terminology from `epoch` to `checkpoint` (`SOFT_CHECKPOINT_STEP_ADVISORY = 80`, `[AGYIS CHECKPOINT HORIZON ADVISORY]`, `[CHECKPOINT HORIZON]`, `checkpoints` / `checkpoint_index` / `checkpoint_steps`, and `compaction_checkpoint_<ts>.md`), preserving Unix wall-clock timestamps and historical backwards-compatibility read fallbacks
+
 ---
 
 ## [1.0.0] - 2026-11-25

@@ -7,7 +7,7 @@
 Zero-Token Subagent Context Estimator & Health Gauge (ADR-025, Issue #109, #111).
 
 Thin subagent-domain adapter backed by `harness.trajectory`:
-- Uses active-epoch SQLite UsageMetadata / structured JSONL steps (no `file_size // 4`).
+- Uses active-checkpoint SQLite UsageMetadata / structured JSONL steps (no `file_size // 4`).
 - Grades health by model context window percentage (<65% HEALTHY, 65-80% AMBER, >=80% RED_ALERT).
 - Filters child subagents strictly by active parent conversation ID and non-completed status.
 """
@@ -93,7 +93,7 @@ def estimate_subagent_context(
     max_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
     db_dir: Optional[Path] = None,
 ) -> SubagentContextStatus:
-    """Estimate active-epoch context consumption and health gauge with zero LLM tokens."""
+    """Estimate active-checkpoint context consumption and health gauge with zero LLM tokens."""
     t0 = time.perf_counter()
     p = Path(transcript_path)
     if not p.is_file():
@@ -154,7 +154,7 @@ def estimate_subagent_context(
     final_id = detected_id or candidate_id
     db_metrics = read_db_trajectory_state(final_id, db_dir=db_dir) if final_id and final_id != "unknown" else None
     eff_window = (db_metrics.max_context_tokens if db_metrics and db_metrics.max_context_tokens > 0 else max_context_tokens)
-    epoch_steps = db_metrics.epoch_steps if (db_metrics and db_metrics.total_steps > 0) else len(active_slice)
+    checkpoint_steps = db_metrics.checkpoint_steps if (db_metrics and db_metrics.total_steps > 0) else len(active_slice)
     total_steps = max(len(steps), db_metrics.total_steps if db_metrics else 0)
 
     if db_metrics and db_metrics.tokens > 0:
@@ -167,7 +167,7 @@ def estimate_subagent_context(
         token_count = estimate_tokens(total_chars)
         is_prov = token_count > 0
 
-    health_zone, rec = classify_context_health(token_count, epoch_steps, max_context_tokens=eff_window)
+    health_zone, rec = classify_context_health(token_count, checkpoint_steps, max_context_tokens=eff_window)
     return SubagentContextStatus(
         conversation_id=final_id,
         role=detected_role or "subagent",
@@ -178,7 +178,7 @@ def estimate_subagent_context(
         latency_ms=round((time.perf_counter() - t0) * 1000.0, 3),
         parent_conversation_id=detected_parent_id or None,
         max_context_tokens=eff_window,
-        epoch_step_count=epoch_steps,
+        checkpoint_step_count=checkpoint_steps,
         is_provisional=is_prov,
         transcript_path=str(p),
     )
@@ -217,6 +217,8 @@ def list_active_subagent_statuses(
             _discover_active_session_subagents,
             _is_swarm_or_workflow_tail_state,
         )
+        is_custom_brain = (brain_dir is not None) or (b_dir != Path.home() / ".gemini" / "antigravity" / "brain")
+        cutoff = time.time() - (4.0 * 3600.0)
         child_tokens = _discover_active_session_subagents(b_dir, eff_parent)
         seen_cids = {s.conversation_id for s in discovered}
         for tok in sorted(child_tokens):
@@ -229,8 +231,16 @@ def list_active_subagent_statuses(
             if t_path is None:
                 continue
             if not include_completed:
+                if not is_custom_brain:
+                    try:
+                        if t_path.stat().st_mtime < cutoff:
+                            continue
+                    except OSError:
+                        continue
+                if is_transcript_completed(t_path):
+                    continue
                 _, tail_comp = _is_swarm_or_workflow_tail_state(t_path)
-                if tail_comp or is_transcript_completed(t_path):
+                if tail_comp:
                     continue
             st = estimate_subagent_context(t_path, db_dir=db_dir)
             if st.parent_conversation_id and st.parent_conversation_id != eff_parent:

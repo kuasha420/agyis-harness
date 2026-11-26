@@ -33,7 +33,7 @@
     /**
      * Renders the complete Split Deck HTML (main pane, splitter, inspector pane).
      */
-    function renderMainDeck(cur, state, steps, epochs, activeEpoch, epochSteps, filteredIndices, inspectorContentHtml, currentStep, containerWidth) {
+    function renderMainDeck(cur, state, steps, checkpoints, activeCheckpoint, checkpointSteps, filteredIndices, inspectorContentHtml, currentStep, containerWidth) {
         const rawOrientation = state.layoutOrientation || "horizontal";
         const orientation = (rawOrientation === "vertical" || rawOrientation === "stack") ? "vertical" : "horizontal";
         const pageSize = 50;
@@ -95,7 +95,7 @@
             const maxTokens = (cur && cur.max_context_tokens)
                 || (inferCtx ? inferCtx((cur && cur.model) || (state && state.sessionModel)) : 256000);
             const contextBarHtml = typeof global.renderContextBar === "function"
-                ? global.renderContextBar(cur, state, steps, activeEpoch, epochSteps, maxTokens, containerWidth)
+                ? global.renderContextBar(cur, state, steps, activeCheckpoint, checkpointSteps, maxTokens, containerWidth)
                 : "<div style='padding: 20px;'>Context Bar Loading...</div>";
 
             mainPaneBodyHtml = `
@@ -127,6 +127,15 @@
             inspectorStyle = `height: ${state.inspectorHeight}px; flex: none;`;
         }
 
+        const hasFilter = Boolean((state.filterQuery || "").trim());
+        const navIndices = hasFilter ? filteredIndices : steps.map((_, i) => i);
+        const navPos = navIndices.indexOf(state.selectedIndex);
+        const canFirst = navIndices.length > 0 && state.selectedIndex !== navIndices[0];
+        const canPrev = navIndices.length > 0 && (navPos > 0 || (navPos === -1 && navIndices.some(idx => idx < state.selectedIndex)));
+        const canNext = navIndices.length > 0 && (navPos !== -1 ? navPos < navIndices.length - 1 : navIndices.some(idx => idx > state.selectedIndex));
+        const canLast = navIndices.length > 0 && state.selectedIndex !== navIndices[navIndices.length - 1];
+        const navCounterLabel = navIndices.length > 0 ? `${navPos >= 0 ? navPos + 1 : "-"} / ${navIndices.length}` : "0 / 0";
+
         return `
             <div id="agyis-hud-deck" class="agyis-hud-main-deck ${orientation}">
                 <div class="agyis-grid-pane">
@@ -144,11 +153,11 @@
                             ${currentStep ? `<span class="agyis-hud-pill agyis-hud-pill-cobalt">${escapeHtml(currentStep.type || "STEP")}</span>` : ""}
                         </div>
                         <div style="display: flex; gap: 4px; align-items: center;">
-                            <button id="agyis-step-first" class="agyis-hud-btn" ${state.selectedIndex <= 0 ? 'disabled style="opacity:0.4;"' : ""} title="First step">«</button>
-                            <button id="agyis-step-prev" class="agyis-hud-btn" ${state.selectedIndex <= 0 ? 'disabled style="opacity:0.4;"' : ""} title="Previous step">‹</button>
-                            <span style="font-size: 11px; font-family: var(--agyis-font-mono, monospace); padding: 0 4px; color: #9AA8BE;">${steps.length > 0 ? state.selectedIndex + 1 : 0} / ${steps.length}</span>
-                            <button id="agyis-step-next" class="agyis-hud-btn" ${state.selectedIndex >= steps.length - 1 ? 'disabled style="opacity:0.4;"' : ""} title="Next step">›</button>
-                            <button id="agyis-step-last" class="agyis-hud-btn" ${state.selectedIndex >= steps.length - 1 ? 'disabled style="opacity:0.4;"' : ""} title="Last step">»</button>
+                            <button id="agyis-step-first" class="agyis-hud-btn" ${!canFirst ? 'disabled style="opacity:0.4;"' : ""} title="First step">«</button>
+                            <button id="agyis-step-prev" class="agyis-hud-btn" ${!canPrev ? 'disabled style="opacity:0.4;"' : ""} title="Previous step">‹</button>
+                            <span style="font-size: 11px; font-family: var(--agyis-font-mono, monospace); padding: 0 4px; color: #9AA8BE;">${navCounterLabel}</span>
+                            <button id="agyis-step-next" class="agyis-hud-btn" ${!canNext ? 'disabled style="opacity:0.4;"' : ""} title="Next step">›</button>
+                            <button id="agyis-step-last" class="agyis-hud-btn" ${!canLast ? 'disabled style="opacity:0.4;"' : ""} title="Last step">»</button>
                         </div>
                     </div>
                     <div class="agyis-inspector-tabs">
@@ -260,18 +269,31 @@
             });
         });
 
-        // Step arrow navigation
+        // Step arrow navigation (respects active filter when present)
+        const hasFilter = Boolean((state.filterQuery || "").trim());
+        const navIndices = hasFilter ? filteredIndices : steps.map((_, i) => i);
+        const navPos = navIndices.indexOf(state.selectedIndex);
         hudEl.querySelector("#agyis-step-first")?.addEventListener("click", () => {
-            if (steps.length > 0 && selectStepCallback) selectStepCallback(0);
+            if (navIndices.length > 0 && selectStepCallback) selectStepCallback(navIndices[0]);
         });
         hudEl.querySelector("#agyis-step-prev")?.addEventListener("click", () => {
-            if (state.selectedIndex > 0 && selectStepCallback) selectStepCallback(state.selectedIndex - 1);
+            if (!selectStepCallback || navIndices.length === 0) return;
+            if (navPos > 0) selectStepCallback(navIndices[navPos - 1]);
+            else if (navPos === -1) {
+                const prevHits = navIndices.filter(idx => idx < state.selectedIndex);
+                if (prevHits.length > 0) selectStepCallback(prevHits[prevHits.length - 1]);
+            }
         });
         hudEl.querySelector("#agyis-step-next")?.addEventListener("click", () => {
-            if (state.selectedIndex < steps.length - 1 && selectStepCallback) selectStepCallback(state.selectedIndex + 1);
+            if (!selectStepCallback || navIndices.length === 0) return;
+            if (navPos >= 0 && navPos < navIndices.length - 1) selectStepCallback(navIndices[navPos + 1]);
+            else if (navPos === -1) {
+                const nextHit = navIndices.find(idx => idx > state.selectedIndex);
+                if (nextHit !== undefined) selectStepCallback(nextHit);
+            }
         });
         hudEl.querySelector("#agyis-step-last")?.addEventListener("click", () => {
-            if (steps.length > 0 && selectStepCallback) selectStepCallback(steps.length - 1);
+            if (navIndices.length > 0 && selectStepCallback) selectStepCallback(navIndices[navIndices.length - 1]);
         });
 
         // Step grid row clicks & hover
@@ -306,8 +328,12 @@
             if (fIdx >= 0) {
                 state.tablePage = Math.floor(fIdx / pageSize);
                 if (renderCallback) renderCallback();
-                const rowEl = hudEl.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
-                if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                if (typeof _u().scrollSelectedStepIntoView === "function") {
+                    _u().scrollSelectedStepIntoView(hudEl, state, state.selectedIndex);
+                } else {
+                    const rowEl = hudEl.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
+                    if (rowEl) rowEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+                }
             }
         });
     }

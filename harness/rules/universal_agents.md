@@ -83,8 +83,8 @@ agyis sync                                     # Bi-directional telemetry synchr
 
 ## 5. Context Signal Hygiene & Runway Discipline (PSL-INV-004)
 
-1. **512k/1M Context Runway & 80-Step Soft Epoch Horizon**:
-   - Monitor context consumption proportionally across `512k`/`1M` windows: converge deliverables around `~70%` (amber), generate `.agents/artifacts/checkpoints/<conversation_id>.md` via `agyis checkpoint generate` at `~90%` (red), and honor the `80`-step soft epoch advisory (`SOFT_EPOCH_STEP_ADVISORY = 80`).
+1. **512k/1M Context Runway & 80-Step Soft Checkpoint Horizon**:
+   - Monitor context consumption proportionally across `512k`/`1M` windows: converge deliverables around `~70%` (amber), generate `.agents/artifacts/checkpoints/<conversation_id>.md` via `agyis checkpoint generate` at `~90%` (red), and honor the `80`-step soft checkpoint advisory (`SOFT_CHECKPOINT_STEP_ADVISORY = 80`).
 2. **Anti-Loop, Reactive Wait & Single-Source Hygiene**:
    - Never repeat identical `read_file` slices or search queries, never poll `manage_task(Action='status')` or tail task logs (await reactive wakeup), keep `.agents/` skills/rules/agents single-sourced via symlinks, exhaust native CLI flags before monkeypatching, and delegate broad sweeps to isolated workers (`workspace:"share"` or `"branch"`).
 

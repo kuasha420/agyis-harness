@@ -54,19 +54,19 @@ from harness.trajectory import (
     ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR,
     ROLE_SWARM_ORCHESTRATOR,
-    SOFT_EPOCH_STEP_ADVISORY,
+    SOFT_CHECKPOINT_STEP_ADVISORY,
     get_scaled_thresholds,
     infer_model_context_window,
     normalize_cid,
     normalize_role_str,
     read_db_trajectory_state,
-    resolve_epoch_step_count,
+    resolve_checkpoint_step_count,
 )
 
 DEFAULT_COMPACTION_ADVISORY_THRESHOLD: int = 230_000
 DEFAULT_SQLITE_TIMEOUT: float = 0.5
 MAX_PAYLOAD_BYTES: int = 10_485_760
-EXECUTIONER_HORIZON_STEPS: int = SOFT_EPOCH_STEP_ADVISORY
+EXECUTIONER_HORIZON_STEPS: int = SOFT_CHECKPOINT_STEP_ADVISORY
 
 CALIBRATION_METADATA: Dict[str, Any] = {
     "calibrated_threshold": 230_000,
@@ -207,7 +207,7 @@ def evaluate_pre_invocation(
     workspace_dir: Optional[Path] = None,
     sqlite_timeout: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Evaluates PreInvocation event for sticky role pinning, soft epoch horizon, and compaction alerts."""
+    """Evaluates PreInvocation event for sticky role pinning, soft checkpoint horizon, and compaction alerts."""
     payload = _parse_payload(payload_str)
     try:
         conv_id, brain_path = resolve_conv_and_brain(payload, str(payload.get("conversationId") or payload.get("conversation_id") or ""))
@@ -248,7 +248,7 @@ def evaluate_pre_invocation(
         payload_tokens = _parse_int_field(payload, ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens")) or 0
         tokens = max(db_metrics.tokens if db_metrics else 0, payload_tokens)
 
-        step_count = resolve_epoch_step_count(payload, conv_id=conv_id, db_metrics=db_metrics)
+        step_count = resolve_checkpoint_step_count(payload, conv_id=conv_id, db_metrics=db_metrics)
         has_explicit_step = step_count is not None
 
         stage_role_data = None
@@ -270,7 +270,7 @@ def evaluate_pre_invocation(
 
         state_dir = resolve_cid_state_dir(conv_id, eff_ws, payload) or (brain_path / ".agyis" if brain_path else None)
         sticky = load_sticky_role_state(state_dir, conv_id)
-        epoch_idx = db_metrics.epoch_index if db_metrics else 0
+        cp_idx = db_metrics.checkpoint_index if db_metrics else 0
 
         is_post_compaction = bool(
             _has_native_compaction_marker(prompt_text)
@@ -281,8 +281,8 @@ def evaluate_pre_invocation(
                 db_metrics
                 and db_metrics.checkpoint_count > 0
                 and (
-                    (sticky is not None and int(sticky.get("epoch", -1)) < epoch_idx)
-                    or (sticky is None and db_metrics.epoch_steps == 0)
+                    (sticky is not None and int(sticky.get("checkpoint", sticky.get("epoch", -1))) < cp_idx)
+                    or (sticky is None and db_metrics.checkpoint_steps == 0)
                 )
             )
         )
@@ -307,7 +307,7 @@ def evaluate_pre_invocation(
         if state_dir and conv_id != "default":
             needs_persist = (
                 not sticky
-                or int(sticky.get("epoch", -1)) != epoch_idx
+                or int(sticky.get("checkpoint", sticky.get("epoch", -1))) != cp_idx
                 or normalize_role_str(sticky.get("role")) != role
                 or (agent_name is not None and sticky.get("agent_name") != agent_name)
                 or (parent_cid is not None and sticky.get("parent_conversation_id") != parent_cid)
@@ -319,7 +319,7 @@ def evaluate_pre_invocation(
                     state_dir,
                     {
                         "conversation_id": conv_id,
-                        "epoch": epoch_idx,
+                        "checkpoint": cp_idx,
                         "role": role,
                         "agent_name": agent_name,
                         "parent_conversation_id": parent_cid,
@@ -338,9 +338,9 @@ def evaluate_pre_invocation(
         elif has_explicit_step and step_count == 0:
             inject_steps.append({"systemMessage": {"systemMessage": build_role_persona_prompt(role), "metadata": {}}})
         elif has_explicit_step and step_count is not None and step_count > 0:
-            if step_count >= SOFT_EPOCH_STEP_ADVISORY and (step_count == SOFT_EPOCH_STEP_ADVISORY or step_count % cadence == 0):
+            if step_count >= SOFT_CHECKPOINT_STEP_ADVISORY and (step_count == SOFT_CHECKPOINT_STEP_ADVISORY or step_count % cadence == 0):
                 reanchor = build_role_reanchor_advisory(role, step_count, cadence)
-                soft_adv = f"[AGYIS EPOCH HORIZON ADVISORY: Epoch step {step_count}/{SOFT_EPOCH_STEP_ADVISORY} — consider verifying diff & checkpoints]"
+                soft_adv = f"[AGYIS CHECKPOINT HORIZON ADVISORY: Checkpoint step {step_count}/{SOFT_CHECKPOINT_STEP_ADVISORY} — consider verifying diff & checkpoints]"
                 inject_steps.append({"systemMessage": {"systemMessage": f"{soft_adv}\n\n{reanchor}", "metadata": {}}})
             elif step_count % cadence == 0:
                 inject_steps.append({"systemMessage": {"systemMessage": build_role_reanchor_advisory(role, step_count, cadence), "metadata": {}}})
@@ -361,7 +361,7 @@ def evaluate_pre_invocation(
             already_alerted = bool(
                 existing_alert
                 and existing_alert.get("session_id") == conv_id
-                and int(existing_alert.get("epoch", -1)) == epoch_idx
+                and int(existing_alert.get("checkpoint", existing_alert.get("epoch", -1))) == cp_idx
                 and existing_alert.get("active", True)
                 and (time.time() - existing_alert.get("timestamp", 0) < 900)
             )
@@ -386,12 +386,13 @@ def evaluate_pre_invocation(
                 if alert_file and state_dir:
                     try:
                         state_dir.mkdir(parents=True, exist_ok=True)
-                        hist = existing_alert.get("alerted_epochs") if isinstance(existing_alert.get("alerted_epochs"), list) else []
-                        alerted_epochs = sorted({int(x) for x in hist if isinstance(x, (int, float))} | {epoch_idx})
+                        raw_hist = existing_alert.get("alerted_checkpoints") or existing_alert.get("alerted_epochs")
+                        hist = raw_hist if isinstance(raw_hist, list) else []
+                        alerted_checkpoints = sorted({int(x) for x in hist if isinstance(x, (int, float))} | {cp_idx})
                         alert_file.write_text(json.dumps({
-                            "session_id": conv_id, "epoch": epoch_idx, "active": True,
+                            "session_id": conv_id, "checkpoint": cp_idx, "active": True,
                             "tokens": tokens, "threshold": eff_thresh, "timestamp": time.time(),
-                            "alerted_epochs": alerted_epochs,
+                            "alerted_checkpoints": alerted_checkpoints,
                         }), encoding="utf-8")
                     except OSError:
                         pass
@@ -401,7 +402,9 @@ def evaluate_pre_invocation(
         elif alert_file and alert_file.is_file():
             try:
                 updated = dict(existing_alert)
-                updated.update({"session_id": conv_id, "epoch": epoch_idx, "active": False, "tokens": tokens, "cleared_at": time.time()})
+                if "alerted_checkpoints" not in updated and isinstance(updated.get("alerted_epochs"), list):
+                    updated["alerted_checkpoints"] = list(updated["alerted_epochs"])
+                updated.update({"session_id": conv_id, "checkpoint": cp_idx, "active": False, "tokens": tokens, "cleared_at": time.time()})
                 alert_file.write_text(json.dumps(updated), encoding="utf-8")
             except OSError:
                 pass

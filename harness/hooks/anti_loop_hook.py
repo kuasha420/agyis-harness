@@ -31,10 +31,10 @@ from harness.trajectory.health import (
     ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR,
-    SOFT_EPOCH_STEP_ADVISORY,
+    SOFT_CHECKPOINT_STEP_ADVISORY,
     normalize_role_str,
 )
-from harness.trajectory.sqlite_reader import resolve_epoch_step_count
+from harness.trajectory.sqlite_reader import resolve_checkpoint_step_count
 from harness.utils.state import get_state_dir, load_history, save_history
 
 EXPLORATORY_SWEEP_TOOLS: frozenset[str] = frozenset({
@@ -48,8 +48,8 @@ EXPLORATORY_SWEEP_TOOLS: frozenset[str] = frozenset({
 _EXPLORATORY_SHELL_BINS: frozenset[str] = frozenset({
     "ls", "find", "fd", "fdfind", "rg", "grep", "egrep", "fgrep", "tree", "du", "ag", "ack",
 })
-STEP_INTERRUPT_THRESHOLD: int = SOFT_EPOCH_STEP_ADVISORY
-EXECUTIONER_HORIZON_STEPS: int = SOFT_EPOCH_STEP_ADVISORY
+STEP_INTERRUPT_THRESHOLD: int = SOFT_CHECKPOINT_STEP_ADVISORY
+EXECUTIONER_HORIZON_STEPS: int = SOFT_CHECKPOINT_STEP_ADVISORY
 _normalize_role_str = normalize_role_str
 
 
@@ -343,14 +343,14 @@ def check_anti_loop(
     - Strict Background Polling Rate Limit: manage_task(Action='status') emits a non-blocking
       advisory on the first 2 calls and denies at >= 3 consecutive or >= 3 in a 10-call window.
 
-    Soft Epoch Horizon Advisory (Issue #109):
-    - When role is ROLE_DEEP_EXECUTION and epoch step_count >= SOFT_EPOCH_STEP_ADVISORY (80),
+    Soft Checkpoint Horizon Advisory (Issue #109):
+    - When role is ROLE_DEEP_EXECUTION and checkpoint step_count >= SOFT_CHECKPOINT_STEP_ADVISORY (80),
       exploratory sweep tools emit a soft horizon advisory encouraging targeted lookups without blocking.
 
     Returns:
         {"decision": "allow"} or {"decision": "deny", "reason": ...}
     """
-    effective_step = resolve_epoch_step_count(payload, conv_id=conv_id, explicit_step=step_count)
+    effective_step = resolve_checkpoint_step_count(payload, conv_id=conv_id, explicit_step=step_count)
 
     target_dir = state_dir or get_state_dir()
     try:
@@ -366,12 +366,12 @@ def check_anti_loop(
     )
     norm_role = _normalize_role_str(resolved_role or exact_agent)
 
-    # Soft epoch horizon advisory (Issue #109 — never hard-block healthy agents on step count alone)
+    # Soft checkpoint horizon advisory (Issue #109 — never hard-block healthy agents on step count alone)
     if _is_exploratory_sweep(tool_name, tool_args):
-        if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_EPOCH_STEP_ADVISORY:
+        if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_CHECKPOINT_STEP_ADVISORY:
             advisory_msg = (
-                f"[EPOCH HORIZON: {effective_step}/{SOFT_EPOCH_STEP_ADVISORY} STEPS] "
-                "Extended epoch reached — prefer targeted symbol lookups over broad sweeps."
+                f"[CHECKPOINT HORIZON: {effective_step}/{SOFT_CHECKPOINT_STEP_ADVISORY} STEPS] "
+                "Extended checkpoint window reached — prefer targeted symbol lookups over broad sweeps."
             )
             emit_stderr_diagnostic(advisory_msg)
             enqueue_pending_advisory(conv_id, advisory_msg, state_dir=target_dir)

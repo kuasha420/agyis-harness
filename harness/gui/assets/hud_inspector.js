@@ -232,14 +232,16 @@
                 const reclaimedPct = Math.round(((cacheRead - inTokens) / cacheRead) * 100);
                 reclaimedMetric = `Compacted ${(cacheRead / 1000).toFixed(0)}k -> ${(inTokens / 1000).toFixed(1)}k tokens (${reclaimedPct}% reduction)`;
             }
+            const canJumpPrev = (state && typeof state.activeCheckpointIndex === "number" ? state.activeCheckpointIndex : 0) > 0;
+            const jumpPrevStyle = `padding: 3px 8px; font-size: 11px; background: rgba(42, 208, 137, 0.16); border: 1px solid #2AD089; color: #2AD089; ${canJumpPrev ? "cursor: pointer;" : "opacity: 0.4; cursor: default;"}`;
             return `
                 <div class="agyis-checkpoint-card" style="background: rgba(42, 208, 137, 0.08); border: 1px solid #2AD089; border-radius: 6px; padding: 14px; margin-bottom: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                         <span class="agyis-hud-pill agyis-hud-pill-green" style="font-size: 12px; font-weight: 700;">
                             ${svgIcon("shield", 13)} Compaction Checkpoint #${escapeHtml(currentStep.checkpoint_index ?? currentStep.step_index ?? state.selectedIndex)}
                         </span>
-                        <button id="agyis-jump-prev-epoch" class="agyis-hud-btn agyis-jump-prev-epoch" style="padding: 3px 8px; font-size: 11px; background: rgba(42, 208, 137, 0.16); border: 1px solid #2AD089; color: #2AD089; cursor: pointer;">
-                            Jump to Previous Epoch ◀
+                        <button id="agyis-jump-prev-checkpoint" class="agyis-hud-btn agyis-jump-prev-checkpoint" style="${jumpPrevStyle}" ${canJumpPrev ? "" : "disabled"}>
+                            Jump to Previous Checkpoint ◀
                         </button>
                     </div>
                     <div style="font-family: var(--agyis-font-mono, monospace); font-size: 12px; color: #2AD089; margin-bottom: 10px; font-weight: 600; display: flex; align-items: center; gap: 6px;">${svgIcon("chart", 13)} ${escapeHtml(reclaimedMetric)}</div>
@@ -568,14 +570,14 @@
             }
         });
 
-        // Jump to Previous Epoch button in Checkpoint card
-        hudEl.querySelector("#agyis-jump-prev-epoch")?.addEventListener("click", () => {
-            if (state.activeEpochIndex > 0) {
-                state.activeEpochIndex -= 1;
-                const epochs = (state.currentData && state.currentData.epochs) || [];
-                const prevEp = epochs[state.activeEpochIndex];
-                if (prevEp && typeof selectStepCallback === "function") {
-                    selectStepCallback(prevEp.start_index);
+        // Jump to Previous Checkpoint button in Checkpoint card
+        hudEl.querySelector("#agyis-jump-prev-checkpoint")?.addEventListener("click", () => {
+            if (state.activeCheckpointIndex > 0) {
+                state.activeCheckpointIndex -= 1;
+                const checkpoints = (state.currentData && state.currentData.checkpoints) || [];
+                const prevCp = checkpoints[state.activeCheckpointIndex];
+                if (prevCp && typeof selectStepCallback === "function") {
+                    selectStepCallback(prevCp.start_index, { preserveCheckpoint: true });
                 } else if (typeof global.__agyis_hud_render === "function") {
                     global.__agyis_hud_render();
                 }

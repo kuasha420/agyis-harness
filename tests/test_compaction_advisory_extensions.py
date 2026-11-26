@@ -1076,9 +1076,9 @@ class TestRc10AcceptanceGapRegressions(unittest.TestCase):
                     self.assertEqual(cmd_status(args), 0)
                 self.assertIn(f"Active Session ({new_db.stem} | fallback: newest mtime):", out_fb.getvalue())
 
-    def test_compaction_alert_file_persists_epoch_and_clears_without_unlink(self) -> None:
-        """#109.2: .compaction_alert_<cid>.json records epoch history and persists active=False below threshold."""
-        conv_id = "test-alert-epoch-persist"
+    def test_compaction_alert_file_persists_checkpoint_and_clears_without_unlink(self) -> None:
+        """#109.2: .compaction_alert_<cid>.json records checkpoint history and persists active=False below threshold."""
+        conv_id = "test-alert-checkpoint-persist"
         (self.brain_dir / conv_id).mkdir(parents=True, exist_ok=True)
         self._create_steps_db(
             self.db_dir / f"{conv_id}.db",
@@ -1095,11 +1095,11 @@ class TestRc10AcceptanceGapRegressions(unittest.TestCase):
             self.assertTrue(any("COMPACTION" in (s.get("systemMessage", {}).get("systemMessage", "") if isinstance(s.get("systemMessage"), dict) else "") for s in res_hi.get("injectSteps", [])))
             self.assertTrue(alert_file.is_file())
             alert_hi = json.loads(alert_file.read_text(encoding="utf-8"))
-            self.assertEqual(alert_hi["epoch"], 1)
+            self.assertEqual(alert_hi["checkpoint"], 1)
             self.assertTrue(alert_hi["active"])
-            self.assertIn(1, alert_hi["alerted_epochs"])
+            self.assertIn(1, alert_hi["alerted_checkpoints"])
 
-            # Drop DB tokens below threshold -> must NOT unlink; must update active=False & preserve alerted_epochs
+            # Drop DB tokens below threshold -> must NOT unlink; must update active=False & preserve alerted_checkpoints
             (self.db_dir / f"{conv_id}.db").unlink()
             self._create_steps_db(
                 self.db_dir / f"{conv_id}.db",
@@ -1113,9 +1113,65 @@ class TestRc10AcceptanceGapRegressions(unittest.TestCase):
             self.assertTrue(alert_file.is_file())
             alert_lo = json.loads(alert_file.read_text(encoding="utf-8"))
             self.assertFalse(alert_lo["active"])
-            self.assertEqual(alert_lo["epoch"], 1)
+            self.assertEqual(alert_lo["checkpoint"], 1)
             self.assertIn("cleared_at", alert_lo)
-            self.assertIn(1, alert_lo["alerted_epochs"])
+            self.assertIn(1, alert_lo["alerted_checkpoints"])
+
+    def test_compaction_alert_file_legacy_epoch_read_fallback(self) -> None:
+        """Legacy .compaction_alert_<cid>.json with 'epoch'/'alerted_epochs' is honored and migrated forward."""
+        conv_id = "test-alert-legacy-fallback"
+        agyis_dir = self.brain_dir / conv_id / ".agyis"
+        agyis_dir.mkdir(parents=True, exist_ok=True)
+        alert_file = agyis_dir / f".compaction_alert_{conv_id}.json"
+        alert_file.write_text(
+            json.dumps({
+                "session_id": conv_id,
+                "epoch": 1,
+                "active": True,
+                "tokens": 235_000,
+                "timestamp": time.time(),
+                "alerted_epochs": [0, 1],
+            }),
+            encoding="utf-8",
+        )
+        self._create_steps_db(
+            self.db_dir / f"{conv_id}.db",
+            [(1, 23, None, {"step_type": 23}), (2, 15, None, {"step_type": 15, "token_count": 240_000})],
+        )
+
+        with patch.dict(os.environ, {"AGYIS_BRAIN_DIR": str(self.brain_dir)}):
+            res_dup = evaluate_pre_invocation(
+                {"conversationId": conv_id, "step_count": 5, "role": ROLE_DEEP_EXECUTION},
+                db_dir=self.db_dir,
+                workspace_dir=self.ws_dir,
+            )
+            dup_msgs = [
+                s.get("systemMessage", {}).get("systemMessage", "")
+                for s in res_dup.get("injectSteps", [])
+                if isinstance(s.get("systemMessage"), dict)
+            ]
+            self.assertTrue(any("[AGYIS TOKEN GAUGE:" in m for m in dup_msgs))
+            self.assertFalse(any("COMPACTION IMMINENT" in m for m in dup_msgs))
+
+            # Advance to checkpoint 2 -> migrates alerted_epochs [0, 1] into alerted_checkpoints [0, 1, 2]
+            (self.db_dir / f"{conv_id}.db").unlink()
+            self._create_steps_db(
+                self.db_dir / f"{conv_id}.db",
+                [
+                    (1, 23, None, {"step_type": 23}),
+                    (2, 23, None, {"step_type": 23}),
+                    (3, 15, None, {"step_type": 15, "token_count": 240_000}),
+                ],
+            )
+            res_next = evaluate_pre_invocation(
+                {"conversationId": conv_id, "step_count": 1, "role": ROLE_DEEP_EXECUTION},
+                db_dir=self.db_dir,
+                workspace_dir=self.ws_dir,
+            )
+            self.assertTrue(res_next.get("injectSteps"))
+            migrated = json.loads(alert_file.read_text(encoding="utf-8"))
+            self.assertEqual(migrated["checkpoint"], 2)
+            self.assertEqual(migrated["alerted_checkpoints"], [0, 1, 2])
 
     def test_has_parent_conversation_detects_live_sender_transcript_line(self) -> None:
         """#111.2: has_parent_conversation detects [Message] sender=<uuid> in live subagent transcripts."""

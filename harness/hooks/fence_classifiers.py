@@ -21,7 +21,7 @@ from harness.trajectory.health import (
     ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR,
     ROLE_SWARM_ORCHESTRATOR,
-    SOFT_EPOCH_STEP_ADVISORY,
+    SOFT_CHECKPOINT_STEP_ADVISORY,
     normalize_role_str,
 )
 from harness.utils.workspace import is_harness_workspace
@@ -33,7 +33,7 @@ DECLARATIVE_SPEC_EXTENSIONS: frozenset[str] = frozenset({
 
 TIER_RANKS: dict[str, int] = {"spec": 0, "diff": 1, "affected": 2, "mutation": 2, "pkg": 3, "full": 4}
 
-EXECUTIONER_HORIZON_STEPS: int = SOFT_EPOCH_STEP_ADVISORY
+EXECUTIONER_HORIZON_STEPS: int = SOFT_CHECKPOINT_STEP_ADVISORY
 CODE_MUTATION_TOOLS: frozenset[str] = frozenset({
     "write_file", "edit_file", "write_to_file", "replace_file_content",
     "multi_replace_file_content", "create_file", "insert_edit_into_file",

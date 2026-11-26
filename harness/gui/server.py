@@ -54,11 +54,13 @@ _ALLOWED_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _ALLOWED_PLAYBACK_ASSETS = frozenset({
     "hud_styles.css",
     "hud_theme.js",
+    "hud_utils.js",
     "hud_header.js",
     "hud_context_bar.js",
     "hud_timeline.js",
     "hud_inspector.js",
     "hud_deck.js",
+    "hud_stream.js",
     "hud_rpc.js",
     "playback_boot.js",
 })
@@ -370,10 +372,16 @@ def start_trajectory_server(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_TRAJECTORY_PORT,
     brain_dir: Optional[Path] = None,
+    poll_interval: float = 0.5,
 ) -> TrajectoryServer:
     """Creates and starts the TrajectoryServer on a background daemon thread."""
     server = TrajectoryServer((host, port), RequestHandlerClass=TrajectoryRequestHandler, brain_dir=brain_dir)
-    thread = threading.Thread(target=server.serve_forever, daemon=True, name="AgyisTrajectoryServer")
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": poll_interval},
+        daemon=True,
+        name="AgyisTrajectoryServer",
+    )
     thread.start()
     return server
 

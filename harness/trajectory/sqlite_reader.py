@@ -7,9 +7,9 @@
 Canonical Read-Only Antigravity Conversation SQLite Reader (ADR-035).
 
 Single Source of Truth for:
-- Epoch boundary detection (checkpoint step_type 23)
+- Checkpoint boundary detection (checkpoint step_type 23)
 - Authoritative UsageMetadata (input + cacheRead) vs bounded provisional fallback
-- Real per-epoch burn rate velocity (decoding protobuf timestamps + transcript fallback)
+- Real per-checkpoint burn rate velocity (decoding protobuf timestamps + transcript fallback)
 - Turn 0 & latest USER_INPUT (step_type=14) extraction
 """
 
@@ -134,13 +134,13 @@ def _extract_subagent_prompt_from_101(
 
 
 def _compute_velocity(
-    epoch_rows: List[Dict[str, Any]],
+    checkpoint_rows: List[Dict[str, Any]],
     compaction_threshold: int,
     active_tokens: int,
     window_seconds: int,
 ) -> Tuple[float, Optional[float], str, int]:
-    """Calculates per-epoch burn rate (tokens/min) strictly within active epoch samples."""
-    samples = [(r["ts"], r["auth_tokens"]) for r in epoch_rows if r["ts"] is not None and r["auth_tokens"] > 0]
+    """Calculates per-checkpoint burn rate (tokens/min) strictly within active checkpoint samples."""
+    samples = [(r["ts"], r["auth_tokens"]) for r in checkpoint_rows if r["ts"] is not None and r["auth_tokens"] > 0]
     if len(samples) < 2:
         return 0.0, None, "SAFE", len(samples)
 
@@ -173,7 +173,7 @@ def read_db_trajectory_state(
     window_seconds: int = 900,
     transcript_timestamps: Optional[Dict[int, float]] = None,
 ) -> TrajectoryMetrics:
-    """Reads authoritative epoch-scoped trajectory metrics from a conversation SQLite DB."""
+    """Reads authoritative checkpoint-scoped trajectory metrics from a conversation SQLite DB."""
     norm_cid = normalize_cid(conversation_id)
     base_metrics = TrajectoryMetrics(conversation_id=norm_cid)
     if not norm_cid or norm_cid == "default" or is_conversation_locked(norm_cid):
@@ -248,7 +248,7 @@ def read_db_trajectory_state(
 
         checkpoint_count = 0
         latest_cp_row: Optional[Dict[str, Any]] = None
-        epoch_step_count = total_steps
+        checkpoint_step_count = total_steps
         if has_step_type:
             cursor.execute("SELECT COUNT(*) FROM steps WHERE step_type = 23")
             checkpoint_count = int(cursor.fetchone()[0] or 0)
@@ -257,12 +257,12 @@ def read_db_trajectory_state(
             if raw_cp:
                 latest_cp_row = _extract_step_fields(raw_cp, col_map, transcript_timestamps)
                 cursor.execute(f"SELECT COUNT(*) FROM steps WHERE {order_col} > ?", (latest_cp_row["idx"],))
-                epoch_step_count = int(cursor.fetchone()[0] or 0)
+                checkpoint_step_count = int(cursor.fetchone()[0] or 0)
                 cursor.execute(f"SELECT {cols_sql} FROM steps WHERE {order_col} > ? ORDER BY {order_col} DESC LIMIT 500", (latest_cp_row["idx"],))
-                raw_epoch_rows = list(reversed(cursor.fetchall()))
+                raw_checkpoint_rows = list(reversed(cursor.fetchall()))
             else:
                 cursor.execute(f"SELECT {cols_sql} FROM steps ORDER BY {order_col} DESC LIMIT 500")
-                raw_epoch_rows = list(reversed(cursor.fetchall()))
+                raw_checkpoint_rows = list(reversed(cursor.fetchall()))
         else:
             cursor.execute(f"SELECT {cols_sql} FROM steps ORDER BY {order_col} DESC LIMIT 500")
             all_recent = [_extract_step_fields(r, col_map, transcript_timestamps) for r in reversed(cursor.fetchall())]
@@ -270,14 +270,14 @@ def read_db_trajectory_state(
             checkpoint_count = len(cp_indices)
             if cp_indices:
                 latest_cp_row = all_recent[cp_indices[-1]]
-                epoch_parsed = all_recent[cp_indices[-1] + 1 :]
-                epoch_step_count = len(epoch_parsed)
+                checkpoint_parsed = all_recent[cp_indices[-1] + 1 :]
+                checkpoint_step_count = len(checkpoint_parsed)
             else:
-                epoch_parsed = all_recent
-            raw_epoch_rows = []
+                checkpoint_parsed = all_recent
+            raw_checkpoint_rows = []
 
         if has_step_type:
-            epoch_parsed = [_extract_step_fields(r, col_map, transcript_timestamps) for r in raw_epoch_rows]
+            checkpoint_parsed = [_extract_step_fields(r, col_map, transcript_timestamps) for r in raw_checkpoint_rows]
 
         # Turn 0 & latest USER_INPUT (step_type=14) or subagent step_type=101 [Message] extraction
         turn0_prompt = latest_user_prompt = ""
@@ -295,8 +295,8 @@ def read_db_trajectory_state(
             if not latest_user_prompt:
                 latest_user_prompt = _extract_subagent_prompt_from_101(cursor, cols_sql, col_map, order_col, ascending=False)
         _NON_PROMPT_STEP_TYPES = frozenset({15, 17, 23, 90, 101, 132})
-        if not turn0_prompt and epoch_parsed:
-            for item in epoch_parsed[:4]:
+        if not turn0_prompt and checkpoint_parsed:
+            for item in checkpoint_parsed[:4]:
                 st_i = item.get("step_type")
                 p = _extract_prompt_from_step(item)
                 if not p or _is_sdk_injection_text(p):
@@ -311,8 +311,8 @@ def read_db_trajectory_state(
                     continue
                 turn0_prompt = p
                 break
-        if not latest_user_prompt and epoch_parsed:
-            for item in reversed(epoch_parsed[-3:]):
+        if not latest_user_prompt and checkpoint_parsed:
+            for item in reversed(checkpoint_parsed[-3:]):
                 st_i = item.get("step_type")
                 p = _extract_prompt_from_step(item)
                 if not p or _is_sdk_injection_text(p):
@@ -329,7 +329,7 @@ def read_db_trajectory_state(
                 break
 
         recent_tools_list: List[Tuple[str, str]] = []
-        for item in epoch_parsed:
+        for item in checkpoint_parsed:
             t_pair = _extract_tool_from_step(item)
             if t_pair is not None:
                 recent_tools_list.append(t_pair)
@@ -348,7 +348,7 @@ def read_db_trajectory_state(
         auth_cache = 0
         step_mct = 0
         step_model = ""
-        for item in reversed(epoch_parsed):
+        for item in reversed(checkpoint_parsed):
             if item["is_checkpoint"]:
                 continue
             step_mct = step_mct or item["max_ctx"]
@@ -380,18 +380,18 @@ def read_db_trajectory_state(
             active_tokens = auth_tokens
         elif latest_cp_row is not None:
             valid_gen_ckpt = 0 <= gen_ckpt_idx < _PB_UINT64_SENTINEL
-            gen_for_new_epoch = (
+            gen_for_new_checkpoint = (
                 valid_gen_ckpt
                 and gen_ckpt_idx >= latest_cp_idx
-                and (gen_ckpt_idx > 0 or len(epoch_parsed) > 0)
+                and (gen_ckpt_idx > 0 or len(checkpoint_parsed) > 0)
             )
-            if gen_for_new_epoch and gen_usage > 0:
+            if gen_for_new_checkpoint and gen_usage > 0:
                 active_tokens = gen_usage
-            elif gen_for_new_epoch and gen_est > 0:
+            elif gen_for_new_checkpoint and gen_est > 0:
                 active_tokens = min(gen_est, resolved_max)
                 is_provisional = True
             else:
-                post_cp_est = sum(estimate_tokens(_extract_prompt_from_step(item)) for item in epoch_parsed)
+                post_cp_est = sum(estimate_tokens(_extract_prompt_from_step(item)) for item in checkpoint_parsed)
                 summary_est = estimate_tokens(comp_summary) if len(comp_summary) >= 50 else 0
                 combined = summary_est + post_cp_est
                 if combined > 0:
@@ -410,7 +410,7 @@ def read_db_trajectory_state(
                 active_tokens = 0
 
         burn_rate, mins_to_comp, vel_tier, sample_cnt = _compute_velocity(
-            epoch_parsed, red_t, active_tokens, window_seconds
+            checkpoint_parsed, red_t, active_tokens, window_seconds
         )
 
         return TrajectoryMetrics(
@@ -422,9 +422,9 @@ def read_db_trajectory_state(
             max_context_tokens=resolved_max,
             has_explicit_max_context=has_explicit_max,
             total_steps=total_steps,
-            epoch_steps=epoch_step_count,
-            epoch_index=checkpoint_count,
-            epoch_start_idx=(latest_cp_idx + 1) if latest_cp_row is not None else 0,
+            checkpoint_steps=checkpoint_step_count,
+            checkpoint_index=checkpoint_count,
+            checkpoint_start_idx=(latest_cp_idx + 1) if latest_cp_row is not None else 0,
             checkpoint_count=checkpoint_count,
             compaction_summary=comp_summary,
             turn0_prompt=turn0_prompt,
@@ -460,7 +460,7 @@ _CUMULATIVE_STEP_KEYS = (
 )
 
 
-def resolve_epoch_step_count(
+def resolve_checkpoint_step_count(
     payload: Optional[Dict[str, Any]] = None,
     conv_id: str = "default",
     explicit_step: Optional[int] = None,
@@ -468,19 +468,19 @@ def resolve_epoch_step_count(
     db_dir: Optional[Path] = None,
     timeout: Optional[float] = None,
 ) -> Optional[int]:
-    """Resolves active-epoch step depth, replacing raw cumulative step counts across checkpoints."""
+    """Resolves active-checkpoint step depth, replacing raw cumulative step counts across checkpoints."""
     if explicit_step is not None:
         return int(explicit_step)
-    epoch_step: Optional[int] = None
+    checkpoint_step: Optional[int] = None
     cum_step: Optional[int] = None
     if isinstance(payload, dict):
-        for ek in ("epoch_steps", "epochSteps"):
-            val = payload.get(ek)
+        for ck in ("checkpoint_steps", "checkpointSteps", "epoch_steps", "epochSteps"):
+            val = payload.get(ck)
             if isinstance(val, (int, float)):
-                epoch_step = int(val)
+                checkpoint_step = int(val)
                 break
             if isinstance(val, str) and val.strip().isdigit():
-                epoch_step = int(val.strip())
+                checkpoint_step = int(val.strip())
                 break
         for k in _CUMULATIVE_STEP_KEYS:
             val = payload.get(k)
@@ -490,13 +490,13 @@ def resolve_epoch_step_count(
             if isinstance(val, str) and val.strip().isdigit():
                 cum_step = int(val.strip())
                 break
-    if epoch_step is not None:
-        return epoch_step
+    if checkpoint_step is not None:
+        return checkpoint_step
     norm_cid = normalize_cid(conv_id)
     if norm_cid and norm_cid != "default":
         metrics = db_metrics if db_metrics is not None else read_db_trajectory_state(norm_cid, db_dir=db_dir, timeout=timeout)
         if metrics.checkpoint_count > 0:
-            return metrics.epoch_steps
+            return metrics.checkpoint_steps
         if cum_step is None and metrics.total_steps > 0:
-            return metrics.epoch_steps
+            return metrics.checkpoint_steps
     return cum_step
