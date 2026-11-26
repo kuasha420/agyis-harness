@@ -558,11 +558,10 @@
         });
     }
 
-    // Export module onto window namespace
-    global.xtc = xtc;
-    global.ytc = ytc;
-    global.ztc = ztc;
-    global.Atc = Atc;
+    // Export cleanroom sizing helpers strictly under the __agyis_context_bar namespace
+    // to prevent colliding with Closure-minified globals (e.g. Antigravity 2.35.2's
+    // WebSocket ConnectRPC transport functions xtc/ytc/ztc/Atc).
+    global.__agyis_context_bar = { xtc, ytc, ztc, Atc };
     global.extractGranularSegments = extractGranularSegments;
     global.renderContextBar = renderContextBar;
     global.bindContextBarEvents = bindContextBarEvents;
