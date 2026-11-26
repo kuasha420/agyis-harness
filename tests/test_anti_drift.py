@@ -175,7 +175,7 @@ class TestAntiDriftHook(unittest.TestCase):
 
         res = check_drift(target, plan_files, strict=False)
         self.assertEqual(res["decision"], "allow")
-        self.assertIn("PSL Anti-Drift Notice", res["reason"])
+        self.assertIn("[AGYIS ANTI-DRIFT] Notice", res["reason"])
         self.assertIn(target, res["reason"])
         self.assertIn("permitted under non-strict mode", res["reason"])
 
@@ -187,7 +187,7 @@ class TestAntiDriftHook(unittest.TestCase):
         # Via strict argument
         res_arg = check_drift(target, plan_files, strict=True)
         self.assertEqual(res_arg["decision"], "ask")
-        self.assertIn("PSL Anti-Drift Gate", res_arg["reason"])
+        self.assertIn("[AGYIS ANTI-DRIFT] Gate", res_arg["reason"])
         self.assertIn(target, res_arg["reason"])
         self.assertIn("Please confirm intentional edit", res_arg["reason"])
 
@@ -196,7 +196,7 @@ class TestAntiDriftHook(unittest.TestCase):
         try:
             res_env = check_drift(target, plan_files, strict=False)
             self.assertEqual(res_env["decision"], "ask")
-            self.assertIn("PSL Anti-Drift Gate", res_env["reason"])
+            self.assertIn("[AGYIS ANTI-DRIFT] Gate", res_env["reason"])
         finally:
             del os.environ["PSL_STRICT_ANTI_DRIFT"]
 
@@ -356,7 +356,7 @@ class TestAntiDriftHook(unittest.TestCase):
 
         res = json.loads(buf.getvalue().strip())
         self.assertEqual(res["decision"], "ask")
-        self.assertIn("PSL Anti-Drift Gate", res["reason"])
+        self.assertIn("[AGYIS ANTI-DRIFT] Gate", res["reason"])
 
     def test_cli_hook_action_api(self):
         """CLI hook handles action=check_drift direct API payload."""
@@ -449,7 +449,7 @@ class TestAntiDriftHook(unittest.TestCase):
             main()
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "allow")
-            self.assertIn("PSL Anti-Drift: Error parsing plan files", mock_err.getvalue())
+            self.assertIn("[AGYIS ANTI-DRIFT] Error parsing plan files", mock_err.getvalue())
             self.assertIn("Parser exploded", mock_err.getvalue())
 
     def test_cli_hook_malformed_json_returns_allow(self):
@@ -464,7 +464,7 @@ class TestAntiDriftHook(unittest.TestCase):
             main()
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "allow")
-            self.assertIn("PSL Anti-Drift: Error parsing stdin", mock_err.getvalue())
+            self.assertIn("[AGYIS ANTI-DRIFT] Error parsing stdin", mock_err.getvalue())
 
     def test_auditor_write_block_direct(self):
         """Auditor write guard blocks file mutation tools directly."""
@@ -477,7 +477,7 @@ class TestAntiDriftHook(unittest.TestCase):
                 res = check_auditor_write_block(payload)
                 self.assertIsNotNone(res, f"Expected block for {role} using {tool}")
                 self.assertEqual(res["decision"], "deny")
-                self.assertIn("PSL Auditor Invariant", res["reason"])
+                self.assertIn("[AGYIS WRITE GUARD] Auditor Invariant", res["reason"])
 
     def test_auditor_allowed_for_read_and_exec(self):
         """Auditor write guard allows read and execution tools."""
@@ -555,9 +555,9 @@ class TestAntiDriftHook(unittest.TestCase):
         with contextlib.redirect_stderr(err_buf):
             res4 = check_flight_director_write_guard(payload4)
         self.assertEqual(res4, {"decision": "allow"})
-        self.assertIn("PSL Flight Director Advisory", err_buf.getvalue())
+        self.assertIn("[AGYIS FLIGHT DIRECTOR] Advisory", err_buf.getvalue())
         queued = drain_pending_advisories(conv_id, state_dir=get_state_dir())
-        self.assertTrue(any("PSL Flight Director Advisory" in item for item in queued))
+        self.assertTrue(any("[AGYIS FLIGHT DIRECTOR] Advisory" in item for item in queued))
 
         # 5. Clean up
         reset_flight_director_edits(conv_id)
@@ -580,7 +580,7 @@ class TestAntiDriftHook(unittest.TestCase):
                 else:
                     self.assertIsNotNone(res)
                     self.assertEqual(res["decision"], "deny")
-                    self.assertIn("PSL Flight Director Advisory", res["reason"])
+                    self.assertIn("[AGYIS FLIGHT DIRECTOR] Advisory", res["reason"])
 
         reset_flight_director_edits(conv_id)
 
@@ -601,7 +601,7 @@ class TestAntiDriftHook(unittest.TestCase):
             main()
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "deny")
-            self.assertIn("PSL Auditor Invariant", res["reason"])
+            self.assertIn("[AGYIS WRITE GUARD] Auditor Invariant", res["reason"])
 
     def test_anti_drift_auditor_block(self):
         """
@@ -626,7 +626,7 @@ class TestAntiDriftHook(unittest.TestCase):
             res = check_auditor_write_block(payload)
             self.assertIsNotNone(res)
             self.assertEqual(res["decision"], "deny")
-            self.assertIn("PSL Auditor Invariant", res["reason"])
+            self.assertIn("[AGYIS WRITE GUARD] Auditor Invariant", res["reason"])
 
             # 2. End-to-end hook main() execution (programmatic, zero prompt)
             with patch("sys.stdin", io.StringIO(json.dumps(payload))), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
@@ -634,7 +634,7 @@ class TestAntiDriftHook(unittest.TestCase):
                 stdout_val = mock_out.getvalue().strip()
                 res_main = json.loads(stdout_val)
                 self.assertEqual(res_main["decision"], "deny")
-                self.assertIn("PSL Auditor Invariant", res_main["reason"])
+                self.assertIn("[AGYIS WRITE GUARD] Auditor Invariant", res_main["reason"])
 
             # 3. Environment variable fallback (PSL_SUBAGENT_ROLE)
             payload_env = {
@@ -645,7 +645,7 @@ class TestAntiDriftHook(unittest.TestCase):
                     main()
                     res_env = json.loads(mock_out.getvalue().strip())
                     self.assertEqual(res_env["decision"], "deny")
-                    self.assertIn("PSL Auditor Invariant", res_env["reason"])
+                    self.assertIn("[AGYIS WRITE GUARD] Auditor Invariant", res_env["reason"])
 
     def test_planner_and_coordinator_write_block(self):
         """Planner and coordinator subagents are blocked from mutating files."""
@@ -660,7 +660,7 @@ class TestAntiDriftHook(unittest.TestCase):
             res = check_auditor_write_block(payload)
             self.assertIsNotNone(res, f"Expected block for {role}")
             self.assertEqual(res["decision"], "deny")
-            self.assertIn("PSL Write-Block Guard", res["reason"])
+            self.assertIn("[AGYIS WRITE GUARD]", res["reason"])
 
     def test_planner_write_blocked_for_code_files(self):
         """Planner cannot mutate code files directly."""
@@ -729,7 +729,7 @@ class TestAntiDriftHook(unittest.TestCase):
             res = check_auditor_write_block(payload)
             self.assertIsNotNone(res, f"Expected block for {role}")
             self.assertEqual(res["decision"], "deny")
-            self.assertIn("PSL Custodian Invariant", res["reason"])
+            self.assertIn("[AGYIS WRITE GUARD] Custodian Invariant", res["reason"])
 
     def test_main_and_lead_not_blocked(self):
         """Main and lead agents are permitted to mutate files when explicit_write_false is not set."""
@@ -758,7 +758,7 @@ class TestAntiDriftHook(unittest.TestCase):
                 res = check_auditor_write_block(payload)
                 self.assertIsNotNone(res, f"Expected block for {role} using {tool}")
                 self.assertEqual(res["decision"], "deny")
-                self.assertIn("PSL Investigator Invariant", res["reason"])
+                self.assertIn("[AGYIS WRITE GUARD] Investigator Invariant", res["reason"])
 
     def test_investigator_write_allowed_for_exempt_files(self):
         """Investigator is allowed to write to scratch, artifacts, and brain exempt files."""
@@ -806,7 +806,7 @@ class TestAntiDriftHook(unittest.TestCase):
             res = check_auditor_write_block(payload)
             self.assertIsNotNone(res, f"Expected block when role specified via {key}")
             self.assertEqual(res["decision"], "deny")
-            self.assertIn("PSL Auditor Invariant", res["reason"])
+            self.assertIn("[AGYIS WRITE GUARD] Auditor Invariant", res["reason"])
 
     def test_plan_mode_blocks_code_mutations(self):
         """When in plan mode, code file modifications are blocked (ADR-031)."""
@@ -820,7 +820,7 @@ class TestAntiDriftHook(unittest.TestCase):
         res = check_plan_mode_lock(payload)
         self.assertIsNotNone(res)
         self.assertEqual(res["decision"], "deny")
-        self.assertIn("PSL Native Plan-Mode Lock", res["reason"])
+        self.assertIn("[AGYIS PLAN LOCK]", res["reason"])
 
     def test_plan_mode_allows_exempt_files(self):
         """When in plan mode, documentation and artifacts remain editable."""
@@ -900,7 +900,7 @@ class TestAntiDriftHook(unittest.TestCase):
         )
         self.assertIsNotNone(res)
         self.assertEqual(res["decision"], "deny")
-        self.assertIn("PSL Anti-Drift Gate", res["reason"])
+        self.assertIn("[AGYIS ANTI-DRIFT] Gate", res["reason"])
         self.assertIn("knot ledger generate --json", res["reason"])
 
     def test_operator_ledger_with_telemetry_proof_allowed(self):
@@ -929,7 +929,7 @@ class TestAntiDriftHook(unittest.TestCase):
         with patch("pathlib.Path.write_text", side_effect=OSError("Disk full")), patch("sys.stderr", stderr_buf):
             ok = record_telemetry_proof("knot status --json", conv_id=conv_id, state_dir=self.workspace)
         self.assertFalse(ok)
-        self.assertIn("PSL Anti-Drift: Failed to record telemetry proof: Disk full", stderr_buf.getvalue())
+        self.assertIn("[AGYIS ANTI-DRIFT] Failed to record telemetry proof: Disk full", stderr_buf.getvalue())
 
     def test_operator_ledger_without_cluster_tables_allowed(self):
         """Updating operator_ledger.md with notes/milestones (no cluster tables) is allowed without proof."""
@@ -975,7 +975,7 @@ class TestAntiDriftHook(unittest.TestCase):
 
             res1 = json.loads(buf1.getvalue().strip())
             self.assertEqual(res1["decision"], "deny")
-            self.assertIn("PSL Anti-Drift Gate", res1["reason"])
+            self.assertIn("[AGYIS ANTI-DRIFT] Gate", res1["reason"])
 
             # 2. Record proof via run_command toolCall
             proof_payload = {

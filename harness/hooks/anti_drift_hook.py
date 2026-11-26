@@ -135,7 +135,7 @@ def check_drift(target_file: str, plan_files: set[str], strict: bool = False) ->
         return {
             "decision": "ask",
             "reason": (
-                f"PSL Anti-Drift Gate: Target file '{target_file}' is not listed in implementation_plan.md. "
+                f"[AGYIS ANTI-DRIFT] Gate: Target file '{target_file}' is not listed in implementation_plan.md. "
                 "Please confirm intentional edit."
             ),
         }
@@ -143,7 +143,7 @@ def check_drift(target_file: str, plan_files: set[str], strict: bool = False) ->
         return {
             "decision": "allow",
             "reason": (
-                f"PSL Anti-Drift Notice: Target file '{target_file}' was not declared in implementation_plan.md; "
+                f"[AGYIS ANTI-DRIFT] Notice: Target file '{target_file}' was not declared in implementation_plan.md; "
                 "permitted under non-strict mode."
             ),
         }
@@ -161,7 +161,7 @@ def main() -> None:
             print(json.dumps({"decision": "allow"}))
             return
     except Exception as exc:
-        print(f"PSL Anti-Drift: Error parsing stdin: {exc}", file=sys.stderr)
+        print(f"[AGYIS ANTI-DRIFT] Error parsing stdin: {exc}", file=sys.stderr)
         print(json.dumps({"decision": "allow"}))
         return
 
@@ -297,7 +297,7 @@ def main() -> None:
     try:
         plan_files = parse_plan_files(plan_content)
     except Exception as exc:
-        print(f"PSL Anti-Drift: Error parsing plan files: {exc}", file=sys.stderr)
+        print(f"[AGYIS ANTI-DRIFT] Error parsing plan files: {exc}", file=sys.stderr)
         print(json.dumps(strip_wire_keys(fd_guard or {"decision": "allow"}, allowed_keys=PRE_TOOL_WIRE_KEYS)))
         return
 

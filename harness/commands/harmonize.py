@@ -15,6 +15,7 @@ from pathlib import Path
 import sys
 
 from harness.delivery.harmonize import harmonize_workspace
+from harness.utils import theme
 
 
 def cmd_harmonize(args: argparse.Namespace) -> int:
@@ -42,11 +43,11 @@ def cmd_harmonize(args: argparse.Namespace) -> int:
             return 0 if test_res.success else 1
 
         if not test_res.success:
-            sys.stderr.write(f"✘ Error: {test_res.message}\n")
+            sys.stderr.write(theme.badge("FAIL", f"Error: {test_res.message}", stream=sys.stderr) + "\n")
             return 1
 
-        prefix = "✔ [DRY-RUN] " if test_res.dry_run else "✔ "
-        print(f"{prefix}{test_res.message}")
+        prefix = "[DRY-RUN] " if test_res.dry_run else ""
+        print(theme.badge("PASS", f"{prefix}{test_res.message}"))
         print(f"  • Workspace: {test_res.workspace_root}")
         print(f"  • Framework: {test_res.audit.test_framework} ({test_res.audit.package_manager})")
         if test_res.mutations:
@@ -91,11 +92,11 @@ def cmd_harmonize(args: argparse.Namespace) -> int:
         return 0 if res.success else 1
 
     if not res.success:
-        sys.stderr.write(f"✘ Error: {res.message}\n")
+        sys.stderr.write(theme.badge("FAIL", f"Error: {res.message}", stream=sys.stderr) + "\n")
         return 1
 
-    prefix = "✔ [DRY-RUN] " if res.dry_run else "✔ "
-    print(f"{prefix}{res.message}")
+    prefix = "[DRY-RUN] " if res.dry_run else ""
+    print(theme.badge("PASS", f"{prefix}{res.message}"))
     print(f"  • Workspace: {res.workspace_dir}")
     print(f"  • Legacy .agent/ found: {'yes' if res.legacy_agent_dir_found else 'no'}")
 

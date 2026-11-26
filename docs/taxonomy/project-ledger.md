@@ -8,7 +8,7 @@
 > **Archive (`0069329`)**: [`project-ledger-rc10-historical.md`](../archive/README.md#ledger) · **Baselines**: [`empirical-baselines.md`](empirical-baselines.md) · **ADRs (`001–035`)**: [`docs/adr/README.md`](../adr/README.md)
 
 ## 1. Current Release Baseline (`v1.0.0` + Wave 1.2 Hardening — 2026-11-26)
-- **Verification**: **2,511 hermetic tests** across `111` `tests/test_*.py` + `4` `tests/e2e/test_*.py` modules (`115` total, `python3 -m harness.cli test`), **4** cleanroom specs (`agyis verify --spec`), `agyis audit sync-check` (`PASS`), and `agyis audit aff` (`100.0/100`, `PSL-INV-008`).
+- **Verification**: **2,543 hermetic tests** across `114` `tests/test_*.py` + `4` `tests/e2e/test_*.py` modules (`118` total, `python3 -m harness.cli test`), **4** cleanroom specs (`agyis verify --spec`), `agyis audit sync-check` (`PASS`), and `agyis audit aff` (`100.0/100`, `PSL-INV-008`).
 - **Surface Inventory**: **28** CLI commands (`29` parser entries incl. `changelogs` alias; `router` & `ladder` separate), **30** modular skills (`>100` L ToC, `<24,576` B cap), **8** `agyis_*` personas (`19` canonical tools `<=20` ceiling / `30` `ANTIGRAVITY_PLATFORM_TOOLS`), **7** `hooks.json` blocks (**8** runner checks), **7** official specs, **4** runbooks.
 - **Platform Targets**: Antigravity Desktop `v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`, `rea@6.9.0` (`255` MCP tools), **Gemini 4** (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M` scaled runway, `70%`/`90%`, `80`-step soft horizon).
 - **Single-Source Hygiene**: `.agents/skills/` and `.agents/agents/` symlink to `../../harness/` (`~4,500` tok/turn saved); active hooks state defaults to `/tmp/agyis_harness_state_{uid}` (`AGYIS_HARNESS_STATE_DIR`).

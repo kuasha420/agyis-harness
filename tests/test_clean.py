@@ -326,7 +326,7 @@ class TestCleanCLI(unittest.TestCase):
         ret = cli_main(["clean", "--workspace", str(self.ws)])
         self.assertEqual(ret, 0)
         out = mock_stdout.getvalue()
-        self.assertIn("=== Agyis Hygiene & Workspace Cleanup ===", out)
+        self.assertIn("Agyis Hygiene & Workspace Cleanup", out)
         self.assertIn("Checkpoints: 2 pruned", out)
         self.assertIn("Worktrees:", out)
         self.assertIn("Branches:", out)
@@ -527,7 +527,7 @@ class TestCleanCLI(unittest.TestCase):
                 self.assertEqual(ret_err_human, 1)
                 self.assertIn("Failed to clean dist/", err_human.getvalue())
                 self.assertIn("Permission denied", err_human.getvalue())
-                self.assertNotIn("✔ Completed", out_err_human.getvalue())
+                self.assertNotIn("● Completed", out_err_human.getvalue())
 
             with patch("sys.stdout", new_callable=io.StringIO) as out_err_json:
                 ret_err_json = cli_main(["clean", "--dist", "--workspace", str(self.ws), "--json"])

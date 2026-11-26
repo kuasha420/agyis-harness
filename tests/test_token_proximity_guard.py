@@ -7,7 +7,7 @@
 Unit tests for PreToolUse Token Proximity Guard Lifecycle Hook (ADR-014 / ADR-015).
 Verifies:
 1. Dynamic Urgency Gradient threshold calculations (<35k, 35k-45k, >=45k).
-2. ANSI progress gauge rendering with bell alert (\\a) on critical.
+2. Orbital Aegis ANSI progress gauge rendering (NO_COLOR-safe, zero terminal BEL \\a).
 3. Safe read-only SQLite inspection against mock databases and zero-crash fallbacks.
 4. Fail-open PreToolUse contract: stdout always emits {"decision": "allow"}, exit code 0.
 5. Integration with fail-safe hook runner (runner.py) and hooks.json registration.
@@ -72,36 +72,54 @@ class TestTokenProximityThresholds(unittest.TestCase):
 
 
 class TestRenderTerminalGauge(unittest.TestCase):
-    """Verifies ANSI output formatting, percentage, and terminal bell alerts."""
+    """Verifies Orbital Aegis ANSI formatting, NO_COLOR safety, and zero terminal bell."""
 
     def test_render_safe_gauge(self):
-        """Safe tier outputs green styling and does not emit terminal bell."""
-        gauge = render_terminal_gauge(20000)
+        """Safe tier outputs Orbital Aegis green styling under FORCE_COLOR and emits zero bell."""
+        with patch.dict(os.environ, {"FORCE_COLOR": "1", "COLORTERM": "truecolor", "NO_COLOR": "", "TERM": "xterm-256color"}):
+            gauge = render_terminal_gauge(20000)
         self.assertIn("SAFE", gauge)
         self.assertIn("20,000 / 256,000 (7.8%)", gauge)
-        self.assertIn("\033[1;32m", gauge)
+        self.assertIn("\033[38;2;42;208;137m", gauge)
         self.assertNotIn("\a", gauge)
 
     def test_render_amber_gauge(self):
-        """Elevated tier outputs amber/yellow styling and does not emit terminal bell."""
-        gauge = render_terminal_gauge(195000)
+        """Elevated tier outputs Orbital Aegis amber styling under FORCE_COLOR and zero bell."""
+        with patch.dict(os.environ, {"FORCE_COLOR": "1", "COLORTERM": "truecolor", "NO_COLOR": "", "TERM": "xterm-256color"}):
+            gauge = render_terminal_gauge(195000)
         self.assertIn("ELEVATED", gauge)
         self.assertIn("195,000 / 256,000 (76.2%)", gauge)
-        self.assertIn("\033[1;33m", gauge)
+        self.assertIn("\033[38;2;245;183;79m", gauge)
         self.assertNotIn("\a", gauge)
 
-    def test_render_critical_gauge(self):
-        """Critical tier outputs bold red styling and emits terminal bell (\\a)."""
-        gauge = render_terminal_gauge(240000)
+    def test_render_critical_gauge_no_bell(self):
+        """Critical tier outputs Orbital Aegis coral styling and emits zero terminal bell (\\a)."""
+        with patch.dict(os.environ, {"FORCE_COLOR": "1", "COLORTERM": "truecolor", "NO_COLOR": "", "TERM": "xterm-256color"}):
+            gauge = render_terminal_gauge(240000)
         self.assertIn("CRITICAL", gauge)
         self.assertIn("240,000 / 256,000 (93.8%)", gauge)
-        self.assertIn("\033[1;31m", gauge)
-        self.assertTrue(gauge.startswith("\a"), "Critical gauge must begin with terminal bell")
+        self.assertIn("\033[38;2;255;107;107m", gauge)
+        self.assertNotIn("\a", gauge)
+
+    def test_render_gauge_no_color_and_256_fallback(self):
+        """NO_COLOR=1 emits zero ANSI escapes; 256-color fallback works without COLORTERM."""
+        with patch.dict(os.environ, {"NO_COLOR": "1", "FORCE_COLOR": "1", "TERM": "xterm-256color"}):
+            plain = render_terminal_gauge(240000)
+        self.assertIn("[AGYIS TOKEN GAUGE]", plain)
+        self.assertIn("CRITICAL", plain)
+        self.assertNotIn("\033[", plain)
+        self.assertNotIn("\a", plain)
+
+        with patch.dict(os.environ, {"FORCE_COLOR": "1", "COLORTERM": "", "NO_COLOR": "", "TERM": "xterm-256color"}):
+            c256 = render_terminal_gauge(240000)
+        self.assertIn("\033[38;5;203m", c256)
+        self.assertNotIn("\a", c256)
 
     def test_format_terminal_gauge_custom_threshold(self):
         """Supports customized threshold denominators."""
         gauge = format_terminal_gauge(10000, threshold=20000)
         self.assertIn("10,000 / 20,000 (50.0%)", gauge)
+        self.assertNotIn("\a", gauge)
 
 
 class TestSQLiteInspectionHermetic(unittest.TestCase):
@@ -287,8 +305,8 @@ class TestCheckTokenProximityLogic(unittest.TestCase):
             self.assertIn("ELEVATED", err_out)
             self.assertNotIn("\a", err_out)
 
-    def test_critical_zone_emits_bell_and_red_pulse(self):
-        """Critical zone (>=230k) emits warning gauge with terminal bell (\\a)."""
+    def test_critical_zone_emits_red_pulse_without_bell(self):
+        """Critical zone (>=230k) emits warning gauge without terminal bell (\\a)."""
         conv_id = "critical-conv"
         self._create_db_with_tokens(conv_id, 235000)
 
@@ -299,7 +317,7 @@ class TestCheckTokenProximityLogic(unittest.TestCase):
             self.assertTrue(res["warned"])
             err_out = mock_err.getvalue()
             self.assertIn("CRITICAL", err_out)
-            self.assertIn("\a", err_out)
+            self.assertNotIn("\a", err_out)
 
     def test_run_token_proximity_guard_functional(self):
         """Tests run_token_proximity_guard directly with custom stderr."""

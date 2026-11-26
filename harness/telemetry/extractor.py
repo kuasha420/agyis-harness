@@ -21,6 +21,7 @@ from harness.telemetry.config import infer_client_surface, resolve_machine_id
 from harness.telemetry.models import normalize_model, normalize_utc_iso
 from harness.telemetry.schema import SCHEMA_SQL, ensure_sync_columns
 from harness.telemetry.sibling_db import find_sibling_conversation_db, read_sibling_gen_metadata
+from harness.trajectory.health import is_transcript_checkpoint_step
 from harness.trajectory.protobuf import extract_context_window_from_json
 
 
@@ -480,7 +481,7 @@ def extract_session(
     model_detected = "Unknown"
     model_slug: Optional[str] = None
     model_display_name: Optional[str] = None
-    step_in_tot = step_cache_tot = step_out_tot = step_thought_tot = step_max_ctx = step_peak_ctx = 0
+    step_in_tot = step_cache_tot = step_out_tot = step_thought_tot = step_max_ctx = step_peak_ctx = cp_peak_ctx = 0
     workspace_detected = ""
     tool_calls_extracted: List[Dict[str, Any]] = []
     interventions_extracted: List[Dict[str, Any]] = []
@@ -511,7 +512,16 @@ def extract_session(
         step_out_tot += s_out
         step_thought_tot += s_thought
         step_max_ctx = max(step_max_ctx, s_mct)
-        step_peak_ctx = max(step_peak_ctx, (s_in + s_cache) or s_est)
+        step_ctx_val = (s_in + s_cache) or s_est
+        is_cp_step = (
+            s_type in ("CHECKPOINT", "CORTEX_STEP_TYPE_CHECKPOINT")
+            or isinstance(s.get("checkpoint"), dict)
+            or is_transcript_checkpoint_step(s)
+        )
+        if is_cp_step:
+            cp_peak_ctx = max(cp_peak_ctx, step_ctx_val)
+        else:
+            step_peak_ctx = max(step_peak_ctx, step_ctx_val)
 
         s_model = _extract_step_model(s)
         if s_model:
@@ -659,7 +669,12 @@ def extract_session(
     total_cache = max(step_cache_tot, gen_meta.get("total_cache_read_tokens") or 0) or None
     total_out = max(step_out_tot, gen_meta.get("total_output_tokens") or 0) or None
     total_thought = max(step_thought_tot, gen_meta.get("total_thought_tokens") or 0) or None
-    peak_ctx = max(step_peak_ctx, gen_meta.get("peak_context_tokens") or 0) or None
+    effective_step_peak = (
+        step_peak_ctx
+        if step_peak_ctx > 0
+        else (min(resolved_max_ctx, cp_peak_ctx) if resolved_max_ctx > 0 else cp_peak_ctx)
+    )
+    peak_ctx = max(effective_step_peak, gen_meta.get("peak_context_tokens") or 0) or None
 
     step_rows = [
         {

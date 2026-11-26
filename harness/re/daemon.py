@@ -27,6 +27,8 @@ import threading
 import time
 from typing import Any, Dict, IO, Optional
 
+from harness.utils import theme
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows fallback
@@ -668,10 +670,8 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             print(json.dumps(st, indent=2))
             return 0
 
-        status_icon = "🟢 RUNNING" if st["running"] else "⚪ STOPPED"
-        print("======================================================================")
-        print(" 🔌 Agyis Persistent REA MCP Bridge Daemon (ADR-028, Issue #113)")
-        print("======================================================================")
+        status_icon = theme.badge("ACTIVE", "RUNNING") if st["running"] else theme.badge("STOPPED", "STOPPED")
+        print(theme.banner("Agyis Persistent REA MCP Bridge Daemon (ADR-028, Issue #113)"))
         print(f" State:               {status_icon}")
         if st["running"]:
             print(f" Supervisor PID:      {st['pid']}")
@@ -680,10 +680,10 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             print(f" Uptime:              {st['uptime_seconds']:.1f}s")
             print(f" Started At:          {st['started_at']}")
         print(f" Attached Project:    {st['ghidra_project'] or 'None (Target-free)'}")
-        print(f" Direct Mount Active: {'✔ YES' if st['direct_mount_active'] else '✘ NO'}")
-        print(f" MCP Configured:      {'✔ YES' if st['mcp_configured'] else '✘ NO'}")
+        print(f" Direct Mount Active: {theme.badge('PASS', 'YES') if st['direct_mount_active'] else theme.badge('FAIL', 'NO')}")
+        print(f" MCP Configured:      {theme.badge('PASS', 'YES') if st['mcp_configured'] else theme.badge('FAIL', 'NO')}")
         print(f" Log File:            {st['log_file']}")
-        print("======================================================================")
+        print(theme.rule("━"))
         return 0
 
     if action == "start":

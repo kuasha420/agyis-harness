@@ -102,14 +102,14 @@ def build_succession_prompt(
     return f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Agyis Horizontal Succession Directive: Generation {current_gen} -> Generation {next_gen} -->
 
-# 🚀 Generation {next_gen} Succession Hand-Off ({project_name})
+# ◆ Generation {next_gen} Succession Hand-Off ({project_name})
 
 You are the Generation {next_gen} successor orchestrator spawned to continue autonomous engineering execution.
 Your predecessor (Generation {current_gen}, Session `{session_id}`) transferred authority after reaching `{tokens:,}` tokens.
 
 ---
 
-## 🛠️ Mandatory 6-Step Succession Boot Sequence
+## Mandatory 6-Step Succession Boot Sequence
 
 You MUST execute the following sequence immediately upon awakening without pause or human prompting:
 

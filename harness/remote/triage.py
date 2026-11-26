@@ -110,14 +110,14 @@ class RemoteTriage:
         sections = cls.parse_sections(raw_output)
 
         lines_out: List[str] = [
-            f"### 🩺 Remote Triage Report: `{target}` (Profile: `{profile}`)",
+            f"### ◆ Remote Triage Report: `{target}` (Profile: `{profile}`)",
             "",
         ]
 
         # Diagnostic & Connection Output (DEF-BB-034 / DEF-BB-047)
         gen_lines = [l.strip() for l in sections.get("GENERAL", []) if l.strip()]
         if gen_lines:
-            lines_out.append("#### ⚠️ Diagnostic & Connection Output")
+            lines_out.append("#### ▲ Diagnostic & Connection Output")
             lines_out.append("```")
             for gl in gen_lines[:25]:
                 lines_out.append(gl)
@@ -126,7 +126,7 @@ class RemoteTriage:
 
         # Host & Resources
         if "HOST" in sections or "RESOURCES" in sections:
-            lines_out.append("#### 💻 Host & Resources")
+            lines_out.append("#### Host & Resources")
             host_lines = sections.get("HOST", [])
             if host_lines:
                 lines_out.append(f"- **Uptime**: `{host_lines[-1].strip() if host_lines else 'N/A'}`")
@@ -142,7 +142,7 @@ class RemoteTriage:
 
         # Ports
         if "PORTS" in sections:
-            lines_out.append("#### 🌐 Listening Sockets")
+            lines_out.append("#### Listening Sockets")
             port_lines = [
                 l.strip()
                 for l in sections["PORTS"]
@@ -159,7 +159,7 @@ class RemoteTriage:
 
         # Services
         if "SERVICES" in sections:
-            lines_out.append("#### ⚙️ Services Status")
+            lines_out.append("#### Services Status")
             svc_lines = [l.strip() for l in sections["SERVICES"] if l.strip()]
             pm2_parsed = False
             raw_svc_text = "\n".join(svc_lines)
@@ -197,7 +197,7 @@ class RemoteTriage:
 
         # Logs
         if "LOGS" in sections:
-            lines_out.append("#### 📜 Diagnostic Logs")
+            lines_out.append("#### Diagnostic Logs")
             log_lines = [l.strip() for l in sections["LOGS"] if l.strip()]
             if log_lines:
                 lines_out.append("```")

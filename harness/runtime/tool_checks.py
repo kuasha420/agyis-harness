@@ -77,7 +77,7 @@ def check_psl_collision() -> Dict[str, Any]:
             "path": None,
             "collision": False,
             "details": "psl binary not found on PATH.",
-            "remediation": "Deploy the PSL launcher via 'python3 -m harness.cli install' or ensure ~/.local/bin is on PATH.",
+            "remediation": "Deploy the Agyis launcher via 'python3 -m harness.cli install' or ensure ~/.local/bin is on PATH.",
         }
 
     is_harness = False
@@ -109,7 +109,7 @@ def check_psl_collision() -> Dict[str, Any]:
             "collision": True,
             "details": f"Collision detected: 'psl' resolves to non-harness binary ({psl_path}).",
             "remediation": (
-                "Ensure PSL harness bin directory is prioritized in PATH:\n"
+                "Ensure Agyis Harness bin directory is prioritized in PATH:\n"
                 "    export PATH=\"$HOME/.local/bin:$PATH\"\n"
                 "And ensure the launcher is installed via: python3 -m harness.cli install"
             ),
@@ -119,7 +119,7 @@ def check_psl_collision() -> Dict[str, Any]:
         "status": "OK",
         "path": psl_path,
         "collision": False,
-        "details": f"psl binary correctly resolves to PSL Harness launcher ({psl_path}).",
+        "details": f"psl binary correctly resolves to Agyis Harness launcher ({psl_path}).",
         "remediation": None,
     }
 

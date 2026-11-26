@@ -8,14 +8,15 @@ Antigravity Desktop Launcher & CDP Process Detection Helpers (DRIFT-P0-06).
 
 Provides reusable helpers for:
 1. Detecting live Antigravity Electron main processes launched without
-   `--remote-debugging-port` (which causes v2.34.0 to delete DevToolsActivePort).
+   `--remote-debugging-port` (which causes v2.34+ to delete DevToolsActivePort).
 2. Installing a user-level `.desktop` override at
    `~/.local/share/applications/antigravity.desktop` with
-   `Exec=/usr/bin/antigravity --remote-debugging-port=0 %U`.
+   `Exec=/usr/bin/antigravity --remote-debugging-port=0 %U` and Orbital Aegis SVG icon.
 """
 
 from __future__ import annotations
 
+import importlib.resources
 import os
 from pathlib import Path
 import shlex
@@ -114,7 +115,31 @@ Categories=Development;Utility;
 """
 
 
-def _is_antigravity_main_process(argv: List[str]) -> bool:
+def _load_logo_svg_bytes() -> Optional[bytes]:
+    """Loads Orbital Aegis logo.svg from package resources with source-checkout fallback."""
+    try:
+        return importlib.resources.files("harness.assets").joinpath("logo.svg").read_bytes()
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        fallback = Path(__file__).resolve().parents[2] / "assets" / "logo.svg"
+        if fallback.is_file():
+            try:
+                return fallback.read_bytes()
+            except OSError:
+                return None
+    return None
+
+
+def _resolve_user_icon_path(desktop_target: Path, explicit_desktop: Optional[Path]) -> Path:
+    """Resolves user icon destination hermetically relative to custom desktop_path or XDG_DATA_HOME."""
+    if explicit_desktop is not None:
+        data_root = desktop_target.parent.parent if desktop_target.parent.name == "applications" else desktop_target.parent
+    else:
+        xdg_data = (os.environ.get("XDG_DATA_HOME") or "").strip()
+        data_root = Path(xdg_data) if xdg_data else (Path.home() / ".local" / "share")
+    return data_root / "icons" / "hicolor" / "scalable" / "apps" / "agyis-trajectory.svg"
+
+
+def _is_antigravity_main_process(argv: List[str], include_ide: bool = False) -> bool:
     """Returns True if argv represents an Antigravity Electron main process (not a child helper)."""
     if not argv:
         return False
@@ -122,7 +147,14 @@ def _is_antigravity_main_process(argv: List[str]) -> bool:
     if not exe:
         return False
     base = Path(exe).name.lower()
-    if base != "antigravity" and "/antigravity/" not in exe.lower():
+    lower_exe = exe.lower()
+    is_desktop = base == "antigravity" or "/antigravity/" in lower_exe
+    is_ide = include_ide and (
+        base == "antigravity-ide"
+        or "/antigravity-ide/" in lower_exe
+        or "/antigravity ide/" in lower_exe
+    )
+    if not (is_desktop or is_ide):
         return False
     # Exclude Electron helper subprocesses (--type=renderer, --type=gpu-process, etc.)
     if any(arg.startswith("--type=") for arg in argv[1:]):
@@ -130,7 +162,10 @@ def _is_antigravity_main_process(argv: List[str]) -> bool:
     return True
 
 
-def detect_antigravity_without_cdp(proc_root: Optional[Path] = None) -> List[Dict[str, Any]]:
+def detect_antigravity_without_cdp(
+    proc_root: Optional[Path] = None,
+    include_ide: bool = False,
+) -> List[Dict[str, Any]]:
     """
     Scans `/proc` (or custom `proc_root`) for live Antigravity main processes
     running without `--remote-debugging-port`.
@@ -151,7 +186,7 @@ def detect_antigravity_without_cdp(proc_root: Optional[Path] = None) -> List[Dic
         if not raw:
             continue
         argv = [part for part in raw.decode("utf-8", errors="replace").split("\x00") if part]
-        if not _is_antigravity_main_process(argv):
+        if not _is_antigravity_main_process(argv, include_ide=include_ide):
             continue
         has_cdp = any(
             arg == "--remote-debugging-port" or arg.startswith("--remote-debugging-port=")
@@ -181,7 +216,7 @@ def format_cdp_restart_instructions(
             f"   Live Antigravity process detected (PID {pids}) without --remote-debugging-port."
         )
         lines.append(
-            "   Antigravity v2.34.0 deletes DevToolsActivePort unless launched with --remote-debugging-port,"
+            "   Antigravity v2.34+ deletes DevToolsActivePort unless launched with --remote-debugging-port,"
         )
         lines.append(
             "   and its single-instance lock prevents a second launch from enabling CDP."
@@ -249,9 +284,20 @@ def install_cdp_launcher(
     if changed:
         target.write_text(content, encoding="utf-8")
 
+    icon_path_str: Optional[str] = None
+    svg_bytes = _load_logo_svg_bytes()
+    if svg_bytes:
+        icon_target = _resolve_user_icon_path(target, desktop_path)
+        icon_target.parent.mkdir(parents=True, exist_ok=True)
+        prev_icon = icon_target.read_bytes() if icon_target.is_file() else None
+        if prev_icon != svg_bytes:
+            icon_target.write_bytes(svg_bytes)
+        icon_path_str = str(icon_target)
+
     return {
         "success": True,
         "path": str(target),
         "exec": exec_line,
         "changed": changed,
+        "icon_path": icon_path_str,
     }

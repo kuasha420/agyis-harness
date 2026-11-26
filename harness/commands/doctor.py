@@ -15,6 +15,7 @@ from pathlib import Path
 import sys
 
 from harness.runtime import doctor as psl_doctor
+from harness.utils import theme
 
 DEFAULT_MATRIX = Path(__file__).resolve().parent.parent / "runtime" / "matrix.json"
 
@@ -56,7 +57,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if do_heal:
         if not is_json:
             psl_doctor.print_cli_report(audit)
-            print("\n🔧 Executing Auto-Healing...")
+            print(f"\n{theme.badge('BRAND')} {theme.style('Executing Auto-Healing...', 'ink', bold=True)}")
         actions = psl_doctor.heal_environment(
             audit,
             matrix_path,
@@ -67,7 +68,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         )
         if not is_json:
             for act in actions:
-                print(f"  ✔ {act}")
+                print(f"  {theme.badge('PASS')} {act}")
             print()
         audit = psl_doctor.run_doctor(
             matrix_path,

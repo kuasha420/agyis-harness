@@ -101,7 +101,7 @@ def _has_dispatched_subagents(effective_cwd: Path | str, payload: Optional[dict]
                 if child.is_dir() and not child.name.startswith(".") and child.name not in TEAMWORK_IGNORED_DIRS:
                     return True
         except OSError as exc:
-            sys.stderr.write(f"PSL Fence Warning: Failed reading teamwork dir '{teamwork_dir}': {exc}\n")
+            sys.stderr.write(f"[AGYIS FENCE] Warning: Failed reading teamwork dir '{teamwork_dir}': {exc}\n")
 
     if payload and (payload.get("subagents_dispatched") or payload.get("dispatched_subagents")):
         return True
@@ -214,7 +214,7 @@ def evaluate_commit_gate(
             if generate_mutants_for_diff(repo_root=Path(effective_cwd or Path.cwd())):
                 has_mutables = True
         except Exception as exc:
-            sys.stderr.write(f"PSL Fence Warning: Diff mutant scan failed: {exc}\n")
+            sys.stderr.write(f"[AGYIS FENCE] Warning: Diff mutant scan failed: {exc}\n")
     if not mutation_bypass and has_mutables and not state.get("mutation_verified", False):  # agyis: no-mutant default false check
         return {
             "decision": "deny",
@@ -269,7 +269,7 @@ def _evaluate_smell_gate(
                     if getattr(smell, "severity", "").lower() in ("hard_rejection", "error", "reject", "hard_reject"):
                         hard_rejections.append(smell)
             except Exception as exc:
-                sys.stderr.write(f"PSL Fence Warning: AST smell audit failed for '{tf_path}': {exc}\n")
+                sys.stderr.write(f"[AGYIS FENCE] Warning: AST smell audit failed for '{tf_path}': {exc}\n")
     if not hard_rejections:
         return None
 

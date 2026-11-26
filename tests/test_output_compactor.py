@@ -184,7 +184,7 @@ class TestOutputCompactor(unittest.TestCase):
         self.assertIn("Detected failure in post-flight validation pipeline", compacted)
 
         # 5. Compactor marker present
-        self.assertIn("[... PSL Compactor:", compacted)
+        self.assertIn("[... AGYIS Compactor:", compacted)
         self.assertIn("characters truncated", compacted)
 
         # 6. Non-error middle filler omitted
@@ -449,7 +449,7 @@ class TestOutputCompactor(unittest.TestCase):
         self.assertLess(len(out), 2048)
         self.assertTrue(out.startswith("HEAD_START_"))
         self.assertTrue(out.endswith("_TAIL_END\n") or out.endswith("_TAIL_END"))
-        self.assertIn("[... PSL Compactor:", out)
+        self.assertIn("[... AGYIS Compactor:", out)
 
     def test_exec_wrap_nonzero_exit_preserves_full_output(self) -> None:
         """run_with_compaction preserves full output when exit code != 0."""
@@ -458,7 +458,7 @@ class TestOutputCompactor(unittest.TestCase):
         code, out = run_with_compaction(cmd, shell=False)
         self.assertEqual(code, 7)
         self.assertGreater(len(out), 8000)
-        self.assertNotIn("[... PSL Compactor:", out)
+        self.assertNotIn("[... AGYIS Compactor:", out)
 
     def test_exec_wrap_cli_helper(self) -> None:
         """CLI helper executes command and prints compacted output."""
@@ -543,7 +543,7 @@ class TestOutputCompactor(unittest.TestCase):
         self.assertIn("FAILURE: late validation failure", compacted)
         # Deep center error was skipped by 200KB pre-slicing
         self.assertNotIn("FATAL: deep skipped center failure", compacted)
-        self.assertIn("[... PSL Compactor:", compacted)
+        self.assertIn("[... AGYIS Compactor:", compacted)
 
     def test_bounding_preserved_diagnostic_error_lines_to_max_50(self) -> None:
         """

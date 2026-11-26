@@ -80,7 +80,7 @@ class TestAntiLoopHookPhase2(unittest.TestCase):
         # 4th identical call trips the breaker
         tripped = check_anti_loop("view_file", tool_args, conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(tripped["decision"], "deny")
-        self.assertIn("PSL Anti-Loop Guard", tripped["reason"])
+        self.assertIn("[AGYIS ANTI-LOOP]", tripped["reason"])
 
     # 2. Verification Reset Invariant
     def test_verification_reset_invariant_agyis_test_with_write_to_file(self):
@@ -271,7 +271,7 @@ class TestAntiLoopHookPhase2(unittest.TestCase):
                 "deny",
                 f"Command '{cmd}' 9th execution was expected to trip frequency window: {tripped}",
             )
-            self.assertIn("PSL Anti-Loop Guard", tripped["reason"])
+            self.assertIn("[AGYIS ANTI-LOOP]", tripped["reason"])
             self.assertIn(f"threshold is {MAX_IDEMPOTENT_FREQUENCY_REPEATS}", tripped["reason"])
 
     def test_consecutive_idempotent_commands_up_to_8_allowed(self):
@@ -293,7 +293,7 @@ class TestAntiLoopHookPhase2(unittest.TestCase):
             "deny",
             f"9th consecutive execution of '{cmd}' should be denied: {tripped}",
         )
-        self.assertIn("PSL Anti-Loop Guard", tripped["reason"])
+        self.assertIn("[AGYIS ANTI-LOOP]", tripped["reason"])
 
     def test_non_idempotent_command_trips_at_threshold_4(self):
         """Standard non-idempotent commands still trip rolling frequency threshold at 4 appearances."""
@@ -647,7 +647,7 @@ class TestAntiLoopReaHarmonization(unittest.TestCase):
         # 9th call within the 15-call window must be denied
         res_9th = check_anti_loop("view_file", spec_args, conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res_9th["decision"], "deny")
-        self.assertIn("PSL Anti-Loop Guard", res_9th["reason"])
+        self.assertIn("[AGYIS ANTI-LOOP]", res_9th["reason"])
         self.assertIn("threshold is 8", res_9th["reason"])
 
     def test_spec_file_preserves_consecutive_repeat_denial(self):

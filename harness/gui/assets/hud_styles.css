@@ -17,8 +17,25 @@
  */
 
 #agyis-trajectory-hud {
+    --agyis-bg: #080E1A;
+    --agyis-surface: #10192B;
+    --agyis-inset: #0B1322;
+    --agyis-elevated: #162238;
+    --agyis-border: #1E2C47;
+    --agyis-border-strong: #283A5E;
+    --agyis-ink: #F4F6FA;
+    --agyis-muted: #9AA8BE;
+    --agyis-subtle: #6E7F9B;
+    --agyis-cobalt: #1B4DFF;
+    --agyis-optical: #5C8AFF;
+    --agyis-cyan: #26D0CE;
+    --agyis-pass: #2AD089;
+    --agyis-warn: #F5B74F;
+    --agyis-fail: #FF6B6B;
+    --agyis-font-sans: "Instrument Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --agyis-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     position: fixed;
-    top: 38px;
+    top: var(--pane-titlebar-height, 40px);
     left: 0;
     right: 0;
     bottom: 0;
@@ -26,11 +43,22 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.75);
+    background: rgba(8, 14, 26, 0.82);
     backdrop-filter: blur(8px);
-    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    color: #f4f4f5;
+    font-family: var(--agyis-font-sans);
+    color: var(--agyis-ink);
     box-sizing: border-box;
+}
+
+.agyis-playback-mode #agyis-trajectory-hud {
+    position: relative;
+    top: 0;
+    inset: auto;
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    backdrop-filter: none;
 }
 
 #agyis-trajectory-hud * {
@@ -41,23 +69,32 @@
     width: 95vw;
     max-width: 1440px;
     height: 90vh;
-    background: #18181b;
-    border: 1px solid #27272a;
+    background: var(--agyis-bg);
+    border: 1px solid var(--agyis-border);
     border-radius: 12px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9);
+    box-shadow: 0 25px 50px -12px rgba(4, 8, 18, 0.9);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: all 0.2s ease-in-out;
+    transition: width 0.18s ease, height 0.18s ease;
     -webkit-app-region: no-drag;
 }
 
 .agyis-hud-box.maximized {
     width: 100vw !important;
     max-width: 100vw !important;
-    height: calc(100vh - 38px) !important;
+    height: calc(100vh - var(--pane-titlebar-height, 40px)) !important;
     border-radius: 0 !important;
     border: none !important;
+}
+
+.agyis-playback-mode .agyis-hud-box {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
 }
 
 /* ==========================================================================
@@ -69,8 +106,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 14px;
-    background: #121214;
-    border-bottom: 1px solid #27272a;
+    background: #10192B;
+    border-bottom: 1px solid #1E2C47;
     gap: 10px;
     flex-wrap: wrap;
     position: relative;
@@ -104,18 +141,19 @@
     border: 1px solid transparent;
 }
 
-.agyis-hud-pill-purple { background: rgba(168, 85, 247, 0.12); color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
-.agyis-hud-pill-blue   { background: rgba(59, 130, 246, 0.12);  color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
-.agyis-hud-pill-amber  { background: rgba(245, 158, 11, 0.12);  color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
-.agyis-hud-pill-green  { background: rgba(16, 185, 129, 0.12);  color: #34d399; border-color: rgba(16, 185, 129, 0.3); }
-.agyis-hud-pill-teal   { background: rgba(20, 184, 166, 0.12);  color: #2dd4bf; border-color: rgba(20, 184, 166, 0.3); }
-.agyis-hud-pill-red    { background: rgba(239, 68, 68, 0.12);   color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
-.agyis-hud-pill-zinc   { background: rgba(113, 113, 122, 0.12); color: #a1a1aa; border-color: rgba(113, 113, 122, 0.3); }
+.agyis-hud-pill-cobalt { background: rgba(27, 77, 255, 0.16); color: #5C8AFF; border-color: rgba(92, 138, 255, 0.35); }
+.agyis-hud-pill-purple { background: rgba(92, 138, 255, 0.14); color: #8FB0FF; border-color: rgba(92, 138, 255, 0.32); }
+.agyis-hud-pill-blue   { background: rgba(27, 77, 255, 0.14);  color: #5C8AFF; border-color: rgba(92, 138, 255, 0.32); }
+.agyis-hud-pill-amber  { background: rgba(245, 183, 79, 0.14);  color: #F5B74F; border-color: rgba(245, 183, 79, 0.34); }
+.agyis-hud-pill-green  { background: rgba(42, 208, 137, 0.14);  color: #2AD089; border-color: rgba(42, 208, 137, 0.34); }
+.agyis-hud-pill-teal   { background: rgba(38, 208, 206, 0.14);  color: #26D0CE; border-color: rgba(38, 208, 206, 0.34); }
+.agyis-hud-pill-red    { background: rgba(255, 107, 107, 0.14); color: #FF6B6B; border-color: rgba(255, 107, 107, 0.34); }
+.agyis-hud-pill-zinc   { background: rgba(154, 168, 190, 0.12); color: #9AA8BE; border-color: rgba(30, 44, 71, 0.8); }
 
 .agyis-hud-btn {
-    background: #27272a;
-    border: 1px solid #3f3f46;
-    color: #f4f4f5;
+    background: #162238;
+    border: 1px solid #1E2C47;
+    color: #F4F6FA;
     border-radius: 6px;
     padding: 4px 8px;
     font-size: 11px;
@@ -129,13 +167,13 @@
     -webkit-app-region: no-drag;
 }
 
-.agyis-hud-btn:hover { background: #3f3f46; border-color: #52525b; }
-.agyis-hud-btn.active { background: #3f3f46; border-color: #f59e0b; color: #fbbf24; font-weight: 600; }
+.agyis-hud-btn:hover { background: #1D2D4A; border-color: #283A5E; }
+.agyis-hud-btn.active { background: rgba(27, 77, 255, 0.22); border-color: #5C8AFF; color: #F4F6FA; font-weight: 600; }
 
 .agyis-hud-select {
-    background: #202023;
-    border: 1px solid #3f3f46;
-    color: #f4f4f5;
+    background: #0B1322;
+    border: 1px solid #1E2C47;
+    color: #F4F6FA;
     border-radius: 6px;
     padding: 4px 8px;
     font-size: 11px;
@@ -147,8 +185,8 @@
 .agyis-hud-search-box {
     display: flex;
     align-items: center;
-    background: #202023;
-    border: 1px solid #3f3f46;
+    background: #0B1322;
+    border: 1px solid #1E2C47;
     border-radius: 6px;
     padding: 0 6px;
     height: 26px;
@@ -158,7 +196,7 @@
 .agyis-hud-search-input {
     background: transparent;
     border: none;
-    color: #f4f4f5;
+    color: #F4F6FA;
     font-size: 11px;
     outline: none;
     width: 130px;
@@ -166,32 +204,32 @@
 }
 
 .agyis-hud-search-input:focus { width: 180px; }
-.agyis-hud-search-counter { font-size: 10px; color: #a1a1aa; margin: 0 4px; font-family: monospace; white-space: nowrap; }
+.agyis-hud-search-counter { font-size: 10px; color: #9AA8BE; margin: 0 4px; font-family: var(--agyis-font-mono); white-space: nowrap; }
 
 /* ==========================================================================
    Context Bar Component Styles (hud_context_bar.js - Wtc / Atc Parity)
    ========================================================================== */
 
 .context-cell-selected {
-    box-shadow: 0 0 0 2px #eab308 !important;
+    box-shadow: 0 0 0 2px #5C8AFF !important;
     z-index: 30 !important;
 }
 
 .context-cell-hovered,
 .context-cell-unused:hover {
-    box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.95) !important;
+    box-shadow: 0 0 0 2px rgba(38, 208, 206, 0.95) !important;
     z-index: 35 !important;
 }
 
 .context-cell-unused {
-    background: #27272a !important;
-    opacity: 0.6;
+    background: #162238 !important;
+    opacity: 0.65;
 }
 
 .agyis-context-bar-wrap {
     padding: 8px 14px;
-    background: #151518;
-    border-bottom: 1px solid #27272a;
+    background: #10192B;
+    border-bottom: 1px solid #1E2C47;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -202,7 +240,7 @@
 
 .agyis-context-track {
     width: 100%;
-    background: #27272a;
+    background: #162238;
     border-radius: 4px;
     position: relative;
     overflow: hidden;
@@ -218,9 +256,9 @@
 }
 
 .agyis-context-row-label {
-    font-family: ui-monospace, monospace;
+    font-family: var(--agyis-font-mono);
     font-size: 10px;
-    color: #a1a1aa;
+    color: #9AA8BE;
     width: 34px;
     text-align: right;
     flex-shrink: 0;
@@ -230,10 +268,10 @@
 .agyis-context-row-track {
     flex: 1;
     position: relative;
-    background: #27272a;
+    background: #0B1322;
     border-radius: 4px;
     overflow: hidden;
-    border: 1px solid #3f3f46;
+    border: 1px solid #1E2C47;
 }
 
 .agyis-context-segment {
@@ -248,7 +286,7 @@
 }
 
 .agyis-context-segment:hover {
-    filter: brightness(1.25);
+    filter: brightness(1.22);
     z-index: 25;
 }
 
@@ -257,14 +295,14 @@
     top: 100%;
     margin-top: 6px;
     left: 14px;
-    background: #18181b;
-    border: 1px solid rgba(234, 179, 8, 0.8);
+    background: #10192B;
+    border: 1px solid rgba(92, 138, 255, 0.75);
     border-radius: 6px;
     padding: 6px 10px;
     font-size: 11px;
-    font-family: ui-monospace, monospace;
-    color: #f4f4f5;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.8);
+    font-family: var(--agyis-font-mono);
+    color: #F4F6FA;
+    box-shadow: 0 10px 25px rgba(4, 8, 18, 0.85);
     z-index: 100;
     pointer-events: none;
     max-width: 400px;
@@ -276,7 +314,7 @@
     align-items: center;
     justify-content: space-between;
     font-size: 11px;
-    color: #a1a1aa;
+    color: #9AA8BE;
     gap: 12px;
     flex-wrap: wrap;
 }
@@ -292,7 +330,7 @@
     flex: 1;
     display: flex;
     overflow: hidden;
-    background: #18181b;
+    background: #080E1A;
 }
 
 .agyis-hud-main-deck.vertical {
@@ -305,14 +343,14 @@
     flex-direction: column;
     min-width: 400px;
     min-height: 200px;
-    border-right: 1px solid #27272a;
+    border-right: 1px solid #1E2C47;
     overflow: hidden;
-    background: #18181b;
+    background: #080E1A;
 }
 
 .agyis-hud-main-deck.vertical .agyis-grid-pane {
     border-right: none;
-    border-bottom: 1px solid #27272a;
+    border-bottom: 1px solid #1E2C47;
 }
 
 .agyis-main-deck-tabs {
@@ -320,8 +358,8 @@
     align-items: center;
     gap: 4px;
     padding: 0 10px;
-    background: #141416;
-    border-bottom: 1px solid #27272a;
+    background: #10192B;
+    border-bottom: 1px solid #1E2C47;
     user-select: none;
     flex-shrink: 0;
 }
@@ -330,7 +368,7 @@
     padding: 6px 12px;
     font-size: 11px;
     font-weight: 600;
-    color: #a1a1aa;
+    color: #9AA8BE;
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
@@ -339,10 +377,10 @@
     transition: color 0.15s, border-color 0.15s;
 }
 
-.agyis-main-tab-btn:hover { color: #f4f4f5; }
+.agyis-main-tab-btn:hover { color: #F4F6FA; }
 .agyis-main-tab-btn.active {
-    color: #fbbf24;
-    border-bottom: 2px solid #eab308;
+    color: #5C8AFF;
+    border-bottom: 2px solid #26D0CE;
 }
 
 /* 8-column CSS Grid History Table (rmc Parity) */
@@ -352,21 +390,21 @@
     height: 32px;
     align-items: center;
     font-size: 11px;
-    border-bottom: 1px solid #232326;
+    border-bottom: 1px solid #162238;
     padding: 0 8px;
     gap: 6px;
 }
 
 .agyis-step-grid-header {
-    background: #141416;
+    background: #10192B;
     font-weight: 700;
-    color: #71717a;
+    color: #6E7F9B;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     position: sticky;
     top: 0;
     z-index: 10;
-    border-bottom: 1px solid #27272a;
+    border-bottom: 1px solid #1E2C47;
 }
 
 .agyis-step-grid-body {
@@ -377,19 +415,19 @@
 .agyis-step-grid-item {
     cursor: pointer;
     transition: background 0.1s;
-    font-family: ui-monospace, monospace;
+    font-family: var(--agyis-font-mono);
 }
 
-.agyis-step-grid-item:hover { background: #202024; }
+.agyis-step-grid-item:hover { background: #162238; }
 .agyis-step-grid-item.selected {
-    background: #27241d;
-    border-left: 2px solid #eab308;
+    background: rgba(27, 77, 255, 0.18);
+    border-left: 2px solid #5C8AFF;
 }
 
 /* Interactive Resizable Splitter (ovc Parity) */
 .agyis-splitter {
     width: 6px;
-    background: #27272a;
+    background: #1E2C47;
     cursor: col-resize;
     transition: background 0.15s;
     flex-shrink: 0;
@@ -401,7 +439,7 @@
     cursor: row-resize;
 }
 
-.agyis-splitter:hover { background: #f59e0b; }
+.agyis-splitter:hover { background: #5C8AFF; }
 
 /* ==========================================================================
    Timeline Component Styles (hud_timeline.js - lvc Parity)
@@ -412,7 +450,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: #141416;
+    background: #080E1A;
 }
 
 .agyis-timeline-step-row {
@@ -420,12 +458,12 @@
 }
 
 .agyis-timeline-step-row:hover {
-    background: #1e1e22;
+    background: #162238;
 }
 
 .agyis-timeline-step-row.selected {
-    background: #27241d;
-    border-left: 2px solid #eab308;
+    background: rgba(27, 77, 255, 0.18);
+    border-left: 2px solid #5C8AFF;
 }
 
 /* ==========================================================================
@@ -439,7 +477,7 @@
     min-width: 300px;
     min-height: 150px;
     overflow: hidden;
-    background: #18181b;
+    background: #080E1A;
 }
 
 .agyis-inspector-header {
@@ -447,8 +485,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 14px;
-    background: #141416;
-    border-bottom: 1px solid #27272a;
+    background: #10192B;
+    border-bottom: 1px solid #1E2C47;
     gap: 8px;
     flex-shrink: 0;
 }
@@ -457,8 +495,8 @@
     display: flex;
     gap: 4px;
     padding: 6px 14px;
-    background: #18181b;
-    border-bottom: 1px solid #27272a;
+    background: #10192B;
+    border-bottom: 1px solid #1E2C47;
     flex-shrink: 0;
 }
 
@@ -475,13 +513,13 @@
 }
 
 .agyis-inspector-item-card:hover {
-    border-color: #fbbf24;
-    background: #27272c;
+    border-color: #5C8AFF;
+    background: #162238;
 }
 
 .agyis-timing-bar-wrap {
-    background: #202023;
-    border: 1px solid #3f3f46;
+    background: #10192B;
+    border: 1px solid #1E2C47;
     border-radius: 6px;
     padding: 8px 12px;
     margin-bottom: 12px;
@@ -491,23 +529,23 @@
 }
 
 .agyis-codeblock {
-    background: #0d0d0f;
-    border: 1px solid #27272a;
+    background: #0B1322;
+    border: 1px solid #1E2C47;
     border-radius: 6px;
     padding: 10px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--agyis-font-mono);
     font-size: 11px;
     white-space: pre-wrap;
     word-break: break-all;
     overflow-x: auto;
-    color: #e4e4e7;
+    color: #F4F6FA;
 }
 
 .agyis-codeblock-wrap {
     position: relative;
     margin: 8px 0;
-    background: #0d0d0f;
-    border: 1px solid #27272a;
+    background: #0B1322;
+    border: 1px solid #1E2C47;
     border-radius: 6px;
 }
 
@@ -519,30 +557,30 @@
 }
 
 .agyis-markdown-table th, .agyis-markdown-table td {
-    border: 1px solid #3f3f46;
+    border: 1px solid #1E2C47;
     padding: 6px 8px;
     text-align: left;
 }
 
-.agyis-markdown-table th { background: #202023; color: #fbbf24; }
+.agyis-markdown-table th { background: #10192B; color: #5C8AFF; }
 
 .agyis-thinking-block {
-    background: rgba(245, 158, 11, 0.08);
-    border: 1px solid rgba(245, 158, 11, 0.3);
+    background: rgba(27, 77, 255, 0.08);
+    border: 1px solid rgba(92, 138, 255, 0.32);
     border-radius: 6px;
     margin-bottom: 12px;
     padding: 8px 12px;
 }
 
 .agyis-xml-callout {
-    background: rgba(24, 24, 27, 0.9);
+    background: rgba(16, 25, 43, 0.92);
     border-radius: 6px;
     padding: 10px 12px;
     margin: 8px 0;
 }
 
 .agyis-github-alert {
-    background: rgba(30, 30, 36, 0.85);
+    background: rgba(16, 25, 43, 0.9);
     border-radius: 6px;
     padding: 10px 12px;
     margin: 8px 0;
@@ -551,11 +589,11 @@
 .agyis-subagent-item {
     padding: 6px 10px;
     cursor: pointer;
-    border-bottom: 1px solid #27272a;
+    border-bottom: 1px solid #1E2C47;
     transition: background 0.15s;
 }
 
 .agyis-subagent-item:hover {
-    background: #27272a !important;
+    background: #162238 !important;
 }
 

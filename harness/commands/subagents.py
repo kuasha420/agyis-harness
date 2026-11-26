@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 from typing import Any, List, Optional
 
+from harness.utils import theme
 from harness.utils.context import get_active_conversation_id
 
 
@@ -50,13 +51,7 @@ def format_subagents_table(statuses: List[Any], heartbeat: Optional[dict] = None
     rows = []
     for s in statuses:
         cid = s.conversation_id[:12] if len(s.conversation_id) > 12 else s.conversation_id
-        hz_badge = s.health_zone
-        if s.health_zone == "HEALTHY":
-            hz_badge = "🟢 HEALTHY"
-        elif s.health_zone == "AMBER":
-            hz_badge = "🟡 AMBER"
-        elif s.health_zone == "RED_ALERT":
-            hz_badge = "🔴 RED_ALERT"
+        hz_badge = theme.badge(s.health_zone, s.health_zone) if s.health_zone in {"HEALTHY", "AMBER", "RED_ALERT"} else s.health_zone
 
         role_display = s.role
         if is_active:
@@ -81,28 +76,7 @@ def format_subagents_table(statuses: List[Any], heartbeat: Optional[dict] = None
             f"{s.latency_ms:.1f}ms",
         ])
 
-    col_widths = [len(h) for h in headers]
-    for row in rows:
-        for i, val in enumerate(row):
-            col_widths[i] = max(col_widths[i], len(val))
-
-    sep = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"
-    header_str = (
-        "| "
-        + " | ".join(f"{h:<{col_widths[i]}}" for i, h in enumerate(headers))
-        + " |"
-    )
-
-    table_lines = [sep, header_str, sep]
-    for row in rows:
-        line = (
-            "| "
-            + " | ".join(f"{val:<{col_widths[i]}}" for i, val in enumerate(row))
-            + " |"
-        )
-        table_lines.append(line)
-    table_lines.append(sep)
-    return "\n".join(table_lines)
+    return theme.format_table(headers, rows)
 
 
 def _format_age_human(age_seconds: float) -> str:
@@ -136,18 +110,10 @@ def format_liveness_table(statuses: List[Any]) -> str:
     for s in statuses:
         cid = s.conversation_id[:12] if len(s.conversation_id) > 12 else s.conversation_id
         st = s.liveness_state
-        if st == "ACTIVE":
-            badge = "🟢 ACTIVE"
-        elif st == "STALE":
-            badge = "🟡 STALE"
-        elif st == "PARKED":
-            badge = "⏸️ PARKED"
-        elif st == "COMPLETED":
-            badge = "✅ COMPLETED"
-        elif st == "DEAD":
-            badge = "🔴 DEAD"
+        if st in {"ACTIVE", "STALE", "PARKED", "COMPLETED", "DEAD"}:
+            liveness_badge = theme.badge(st, st)
         else:
-            badge = st
+            liveness_badge = st
 
         age_display = _format_age_human(s.heartbeat_age_seconds)
         src = "transcript"
@@ -158,32 +124,11 @@ def format_liveness_table(statuses: List[Any]) -> str:
             cid,
             s.role[:28],
             age_display,
-            badge,
+            liveness_badge,
             src,
         ])
 
-    col_widths = [len(h) for h in headers]
-    for row in rows:
-        for i, val in enumerate(row):
-            col_widths[i] = max(col_widths[i], len(val))
-
-    sep = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"
-    header_str = (
-        "| "
-        + " | ".join(f"{h:<{col_widths[i]}}" for i, h in enumerate(headers))
-        + " |"
-    )
-
-    table_lines = [sep, header_str, sep]
-    for row in rows:
-        line = (
-            "| "
-            + " | ".join(f"{val:<{col_widths[i]}}" for i, val in enumerate(row))
-            + " |"
-        )
-        table_lines.append(line)
-    table_lines.append(sep)
-    return "\n".join(table_lines)
+    return theme.format_table(headers, rows)
 
 
 def cmd_subagents(args: argparse.Namespace) -> int:

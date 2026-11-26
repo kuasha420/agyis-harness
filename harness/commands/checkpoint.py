@@ -23,6 +23,7 @@ from harness.delivery import (
     prune_stale_checkpoints,
     resolve_checkpoint_retention,
 )
+from harness.utils import theme
 from harness.utils.context import (
     get_active_brain_dir,
     get_active_conversation_id,
@@ -115,7 +116,7 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
                 )
             )
         else:
-            print("✔ Compaction Checkpoint Generated")
+            print(theme.badge("PASS", "Compaction Checkpoint Generated"))
             print(f"  Artifact:   {res.output_path} ({len(res.content):,} bytes)")
             print(f"  Latest:     {res.latest_path}")
             print(f"  Latency:    {res.elapsed_ms:.2f} ms")
@@ -145,7 +146,7 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
                     )
                 )
             else:
-                print(f"❌ No latest checkpoint found at: {expected_file}")
+                print(theme.badge("FAIL", f"No latest checkpoint found at: {expected_file}"))
             return 1
 
         try:
@@ -172,11 +173,17 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
         else:
             if valid:
                 print(
-                    f"✔ Checkpoint verified: {latest_file} (age: {age_seconds / 60.0:.1f}m, max: {max_age_mins_val:.1f}m)"
+                    theme.badge(
+                        "PASS",
+                        f"Checkpoint verified: {latest_file} (age: {age_seconds / 60.0:.1f}m, max: {max_age_mins_val:.1f}m)",
+                    )
                 )
             else:
                 print(
-                    f"⚠️ Checkpoint is stale: {latest_file} (age: {age_seconds / 60.0:.1f}m > max: {max_age_mins_val:.1f}m)"
+                    theme.badge(
+                        "WARN",
+                        f"Checkpoint is stale: {latest_file} (age: {age_seconds / 60.0:.1f}m > max: {max_age_mins_val:.1f}m)",
+                    )
                 )
         return 0 if valid else 1
 
@@ -285,11 +292,9 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
             }
             print(json.dumps(data, indent=2))
         else:
-            print("=" * 60)
-            print(" 🧭 Agyis Compaction & Checkpoint Status")
-            print("=" * 60)
+            print(theme.banner("Agyis Compaction & Checkpoint Status"))
             print(f" Token Level:       {tokens:,} / {trigger_threshold:,} ({proximity_pct}%)")
-            git_badge = "🔴 DIRTY" if git_state.is_dirty else "🟢 CLEAN"
+            git_badge = theme.badge("DIRTY", "DIRTY") if git_state.is_dirty else theme.badge("CLEAN", "CLEAN")
             print(f" Git Working Tree:  {git_state.branch} @ {git_state.commit_short} ({git_badge})")
             print(f" Active Subagents:  {len(subagents)}")
             if checkpoint_present and checkpoint_age_seconds is not None:
@@ -299,7 +304,7 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
                 print(
                     " Latest Checkpoint: None found (.agents/artifacts/compaction_checkpoint_latest.md)"
                 )
-            print("=" * 60)
+            print(theme.rule("━"))
         return 0
 
     elif action == "prune":
@@ -331,8 +336,11 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
             mode_prefix = "[DRY-RUN] " if dry_run else ""
             action_word = "Would prune" if dry_run else "Pruned"
             print(
-                f"✔ {mode_prefix}Checkpoint Prune: {action_word} {len(pruned)} stale checkpoint(s) "
-                f"(retained top {resolved_retention})"
+                theme.badge(
+                    "PASS",
+                    f"{mode_prefix}Checkpoint Prune: {action_word} {len(pruned)} stale checkpoint(s) "
+                    f"(retained top {resolved_retention})",
+                )
             )
             print(f"  Artifacts:  {art_dir}")
             for p in pruned:

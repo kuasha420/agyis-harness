@@ -274,7 +274,7 @@ def check_has_mutable_code(files: list[str], cwd: Path | str | None = None) -> b
                         if op:
                             return True
                 except Exception as exc:
-                    sys.stderr.write(f"PSL Fence Warning: Failed mutable code check for '{f_path}': {exc}\n")
+                    sys.stderr.write(f"[AGYIS FENCE] Warning: Failed mutable code check for '{f_path}': {exc}\n")
                     return True
             else:
                 return True
@@ -425,7 +425,7 @@ def is_manifest_verified(cwd: Path | str | None = None) -> bool:
                     return False
             return True
         except Exception as exc:
-            sys.stderr.write(f"PSL Fence Warning: Failed validating obligation ledger '{ledger_path}': {exc}\n")
+            sys.stderr.write(f"[AGYIS FENCE] Warning: Failed validating obligation ledger '{ledger_path}': {exc}\n")
             return False
 
     # 2. Check manifest.json

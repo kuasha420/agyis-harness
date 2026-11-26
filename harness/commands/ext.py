@@ -23,6 +23,7 @@ from harness.runtime.extensions import (
     execute_extension_command,
     get_workspace_root,
 )
+from harness.utils import theme
 
 
 def cmd_list(args: argparse.Namespace) -> int:
@@ -34,7 +35,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         print(json.dumps([c.to_dict() for c in commands.values()], indent=2))
         return 0
 
-    print(f"=== Discovered Workspace CLI Commands ({len(commands)}) ===")
+    print(theme.banner(f"Discovered Workspace CLI Commands ({len(commands)})"))
     print(f"Workspace: {ws}\n")
     if not commands:
         print("  No extension commands found.")
@@ -42,10 +43,11 @@ def cmd_list(args: argparse.Namespace) -> int:
         print("  Run: agyis ext init <name> to scaffold a new command.")
         return 0
 
-    print(f"{'Command':<16} {'Type':<8} {'Origin':<10} {'Description'}")
-    print("-" * 75)
-    for name, cmd in sorted(commands.items()):
-        print(f"{name:<16} {cmd.command_type:<8} {cmd.origin:<10} {cmd.description}")
+    rows = [
+        [name, cmd.command_type, cmd.origin, cmd.description]
+        for name, cmd in sorted(commands.items())
+    ]
+    print(theme.format_table(["Command", "Type", "Origin", "Description"], rows))
 
     return 0
 
@@ -56,7 +58,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     commands = discover_workspace_commands(ws)
 
     if args.name not in commands:
-        print(f"[!] Extension command '{args.name}' not found in workspace.", file=sys.stderr)
+        print(theme.badge("FAIL", f"Extension command '{args.name}' not found in workspace.", stream=sys.stderr), file=sys.stderr)
         print("Run 'agyis ext list' to view available commands.", file=sys.stderr)
         return 1
 
@@ -70,8 +72,12 @@ def cmd_init(args: argparse.Namespace) -> int:
     name = str(args.name or "").strip()
     if not _VALID_EXT_NAME_RE.match(name) or ".." in name or "/" in name or "\\" in name:
         print(
-            f"[!] Invalid extension name '{args.name}': must match ^[A-Za-z0-9][A-Za-z0-9_-]*$ "
-            "without path separators or traversal segments.",
+            theme.badge(
+                "FAIL",
+                f"Invalid extension name '{args.name}': must match ^[A-Za-z0-9][A-Za-z0-9_-]*$ "
+                "without path separators or traversal segments.",
+                stream=sys.stderr,
+            ),
             file=sys.stderr,
         )
         return 1
@@ -105,17 +111,17 @@ echo "Executing workspace shell command '{name}' with args: $@"
 """
 
     if not target_file.is_relative_to(cmd_dir):
-        print(f"[!] Refusing to write extension outside {cmd_dir}: {target_file}", file=sys.stderr)
+        print(theme.badge("FAIL", f"Refusing to write extension outside {cmd_dir}: {target_file}", stream=sys.stderr), file=sys.stderr)
         return 1
 
     if target_file.exists():
-        print(f"[!] File already exists: {target_file}", file=sys.stderr)
+        print(theme.badge("FAIL", f"File already exists: {target_file}", stream=sys.stderr), file=sys.stderr)
         return 1
 
     target_file.write_text(content, encoding="utf-8")
     target_file.chmod(0o755)
 
-    print(f"[+] Scaffolded new extension command at {target_file}")
+    print(theme.badge("PASS", f"Scaffolded new extension command at {target_file}"))
     print(f"    Invoke with: ./agyis {name} or ./agyis ext run {name}")
     return 0
 

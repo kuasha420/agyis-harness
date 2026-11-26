@@ -382,7 +382,7 @@ def generate_compaction_checkpoint(
     if subagents:
         sub_rows = [
             f"| `{s.conversation_id}` | `{s.role}` | {s.step_count} | {s.token_count:,} | "
-            f"{'🟢 HEALTHY' if s.health_zone == 'HEALTHY' else ('🟡 AMBER' if s.health_zone == 'AMBER' else '🔴 RED_ALERT')} | `{s.recommendation}` |"
+            f"{'● HEALTHY' if s.health_zone == 'HEALTHY' else ('▲ AMBER' if s.health_zone == 'AMBER' else '✕ RED_ALERT')} | `{s.recommendation}` |"
             for s in subagents
         ]
         subagents_table = "| Conversation ID | Role | Steps | Tokens | Health Zone | Recommendation |\n| :--- | :--- | :--- | :--- | :--- | :--- |\n" + "\n".join(sub_rows)
@@ -398,7 +398,7 @@ def generate_compaction_checkpoint(
 
     if plan_status.phases_summary:
         phases_table = "| Phase Breakdown | Completed Tasks | Status |\n| :--- | :--- | :--- |\n" + "\n".join(
-            f"| {p['header']} | {p['completed']} / {p['total']} | {'✅ COMPLETED' if p['status'] == 'COMPLETED' else ('🔄 IN PROGRESS' if p['status'] == 'IN_PROGRESS' else '⏳ PENDING')} |"
+            f"| {p['header']} | {p['completed']} / {p['total']} | {'◆ COMPLETED' if p['status'] == 'COMPLETED' else ('● IN_PROGRESS' if p['status'] == 'IN_PROGRESS' else '○ PENDING')} |"
             for p in plan_status.phases_summary
         )
     else:
@@ -416,7 +416,7 @@ def generate_compaction_checkpoint(
 
     t_preview_ms = (time.perf_counter() - t0) * 1000.0
     markdown = f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
-# 🧭 Compaction & Succession Checkpoint (Epoch `{epoch}`)
+# ◆ Agyis Compaction & Succession Checkpoint (Epoch `{epoch}`)
 
 > **Predecessor Session**: `{sess}`  
 > **Predecessor Role**: `{orchestrator_role}`  
@@ -431,7 +431,7 @@ def generate_compaction_checkpoint(
 - **Next Actionable Task**: `{plan_status.next_pending_task or "Final verification gate and release certification"}`
 
 ## 2. Git Working Tree & Repository State
-- **Active Branch**: `{git_state.branch}` | **HEAD**: `{git_state.commit_short}` (`{git_state.commit_hash}`) | **Status**: {'🔴 DIRTY' if git_state.is_dirty else '🟢 CLEAN'}
+- **Active Branch**: `{git_state.branch}` | **HEAD**: `{git_state.commit_short}` (`{git_state.commit_hash}`) | **Status**: {'▲ DIRTY' if git_state.is_dirty else '● CLEAN'}
 {dirty_details}
 > [!IMPORTANT] Work Preservation Contract (AC4): NEVER run `git reset --hard` or `git checkout -- .`.
 
@@ -497,7 +497,7 @@ def main() -> int:
     session_id = get_active_conversation_id(check_presence=True)
     role = os.environ.get("AGYIS_ROLE", "agyis_coordinator")
     res = generate_compaction_checkpoint(workspace_dir=workspace, session_id=session_id, orchestrator_role=role, trigger_tokens=COMPACTION_THRESHOLD)
-    print(f"✔ Checkpoint written: {res.output_path} ({len(res.content):,} bytes, {res.elapsed_ms:.2f} ms)")
+    print(f"● Checkpoint written: {res.output_path} ({len(res.content):,} bytes, {res.elapsed_ms:.2f} ms)")
     return 0
 
 

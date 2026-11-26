@@ -77,7 +77,7 @@ def emit_psl_deprecation_warning() -> None:
 def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     """Build the top-level argument parser for the Agyis harness CLI."""
     if prog == "psl":
-        desc = "PSL Harness for Google Antigravity™ — Unified Developer CLI (Deprecated: Use 'agyis')"
+        desc = "Agyis Harness (Legacy 'psl' CLI Alias — Deprecated: Use 'agyis')"
     else:
         desc = "Agyis Harness for Google Antigravity™ — Unified Developer CLI (Antigravity Immune System)"
 

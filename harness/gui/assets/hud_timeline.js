@@ -85,7 +85,7 @@
                     durationMs: totalMs,
                     percentage: 100,
                     colorClass: "bg-cyan-500",
-                    hexColor: "#06b6d4",
+                    hexColor: "#26D0CE",
                 }] : [],
             };
         }
@@ -112,7 +112,7 @@
                     durationMs: ttft,
                     percentage: ttftPct,
                     colorClass: "bg-amber-500",
-                    hexColor: "#f59e0b",
+                    hexColor: "#F5B74F",
                     startMs: c,
                     endMs: e ?? g,
                 });
@@ -125,7 +125,7 @@
                     durationMs: streaming,
                     percentage: streamPct,
                     colorClass: "bg-indigo-500",
-                    hexColor: "#6366f1",
+                    hexColor: "#5C8AFF",
                     startMs: e ?? c,
                     endMs: g,
                 });
@@ -156,7 +156,7 @@
                 durationMs: argGen,
                 percentage: totalMs > 0 ? (argGen / totalMs) * 100 : 0,
                 colorClass: "bg-blue-500",
-                hexColor: "#3b82f6",
+                hexColor: "#1B4DFF",
             });
         }
         if (queueWait > 0) {
@@ -167,7 +167,7 @@
                 durationMs: queueWait,
                 percentage: totalMs > 0 ? (queueWait / totalMs) * 100 : 0,
                 colorClass: "bg-purple-500",
-                hexColor: "#a855f7",
+                hexColor: "#8FB0FF",
             });
         }
         if (execDuration > 0 || phases.length === 0) {
@@ -178,7 +178,7 @@
                 durationMs: execDuration,
                 percentage: totalMs > 0 ? (execDuration / totalMs) * 100 : 100,
                 colorClass: "bg-teal-500",
-                hexColor: "#14b8a6",
+                hexColor: "#26D0CE",
             });
         }
 
@@ -390,54 +390,54 @@
                     <div class="agyis-timeline-step-row ${isSelected ? "selected" : ""} ${isHovered ? "context-cell-hovered" : ""}"
                          data-step-index="${s.arrayIndex}"
                          data-item-key="step-${s.arrayIndex}"
-                         style="display: flex; align-items: center; height: 24px; border-bottom: 1px solid #202024; cursor: pointer;">
-                        <div class="agyis-timeline-step-label" style="width: 220px; flex-shrink: 0; font-family: monospace; font-size: 11px; color: #a1a1aa; padding-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                            <span style="font-weight: 700; color: #fbbf24;">#${s.stepIndex}</span>
-                            <span style="color: #cbd5e1; margin-left: 4px;">${escapeHtml(s.type)}</span>
-                            <span style="color: #71717a; margin-left: 4px; font-size: 10px;">(${s.tokens.toLocaleString()}t)</span>
+                         style="display: flex; align-items: center; height: 24px; border-bottom: 1px solid #162238; cursor: pointer;">
+                        <div class="agyis-timeline-step-label" style="width: 220px; flex-shrink: 0; font-family: var(--agyis-font-mono, monospace); font-size: 11px; color: #9AA8BE; padding-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            <span style="font-weight: 700; color: #5C8AFF;">#${s.stepIndex}</span>
+                            <span style="color: #F4F6FA; margin-left: 4px;">${escapeHtml(s.type)}</span>
+                            <span style="color: #6E7F9B; margin-left: 4px; font-size: 10px;">(${s.tokens.toLocaleString()}t)</span>
                         </div>
-                        <div style="flex: 1; height: 16px; position: relative; background: #18181b;">
+                        <div style="flex: 1; height: 16px; position: relative; background: #080E1A;">
                             <div class="agyis-timeline-step-bar"
-                                 style="position: absolute; left: ${x0}px; width: ${barWidth}px; height: 16px; border-radius: 3px; overflow: hidden; display: flex; box-shadow: 0 1px 3px rgba(0,0,0,0.5);">
+                                 style="position: absolute; left: ${x0}px; width: ${barWidth}px; height: 16px; border-radius: 3px; overflow: hidden; display: flex; box-shadow: 0 1px 3px rgba(4,8,18,0.6);">
                                 ${phasesHtml}
-                                ${showInside ? `<span style="position: absolute; right: 4px; top: 1px; font-size: 9px; font-weight: 700; color: #ffffff; text-shadow: 0 1px 2px #000;">${durLabel}</span>` : ""}
+                                ${showInside ? `<span style="position: absolute; right: 4px; top: 1px; font-size: 9px; font-weight: 700; color: #F4F6FA; text-shadow: 0 1px 2px #080E1A;">${durLabel}</span>` : ""}
                             </div>
-                            ${!showInside && barWidth > 0 ? `<span style="position: absolute; left: ${x1 + 6}px; top: 1px; font-size: 9px; font-family: monospace; color: #a1a1aa;">${durLabel}</span>` : ""}
+                            ${!showInside && barWidth > 0 ? `<span style="position: absolute; left: ${x1 + 6}px; top: 1px; font-size: 9px; font-family: var(--agyis-font-mono, monospace); color: #9AA8BE;">${durLabel}</span>` : ""}
                         </div>
                     </div>
                 `;
             }).join("");
         } else {
-            // Activity Mode (compact horizontal lanes, including v2.34+ tools)
+            // Activity Mode (compact horizontal lanes, including v2.34+ / 2.35.2 tools)
             const activityLanes = [
                 {
                     id: "model",
                     label: "Model & Thinking",
-                    color: "#f59e0b",
+                    color: "#F5B74F",
                     predicate: s => s.type === "PLANNER_RESPONSE" || s.type === "MODEL_OUTPUT" || s.type === "USER_INPUT",
                 },
                 {
                     id: "terminal",
                     label: "Terminal Execution",
-                    color: "#06b6d4",
+                    color: "#26D0CE",
                     predicate: s => s.type.includes("COMMAND") || s.type.includes("BASH") || (s.summary && (s.summary.startsWith("run_command") || s.summary.startsWith("bash"))),
                 },
                 {
                     id: "files",
                     label: "Files & Code",
-                    color: "#10b981",
-                    predicate: s => s.type.includes("FILE") || s.type.includes("EDIT") || s.type.includes("READ") || s.type.includes("WRITE") || s.type.includes("REPLACE") || s.type.includes("DIFF") || s.type === "CODE_ACTION" || (s.summary && (s.summary.startsWith("read_file") || s.summary.startsWith("edit_file") || s.summary.startsWith("write_file") || s.summary.startsWith("view_file") || s.summary.startsWith("replace_file") || s.summary.startsWith("write_to_file"))),
+                    color: "#2AD089",
+                    predicate: s => s.type.includes("FILE") || s.type.includes("EDIT") || s.type.includes("READ") || s.type.includes("WRITE") || s.type.includes("REPLACE") || s.type.includes("DIFF") || s.type.includes("RESOURCE") || s.type === "CODE_ACTION" || (s.summary && (s.summary.startsWith("read_file") || s.summary.startsWith("edit_file") || s.summary.startsWith("write_file") || s.summary.startsWith("view_file") || s.summary.startsWith("replace_file") || s.summary.startsWith("write_to_file") || s.summary.startsWith("read_resource") || s.summary.startsWith("list_resources"))),
                 },
                 {
                     id: "subagents",
                     label: "Search & Subagents",
-                    color: "#a855f7",
-                    predicate: s => s.type.includes("SUBAGENT") || s.type.includes("SWARM") || s.type.includes("BOARD") || s.type.includes("MESSAGE") || s.type.includes("WORKFLOW") || s.type.includes("TASK") || s.type.includes("SEARCH") || s.type.includes("FIND") || (s.summary && (s.summary.startsWith("grep_search") || s.summary.startsWith("search_web") || s.summary.startsWith("find_by_name") || s.summary.startsWith("invoke_subagent") || s.summary.startsWith("define_subagent") || s.summary.startsWith("swarm") || s.summary.startsWith("post_message") || s.summary.startsWith("read_board") || s.summary.startsWith("run_workflow") || s.summary.startsWith("manage_task") || s.summary.startsWith("send_message"))),
+                    color: "#5C8AFF",
+                    predicate: s => /SUBAGENT|SWARM|BOARD|MESSAGE|WORKFLOW|TASK|SEARCH|FIND|PLAN|FOCUS|STEPS|QUESTION|MCP|MARKETPLACE|PLUGIN/.test(s.type) || (s.summary && /^(grep_search|search_web|find_by_name|invoke_subagent|define_subagent|swarm|post_message|read_board|run_workflow|manage_task|send_message|update_focus|update_steps|enter_plan_mode|exit_plan_mode|ask_question|search_marketplace|list_plugin_accounts|call_mcp_tool)/.test(s.summary)),
                 },
                 {
                     id: "checkpoints",
                     label: "Compaction & System",
-                    color: "#ec4899",
+                    color: "#7DA4FF",
                     predicate: s => s.type === "CHECKPOINT" || s.type === "SYSTEM",
                 },
             ];
@@ -457,19 +457,19 @@
                              data-step-index="${s.arrayIndex}"
                              data-item-key="step-${s.arrayIndex}"
                              title="#${s.stepIndex} ${escapeHtml(s.type)} (${durLabel})"
-                             style="position: absolute; left: ${x0}px; width: ${barWidth}px; height: 18px; top: 3px; background: ${lane.color}; border-radius: 2px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.5); opacity: ${isSelected ? 1.0 : 0.85}; outline: ${isSelected ? "2px solid #fbbf24" : "none"}; outline-offset: 1px;">
+                             style="position: absolute; left: ${x0}px; width: ${barWidth}px; height: 18px; top: 3px; background: ${lane.color}; border-radius: 2px; cursor: pointer; box-shadow: 0 1px 2px rgba(4,8,18,0.6); opacity: ${isSelected ? 1.0 : 0.85}; outline: ${isSelected ? "2px solid #5C8AFF" : "none"}; outline-offset: 1px;">
                         </div>
                     `;
                 }).join("");
 
                 return `
-                    <div class="agyis-timeline-lane-row" style="display: flex; align-items: center; height: 26px; border-bottom: 1px solid #202024;">
-                        <div style="width: 220px; flex-shrink: 0; font-family: monospace; font-size: 11px; color: #a1a1aa; padding-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px;">
+                    <div class="agyis-timeline-lane-row" style="display: flex; align-items: center; height: 26px; border-bottom: 1px solid #162238;">
+                        <div style="width: 220px; flex-shrink: 0; font-family: var(--agyis-font-mono, monospace); font-size: 11px; color: #9AA8BE; padding-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px;">
                             <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${lane.color};"></span>
-                            <span style="font-weight: 600; color: #e4e4e7;">${escapeHtml(lane.label)}</span>
-                            <span style="color: #71717a; font-size: 10px;">(${laneSteps.length})</span>
+                            <span style="font-weight: 600; color: #F4F6FA;">${escapeHtml(lane.label)}</span>
+                            <span style="color: #6E7F9B; font-size: 10px;">(${laneSteps.length})</span>
                         </div>
-                        <div style="flex: 1; height: 24px; position: relative; background: #18181b;">
+                        <div style="flex: 1; height: 24px; position: relative; background: #080E1A;">
                             ${laneBarsHtml}
                         </div>
                     </div>
@@ -487,8 +487,8 @@
             const relMs = tickMs - domainStart;
             ticksHtml += `
                 <div style="position: absolute; left: ${px}px; top: 0; bottom: 0; display: flex; flex-direction: column; align-items: center;">
-                    <div style="height: 4px; width: 1px; background: #52525b;"></div>
-                    <span style="font-size: 9px; font-family: monospace; color: #71717a;">+${formatDuration(relMs)}</span>
+                    <div style="height: 4px; width: 1px; background: #283A5E;"></div>
+                    <span style="font-size: 9px; font-family: var(--agyis-font-mono, monospace); color: #6E7F9B;">+${formatDuration(relMs)}</span>
                 </div>
             `;
         }
@@ -498,10 +498,10 @@
             || (inferCtx ? inferCtx((state.currentData && state.currentData.model) || state.sessionModel) : 256000);
         const maxCtxLabel = (maxTokens >= 1000000 && maxTokens % 1000000 === 0) ? (maxTokens / 1000000) + "M" : Math.round(maxTokens / 1000) + "k";
         const timelinePaginationHtml = (mode === "steps" && stepTimings.length > tlPageSize) ? `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 12px; background: #141416; border-top: 1px solid #27272a; font-size: 10px; flex-shrink: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 12px; background: #10192B; border-top: 1px solid #1E2C47; font-size: 10px; flex-shrink: 0;">
                 <div style="display: flex; gap: 4px; align-items: center;">
                     <button id="agyis-tl-page-prev" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${state.timelinePage <= 0 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>◀ Earlier</button>
-                    <span style="font-family: monospace; color: #a1a1aa;">Steps ${tlStart + 1}-${tlEnd} of ${stepTimings.length}</span>
+                    <span style="font-family: var(--agyis-font-mono, monospace); color: #9AA8BE;">Steps ${tlStart + 1}-${tlEnd} of ${stepTimings.length}</span>
                     <button id="agyis-tl-page-next" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${state.timelinePage >= tlTotalPages - 1 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>Later ▶</button>
                 </div>
             </div>
@@ -509,12 +509,12 @@
         const trackTotalWidth = 220 + width;
 
         return `
-            <div class="agyis-timeline-pane" style="display: flex; flex-direction: column; height: 100%; background: #141416; overflow: hidden;">
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #18181b; border-bottom: 1px solid #27272a; flex-shrink: 0;">
+            <div class="agyis-timeline-pane" style="display: flex; flex-direction: column; height: 100%; background: #080E1A; overflow: hidden;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #10192B; border-bottom: 1px solid #1E2C47; flex-shrink: 0;">
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 12px; font-weight: 700; color: #fbbf24;">Timeline (${stepTimings.length} steps, ${formatDuration(totalDuration)})</span>
-                        <span style="font-family: monospace; font-size: 11px; color: #a1a1aa;">${maxCtxLabel} Context &bull; Live Trace</span>
-                        <div role="group" aria-label="View" style="display: inline-flex; border: 1px solid #3f3f46; border-radius: 4px; overflow: hidden;">
+                        <span style="font-size: 12px; font-weight: 700; color: #5C8AFF;">Timeline (${stepTimings.length} steps, ${formatDuration(totalDuration)})</span>
+                        <span style="font-family: var(--agyis-font-mono, monospace); font-size: 11px; color: #9AA8BE;">${maxCtxLabel} Context &bull; Live Trace</span>
+                        <div role="group" aria-label="View" style="display: inline-flex; border: 1px solid #1E2C47; border-radius: 4px; overflow: hidden;">
                             <button id="agyis-tl-mode-steps" class="agyis-hud-btn ${mode === "steps" ? "active" : ""}" style="border: none; padding: 2px 6px; font-size: 10px;" title="One row per step, in order — scroll to move through the run">Steps</button>
                             <button id="agyis-tl-mode-activity" class="agyis-hud-btn ${mode === "activity" ? "active" : ""}" style="border: none; padding: 2px 6px; font-size: 10px;" title="Every step packed into a lane per kind — no rows, no scrolling">Activity</button>
                         </div>
@@ -523,12 +523,12 @@
                         <button id="agyis-tl-zoom-in" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" title="Zoom in">+</button>
                         <button id="agyis-tl-zoom-out" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" title="Zoom out">−</button>
                         <button id="agyis-tl-zoom-reset" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" title="Fit the whole trajectory">All</button>
-                        <span style="font-size: 10px; color: #71717a; margin-left: 6px;" title="How long a quiet interval must be before it collapses">${collapsedGaps.length} idle collapsed</span>
+                        <span style="font-size: 10px; color: #6E7F9B; margin-left: 6px;" title="How long a quiet interval must be before it collapses">${collapsedGaps.length} idle collapsed</span>
                     </div>
                 </div>
                 <div class="agyis-timeline-scroll-wrap" style="flex: 1; overflow: auto; display: flex; flex-direction: column;">
                     <div style="min-width: ${trackTotalWidth}px; display: flex; flex-direction: column;">
-                        <div class="agyis-timeline-ruler" style="height: 20px; position: sticky; top: 0; z-index: 5; background: #18181b; border-bottom: 1px solid #27272a; margin-left: 220px; flex-shrink: 0;">
+                        <div class="agyis-timeline-ruler" style="height: 20px; position: sticky; top: 0; z-index: 5; background: #10192B; border-bottom: 1px solid #1E2C47; margin-left: 220px; flex-shrink: 0;">
                             ${ticksHtml}
                         </div>
                         <div class="agyis-timeline-track-list" style="flex: 1;">

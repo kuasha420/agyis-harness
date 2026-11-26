@@ -765,6 +765,59 @@ class TestTelemetryDaemonDoctor(unittest.TestCase):
             self.assertEqual(res["status"], "WARNING")
             self.assertIn("Legacy non-symlinked", res["failures"][0])
 
+    def test_print_cli_report_no_color_and_ansi_column_alignment(self):
+        """Doctor report emits zero ANSI under NO_COLOR=1 and aligns columns identically when colored."""
+        from harness.utils import theme
+
+        sample_audit = {
+            "os_family": "linux",
+            "hermetic_python_available": "/fake/uv/python3",
+            "cli_binary": {
+                "status": "OK",
+                "agyis_status": "OK",
+                "agyis_path": "/home/user/.local/bin/agyis",
+                "psl_details": {"status": "OK", "collision": False, "path": "/home/user/.local/bin/psl"},
+            },
+            "rea_tooling": {
+                "status": "ok",
+                "version": "6.9.0",
+                "binary": "/usr/local/bin/rea",
+                "mcp_configured": True,
+                "providers": {
+                    "active": ["ghidra"],
+                    "details": [
+                        {"name": "ghidra", "available": True},
+                        {"name": "rizin", "available": False, "reason": "missing"},
+                    ],
+                },
+            },
+            "tiers": {
+                "tier_1_languages": {
+                    "description": "Core Languages",
+                    "tools": [
+                        {"name": "python3", "status": "OK", "version": "3.12.5", "min_version": "3.12.0", "path": "/usr/bin/python3", "is_shim": False},
+                        {"name": "node", "status": "MISSING", "version": None, "min_version": "20.0.0", "path": None, "is_shim": False},
+                    ],
+                }
+            },
+            "summary": {"ok": 1, "warning": 0, "outdated": 0, "missing": 1},
+        }
+        with patch.dict(os.environ, {"NO_COLOR": "1"}, clear=False):
+            with patch("sys.stdout", new_callable=io.StringIO) as out_plain:
+                print_cli_report(sample_audit)
+                plain = out_plain.getvalue()
+        self.assertNotIn("\033[", plain)
+        self.assertIn("Legacy 'psl' Alias:", plain)
+        self.assertIn("[PASS]", plain)
+        self.assertIn("[MISS]", plain)
+
+        with patch.dict(os.environ, {"FORCE_COLOR": "1", "NO_COLOR": "", "TERM": "xterm-256color"}, clear=False):
+            with patch("sys.stdout", new_callable=io.StringIO) as out_color:
+                print_cli_report(sample_audit)
+                colored = out_color.getvalue()
+        self.assertIn("\033[", colored)
+        self.assertEqual(theme.strip_ansi(colored), plain)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -72,7 +72,18 @@ class TestPslCli(unittest.TestCase):
             self.assertEqual(cm.exception.code, 0)
             self.assertEqual(mock_err.getvalue(), "")
             self.assertIn("Agyis Harness for Google Antigravity", mock_out.getvalue())
+            self.assertNotIn("PSL Harness", mock_out.getvalue())
             self.assertIn("usage: agyis", mock_out.getvalue())
+
+    def test_cli_psl_help_description(self):
+        """Verifies legacy 'psl --help' shows Agyis Harness alias description and deprecation warning."""
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            with self.assertRaises(SystemExit) as cm:
+                main(["--help"], prog="psl")
+            self.assertEqual(cm.exception.code, 0)
+            self.assertIn("Agyis Harness (Legacy 'psl' CLI Alias", mock_out.getvalue())
+            self.assertIn("DeprecationWarning", mock_err.getvalue())
 
     def test_cli_version(self):
         """Verifies --version prints package version with clean stderr on agyis."""

@@ -28,6 +28,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+
+from harness.utils import theme
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -600,11 +602,11 @@ def cmd_clean(args: argparse.Namespace) -> int:
         return 1 if dist_error is not None else 0
 
     if dist_error is not None:
-        print(f"❌ Failed to clean dist/: {dist_error}", file=sys.stderr)
+        print(theme.badge("FAIL", f"Failed to clean dist/: {dist_error}", stream=sys.stderr), file=sys.stderr)
         return 1
 
-    mode_label = "[DRY-RUN] " if dry_run else ""
-    print(f"=== Agyis Hygiene & Workspace Cleanup {mode_label}===")
+    mode_label = " [DRY-RUN]" if dry_run else ""
+    print(theme.banner(f"Agyis Hygiene & Workspace Cleanup{mode_label}"))
     print(f"Workspace: {ws}")
 
     if do_checkpoints:
@@ -641,5 +643,5 @@ def cmd_clean(args: argparse.Namespace) -> int:
         for c_item in pruned_caches:
             print(f"  - {Path(c_item).name}")
 
-    print(f"✔ Completed in {elapsed_ms:.2f} ms (Total items cleaned: {total_pruned})")
+    print(theme.badge("PASS", f"Completed in {elapsed_ms:.2f} ms (Total items cleaned: {total_pruned})"))
     return 0

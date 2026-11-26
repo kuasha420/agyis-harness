@@ -149,7 +149,7 @@ class TestHookRunner(unittest.TestCase):
                 res = json.loads(mock_out.getvalue().strip())
                 self.assertEqual(res["decision"], "allow")
                 err_text = mock_err.getvalue()
-                self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", err_text)
+                self.assertIn("[AGYIS FAIL-OPEN HOOK RUNNER]", err_text)
                 self.assertIn("SyntaxError", err_text)
                 self.assertIn("invalid syntax at line 42", err_text)
 
@@ -163,7 +163,7 @@ class TestHookRunner(unittest.TestCase):
                 res = json.loads(mock_out.getvalue().strip())
                 self.assertEqual(res["decision"], "allow")
                 err_text = mock_err.getvalue()
-                self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", err_text)
+                self.assertIn("[AGYIS FAIL-OPEN HOOK RUNNER]", err_text)
                 self.assertIn("ImportError", err_text)
 
     def test_fail_open_on_runtime_exception(self):
@@ -179,7 +179,7 @@ class TestHookRunner(unittest.TestCase):
                 res = json.loads(mock_out.getvalue().strip())
                 self.assertEqual(res["decision"], "allow")
                 err_text = mock_err.getvalue()
-                self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", err_text)
+                self.assertIn("[AGYIS FAIL-OPEN HOOK RUNNER]", err_text)
                 self.assertIn("RuntimeError", err_text)
 
     def test_fail_open_on_missing_main_callable(self):
@@ -194,7 +194,7 @@ class TestHookRunner(unittest.TestCase):
                 res = json.loads(mock_out.getvalue().strip())
                 self.assertEqual(res["decision"], "allow")
                 err_text = mock_err.getvalue()
-                self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", err_text)
+                self.assertIn("[AGYIS FAIL-OPEN HOOK RUNNER]", err_text)
                 self.assertIn("AttributeError", err_text)
 
     def test_fail_open_on_non_zero_system_exit(self):
@@ -210,7 +210,7 @@ class TestHookRunner(unittest.TestCase):
                 res = json.loads(mock_out.getvalue().strip())
                 self.assertEqual(res["decision"], "allow")
                 err_text = mock_err.getvalue()
-                self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", err_text)
+                self.assertIn("[AGYIS FAIL-OPEN HOOK RUNNER]", err_text)
 
     def test_fail_open_on_unknown_hook(self):
         """When unknown hook name is requested, runner logs error and emits allow without crashing."""
@@ -221,7 +221,7 @@ class TestHookRunner(unittest.TestCase):
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "allow")
             err_text = mock_err.getvalue()
-            self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", err_text)
+            self.assertIn("[AGYIS FAIL-OPEN HOOK RUNNER]", err_text)
             self.assertIn("Unknown hook 'nonexistent-hook-xyz'", err_text)
 
     def test_main_cli_entrypoint_no_args(self):
@@ -266,7 +266,7 @@ class TestHookRunner(unittest.TestCase):
             self.assertEqual(ret, 0)
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res["decision"], "allow")
-            self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", mock_err.getvalue())
+            self.assertIn("[AGYIS FAIL-OPEN HOOK RUNNER]", mock_err.getvalue())
 
     def test_subprocess_smoke_entrypoint(self):
         """Validates real subprocess invocation (python3 -m harness.hooks.runner <hook>)."""
@@ -343,7 +343,7 @@ class TestHookRunner(unittest.TestCase):
                             {},
                             f"Fail-open compactor must emit {{}}, got: {res}",
                         )
-                        self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", mock_err.getvalue())
+                        self.assertIn("[AGYIS FAIL-OPEN HOOK RUNNER]", mock_err.getvalue())
 
     def test_fail_open_post_tool_use_verification_fence_emits_empty_dict(self):
         """
@@ -418,7 +418,7 @@ class TestHookRunner(unittest.TestCase):
                             {"injectSteps": []},
                             f"Fail-open PreInvocation must emit {{'injectSteps': []}}, got: {res}",
                         )
-                        self.assertIn("[PSL FAIL-OPEN HOOK RUNNER]", mock_err.getvalue())
+                        self.assertIn("[AGYIS FAIL-OPEN HOOK RUNNER]", mock_err.getvalue())
 
     def test_fail_open_pre_invocation_from_payload_emits_inject_steps(self):
         """

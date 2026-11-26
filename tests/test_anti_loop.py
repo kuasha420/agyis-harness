@@ -76,7 +76,7 @@ class TestAntiLoopHook(unittest.TestCase):
         # 4th call trips the breaker
         tripped = check_anti_loop(tool_name, tool_args, conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(tripped["decision"], "deny")
-        self.assertIn("PSL Anti-Loop Guard", tripped["reason"])
+        self.assertIn("[AGYIS ANTI-LOOP]", tripped["reason"])
         self.assertIn("identical consecutive executions", tripped["reason"])
         self.assertIn("grep_search", tripped["reason"])
 
@@ -181,7 +181,7 @@ class TestAntiLoopHook(unittest.TestCase):
         # 4th occurrence of tool_a within 7 calls trips rolling frequency window!
         res4 = check_anti_loop(tool_a[0], tool_a[1], conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res4["decision"], "deny")
-        self.assertIn("PSL Anti-Loop Guard", res4["reason"])
+        self.assertIn("[AGYIS ANTI-LOOP]", res4["reason"])
         self.assertIn("sliding window", res4["reason"])
         self.assertIn("grep_search", res4["reason"])
 
@@ -203,7 +203,7 @@ class TestAntiLoopHook(unittest.TestCase):
         # 4. B completes 2nd cycle of [A, B] -> trips cyclic detector!
         res4 = check_anti_loop(tool_b[0], tool_b[1], conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res4["decision"], "deny")
-        self.assertIn("PSL Anti-Loop Guard", res4["reason"])
+        self.assertIn("[AGYIS ANTI-LOOP]", res4["reason"])
         self.assertIn("cyclic tool execution pattern of period 2", res4["reason"])
         self.assertIn("run_command -> view_file", res4["reason"])
 
@@ -224,7 +224,7 @@ class TestAntiLoopHook(unittest.TestCase):
         self.assertEqual(check_anti_loop(tool_b[0], tool_b[1], conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
         res_c2 = check_anti_loop(tool_c[0], tool_c[1], conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res_c2["decision"], "deny")
-        self.assertIn("PSL Anti-Loop Guard", res_c2["reason"])
+        self.assertIn("[AGYIS ANTI-LOOP]", res_c2["reason"])
         self.assertIn("cyclic tool execution pattern of period 3", res_c2["reason"])
         self.assertIn("grep_search -> view_file -> run_command", res_c2["reason"])
 
@@ -263,7 +263,7 @@ class TestAntiLoopHook(unittest.TestCase):
 
         res3 = check_anti_loop("run_command", {"CommandLine": cmd3}, conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res3["decision"], "deny")
-        self.assertIn("PSL Anti-Loop Guard", res3["reason"])
+        self.assertIn("[AGYIS ANTI-LOOP]", res3["reason"])
         self.assertIn("consecutive background task inspections", res3["reason"])
 
     def test_rolling_task_log_polling_denied(self):
@@ -282,7 +282,7 @@ class TestAntiLoopHook(unittest.TestCase):
         # 3rd inspection within sliding window of 10
         res = check_anti_loop("run_command", {"CommandLine": log_cmd}, conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res["decision"], "deny")
-        self.assertIn("PSL Anti-Loop Guard", res["reason"])
+        self.assertIn("[AGYIS ANTI-LOOP]", res["reason"])
         self.assertIn("sliding window", res["reason"])
 
     def test_view_file_task_log_polling_denied(self):
@@ -294,7 +294,7 @@ class TestAntiLoopHook(unittest.TestCase):
         self.assertEqual(check_anti_loop("view_file", args, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
         res3 = check_anti_loop("view_file", args, conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res3["decision"], "deny")
-        self.assertIn("PSL Anti-Loop Guard", res3["reason"])
+        self.assertIn("[AGYIS ANTI-LOOP]", res3["reason"])
 
     def test_task_path_source_files_not_misclassified_as_task_logs(self):
         """Legitimate source files or commands referencing task directories without .log are not treated as background task logs."""
@@ -327,7 +327,7 @@ class TestAntiLoopHook(unittest.TestCase):
         self.assertEqual(check_anti_loop("grep_search", args2, conv_id=conv_id, state_dir=self.state_dir)["decision"], "allow")
         res3 = check_anti_loop("grep_search", args3, conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res3["decision"], "deny")
-        self.assertIn("PSL Anti-Loop Guard", res3["reason"])
+        self.assertIn("[AGYIS ANTI-LOOP]", res3["reason"])
 
     def test_grep_search_repo_query_not_misclassified(self):
         """grep_search querying task string in repository source code is not treated as task log polling."""

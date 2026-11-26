@@ -29,6 +29,7 @@ from harness.subagents.spec import (
     ROOT_PLAN_MODE_TOOLS,
     SWARM_RUNTIME_TOOLS,
 )
+from harness.utils import theme
 
 _TEST_PARITY_DOCS: Tuple[str, ...] = (
     "README.md",
@@ -288,10 +289,10 @@ def run_sync_check(
 
 def format_sync_check_report(report: Dict[str, Any]) -> str:
     """Format human-readable terminal summary for `agyis audit sync-check`."""
+    status_val = str(report.get("status", "FAIL"))
+    badge_kind = "PASS" if status_val == "PASS" else "FAIL"
     lines = [
-        "=" * 72,
-        f" Agyis SSOT Sync Check [{report.get('status', 'FAIL')}]",
-        "=" * 72,
+        theme.banner("Agyis SSOT Sync Check", badge_label=status_val, status=badge_kind),
         f" Manifest:    pyproject={report['manifest'].get('pyproject_version')} plugin={report['manifest'].get('plugin_version')}",
         (
             " Tools:       "
@@ -310,14 +311,14 @@ def format_sync_check_report(report: Dict[str, Any]) -> str:
         ),
         f" Tests:       {report['tests'].get('live_tests'):,} live across {report['tests'].get('live_modules')} modules",
         f" IncludeSite: {report.get('include_site')}",
-        "-" * 72,
+        theme.rule(),
     ]
     mismatches = report.get("mismatches") or []
     if not mismatches:
-        lines.append(" PASS: Zero SSOT drift detected.")
+        lines.append(" " + theme.badge("PASS", "PASS: Zero SSOT drift detected."))
     else:
-        lines.append(f" FAIL: {len(mismatches)} mismatch(es) detected:")
+        lines.append(" " + theme.badge("FAIL", f"FAIL: {len(mismatches)} mismatch(es) detected:"))
         for item in mismatches:
             lines.append(f"  - {item}")
-    lines.append("=" * 72)
+    lines.append(theme.rule("━"))
     return "\n".join(lines)

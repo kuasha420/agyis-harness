@@ -20,6 +20,7 @@ from harness.delivery.constants import is_packaged_wheel_install
 
 
 from harness.commands.init import cmd_init
+from harness.utils import theme
 
 
 def cmd_install(args: argparse.Namespace) -> int:
@@ -86,7 +87,7 @@ def cmd_install(args: argparse.Namespace) -> int:
         return 0 if result.success else 1
 
     if result.success:
-        print(f"✔ {result.message}")
+        print(theme.badge("PASS", result.message))
         if rea_enabled:
             if getattr(args, "dry_run", False):
                 print("  • REA: Would configure global Reverse Engineer Anything MCP server (~/.gemini/config/mcp_config.json)")
@@ -97,7 +98,7 @@ def cmd_install(args: argparse.Namespace) -> int:
                 print(f"  • REA: Failed to configure MCP server{err_detail}")
         return 0
     else:
-        sys.stderr.write(f"✘ Error: {result.message}\n")
+        sys.stderr.write(theme.badge("FAIL", f"Error: {result.message}", stream=sys.stderr) + "\n")
         return 1
 
 
@@ -127,8 +128,8 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         return 0 if result.success else 1
 
     if result.success:
-        print(f"✔ {result.message}")
+        print(theme.badge("PASS", result.message))
         return 0
     else:
-        sys.stderr.write(f"✘ Error: {result.message}\n")
+        sys.stderr.write(theme.badge("FAIL", f"Error: {result.message}", stream=sys.stderr) + "\n")
         return 1

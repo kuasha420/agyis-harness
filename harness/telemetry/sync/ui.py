@@ -14,6 +14,8 @@ import re
 import sys
 from typing import Any, Dict, List, Optional
 
+from harness.utils import theme
+
 
 def interactive_select_sessions(
     sessions: List[Dict[str, Any]],
@@ -39,7 +41,7 @@ def interactive_select_sessions(
     inp = input_stream if input_stream is not None else sys.stdin
 
     out.write(f"\nCandidate Sessions Pending Push ({len(sessions)} available):\n")
-    out.write("=" * 80 + "\n")
+    out.write(theme.rule("━", stream=out) + "\n")
     for idx, s in enumerate(sessions, 1):
         s_id = str(s.get("session_id", "unknown"))
         dur = s.get("duration_seconds")
@@ -52,7 +54,7 @@ def interactive_select_sessions(
             f"  [{idx:2d}] ID: {s_id[:16]}... | Duration: {dur_str:>7} | Steps: {steps:>4} | "
             f"Tools: {tools:>3} | Workspace: {ws_short}\n"
         )
-    out.write("=" * 80 + "\n")
+    out.write(theme.rule("━", stream=out) + "\n")
     out.write("Select sessions to push (comma-separated indices e.g. '1,2', 'all' [default], 'none'/'q' to cancel): ")
     out.flush()
 

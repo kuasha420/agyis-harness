@@ -356,7 +356,7 @@ def check_anti_loop(
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        sys.stderr.write(f"PSL Anti-Loop Warning: Failed creating state dir '{target_dir}': {exc}\n")
+        sys.stderr.write(f"[AGYIS ANTI-LOOP] Warning: Failed creating state dir '{target_dir}': {exc}\n")
 
     resolved_role, exact_agent = resolve_hook_role_and_agent(
         payload,
@@ -389,7 +389,7 @@ def check_anti_loop(
         try:
             save_history(conv_id, history, target_dir=target_dir)
         except OSError as exc:
-            sys.stderr.write(f"PSL Anti-Loop Warning: Failed saving history: {exc}\n")
+            sys.stderr.write(f"[AGYIS ANTI-LOOP] Warning: Failed saving history: {exc}\n")
         return {"decision": "allow"}
 
     # -2. Verification Reset Invariant:
@@ -410,7 +410,7 @@ def check_anti_loop(
             return {
                 "decision": "deny",
                 "reason": (
-                    f"PSL Anti-Loop Guard: Intercepted {consecutive_inspections + 1} consecutive background task inspections. "
+                    f"[AGYIS ANTI-LOOP] Intercepted {consecutive_inspections + 1} consecutive background task inspections. "
                     "Never poll background task logs ('tail', 'cat', 'view_file' on .system_generated/tasks/ or .system_generated/logs/ or manage_task 'status') "
                     "for progress updates. Stop calling tools and await reactive wakeup."
                 ),
@@ -422,7 +422,7 @@ def check_anti_loop(
             return {
                 "decision": "deny",
                 "reason": (
-                    f"PSL Anti-Loop Guard: Background task inspection appeared {freq_tasks} times "
+                    f"[AGYIS ANTI-LOOP] Background task inspection appeared {freq_tasks} times "
                     f"within sliding window of {len(window_tasks)} calls. "
                     "Never poll background task logs or status. Stop calling tools and await reactive wakeup."
                 ),
@@ -434,7 +434,7 @@ def check_anti_loop(
             try:
                 save_history(conv_id, history, target_dir=target_dir)
             except OSError as exc:
-                sys.stderr.write(f"PSL Anti-Loop Warning: Failed saving history: {exc}\n")
+                sys.stderr.write(f"[AGYIS ANTI-LOOP] Warning: Failed saving history: {exc}\n")
             return {
                 "decision": "allow",
                 "reason": "Advisory: Background tasks notify reactively upon exit. Avoid polling status to conserve steps.",
@@ -458,7 +458,7 @@ def check_anti_loop(
         return {
             "decision": "deny",
             "reason": (
-                f"PSL Anti-Loop Guard: Intercepted {repeats + 1} identical consecutive executions "
+                f"[AGYIS ANTI-LOOP] Intercepted {repeats + 1} identical consecutive executions "
                 f"of '{tool_name}'. Refine arguments, inspect prior outputs, or pursue an alternative strategy."
             ),
         }
@@ -488,7 +488,7 @@ def check_anti_loop(
         return {
             "decision": "deny",
             "reason": (
-                f"PSL Anti-Loop Guard: Tool signature '{tool_name}' appeared {freq_count} times "
+                f"[AGYIS ANTI-LOOP] Tool signature '{tool_name}' appeared {freq_count} times "
                 f"within a sliding window of {len(window_seq)} calls (threshold is {max_freq}). "
                 "Denying execution to prevent thrashing loop. Refine arguments or pursue an alternative strategy."
             ),
@@ -514,7 +514,7 @@ def check_anti_loop(
                 return {
                     "decision": "deny",
                     "reason": (
-                        f"PSL Anti-Loop Guard: Intercepted cyclic tool execution pattern of period {p} "
+                        f"[AGYIS ANTI-LOOP] Intercepted cyclic tool execution pattern of period {p} "
                         f"({cycle_names}) repeating >= 2 consecutive cycles. "
                         "Break the cycle by altering parameters, inspecting past outputs, or changing approach."
                     ),
@@ -526,7 +526,7 @@ def check_anti_loop(
     try:
         save_history(conv_id, history, target_dir=target_dir)
     except OSError as exc:
-        sys.stderr.write(f"PSL Anti-Loop Warning: Failed saving history: {exc}\n")
+        sys.stderr.write(f"[AGYIS ANTI-LOOP] Warning: Failed saving history: {exc}\n")
 
     return {"decision": "allow"}
 
@@ -584,7 +584,7 @@ def main() -> None:
             return
     except Exception as exc:
         # Default allow if input cannot be read
-        sys.stderr.write(f"PSL Anti-Loop Warning: Failed parsing stdin payload: {exc}\n")
+        sys.stderr.write(f"[AGYIS ANTI-LOOP] Warning: Failed parsing stdin payload: {exc}\n")
         print(json.dumps({"decision": "allow"}))
         return
 

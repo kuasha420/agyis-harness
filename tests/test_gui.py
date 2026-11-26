@@ -1822,8 +1822,8 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
             toggle=False,
         )
         # Titlebar clipping fix assertions
-        self.assertIn("top: 38px;", script)
-        self.assertIn("height: calc(100vh - 38px) !important;", script)
+        self.assertIn("top: var(--pane-titlebar-height, 40px);", script)
+        self.assertIn("height: calc(100vh - var(--pane-titlebar-height, 40px)) !important;", script)
         self.assertIn("-webkit-app-region: no-drag;", script)
         # Cumulative token sync in JS
         self.assertIn("rawSegmentsSum = segments.reduce", script)

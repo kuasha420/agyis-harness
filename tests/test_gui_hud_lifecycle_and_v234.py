@@ -429,7 +429,7 @@ async function fetch(url, opts) {
         self.assertNotIn("Cache: 48.0k", out["s6_ep0_html"])
         self.assertNotIn("~est", out["s6_ep1_html"])
         self.assertIn("Cache: 48.0k", out["s6_ep1_html"])
-        self.assertIn("Active Context: <b style=\"color: #38bdf8;\">56,000</b>", out["s6_ep1_html"])
+        self.assertIn("Active Context: <b style=\"color: #26D0CE;\">56,000</b>", out["s6_ep1_html"])
 
     def test_extract_hud_focused_convo_id_precedence_in_node(self) -> None:
         import importlib.resources

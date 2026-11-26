@@ -622,7 +622,7 @@ def format_command_dictionary(
     if descriptions:
         inferred_desc.update(descriptions)
 
-    lines = ["# 🧪 Project Verification & Native Toolchain"]
+    lines = ["# ◆ Project Verification & Native Toolchain"]
     for verb, cmd in cmd_dict.items():
         desc = inferred_desc.get(verb) or STANDARD_VERB_DESCRIPTIONS.get(verb, f"Execute {verb}")
         lines.append(f"{cmd:<46} # {desc}".rstrip())

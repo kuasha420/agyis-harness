@@ -128,7 +128,7 @@ def _is_pre_tool_denied_by_guards(
         if check_auditor_write_block(payload) is not None:
             return True
     except Exception as exc:
-        sys.stderr.write(f"PSL Fence Warning: PreToolUse drift precheck error: {exc}\n")
+        sys.stderr.write(f"[AGYIS FENCE] Warning: PreToolUse drift precheck error: {exc}\n")
     try:
         from harness.hooks.command_safety_hook import DANGEROUS_PATTERNS, INTERACTIVE_COMMANDS, check_pause_safety
         ws_dir = Path(cwd) if cwd and Path(cwd).is_dir() else None
@@ -144,7 +144,7 @@ def _is_pre_tool_denied_by_guards(
                 if first_tok in INTERACTIVE_COMMANDS:
                     return True
     except Exception as exc:
-        sys.stderr.write(f"PSL Fence Warning: PreToolUse safety precheck error: {exc}\n")
+        sys.stderr.write(f"[AGYIS FENCE] Warning: PreToolUse safety precheck error: {exc}\n")
     return False
 
 

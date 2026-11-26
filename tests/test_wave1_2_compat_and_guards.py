@@ -450,4 +450,4 @@ class TestWave12CompatAndGuards(unittest.TestCase):
                     })
                 self.assertTrue((state_dir / f"cockpit_direct_edits_{live_fd_cid}.json").is_file())
                 fd_advisories = drain_pending_advisories(live_fd_cid, state_dir=state_dir)
-                self.assertTrue(any("Flight Director Advisory" in m for m in fd_advisories))
+                self.assertTrue(any("[AGYIS FLIGHT DIRECTOR] Advisory" in m for m in fd_advisories))

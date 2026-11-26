@@ -531,7 +531,7 @@ class TestCommandSafety(unittest.TestCase):
             self.assertFalse(pnpm_res["available"])
             self.assertEqual(pnpm_res["exit_code_risk"], 127)
             self.assertIn("pnpm", pnpm_res["suggestion"])
-            self.assertIn("PSL Preflight Guard", pnpm_res["warning"])
+            self.assertIn("[AGYIS PREFLIGHT]", pnpm_res["warning"])
 
             # ollama missing -> returns ollama install suggestion
             ollama_res = check_preflight_tool_availability("ollama run llama3")

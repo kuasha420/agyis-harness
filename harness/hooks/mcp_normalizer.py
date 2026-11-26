@@ -138,7 +138,7 @@ def load_mcp_tool_schema(server_name: str, tool_name: str) -> Optional[Dict[str,
                 if cand.is_file():
                     return json.loads(cand.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError, ValueError) as exc:
-                sys.stderr.write(f"PSL Command Safety Warning: Failed to load MCP schema '{cand}': {exc}\n")
+                sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Failed to load MCP schema '{cand}': {exc}\n")
                 continue
     return None
 
@@ -176,7 +176,7 @@ def _check_rea_ghidra_cache(modified_args: Dict[str, Any]) -> Optional[str]:
                     if cur.fetchone():
                         has_gpr = True
             except Exception as exc:
-                sys.stderr.write(f"PSL Command Safety Warning: Failed querying dirtyroom DB for '{target_p.name}': {exc}\n")
+                sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Failed querying dirtyroom DB for '{target_p.name}': {exc}\n")
             finally:
                 if conn is not None:
                     try:
@@ -194,7 +194,7 @@ def _check_rea_ghidra_cache(modified_args: Dict[str, Any]) -> Optional[str]:
                 f"Run 'agyis re pre-analyze {target_p.name}' or set REA_GHIDRA_PROJECT_DIR first."
             )
     except Exception as exc:
-        sys.stderr.write(f"PSL Command Safety Warning: Error checking REA Ghidra cache: {exc}\n")
+        sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Error checking REA Ghidra cache: {exc}\n")
     return None
 
 

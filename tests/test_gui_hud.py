@@ -58,13 +58,13 @@ class TestGuiTelemetryHud(unittest.TestCase):
         self.assertEqual(len(evaluated_scripts), 1)
         script = evaluated_scripts[0]
         self.assertIn("agyis-telemetry-hud", script)
-        self.assertIn("#22c55e", script, "SAFE tier must use green border (#22c55e)")
+        self.assertIn("#2AD089", script, "SAFE tier must use Orbital Aegis pass border (#2AD089)")
         self.assertIn("20,000", script)
         self.assertIn("+1,200 tok/min", script)
         self.assertIn("~25m to compaction", script)
 
     def test_inject_hud_elevated_tier(self):
-        """Verifies HUD injection with ELEVATED tier styling (#f59e0b)."""
+        """Verifies HUD injection with ELEVATED tier styling (#F5B74F)."""
         mock_client = MagicMock(spec=CDPWebSocketClient)
         evaluated_scripts = []
 
@@ -93,12 +93,12 @@ class TestGuiTelemetryHud(unittest.TestCase):
         self.assertTrue(res["success"])
         self.assertEqual(res["tier"], "ELEVATED")
         script = evaluated_scripts[0]
-        self.assertIn("#f59e0b", script, "ELEVATED tier must use amber border (#f59e0b)")
+        self.assertIn("#F5B74F", script, "ELEVATED tier must use Orbital Aegis warn border (#F5B74F)")
         self.assertIn("+2,500 tok/min", script)
         self.assertIn("~5m to compaction", script)
 
     def test_inject_hud_critical_tier(self):
-        """Verifies HUD injection with CRITICAL tier styling (#ef4444)."""
+        """Verifies HUD injection with CRITICAL tier styling (#FF6B6B)."""
         mock_client = MagicMock(spec=CDPWebSocketClient)
         evaluated_scripts = []
 
@@ -127,7 +127,7 @@ class TestGuiTelemetryHud(unittest.TestCase):
         self.assertTrue(res["success"])
         self.assertEqual(res["tier"], "CRITICAL")
         script = evaluated_scripts[0]
-        self.assertIn("#ef4444", script, "CRITICAL tier must use red border (#ef4444)")
+        self.assertIn("#FF6B6B", script, "CRITICAL tier must use Orbital Aegis fail border (#FF6B6B)")
         self.assertIn("+4,200 tok/min", script)
         self.assertIn("~1m to compaction", script)
 

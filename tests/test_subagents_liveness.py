@@ -330,11 +330,12 @@ class TestSubagentLivenessCLI(unittest.TestCase):
         self.assertIn("Liveness State", table)
         self.assertIn("Progress Source", table)
 
-        # Check badges
-        self.assertIn("🟢 ACTIVE", table)
-        self.assertIn("🟡 STALE", table)
-        self.assertIn("🔴 DEAD", table)
-        self.assertIn("⏸️ PARKED", table)
+        # Check single-width geometric badges and uniform table widths
+        self.assertIn("● ACTIVE", table)
+        self.assertIn("▲ STALE", table)
+        self.assertIn("✕ DEAD", table)
+        self.assertIn("○ PARKED", table)
+        self.assertEqual(len({len(line) for line in table.splitlines()}), 1)
 
         # Check formatted age
         self.assertIn("25s ago", table)
@@ -717,7 +718,7 @@ class TestSubagentCompletedState(unittest.TestCase):
         self.assertEqual(by_id["worker_in_progress"].liveness_state, "PARKED")
 
         table = format_liveness_table([by_id["worker_done"]])
-        self.assertIn("✅ COMPLETED", table)
+        self.assertIn("◆ COMPLETED", table)
 
     def test_cockpit_invariants_ignore_completed_and_active_conv_sessions(self) -> None:
         """Cockpit Invariant 5 passes with COMPLETED >80-step brain sessions and fails on DEAD workers."""

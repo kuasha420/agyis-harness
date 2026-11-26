@@ -103,18 +103,19 @@
 
     function extractHudFocusedConvoId() {
         const searchParams = (typeof window !== "undefined" && window.location && window.location.search) ? new URLSearchParams(window.location.search) : null;
-        const isUuidPattern = (id) => typeof id === "string" && (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) || (!/^pane[-_]/i.test(id) && id.length >= 20));
+        const isConvoSlug = (id) => typeof id === "string" && /^[0-9a-zA-Z_-]+$/.test(id) && !/^pane[-_]/i.test(id) && !/^(?:bgtask|side_question)__/i.test(id);
+        const isUuidPattern = (id) => isConvoSlug(id) && (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) || id.length >= 20);
 
         // Priority 1: Check active subagent tab query parameter (?tab=subagent_convo__<uuid>)
-        // and split-pane focused query parameter (?focused=<uuid>)
+        // and split-pane focused query parameter (?focused=<uuid>); ignore bgtask__/side_question__ tabs.
         if (searchParams) {
             const tabParam = searchParams.get('tab');
             if (tabParam && tabParam.startsWith('subagent_convo__')) {
                 const cand = tabParam.slice('subagent_convo__'.length);
-                if (cand && /^[0-9a-zA-Z_-]+$/.test(cand)) return cand;
+                if (isConvoSlug(cand)) return cand;
             }
             const focusedParam = searchParams.get('focused');
-            if (focusedParam && /^[0-9a-zA-Z_-]+$/.test(focusedParam)) return focusedParam;
+            if (isConvoSlug(focusedParam)) return focusedParam;
         }
 
         // Priority 2: Delegate to global detector if available
@@ -124,15 +125,25 @@
         }
 
         const pathMatch = (window.location && window.location.pathname) ? window.location.pathname.match(/\/c\/([^/?#]+)/) : null;
-        const routeCascadeId = pathMatch && pathMatch[1] ? pathMatch[1].split("+")[0] : null;
+        const routeParts = pathMatch && pathMatch[1] ? pathMatch[1].split("+").filter(Boolean) : [];
+        const routeCascadeId = routeParts[0] || null;
 
         const focusedPane = typeof document !== "undefined" ? document.querySelector('div[data-pane-id]:not([data-pane-unfocused])') : null;
         const rawPaneId = focusedPane ? focusedPane.getAttribute('data-pane-id') : null;
-        const focusedPaneId = isUuidPattern(rawPaneId) ? rawPaneId : null;
+        let focusedPaneId = isUuidPattern(rawPaneId) ? rawPaneId : null;
+        if (!focusedPaneId && focusedPane && rawPaneId && /^pane[-_](\d+)$/i.test(rawPaneId)) {
+            const attrConvo = focusedPane.getAttribute('data-conversation-id') || focusedPane.getAttribute('data-cascade-id');
+            if (isConvoSlug(attrConvo)) {
+                focusedPaneId = attrConvo;
+            } else {
+                const paneIdx = parseInt(rawPaneId.match(/^pane[-_](\d+)$/i)[1], 10) - 1;
+                if (paneIdx >= 0 && paneIdx < routeParts.length) focusedPaneId = routeParts[paneIdx];
+            }
+        }
 
         const searchCascadeId = searchParams ? searchParams.get('cascadeId') : null;
 
-        return routeCascadeId || focusedPaneId || searchCascadeId || null;
+        return focusedPaneId || routeCascadeId || searchCascadeId || null;
     }
     window.__agyis_extract_convo_id = extractHudFocusedConvoId;
 
@@ -209,6 +220,7 @@
     };
     syncToLatestState(window.__agyis_hud_state);
 
+    /* __HUD_THEME__ */
     /* __HUD_HEADER__ */
     /* __HUD_CONTEXT_BAR__ */
     /* __HUD_TIMELINE__ */

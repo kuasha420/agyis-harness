@@ -402,7 +402,7 @@ class TestLadderHeartbeat(unittest.TestCase):
             self.assertIn("Step Count:    32 steps", output)
             self.assertIn("Elapsed Time:  142.5s (2m 22s)", output)
             self.assertIn("Last Action:   python3 -m unittest ...", output)
-            self.assertIn("Status:        🟢 IN_PROGRESS (Heartbeat", output)
+            self.assertIn("Status:        ● IN_PROGRESS (Heartbeat", output)
 
     def test_benchmark_sla(self) -> None:
         """Entire test suite runs well under the 0.20s SLA (<200ms)."""

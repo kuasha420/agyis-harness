@@ -318,7 +318,7 @@ class TestTier1FeatureCoverage(BaseBugBashPhase2TestCase):
         """F13.04: Empty sections['GENERAL'] does not render diagnostic error header."""
         clean_raw = "=== HOST ===\nLinux node 6.1\n=== RESOURCES ===\nMem: 16G\n"
         md = RemoteTriage.format_triage_markdown(clean_raw, "desktop")
-        self.assertNotIn("⚠️ Diagnostic & Connection Output", md)
+        self.assertNotIn("▲ Diagnostic & Connection Output", md)
         self.assertIn("Host & Resources", md)
 
     def test_t1_f13_05_mixed_general_and_probed_sections(self) -> None:

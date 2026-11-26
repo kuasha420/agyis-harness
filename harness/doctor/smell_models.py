@@ -14,6 +14,8 @@ from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from harness.utils import theme
+
 # Boundary modules indicating system/adapter tests where high mock density is expected and waived
 BOUNDARY_MODULES: Set[str] = {
     "socket",
@@ -540,21 +542,20 @@ def print_ansi_smell_report(report: SmellAuditReport) -> None:
         if not tp.is_absolute():
             tp = Path(report.workspace_root) / tp
         if not tp.exists():
-            print(f"❌ Error: Target test path does not exist: {report.target_path}")
-            print("━" * 76)
+            print(theme.badge("FAIL", f"Error: Target test path does not exist: {report.target_path}"))
+            print(theme.rule("━"))
             print("Summary: 0 files scanned | Target path not found")
             print("Result: FAILED (Exit Code 1)")
             return
 
-    print("🩺 AGYIS WORKSTATION DOCTOR — ANTI-SYNTHETIC TEST SMELL AUDIT")
-    print("━" * 76)
+    print(theme.banner("AGYIS WORKSTATION DOCTOR — ANTI-SYNTHETIC TEST SMELL AUDIT"))
     target_display = report.target_path or (report.workspace_root + "/tests")
     print(f"Target: {target_display}")
     print(f"Scanned Files: {report.scanned_files} test files | Analyzed Tests: {report.scanned_tests} test cases")
     print()
 
     if report.hard_rejections:
-        print(f"❌ HARD REJECTIONS ({len(report.hard_rejections)}):")
+        print(f"{theme.badge('FAIL')} {theme.style(f'HARD REJECTIONS ({len(report.hard_rejections)}):', 'fail', bold=True)}")
         for hr in report.hard_rejections:
             rel_file = hr.file_path
             try:
@@ -572,7 +573,7 @@ def print_ansi_smell_report(report: SmellAuditReport) -> None:
             print()
 
     if report.warnings:
-        print(f"⚠️  ACTIONABLE WARNINGS ({len(report.warnings)}):")
+        print(f"{theme.badge('WARN')} {theme.style(f'ACTIONABLE WARNINGS ({len(report.warnings)}):', 'warn', bold=True)}")
         for w in report.warnings:
             rel_file = w.file_path
             try:
@@ -586,7 +587,7 @@ def print_ansi_smell_report(report: SmellAuditReport) -> None:
             print()
 
     if report.exemptions:
-        print(f"🛡️  BOUNDARY EXEMPTIONS ({len(report.exemptions)}):")
+        print(f"{theme.badge('BRAND')} {theme.style(f'BOUNDARY EXEMPTIONS ({len(report.exemptions)}):', 'optical', bold=True)}")
         for ex in report.exemptions:
             rel_file = ex.file_path
             try:
@@ -598,7 +599,7 @@ def print_ansi_smell_report(report: SmellAuditReport) -> None:
             print(f"    Exemption: {ex.reason} [{adapters_str}]")
         print()
 
-    print("━" * 76)
+    print(theme.rule("━"))
     status_str = "PASSED" if report.passed else "FAILED"
     print(
         f"Summary: {report.scanned_files} files scanned | "

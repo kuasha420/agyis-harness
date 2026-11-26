@@ -445,7 +445,7 @@ def heal_environment(
         psl_collision = audit.get("psl_collision", {})
         if psl_collision.get("collision") and psl_collision.get("remediation"):
             actions_taken.append(
-                f"PSL Collision Remediation:\n    {psl_collision['remediation']}"
+                f"Legacy 'psl' Alias Collision Remediation:\n    {psl_collision['remediation']}"
             )
 
     dup_agents = audit.get("duplicate_agents", {})

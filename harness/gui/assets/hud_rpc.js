@@ -16,7 +16,10 @@
         if (!modelName) return 256000;
         const lower = String(modelName).toLowerCase();
         if (lower.includes("1m") || lower.includes("1000k") || lower.includes("1048576")) return 1000000;
-        if (lower.includes("512k") || lower.includes("gemini-4-hydrogen") || lower.includes("gemini-4-neon") || lower.includes("gemini-3.8-flash-s") || lower.includes("gemini-3.8-flash-h") || lower.includes("gemini 3.8 flash (high)")) return 512000;
+        if (lower.includes("gpt-oss-120b") || lower.includes("gpt oss 120b")) return 80000;
+        if (["claude-sonnet-4-6", "claude-sonnet-4.6", "claude sonnet 4.6", "claude-4-6-sonnet", "claude-4.6-sonnet"].some(t => lower.includes(t))) return 160000;
+        if (["claude-sonnet-5-5", "claude-sonnet-5.5", "claude sonnet 5.5", "claude-5-5-sonnet", "claude-5.5-sonnet", "claude-opus-5-5", "claude-opus-5.5", "claude opus 5.5", "claude-5-5-opus", "claude-5.5-opus"].some(t => lower.includes(t))) return 840000;
+        if (lower.includes("512k") || ["gemini-4-hydrogen", "gemini-4-neon", "gemini-4-argon", "gemini-4-carbon", "gemini 4 hydrogen", "gemini 4 neon", "gemini 4 argon", "gemini 4 carbon", "gemini-pro-orchestrator", "gemini pro orchestrator", "gemini-pro-coordinator", "gemini pro coordinator", "orchestrator (", "gemini-3.8-flash-s", "gemini-3.8-flash-h", "gemini-3.8-flash-medium", "gemini-3.8-flash-low", "gemini 3.8 flash"].some(t => lower.includes(t))) return 512000;
         if (lower.includes("200k")) return 200000;
         if (lower.includes("128k")) return 128000;
         return 256000;
@@ -31,6 +34,10 @@
         post_message: "POST_MESSAGE", send_message: "SEND_MESSAGE", read_board: "READ_BOARD", swarm_wait: "SWARM_WAIT",
         swarm: "SWARM", run_workflow: "RUN_WORKFLOW", define_subagent: "DEFINE_SUBAGENT",
         manage_subagents: "MANAGE_SUBAGENTS", manage_task: "MANAGE_TASK", invoke_subagent: "INVOKE_SUBAGENT",
+        update_focus: "UPDATE_FOCUS", update_steps: "UPDATE_STEPS", enter_plan_mode: "ENTER_PLAN_MODE",
+        exit_plan_mode: "EXIT_PLAN_MODE", ask_question: "ASK_QUESTION", search_marketplace: "SEARCH_MARKETPLACE",
+        list_plugin_accounts: "LIST_PLUGIN_ACCOUNTS", call_mcp_tool: "CALL_MCP_TOOL",
+        list_resources: "LIST_RESOURCES", read_resource: "READ_RESOURCE",
     };
 
     /**
@@ -94,11 +101,7 @@
                             }
                         });
                     } else if (gTokens > 0) {
-                        toolDefSlices.push({
-                            name: gName || "Tool Schemas",
-                            tokens: gTokens,
-                            is_mcp: gType === 4,
-                        });
+                        toolDefSlices.push({ name: gName || "Tool Schemas", tokens: gTokens, is_mcp: gType === 4 });
                     }
                 }
             });
@@ -333,6 +336,7 @@
             let epochEstTokens = 0;
             for (let i = epSteps.length - 1; i >= 0; i--) {
                 const st = epSteps[i];
+                if (st.type === "CHECKPOINT") continue;
                 if (epochCacheTokens === 0 && st.cache_read_tokens > 0) epochCacheTokens = st.cache_read_tokens;
                 if (explicitUsageTokens === 0 && st._hasAuthUsage) {
                     explicitUsageTokens = st.input_tokens + st.cache_read_tokens;
@@ -594,61 +598,49 @@
         async _fetchRemainingStreamSlice(conversationId, coordinator, startIndex, totalLength, signal) {
             const headers = { "Content-Type": "application/json", "Connect-Protocol-Version": "1" };
             if (this.csrfToken) headers["x-codeium-csrf-token"] = this.csrfToken;
-            for (let cursor = startIndex; cursor < totalLength; cursor += 500) {
+            let cursor = startIndex;
+            while (cursor < totalLength && cursor < 20000) {
                 if (signal && signal.aborted) break;
-                const end = Math.min(totalLength, cursor + 500);
-                const body = JSON.stringify({ cascadeId: conversationId, startIndex: cursor, endIndexExclusive: end, trajectoryVerbosity: 3 });
+                const body = JSON.stringify({ cascadeId: conversationId, trajectoryVerbosity: 3, stepOffset: cursor });
                 const res = await fetch(`${this.baseUrl}/exa.language_server_pb.LanguageServerService/GetCascadeTrajectorySteps`, { method: "POST", headers, body, signal }).catch(() => null);
                 if (!res || !res.ok) break;
                 const data = await res.json().catch(() => null);
                 const pageSteps = data && Array.isArray(data.steps) ? data.steps : [];
                 if (pageSteps.length === 0) break;
+                if (pageSteps[0] && pageSteps[0].stepIndex !== undefined && pageSteps[0].stepIndex < cursor) break;
                 const indices = pageSteps.map((s, idx) => (s && s.stepIndex !== undefined ? s.stepIndex : cursor + idx));
                 coordinator.ingestUpdate({ conversationId, mainTrajectoryUpdate: { stepsUpdate: { indices, steps: pageSteps, totalLength } } });
-                if (pageSteps.length < end - cursor) break;
+                cursor += pageSteps.length;
             }
         }
 
-        /**
-         * Connects to StreamAgentStateUpdates over persistent HTTP/2 Connect streaming.
-         */
+        /** Connects to StreamAgentStateUpdates over persistent HTTP/2 Connect streaming. */
         async streamConversation(conversationId, onStateChange) {
-            if (this.activeAbortController) {
-                this.activeAbortController.abort("Switching conversation");
-            }
-            if (this.activeCoordinator) {
-                this.activeCoordinator.destroy();
-            }
+            if (this.activeAbortController) this.activeAbortController.abort("Switching conversation");
+            if (this.activeCoordinator) this.activeCoordinator.destroy();
             this.activeAbortController = new AbortController();
             const signal = this.activeAbortController.signal;
             const coordinator = new StreamRenderCoordinator(onStateChange);
             this.activeCoordinator = coordinator;
-
             const subscriberId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `sub-${Date.now()}`;
             const reqBody = {
-                conversationId, subscriberId,
+                conversationId, subscriberId, trajectoryVerbosity: 3,
                 initialStepsPageBounds: { startIndex: 0, endIndexExclusive: 500 },
                 initialGeneratorMetadatasPageBounds: { startIndex: 0, endIndexExclusive: 500 },
                 initialExecutorMetadatasPageBounds: { startIndex: 0, endIndexExclusive: 500 },
-                trajectoryVerbosity: 3,
             };
             const jsonBytes = new TextEncoder().encode(JSON.stringify(reqBody));
             const framedReq = new Uint8Array(5 + jsonBytes.length);
             framedReq[0] = 0x00;
             new DataView(framedReq.buffer).setUint32(1, jsonBytes.length, false);
             framedReq.set(jsonBytes, 5);
-
             const url = `${this.baseUrl}/exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates`;
             const headers = { "Content-Type": "application/connect+json", "Connect-Protocol-Version": "1" };
             if (this.csrfToken) headers["x-codeium-csrf-token"] = this.csrfToken;
-
             const response = await fetch(url, { method: "POST", headers, body: framedReq, signal });
             if (!response.ok) throw new Error(`ConnectRPC stream failed with HTTP ${response.status}`);
-
             const reader = response.body.getReader();
-            let buffer = new Uint8Array(0);
-            let paginatedTail = false;
-
+            let buffer = new Uint8Array(0), paginatedTail = false;
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
@@ -656,7 +648,6 @@
                 newBuf.set(buffer);
                 newBuf.set(value, buffer.length);
                 buffer = newBuf;
-
                 while (buffer.length >= 5) {
                     const flags = buffer[0];
                     const length = new DataView(buffer.buffer, buffer.byteOffset, 5).getUint32(1, false);
@@ -664,7 +655,6 @@
                     const payloadBytes = buffer.slice(5, 5 + length);
                     const rest = buffer.subarray(5 + length);
                     buffer = rest.length > 0 ? new Uint8Array(rest) : new Uint8Array(0);
-
                     if (flags === 0x00) {
                         try {
                             const message = JSON.parse(new TextDecoder().decode(payloadBytes));
@@ -682,9 +672,7 @@
                         let endMsg = null;
                         try { endMsg = endStr ? JSON.parse(endStr) : null; }
                         catch (_) { console.warn("[InSituConnectClient] Invalid EndStreamResponse JSON:", endStr); }
-                        if (endMsg && endMsg.error) {
-                            throw new Error(`ConnectRPC stream ended with error: ${endMsg.error.message || endMsg.error.code || JSON.stringify(endMsg.error)}`);
-                        }
+                        if (endMsg && endMsg.error) throw new Error(`ConnectRPC stream ended with error: ${endMsg.error.message || endMsg.error.code || JSON.stringify(endMsg.error)}`);
                         return;
                     }
                 }
@@ -692,9 +680,7 @@
         }
     }
 
-    /**
-     * ConnectRPC conversation loader with pagination and strict same-session fallback ladder.
-     */
+    /** ConnectRPC conversation loader with pagination and strict same-session fallback ladder. */
     async function loadConversationViaRpc(convoId) {
         if (!convoId) return null;
         try {
@@ -703,43 +689,41 @@
             const headers = { "Content-Type": "application/json", "Connect-Protocol-Version": "1" };
             if (csrfToken) headers["x-codeium-csrf-token"] = csrfToken;
 
-            const safePost = async (url, bodyObj) => {
+            const safePost = async (url, bodyObj, optional) => {
                 try {
                     const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(bodyObj) });
-                    if (!r.ok) console.warn(`[agyis] ConnectRPC HTTP ${r.status}: ${url}`);
+                    if (!r.ok && !optional) console.warn(`[agyis] ConnectRPC HTTP ${r.status}: ${url}`);
                     return r;
                 } catch (err) {
-                    console.warn(`[agyis] ConnectRPC error (${url}):`, err && err.message ? err.message : err);
+                    if (!optional) console.warn(`[agyis] ConnectRPC error (${url}):`, err && err.message ? err.message : err);
                     return null;
                 }
             };
-
             const baseReq = { cascadeId: convoId, trajectoryVerbosity: 3 };
             const rpcRoot = `${baseUrl}/exa.language_server_pb.`;
             const [trajRes, stepsRes, genRes, execRes] = await Promise.all([
                 safePost(`${rpcRoot}LanguageServerService/GetCascadeTrajectory`, baseReq),
-                safePost(`${rpcRoot}LanguageServerService/GetCascadeTrajectorySteps`, baseReq),
-                safePost(`${rpcRoot}LanguageServerService/GetCascadeTrajectoryGeneratorMetadata`, baseReq),
-                safePost(`${rpcRoot}LanguageServerService/GetCascadeTrajectoryExecutorMetadatas`, baseReq),
+                safePost(`${rpcRoot}LanguageServerService/GetCascadeTrajectorySteps`, { ...baseReq, stepOffset: 0 }),
+                safePost(`${rpcRoot}LanguageServerService/GetCascadeTrajectoryGeneratorMetadata`, { ...baseReq, generatorMetadataOffset: 0 }),
+                safePost(`${rpcRoot}LanguageServerService/GetCascadeTrajectoryExecutorMetadatas`, baseReq, true).catch(() => null),
             ]);
-
             let rawSteps = null;
             if (stepsRes && stepsRes.ok) {
                 const stepsJson = await stepsRes.json().catch(() => null);
                 if (stepsJson && Array.isArray(stepsJson.steps)) {
                     rawSteps = stepsJson.steps.slice();
-                    const totalLen = Number(stepsJson.totalLength || stepsJson.totalSteps || 0);
-                    let nextIdx = rawSteps.length;
-                    while (totalLen > nextIdx && nextIdx > 0 && nextIdx < 20000) {
-                        const pageRes = await safePost(`${rpcRoot}LanguageServerService/GetCascadeTrajectorySteps`, {
-                            cascadeId: convoId, startIndex: nextIdx, endIndexExclusive: Math.min(totalLen, nextIdx + 500), trajectoryVerbosity: 3,
-                        });
+                    let totalLen = Number(stepsJson.totalLength || stepsJson.totalSteps || 0);
+                    let nextIdx = rawSteps.length, lastPageLen = rawSteps.length;
+                    while (((totalLen > nextIdx) || (totalLen === 0 && lastPageLen >= 500)) && nextIdx > 0 && nextIdx < 20000) {
+                        const pageRes = await safePost(`${rpcRoot}LanguageServerService/GetCascadeTrajectorySteps`, { cascadeId: convoId, trajectoryVerbosity: 3, stepOffset: nextIdx });
                         if (!pageRes || !pageRes.ok) break;
                         const pageJson = await pageRes.json().catch(() => null);
                         const pageSteps = pageJson && Array.isArray(pageJson.steps) ? pageJson.steps : [];
-                        if (pageSteps.length === 0) break;
+                        if (pageSteps.length === 0 || (totalLen === 0 && pageSteps[0] && pageSteps[0].stepIndex !== undefined && pageSteps[0].stepIndex < nextIdx)) break;
                         rawSteps.push(...pageSteps);
+                        lastPageLen = pageSteps.length;
                         nextIdx += pageSteps.length;
+                        if (pageJson && (pageJson.totalLength || pageJson.totalSteps)) totalLen = Number(pageJson.totalLength || pageJson.totalSteps);
                     }
                 }
             }
@@ -747,7 +731,6 @@
                 const trajJson = await trajRes.json().catch(() => null);
                 if (trajJson && trajJson.trajectory && Array.isArray(trajJson.trajectory.steps)) rawSteps = trajJson.trajectory.steps;
             }
-
             if (!rawSteps || rawSteps.length === 0) {
                 const encId = encodeURIComponent(convoId);
                 let localHttpRes = await fetch(`${trajectoryServerUrl}/api/trajectory?id=${encId}`).catch(() => null);
@@ -760,7 +743,20 @@
                 return null;
             }
             const genJson = (genRes && genRes.ok) ? await genRes.json().catch(() => null) : null;
-            const genMetas = (genJson && (genJson.generatorMetadata || genJson.generatorMetadatas || genJson.metadatas)) || [];
+            const genMetas = ((genJson && (genJson.generatorMetadata || genJson.generatorMetadatas || genJson.metadatas)) || []).slice();
+            let totalGenLen = Number((genJson && (genJson.totalLength || genJson.totalCount || genJson.totalMetadataCount)) || 0);
+            let genOffset = genMetas.length, lastGenLen = genMetas.length;
+            while (((totalGenLen > genOffset) || (totalGenLen === 0 && lastGenLen >= 500)) && genOffset > 0 && genOffset < 20000) {
+                const gRes = await safePost(`${rpcRoot}LanguageServerService/GetCascadeTrajectoryGeneratorMetadata`, { cascadeId: convoId, trajectoryVerbosity: 3, generatorMetadataOffset: genOffset });
+                if (!gRes || !gRes.ok) break;
+                const gJson = await gRes.json().catch(() => null);
+                const pageGen = (gJson && (gJson.generatorMetadata || gJson.generatorMetadatas || gJson.metadatas)) || [];
+                if (!Array.isArray(pageGen) || pageGen.length === 0) break;
+                genMetas.push(...pageGen);
+                lastGenLen = pageGen.length;
+                genOffset += pageGen.length;
+                if (gJson && (gJson.totalLength || gJson.totalCount || gJson.totalMetadataCount)) totalGenLen = Number(gJson.totalLength || gJson.totalCount || gJson.totalMetadataCount);
+            }
             const chatModelData = (genJson && (genJson.chatModel || (genMetas[0] && genMetas[0].chatModel))) || null;
             const execJson = (execRes && execRes.ok) ? await execRes.json().catch(() => null) : null;
             const execMetas = (execJson && (execJson.executorMetadata || execJson.executorMetadatas || execJson.metadatas)) || [];

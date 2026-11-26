@@ -24,6 +24,7 @@ from harness.discovery import (
     resolve_affected_tests,
 )
 from harness.hooks import completion_fence_hook
+from harness.utils import theme
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -88,7 +89,7 @@ def _run_guarded_shell_runner(
                 "exit_code": 0,
             })
         else:
-            print(dry_run_label or f"✔ [DRY-RUN] Would execute: {runner_cmd}")
+            print(dry_run_label or theme.badge("PASS", f"[DRY-RUN] Would execute: {runner_cmd}"))
         return 0
 
     clean_cmd, guarded_env = inject_non_interactive_guards(runner_cmd)
@@ -141,7 +142,7 @@ def cmd_test(args: argparse.Namespace) -> int:
             if as_json:
                 _emit_test_json({"passed": True, "success": True, "mode": "harmonize", "dry_run": True, "message": res.message})
             else:
-                print(f"✔ [DRY-RUN] {res.message}")
+                print(theme.badge("PASS", f"[DRY-RUN] {res.message}"))
             return 0
 
     # 1.5. Micro-mutation testing if requested
@@ -163,7 +164,7 @@ def cmd_test(args: argparse.Namespace) -> int:
                     "exit_code": result.exit_code,
                 })
             else:
-                sys.stderr.write(f"✖ {result.error_message}\n")
+                sys.stderr.write(theme.badge("FAIL", result.error_message, stream=sys.stderr) + "\n")
             _record_verification_all(success=False, tier="mutation")
             return result.exit_code or 1
 
@@ -184,7 +185,7 @@ def cmd_test(args: argparse.Namespace) -> int:
             return 0 if passed else 1
 
         if result.total_mutants == 0:
-            print("✔ 0 mutants generated (clean working tree or only arid lines modified).")
+            print(theme.badge("PASS", "0 mutants generated (clean working tree or only arid lines modified)."))
             _record_verification_all(success=True, tier="mutation")
             return 0
 
@@ -194,7 +195,7 @@ def cmd_test(args: argparse.Namespace) -> int:
                 print(sm.to_actionable_report())
             _record_verification_all(success=False, tier="mutation")
             return 1
-        print("✔ All mutants killed! Test suite verified.")
+        print(theme.badge("PASS", "All mutants killed! Test suite verified."))
         _record_verification_all(success=True, tier="mutation")
         return 0
 
@@ -230,7 +231,7 @@ def cmd_test(args: argparse.Namespace) -> int:
                     "exit_code": 0,
                 })
             else:
-                print(f"✔ 0 affected tests detected for {mode} scope on clean working tree.")
+                print(theme.badge("PASS", f"0 affected tests detected for {mode} scope on clean working tree."))
             return 0
 
         return _run_guarded_shell_runner(
@@ -240,7 +241,7 @@ def cmd_test(args: argparse.Namespace) -> int:
             mode=out_mode,
             tier=tier_to_record,
             dry_run=bool(getattr(args, "dry_run", False)),
-            dry_run_label=f"✔ [DRY-RUN] Would execute: {resolved.runner_cmd} (Tier {resolved.tier}: {resolved.tier_name})",
+            dry_run_label=theme.badge("PASS", f"[DRY-RUN] Would execute: {resolved.runner_cmd} (Tier {resolved.tier}: {resolved.tier_name})"),
         )
 
     # 3. Macro / Full Test Execution
@@ -262,7 +263,7 @@ def cmd_test(args: argparse.Namespace) -> int:
                 mode="external",
                 tier="full",
                 dry_run=bool(getattr(args, "dry_run", False)),
-                dry_run_label=f"✔ [DRY-RUN] Would execute full project runner: {external_runner}",
+                dry_run_label=theme.badge("PASS", f"[DRY-RUN] Would execute full project runner: {external_runner}"),
             )
 
         local_tests_dir = cwd / "tests"

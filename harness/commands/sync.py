@@ -14,6 +14,8 @@ import json
 import sys
 from typing import Any, Dict
 
+from harness.utils import theme
+
 
 def cmd_sync(args: argparse.Namespace) -> int:
     """Synchronizes telemetry with the central hub (push, pull, or bi-directional)."""
@@ -42,7 +44,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         interval = getattr(args, "interval", 5.0) or 5.0
         endpoint = getattr(args, "remote", None)
         if not getattr(args, "json", False):
-            print(f"[*] Starting background telemetry watch & sync daemon (interval={interval}s)...")
+            print(theme.badge("BRAND", f"Starting background telemetry watch & sync daemon (interval={interval}s)..."))
         watch_kwargs: Dict[str, Any] = {"interval_sec": interval, "db_path": db_path, "endpoint": endpoint}
         if getattr(args, "pull", False):
             watch_kwargs["pull_in_watch"] = True
@@ -56,7 +58,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         if getattr(args, "json", False):
             print(json.dumps(res, indent=2))
         else:
-            print(f"[✓] Watch daemon stopped: {res.get('iterations', 0)} iterations, {res.get('total_sessions_pushed', 0)} sessions pushed.")
+            print(theme.badge("PASS", f"Watch daemon stopped: {res.get('iterations', 0)} iterations, {res.get('total_sessions_pushed', 0)} sessions pushed."))
         return 0
 
     if getattr(args, "session_id", None):
@@ -142,31 +144,31 @@ def cmd_sync(args: argparse.Namespace) -> int:
         err_msg = str(exc)
         if "403" in err_msg or "Forbidden" in err_msg:
             sys.stderr.write(
-                "✘ Telemetry sync authorization failed (HTTP 403: Forbidden).\n"
+                theme.badge("FAIL", "Telemetry sync authorization failed (HTTP 403: Forbidden).", stream=sys.stderr) + "\n"
                 "  • Your GitHub account is not an authorized member of 'purrfectsoft'.\n"
                 "  • Action: Verify organization membership or contact your team administrator.\n"
             )
         elif "401" in err_msg or "Unauthorized" in err_msg or "Token verification failed" in err_msg:
             sys.stderr.write(
-                "✘ Telemetry sync authentication failed (HTTP 401: Unauthorized).\n"
+                theme.badge("FAIL", "Telemetry sync authentication failed (HTTP 401: Unauthorized).", stream=sys.stderr) + "\n"
                 "  • The telemetry hub rejected the provided authentication credentials.\n"
                 "  • Action: Run 'agyis auth login --gh' to refresh your GitHub token or verify org membership in purrfectsoft.\n"
             )
         elif isinstance(exc, ConnectionError) or "Failed to connect" in err_msg or "urlopen error" in err_msg:
             resolved_ep = endpoint or "configured endpoint"
             sys.stderr.write(
-                f"✘ Failed to connect to telemetry hub ({resolved_ep}).\n"
+                theme.badge("FAIL", f"Failed to connect to telemetry hub ({resolved_ep}).", stream=sys.stderr) + "\n"
                 "  • Network or DNS resolution failure.\n"
                 "  • Action: Check internet connection or verify AGYIS_SYNC_ENDPOINT.\n"
             )
         elif "database is locked" in err_msg or "OperationalError" in err_msg:
             sys.stderr.write(
-                f"✘ SQLite database error: {exc}\n"
+                theme.badge("FAIL", f"SQLite database error: {exc}", stream=sys.stderr) + "\n"
                 "  • The local telemetry database is locked or busy.\n"
                 "  • Action: Wait for active background operations to complete or check database file permissions.\n"
             )
         else:
-            sys.stderr.write(f"✘ Telemetry sync error: {exc}\n")
+            sys.stderr.write(theme.badge("FAIL", f"Telemetry sync error: {exc}", stream=sys.stderr) + "\n")
         return 1
 
     if getattr(args, "json", False):
@@ -174,11 +176,11 @@ def cmd_sync(args: argparse.Namespace) -> int:
         return 0
 
     if res.get("status") == "aborted":
-        print("✘ Sync aborted by user.")
+        print(theme.badge("FAIL", "Sync aborted by user."))
         return 0
 
     mode_str = " (dry run)" if dry_run else ""
-    print(f"✔ Telemetry sync completed successfully{mode_str}:")
+    print(theme.badge("PASS", f"Telemetry sync completed successfully{mode_str}:"))
     if res.get("push"):
         p = res["push"]
         if dry_run:

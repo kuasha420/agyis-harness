@@ -52,6 +52,8 @@ from harness.skills import (
 
 _logger = logging.getLogger(__name__)
 
+from harness.utils import theme
+
 
 def cmd_onboard(
     workspace: Union[Path, str, argparse.Namespace] = Path.cwd(),
@@ -133,7 +135,7 @@ def cmd_onboard(
         if json_output:
             print(json.dumps({"success": False, "error": err_msg, "workspace": str(ws)}, indent=2))
         else:
-            sys.stderr.write(f"✘ Error: {err_msg}\n")
+            sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
         return 1
 
     # 1. Probe git topology
@@ -143,7 +145,7 @@ def cmd_onboard(
         if json_output:
             print(json.dumps({"success": False, "error": str(exc), "workspace": str(ws)}, indent=2))
         else:
-            sys.stderr.write(f"✘ Error: {exc}\n")
+            sys.stderr.write(theme.badge("FAIL", f"Error: {exc}", stream=sys.stderr) + "\n")
         return 1
 
     if base_branch:
@@ -162,7 +164,7 @@ def cmd_onboard(
                 "topology": topology.to_dict(),
             }, indent=2))
         else:
-            print(f"💡 {msg}")
+            print(theme.badge("WARN", msg))
         return 0
 
     # 3. Auxiliary clone check
@@ -177,7 +179,7 @@ def cmd_onboard(
                 "topology": topology.to_dict(),
             }, indent=2))
         else:
-            print(f"💡 {msg}")
+            print(theme.badge("WARN", msg))
         return 0
 
     # 4. Working tree dirty safety check
@@ -194,7 +196,7 @@ def cmd_onboard(
                     "is_dirty": True,
                 }, indent=2))
             else:
-                sys.stderr.write(f"✘ Error: {err_msg}\n")
+                sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
             return 1
 
         if topology.untracked_files:
@@ -293,7 +295,7 @@ def cmd_onboard(
                     if json_output:
                         print(json.dumps({"success": False, "error": err_msg, "workspace": str(ws)}, indent=2))
                     else:
-                        sys.stderr.write(f"✘ Error: {err_msg}\n")
+                        sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
                     return 1
                 topology.current_branch = branch_name
 
@@ -304,7 +306,7 @@ def cmd_onboard(
         if json_output:
             print(json.dumps({"success": False, "error": err_msg, "workspace": str(ws)}, indent=2))
         else:
-            sys.stderr.write(f"✘ Error: {err_msg}\n")
+            sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
         return 1
 
     # 7. Purge stale build caches (.next/, .turbo/) before verification gates
@@ -342,7 +344,7 @@ def cmd_onboard(
                 "error": harm_res.message,
             }, indent=2))
         else:
-            sys.stderr.write(f"✘ Error: {harm_res.message}\n")
+            sys.stderr.write(theme.badge("FAIL", f"Error: {harm_res.message}", stream=sys.stderr) + "\n")
         return 1
 
     # 10. Provision skills with decoupled presets or explicit list
@@ -439,7 +441,7 @@ def cmd_onboard(
                     "verification": verification_res,
                 }, indent=2))
             else:
-                sys.stderr.write(f"✘ Error: {err_msg}\n")
+                sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
             return 1
 
     # 13b. Atomic commit for onboarded files (--commit or --pr)
@@ -460,7 +462,7 @@ def cmd_onboard(
                     "error": err_msg,
                 }, indent=2))
             else:
-                sys.stderr.write(f"✘ Error: {err_msg}\n")
+                sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
             return 1
 
     # 13c. Pull Request creation if requested
@@ -541,8 +543,8 @@ def cmd_onboard(
         print(json.dumps(out_data, indent=2))
         return 0
 
-    prefix = "✔ [DRY-RUN] " if dry_run else "✔ "
-    print(f"{prefix}Workspace onboarded: {ws}")
+    prefix = "[DRY-RUN] " if dry_run else ""
+    print(theme.badge("PASS", f"{prefix}Workspace onboarded: {ws}"))
     print(f"  • Current branch: {topology.current_branch} (base: {topology.active_base_branch})")
     if created_branch_name:
         prefix_branch = "[dry-run] Would checkout" if dry_run else "Switched to"

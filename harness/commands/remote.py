@@ -15,6 +15,8 @@ from pathlib import Path
 import re
 import sys
 
+from harness.utils import theme
+
 
 def cmd_remote(args: argparse.Namespace) -> int:
     """Dispatches remote execution, script streaming, and triage subcommands."""
@@ -104,9 +106,9 @@ def cmd_remote(args: argparse.Namespace) -> int:
         action = getattr(args, "socket_action", None) or "status"
         if action == "cleanup":
             removed = runner.cleanup_sockets()
-            print(f"🧹 Cleaned up {len(removed)} active ControlMaster socket(s).")
+            print(theme.badge("BRAND", f"Cleaned up {len(removed)} active ControlMaster socket(s)."))
             for sock in removed:
-                print(f"  ✔ Removed: {sock.name}")
+                print(f"  {theme.badge('PASS', f'Removed: {sock.name}')}")
             return 0
         else:
             sockets = runner.list_sockets()
@@ -115,7 +117,7 @@ def cmd_remote(args: argparse.Namespace) -> int:
                 return 0
             print(f"Active OpenSSH ControlMaster sockets ({len(sockets)}):")
             for sock in sockets:
-                print(f"  ✔ {sock['name']} (Path: {sock['path']})")
+                print(f"  {theme.badge('PASS')} {sock['name']} (Path: {sock['path']})")
             return 0
 
     return 0

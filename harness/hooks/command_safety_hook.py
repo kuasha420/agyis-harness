@@ -152,7 +152,7 @@ def check_preflight_tool_availability(cmd: str) -> Dict[str, Any]:
     )
     return {
         "available": False, "binary": bin_name, "exit_code_risk": 127, "suggestion": suggestion,
-        "warning": f"PSL Preflight Guard (ADR-013): Missing CLI binary '{bin_name}'. {suggestion}",
+        "warning": f"[AGYIS PREFLIGHT] (ADR-013): Missing CLI binary '{bin_name}'. {suggestion}",
     }
 
 
@@ -286,7 +286,7 @@ def promote_inline_script_to_scratch(cmd: str, workspace_dir: Optional[Path] = N
         )
         return ("allow", modified_cmd, hint)
     except Exception as e:
-        sys.stderr.write(f"PSL Command Safety Warning: Error during scratch promotion: {e}\n")
+        sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Error during scratch promotion: {e}\n")
         return ("deny", None, INLINE_SCRIPT_DENY_REASON)
 
 
@@ -415,7 +415,7 @@ def inject_rea_dirtyroom_env(cmd: str, workspace_dir: Optional[Path] = None) -> 
         )
         return env_prefix + cmd, True, ["injected dirtyroom REA direct-mount environment"]
     except Exception as exc:
-        sys.stderr.write(f"PSL Command Safety Warning: Failed to resolve dirtyroom REA env: {exc}\n")
+        sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Failed to resolve dirtyroom REA env: {exc}\n")
         return cmd, False, []
 
 
@@ -428,7 +428,7 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
     if check_preflight:
         pf = check_preflight_tool_availability(cmd)
         if not pf.get("available", True):
-            return ("deny", None, pf.get("warning") or f"PSL Safety Gate: Binary '{pf.get('binary')}' not found.")
+            return ("deny", None, pf.get("warning") or f"[AGYIS COMMAND SAFETY] Binary '{pf.get('binary')}' not found.")
 
     modified_cmd, reasons = cmd, []
     hygiene_dec, hygiene_reason = check_inline_script_hygiene(cmd)
@@ -444,10 +444,10 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
 
     for pattern in DANGEROUS_PATTERNS:
         if re.search(pattern, cmd):
-            return ("deny", None, f"PSL Safety Gate: Command matches prohibited destructive pattern: {pattern}")
+            return ("deny", None, f"[AGYIS COMMAND SAFETY] Command matches prohibited destructive pattern: {pattern}")
     first_token = cmd.split()[0].split("/")[-1]
     if first_token in INTERACTIVE_COMMANDS:
-        return ("deny", None, f"PSL Safety Gate: Interactive command '{first_token}' blocked. Agent execution must be strictly non-interactive. Use batch or script alternatives.")
+        return ("deny", None, f"[AGYIS COMMAND SAFETY] Interactive command '{first_token}' blocked. Agent execution must be strictly non-interactive. Use batch or script alternatives.")
 
     for fn in (inject_disassembler_batch_flags, inject_rea_setup_flags):
         mod_f, changed_f, r_f = fn(modified_cmd)
@@ -501,7 +501,7 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
         return ("allow", None, None)
     hints = [r for r in reasons if r.startswith("[AGYIS COGNITIVE HINT]")]
     others = [r for r in reasons if not r.startswith("[AGYIS COGNITIVE HINT]")]
-    out_parts = (["PSL PreToolUse: " + "; ".join(others)] if others else []) + hints
+    out_parts = (["[AGYIS COMMAND SAFETY] " + "; ".join(others)] if others else []) + hints
     return ("allow", modified_cmd, "; ".join(out_parts) if out_parts else None)
 
 
@@ -526,7 +526,7 @@ def is_pause_gate_active(workspace_dir: Optional[Path] = None) -> bool:
             else:
                 return True
         except Exception as e:
-            sys.stderr.write(f"PSL Command Safety Warning: Error reading pause gate '{target}': {e}\n")
+            sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Error reading pause gate '{target}': {e}\n")
     return False
 
 
@@ -536,7 +536,7 @@ def check_pause_safety(tool_name: str, arguments: Dict[str, Any], workspace_dir:
         if not is_pause_gate_active(workspace_dir):
             return ("allow", None)
         reason = (
-            "PSL Safety Gate (Zero-Kill Swarm Parking Invariant): "
+            "[AGYIS COMMAND SAFETY] (Zero-Kill Swarm Parking Invariant): "
             "Subagent termination via 'kill' is prohibited while workspace is parked. "
             "Dispatch a graceful resume message or remove .agents/artifacts/pause_gate.json after state handoff."
         )
@@ -547,7 +547,7 @@ def check_pause_safety(tool_name: str, arguments: Dict[str, Any], workspace_dir:
             return ("deny", reason)
         return ("allow", None)
     except Exception as e:
-        sys.stderr.write(f"PSL Command Safety Warning: Unexpected error in check_pause_safety: {e}\n")
+        sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Unexpected error in check_pause_safety: {e}\n")
         return ("allow", None)
 
 
@@ -590,7 +590,7 @@ def main() -> None:
             return
         payload = json.loads(raw_stdin)
     except Exception as exc:
-        sys.stderr.write(f"PSL Command Safety Warning: Error parsing stdin payload: {exc}\n")
+        sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Error parsing stdin payload: {exc}\n")
         print(json.dumps({"decision": "allow"}))
         return
 

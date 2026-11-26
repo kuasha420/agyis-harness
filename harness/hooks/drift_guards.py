@@ -249,7 +249,7 @@ def check_plan_mode_lock(payload: dict) -> Optional[dict]:
         return {
             "decision": "deny",
             "reason": (
-                "PSL Native Plan-Mode Lock (ADR-031): Session is in Plan Mode (/plan). "
+                "[AGYIS PLAN LOCK] (ADR-031): Session is in Plan Mode (/plan). "
                 "Code modifications are locked until plan approval."
             ),
         }
@@ -269,7 +269,7 @@ def check_plan_mode_lock(payload: dict) -> Optional[dict]:
             return {
                 "decision": "deny",
                 "reason": (
-                    "PSL Native Plan-Mode Lock (ADR-031): Session is in Plan Mode (/plan). "
+                    "[AGYIS PLAN LOCK] (ADR-031): Session is in Plan Mode (/plan). "
                     "Mutating shell commands are locked until plan approval."
                 ),
             }
@@ -374,7 +374,7 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
                 return None
             return {
                 "decision": "deny",
-                "reason": "PSL Investigator Invariant: agyis_investigator is strictly read-only on product code and can only write to scratch or artifacts.",
+                "reason": "[AGYIS WRITE GUARD] Investigator Invariant: agyis_investigator is strictly read-only on product code and can only write to scratch or artifacts.",
             }
         elif is_planner or is_coordinator:
             if target_path and is_exempt_file(target_path):
@@ -382,14 +382,14 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
             agent_type = "coordinator" if is_coordinator else "planner"
             return {
                 "decision": "deny",
-                "reason": f"PSL Write-Block Guard: {role or agent_type} is artifact-only and cannot mutate code files directly.",
+                "reason": f"[AGYIS WRITE GUARD] {role or agent_type} is artifact-only and cannot mutate code files directly.",
             }
         elif is_auditor:
-            reason = "PSL Auditor Invariant: harness_auditor is strictly verification-only and cannot mutate files."
+            reason = "[AGYIS WRITE GUARD] Auditor Invariant: harness_auditor is strictly verification-only and cannot mutate files."
         elif is_custodian:
-            reason = "PSL Custodian Invariant: custodian is strictly git commit gate / workspace hygiene and cannot mutate code files directly."
+            reason = "[AGYIS WRITE GUARD] Custodian Invariant: custodian is strictly git commit gate / workspace hygiene and cannot mutate code files directly."
         else:
-            reason = f"PSL Write-Block Guard: agent '{role or 'agent'}' has write: false and cannot mutate files."
+            reason = f"[AGYIS WRITE GUARD] agent '{role or 'agent'}' has write: false and cannot mutate files."
 
         return {
             "decision": "deny",
@@ -407,7 +407,7 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
                 return {
                     "decision": "deny",
                     "reason": (
-                        f"PSL Shell Mutation Guard: Agent role '{role or 'agent'}' is restricted from executing "
+                        f"[AGYIS SHELL GUARD] Agent role '{role or 'agent'}' is restricted from executing "
                         "mutating shell commands (filesystem modifications, git write operations, or unexempted output redirections)."
                     ),
                 }
@@ -468,20 +468,20 @@ def check_flight_director_write_guard(payload: dict) -> Optional[dict]:
             if isinstance(data, dict):
                 files_modified = set(data.get("files", []))
         except (OSError, json.JSONDecodeError, ValueError) as exc:
-            sys.stderr.write(f"PSL Anti-Drift: Failed reading cockpit edits state: {exc}\n")
+            sys.stderr.write(f"[AGYIS ANTI-DRIFT] Failed reading cockpit edits state: {exc}\n")
             files_modified = set()
 
     files_modified.add(target_path)
     try:
         atomic_write_json(edits_file, {"files": sorted(list(files_modified))})
     except OSError as exc:
-        sys.stderr.write(f"PSL Anti-Drift: Failed writing cockpit edits state: {exc}\n")
+        sys.stderr.write(f"[AGYIS ANTI-DRIFT] Failed writing cockpit edits state: {exc}\n")
 
     count = len(files_modified)
     if count > 3:
         strict = os.environ.get("PSL_STRICT_FLIGHT_DIRECTOR", "").strip().lower() in ("1", "true", "yes")
         reason = (
-            f"PSL Flight Director Advisory: Root cockpit has modified {count} product code files "
+            f"[AGYIS FLIGHT DIRECTOR] Advisory: Root cockpit has modified {count} product code files "
             f"directly without delegating to an agyis_builder or specialist subagent. "
             f"The root cockpit is an Air Traffic Control Tower, not a construction site. "
             f"Delegate execution downstream to subagent-router to prevent context thrash."
@@ -507,4 +507,4 @@ def reset_flight_director_edits(conv_id: str = "default") -> None:
         try:
             edits_file.unlink()
         except OSError as exc:
-            sys.stderr.write(f"PSL Anti-Drift: Failed resetting cockpit edits state: {exc}\n")
+            sys.stderr.write(f"[AGYIS ANTI-DRIFT] Failed resetting cockpit edits state: {exc}\n")

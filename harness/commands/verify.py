@@ -18,6 +18,7 @@ import sys
 from typing import Any, Dict, List, Optional
 
 from harness.hooks.completion_fence_hook import clear_spec_dirty, is_manifest_verified
+from harness.utils import theme
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
@@ -54,7 +55,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 )
             )
         else:
-            print(f"✔ Scaffolded typed obligation ledger at {ledger_path}")
+            print(theme.badge("PASS", f"Scaffolded typed obligation ledger at {ledger_path}"))
         return 0
 
     # 1. Spec Mode: explicitly validates cleanroom specifications in docs/specs/**
@@ -79,7 +80,11 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 )
             else:
                 print(
-                    f"❌ Verification failed: Code files detected in docs/specs: {[str(p.name) for p in code_specs]}",
+                    theme.badge(
+                        "FAIL",
+                        f"Verification failed: Code files detected in docs/specs: {[str(p.name) for p in code_specs]}",
+                        stream=sys.stderr,
+                    ),
                     file=sys.stderr,
                 )
             return 1
@@ -99,7 +104,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
             )
         else:
             print(
-                f"✔ Cleanroom specifications verified ({len(spec_files)} specifications found in docs/specs/)."
+                theme.badge(
+                    "PASS",
+                    f"Cleanroom specifications verified ({len(spec_files)} specifications found in docs/specs/).",
+                )
             )
         try:
             clear_spec_dirty(clear_all=True)
@@ -134,7 +142,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 else:
                     if (res_build.stdout or "").strip():
                         print(res_build.stdout.strip())
-                    print("✔ Cleanroom reconstruction verified via REA obligation engine.")
+                    print(theme.badge("PASS", "Cleanroom reconstruction verified via REA obligation engine."))
                 try:
                     clear_spec_dirty(clear_all=True)
                 except OSError:
@@ -160,7 +168,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                     if err_out:
                         print(err_out, file=sys.stderr)
                     print(
-                        f"❌ Verification failed: REA command returned exit code {err_code}.",
+                        theme.badge("FAIL", f"Verification failed: REA command returned exit code {err_code}.", stream=sys.stderr),
                         file=sys.stderr,
                     )
                 return err_code if err_code != 0 else 1
@@ -178,7 +186,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                     )
                 )
             else:
-                print(f"❌ Verification failed: REA execution error: {exc}", file=sys.stderr)
+                print(theme.badge("FAIL", f"Verification failed: REA execution error: {exc}", stream=sys.stderr), file=sys.stderr)
             return 1
 
     # 3. Native cleanroom manifest and specifications validation
@@ -201,8 +209,12 @@ def cmd_verify(args: argparse.Namespace) -> int:
             )
         else:
             print(
-                "❌ Verification failed: No cleanroom obligation ledger or manifest found "
-                "(run 'agyis verify --scaffold' or 'agyis verify --spec').",
+                theme.badge(
+                    "FAIL",
+                    "Verification failed: No cleanroom obligation ledger or manifest found "
+                    "(run 'agyis verify --scaffold' or 'agyis verify --spec').",
+                    stream=sys.stderr,
+                ),
                 file=sys.stderr,
             )
         return 1
@@ -226,7 +238,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
             )
         else:
             print(
-                f"❌ Verification failed: Ledger at {target_ledger} exists but is invalid.",
+                theme.badge("FAIL", f"Verification failed: Ledger at {target_ledger} exists but is invalid.", stream=sys.stderr),
                 file=sys.stderr,
             )
         return 1
@@ -253,7 +265,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
     else:
         manifest_desc = "verified" if manifest_verified else ("none" if not ledger_exists else "invalid")
         print(
-            f"✔ Cleanroom verification passed ({len(spec_files)} specifications found, manifest: {manifest_desc})."
+            theme.badge(
+                "PASS",
+                f"Cleanroom verification passed ({len(spec_files)} specifications found, manifest: {manifest_desc}).",
+            )
         )
 
     try:

@@ -18,6 +18,7 @@ from harness.delivery.surfaces import (
     find_workspace_root,
     lint_rule_echo,
 )
+from harness.utils import theme
 
 
 def cmd_rules(args: argparse.Namespace) -> int:
@@ -49,8 +50,11 @@ def cmd_rules(args: argparse.Namespace) -> int:
             prefix = "Would prune" if dry_run else "Pruned"
             if dedup_res["pruned_files"]:
                 print(
-                    f"✔ {prefix} duplicate universal rules in workspace "
-                    f"({dedup_res['tokens_saved']} tokens saved, {dedup_res['chars_removed']} chars removed):"
+                    theme.badge(
+                        "PASS",
+                        f"{prefix} duplicate universal rules in workspace "
+                        f"({dedup_res['tokens_saved']} tokens saved, {dedup_res['chars_removed']} chars removed):",
+                    )
                 )
                 for f in dedup_res["pruned_files"]:
                     print(f"  - {f}")
@@ -59,16 +63,16 @@ def cmd_rules(args: argparse.Namespace) -> int:
                     for s in dedup_res["removed_sections"]:
                         print(f"    * {s}")
             else:
-                print(f"✔ Workspace rules already deduplicated ({ws_root})")
+                print(theme.badge("PASS", f"Workspace rules already deduplicated ({ws_root})"))
 
     lint_res = None
     if do_lint:
         lint_res = lint_rule_echo(ws_root)
         if not as_json:
             if lint_res["clean"]:
-                print(f"✔ Rule echo linter passed: {lint_res['files_scanned']} files scanned, 0 echoes found in {ws_root}")
+                print(theme.badge("PASS", f"Rule echo linter passed: {lint_res['files_scanned']} files scanned, 0 echoes found in {ws_root}"))
             else:
-                print(f"✖ Rule echo linter failed with {len(lint_res['echoes'])} finding(s):")
+                print(theme.badge("FAIL", f"Rule echo linter failed with {len(lint_res['echoes'])} finding(s):"))
                 for item in lint_res["echoes"]:
                     print(f"  - {item['file']}: {', '.join(item['matched_echoes'])}")
 

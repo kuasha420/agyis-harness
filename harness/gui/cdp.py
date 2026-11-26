@@ -28,13 +28,15 @@ MAX_HANDSHAKE_BYTES = 65536
 MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024
 
 
-def get_default_devtools_port_file() -> Path:
-    """Resolves the default DevToolsActivePort path respecting XDG_CONFIG_HOME and OS."""
+def get_default_devtools_port_file(surface: str = "desktop") -> Path:
+    """Resolves the default DevToolsActivePort path respecting surface, XDG_CONFIG_HOME, and OS."""
+    norm_surface = (surface or "desktop").strip().lower()
+    app_dir = "Antigravity IDE" if norm_surface in ("ide", "antigravity-ide", "antigravity_ide") else "Antigravity"
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "Antigravity" / "DevToolsActivePort"
+        return Path.home() / "Library" / "Application Support" / app_dir / "DevToolsActivePort"
     xdg_config = (os.environ.get("XDG_CONFIG_HOME") or "").strip()
     base_dir = Path(xdg_config) if xdg_config else (Path.home() / ".config")
-    return base_dir / "Antigravity" / "DevToolsActivePort"
+    return base_dir / app_dir / "DevToolsActivePort"
 
 
 DEFAULT_DEVTOOLS_PORT_FILE = get_default_devtools_port_file()
@@ -56,7 +58,11 @@ class CDPTargetNotFoundError(CDPError):
     """Raised when no suitable browser target page is found."""
 
 
-def get_devtools_active_port(port_file: Optional[Path] = None, verify_listening: bool = False) -> Tuple[int, str]:
+def get_devtools_active_port(
+    port_file: Optional[Path] = None,
+    verify_listening: bool = False,
+    surface: str = "desktop",
+) -> Tuple[int, str]:
     """
     Reads and parses the active DevTools port file written by Antigravity Electron shell.
 
@@ -64,7 +70,7 @@ def get_devtools_active_port(port_file: Optional[Path] = None, verify_listening:
       Line 1: Integer port (e.g. 46391)
       Line 2: Browser target path (e.g. /devtools/browser/<uuid>)
     """
-    target_file = port_file or get_default_devtools_port_file()
+    target_file = port_file or get_default_devtools_port_file(surface=surface)
     if not target_file.exists():
         raise FileNotFoundError(f"DevToolsActivePort file not found at: {target_file}")
 

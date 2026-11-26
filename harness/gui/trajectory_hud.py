@@ -19,6 +19,16 @@ from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from harness.gui.trajectory_catalog import (  # noqa: F401
+    _SYS_TAG_DEFS,
+    _TC_TYPE_NEEDLES,
+    _TOOL_CATEGORY_SPEC,
+    atc_context_layout,
+    estimate_tokens,
+    xtc_segment_width,
+    ytc_layout_pass,
+    ztc_row_count,
+)
 from harness.gui.trajectory_convo_helpers import (
     _extract_conversation_summary,
     get_recent_conversations,
@@ -37,34 +47,6 @@ from harness.trajectory.transcript_reader import (
     load_transcript_steps,
 )
 from harness.utils.context import get_active_brain_dir
-from harness.utils.tokens import estimate_tokens as _ssot_estimate_tokens
-
-_SYS_TAG_DEFS: Tuple[Tuple[str, str, str], ...] = (
-    ("identity", "Identity", "#6366f1"), ("sandbox", "Sandbox", "#818cf8"), ("artifacts", "Artifacts", "#a78bfa"),
-    ("conversation_transcript", "Transcript", "#c084fc"), ("guidelines", "Guidelines", "#e879f9"), ("communication_style", "Style", "#f472b6"),
-    ("slash_commands", "Commands", "#fb7185"), ("messaging", "Messaging", "#9333ea"), ("mcp_servers", "MCP Servers", "#7c3aed"),
-    ("subagents", "Subagents", "#6d28d9"), ("user_rules", "User Rules", "#5b21b6"), ("skills", "Skills", "#4c1d95"),
-    ("featured_plugins", "Plugins", "#8b5cf6"), ("user_information", "UserInfo", "#a855f7"), ("subagent_reminder", "Reminders", "#d946ef"),
-)
-_TOOL_CATEGORY_SPEC: Tuple[Tuple[str, str, Tuple[str, ...]], ...] = (
-    ("Filesystem Tools", "#06b6d4", ("read_file", "write_file", "edit_file", "replace_file_content", "write_to_file", "view_file")),
-    ("Terminal Tools", "#0891b2", ("run_command", "bash")),
-    ("Subagents", "#0e7490", ("invoke_subagent", "define_subagent", "manage_subagents", "send_message", "swarm", "post_message", "read_board", "swarm_wait")),
-)
-_TC_TYPE_NEEDLES: Tuple[Tuple[str, str], ...] = (
-    ("run_command", "RUN_COMMAND"), ("bash", "RUN_COMMAND"),
-    ("read_file", "READ_FILE"), ("view_file", "VIEW_FILE"),
-    ("edit_file", "EDIT_FILE"), ("replace_file_content", "REPLACE_FILE_CONTENT"),
-    ("write_file", "WRITE_FILE"), ("write_to_file", "WRITE_FILE"),
-    ("grep_search", "GREP_SEARCH"), ("search_web", "SEARCH_WEB"),
-    ("find_by_name", "FIND_FILES"), ("find_files", "FIND_FILES"),
-    ("post_message", "POST_MESSAGE"), ("send_message", "SEND_MESSAGE"),
-    ("read_board", "READ_BOARD"), ("swarm_wait", "SWARM_WAIT"),
-    ("swarm", "SWARM"), ("run_workflow", "RUN_WORKFLOW"),
-    ("define_subagent", "DEFINE_SUBAGENT"), ("manage_subagents", "MANAGE_SUBAGENTS"),
-    ("manage_task", "MANAGE_TASK"),
-    ("invoke_subagent", "INVOKE_SUBAGENT"), ("subagent", "INVOKE_SUBAGENT"),
-)
 
 
 def _extract_cwm(step: Dict[str, Any]) -> Dict[str, Any]:
@@ -98,7 +80,10 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
         "REPLACE_FILE_CONTENT", "EDIT_FILE", "WRITE_FILE", "GREP_SEARCH", "SEARCH_WEB", "FIND_FILES",
         "SEND_MESSAGE", "POST_MESSAGE", "READ_BOARD", "SWARM_WAIT", "SWARM",
         "RUN_WORKFLOW", "DEFINE_SUBAGENT", "MANAGE_SUBAGENTS", "MANAGE_TASK",
-        "INVOKE_SUBAGENT", "MODEL_OUTPUT", "SYSTEM", "TOOL_CALL",
+        "INVOKE_SUBAGENT", "UPDATE_FOCUS", "UPDATE_STEPS", "ENTER_PLAN_MODE", "EXIT_PLAN_MODE",
+        "ASK_QUESTION", "SEARCH_MARKETPLACE", "LIST_PLUGIN_ACCOUNTS",
+        "CALL_MCP_TOOL", "LIST_RESOURCES", "READ_RESOURCE",
+        "MODEL_OUTPUT", "SYSTEM", "TOOL_CALL",
         "CHECKPOINT", "CODE_ACTION", "GENERIC",
     ):
         return existing_type
@@ -160,107 +145,6 @@ def _extract_compaction_summary(step: Dict[str, Any], is_checkpoint: Optional[bo
         if m:
             return m.group(1).strip()
     return None
-
-
-def estimate_tokens(char_count: int) -> int:
-    """Estimates token count using SSOT token helper at cleanroom HUD ratio (3.5 chars/token)."""
-    return _ssot_estimate_tokens(char_count, chars_per_token=3.5)
-
-
-def xtc_segment_width(segment_tokens: int, px_per_token: float, min_segment_px: float = 2.0) -> float:
-    """Calculates pixel width for a segment with minimum pixel clamp (cleanroom xtc)."""
-    tok = max(0, segment_tokens)
-    return max(tok * px_per_token, min_segment_px) if tok > 0 else 0.0
-
-
-def ytc_layout_pass(
-    segments: List[Dict[str, Any]], capacity_tokens: int, container_width: float,
-    min_segment_px: float = 2.0, rows_count: int = 1,
-) -> Dict[str, float]:
-    """Calculates layout metrics and inflation for a given row count (cleanroom ytc)."""
-    capacity_px = container_width * rows_count
-    px_per_token = capacity_px / capacity_tokens if capacity_tokens > 0 else 0.0
-    used_px = 0.0
-    true_used_px = 0.0
-    for s in segments:
-        tok = s.get("tokens", 0)
-        used_px += xtc_segment_width(tok, px_per_token, min_segment_px)
-        true_used_px += max(0, tok) * px_per_token
-    return {
-        "capacity_px": capacity_px,
-        "px_per_token": px_per_token,
-        "used_px": used_px,
-        "true_used_px": true_used_px,
-        "inflation_px": used_px - true_used_px,
-    }
-
-
-def ztc_row_count(
-    segments: List[Dict[str, Any]], capacity_tokens: int, container_width: float,
-    min_segment_px: float = 2.0, max_rows: int = 8,
-) -> int:
-    """Determines optimal row count to minimize inflation (cleanroom ztc)."""
-    current = ytc_layout_pass(segments, capacity_tokens, container_width, min_segment_px, 1)
-    for r in range(1, max_rows):
-        if current["inflation_px"] <= 0.1 * current["true_used_px"]:
-            return r
-        next_pass = ytc_layout_pass(segments, capacity_tokens, container_width, min_segment_px, r + 1)
-        if current["inflation_px"] - next_pass["inflation_px"] < 0.02 * container_width:
-            return r
-        current = next_pass
-    return max_rows
-
-
-def atc_context_layout(
-    segments: List[Dict[str, Any]], capacity_tokens: int, container_width: float,
-    min_segment_px: float = 2.0, max_rows: int = 8,
-) -> Dict[str, Any]:
-    """Authoritative dynamic context bar sizing and multi-row layout algorithm (cleanroom Atc)."""
-    if not segments or capacity_tokens <= 0 or container_width <= 0:
-        return {"rows": [], "inflation_px": 0.0}
-
-    row_count = ztc_row_count(segments, capacity_tokens, container_width, min_segment_px, max_rows)
-    layout = ytc_layout_pass(segments, capacity_tokens, container_width, min_segment_px, row_count)
-    scale_factor = layout["capacity_px"] / layout["used_px"] if layout["used_px"] > layout["capacity_px"] else 1.0
-    segment_widths = [xtc_segment_width(s.get("tokens", 0), layout["px_per_token"], min_segment_px) * scale_factor for s in segments]
-    unused_px = max(0.0, layout["capacity_px"] - layout["used_px"] * scale_factor)
-
-    rows: List[List[Dict[str, Any]]] = [[] for _ in range(row_count)]
-    cursor_px = 0.0
-
-    def place_cell(seg: Optional[Dict[str, Any]], width_px: float, key_prefix: str, show_divider: bool) -> None:
-        nonlocal cursor_px
-        rem_width = width_px
-        sub_idx = 0
-        while rem_width > 1e-6:
-            row_idx = min(len(rows) - 1, int((cursor_px + 1e-6) // container_width))
-            row_start_px = cursor_px - row_idx * container_width
-            avail_in_row = container_width - row_start_px
-            if avail_in_row <= 1e-6:
-                break
-            slice_width = min(rem_width, avail_in_row)
-            rem_width -= slice_width
-            cursor_px += slice_width
-            is_done = rem_width <= 1e-6
-            fills_row = slice_width >= avail_in_row - 1e-6
-            rows[row_idx].append({
-                "key": f"{key_prefix}#{sub_idx}",
-                "segment": seg,
-                "start_fraction": row_start_px / container_width,
-                "width_fraction": slice_width / container_width,
-                "continues_from_previous_row": sub_idx > 0,
-                "continues_on_next_row": not is_done,
-                "show_divider_after": show_divider and is_done and not fills_row,
-            })
-            sub_idx += 1
-
-    for idx, seg in enumerate(segments):
-        next_seg = segments[idx + 1] if idx + 1 < len(segments) else None
-        place_cell(seg, segment_widths[idx], f"{idx}:{seg.get('id', idx)}", next_seg is not None and next_seg.get("color_key") == seg.get("color_key"))
-    if unused_px > 1e-6:
-        place_cell(None, unused_px, "unused", False)
-
-    return {"rows": rows, "inflation_px": layout["inflation_px"] * scale_factor}
 
 
 def _resolve_lineage_and_subagents(
@@ -573,7 +457,7 @@ def _extract_measured_slices(raw_steps: List[Dict[str, Any]]) -> Tuple[List[Dict
             if m and m.group(1):
                 sys_slices.append({"name": name, "tag": tag, "tokens": max(1, estimate_tokens(len(m.group(1)))), "color": color})
         if not sys_slices:
-            sys_slices.append({"name": "System Prompt", "tokens": max(1, estimate_tokens(len(raw_sys))), "color": "#6366f1"})
+            sys_slices.append({"name": "System Prompt", "tokens": max(1, estimate_tokens(len(raw_sys))), "color": "#5C8AFF"})
     elif prompt_sections:
         palette = [c for _, _, c in _SYS_TAG_DEFS]
         for idx, sec in enumerate(prompt_sections):
@@ -584,7 +468,7 @@ def _extract_measured_slices(raw_steps: List[Dict[str, Any]]) -> Tuple[List[Dict
     tool_slices: List[Dict[str, Any]] = []
     if raw_tools:
         buckets: Dict[str, int] = {name: 0 for name, _, _ in _TOOL_CATEGORY_SPEC} | {"Automation & Tasks": 0}
-        colors = {name: col for name, col, _ in _TOOL_CATEGORY_SPEC} | {"Automation & Tasks": "#14b8a6"}
+        colors = {name: col for name, col, _ in _TOOL_CATEGORY_SPEC} | {"Automation & Tasks": "#2AD089"}
         for tool in raw_tools:
             tname = str((tool.get("name") if isinstance(tool, dict) else "") or "").lower()
             matched = next((cname for cname, _, kws in _TOOL_CATEGORY_SPEC if any(k in tname for k in kws)), "Automation & Tasks")
@@ -600,6 +484,7 @@ def _compute_honest_breakdown(
     raw_steps: List[Dict[str, Any]],
     db_metrics: TrajectoryMetrics,
     epochs: Optional[List[Dict[str, Any]]] = None,
+    max_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
 ) -> Tuple[int, int, bool, Dict[str, int], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Computes per-epoch honest breakdowns (`unattributed` gap, zero synthetic 40/60 or `model += diff`)."""
     sys_slices, tool_slices = _extract_measured_slices(raw_steps)
@@ -611,6 +496,8 @@ def _compute_honest_breakdown(
         cache_tokens = explicit_usage = explicit_est = 0
         for rev_pos in range(len(ep_steps) - 1, -1, -1):
             s = ep_steps[rev_pos]
+            if s.get("type") == "CHECKPOINT":
+                continue
             if cache_tokens == 0 and s.get("cache_read_tokens"):
                 cache_tokens = int(s["cache_read_tokens"] or 0)
             in_val, ca_val = int(s.get("input_tokens") or 0), int(s.get("cache_read_tokens") or 0)
@@ -668,6 +555,7 @@ def _compute_honest_breakdown(
         if epochs is not None:
             ep["total_tokens"], ep["cache_tokens"], ep["is_provisional"], ep["token_breakdown"] = ep_res
             ep["unattributed"] = ep_res[3]["unattributed"]
+            ep["utilization_pct"] = round(min(100.0, (ep["total_tokens"] / max_context_tokens) * 100.0), 1) if max_context_tokens > 0 else 0.0
         last_res = ep_res
     return last_res[0], last_res[1], last_res[2], last_res[3], sys_slices, tool_slices
 
@@ -711,7 +599,7 @@ def load_conversation_trajectory(
     epochs = _partition_epochs(steps, checkpoints)
 
     total_tokens, cache_tokens, is_provisional, breakdown, sys_slices, tool_slices = _compute_honest_breakdown(
-        steps, checkpoints, explicit_in_positions, raw_steps, db_metrics, epochs=epochs
+        steps, checkpoints, explicit_in_positions, raw_steps, db_metrics, epochs=epochs, max_context_tokens=max_context_tokens
     )
 
     burn_rate = db_metrics.burn_rate_tokens_per_min
@@ -751,6 +639,7 @@ def load_conversation_trajectory(
         "subagent_trajectories": subagent_trajectories,
         "total_tokens": total_tokens,
         "max_context_tokens": max_context_tokens,
+        "utilization_pct": round(min(100.0, (total_tokens / max_context_tokens) * 100.0), 1) if max_context_tokens > 0 else 0.0,
         "cache_tokens": cache_tokens,
         "is_provisional": is_provisional,
         "burn_rate_tokens_per_min": round(float(burn_rate), 1),
@@ -767,6 +656,7 @@ def _load_hud_template() -> str:
     return (
         assets.joinpath("hud.js").read_text(encoding="utf-8")
         .replace("/* __HUD_STYLES__ */", assets.joinpath("hud_styles.css").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_THEME__ */", assets.joinpath("hud_theme.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_HEADER__ */", assets.joinpath("hud_header.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_CONTEXT_BAR__ */", assets.joinpath("hud_context_bar.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_TIMELINE__ */", assets.joinpath("hud_timeline.js").read_text(encoding="utf-8"), 1)

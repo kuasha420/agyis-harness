@@ -432,7 +432,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             raw_stdin = sys.stdin.read(MAX_PAYLOAD_BYTES)
         res = evaluate_pre_invocation(raw_stdin)
     except Exception as exc:
-        sys.stderr.write(f"[PSL PRE-INVOCATION HOOK] Error: {exc}\n")
+        sys.stderr.write(f"[AGYIS PRE-INVOCATION HOOK] Error: {exc}\n")
         traceback.print_exc(file=sys.stderr)
         sys.stderr.flush()
         res = {"injectSteps": []}
@@ -440,7 +440,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         sys.stdout.write(json.dumps(res) + "\n")
         sys.stdout.flush()
     except OSError as exc:
-        sys.stderr.write(f"[PSL PRE-INVOCATION HOOK] Failed writing stdout: {exc}\n")
+        sys.stderr.write(f"[AGYIS PRE-INVOCATION HOOK] Failed writing stdout: {exc}\n")
     return 0
 
 

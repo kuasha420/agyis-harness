@@ -27,6 +27,7 @@ from harness.re.scaffold import (
     resolve_binary_path,
     scaffold_dirtyroom,
 )
+from harness.utils import theme
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -83,7 +84,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(json.dumps(status_data, indent=2))
         return 0
 
-    print("=== Agyis Cleanroom Reverse Engineering & Dirty-Room Status ===")
+    print(theme.banner("Agyis Cleanroom Reverse Engineering & Dirty-Room Status"))
     if root:
         print(f"Dirty-Room Root: {root}")
     else:
@@ -91,10 +92,8 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     print(f"\nREA MCP Acceleration Patch (PSL-INV-009):")
     status_label = patch_info["status"].upper()
-    if patch_info["status"] == "applied":
-        print(f"  Status:  \033[1;32m{status_label}\033[0m - {patch_info['message']}")
-    else:
-        print(f"  Status:  \033[1;33m{status_label}\033[0m - {patch_info['message']}")
+    role = "pass" if patch_info["status"] == "applied" else "warn"
+    print(f"  Status:  {theme.style(status_label, role, bold=True)} - {patch_info['message']}")
     print(f"  REA Root: {patch_info.get('rea_root') or 'Not found'}")
 
     print(f"\nGhidra Headless Analyzer:")
@@ -256,7 +255,7 @@ def cmd_find(args: argparse.Namespace) -> int:
         return 0
 
     total_hits = len(results["functions"]) + len(results["strings"]) + len(results["rtti_classes"])
-    print(f"=== Query '{args.pattern}' ({total_hits} matches) ===")
+    print(theme.banner(f"Query '{args.pattern}' ({total_hits} matches)"))
     def fmt_addr(val: Any) -> str:
         if isinstance(val, int):
             return f"0x{val:016x}"

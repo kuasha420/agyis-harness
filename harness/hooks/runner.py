@@ -209,7 +209,7 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
                 else:
                     payload_str = ""
             except Exception as exc:
-                sys.stderr.write(f"[PSL HOOK RUNNER] Failed reading stdin for '{hook_name}': {exc}\n")
+                sys.stderr.write(f"[AGYIS HOOK RUNNER] Failed reading stdin for '{hook_name}': {exc}\n")
                 payload_str = ""
         elif isinstance(payload_str, (bytes, bytearray)):
             if len(payload_str) > 10_485_760:
@@ -263,7 +263,7 @@ def run_hook(hook_name: str, payload_str: Optional[str] = None) -> int:
             return 0
 
         sys.stderr.write(
-            f"[PSL FAIL-OPEN HOOK RUNNER] Hook execution failed for '{hook_name}':\n"
+            f"[AGYIS FAIL-OPEN HOOK RUNNER] Hook execution failed for '{hook_name}':\n"
         )
         traceback.print_exc(file=sys.stderr)
         sys.stderr.flush()

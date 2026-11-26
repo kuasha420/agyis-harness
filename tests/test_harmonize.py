@@ -476,7 +476,7 @@ class TestHarmonizeEngine(unittest.TestCase):
         self.assertIn("npm test", res.command_dictionary["test"])
 
         agents_content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("# 🧪 Project Verification & Native Toolchain", agents_content)
+        self.assertIn("# ◆ Project Verification & Native Toolchain", agents_content)
         self.assertIn("npm test", agents_content)
 
     def test_harmonize_corrupted_manifests_graceful(self) -> None:
@@ -532,7 +532,7 @@ class TestHarmonizeCLI(unittest.TestCase):
 
         self.assertEqual(code, 0)
         out = stdout_buf.getvalue()
-        self.assertIn("✔ [DRY-RUN]", out)
+        self.assertIn("● [DRY-RUN]", out)
         self.assertIn("Disk status: Zero modifications made", out)
 
     def test_cli_harmonize_json_schema_completeness(self) -> None:

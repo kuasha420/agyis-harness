@@ -310,7 +310,7 @@ class TestCompactionCheckpoint(unittest.TestCase):
         self.assertTrue(res.latest_path.is_file())
 
         # Assert all 6 sections are present
-        self.assertIn("# 🧭 Compaction & Succession Checkpoint", content)
+        self.assertIn("# ◆ Agyis Compaction & Succession Checkpoint", content)
         self.assertIn("## 1. Executive Succession Mandate & Handoff Summary", content)
         self.assertIn("## 2. Git Working Tree & Repository State", content)
         self.assertIn("## 3. Active Implementation Plan & Milestone Progression", content)
@@ -640,7 +640,7 @@ class TestCheckpointCLI(unittest.TestCase):
         ret = cli_main(["checkpoint", "generate", "--workspace", str(self.ws)])
         self.assertEqual(ret, 0)
         out = mock_stdout.getvalue()
-        self.assertIn("✔ Compaction Checkpoint Generated", out)
+        self.assertIn("● Compaction Checkpoint Generated", out)
         self.assertIn("Artifact:", out)
         self.assertIn("Latest:", out)
         self.assertIn("Latency:", out)
@@ -755,7 +755,7 @@ class TestCheckpointCLI(unittest.TestCase):
             ret = cli_main(["checkpoint", "create", "--workspace", str(self.ws)])
         self.assertEqual(ret, 0)
         out = mock_stdout.getvalue()
-        self.assertIn("✔ Compaction Checkpoint Generated", out)
+        self.assertIn("● Compaction Checkpoint Generated", out)
         self.assertTrue((self.ws / ".agents" / "artifacts" / "checkpoints" / "cli-create-alias-1.md").is_file())
         self.assertFalse((self.ws / ".agents" / "artifacts" / "compaction_checkpoint_latest.md").exists())
 
@@ -875,7 +875,7 @@ class TestCheckpointCLI(unittest.TestCase):
             ret = cli_main(["checkpoint", "prune", "--workspace", str(self.ws)])
         self.assertEqual(ret, 0)
         out = mock_stdout.getvalue()
-        self.assertIn("✔ Checkpoint Prune: Pruned 2 stale checkpoint(s)", out)
+        self.assertIn("● Checkpoint Prune: Pruned 2 stale checkpoint(s)", out)
         self.assertIn("retained top 5", out)
         self.assertIn("compaction_checkpoint_700.md", out)
         self.assertIn("compaction_checkpoint_701.md", out)

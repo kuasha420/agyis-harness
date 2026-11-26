@@ -23,7 +23,7 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
-from typing import Any, Dict, Optional, TextIO
+from typing import Any, Dict, Optional, TextIO, Tuple
 
 from harness.hooks.role_lineage import resolve_hook_role_and_agent
 from harness.trajectory import (
@@ -249,6 +249,53 @@ def get_active_conversation_token_velocity(
     return _metrics_to_velocity_dict(m, conversation_id, db_dir=db_dir, window_seconds=window_seconds)
 
 
+def _resolve_gauge_style(
+    stream: Optional[TextIO] = None,
+    use_color_override: Optional[bool] = None,
+) -> Tuple[Dict[str, str], str]:
+    """Resolves Orbital Aegis TrueColor/256-color SGR escapes respecting NO_COLOR/TERM/TTY."""
+    target = stream if stream is not None else sys.stderr
+    if use_color_override is not None:
+        enabled = use_color_override
+        truecolor = os.environ.get("COLORTERM", "").strip().lower() in ("truecolor", "24bit") if enabled else False
+    else:
+        try:
+            from harness.utils.theme import supports_truecolor as _theme_truecolor, use_color as _theme_use_color
+            enabled = _theme_use_color(target)
+            truecolor = _theme_truecolor() if enabled else False
+        except ImportError:
+            if os.environ.get("NO_COLOR", "") != "" or os.environ.get("TERM", "") == "dumb":
+                enabled = False
+            elif any(
+                os.environ.get(k, "").strip().lower() not in ("", "0", "false", "no")
+                for k in ("FORCE_COLOR", "CLICOLOR_FORCE")
+            ):
+                enabled = True
+            else:
+                enabled = bool(getattr(target, "isatty", lambda: False)())
+            truecolor = os.environ.get("COLORTERM", "").strip().lower() in ("truecolor", "24bit") if enabled else False
+
+    if not enabled:
+        return {"CRITICAL": "", "ELEVATED": "", "SAFE": ""}, ""
+    if truecolor:
+        return (
+            {
+                "CRITICAL": "\033[1m\033[38;2;255;107;107m",
+                "ELEVATED": "\033[1m\033[38;2;245;183;79m",
+                "SAFE": "\033[1m\033[38;2;42;208;137m",
+            },
+            "\033[0m",
+        )
+    return (
+        {
+            "CRITICAL": "\033[1m\033[38;5;203m",
+            "ELEVATED": "\033[1m\033[38;5;214m",
+            "SAFE": "\033[1m\033[38;5;42m",
+        },
+        "\033[0m",
+    )
+
+
 def format_terminal_gauge(
     tokens: int,
     threshold: int = CONTEXT_WINDOW_TOKENS,
@@ -261,8 +308,9 @@ def format_terminal_gauge(
     red_threshold: Optional[int] = None,
     compaction_threshold: Optional[int] = None,
     is_provisional: bool = False,
+    stream: Optional[TextIO] = None,
 ) -> str:
-    """Formats an ANSI progress gauge with scaled urgency, velocity ETA, and epoch-step advisory."""
+    """Formats a terminal token gauge with Orbital Aegis ANSI styling (NO_COLOR-safe), velocity ETA, and epoch-step advisory."""
     denom = threshold if threshold > 0 else CONTEXT_WINDOW_TOKENS
     scaled_amber, scaled_red = get_scaled_thresholds(denom if denom != CONTEXT_WINDOW_TOKENS else None)
     eff_amber = amber_threshold if amber_threshold is not None else scaled_amber
@@ -281,25 +329,26 @@ def format_terminal_gauge(
         else:
             vel_badge = f" (+{rate_int:,} tok/min)"
 
+    styles, reset = _resolve_gauge_style(stream=stream)
     if velocity_tier:
         v_upper = velocity_tier.upper()
-        color = "\033[1;31m" if "CRITICAL" in v_upper else ("\033[1;33m" if "ELEVATED" in v_upper else "\033[1;32m")
-        status, bell = velocity_tier, ("\a" if "CRITICAL" in v_upper else "")
+        tier_key = "CRITICAL" if "CRITICAL" in v_upper else ("ELEVATED" if "ELEVATED" in v_upper else "SAFE")
+        color, status = styles[tier_key], velocity_tier
     elif tokens >= eff_red or (burn_rate is not None and burn_rate >= CRITICAL_BURN_RATE_PER_MIN):
-        color = "\033[1;31m"
+        color = styles["CRITICAL"]
         status = "CRITICAL (COMPACTION IMMINENT)" if tokens >= eff_red else "CRITICAL"
-        bell = "\a"
     elif tokens >= eff_amber or (burn_rate is not None and burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN):
-        color, status, bell = "\033[1;33m", ("ELEVATED (APPROACHING THRESHOLD)" if tokens >= eff_amber else "ELEVATED"), ""
+        color = styles["ELEVATED"]
+        status = "ELEVATED (APPROACHING THRESHOLD)" if tokens >= eff_amber else "ELEVATED"
     else:
-        color, status, bell = "\033[1;32m", "SAFE", ""
+        color, status = styles["SAFE"], "SAFE"
 
     horizon_str = ""
     if step_count is not None and step_count >= SOFT_EPOCH_STEP_ADVISORY and _normalize_role_str(role) == ROLE_DEEP_EXECUTION:
         horizon_str = f" [EPOCH HORIZON: {step_count}/{SOFT_EPOCH_STEP_ADVISORY} STEPS]"
 
     tok_prefix = "~" if is_provisional else ""
-    return f"{bell}{color}[AGYIS TOKEN GAUGE]\033[0m [{bar}] {tok_prefix}{tokens:,} / {denom:,} ({percentage:.1f}%){vel_badge} - {color}{status}\033[0m{horizon_str}"
+    return f"{color}[AGYIS TOKEN GAUGE]{reset} [{bar}] {tok_prefix}{tokens:,} / {denom:,} ({percentage:.1f}%){vel_badge} - {color}{status}{reset}{horizon_str}"
 
 
 def render_terminal_gauge(tokens: int) -> str:
@@ -328,6 +377,7 @@ def _evaluate_and_emit_gauge(
     if not (tokens >= metrics.amber_threshold or horizon_active or rapid_burn):
         return False
 
+    target_err = out_err if out_err is not None else sys.stderr
     gauge = format_terminal_gauge(
         tokens,
         threshold=metrics.max_context_tokens,
@@ -340,9 +390,9 @@ def _evaluate_and_emit_gauge(
         red_threshold=metrics.red_threshold,
         compaction_threshold=metrics.compaction_threshold,
         is_provisional=metrics.is_provisional,
+        stream=target_err,
     )
     if emit_stderr:
-        target_err = out_err if out_err is not None else sys.stderr
         try:
             target_err.write(f"\n{gauge}\n")
             target_err.flush()

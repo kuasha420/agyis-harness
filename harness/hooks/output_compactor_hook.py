@@ -125,13 +125,13 @@ def compact_output(
     if preserved_diagnostic_lines:
         diagnostic_block = "\n".join(preserved_diagnostic_lines)
         separator = (
-            f"\n\n[... PSL Compactor: {omitted_chars:,} characters truncated | "
+            f"\n\n[... AGYIS Compactor: {omitted_chars:,} characters truncated | "
             f"{len(preserved_diagnostic_lines)} diagnostic lines preserved ...]\n"
             f"{diagnostic_block}\n"
             f"[... End preserved diagnostics ...]\n\n"
         )
     else:
-        separator = f"\n\n[... PSL Compactor: {omitted_chars:,} characters truncated ...]\n\n"
+        separator = f"\n\n[... AGYIS Compactor: {omitted_chars:,} characters truncated ...]\n\n"
 
     compacted = f"{head}{separator}{tail}"
 
@@ -248,7 +248,7 @@ def extract_output_and_status(payload: Dict[str, Any], tool_name: Optional[str] 
                             raw_output = str(step_data["content"])
                             break
             except (OSError, json.JSONDecodeError, ValueError, TypeError) as exc:
-                sys.stderr.write(f"PSL Compactor Warning: Failed reading transcript '{t_path}': {exc}\n")
+                sys.stderr.write(f"[AGYIS COMPACTOR] Warning: Failed reading transcript '{t_path}': {exc}\n")
 
     # Status and exit code detection across top-level and nested response containers
     exit_code = 0
@@ -367,7 +367,7 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
     try:
         target_state_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        sys.stderr.write(f"PSL Compactor Warning: Failed creating state dir '{target_state_dir}': {exc}\n")
+        sys.stderr.write(f"[AGYIS COMPACTOR] Warning: Failed creating state dir '{target_state_dir}': {exc}\n")
 
     try:
         # Write latest compaction metadata
@@ -391,7 +391,7 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(log_line)
     except Exception as exc:
-        sys.stderr.write(f"PSL Compactor Warning: Failed persisting compactor state: {exc}\n")
+        sys.stderr.write(f"[AGYIS COMPACTOR] Warning: Failed persisting compactor state: {exc}\n")
 
     return record
 
@@ -412,7 +412,7 @@ def main() -> None:
             print(json.dumps({"overwriteResult": record["compactedOutput"]}))
             return
     except Exception as exc:
-        sys.stderr.write(f"PSL Compactor Warning: Unhandled exception in compactor main: {exc}\n")
+        sys.stderr.write(f"[AGYIS COMPACTOR] Warning: Unhandled exception in compactor main: {exc}\n")
 
     # PostToolUse contract expects an empty JSON object when not modifying output
     print(json.dumps({}))

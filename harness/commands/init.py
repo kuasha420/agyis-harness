@@ -31,6 +31,7 @@ from harness.skills import (
     detect_workspace_stack,
     is_monorepo,
 )
+from harness.utils import theme
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -163,7 +164,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 0 if res.success else 1
 
     if res.success:
-        print(f"✔ {res.message}")
+        print(theme.badge("PASS", res.message))
         print(f"  • Stack: {res.stack}")
         if rea_enabled:
             label = "Would scaffold" if res.dry_run else "Enabled"
@@ -190,8 +191,8 @@ def cmd_init(args: argparse.Namespace) -> int:
             for verb, cmd in res.command_dictionary.items():
                 print(f"    - {verb}: {cmd}")
         if res.legacy_notice:
-            print(f"\n💡 Notice: {res.legacy_notice}")
+            print(f"\n{theme.badge('WARN', f'Notice: {res.legacy_notice}')}")
         return 0
     else:
-        sys.stderr.write(f"✘ Error: {res.message}\n")
+        sys.stderr.write(theme.badge("FAIL", f"Error: {res.message}", stream=sys.stderr) + "\n")
         return 1

@@ -36,24 +36,33 @@
      */
     function detectActiveConversationContext() {
         try {
-            // Priority 1: Check active subagent tab query parameter (?tab=subagent_convo__<uuid>)
-            // and split-pane focused query parameter (?focused=<uuid>)
-            if (typeof window !== "undefined" && window.location && window.location.search) {
-                const searchParams = new URLSearchParams(window.location.search);
+            const isConvoSlug = (id) => typeof id === "string" && /^[a-zA-Z0-9_-]+$/.test(id) && !/^pane[-_]/i.test(id) && !/^(?:bgtask|side_question)__/i.test(id);
+            const searchParams = (typeof window !== "undefined" && window.location && window.location.search)
+                ? new URLSearchParams(window.location.search)
+                : null;
+
+            // Priority 1: Check active subagent tab (?tab=subagent_convo__<uuid>) and ?focused=<uuid>;
+            // bgtask__ / side_question__ ?tab= tokens are ignored so pane/route fallback resolves cleanly.
+            if (searchParams) {
                 const tabParam = searchParams.get("tab");
                 if (tabParam && tabParam.startsWith("subagent_convo__")) {
                     const subId = tabParam.slice("subagent_convo__".length);
-                    if (subId && /^[a-zA-Z0-9_-]+$/.test(subId)) {
+                    if (isConvoSlug(subId)) {
                         return subId;
                     }
                 }
                 const focusedParam = searchParams.get("focused");
-                if (focusedParam && /^[a-zA-Z0-9_-]+$/.test(focusedParam)) {
+                if (isConvoSlug(focusedParam)) {
                     return focusedParam;
                 }
             }
 
-            // Priority 2: Inspect Electron DOM focused pane (only when pane-id is a UUID, not "pane-1")
+            const pathMatch = (typeof window !== "undefined" && window.location && window.location.pathname)
+                ? window.location.pathname.match(/\/c\/([^/?#]+)/)
+                : null;
+            const routeParts = pathMatch && pathMatch[1] ? pathMatch[1].split("+").filter(Boolean) : [];
+
+            // Priority 2: Inspect Electron DOM focused pane (UUID or pane-<N> attribute / split-route index)
             if (typeof document !== "undefined") {
                 const focusedPane = document.querySelector('div[data-pane-id]:not([data-pane-unfocused])');
                 if (focusedPane) {
@@ -65,23 +74,27 @@
                     ) {
                         return paneId;
                     }
-                }
-            }
-
-            // Priority 3: Match active SPA URL pathname (/c/:id or /c/:id1+:id2)
-            if (typeof window !== "undefined" && window.location && window.location.pathname) {
-                const pathMatch = window.location.pathname.match(/\/c\/([^/?#]+)/);
-                if (pathMatch && pathMatch[1]) {
-                    const firstId = pathMatch[1].split("+")[0];
-                    if (firstId && /^[a-zA-Z0-9_-]+$/.test(firstId)) {
-                        return firstId;
+                    const paneMatch = paneId ? paneId.match(/^pane[-_](\d+)$/i) : null;
+                    if (paneMatch) {
+                        const attrConvo = focusedPane.getAttribute("data-conversation-id") || focusedPane.getAttribute("data-cascade-id");
+                        if (isConvoSlug(attrConvo)) {
+                            return attrConvo;
+                        }
+                        const paneIdx = parseInt(paneMatch[1], 10) - 1;
+                        if (paneIdx >= 0 && paneIdx < routeParts.length && isConvoSlug(routeParts[paneIdx])) {
+                            return routeParts[paneIdx];
+                        }
                     }
                 }
             }
 
+            // Priority 3: Match active SPA URL pathname (/c/:id or /c/:id1+:id2)
+            if (routeParts.length > 0 && isConvoSlug(routeParts[0])) {
+                return routeParts[0];
+            }
+
             // Priority 4: Fall back to URL search parameter (?cascadeId=...)
-            if (typeof window !== "undefined" && window.location && window.location.search) {
-                const searchParams = new URLSearchParams(window.location.search);
+            if (searchParams) {
                 const searchCascadeId = searchParams.get("cascadeId");
                 if (searchCascadeId && /^[0-9a-fA-F-]+$/.test(searchCascadeId)) {
                     return searchCascadeId;
