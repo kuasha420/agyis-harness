@@ -58,7 +58,7 @@ agyis [-h] [-v]
 ## 2. Detailed Subcommand Reference
 
 ### 1. `doctor`
-* **Syntax**: `agyis doctor [--matrix <path>] [--heal] [--json] [--experimental-rea] [--re] [--anti-synthetic] [--test-path <path>]`
+* **Syntax**: `agyis doctor [--matrix <path>] [-w|--workspace <path>] [--heal] [--json] [--rea] [--re] [--anti-synthetic] [--test-path <path>]`
 * **Purpose**: Audits the host environment against the 3-tier runtime compatibility matrix ([matrix.json](../../harness/runtime/matrix.json)) plus active `hooks.json` registration (`7` hook blocks / `8` verified hook runner checks):
   - **Tier 1 (Languages/Packaging)**: Python >= 3.12 (PEP 701 f-strings), Node >= 20, `uv`, `pnpm`.
   - **Tier 2 (Core SWE CLI)**: `git >= 2.38`, `gh >= 2.30`, `ripgrep >= 13.0`, `fd >= 8.7`.
@@ -66,9 +66,10 @@ agyis [-h] [-v]
   - **Port Collision Probing**: Probes TCP port 5432 to identify foreign container collisions and recommends dynamic port re-binding.
 * **Flags**:
   - `--matrix <path>`: Custom path to runtime matrix configuration (defaults to `harness/runtime/matrix.json`).
+  - `-w`, `--workspace <path>`: Target workspace path to inspect for config/RE activation.
   - `--heal`: Executes safe zero-sudo user-space auto-healing via `uv` (provisions certified CPython >= 3.12).
-  - `--experimental-rea`: Audits Reverse Engineer Anything (`REA 6.9.0`, `255` MCP tools), MCP server registration, dynamic JDK 21+ discovery ladder, Ghidra 11.0+/12.2+ headless analyzer, and Hopper display socket contracts.
-  - `--re`: Audits reverse engineering & dirtyroom forensic toolchain (`ghidra`, `objdump`, `tshark`, `ydotool`).
+  - `--rea` (deprecated alias: `--experimental-rea`): Audits Reverse Engineer Anything (`REA 6.9.0`, `255` MCP tools), MCP server registration, dynamic JDK 21+ discovery ladder, Ghidra 11.0+/12.2+ headless analyzer, and Hopper display socket contracts.
+  - `--re`: Audits reverse engineering & dirtyroom forensic toolchain (`ghidra`, `objdump`, `tshark`, `ydotool`) and activates unified REA diagnostics.
   - `--anti-synthetic`: Audits test files for synthetic, tautological, and fake test smells.
   - `--test-path <path>`: Target directory or specific test file to audit (defaults to workspace test suites).
   - `--json`: Emits complete diagnostic audit report in structured JSON format.
@@ -200,7 +201,7 @@ agyis [-h] [-v]
   - `-i|--interactive`, `--review`, `-l|--limit <N>`, `-s|--session-id <id>`, `--dry-run`, `--json`, `--all-developers|--all`, `--developer <name>`, `--since <timestamp>`.
 
 ### 12. `init`
-* **Syntax**: `agyis init [path] [-s|--stack <stk>] [-r|--role <role>] [--subproject <path>] [--skills <list>] [--agents [list]] [--override] [--no-dedup] [--dry-run] [-y|--yes] [--json] [--experimental-rea]`
+* **Syntax**: `agyis init [path] [-s|--stack <stk>] [-r|--role <role>] [--subproject <path>] [--skills <list>] [--agents [list]] [--override] [--no-dedup] [--dry-run] [-y|--yes] [--json] [--rea]`
 * **Purpose**: Initializes a project workspace with stack-tailored skills, tagged rules (`<!-- Added by AGYIS-HARNESS -->`), and optional subagents. Preserves existing domain rules in `AGENTS.md` and detects legacy `.agent/` configurations.
 * **Flags & Options**:
   - `path`: Target workspace directory (defaults to current directory).
@@ -213,7 +214,7 @@ agyis [-h] [-v]
   - `--no-dedup`: Disables content-hash deduplication.
   - `--dry-run`: Simulates workspace initialization without modifications.
   - `-y`, `--yes`: Non-interactive mode, applies defaults.
-  - `--experimental-rea`: Initializes workspace with opt-in Reverse Engineer Anything (REA) support.
+  - `--rea` (deprecated alias: `--experimental-rea`): Initializes workspace with Reverse Engineer Anything (REA) support.
   - `--json`: Emits workspace initialization report in JSON.
 
 ### 13. `harmonize`
@@ -244,13 +245,15 @@ agyis [-h] [-v]
   - `--prune-legacy` / `--no-prune`: Safely archive legacy `.agent/` to tar.gz and prune (default: True).
   - `--config-dir`: Optional custom configuration directory (overrides `~/.gemini/config`).
   - `--pr`, `--open-pr`, `--create-pr`: Open GitHub Pull Request via `gh pr create` upon verified test pass.
+  - `--verify` / `--no-verify`: Run native test verification before commit/PR (automatically active with `--pr` unless `--no-verify` is specified).
+  - `--commit`: Create an atomic git commit for onboarded files (automatically active with `--pr`).
   - `--dry-run`: Preview all onboarding operations without filesystem or git mutations.
   - `--json`: Output machine-readable structured JSON report.
-  - `--experimental-rea`: Provision Reverse Engineer Anything cleanroom specifications and ledgers.
-* **Exit Codes**: `0` on success; `1` on dirty tree without `--allow-dirty`, invalid git repository, or missing path.
+  - `--rea` (deprecated alias: `--experimental-rea`): Provision Reverse Engineer Anything config, ledgers, and `re-ops` skill.
+* **Exit Codes**: `0` on success; `1` on dirty tree without `--allow-dirty`, invalid git repository, verification failure, or missing path.
 
 ### 15. `install`
-* **Syntax**: `agyis install [-g|--global] [--bin-dir <path>] [--copy|--symlink] [--wheel] [--dry-run] [--all-surfaces] [--target <path>] [-w|--workspace [path]] [-s|--stack <stk>] [-r|--role <role>] [--subproject <path>] [--skills <list>] [--agents [list]] [--override] [--no-dedup] [--json] [--experimental-rea]`
+* **Syntax**: `agyis install [-g|--global] [--bin-dir <path>] [--copy|--symlink] [--wheel] [--dry-run] [--all-surfaces] [--target <path>] [-w|--workspace [path]] [-s|--stack <stk>] [-r|--role <role>] [--subproject <path>] [--skills <list>] [--agents [list]] [--override] [--no-dedup] [--json] [--rea]`
 * **Purpose**: Installs `agyis-harness` globally into Antigravity extension surfaces (`~/.gemini/config/plugins/agyis-harness/`) and deploys standalone executable (`~/.local/bin/agyis` and backward-compatible alias `~/.local/bin/psl`), OR initializes a project workspace when `-w`/`--workspace` is provided.
 * **Flags**:
   - `-g`, `--global`: Installs standalone launcher scripts into user binary path (`~/.local/bin/agyis` and `~/.local/bin/psl`, `0o755`).
@@ -263,7 +266,7 @@ agyis [-h] [-v]
   - `--target`: Custom target installation directory.
   - `-w`, `--workspace [path]`: Routes to workspace initialization (`agyis init`), deploying stack skills and tagged rules.
   - `-s|--stack|--lang`, `-r|--role` (`backend`, `frontend`, `fullstack`, `cli`, `library`, `mobile`, `desktop_gui`, `media`, `audio`, `infra`, `re`, `cleanroom`), `--subproject`, `--skills`, `--agents`, `--override`, `--no-dedup`: Forwarded to workspace initialization engine.
-  - `--experimental-rea`: Installs global plugins with opt-in Reverse Engineer Anything (REA) MCP wiring.
+  - `--rea` (deprecated alias: `--experimental-rea`): Installs global plugins with Reverse Engineer Anything (REA) MCP wiring.
   - `--json`: Outputs result in JSON format.
 
 ### 16. `uninstall`
@@ -346,11 +349,11 @@ agyis [-h] [-v]
 * **Purpose**: Backwards-compatible sibling top-level subparser aliasing `router` across the 12 canonical workflows.
 
 ### 26. `clean`
-* **Syntax**: `agyis clean [--checkpoints] [--worktrees] [--branches] [--scratch] [--dist] [--all] [--retention <N>] [--scratch-hours <H>] [--dry-run] [-w|--workspace <path>] [--json]`
-* **Purpose**: Multi-branch workspace hygiene, orphaned git worktree pruning, merged ephemeral branch cleanup, checkpoint retention, scratchpad expiry, and build artifact removal (ADR-031A, ADR-031B).
+* **Syntax**: `agyis clean [--checkpoints] [--worktrees] [--branches] [--scratch] [--dist] [--caches] [--all] [--retention <N>] [--scratch-hours <H>] [--dry-run] [-w|--workspace <path>] [--json]`
+* **Purpose**: Multi-branch workspace hygiene, orphaned git worktree pruning, merged ephemeral branch cleanup, checkpoint retention, scratchpad expiry, build artifact removal, and build cache purging (ADR-031A, ADR-031B).
 * **Flags**:
-  - `--all`: Executes all standard cleanup actions (`checkpoints`, `worktrees`, `branches`, `scratch`; excludes `dist/` unless `--dist` is passed).
-  - `--worktrees`, `--branches`, `--checkpoints`, `--scratch`, `--dist`: Individual cleanup scopes.
+  - `--all`: Executes all standard cleanup actions (`checkpoints`, `worktrees`, `branches`, `scratch`; excludes `dist/` and `--caches` unless explicitly passed).
+  - `--worktrees`, `--branches`, `--checkpoints`, `--scratch`, `--dist`, `--caches`: Individual cleanup scopes (`--caches` purges `.next/`, `.turbo/`, `node_modules/.cache/`).
   - `--retention <N>` / `--scratch-hours <H>`: Checkpoint retention count (default `5`) and scratchpad age threshold in hours (default `24.0`).
   - `--dry-run`, `-w|--workspace`, `--json`: Preview mode, workspace root override, and JSON report.
 

@@ -599,6 +599,11 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
         help="Remove build/distribution artifacts in dist/ (opt-in; preserves .git*)",
     )
     p_clean.add_argument(
+        "--caches",
+        action="store_true",
+        help="Purge stale build caches (.next, .turbo, node_modules/.cache)",
+    )
+    p_clean.add_argument(
         "--all",
         action="store_true",
         help="Execute all standard cleanup actions (checkpoints, worktrees, branches, scratch; excludes dist/ unless --dist is passed)",
@@ -642,6 +647,7 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
     # re
     p_re = subparsers.add_parser(
         "re",
+        add_help=False,
         help="Cleanroom reverse engineering & dirty-room toolsuite (ADR-028, PSL-RE-001)",
         description="Unified RE pipeline, sub-2s Ghidra project acceleration, and dirtyroom governance",
     )
@@ -650,6 +656,7 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
     # ext
     p_ext = subparsers.add_parser(
         "ext",
+        add_help=False,
         help="Workspace CLI command extensions (ADR-034)",
         description="Run, list, or scaffold project-specific CLI extension commands",
     )

@@ -67,18 +67,21 @@ class TestReaDoctorFastPath(unittest.TestCase):
             "spec": {},
         }
 
-        with patch("harness.runtime.tool_checks.find_rea_binary", return_value=None), \
+        with tempfile.TemporaryDirectory() as clean_ws, \
+             patch("harness.runtime.tool_checks.find_rea_binary", return_value=None), \
              patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
              patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
              patch("harness.runtime.doctor.check_telemetry_daemon", return_value={"status": "OK"}), \
              patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}), \
              patch("subprocess.run") as mock_run:
             t0 = time.perf_counter()
-            audit = run_doctor(DEFAULT_MATRIX, experimental_rea=False)
+            audit = run_doctor(DEFAULT_MATRIX, workspace_root=Path(clean_ws), experimental_rea=False)
             elapsed = time.perf_counter() - t0
 
             # Sub-second benchmark invariant: fast path must execute well under 0.05s
             self.assertLess(elapsed, 0.05)
+            self.assertFalse(audit["rea"])
+            self.assertFalse(audit["experimental_rea"])
             self.assertEqual(audit["summary"]["warning"], 0)
             self.assertEqual(audit["summary"]["missing"], 0)
             rea_info = audit["rea_tooling"]
@@ -120,14 +123,15 @@ class TestReaDoctorFastPath(unittest.TestCase):
             "spec": {},
         }
 
-        with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
+        with tempfile.TemporaryDirectory() as clean_ws, \
+             patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
              patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
              patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
              patch("harness.runtime.doctor.check_telemetry_daemon", return_value={"status": "OK"}), \
              patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}), \
              patch("subprocess.run") as mock_run:
             t0 = time.perf_counter()
-            audit = run_doctor(DEFAULT_MATRIX, experimental_rea=False)
+            audit = run_doctor(DEFAULT_MATRIX, workspace_root=Path(clean_ws), experimental_rea=False)
             elapsed = time.perf_counter() - t0
 
             self.assertLess(elapsed, 0.05)
@@ -379,35 +383,28 @@ class TestReaCliFlagsAndProvisioning(unittest.TestCase):
     """Verifies CLI flag integration and workspace/global provisioning."""
 
     def test_cli_parser_experimental_rea_flags(self):
-        """Verifies --experimental-rea flag is registered across doctor, init, onboard, install."""
+        """Verifies --rea and deprecated --experimental-rea flags are registered across doctor, init, onboard, install."""
         parser = build_parser()
 
-        # 1. doctor
-        args_doc = parser.parse_args(["doctor", "--experimental-rea"])
-        self.assertTrue(args_doc.experimental_rea)
-        args_doc_def = parser.parse_args(["doctor"])
-        self.assertFalse(args_doc_def.experimental_rea)
+        for subcmd in ("doctor", "init", "onboard", "install"):
+            with patch("sys.stderr", new_callable=io.StringIO) as err_buf:
+                args_rea = parser.parse_args([subcmd, "--rea"])
+                self.assertTrue(args_rea.rea)
+                self.assertFalse(args_rea.experimental_rea)
+                self.assertEqual(err_buf.getvalue(), "")
 
-        # 2. init
-        args_init = parser.parse_args(["init", "--experimental-rea"])
-        self.assertTrue(args_init.experimental_rea)
-        args_init_def = parser.parse_args(["init"])
-        self.assertFalse(args_init_def.experimental_rea)
+            with patch("sys.stderr", new_callable=io.StringIO) as err_buf:
+                args_alias = parser.parse_args([subcmd, "--experimental-rea"])
+                self.assertTrue(args_alias.experimental_rea)
+                self.assertTrue(args_alias.rea)
+                self.assertIn("DeprecationWarning", err_buf.getvalue())
 
-        # 3. onboard
-        args_onb = parser.parse_args(["onboard", "--experimental-rea"])
-        self.assertTrue(args_onb.experimental_rea)
-        args_onb_def = parser.parse_args(["onboard"])
-        self.assertFalse(args_onb_def.experimental_rea)
-
-        # 4. install
-        args_inst = parser.parse_args(["install", "--experimental-rea"])
-        self.assertTrue(args_inst.experimental_rea)
-        args_inst_def = parser.parse_args(["install"])
-        self.assertFalse(args_inst_def.experimental_rea)
+            args_def = parser.parse_args([subcmd])
+            self.assertFalse(args_def.rea)
+            self.assertFalse(args_def.experimental_rea)
 
     def test_cmd_init_scaffolds_ledger_and_records_config(self):
-        """Verifies `agyis init --experimental-rea` scaffolds .agents/ledger/ and sets config."""
+        """Verifies `agyis init --rea` scaffolds .agents/ledger/ and sets canonical config."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws_dir = Path(tmp_dir) / "test_repo"
             ws_dir.mkdir()
@@ -423,20 +420,24 @@ class TestReaCliFlagsAndProvisioning(unittest.TestCase):
                 no_dedup=False,
                 dry_run=False,
                 json=True,
-                experimental_rea=True,
+                rea=True,
+                experimental_rea=False,
             )
 
-            with patch("sys.stdout", new_callable=io.StringIO), \
+            with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
                  patch("harness.runtime.healing.provision_rea_skill") as mock_prov:
                 code = cmd_init(args)
             self.assertEqual(code, 0)
             mock_prov.assert_called_once()
+            out_data = json.loads(mock_out.getvalue())
+            self.assertTrue(out_data.get("rea"))
+            self.assertTrue(out_data.get("experimental_rea"))
 
-            # Assert .agyis/config.json exists with experimental_rea: true
+            # Assert .agyis/config.json exists with canonical rea: true
             cfg_p = ws_dir / ".agyis" / "config.json"
             self.assertTrue(cfg_p.is_file())
             cfg_data = json.loads(cfg_p.read_text(encoding="utf-8"))
-            self.assertTrue(cfg_data.get("experimental_rea"))
+            self.assertTrue(cfg_data.get("rea"))
 
             # Assert .agents/ledger/ directory exists
             ledger_dir = ws_dir / ".agents" / "ledger"

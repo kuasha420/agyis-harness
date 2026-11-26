@@ -145,18 +145,22 @@ class TestDoctorForensicIntegration(unittest.TestCase):
             self.assertIsNone(audit["forensic_toolchain"])
 
     def test_run_doctor_includes_forensic_toolchain_when_flag_passed(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, \
+             patch("harness.runtime.doctor.check_rea_tooling", return_value={"status": "ok", "fast_path": False}):
             audit = run_doctor(DEFAULT_MATRIX, workspace_root=Path(td), re_toolchain=True)
             self.assertTrue(audit["re_toolchain"])
+            self.assertTrue(audit["rea"])
             self.assertIsNotNone(audit["forensic_toolchain"])
             self.assertIn("tools", audit["forensic_toolchain"])
 
     def test_run_doctor_auto_activates_in_re_workspace(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, \
+             patch("harness.runtime.doctor.check_rea_tooling", return_value={"status": "ok", "fast_path": False}):
             dr = Path(td) / ".dirtyroom"
             dr.mkdir()
             audit = run_doctor(DEFAULT_MATRIX, workspace_root=Path(td), re_toolchain=False)
             self.assertTrue(audit["re_toolchain"])
+            self.assertTrue(audit["rea"])
             self.assertIsNotNone(audit["forensic_toolchain"])
 
     def test_print_cli_report_renders_forensic_section(self):

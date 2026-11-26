@@ -154,6 +154,10 @@ def main(
     raw_argv = sys.argv[1:] if argv is None else list(argv)
     if raw_argv and not raw_argv[0].startswith("-"):
         first_tok = raw_argv[0]
+        if first_tok == "re":
+            return cmd_re(raw_argv[1:])
+        if first_tok == "ext":
+            return cmd_ext(raw_argv[1:])
         # Check if first token matches a workspace extension command (never shadow built-ins)
         if first_tok not in reserved_subcommands:
             exts = discover_workspace_commands()

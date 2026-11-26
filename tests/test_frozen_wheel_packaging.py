@@ -110,6 +110,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert not missing_whl, f"Wheel missing tracked harness/ files: {missing_whl}"
     assert "harness/plugin.json" in whl_names
     assert "harness/assets/logo.svg" in whl_names
+    assert "harness/re/assets/launcher_direct_mount.js" in whl_names
+    assert "harness/telemetry/assets/schema.sql" in whl_names
     assert "harness/GLOBAL_AGENTS.md" in whl_names
     assert "plugin.json" in sdist_names
     assert "assets/logo.svg" in sdist_names
@@ -132,6 +134,8 @@ with tempfile.TemporaryDirectory() as tmp:
         "assert Path(harness.__file__).resolve().is_relative_to(site_p), harness.__file__; "
         "assert resolve_agent_name('builder') == 'agyis_builder'; "
         "assert (ir.files('harness.gui.assets') / 'hud.js').is_file(); "
+        "assert (ir.files('harness.re.assets') / 'launcher_direct_mount.js').is_file(); "
+        "assert (ir.files('harness.telemetry.assets') / 'schema.sql').is_file(); "
         "assert (ir.files('harness.hooks') / 'hooks.json').is_file(); "
         "assert (ir.files('harness.runtime') / 'matrix.json').is_file(); "
         "assert (ir.files('harness.agents') / 'agyis_builder.md').is_file(); "

@@ -11,7 +11,6 @@ Ghidra pre-analysis, and REA MCP patch governance.
 
 import argparse
 import json
-import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -280,190 +279,25 @@ def cmd_find(args: argparse.Namespace) -> int:
 
 
 def cmd_decompile(args: argparse.Namespace) -> int:
-    """Decompiles a function or address via REA CLI with project acceleration."""
-    rea_bin = shutil.which("rea")
-    if not rea_bin:
-        print("[!] 'rea' CLI not found in PATH.", file=sys.stderr)
-        return 1
+    """Decompiles a function or address via active REA bridge daemon or CLI with project acceleration."""
+    from harness.re.decompile import execute_cmd_decompile
 
-    proc = args.procedure
-
-    # Smart Procedure Resolution: auto-resolve interior addresses to canonical procedure symbol
+    conn = get_dirtyroom_db()
     try:
-        proc_val = int(proc.strip(), 0) if isinstance(proc, str) else int(proc)
-        is_numeric = True
-    except (ValueError, TypeError):
-        proc_val = None
-        is_numeric = False
-
-    binary = getattr(args, "binary", None)
-    binary_in_db = False
-
-    # Single consolidated SQLite connection for procedure resolution, binary detection, and DB lookup
-    db_conn = get_dirtyroom_db()
-    if db_conn:
-        try:
-            c = db_conn.cursor()
-            if is_numeric and proc_val is not None:
-                c.execute(
-                    "SELECT name, address, size FROM functions WHERE address <= ? AND address + size > ? ORDER BY address DESC LIMIT 1",
-                    (proc_val, proc_val),
-                )
-                fn_row = c.fetchone()
-                if not fn_row:
-                    c.execute(
-                        "SELECT name, address, size FROM functions WHERE address = ? LIMIT 1",
-                        (proc_val,),
-                    )
-                    fn_row = c.fetchone()
-                if fn_row:
-                    resolved_name = fn_row[0]
-                    base_addr = int(fn_row[1])
-                    delta = proc_val - base_addr
-                    print(f"[*] Auto-resolved interior address 0x{proc_val:x} to procedure {resolved_name} (+0x{delta:x}).")
-                    proc = resolved_name
-
-            if not binary:
-                # Check if there is a binary in dirtyroom, preferring executables over shared libraries
-                c.execute(
-                    "SELECT name FROM binaries ORDER BY (CASE WHEN name NOT LIKE '%.dll' AND name NOT LIKE '%.so' AND name NOT LIKE '%.dylib' THEN 0 ELSE 1 END), id LIMIT 1"
-                )
-                row = c.fetchone()
-                if row:
-                    binary = row[0]
-
-            check_target = Path(binary).name if binary else None
-            if check_target:
-                c.execute("SELECT 1 FROM binaries WHERE name = ? LIMIT 1", (check_target,))
-                if c.fetchone():
-                    binary_in_db = True
-        except sqlite3.Error:
-            pass
-        finally:
-            db_conn.close()
-
-    if not binary:
-        print("[!] No binary specified and no binary registered in dirtyroom. Use --binary <name>.", file=sys.stderr)
-        return 1
-
-    # PSL-INV-009 §1 Guard: Binaries > 10MB must be pre-analyzed (DEF-BB-039)
-    bin_path = resolve_binary_path(binary)
-    if not bin_path and Path(binary).is_file():
-        bin_path = Path(binary)
-
-    if bin_path and bin_path.is_file():
-        file_size = bin_path.stat().st_size
-        if file_size > 10 * 1024 * 1024:
-            has_gpr = False
-            cand_dirs = []
-            env_dir = os.environ.get("REA_GHIDRA_PROJECT_DIR")
-            if env_dir:
-                cand_dirs.append(Path(env_dir))
-            root = get_dirtyroom_root(bin_path.parent)
-            if not root:
-                root = get_dirtyroom_root(Path(os.getcwd()))
-            if root:
-                cand_dirs.append(root / "ghidra")
-                if root.parent:
-                    cand_dirs.append(root.parent / "dirtyroom" / "ghidra")
-            cwd_p = Path(os.getcwd())
-            cand_dirs.extend([cwd_p / ".dirtyroom" / "ghidra", cwd_p / "dirtyroom" / "ghidra"])
-            for cd in cand_dirs:
-                if cd.is_dir():
-                    gprs = list(cd.glob("*.gpr"))
-                    if gprs:
-                        try:
-                            if bin_path.resolve().is_relative_to(cd.parent.resolve()) or (root and bin_path.resolve().is_relative_to(root.parent.resolve())):
-                                has_gpr = True
-                                break
-                        except (ValueError, OSError):
-                            pass
-                        if any(g.stem.lower() == bin_path.stem.lower() for g in gprs):
-                            has_gpr = True
-                            break
-                        if binary_in_db:
-                            has_gpr = True
-                            break
-                        if env_dir and cd == Path(env_dir):
-                            has_gpr = True
-                            break
-
-            if not has_gpr:
-                size_mb = file_size / (1024 * 1024)
-                target = binary
-                print(
-                    f"[!] PSL-INV-009 §1 Violation: Target binary '{target}' exceeds 10MB ({size_mb:.1f}MB) and is not pre-analyzed. Run 'agyis re preanalyze {target}' first to prevent decompiler timeout.",
-                    file=sys.stderr,
-                )
-                return 1
-
-    env = os.environ.copy()
-    root = get_dirtyroom_root()
-    if root:
-        if root.is_dir():
-            try_register_dirtyroom(root)
-        ghidra_dir = root / "ghidra"
-        if ghidra_dir.is_dir():
-            env["REA_GHIDRA_PROJECT_DIR"] = str(ghidra_dir)
-            gprs = list(ghidra_dir.glob("*.gpr"))
-            if gprs:
-                env["REA_GHIDRA_PROJECT_NAME"] = gprs[0].stem
-                env["REA_GHIDRA_PROJECT_PATH"] = str(gprs[0])
-        env["AGYIS_DIRTYROOM"] = str(root)
-
-    target_target = str(bin_path) if bin_path else str(binary)
-    if "REA_GHIDRA_DIRECT_MOUNT" not in env:
-        env["REA_GHIDRA_DIRECT_MOUNT"] = "1"
-    if "REA_GHIDRA_PROGRAM_NAME" not in env:
-        env["REA_GHIDRA_PROGRAM_NAME"] = Path(target_target).name
-
-    # Optimization C: Deterministic Decompiler Query Cache
-    from harness.re.cache import compute_cache_key, record_cache_hit, record_cache_miss
-
-    no_cache = getattr(args, "no_cache", False)
-    cache_file = None
-    cache_key = compute_cache_key(bin_path, Path(target_target).name, str(proc))
-
-    if root:
-        cache_dir = root / "cache" / "decompile"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file = cache_dir / f"{cache_key}.c"
-        if not no_cache and cache_file.is_file() and cache_file.stat().st_size > 0:
+        return execute_cmd_decompile(
+            args,
+            conn=conn,
+            root=get_dirtyroom_root(),
+            get_root_fn=get_dirtyroom_root,
+            resolve_binary_fn=resolve_binary_path,
+            register_fn=try_register_dirtyroom,
+        )
+    finally:
+        if conn:
             try:
-                sys.stdout.write(cache_file.read_text(encoding="utf-8"))
-                sys.stdout.flush()
-                record_cache_hit(root, "decompile", key=cache_key)
-                return 0
-            except OSError:
+                conn.close()
+            except (OSError, sqlite3.Error):
                 pass
-        record_cache_miss(root, "decompile", key=cache_key)
-
-    cmd = [rea_bin, "decompile", target_target, "--procedure", str(proc)]
-    timeout_s = getattr(args, "timeout", None) or 180.0
-    if "REA_GHIDRA_STARTUP_TIMEOUT_MS" not in env:
-        env["REA_GHIDRA_STARTUP_TIMEOUT_MS"] = str(int(timeout_s * 1000))
-
-    try:
-        res = subprocess.run(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False, timeout=timeout_s)
-        if isinstance(res.stdout, str):
-            sys.stdout.write(res.stdout)
-            sys.stdout.flush()
-            if res.returncode == 0 and cache_file:
-                try:
-                    cache_file.write_text(res.stdout, encoding="utf-8")
-                except OSError:
-                    pass
-        if isinstance(res.stderr, str):
-            sys.stderr.write(res.stderr)
-            sys.stderr.flush()
-        return res.returncode
-    except subprocess.TimeoutExpired as e:
-        actual_sla = getattr(e, "timeout", None) or timeout_s
-        print(f"[!] PSL-INV-009 §2 Benchmark Violation: Decompilation exceeded {actual_sla:.0f}s SLA (potential cache bypass).", file=sys.stderr)
-        return 1
-    except (subprocess.SubprocessError, OSError) as e:
-        print(f"[!] Error executing rea decompile: {e}", file=sys.stderr)
-        return 1
 
 
 def cmd_pcap(args: argparse.Namespace) -> int:

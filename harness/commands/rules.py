@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-import sys
 
 from harness.delivery.surfaces import (
     enforce_single_source_rules,
@@ -30,45 +29,59 @@ def cmd_rules(args: argparse.Namespace) -> int:
         ws_root = find_workspace_root()
 
     as_json = getattr(args, "json", False)
+    do_lint = bool(getattr(args, "lint", False))
+    do_dedup = bool(getattr(args, "dedup", False))
 
-    if getattr(args, "lint", False):
-        res = lint_rule_echo(ws_root)
-        if as_json:
-            print(json.dumps(res, indent=2))
-        else:
-            if res["clean"]:
-                print(f"✔ Rule echo linter passed: {res['files_scanned']} files scanned, 0 echoes found in {ws_root}")
-            else:
-                print(f"✖ Rule echo linter failed with {len(res['echoes'])} finding(s):")
-                for item in res["echoes"]:
-                    print(f"  - {item['file']}: {', '.join(item['matched_echoes'])}")
-        return 0 if res["clean"] else 1
+    if not do_lint and not do_dedup:
+        print("Specify --dedup to deduplicate rules or --lint to scan for rule repetition.")
+        return 0
 
-    if getattr(args, "dedup", False):
+    dedup_res = None
+    if do_dedup:
         dry_run = getattr(args, "dry_run", False)
         config_dir = getattr(args, "config_dir", None)
-        res = enforce_single_source_rules(
+        dedup_res = enforce_single_source_rules(
             workspace_dir=ws_root,
             config_dir=config_dir,
             dry_run=dry_run,
         )
-        if as_json:
-            print(json.dumps(res, indent=2))
-        else:
+        if not as_json:
             prefix = "Would prune" if dry_run else "Pruned"
-            if res["pruned_files"]:
-                print(f"✔ {prefix} duplicate universal rules in workspace ({res['tokens_saved']} tokens saved, {res['chars_removed']} chars removed):")
-                for f in res["pruned_files"]:
+            if dedup_res["pruned_files"]:
+                print(
+                    f"✔ {prefix} duplicate universal rules in workspace "
+                    f"({dedup_res['tokens_saved']} tokens saved, {dedup_res['chars_removed']} chars removed):"
+                )
+                for f in dedup_res["pruned_files"]:
                     print(f"  - {f}")
-                if res["removed_sections"]:
+                if dedup_res["removed_sections"]:
                     print("  Removed sections:")
-                    for s in res["removed_sections"]:
+                    for s in dedup_res["removed_sections"]:
                         print(f"    * {s}")
             else:
                 print(f"✔ Workspace rules already deduplicated ({ws_root})")
-        return 0
 
-    print("Specify --dedup to deduplicate rules or --lint to scan for rule repetition.")
+    lint_res = None
+    if do_lint:
+        lint_res = lint_rule_echo(ws_root)
+        if not as_json:
+            if lint_res["clean"]:
+                print(f"✔ Rule echo linter passed: {lint_res['files_scanned']} files scanned, 0 echoes found in {ws_root}")
+            else:
+                print(f"✖ Rule echo linter failed with {len(lint_res['echoes'])} finding(s):")
+                for item in lint_res["echoes"]:
+                    print(f"  - {item['file']}: {', '.join(item['matched_echoes'])}")
+
+    if as_json:
+        if do_lint and do_dedup:
+            print(json.dumps({"lint": lint_res, "dedup": dedup_res, "clean": bool(lint_res and lint_res["clean"])}, indent=2))
+        elif do_lint:
+            print(json.dumps(lint_res, indent=2))
+        else:
+            print(json.dumps(dedup_res, indent=2))
+
+    if lint_res is not None:
+        return 0 if lint_res["clean"] else 1
     return 0
 
 

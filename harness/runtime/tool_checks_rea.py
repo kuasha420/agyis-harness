@@ -179,8 +179,8 @@ def _read_jdk_major(jdk_path: Path) -> int:
     return int(m_name.group(1)) if m_name else 0
 
 
-def is_ghidra_12_2_installed(ghidra_dir: Optional[str] = None) -> bool:
-    """Checks whether Ghidra 12.2+ is detected in the environment (DEF-BB-040)."""
+def detect_installed_ghidra_version(ghidra_dir: Optional[str] = None) -> Optional[str]:
+    """Return installed Ghidra version string if detected (preferring 12.x), else None."""
     path_cls = _tc_attr("Path", Path)
     candidates = []
     if ghidra_dir:
@@ -193,6 +193,7 @@ def is_ghidra_12_2_installed(ghidra_dir: Optional[str] = None) -> bool:
         path_cls("/usr/share/ghidra"),
         path_cls("/usr/local/opt/ghidra"),
     ])
+    fallback_ver: Optional[str] = None
     for base in candidates:
         for prop in [
             base / "Ghidra" / "application.properties",
@@ -202,11 +203,21 @@ def is_ghidra_12_2_installed(ghidra_dir: Optional[str] = None) -> bool:
                 try:
                     txt = prop.read_text(encoding="utf-8", errors="ignore")
                     m = re.search(r"application\.version\s*=\s*([0-9]+(?:\.[0-9]+)*)", txt)
-                    if m and not version_less_than(parse_version(m.group(1)), (12, 2)):
-                        return True
+                    if m:
+                        ver = m.group(1)
+                        if parse_version(ver)[0] == 12:
+                            return ver
+                        if fallback_ver is None:
+                            fallback_ver = ver
                 except OSError:
                     pass
-    return False
+    return fallback_ver
+
+
+def is_ghidra_12_2_installed(ghidra_dir: Optional[str] = None) -> bool:
+    """Checks whether Ghidra 12.2+ is detected in the environment (DEF-BB-040)."""
+    ver = detect_installed_ghidra_version(ghidra_dir)
+    return bool(ver and not version_less_than(parse_version(ver), (12, 2)))
 
 
 def find_jdk21_path() -> Optional[Path]:
@@ -477,17 +488,19 @@ def check_rea_tooling(
     timeout: float = 3.0,
     mcp_config_path: Optional[Path] = None,
     experimental_rea: bool = False,
+    rea: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Audit REA (Reverse Engineer Anything) tooling, version, providers, and MCP registration.
 
-    When experimental_rea=False (the default):
+    When REA deep audit is inactive (the default fast path):
       Performs a fast-path binary presence check via shutil.which (<0.005s)
       without launching subprocesses, ensuring sub-second doctor benchmarks.
 
-    When experimental_rea=True:
+    When rea=True (or experimental_rea=True):
       Performs comprehensive deep diagnostics: CLI version (>=6.0.0), MCP server registration,
       dynamic OpenJDK 21+ discovery ladder, Ghidra, Hopper, IDA, JADX, and candidate providers.
     """
+    deep_audit = bool(experimental_rea if rea is None else (rea or experimental_rea))
     find_bin_fn = _tc_attr("find_rea_binary", find_rea_binary)
     is_mcp_fn = _tc_attr("is_rea_mcp_configured", is_rea_mcp_configured)
     parse_prov_fn = _tc_attr("_parse_rea_providers", _parse_rea_providers)
@@ -496,8 +509,8 @@ def check_rea_tooling(
     ver_lt_fn = _tc_attr("version_less_than", version_less_than)
     node_chk_fn = _tc_attr("check_node_toolchain", check_node_toolchain)
 
-    # 1. Fast-path optimization (when experimental_rea=False)
-    if not experimental_rea:
+    # 1. Fast-path optimization (when deep REA audit is disabled)
+    if not deep_audit:
         rea_bin = find_bin_fn()
         if rea_bin:
             return {
@@ -508,7 +521,7 @@ def check_rea_tooling(
                 "fast_path": True,
                 "mcp_configured": None,
                 "providers": {"active": [], "unavailable": [], "details": []},
-                "details": f"REA detected at {rea_bin} (run with --experimental-rea for deep audit).",
+                "details": f"REA detected at {rea_bin} (run with --rea for deep audit).",
                 "remediation": None,
             }
         return {
@@ -520,10 +533,10 @@ def check_rea_tooling(
             "mcp_configured": False,
             "providers": {"active": [], "unavailable": [], "details": []},
             "details": "REA binary not found (optional reverse engineering toolchain).",
-            "remediation": "Install REA via: pnpm add -g rea-agents (run with --experimental-rea for full REA suite)",
+            "remediation": "Install REA via: pnpm add -g rea-agents (run with --rea for full REA suite)",
         }
 
-    # 2. Deep audit (when experimental_rea=True)
+    # 2. Deep audit (when rea=True or experimental_rea=True)
     mcp_configured = is_mcp_fn(mcp_config_path)
     rea_bin = find_bin_fn()
 
@@ -536,8 +549,8 @@ def check_rea_tooling(
             "fast_path": False,
             "providers": {"active": [], "unavailable": [], "details": []},
             "mcp_configured": mcp_configured,
-            "remediation": "Install REA via: pnpm add -g rea-agents (or run 'agyis doctor --experimental-rea --heal')",
-            "details": "REA binary not found (--experimental-rea requested).",
+            "remediation": "Install REA via: pnpm add -g rea-agents (or run 'agyis doctor --rea --heal')",
+            "details": "REA binary not found (--rea requested).",
         }
 
     version_str: Optional[str] = None
@@ -628,7 +641,7 @@ def check_rea_tooling(
             "providers": providers,
             "mcp_configured": False,
             "node_toolchain": node_compat,
-            "remediation": "Run 'rea setup --yes' or register 'rea' in ~/.gemini/config/mcp_config.json (or run 'agyis doctor --experimental-rea --heal')",
+            "remediation": "Run 'rea setup --yes' or register 'rea' in ~/.gemini/config/mcp_config.json (or run 'agyis doctor --rea --heal')",
             "details": f"REA {version_str} verified ({rea_bin}), but REA MCP server is not registered in agent configuration.",
         }
 

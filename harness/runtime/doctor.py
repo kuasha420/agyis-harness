@@ -50,6 +50,7 @@ from harness.runtime.tool_checks import (
     find_rea_binary,
     parse_version,
 )
+from harness.runtime.tool_checks_common import register_rea_flags
 
 DEFAULT_MATRIX = Path(__file__).resolve().parent / "matrix.json"
 
@@ -202,6 +203,22 @@ def run_doctor_checks(*args: Any, **kwargs: Any) -> Dict[str, Any]:
     return run_doctor(*args, **kwargs)
 
 
+def _workspace_config_has_rea(workspace_root: Optional[Path] = None) -> bool:
+    """Return True when workspace .agyis/config.json or .psl/config.json enables REA."""
+    curr = (workspace_root or Path.cwd()).resolve()
+    for rel in (".agyis/config.json", ".psl/config.json"):
+        cfg_file = curr / rel
+        if not cfg_file.is_file():
+            continue
+        try:
+            data = json.loads(cfg_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict) and bool(data.get("rea") or data.get("experimental_rea")):
+            return True
+    return False
+
+
 def audit_environment(*args: Any, **kwargs: Any) -> Dict[str, Any]:
     """Alias for run_doctor for backward-compatible environment auditing."""
     return run_doctor(*args, **kwargs)
@@ -216,6 +233,7 @@ def run_doctor(
     repo_root: Optional[Path] = None,
     experimental_rea: bool = False,
     re_toolchain: bool = False,
+    rea: bool = False,
 ) -> Dict[str, Any]:
     """Perform complete workstation runtime audit."""
     eff_matrix = matrix_path if matrix_path is not None else DEFAULT_MATRIX
@@ -237,13 +255,20 @@ def run_doctor(
     architectural_fitness = check_architectural_fitness(effective_workspace)
 
     is_re = is_re_workspace(effective_workspace)
-    re_active = re_toolchain or is_re
+    ws_cfg_rea = _workspace_config_has_rea(effective_workspace)
+    re_active = bool(re_toolchain or is_re)
+    rea_active = bool(rea or experimental_rea or re_active or ws_cfg_rea)
 
     # Execute independent subprocess probes concurrently to keep fast-path doctor <1.0s.
     with ThreadPoolExecutor(max_workers=12) as pool:
         fut_db = pool.submit(check_database_port_conflicts, workspace_root=effective_workspace)
         fut_daemon = pool.submit(check_telemetry_daemon)
-        fut_rea = pool.submit(check_rea_tooling, mcp_config_path=mcp_config_path, experimental_rea=experimental_rea)
+        fut_rea = pool.submit(
+            check_rea_tooling,
+            mcp_config_path=mcp_config_path,
+            experimental_rea=rea_active,
+            rea=rea_active,
+        )
         fut_ft = pool.submit(audit_forensic_toolchain, workspace_dir=effective_workspace) if re_active else None
         tool_futures: Dict[Tuple[str, str], Any] = {}
         for tier_key, tier_data in matrix.get("tiers", {}).items():
@@ -284,7 +309,8 @@ def run_doctor(
         "rea_tooling": rea_tooling,
         "architectural_fitness": architectural_fitness,
         "antigravity_surfaces": antigravity_surfaces,
-        "experimental_rea": experimental_rea,
+        "rea": rea_active,
+        "experimental_rea": rea_active,
         "re_toolchain": re_active,
         "forensic_toolchain": forensic_toolchain,
         "tiers": {},
@@ -317,13 +343,13 @@ def run_doctor(
     if architectural_fitness and architectural_fitness.get("status") in ("WARNING", "FAIL"):
         results["summary"]["warning"] += 1
 
-    if experimental_rea:
+    if rea_active:
         if rea_tooling.get("status") == "warning":
             results["summary"]["warning"] += 1
         elif rea_tooling.get("status") == "optional_missing":
             results["summary"]["optional_missing"] += 1
     else:
-        # Fast path (experimental_rea=False): strictly 0 warnings added
+        # Fast path (rea_active=False): strictly 0 warnings added
         if rea_tooling.get("status") == "optional_missing":
             results["summary"]["optional_missing"] += 1
 
@@ -605,9 +631,15 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Output raw JSON results")
     parser.add_argument("--heal", action="store_true", help="Execute safe user-space auto-healing")
     parser.add_argument(
-        "--experimental-rea",
-        action="store_true",
-        help="Enable experimental Reverse Engineer Anything (REA) diagnostics and provider audit",
+        "--workspace",
+        "-w",
+        type=Path,
+        default=None,
+        help="Target workspace path to inspect for config/RE activation",
+    )
+    register_rea_flags(
+        parser,
+        help_text="Enable Reverse Engineer Anything (REA) diagnostics and provider audit",
     )
     parser.add_argument(
         "--re",
@@ -615,36 +647,70 @@ def main() -> int:
         action="store_true",
         help="Audit reverse engineering & dirtyroom forensic toolchain (Ghidra, objdump, tshark, ydotool)",
     )
+    parser.add_argument(
+        "--anti-synthetic",
+        action="store_true",
+        help="Audit test files for synthetic, tautological, and fake test smells (Epic #51 R1)",
+    )
+    parser.add_argument(
+        "--test-path",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Target directory or specific test file to audit (defaults to workspace test suites)",
+    )
     args = parser.parse_args()
 
-    exp_rea = getattr(args, "experimental_rea", False)
-    re_tool = getattr(args, "re_toolchain", False)
-    cwd = Path.cwd()
+    if getattr(args, "anti_synthetic", False):
+        from harness.doctor.test_smells import run_anti_synthetic_doctor
+        return run_anti_synthetic_doctor(
+            target_path=getattr(args, "test_path", None),
+            as_json=bool(getattr(args, "json", False)),
+        )
+
+    rea_flag = bool(getattr(args, "rea", False) or getattr(args, "experimental_rea", False))
+    re_tool = bool(getattr(args, "re_toolchain", False) or getattr(args, "re", False))
+    ws_root = Path(args.workspace).resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
     audit = run_doctor(
         args.matrix,
-        workspace_root=cwd,
-        experimental_rea=exp_rea,
+        workspace_root=ws_root,
+        rea=rea_flag,
+        experimental_rea=rea_flag,
         re_toolchain=re_tool,
     )
 
-    if args.json:
-        print(json.dumps(audit, indent=2))
-        return 0
-
-    print_cli_report(audit)
-
+    is_json = bool(getattr(args, "json", False))
     if args.heal:
-        print("\n🔧 Executing Auto-Healing...")
+        if not is_json:
+            print_cli_report(audit)
+            print("\n🔧 Executing Auto-Healing...")
         actions = heal_environment(
             audit,
             args.matrix,
-            experimental_rea=exp_rea,
+            rea=rea_flag,
+            experimental_rea=rea_flag,
             re_toolchain=re_tool,
-            workspace_dir=cwd,
+            workspace_dir=ws_root,
         )
-        for act in actions:
-            print(f"  ✔ {act}")
-        print()
+        if not is_json:
+            for act in actions:
+                print(f"  ✔ {act}")
+            print()
+        audit = run_doctor(
+            args.matrix,
+            workspace_root=ws_root,
+            rea=rea_flag,
+            experimental_rea=rea_flag,
+            re_toolchain=re_tool,
+        )
+        if is_json:
+            audit = dict(audit)
+            audit["heal_actions"] = actions
+    elif not is_json:
+        print_cli_report(audit)
+
+    if is_json:
+        print(json.dumps(audit, indent=2))
 
     # Non-zero exit if required tools are missing or outdated
     if audit["summary"]["missing"] > 0 or audit["summary"]["outdated"] > 0:

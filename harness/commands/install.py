@@ -51,11 +51,11 @@ def cmd_install(args: argparse.Namespace) -> int:
         all_surfaces=all_surfaces,
     )
 
-    exp_rea = bool(getattr(args, "experimental_rea", False))
+    rea_enabled = bool(getattr(args, "rea", False) or getattr(args, "experimental_rea", False))
     rea_mcp_configured = False
     rea_mcp_errors: List[str] = []
     rea_skill_provisioned = False
-    if exp_rea and result.success and not getattr(args, "dry_run", False):
+    if rea_enabled and result.success and not getattr(args, "dry_run", False):
         from harness.runtime.healing import provision_rea_skill
         from harness.runtime.tool_checks import configure_rea_mcp_server
 
@@ -74,10 +74,11 @@ def cmd_install(args: argparse.Namespace) -> int:
             "source_dir": str(result.source_dir),
             "items_installed": result.items_installed,
             "message": result.message,
-            "experimental_rea": exp_rea,
+            "rea": rea_enabled,
+            "experimental_rea": rea_enabled,
             "rea_mcp_configured": rea_mcp_configured,
         }
-        if exp_rea:
+        if rea_enabled:
             payload["rea_skill_provisioned"] = rea_skill_provisioned
         if rea_mcp_errors:
             payload["rea_mcp_errors"] = rea_mcp_errors
@@ -86,7 +87,7 @@ def cmd_install(args: argparse.Namespace) -> int:
 
     if result.success:
         print(f"✔ {result.message}")
-        if exp_rea:
+        if rea_enabled:
             if getattr(args, "dry_run", False):
                 print("  • REA: Would configure global Reverse Engineer Anything MCP server (~/.gemini/config/mcp_config.json)")
             elif rea_mcp_configured:

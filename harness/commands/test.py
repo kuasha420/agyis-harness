@@ -10,10 +10,12 @@ Test suite runner CLI command (ADR-014, ADR-015, RFC-051 Phase 2).
 from __future__ import annotations
 
 import argparse
-import os
+import io
+import json
 from pathlib import Path
 import subprocess
 import sys
+from typing import Any, Dict, Optional
 import unittest
 
 from harness.discovery import (
@@ -59,9 +61,70 @@ def _is_agyis_source_repo(cwd: Path) -> bool:
     return False
 
 
+def _emit_test_json(payload: Dict[str, Any]) -> None:
+    """Emit structured JSON output for test runs."""
+    print(json.dumps(payload, indent=2))
+
+
+def _run_guarded_shell_runner(
+    runner_cmd: str,
+    cwd: Path,
+    as_json: bool,
+    mode: str,
+    tier: str,
+    dry_run: bool = False,
+    dry_run_label: Optional[str] = None,
+) -> int:
+    """Execute a shell test runner command with non-interactive CI guards and optional JSON reporting."""
+    if dry_run:
+        if as_json:
+            _emit_test_json({
+                "passed": True,
+                "success": True,
+                "mode": mode,
+                "tier": tier,
+                "dry_run": True,
+                "command": runner_cmd,
+                "exit_code": 0,
+            })
+        else:
+            print(dry_run_label or f"✔ [DRY-RUN] Would execute: {runner_cmd}")
+        return 0
+
+    clean_cmd, guarded_env = inject_non_interactive_guards(runner_cmd)
+    if as_json:
+        run_res = subprocess.run(
+            clean_cmd,
+            shell=True,
+            env=guarded_env,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+        )
+        success = run_res.returncode == 0
+        _record_verification_all(success=success, tier=tier)
+        _emit_test_json({
+            "passed": success,
+            "success": success,
+            "mode": mode,
+            "tier": tier,
+            "command": runner_cmd,
+            "exit_code": run_res.returncode,
+            "stdout": run_res.stdout or "",
+            "stderr": run_res.stderr or "",
+        })
+        return run_res.returncode
+
+    run_res = subprocess.run(clean_cmd, shell=True, env=guarded_env, cwd=str(cwd))
+    success = run_res.returncode == 0
+    _record_verification_all(success=success, tier=tier)
+    return run_res.returncode
+
+
 def cmd_test(args: argparse.Namespace) -> int:
     """Runs the test suite with diff-awareness and tier-gated verification."""
     cwd = Path.cwd().resolve()
+    as_json = bool(getattr(args, "json", False))
 
     # 1. Harmonization pre-step if requested
     if getattr(args, "harmonize", False):
@@ -69,10 +132,16 @@ def cmd_test(args: argparse.Namespace) -> int:
         dry_run = getattr(args, "dry_run", False)
         res = harmonize_test_runners(workspace_dir=cwd, dry_run=dry_run, apply=not dry_run)
         if not res.success:
-            sys.stderr.write(f"Harmonization error: {res.message}\n")
+            if as_json:
+                _emit_test_json({"passed": False, "success": False, "mode": "harmonize", "error": res.message})
+            else:
+                sys.stderr.write(f"Harmonization error: {res.message}\n")
             return 1
         if dry_run:
-            print(f"✔ [DRY-RUN] {res.message}")
+            if as_json:
+                _emit_test_json({"passed": True, "success": True, "mode": "harmonize", "dry_run": True, "message": res.message})
+            else:
+                print(f"✔ [DRY-RUN] {res.message}")
             return 0
 
     # 1.5. Micro-mutation testing if requested
@@ -84,23 +153,21 @@ def cmd_test(args: argparse.Namespace) -> int:
         )
         result = run_micro_mutation(config=config)
         if result.error_message:
-            if getattr(args, "json", False):
-                import json
-                print(json.dumps({
+            if as_json:
+                _emit_test_json({
                     "error": result.error_message,
                     "passed": False,
                     "total_mutants": result.total_mutants,
                     "killed": result.killed_mutants,
                     "survived": len(result.survived_mutants),
                     "exit_code": result.exit_code,
-                }, indent=2))
+                })
             else:
                 sys.stderr.write(f"✖ {result.error_message}\n")
             _record_verification_all(success=False, tier="mutation")
             return result.exit_code or 1
 
-        if getattr(args, "json", False):
-            import json
+        if as_json:
             score = 100.0 if result.total_mutants == 0 else (result.killed_mutants / result.total_mutants) * 100.0
             passed = len(result.survived_mutants) == 0
             payload = {
@@ -112,7 +179,7 @@ def cmd_test(args: argparse.Namespace) -> int:
                 "score": score,
                 "passed": passed,
             }
-            print(json.dumps(payload, indent=2))
+            _emit_test_json(payload)
             _record_verification_all(success=passed, tier="mutation")
             return 0 if passed else 1
 
@@ -148,23 +215,33 @@ def cmd_test(args: argparse.Namespace) -> int:
         )
 
         tier_to_record = "affected" if is_affected else ("pkg" if pkg else "diff")
+        out_mode = "pkg" if pkg else mode
 
         if resolved.is_empty:
-            print(f"✔ 0 affected tests detected for {mode} scope on clean working tree.")
             _record_verification_all(success=True, tier=tier_to_record)
+            if as_json:
+                _emit_test_json({
+                    "passed": True,
+                    "success": True,
+                    "mode": out_mode,
+                    "tier": tier_to_record,
+                    "empty": True,
+                    "tests_run": 0,
+                    "exit_code": 0,
+                })
+            else:
+                print(f"✔ 0 affected tests detected for {mode} scope on clean working tree.")
             return 0
 
-        if getattr(args, "dry_run", False):
-            print(f"✔ [DRY-RUN] Would execute: {resolved.runner_cmd} (Tier {resolved.tier}: {resolved.tier_name})")
-            return 0
-
-        # Inject non-interactive guards
-        clean_cmd, guarded_env = inject_non_interactive_guards(resolved.runner_cmd)
-
-        run_res = subprocess.run(clean_cmd, shell=True, env=guarded_env, cwd=str(cwd))
-        success = (run_res.returncode == 0)
-        _record_verification_all(success=success, tier=tier_to_record)
-        return run_res.returncode
+        return _run_guarded_shell_runner(
+            runner_cmd=resolved.runner_cmd,
+            cwd=cwd,
+            as_json=as_json,
+            mode=out_mode,
+            tier=tier_to_record,
+            dry_run=bool(getattr(args, "dry_run", False)),
+            dry_run_label=f"✔ [DRY-RUN] Would execute: {resolved.runner_cmd} (Tier {resolved.tier}: {resolved.tier_name})",
+        )
 
     # 3. Macro / Full Test Execution
     start_dir = getattr(args, "start_dir", None)
@@ -178,32 +255,59 @@ def cmd_test(args: argparse.Namespace) -> int:
         # regardless of whether a local tests/ directory exists.
         external_runner = detect_project_test_runner(cwd)
         if external_runner:
-            if getattr(args, "dry_run", False):
-                print(f"✔ [DRY-RUN] Would execute full project runner: {external_runner}")
-                return 0
-            clean_cmd, guarded_env = inject_non_interactive_guards(external_runner)
-            run_res = subprocess.run(clean_cmd, shell=True, env=guarded_env, cwd=str(cwd))
-            success = (run_res.returncode == 0)
-            _record_verification_all(success=success, tier="full")
-            return run_res.returncode
+            return _run_guarded_shell_runner(
+                runner_cmd=external_runner,
+                cwd=cwd,
+                as_json=as_json,
+                mode="external",
+                tier="full",
+                dry_run=bool(getattr(args, "dry_run", False)),
+                dry_run_label=f"✔ [DRY-RUN] Would execute full project runner: {external_runner}",
+            )
 
         local_tests_dir = cwd / "tests"
         if not local_tests_dir.is_dir():
-            sys.stderr.write(
-                f"Error: No recognized test runner or 'tests/' directory found in {cwd}\n"
-            )
+            err_msg = f"Error: No recognized test runner or 'tests/' directory found in {cwd}"
+            if as_json:
+                _emit_test_json({"passed": False, "success": False, "mode": "unittest", "error": err_msg, "exit_code": 1})
+            else:
+                sys.stderr.write(f"{err_msg}\n")
             return 1
         test_dir = local_tests_dir
 
     # Standard python unittest discovery
     if not test_dir.exists():
-        sys.stderr.write(f"Error: test directory not found at {test_dir}\n")
+        err_msg = f"Error: test directory not found at {test_dir}"
+        if as_json:
+            _emit_test_json({"passed": False, "success": False, "mode": "unittest", "error": err_msg, "exit_code": 1})
+        else:
+            sys.stderr.write(f"{err_msg}\n")
         return 1
 
     loader = unittest.TestLoader()
     suite = loader.discover(start_dir=str(test_dir), pattern="test_*.py")
     verbosity = 2 if getattr(args, "verbose", False) else 1
     buffer_output = not getattr(args, "no_buffer", False)
+    if as_json:
+        stream = io.StringIO()
+        runner = unittest.TextTestRunner(stream=stream, verbosity=verbosity, buffer=True)
+        result = runner.run(suite)
+        success = bool(result.wasSuccessful())
+        _record_verification_all(success=success, tier="full")
+        _emit_test_json({
+            "passed": success,
+            "success": success,
+            "mode": "unittest",
+            "test_dir": str(test_dir),
+            "tests_run": getattr(result, "testsRun", 0),
+            "failures": len(getattr(result, "failures", [])),
+            "errors": len(getattr(result, "errors", [])),
+            "skipped": len(getattr(result, "skipped", [])),
+            "exit_code": 0 if success else 1,
+            "output": stream.getvalue(),
+        })
+        return 0 if success else 1
+
     runner = unittest.TextTestRunner(verbosity=verbosity, buffer=buffer_output)
     result = runner.run(suite)
 

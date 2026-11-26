@@ -557,7 +557,7 @@ def start_daemon(
     if not rea_bin:
         return {
             "success": False,
-            "error": "'rea' CLI not found. Run 'agyis doctor --experimental-rea' or install via pnpm.",
+            "error": "'rea' CLI not found. Run 'agyis doctor --rea' or install via pnpm.",
         }
 
     if foreground:
@@ -614,6 +614,48 @@ def start_daemon(
     if mcp_warning:
         res["mcp_warning"] = mcp_warning
     return res
+
+
+def query_daemon_tool(
+    tool_name: str,
+    arguments: Dict[str, Any],
+    root: Optional[Path] = None,
+    timeout: float = 10.0,
+) -> Optional[Dict[str, Any]]:
+    """Send one JSON-RPC tools/call request over rea_mcp.sock, returning result dict or None."""
+    sock_path = get_socket_file(root)
+    if sock_path.is_symlink() or not sock_path.exists():
+        return None
+    payload = json.dumps({
+        "jsonrpc": "2.0",
+        "id": int(time.time() * 1000) & 0x7FFFFFFF or 1,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+    }) + "\n"
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as cli:
+            cli.settimeout(timeout)
+            cli.connect(str(sock_path))
+            cli.sendall(payload.encode("utf-8"))
+            with cli.makefile("r", encoding="utf-8", errors="replace") as reader:
+                raw = reader.readline()
+    except OSError as exc:
+        sys.stderr.write(f"[!] Warning: REA daemon socket query ({tool_name}) failed: {exc}; falling back to CLI.\n")
+        return None
+    if not raw:
+        sys.stderr.write(f"[!] Warning: REA daemon returned empty response for {tool_name}; falling back to CLI.\n")
+        return None
+    try:
+        resp = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        sys.stderr.write(f"[!] Warning: REA daemon returned invalid JSON for {tool_name}: {exc}; falling back to CLI.\n")
+        return None
+    if not isinstance(resp, dict) or "error" in resp:
+        err_detail = resp.get("error") if isinstance(resp, dict) else type(resp).__name__
+        sys.stderr.write(f"[!] Warning: REA daemon RPC error for {tool_name}: {err_detail}; falling back to CLI.\n")
+        return None
+    result = resp.get("result")
+    return result if isinstance(result, dict) else {"value": result}
 
 
 def cmd_daemon(args: argparse.Namespace) -> int:

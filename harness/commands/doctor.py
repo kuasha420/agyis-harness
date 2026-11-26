@@ -39,13 +39,14 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             sys.stderr.write(f"Error: matrix.json not found at {matrix_path}\n")
             return 1
 
-    exp_rea = bool(getattr(args, "experimental_rea", False))
+    rea_flag = bool(getattr(args, "rea", False) or getattr(args, "experimental_rea", False))
     re_tool = bool(getattr(args, "re_toolchain", False) or getattr(args, "re", False))
     ws_root = Path(args.workspace).resolve() if getattr(args, "workspace", None) else None
     audit = psl_doctor.run_doctor(
         matrix_path,
         workspace_root=ws_root,
-        experimental_rea=exp_rea,
+        rea=rea_flag,
+        experimental_rea=rea_flag,
         re_toolchain=re_tool,
     )
 
@@ -59,7 +60,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         actions = psl_doctor.heal_environment(
             audit,
             matrix_path,
-            experimental_rea=exp_rea,
+            rea=rea_flag,
+            experimental_rea=rea_flag,
             re_toolchain=re_tool,
             workspace_dir=ws_root or Path.cwd().resolve(),
         )
@@ -70,7 +72,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         audit = psl_doctor.run_doctor(
             matrix_path,
             workspace_root=ws_root,
-            experimental_rea=exp_rea,
+            rea=rea_flag,
+            experimental_rea=rea_flag,
             re_toolchain=re_tool,
         )
         if is_json:

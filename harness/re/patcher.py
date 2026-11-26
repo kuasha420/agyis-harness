@@ -11,255 +11,64 @@ bypass redundant 1.3GB disk cloning (Optimization 2: Direct In-Place Mount), and
 dynamically auto-discover workspace dirtyroom Ghidra projects from any global MCP session.
 """
 
-import importlib.resources
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import sys
-import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
-from harness.runtime.tool_checks_rea import is_ghidra_12_2_installed
-
-PATCH_SIGNATURE = "REA_GHIDRA_PROJECT_DIR"
-DIRECT_MOUNT_SIGNATURE = "REA_DIRECT_MOUNT_ACTIVE"
-AUTO_DISCOVERY_SIGNATURE = "AGYIS_REA_AUTODISCOVERY_V4"
-
-_GHIDRA_POLICY_OLD = 'SUPPORTED_GHIDRA_VERSION = "12.1.4"'
-_GHIDRA_POLICY_NEW = 'SUPPORTED_GHIDRA_VERSION = "12.2"'
-
-_FS_SYNC_IMPORT_LINE = (
-    'import { lstatSync as __agyisLstatSync, readFileSync as __agyisReadFileSync, '
-    'readdirSync as __agyisReaddirSync, realpathSync as __agyisRealpathSync, '
-    'statSync as __agyisStatSync, symlinkSync as __agyisSymlinkSync } from "node:fs";\n'
-    'import { homedir as __agyisHomedir } from "node:os";\n'
-    'import { join as __agyisOsJoin } from "node:path";'
+from harness.re.patcher_utils import (
+    AUTO_DISCOVERY_SIGNATURE,
+    COPY_FN_RE as _COPY_FN_RE,
+    DIRECT_MOUNT_SIGNATURE,
+    FASTPATH_COPY_SNIPPET,
+    FASTPATH_FINGERPRINT_SNIPPET,
+    FASTPATH_IMPORT_LINES as _FASTPATH_IMPORT_LINES,
+    FINGERPRINT_FN_RE as _FINGERPRINT_FN_RE,
+    FS_SYNC_IMPORT_LINE as _FS_SYNC_IMPORT_LINE,
+    GHIDRA_POLICY_RE,
+    LAUNCHER_SNIPPET,
+    PATCH_SIGNATURE,
+    REQUESTED_PATH_SNIPPET,
+    SNAPSHOT_ORIGIN_SNIPPET,
+    atomic_write_bytes,
+    atomic_write_text,
+    inject_bundle_snippets,
+    load_clean_base,
+    needs_ghidra_policy_update,
+    rewrite_ghidra_policy,
+    rollback_patch_transaction,
+    safe_read_text,
+    validate_dist_file,
 )
-_FASTPATH_IMPORT_LINES = (
-    'import { readFile as __agyisReadFile, readdir as __agyisReaddir, stat as __agyisStat } from "node:fs/promises";\n'
-    'import { dirname as __agyisDirname, join as __agyisJoin, resolve as __agyisResolve } from "node:path";'
-)
-
-_FINGERPRINT_FN_RE = re.compile(
-    r"((?:(?:export\s+)?(?:const\s+)?fingerprintGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|"
-    r"async\s+function\s+fingerprintGhidraProject\s*\([^)]*\)\s*\{))"
-)
-_COPY_FN_RE = re.compile(
-    r"((?:(?:export\s+)?(?:const\s+)?copyExistingGhidraProject\s*=\s*async\s*\([^)]*\)\s*=>\s*\{|"
-    r"async\s+function\s+copyExistingGhidraProject\s*\([^)]*\)\s*\{))"
-)
-_SNAPSHOT_PATH_RE = re.compile(
-    r"(const\s+snapshotPath\s*=\s*join\(runtimeRoot,\s*`target-\$\{expectedSha256\.slice\(0,\s*12\)\}\$\{suffix\}`\);)"
-)
-_REQUESTED_PATH_RE = re.compile(
-    r"(const\s+canonical\s*=\s*await\s+realpath\(candidate\);)"
+from harness.runtime.tool_checks_common import parse_version
+from harness.runtime.tool_checks_rea import (
+    detect_installed_ghidra_version,
+    is_ghidra_12_2_installed,
 )
 
 
-def _load_asset(name: str) -> str:
-    """Loads an externalized JavaScript patch template via importlib.resources."""
-    return importlib.resources.files("harness.re.assets").joinpath(name).read_text(encoding="utf-8")
-
-
-LAUNCHER_SNIPPET = _load_asset("launcher_direct_mount.js")
-FASTPATH_FINGERPRINT_SNIPPET = _load_asset("fastpath_fingerprint.js")
-FASTPATH_COPY_SNIPPET = _load_asset("fastpath_copy.js")
-SNAPSHOT_ORIGIN_SNIPPET = _load_asset("snapshot_origin.js")
-REQUESTED_PATH_SNIPPET = _load_asset("requested_path.js")
-
-
-def _safe_read_text(path: Optional[Path]) -> str:
-    """Safely reads text from path, returning empty string on missing file or read errors."""
-    if not path or not path.is_file():
-        return ""
-    try:
-        return path.read_text(encoding="utf-8", errors="ignore")
-    except (OSError, PermissionError):
-        return ""
-
-
-def _atomic_write_bytes(target: Path, data: bytes) -> None:
-    """Atomically writes bytes to target using a same-directory temporary file."""
-    tmp_name: Optional[str] = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            dir=target.parent,
-            prefix=f".{target.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as tmp_f:
-            tmp_name = tmp_f.name
-            tmp_f.write(data)
-        os.replace(tmp_name, target)
-    except OSError:
-        if tmp_name:
-            Path(tmp_name).unlink(missing_ok=True)
-        raise
-
-
-def _atomic_write_text(target: Path, content: str) -> None:
-    """Atomically writes UTF-8 text to target."""
-    _atomic_write_bytes(target, content.encode("utf-8"))
-
-
-def _validate_dist_file(target: Path, dist_dir: Path) -> Optional[str]:
-    """Verifies target and its .orig backup are regular non-symlink files inside dist_dir."""
-    if target.is_symlink():
-        return f"Refusing to patch symlink: {target}"
-    orig = target.with_suffix(".js.orig")
-    if orig.is_symlink():
-        return f"Refusing to use symlinked backup: {orig}"
-    try:
-        dist_res = dist_dir.resolve()
-        if not target.resolve().is_relative_to(dist_res):
-            return f"Patch target escapes dist directory: {target}"
-        if orig.exists() and not orig.resolve().is_relative_to(dist_res):
-            return f"Backup file escapes dist directory: {orig}"
-    except OSError as exc:
-        return f"Failed to validate path {target}: {exc}"
+def _resolve_target_ghidra_version() -> Optional[str]:
+    """Dynamically resolve the active installed Ghidra 12.x release string."""
+    detected = detect_installed_ghidra_version()
+    if detected and parse_version(detected)[0] == 12:
+        if detected == "12.2" and not is_ghidra_12_2_installed():
+            return None
+        return detected
+    if is_ghidra_12_2_installed():
+        return "12.2"
     return None
-
-
-def _prepend_esm_imports(content: str, import_block: str) -> str:
-    """Inserts ESM import lines cleanly after any leading shebang."""
-    if content.startswith("#!"):
-        nl = content.find("\n")
-        if nl != -1:
-            return f"{content[: nl + 1]}{import_block}\n{content[nl + 1 :]}"
-    return f"{import_block}\n{content}"
-
-
-def _ensure_aliased_imports(
-    content: str,
-    *,
-    need_fs_sync: bool = False,
-    need_fastpath: bool = False,
-) -> str:
-    """Ensures collision-free aliased Node ESM imports exist for injected snippets."""
-    blocks: List[str] = []
-    if need_fs_sync and _FS_SYNC_IMPORT_LINE not in content:
-        blocks.append(_FS_SYNC_IMPORT_LINE)
-    if need_fastpath and _FASTPATH_IMPORT_LINES not in content:
-        blocks.append(_FASTPATH_IMPORT_LINES)
-    if not blocks:
-        return content
-    return _prepend_esm_imports(content, "\n".join(blocks))
-
-
-def _load_clean_base(file_path: Path) -> Tuple[str, bool]:
-    """Loads pristine upstream JS from .js.orig if present, creating backup atomically once."""
-    orig = file_path.with_suffix(".js.orig")
-    if orig.is_file():
-        return orig.read_text(encoding="utf-8"), False
-
-    current = file_path.read_text(encoding="utf-8")
-    has_any_sig = (
-        PATCH_SIGNATURE in current
-        or DIRECT_MOUNT_SIGNATURE in current
-        or AUTO_DISCOVERY_SIGNATURE in current
-        or "AGYIS_REA_AUTODISCOVERY" in current
-    )
-    created_orig = False
-    if not has_any_sig:
-        _atomic_write_text(orig, current)
-        created_orig = True
-    return current, created_orig
-
-
-def _inject_bundle_snippets(
-    content: str,
-    *,
-    require_launcher: bool,
-    include_fastpaths: bool,
-    include_snapshot_origin: bool,
-    include_requested_path: bool = False,
-    require_fastpaths: bool = False,
-    require_snapshot_origin: bool = False,
-    require_requested_path: bool = False,
-) -> Tuple[str, bool, Optional[str]]:
-    """Applies launcher, fastpath, snapshot-origin, and pre-realpath snippets onto pristine JS."""
-    modified = False
-    need_fs_sync = False
-    need_fastpath = False
-    out = content
-
-    target_primary = "const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);"
-    target_alt = "bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);"
-
-    if require_launcher or target_primary in out or target_alt in out:
-        if target_primary in out:
-            out = out.replace(target_primary, f"{target_primary}\n{LAUNCHER_SNIPPET}", 1)
-            need_fs_sync = True
-            modified = True
-        elif target_alt in out:
-            out = out.replace(target_alt, f"{target_alt}\n{LAUNCHER_SNIPPET}", 1)
-            need_fs_sync = True
-            modified = True
-        elif require_launcher:
-            return out, False, "Target launcher marker not found"
-
-    if include_fastpaths:
-        out, fp_count = _FINGERPRINT_FN_RE.subn(
-            lambda m: f"{m.group(1)}\n{FASTPATH_FINGERPRINT_SNIPPET}",
-            out,
-            count=1,
-        )
-        out, cp_count = _COPY_FN_RE.subn(
-            lambda m: f"{m.group(1)}\n{FASTPATH_COPY_SNIPPET}",
-            out,
-            count=1,
-        )
-        if fp_count or cp_count:
-            need_fastpath = True
-            modified = True
-        elif require_fastpaths:
-            return out, False, "Target fastpath function markers not found"
-
-    if include_snapshot_origin:
-        out, snap_count = _SNAPSHOT_PATH_RE.subn(
-            lambda m: f"{m.group(1)}\n{SNAPSHOT_ORIGIN_SNIPPET}",
-            out,
-            count=1,
-        )
-        if snap_count:
-            modified = True
-        elif require_snapshot_origin:
-            return out, False, "Target snapshotPath marker not found"
-
-    if include_requested_path:
-        out, req_count = _REQUESTED_PATH_RE.subn(
-            lambda m: f"{m.group(1)}\n{REQUESTED_PATH_SNIPPET}",
-            out,
-            count=1,
-        )
-        if req_count:
-            modified = True
-        elif require_requested_path:
-            return out, False, "Target requested-path realpath marker not found"
-
-    if need_fs_sync or need_fastpath:
-        out = _ensure_aliased_imports(
-            out,
-            need_fs_sync=need_fs_sync,
-            need_fastpath=need_fastpath,
-        )
-
-    return out, modified, None
 
 
 def find_rea_package_root() -> Optional[Path]:
     """Discovers the installed rea-agents npm/pnpm package directory."""
-    # 1. Explicit env override
     env_path = os.environ.get("REA_PACKAGE_PATH")
     if env_path:
         p = Path(env_path).resolve()
         if p.is_dir() and (p / "dist").is_dir():
             return p
 
-    # 2. Check rea CLI executable path
     rea_bin = shutil.which("rea")
     if rea_bin:
         try:
@@ -279,7 +88,6 @@ def find_rea_package_root() -> Optional[Path]:
         except OSError as exc:
             sys.stderr.write(f"[!] Warning: Could not resolve rea binary path '{rea_bin}': {exc}\n")
 
-    # 3. Known global pnpm locations
     home = Path.home()
     pnpm_global = home / ".local" / "share" / "pnpm" / "global"
     if pnpm_global.is_dir():
@@ -287,7 +95,6 @@ def find_rea_package_root() -> Optional[Path]:
             if (cand / "dist" / "ghidra").is_dir():
                 return cand.resolve()
 
-    # 4. Standard npm/yarn global paths
     for base in [
         Path("/usr/local/lib/node_modules/rea-agents"),
         Path("/usr/lib/node_modules/rea-agents"),
@@ -323,11 +130,9 @@ def get_all_patch_targets(rea_root: Optional[Path] = None) -> Dict[str, Optional
     mcp_resolver: Optional[Path] = None
     if mcp_dir.is_dir():
         for cand in sorted(mcp_dir.glob("binary-*.js")):
-            if not cand.name.endswith(".orig"):
-                content = _safe_read_text(cand)
-                if "ghidraHeadlessArguments" in content:
-                    mcp_binary = cand
-                    break
+            if not cand.name.endswith(".orig") and "ghidraHeadlessArguments" in safe_read_text(cand):
+                mcp_binary = cand
+                break
         for cand in sorted(mcp_dir.glob("BinaryTargetResolver-*.js")):
             if not cand.name.endswith(".orig"):
                 mcp_resolver = cand
@@ -339,17 +144,15 @@ def get_all_patch_targets(rea_root: Optional[Path] = None) -> Dict[str, Optional
     cli_kuna: Optional[Path] = None
     if cli_dir.is_dir():
         for cand in sorted(cli_dir.glob("binary-*.js")):
-            if not cand.name.endswith(".orig"):
-                content = _safe_read_text(cand)
-                if "ghidraHeadlessArguments" in content:
-                    cli_binary = cand
-                    break
+            if not cand.name.endswith(".orig") and "ghidraHeadlessArguments" in safe_read_text(cand):
+                cli_binary = cand
+                break
         for cand in sorted(cli_dir.glob("BinaryTargetResolver-*.js")):
             if not cand.name.endswith(".orig"):
                 cli_resolver = cand
                 break
         for cand in sorted(cli_dir.glob("KunaCommand-*.js")):
-            if not cand.name.endswith(".orig") and "SUPPORTED_GHIDRA_VERSION" in _safe_read_text(cand):
+            if not cand.name.endswith(".orig") and "SUPPORTED_GHIDRA_VERSION" in safe_read_text(cand):
                 cli_kuna = cand
                 break
 
@@ -374,8 +177,7 @@ def _policy_bearing_targets(targets: Dict[str, Optional[Path]]) -> List[Path]:
     for key in ("policy", "mcp_binary", "cli_binary", "cli_kuna"):
         p = targets.get(key)
         if p and p.is_file() and p not in seen:
-            text = _safe_read_text(p)
-            if "SUPPORTED_GHIDRA_VERSION" in text:
+            if "SUPPORTED_GHIDRA_VERSION" in safe_read_text(p):
                 found.append(p)
                 seen.add(p)
     return found
@@ -410,25 +212,34 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
     cli_resolver = targets.get("cli_resolver")
     policy_file = targets.get("policy")
 
-    l_text = _safe_read_text(launcher)
-    m_text = _safe_read_text(mcp_binary)
-    s_text = _safe_read_text(snapshot)
-    ts_text = _safe_read_text(target_snapshot)
-    tr_text = _safe_read_text(target_resolver)
-    mr_text = _safe_read_text(mcp_resolver)
-    c_text = _safe_read_text(cli_binary)
-    cr_text = _safe_read_text(cli_resolver)
+    l_text = safe_read_text(launcher)
+    m_text = safe_read_text(mcp_binary)
+    s_text = safe_read_text(snapshot)
+    ts_text = safe_read_text(target_snapshot)
+    tr_text = safe_read_text(target_resolver)
+    mr_text = safe_read_text(mcp_resolver)
+    c_text = safe_read_text(cli_binary)
+    cr_text = safe_read_text(cli_resolver)
 
     launcher_patched = bool(launcher) and PATCH_SIGNATURE in l_text
     mcp_patched = bool(mcp_binary) and PATCH_SIGNATURE in m_text
     snapshot_patched = bool(snapshot) and DIRECT_MOUNT_SIGNATURE in s_text
     cli_patched = bool(cli_binary) and PATCH_SIGNATURE in c_text and DIRECT_MOUNT_SIGNATURE in c_text
 
+    target_ghidra_version = _resolve_target_ghidra_version()
     policy_targets = _policy_bearing_targets(targets)
-    policy_texts = [_safe_read_text(p) for p in policy_targets]
-    policy_patched = bool(policy_targets) and all(
-        _GHIDRA_POLICY_NEW in txt and _GHIDRA_POLICY_OLD not in txt for txt in policy_texts
-    )
+    policy_texts = [safe_read_text(p) for p in policy_targets]
+    if target_ghidra_version:
+        policy_patched = bool(policy_targets) and all(
+            not needs_ghidra_policy_update(txt, target_ghidra_version) for txt in policy_texts
+        )
+    else:
+        policy_patched = bool(policy_targets) and all(
+            not GHIDRA_POLICY_RE.search(txt) or (
+                (m := GHIDRA_POLICY_RE.search(txt)) is not None and m.group(3) != "12.1.4"
+            )
+            for txt in policy_texts
+        )
     policy_native = (
         policy_patched
         and bool(policy_file)
@@ -487,6 +298,7 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
         "auto_discovery_active": auto_discovery_active,
         "policy_patched": policy_patched,
         "policy_native": policy_native,
+        "target_ghidra_version": target_ghidra_version,
         "launcher_path": str(launcher) if launcher else None,
         "mcp_path": str(mcp_binary) if mcp_binary else None,
         "cli_path": str(cli_binary) if cli_binary else None,
@@ -494,24 +306,6 @@ def check_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
         "policy_targets": [str(p) for p in policy_targets],
         "message": msg,
     }
-
-
-def _rollback_patch_transaction(
-    rollback_log: List[Tuple[Path, bytes, Path, bool]],
-) -> List[str]:
-    """Restores all files mutated in a failed apply_patch transaction."""
-    errors: List[str] = []
-    for target, prior_bytes, orig_path, created_orig in reversed(rollback_log):
-        try:
-            _atomic_write_bytes(target, prior_bytes)
-        except OSError as exc:
-            errors.append(f"Failed to restore {target}: {exc}")
-        if created_orig:
-            try:
-                orig_path.unlink(missing_ok=True)
-            except OSError as exc:
-                errors.append(f"Failed to clean temporary backup {orig_path}: {exc}")
-    return errors
 
 
 def apply_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
@@ -541,12 +335,12 @@ def apply_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
     if not mcp_binary or not mcp_binary.is_file():
         return {"success": False, "error": "binary-*.js not found in REA MCP distribution"}
 
-    ghidra_12_2 = is_ghidra_12_2_installed()
+    target_ghidra_version = _resolve_target_ghidra_version()
     applied_files: List[str] = []
     rollback_log: List[Tuple[Path, bytes, Path, bool]] = []
 
     def _fail(message: str) -> Dict[str, Any]:
-        rb_errors = _rollback_patch_transaction(rollback_log)
+        rb_errors = rollback_patch_transaction(rollback_log)
         res: Dict[str, Any] = {"success": False, "error": message, "rolled_back": bool(rollback_log)}
         if rb_errors:
             res["rollback_errors"] = rb_errors
@@ -555,162 +349,138 @@ def apply_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
     def _commit_target(target: Path, new_content: str, prior_bytes: bytes, created_orig: bool) -> None:
         orig_path = target.with_suffix(".js.orig")
         rollback_log.append((target, prior_bytes, orig_path, created_orig))
-        _atomic_write_text(target, new_content)
+        atomic_write_text(target, new_content)
         if str(target) not in applied_files:
             applied_files.append(str(target))
 
+    def _patch_bundle(
+        target: Path,
+        *,
+        needs_upgrade: bool,
+        require_launcher: bool,
+        include_fastpaths: bool,
+        include_snapshot_origin: bool,
+        include_requested_path: bool = False,
+        require_fastpaths: bool = False,
+        require_snapshot_origin: bool = False,
+        require_requested_path: bool = False,
+        apply_policy: bool = False,
+        warn_only: bool = False,
+    ) -> Optional[str]:
+        if not needs_upgrade:
+            return None
+        prior_bytes = target.read_bytes()
+        base_txt, created_orig = load_clean_base(target)
+        patched_txt, modified, err = inject_bundle_snippets(
+            base_txt,
+            require_launcher=require_launcher,
+            include_fastpaths=include_fastpaths,
+            include_snapshot_origin=include_snapshot_origin,
+            include_requested_path=include_requested_path,
+            require_fastpaths=require_fastpaths,
+            require_snapshot_origin=require_snapshot_origin,
+            require_requested_path=require_requested_path,
+        )
+        if err:
+            if created_orig:
+                target.with_suffix(".js.orig").unlink(missing_ok=True)
+            if warn_only:
+                return f"{err} in {target.name}"
+            raise RuntimeError(f"{err} in {target.name}")
+        if apply_policy and target_ghidra_version:
+            patched_txt, pol_changed = rewrite_ghidra_policy(patched_txt, target_ghidra_version)
+            modified = modified or pol_changed
+        if modified:
+            _commit_target(target, patched_txt, prior_bytes, created_orig)
+        return None
+
     try:
-    # Validate all discovered target paths upfront
         for cand in (launcher, snapshot, target_snapshot, mcp_binary, cli_binary, target_resolver, mcp_resolver, cli_resolver, cli_kuna, policy_file):
             if cand and cand.exists():
-                val_err = _validate_dist_file(cand, dist_dir)
+                val_err = validate_dist_file(cand, dist_dir)
                 if val_err:
                     return _fail(val_err)
 
-        # 1. Patch or upgrade GhidraLauncher.js
-        l_bytes = launcher.read_bytes()
-        l_current = l_bytes.decode("utf-8")
-        if PATCH_SIGNATURE not in l_current or AUTO_DISCOVERY_SIGNATURE not in l_current or _FS_SYNC_IMPORT_LINE not in l_current:
-            l_base, created_orig = _load_clean_base(launcher)
-            l_patched, l_mod, l_err = _inject_bundle_snippets(l_base, require_launcher=True, include_fastpaths=False, include_snapshot_origin=False)
-            if l_err:
-                if created_orig:
-                    launcher.with_suffix(".js.orig").unlink(missing_ok=True)
-                return _fail(f"{l_err} in {launcher.name}")
-            if l_mod:
-                _commit_target(launcher, l_patched, l_bytes, created_orig)
-
-        # 2. Patch or upgrade GhidraProjectSnapshot.js (Zero-copy Direct Mount fastpath)
-        if snapshot and snapshot.is_file():
-            s_bytes = snapshot.read_bytes()
-            s_current = s_bytes.decode("utf-8")
-            if DIRECT_MOUNT_SIGNATURE not in s_current or AUTO_DISCOVERY_SIGNATURE not in s_current or _FASTPATH_IMPORT_LINES not in s_current:
-                s_base, created_orig = _load_clean_base(snapshot)
-                s_patched, s_mod, s_err = _inject_bundle_snippets(s_base, require_launcher=False, include_fastpaths=True, include_snapshot_origin=False, require_fastpaths=True)
-                if s_err:
-                    if created_orig:
-                        snapshot.with_suffix(".js.orig").unlink(missing_ok=True)
-                    return _fail(f"{s_err} in {snapshot.name}")
-                if s_mod:
-                    _commit_target(snapshot, s_patched, s_bytes, created_orig)
-
-        # 3. Patch or upgrade GhidraTargetSnapshot.js (Origin path tracking for temp snapshots)
-        if target_snapshot and target_snapshot.is_file():
-            ts_bytes = target_snapshot.read_bytes()
-            ts_current = ts_bytes.decode("utf-8")
-            if AUTO_DISCOVERY_SIGNATURE not in ts_current:
-                ts_base, created_orig = _load_clean_base(target_snapshot)
-                ts_patched, ts_mod, ts_err = _inject_bundle_snippets(ts_base, require_launcher=False, include_fastpaths=False, include_snapshot_origin=True, require_snapshot_origin=True)
-                if ts_err:
-                    if created_orig:
-                        target_snapshot.with_suffix(".js.orig").unlink(missing_ok=True)
-                    return _fail(f"{ts_err} in {target_snapshot.name}")
-                if ts_mod:
-                    _commit_target(target_snapshot, ts_patched, ts_bytes, created_orig)
-
-        # 4. Patch or upgrade dist/mcp/binary-*.js (plus inlined GhidraReleasePolicy if Ghidra 12.2)
-        m_bytes = mcp_binary.read_bytes()
-        m_current = m_bytes.decode("utf-8")
-        has_m_fastpath_fn = bool(_FINGERPRINT_FN_RE.search(m_current) or _COPY_FN_RE.search(m_current))
-        needs_m_fastpath = has_m_fastpath_fn and (
-            DIRECT_MOUNT_SIGNATURE not in m_current or _FASTPATH_IMPORT_LINES not in m_current
+        l_cur = launcher.read_text(encoding="utf-8")
+        _patch_bundle(
+            launcher,
+            needs_upgrade=(PATCH_SIGNATURE not in l_cur or AUTO_DISCOVERY_SIGNATURE not in l_cur or _FS_SYNC_IMPORT_LINE not in l_cur),
+            require_launcher=True,
+            include_fastpaths=False,
+            include_snapshot_origin=False,
         )
-        needs_m_policy = ghidra_12_2 and _GHIDRA_POLICY_OLD in m_current
-        if (
-            PATCH_SIGNATURE not in m_current
-            or AUTO_DISCOVERY_SIGNATURE not in m_current
-            or _FS_SYNC_IMPORT_LINE not in m_current
-            or needs_m_fastpath
-            or needs_m_policy
-        ):
-            m_base, created_orig = _load_clean_base(mcp_binary)
-            m_patched, m_mod, m_err = _inject_bundle_snippets(
-                m_base,
-                require_launcher=True,
+
+        if snapshot and snapshot.is_file():
+            s_cur = snapshot.read_text(encoding="utf-8")
+            _patch_bundle(
+                snapshot,
+                needs_upgrade=(DIRECT_MOUNT_SIGNATURE not in s_cur or AUTO_DISCOVERY_SIGNATURE not in s_cur or _FASTPATH_IMPORT_LINES not in s_cur),
+                require_launcher=False,
+                include_fastpaths=True,
+                include_snapshot_origin=False,
+                require_fastpaths=True,
+            )
+
+        if target_snapshot and target_snapshot.is_file():
+            ts_cur = target_snapshot.read_text(encoding="utf-8")
+            _patch_bundle(
+                target_snapshot,
+                needs_upgrade=(AUTO_DISCOVERY_SIGNATURE not in ts_cur),
+                require_launcher=False,
+                include_fastpaths=False,
+                include_snapshot_origin=True,
+                require_snapshot_origin=True,
+            )
+
+        for bundle, req_launcher in ((mcp_binary, True), (cli_binary, False)):
+            if not bundle or not bundle.is_file():
+                continue
+            cur = bundle.read_text(encoding="utf-8")
+            has_fp = bool(_FINGERPRINT_FN_RE.search(cur) or _COPY_FN_RE.search(cur))
+            needs_fp = has_fp and (DIRECT_MOUNT_SIGNATURE not in cur or _FASTPATH_IMPORT_LINES not in cur)
+            needs_pol = needs_ghidra_policy_update(cur, target_ghidra_version)
+            _patch_bundle(
+                bundle,
+                needs_upgrade=(PATCH_SIGNATURE not in cur or AUTO_DISCOVERY_SIGNATURE not in cur or _FS_SYNC_IMPORT_LINE not in cur or needs_fp or needs_pol),
+                require_launcher=req_launcher,
                 include_fastpaths=True,
                 include_snapshot_origin=True,
+                apply_policy=True,
             )
-            if m_err:
-                if created_orig:
-                    mcp_binary.with_suffix(".js.orig").unlink(missing_ok=True)
-                return _fail(f"{m_err} in {mcp_binary.name}")
-            if ghidra_12_2 and _GHIDRA_POLICY_OLD in m_patched:
-                m_patched = m_patched.replace(_GHIDRA_POLICY_OLD, _GHIDRA_POLICY_NEW)
-                m_mod = True
-            if m_mod:
-                _commit_target(mcp_binary, m_patched, m_bytes, created_orig)
 
-        # 5. Patch or upgrade dist/cli-runtime/binary-*.js
-        if cli_binary and cli_binary.is_file():
-            c_bytes = cli_binary.read_bytes()
-            c_current = c_bytes.decode("utf-8")
-            has_c_fastpath_fn = bool(_FINGERPRINT_FN_RE.search(c_current) or _COPY_FN_RE.search(c_current))
-            needs_c_fastpath = has_c_fastpath_fn and (
-                DIRECT_MOUNT_SIGNATURE not in c_current or _FASTPATH_IMPORT_LINES not in c_current
-            )
-            needs_c_policy = ghidra_12_2 and _GHIDRA_POLICY_OLD in c_current
-            if (
-                PATCH_SIGNATURE not in c_current
-                or AUTO_DISCOVERY_SIGNATURE not in c_current
-                or _FS_SYNC_IMPORT_LINE not in c_current
-                or needs_c_fastpath
-                or needs_c_policy
-            ):
-                c_base, created_orig = _load_clean_base(cli_binary)
-                c_patched, c_mod, c_err = _inject_bundle_snippets(
-                    c_base,
-                    require_launcher=False,
-                    include_fastpaths=True,
-                    include_snapshot_origin=True,
-                )
-                if c_err:
-                    if created_orig:
-                        cli_binary.with_suffix(".js.orig").unlink(missing_ok=True)
-                    return _fail(f"{c_err} in {cli_binary.name}")
-                if ghidra_12_2 and _GHIDRA_POLICY_OLD in c_patched:
-                    c_patched = c_patched.replace(_GHIDRA_POLICY_OLD, _GHIDRA_POLICY_NEW)
-                    c_mod = True
-                if c_mod:
-                    _commit_target(cli_binary, c_patched, c_bytes, created_orig)
-
-        # 5b. Patch or upgrade BinaryTargetResolver bundles (pre-realpath caller path tracking)
         warnings: List[str] = []
         for resolver_file in (target_resolver, mcp_resolver, cli_resolver):
             if resolver_file and resolver_file.is_file():
-                r_bytes = resolver_file.read_bytes()
-                r_current = r_bytes.decode("utf-8")
-                if AUTO_DISCOVERY_SIGNATURE not in r_current:
-                    r_base, created_orig = _load_clean_base(resolver_file)
-                    r_patched, r_mod, r_err = _inject_bundle_snippets(
-                        r_base,
-                        require_launcher=False,
-                        include_fastpaths=False,
-                        include_snapshot_origin=False,
-                        include_requested_path=True,
-                        require_requested_path=True,
-                    )
-                    if r_err:
-                        if created_orig:
-                            resolver_file.with_suffix(".js.orig").unlink(missing_ok=True)
-                        warnings.append(f"{r_err} in {resolver_file.name}")
-                    elif r_mod:
-                        _commit_target(resolver_file, r_patched, r_bytes, created_orig)
+                r_cur = resolver_file.read_text(encoding="utf-8")
+                w = _patch_bundle(
+                    resolver_file,
+                    needs_upgrade=(AUTO_DISCOVERY_SIGNATURE not in r_cur),
+                    require_launcher=False,
+                    include_fastpaths=False,
+                    include_snapshot_origin=False,
+                    include_requested_path=True,
+                    require_requested_path=True,
+                    warn_only=True,
+                )
+                if w:
+                    warnings.append(w)
 
-        # 6. Patch GhidraReleasePolicy.js and bundled KunaCommand-*.js if Ghidra 12.2 is installed (DEF-BB-040)
-        if ghidra_12_2:
+        if target_ghidra_version:
             for pol_file in (policy_file, cli_kuna):
                 if pol_file and pol_file.is_file():
                     p_bytes = pol_file.read_bytes()
                     p_current = p_bytes.decode("utf-8")
-                    if _GHIDRA_POLICY_OLD in p_current:
+                    if needs_ghidra_policy_update(p_current, target_ghidra_version):
                         orig_pol = pol_file.with_suffix(".js.orig")
                         created_orig = False
                         if not orig_pol.is_file():
-                            _atomic_write_bytes(orig_pol, p_bytes)
+                            atomic_write_bytes(orig_pol, p_bytes)
                             created_orig = True
-                        p_patched = p_current.replace(_GHIDRA_POLICY_OLD, _GHIDRA_POLICY_NEW)
+                        p_patched, _ = rewrite_ghidra_policy(p_current, target_ghidra_version)
                         _commit_target(pol_file, p_patched, p_bytes, created_orig)
 
+    except RuntimeError as exc:
+        return _fail(str(exc))
     except (OSError, UnicodeDecodeError) as exc:
         return _fail(f"I/O failure while patching REA distribution: {exc}")
 
@@ -748,7 +518,7 @@ def revert_patch(rea_root: Optional[Path] = None) -> Dict[str, Any]:
                 errors.append(f"Refused out-of-tree path during revert: {orig}")
                 continue
             orig_bytes = orig.read_bytes()
-            _atomic_write_bytes(target, orig_bytes)
+            atomic_write_bytes(target, orig_bytes)
             orig.unlink()
             reverted_files.append(str(target))
         except OSError as exc:

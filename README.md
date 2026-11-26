@@ -163,11 +163,11 @@ The unified `agyis` CLI registers **28** top-level subcommands (`router` and `la
 agyis onboard [path] [flags]     # Atomic 10-phase repository onboarding
 agyis init [path] [-s <stack>]   # Initialize workspace rules, skills & cleanroom ledgers
 agyis harmonize [path] [--dry-run] # Migrate legacy .agent/ configs into .agents/
-agyis clean [--all] [--checkpoints] [--worktrees] # Purge stale checkpoints, worktrees & caches
+agyis clean [--all] [--caches] [--checkpoints] [--worktrees] # Purge stale caches, checkpoints & worktrees
 
 # 🩺 Diagnostics, Auto-Healing & Status
 agyis doctor [--heal]            # Audit 3-tier runtime matrix, 8 hook runner checks & port 5432
-agyis doctor --experimental-rea  # Deep REA provider & cleanroom tooling audit
+agyis doctor --rea               # Deep REA provider & cleanroom tooling audit (or --re)
 agyis status                     # Dashboard: health, active hooks, attention gauge & skills
 
 # 🧪 Verification & Cleanroom Testing
@@ -213,7 +213,7 @@ agyis audit [stage]              # Empirical telemetry mining, AFF audit (`aff`)
 agyis release-notes              # Conventional commit parser & structured release notes
 agyis changelog                  # Keep-a-Changelog generator (`changelogs` alias)
 agyis gui [--install-launcher] [--service install] [--devtools] [--toggle] # Live CDP Trajectory HUD
-agyis install [--wheel] [--all-surfaces] [--experimental-rea] # Install frozen wheel & sync surfaces
+agyis install [--wheel] [--all-surfaces] [--rea] # Install frozen wheel & sync surfaces
 agyis uninstall                  # Clean plugin uninstallation without collateral damage
 ```
 

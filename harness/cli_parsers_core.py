@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from harness.runtime.tool_checks_common import register_rea_flags
+
 
 def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     """Register runtime, telemetry, auth, sync, onboarding, and verification subparsers."""
@@ -23,9 +25,15 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_doc.add_argument("--heal", action="store_true", help="Execute safe user-space auto-healing")
     p_doc.add_argument("--json", action="store_true", help="Output audit report in JSON format")
     p_doc.add_argument(
-        "--experimental-rea",
-        action="store_true",
-        help="Enable experimental Reverse Engineer Anything (REA) diagnostics and provider audit",
+        "--workspace",
+        "-w",
+        type=Path,
+        default=None,
+        help="Target workspace path to inspect for config/RE activation",
+    )
+    register_rea_flags(
+        p_doc,
+        help_text="Enable Reverse Engineer Anything (REA) diagnostics and provider audit",
     )
     p_doc.add_argument(
         "--re",
@@ -411,10 +419,9 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_init.add_argument("--config-dir", type=str, default=None, help="Optional custom configuration directory (overrides ~/.gemini/config)")
     p_init.add_argument("--yes", "-y", action="store_true", help="Non-interactive mode, apply defaults")
     p_init.add_argument("--json", action="store_true", help="Output result in JSON format")
-    p_init.add_argument(
-        "--experimental-rea",
-        action="store_true",
-        help="Initialize workspace with opt-in Reverse Engineer Anything (REA) support",
+    register_rea_flags(
+        p_init,
+        help_text="Initialize workspace with Reverse Engineer Anything (REA) support",
     )
 
     # harmonize
@@ -535,6 +542,22 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         help="Open GitHub Pull Request using 'gh pr create' upon verification",
     )
     p_onboard.add_argument(
+        "--verify",
+        action="store_true",
+        help="Run project native verification checks before commit or PR creation",
+    )
+    p_onboard.add_argument(
+        "--no-verify",
+        dest="no_verify",
+        action="store_true",
+        help="Skip automatic verification checks during --pr onboarding",
+    )
+    p_onboard.add_argument(
+        "--commit",
+        action="store_true",
+        help="Create an atomic git commit for onboarded files",
+    )
+    p_onboard.add_argument(
         "--dry-run",
         action="store_true",
         help="Preview all onboarding actions without filesystem or remote mutation",
@@ -544,10 +567,9 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Output structured JSON summary",
     )
-    p_onboard.add_argument(
-        "--experimental-rea",
-        action="store_true",
-        help="Onboard repository with opt-in Reverse Engineer Anything (REA) support",
+    register_rea_flags(
+        p_onboard,
+        help_text="Onboard repository with Reverse Engineer Anything (REA) support",
     )
 
     # install
@@ -591,10 +613,9 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_install.add_argument("--override", action="store_true", help="Force overwrite existing workspace files")
     p_install.add_argument("--no-dedup", action="store_true", help="Disable content deduplication for workspace")
     p_install.add_argument("--json", action="store_true", help="Output result in JSON format")
-    p_install.add_argument(
-        "--experimental-rea",
-        action="store_true",
-        help="Install global plugins with opt-in Reverse Engineer Anything (REA) MCP wiring",
+    register_rea_flags(
+        p_install,
+        help_text="Install global plugins with Reverse Engineer Anything (REA) MCP wiring",
     )
 
     # uninstall

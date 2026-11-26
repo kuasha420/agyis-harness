@@ -18,7 +18,11 @@ from typing import List
 
 def cmd_skills(args: argparse.Namespace) -> int:
     """Lists, inspects, or synchronizes modular product skills."""
-    from harness.delivery.surfaces import enforce_single_source_skills, find_workspace_root
+    from harness.delivery.surfaces import (
+        enforce_single_source_skills,
+        find_workspace_root,
+        resolve_canonical_config_dir,
+    )
     from harness.skills import get_skill, list_skills, sync_skills
 
     if getattr(args, "prune_duplicates", False):
@@ -28,11 +32,8 @@ def cmd_skills(args: argparse.Namespace) -> int:
         else:
             ws_root = find_workspace_root()
 
-        config_dir = getattr(args, "config_dir", None)
-        if config_dir is None:
-            config_dir = Path.home() / ".gemini" / "config"
-        else:
-            config_dir = Path(config_dir).resolve()
+        raw_cfg_dir = getattr(args, "config_dir", None)
+        config_dir = resolve_canonical_config_dir(Path(raw_cfg_dir) if raw_cfg_dir else None)
 
         dry_run = getattr(args, "dry_run", False)
 

@@ -19,7 +19,7 @@
 This specification establishes the official architectural blueprint for integrating **Reverse Engineer Anything (REA)** (upstream package `rea-agents`, web `https://rea.tools/`) into **agyis-harness** within the Google Antigravity™ runtime environment.
 
 The architecture resolves three core integration classes cleanly without adding overhead to non-RE workflows:
-1. **Opt-In Doctor Latency Isolation**: Heavy disassembler probes (`rea providers --json`) execute only under `--experimental-rea`, keeping standard `agyis doctor` strictly sub-second (`<1.0s`) with zero false warnings.
+1. **Opt-In Doctor Latency Isolation**: Heavy disassembler probes (`rea providers --json`) execute only under `--rea` (or deprecated alias `--experimental-rea`, `--re`, or an RE workspace), keeping standard `agyis doctor` strictly sub-second (`<1.0s`) with zero false warnings.
 2. **Phase-Aware Cleanroom Fence**: `completion_fence_hook.py` decouples `spec_dirty` (`docs/specs/**`, `.agents/ledger/**`) from `code_dirty`, clearing specification work via `agyis verify --spec` or `rea verify-reconstruction` without forcing unit test runs.
 3. **Subshell & Stream Resilience**: Lifecycle hooks provide transparent `PATH` shims for `rea`, elevated bounded sliding-window quotas (`8` in `15` calls, `<3` consecutive identical reads) for cleanroom specs, and character-offset pre-slicing (`>200KB`) for multi-megabyte disassembly dumps.
 
@@ -308,7 +308,7 @@ To achieve complete, error-free integration between Google Antigravity and REA a
 ```
 
 > [!NOTE] Portable Host Resolution & Dynamic JVM Ladder
-> - **Portable `command` Resolution**: In standard environments where `rea` is installed globally (via `pnpm add -g rea-agents` or `npm install -g rea-agents`), `"command": "rea"` executes directly via user PATH shims injected by the harness. When configured via `agyis onboard --experimental-rea` or `agyis install -g --experimental-rea`, the installer dynamically resolves `command` to the host's concrete entrypoint (e.g. `$(pnpm root -g)/rea-agents/scripts/rea.mjs`, `$(npm root -g)/rea-agents/scripts/rea.mjs`, or `~/.local/share/pnpm/rea`).
+> - **Portable `command` Resolution**: In standard environments where `rea` is installed globally (via `pnpm add -g rea-agents` or `npm install -g rea-agents`), `"command": "rea"` executes directly via user PATH shims injected by the harness. When configured via `agyis onboard --rea` or `agyis install -g --rea`, the installer dynamically resolves `command` to the host's concrete entrypoint (e.g. `$(pnpm root -g)/rea-agents/scripts/rea.mjs`, `$(npm root -g)/rea-agents/scripts/rea.mjs`, or `~/.local/share/pnpm/rea`).
 > - **Dynamic `JAVA_HOME` Discovery**: The environment variable `JAVA_HOME` is dynamically populated during provisioning using the JVM Discovery Ladder:
 >   1. Existing `$JAVA_HOME` (if valid JDK 21+).
 >   2. Linux OpenJDK glob: `/usr/lib/jvm/java-21-openjdk*`.
@@ -338,7 +338,7 @@ Antigravity's JSON-RPC stdio transport buffers individual tool responses. If an 
 - **First-Party Layer 1 Skill (`harness/skills/re-ops/SKILL.md`)**: Target-agnostic Agyis operational runbook housing the complete **`PSL-RE-001` On-Demand Domain Pack** — cleanroom quarantine (`PSL-RE-001 §1`), pre-analyzed Ghidra direct-mount acceleration (`PSL-RE-001 §2`), the complete 15-subcommand `agyis re` lifecycle palette, 4-vector cleanroom verification, and the 5-step REA surgical escalation ladder. Provisioned via `--role re`, `--role cleanroom`, or the `ops` skill group.
 - **Upstream Dynamic Skill (`reverse-engineer-anything`)**: Encapsulates upstream REA operational runbooks, disassembler choice matrices, and cleanroom verification protocols without vendoring external upstream markdown inside `harness/skills/`:
   - **Dynamic Discovery & Provisioning (`provision_rea_skill()` in `harness/runtime/healing.py`)**: Discovers upstream `skills/reverse-engineer-anything/SKILL.md` from `rea providers --json` package `root_path` or user `pnpm`/`npm` global stores, symlinking or downloading on-demand into target skills roots (`~/.gemini/config/skills/reverse-engineer-anything/SKILL.md` or workspace `.agents/skills/`).
-  - **Triggers**: Executed on-demand via `agyis init --experimental-rea`, `agyis doctor --experimental-rea --heal`, or `agyis install -g --experimental-rea`.
+  - **Triggers**: Executed on-demand via `agyis init --rea`, `agyis onboard --rea`, `agyis doctor --rea --heal`, or `agyis install -g --rea` (with deprecated `--experimental-rea` compatibility alias).
 
 ---
 
@@ -689,8 +689,8 @@ To maintain the ADR-014 product-project separation and safeguard host environmen
 # 1. Workspace Initialization & Onboarding
 # ==============================================================================
 agyis init                                     # Standard workspace initialization (REA omitted)
-agyis init --experimental-rea                  # Provisions REA skills & scaffolds .agents/ledger/
-agyis onboard --experimental-rea               # Fleet onboarding with REA support
+agyis init --rea                               # Provisions REA skills & scaffolds .agents/ledger/
+agyis onboard --rea                            # Fleet onboarding with REA support
 
 # ==============================================================================
 # 2. Diagnostics & Verification Matrix
@@ -698,7 +698,7 @@ agyis onboard --experimental-rea               # Fleet onboarding with REA suppo
 agyis doctor                                   # Standard host audit (STRICT SUB-SECOND <1.0s)
                                                # REA probed via zero-delay fast path; 0 warnings added
 
-agyis doctor --experimental-rea                # Comprehensive REA diagnostic sweep:
+agyis doctor --rea                             # Comprehensive REA diagnostic sweep (or --re):
                                                # • Probes rea binary version (6.9.0+ / 255 MCP tools)
                                                # • Probes mcp_config.json registration
                                                # • Probes JDK 21+ & Ghidra 11.0+/12.2+ installation
@@ -707,7 +707,7 @@ agyis doctor --experimental-rea                # Comprehensive REA diagnostic sw
 # ==============================================================================
 # 3. Safe Zero-Sudo Auto-Healing
 # ==============================================================================
-agyis doctor --experimental-rea --heal         # Safe user-space auto-healing:
+agyis doctor --rea --heal                      # Safe user-space auto-healing:
                                                # • Installs rea-agents via pnpm/npm if missing
                                                # • Writes mcp_config.json with JDK 21 & Ghidra paths
                                                # • Provisions reverse-engineer-anything skill
@@ -715,17 +715,17 @@ agyis doctor --experimental-rea --heal         # Safe user-space auto-healing:
 # ==============================================================================
 # 4. Global Installation
 # ==============================================================================
-agyis install -g --experimental-rea            # Configures global MCP and installs global skill
+agyis install -g --rea                         # Configures global MCP and installs global skill
 ```
 
 ### 7.2 Strict Preservation of the Sub-Second Doctor Invariant
 In `harness/runtime/doctor.py`:
-- When `--experimental-rea` is **omitted**:
+- When `--rea` (or `--re` / legacy `--experimental-rea`) is **omitted** in a standard workspace:
   - The runtime performs a fast `shutil.which("rea")` check (<0.005s).
   - Heavy disassembler discovery (`rea providers --json`) is **skipped entirely**.
   - If REA is unconfigured or absent, `doctor.py` outputs a concise informational note and adds **0 warnings** to the summary tally.
   - Overall `agyis doctor` runtime remains strictly within the **<1.0s benchmark target**.
-- When `--experimental-rea` is **present**:
+- When `--rea` (or `--re` / workspace REA config) is **present**:
   - Deep diagnostics are executed, reporting exact statuses for Ghidra, Hopper, IDA, JADX, and MCP configuration:
     - **Ghidra**: Traverses dynamic JVM discovery ladder (`$JAVA_HOME` -> Linux OpenJDK glob -> Ubuntu amd64 -> Fedora JRE -> macOS Homebrew -> macOS PKG), asserts JDK 21+ compliance, and verifies headless `analyzeHeadless` execution. If JDK 21+ is missing, reports fallback chain (`Ghidra -> Rizin -> objdump -> built-in parsers`).
     - **Hopper (Headless Hopper Contract)**: Probes for `$DISPLAY` / `$WAYLAND_DISPLAY`, tests for `xvfb-run`, or verifies `QT_QPA_PLATFORM=offscreen`. If neither a display socket nor a virtual framebuffer is available, marks Hopper `unavailable: "no display socket"` and confirms fallback routing to Ghidra or Rizin without throwing Qt platform exceptions.
@@ -794,7 +794,7 @@ All REA integration modules, hook gates, and cleanroom verifiers must satisfy de
 | **Obligation Ledger Scaffold** | `agyis verify --scaffold` | Generates `.agents/ledger/obligation_ledger.json` (`REA 6.9.0` strictObject) schema template. |
 | **Full Reconstruction Gate** | `agyis verify` / `rea verify-reconstruction` | Validates `.agents/ledger/obligation_ledger.json` (and legacy `manifest.json`) obligations against evidence. |
 | **Zero-Delay Doctor** | `agyis doctor` | Confirms sub-second (`<1.0s`) baseline check without launching heavy disassembler scans. |
-| **Opt-In REA Audit** | `agyis doctor --experimental-rea` | Audits `rea`, `mcp_config.json`, JDK 21+, Ghidra, Hopper, IDA Pro, and JADX provider chains. |
+| **Opt-In REA Audit** | `agyis doctor --rea` | Audits `rea`, `mcp_config.json`, JDK 21+, Ghidra, Hopper, IDA Pro, and JADX provider chains. |
 | **Address Inspection Gate** | `agyis re addr 0x... --json` | Validates VA <-> RVA <-> File Offset mapping and symbol attribution in `<2ms`. |
 | **Cross-Reference Gate** | `agyis re xrefs 0x... --json` | Validates dual-mode (SQLite + binary direct scan) xref resolution across code and data. |
 | **Query Cache Status Gate** | `agyis re cache status` | Asserts active cache directory, sub-millisecond retrieval, and accurate hit rates. |

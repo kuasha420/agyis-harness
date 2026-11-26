@@ -16,7 +16,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 MAX_DOWNLOADED_SKILL_BYTES = 256 * 1024
 DEFAULT_PKG_MANAGER_TIMEOUT = 120.0
@@ -146,6 +146,32 @@ def provision_rea_skill(
     return None
 
 
+def provision_workspace_rea(target_ws: Path, dry_run: bool = False) -> Tuple[bool, Path]:
+    """Configure workspace .agyis/config.json (or .psl/config.json), ledger dir, and REA skill."""
+    cfg_file = (
+        (target_ws / ".psl" / "config.json")
+        if (target_ws / ".psl").is_dir() and not (target_ws / ".agyis").exists()
+        else (target_ws / ".agyis" / "config.json")
+    )
+    if dry_run:
+        return False, cfg_file
+
+    cfg_file.parent.mkdir(parents=True, exist_ok=True)
+    ws_cfg: Dict[str, Any] = {}
+    if cfg_file.is_file():
+        try:
+            parsed = json.loads(cfg_file.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                ws_cfg = parsed
+        except (json.JSONDecodeError, OSError):
+            ws_cfg = {}
+    ws_cfg["rea"] = True
+    cfg_file.write_text(json.dumps(ws_cfg, indent=2) + "\n", encoding="utf-8")
+    (target_ws / ".agents" / "ledger").mkdir(parents=True, exist_ok=True)
+    provisioned = provision_rea_skill(target_ws / ".agents" / "skills", link=True, allow_download=False)
+    return bool(provisioned), cfg_file
+
+
 def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
     """Auto-heal REA tooling and Antigravity MCP configuration in user-space without sudo."""
     actions: List[str] = []
@@ -158,7 +184,7 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
     if not node_info.get("rea_compatible", False):
         pnpm = shutil.which("pnpm")
         if pnpm:
-            print("[*] Switching to Node 24 LTS via pnpm env use --global 24...")
+            print("[*] Switching to Node 24 LTS via pnpm env use --global 24...", file=sys.stderr)
             try:
                 proc = subprocess.run(
                     [pnpm, "env", "use", "--global", "24"],
@@ -183,7 +209,7 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
         npm = shutil.which("npm")
         installed = False
         if pnpm:
-            print("[*] Installing/updating rea-agents via pnpm...")
+            print("[*] Installing/updating rea-agents via pnpm...", file=sys.stderr)
             try:
                 proc = subprocess.run(
                     [pnpm, "add", "-g", "rea-agents"],
@@ -199,7 +225,7 @@ def heal_rea_tooling(audit: Dict[str, Any]) -> List[str]:
             except subprocess.TimeoutExpired:
                 actions.append(f"Timed out installing rea-agents via pnpm ({DEFAULT_PKG_MANAGER_TIMEOUT:.0f}s limit).")
         if not installed and npm:
-            print("[*] Installing/updating rea-agents via npm...")
+            print("[*] Installing/updating rea-agents via npm...", file=sys.stderr)
             try:
                 proc = subprocess.run(
                     [npm, "install", "-g", "rea-agents"],
@@ -338,6 +364,7 @@ def heal_environment(
     experimental_rea: bool = False,
     re_toolchain: bool = False,
     workspace_dir: Optional[Path] = None,
+    rea: bool = False,
 ) -> List[str]:
     """Execute non-destructive user-space repairs and return manual instructions."""
     actions_taken: List[str] = []
@@ -364,7 +391,7 @@ def heal_environment(
                 if name == "python" and st in ("OUTDATED", "WARNING"):
                     # If host python is outdated or shimmed, ensure uv python 3.12 is ready
                     if uv_path:
-                        print(f"[*] Provisioning hermetic Python 3.12 via {uv_path}...")
+                        print(f"[*] Provisioning hermetic Python 3.12 via {uv_path}...", file=sys.stderr)
                         try:
                             proc = subprocess.run(
                                 [uv_path, "python", "install", "3.12"],
@@ -495,7 +522,7 @@ def heal_environment(
             except (subprocess.SubprocessError, OSError) as exc:
                 actions_taken.append(f"Could not auto-rebind DB port in {env_file}: {exc}")
 
-    if experimental_rea or audit.get("experimental_rea"):
+    if rea or experimental_rea or audit.get("rea") or audit.get("experimental_rea"):
         rea_actions = heal_rea_tooling(audit)
         actions_taken.extend(rea_actions)
 

@@ -341,14 +341,15 @@ class TestTier2Boundaries(OpaqueBoxTestCase):
         """Assures default doctor runs zero-delay fast path without REA warnings in sub-second latency."""
         import time
 
-        # Nominal fast path execution
+        # Nominal fast path execution inside clean sandbox workspace
         t0 = time.perf_counter()
-        code, out, err = self.run_cli(["doctor", "--json"])
+        code, out, err = self.run_cli(["doctor", "-w", str(self.ws), "--json"])
         elapsed = time.perf_counter() - t0
 
         max_elapsed = 3.5 if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS") else 1.0
         self.assertLess(elapsed, max_elapsed, f"Doctor fast-path exceeded {max_elapsed}s benchmark: {elapsed:.3f}s")
         data = self.parse_json_stdout(out)
+        self.assertFalse(data.get("rea", False))
         self.assertFalse(data.get("experimental_rea", False))
         rea_info = data.get("rea_tooling", {})
         self.assertTrue(rea_info.get("fast_path", False))
@@ -376,9 +377,10 @@ class TestTier2Boundaries(OpaqueBoxTestCase):
 
         with unittest.mock.patch.dict(os.environ, {"PATH": restricted_path, "HOME": str(self.ws)}):
             os.environ.pop("PNPM_HOME", None)
-            code_no_rea, out_no_rea, err_no_rea = self.run_cli(["doctor", "--json"])
+            code_no_rea, out_no_rea, err_no_rea = self.run_cli(["doctor", "-w", str(self.ws), "--json"])
             self.assertEqual(code_no_rea, code)
             data_no_rea = self.parse_json_stdout(out_no_rea)
+            self.assertFalse(data_no_rea.get("rea", False))
             self.assertFalse(data_no_rea.get("experimental_rea", False))
             rea_no_rea = data_no_rea.get("rea_tooling", {})
             self.assertTrue(rea_no_rea.get("fast_path", False))

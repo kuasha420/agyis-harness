@@ -7,12 +7,69 @@
 
 from __future__ import annotations
 
+import argparse
+import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 from typing import Any, Dict, Optional, Tuple
+
+
+def find_hermetic_uv_python() -> Optional[Path]:
+    """Find installed CPython 3.12+ in uv's toolchain directory."""
+    uv_python_dir = Path.home() / ".local/share/uv/python"
+    if not uv_python_dir.exists():
+        return None
+    for candidate in sorted(uv_python_dir.glob("cpython-3.1[2-9]*/bin/python3"), reverse=True):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+REA_DEPRECATION_WARNING = (
+    "DeprecationWarning: '--experimental-rea' is deprecated; "
+    "use '--rea' (or '--re' on doctor).\n"
+)
+
+
+class _DeprecatedReaAction(argparse.Action):
+    """Argparse action enabling --rea while warning to stderr when --experimental-rea is passed."""
+
+    def __init__(self, option_strings: Any, dest: str, **kwargs: Any) -> None:
+        kwargs.setdefault("nargs", 0)
+        kwargs.setdefault("default", False)
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: Optional[str] = None,
+    ) -> None:
+        sys.stderr.write(REA_DEPRECATION_WARNING)
+        setattr(namespace, self.dest, True)
+        setattr(namespace, "rea", True)
+
+
+def register_rea_flags(
+    parser: argparse.ArgumentParser,
+    help_text: str,
+) -> None:
+    """Register primary --rea flag and deprecated --experimental-rea compatibility alias."""
+    parser.add_argument(
+        "--rea",
+        dest="rea",
+        action="store_true",
+        help=help_text,
+    )
+    parser.add_argument(
+        "--experimental-rea",
+        dest="experimental_rea",
+        action=_DeprecatedReaAction,
+        help="Deprecated alias for --rea",
+    )
 
 
 def parse_version(v_str: str) -> Tuple[int, ...]:
