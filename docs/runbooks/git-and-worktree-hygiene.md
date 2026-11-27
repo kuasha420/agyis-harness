@@ -2,7 +2,7 @@
 title: Git, Worktree & Dirty-Tree Hygiene Runbook
 description: Human operator runbook for zero-loss dirty working tree triage, multi-worktree isolation, stale index.lock recovery, crash cleanup, and pre-verification build cache remediation.
 version: 2.1.0
-last_updated: 2026-11-25
+last_updated: 2026-11-27
 target_audience: [developer, operator]
 related_adrs: [ADR-013, ADR-014, ADR-031A, ADR-031B]
 ---

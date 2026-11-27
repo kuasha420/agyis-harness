@@ -153,10 +153,17 @@ class TestCliDualExecutionMatrix(unittest.TestCase):
 
     def test_dual_version_invocations(self):
         """Verifies agyis --version is clean, while psl --version emits deprecation warning."""
+        import tomllib
         from harness import __version__
         from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
 
-        self.assertRegex(__version__, r"^1\.0\.0(?:-rc\d+)?$")
+        repo_root = Path(__file__).resolve().parent.parent
+        pyproject_version = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+        plugin_version = json.loads((repo_root / "plugin.json").read_text(encoding="utf-8"))["version"]
+
+        self.assertRegex(__version__, r"^\d+\.\d+\.\d+(?:-rc\d+)?$")
+        self.assertEqual(__version__, pyproject_version)
+        self.assertEqual(__version__, plugin_version)
 
         # agyis --version
         with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \

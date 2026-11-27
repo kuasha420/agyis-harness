@@ -13,9 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Wave 1.4 — Bug Fixes & Standardization
-- fix(gui,hud): stabilize Trajectory HUD `CHECKPOINT` selection via Option B disjoint checkpoint window partitioning (`0..c0-1`, `c_k..c_{k+1}-1`), `resolveCheckpointForStep` reverse-scan preservation, `hud_stream.js` & `hud_utils.js` modular extraction, unified search/filter/scroll preservation, and `:40624` playback parity
-- refactor(checkpoint): standardize trajectory, hook, subagent, rule, skill, agent, documentation, and landing-page terminology from `epoch` to `checkpoint` (`SOFT_CHECKPOINT_STEP_ADVISORY = 80`, `[AGYIS CHECKPOINT HORIZON ADVISORY]`, `[CHECKPOINT HORIZON]`, `checkpoints` / `checkpoint_index` / `checkpoint_steps`, and `compaction_checkpoint_<ts>.md`), preserving Unix wall-clock timestamps and historical backwards-compatibility read fallbacks
+*No changes.*
+
+---
+
+## [1.1.0] - 2026-11-27
+
+### Features & Architecture
+- feat(telemetry,audit): add Gate 0 DB integrity repair & deduplication (`harness/telemetry/integrity.py`, `integrity_dedup.py`), sync watermarks, keyset cursor pagination, sibling DB & protobuf models, Git Era x Model analyzer (`pipeline/analyze_eras.py`), privacy-safe website exporter (`pipeline/export_website_metrics.py`), and explicit local-corpus provenance disclosures across the `3,856`-session (`2026-05-24`–`2026-11-25`) Gate 0 telemetry baseline (Wave 1.1 / G0.1)
+- feat(re,cli): promote stable `--rea` flag alongside `--re` (`doctor --re` / `--rea`), add `agyis clean --caches`, wire `agyis onboard` verification gates (`harness/commands/onboard_gates.py`), and harden background sync watch/service lifecycle (Wave 1.1)
+- feat(hooks,subagents,aff): add Antigravity `v2.35.2` strict `exa.hooks_pb` wire compatibility (`harness/hooks/wire_compat.py`), SQLite lineage role pinning (`harness/hooks/role_lineage.py`, `harness/trajectory/lineage.py`), `19` `CANONICAL_PLATFORM_TOOLS` + `2` `ROOT_PLAN_MODE_TOOLS` (`30` total `ANTIGRAVITY_PLATFORM_TOOLS`) registry, MCP argument normalization (`harness/hooks/mcp_normalizer.py`), split AFF checks (`harness/runtime/aff.py`, `aff_extract.py`) with bounded JS cache enforcement, and `agyis audit sync-check [--include-site]` (`harness/delivery/sync_check.py`) (Wave 1.2)
+- feat(theme,gui): launch Orbital Aegis cross-surface CLI theme (`harness/utils/theme.py`), `v2.35.2` hooks UI parity, `:40624` playback shell (`playback_boot.js`, `playback_shell.html`, `trajectory_catalog.py`), and modular `hud_stream.js` & `hud_utils.js` assets loaded via `importlib.resources` (Wave 1.3–1.4)
+- feat(cli,subagents): optimize `agyis` CLI startup with PEP 562 lazy command imports (`harness/cli.py`, `harness/commands/__init__.py`) and bound `agyis subagents --liveness` transcript tail reads to `64KB` (Wave 1.4)
+
+### Bug Fixes & Hardening
+- fix(gui,hud): stabilize live ConnectRPC Trajectory HUD `CHECKPOINT` selection via Option-B disjoint checkpoint window partitioning (`0..c0-1`, `c_k..c_{k+1}-1`), `resolveCheckpointForStep` reverse-scan preservation, unified search/filter/scroll/focus snapshots, `__agyis_context_bar` `v2.35.2` global namespace isolation, and `:40624` playback parity (Wave 1.3–1.4)
+- refactor(checkpoint): standardize trajectory, hook, subagent, rule, skill, agent, documentation, and landing-page terminology from `epoch` to `checkpoint` (`SOFT_CHECKPOINT_STEP_ADVISORY = 80`, `[AGYIS CHECKPOINT HORIZON ADVISORY]`, `[CHECKPOINT HORIZON]`, `checkpoints` / `checkpoint_index` / `checkpoint_steps`, and `compaction_checkpoint_<ts>.md`), preserving Unix wall-clock timestamps and historical backwards-compatibility read fallbacks (Wave 1.4)
+- fix(telemetry): harden `agyis-sync.service` against deleted/transient CWD `[Errno 2]` errors (`_is_transient_dir`), add slim transcript step projection (`_project_transcript_step`) & bounded cache/RSS trimming (`_trim_process_memory`, `_seed_mtime_cache`), auto `try_restart_service` on global install, and report `daemon_version` drift in `agyis doctor` (`check_telemetry_daemon`) (Wave 2.6, `#121`)
+- fix(delivery): harden `DeliveryMode.COPY` with symlink-safe removal (`_remove_existing_path`) and prune stale `dist/` / `*.dist-info/` artifacts in `harness/delivery/copy_install.py` (Wave 2.6, `#119`)
+- fix(test,launcher): resolve local CWD repository checkouts in global `agyis test` (`_delegate_to_cwd_checkout`) and prefer repo `.venv/bin/python` in `harness/commands/test.py` and `harness/delivery/bin_launcher.py` (Wave 2.6, `#120`)
+
+### Documentation & Website
+- feat(website,ci): expand Orbital Aegis GitHub Pages showcase to 5 routes (`index`, `telemetry`, `cognitive`, `hud-re`, `brand`), publish 6 PII-audited Gate 0 telemetry JSON bundles (`website/data/`) with `1200x900` studio PNG/WebP artwork, split `.github/workflows/pages.yml` into race-free build/deploy jobs, and update `og-image` for `v1.1.0` (Wave 2 & Wave 3)
+- feat(website): implement zero-FOUC unified Light/Dark design system (`light-dark()`, WCAG AA `--accent-solid` controls, polarity-adaptive SVG chart tokens), `2.5D` surface elevation & pointer/scroll motion under `prefers-reduced-motion`, and responsive QA across all 5 routes (Wave 2.5)
+- docs(release): reconcile `README.md` (with empirical corpus provenance disclosure), `roadmap.md`, `CHANGELOG.md`, `docs/taxonomy/project-ledger.md` (`<50` lines), user/developer guides, official specs, runbooks, ADR registry, and GitHub issue templates for `v1.1.0` (`2,572` hermetic tests across `119` modules) (Wave 3)
 
 ---
 
@@ -559,7 +580,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release candidate for Agyis Harness for Google Antigravity™.
 - Autonomous agent runtime harness, empirical audit telemetry pipeline, and lifecycle hooks immune system.
 
-[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc14...v1.0.0
 [1.0.0-rc14]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc13...v1.0.0-rc14
 [1.0.0-rc13]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc12...v1.0.0-rc13

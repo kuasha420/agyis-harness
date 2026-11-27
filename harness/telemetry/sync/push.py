@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import urllib.error
 import urllib.request
 
+from harness import __version__
 from harness.telemetry import config
 from harness.telemetry.config import infer_client_surface, resolve_db_path, resolve_machine_id
 from harness.telemetry.db import get_db_connection
@@ -202,7 +203,7 @@ def push_local_sessions(
     headers = {
         "Authorization": f"Bearer {resolved_token}",
         "Content-Type": "application/json",
-        "User-Agent": "psl-harness/1.0.0",
+        "User-Agent": f"psl-harness/{__version__}",
     }
 
     for batch_idx, batch_sessions in enumerate(batches):
@@ -327,7 +328,7 @@ def push_local_sessions(
             sanitized_interventions.append(ui_clean)
 
         payload = _strip_nul({
-            "client_version": "1.0.0",
+            "client_version": __version__,
             "sessions": sanitized_sessions,
             "steps": sanitized_steps,
             "tool_calls": sanitized_tools,

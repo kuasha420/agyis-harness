@@ -92,7 +92,7 @@ An official Antigravity plugin bundles manifests, MCP definitions, lifecycle hoo
 {
   "name": "agyis-harness",
   "displayName": "Agyis Harness for Google Antigravity™",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Autonomous agent runtime harness and immune system for Google Antigravity™",
   "logo": "assets/logo.svg",
   "author": {

@@ -25,6 +25,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from server import __version__
 from server.auth import verify_github_token
 from server.storage import Storage, get_storage
 
@@ -46,7 +47,7 @@ async def health_endpoint(request: Request) -> JSONResponse:
     return JSONResponse(
         {
             "status": "ok" if is_connected else "error",
-            "version": "1.0.0",
+            "version": __version__,
             "database": db_status,
         },
         status_code=status_code,

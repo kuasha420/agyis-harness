@@ -151,14 +151,20 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertTrue((self.target_dir / "agents" / "agyis_builder.md").is_file())
         self.assertTrue((self.target_dir / "rules" / "AGENTS.md").is_file())
 
+        import tomllib
         from harness import __version__
+
+        pyproject_version = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+        plugin_version = json.loads((REPO_ROOT / "plugin.json").read_text(encoding="utf-8"))["version"]
 
         self.assertTrue(installer.is_installed(self.target_dir))
         info = installer.get_install_info(self.target_dir)
         self.assertTrue(info["installed"])
         self.assertEqual(info["mode"], "copy")
         self.assertEqual(info["version"], __version__)
-        self.assertRegex(__version__, r"^1\.0\.0(?:-rc\d+)?$")
+        self.assertRegex(__version__, r"^\d+\.\d+\.\d+(?:-rc\d+)?$")
+        self.assertEqual(__version__, pyproject_version)
+        self.assertEqual(__version__, plugin_version)
 
     def test_wheel_extracted_source_fallback_and_full_assets(self) -> None:
         """PluginInstaller resolves assets/plugin.json from harness/ fallback and delivers full assets in wheel mode."""

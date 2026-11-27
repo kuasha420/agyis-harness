@@ -8,7 +8,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Repository**: `kuasha420/agyis-harness`  
-**Last Updated**: 2026-11-25 (`v1.0.0`)  
+**Last Updated**: 2026-11-27 (`v1.1.0`)  
 
 ---
 
@@ -38,9 +38,9 @@ Dynamically scaled across **`256k`**, **Gemini 4 (`gemini-4-neon`, `gemini-4-hyd
 
 ---
 
-## 3. Completed Baseline (`v1.0.0` GA — Codex v2, Gemini 4, Antigravity `v2.34.0+` & Public Launch)
+## 3. Completed Baseline (`v1.1.0` Uplift — Antigravity `v2.35.2`, Live HUD & Orbital Aegis Showcase)
 
-Phases 0.5 through **`v1.0.0` GA** (`Horizon 0` empirical ground truth, `Horizon 1` core foundation, `v1.0.0-rc11` bug bash & modular ConnectRPC HUD, **29/29** Antigravity `v2.34.0+` / `agy v1.5.15` / `IDE v2.8.0` / `rea@6.9.0` compatibility fixes across `rc12`–`rc13`, continuous CI & wheel release publishing in `rc14`, and **PSL Invariant Codex v2** `PSL-INV-001`–`008` + `PSL-RE-001` along with full runtime/security/documentation reconciliation for `v1.0.0`) are complete:
+Phases 0.5 through **`v1.0.0` GA** and the **`v1.1.0` Two-Stream Uplift** (`Horizon 0` empirical ground truth & `3,856`-session Gate 0 corpus, `Horizon 1` core foundation, `v1.0.0-rc11` bug bash & modular ConnectRPC HUD, **29/29** Antigravity `v2.34.0+` / `agy v1.5.15` / `IDE v2.8.0` / `rea@6.9.0` compatibility fixes across `rc12`–`rc13`, continuous CI & wheel release publishing in `rc14`, **PSL Invariant Codex v2** `PSL-INV-001`–`008` + `PSL-RE-001` in `v1.0.0` GA, plus `v1.1.0` Waves 1.1–1.4 `v2.35.2` `exa.hooks_pb` wire compatibility, SQLite lineage role pinning, Option-B checkpoint HUD / `:40624` playback parity, Waves 2–2.5 Orbital Aegis Light/Dark `2.5D` 5-route site, and Wave 2.6 `#119`/`#120`/`#121` hardening) are complete:
 - **Verified Surface**: **28** CLI subcommands (`29` parser entries with `changelogs` alias; `router` & `ladder` separate), **30** modular skills (`>100` L ToC, `<24,576` B cap), **8** canonical `v2.34+`/`2.35.2` agent personas (`19` canonical tools `<=20` ceiling), **7** `hooks.json` blocks (**8** `doctor` hook checks), **4** cleanroom RE specifications (including the 29-entry `v2.34.0` drift inventory), **7** official specs, and **4** human runbooks.
 - **Verified Quality Gate**: **2,572** hermetic tests (`115` `tests/test_*.py` + `4` `tests/e2e/test_*.py` modules = `119` total), **AFF** architectural fitness gate (`agyis audit aff`, `PSL-INV-008`), **4** cleanroom RE specifications (`agyis verify --spec`), SSOT parity audit (`agyis audit sync-check`), continuous CI (`.github/workflows/ci.yml`), and zero live `config.json` mutation.
 - **Release History**: [`CHANGELOG.md`](CHANGELOG.md)
@@ -49,7 +49,7 @@ Phases 0.5 through **`v1.0.0` GA** (`Horizon 0` empirical ground truth, `Horizon
 
 ---
 
-## 4. Post-`v1.0.0` Horizon 2 Priorities
+## 4. Post-`v1.1.0` Horizon 2 Priorities
 
 | Priority Track | Scope & Target Deliverables | Acceptance Gate |
 | :--- | :--- | :--- |

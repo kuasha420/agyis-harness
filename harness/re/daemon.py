@@ -27,6 +27,7 @@ import threading
 import time
 from typing import Any, Dict, IO, Optional
 
+from harness import __version__
 from harness.utils import theme
 
 try:
@@ -434,7 +435,7 @@ def _run_worker(root: Optional[Path] = None) -> int:
                     "params": {
                         "protocolVersion": "2025-11-25",
                         "capabilities": {},
-                        "clientInfo": {"name": "agyis-daemon-bridge", "version": "1.0.0"},
+                        "clientInfo": {"name": "agyis-daemon-bridge", "version": __version__},
                     },
                 }
                 if not child.stdin or not child.stdout:

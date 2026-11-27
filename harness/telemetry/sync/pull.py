@@ -20,6 +20,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from harness import __version__
 from harness.telemetry import config
 from harness.telemetry.config import resolve_db_path
 from harness.telemetry.db import get_db_connection, get_sync_watermark, set_sync_watermark
@@ -511,7 +512,7 @@ def pull_remote_sessions(
     headers = {
         "Authorization": f"Bearer {resolved_token}",
         "Accept": "application/json",
-        "User-Agent": "psl-harness/1.0.0",
+        "User-Agent": f"psl-harness/{__version__}",
     }
 
     def _fetch_page(query_str: str) -> Dict[str, Any]:

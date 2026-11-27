@@ -31,5 +31,5 @@
   <text x="72" y="256" fill="#F4F6FA" font-family="Instrument Sans, Inter, system-ui, -apple-system, sans-serif" font-size="72" font-weight="700" letter-spacing="-2.4">Deterministic</text>
   <text x="72" y="334" fill="#F4F6FA" font-family="Instrument Sans, Inter, system-ui, -apple-system, sans-serif" font-size="72" font-weight="700" letter-spacing="-2.4">guardrails for</text>
   <text x="72" y="412" fill="#5C8AFF" font-family="Instrument Sans, Inter, system-ui, -apple-system, sans-serif" font-size="72" font-weight="700" letter-spacing="-2.4">Antigravity.</text>
-  <text x="72" y="540" fill="#9AA8BE" font-family="JetBrains Mono, monospace" font-size="22" font-weight="500">Version 1.0.0  ·  agyis-harness.io</text>
+  <text x="72" y="540" fill="#9AA8BE" font-family="JetBrains Mono, monospace" font-size="22" font-weight="500">Version 1.1.0  ·  agyis-harness.io</text>
 </svg>

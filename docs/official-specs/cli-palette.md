@@ -10,7 +10,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Binary Entrypoint**: `agyis` (Primary) / `psl` (Deprecated Alias) / `python3 -m harness.cli`  
-**Last Updated**: 2026-11-25 (`v1.0.0`)  
+**Last Updated**: 2026-11-27 (`v1.1.0`)  
 
 ---
 

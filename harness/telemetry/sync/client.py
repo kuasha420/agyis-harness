@@ -15,6 +15,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from harness import __version__
 from harness.telemetry import config
 
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -65,7 +66,7 @@ def verify_auth_token(
         headers={
             "Authorization": f"Bearer {resolved_token}",
             "Content-Type": "application/json",
-            "User-Agent": "psl-harness/1.0.0",
+            "User-Agent": f"psl-harness/{__version__}",
         },
         method="POST",
     )

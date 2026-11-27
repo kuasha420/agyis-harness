@@ -9,7 +9,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Scope**: Self-Contained Decision Registry (`ADR-001` through `ADR-035`)  
-**Last Updated**: 2026-11-25  
+**Last Updated**: 2026-11-27  
 
 ---
 

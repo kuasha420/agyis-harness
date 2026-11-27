@@ -9,7 +9,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Scope**: Project-Internal Test Standards & Product-Delivered Testing Invariants  
-**Last Updated**: 2026-11-25 (`v1.0.0`)  
+**Last Updated**: 2026-11-27 (`v1.1.0`)  
 
 ---
 
