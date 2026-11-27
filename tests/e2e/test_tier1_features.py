@@ -506,9 +506,19 @@ class TestTier1Features(OpaqueBoxTestCase):
              unittest.mock.patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
              unittest.mock.patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
              unittest.mock.patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")):
-            code, out, err = self.run_cli(["doctor", "--experimental-rea", "--json"])
+            code_rea, out_rea, err_rea = self.run_cli(["doctor", "-w", str(self.ws), "--rea", "--json"])
+            self.assertEqual(code_rea, 0)
+            self.assertEqual(err_rea, "")
+            data_rea = self.parse_json_stdout(out_rea)
+            self.assertTrue(data_rea.get("rea"))
+            self.assertTrue(data_rea.get("experimental_rea"))
+
+            # Backward-compatible --experimental-rea warns to stderr while keeping JSON stdout clean
+            code, out, err = self.run_cli(["doctor", "-w", str(self.ws), "--experimental-rea", "--json"])
             self.assertEqual(code, 0)
+            self.assertIn("DeprecationWarning", err)
             data = self.parse_json_stdout(out)
+            self.assertTrue(data.get("rea"))
             self.assertTrue(data.get("experimental_rea"))
             self.assertIn("rea_tooling", data)
             rea_tooling = data["rea_tooling"]
@@ -517,38 +527,42 @@ class TestTier1Features(OpaqueBoxTestCase):
             self.assertIn("mcp_configured", rea_tooling)
 
             # Observable text output contract
-            code_txt, out_txt, err_txt = self.run_cli(["doctor", "--experimental-rea"])
+            code_txt, out_txt, err_txt = self.run_cli(["doctor", "-w", str(self.ws), "--rea"])
             self.assertEqual(code_txt, 0)
             self.assertIn("REA Tooling", out_txt)
 
     def test_r6_cli_init_experimental_rea(self) -> None:
-        """Assures 'agyis init --experimental-rea' scaffolds .agents/ledger/ and sets config."""
+        """Assures 'agyis init --rea' (and compat '--experimental-rea') scaffolds .agents/ledger/ and sets canonical config."""
         target_ws = self.ws / "rea_proj"
         target_ws.mkdir()
 
         with unittest.mock.patch("harness.runtime.healing.provision_rea_skill"):
-            # Step 1: Live execution with --experimental-rea
-            code, out, err = self.run_cli(["init", "--experimental-rea", "--json", str(target_ws)])
+            # Step 1: Live execution with --rea
+            code, out, err = self.run_cli(["init", "--rea", "--json", str(target_ws)])
             self.assertEqual(code, 0)
+            self.assertEqual(err, "")
             data = self.parse_json_stdout(out)
             self.assertTrue(data.get("success"))
+            self.assertTrue(data.get("rea"))
             self.assertTrue(data.get("experimental_rea"))
 
-            # Verify side effects: .agents/ledger directory scaffolded and config set
+            # Verify side effects: .agents/ledger directory scaffolded and canonical 'rea' config set
             ledger_dir = target_ws / ".agents" / "ledger"
             self.assertTrue(ledger_dir.is_dir())
             cfg_file = target_ws / ".agyis" / "config.json"
             self.assertTrue(cfg_file.is_file())
             cfg_data = json.loads(cfg_file.read_text(encoding="utf-8"))
-            self.assertTrue(cfg_data.get("experimental_rea"))
+            self.assertTrue(cfg_data.get("rea"))
 
-            # Step 2: Dry-run execution
+            # Step 2: Dry-run execution with deprecated alias
             dry_ws = self.ws / "rea_dry_proj"
             dry_ws.mkdir()
             code_d, out_d, err_d = self.run_cli(["init", "--experimental-rea", "--dry-run", "--json", str(dry_ws)])
             self.assertEqual(code_d, 0)
+            self.assertIn("DeprecationWarning", err_d)
             data_d = self.parse_json_stdout(out_d)
             self.assertTrue(data_d.get("dry_run"))
+            self.assertTrue(data_d.get("rea"))
             self.assertTrue(data_d.get("experimental_rea"))
             self.assertFalse((dry_ws / ".agents" / "ledger").exists())
 

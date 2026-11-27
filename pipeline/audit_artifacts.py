@@ -28,7 +28,8 @@ import re
 import sqlite3
 from typing import Any, Dict, List, Optional, Set
 
-from harness.utils.context import get_active_brain_dir
+from harness.telemetry.config import infer_client_surface
+from harness.utils.context import get_brain_dir_candidates
 
 _logger = logging.getLogger(__name__)
 
@@ -65,11 +66,26 @@ def extract_files_from_text(text: str) -> Set[str]:
 
 
 def audit_artifacts(brain_dir: Optional[Path] = None) -> Dict[str, Any]:
-    active_brain = brain_dir or get_active_brain_dir()
-    artifact_files = glob.glob(str(active_brain / "*" / "*.md"))
+    brain_dirs = get_brain_dir_candidates(brain_dir)
+    artifact_files: List[Path] = []
+    seen_resolved: Set[Path] = set()
+    for b_root in brain_dirs:
+        if not b_root.is_dir():
+            continue
+        for raw_p in glob.glob(str(b_root / "*" / "*.md")):
+            p_obj = Path(raw_p)
+            try:
+                res_p = p_obj.resolve()
+            except OSError:
+                res_p = p_obj
+            if res_p not in seen_resolved:
+                seen_resolved.add(res_p)
+                artifact_files.append(p_obj)
 
     artifacts_by_type: Dict[str, int] = {}
     session_artifacts: Dict[str, List[Dict[str, Any]]] = {}
+    surfaces: Dict[str, Dict[str, int]] = {"ide": {"artifacts": 0, "sessions": 0}, "cli": {"artifacts": 0, "sessions": 0}}
+    surface_sessions: Dict[str, Set[str]] = {"ide": set(), "cli": set()}
 
     plans_total = 0
     plans_with_feedback_requested = 0
@@ -77,12 +93,15 @@ def audit_artifacts(brain_dir: Optional[Path] = None) -> Dict[str, Any]:
     drift_measurements = []
     read_errors: List[Dict[str, str]] = []
 
-    for af in artifact_files:
-        p = Path(af)
+    for p in artifact_files:
         name = p.name
         session_id = p.parent.name
         if session_id == "brain":
             continue
+
+        surf = infer_client_surface(p)
+        surfaces.setdefault(surf, {"artifacts": 0, "sessions": 0})["artifacts"] += 1
+        surface_sessions.setdefault(surf, set()).add(session_id)
 
         artifacts_by_type[name] = artifacts_by_type.get(name, 0) + 1
 
@@ -122,6 +141,9 @@ def audit_artifacts(brain_dir: Optional[Path] = None) -> Dict[str, Any]:
 
         if name == "walkthrough.md":
             walkthroughs_total += 1
+
+    for surf, s_set in surface_sessions.items():
+        surfaces[surf]["sessions"] = len(s_set)
 
     # Measure plan drift in sessions that have both implementation_plan.md and walkthrough.md
     for s_id, arts in session_artifacts.items():
@@ -165,6 +187,7 @@ def audit_artifacts(brain_dir: Optional[Path] = None) -> Dict[str, Any]:
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
         "total_markdown_artifacts": len(artifact_files),
         "total_sessions_with_artifacts": len(session_artifacts),
+        "surfaces": surfaces,
         "artifacts_by_type": dict(sorted(artifacts_by_type.items(), key=lambda x: x[1], reverse=True)),
         "planning_stats": {
             "implementation_plans": plans_total,
@@ -247,14 +270,14 @@ We paired **{p_stats['paired_plan_walkthrough_sessions']} sessions** that genera
     for s in drift_samples[:10]:
         md += f"| `{s['session_id'][:8]}...` | {s['planned_files_count']} | {s['delivered_files_count']} | {s['common_files_count']} | **{s['drift_fidelity_pct']}%** |\n"
 
-    md += """
+    md += f"""
 ---
 
 ## 4. Key Takeaways for Harness Gating
 
-1. **The Plan-Fidelity Invariant**: An average fidelity of **75–85%** indicates that Gemini's planning mode is structurally sound, with divergence primarily caused by legitimate discovery during implementation.
+1. **The Plan-Fidelity Invariant**: Measured average plan-to-execution fidelity is **{p_stats['average_plan_to_walkthrough_fidelity_pct']}%** across **{p_stats['paired_plan_walkthrough_sessions']}** paired sessions, with divergence typically reflecting discovered dependencies and added test coverage.
 2. **Proactive Drift Warning Hook**:
-   - A `PreToolUse` hook on `edit_file` / `write_file` can check whether the target file was in the approved `implementation_plan.md`. If it's a completely novel file outside the planned directory, it can prompt: *"Note: Touching unplanned file X. Update plan?"*
+   - A `PreToolUse` hook on `edit_file` / `write_file` checks whether targets align with the active `implementation_plan.md` and surfaces drift advisories when unplanned files are modified.
 """
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

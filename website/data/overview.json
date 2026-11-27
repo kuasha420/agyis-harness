@@ -1,0 +1,109 @@
+{
+  "generated_at": "2026-11-25T23:22:00Z",
+  "totals": {
+    "total_sessions": 3856,
+    "total_steps": 742273,
+    "total_tool_calls": 405666,
+    "total_tool_errors": 13128,
+    "total_interventions": 7056,
+    "overall_tool_error_rate_pct": 3.24,
+    "overall_session_intervention_rate": 1.83,
+    "titan_sessions": 92,
+    "titan_steps": 236861,
+    "titan_steps_share_pct": 31.9
+  },
+  "date_range": {
+    "min_utc": "2026-05-24T20:06:25Z",
+    "max_utc": "2026-11-25T23:14:25Z"
+  },
+  "compaction_highlights": {
+    "2kb_savings_pct": 58.3,
+    "32kb_savings_pct": 6.58,
+    "failure_preservation_violations": 0
+  },
+  "workspace_inventory": {
+    "skills": {
+      "count": 30,
+      "names": [
+        "agent-builder",
+        "audio-ops",
+        "cockpit-director",
+        "code-review",
+        "db-ops",
+        "display-ops",
+        "git-worktree-ops",
+        "graceful-parking",
+        "media-ops",
+        "milestone-handoff",
+        "powerloss-resume",
+        "psl-audit-toolkit",
+        "psl-harmonize",
+        "psl-stack-backend",
+        "psl-stack-python",
+        "psl-stack-shell",
+        "psl-stack-systems",
+        "psl-stack-typescript",
+        "psl-test-cargo",
+        "psl-test-go",
+        "psl-test-harmonize",
+        "psl-test-node",
+        "psl-test-python",
+        "re-ops",
+        "remote-ops",
+        "sec-forensics",
+        "storage-ops",
+        "subagent-ladder",
+        "subagent-router",
+        "telemetry-sync"
+      ]
+    },
+    "agents": {
+      "count": 8,
+      "names": [
+        "agyis_architect",
+        "agyis_auditor",
+        "agyis_builder",
+        "agyis_coordinator",
+        "agyis_custodian",
+        "agyis_investigator",
+        "agyis_planner",
+        "agyis_reviewer"
+      ]
+    },
+    "hooks": {
+      "count": 7,
+      "events_by_hook": {
+        "psl-anti-drift-guard": [
+          "PreToolUse"
+        ],
+        "psl-anti-loop-guard": [
+          "PreToolUse"
+        ],
+        "psl-command-safety-guard": [
+          "PreToolUse"
+        ],
+        "psl-output-compactor": [
+          "PostToolUse"
+        ],
+        "psl-stop-verification-fence": [
+          "PreToolUse",
+          "PostToolUse",
+          "Stop"
+        ],
+        "psl-token-proximity-guard": [
+          "PreToolUse"
+        ],
+        "psl-compaction-advisory": [
+          "PreInvocation"
+        ]
+      }
+    },
+    "aff": {
+      "status": "PASS",
+      "score": 100.0,
+      "scanned_files": 164,
+      "scanned_assets": 16,
+      "defects_count": 0
+    }
+  }
+}

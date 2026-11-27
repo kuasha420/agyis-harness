@@ -15,24 +15,27 @@
     "use strict";
 
     const _u = () => global.__agyis_utils || {};
+    const _theme = () => global.__agyis_theme || {};
     const escapeHtml = (val) => (_u().escapeHtml ? _u().escapeHtml(val) : String(val ?? ""));
     const cssEscape = (val) => (_u().cssEscape ? _u().cssEscape(val) : String(val ?? ""));
+    const svgIcon = (name, size = 13) => (_theme().svgIcon ? _theme().svgIcon(name, size) : "");
+    let codeBlockSeq = 0;
 
     function syntaxHighlightJson(jsonObj) {
         let jsonStr = typeof jsonObj !== "string" ? JSON.stringify(jsonObj, null, 2) : jsonObj;
         if (!jsonStr) return "";
         jsonStr = jsonStr.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         return jsonStr.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
-            let clsColor = "#f59e0b";
-            if (/^"/.test(match)) clsColor = /:$/.test(match) ? "#38bdf8" : "#a3e635";
-            else if (/true|false/.test(match)) clsColor = "#c084fc";
-            else if (/null/.test(match)) clsColor = "#71717a";
+            let clsColor = "#F5B74F";
+            if (/^"/.test(match)) clsColor = /:$/.test(match) ? "#26D0CE" : "#2AD089";
+            else if (/true|false/.test(match)) clsColor = "#5C8AFF";
+            else if (/null/.test(match)) clsColor = "#6E7F9B";
             return `<span style="color: ${clsColor};">${match}</span>`;
         });
     }
 
     function renderMarkdownPreview(rawText) {
-        if (!rawText) return "<div style='color: #71717a;'>No preview content</div>";
+        if (!rawText) return "<div style='color: #6E7F9B;'>No preview content</div>";
 
         let trimmed = String(rawText).trim();
         if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
@@ -48,13 +51,13 @@
         // Code blocks
         escaped = escaped.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (m, lang, code) => {
             const safeLang = escapeHtml(lang);
-            const badge = safeLang ? `<span style="font-size: 10px; color: #a1a1aa; font-family: monospace; text-transform: uppercase;">${safeLang}</span>` : "<span></span>";
-            const codeId = "code-" + Math.random().toString(36).slice(2, 11);
+            const badge = safeLang ? `<span style="font-size: 10px; color: #9AA8BE; font-family: var(--agyis-font-mono, monospace); text-transform: uppercase;">${safeLang}</span>` : "<span></span>";
+            const codeId = `agyis-code-${++codeBlockSeq}`;
             return `
                 <div class="agyis-codeblock-wrap">
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; background: #141416; border-bottom: 1px solid #27272a; border-top-left-radius: 6px; border-top-right-radius: 6px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; background: #10192B; border-bottom: 1px solid #1E2C47; border-top-left-radius: 6px; border-top-right-radius: 6px;">
                         ${badge}
-                        <button class="agyis-hud-btn agyis-copy-code-btn" data-code-id="${codeId}" style="padding: 2px 6px; font-size: 10px;">📋 Copy</button>
+                        <button class="agyis-hud-btn agyis-copy-code-btn" data-code-id="${codeId}" style="padding: 2px 6px; font-size: 10px;">${svgIcon("copy", 12)} Copy</button>
                     </div>
                     <pre id="${codeId}" class="agyis-codeblock" style="border: none; border-radius: 0 0 6px 6px; margin: 0; padding: 10px;"><code class="language-${safeLang || "none"}">${code.trim()}</code></pre>
                 </div>
@@ -62,53 +65,53 @@
         });
 
         // Inline code
-        escaped = escaped.replace(/`([^`]+)`/g, "<code style='background: #27272a; padding: 2px 4px; border-radius: 4px; font-family: monospace;'>$1</code>");
+        escaped = escaped.replace(/`([^`]+)`/g, "<code style='background: #162238; padding: 2px 4px; border-radius: 4px; font-family: var(--agyis-font-mono, monospace);'>$1</code>");
 
         // Alerts [!NOTE], [!WARNING], [!TIP], etc.
         escaped = escaped.replace(/(?:^|\n)&gt;\s*\[!(NOTE|WARNING|TIP|IMPORTANT|CAUTION)\]([\s\S]*?)(?=(?:\n\n|\n&gt;\s*\[!|$))/gi, (m, alertType, body) => {
             const typeUpper = alertType.toUpperCase();
-            let alertColor = "#3b82f6";
-            let alertIcon = "ℹ️";
-            if (typeUpper === "WARNING") { alertColor = "#f59e0b"; alertIcon = "⚠️"; }
-            else if (typeUpper === "TIP") { alertColor = "#10b981"; alertIcon = "💡"; }
-            else if (typeUpper === "IMPORTANT") { alertColor = "#a855f7"; alertIcon = "❗"; }
-            else if (typeUpper === "CAUTION") { alertColor = "#ef4444"; alertIcon = "🛑"; }
+            let alertColor = "#5C8AFF";
+            let alertIconName = "info";
+            if (typeUpper === "WARNING") { alertColor = "#F5B74F"; alertIconName = "warn"; }
+            else if (typeUpper === "TIP") { alertColor = "#2AD089"; alertIconName = "tip"; }
+            else if (typeUpper === "IMPORTANT") { alertColor = "#26D0CE"; alertIconName = "alert"; }
+            else if (typeUpper === "CAUTION") { alertColor = "#FF6B6B"; alertIconName = "caution"; }
             const alertContent = body.replace(/^\s*&gt;\s?/gm, "").trim().replace(/\n/g, "<br>");
             return `
                 <div class="agyis-github-alert" style="border: 1px solid ${alertColor}; border-left: 4px solid ${alertColor};">
                     <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 11px; color: ${alertColor}; margin-bottom: 4px;">
-                        <span>${alertIcon}</span><span>${typeUpper}</span>
+                        ${svgIcon(alertIconName, 13)}<span>${typeUpper}</span>
                     </div>
-                    <div style="font-size: 11px; color: #e4e4e7; line-height: 1.5;">${alertContent}</div>
+                    <div style="font-size: 11px; color: #F4F6FA; line-height: 1.5;">${alertContent}</div>
                 </div>
             `;
         });
 
         // XML tags callout
         escaped = escaped.replace(/&lt;([A-Z0-9_\-]+)&gt;([\s\S]*?)&lt;\/\1&gt;/g, (m, tag, body) => {
-            let tagColor = "#f59e0b";
-            let tagIcon = "📌";
-            if (tag === "USER_REQUEST") { tagColor = "#3b82f6"; tagIcon = "👤"; }
-            else if (tag === "CONTEXT_SUMMARY" || tag === "SUMMARY") { tagColor = "#10b981"; tagIcon = "🧠"; }
-            else if (tag === "SYSTEM_MESSAGE") { tagColor = "#a855f7"; tagIcon = "⚙️"; }
+            let tagColor = "#F5B74F";
+            let tagIconName = "pin";
+            if (tag === "USER_REQUEST") { tagColor = "#5C8AFF"; tagIconName = "user"; }
+            else if (tag === "CONTEXT_SUMMARY" || tag === "SUMMARY") { tagColor = "#2AD089"; tagIconName = "brain"; }
+            else if (tag === "SYSTEM_MESSAGE") { tagColor = "#26D0CE"; tagIconName = "settings"; }
             const content = body.trim().replace(/\n/g, "<br>");
             return `
                 <div class="agyis-xml-callout" style="border: 1px solid ${tagColor}; border-left: 4px solid ${tagColor};">
                     <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 11px; color: ${tagColor}; margin-bottom: 4px; text-transform: uppercase;">
-                        <span>${tagIcon}</span><span>&lt;${tag}&gt;</span>
+                        ${svgIcon(tagIconName, 13)}<span>&lt;${tag}&gt;</span>
                     </div>
-                    <div style="font-size: 11px; color: #e4e4e7; line-height: 1.5;">${content}</div>
+                    <div style="font-size: 11px; color: #F4F6FA; line-height: 1.5;">${content}</div>
                 </div>
             `;
         });
 
         // Headers and formatting
-        escaped = escaped.replace(/(?:^|\n)###\s+([^\n]+)/g, '<h3 style="font-size: 12px; font-weight: 700; color: #fbbf24; margin: 8px 0 4px 0;">$1</h3>');
-        escaped = escaped.replace(/(?:^|\n)##\s+([^\n]+)/g, '<h2 style="font-size: 13px; font-weight: 700; color: #f59e0b; margin: 10px 0 6px 0;">$1</h2>');
-        escaped = escaped.replace(/(?:^|\n)#\s+([^\n]+)/g, '<h1 style="font-size: 14px; font-weight: 700; color: #f59e0b; margin: 12px 0 8px 0;">$1</h1>');
-        escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong style="color: #f4f4f5;">$1</strong>');
-        escaped = escaped.replace(/\*([^*]+)\*/g, '<em style="color: #cbd5e1;">$1</em>');
-        escaped = escaped.replace(/(?:^|\n)(?:[-*]|\d+\.)\s+([^\n]+)/g, '<div style="padding-left: 12px; margin: 2px 0; color: #e4e4e7;">&bull; $1</div>');
+        escaped = escaped.replace(/(?:^|\n)###\s+([^\n]+)/g, '<h3 style="font-size: 12px; font-weight: 700; color: #5C8AFF; margin: 8px 0 4px 0;">$1</h3>');
+        escaped = escaped.replace(/(?:^|\n)##\s+([^\n]+)/g, '<h2 style="font-size: 13px; font-weight: 700; color: #5C8AFF; margin: 10px 0 6px 0;">$1</h2>');
+        escaped = escaped.replace(/(?:^|\n)#\s+([^\n]+)/g, '<h1 style="font-size: 14px; font-weight: 700; color: #F4F6FA; margin: 12px 0 8px 0;">$1</h1>');
+        escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong style="color: #F4F6FA;">$1</strong>');
+        escaped = escaped.replace(/\*([^*]+)\*/g, '<em style="color: #9AA8BE;">$1</em>');
+        escaped = escaped.replace(/(?:^|\n)(?:[-*]|\d+\.)\s+([^\n]+)/g, '<div style="padding-left: 12px; margin: 2px 0; color: #F4F6FA;">&bull; $1</div>');
         escaped = escaped.replace(/\n/g, "<br>");
 
         return `<div class="agyis-markdown-body" style="word-break: break-word;">${escaped}</div>`;
@@ -130,15 +133,15 @@
             const cleanOutput = String(outputRaw).replace(/\u001b\[[0-9;]*[a-zA-Z]/g, "");
             const lineCount = cleanOutput ? cleanOutput.split(/\r?\n/).length : 0;
             return `
-                <div class="agyis-terminal-card" style="background: #141416; border: 1px solid #27272a; border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #1c1c1f; border-bottom: 1px solid #27272a;">
-                        <div style="font-family: monospace; font-size: 11px; color: #f4f4f5; display: flex; align-items: center; gap: 6px;">
-                            <span style="color: #38bdf8;">$</span>
+                <div class="agyis-terminal-card" style="background: #10192B; border: 1px solid #1E2C47; border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #162238; border-bottom: 1px solid #1E2C47;">
+                        <div style="font-family: var(--agyis-font-mono, monospace); font-size: 11px; color: #F4F6FA; display: flex; align-items: center; gap: 6px;">
+                            <span style="color: #26D0CE;">$</span>
                             <span>${escapeHtml(cmd)}</span>
                         </div>
                         <span class="agyis-hud-pill ${exitBadgeClass}">exit ${escapeHtml(exitCode)}</span>
                     </div>
-                    <div style="padding: 4px 10px; font-size: 10px; color: #71717a; border-bottom: 1px solid #202023; display: flex; justify-content: space-between;">
+                    <div style="padding: 4px 10px; font-size: 10px; color: #6E7F9B; border-bottom: 1px solid #1E2C47; display: flex; justify-content: space-between;">
                         <span>Terminal Output (${lineCount} lines)</span>
                         <span>${currentStep.cwd ? `cwd: ${escapeHtml(currentStep.cwd)}` : ""}</span>
                     </div>
@@ -148,16 +151,16 @@
         }
 
         // View / Read File step (supports v2.34+ read_file Path arg)
-        if (cType === "VIEW_FILE" || cType === "READ_FILE" || (currentStep.filePath && currentStep.fileContent !== undefined)) {
+        if (cType === "VIEW_FILE" || cType === "READ_FILE" || cType === "READ_RESOURCE" || (currentStep.filePath && currentStep.fileContent !== undefined)) {
             const args = currentStep.tool_calls?.[0]?.args || {};
-            const fPath = currentStep.filePath || args.Path || args.AbsolutePath || args.path || args.filePath || "";
+            const fPath = currentStep.filePath || args.Path || args.AbsolutePath || args.path || args.filePath || args.Uri || "";
             const fContent = currentStep.fileContent || (currentStep.tool_calls?.[0]?.output || currentStep.content || "");
             const lineCount = fContent ? String(fContent).split(/\r?\n/).length : 0;
             return `
-                <div class="agyis-file-card" style="background: #141416; border: 1px solid #27272a; border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #1c1c1f; border-bottom: 1px solid #27272a;">
-                        <span style="font-family: monospace; font-size: 11px; color: #38bdf8;">📄 ${escapeHtml(fPath)}</span>
-                        <span style="font-size: 10px; color: #a1a1aa;">${lineCount} lines</span>
+                <div class="agyis-file-card" style="background: #10192B; border: 1px solid #1E2C47; border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #162238; border-bottom: 1px solid #1E2C47;">
+                        <span style="font-family: var(--agyis-font-mono, monospace); font-size: 11px; color: #26D0CE; display: inline-flex; align-items: center; gap: 6px;">${svgIcon("file", 13)} ${escapeHtml(fPath)}</span>
+                        <span style="font-size: 10px; color: #9AA8BE;">${lineCount} lines</span>
                     </div>
                     <pre class="agyis-codeblock" style="border: none; margin: 0; padding: 10px; max-height: 400px; overflow-y: auto;"><code>${escapeHtml(fContent)}</code></pre>
                 </div>
@@ -176,21 +179,21 @@
                     const isIns = txt.startsWith("+");
                     const isDel = txt.startsWith("-");
                     let lineBg = "transparent";
-                    let lineCol = "#cbd5e1";
-                    if (isIns) { lineBg = "rgba(16, 185, 129, 0.15)"; lineCol = "#6ee7b7"; }
-                    else if (isDel) { lineBg = "rgba(239, 68, 68, 0.15)"; lineCol = "#fca5a5"; }
-                    return `<div style="background: ${lineBg}; color: ${lineCol}; padding: 1px 8px; font-family: monospace; font-size: 11px; white-space: pre-wrap;">${escapeHtml(txt)}</div>`;
+                    let lineCol = "#F4F6FA";
+                    if (isIns) { lineBg = "rgba(42, 208, 137, 0.14)"; lineCol = "#2AD089"; }
+                    else if (isDel) { lineBg = "rgba(255, 107, 107, 0.14)"; lineCol = "#FF6B6B"; }
+                    return `<div style="background: ${lineBg}; color: ${lineCol}; padding: 1px 8px; font-family: var(--agyis-font-mono, monospace); font-size: 11px; white-space: pre-wrap;">${escapeHtml(txt)}</div>`;
                 }).join("")
                 : (editBody
                     ? `<pre class="agyis-codeblock" style="border: none; margin: 0; padding: 10px;"><code>${escapeHtml(editBody)}</code></pre>`
-                    : `<div style="padding: 10px; color: #71717a; font-family: monospace; font-size: 11px;">No unified diff lines available</div>`);
+                    : `<div style="padding: 10px; color: #6E7F9B; font-family: var(--agyis-font-mono, monospace); font-size: 11px;">No unified diff lines available</div>`);
             return `
-                <div class="agyis-diff-card" style="background: #141416; border: 1px solid #27272a; border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #1c1c1f; border-bottom: 1px solid #27272a;">
-                        <span style="font-family: monospace; font-size: 11px; color: #38bdf8;">📝 ${escapeHtml(fPath)}</span>
+                <div class="agyis-diff-card" style="background: #10192B; border: 1px solid #1E2C47; border-radius: 6px; overflow: hidden; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #162238; border-bottom: 1px solid #1E2C47;">
+                        <span style="font-family: var(--agyis-font-mono, monospace); font-size: 11px; color: #26D0CE; display: inline-flex; align-items: center; gap: 6px;">${svgIcon("diff", 13)} ${escapeHtml(fPath)}</span>
                         <span class="agyis-hud-pill agyis-hud-pill-green">Unified Diff</span>
                     </div>
-                    <div style="max-height: 400px; overflow-y: auto; background: #09090b;">${diffHtml}</div>
+                    <div style="max-height: 400px; overflow-y: auto; background: #080E1A;">${diffHtml}</div>
                 </div>
             `;
         }
@@ -202,17 +205,17 @@
             const role = sub.role || sub.Role || sub.agent_role || sub.action || "Subagent Worker";
             const prompt = sub.initialPrompt || sub.Prompt || sub.prompt || sub.brief || sub.objective || sub.Description || "";
             return `
-                <div class="agyis-subagent-card" style="background: #18181b; border: 1px solid #7c3aed; border-radius: 6px; padding: 12px; margin-bottom: 10px;">
+                <div class="agyis-subagent-card" style="background: #10192B; border: 1px solid #5C8AFF; border-radius: 6px; padding: 12px; margin-bottom: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 16px;">🤖</span>
-                            <span style="font-weight: 700; color: #c084fc; font-size: 12px;">${escapeHtml(typeName)}</span>
+                            <span style="color: #5C8AFF; display: inline-flex;">${svgIcon("bot", 15)}</span>
+                            <span style="font-weight: 700; color: #5C8AFF; font-size: 12px;">${escapeHtml(typeName)}</span>
                             <span class="agyis-hud-pill agyis-hud-pill-purple">${escapeHtml(role)}</span>
                         </div>
                         <span class="agyis-hud-pill agyis-hud-pill-green">Delegate Invoked</span>
                     </div>
-                    <div style="font-size: 10px; color: #a1a1aa; margin-bottom: 4px; text-transform: uppercase;">Initial Prompt:</div>
-                    <div style="background: #141416; border: 1px solid #27272a; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 11px; color: #cbd5e1; max-height: 240px; overflow-y: auto;">
+                    <div style="font-size: 10px; color: #9AA8BE; margin-bottom: 4px; text-transform: uppercase;">Initial Prompt:</div>
+                    <div style="background: #0B1322; border: 1px solid #1E2C47; border-radius: 4px; padding: 8px; font-family: var(--agyis-font-mono, monospace); font-size: 11px; color: #F4F6FA; max-height: 240px; overflow-y: auto;">
                         ${escapeHtml(prompt)}
                     </div>
                 </div>
@@ -229,19 +232,21 @@
                 const reclaimedPct = Math.round(((cacheRead - inTokens) / cacheRead) * 100);
                 reclaimedMetric = `Compacted ${(cacheRead / 1000).toFixed(0)}k -> ${(inTokens / 1000).toFixed(1)}k tokens (${reclaimedPct}% reduction)`;
             }
+            const canJumpPrev = (state && typeof state.activeCheckpointIndex === "number" ? state.activeCheckpointIndex : 0) > 0;
+            const jumpPrevStyle = `padding: 3px 8px; font-size: 11px; background: rgba(42, 208, 137, 0.16); border: 1px solid #2AD089; color: #2AD089; ${canJumpPrev ? "cursor: pointer;" : "opacity: 0.4; cursor: default;"}`;
             return `
-                <div class="agyis-checkpoint-card" style="background: #142e1d; border: 1px solid #16a34a; border-radius: 6px; padding: 14px; margin-bottom: 10px;">
+                <div class="agyis-checkpoint-card" style="background: rgba(42, 208, 137, 0.08); border: 1px solid #2AD089; border-radius: 6px; padding: 14px; margin-bottom: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                         <span class="agyis-hud-pill agyis-hud-pill-green" style="font-size: 12px; font-weight: 700;">
-                            🛡️ Compaction Checkpoint #${escapeHtml(currentStep.checkpoint_index ?? currentStep.step_index ?? state.selectedIndex)}
+                            ${svgIcon("shield", 13)} Compaction Checkpoint #${escapeHtml(currentStep.checkpoint_index ?? currentStep.step_index ?? state.selectedIndex)}
                         </span>
-                        <button id="agyis-jump-prev-epoch" class="agyis-hud-btn agyis-jump-prev-epoch" style="padding: 3px 8px; font-size: 11px; background: #166534; border: 1px solid #22c55e; cursor: pointer;">
-                            Jump to Previous Epoch ◀
+                        <button id="agyis-jump-prev-checkpoint" class="agyis-hud-btn agyis-jump-prev-checkpoint" style="${jumpPrevStyle}" ${canJumpPrev ? "" : "disabled"}>
+                            Jump to Previous Checkpoint ◀
                         </button>
                     </div>
-                    <div style="font-family: monospace; font-size: 12px; color: #86efac; margin-bottom: 10px; font-weight: 600;">📊 ${escapeHtml(reclaimedMetric)}</div>
-                    <div style="font-size: 10px; color: #86efac; margin-bottom: 4px; text-transform: uppercase;">Compacted Session Summary:</div>
-                    <div style="background: #0d1f14; border: 1px solid #166534; border-radius: 4px; padding: 10px; max-height: 280px; overflow-y: auto;">
+                    <div style="font-family: var(--agyis-font-mono, monospace); font-size: 12px; color: #2AD089; margin-bottom: 10px; font-weight: 600; display: flex; align-items: center; gap: 6px;">${svgIcon("chart", 13)} ${escapeHtml(reclaimedMetric)}</div>
+                    <div style="font-size: 10px; color: #2AD089; margin-bottom: 4px; text-transform: uppercase;">Compacted Session Summary:</div>
+                    <div style="background: #0B1322; border: 1px solid rgba(42, 208, 137, 0.35); border-radius: 4px; padding: 10px; max-height: 280px; overflow-y: auto;">
                         ${renderMarkdownPreview(cpSummary)}
                     </div>
                 </div>
@@ -251,11 +256,11 @@
         // User input step
         if (cType === "USER_INPUT") {
             return `
-                <div class="agyis-user-request-card" style="background: #1e293b; border: 1px solid #3b82f6; border-left: 4px solid #3b82f6; border-radius: 6px; padding: 12px; margin-bottom: 10px;">
-                    <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 11px; color: #38bdf8; margin-bottom: 6px;">
-                        <span>👤</span><span>&lt;USER_REQUEST&gt;</span>
+                <div class="agyis-user-request-card" style="background: #10192B; border: 1px solid #1B4DFF; border-left: 4px solid #5C8AFF; border-radius: 6px; padding: 12px; margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 11px; color: #5C8AFF; margin-bottom: 6px;">
+                        ${svgIcon("user", 13)}<span>&lt;USER_REQUEST&gt;</span>
                     </div>
-                    <div style="font-size: 12px; color: #f1f5f9; line-height: 1.5; white-space: pre-wrap;">${escapeHtml(currentStep.content || "")}</div>
+                    <div style="font-size: 12px; color: #F4F6FA; line-height: 1.5; white-space: pre-wrap;">${escapeHtml(currentStep.content || "")}</div>
                 </div>
             `;
         }
@@ -263,13 +268,13 @@
         // Model responses
         if (cType === "PLANNER_RESPONSE" || cType === "MODEL_OUTPUT") {
             return currentStep.content ? `
-                <h4 style="margin: 0 0 6px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Response Preview</h4>
+                <h4 style="margin: 0 0 6px 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">Response Preview</h4>
                 ${renderMarkdownPreview(currentStep.content)}
             ` : "";
         }
 
         return currentStep.content ? `
-            <h4 style="margin: 0 0 6px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Step Preview</h4>
+            <h4 style="margin: 0 0 6px 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">Step Preview</h4>
             ${renderMarkdownPreview(currentStep.content)}
         ` : "";
     }
@@ -285,13 +290,13 @@
         const sysSectionsHtml = sysSlices.map((sl, idx) => `
             <div class="agyis-inspector-item-card ${state.hoveredItemKey === `prompt-section-${idx}` ? "context-cell-hovered" : ""}"
                  data-item-key="prompt-section-${idx}"
-                 style="background: #202023; border: 1px solid #3f3f46; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;">
+                 style="background: #10192B; border: 1px solid #1E2C47; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 6px;">
-                        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${escapeHtml(sl.color || "#6366f1")};"></span>
-                        <span style="font-weight: 700; color: #c084fc; font-size: 11px;">${escapeHtml(sl.name)}</span>
+                        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${escapeHtml(sl.color || "#5C8AFF")};"></span>
+                        <span style="font-weight: 700; color: #8FB0FF; font-size: 11px;">${escapeHtml(sl.name)}</span>
                     </div>
-                    <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">${(sl.tokens || 0).toLocaleString()} tokens</span>
+                    <span style="font-family: var(--agyis-font-mono, monospace); font-size: 10px; color: #9AA8BE;">${(sl.tokens || 0).toLocaleString()} tokens</span>
                 </div>
             </div>
         `).join("");
@@ -299,30 +304,30 @@
         const toolsHtml = toolSlices.map((tl, idx) => `
             <div class="agyis-inspector-item-card ${state.hoveredItemKey === `tool-def-${tl.name}` ? "context-cell-hovered" : ""}"
                  data-item-key="tool-def-${escapeHtml(tl.name)}"
-                 style="background: #202023; border: 1px solid #3f3f46; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;">
+                 style="background: #10192B; border: 1px solid #1E2C47; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 6px;">
-                        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${escapeHtml(tl.color || "#06b6d4")};"></span>
-                        <span style="font-weight: 700; color: #22d3ee; font-family: monospace; font-size: 11px;">${escapeHtml(tl.name)}</span>
+                        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${escapeHtml(tl.color || "#26D0CE")};"></span>
+                        <span style="font-weight: 700; color: #26D0CE; font-family: var(--agyis-font-mono, monospace); font-size: 11px;">${escapeHtml(tl.name)}</span>
                         ${tl.server_name ? `<span class="agyis-hud-pill agyis-hud-pill-purple" style="font-size: 9px; padding: 1px 5px;">${escapeHtml(tl.server_name)}</span>` : ""}
                     </div>
-                    <span style="font-family: monospace; font-size: 10px; color: #cbd5e1;">${(tl.tokens || 0).toLocaleString()} tokens</span>
+                    <span style="font-family: var(--agyis-font-mono, monospace); font-size: 10px; color: #9AA8BE;">${(tl.tokens || 0).toLocaleString()} tokens</span>
                 </div>
             </div>
         `).join("");
 
         const toolCallsHtml = `
             <div style="margin-top: 12px;">
-                <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Step Tool Invocations (${tCalls.length})</h4>
-                ${tCalls.length === 0 ? "<div style='color: #71717a;'>No tool calls executed in this step</div>" : tCalls.map((t, tidx) => `
-                    <div style="background: #202023; border: 1px solid #3f3f46; border-radius: 6px; padding: 10px; margin-bottom: 8px;">
+                <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">Step Tool Invocations (${tCalls.length})</h4>
+                ${tCalls.length === 0 ? "<div style='color: #6E7F9B;'>No tool calls executed in this step</div>" : tCalls.map((t, tidx) => `
+                    <div style="background: #10192B; border: 1px solid #1E2C47; border-radius: 6px; padding: 10px; margin-bottom: 8px;">
                         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                            <span style="font-weight: 700; color: #22d3ee; font-family: monospace;">#${tidx + 1} ${escapeHtml(t.name || "tool")}</span>
+                            <span style="font-weight: 700; color: #26D0CE; font-family: var(--agyis-font-mono, monospace);">#${tidx + 1} ${escapeHtml(t.name || "tool")}</span>
                             <span class="agyis-hud-pill agyis-hud-pill-green">${escapeHtml(t.status || "DONE")}</span>
                         </div>
-                        <div style="font-size: 10px; color: #a1a1aa; margin-bottom: 4px;">Arguments:</div>
+                        <div style="font-size: 10px; color: #9AA8BE; margin-bottom: 4px;">Arguments:</div>
                         <pre class="agyis-codeblock" style="margin-bottom: 8px;"><code>${escapeHtml(JSON.stringify(t.args || {}, null, 2))}</code></pre>
-                        ${t.output ? `<div style="font-size: 10px; color: #a1a1aa; margin-bottom: 4px;">Output:</div><pre class="agyis-codeblock" style="max-height: 200px;"><code>${escapeHtml(String(t.output))}</code></pre>` : ""}
+                        ${t.output ? `<div style="font-size: 10px; color: #9AA8BE; margin-bottom: 4px;">Output:</div><pre class="agyis-codeblock" style="max-height: 200px;"><code>${escapeHtml(String(t.output))}</code></pre>` : ""}
                     </div>
                 `).join("")}
             </div>
@@ -330,16 +335,16 @@
 
         return `
             <div style="margin-bottom: 12px;">
-                <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">
+                <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">
                     System Prompt Sections (${sysSlices.length})
                 </h4>
-                ${sysSectionsHtml || "<div style='color: #71717a;'>No prompt sections detected</div>"}
+                ${sysSectionsHtml || "<div style='color: #6E7F9B;'>No prompt sections detected</div>"}
             </div>
             <div>
-                <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">
+                <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">
                     Active Tool Definitions (${toolSlices.length})
                 </h4>
-                ${toolsHtml || "<div style='color: #71717a;'>No tool definitions detected</div>"}
+                ${toolsHtml || "<div style='color: #6E7F9B;'>No tool definitions detected</div>"}
             </div>
             ${toolCallsHtml}
         `;
@@ -363,20 +368,20 @@
         const transitionsRowsHtml = (Array.isArray(statusTransitions) && statusTransitions.length > 0)
             ? statusTransitions.map(st => `
                 <tr>
-                    <td style="font-family: monospace; font-size: 10px;">${escapeHtml(st.timestamp || "-")}</td>
+                    <td style="font-family: var(--agyis-font-mono, monospace); font-size: 10px;">${escapeHtml(st.timestamp || "-")}</td>
                     <td><span class="agyis-hud-pill agyis-hud-pill-green">${escapeHtml(st.status || "-")}</span></td>
-                    <td style="font-family: monospace; font-size: 10px;">${escapeHtml(st.executionId || "-")}</td>
+                    <td style="font-family: var(--agyis-font-mono, monospace); font-size: 10px;">${escapeHtml(st.executionId || "-")}</td>
                 </tr>
             `).join("")
-            : `<tr><td colspan="3" style="font-family: monospace; font-size: 10px; color: #a1a1aa;">No recorded transitions (status: ${escapeHtml(currentStep.status || "unknown")}${currentStep.created_at ? `, created_at: ${escapeHtml(currentStep.created_at)}` : ""})</td></tr>`;
+            : `<tr><td colspan="3" style="font-family: var(--agyis-font-mono, monospace); font-size: 10px; color: #9AA8BE;">No recorded transitions (status: ${escapeHtml(currentStep.status || "unknown")}${currentStep.created_at ? `, created_at: ${escapeHtml(currentStep.created_at)}` : ""})</td></tr>`;
 
         return `
-            <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Status Transitions</h4>
+            <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">Status Transitions</h4>
             <table class="agyis-markdown-table" style="margin-bottom: 12px;">
                 <tr><th>Timestamp</th><th>Status</th><th>Execution ID</th></tr>
                 ${transitionsRowsHtml}
             </table>
-            <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Model Usage Metrics</h4>
+            <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">Model Usage Metrics</h4>
             <table class="agyis-markdown-table">
                 <tr><th>Metric</th><th>Value</th></tr>
                 <tr><td>Model</td><td>${escapeHtml(modelDisplay)}</td></tr>
@@ -400,36 +405,36 @@
         const breakdown = (cur && cur.token_breakdown) || {};
 
         return `
-            <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Trajectory Telemetry</h4>
+            <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">Trajectory Telemetry</h4>
             <table class="agyis-markdown-table" style="margin-bottom: 12px;">
-                <tr><td>Conversation ID</td><td style="font-family: monospace;">${escapeHtml(cur ? cur.conversation_id : "-")}</td></tr>
+                <tr><td>Conversation ID</td><td style="font-family: var(--agyis-font-mono, monospace);">${escapeHtml(cur ? cur.conversation_id : "-")}</td></tr>
                 <tr><td>Total Steps</td><td>${(cur && cur.steps ? cur.steps.length : 0).toLocaleString()}</td></tr>
                 <tr><td>Total Context Tokens</td><td>${(cur && cur.total_tokens ? cur.total_tokens : 0).toLocaleString()}</td></tr>
                 <tr><td>Active Subagents</td><td>${subagents.length}</td></tr>
             </table>
 
             ${cur && cur.parent_id ? `
-                <h4 style="margin: 0 0 6px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Parent Conversation</h4>
+                <h4 style="margin: 0 0 6px 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">Parent Conversation</h4>
                 <div style="margin-bottom: 12px;">
-                    <button class="agyis-hud-btn agyis-parent-jump-btn" data-parent-id="${escapeHtml(cur.parent_id)}" style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 6px 10px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; cursor: pointer;">
-                        <span style="color: #60a5fa; font-weight: 600; font-size: 11px;">↑ Conversation ${escapeHtml(String(cur.parent_id).slice(0, 12))}...</span>
-                        <span style="font-size: 10px; color: #93c5fd;">Jump ↑</span>
+                    <button class="agyis-hud-btn agyis-parent-jump-btn" data-parent-id="${escapeHtml(cur.parent_id)}" style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 6px 10px; background: rgba(27, 77, 255, 0.14); border: 1px solid rgba(92, 138, 255, 0.35); border-radius: 6px; cursor: pointer;">
+                        <span style="color: #5C8AFF; font-weight: 600; font-size: 11px;">↑ Conversation ${escapeHtml(String(cur.parent_id).slice(0, 12))}...</span>
+                        <span style="font-size: 10px; color: #8FB0FF;">Jump ↑</span>
                     </button>
                 </div>
             ` : ""}
 
-            <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Child Subagents (${subagents.length})</h4>
-            ${subagents.length === 0 ? "<div style='color: #71717a; margin-bottom: 12px;'>No child subagents spawned in this conversation</div>" : `
+            <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">Child Subagents (${subagents.length})</h4>
+            ${subagents.length === 0 ? "<div style='color: #6E7F9B; margin-bottom: 12px;'>No child subagents spawned in this conversation</div>" : `
                 <table class="agyis-markdown-table" style="margin-bottom: 12px;">
                     <tr><th>Name</th><th>Role / Summary</th><th>Action</th></tr>
                     ${subagents.map((sid, idx) => {
                         const info = subagentInfos.find(si => si.id === sid) || { name: `Subagent #${idx + 1}`, summary: sid };
                         return `
                             <tr>
-                                <td style="font-weight: 600; color: #c084fc;">${escapeHtml(info.name)}</td>
+                                <td style="font-weight: 600; color: #5C8AFF;">${escapeHtml(info.name)}</td>
                                 <td>${escapeHtml(info.summary)}</td>
                                 <td>
-                                    <button class="agyis-hud-btn agyis-subagent-jump-btn" data-sub-id="${escapeHtml(sid)}" style="padding: 2px 6px; font-size: 10px; background: rgba(168, 85, 247, 0.2); color: #c084fc; border: none; cursor: pointer;">Jump →</button>
+                                    <button class="agyis-hud-btn agyis-subagent-jump-btn" data-sub-id="${escapeHtml(sid)}" style="padding: 2px 6px; font-size: 10px; background: rgba(92, 138, 255, 0.18); color: #5C8AFF; border: none; cursor: pointer;">Jump →</button>
                                 </td>
                             </tr>
                         `;
@@ -437,7 +442,7 @@
                 </table>
             `}
 
-            <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">SSOT Token Breakdown</h4>
+            <h4 style="margin: 0 0 8px 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">SSOT Token Breakdown</h4>
             <table class="agyis-markdown-table">
                 <tr><th>Category</th><th>Tokens</th></tr>
                 <tr><td>System Prompt & Instructions</td><td>${(breakdown.system_prompt || 0).toLocaleString()}</td></tr>
@@ -456,7 +461,7 @@
      * Master Inspector HTML Generator.
      */
     function buildInspectorHtml(currentStep, state, cur) {
-        if (!currentStep) return "<div style='color: #71717a; padding: 20px;'>Select a step in the timeline to inspect</div>";
+        if (!currentStep) return "<div style='color: #6E7F9B; padding: 20px;'>Select a step in the timeline to inspect</div>";
 
         if (state.activeTab === "step") {
             const isModelStep = (currentStep.type === "PLANNER_RESPONSE" || currentStep.type === "MODEL_OUTPUT");
@@ -464,18 +469,18 @@
             const timingBarHtml = (isModelStep && totalDurationMs > 0) ? `
                 <div class="agyis-timing-bar-wrap">
                     <div style="display: flex; justify-content: space-between; font-size: 11px;">
-                        <span><b style="color: #f59e0b;">TTFT:</b> ${((currentStep.thinking_duration_ms || 0) / 1000).toFixed(2)}s &nbsp;|&nbsp; <b style="color: #6366f1;">STREAMING:</b> ${((currentStep.streaming_duration_ms || 0) / 1000).toFixed(2)}s</span>
-                        <span style="font-weight: 700; color: #cbd5e1;">Total: ${(totalDurationMs / 1000).toFixed(2)}s</span>
+                        <span><b style="color: #F5B74F;">TTFT:</b> ${((currentStep.thinking_duration_ms || 0) / 1000).toFixed(2)}s &nbsp;|&nbsp; <b style="color: #5C8AFF;">STREAMING:</b> ${((currentStep.streaming_duration_ms || 0) / 1000).toFixed(2)}s</span>
+                        <span style="font-weight: 700; color: #F4F6FA;">Total: ${(totalDurationMs / 1000).toFixed(2)}s</span>
                     </div>
                 </div>
             ` : "";
 
             const thinkingBlockHtml = currentStep.thinking ? `
                 <details class="agyis-thinking-block" open>
-                    <summary style="cursor: pointer; font-weight: 600; color: #fbbf24; font-size: 11px; user-select: none;">
-                        💭 Thought Process (${currentStep.thinking.length.toLocaleString()} chars &bull; ${currentStep.thinking_duration_ms || 0}ms)
+                    <summary style="cursor: pointer; font-weight: 600; color: #5C8AFF; font-size: 11px; user-select: none; display: flex; align-items: center; gap: 6px;">
+                        ${svgIcon("brain", 13)} Thought Process (${currentStep.thinking.length.toLocaleString()} chars &bull; ${currentStep.thinking_duration_ms || 0}ms)
                     </summary>
-                    <div style="margin-top: 8px; font-size: 11px; color: #fef3c7; line-height: 1.5; font-family: ui-monospace, monospace; max-height: 320px; overflow-y: auto;">
+                    <div style="margin-top: 8px; font-size: 11px; color: #F4F6FA; line-height: 1.5; font-family: var(--agyis-font-mono, monospace); max-height: 320px; overflow-y: auto;">
                         ${renderMarkdownPreview(currentStep.thinking)}
                     </div>
                 </details>
@@ -486,8 +491,8 @@
                 ${thinkingBlockHtml}
                 ${buildStepBodyHtml(currentStep, state)}
                 <div style="display: flex; justify-content: space-between; align-items: center; margin: 12px 0 8px 0;">
-                    <h4 style="margin: 0; font-size: 11px; color: #a1a1aa; text-transform: uppercase;">Raw Step JSON</h4>
-                    <button id="agyis-copy-btn" class="agyis-hud-btn" title="Copy entire Step JSON">📋 Copy</button>
+                    <h4 style="margin: 0; font-size: 11px; color: #9AA8BE; text-transform: uppercase;">Raw Step JSON</h4>
+                    <button id="agyis-copy-btn" class="agyis-hud-btn" title="Copy entire Step JSON">${svgIcon("copy", 12)} Copy</button>
                 </div>
                 <pre class="agyis-codeblock" style="max-height: 350px;"><code>${syntaxHighlightJson(currentStep)}</code></pre>
             `;
@@ -519,8 +524,8 @@
             if (currentStep && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
                 navigator.clipboard.writeText(JSON.stringify(currentStep, null, 2)).then(() => {
                     const btn = hudEl.querySelector("#agyis-copy-btn");
-                    if (btn) btn.textContent = "✔ Copied!";
-                    setTimeout(() => { if (btn) btn.textContent = "📋 Copy"; }, 1500);
+                    if (btn) btn.innerHTML = `${svgIcon("check", 12)} Copied!`;
+                    setTimeout(() => { if (btn) btn.innerHTML = `${svgIcon("copy", 12)} Copy`; }, 1500);
                 }).catch(err => {
                     console.warn("[agyis:hud] Failed to copy JSON:", err);
                 });
@@ -536,8 +541,8 @@
                 const text = preEl ? (preEl.textContent || "") : "";
                 if (text && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
                     navigator.clipboard.writeText(text).then(() => {
-                        btn.textContent = "✔ Copied!";
-                        setTimeout(() => { btn.textContent = "📋 Copy"; }, 1500);
+                        btn.innerHTML = `${svgIcon("check", 12)} Copied!`;
+                        setTimeout(() => { btn.innerHTML = `${svgIcon("copy", 12)} Copy`; }, 1500);
                     }).catch(err => {
                         console.warn("[agyis:hud] Failed to copy code block:", err);
                     });
@@ -565,14 +570,14 @@
             }
         });
 
-        // Jump to Previous Epoch button in Checkpoint card
-        hudEl.querySelector("#agyis-jump-prev-epoch")?.addEventListener("click", () => {
-            if (state.activeEpochIndex > 0) {
-                state.activeEpochIndex -= 1;
-                const epochs = (state.currentData && state.currentData.epochs) || [];
-                const prevEp = epochs[state.activeEpochIndex];
-                if (prevEp && typeof selectStepCallback === "function") {
-                    selectStepCallback(prevEp.start_index);
+        // Jump to Previous Checkpoint button in Checkpoint card
+        hudEl.querySelector("#agyis-jump-prev-checkpoint")?.addEventListener("click", () => {
+            if (state.activeCheckpointIndex > 0) {
+                state.activeCheckpointIndex -= 1;
+                const checkpoints = (state.currentData && state.currentData.checkpoints) || [];
+                const prevCp = checkpoints[state.activeCheckpointIndex];
+                if (prevCp && typeof selectStepCallback === "function") {
+                    selectStepCallback(prevCp.start_index, { preserveCheckpoint: true });
                 } else if (typeof global.__agyis_hud_render === "function") {
                     global.__agyis_hud_render();
                 }

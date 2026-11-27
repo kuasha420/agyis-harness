@@ -214,14 +214,17 @@ class TestCompletionFenceTruthGate(unittest.TestCase):
         self.assertEqual(res2["decision"], "continue")
 
         # Third block trips anti-deadlock valve
+        from harness.hooks.wire_compat import drain_pending_advisories
+
         res3 = evaluate_stop(
             conv_id="test_truth",
             state_dir=self.state_dir,
             cwd=self.workspace,
             payload=payload,
         )
-        self.assertEqual(res3["decision"], "allow")
-        self.assertIn("Anti-deadlock valve tripped", res3.get("warning", ""))
+        self.assertEqual(res3, {"decision": "allow"})
+        queued = drain_pending_advisories("test_truth", state_dir=self.state_dir)
+        self.assertTrue(any("Anti-deadlock valve tripped" in item for item in queued))
 
     def test_orchestrator_allowed_when_verified_payload_present(self) -> None:
         plan_file = self.workspace / "plan.md"

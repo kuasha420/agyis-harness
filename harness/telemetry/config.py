@@ -16,6 +16,8 @@ import fnmatch
 import json
 import os
 from pathlib import Path
+import re
+import socket
 import subprocess
 from typing import Any, Dict, Optional, Union
 
@@ -92,15 +94,21 @@ def get_config_path() -> Path:
 
 def find_workspace_root(start_dir: Optional[Union[str, Path]] = None) -> Optional[Path]:
     """Searches upward from start_dir (default cwd) for .agyis, .psl, .agents, or .git."""
-    curr = Path(start_dir).resolve() if start_dir else Path.cwd().resolve()
+    try:
+        curr = Path(start_dir).resolve() if start_dir else Path.cwd().resolve()
+    except (FileNotFoundError, OSError):
+        return None
     while True:
-        if (
-            (curr / ".agyis").exists()
-            or (curr / ".psl").exists()
-            or (curr / ".agents").exists()
-            or (curr / ".git").exists()
-        ):
-            return curr
+        try:
+            if (
+                (curr / ".agyis").exists()
+                or (curr / ".psl").exists()
+                or (curr / ".agents").exists()
+                or (curr / ".git").exists()
+            ):
+                return curr
+        except OSError:
+            return None
         parent = curr.parent
         if parent == curr:
             break
@@ -452,3 +460,45 @@ def remove_from_denylist(path_str: str) -> bool:
         save_config(cfg)
         return True
     return False
+
+
+def _sanitize_machine_slug(raw: str) -> str:
+    slug = re.sub(r"[^a-z0-9-]+", "-", raw.strip().lower())
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    if len(slug) > 64:
+        slug = slug[:64].rstrip("-")
+    return slug
+
+
+def resolve_machine_id(workspace_root: Optional[Union[str, Path]] = None) -> str:
+    """Resolves canonical machine slug: AGYIS_MACHINE_ID > config machine_id > sanitized hostname."""
+    env_mid = os.environ.get("AGYIS_MACHINE_ID")
+    if env_mid and env_mid.strip():
+        slug = _sanitize_machine_slug(env_mid)
+        if slug:
+            return slug
+
+    try:
+        cfg = load_config(workspace_root=workspace_root)
+        cfg_mid = cfg.get("machine_id")
+        if isinstance(cfg_mid, str) and cfg_mid.strip():
+            slug = _sanitize_machine_slug(cfg_mid)
+            if slug:
+                return slug
+    except ValueError:
+        pass
+
+    try:
+        host = socket.gethostname()
+    except OSError:
+        host = ""
+    slug = _sanitize_machine_slug(host) if host else ""
+    return slug or "unknown-host"
+
+
+def infer_client_surface(transcript_path: Optional[Union[str, Path]]) -> str:
+    """Infers client surface ('cli' if antigravity-cli in path, else 'ide')."""
+    if not transcript_path:
+        return "ide"
+    norm = str(transcript_path).replace("\\", "/").lower()
+    return "cli" if "antigravity-cli" in norm else "ide"

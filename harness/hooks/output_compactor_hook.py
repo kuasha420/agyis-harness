@@ -125,13 +125,13 @@ def compact_output(
     if preserved_diagnostic_lines:
         diagnostic_block = "\n".join(preserved_diagnostic_lines)
         separator = (
-            f"\n\n[... PSL Compactor: {omitted_chars:,} characters truncated | "
+            f"\n\n[... AGYIS Compactor: {omitted_chars:,} characters truncated | "
             f"{len(preserved_diagnostic_lines)} diagnostic lines preserved ...]\n"
             f"{diagnostic_block}\n"
             f"[... End preserved diagnostics ...]\n\n"
         )
     else:
-        separator = f"\n\n[... PSL Compactor: {omitted_chars:,} characters truncated ...]\n\n"
+        separator = f"\n\n[... AGYIS Compactor: {omitted_chars:,} characters truncated ...]\n\n"
 
     compacted = f"{head}{separator}{tail}"
 
@@ -189,7 +189,17 @@ def _collect_status_containers(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     return containers
 
 
-def extract_output_and_status(payload: Dict[str, Any]) -> Tuple[str, int, bool]:
+_COMMAND_TOOL_NAMES: frozenset[str] = frozenset({
+    "run_command",
+    "execute_command",
+    "bash",
+    "shell",
+    "terminal",
+    "exec_command",
+})
+
+
+def extract_output_and_status(payload: Dict[str, Any], tool_name: Optional[str] = None) -> Tuple[str, int, bool]:
     """
     Extracts output string, exit code, and error status from a PostToolUse payload.
     Supports payload and nested response wrappers:
@@ -238,7 +248,7 @@ def extract_output_and_status(payload: Dict[str, Any]) -> Tuple[str, int, bool]:
                             raw_output = str(step_data["content"])
                             break
             except (OSError, json.JSONDecodeError, ValueError, TypeError) as exc:
-                sys.stderr.write(f"PSL Compactor Warning: Failed reading transcript '{t_path}': {exc}\n")
+                sys.stderr.write(f"[AGYIS COMPACTOR] Warning: Failed reading transcript '{t_path}': {exc}\n")
 
     # Status and exit code detection across top-level and nested response containers
     exit_code = 0
@@ -285,8 +295,24 @@ def extract_output_and_status(payload: Dict[str, Any]) -> Tuple[str, int, bool]:
             if exit_code == 0:
                 exit_code = 1
 
-    # 4. Content-based exit code detection
-    if raw_output:
+    # 4. Content-based exit code detection (strictly gated to command-execution tools)
+    eff_tool = tool_name
+    tc_obj = payload.get("toolCall") if isinstance(payload.get("toolCall"), dict) else {}
+    if eff_tool is None:
+        eff_tool = tc_obj.get("name") or payload.get("tool_name") or ""
+    tc_args = tc_obj.get("args") if isinstance(tc_obj.get("args"), dict) else {}
+    has_cmd_args = bool(
+        tc_args.get("CommandLine")
+        or tc_args.get("command")
+        or payload.get("CommandLine")
+        or payload.get("command")
+    )
+    eff_tool_lower = str(eff_tool or "").strip().lower()
+    is_command_tool = eff_tool_lower in _COMMAND_TOOL_NAMES or (
+        eff_tool_lower in ("", "unknown") and has_cmd_args
+    )
+
+    if raw_output and is_command_tool:
         m_exit = re.search(r"(?:failed with exit code|exited with code)\s*[:=]?\s*(\d+)", raw_output, re.I)
         if m_exit:
             code = int(m_exit.group(1))
@@ -316,7 +342,7 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
     tool_call = payload.get("toolCall", {})
     tool_name = tool_call.get("name", "unknown") if isinstance(tool_call, dict) else "unknown"
 
-    raw_output, exit_code, is_error = extract_output_and_status(payload)
+    raw_output, exit_code, is_error = extract_output_and_status(payload, tool_name=tool_name)
     threshold = READ_FILE_MAX_OUTPUT_CHARS if tool_name in ("read_file", "view_file") else MAX_OUTPUT_CHARS
     compacted = compact_output(raw_output, exit_code=exit_code, is_error=is_error, max_chars=threshold)
 
@@ -341,7 +367,7 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
     try:
         target_state_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        sys.stderr.write(f"PSL Compactor Warning: Failed creating state dir '{target_state_dir}': {exc}\n")
+        sys.stderr.write(f"[AGYIS COMPACTOR] Warning: Failed creating state dir '{target_state_dir}': {exc}\n")
 
     try:
         # Write latest compaction metadata
@@ -365,7 +391,7 @@ def process_payload(payload: Dict[str, Any], state_dir: Optional[Path] = None) -
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(log_line)
     except Exception as exc:
-        sys.stderr.write(f"PSL Compactor Warning: Failed persisting compactor state: {exc}\n")
+        sys.stderr.write(f"[AGYIS COMPACTOR] Warning: Failed persisting compactor state: {exc}\n")
 
     return record
 
@@ -386,7 +412,7 @@ def main() -> None:
             print(json.dumps({"overwriteResult": record["compactedOutput"]}))
             return
     except Exception as exc:
-        sys.stderr.write(f"PSL Compactor Warning: Unhandled exception in compactor main: {exc}\n")
+        sys.stderr.write(f"[AGYIS COMPACTOR] Warning: Unhandled exception in compactor main: {exc}\n")
 
     # PostToolUse contract expects an empty JSON object when not modifying output
     print(json.dumps({}))

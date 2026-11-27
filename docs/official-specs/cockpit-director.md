@@ -8,9 +8,9 @@
 **Document Identifier**: `PSL-SPEC-2026-COCKPIT-DIRECTOR-001`  
 **Classification**: Authoritative System Living Contract & Track C Standard  
 **Governing ADRs**: ADR-012 (Artifact-First Planning), ADR-013 (Terminal Invariants), ADR-014 (Product vs. Project Bifurcation), ADR-015 (Clean-Room Testing & Verification), ADR-028 (Cleanroom Reconstruction), ADR-031A (Native Orchestration Alignment), ADR-032 (Tool-Native Primacy & Anti-Polling)  
-**System Target**: Google Antigravity (`Desktop v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`, Gemini 4 `512k`/`1M`) & Agyis Harness (`agyis-harness v1.0.0`)  
+**System Target**: Google Antigravity (`Desktop v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`, Gemini 4 `512k`/`1M`) & Agyis Harness (`agyis-harness v1.1.0`)  
 **Status**: APPROVED & LOCKED  
-**Date**: November 25, 2026  
+**Date**: November 27, 2026  
 
 ---
 
@@ -63,9 +63,9 @@ flowchart TD
 > In long-horizon pairing sessions, the primary cockpit context window is the most valuable and fragile asset in the cognitive topology. It exists strictly to maintain situational awareness, conduct human-in-the-loop steering, evaluate trade-offs, and dispatch autonomous subagent ladders. It does not lay bricks, pour concrete, or swing hammers.
 
 ### The Empirical Context Cliff & Scaled Gemini 4 Runway (`ADR-033`, `ADR-035`)
-Empirical telemetry across the PSL telemetry corpus (`docs/taxonomy/empirical-baselines.md`, `N=1,731` token-tracked / `N=1,734` depth-classified sessions) grounds Agyis's **proportionally scaled attention runway** across `256k` (`CONTEXT_WINDOW_TOKENS = 256_000` baseline), **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`)**, and **`1M`** context windows alongside the **80-step soft epoch horizon** (`SOFT_EPOCH_STEP_ADVISORY = 80`):
-- **Healthy Zone (<70% scaled window and <80 active-epoch steps; isolated child delegates <65% fill)**: Sessions maintain tight reasoning fidelity and minimal intervention friction (historically `1.26–2.26` errors/session and `1.10–1.22` operator interventions/session below `50k` tokens; `0.26` errors/session at `11–50` steps).
-- **Amber Zone (~70%–89.9% scaled window or `>=80` active-epoch steps)**: Pre-compaction convergence zone (`358k–460k` on `512k`, `180k–230k` on `256k`; historically `100k–200k` reached `11.14` errors/session and `9.54` interventions/session); complete active deliverables, emit non-blocking `systemMessage` horizon advisories, and materialize checkpoints via `agyis checkpoint`.
+Empirical telemetry across the PSL telemetry corpus (`docs/taxonomy/empirical-baselines.md`, `N=1,731` token-tracked / `N=1,734` depth-classified sessions) grounds Agyis's **proportionally scaled attention runway** across `256k` (`CONTEXT_WINDOW_TOKENS = 256_000` baseline), **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`)**, and **`1M`** context windows alongside the **80-step soft checkpoint horizon** (`SOFT_CHECKPOINT_STEP_ADVISORY = 80`):
+- **Healthy Zone (<70% scaled window and <80 active-checkpoint steps; isolated child delegates <65% fill)**: Sessions maintain tight reasoning fidelity and minimal intervention friction (historically `1.26–2.26` errors/session and `1.10–1.22` operator interventions/session below `50k` tokens; `0.26` errors/session at `11–50` steps).
+- **Amber Zone (~70%–89.9% scaled window or `>=80` active-checkpoint steps)**: Pre-compaction convergence zone (`358k–460k` on `512k`, `180k–230k` on `256k`; historically `100k–200k` reached `11.14` errors/session and `9.54` interventions/session); complete active deliverables, emit non-blocking `systemMessage` horizon advisories, and materialize checkpoints via `agyis checkpoint`.
 - **Compaction Imminent (>=90% scaled window; `>=460k` on `512k`, `>=230k` on `256k`)**: While per-call tool error probability stays relatively flat (`1.87%–2.80%`), cumulative exposure plus late-stage loop/steering collapse historically drove `57.79` errors/session (`45.9x`) and `39.00` interventions/session (`32.0x`) at `200k+` tokens (`24.4x` errors / `14.0x` interventions past `200+` steps), with `256k`-era compactions averaging **245,941 tokens**. `pre_invocation_hook.py` emits a de-spammed nested `systemMessage` compaction directive and auto-generates CID-scoped checkpoints.
 
 Every line of product code written directly in the root cockpit, every unfiltered terminal output dumped into the pairing prompt, and every failed test trace digested in the main window accelerates the descent toward the context cliff. Track C eliminates this vulnerability by enforcing total architectural separation between Flight Direction and Specialist Execution.
@@ -288,7 +288,7 @@ Context compaction is an inevitable reality in long-horizon engineering campaign
 ```mermaid
 stateDiagram-v2
     [*] --> HealthyZone: Session Initialized
-    HealthyZone --> AmberZone: Tokens >= 70% window or >= 80 epoch steps
+    HealthyZone --> AmberZone: Tokens >= 70% window or >= 80 checkpoint steps
     AmberZone --> CompactionImminent: Tokens >= 90% window / Spawns >= 16
     CompactionImminent --> CheckpointAssembly: PreInvocation Injects nested systemMessage
     CheckpointAssembly --> CognitiveCompression: Lock-Free compaction_checkpoint.py (<30ms)
@@ -298,12 +298,12 @@ stateDiagram-v2
 ```
 
 ### 4.1 Context Proximity Thresholds (`ADR-033`, `ADR-035`, `PSL-INV-004`)
-Scaled proportionally across `256k`, **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`) `512k`**, and **`1M`** context windows alongside `SOFT_EPOCH_STEP_ADVISORY = 80`:
-1. **🟢 Healthy Zone (<70% scaled window and <80 epoch steps; `<358k` on `512k`, `<180k` on `256k`)**:
+Scaled proportionally across `256k`, **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`) `512k`**, and **`1M`** context windows alongside `SOFT_CHECKPOINT_STEP_ADVISORY = 80`:
+1. **🟢 Healthy Zone (<70% scaled window and <80 checkpoint steps; `<358k` on `512k`, `<180k` on `256k`)**:
    - Normal autonomous operations.
    - Standard milestone decomposition and subagent dispatches.
    - Regular aperture updates in `project_ledger.md`.
-2. **🟡 Amber Zone (~70% – 89.9% scaled window or `>=80` active-epoch steps; `358k–460k` on `512k`, `180k–230k` on `256k`)**:
+2. **🟡 Amber Zone (~70% – 89.9% scaled window or `>=80` active-checkpoint steps; `358k–460k` on `512k`, `180k–230k` on `256k`)**:
    - Pre-compaction awareness mode.
    - The Flight Director must avoid launching sprawling, multi-file refactoring milestones.
    - Complete active stages; instruct the Hammer and Custodian to commit in-flight diffs to git on HEAD.
@@ -336,7 +336,7 @@ To prevent data loss, the Flight Director materializes ground truth in `<30ms` l
 - **Subagent Liveness**: Active conversation IDs, step counts, token counts, and health zones (`HEALTHY`, `AMBER`, `RED_ALERT`).
 - **Artifact Catalog**: Active plans, reports, and ledgers in `.agents/artifacts/` with sizes and links.
 - **Plan Status**: Total tasks, completed tasks, in-progress phase, and immediate next actionable step.
-- Writes to `.agents/artifacts/compaction_checkpoint_<epoch>.md` and updates the latest pointer `.agents/artifacts/compaction_checkpoint_latest.md`.
+- Writes to `.agents/artifacts/compaction_checkpoint_<ts>.md` and updates the latest pointer `.agents/artifacts/compaction_checkpoint_latest.md`.
 
 ### 4.4 Autonomous Post-Compaction Continuation Directive
 When waking up in a compacted session or successor context, the agent is bound by the **Zero Operator Prompting Rule**:
@@ -424,7 +424,7 @@ flowchart TD
 1. [ ] **Session Initialization & Baseline Audit**:
    - Check current git status (`git status --short`).
    - Check test suite baseline (`python3 -m harness.cli test`). Confirm exit code 0.
-   - Inspect active token consumption (<70% scaled healthy zone; <80 epoch steps).
+   - Inspect active token consumption (<70% scaled healthy zone; <80 checkpoint steps).
 
 2. [ ] **Requirements Crystallization & Classification**:
    - Listen to operator objective.
@@ -460,7 +460,7 @@ flowchart TD
 | **Command Failure Thrash** | Same command fails $\ge 2$ times | Halt execution immediately. Emit concise error diagnosis. Present 2–3 concrete remediation options. | Operator Chat Turn (Plane 1) |
 | **Destructive Command Gate** | File deletion, branch force-push, node restart | Block command. Present explicit confirmation prompt with blast radius description. | Operator Confirmation Gate |
 | **Context Cliff Alarm** | Tokens `>=90%` scaled window (`>=460k`/`512k`, `>=230k`/`256k`) or Spawns `>= 16` | Execute `agyis checkpoint generate`. Materialize state in `.agents/artifacts/`. Prompt operator for `/compact`. | PreInvocation `systemMessage` & Chat |
-| **Subagent Red Alert** | Subagent fill `>=80%` scaled window or `>=80` epoch steps | Retire/rotate subagent. Spawn fresh successor with compacted task payload. | Private Inter-Agent (Plane 2) |
+| **Subagent Red Alert** | Subagent fill `>=80%` scaled window or `>=80` checkpoint steps | Retire/rotate subagent. Spawn fresh successor with compacted task payload. | Private Inter-Agent (Plane 2) |
 | **Hardware Mesh Offline** | SSH ControlMaster socket timeout | Revert from remote swarm to local hermetic worktree. Log mesh alert. | Operator Chat Turn (Plane 1) |
 
 ---

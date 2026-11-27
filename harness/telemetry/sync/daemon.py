@@ -10,7 +10,9 @@ Uses canonical schema.py/extractor.py upserts, bounded backoff, and atomic healt
 
 from __future__ import annotations
 
+import ctypes
 from datetime import datetime, timezone
+import gc
 import json
 import os
 from pathlib import Path
@@ -23,16 +25,55 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from harness.telemetry import config
 from harness.telemetry.db import compute_telemetry_lag, get_db_connection, iter_brain_transcripts
 from harness.telemetry.extractor import ensure_telemetry_schema, extract_session, upsert_session_telemetry
+from harness.telemetry.sync.pull import pull_remote_sessions as _pull_remote_sessions
 from harness.telemetry.sync.push import push_local_sessions as _push_local_sessions
 from harness.utils.state import get_state_dir
 
-_MAX_MTIME_CACHE = 2000
+_MAX_MTIME_CACHE = 10_000
 _MAX_RECENT_ERRORS = 5
 _MAX_SESSION_ERRORS = 20
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _trim_process_memory() -> None:
+    """Reclaims Python cyclic garbage and returns unused heap pages to OS on Linux."""
+    gc.collect()
+    if sys.platform.startswith("linux"):
+        try:
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
+
+
+def _seed_mtime_cache(
+    conn: sqlite3.Connection,
+    mtime_cache: Dict[str, Tuple[float, int]],
+) -> None:
+    """Pre-seeds mtime_cache from indexed sessions so daemon restarts skip historical files."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT transcript_path, file_size_bytes FROM sessions "
+        "WHERE transcript_path IS NOT NULL AND file_size_bytes IS NOT NULL "
+        "AND COALESCE(total_steps, 0) > 0 "
+        "ORDER BY COALESCE(end_time, start_time) DESC LIMIT ?",
+        (_MAX_MTIME_CACHE,),
+    )
+    rows = cur.fetchall()
+    for tp_str, db_size in reversed(rows):
+        if not tp_str or tp_str.startswith("$") or not isinstance(db_size, int) or db_size <= 0:
+            continue
+        try:
+            st = os.stat(tp_str)
+        except OSError:
+            continue
+        if st.st_size == db_size:
+            mtime_cache.pop(tp_str, None)
+            mtime_cache[tp_str] = (st.st_mtime, st.st_size)
+            if len(mtime_cache) > _MAX_MTIME_CACHE:
+                mtime_cache.pop(next(iter(mtime_cache)), None)
 
 
 def get_sync_status_path(state_dir: Optional[Path] = None) -> Path:
@@ -51,11 +92,17 @@ def read_sync_status(state_dir: Optional[Path] = None) -> Dict[str, Any]:
 
 
 def _write_sync_status(payload: Dict[str, Any], state_dir: Optional[Path] = None) -> None:
+    import harness
+
     path = get_sync_status_path(state_dir=state_dir)
+    enriched = dict(payload)
+    enriched.setdefault("daemon_version", getattr(harness, "__version__", "unknown"))
+    enriched.setdefault("pid", os.getpid())
+    enriched.setdefault("started_at", enriched.get("updated_at") or _utc_now_iso())
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(f".tmp.{os.getpid()}")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(enriched, indent=2), encoding="utf-8")
         os.replace(tmp, path)
     except OSError as exc:
         sys.stderr.write(f"[agyis-sync] Failed writing sync status {path}: {exc}\n")
@@ -80,18 +127,25 @@ def harvest_local_transcripts(
                 if not res:
                     continue
                 upsert_session_telemetry(conn, *res, commit=True)
+                del res
                 mtime_cache.pop(p_str, None)
                 mtime_cache[p_str] = (mtime, size)
                 if len(mtime_cache) > _MAX_MTIME_CACHE:
                     mtime_cache.pop(next(iter(mtime_cache)), None)
                 stored += 1
+            except FileNotFoundError:
+                mtime_cache.pop(p_str, None)
+                continue
             except Exception as exc:
                 conn.rollback()
                 sys.stderr.write(f"[agyis-sync] Harvest failed for {p}: {exc}\n")
                 if error_sink is not None:
-                    error_sink.append(f"{p.parts[-4]}: {exc}")
+                    cid_lbl = p.parts[-4] if len(p.parts) >= 4 else p.parent.name
+                    error_sink.append(f"{cid_lbl}: {exc}")
     finally:
         conn.close()
+        if stored > 0 or len(modified) >= 5:
+            _trim_process_memory()
     return stored
 
 def watch_and_sync(
@@ -101,17 +155,28 @@ def watch_and_sync(
     stop_event: Optional[threading.Event] = None,
     on_iteration: Optional[Callable[[int, Dict[str, Any]], None]] = None,
     brain_dir: Optional[Path] = None, max_backoff_sec: float = 300.0, state_dir: Optional[Path] = None,
+    pull_in_watch: bool = False, include_self: bool = False,
+    developer: Optional[str] = None, machine: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Continuously harvests local transcripts and pushes deltas with exponential backoff."""
+    """Continuously harvests local transcripts and pushes (and optionally pulls) deltas with backoff."""
     target_db = config.resolve_db_path(db_path, must_exist=False)
+    effective_pull = bool(pull_in_watch)
+    if not effective_pull:
+        try:
+            effective_pull = bool(config.load_config().get("sync_pull_in_watch", False))
+        except ValueError:
+            effective_pull = False
+
     mtime_cache: Dict[str, Tuple[float, int]] = {}
     errors: List[str] = []
-    iterations = total_pushed = total_harvested = consecutive_failures = 0
+    iterations = total_pushed = total_pulled = total_harvested = consecutive_failures = 0
+    started_at = _utc_now_iso()
     last_success_at = last_harvest_at = last_error = None
     try:
         conn = get_db_connection(target_db, row_factory=False)
         try:
             ensure_telemetry_schema(conn)
+            _seed_mtime_cache(conn, mtime_cache)
         finally:
             conn.close()
     except Exception as init_exc:
@@ -123,7 +188,7 @@ def watch_and_sync(
         while True:
             iterations += 1
             iter_errors: List[str] = []
-            harvested = pushed = 0
+            harvested = pushed = pulled = 0
             push_unconfigured = False
             try:
                 harvested = harvest_local_transcripts(target_db, mtime_cache, brain_dir=brain_dir, error_sink=iter_errors)
@@ -146,6 +211,23 @@ def watch_and_sync(
                 sys.stderr.write(f"[agyis-sync] Push iteration {iterations} error: {p_exc}\n")
                 iter_errors.append(f"Push iteration {iterations} error: {p_exc}")
 
+            if effective_pull:
+                try:
+                    sync_pkg = sys.modules.get("harness.telemetry.sync")
+                    pull_fn = getattr(sync_pkg, "pull_remote_sessions", _pull_remote_sessions)
+                    pull_res = pull_fn(
+                        endpoint=endpoint, token=token, db_path=target_db,
+                        include_self=include_self, developer=developer, machine=machine,
+                    )
+                    if isinstance(pull_res, dict):
+                        pulled = int(pull_res.get("sessions_pulled") or 0)
+                        total_pulled += pulled
+                except ValueError:
+                    push_unconfigured = True
+                except Exception as pl_exc:
+                    sys.stderr.write(f"[agyis-sync] Pull iteration {iterations} error: {pl_exc}\n")
+                    iter_errors.append(f"Pull iteration {iterations} error: {pl_exc}")
+
             now_iso, base_iv = _utc_now_iso(), max(0.0, float(interval_sec))
             if iter_errors:
                 consecutive_failures += 1
@@ -158,12 +240,15 @@ def watch_and_sync(
             backoff_val = sleep_sec if consecutive_failures > 0 else 0.0
             payload = {
                 "iteration": iterations, "sessions_harvested": harvested, "sessions_pushed": pushed,
+                "sessions_pulled": pulled,
                 "harvest_errors": len(iter_errors), "push_unconfigured": push_unconfigured,
                 "consecutive_failures": consecutive_failures, "backoff_sec": backoff_val,
             }
             _write_sync_status({
-                "status": status_str, "updated_at": now_iso, "last_success_at": last_success_at,
+                "status": status_str, "started_at": started_at, "updated_at": now_iso,
+                "last_success_at": last_success_at,
                 "last_harvest_at": last_harvest_at or last_success_at, "last_harvested_sessions": harvested,
+                "sessions_pulled": pulled,
                 "harvest_errors": len(iter_errors), "consecutive_failures": consecutive_failures,
                 "backoff_sec": backoff_val, "last_error": last_error, "recent_errors": errors[-_MAX_RECENT_ERRORS:],
             }, state_dir=state_dir)
@@ -180,7 +265,8 @@ def watch_and_sync(
         pass
     return {
         "status": "completed", "iterations": iterations, "total_sessions_pushed": total_pushed,
-        "total_sessions_harvested": total_harvested, "consecutive_failures": consecutive_failures, "errors": errors,
+        "total_sessions_pulled": total_pulled, "total_sessions_harvested": total_harvested,
+        "consecutive_failures": consecutive_failures, "errors": errors,
     }
 
 

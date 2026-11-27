@@ -19,6 +19,7 @@ from typing import Any, Dict, List
 import harness
 from harness.commands.subagents import format_subagents_table
 from harness.runtime import doctor as psl_doctor
+from harness.utils import theme
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_DB = REPO_ROOT / "data" / "telemetry.db"
@@ -231,9 +232,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(json.dumps(report, indent=2))
         return 0
 
-    print("=" * 70)
-    print(f" 🛡️ Agyis Harness for Google Antigravity™ (v{harness.__version__})")
-    print("=" * 70)
+    print(theme.banner(f"Agyis Harness for Google Antigravity™ (v{harness.__version__})"))
     print(f" Repository Root: {REPO_ROOT}")
     print(f" Platform:        {sys.platform} (Python {sys.version.split()[0]})")
     herm_py = psl_doctor.find_hermetic_uv_python()
@@ -306,7 +305,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         _logger.debug("Telemetry sync lag unavailable: %s", exc)
 
     live_hook_checks, live_hook_blocks = _load_live_hooks_summary()
-    print("-" * 70)
+    print(theme.rule())
     print(f" Active Lifecycle Hooks ({len(live_hook_blocks)} blocks / {len(live_hook_checks)} checks from hooks.json):")
     if live_hook_blocks:
         for blk in live_hook_blocks:
@@ -316,10 +315,10 @@ def cmd_status(args: argparse.Namespace) -> int:
                 _HOOK_DESCRIPTIONS[c] for c in blk["checks"] if c in _HOOK_DESCRIPTIONS
             )
             detail = f"{events_str}: {desc}" if desc else events_str
-            print(f"   ✔ {checks_str:<24} ({detail})")
+            print(f"   {theme.badge('PASS')} {theme.pad_display(checks_str, 24)} ({detail})")
     else:
-        print("   ⚠ No hooks loaded from hooks.json")
-    print("-" * 70)
+        print(f"   {theme.badge('WARN', 'No hooks loaded from hooks.json')}")
+    print(theme.rule())
     try:
         import os
         from harness.hooks.token_proximity_guard import (
@@ -366,9 +365,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         red_k = int(round(red_t / 1000))
 
         print(f" Cognitive Attention Horizon Gauge ({win_label} Model Context Window):")
-        print(f"   🟢 Healthy Zone: <{amber_k}k tokens (Nominal / High Attention Aperture)")
-        print(f"   🟡 Amber Zone:   {amber_k}k–{red_k}k tokens (Attention Compaction Advised)")
-        print(f"   🔴 Red Alert:    >={red_k}k tokens (Compaction Imminent, {win_label} Context Window)")
+        print(f"   {theme.badge('HEALTHY')} Healthy Zone: <{amber_k}k tokens (Nominal / High Attention Aperture)")
+        print(f"   {theme.badge('AMBER')} Amber Zone:   {amber_k}k–{red_k}k tokens (Attention Compaction Advised)")
+        print(f"   {theme.badge('RED_ALERT')} Red Alert:    >={red_k}k tokens (Compaction Imminent, {win_label} Context Window)")
 
         if conv_id:
             vel = get_active_conversation_token_velocity(conv_id)
@@ -390,7 +389,7 @@ def cmd_status(args: argparse.Namespace) -> int:
                     compaction_threshold=comp_t,
                 )
                 conv_label = f"{conv_id} | {conv_source}" if conv_source == "fallback: newest mtime" else conv_id
-                print(f"   📊 Active Session ({conv_label}): {gauge}")
+                print(f"   {theme.badge('BRAND')} Active Session ({conv_label}): {gauge}")
     except Exception:
         from harness.trajectory.health import AMBER_THRESHOLD, CONTEXT_WINDOW_TOKENS, RED_THRESHOLD
 
@@ -398,20 +397,20 @@ def cmd_status(args: argparse.Namespace) -> int:
         amber_k = int(round(AMBER_THRESHOLD / 1000))
         red_k = int(round(RED_THRESHOLD / 1000))
         print(f" Cognitive Attention Horizon Gauge ({win_k}k Default / 512k-1M Model-Scaled Context Window):")
-        print(f"   🟢 Healthy Zone: <{amber_k}k tokens (Nominal / High Attention Aperture)")
-        print(f"   🟡 Amber Zone:   {amber_k}k–{red_k}k tokens (Attention Compaction Advised)")
-        print(f"   🔴 Red Alert:    >={red_k}k tokens (Compaction Imminent, {win_k}k Default Window)")
-    print("-" * 70)
+        print(f"   {theme.badge('HEALTHY')} Healthy Zone: <{amber_k}k tokens (Nominal / High Attention Aperture)")
+        print(f"   {theme.badge('AMBER')} Amber Zone:   {amber_k}k–{red_k}k tokens (Attention Compaction Advised)")
+        print(f"   {theme.badge('RED_ALERT')} Red Alert:    >={red_k}k tokens (Compaction Imminent, {win_k}k Default Window)")
+    print(theme.rule())
     print(" Specialist Subagents:")
     for ag in agents:
         caps = ["write" if ag.can_write else "read-only"]
         if ag.can_execute:
             caps.append("exec")
-        print(f"   ✔ {ag.name:<18} ({ag.role}) [{' | '.join(caps)}]")
-    print("-" * 70)
+        print(f"   {theme.badge('PASS')} {theme.pad_display(ag.name, 18)} ({ag.role}) [{' | '.join(caps)}]")
+    print(theme.rule())
     print(" Modular Skills:")
     for sk in skills:
-        print(f"   ✔ {sk.name:<22} - {sk.description[:42]}...")
+        print(f"   {theme.badge('PASS')} {theme.pad_display(sk.name, 22)} - {sk.description[:42]}...")
     try:
         from harness.subagents.heartbeat import read_stage_heartbeat
         workspace_dir = getattr(args, "workspace_dir", None)
@@ -420,13 +419,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         heartbeat = None
 
     if active_subagents:
-        print("-" * 70)
+        print(theme.rule())
         print(f" Live Active Subagents ({len(active_subagents)} active):")
         for line in format_subagents_table(active_subagents, heartbeat=heartbeat).splitlines():
             print(f"   {line}")
 
     if heartbeat and not heartbeat.get("is_stale", False) and heartbeat.get("status") in {"dispatched", "in_progress", "verifying"}:
-        print("-" * 70)
+        print(theme.rule())
         print(" Active Subagent Ladder Stage:")
         stage_val = heartbeat.get("stage", "executioner")
         active_id = heartbeat.get("active_agent_id", "")
@@ -461,7 +460,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         last_action = heartbeat.get("last_action", "N/A")
         status_name = heartbeat.get("status", "in_progress").upper()
         age_s = int(round(heartbeat.get("heartbeat_age_s", 0.0)))
-        status_line = f"🟢 {status_name} (Heartbeat {age_s}s ago)"
+        status_line = f"{theme.badge('ACTIVE')} {status_name} (Heartbeat {age_s}s ago)"
 
         print(f"   Stage:         {stage_display}")
         print(f"   Task ID:       {task_id}")
@@ -469,7 +468,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"   Elapsed Time:  {elapsed_str}")
         print(f"   Last Action:   {last_action}")
         print(f"   Status:        {status_line}")
-        print("-" * 70)
+        print(theme.rule())
 
-    print("=" * 70)
+    print(theme.rule("━"))
     return 0

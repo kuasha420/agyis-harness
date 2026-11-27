@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agyis Trajectory Playback</title>
+  <link rel="stylesheet" href="/assets/hud_styles.css">
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #080E1A; color: #F4F6FA; overflow: hidden; font-family: "Instrument Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body.agyis-playback-mode { display: flex; flex-direction: column; height: 100vh; }
+    .agyis-playback-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; background: #10192B; border-bottom: 1px solid #1E2C47; flex-shrink: 0; flex-wrap: wrap; }
+    .agyis-playback-brand { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; letter-spacing: -0.01em; color: #F4F6FA; }
+    .agyis-playback-tag { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 9999px; background: rgba(27, 77, 255, 0.16); color: #5C8AFF; border: 1px solid rgba(92, 138, 255, 0.35); }
+    .agyis-playback-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .agyis-playback-select { background: #0B1322; border: 1px solid #1E2C47; color: #F4F6FA; border-radius: 6px; padding: 4px 8px; font-size: 11px; max-width: 320px; }
+    .agyis-playback-btn { background: #162238; border: 1px solid #1E2C47; color: #F4F6FA; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; }
+    .agyis-playback-btn:hover { background: #1D2D4A; border-color: #5C8AFF; }
+    .agyis-playback-live { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #9AA8BE; cursor: pointer; user-select: none; }
+    .agyis-playback-status { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: #26D0CE; }
+    .agyis-playback-status.is-error { color: #FF6B6B; }
+    #agyis-playback-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  </style>
+</head>
+<body class="agyis-playback-mode">
+  <header class="agyis-playback-bar">
+    <div class="agyis-playback-brand">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="20" height="20" aria-hidden="true">
+        <defs>
+          <linearGradient id="agyis-shell-edge" x1="16" y1="12" x2="112" y2="116" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#1B4DFF"/><stop offset="52%" stop-color="#5C8AFF"/><stop offset="100%" stop-color="#26D0CE"/>
+          </linearGradient>
+          <linearGradient id="agyis-shell-body" x1="64" y1="12" x2="64" y2="116" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#101C33"/><stop offset="100%" stop-color="#080E1A"/>
+          </linearGradient>
+        </defs>
+        <path d="M40 12 L88 12 L112 32 L112 74 L64 116 L16 74 L16 32 Z" fill="url(#agyis-shell-body)" stroke="url(#agyis-shell-edge)" stroke-width="4" stroke-linejoin="miter"/>
+        <path d="M43 19 L85 19 L105 35.5 L105 70.5 L64 106.5 L23 70.5 L23 35.5 Z" fill="none" stroke="#233659" stroke-width="1.5"/>
+        <polygon points="31,83 52,31 61,31 42,83" fill="#F4F6FA"/><polygon points="97,83 76,31 67,31 86,83" fill="#F4F6FA"/>
+        <polygon points="64,47 64,63 53,63" fill="#A8C5FF"/><polygon points="64,47 75,63 64,63" fill="#5C8AFF"/>
+        <polygon points="53,63 64,63 64,79" fill="#1B4DFF"/><polygon points="64,63 75,63 64,79" fill="#26D0CE"/>
+        <path d="M54 91 L64 99.5 L74 91" fill="none" stroke="url(#agyis-shell-edge)" stroke-width="3.2" stroke-linecap="square" stroke-linejoin="miter"/>
+      </svg>
+      <span>Agyis Trajectory Playback</span>
+      <span class="agyis-playback-tag">HTTP :40624</span>
+    </div>
+    <div class="agyis-playback-controls">
+      <select id="agyis-playback-convo" class="agyis-playback-select" aria-label="Select conversation"></select>
+      <button id="agyis-playback-reload" type="button" class="agyis-playback-btn">Refresh</button>
+      <label class="agyis-playback-live"><input id="agyis-playback-live" type="checkbox"> Live reload</label>
+      <span id="agyis-playback-status" class="agyis-playback-status">Initializing...</span>
+    </div>
+  </header>
+  <main id="agyis-playback-stage">
+    <div id="agyis-trajectory-hud"></div>
+  </main>
+  <script src="/assets/hud_theme.js"></script>
+  <script src="/assets/hud_utils.js"></script>
+  <script src="/assets/hud_header.js"></script>
+  <script src="/assets/hud_context_bar.js"></script>
+  <script src="/assets/hud_timeline.js"></script>
+  <script src="/assets/hud_inspector.js"></script>
+  <script src="/assets/hud_deck.js"></script>
+  <script src="/assets/hud_stream.js"></script>
+  <script src="/assets/hud_rpc.js"></script>
+  <script src="/assets/playback_boot.js"></script>
+</body>
+</html>

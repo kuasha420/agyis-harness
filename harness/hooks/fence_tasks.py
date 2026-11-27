@@ -216,7 +216,7 @@ def sync_background_tasks(
             for k in to_del:
                 del pending_tests[k]
         except Exception as exc:
-            sys.stderr.write(f"PSL Fence Warning: Failed syncing task message '{msg_file}': {exc}\n")
+            sys.stderr.write(f"[AGYIS FENCE] Warning: Failed syncing task message '{msg_file}': {exc}\n")
             continue
 
     state = load_state(conv_id=conv_id, state_dir=state_dir)

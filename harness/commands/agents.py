@@ -26,6 +26,7 @@ from harness.subagents import (
     sync_agent_definitions,
     validate_agent_spec,
 )
+from harness.utils import theme
 
 
 def _get_repo_root() -> Path:
@@ -183,7 +184,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
             for e in val_errors:
                 sys.stderr.write(f"Warning: {e}\n")
 
-        print(f"✔ Created agent '{name}' ({archetype.value}) at {out_path}")
+        print(theme.badge("PASS", f"Created agent '{name}' ({archetype.value}) at {out_path}"))
         return 0
 
     # 2. agents validate [path_or_name]
@@ -213,13 +214,13 @@ def cmd_agents(args: argparse.Namespace) -> int:
                 }, indent=2))
                 return 1 if all_errors else 0
             if all_errors:
-                sys.stderr.write(f"✘ {len(all_errors)} agent(s) failed validation:\n")
+                sys.stderr.write(theme.badge("FAIL", f"{len(all_errors)} agent(s) failed validation:", stream=sys.stderr) + "\n")
                 for fname, errs in all_errors.items():
                     sys.stderr.write(f"  • {fname}:\n")
                     for e in errs:
                         sys.stderr.write(f"    - {e}\n")
                 return 1
-            print(f"✔ All {len(specs)} registered agents are valid.")
+            print(theme.badge("PASS", f"All {len(specs)} registered agents are valid."))
             return 0
 
         cand = Path(target)
@@ -258,10 +259,10 @@ def cmd_agents(args: argparse.Namespace) -> int:
             }, indent=2))
             return 1 if errors else 0
         if not errors:
-            print(f"✔ Agent '{found_file.name}' is valid.")
+            print(theme.badge("PASS", f"Agent '{found_file.name}' is valid."))
             return 0
         else:
-            sys.stderr.write(f"✘ Agent '{found_file.name}' failed validation with {len(errors)} error(s):\n")
+            sys.stderr.write(theme.badge("FAIL", f"Agent '{found_file.name}' failed validation with {len(errors)} error(s):", stream=sys.stderr) + "\n")
             for err in errors:
                 sys.stderr.write(f"  • {err}\n")
             return 1
@@ -289,7 +290,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
             dedup=dedup,
             override=override,
         )
-        print(f"✔ Synchronized {len(synced)} agent definitions to {target_dir}:")
+        print(theme.badge("PASS", f"Synchronized {len(synced)} agent definitions to {target_dir}:"))
         for p in synced:
             print(f"  • {p.name} -> {p}")
         return 0
@@ -330,7 +331,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
         )
         print(f"Allowed Tools ({len(spec.allowed_tools)}): {', '.join(spec.allowed_tools)}")
         print(f"Description:\n  {spec.description}\n")
-        print("=" * 60)
+        print(theme.rule())
         print(spec.system_prompt)
         return 0
 
@@ -355,8 +356,8 @@ def cmd_agents(args: argparse.Namespace) -> int:
         )
         return 0
 
-    print(f"Agyis Specialist Subagents ({len(agents)} registered):")
-    print("-" * 60)
+    print(theme.style(f"Agyis Specialist Subagents ({len(agents)} registered):", "ink", bold=True))
+    print(theme.rule())
     for a in agents:
         caps = []
         if a.can_write:
@@ -368,7 +369,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
         if a.can_subagent:
             caps.append("subagent")
         cap_str = f"[{' | '.join(caps)}]"
-        print(f"  • {a.name:<18} ({a.role}) {cap_str}")
+        print(f"  • {theme.pad_display(a.name, 18)} ({a.role}) {cap_str}")
         print(f"    {a.description}")
         print(f"    Tools ({len(a.allowed_tools)}): {', '.join(a.allowed_tools)}")
     print()

@@ -454,7 +454,7 @@ def build_measured_breakdown(
     tool_defs_tokens: int = 0,
 ) -> TokenBreakdown:
     """
-    Computes measured per-epoch token buckets plus honest `unattributed` remainder.
+    Computes measured per-checkpoint token buckets plus honest `unattributed` remainder.
     Never applies synthetic 40/60 system/tool percentages or dumps unattributed gaps into `model`.
     """
     user_t = model_t = thought_t = tool_t = cp_t = sys_t = 0
@@ -562,7 +562,7 @@ def discover_active_subagents(
     candidate_ids = set(spawned_map.keys())
     try:
         for entry in b_dir.iterdir():
-            if not entry.is_dir() or entry.name == norm_parent:
+            if not entry.is_dir() or entry.name == norm_parent or entry.name in candidate_ids:
                 continue
             try:
                 if entry.stat().st_mtime < cutoff:
@@ -612,10 +612,10 @@ def discover_active_subagents(
         if role in swarm_plan_tasks and sc_meta and sc_meta.get("agent_name"):
             role = sc_meta["agent_name"]
 
-        # Active-epoch token/step count: DB authoritative first, else transcript active-epoch text
+        # Active-checkpoint token/step count: DB authoritative first, else transcript active-checkpoint text
         cp_indices = [i for i, s in enumerate(steps) if is_transcript_checkpoint_step(s)]
         active_slice = steps[cp_indices[-1] :] if cp_indices else steps
-        epoch_steps = db_metrics.epoch_steps if db_metrics.total_steps > 0 else len(active_slice)
+        checkpoint_steps = db_metrics.checkpoint_steps if db_metrics.total_steps > 0 else len(active_slice)
         max_ctx = db_metrics.max_context_tokens or DEFAULT_CONTEXT_WINDOW_TOKENS
 
         if db_metrics.tokens > 0:
@@ -634,7 +634,7 @@ def discover_active_subagents(
             )
             is_prov = token_count > 0
 
-        health_zone, recommendation = classify_context_health(token_count, epoch_steps, max_context_tokens=max_ctx)
+        health_zone, recommendation = classify_context_health(token_count, checkpoint_steps, max_context_tokens=max_ctx)
         latency_ms = round((time.perf_counter() - t0) * 1000.0, 3)
         last_iso = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -649,7 +649,7 @@ def discover_active_subagents(
                 latency_ms=latency_ms,
                 parent_conversation_id=meta_pid or norm_parent,
                 max_context_tokens=max_ctx,
-                epoch_step_count=epoch_steps,
+                checkpoint_step_count=checkpoint_steps,
                 is_provisional=is_prov,
                 transcript_path=str(t_path),
                 last_updated=last_iso,

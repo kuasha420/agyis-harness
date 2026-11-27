@@ -31,6 +31,7 @@ from harness.skills import (
     detect_workspace_stack,
     is_monorepo,
 )
+from harness.utils import theme
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -134,34 +135,11 @@ def cmd_init(args: argparse.Namespace) -> int:
         dry_run=dry_run,
     )
 
-    exp_rea = bool(getattr(args, "experimental_rea", False))
-    if exp_rea and res.success:
-        if not dry_run:
-            cfg_file = (
-                (target_ws / ".psl" / "config.json")
-                if (target_ws / ".psl").is_dir() and not (target_ws / ".agyis").exists()
-                else (target_ws / ".agyis" / "config.json")
-            )
-            cfg_file.parent.mkdir(parents=True, exist_ok=True)
-            ws_cfg: dict = {}
-            if cfg_file.is_file():
-                try:
-                    ws_cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
-                    if not isinstance(ws_cfg, dict):
-                        ws_cfg = {}
-                except (json.JSONDecodeError, OSError):
-                    ws_cfg = {}
-            ws_cfg["experimental_rea"] = True
-            cfg_file.write_text(json.dumps(ws_cfg, indent=2) + "\n", encoding="utf-8")
+    rea_enabled = bool(getattr(args, "rea", False) or getattr(args, "experimental_rea", False))
+    if rea_enabled and res.success:
+        from harness.runtime.healing import provision_workspace_rea
 
-            # Scaffold .agents/ledger/
-            ledger_dir = target_ws / ".agents" / "ledger"
-            ledger_dir.mkdir(parents=True, exist_ok=True)
-
-            # Provision REA skill dynamically
-            from harness.runtime.healing import provision_rea_skill
-
-            provision_rea_skill(target_ws / ".agents" / "skills", link=True, allow_download=False)
+        provision_workspace_rea(target_ws, dry_run=dry_run)
 
     if getattr(args, "json", False):
         data = {
@@ -179,17 +157,18 @@ def cmd_init(args: argparse.Namespace) -> int:
             "command_dictionary": res.command_dictionary,
             "legacy_notice": res.legacy_notice,
             "message": res.message,
-            "experimental_rea": exp_rea,
+            "rea": rea_enabled,
+            "experimental_rea": rea_enabled,
         }
         print(json.dumps(data, indent=2))
         return 0 if res.success else 1
 
     if res.success:
-        print(f"✔ {res.message}")
+        print(theme.badge("PASS", res.message))
         print(f"  • Stack: {res.stack}")
-        if exp_rea:
+        if rea_enabled:
             label = "Would scaffold" if res.dry_run else "Enabled"
-            print(f"  • REA: {label} Reverse Engineer Anything opt-in (.agents/ledger/)")
+            print(f"  • REA: {label} Reverse Engineer Anything support (.agents/ledger/)")
         if effective_role:
             print(f"  • Role: {effective_role}")
         if subproject:
@@ -212,8 +191,8 @@ def cmd_init(args: argparse.Namespace) -> int:
             for verb, cmd in res.command_dictionary.items():
                 print(f"    - {verb}: {cmd}")
         if res.legacy_notice:
-            print(f"\n💡 Notice: {res.legacy_notice}")
+            print(f"\n{theme.badge('WARN', f'Notice: {res.legacy_notice}')}")
         return 0
     else:
-        sys.stderr.write(f"✘ Error: {res.message}\n")
+        sys.stderr.write(theme.badge("FAIL", f"Error: {res.message}", stream=sys.stderr) + "\n")
         return 1

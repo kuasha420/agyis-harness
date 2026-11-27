@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover - Windows fallback
     fcntl = None  # type: ignore[assignment]
 
 from harness.re.scaffold import get_dirtyroom_root
+from harness.utils import theme
 
 DEFAULT_MAX_CACHE_BYTES = 512 * 1024 * 1024
 DEFAULT_MAX_CACHE_ENTRIES = 5000
@@ -385,9 +386,7 @@ def cmd_cache(args: argparse.Namespace) -> int:
             print(json.dumps(stats, indent=2))
             return 0
 
-        print("======================================================================")
-        print(" ⚡ Agyis Decompiler Query Cache Status (PSL-RE-001, Issue #113)")
-        print("======================================================================")
+        print(theme.banner("Agyis Decompiler Query Cache Status (PSL-RE-001, Issue #113)"))
         print(f" Cache Directory:  {stats['cache_root']}")
         print(f" Status:           {stats['status'].upper()}")
         print(f" Total Entries:    {stats['entries']:,}")
@@ -401,11 +400,11 @@ def cmd_cache(args: argparse.Namespace) -> int:
             print(f" Last Cache Miss:  {stats['last_miss']}")
 
         if stats.get("categories"):
-            print("----------------------------------------------------------------------")
+            print(theme.rule())
             print(" Category Breakdown:")
             for cat, data in stats["categories"].items():
-                print(f"   • {cat:<14} {data['entries']:>5} files | {data['human_size']:>10} | {data['hits']} hits / {data['misses']} misses")
-        print("======================================================================")
+                print(f"   • {theme.pad_display(cat, 14)} {data['entries']:>5} files | {data['human_size']:>10} | {data['hits']} hits / {data['misses']} misses")
+        print(theme.rule("━"))
         return 0
 
     if action == "clear":

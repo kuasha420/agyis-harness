@@ -21,42 +21,96 @@ Primary console entrypoint for the Agyis Harness runtime:
 from __future__ import annotations
 
 import argparse
+import importlib
 from pathlib import Path
 import sys
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import harness
 from harness.cli_parsers_core import register_core_parsers
 from harness.cli_parsers_ops import register_ops_parsers
-from harness.commands import (
-    cmd_agents,
-    cmd_audit,
-    cmd_auth,
-    cmd_doctor,
-    cmd_gui,
-    cmd_harmonize,
-    cmd_hook,
-    cmd_init,
-    cmd_install,
-    cmd_onboard,
-    cmd_remote,
-    cmd_rules,
-    cmd_skills,
-    cmd_status,
-    cmd_subagents,
-    cmd_sync,
-    cmd_test,
-    cmd_uninstall,
-    cmd_verify,
-    cmd_release_notes,
-    cmd_changelog,
-    cmd_checkpoint,
-    cmd_cockpit,
-    cmd_clean,
-)
-from harness.commands.re import main as cmd_re
-from harness.commands.ext import main as cmd_ext
-from harness.runtime.extensions import discover_workspace_commands, execute_extension_command
+
+_LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
+    "cmd_doctor": ("harness.commands.doctor", "cmd_doctor"),
+    "cmd_hook": ("harness.commands.hook", "cmd_hook"),
+    "cmd_test": ("harness.commands.test", "cmd_test"),
+    "cmd_audit": ("harness.commands.audit", "cmd_audit"),
+    "cmd_auth": ("harness.commands.auth", "cmd_auth"),
+    "cmd_sync": ("harness.commands.sync", "cmd_sync"),
+    "cmd_rules": ("harness.commands.rules", "cmd_rules"),
+    "cmd_skills": ("harness.commands.skills", "cmd_skills"),
+    "cmd_agents": ("harness.commands.agents", "cmd_agents"),
+    "cmd_subagents": ("harness.commands.subagents", "cmd_subagents"),
+    "cmd_remote": ("harness.commands.remote", "cmd_remote"),
+    "cmd_status": ("harness.commands.status", "cmd_status"),
+    "cmd_init": ("harness.commands.install", "cmd_init"),
+    "cmd_harmonize": ("harness.commands.harmonize", "cmd_harmonize"),
+    "cmd_onboard": ("harness.commands.onboard", "cmd_onboard"),
+    "cmd_install": ("harness.commands.install", "cmd_install"),
+    "cmd_uninstall": ("harness.commands.install", "cmd_uninstall"),
+    "cmd_verify": ("harness.commands.verify", "cmd_verify"),
+    "cmd_gui": ("harness.commands.gui", "cmd_gui"),
+    "cmd_release_notes": ("harness.commands.release_notes", "cmd_release_notes"),
+    "cmd_changelog": ("harness.commands.changelog", "cmd_changelog"),
+    "cmd_checkpoint": ("harness.commands.checkpoint", "cmd_checkpoint"),
+    "cmd_cockpit": ("harness.commands.cockpit", "cmd_cockpit"),
+    "cmd_clean": ("harness.commands.clean", "cmd_clean"),
+    "cmd_re": ("harness.commands.re", "main"),
+    "cmd_ext": ("harness.commands.ext", "main"),
+    "discover_workspace_commands": ("harness.runtime.extensions", "discover_workspace_commands"),
+    "execute_extension_command": ("harness.runtime.extensions", "execute_extension_command"),
+}
+
+_SUBCOMMAND_ATTRS: Dict[str, str] = {
+    "doctor": "cmd_doctor",
+    "hook": "cmd_hook",
+    "test": "cmd_test",
+    "audit": "cmd_audit",
+    "auth": "cmd_auth",
+    "sync": "cmd_sync",
+    "rules": "cmd_rules",
+    "skills": "cmd_skills",
+    "agents": "cmd_agents",
+    "subagents": "cmd_subagents",
+    "remote": "cmd_remote",
+    "status": "cmd_status",
+    "init": "cmd_init",
+    "harmonize": "cmd_harmonize",
+    "onboard": "cmd_onboard",
+    "install": "cmd_install",
+    "uninstall": "cmd_uninstall",
+    "verify": "cmd_verify",
+    "gui": "cmd_gui",
+    "release-notes": "cmd_release_notes",
+    "changelog": "cmd_changelog",
+    "changelogs": "cmd_changelog",
+    "checkpoint": "cmd_checkpoint",
+    "cockpit": "cmd_cockpit",
+    "router": "cmd_cockpit",
+    "ladder": "cmd_cockpit",
+    "clean": "cmd_clean",
+}
+
+
+def __getattr__(name: str) -> Any:
+    spec = _LAZY_EXPORTS.get(name)
+    if spec is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    mod_name, attr_name = spec
+    value = getattr(importlib.import_module(mod_name), attr_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> List[str]:
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))
+
+
+def _resolve_export(name: str) -> Any:
+    val = globals().get(name)
+    if val is not None:
+        return val
+    return __getattr__(name)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MATRIX = Path(__file__).resolve().parent / "runtime" / "matrix.json"
@@ -77,7 +131,7 @@ def emit_psl_deprecation_warning() -> None:
 def build_parser(prog: str = "agyis") -> argparse.ArgumentParser:
     """Build the top-level argument parser for the Agyis harness CLI."""
     if prog == "psl":
-        desc = "PSL Harness for Google Antigravity™ — Unified Developer CLI (Deprecated: Use 'agyis')"
+        desc = "Agyis Harness (Legacy 'psl' CLI Alias — Deprecated: Use 'agyis')"
     else:
         desc = "Agyis Harness for Google Antigravity™ — Unified Developer CLI (Antigravity Immune System)"
 
@@ -120,45 +174,20 @@ def main(
     if prog == "psl" and not _warned:
         emit_psl_deprecation_warning()
 
-    commands = {
-        "doctor": cmd_doctor,
-        "hook": cmd_hook,
-        "test": cmd_test,
-        "audit": cmd_audit,
-        "auth": cmd_auth,
-        "sync": cmd_sync,
-        "rules": cmd_rules,
-        "skills": cmd_skills,
-        "agents": cmd_agents,
-        "subagents": cmd_subagents,
-        "remote": cmd_remote,
-        "status": cmd_status,
-        "init": cmd_init,
-        "harmonize": cmd_harmonize,
-        "onboard": cmd_onboard,
-        "install": cmd_install,
-        "uninstall": cmd_uninstall,
-        "verify": cmd_verify,
-        "gui": cmd_gui,
-        "release-notes": cmd_release_notes,
-        "changelog": cmd_changelog,
-        "changelogs": cmd_changelog,
-        "checkpoint": cmd_checkpoint,
-        "cockpit": cmd_cockpit,
-        "router": cmd_cockpit,
-        "ladder": cmd_cockpit,
-        "clean": cmd_clean,
-    }
-    reserved_subcommands = set(commands.keys()) | {"re", "ext"}
+    reserved_subcommands = set(_SUBCOMMAND_ATTRS.keys()) | {"re", "ext"}
 
     raw_argv = sys.argv[1:] if argv is None else list(argv)
     if raw_argv and not raw_argv[0].startswith("-"):
         first_tok = raw_argv[0]
+        if first_tok == "re":
+            return _resolve_export("cmd_re")(raw_argv[1:])
+        if first_tok == "ext":
+            return _resolve_export("cmd_ext")(raw_argv[1:])
         # Check if first token matches a workspace extension command (never shadow built-ins)
         if first_tok not in reserved_subcommands:
-            exts = discover_workspace_commands()
+            exts = _resolve_export("discover_workspace_commands")()
             if first_tok in exts:
-                return execute_extension_command(exts[first_tok], raw_argv[1:])
+                return _resolve_export("execute_extension_command")(exts[first_tok], raw_argv[1:])
 
     parser = build_parser(prog=prog)
     args = parser.parse_args(argv)
@@ -168,14 +197,14 @@ def main(
         return 0
 
     if args.subcommand == "re":
-        return cmd_re(getattr(args, "re_args", []))
+        return _resolve_export("cmd_re")(getattr(args, "re_args", []))
 
     if args.subcommand == "ext":
-        return cmd_ext(getattr(args, "ext_args", []))
+        return _resolve_export("cmd_ext")(getattr(args, "ext_args", []))
 
-    handler = commands.get(args.subcommand)
-    if handler:
-        return handler(args)
+    handler_attr = _SUBCOMMAND_ATTRS.get(args.subcommand)
+    if handler_attr:
+        return _resolve_export(handler_attr)(args)
 
     return 0
 

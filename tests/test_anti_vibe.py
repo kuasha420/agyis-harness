@@ -127,7 +127,7 @@ class TestAntiVibeScriptDOMReplacement(unittest.TestCase):
         self.assertIn("minSegmentPx", script)
         self.assertIn("rawSegmentsSum = segments.reduce", script)
         self.assertIn("-webkit-app-region: no-drag;", script)
-        self.assertIn("height: calc(100vh - 38px)", script)
+        self.assertIn("height: calc(100vh - var(--pane-titlebar-height, 40px))", script)
 
     def test_script_contains_native_connectrpc_services(self) -> None:
         script = build_trajectory_hud_script(

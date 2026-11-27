@@ -28,15 +28,17 @@ def get_gui_systemd_unit_dir(custom_dir: Optional[Union[str, Path]] = None) -> P
     return base_dir / "systemd" / "user"
 
 
-def generate_gui_systemd_path_unit() -> str:
+def generate_gui_systemd_path_unit(surface: str = "desktop") -> str:
     """Generates the systemd user path unit definition to monitor DevToolsActivePort changes."""
+    norm_surface = (surface or "desktop").strip().lower()
+    app_dir = "Antigravity IDE" if norm_surface in ("ide", "antigravity-ide", "antigravity_ide") else "Antigravity"
     xdg_config = (os.environ.get("XDG_CONFIG_HOME") or "").strip()
     if xdg_config:
-        watch_path = f"{Path(xdg_config)}/Antigravity/DevToolsActivePort"
+        watch_path = f"{Path(xdg_config)}/{app_dir}/DevToolsActivePort"
     else:
-        watch_path = "%h/.config/Antigravity/DevToolsActivePort"
+        watch_path = f"%h/.config/{app_dir}/DevToolsActivePort"
     return f"""[Unit]
-Description=Watch for Antigravity DevToolsActivePort Creation
+Description=Watch for {app_dir} DevToolsActivePort Creation
 Documentation=https://github.com/kuasha420/agyis-harness
 
 [Path]
@@ -103,7 +105,7 @@ def _emit_gui_service_msg(json_output: bool, payload: dict[str, Any], text: str,
     if json_output:
         print(json.dumps(payload, indent=2))
     elif err:
-        sys.stderr.write(f"✘ {text}\n")
+        sys.stderr.write(f"✕ {text}\n")
     else:
         print(text)
 
@@ -171,9 +173,9 @@ def handle_gui_service_command(
                 "service_unit": str(service_file),
             }, indent=2))
         else:
-            print(f"✔ Installed systemd user path unit: {path_file}")
-            print(f"✔ Installed systemd user service unit: {service_file}")
-            print("✔ Enabled and started antigravity-trajectory.path monitor")
+            print(f"● Installed systemd user path unit: {path_file}")
+            print(f"● Installed systemd user service unit: {service_file}")
+            print("● Enabled and started antigravity-trajectory.path monitor")
         return 0
 
     if action == "status":
@@ -223,7 +225,7 @@ def handle_gui_service_command(
 
     if action in ("start", "stop"):
         if action == "start" and not path_file.exists():
-            sys.stderr.write(f"✘ Service not installed at {path_file}. Run 'agyis gui --service install' first.\n")
+            sys.stderr.write(f"✕ Service not installed at {path_file}. Run 'agyis gui --service install' first.\n")
             return 1
         try:
             res = systemctl_fn([action, GUI_PATH_UNIT])
@@ -249,7 +251,7 @@ def handle_gui_service_command(
         _emit_gui_service_msg(
             json_output,
             {"service": "antigravity-trajectory", "action": action, "success": True},
-            f"✔ {verb} antigravity-trajectory.path monitor",
+            f"● {verb} antigravity-trajectory.path monitor",
         )
         return 0
 
@@ -298,9 +300,9 @@ def handle_gui_service_command(
         _emit_gui_service_msg(
             json_output,
             {"service": "antigravity-trajectory", "action": "uninstall", "success": True, "warnings": warnings},
-            "✔ Uninstalled antigravity-trajectory systemd units" + (f" ({len(warnings)} warning(s))" if warnings else ""),
+            "● Uninstalled antigravity-trajectory systemd units" + (f" ({len(warnings)} warning(s))" if warnings else ""),
         )
         return 0
 
-    sys.stderr.write(f"✘ Unknown service action '{action}'. Choose from: install, status, start, stop, uninstall.\n")
+    sys.stderr.write(f"✕ Unknown service action '{action}'. Choose from: install, status, start, stop, uninstall.\n")
     return 1

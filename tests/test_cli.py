@@ -72,11 +72,27 @@ class TestPslCli(unittest.TestCase):
             self.assertEqual(cm.exception.code, 0)
             self.assertEqual(mock_err.getvalue(), "")
             self.assertIn("Agyis Harness for Google Antigravity", mock_out.getvalue())
+            self.assertNotIn("PSL Harness", mock_out.getvalue())
             self.assertIn("usage: agyis", mock_out.getvalue())
+
+    def test_cli_psl_help_description(self):
+        """Verifies legacy 'psl --help' shows Agyis Harness alias description and deprecation warning."""
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+             patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            with self.assertRaises(SystemExit) as cm:
+                main(["--help"], prog="psl")
+            self.assertEqual(cm.exception.code, 0)
+            self.assertIn("Agyis Harness (Legacy 'psl' CLI Alias", mock_out.getvalue())
+            self.assertIn("DeprecationWarning", mock_err.getvalue())
 
     def test_cli_version(self):
         """Verifies --version prints package version with clean stderr on agyis."""
+        import tomllib
         from harness import __version__
+
+        repo_root = Path(__file__).resolve().parent.parent
+        pyproject_version = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+        plugin_version = json.loads((repo_root / "plugin.json").read_text(encoding="utf-8"))["version"]
 
         with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
              patch("sys.stderr", new_callable=io.StringIO) as mock_err:
@@ -84,7 +100,9 @@ class TestPslCli(unittest.TestCase):
                 main(["--version"], prog="agyis")
             self.assertEqual(cm.exception.code, 0)
             self.assertEqual(mock_err.getvalue(), "")
-            self.assertRegex(__version__, r"^1\.0\.0(?:-rc\d+)?$")
+            self.assertRegex(__version__, r"^\d+\.\d+\.\d+(?:-rc\d+)?$")
+            self.assertEqual(__version__, pyproject_version)
+            self.assertEqual(__version__, plugin_version)
             self.assertIn(f"agyis-harness {__version__}", mock_out.getvalue())
 
     def test_cli_status(self):

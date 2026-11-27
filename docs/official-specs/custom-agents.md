@@ -225,7 +225,7 @@ By surfacing specialized agents in the UI dropdown, the user naturally partition
 └──────────────────────────┴───────────────────────┴─────────────────────┘
 ```
 
-Each delegated stage runs in a fresh, bounded subagent context (`<65%` window fill and `<80` active-epoch steps, well below the `70%` amber / `90%` red compaction runway across `512k`/`1M`/`256k` windows), eliminating the 200+ step cliff!
+Each delegated stage runs in a fresh, bounded subagent context (`<65%` window fill and `<80` active-checkpoint steps, well below the `70%` amber / `90%` red compaction runway across `512k`/`1M`/`256k` windows), eliminating the 200+ step cliff!
 
 ---
 
@@ -311,15 +311,15 @@ When scaffolding an agent via `agyis agents create`, the scaffolding engine bind
 
 1. **Active Runtimes & Matrix**: Injects detected stack tooling, test runners (`pytest`, `unittest`), and workspace verification commands from `matrix.json`.
 2. **Universal Invariants & ADRs**: Binds the agent to workspace invariants (`AGENTS.md`, **Codex v2** `PSL-INV-001`–`PSL-INV-008` + on-demand `PSL-RE-001`, `ADR-012`, `ADR-013`, `ADR-015`).
-3. **`<=20`-Tool Catalog Ceiling & Canonical `v2.34+` Specs (`PSL-INV-006`)**: Frontmatter `tools` / `allowed_tools` are validated by `harness/subagents/validator.py` against `MAX_AGENT_TOOLS = 20` and the **20** canonical `v2.34+` built-in platform primitives in `CANONICAL_PLATFORM_TOOLS` (`harness/subagents/spec.py`: `read_file`, `write_file`, `edit_file`, `run_command`, `manage_task`, `invoke_subagent`, `send_message`, `define_subagent`, `schedule`, `generate_image`, `search_web`, `ask_question`, `finish`, `swarm`, `post_message`, `read_board`, `swarm_wait`, `run_workflow`, `search_marketplace`, `list_plugin_accounts`). `LEGACY_PLATFORM_TOOL_ALIASES` maps **12** obsolete v1 names (`view_file`, `write_to_file`, `replace_file_content`, `multi_replace_file_content`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `manage_subagents`, `enter_plan_mode`, `exit_plan_mode`, `list_permissions`, totaling **32** entries in `ANTIGRAVITY_PLATFORM_TOOLS`) solely so `validate_agent_spec()` rejects legacy tools with migration errors. Static MCP tool names (`call_mcp_tool`, `list_resources`, `read_resource`) are rejected; enable MCP via `inheritMcp: true` / `permissions: {mcp: true}` / `mcpServers: [...]`.
+3. **`<=20`-Tool Catalog Ceiling & Canonical `v2.34+` / `2.35.2` Specs (`PSL-INV-006`)**: Frontmatter `tools` / `allowed_tools` are validated by `harness/subagents/validator.py` against `MAX_AGENT_TOOLS = 20` and the **19** canonical `v2.34+`/`2.35.2` built-in platform primitives in `CANONICAL_PLATFORM_TOOLS` (`harness/subagents/spec.py`: `read_file`, `write_file`, `edit_file`, `run_command`, `manage_task`, `invoke_subagent`, `manage_subagents`, `send_message`, `define_subagent`, `schedule`, `generate_image`, `search_web`, `ask_question`, `finish`, `run_workflow`, `update_focus`, `update_steps`, `search_marketplace`, `list_plugin_accounts`). Runtime-injected `SWARM_RUNTIME_TOOLS` (**4**: `swarm`, `post_message`, `read_board`, `swarm_wait`) cannot be statically declared, root-session-only `ROOT_PLAN_MODE_TOOLS` (**2**: `enter_plan_mode`, `exit_plan_mode`) fail validation in subagent specs, and `LEGACY_PLATFORM_TOOL_ALIASES` maps **9** obsolete v1 names (`view_file`, `write_to_file`, `replace_file_content`, `multi_replace_file_content`, `list_dir`, `grep_search`, `find_by_name`, `read_url_content`, `list_permissions`, totaling **30** entries in `ANTIGRAVITY_PLATFORM_TOOLS`) so `validate_agent_spec()` emits explicit migration diagnostics. Static MCP tool names (`call_mcp_tool`, `list_resources`, `read_resource`) are rejected; enable MCP via `inheritMcp: true` / `permissions: {mcp: true}` / `mcpServers: [...]`.
 4. **Capability Bundles Matrix (`CAPABILITY_BUNDLES`)**: `harness/subagents/spec.py` defines **7** canonical capability bundles (`<=20` tools each; 5 exposed directly on `agyis agents create --bundle`):
-   - `read_only` (`read_file`, `search_web`, `send_message`, `read_board`; `read: true`, `write: false`, `execute: false`, `subagents: false`)
+   - `read_only` (`read_file`, `search_web`, `send_message`; `read: true`, `write: false`, `execute: false`, `subagents: false`)
    - `verifier` (`read_only` + `run_command`, `manage_task`; `execute: true`, `write: false`)
    - `adversarial_verifier` (`verifier` + `write_file`, `edit_file` for test oracles/fuzzers)
    - `builder` (`verifier` + `write_file`, `edit_file`)
    - `investigator` (`verifier` + `write_file`, `edit_file` for scratch reproductions)
-   - `orchestrator` (`read_only` + `run_command`, `invoke_subagent`, `define_subagent`, `manage_task`, `ask_question`, `swarm`, `post_message`, `swarm_wait`, `run_workflow`, `schedule`; `subagents: true`)
-   - `full` (all **20** canonical `CANONICAL_PLATFORM_TOOLS` + `permissions.mcp: true`, `enable_write_tools: true`)
+   - `orchestrator` (`read_only` + `run_command`, `invoke_subagent`, `manage_task`, `ask_question`, `run_workflow`, `schedule`; `subagents: true`)
+   - `full` (all **19** canonical `CANONICAL_PLATFORM_TOOLS` + `permissions.mcp: true`, `enable_write_tools: true`)
 
 ---
 

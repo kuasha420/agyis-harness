@@ -77,12 +77,62 @@ def extract_and_store(paths: List[Path], db_path: Path) -> int:
     return stored
 
 
+def _canon_args_key(ajson: Optional[str], asnip: Optional[str], cmd_line: Optional[str]) -> str:
+    raw = ajson or asnip or cmd_line or ""
+    if not raw:
+        return ""
+    for parser in (json.loads,):
+        try:
+            d = parser(raw)
+            if isinstance(d, dict):
+                cleaned = {k: v for k, v in d.items() if k not in ("toolAction", "toolSummary")}
+                return json.dumps(cleaned, sort_keys=True, ensure_ascii=False)[:160]
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+    return re.sub(r"\s+", "", str(raw))[:120]
+
+
+def _match_extracted_pending_rows(
+    pending_rows: List[Tuple[Any, ...]],
+    extracted_tools: List[Dict[str, Any]],
+) -> Dict[int, Dict[str, Any]]:
+    """Matches pending DB rows to extracted tools by running strict tiers in the outer loop."""
+    prep_pending = [(row, _canon_args_key(row[4], row[5], row[6])) for row in pending_rows]
+    prep_ext = [
+        (idx, t, _canon_args_key(t.get("arguments_json"), t.get("arguments_snippet"), t.get("command_line")))
+        for idx, t in enumerate(extracted_tools)
+    ]
+    matched_by_id: Dict[int, Dict[str, Any]] = {}
+    used_indices: set[int] = set()
+    tiers = (
+        lambda sidx, ridx, tname, db_c, t, t_c: t.get("step_index") == sidx and ridx is not None and t.get("result_step_index") == ridx and t.get("tool_name") == tname and bool(db_c) and t_c == db_c,
+        lambda sidx, ridx, tname, db_c, t, t_c: t.get("step_index") == sidx and ridx is not None and t.get("result_step_index") == ridx and t.get("tool_name") == tname,
+        lambda sidx, ridx, tname, db_c, t, t_c: t.get("step_index") == sidx and t.get("tool_name") == tname and bool(db_c) and t_c == db_c,
+        lambda sidx, ridx, tname, db_c, t, t_c: t.get("step_index") == sidx and t.get("tool_name") == tname,
+    )
+    for pred in tiers:
+        for db_row, db_canon in prep_pending:
+            row_id, sidx, ridx, tname = db_row[0], db_row[1], db_row[2], db_row[3]
+            if row_id in matched_by_id:
+                continue
+            for idx, t, t_canon in prep_ext:
+                if idx in used_indices:
+                    continue
+                if pred(sidx, ridx, tname, db_canon, t, t_canon):
+                    used_indices.add(idx)
+                    matched_by_id[row_id] = t
+                    break
+    return matched_by_id
+
+
 def backfill_tool_volumes(db_path: Path, verbose: bool = True) -> Dict[str, int]:
     """Backfills output_length_chars, output_lines, arguments_length_chars, command_category,
-    and is_truncated for all existing rows in tool_calls that lack volume data.
+    and is_truncated for all existing rows in tool_calls that lack volume data without clobbering parallel calls.
     """
+    from pipeline.harvest_conversations import extract_conversation_db
+
     conn = get_db_connection(db_path, row_factory=False)
-    ensure_volume_columns(conn)
+    ensure_telemetry_schema(conn)
     cur = conn.cursor()
 
     cur.execute("SELECT COUNT(*) FROM tool_calls WHERE output_length_chars IS NULL")
@@ -106,55 +156,59 @@ def backfill_tool_volumes(db_path: Path, verbose: bool = True) -> Dict[str, int]
 
     total_updated = 0
     sessions_processed = 0
-
-    cur.execute("PRAGMA synchronous = NORMAL")
-    cur.execute("PRAGMA journal_mode = WAL")
-    cur.execute("PRAGMA busy_timeout = 30000")
+    user_home = str(Path.home())
 
     for s_id, t_path_str in target_sessions:
-        if not t_path_str:
-            continue
-        t_path = Path(t_path_str)
-        if not t_path.exists():
-            # Fallback if transcript file is missing on disk
-            cur.execute("SELECT step_index, command_line FROM tool_calls WHERE session_id = ? AND output_length_chars IS NULL", (s_id,))
-            fallback_rows = cur.fetchall()
-            fallback_updates = []
-            for step_idx, cmd_line in fallback_rows:
-                fallback_updates.append((0, 0, 0, classify_command(cmd_line), 0, s_id, step_idx))
-            if fallback_updates:
-                cur.executemany("""
-                    UPDATE tool_calls
-                    SET output_length_chars=?, output_lines=?, arguments_length_chars=?, command_category=?, is_truncated=?
-                    WHERE session_id=? AND step_index=?
-                """, fallback_updates)
-                total_updated += len(fallback_updates)
-                sessions_processed += 1
+        cur.execute(
+            """
+            SELECT id, step_index, result_step_index, tool_name, arguments_json, arguments_snippet, command_line
+            FROM tool_calls
+            WHERE session_id = ? AND output_length_chars IS NULL
+            ORDER BY step_index, id
+            """,
+            (s_id,),
+        )
+        pending_rows = cur.fetchall()
+        if not pending_rows:
             continue
 
-        res = extract_session(t_path)
-        if not res:
-            continue
-        _, _, tool_rows, _ = res
+        extracted_tools: Optional[List[Dict[str, Any]]] = None
+        if t_path_str:
+            t_path = Path(str(t_path_str).replace("[USER_HOME]", user_home))
+            if t_path.is_file():
+                res = extract_conversation_db(t_path) if t_path.suffix == ".db" else extract_session(t_path)
+                if res:
+                    extracted_tools = res[2]
 
         updates = []
-        for t in tool_rows:
-            updates.append((
-                t.get("output_length_chars", 0),
-                t.get("output_lines", 0),
-                t.get("arguments_length_chars", 0),
-                t.get("command_category"),
-                t.get("is_truncated", 0),
-                s_id,
-                t["step_index"]
-            ))
+        if extracted_tools is not None:
+            matched_map = _match_extracted_pending_rows(pending_rows, extracted_tools)
+            for db_row in pending_rows:
+                matched = matched_map.get(db_row[0])
+                if matched is not None:
+                    updates.append((
+                        matched.get("output_length_chars", 0),
+                        matched.get("output_lines", 0),
+                        matched.get("arguments_length_chars", 0),
+                        matched.get("command_category"),
+                        matched.get("is_truncated", 0),
+                        db_row[0],
+                    ))
+                else:
+                    updates.append((0, 0, 0, classify_command(db_row[6]), 0, db_row[0]))
+        else:
+            for db_row in pending_rows:
+                updates.append((0, 0, 0, classify_command(db_row[6]), 0, db_row[0]))
 
         if updates:
-            cur.executemany("""
+            cur.executemany(
+                """
                 UPDATE tool_calls
                 SET output_length_chars=?, output_lines=?, arguments_length_chars=?, command_category=?, is_truncated=?
-                WHERE session_id=? AND step_index=?
-            """, updates)
+                WHERE id=?
+                """,
+                updates,
+            )
             total_updated += len(updates)
             sessions_processed += 1
 
@@ -177,8 +231,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--backfill-volumes", action="store_true", help="Backfill character volume metrics on existing database")
     parser.add_argument(
         "--conv-dir",
-        default=str(Path.home() / ".gemini" / "antigravity" / "conversations"),
-        help="Path to conversations directory containing .db files",
+        default=None,
+        help="Path to conversations directory containing .db files (default: IDE and CLI dirs)",
     )
     args = parser.parse_args(argv)
 
@@ -189,10 +243,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         db_path.unlink()
 
     conn = get_db_connection(db_path, row_factory=False)
-    cur = conn.cursor()
-    cur.executescript(SCHEMA_SQL)
-    ensure_volume_columns(conn)
-    ensure_sync_columns(conn)
+    ensure_telemetry_schema(conn)
     conn.commit()
 
     if args.backfill_volumes:
@@ -219,101 +270,12 @@ def main(argv: Optional[List[str]] = None) -> None:
     total_interventions = 0
     total_tool_errors = 0
 
-    cur.execute("PRAGMA synchronous = NORMAL")
-    cur.execute("PRAGMA journal_mode = WAL")
-    cur.execute("PRAGMA busy_timeout = 30000")
-
     for i, p_str in enumerate(transcript_paths, 1):
         res = extract_session(Path(p_str))
         if not res:
             continue
         session_row, step_rows, tool_rows, interv_rows = res
-        s_id = session_row["session_id"]
-
-        # Ensure idempotence by clearing existing rows for this session
-        cur.execute("DELETE FROM steps WHERE session_id = ?", (s_id,))
-        cur.execute("DELETE FROM tool_calls WHERE session_id = ?", (s_id,))
-        cur.execute("DELETE FROM user_interventions WHERE session_id = ?", (s_id,))
-
-        # Preserve existing sync status and origin if session was already ingested
-        cur.execute("SELECT remote_synced_at, origin_developer, total_steps FROM sessions WHERE session_id = ?", (s_id,))
-        existing_row = cur.fetchone()
-        if existing_row:
-            existing_synced_at, existing_origin, existing_steps = existing_row[0], existing_row[1], existing_row[2]
-            new_steps = session_row.get("total_steps") or 0
-            if existing_steps is not None and new_steps > existing_steps:
-                session_row["remote_synced_at"] = None
-            elif existing_synced_at and not session_row.get("remote_synced_at"):
-                session_row["remote_synced_at"] = existing_synced_at
-            if existing_origin and existing_origin != "local":
-                session_row["origin_developer"] = existing_origin
-
-        cur.execute("""
-            INSERT OR REPLACE INTO sessions (
-                session_id, start_time, end_time, duration_seconds, total_steps,
-                model, workspace_path, transcript_path, file_size_bytes, has_errors,
-                tool_call_count, tool_error_count, intervention_count,
-                origin_developer, remote_synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            session_row["session_id"], session_row["start_time"], session_row["end_time"],
-            session_row["duration_seconds"], session_row["total_steps"], session_row["model"],
-            session_row["workspace_path"], session_row["transcript_path"], session_row["file_size_bytes"],
-            session_row["has_errors"], session_row["tool_call_count"], session_row["tool_error_count"],
-            session_row["intervention_count"],
-            session_row.get("origin_developer", "local"),
-            session_row.get("remote_synced_at", None)
-        ))
-
-        cur.executemany("""
-            INSERT OR IGNORE INTO steps (
-                session_id, step_index, step_type, source, status, created_at,
-                content_length, content_snippet, has_thinking, thinking_length, tool_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            (
-                s["session_id"], s["step_index"], s["step_type"], s["source"], s["status"],
-                s["created_at"], s["content_length"], s["content_snippet"], s["has_thinking"],
-                s["thinking_length"], s["tool_count"]
-            )
-            for s in step_rows
-        ])
-
-        if tool_rows:
-            cur.executemany("""
-                INSERT OR IGNORE INTO tool_calls (
-                    session_id, step_index, result_step_index, tool_name, arguments_json,
-                    arguments_snippet, target_path, command_line, started_at, completed_at,
-                    duration_seconds, status, exit_code, error_snippet, is_loop_candidate,
-                    output_length_chars, output_lines, arguments_length_chars, command_category, is_truncated
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [
-                (
-                    t["session_id"], t["step_index"], t["result_step_index"], t["tool_name"],
-                    t["arguments_json"], t["arguments_snippet"], t["target_path"], t["command_line"],
-                    t["started_at"], t["completed_at"], t["duration_seconds"], t["status"],
-                    t["exit_code"], t["error_snippet"], t["is_loop_candidate"],
-                    t.get("output_length_chars", 0), t.get("output_lines", 0),
-                    t.get("arguments_length_chars", 0), t.get("command_category"),
-                    t.get("is_truncated", 0)
-                )
-                for t in tool_rows
-            ])
-
-        if interv_rows:
-            cur.executemany("""
-                INSERT OR IGNORE INTO user_interventions (
-                    session_id, step_index, created_at, prompt_text, prompt_length,
-                    preceding_tool_failed, preceding_tool_name, preceding_error_snippet, intervention_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [
-                (
-                    u["session_id"], u["step_index"], u["created_at"], u["prompt_text"],
-                    u["prompt_length"], u["preceding_tool_failed"], u["preceding_tool_name"],
-                    u["preceding_error_snippet"], u["intervention_type"]
-                )
-                for u in interv_rows
-            ])
+        upsert_session_telemetry(conn, session_row, step_rows, tool_rows, interv_rows, commit=False)
 
         total_sessions += 1
         total_steps += len(step_rows)
@@ -328,13 +290,12 @@ def main(argv: Optional[List[str]] = None) -> None:
     conn.commit()
     conn.close()
 
-    # Discover and harvest native conversation databases
-    conv_dir = Path(args.conv_dir) if getattr(args, "conv_dir", None) else (Path.home() / ".gemini" / "antigravity" / "conversations")
-    conv_cnt = 0
-    if conv_dir.exists() and conv_dir.is_dir():
-        from pipeline.harvest_conversations import harvest_all_conversations
-        print(f"[*] Harvesting conversation DBs from {conv_dir}...")
-        conv_cnt = harvest_all_conversations(conv_dir, db_path)
+    from pipeline.harvest_conversations import get_default_conversation_dirs, harvest_all_conversations
+    conv_dirs = [Path(args.conv_dir)] if getattr(args, "conv_dir", None) else get_default_conversation_dirs()
+    existing_conv_dirs = [d for d in conv_dirs if d.exists() and d.is_dir()]
+    if existing_conv_dirs:
+        print(f"[*] Harvesting conversation DBs from {', '.join(str(d) for d in existing_conv_dirs)}...")
+        conv_cnt = harvest_all_conversations(existing_conv_dirs, db_path)
         print(f"[✓] Harvested {conv_cnt} conversation databases into {db_path}")
 
     dt = time.time() - t0

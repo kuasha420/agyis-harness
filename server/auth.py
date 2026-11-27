@@ -22,6 +22,8 @@ from typing import Dict, Optional, Tuple
 import urllib.error
 import urllib.request
 
+from server import __version__
+
 
 @dataclass
 class AuthResult:
@@ -116,7 +118,7 @@ def verify_github_token(token: Optional[str]) -> AuthResult:
     headers = {
         "Authorization": f"Bearer {token_clean}",
         "Accept": "application/vnd.github+json",
-        "User-Agent": "PSL-Telemetry-Hub/1.0.0",
+        "User-Agent": f"PSL-Telemetry-Hub/{__version__}",
         "X-GitHub-Api-Version": "2022-11-28",
     }
     req_user = urllib.request.Request("https://api.github.com/user", headers=headers, method="GET")

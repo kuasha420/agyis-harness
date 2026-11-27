@@ -7,7 +7,7 @@
 Agyis Harness: PreToolUse Token Proximity Guard Lifecycle Hook (ADR-014 / ADR-035).
 
 Thin PreToolUse adapter delegating all protobuf decoding, SQLite trajectory reads,
-compaction epoch splitting, and tok/min burn rate calculations to the canonical
+compaction checkpoint splitting, and tok/min burn rate calculations to the canonical
 SSOT engine (`harness.trajectory`).
 
 Fail-open invariant:
@@ -23,8 +23,9 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
-from typing import Any, Dict, Optional, TextIO
+from typing import Any, Dict, Optional, TextIO, Tuple
 
+from harness.hooks.role_lineage import resolve_hook_role_and_agent
 from harness.trajectory import (
     AMBER_THRESHOLD,
     CHECKPOINT_STEP_TYPE,
@@ -35,7 +36,7 @@ from harness.trajectory import (
     MAX_SAFE_BURN_RATE_PER_MIN,
     RED_THRESHOLD,
     ROLE_DEEP_EXECUTION,
-    SOFT_EPOCH_STEP_ADVISORY,
+    SOFT_CHECKPOINT_STEP_ADVISORY,
     clear_locked_conversations,
     extract_context_window_from_protobuf_metadata,
     extract_tokens_from_protobuf_metadata,
@@ -114,7 +115,7 @@ def get_active_conversation_context_window(
     db_dir: Optional[Path] = None,
     timeout: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Reads epoch-scoped active tokens and context window thresholds via SSOT."""
+    """Reads checkpoint-scoped active tokens and context window thresholds via SSOT."""
     m = read_db_trajectory_state(conversation_id, db_dir=db_dir, timeout=timeout)
     return {
         "tokens": m.tokens,
@@ -125,8 +126,8 @@ def get_active_conversation_context_window(
         "red_threshold": m.red_threshold,
         "compaction_threshold": m.compaction_threshold,
         "has_explicit_max_context": m.has_explicit_max_context,
-        "epoch_steps": m.epoch_steps,
-        "epoch_start_idx": m.epoch_start_idx,
+        "checkpoint_steps": m.checkpoint_steps,
+        "checkpoint_start_idx": m.checkpoint_start_idx,
     }
 
 
@@ -135,7 +136,7 @@ def get_active_conversation_tokens(
     db_dir: Optional[Path] = None,
     timeout: Optional[float] = None,
 ) -> int:
-    """Returns latest active-epoch token count from conversation DB (fail-open 0)."""
+    """Returns latest active-checkpoint token count from conversation DB (fail-open 0)."""
     return int(read_db_trajectory_state(conversation_id, db_dir=db_dir, timeout=timeout).tokens)
 
 
@@ -234,7 +235,7 @@ def _metrics_to_velocity_dict(
         "amber_threshold": m.amber_threshold,
         "red_threshold": m.red_threshold,
         "compaction_threshold": m.compaction_threshold,
-        "epoch_steps": m.epoch_steps,
+        "checkpoint_steps": m.checkpoint_steps,
     }
 
 
@@ -243,9 +244,56 @@ def get_active_conversation_token_velocity(
     db_dir: Optional[Path] = None,
     window_seconds: int = 900,
 ) -> Dict[str, Any]:
-    """Computes real-time active-epoch burn rate velocity (tokens/min) via SSOT."""
+    """Computes real-time active-checkpoint burn rate velocity (tokens/min) via SSOT."""
     m = read_db_trajectory_state(conversation_id, db_dir=db_dir, window_seconds=window_seconds)
     return _metrics_to_velocity_dict(m, conversation_id, db_dir=db_dir, window_seconds=window_seconds)
+
+
+def _resolve_gauge_style(
+    stream: Optional[TextIO] = None,
+    use_color_override: Optional[bool] = None,
+) -> Tuple[Dict[str, str], str]:
+    """Resolves Orbital Aegis TrueColor/256-color SGR escapes respecting NO_COLOR/TERM/TTY."""
+    target = stream if stream is not None else sys.stderr
+    if use_color_override is not None:
+        enabled = use_color_override
+        truecolor = os.environ.get("COLORTERM", "").strip().lower() in ("truecolor", "24bit") if enabled else False
+    else:
+        try:
+            from harness.utils.theme import supports_truecolor as _theme_truecolor, use_color as _theme_use_color
+            enabled = _theme_use_color(target)
+            truecolor = _theme_truecolor() if enabled else False
+        except ImportError:
+            if os.environ.get("NO_COLOR", "") != "" or os.environ.get("TERM", "") == "dumb":
+                enabled = False
+            elif any(
+                os.environ.get(k, "").strip().lower() not in ("", "0", "false", "no")
+                for k in ("FORCE_COLOR", "CLICOLOR_FORCE")
+            ):
+                enabled = True
+            else:
+                enabled = bool(getattr(target, "isatty", lambda: False)())
+            truecolor = os.environ.get("COLORTERM", "").strip().lower() in ("truecolor", "24bit") if enabled else False
+
+    if not enabled:
+        return {"CRITICAL": "", "ELEVATED": "", "SAFE": ""}, ""
+    if truecolor:
+        return (
+            {
+                "CRITICAL": "\033[1m\033[38;2;255;107;107m",
+                "ELEVATED": "\033[1m\033[38;2;245;183;79m",
+                "SAFE": "\033[1m\033[38;2;42;208;137m",
+            },
+            "\033[0m",
+        )
+    return (
+        {
+            "CRITICAL": "\033[1m\033[38;5;203m",
+            "ELEVATED": "\033[1m\033[38;5;214m",
+            "SAFE": "\033[1m\033[38;5;42m",
+        },
+        "\033[0m",
+    )
 
 
 def format_terminal_gauge(
@@ -260,8 +308,9 @@ def format_terminal_gauge(
     red_threshold: Optional[int] = None,
     compaction_threshold: Optional[int] = None,
     is_provisional: bool = False,
+    stream: Optional[TextIO] = None,
 ) -> str:
-    """Formats an ANSI progress gauge with scaled urgency, velocity ETA, and epoch-step advisory."""
+    """Formats a terminal token gauge with Orbital Aegis ANSI styling (NO_COLOR-safe), velocity ETA, and checkpoint-step advisory."""
     denom = threshold if threshold > 0 else CONTEXT_WINDOW_TOKENS
     scaled_amber, scaled_red = get_scaled_thresholds(denom if denom != CONTEXT_WINDOW_TOKENS else None)
     eff_amber = amber_threshold if amber_threshold is not None else scaled_amber
@@ -280,25 +329,26 @@ def format_terminal_gauge(
         else:
             vel_badge = f" (+{rate_int:,} tok/min)"
 
+    styles, reset = _resolve_gauge_style(stream=stream)
     if velocity_tier:
         v_upper = velocity_tier.upper()
-        color = "\033[1;31m" if "CRITICAL" in v_upper else ("\033[1;33m" if "ELEVATED" in v_upper else "\033[1;32m")
-        status, bell = velocity_tier, ("\a" if "CRITICAL" in v_upper else "")
+        tier_key = "CRITICAL" if "CRITICAL" in v_upper else ("ELEVATED" if "ELEVATED" in v_upper else "SAFE")
+        color, status = styles[tier_key], velocity_tier
     elif tokens >= eff_red or (burn_rate is not None and burn_rate >= CRITICAL_BURN_RATE_PER_MIN):
-        color = "\033[1;31m"
+        color = styles["CRITICAL"]
         status = "CRITICAL (COMPACTION IMMINENT)" if tokens >= eff_red else "CRITICAL"
-        bell = "\a"
     elif tokens >= eff_amber or (burn_rate is not None and burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN):
-        color, status, bell = "\033[1;33m", ("ELEVATED (APPROACHING THRESHOLD)" if tokens >= eff_amber else "ELEVATED"), ""
+        color = styles["ELEVATED"]
+        status = "ELEVATED (APPROACHING THRESHOLD)" if tokens >= eff_amber else "ELEVATED"
     else:
-        color, status, bell = "\033[1;32m", "SAFE", ""
+        color, status = styles["SAFE"], "SAFE"
 
     horizon_str = ""
-    if step_count is not None and step_count >= SOFT_EPOCH_STEP_ADVISORY and _normalize_role_str(role) == ROLE_DEEP_EXECUTION:
-        horizon_str = f" [EPOCH HORIZON: {step_count}/{SOFT_EPOCH_STEP_ADVISORY} STEPS]"
+    if step_count is not None and step_count >= SOFT_CHECKPOINT_STEP_ADVISORY and _normalize_role_str(role) == ROLE_DEEP_EXECUTION:
+        horizon_str = f" [CHECKPOINT HORIZON: {step_count}/{SOFT_CHECKPOINT_STEP_ADVISORY} STEPS]"
 
     tok_prefix = "~" if is_provisional else ""
-    return f"{bell}{color}[AGYIS TOKEN GAUGE]\033[0m [{bar}] {tok_prefix}{tokens:,} / {denom:,} ({percentage:.1f}%){vel_badge} - {color}{status}\033[0m{horizon_str}"
+    return f"{color}[AGYIS TOKEN GAUGE]{reset} [{bar}] {tok_prefix}{tokens:,} / {denom:,} ({percentage:.1f}%){vel_badge} - {color}{status}{reset}{horizon_str}"
 
 
 def render_terminal_gauge(tokens: int) -> str:
@@ -320,13 +370,14 @@ def _evaluate_and_emit_gauge(
     burn_rate = float(vel.get("burn_rate_tokens_per_min", 0.0) or 0.0)
     horizon_active = (
         step_count is not None
-        and step_count >= SOFT_EPOCH_STEP_ADVISORY
+        and step_count >= SOFT_CHECKPOINT_STEP_ADVISORY
         and _normalize_role_str(role) == ROLE_DEEP_EXECUTION
     )
     rapid_burn = burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN
     if not (tokens >= metrics.amber_threshold or horizon_active or rapid_burn):
         return False
 
+    target_err = out_err if out_err is not None else sys.stderr
     gauge = format_terminal_gauge(
         tokens,
         threshold=metrics.max_context_tokens,
@@ -339,9 +390,9 @@ def _evaluate_and_emit_gauge(
         red_threshold=metrics.red_threshold,
         compaction_threshold=metrics.compaction_threshold,
         is_provisional=metrics.is_provisional,
+        stream=target_err,
     )
     if emit_stderr:
-        target_err = out_err if out_err is not None else sys.stderr
         try:
             target_err.write(f"\n{gauge}\n")
             target_err.flush()
@@ -357,7 +408,7 @@ def check_token_proximity(
     step_count: Optional[int] = None,
     role: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Evaluates token proximity, epoch steps, and burn rate velocity via SSOT."""
+    """Evaluates token proximity, checkpoint steps, and burn rate velocity via SSOT."""
     metrics = read_db_trajectory_state(conversation_id, db_dir=db_dir)
     vel = _metrics_to_velocity_dict(metrics, conversation_id, db_dir=db_dir)
     tokens = metrics.tokens or int(vel.get("tokens") or 0)
@@ -365,11 +416,11 @@ def check_token_proximity(
     amber_t, red_t = metrics.amber_threshold, metrics.red_threshold
     tier = get_urgency_tier(tokens, max_context_tokens=max_ctx)
 
-    eff_epoch_steps = metrics.epoch_steps if metrics.total_steps > 0 else step_count
+    eff_checkpoint_steps = metrics.checkpoint_steps if metrics.total_steps > 0 else step_count
     warned = _evaluate_and_emit_gauge(
         metrics,
         vel,
-        step_count=eff_epoch_steps,
+        step_count=eff_checkpoint_steps,
         role=role,
         emit_stderr=emit_stderr,
     )
@@ -382,7 +433,7 @@ def check_token_proximity(
         "tier": tier,
         "warned": warned,
         "velocity": vel,
-        "epoch_steps": eff_epoch_steps,
+        "checkpoint_steps": eff_checkpoint_steps,
         "is_provisional": metrics.is_provisional,
     }
 
@@ -398,7 +449,7 @@ def _extract_payload_step(parsed: Dict[str, Any]) -> Optional[int]:
 
 
 def run_token_proximity_guard(payload: Any, stderr: Optional[TextIO] = None) -> Dict[str, Any]:
-    """PreToolUse dispatcher evaluating epoch-scoped tokens, velocity, and step horizon."""
+    """PreToolUse dispatcher evaluating checkpoint-scoped tokens, velocity, and step horizon."""
     if isinstance(payload, str):
         try:
             parsed = json.loads(payload) if payload.strip() else {}
@@ -413,16 +464,33 @@ def run_token_proximity_guard(payload: Any, stderr: Optional[TextIO] = None) -> 
     metrics = read_db_trajectory_state(conv_id)
     vel = _metrics_to_velocity_dict(metrics, conv_id)
     raw_step = _extract_payload_step(parsed)
-    eff_epoch_steps = (
-        max(0, raw_step - metrics.epoch_start_idx) if (raw_step is not None and metrics.epoch_start_idx > 0)
-        else (metrics.epoch_steps if metrics.total_steps > 0 else raw_step)
+    eff_checkpoint_steps = (
+        max(0, raw_step - metrics.checkpoint_start_idx) if (raw_step is not None and metrics.checkpoint_start_idx > 0)
+        else (metrics.checkpoint_steps if metrics.total_steps > 0 else raw_step)
     )
-    role = parsed.get("role") or parsed.get("agent_role") or parsed.get("subagent_role") or parsed.get("archetype") or os.environ.get("AGYIS_ROLE") or os.environ.get("PSL_AGENT_ROLE")
+    explicit_role = (
+        parsed.get("role")
+        or parsed.get("agent_role")
+        or parsed.get("subagent_role")
+        or parsed.get("archetype")
+    )
+    resolved_role, exact_agent = resolve_hook_role_and_agent(
+        parsed,
+        role=str(explicit_role) if explicit_role else None,
+        conv_id=conv_id,
+    )
+    role = (
+        resolved_role
+        or exact_agent
+        or explicit_role
+        or os.environ.get("AGYIS_ROLE")
+        or os.environ.get("PSL_AGENT_ROLE")
+    )
 
     _evaluate_and_emit_gauge(
         metrics,
         vel,
-        step_count=eff_epoch_steps,
+        step_count=eff_checkpoint_steps,
         role=role,
         emit_stderr=True,
         out_err=stderr,

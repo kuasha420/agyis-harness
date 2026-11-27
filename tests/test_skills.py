@@ -1071,7 +1071,7 @@ class TestReOpsSkillAndPresets(unittest.TestCase):
             "agyis verify --spec",
             "agyis verify --scaffold",
             "agyis verify",
-            "agyis doctor --experimental-rea",
+            "agyis doctor --rea",
             "Vector 1:",
             "Vector 2:",
             "Vector 3:",

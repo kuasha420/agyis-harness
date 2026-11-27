@@ -60,7 +60,7 @@ All payloads use strict camelCase keys:
 
 ### `injectSteps` Envelope & Nested `systemMessage` Contract
 `SessionStart`, `PreInvocation`, and `PostInvocation` inject steps via `"injectSteps"`:
-- **`systemMessage`** *(required in `agyis-harness`)*: **MUST use a nested dictionary** (`{"systemMessage": {"systemMessage": "...", "metadata": {}}}`); passing a raw string fails protojson decoding. All `pre_invocation_hook.py` advisories (role pinning, `80`-step epoch horizon nudges, and compaction alerts) emit nested `systemMessage` exclusively.
+- **`systemMessage`** *(required in `agyis-harness`)*: **MUST use a nested dictionary** (`{"systemMessage": {"systemMessage": "...", "metadata": {}}}`); passing a raw string fails protojson decoding. All `pre_invocation_hook.py` advisories (role pinning, `80`-step checkpoint horizon nudges, and compaction alerts) emit nested `systemMessage` exclusively.
 - **`userMessage`** *(persistent synthetic user turn)*: plain string -> `{"userMessage": "..."}`.
 - **`ephemeralMessage`** *(deprecated legacy variant)*: previously used for transient nudges, **never emitted** by `agyis-harness` (`v2.34.0+` hooks standardize on nested `systemMessage`).
 
@@ -77,7 +77,7 @@ Returning `{"decision": "continue", "reason": "..."}` blocks termination and re-
 `hooks.json` registers **7** named hook blocks dispatching **7** Python hook modules via `python3 -m harness.hooks.runner <name>` across **8** verified hook check slots (`psl-stop-verification-fence` registers both `verification-fence` on `PreToolUse`/`Stop` and `post-verification-fence` on `PostToolUse`, so `doctor.py` / `hygiene_checks.py` verifies 8 command entries across the 7 blocks). Ephemeral state caches default to `/tmp/agyis_harness_state_{uid}` (overridable via `AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR`):
 
 1. `command_safety_hook.py` (`psl-command-safety-guard`): PreToolUse shell sanitizer (`run_command`, `manage_task`, `swarm`, `run_workflow`, `call_mcp_tool`, `mcp_.*`), Python >= 3.12 runtime injector, eager/lazy MCP normalization, `/swarm` pause guard, SSH timeouts, and grep/diff exit normalizer (ADR-013).
-2. `anti_loop_hook.py` (`psl-anti-loop-guard`): PreToolUse repetitive call breaker across canonical `v2.34+` and alias tools (`read_file`, `write_file`, `edit_file`, `run_command`, `swarm`, `run_workflow`, `read_board`, `manage_task`), Issue #41 `manage_task(Action='status')` advisory allow, `.system_generated/{tasks,logs}/` log-polling Exit 2 deny, and non-blocking `SOFT_EPOCH_STEP_ADVISORY` (`80` epoch steps) horizon advisory.
+2. `anti_loop_hook.py` (`psl-anti-loop-guard`): PreToolUse repetitive call breaker across canonical `v2.34+` and alias tools (`read_file`, `write_file`, `edit_file`, `run_command`, `swarm`, `run_workflow`, `read_board`, `manage_task`), Issue #41 `manage_task(Action='status')` advisory allow, `.system_generated/{tasks,logs}/` log-polling Exit 2 deny, and non-blocking `SOFT_CHECKPOINT_STEP_ADVISORY` (`80` checkpoint steps) horizon advisory.
 3. `output_compactor_hook.py` (`psl-output-compactor`): PostToolUse deterministic compactor emitting `{"overwriteResult": compacted}` for succeeding `>2KB` `run_command` and `>32KB` `read_file`/`view_file` outputs while returning `{}` on errors (`exitCode != 0` / `error`) or smaller outputs, with DEF-04 character pre-slicing (`>200KB`).
 4. `completion_fence_hook.py` (`psl-stop-verification-fence` -> `verification-fence` + `post-verification-fence`): PreToolUse/PostToolUse/Stop fence with decoupled dirty state (`code_dirty` vs `spec_dirty`).
 5. `token_proximity_guard.py` (`psl-token-proximity-guard`): PreToolUse SQLite URI monitor decoding protobuf token gauges scaled across `256k` / **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`) `512k`** / `1M` windows (`70%` amber / `90%` red).
@@ -188,8 +188,8 @@ The token proximity guard monitors active session context accumulation proportio
 ```
 
 #### B. Decoding & Thresholds (`harness.trajectory` SSOT)
-1. **SSOT Delegation (`harness.trajectory`)**: Delegates read-only SQLite access (`file:<path>?mode=ro`), protobuf decoding, epoch splitting, and burn-rate velocity to `read_db_trajectory_state()` (`harness/trajectory/sqlite_reader.py`), sharing a bounded locked-CID backoff cache (`MAX_LOCKED_CIDS = 256`, `LOCK_EXPIRY_SECONDS = 2.0`).
-2. **Authoritative Token Sum & Epoch Barriers**: Decodes binary protobuf `UsageMetadata` via `input_tokens + cache_read_tokens` (`ProtobufUsageMetrics.total_prompt_tokens`) and bounds epoch token and step accounting to steps following the latest compaction checkpoint (`CHECKPOINT_STEP_TYPE = 23` / transcript `CHECKPOINT`).
+1. **SSOT Delegation (`harness.trajectory`)**: Delegates read-only SQLite access (`file:<path>?mode=ro`), protobuf decoding, checkpoint window partitioning, and burn-rate velocity to `read_db_trajectory_state()` (`harness/trajectory/sqlite_reader.py`), sharing a bounded locked-CID backoff cache (`MAX_LOCKED_CIDS = 256`, `LOCK_EXPIRY_SECONDS = 2.0`).
+2. **Authoritative Token Sum & Checkpoint Barriers**: Decodes binary protobuf `UsageMetadata` via `input_tokens + cache_read_tokens` (`ProtobufUsageMetrics.total_prompt_tokens`) and bounds checkpoint token and step accounting to steps following the latest compaction checkpoint (`CHECKPOINT_STEP_TYPE = 23` / transcript `CHECKPOINT`).
 3. **Dynamically Scaled Thresholds (`get_scaled_thresholds`)**: Scales the `256,000`-token baseline (`AMBER_THRESHOLD = 180_000`, `RED_THRESHOLD = 230_000`) proportionally against the active model's detected context window (`128k`–`1M`, e.g., `512k` Gemini 4 -> `360k` amber / `460k` red):
    - `< amber_threshold`: Silent (nominal operation within healthy runway).
    - `amber_threshold .. red_threshold - 1`: Emits an ANSI amber warning gauge + `tok/min` burn rate to `stderr`.
@@ -231,7 +231,7 @@ The `command_safety_hook.py` hook intercepts `run_command` in `PreToolUse` to gu
 - **`manage_task(Action='status')` Non-Blocking Advisory (Issue #41)**: Returns `{"decision": "allow", "reason": "Advisory: Background tasks notify reactively upon exit. Avoid polling status to conserve steps."}` rather than hard-blocking interactive inspection.
 - **Background Log Polling Deny**: Repeated inspection of `.system_generated/tasks/` or `.system_generated/logs/` via `read_file`/`view_file`, `grep_search`, or shell readers (`tail`, `cat`) triggers `"decision": "deny"` (Exit 2), enforcing reactive wakeup.
 - **Cleanroom Spec & Verification Reset**: Code edits reset test verification counters, while `docs/specs/**` / `.agents/ledger/**` use an elevated sliding window quota (`SPEC_WINDOW_MAX_CALLS = 8`) while still denying `>= 3` consecutive identical calls.
-- **Soft Epoch Horizon Advisory (`Issue #109`)**: Emits a non-blocking stderr advisory under `deep_execution` roles once active-epoch steps reach `SOFT_EPOCH_STEP_ADVISORY` (`80`), encouraging targeted symbol lookups without blocking execution.
+- **Soft Checkpoint Horizon Advisory (`Issue #109`)**: Emits a non-blocking stderr advisory under `deep_execution` roles once active-checkpoint steps reach `SOFT_CHECKPOINT_STEP_ADVISORY` (`80`), encouraging targeted symbol lookups without blocking execution.
 ### 3.4 Plan-to-Execution Anti-Drift Verification Gate (ADR-024)
 
 The `anti_drift_hook.py` hook (`psl-anti-drift-guard`) intercepts file modifications, shell mutations, and orchestrations in `PreToolUse` to ensure agents do not mutate files outside the approved implementation plan or violate role boundaries.
@@ -319,8 +319,8 @@ In the PSL Subagent Ladder protocol, the **Auditor** (`agyis_auditor`) requires 
 - **Transcripts $\le 2\text{ MB}$**: Exact line-by-line streaming parser extracting exact steps, characters, and explicit token telemetry in $<1.5\text{ ms}$.
 - **Titan Transcripts $> 2\text{ MB}$**: Fast size-heuristic fallback estimating token volume and step depth in $<0.1\text{ ms}$ without loading titan payloads into RAM.
 - **Window-Scaled Health Zones** (`256k` baseline; scales proportionally for Gemini 4 `512k`/`1M` models):
-  - 🟢 **HEALTHY** (`<65%` window fill AND `<80` active-epoch steps): Attention aperture wide open. Recommendation: `REUSE`.
-  - 🟡 **AMBER** (`65%–80%` window fill OR `>=80` active-epoch steps while `<80%` fill): Context degradation beginning. Recommendation: `COMPACT_SOON`.
+  - 🟢 **HEALTHY** (`<65%` window fill AND `<80` active-checkpoint steps): Attention aperture wide open. Recommendation: `REUSE`.
+  - 🟡 **AMBER** (`65%–80%` window fill OR `>=80` active-checkpoint steps while `<80%` fill): Context degradation beginning. Recommendation: `COMPACT_SOON`.
   - 🔴 **RED ALERT** (`>=80%` window fill): Context cliff active. Recommendation: `HANDOFF_OR_COMPACT`.
 
 #### C. Zero-Exploration Invariant
@@ -354,14 +354,14 @@ The compaction advisory hook operates at the `PreInvocation` event boundary, eva
 ```
 
 #### B. Architectural Behavior & Invariants (`harness.trajectory` SSOT)
-1. **Dynamic Epoch & Runway Evaluation**:
+1. **Dynamic Checkpoint & Runway Evaluation**:
    - Delegates read-only SQLite access (`file:<path>?mode=ro`, `DEFAULT_SQLITE_TIMEOUT = 0.5`s, clamped via `get_compaction_sqlite_timeout()`) and protobuf decoding to `read_db_trajectory_state()` (`harness/trajectory/`).
-   - Evaluates active context ratio against `maxContextTokens` (`get_scaled_thresholds()`) and derives epoch-scoped step horizon (`epoch_steps` bounded by `CHECKPOINT_STEP_TYPE = 23` checkpoints; `SOFT_EPOCH_STEP_ADVISORY = 80` with `stepIdx` / `initialNumSteps` / `invocationNum` fallback).
-   - Emits role-appropriate directives anchored via `ROLE_PERSONA_PROMPTS` (`ROLE_FLIGHT_DIRECTOR`, `ROLE_DEEP_EXECUTION`, `ROLE_FORENSIC_AUDITOR`, `ROLE_SWARM_ORCHESTRATOR`), bypassing native platform slash commands (`/compact`, `/plan`, `/boost`, etc.) and re-anchoring automatically upon post-compaction epoch transitions (`build_post_compaction_persona_prompt()`).
-   - All directives—including role pinning, `80`-step epoch horizon nudges, and compaction alerts—are wrapped exclusively in the required nested `systemMessage` envelope (`{"systemMessage": {"systemMessage": "...", "metadata": {}}}`); deprecated `"ephemeralMessage"` is never emitted by `pre_invocation_hook.py`.
+   - Evaluates active context ratio against `maxContextTokens` (`get_scaled_thresholds()`) and derives checkpoint-scoped step horizon (`checkpoint_steps` bounded by `CHECKPOINT_STEP_TYPE = 23` checkpoints; `SOFT_CHECKPOINT_STEP_ADVISORY = 80` with `stepIdx` / `initialNumSteps` / `invocationNum` fallback).
+   - Emits role-appropriate directives anchored via `ROLE_PERSONA_PROMPTS` (`ROLE_FLIGHT_DIRECTOR`, `ROLE_DEEP_EXECUTION`, `ROLE_FORENSIC_AUDITOR`, `ROLE_SWARM_ORCHESTRATOR`), bypassing native platform slash commands (`/compact`, `/plan`, `/boost`, etc.) and re-anchoring automatically upon post-compaction checkpoint transitions (`build_post_compaction_persona_prompt()`).
+   - All directives—including role pinning, `80`-step checkpoint horizon nudges (`[AGYIS CHECKPOINT HORIZON ADVISORY]`), and compaction alerts—are wrapped exclusively in the required nested `systemMessage` envelope (`{"systemMessage": {"systemMessage": "...", "metadata": {}}}`); deprecated `"ephemeralMessage"` is never emitted by `pre_invocation_hook.py`.
 2. **De-Spammed Advisory Invariant**:
    - Tracked per-session inside `/tmp/agyis_harness_state_{uid}` (overridable via `AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR`).
-   - When token consumption crosses the dynamically scaled `~90%` red threshold (`230,000` on `256k`; `460,000` on Gemini 4 `512k`; `900,000` on `1M`), injects a structured compaction directive into `injectSteps` **once** per epoch threshold crossing; subsequent turns emit a compact single-line badge to conserve prompt tokens.
+   - When token consumption crosses the dynamically scaled `~90%` red threshold (`230,000` on `256k`; `460,000` on Gemini 4 `512k`; `900,000` on `1M`), injects a structured compaction directive into `injectSteps` **once** per checkpoint threshold crossing; subsequent turns emit a compact single-line badge to conserve prompt tokens.
 3. **Carrier-Grade Pre-Compaction Checkpoint Awareness**:
    - Synchronizes with `agyis checkpoint generate` (`harness/delivery/compaction_checkpoint.py`), referencing `.agents/artifacts/checkpoints/<conv_id>.md`, `.agents/artifacts/cockpit_checkpoint.md`, and `.agents/artifacts/active_plan.md` for seamless state succession across turn compactions.
 4. **Hermetic Fail-Open Protocol**:

@@ -7,7 +7,7 @@
 Agyis Harness: Sticky Role Classification, State Isolation & Prompt Builders (#110, #111).
 
 Consumes `harness.trajectory` SSOT metrics and transcripts rather than re-parsing SQLite
-or protobufs, pins roles per `(conversation_id, epoch_index)` at Turn 0 / compaction,
+or protobufs, pins roles per `(conversation_id, checkpoint_index)` at Turn 0 / compaction,
 eliminates mid-flight Pillar 2 auto-flipping, and isolates per-CID state files.
 """
 
@@ -18,12 +18,17 @@ import os
 from pathlib import Path
 import re
 import sys
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+from harness.hooks.role_prompts import (
+    ROLE_PERSONA_PROMPTS,
+    build_compaction_advisory,
+    build_post_compaction_persona_prompt,
+    build_role_persona_prompt,
+    build_role_reanchor_advisory,
+)
 from harness.trajectory import (
     DEFAULT_CONTEXT_WINDOW_TOKENS,
-    RED_THRESHOLD,
     ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR,
@@ -34,13 +39,28 @@ from harness.trajectory import (
     load_transcript_steps,
     normalize_cid,
     normalize_role_str,
+    read_conversation_lineage,
     read_db_trajectory_state,
 )
-from harness.utils.context import get_active_brain_dir, get_active_conversation_id
+from harness.trajectory.sqlite_step_parser import _is_sdk_injection_text
+from harness.utils.context import (
+    get_active_brain_dir,
+    get_active_conversation_id,
+    is_in_live_home_gemini,
+    is_in_temp_dir,
+)
+
+_ORIG_GET_ACTIVE_BRAIN_DIR = get_active_brain_dir
 
 DEFAULT_ROLE_PINNING_CADENCE: int = 10
 _UUID_EXTRACT_RE = re.compile(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
 _EPHEMERAL_CIDS = frozenset({"", "default", "test", "conv_test"})
+_CANONICAL_ROLE_BUCKETS = frozenset({
+    ROLE_FLIGHT_DIRECTOR,
+    ROLE_SWARM_ORCHESTRATOR,
+    ROLE_DEEP_EXECUTION,
+    ROLE_FORENSIC_AUDITOR,
+})
 
 NATIVE_SYSTEM_SLASH_COMMANDS: frozenset[str] = frozenset({
     "compact", "clear", "reset", "goal", "plan", "boost",
@@ -54,6 +74,12 @@ ORCHESTRATOR_KEYWORDS: Tuple[str, ...] = (
     "/cockpit-director", "/subagent-router", "/subagent-ladder",
     "/teamwork-preview", "/teamwork", "/plan", "/grill-me",
     "/boost", "/goal", "orchestrate", "coordinate swarm",
+)
+
+REVIEWER_AUDITOR_KEYWORDS: Tuple[str, ...] = (
+    "code review", "hammer review", "read-only", "strictly read-only",
+    "root cause analysis", "rca", "qa audit", "defects ledger",
+    "audit report", "victory auditor",
 )
 
 CODING_KEYWORDS: Tuple[str, ...] = (
@@ -70,69 +96,9 @@ TEST_RUNNER_KEYWORDS: Tuple[str, ...] = (
     "python3 -m unittest", "python -m unittest",
 )
 
-ROLE_PERSONA_PROMPTS: Dict[str, str] = {
-    ROLE_FLIGHT_DIRECTOR: (
-        "[AGYIS ROLE PINNING: FLIGHT DIRECTOR / COORDINATOR]\n"
-        "You are operating as the Flight Director / Swarm Coordinator (Stage 0: COORDINATION).\n\n"
-        "CORE OPERATIONAL INVARIANTS:\n"
-        "1. ANTI-CHATBOT SEDUCTION & COGNITIVE STATE FLUSH:\n"
-        "   - Never execute multi-component refactorings in raw conversational chat turns.\n"
-        "   - Immediately crystallize execution plans into interactive implementation plans in your session brain/artifacts.\n"
-        "   - Flush working memory, task rosters, and steering decisions to per-session checkpoints; zero repo pollution.\n"
-        "2. ZERO COORDINATOR REMEDIATION:\n"
-        "   - You are strictly forbidden from modifying product code, patching files directly, or self-resolving review defects.\n"
-        "   - Route all implementation and remediation tasks to specialist subagents (agyis_builder).\n"
-        "3. WORK PRESERVATION CONTRACT:\n"
-        "   - Preserve all local worktree changes. Strictly prohibit 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
-        "4. NON-POLLING REACTIVE DISCIPLINE:\n"
-        "   - Never poll task status in loops. Emit a concise notification and await reactive wakeup."
-    ),
-    ROLE_DEEP_EXECUTION: (
-        "[AGYIS ROLE PINNING: DEEP EXECUTION / EXECUTIONER]\n"
-        "You are operating as the Deep Execution Engineer (Stage 1: EXECUTION / Stage 3: GIT_CUSTODY).\n\n"
-        "CORE OPERATIONAL INVARIANTS:\n"
-        "1. WORK PRESERVATION CONTRACT:\n"
-        "   - Strictly prohibit destructive git commands ('git checkout -- .', 'git reset --hard', 'git clean -fd').\n"
-        "   - On session wake-up, inspect 'git status' and 'git diff' to verify in-flight modifications.\n"
-        "2. SURGICAL CONTIGUOUS EDITS INVARIANT:\n"
-        "   - Always make single contiguous block replacements (edit_file / replace_file_content). Never overwrite whole files.\n"
-        "   - Preserve surrounding comments, docstrings, imports, and formatting.\n"
-        "3. ZERO SCOPE CREEP:\n"
-        "   - Implement ONLY the tasks specified in the approved implementation plan. Zero speculative expansions.\n"
-        "4. FAST & HERMETIC VERIFICATION:\n"
-        "   - Execute native test commands (./agyis test, python3 -m harness.cli test).\n"
-        "   - Preserve the sub-second benchmark invariant (<1.0s) and hermetic isolation."
-    ),
-    ROLE_FORENSIC_AUDITOR: (
-        "[AGYIS ROLE PINNING: FORENSIC AUDITOR / THE HAMMER]\n"
-        "You are operating as the Forensic Auditor / Victory Auditor (Stage 2: CODE_REVIEW / Stage 4: QA_AUDIT).\n\n"
-        "CORE OPERATIONAL INVARIANTS:\n"
-        "1. ANTI-FIXING & ZERO ERROR SWALLOWING:\n"
-        "   - Never patch code directly or swallow exceptions. Audit diffs line-by-line against canonical rules.\n"
-        "   - Emit definitive PASS or REJECT verdicts accompanied by a typed defect ledger.\n"
-        "2. DUAL-AUDITOR GATE & CLEAN REVISION INVARIANT:\n"
-        "   - Evaluate strictly the clean, committed revision on HEAD. Never evaluate dirty working trees.\n"
-        "3. FAST & HERMETIC VERIFICATION:\n"
-        "   - Run native test suites (./agyis test, python3 -m harness.cli test) and verify exit code 0.\n"
-        "4. CLEANROOM RIGOR:\n"
-        "   - Maintain dirty room vs clean room isolation. Derive implementations strictly from formal specifications."
-    ),
-    ROLE_SWARM_ORCHESTRATOR: (
-        "[AGYIS ROLE PINNING: SWARM ORCHESTRATOR]\n"
-        "You are operating as the Swarm Orchestrator coordinating distributed strands across the hardware mesh.\n\n"
-        "CORE OPERATIONAL INVARIANTS:\n"
-        "1. MESH COORDINATION & TOPOLOGY:\n"
-        "   - Coordinate tasks across nodes using non-blocking Linda Tuplespace or out-of-band Swarm Council.\n"
-        "2. WORK PRESERVATION CONTRACT:\n"
-        "   - Preserve local worktrees and branches. Strictly prohibit 'git checkout -- .', 'git reset --hard', and 'git clean -fd'.\n"
-        "3. ZERO REPO POLLUTION:\n"
-        "   - Persist coordination state strictly to per-session artifacts or scratch spaces."
-    ),
-}
-
 
 def get_role_pinning_cadence(override: Optional[int] = None) -> int:
-    """Returns effective cadence for intra-epoch periodic role re-anchors (default 10)."""
+    """Returns effective cadence for intra-checkpoint periodic role re-anchors (default 10)."""
     for candidate in (override, os.environ.get("AGYIS_ROLE_PINNING_CADENCE")):
         if candidate is not None:
             try:
@@ -167,10 +133,78 @@ def resolve_conv_and_brain(payload: Dict[str, Any], conversation_id: str = "") -
             if "artifact" in k.lower() and brain_path is None:
                 brain_path = expanded
             if not cid or cid == "default":
-                m = _UUID_EXTRACT_RE.search(val)
-                if m:
+                if m := _UUID_EXTRACT_RE.search(val):
                     cid = normalize_cid(m.group(1).lower())
+    explicit_null_cid = (
+        ("conversationId" in payload and payload["conversationId"] is None and not payload.get("conversation_id"))
+        or ("conversation_id" in payload and payload["conversation_id"] is None and not payload.get("conversationId"))
+    )
+    if (not cid or cid == "default") and not explicit_null_cid and (active_cid := get_active_conversation_id()):
+        agyis_cid = (os.environ.get("AGYIS_CONVERSATION_ID") or "").strip()
+        gemini_cid = (os.environ.get("GEMINI_CONVERSATION_ID") or "").strip()
+        ambient_run_cmd = False
+        if meta_raw := (os.environ.get("ANTIGRAVITY_SOURCE_METADATA") or "").strip():
+            try:
+                meta_obj = json.loads(meta_raw)
+                tool_dict = meta_obj.get("tool") if isinstance(meta_obj, dict) else None
+                tc = tool_dict.get("toolCall") if isinstance(tool_dict, dict) else None
+                meta_cid = (
+                    str(tool_dict.get("conversationId") or tool_dict.get("conversation_id") or "").strip()
+                    if isinstance(tool_dict, dict)
+                    else ""
+                )
+                ambient_run_cmd = (
+                    isinstance(tc, dict)
+                    and tc.get("name") == "run_command"
+                    and (not meta_cid or meta_cid == active_cid)
+                )
+            except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
+                pass
+        if not ambient_run_cmd:
+            cid = normalize_cid(active_cid)
+        elif agyis_cid or gemini_cid:
+            cid = normalize_cid(agyis_cid or gemini_cid)
     return cid or "default", brain_path
+
+
+def _resolve_isolated_brain_root(
+    workspace_dir: Optional[Path] = None,
+    payload: Optional[Dict[str, Any]] = None,
+) -> Tuple[Optional[Path], str]:
+    """Resolves brain root while ignoring host ~/.gemini ambient env under temp isolation."""
+    state_root = (os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR") or "").strip()
+    state_is_temp = is_in_temp_dir(Path(os.path.expanduser(state_root))) if state_root else False
+    cwd_is_temp = is_in_temp_dir(Path.cwd())
+    ws_is_temp = is_in_temp_dir(workspace_dir) if workspace_dir is not None else False
+    payload_paths = _collect_search_paths(payload, None, include_cwd=False) if payload else []
+    payload_is_temp = any(is_in_temp_dir(p) for p in payload_paths)
+    isolated = state_is_temp or cwd_is_temp or ws_is_temp or payload_is_temp
+
+    agyis_brain = (os.environ.get("AGYIS_BRAIN_DIR") or "").strip()
+    if agyis_brain:
+        return Path(os.path.expanduser(agyis_brain)), state_root
+    agyis_app = (os.environ.get("AGYIS_APP_DATA_DIR") or "").strip()
+    if agyis_app:
+        return Path(os.path.expanduser(agyis_app)) / "brain", state_root
+
+    if get_active_brain_dir is not _ORIG_GET_ACTIVE_BRAIN_DIR:
+        return get_active_brain_dir(), state_root
+
+    ag_brain = (os.environ.get("ANTIGRAVITY_BRAIN_DIR") or "").strip()
+    if ag_brain:
+        p = Path(os.path.expanduser(ag_brain))
+        if not (isolated and is_in_live_home_gemini(p)):
+            return p, state_root
+
+    ag_app = (os.environ.get("ANTIGRAVITY_APP_DATA_DIR") or "").strip()
+    if ag_app:
+        p = Path(os.path.expanduser(ag_app))
+        if not (isolated and is_in_live_home_gemini(p)):
+            return p / "brain", state_root
+
+    if (os.environ.get("GEMINI_BRAIN_DIR") or "").strip() or not isolated:
+        return get_active_brain_dir(), state_root
+    return None, state_root
 
 
 def resolve_cid_state_dir(
@@ -186,17 +220,12 @@ def resolve_cid_state_dir(
         _, art_dir = resolve_conv_and_brain(payload, norm_cid)
         if art_dir is not None and art_dir.name == norm_cid:
             return art_dir / ".agyis"
-    env_brain = os.environ.get("AGYIS_BRAIN_DIR")
-    brain_root = Path(os.path.expanduser(env_brain)) if env_brain else get_active_brain_dir()
-    session_brain = brain_root / norm_cid
-    if session_brain.is_dir():
+    brain_root, state_root = _resolve_isolated_brain_root(workspace_dir=workspace_dir, payload=payload)
+    if brain_root is not None and (session_brain := brain_root / norm_cid).is_dir():
         return session_brain / ".agyis"
     if workspace_dir is not None:
         return workspace_dir / ".agents" / "artifacts" / "checkpoints" / norm_cid
-    state_root = os.environ.get("PSL_HARNESS_STATE_DIR")
-    if state_root:
-        return Path(state_root) / "checkpoints" / norm_cid
-    return None
+    return (Path(os.path.expanduser(state_root)) / "checkpoints" / norm_cid) if state_root else None
 
 
 def load_sticky_role_state(state_dir: Optional[Path], conv_id: str) -> Optional[Dict[str, Any]]:
@@ -229,71 +258,70 @@ def save_sticky_role_state(state_dir: Optional[Path], state: Dict[str, Any]) -> 
         pass
 
 
-def has_parent_conversation(payload: Dict[str, Any], conv_id: str) -> bool:
+def has_parent_conversation(
+    payload: Union[Dict[str, Any], str],
+    conv_id: Union[str, Dict[str, Any]] = "",
+    *,
+    brain_dir: Optional[Path] = None,
+    db_dir: Optional[Path] = None,
+) -> bool:
     """Returns True when the active conversation is a spawned child subagent."""
+    if isinstance(payload, str):
+        eff_conv_id = payload
+        eff_payload: Dict[str, Any] = conv_id if isinstance(conv_id, dict) else {}
+    else:
+        eff_payload = payload if isinstance(payload, dict) else {}
+        eff_conv_id = conv_id if isinstance(conv_id, str) else ""
+
     for k in ("parentConversationId", "parent_conversation_id", "parentId", "parent_id",
               "subagentRole", "subagent_role", "subagentType", "subagent_type"):
-        if isinstance(payload.get(k), str) and payload[k].strip():
+        if isinstance(eff_payload.get(k), str) and eff_payload[k].strip():
             return True
     for pk in ("agent", "subagent", "metadata"):
-        pd = payload.get(pk)
+        pd = eff_payload.get(pk)
         if isinstance(pd, dict):
             for k in ("parentConversationId", "parent_conversation_id", "subagentRole", "subagent_role", "subagentType"):
                 if isinstance(pd.get(k), str) and pd[k].strip():
                     return True
-    norm_cid = normalize_cid(conv_id)
+    norm_cid = normalize_cid(eff_conv_id)
     if norm_cid in _EPHEMERAL_CIDS:
         return False
-    convo_dir = get_active_brain_dir() / norm_cid
-    if convo_dir.is_dir():
-        for meta_name in (".metadata", "session_meta.json", "metadata.json"):
-            mp = convo_dir / meta_name
-            try:
-                if mp.is_file() and mp.stat().st_size <= 65_536:
-                    data = json.loads(mp.read_text(encoding="utf-8", errors="ignore"))
-                    if isinstance(data, dict) and (data.get("parent_conversation_id") or data.get("parentConversationId")):
-                        return True
-            except (OSError, json.JSONDecodeError, ValueError, TypeError):
-                pass
-        t_path, _ = find_transcript_path(convo_dir)
-        if t_path is not None and t_path.is_file():
-            try:
-                with open(t_path, "r", encoding="utf-8", errors="replace") as f:
-                    for _ in range(3):
-                        raw_line = f.readline(16384)
-                        if not raw_line:
-                            break
-                        if "parent_conversation_id" in raw_line or "parentConversationId" in raw_line or "root_conversation_id" in raw_line:
-                            return True
-                        if "[Message]" in raw_line and re.search(r"sender=[0-9a-fA-F-]{36}", raw_line):
-                            return True
-            except OSError:
-                pass
-    return False
+
+    eff_brain_dir = brain_dir
+    if eff_brain_dir is None:
+        _, art_brain = resolve_conv_and_brain(eff_payload, norm_cid)
+        if art_brain is not None and art_brain.name == norm_cid:
+            eff_brain_dir = art_brain.parent
+        elif get_active_brain_dir is not _ORIG_GET_ACTIVE_BRAIN_DIR:
+            eff_brain_dir = get_active_brain_dir()
+
+    parent_cid, _, depth = read_conversation_lineage(norm_cid, brain_dir=eff_brain_dir, db_dir=db_dir)
+    return bool(parent_cid or depth > 0)
 
 
-def _collect_search_paths(payload: Dict[str, Any], workspace_dir: Optional[Path]) -> List[Path]:
+def _collect_search_paths(
+    payload: Dict[str, Any],
+    workspace_dir: Optional[Path] = None,
+    *,
+    include_cwd: bool = True,
+) -> List[Path]:
     paths: List[Path] = []
+
+    def _add(val: Any) -> None:
+        s = val if isinstance(val, str) else (val.get("path") if isinstance(val, dict) else None)
+        if isinstance(s, str) and s.strip() and (p := Path(os.path.expanduser(s.strip()))) not in paths:
+            paths.append(p)
+
     if workspace_dir:
-        paths.append(Path(os.path.expanduser(str(workspace_dir))))
+        _add(str(workspace_dir))
     for k in ("workspace", "worktree", "cwd", "workspacePath", "workspaceDir", "worktreePath", "path",
               "artifactDirectoryPath", "artifact_directory_path", "artifactDirectory", "artifact_dir"):
-        v = payload.get(k)
-        s = v if isinstance(v, str) else (v.get("path") if isinstance(v, dict) else None)
-        if isinstance(s, str) and s.strip():
-            p = Path(os.path.expanduser(s.strip()))
-            if p not in paths:
-                paths.append(p)
+        _add(payload.get(k))
     for k in ("activeWorkspaces", "workspacePaths", "active_workspaces", "workspace_paths"):
-        lst = payload.get(k)
-        if isinstance(lst, (list, tuple)):
+        if isinstance((lst := payload.get(k)), (list, tuple)):
             for item in lst:
-                s = item if isinstance(item, str) else (item.get("path") if isinstance(item, dict) else None)
-                if isinstance(s, str) and s.strip():
-                    p = Path(os.path.expanduser(s.strip()))
-                    if p not in paths:
-                        paths.append(p)
-    if Path.cwd() not in paths:
+                _add(item)
+    if include_cwd and Path.cwd() not in paths:
         paths.append(Path.cwd())
     return paths
 
@@ -307,8 +335,7 @@ def _read_role_json_file(cand: Path, expected_cid: str = "") -> Optional[str]:
                 if expected_cid and expected_cid != "default" and file_cid and file_cid != expected_cid:
                     return None
                 for rk in ("role", "agent_role", "session_role", "archetype"):
-                    matched = normalize_role_str(data.get(rk))
-                    if matched:
+                    if matched := normalize_role_str(data.get(rk)):
                         return matched
     except (OSError, json.JSONDecodeError, ValueError, TypeError) as exc:
         sys.stderr.write(f"[AGYIS ROLE PINNING] Failed reading role JSON '{cand}': {exc}\n")
@@ -319,64 +346,55 @@ def check_pillar_3_explicit_role(
     payload: Dict[str, Any],
     workspace_dir: Optional[Path] = None,
     conversation_id: str = "",
+    *,
+    is_child: Optional[bool] = None,
 ) -> Optional[str]:
     """Pillar 3: Checks CID-scoped/workspace session_role.json, active plan, and role env vars."""
     search_dirs = _collect_search_paths(payload, workspace_dir)
     eff_cid, art_brain_dir = resolve_conv_and_brain(payload, conversation_id)
-    folders: List[str] = []
-    if eff_cid and eff_cid != "default":
-        folders.append(eff_cid)
-    else:
-        env_cid = get_active_conversation_id()
-        if env_cid:
-            folders.append(env_cid)
-        folders.append("session")
+    if is_child is None:
+        is_child = has_parent_conversation(payload, eff_cid)
 
+    folders: List[str] = [eff_cid] if (eff_cid and eff_cid != "default") else (
+        [] if is_child else ([env_cid] if (env_cid := get_active_conversation_id()) else []) + ["session"]
+    )
     expected_role_cid = eff_cid if (eff_cid and eff_cid != "default") else (folders[0] if folders else "")
     for root in search_dirs:
-        cands = [
-            *(root / ".agents" / "artifacts" / "checkpoints" / f / "session_role.json" for f in folders),
-            root / ".agents" / "session_role.json",
-            root / ".agents" / "artifacts" / "session_role.json",
-            root / "session_role.json",
-            root / ".agents" / "artifacts" / "plan.json",
-            root / ".agents" / "plan.json",
-            root / "plan.json",
-        ]
+        cands: List[Path] = [root / ".agents" / "artifacts" / "checkpoints" / f / "session_role.json" for f in folders]
+        if not is_child:
+            cands.extend([
+                root / ".agents" / "session_role.json", root / ".agents" / "artifacts" / "session_role.json",
+                root / "session_role.json", root / ".agents" / "artifacts" / "plan.json",
+                root / ".agents" / "plan.json", root / "plan.json",
+            ])
         for cand in cands:
-            matched = _read_role_json_file(cand, expected_cid=expected_role_cid)
-            if matched:
+            if matched := _read_role_json_file(cand, expected_cid=expected_role_cid):
                 return matched
 
     if eff_cid and eff_cid != "default":
-        env_brain = os.environ.get("AGYIS_BRAIN_DIR")
-        brain_base = Path(os.path.expanduser(env_brain)) if env_brain else get_active_brain_dir()
-        for b_cand in (brain_base / eff_cid / ".agyis" / "session_role.json", brain_base / eff_cid / "session_role.json"):
-            matched = _read_role_json_file(b_cand)
-            if matched:
-                return matched
+        brain_base, _ = _resolve_isolated_brain_root(workspace_dir=workspace_dir, payload=payload)
+        if brain_base is not None:
+            for b_cand in (brain_base / eff_cid / ".agyis" / "session_role.json", brain_base / eff_cid / "session_role.json"):
+                if matched := _read_role_json_file(b_cand):
+                    return matched
 
     try:
         from harness.utils.plan_parser import find_active_plan
-        plan_path = find_active_plan(
-            conv_id=eff_cid if eff_cid != "default" else None,
-            workspace_root=workspace_dir or (search_dirs[0] if search_dirs else None),
-            brain_dir=art_brain_dir,
-        )
-        if plan_path and plan_path.is_file() and 0 < plan_path.stat().st_size <= 65_536:
-            if plan_path.suffix == ".json":
-                matched = _read_role_json_file(plan_path)
-                if matched:
-                    return matched
-            else:
-                txt = plan_path.read_text(encoding="utf-8", errors="ignore")[:8192]
-                m = re.search(r"(?:^|\n)\s*(?:\*\*)?[Rr]ole(?:\*\*)?:\s*([a-zA-Z0-9_\-]+)", txt)
-                mc = re.search(r"<!--\s*role:\s*([a-zA-Z0-9_\-]+)\s*-->", txt, re.IGNORECASE)
-                for match_obj in (m, mc):
-                    if match_obj:
-                        matched = normalize_role_str(match_obj.group(1).strip())
-                        if matched:
-                            return matched
+        plan_ws = None if is_child else (workspace_dir or (search_dirs[0] if search_dirs else None))
+        if not is_child or eff_cid != "default" or art_brain_dir is not None:
+            plan_path = find_active_plan(conv_id=eff_cid if eff_cid != "default" else None, workspace_root=plan_ws, brain_dir=art_brain_dir)
+            if is_child and plan_path is not None and not (eff_cid != "default" and eff_cid in str(plan_path)) and not (art_brain_dir is not None and art_brain_dir in plan_path.parents):
+                plan_path = None
+            if plan_path and plan_path.is_file() and 0 < plan_path.stat().st_size <= 65_536:
+                if plan_path.suffix == ".json":
+                    if matched := _read_role_json_file(plan_path):
+                        return matched
+                else:
+                    txt = plan_path.read_text(encoding="utf-8", errors="ignore")[:8192]
+                    for pat in (r"(?:^|\n)\s*(?:\*\*)?[Rr]ole(?:\*\*)?:\s*([a-zA-Z0-9_\-]+)", r"<!--\s*role:\s*([a-zA-Z0-9_\-]+)\s*-->"):
+                        if m := re.search(pat, txt, re.IGNORECASE):
+                            if matched := normalize_role_str(m.group(1).strip()):
+                                return matched
     except Exception as exc:
         sys.stderr.write(f"[AGYIS ROLE PINNING] Failed inspecting active plan role: {exc}\n")
 
@@ -395,49 +413,60 @@ def check_pillar_1_intent(
     snippets: List[str] = []
     for k in ("lastUserInput", "last_user_input", "prompt", "user_prompt", "userPrompt", "message", "query", "input", "initial_prompt", "task"):
         v = payload.get(k)
-        if isinstance(v, str) and v.strip():
+        if isinstance(v, str) and v.strip() and not _is_sdk_injection_text(v):
             snippets.append(v.strip())
     steps = payload.get("steps")
     if isinstance(steps, list):
-        for s in steps[:2]:
+        for s in steps[:5]:
             if isinstance(s, dict):
+                if str(s.get("source") or "").strip().upper() == "SYSTEM_SDK":
+                    continue
                 for sk in ("lastUserInput", "prompt", "user_input", "userPrompt", "message", "text", "query", "input", "step_data"):
                     sv = s.get(sk)
-                    if isinstance(sv, str) and sv.strip():
+                    if isinstance(sv, str) and sv.strip() and not _is_sdk_injection_text(sv):
                         snippets.append(sv.strip())
-            elif isinstance(s, str) and s.strip():
+            elif isinstance(s, str) and s.strip() and not _is_sdk_injection_text(s):
                 snippets.append(s.strip())
 
-    eff_cid, _ = resolve_conv_and_brain(payload, conversation_id)
+    eff_cid, art_brain = resolve_conv_and_brain(payload, conversation_id)
     metrics = db_metrics
     if metrics is None and eff_cid and eff_cid != "default":
         metrics = read_db_trajectory_state(eff_cid, db_dir=db_dir, timeout=timeout)
     if metrics is not None:
-        if metrics.turn0_prompt:
+        if metrics.turn0_prompt and not _is_sdk_injection_text(metrics.turn0_prompt):
             snippets.append(metrics.turn0_prompt)
-        if metrics.latest_user_prompt and not snippets:
+        if metrics.latest_user_prompt and not snippets and not _is_sdk_injection_text(metrics.latest_user_prompt):
             snippets.append(metrics.latest_user_prompt)
 
     if not snippets and eff_cid and eff_cid != "default":
-        t_path, _ = find_transcript_path(eff_cid)
+        b_dir = (
+            art_brain.parent if (art_brain is not None and art_brain.name == eff_cid)
+            else (get_active_brain_dir() if get_active_brain_dir is not _ORIG_GET_ACTIVE_BRAIN_DIR else None)
+        )
+        t_path, _ = find_transcript_path(eff_cid, brain_dir=b_dir)
         if t_path is not None:
             t_steps, _, _ = load_transcript_steps(t_path)
-            for ts in t_steps[:2]:
-                if isinstance(ts, dict):
-                    content = ts.get("content") or ts.get("userInput") or ""
-                    if isinstance(content, str) and content.strip():
-                        snippets.append(content.strip())
-                        role_hint = extract_role_from_text(content)
-                        if role_hint:
-                            matched = normalize_role_str(role_hint)
-                            if matched:
-                                return matched
+            for ts in t_steps[:5]:
+                if not isinstance(ts, dict) or str(ts.get("source") or "").strip().upper() == "SYSTEM_SDK":
+                    continue
+                content = ts.get("content") or ts.get("userInput") or ""
+                if isinstance(content, str) and content.strip():
+                    if _is_sdk_injection_text(content) or "PreInvocation hook" in content:
+                        continue
+                    snippets.append(content.strip())
+                    role_hint = extract_role_from_text(content)
+                    if role_hint:
+                        matched = normalize_role_str(role_hint)
+                        if matched:
+                            return matched
 
     if not snippets:
         return None
     combined = " ".join(snippets).lower()
     if any(kw in combined for kw in ORCHESTRATOR_KEYWORDS):
         return ROLE_FLIGHT_DIRECTOR
+    if any(kw in combined for kw in REVIEWER_AUDITOR_KEYWORDS):
+        return ROLE_FORENSIC_AUDITOR
     if any(kw in combined for kw in CODING_KEYWORDS):
         return ROLE_DEEP_EXECUTION
     return None
@@ -481,52 +510,38 @@ def check_pillar_2_behavior(
     and never promotes child subagents or `send_message` calls into root orchestrators).
     """
     try:
-        payload_tok = 0
-        for k in ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens"):
-            v = payload.get(k)
-            if isinstance(v, (int, float)) and int(v) > 0:
-                payload_tok = int(v)
-                break
-        eff_cid, _ = resolve_conv_and_brain(payload, conversation_id)
-        m = db_metrics
-        if m is None and eff_cid and eff_cid != "default":
-            m = read_db_trajectory_state(eff_cid, db_dir=db_dir, timeout=timeout)
+        payload_tok = next(
+            (int(v) for k in ("tokens", "token_count", "tokenCount", "num_tokens", "numTokens")
+             if isinstance((v := payload.get(k)), (int, float)) and int(v) > 0),
+            0,
+        )
+        eff_cid, art_brain = resolve_conv_and_brain(payload, conversation_id)
+        m = db_metrics or (read_db_trajectory_state(eff_cid, db_dir=db_dir, timeout=timeout) if eff_cid and eff_cid != "default" else None)
         cur_tokens = max(tokens, payload_tok, m.tokens if m else 0)
         step_val = payload.get("step_count") or payload.get("stepCount") or payload.get("initialNumSteps") or 0
         total_steps = max(int(step_val) if isinstance(step_val, (int, float)) else 0, m.total_steps if m else 0)
         raw_win = payload.get("maxContextTokens") or payload.get("max_context_tokens")
-        eff_win = (
-            int(raw_win)
-            if isinstance(raw_win, (int, float)) and int(raw_win) > 0
-            else (m.max_context_tokens if m and m.max_context_tokens > 0 else DEFAULT_CONTEXT_WINDOW_TOKENS)
+        eff_win = int(raw_win) if isinstance(raw_win, (int, float)) and int(raw_win) > 0 else (
+            m.max_context_tokens if m and m.max_context_tokens > 0 else DEFAULT_CONTEXT_WINDOW_TOKENS
         )
-        pillar2_tok_threshold = int(round(eff_win * 200_000 / DEFAULT_CONTEXT_WINDOW_TOKENS))
-        if cur_tokens < pillar2_tok_threshold and total_steps < 100 and not payload.get("force_pillar_2"):
+        if cur_tokens < int(round(eff_win * 200_000 / DEFAULT_CONTEXT_WINDOW_TOKENS)) and total_steps < 100 and not payload.get("force_pillar_2"):
             return None
-
         pairs = _collect_tool_pairs(payload, eff_cid, db_dir, timeout, m)
         if not pairs:
             return None
 
-        is_child = has_parent_conversation(payload, eff_cid)
+        eff_brain_dir = art_brain.parent if (art_brain is not None and art_brain.name == eff_cid) else None
+        is_child = has_parent_conversation(payload, eff_cid, brain_dir=eff_brain_dir, db_dir=db_dir)
         subagent_spawns = edit_test = explicit_audit = read_grep = 0
         is_swarm = False
+        edit_tools = ("edit_file", "write_file", "create_file", "insert_edit_into_file", "replace_file_content", "multi_replace_file_content", "write_to_file", "apply_diff")
         for tool_name, args in pairs:
             tn, al = tool_name.lower().strip(), args.lower()
             if not is_child and (tn in ("invoke_subagent", "manage_task", "schedule", "swarm", "run_workflow") or "subagent" in tn):
                 subagent_spawns += 1
                 if any(k in al or k in tn for k in ("swarm", "mesh", "strand")):
                     is_swarm = True
-            elif tn in (
-                "edit_file",
-                "write_file",
-                "create_file",
-                "insert_edit_into_file",
-                "replace_file_content",
-                "multi_replace_file_content",
-                "write_to_file",
-                "apply_diff",
-            ):
+            elif tn in edit_tools:
                 edit_test += 1
             elif tn in ("run_command", "bash", "terminal", "exec_command", "shell"):
                 if any(kw in al for kw in TEST_RUNNER_KEYWORDS):
@@ -553,6 +568,82 @@ def check_pillar_2_behavior(
     return None
 
 
+def classify_agent_role_details(
+    payload: Dict[str, Any],
+    conversation_id: str = "",
+    db_dir: Optional[Path] = None,
+    workspace_dir: Optional[Path] = None,
+    tokens: int = 0,
+    timeout: Optional[float] = None,
+    db_metrics: Optional[TrajectoryMetrics] = None,
+    is_post_compaction: bool = False,
+) -> Tuple[str, Dict[str, Any]]:
+    """Classifies role and returns (canonical_role, lineage_metadata) across priority tiers."""
+    parent_cid: Optional[str] = None
+    native_agent_name: Optional[str] = None
+    explicit_keys = (
+        "agentName", "agent_name", "subagentType", "subagent_role", "subagentRole",
+        "typeName", "agentType", "agent_type", "archetype", "role",
+    )
+    try:
+        holders = [payload, *(pd for pk in ("agent", "subagent", "metadata", "context") if isinstance((pd := payload.get(pk)), dict))]
+        for holder in holders:
+            for key in explicit_keys:
+                raw_v = holder.get(key)
+                if isinstance(raw_v, str) and (matched := normalize_role_str(raw_v)):
+                    ag = raw_v.strip() if raw_v.strip().lower() not in _CANONICAL_ROLE_BUCKETS else None
+                    pid = holder.get("parentConversationId") or holder.get("parent_conversation_id")
+                    return matched, {"agent_name": ag, "parent_conversation_id": pid, "source": "explicit", "is_fallback": False}
+
+        eff_cid, art_brain_dir = resolve_conv_and_brain(payload, conversation_id)
+        eff_brain_dir = (
+            art_brain_dir.parent if (art_brain_dir is not None and art_brain_dir.name == eff_cid)
+            else (get_active_brain_dir() if get_active_brain_dir is not _ORIG_GET_ACTIVE_BRAIN_DIR else None)
+        )
+        parent_cid, native_agent_name, depth = read_conversation_lineage(
+            eff_cid, brain_dir=eff_brain_dir, db_dir=db_dir, timeout=timeout or 0.5,
+        )
+        is_child = bool(parent_cid or depth > 0 or has_parent_conversation(payload, eff_cid, brain_dir=eff_brain_dir, db_dir=db_dir))
+
+        p3 = check_pillar_3_explicit_role(payload, workspace_dir=workspace_dir, conversation_id=eff_cid, is_child=is_child)
+        if p3:
+            return p3, {"agent_name": native_agent_name, "parent_conversation_id": parent_cid, "source": "pillar_3", "is_fallback": False}
+
+        if native_agent_name and (native_role := normalize_role_str(native_agent_name)):
+            return native_role, {"agent_name": native_agent_name, "parent_conversation_id": parent_cid, "source": "lineage", "is_fallback": False}
+
+        if not is_post_compaction and eff_cid not in _EPHEMERAL_CIDS:
+            sticky = load_sticky_role_state(resolve_cid_state_dir(eff_cid, workspace_dir, payload), eff_cid)
+            cp_idx = db_metrics.checkpoint_index if db_metrics is not None else 0
+            if sticky and int(sticky.get("checkpoint", sticky.get("epoch", 0))) == cp_idx:
+                pinned = normalize_role_str(sticky.get("role"))
+                sticky_agent = sticky.get("agent_name")
+                sticky_agent_role = normalize_role_str(sticky_agent) if isinstance(sticky_agent, str) else None
+                invalidated = bool(
+                    (is_child and pinned == ROLE_FLIGHT_DIRECTOR and sticky_agent_role != ROLE_FLIGHT_DIRECTOR)
+                    or (sticky_agent_role is not None and pinned != sticky_agent_role)
+                    or sticky.get("is_fallback")
+                )
+                if pinned and not invalidated:
+                    return pinned, {"agent_name": sticky_agent or native_agent_name, "parent_conversation_id": parent_cid or sticky.get("parent_conversation_id"), "source": "sticky", "is_fallback": False}
+
+        if p1 := check_pillar_1_intent(payload, conversation_id=eff_cid, db_dir=db_dir, timeout=timeout, db_metrics=db_metrics):
+            return p1, {"agent_name": native_agent_name, "parent_conversation_id": parent_cid, "source": "pillar_1", "is_fallback": False}
+
+        if p2 := check_pillar_2_behavior(payload, conversation_id=eff_cid, tokens=tokens, db_dir=db_dir, timeout=timeout, db_metrics=db_metrics):
+            return p2, {"agent_name": native_agent_name, "parent_conversation_id": parent_cid, "source": "pillar_2", "is_fallback": False}
+
+        for root in _collect_search_paths(payload, workspace_dir, include_cwd=False):  # Exclude generic Path.cwd() tail
+            if (matched := normalize_role_str(str(root))) and not (is_child and matched == ROLE_FLIGHT_DIRECTOR):
+                return matched, {"agent_name": native_agent_name, "parent_conversation_id": parent_cid, "source": "workspace", "is_fallback": False}
+
+        if is_child:
+            return ROLE_DEEP_EXECUTION, {"agent_name": native_agent_name, "parent_conversation_id": parent_cid, "source": "child_fallback", "is_fallback": True}
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS ROLE PINNING] Role classification fallback error: {exc}\n")
+    return ROLE_FLIGHT_DIRECTOR, {"agent_name": native_agent_name, "parent_conversation_id": parent_cid, "source": "root_fallback", "is_fallback": True}
+
+
 def classify_agent_role(
     payload: Dict[str, Any],
     conversation_id: str = "",
@@ -563,153 +654,9 @@ def classify_agent_role(
     db_metrics: Optional[TrajectoryMetrics] = None,
     is_post_compaction: bool = False,
 ) -> str:
-    """Sticky role classification across explicit metadata, Pillar 3, sticky pin, Pillar 1, and initial behavior."""
-    try:
-        for key in ("subagent_role", "subagentRole", "subagentType", "agent_type", "agentType",
-                    "role", "archetype", "typeName", "agentName", "agent_name"):
-            if isinstance(payload.get(key), str):
-                matched = normalize_role_str(payload[key])
-                if matched:
-                    return matched
-        for pk in ("agent", "subagent", "metadata", "context"):
-            pd = payload.get(pk)
-            if isinstance(pd, dict):
-                for key in ("subagent_role", "subagentRole", "role", "archetype", "typeName", "agentName", "agent_name"):
-                    if isinstance(pd.get(key), str):
-                        matched = normalize_role_str(pd[key])
-                        if matched:
-                            return matched
-
-        p3 = check_pillar_3_explicit_role(payload, workspace_dir=workspace_dir, conversation_id=conversation_id)
-        if p3:
-            return p3
-
-        eff_cid, _ = resolve_conv_and_brain(payload, conversation_id)
-        if not is_post_compaction and eff_cid not in _EPHEMERAL_CIDS:
-            state_dir = resolve_cid_state_dir(eff_cid, workspace_dir, payload)
-            sticky = load_sticky_role_state(state_dir, eff_cid)
-            epoch_idx = db_metrics.epoch_index if db_metrics is not None else 0
-            if sticky and int(sticky.get("epoch", 0)) == epoch_idx:
-                pinned = normalize_role_str(sticky.get("role"))
-                if pinned:
-                    return pinned
-
-        p1 = check_pillar_1_intent(payload, conversation_id=eff_cid, db_dir=db_dir, timeout=timeout, db_metrics=db_metrics)
-        if p1:
-            return p1
-
-        p2 = check_pillar_2_behavior(payload, conversation_id=eff_cid, tokens=tokens, db_dir=db_dir, timeout=timeout, db_metrics=db_metrics)
-        if p2:
-            return p2
-
-        for root in _collect_search_paths(payload, workspace_dir)[:-1]:  # Exclude generic Path.cwd() tail
-            matched = normalize_role_str(str(root))
-            if matched:
-                return matched
-    except Exception as exc:
-        sys.stderr.write(f"[AGYIS ROLE PINNING] Role classification fallback error: {exc}\n")
-    return ROLE_FLIGHT_DIRECTOR
-
-
-def build_role_persona_prompt(role: str) -> str:
-    """Returns static role-only persona prompt for systemMessage injection."""
-    return ROLE_PERSONA_PROMPTS.get(
-        role,
-        (
-            f"[AGYIS ROLE PINNING: {role.upper()}]\nYou are operating with role '{role}'.\n\n"
-            "1. WORK PRESERVATION: Strictly prohibit 'git checkout -- .', 'git reset --hard', 'git clean -fd'.\n"
-            "2. PLAN ADHERENCE: Implement only tasks specified in the approved plan.\n"
-            "3. HERMETIC VERIFICATION: Execute native test commands and verify exit code 0.\n"
-            "4. NON-POLLING: Stop calling tools after launching async tasks."
-        ),
+    """Sticky role classification across explicit metadata, Pillar 3, native lineage, sticky pin, and behavior."""
+    role, _ = classify_agent_role_details(
+        payload, conversation_id=conversation_id, db_dir=db_dir, workspace_dir=workspace_dir,
+        tokens=tokens, timeout=timeout, db_metrics=db_metrics, is_post_compaction=is_post_compaction,
     )
-
-
-def build_post_compaction_persona_prompt(role: str, checkpoint_path: Optional[str] = None) -> str:
-    """Returns post-compaction re-anchor prompt referencing per-conversation checkpoint artifact."""
-    cp_hint = checkpoint_path or ".agents/artifacts/checkpoints/<session_id>.md"
-    return (
-        f"{build_role_persona_prompt(role)}\n\n"
-        "[AGYIS POST-COMPACTION SUCCESSION DIRECTIVE]\n"
-        "You have resumed execution following a context window compaction event.\n\n"
-        "1. GROUND TRUTH CHECKPOINT RESTORATION:\n"
-        f"   - Read your session-scoped pre-compaction ground truth checkpoint immediately: `{cp_hint}`\n"
-        "   - Restore situational awareness: active phase progress, pending tasks, active subagents, and git diff status.\n\n"
-        "2. WORK PRESERVATION CONTRACT:\n"
-        "   - Strictly prohibit destructive git resets: NEVER execute 'git reset --hard', 'git checkout -- .', or 'git clean -fd'.\n\n"
-        "3. AUTONOMOUS CONTINUATION:\n"
-        "   - Proceed directly with the next actionable task without asking the operator re-orientation questions."
-    )
-
-
-def build_role_reanchor_advisory(role: str, step_count: int, cadence: int) -> str:
-    """Returns intra-epoch periodic re-anchor systemMessage directive."""
-    return (
-        f"[AGYIS ROLE RE-ANCHOR: {role.upper()} (STEP {step_count} | CADENCE {cadence})]\n"
-        f"PERIODIC COGNITIVE ATTENTION AUDIT — Reinforcing active invariants for '{role}':\n"
-        "1. Work Preservation: Preserve in-flight edits; destructive git commands are banned.\n"
-        "2. Role Fidelity: Adhere strictly to active stage boundaries; zero unauthorized remediation.\n"
-        "3. Empirical Verification: Validate modifications with native test commands before concluding."
-    )
-
-
-def build_compaction_advisory(
-    role: str,
-    tokens: int,
-    threshold: int = RED_THRESHOLD,
-    max_context_tokens: Optional[int] = None,
-    checkpoint_path: Optional[str] = None,
-    is_subagent: bool = False,
-) -> str:
-    """Generates role-tailored advisory directive alerting to imminent compaction (or subagent continuity)."""
-    if max_context_tokens and max_context_tokens > 0:
-        win = max_context_tokens
-    elif threshold > RED_THRESHOLD:
-        win = int(round(threshold * DEFAULT_CONTEXT_WINDOW_TOKENS / RED_THRESHOLD))
-    else:
-        win = DEFAULT_CONTEXT_WINDOW_TOKENS
-    cp_hint = checkpoint_path or ".agents/artifacts/checkpoints/<session_id>.md"
-    preserve = "STRICTLY PROHIBIT 'git checkout -- .', 'git reset --hard', and 'git clean -fd'. Keep all in-flight work intact on disk."
-    if is_subagent:
-        return (
-            f"[AGYIS SUBAGENT CONTEXT CONTINUITY: {role.upper()} (~{tokens:,} / {win:,} TOKENS)]\n"
-            f"ROLE: Background Subagent ({role}) — Transparent Auto-Compaction Managed by Antigravity\n\n"
-            "1. CONTINUE WITHOUT SELF-CURTAILMENT: Background subagents cannot execute `/compact` directly; Antigravity automatically compacts subagent context natively when required. Do NOT abort early or rush your deliverable.\n"
-            f"2. WORK PRESERVATION CONTRACT (MANDATORY): {preserve}\n"
-            f"3. CHECKPOINT & COMPLETION: Save incremental findings cleanly to `{cp_hint}` and finish your complete deliverable before reporting back."
-        )
-    runway_cap = int(round(win * 246_000 / DEFAULT_CONTEXT_WINDOW_TOKENS))
-    tok_per_turn = max(3500, int(round(3500 * win / DEFAULT_CONTEXT_WINDOW_TOKENS)))
-    est_turns = max(1, (runway_cap - tokens) // tok_per_turn) if tokens < runway_cap else 1
-    header = f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{est_turns} TURNS REMAINING)]\n"
-
-    if role == ROLE_DEEP_EXECUTION:
-        return (
-            f"{header}ROLE: Deep Execution (Monolithic SWE Pairing / Executioner)\n\n"
-            f"1. WORK PRESERVATION CONTRACT (MANDATORY): {preserve}\n"
-            f"2. ZERO REPO DOCUMENT POLLUTION: Save session checkpoint state strictly to `{cp_hint}` or brain directory. Zero git commits for WIP markers.\n"
-            "3. AUTONOMOUS POST-COMPACTION CONTINUATION: Post-compaction wake-up directive: inspect 'git status' and 'git diff' first, re-run tests, and resume without reverting and without asking the operator what happened."
-        )
-    if role == ROLE_SWARM_ORCHESTRATOR:
-        return (
-            f"{header}ROLE: Swarm Orchestrator (Workstream Coordinator)\n\n"
-            f"1. SWARM STATE SURVIVAL & ZERO REPO POLLUTION: Persist subagent task rosters, worktree / stage status, and milestone gates strictly to `{cp_hint}`.\n"
-            f"2. WORK PRESERVATION CONTRACT: {preserve}\n"
-            "3. AUTONOMOUS POST-COMPACTION CONTINUATION: Inspect worker branches via 'git status'/'git diff' and resume gates without manual intervention."
-        )
-    if role == ROLE_FORENSIC_AUDITOR:
-        return (
-            f"{header}ROLE: Forensic Auditor (Auditor / Hammer)\n\n"
-            f"1. EVIDENCE PRESERVATION & ZERO REPO POLLUTION: Preserve defect reports in `{cp_hint}`. Zero git commits for ephemeral audit markers.\n"
-            f"2. WORK PRESERVATION CONTRACT: {preserve}\n"
-            "3. AUTONOMOUS POST-COMPACTION CONTINUATION: Post-compaction wake-up: re-execute verification suites on HEAD, verify exit codes, and issue formal certification."
-        )
-    if role == ROLE_FLIGHT_DIRECTOR:
-        return (
-            f"{header}ROLE: Flight Director (Cockpit Coordinator)\n\n"
-            "1. COGNITIVE STATE PRESERVATION INVARIANT & ZERO REPO DOCUMENT POLLUTION:\n"
-            f"   - Materialize working memory, active task decomposition, pending subagent assignments, and operator steering decisions into session-scoped checkpoint `{cp_hint}` before compaction strikes (Zero repository pollution).\n"
-            f"2. WORK PRESERVATION CONTRACT: {preserve}\n"
-            f"3. AUTONOMOUS POST-COMPACTION CONTINUATION: Immediately inspect `{cp_hint}` and 'git status', then resume orchestration autonomously without human re-explanation."
-        )
-    return f"{header}ROLE: General Agent\n\n1. WORK PRESERVATION: {preserve}\n2. ZERO REPO POLLUTION: Store state in `{cp_hint}`. Zero git commits for temporary markers.\n3. CONTINUATION: Inspect 'git status' and 'git diff' post-compaction and resume without asking operator what happened."
+    return role

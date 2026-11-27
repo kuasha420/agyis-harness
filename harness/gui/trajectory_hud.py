@@ -19,6 +19,16 @@ from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from harness.gui.trajectory_catalog import (  # noqa: F401
+    _SYS_TAG_DEFS,
+    _TC_TYPE_NEEDLES,
+    _TOOL_CATEGORY_SPEC,
+    atc_context_layout,
+    estimate_tokens,
+    xtc_segment_width,
+    ytc_layout_pass,
+    ztc_row_count,
+)
 from harness.gui.trajectory_convo_helpers import (
     _extract_conversation_summary,
     get_recent_conversations,
@@ -37,34 +47,6 @@ from harness.trajectory.transcript_reader import (
     load_transcript_steps,
 )
 from harness.utils.context import get_active_brain_dir
-from harness.utils.tokens import estimate_tokens as _ssot_estimate_tokens
-
-_SYS_TAG_DEFS: Tuple[Tuple[str, str, str], ...] = (
-    ("identity", "Identity", "#6366f1"), ("sandbox", "Sandbox", "#818cf8"), ("artifacts", "Artifacts", "#a78bfa"),
-    ("conversation_transcript", "Transcript", "#c084fc"), ("guidelines", "Guidelines", "#e879f9"), ("communication_style", "Style", "#f472b6"),
-    ("slash_commands", "Commands", "#fb7185"), ("messaging", "Messaging", "#9333ea"), ("mcp_servers", "MCP Servers", "#7c3aed"),
-    ("subagents", "Subagents", "#6d28d9"), ("user_rules", "User Rules", "#5b21b6"), ("skills", "Skills", "#4c1d95"),
-    ("featured_plugins", "Plugins", "#8b5cf6"), ("user_information", "UserInfo", "#a855f7"), ("subagent_reminder", "Reminders", "#d946ef"),
-)
-_TOOL_CATEGORY_SPEC: Tuple[Tuple[str, str, Tuple[str, ...]], ...] = (
-    ("Filesystem Tools", "#06b6d4", ("read_file", "write_file", "edit_file", "replace_file_content", "write_to_file", "view_file")),
-    ("Terminal Tools", "#0891b2", ("run_command", "bash")),
-    ("Subagents", "#0e7490", ("invoke_subagent", "define_subagent", "manage_subagents", "send_message", "swarm", "post_message", "read_board", "swarm_wait")),
-)
-_TC_TYPE_NEEDLES: Tuple[Tuple[str, str], ...] = (
-    ("run_command", "RUN_COMMAND"), ("bash", "RUN_COMMAND"),
-    ("read_file", "READ_FILE"), ("view_file", "VIEW_FILE"),
-    ("edit_file", "EDIT_FILE"), ("replace_file_content", "REPLACE_FILE_CONTENT"),
-    ("write_file", "WRITE_FILE"), ("write_to_file", "WRITE_FILE"),
-    ("grep_search", "GREP_SEARCH"), ("search_web", "SEARCH_WEB"),
-    ("find_by_name", "FIND_FILES"), ("find_files", "FIND_FILES"),
-    ("post_message", "POST_MESSAGE"), ("send_message", "SEND_MESSAGE"),
-    ("read_board", "READ_BOARD"), ("swarm_wait", "SWARM_WAIT"),
-    ("swarm", "SWARM"), ("run_workflow", "RUN_WORKFLOW"),
-    ("define_subagent", "DEFINE_SUBAGENT"), ("manage_subagents", "MANAGE_SUBAGENTS"),
-    ("manage_task", "MANAGE_TASK"),
-    ("invoke_subagent", "INVOKE_SUBAGENT"), ("subagent", "INVOKE_SUBAGENT"),
-)
 
 
 def _extract_cwm(step: Dict[str, Any]) -> Dict[str, Any]:
@@ -98,7 +80,10 @@ def _map_to_cortex_type(step: Dict[str, Any]) -> str:
         "REPLACE_FILE_CONTENT", "EDIT_FILE", "WRITE_FILE", "GREP_SEARCH", "SEARCH_WEB", "FIND_FILES",
         "SEND_MESSAGE", "POST_MESSAGE", "READ_BOARD", "SWARM_WAIT", "SWARM",
         "RUN_WORKFLOW", "DEFINE_SUBAGENT", "MANAGE_SUBAGENTS", "MANAGE_TASK",
-        "INVOKE_SUBAGENT", "MODEL_OUTPUT", "SYSTEM", "TOOL_CALL",
+        "INVOKE_SUBAGENT", "UPDATE_FOCUS", "UPDATE_STEPS", "ENTER_PLAN_MODE", "EXIT_PLAN_MODE",
+        "ASK_QUESTION", "SEARCH_MARKETPLACE", "LIST_PLUGIN_ACCOUNTS",
+        "CALL_MCP_TOOL", "LIST_RESOURCES", "READ_RESOURCE",
+        "MODEL_OUTPUT", "SYSTEM", "TOOL_CALL",
         "CHECKPOINT", "CODE_ACTION", "GENERIC",
     ):
         return existing_type
@@ -160,107 +145,6 @@ def _extract_compaction_summary(step: Dict[str, Any], is_checkpoint: Optional[bo
         if m:
             return m.group(1).strip()
     return None
-
-
-def estimate_tokens(char_count: int) -> int:
-    """Estimates token count using SSOT token helper at cleanroom HUD ratio (3.5 chars/token)."""
-    return _ssot_estimate_tokens(char_count, chars_per_token=3.5)
-
-
-def xtc_segment_width(segment_tokens: int, px_per_token: float, min_segment_px: float = 2.0) -> float:
-    """Calculates pixel width for a segment with minimum pixel clamp (cleanroom xtc)."""
-    tok = max(0, segment_tokens)
-    return max(tok * px_per_token, min_segment_px) if tok > 0 else 0.0
-
-
-def ytc_layout_pass(
-    segments: List[Dict[str, Any]], capacity_tokens: int, container_width: float,
-    min_segment_px: float = 2.0, rows_count: int = 1,
-) -> Dict[str, float]:
-    """Calculates layout metrics and inflation for a given row count (cleanroom ytc)."""
-    capacity_px = container_width * rows_count
-    px_per_token = capacity_px / capacity_tokens if capacity_tokens > 0 else 0.0
-    used_px = 0.0
-    true_used_px = 0.0
-    for s in segments:
-        tok = s.get("tokens", 0)
-        used_px += xtc_segment_width(tok, px_per_token, min_segment_px)
-        true_used_px += max(0, tok) * px_per_token
-    return {
-        "capacity_px": capacity_px,
-        "px_per_token": px_per_token,
-        "used_px": used_px,
-        "true_used_px": true_used_px,
-        "inflation_px": used_px - true_used_px,
-    }
-
-
-def ztc_row_count(
-    segments: List[Dict[str, Any]], capacity_tokens: int, container_width: float,
-    min_segment_px: float = 2.0, max_rows: int = 8,
-) -> int:
-    """Determines optimal row count to minimize inflation (cleanroom ztc)."""
-    current = ytc_layout_pass(segments, capacity_tokens, container_width, min_segment_px, 1)
-    for r in range(1, max_rows):
-        if current["inflation_px"] <= 0.1 * current["true_used_px"]:
-            return r
-        next_pass = ytc_layout_pass(segments, capacity_tokens, container_width, min_segment_px, r + 1)
-        if current["inflation_px"] - next_pass["inflation_px"] < 0.02 * container_width:
-            return r
-        current = next_pass
-    return max_rows
-
-
-def atc_context_layout(
-    segments: List[Dict[str, Any]], capacity_tokens: int, container_width: float,
-    min_segment_px: float = 2.0, max_rows: int = 8,
-) -> Dict[str, Any]:
-    """Authoritative dynamic context bar sizing and multi-row layout algorithm (cleanroom Atc)."""
-    if not segments or capacity_tokens <= 0 or container_width <= 0:
-        return {"rows": [], "inflation_px": 0.0}
-
-    row_count = ztc_row_count(segments, capacity_tokens, container_width, min_segment_px, max_rows)
-    layout = ytc_layout_pass(segments, capacity_tokens, container_width, min_segment_px, row_count)
-    scale_factor = layout["capacity_px"] / layout["used_px"] if layout["used_px"] > layout["capacity_px"] else 1.0
-    segment_widths = [xtc_segment_width(s.get("tokens", 0), layout["px_per_token"], min_segment_px) * scale_factor for s in segments]
-    unused_px = max(0.0, layout["capacity_px"] - layout["used_px"] * scale_factor)
-
-    rows: List[List[Dict[str, Any]]] = [[] for _ in range(row_count)]
-    cursor_px = 0.0
-
-    def place_cell(seg: Optional[Dict[str, Any]], width_px: float, key_prefix: str, show_divider: bool) -> None:
-        nonlocal cursor_px
-        rem_width = width_px
-        sub_idx = 0
-        while rem_width > 1e-6:
-            row_idx = min(len(rows) - 1, int((cursor_px + 1e-6) // container_width))
-            row_start_px = cursor_px - row_idx * container_width
-            avail_in_row = container_width - row_start_px
-            if avail_in_row <= 1e-6:
-                break
-            slice_width = min(rem_width, avail_in_row)
-            rem_width -= slice_width
-            cursor_px += slice_width
-            is_done = rem_width <= 1e-6
-            fills_row = slice_width >= avail_in_row - 1e-6
-            rows[row_idx].append({
-                "key": f"{key_prefix}#{sub_idx}",
-                "segment": seg,
-                "start_fraction": row_start_px / container_width,
-                "width_fraction": slice_width / container_width,
-                "continues_from_previous_row": sub_idx > 0,
-                "continues_on_next_row": not is_done,
-                "show_divider_after": show_divider and is_done and not fills_row,
-            })
-            sub_idx += 1
-
-    for idx, seg in enumerate(segments):
-        next_seg = segments[idx + 1] if idx + 1 < len(segments) else None
-        place_cell(seg, segment_widths[idx], f"{idx}:{seg.get('id', idx)}", next_seg is not None and next_seg.get("color_key") == seg.get("color_key"))
-    if unused_px > 1e-6:
-        place_cell(None, unused_px, "unused", False)
-
-    return {"rows": rows, "inflation_px": layout["inflation_px"] * scale_factor}
 
 
 def _resolve_lineage_and_subagents(
@@ -393,7 +277,7 @@ def _enrich_and_sort_steps(
     raw_line_sizes: List[int],
     session_model: str,
 ) -> Tuple[List[Dict[str, Any]], Set[int]]:
-    """Sorts steps chronologically by step_index, unpacks Cortex structures, and resets cumulative context per epoch."""
+    """Sorts steps chronologically by step_index, unpacks Cortex structures, and resets cumulative context per checkpoint."""
     paired = sorted(
         (
             (raw, raw_line_sizes[i] if i < len(raw_line_sizes) else 0, int(raw.get("step_index", i) if isinstance(raw.get("step_index"), (int, float)) else i), i)
@@ -455,6 +339,10 @@ def _enrich_and_sort_steps(
             s["subagent"] = subs[0] if (isinstance(subs, list) and subs) else None
         if isinstance(s.get("checkpoint"), dict):
             s["sessionSummary"] = s["checkpoint"].get("sessionSummary", "")
+            if s["checkpoint"].get("checkpointIndex") is not None:
+                s["checkpoint_index"] = s["checkpoint"].get("checkpointIndex")
+            elif s["checkpoint"].get("checkpoint_index") is not None:
+                s["checkpoint_index"] = s["checkpoint"].get("checkpoint_index")
             retries = meta.get("retryInfos", [])
             usage = retries[0].get("usage", {}) if (isinstance(retries, list) and retries and isinstance(retries[0], dict)) else {}
             s["cacheReadTokens"] = int(usage.get("cacheReadTokens", 0) or 0)
@@ -525,26 +413,43 @@ def _enrich_and_sort_steps(
     return steps, explicit_in_positions
 
 
-def _partition_epochs(steps: List[Dict[str, Any]], checkpoints: List[int]) -> List[Dict[str, Any]]:
-    """Partitions steps into epochs delimited by compaction CHECKPOINT steps."""
-    if not checkpoints:
-        if not steps:
-            return []
-        return [{"epoch_index": 0, "start_index": 0, "end_index": len(steps) - 1, "step_count": len(steps), "has_checkpoint": False, "summary": "Initial Trajectory"}]
+def _partition_checkpoints(steps: List[Dict[str, Any]], cp_indices: List[int]) -> List[Dict[str, Any]]:
+    """Partitions steps into disjoint checkpoint windows delimited by compaction CHECKPOINT steps."""
+    if not steps:
+        return []
+    if not cp_indices:
+        return [{
+            "checkpoint_index": 0,
+            "start_index": 0,
+            "end_index": len(steps) - 1,
+            "step_count": len(steps),
+            "has_checkpoint": False,
+            "summary": "Initial Trajectory",
+        }]
 
-    c0 = checkpoints[0]
-    epochs: List[Dict[str, Any]] = [{
-        "epoch_index": 0, "start_index": 0, "end_index": c0, "step_count": c0 + 1, "has_checkpoint": True,
-        "summary": steps[c0].get("compaction_summary") or f"Checkpoint #{c0}",
-    }]
-    for k, cur_cp in enumerate(checkpoints):
-        end_idx = checkpoints[k + 1] if k + 1 < len(checkpoints) else (len(steps) - 1 if cur_cp < len(steps) - 1 else -1)
-        if end_idx >= 0:
-            epochs.append({
-                "epoch_index": len(epochs), "start_index": cur_cp, "end_index": end_idx, "step_count": end_idx - cur_cp + 1,
-                "has_checkpoint": True, "summary": steps[cur_cp].get("compaction_summary") or f"Checkpoint #{cur_cp}",
+    checkpoints: List[Dict[str, Any]] = []
+    c0 = cp_indices[0]
+    if c0 > 0:
+        checkpoints.append({
+            "checkpoint_index": 0,
+            "start_index": 0,
+            "end_index": c0 - 1,
+            "step_count": c0,
+            "has_checkpoint": False,
+            "summary": "Initial Trajectory",
+        })
+    for k, cur_cp in enumerate(cp_indices):
+        end_idx = (cp_indices[k + 1] - 1) if k + 1 < len(cp_indices) else (len(steps) - 1)
+        if end_idx >= cur_cp:
+            checkpoints.append({
+                "checkpoint_index": len(checkpoints),
+                "start_index": cur_cp,
+                "end_index": end_idx,
+                "step_count": end_idx - cur_cp + 1,
+                "has_checkpoint": True,
+                "summary": steps[cur_cp].get("compaction_summary") or f"Checkpoint #{cur_cp}",
             })
-    return epochs
+    return checkpoints
 
 
 def _extract_measured_slices(raw_steps: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -573,7 +478,7 @@ def _extract_measured_slices(raw_steps: List[Dict[str, Any]]) -> Tuple[List[Dict
             if m and m.group(1):
                 sys_slices.append({"name": name, "tag": tag, "tokens": max(1, estimate_tokens(len(m.group(1)))), "color": color})
         if not sys_slices:
-            sys_slices.append({"name": "System Prompt", "tokens": max(1, estimate_tokens(len(raw_sys))), "color": "#6366f1"})
+            sys_slices.append({"name": "System Prompt", "tokens": max(1, estimate_tokens(len(raw_sys))), "color": "#5C8AFF"})
     elif prompt_sections:
         palette = [c for _, _, c in _SYS_TAG_DEFS]
         for idx, sec in enumerate(prompt_sections):
@@ -584,7 +489,7 @@ def _extract_measured_slices(raw_steps: List[Dict[str, Any]]) -> Tuple[List[Dict
     tool_slices: List[Dict[str, Any]] = []
     if raw_tools:
         buckets: Dict[str, int] = {name: 0 for name, _, _ in _TOOL_CATEGORY_SPEC} | {"Automation & Tasks": 0}
-        colors = {name: col for name, col, _ in _TOOL_CATEGORY_SPEC} | {"Automation & Tasks": "#14b8a6"}
+        colors = {name: col for name, col, _ in _TOOL_CATEGORY_SPEC} | {"Automation & Tasks": "#2AD089"}
         for tool in raw_tools:
             tname = str((tool.get("name") if isinstance(tool, dict) else "") or "").lower()
             matched = next((cname for cname, _, kws in _TOOL_CATEGORY_SPEC if any(k in tname for k in kws)), "Automation & Tasks")
@@ -595,26 +500,29 @@ def _extract_measured_slices(raw_steps: List[Dict[str, Any]]) -> Tuple[List[Dict
 
 def _compute_honest_breakdown(
     steps: List[Dict[str, Any]],
-    checkpoints: List[int],
+    cp_indices: List[int],
     explicit_in_positions: Set[int],
     raw_steps: List[Dict[str, Any]],
     db_metrics: TrajectoryMetrics,
-    epochs: Optional[List[Dict[str, Any]]] = None,
+    checkpoints: Optional[List[Dict[str, Any]]] = None,
+    max_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
 ) -> Tuple[int, int, bool, Dict[str, int], List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Computes per-epoch honest breakdowns (`unattributed` gap, zero synthetic 40/60 or `model += diff`)."""
+    """Computes per-checkpoint honest breakdowns (`unattributed` gap, zero synthetic 40/60 or `model += diff`)."""
     sys_slices, tool_slices = _extract_measured_slices(raw_steps)
     sys_prompt_tok = sum(sl["tokens"] for sl in sys_slices)
     tool_defs_tok = sum(sl["tokens"] for sl in tool_slices)
 
-    def _score_slice(ep_start: int, ep_end: int, is_last: bool) -> Tuple[int, int, bool, Dict[str, int]]:
-        ep_steps = steps[ep_start:ep_end + 1] if ep_end >= ep_start else []
+    def _score_slice(win_start: int, win_end: int, is_last: bool) -> Tuple[int, int, bool, Dict[str, int]]:
+        win_steps = steps[win_start:win_end + 1] if win_end >= win_start else []
         cache_tokens = explicit_usage = explicit_est = 0
-        for rev_pos in range(len(ep_steps) - 1, -1, -1):
-            s = ep_steps[rev_pos]
+        for rev_pos in range(len(win_steps) - 1, -1, -1):
+            s = win_steps[rev_pos]
+            if s.get("type") == "CHECKPOINT":
+                continue
             if cache_tokens == 0 and s.get("cache_read_tokens"):
                 cache_tokens = int(s["cache_read_tokens"] or 0)
             in_val, ca_val = int(s.get("input_tokens") or 0), int(s.get("cache_read_tokens") or 0)
-            is_exp = (ep_start + rev_pos) in explicit_in_positions
+            is_exp = (win_start + rev_pos) in explicit_in_positions
             if explicit_usage == 0 and (s.get("type") != "USER_INPUT" or is_exp or ca_val > 0) and (in_val + ca_val > 0):
                 explicit_usage = in_val + ca_val
             meta = s.get("metadata") if isinstance(s.get("metadata"), dict) else {}
@@ -635,7 +543,7 @@ def _compute_honest_breakdown(
             if explicit_est == 0 and db_metrics.tokens > 0:
                 explicit_est = int(db_metrics.tokens)
         user_t = model_t = thought_t = tool_t = cp_t = sys_t = 0
-        for s in ep_steps:
+        for s in win_steps:
             stype, tok = s.get("type", ""), int(s.get("tokens") or 0)
             if stype == "USER_INPUT":
                 user_t += tok
@@ -661,14 +569,15 @@ def _compute_honest_breakdown(
         }
         return total_tokens, cache_tokens, is_provisional, bd
 
-    target_epochs = epochs if epochs else [{"start_index": checkpoints[-1] if checkpoints else 0, "end_index": len(steps) - 1}]
+    target_windows = checkpoints if checkpoints else [{"start_index": cp_indices[-1] if cp_indices else 0, "end_index": len(steps) - 1}]
     last_res: Tuple[int, int, bool, Dict[str, int]] = (0, 0, False, {"system_prompt": sys_prompt_tok, "tool_defs": tool_defs_tok, "checkpoint": 0, "user": 0, "model": 0, "thought": 0, "tool": 0, "system": 0, "unattributed": 0})
-    for idx, ep in enumerate(target_epochs):
-        ep_res = _score_slice(int(ep.get("start_index", 0)), int(ep.get("end_index", -1)), idx == len(target_epochs) - 1)
-        if epochs is not None:
-            ep["total_tokens"], ep["cache_tokens"], ep["is_provisional"], ep["token_breakdown"] = ep_res
-            ep["unattributed"] = ep_res[3]["unattributed"]
-        last_res = ep_res
+    for idx, win in enumerate(target_windows):
+        win_res = _score_slice(int(win.get("start_index", 0)), int(win.get("end_index", -1)), idx == len(target_windows) - 1)
+        if checkpoints is not None:
+            win["total_tokens"], win["cache_tokens"], win["is_provisional"], win["token_breakdown"] = win_res
+            win["unattributed"] = win_res[3]["unattributed"]
+            win["utilization_pct"] = round(min(100.0, (win["total_tokens"] / max_context_tokens) * 100.0), 1) if max_context_tokens > 0 else 0.0
+        last_res = win_res
     return last_res[0], last_res[1], last_res[2], last_res[3], sys_slices, tool_slices
 
 
@@ -707,16 +616,16 @@ def load_conversation_trajectory(
     resolved_parent_id, subagents, subagent_infos = _resolve_lineage_and_subagents(clean_cid, raw_steps, base_brain, parent_id)
     session_model, max_context_tokens = _resolve_session_metadata(convo_dir, raw_steps, db_metrics)
     steps, explicit_in_positions = _enrich_and_sort_steps(raw_steps, raw_line_sizes, session_model)
-    checkpoints = [i for i, s in enumerate(steps) if s.get("type") == "CHECKPOINT"]
-    epochs = _partition_epochs(steps, checkpoints)
+    cp_indices = [i for i, s in enumerate(steps) if s.get("type") == "CHECKPOINT"]
+    checkpoints_list = _partition_checkpoints(steps, cp_indices)
 
     total_tokens, cache_tokens, is_provisional, breakdown, sys_slices, tool_slices = _compute_honest_breakdown(
-        steps, checkpoints, explicit_in_positions, raw_steps, db_metrics, epochs=epochs
+        steps, cp_indices, explicit_in_positions, raw_steps, db_metrics, checkpoints=checkpoints_list, max_context_tokens=max_context_tokens
     )
 
     burn_rate = db_metrics.burn_rate_tokens_per_min
     if burn_rate <= 0.0:
-        active_steps = steps[checkpoints[-1]:] if checkpoints else steps
+        active_steps = steps[cp_indices[-1]:] if cp_indices else steps
         samples = [
             (parse_step_timestamp(s.get("created_at") or s.get("timestamp")) or ts_map.get(int(s["step_index"])), int(s.get("input_tokens", 0) + s.get("cache_read_tokens", 0)) or int(s.get("cumulative_tokens", 0)))
             for s in active_steps
@@ -741,16 +650,17 @@ def load_conversation_trajectory(
         "model": session_model,
         "steps": steps,
         "step_count": len(steps),
-        "epochs": epochs,
-        "epoch_index": len(checkpoints),
-        "epoch_steps": len(steps) - checkpoints[-1] if checkpoints else len(steps),
-        "checkpoint_count": len(checkpoints),
+        "checkpoints": checkpoints_list,
+        "checkpoint_index": max(0, len(checkpoints_list) - 1),
+        "checkpoint_steps": len(steps) - cp_indices[-1] if cp_indices else len(steps),
+        "checkpoint_count": len(cp_indices),
         "parent_id": resolved_parent_id,
         "subagents": subagents,
         "subagent_infos": subagent_infos,
         "subagent_trajectories": subagent_trajectories,
         "total_tokens": total_tokens,
         "max_context_tokens": max_context_tokens,
+        "utilization_pct": round(min(100.0, (total_tokens / max_context_tokens) * 100.0), 1) if max_context_tokens > 0 else 0.0,
         "cache_tokens": cache_tokens,
         "is_provisional": is_provisional,
         "burn_rate_tokens_per_min": round(float(burn_rate), 1),
@@ -767,11 +677,14 @@ def _load_hud_template() -> str:
     return (
         assets.joinpath("hud.js").read_text(encoding="utf-8")
         .replace("/* __HUD_STYLES__ */", assets.joinpath("hud_styles.css").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_THEME__ */", assets.joinpath("hud_theme.js").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_UTILS__ */", assets.joinpath("hud_utils.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_HEADER__ */", assets.joinpath("hud_header.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_CONTEXT_BAR__ */", assets.joinpath("hud_context_bar.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_TIMELINE__ */", assets.joinpath("hud_timeline.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_INSPECTOR__ */", assets.joinpath("hud_inspector.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_DECK__ */", assets.joinpath("hud_deck.js").read_text(encoding="utf-8"), 1)
+        .replace("/* __HUD_STREAM__ */", assets.joinpath("hud_stream.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HUD_RPC__ */", assets.joinpath("hud_rpc.js").read_text(encoding="utf-8"), 1)
         .replace("/* __HOTKEY__ */", assets.joinpath("hotkey.js").read_text(encoding="utf-8"), 1)
     )

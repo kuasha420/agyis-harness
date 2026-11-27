@@ -31,6 +31,8 @@ from typing import Any, Dict, List, Optional, Union
 
 _logger = logging.getLogger(__name__)
 
+from harness.utils import theme
+
 from harness.gui.cdp import (  # noqa: F401
     CDPConnectionError,
     CDPError,
@@ -310,20 +312,20 @@ def inject_telemetry_hud(
             tier = "SAFE"
 
     if tier == "CRITICAL":
-        border_color = "#ef4444"
-        bg_color = "rgba(40, 16, 16, 0.92)"
-        text_color = "#f87171"
-        badge_bg = "rgba(239, 68, 68, 0.25)"
+        border_color = "#FF6B6B"
+        bg_color = "rgba(42, 16, 22, 0.94)"
+        text_color = "#FF6B6B"
+        badge_bg = "rgba(255, 107, 107, 0.20)"
     elif tier == "ELEVATED":
-        border_color = "#f59e0b"
-        bg_color = "rgba(40, 30, 16, 0.92)"
-        text_color = "#fbbf24"
-        badge_bg = "rgba(245, 158, 11, 0.25)"
+        border_color = "#F5B74F"
+        bg_color = "rgba(38, 28, 14, 0.94)"
+        text_color = "#F5B74F"
+        badge_bg = "rgba(245, 183, 79, 0.18)"
     else:
-        border_color = "#22c55e"
-        bg_color = "rgba(15, 23, 42, 0.92)"
-        text_color = "#4ade80"
-        badge_bg = "rgba(34, 197, 94, 0.2)"
+        border_color = "#2AD089"
+        bg_color = "rgba(16, 25, 43, 0.94)"
+        text_color = "#2AD089"
+        badge_bg = "rgba(42, 208, 137, 0.16)"
 
     rate_str = f"+{int(round(burn_rate)):,} tok/min" if burn_rate > 0 else "+0 tok/min"
     horizon_str = f"~{int(round(mins_to_compaction))}m to compaction" if mins_to_compaction is not None else "Nominal"
@@ -376,7 +378,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
         server_port = getattr(args, "server_port", None) or DEFAULT_TRAJECTORY_PORT
         server = TrajectoryServer((DEFAULT_HOST, server_port), RequestHandlerClass=TrajectoryRequestHandler)
         if not getattr(args, "json", False):
-            print(f"● Trajectory API server (offline/headless playback) listening on http://{DEFAULT_HOST}:{server_port}")
+            print(theme.badge("PASS", f"Trajectory API server (offline/headless playback) listening on http://{DEFAULT_HOST}:{server_port}"))
         else:
             print(json.dumps({"status": "running", "host": DEFAULT_HOST, "port": server_port, "mode": "offline_playback"}))
         try:
@@ -399,7 +401,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
         if getattr(args, "json", False):
             print(json.dumps({"status": "installed", **res}, indent=2))
         else:
-            print(f"✔ Installed CDP-enabled Antigravity launcher at {res['path']}")
+            print(theme.badge("PASS", f"Installed CDP-enabled Antigravity launcher at {res['path']}"))
             print(f"  Exec={res['exec']}")
             print("  Restart Antigravity from your desktop launcher to enable DevToolsActivePort.")
         return 0
@@ -559,7 +561,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
                     err_payload["remediation"] = [line.strip() for line in instructions]
                 print(json.dumps(err_payload, indent=2))
             else:
-                print(f"❌ Could not resolve Antigravity DevTools port: {last_error or 'DevTools port file not found'}")
+                print(theme.badge("FAIL", f"Could not resolve Antigravity DevTools port: {last_error or 'DevTools port file not found'}"))
                 if is_headless:
                     print("   (Host environment appears headless: neither DISPLAY nor WAYLAND_DISPLAY is set)")
                 if missing_cdp_procs:
@@ -577,7 +579,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
                     "message": str(last_error or "CDP connection failed"),
                 }, indent=2))
             else:
-                print(f"❌ Failed to connect to CDP endpoint on 127.0.0.1:{port}: {last_error}")
+                print(theme.badge("FAIL", f"Failed to connect to CDP endpoint on 127.0.0.1:{port}: {last_error}"))
                 print("   The DevToolsActivePort file may be stale from a terminated session.")
             return 1
         elif last_phase == "page":
@@ -589,7 +591,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
                     "target_count": len(targets),
                 }, indent=2))
             else:
-                print(f"❌ No active Antigravity page target found on 127.0.0.1:{port}.")
+                print(theme.badge("FAIL", f"No active Antigravity page target found on 127.0.0.1:{port}."))
             return 1
         else:  # last_phase == "injection"
             if as_json:
@@ -600,7 +602,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
                     "message": str(last_error or "CDP injection failed"),
                 }, indent=2))
             else:
-                print(f"❌ Failed to inject trajectory debug flags via CDP: {last_error}")
+                print(theme.badge("FAIL", f"Failed to inject trajectory debug flags via CDP: {last_error}"))
             return 1
 
     urls = format_devtools_urls(port, target)
@@ -621,40 +623,38 @@ def cmd_gui(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2))
         return 0
 
-    print("=" * 70)
-    print(" 🛡️ Google Antigravity GUI Telemetry & DevTools CDP Controller")
-    print("=" * 70)
+    print(theme.banner("Google Antigravity GUI Telemetry & DevTools CDP Controller"))
     print(f" DevTools Port:      {port} (active loopback)")
     print(f" Active Window:      {target.get('title')}")
     print(f" Webview URL:        {target.get('url')}")
     print(f" WebSocket Endpoint: {target.get('webSocketDebuggerUrl')}")
 
     if hud_result is not None:
-        print("-" * 70)
+        print(theme.rule())
         if do_hud_remove:
-            print(" ✔ Real-time telemetry HUD removed from Antigravity GUI.")
+            print(" " + theme.badge("PASS", "Real-time telemetry HUD removed from Antigravity GUI."))
         else:
-            print(f" ✔ Real-time telemetry HUD injected into Antigravity GUI ({hud_result.get('tokens', '0')} tokens, {hud_result.get('burn_rate', '0 tok/min')}, tier: {hud_result.get('tier', 'SAFE')})")
+            print(" " + theme.badge("PASS", f"Real-time telemetry HUD injected into Antigravity GUI ({hud_result.get('tokens', '0')} tokens, {hud_result.get('burn_rate', '0 tok/min')}, tier: {hud_result.get('tier', 'SAFE')})"))
 
     if trajectory_result is not None:
-        print("-" * 70)
+        print(theme.rule())
         is_open = trajectory_result.get("open", True)
         if no_popup:
-            print(" ✔ In-Situ Trajectory Debug HUD shortcuts primed successfully (modal popup suppressed)")
+            print(" " + theme.badge("PASS", "In-Situ Trajectory Debug HUD shortcuts primed successfully (modal popup suppressed)"))
             print("   • Best-effort flags written: 'enable-trajectory-debug-tools', 'enable-developer-mode'")
             print("   • Keyboard hotkey active: [F12] or [Ctrl+Shift+T] directly toggle HUD inside Antigravity.")
         else:
             state_str = "unlocked" if is_open else "closed"
             convo_label = trajectory_result.get("convo_id", "active")
             step_count = trajectory_result.get("steps", 0)
-            print(f" ✔ Trajectory Debug View {state_str} successfully (In-Situ HUD, {step_count} steps, conversation: {convo_label[:12]}...):")
+            print(" " + theme.badge("PASS", f"Trajectory Debug View {state_str} successfully (In-Situ HUD, {step_count} steps, conversation: {convo_label[:12]}...):"))
             print("   • Cleanroom HUD mounted into Antigravity Electron DOM")
             print("   • Injected flags: 'enable-trajectory-debug-tools', 'enable-developer-mode'")
             print("   • Keyboard hotkey active: [F12], [Ctrl+Shift+T], or [Esc] to toggle/close")
             print("   • Arrow keys: [Left] / [Right] navigate step cards")
 
     if do_devtools or not do_trajectory:
-        print("-" * 70)
+        print(theme.rule())
         print(" DevTools Inspection Guides:")
         print(f"   • Chrome Inspect:       {urls['chrome_inspect_url']}")
         if urls["devtools_frontend_url"]:
@@ -662,12 +662,12 @@ def cmd_gui(args: argparse.Namespace) -> int:
         if urls["bundled_inspector_url"]:
             print(f"   • Bundled URL:          {urls['bundled_inspector_url']}")
 
-    print("-" * 70)
+    print(theme.rule())
     print(" Quick Controls:")
     print("   • agyis gui          : Open trajectory debug view (default)")
     print("   • agyis gui --no-popup : Prime shortcuts and flags without opening modal")
     print("   • agyis gui --toggle : Toggle open/closed state")
     print("   • In-window hotkey   : Press F12 or Ctrl+Shift+T inside Antigravity")
     print("   • agyis gui --devtools : Display DevTools inspector connection endpoints")
-    print("=" * 70)
+    print(theme.rule("━"))
     return 0

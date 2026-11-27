@@ -33,8 +33,8 @@ The Agyis Cleanroom RE toolchain requires a hermetic toolchain matrix across dis
 Audit the host environment against the RE toolchain matrix:
 
 ```bash
-# Inspect baseline and experimental RE provider chains
-agyis doctor --experimental-rea
+# Inspect baseline and RE/REA provider chains
+agyis doctor --rea
 
 # Output indicates:
 #   [PASS] ghidra       [core]    headless-ready -> /opt/ghidra/support/analyzeHeadless
@@ -48,7 +48,7 @@ agyis doctor --experimental-rea
 If any prerequisite is missing or outdated, run automated user-space healing:
 
 ```bash
-agyis doctor --experimental-rea --heal
+agyis doctor --rea --heal
 ```
 
 ---

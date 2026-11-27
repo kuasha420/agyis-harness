@@ -29,6 +29,17 @@ import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
+from harness.hooks.mcp_normalizer import (
+    FILE_PATH_TOOLS,
+    REA_BYTE_TOOLS,
+    REA_INSPECTION_TOOLS,
+    REA_PROCEDURE_TOOLS,
+    REA_SEARCH_TOOLS,
+    get_schema_properties,
+    load_mcp_tool_schema,
+    normalize_mcp_tool_call,
+    normalize_rea_mcp_tool_call,
+)
 from harness.remote.safety import (
     REMOTE_TOOLCHAINS,
     REMOTE_TOOLCHAIN_REGEX,
@@ -90,11 +101,6 @@ INLINE_SCRIPT_DENY_REASON = (
 )
 PAUSE_GATE_FILES = (Path(".agents/artifacts/pause_gate.json"), Path(".pause_gate"), Path(".agents/artifacts/PARKED_STATE.md"), Path(".agents/teamwork/PARKED_STATE.md"))
 PAUSE_KILL_SHELL_REGEX = re.compile(r"\b(?:kill|pkill|killall)\s+-(?:9|SIGKILL|KILL)\b")
-REA_PROCEDURE_TOOLS: frozenset[str] = frozenset({"procedure_pseudo_code", "procedure_assembly", "procedure_callers", "procedure_callees", "procedure_info"})
-REA_SEARCH_TOOLS: frozenset[str] = frozenset({"search_strings", "search_procedures"})
-REA_BYTE_TOOLS: frozenset[str] = frozenset({"read_bytes"})
-REA_INSPECTION_TOOLS: frozenset[str] = frozenset({"inspect_native_instruction", "goto_address", "address_name", "address_to_file_offset"})
-FILE_PATH_TOOLS: frozenset[str] = frozenset({"open_binary", "binary_overview"})
 RUN_COMMAND_ALLOWED_KEYS: frozenset[str] = frozenset({
     "CommandLine",
     "WaitMsBeforeAsync",
@@ -146,7 +152,7 @@ def check_preflight_tool_availability(cmd: str) -> Dict[str, Any]:
     )
     return {
         "available": False, "binary": bin_name, "exit_code_risk": 127, "suggestion": suggestion,
-        "warning": f"PSL Preflight Guard (ADR-013): Missing CLI binary '{bin_name}'. {suggestion}",
+        "warning": f"[AGYIS PREFLIGHT] (ADR-013): Missing CLI binary '{bin_name}'. {suggestion}",
     }
 
 
@@ -176,13 +182,10 @@ def sanitize_ssh_remote_payload(cmd: str) -> Tuple[str, bool, List[str]]:
 
 def find_hermetic_uv_python_bin() -> Optional[Path]:
     """Finds installed CPython 3.12+ bin directory in uv's cache."""
-    uv_python_dir = Path.home() / ".local/share/uv/python"
-    if not uv_python_dir.exists():
-        return None
-    for cand in sorted(uv_python_dir.glob("cpython-3.1[2-9]*/bin/python3"), reverse=True):
-        if cand.is_file() and os.access(cand, os.X_OK):
-            return cand.parent
-    return None
+    from harness.runtime.tool_checks_common import find_hermetic_uv_python
+
+    py_bin = find_hermetic_uv_python()
+    return py_bin.parent if py_bin is not None else None
 
 
 def is_inline_python_command(cmd: str) -> bool:
@@ -283,7 +286,7 @@ def promote_inline_script_to_scratch(cmd: str, workspace_dir: Optional[Path] = N
         )
         return ("allow", modified_cmd, hint)
     except Exception as e:
-        sys.stderr.write(f"PSL Command Safety Warning: Error during scratch promotion: {e}\n")
+        sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Error during scratch promotion: {e}\n")
         return ("deny", None, INLINE_SCRIPT_DENY_REASON)
 
 
@@ -412,7 +415,7 @@ def inject_rea_dirtyroom_env(cmd: str, workspace_dir: Optional[Path] = None) -> 
         )
         return env_prefix + cmd, True, ["injected dirtyroom REA direct-mount environment"]
     except Exception as exc:
-        sys.stderr.write(f"PSL Command Safety Warning: Failed to resolve dirtyroom REA env: {exc}\n")
+        sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Failed to resolve dirtyroom REA env: {exc}\n")
         return cmd, False, []
 
 
@@ -425,7 +428,7 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
     if check_preflight:
         pf = check_preflight_tool_availability(cmd)
         if not pf.get("available", True):
-            return ("deny", None, pf.get("warning") or f"PSL Safety Gate: Binary '{pf.get('binary')}' not found.")
+            return ("deny", None, pf.get("warning") or f"[AGYIS COMMAND SAFETY] Binary '{pf.get('binary')}' not found.")
 
     modified_cmd, reasons = cmd, []
     hygiene_dec, hygiene_reason = check_inline_script_hygiene(cmd)
@@ -441,10 +444,10 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
 
     for pattern in DANGEROUS_PATTERNS:
         if re.search(pattern, cmd):
-            return ("deny", None, f"PSL Safety Gate: Command matches prohibited destructive pattern: {pattern}")
+            return ("deny", None, f"[AGYIS COMMAND SAFETY] Command matches prohibited destructive pattern: {pattern}")
     first_token = cmd.split()[0].split("/")[-1]
     if first_token in INTERACTIVE_COMMANDS:
-        return ("deny", None, f"PSL Safety Gate: Interactive command '{first_token}' blocked. Agent execution must be strictly non-interactive. Use batch or script alternatives.")
+        return ("deny", None, f"[AGYIS COMMAND SAFETY] Interactive command '{first_token}' blocked. Agent execution must be strictly non-interactive. Use batch or script alternatives.")
 
     for fn in (inject_disassembler_batch_flags, inject_rea_setup_flags):
         mod_f, changed_f, r_f = fn(modified_cmd)
@@ -498,7 +501,7 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
         return ("allow", None, None)
     hints = [r for r in reasons if r.startswith("[AGYIS COGNITIVE HINT]")]
     others = [r for r in reasons if not r.startswith("[AGYIS COGNITIVE HINT]")]
-    out_parts = (["PSL PreToolUse: " + "; ".join(others)] if others else []) + hints
+    out_parts = (["[AGYIS COMMAND SAFETY] " + "; ".join(others)] if others else []) + hints
     return ("allow", modified_cmd, "; ".join(out_parts) if out_parts else None)
 
 
@@ -523,7 +526,7 @@ def is_pause_gate_active(workspace_dir: Optional[Path] = None) -> bool:
             else:
                 return True
         except Exception as e:
-            sys.stderr.write(f"PSL Command Safety Warning: Error reading pause gate '{target}': {e}\n")
+            sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Error reading pause gate '{target}': {e}\n")
     return False
 
 
@@ -533,7 +536,7 @@ def check_pause_safety(tool_name: str, arguments: Dict[str, Any], workspace_dir:
         if not is_pause_gate_active(workspace_dir):
             return ("allow", None)
         reason = (
-            "PSL Safety Gate (Zero-Kill Swarm Parking Invariant): "
+            "[AGYIS COMMAND SAFETY] (Zero-Kill Swarm Parking Invariant): "
             "Subagent termination via 'kill' is prohibited while workspace is parked. "
             "Dispatch a graceful resume message or remove .agents/artifacts/pause_gate.json after state handoff."
         )
@@ -544,153 +547,8 @@ def check_pause_safety(tool_name: str, arguments: Dict[str, Any], workspace_dir:
             return ("deny", reason)
         return ("allow", None)
     except Exception as e:
-        sys.stderr.write(f"PSL Command Safety Warning: Unexpected error in check_pause_safety: {e}\n")
+        sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Unexpected error in check_pause_safety: {e}\n")
         return ("allow", None)
-
-
-def load_mcp_tool_schema(server_name: str, tool_name: str) -> Optional[Dict[str, Any]]:
-    """Loads tool JSON schema from configured Antigravity MCP schema directories."""
-    if not server_name or not tool_name:
-        return None
-    dirs = [Path(os.environ[k]) / ("mcp" if k == "GEMINI_APP_DATA_DIR" else "") for k in ("AGYIS_MCP_SCHEMAS_DIR", "GEMINI_APP_DATA_DIR") if k in os.environ]
-    dirs.append(Path.home() / ".gemini" / "antigravity" / "mcp")
-    for base in dirs:
-        for cand in (base / server_name / f"{tool_name}.json", base / server_name.lower() / f"{tool_name}.json"):
-            try:
-                if cand.is_file():
-                    return json.loads(cand.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError, ValueError) as exc:
-                sys.stderr.write(f"PSL Command Safety Warning: Failed to load MCP schema '{cand}': {exc}\n")
-                continue
-    return None
-
-
-def get_schema_properties(schema: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Extracts property dictionary from tool JSON schema."""
-    if not isinstance(schema, dict):
-        return {}
-    if isinstance(schema.get("properties"), dict):
-        return schema["properties"]
-    params = schema.get("parameters")
-    return params["properties"] if isinstance(params, dict) and isinstance(params.get("properties"), dict) else {}
-
-
-def normalize_mcp_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Tuple[str, Optional[Dict[str, Any]], Optional[str]]:
-    """Normalizes MCP tool arguments and enforces PSL-RE-001 >10MB Ghidra cache checks."""
-    is_direct_mcp = tool_name.startswith("mcp_") and "_" in tool_name[4:]
-    if tool_name != "call_mcp_tool" and not is_direct_mcp:
-        return ("allow", None, None)
-    if not isinstance(tool_args, dict):
-        return ("allow", None, None)
-
-    if is_direct_mcp:
-        server_name, subtool = tool_name[4:].split("_", 1)
-        raw_arguments = tool_args
-        args_key = None
-    else:
-        server_name = str(tool_args.get("ServerName") or tool_args.get("server_name") or tool_args.get("server") or "").strip()
-        subtool = str(tool_args.get("ToolName") or tool_args.get("tool_name") or tool_args.get("tool") or "").strip()
-        args_key = "Arguments" if "Arguments" in tool_args else ("arguments" if "arguments" in tool_args else "Arguments")
-        raw_arguments = tool_args.get(args_key)
-        if not isinstance(raw_arguments, dict):
-            return ("allow", None, None)
-
-    modified_args, reasons = dict(raw_arguments), []
-    canonical_props = set(get_schema_properties(load_mcp_tool_schema(server_name, subtool)).keys())
-    srv_lower = server_name.lower()
-
-    alias_map: Dict[str, str] = {}
-    for active, target_k, aliases in (
-        (subtool in REA_PROCEDURE_TOOLS or (srv_lower == "rea" and "procedure" in canonical_props), "procedure", ("Address", "address", "addr", "procedure_name", "target", "proc")),
-        (subtool in REA_SEARCH_TOOLS, "pattern", ("query", "search", "text", "pattern_str", "Query")),
-        (subtool in REA_BYTE_TOOLS, "length", ("Length", "size", "count", "bytes", "len")),
-        (subtool in REA_BYTE_TOOLS or subtool in REA_INSPECTION_TOOLS, "address", ("Address", "addr")),
-        (srv_lower == "context7" or subtool in ("query-docs", "resolve-library-id") or "libraryId" in canonical_props, "libraryId", ("library_id", "LibraryId", "libraryID", "lib_id")),
-        (subtool in FILE_PATH_TOOLS or srv_lower == "rea" or "path" in canonical_props, "path", ("file_path", "filePath", "binary_path")),
-        (subtool in FILE_PATH_TOOLS, "path", ("binary",)),
-    ):
-        if active:
-            alias_map.update({k: target_k for k in aliases})
-    if srv_lower == "rea":
-        alias_map.setdefault("Address", "procedure" if subtool in ("procedure_assembly", "procedure_pseudo_code") else "address")
-        alias_map.setdefault("Length", "length")
-        if subtool in REA_SEARCH_TOOLS:
-            alias_map.setdefault("query", "pattern")
-
-    for old_k in list(modified_args.keys()):
-        if canonical_props and old_k in canonical_props:
-            continue
-        target_k = alias_map.get(old_k)
-        if target_k is None and canonical_props:
-            target_k = next((p for p in canonical_props if old_k.lower() == p.lower()), None)
-            if target_k is None:
-                norm_old = re.sub(r"[_\-]", "", old_k).lower()
-                target_k = next((p for p in canonical_props if norm_old == re.sub(r"[_\-]", "", p).lower()), None)
-        elif target_k is None and not canonical_props:
-            if srv_lower == "context7" and "_" in old_k:
-                parts = old_k.split("_")
-                target_k = parts[0].lower() + "".join(p.capitalize() for p in parts[1:])
-            elif old_k in ("Address", "Length", "Pattern", "Query"):
-                target_k = old_k.lower()
-
-        if target_k and target_k != old_k:
-            if target_k in modified_args:
-                modified_args.pop(old_k, None)
-                reasons.append(f"removed redundant alias '{old_k}' in favor of '{target_k}'")
-            else:
-                modified_args[target_k] = modified_args.pop(old_k)
-                reasons.append(f"normalized argument '{old_k}' -> '{target_k}'")
-
-    if srv_lower == "rea":
-        target_path_str = modified_args.get("path") or modified_args.get("binary_path") or modified_args.get("binary")
-        if target_path_str:
-            try:
-                target_p = Path(target_path_str)
-                if target_p.is_file() and (target_p.stat().st_size / (1024 * 1024)) > 10.0:
-                    from harness.re.scaffold import get_dirtyroom_root
-                    dr = get_dirtyroom_root(target_p.parent)
-                    if not dr:
-                        cwd_p = Path(os.getcwd())
-                        dr = get_dirtyroom_root(cwd_p)
-                    has_gpr = False
-                    if dr and (dr / "ghidra").is_dir():
-                        gprs = list((dr / "ghidra").glob("*.gpr"))
-                        if gprs:
-                            has_gpr = True
-                    if not has_gpr and dr:
-                        conn = None
-                        try:
-                            from harness.re.scaffold import get_dirtyroom_db
-                            conn = get_dirtyroom_db(dr)
-                            if conn:
-                                cur = conn.cursor()
-                                cur.execute("SELECT 1 FROM binaries WHERE name = ? LIMIT 1", (target_p.name,))
-                                if cur.fetchone():
-                                    has_gpr = True
-                        except Exception as exc:
-                            sys.stderr.write(f"PSL Command Safety Warning: Failed querying dirtyroom DB for '{target_p.name}': {exc}\n")
-                        finally:
-                            if conn is not None:
-                                try:
-                                    conn.close()
-                                except Exception:
-                                    pass
-                    env_gpr = os.environ.get("REA_GHIDRA_PROJECT_DIR")
-                    if not has_gpr and env_gpr and Path(env_gpr).is_dir():
-                        has_gpr = any(Path(env_gpr).glob("*.gpr"))
-                    if not has_gpr:
-                        return ("deny", None, f"[PSL-RE-001 VIOLATION] Target binary '{target_p.name}' is {target_p.stat().st_size / (1024 * 1024):.1f} MB (>10 MB) without a pre-analyzed Ghidra project cache. Ad-hoc decompiler analysis will exceed 180s timeout. Run 'agyis re pre-analyze {target_p.name}' or set REA_GHIDRA_PROJECT_DIR first.")
-            except Exception as exc:
-                sys.stderr.write(f"PSL Command Safety Warning: Error checking REA Ghidra cache: {exc}\n")
-
-    if reasons:
-        if is_direct_mcp:
-            return ("allow", modified_args, "; ".join(reasons))
-        return ("allow", {**tool_args, args_key: modified_args}, "; ".join(reasons))
-    return ("allow", None, None)
-
-
-normalize_rea_mcp_tool_call = normalize_mcp_tool_call
 
 
 def sanitize_run_command_args(tool_args: Dict[str, Any], fallback_cmd: str = "") -> Tuple[Dict[str, Any], bool, List[str]]:
@@ -732,7 +590,7 @@ def main() -> None:
             return
         payload = json.loads(raw_stdin)
     except Exception as exc:
-        sys.stderr.write(f"PSL Command Safety Warning: Error parsing stdin payload: {exc}\n")
+        sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Error parsing stdin payload: {exc}\n")
         print(json.dumps({"decision": "allow"}))
         return
 

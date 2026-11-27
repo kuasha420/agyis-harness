@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 from typing import List, Optional, Tuple, Union
 
 
@@ -207,6 +208,26 @@ def get_brain_dir_candidates(explicit_dir: Optional[Union[Path, str]] = None) ->
     return [d / "brain" for d in get_app_data_dir_candidates()]
 
 
+def is_in_temp_dir(path_val: Path) -> bool:
+    """Returns True if path_val resolves to or inside the system temporary directory."""
+    try:
+        tmp_root = Path(tempfile.gettempdir()).resolve()
+        res = path_val.resolve()
+        return res == tmp_root or tmp_root in res.parents
+    except OSError:
+        return False
+
+
+def is_in_live_home_gemini(path_val: Path) -> bool:
+    """Returns True if path_val resolves to or inside Path.home() / '.gemini'."""
+    try:
+        home_gemini = (Path.home() / ".gemini").resolve()
+        res = path_val.resolve()
+        return res == home_gemini or home_gemini in res.parents
+    except OSError:
+        return True
+
+
 def get_active_workspace(explicit_ws: Optional[Union[Path, str]] = None) -> Path:
     """
     Resolves the active workspace directory using canonical priority:
@@ -242,4 +263,6 @@ __all__ = [
     "get_active_brain_dir",
     "get_brain_dir_candidates",
     "get_active_workspace",
+    "is_in_temp_dir",
+    "is_in_live_home_gemini",
 ]

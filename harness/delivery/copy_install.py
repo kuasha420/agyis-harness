@@ -53,6 +53,16 @@ def build_frozen_wheel(source_dir: Path, output_dir: Path) -> Path:
     return wheels[0]
 
 
+def _remove_existing_path(dst: Path) -> None:
+    """Safely remove an existing file, symlink, or directory tree without following symlinks."""
+    if dst.is_symlink():
+        dst.unlink()
+    elif dst.is_dir():
+        shutil.rmtree(dst)
+    elif dst.exists():
+        dst.unlink()
+
+
 def copy_distributable_tree(
     source_dir: Path,
     target: Path,
@@ -65,17 +75,16 @@ def copy_distributable_tree(
     # 1. plugin.json
     plugin_src = find_distributable_item("plugin.json")
     if plugin_src and plugin_src.is_file():
-        shutil.copy2(plugin_src, target / "plugin.json")
+        plugin_dst = target / "plugin.json"
+        _remove_existing_path(plugin_dst)
+        shutil.copy2(plugin_src, plugin_dst)
         installed_items.append("plugin.json")
 
     # 1b. assets/
     assets_src = find_distributable_item("assets")
     if assets_src and assets_src.is_dir():
         assets_dst = target / "assets"
-        if assets_dst.is_symlink():
-            assets_dst.unlink()
-        elif assets_dst.exists():
-            shutil.rmtree(assets_dst)
+        _remove_existing_path(assets_dst)
         shutil.copytree(
             assets_src,
             assets_dst,
@@ -88,8 +97,7 @@ def copy_distributable_tree(
         harness_src = source_dir / "harness"
         if harness_src.is_dir():
             harness_dst = target / "harness"
-            if harness_dst.exists():
-                shutil.rmtree(harness_dst)
+            _remove_existing_path(harness_dst)
             shutil.copytree(
                 harness_src,
                 harness_dst,
@@ -102,21 +110,24 @@ def copy_distributable_tree(
     # 3. matrix.json
     matrix_src = find_distributable_item("matrix.json")
     if matrix_src and matrix_src.is_file():
-        shutil.copy2(matrix_src, target / "matrix.json")
+        matrix_dst = target / "matrix.json"
+        _remove_existing_path(matrix_dst)
+        shutil.copy2(matrix_src, matrix_dst)
         installed_items.append("matrix.json")
 
     # 4. hooks.json
     hooks_src = find_distributable_item("hooks.json")
     if hooks_src and hooks_src.is_file():
-        shutil.copy2(hooks_src, target / "hooks.json")
+        hooks_dst = target / "hooks.json"
+        _remove_existing_path(hooks_dst)
+        shutil.copy2(hooks_src, hooks_dst)
         installed_items.append("hooks.json")
 
     # 5. skills/
     skills_src = find_distributable_item("skills")
     if skills_src and skills_src.is_dir():
         skills_dst = target / "skills"
-        if skills_dst.exists():
-            shutil.rmtree(skills_dst)
+        _remove_existing_path(skills_dst)
         shutil.copytree(
             skills_src,
             skills_dst,
@@ -128,8 +139,7 @@ def copy_distributable_tree(
     agents_src = find_distributable_item("agents")
     if agents_src and agents_src.is_dir():
         agents_dst = target / "agents"
-        if agents_dst.exists():
-            shutil.rmtree(agents_dst)
+        _remove_existing_path(agents_dst)
         shutil.copytree(
             agents_src,
             agents_dst,
@@ -150,8 +160,7 @@ def copy_distributable_tree(
 
     if (rules_src and rules_src.is_dir()) or global_rules_src is not None:
         rules_dst = target / "rules"
-        if rules_dst.exists():
-            shutil.rmtree(rules_dst)
+        _remove_existing_path(rules_dst)
         rules_dst.mkdir(parents=True, exist_ok=True)
 
         # Copy auxiliary markdown rules excluding repo-internal AGENTS.md
@@ -165,5 +174,12 @@ def copy_distributable_tree(
             shutil.copy2(global_rules_src, rules_dst / "AGENTS.md")
 
         installed_items.append("rules")
+
+    # Prune stale wheel artifacts (dist/, *.dist-info/) and removed entries in COPY mode (Issue #119)
+    if not skip_harness_package and target.is_dir():
+        installed_names = set(installed_items)
+        for existing in list(target.iterdir()):
+            if existing.name not in installed_names:
+                _remove_existing_path(existing)
 
     return installed_items

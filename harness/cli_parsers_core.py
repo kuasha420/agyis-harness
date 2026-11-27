@@ -10,6 +10,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from harness.hooks.runner import ALIASES, HOOK_MODULES
+from harness.runtime.tool_checks_common import register_rea_flags
+
 
 def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     """Register runtime, telemetry, auth, sync, onboarding, and verification subparsers."""
@@ -23,9 +26,15 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_doc.add_argument("--heal", action="store_true", help="Execute safe user-space auto-healing")
     p_doc.add_argument("--json", action="store_true", help="Output audit report in JSON format")
     p_doc.add_argument(
-        "--experimental-rea",
-        action="store_true",
-        help="Enable experimental Reverse Engineer Anything (REA) diagnostics and provider audit",
+        "--workspace",
+        "-w",
+        type=Path,
+        default=None,
+        help="Target workspace path to inspect for config/RE activation",
+    )
+    register_rea_flags(
+        p_doc,
+        help_text="Enable Reverse Engineer Anything (REA) diagnostics and provider audit",
     )
     p_doc.add_argument(
         "--re",
@@ -50,16 +59,7 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_hook = subparsers.add_parser("hook", help="Run a lifecycle hook handler directly")
     p_hook.add_argument(
         "hook_name",
-        choices=[
-            "command-safety", "safety",
-            "anti-loop", "loop",
-            "output-compactor", "compactor",
-            "verification-fence", "fence", "stop-fence", "stop", "completion-fence",
-            "anti-drift", "drift", "anti_drift",
-            "token-proximity", "token-proximity-guard", "token", "token_proximity_guard",
-            "pre-invocation", "preinvocation",
-            "compaction-advisory", "compaction_advisory", "compaction", "advisory",
-        ],
+        choices=sorted(set(HOOK_MODULES) | set(ALIASES)),
         help="Name of the lifecycle hook to invoke",
     )
 
@@ -132,22 +132,29 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
             "all", "extract", "benchmark", "classify", "inventory", "dynamics",
             "traces", "interventions", "volume", "deep", "session", "live", "clusters",
             "artifacts", "configs", "project_configs", "project-configs", "prune",
-            "certify", "verdict", "aff", "macro", "fitness",
+            "db-integrity", "eras", "export-site",
+            "certify", "verdict", "aff", "macro", "fitness", "sync-check",
         ],
         help="Audit pipeline stage to run (default: all)",
+    )
+    p_audit.add_argument(
+        "--include-site",
+        action="store_true",
+        help="Include static website/*.html surface checks during audit sync-check",
     )
     p_audit.add_argument("--db", type=str, default=None, help="Path to SQLite database")
     p_audit.add_argument("--conv-dir", type=str, default=None, help="Path to conversations directory containing .db files")
     p_audit.add_argument("--backfill", action="store_true", help="Force volume backfill from transcripts")
     p_audit.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID for session audit")
     p_audit.add_argument("--save-db", action="store_true", help="Sync audited session into data/telemetry.db")
-    p_audit.add_argument("--out", type=Path, default=None, help="Export session analysis JSON path")
+    p_audit.add_argument("--out", type=Path, default=None, help="Export output path or directory")
     p_audit.add_argument("--json", action="store_true", help="Output session report in JSON format")
     p_audit.add_argument("--output-json", type=Path, default=None, help="Export analysis JSON path")
     p_audit.add_argument("--output-report", type=Path, default=None, help="Export analysis report Markdown path")
     p_audit.add_argument("--quiet", action="store_true", help="Suppress verbose stdout in pipeline stages")
     p_audit.add_argument("--days", type=int, default=90, help="Days threshold for historical argument pruning (default: 90)")
-    p_audit.add_argument("--dry-run", action="store_true", help="Simulate pruning without modifying database")
+    p_audit.add_argument("--dry-run", action="store_true", help="Simulate mutation without modifying database")
+    p_audit.add_argument("--repair", action="store_true", help="Apply repairs during db-integrity audit")
     p_audit.add_argument("--task-id", type=str, default="DEFAULT", help="Task or issue ID for audit certification")
     p_audit.add_argument("--verdict", type=str, default="VICTORY CONFIRMED", help="Auditor verdict (VICTORY CONFIRMED, PASS, REJECTED)")
     p_audit.add_argument("--skip-tests", action="store_true", help="Skip test suite execution during audit certification")
@@ -343,16 +350,19 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_sync.add_argument("--systemd", action="store_true", help="Output systemd user service unit definition")
     p_sync.add_argument(
         "--service",
-        choices=["install", "status", "start", "stop", "uninstall"],
+        choices=["install", "status", "start", "stop", "restart", "uninstall"],
         default=None,
-        help="Manage background sync systemd user service (install, status, start, stop, uninstall)",
+        help="Manage background sync systemd user service (install, status, start, stop, restart, uninstall)",
     )
     p_sync.add_argument("--limit", "-l", type=int, default=None, help="Maximum number of sessions to push")
     p_sync.add_argument("--dry-run", action="store_true", help="Simulate synchronization without modifications")
     p_sync.add_argument("--session-id", "-s", type=str, default=None, help="Target session ID to ingest before syncing")
     p_sync.add_argument("--json", action="store_true", help="Output sync summary in JSON format")
     p_sync.add_argument("--all-developers", "--all", action="store_true", dest="all_developers", help="Pull telemetry across all developers and devices (bypasses anti-echo filter)")
+    p_sync.add_argument("--include-self", action="store_true", help="Include own remote sessions from other machines when pulling")
     p_sync.add_argument("--developer", type=str, default=None, help="Filter pulled telemetry by specific developer username (or '*' for all)")
+    p_sync.add_argument("--machine", type=str, default=None, help="Filter pulled telemetry by origin machine identifier")
+    p_sync.add_argument("--batch-limit", type=int, default=None, help="Page size limit for pull requests")
     p_sync.add_argument("--since", type=str, default=None, help="Pull telemetry deltas since a specific ISO timestamp watermark")
 
     ROLE_CHOICES = [
@@ -406,10 +416,9 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_init.add_argument("--config-dir", type=str, default=None, help="Optional custom configuration directory (overrides ~/.gemini/config)")
     p_init.add_argument("--yes", "-y", action="store_true", help="Non-interactive mode, apply defaults")
     p_init.add_argument("--json", action="store_true", help="Output result in JSON format")
-    p_init.add_argument(
-        "--experimental-rea",
-        action="store_true",
-        help="Initialize workspace with opt-in Reverse Engineer Anything (REA) support",
+    register_rea_flags(
+        p_init,
+        help_text="Initialize workspace with Reverse Engineer Anything (REA) support",
     )
 
     # harmonize
@@ -530,6 +539,22 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         help="Open GitHub Pull Request using 'gh pr create' upon verification",
     )
     p_onboard.add_argument(
+        "--verify",
+        action="store_true",
+        help="Run project native verification checks before commit or PR creation",
+    )
+    p_onboard.add_argument(
+        "--no-verify",
+        dest="no_verify",
+        action="store_true",
+        help="Skip automatic verification checks during --pr onboarding",
+    )
+    p_onboard.add_argument(
+        "--commit",
+        action="store_true",
+        help="Create an atomic git commit for onboarded files",
+    )
+    p_onboard.add_argument(
         "--dry-run",
         action="store_true",
         help="Preview all onboarding actions without filesystem or remote mutation",
@@ -539,10 +564,9 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Output structured JSON summary",
     )
-    p_onboard.add_argument(
-        "--experimental-rea",
-        action="store_true",
-        help="Onboard repository with opt-in Reverse Engineer Anything (REA) support",
+    register_rea_flags(
+        p_onboard,
+        help_text="Onboard repository with Reverse Engineer Anything (REA) support",
     )
 
     # install
@@ -555,6 +579,7 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_install.add_argument("--symlink", action="store_true", help="Install via symlink mode (default in source checkouts)")
     p_install.add_argument("--wheel", action="store_true", help="Build and install frozen release wheel via uv build (source checkout only)")
     p_install.add_argument("--dry-run", action="store_true", help="Simulate installation without writing to disk")
+    p_install.add_argument("--no-restart", action="store_true", help="Do not restart agyis-sync.service after upgrading the live plugin")
     p_install.add_argument("--all-surfaces", action="store_true", help="Sync all Antigravity surfaces to canonical config")
     p_install.add_argument("--target", type=Path, default=None, help="Custom target installation directory")
     p_install.add_argument("--workspace", "-w", nargs="?", const=True, default=None, help="Initialize workspace project instead of global plugin")
@@ -586,10 +611,9 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_install.add_argument("--override", action="store_true", help="Force overwrite existing workspace files")
     p_install.add_argument("--no-dedup", action="store_true", help="Disable content deduplication for workspace")
     p_install.add_argument("--json", action="store_true", help="Output result in JSON format")
-    p_install.add_argument(
-        "--experimental-rea",
-        action="store_true",
-        help="Install global plugins with opt-in Reverse Engineer Anything (REA) MCP wiring",
+    register_rea_flags(
+        p_install,
+        help_text="Install global plugins with Reverse Engineer Anything (REA) MCP wiring",
     )
 
     # uninstall

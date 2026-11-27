@@ -306,6 +306,10 @@ class TestWatchAndSync(unittest.TestCase):
 
         health = sync.read_sync_status(state_dir=self.state_dir)
         self.assertEqual(health["status"], "ok")
+        import harness
+        self.assertEqual(health["daemon_version"], harness.__version__)
+        self.assertEqual(health["pid"], os.getpid())
+        self.assertTrue(str(health.get("started_at", "")).endswith("Z"))
 
     def test_watch_and_sync_max_iterations(self):
         calls = 0
@@ -448,6 +452,115 @@ class TestWatchAndSync(unittest.TestCase):
         self.assertEqual(health["status"], "degraded")
         self.assertEqual(health["consecutive_failures"], 3)
         self.assertIn("db locked", health["last_error"])
+
+    def test_vanished_transcript_and_deleted_cwd_resilience(self):
+        """Issue #121: Vanished transcripts skip cleanly without backoff, and deleted CWD does not crash."""
+        from harness.telemetry import config
+        from harness.telemetry.extractor import extract_session
+
+        # 1. Deleted CWD safety in find_workspace_root() & extract_session()
+        orig_cwd = os.getcwd()
+        ephemeral_cwd = Path(self.tmpdir.name) / "ephemeral_cwd"
+        ephemeral_cwd.mkdir()
+        t_dir = Path(self.tmpdir.name) / "brain_vanish" / "sess-cwd-001" / ".system_generated" / "logs"
+        t_dir.mkdir(parents=True, exist_ok=True)
+        t_file = t_dir / "transcript.jsonl"
+        t_file.write_text(json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "ok"}) + "\n", encoding="utf-8")
+        try:
+            os.chdir(ephemeral_cwd)
+            ephemeral_cwd.rmdir()
+            self.assertIsNone(config.find_workspace_root())
+            extracted = extract_session(t_file)
+            self.assertIsNotNone(extracted)
+        finally:
+            os.chdir(orig_cwd)
+
+        # 2. TOCTOU vanished file between stat() and open() in extract_session()
+        with patch("builtins.open", side_effect=FileNotFoundError(2, "No such file or directory")):
+            self.assertIsNone(extract_session(t_file))
+
+        # 3. harvest_local_transcripts & watch_and_sync skip FileNotFoundError cleanly without error_sink/backoff
+        brain_dir = Path(self.tmpdir.name) / "brain_vanish"
+        cache, err_sink = {}, []
+        with patch("harness.telemetry.sync.daemon.extract_session", side_effect=FileNotFoundError(2, "vanished")):
+            stored = sync.harvest_local_transcripts(self.db_path, cache, brain_dir=brain_dir, error_sink=err_sink)
+            self.assertEqual(stored, 0)
+            self.assertEqual(err_sink, [])
+            res = sync.watch_and_sync(
+                interval_sec=0.001,
+                db_path=self.db_path,
+                run_once=True,
+                endpoint="https://hub.example.test",
+                token="test-token",
+                brain_dir=brain_dir,
+                state_dir=self.state_dir,
+            )
+        self.assertEqual(res["consecutive_failures"], 0)
+        self.assertEqual(res["errors"], [])
+        health = sync.read_sync_status(state_dir=self.state_dir)
+        self.assertEqual(health["status"], "ok")
+        self.assertEqual(health["backoff_sec"], 0.0)
+
+    def test_preseed_mtime_cache_skips_unchanged_and_trims_rss_streaming(self):
+        """Issue #121: Startup pre-seeds mtime_cache for indexed transcripts and streams large steps."""
+        from harness.telemetry.extractor import extract_session, upsert_session_telemetry
+
+        brain_dir = Path(self.tmpdir.name) / "brain_seed"
+        for sid, extra in (("sess-hist-1", False), ("sess-grown-1", True)):
+            t_dir = brain_dir / sid / ".system_generated" / "logs"
+            t_dir.mkdir(parents=True, exist_ok=True)
+            t_file = t_dir / "transcript.jsonl"
+            big_blob = "X" * 200_000
+            rows = [
+                {"step_index": 0, "type": "USER_INPUT", "content": "start"},
+                {
+                    "step_index": 1, "type": "PLANNER_RESPONSE",
+                    "thinking": "T" * 100_000,
+                    "metadata": {"modelUsage": {"inputTokens": 100, "outputTokens": 50}},
+                    "tool_calls": [{"name": "run_command", "args": {"CommandLine": "echo hi"}}],
+                },
+                {
+                    "step_index": 2, "type": "TOOL_RESULT", "status": "DONE",
+                    "content": f"Created At: 2026-11-10T10:00:00Z\nCompleted At: 2026-11-10T10:00:01Z\n{big_blob}",
+                },
+            ]
+            t_file.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+            extracted = extract_session(t_file)
+            self.assertIsNotNone(extracted)
+            assert extracted is not None
+            _, step_rows, tc_rows, _ = extracted
+            self.assertGreater(step_rows[2]["content_length"], 200_000)
+            self.assertLessEqual(len(step_rows[2]["content_snippet"] or ""), 200)
+            self.assertEqual(step_rows[1]["thinking_length"], 100_000)
+            self.assertEqual(tc_rows[0]["duration_seconds"], 1.0)
+            conn = sqlite3.connect(self.db_path)
+            upsert_session_telemetry(conn, *extracted, commit=True)
+            conn.close()
+            if extra:
+                with open(t_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"step_index": 3, "type": "PLANNER_RESPONSE", "content": "appended"}) + "\n")
+
+        seen_paths = []
+
+        def spy_extract(path):
+            seen_paths.append(path.parts[-4])
+            return extract_session(path)
+
+        with patch("harness.telemetry.sync.daemon.extract_session", side_effect=spy_extract), \
+             patch("harness.telemetry.sync.daemon.gc.collect") as mock_gc, \
+             patch("urllib.request.urlopen", return_value=_JsonHttpResponse({"status": "accepted"})):
+            res = sync.watch_and_sync(
+                interval_sec=0.001,
+                db_path=self.db_path,
+                run_once=True,
+                endpoint="https://hub.example.test",
+                token="test-token",
+                brain_dir=brain_dir,
+                state_dir=self.state_dir,
+            )
+        self.assertEqual(seen_paths, ["sess-grown-1"])
+        self.assertEqual(res["total_sessions_harvested"], 1)
+        mock_gc.assert_called()
 
 
 class TestSystemdServiceGenerator(unittest.TestCase):

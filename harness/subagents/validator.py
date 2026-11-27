@@ -18,6 +18,7 @@ from harness.subagents.spec import (
     CANONICAL_PLATFORM_TOOLS,
     LEGACY_PLATFORM_TOOL_ALIASES,
     MAX_AGENT_TOOLS,
+    ROOT_PLAN_MODE_TOOLS,
     SWARM_RUNTIME_TOOLS,
     AgentArchetype,
     ToolPermissions,
@@ -143,6 +144,12 @@ def validate_agent_spec(file_path: Path | str) -> List[str]:
                 f"Invalid tool '{tool}': swarm board tools (swarm, post_message, read_board, swarm_wait) "
                 "are runtime-injected by Antigravity Swarm sessions and cannot be listed statically in "
                 "'tools' or 'allowed_tools'. Listing them statically crashes invoke_subagent executor resolution."
+            )
+        elif tool in ROOT_PLAN_MODE_TOOLS:
+            errors.append(
+                f"Invalid tool '{tool}': '{tool}' is a root-session-only tool and cannot be listed "
+                "in specialist subagent specs (Antigravity v2.35.2). Subagents execute within the root "
+                "session's plan lifecycle."
             )
         elif tool in LEGACY_PLATFORM_TOOL_ALIASES:
             replacement = LEGACY_PLATFORM_TOOL_ALIASES[tool]

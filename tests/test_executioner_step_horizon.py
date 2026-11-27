@@ -4,14 +4,14 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Hermetic test suite for Issue #109 (Epoch-Aware Soft Horizon Advisories, Replacing Cumulative 45/50 Hard Blocks).
+Hermetic test suite for Issue #109 (Checkpoint-Aware Soft Horizon Advisories, Replacing Cumulative 45/50 Hard Blocks).
 
 Tests:
 1. Cumulative steps 40/45/50 do NOT block healthy <80% workers in anti_loop_hook, fence_gates, or pre_invocation_hook.
-2. Epoch step 80 (SOFT_EPOCH_STEP_ADVISORY) emits non-blocking [AGYIS EPOCH HORIZON ADVISORY: ...] in pre_invocation_hook.
-3. Native slash commands bypass epoch horizon advisory injection.
+2. Checkpoint step 80 (SOFT_CHECKPOINT_STEP_ADVISORY) emits non-blocking [AGYIS CHECKPOINT HORIZON ADVISORY: ...] in pre_invocation_hook.
+3. Native slash commands bypass checkpoint horizon advisory injection.
 4. Non-executioner roles (flight_director, forensic_auditor) are exempt from executioner horizon advisories.
-5. Token proximity guard step horizon terminal gauge emits [EPOCH HORIZON: {step_count}/80 STEPS] at >= 80 epoch steps.
+5. Token proximity guard step horizon terminal gauge emits [CHECKPOINT HORIZON: {step_count}/80 STEPS] at >= 80 checkpoint steps.
 6. Benchmark SLA: Complete test suite passes in <0.20s.
 """
 
@@ -45,7 +45,7 @@ from harness.hooks.pre_invocation_hook import (
     EXECUTIONER_HORIZON_STEPS as PRE_INVOCATION_HORIZON_STEPS,
     ROLE_DEEP_EXECUTION as PRE_ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR as PRE_ROLE_FLIGHT_DIRECTOR,
-    SOFT_EPOCH_STEP_ADVISORY,
+    SOFT_CHECKPOINT_STEP_ADVISORY,
     evaluate_pre_invocation,
 )
 from harness.hooks.token_proximity_guard import (
@@ -55,7 +55,7 @@ from harness.hooks.token_proximity_guard import (
 
 
 class TestExecutionerStepHorizon(unittest.TestCase):
-    """Hermetic unit test suite for Issue #109 Epoch-Aware Soft Horizon Advisories."""
+    """Hermetic unit test suite for Issue #109 Checkpoint-Aware Soft Horizon Advisories."""
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -76,13 +76,13 @@ class TestExecutionerStepHorizon(unittest.TestCase):
             os.environ.pop("PSL_AGENT_ROLE", None)
         self.temp_dir.cleanup()
 
-    def test_horizon_constants_unified_at_80_epoch_steps(self) -> None:
-        """Retired 45/50 hard fences now align cleanly with SOFT_EPOCH_STEP_ADVISORY = 80."""
-        self.assertEqual(SOFT_EPOCH_STEP_ADVISORY, 80)
-        self.assertEqual(STEP_INTERRUPT_THRESHOLD, SOFT_EPOCH_STEP_ADVISORY)
-        self.assertEqual(ANTI_LOOP_HORIZON_STEPS, SOFT_EPOCH_STEP_ADVISORY)
-        self.assertEqual(EXECUTIONER_HORIZON_STEPS, SOFT_EPOCH_STEP_ADVISORY)
-        self.assertEqual(PRE_INVOCATION_HORIZON_STEPS, SOFT_EPOCH_STEP_ADVISORY)
+    def test_horizon_constants_unified_at_80_checkpoint_steps(self) -> None:
+        """Retired 45/50 hard fences now align cleanly with SOFT_CHECKPOINT_STEP_ADVISORY = 80."""
+        self.assertEqual(SOFT_CHECKPOINT_STEP_ADVISORY, 80)
+        self.assertEqual(STEP_INTERRUPT_THRESHOLD, SOFT_CHECKPOINT_STEP_ADVISORY)
+        self.assertEqual(ANTI_LOOP_HORIZON_STEPS, SOFT_CHECKPOINT_STEP_ADVISORY)
+        self.assertEqual(EXECUTIONER_HORIZON_STEPS, SOFT_CHECKPOINT_STEP_ADVISORY)
+        self.assertEqual(PRE_INVOCATION_HORIZON_STEPS, SOFT_CHECKPOINT_STEP_ADVISORY)
 
     # 1. Steps 40/45/50 remain unblocked for healthy agents
     def test_steps_40_45_50_remain_unblocked_for_healthy_executioner(self) -> None:
@@ -97,7 +97,7 @@ class TestExecutionerStepHorizon(unittest.TestCase):
                     msg = str(item.get("systemMessage", {}).get("systemMessage", "")) if isinstance(item.get("systemMessage"), dict) else str(item.get("systemMessage", ""))
                     self.assertNotIn("HORIZON WARNING", msg)
                     self.assertNotIn("HORIZON INTERRUPT", msg)
-                    self.assertNotIn("EPOCH HORIZON ADVISORY", msg)
+                    self.assertNotIn("CHECKPOINT HORIZON ADVISORY", msg)
 
                 sweep = check_anti_loop(
                     "list_dir",
@@ -119,11 +119,11 @@ class TestExecutionerStepHorizon(unittest.TestCase):
                 )
                 self.assertEqual(edit.get("decision"), "allow")
 
-    # 2. Step 80 soft epoch horizon advisory injection
-    def test_step_80_soft_epoch_advisory_injection(self) -> None:
-        """Epoch step count 80 emits non-blocking [AGYIS EPOCH HORIZON ADVISORY] ephemeralMessage."""
+    # 2. Step 80 soft checkpoint horizon advisory injection
+    def test_step_80_soft_checkpoint_advisory_injection(self) -> None:
+        """Checkpoint step count 80 emits non-blocking [AGYIS CHECKPOINT HORIZON ADVISORY] systemMessage."""
         payload = {
-            "step_count": SOFT_EPOCH_STEP_ADVISORY,
+            "step_count": SOFT_CHECKPOINT_STEP_ADVISORY,
             "role": PRE_ROLE_DEEP_EXECUTION,
         }
         res = evaluate_pre_invocation(payload, workspace_dir=self.workspace_dir)
@@ -132,14 +132,14 @@ class TestExecutionerStepHorizon(unittest.TestCase):
         self.assertIn("systemMessage", inject_steps[0])
         self.assertNotIn("ephemeralMessage", inject_steps[0])
         msg = inject_steps[0]["systemMessage"]["systemMessage"]
-        self.assertIn(f"[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/{SOFT_EPOCH_STEP_ADVISORY}", msg)
+        self.assertIn(f"[AGYIS CHECKPOINT HORIZON ADVISORY: Checkpoint step 80/{SOFT_CHECKPOINT_STEP_ADVISORY}", msg)
 
     def test_step_80_native_slash_command_bypass(self) -> None:
-        """Native slash commands (/compact, /plan, /goal) bypass Epoch 80 advisory injection."""
+        """Native slash commands (/compact, /plan, /goal) bypass Checkpoint step 80 advisory injection."""
         for cmd in ("/compact", "/plan", "/goal", "/boost", "/teamwork-preview"):
             with self.subTest(cmd=cmd):
                 payload = {
-                    "step_count": SOFT_EPOCH_STEP_ADVISORY,
+                    "step_count": SOFT_CHECKPOINT_STEP_ADVISORY,
                     "role": PRE_ROLE_DEEP_EXECUTION,
                     "prompt": f"{cmd} test",
                 }
@@ -157,20 +157,28 @@ class TestExecutionerStepHorizon(unittest.TestCase):
         }
         self.assertEqual(handle_pre_tool_use(payload, state_dir=self.workspace_dir).get("decision"), "allow")
 
+        import contextlib
+        import io
+        from harness.hooks.wire_compat import drain_pending_advisories
+
         for tool in ("write_to_file", "replace_file_content", "edit_file"):
             with self.subTest(tool=tool):
-                res = check_pre_tool_use(
-                    tool,
-                    {"TargetFile": "/workspace/src/app.py", "CodeContent": "# update"},
-                    conv_id="test-soft-fence-80",
-                    state_dir=self.workspace_dir,
-                    step_count=80,
-                    role=FENCE_ROLE_DEEP_EXECUTION,
-                )
-                self.assertEqual(res.get("decision"), "allow")
-                self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", res.get("advisory", ""))
+                err_buf = io.StringIO()
+                with contextlib.redirect_stderr(err_buf):
+                    res = check_pre_tool_use(
+                        tool,
+                        {"TargetFile": "/workspace/src/app.py", "CodeContent": "# update"},
+                        conv_id="test-soft-fence-80",
+                        state_dir=self.workspace_dir,
+                        step_count=80,
+                        role=FENCE_ROLE_DEEP_EXECUTION,
+                    )
+                self.assertEqual(res, {"decision": "allow"})
+                self.assertIn("[CHECKPOINT HORIZON: 80/80 STEPS]", err_buf.getvalue())
+                queued = drain_pending_advisories("test-soft-fence-80", state_dir=self.workspace_dir)
+                self.assertTrue(any("[CHECKPOINT HORIZON: 80/80 STEPS]" in item for item in queued))
 
-    def test_non_executioner_roles_exempt_from_epoch_horizon_advisories(self) -> None:
+    def test_non_executioner_roles_exempt_from_checkpoint_horizon_advisories(self) -> None:
         """Non-executioner roles (flight_director, forensic_auditor) stay allow with no executioner fence."""
         for role in (FENCE_ROLE_FLIGHT_DIRECTOR, FENCE_ROLE_FORENSIC_AUDITOR):
             with self.subTest(role=role):
@@ -212,22 +220,22 @@ class TestExecutionerStepHorizon(unittest.TestCase):
         self.assertEqual(sample_file.read_text(encoding="utf-8"), "# precious in-flight modification\n")
 
     # 4. Token proximity guard step horizon terminal gauge awareness
-    def test_token_proximity_guard_gauge_includes_epoch_horizon_tag(self) -> None:
-        """format_terminal_gauge includes [EPOCH HORIZON: {step_count}/80 STEPS] when step >= 80 for executioner."""
+    def test_token_proximity_guard_gauge_includes_checkpoint_horizon_tag(self) -> None:
+        """format_terminal_gauge includes [CHECKPOINT HORIZON: {step_count}/80 STEPS] when step >= 80 for executioner."""
         gauge_80 = format_terminal_gauge(tokens=1000, step_count=80, role="deep_execution")
-        self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", gauge_80)
+        self.assertIn("[CHECKPOINT HORIZON: 80/80 STEPS]", gauge_80)
 
         gauge_85 = format_terminal_gauge(tokens=2000, step_count=85, role="deep_execution")
-        self.assertIn("[EPOCH HORIZON: 85/80 STEPS]", gauge_85)
+        self.assertIn("[CHECKPOINT HORIZON: 85/80 STEPS]", gauge_85)
 
         gauge_coord = format_terminal_gauge(tokens=1000, step_count=85, role="flight_director")
-        self.assertNotIn("[EPOCH HORIZON:", gauge_coord)
+        self.assertNotIn("[CHECKPOINT HORIZON:", gauge_coord)
 
         gauge_45 = format_terminal_gauge(tokens=1000, step_count=45, role="deep_execution")
-        self.assertNotIn("[EPOCH HORIZON:", gauge_45)
+        self.assertNotIn("[CHECKPOINT HORIZON:", gauge_45)
 
-    def test_run_token_proximity_guard_emits_epoch_horizon_gauge_to_stderr(self) -> None:
-        """run_token_proximity_guard emits gauge with epoch horizon tag when epoch steps >= 80."""
+    def test_run_token_proximity_guard_emits_checkpoint_horizon_gauge_to_stderr(self) -> None:
+        """run_token_proximity_guard emits gauge with checkpoint horizon tag when checkpoint steps >= 80."""
         err_stream = io.StringIO()
         payload = {
             "conversationId": "test-proximity-horizon",
@@ -237,7 +245,7 @@ class TestExecutionerStepHorizon(unittest.TestCase):
         res = run_token_proximity_guard(payload, stderr=err_stream)
         self.assertEqual(res, {"decision": "allow"})
         output = err_stream.getvalue()
-        self.assertIn("[EPOCH HORIZON: 82/80 STEPS]", output)
+        self.assertIn("[CHECKPOINT HORIZON: 82/80 STEPS]", output)
         self.assertIn("[AGYIS TOKEN GAUGE]", output)
 
 
@@ -262,17 +270,27 @@ class TestStepHorizonBenchmark(unittest.TestCase):
         )
 
 
-class TestEpochStepHorizonSqliteResolution(unittest.TestCase):
-    """#110.3: All hooks resolve epoch-scoped step counts from SQLite across checkpoints."""
+class TestCheckpointStepHorizonSqliteResolution(unittest.TestCase):
+    """#110.3: All hooks resolve checkpoint-scoped step counts from SQLite across checkpoints."""
 
-    def test_hooks_use_sqlite_epoch_steps_when_cumulative_step_exceeds_horizon(self) -> None:
+    def test_resolve_checkpoint_step_count_accepts_new_and_legacy_payload_keys(self) -> None:
+        """resolve_checkpoint_step_count accepts checkpoint_steps/checkpointSteps and legacy epoch_steps/epochSteps."""
+        from harness.trajectory.sqlite_reader import resolve_checkpoint_step_count
+
+        self.assertEqual(resolve_checkpoint_step_count({"checkpoint_steps": 12, "stepIdx": 99}), 12)
+        self.assertEqual(resolve_checkpoint_step_count({"checkpointSteps": "34", "stepIdx": 99}), 34)
+        self.assertEqual(resolve_checkpoint_step_count({"epoch_steps": 19, "stepIdx": 99}), 19)
+        self.assertEqual(resolve_checkpoint_step_count({"epochSteps": "42", "stepIdx": 99}), 42)
+        self.assertEqual(resolve_checkpoint_step_count({"checkpoint_steps": 10, "epoch_steps": 90}), 10)
+
+    def test_hooks_use_sqlite_checkpoint_steps_when_cumulative_step_exceeds_horizon(self) -> None:
         import json
         import sqlite3
-        from harness.trajectory.sqlite_reader import clear_locked_conversations, resolve_epoch_step_count
+        from harness.trajectory.sqlite_reader import clear_locked_conversations, resolve_checkpoint_step_count
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_dir = Path(tmpdir)
-            conv_id = "test-epoch-steps-ssot"
+            conv_id = "test-checkpoint-steps-ssot"
             db_path = db_dir / f"{conv_id}.db"
             conn = sqlite3.connect(db_path)
             try:
@@ -292,19 +310,19 @@ class TestEpochStepHorizonSqliteResolution(unittest.TestCase):
                 with unittest.mock.patch(
                     "harness.trajectory.sqlite_reader.get_conversations_dir", return_value=db_dir
                 ):
-                    self.assertEqual(resolve_epoch_step_count(payload, conv_id=conv_id, db_dir=db_dir), 25)
+                    self.assertEqual(resolve_checkpoint_step_count(payload, conv_id=conv_id, db_dir=db_dir), 25)
                     anti_res = check_anti_loop(
                         "list_dir", {"DirectoryPath": "/workspace"}, conv_id=conv_id, state_dir=db_dir, payload=payload
                     )
-                    self.assertNotIn("EPOCH HORIZON", anti_res.get("advisory", ""))
+                    self.assertEqual(anti_res, {"decision": "allow"})
                     fence_res = check_pre_tool_use(
                         "write_to_file", {"TargetFile": "/workspace/a.py"}, payload=payload, conv_id=conv_id, state_dir=db_dir
                     )
-                    self.assertNotIn("EPOCH HORIZON", fence_res.get("advisory", ""))
+                    self.assertEqual(fence_res, {"decision": "allow"})
                     pre_res = evaluate_pre_invocation(payload, workspace_dir=db_dir, db_dir=db_dir)
                     self.assertEqual(pre_res, {"injectSteps": []})
 
-                    # Add 55 more rows in current epoch -> epoch_steps = 80 (exact soft horizon trigger)
+                    # Add 55 more rows in current checkpoint -> checkpoint_steps = 80 (exact soft horizon trigger)
                     conn = sqlite3.connect(db_path)
                     try:
                         for i in range(126, 181):
@@ -317,17 +335,23 @@ class TestEpochStepHorizonSqliteResolution(unittest.TestCase):
                         conn.close()
 
                     payload_over = {"conversationId": conv_id, "stepIdx": 180, "role": "deep_execution"}
-                    self.assertEqual(resolve_epoch_step_count(payload_over, conv_id=conv_id, db_dir=db_dir), 80)
-                    anti_over = check_anti_loop(
-                        "list_dir", {"DirectoryPath": "/workspace"}, conv_id=conv_id, state_dir=db_dir, payload=payload_over
-                    )
-                    self.assertEqual(anti_over.get("decision"), "allow")
-                    fence_over = check_pre_tool_use(
-                        "write_to_file", {"TargetFile": "/workspace/a.py"}, payload=payload_over, conv_id=conv_id, state_dir=db_dir
-                    )
-                    self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", fence_over.get("advisory", ""))
-                    pre_over = evaluate_pre_invocation(payload_over, workspace_dir=db_dir, db_dir=db_dir)
-                    self.assertTrue(any("[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/" in (s.get("systemMessage", {}).get("systemMessage", "") if isinstance(s.get("systemMessage"), dict) else "") for s in pre_over.get("injectSteps", [])))
+                    self.assertEqual(resolve_checkpoint_step_count(payload_over, conv_id=conv_id, db_dir=db_dir), 80)
+                    with unittest.mock.patch.dict(os.environ, {"AGYIS_HARNESS_STATE_DIR": str(db_dir)}):
+                        anti_over = check_anti_loop(
+                            "list_dir", {"DirectoryPath": "/workspace"}, conv_id=conv_id, state_dir=db_dir, payload=payload_over
+                        )
+                        self.assertEqual(anti_over, {"decision": "allow"})
+                        fence_over = check_pre_tool_use(
+                            "write_to_file", {"TargetFile": "/workspace/a.py"}, payload=payload_over, conv_id=conv_id, state_dir=db_dir
+                        )
+                        self.assertEqual(fence_over, {"decision": "allow"})
+                        pre_over = evaluate_pre_invocation(payload_over, workspace_dir=db_dir, db_dir=db_dir)
+                    step_msgs = [
+                        (s.get("systemMessage", {}).get("systemMessage", "") if isinstance(s.get("systemMessage"), dict) else "")
+                        for s in pre_over.get("injectSteps", [])
+                    ]
+                    self.assertTrue(any("[AGYIS CHECKPOINT HORIZON ADVISORY: Checkpoint step 80/" in m for m in step_msgs))
+                    self.assertTrue(any("[CHECKPOINT HORIZON: 80/80 STEPS]" in m for m in step_msgs))
             finally:
                 clear_locked_conversations()
 

@@ -27,6 +27,9 @@ import threading
 import time
 from typing import Any, Dict, IO, Optional
 
+from harness import __version__
+from harness.utils import theme
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows fallback
@@ -432,7 +435,7 @@ def _run_worker(root: Optional[Path] = None) -> int:
                     "params": {
                         "protocolVersion": "2025-11-25",
                         "capabilities": {},
-                        "clientInfo": {"name": "agyis-daemon-bridge", "version": "1.0.0"},
+                        "clientInfo": {"name": "agyis-daemon-bridge", "version": __version__},
                     },
                 }
                 if not child.stdin or not child.stdout:
@@ -557,7 +560,7 @@ def start_daemon(
     if not rea_bin:
         return {
             "success": False,
-            "error": "'rea' CLI not found. Run 'agyis doctor --experimental-rea' or install via pnpm.",
+            "error": "'rea' CLI not found. Run 'agyis doctor --rea' or install via pnpm.",
         }
 
     if foreground:
@@ -616,6 +619,48 @@ def start_daemon(
     return res
 
 
+def query_daemon_tool(
+    tool_name: str,
+    arguments: Dict[str, Any],
+    root: Optional[Path] = None,
+    timeout: float = 10.0,
+) -> Optional[Dict[str, Any]]:
+    """Send one JSON-RPC tools/call request over rea_mcp.sock, returning result dict or None."""
+    sock_path = get_socket_file(root)
+    if sock_path.is_symlink() or not sock_path.exists():
+        return None
+    payload = json.dumps({
+        "jsonrpc": "2.0",
+        "id": int(time.time() * 1000) & 0x7FFFFFFF or 1,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+    }) + "\n"
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as cli:
+            cli.settimeout(timeout)
+            cli.connect(str(sock_path))
+            cli.sendall(payload.encode("utf-8"))
+            with cli.makefile("r", encoding="utf-8", errors="replace") as reader:
+                raw = reader.readline()
+    except OSError as exc:
+        sys.stderr.write(f"[!] Warning: REA daemon socket query ({tool_name}) failed: {exc}; falling back to CLI.\n")
+        return None
+    if not raw:
+        sys.stderr.write(f"[!] Warning: REA daemon returned empty response for {tool_name}; falling back to CLI.\n")
+        return None
+    try:
+        resp = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        sys.stderr.write(f"[!] Warning: REA daemon returned invalid JSON for {tool_name}: {exc}; falling back to CLI.\n")
+        return None
+    if not isinstance(resp, dict) or "error" in resp:
+        err_detail = resp.get("error") if isinstance(resp, dict) else type(resp).__name__
+        sys.stderr.write(f"[!] Warning: REA daemon RPC error for {tool_name}: {err_detail}; falling back to CLI.\n")
+        return None
+    result = resp.get("result")
+    return result if isinstance(result, dict) else {"value": result}
+
+
 def cmd_daemon(args: argparse.Namespace) -> int:
     """CLI dispatcher for 'agyis re daemon [status|start|stop]'."""
     action = getattr(args, "daemon_action", "status") or "status"
@@ -626,10 +671,8 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             print(json.dumps(st, indent=2))
             return 0
 
-        status_icon = "🟢 RUNNING" if st["running"] else "⚪ STOPPED"
-        print("======================================================================")
-        print(" 🔌 Agyis Persistent REA MCP Bridge Daemon (ADR-028, Issue #113)")
-        print("======================================================================")
+        status_icon = theme.badge("ACTIVE", "RUNNING") if st["running"] else theme.badge("STOPPED", "STOPPED")
+        print(theme.banner("Agyis Persistent REA MCP Bridge Daemon (ADR-028, Issue #113)"))
         print(f" State:               {status_icon}")
         if st["running"]:
             print(f" Supervisor PID:      {st['pid']}")
@@ -638,10 +681,10 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             print(f" Uptime:              {st['uptime_seconds']:.1f}s")
             print(f" Started At:          {st['started_at']}")
         print(f" Attached Project:    {st['ghidra_project'] or 'None (Target-free)'}")
-        print(f" Direct Mount Active: {'✔ YES' if st['direct_mount_active'] else '✘ NO'}")
-        print(f" MCP Configured:      {'✔ YES' if st['mcp_configured'] else '✘ NO'}")
+        print(f" Direct Mount Active: {theme.badge('PASS', 'YES') if st['direct_mount_active'] else theme.badge('FAIL', 'NO')}")
+        print(f" MCP Configured:      {theme.badge('PASS', 'YES') if st['mcp_configured'] else theme.badge('FAIL', 'NO')}")
         print(f" Log File:            {st['log_file']}")
-        print("======================================================================")
+        print(theme.rule("━"))
         return 0
 
     if action == "start":

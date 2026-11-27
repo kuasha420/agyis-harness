@@ -138,32 +138,18 @@
     }
 
     /**
-     * Canonical palette colors for prompt sections and tools (matching stock 2.26.0 Wtc).
+     * Canonical palette lookup delegated to Orbital Aegis SSOT (hud_theme.js).
      */
-    const PROMPT_PALETTE = {
-        identity: "#6366f1",
-        artifacts: "#a78bfa",
-        guidelines: "#e879f9",
-        communication_style: "#f472b6",
-        slash_commands: "#fb7185",
-        messaging: "#9333ea",
-        mcp_servers: "#7c3aed",
-        subagents: "#6d28d9",
-        user_rules: "#5b21b6",
-        skills: "#4c1d95",
-        featured_plugins: "#8b5cf6",
-        user_information: "#a855f7",
-        sandbox: "#818cf8",
-        subagent_reminder: "#d946ef",
-    };
+    const getPromptPalette = () => (global.__agyis_theme && global.__agyis_theme.PROMPT_PALETTE) || {};
 
     /**
-     * Builds individual segments from protobuf token breakdown groups (Group 1 & 2) and epoch steps.
+     * Builds individual segments from protobuf token breakdown groups (Group 1 & 2) and checkpoint window steps.
      * Implements the Operator Directive for granular individual section and tool attributions.
      */
-    function extractGranularSegments(cur, state, steps, activeEpoch, epochSteps, maxTokens) {
+    function extractGranularSegments(cur, state, steps, activeCheckpoint, checkpointSteps, maxTokens) {
         const segments = [];
         const breakdown = cur.token_breakdown || {};
+        const promptPalette = getPromptPalette();
 
         // 1. Granular System Prompt Sections (from token_breakdown.groups Group 1 or system_prompt_slices)
         const sysSlices = cur.system_prompt_slices || [];
@@ -172,7 +158,7 @@
                 const tok = sl.tokens || 0;
                 if (tok > 0) {
                     const tagKey = (sl.tag || sl.name || "").toLowerCase().replace(/[^a-z0-9_]/g, "_");
-                    const color = sl.color || PROMPT_PALETTE[tagKey] || "#6366f1";
+                    const color = sl.color || promptPalette[tagKey] || "#5C8AFF";
                     segments.push({
                         id: `prompt-section-${sidx}`,
                         itemKey: `prompt-section-${sidx}`,
@@ -193,7 +179,7 @@
                 type: "system_prompt",
                 label: "System Prompt",
                 tokens: breakdown.system_prompt,
-                color: "#6366f1",
+                color: "#5C8AFF",
                 colorKey: "bg-indigo-500",
                 tooltipContent: `Base System Instructions: ${breakdown.system_prompt.toLocaleString()} tokens`,
             });
@@ -206,7 +192,7 @@
                 const tok = tl.tokens || 0;
                 if (tok > 0) {
                     const isMcp = Boolean(tl.server_name || tl.is_mcp);
-                    const color = tl.color || (isMcp ? "#0891b2" : "#06b6d4");
+                    const color = tl.color || (isMcp ? "#1CB0AE" : "#26D0CE");
                     const itemKey = `tool-def-${tl.name}`;
                     segments.push({
                         id: `tool-def-${tidx}`,
@@ -231,49 +217,50 @@
                 type: "tool_definition",
                 label: "Tool Definitions",
                 tokens: breakdown.tool_defs,
-                color: "#06b6d4",
+                color: "#26D0CE",
                 colorKey: "bg-cyan-500",
                 tooltipContent: `Tool Schemas: ${breakdown.tool_defs.toLocaleString()} tokens`,
             });
         }
 
-        // 3. Compaction Checkpoint Milestone (if epoch starts with or contains checkpoint)
-        const hasCpInEpoch = epochSteps.some(s => s.type === "CHECKPOINT");
-        const epochCpTok = (activeEpoch && activeEpoch.token_breakdown && activeEpoch.token_breakdown.checkpoint) || breakdown.checkpoint || 0;
-        if (!hasCpInEpoch && activeEpoch && activeEpoch.has_checkpoint && epochCpTok > 0) {
+        // 3. Compaction Checkpoint Milestone (if checkpoint window starts with or contains checkpoint)
+        const hasCpInWindow = checkpointSteps.some(s => s.type === "CHECKPOINT");
+        const windowCpTok = (activeCheckpoint && activeCheckpoint.token_breakdown && activeCheckpoint.token_breakdown.checkpoint) || breakdown.checkpoint || 0;
+        if (!hasCpInWindow && activeCheckpoint && activeCheckpoint.has_checkpoint && windowCpTok > 0) {
             segments.push({
                 id: "checkpoint-summary",
-                itemKey: `checkpoint-${activeEpoch.start_index}`,
+                itemKey: `checkpoint-${activeCheckpoint.start_index}`,
                 type: "checkpoint",
                 label: "Compaction Checkpoint",
-                tokens: epochCpTok,
-                color: "#16a34a",
+                tokens: windowCpTok,
+                color: "#2AD089",
                 colorKey: "bg-green-600",
-                tooltipContent: activeEpoch.summary || "Compacted Context Summary",
+                tooltipContent: activeCheckpoint.summary || "Compacted Context Summary",
             });
         }
 
-        // 4. Epoch Steps (User prompts, Model outputs, Tool calls)
-        epochSteps.forEach((s, offset) => {
-            const arrIdx = activeEpoch ? (activeEpoch.start_index + offset) : offset;
+        // 4. Checkpoint Window Steps (User prompts, Model outputs, Tool calls)
+        checkpointSteps.forEach((s, offset) => {
+            const arrIdx = activeCheckpoint ? (activeCheckpoint.start_index + offset) : offset;
             const displayIdx = s.step_index !== undefined ? s.step_index : arrIdx;
             const sTok = s.tokens || Math.round((s.size_bytes || 100) / 3.5);
-            let segColor = "#3b82f6";
+            let segColor = "#1B4DFF";
             let segColorKey = "bg-blue-600";
             let segLabel = `Step #${displayIdx}: ${s.type || "STEP"}`;
 
-            if (s.type === "PLANNER_RESPONSE" || s.type === "MODEL_OUTPUT") {
-                segColor = "#f59e0b";
+            const stUpper = s.type || "";
+            if (stUpper === "PLANNER_RESPONSE" || stUpper === "MODEL_OUTPUT") {
+                segColor = "#F5B74F";
                 segColorKey = "bg-amber-600";
-            } else if (s.type === "CHECKPOINT") {
-                segColor = "#16a34a";
+            } else if (stUpper === "CHECKPOINT") {
+                segColor = "#2AD089";
                 segColorKey = "bg-green-600";
                 segLabel = `Step #${displayIdx}: Checkpoint`;
-            } else if ((s.type || "").includes("COMMAND") || (s.type || "").includes("TOOL") || (s.type || "").includes("FILE") || (s.type || "").includes("EDIT") || (s.type || "").includes("WRITE") || (s.type || "").includes("REPLACE") || (s.type || "").includes("SEARCH") || (s.type || "").includes("SWARM") || (s.type || "").includes("BOARD") || (s.type || "").includes("WORKFLOW") || (s.type || "").includes("TASK")) {
-                segColor = "#14b8a6";
+            } else if (/COMMAND|TOOL|FILE|EDIT|WRITE|REPLACE|SEARCH|SWARM|BOARD|WORKFLOW|TASK|PLAN|FOCUS|STEPS|QUESTION|MCP|RESOURCE|MARKETPLACE|PLUGIN/.test(stUpper)) {
+                segColor = "#26D0CE";
                 segColorKey = "bg-teal-600";
-            } else if (s.type === "SYSTEM") {
-                segColor = "#a855f7";
+            } else if (stUpper === "SYSTEM") {
+                segColor = "#8FB0FF";
                 segColorKey = "bg-purple-600";
             }
 
@@ -296,8 +283,8 @@
         });
 
         // 5. Unattributed Overhead (Remains 0 in honest SSOT mode)
-        const unattrTok = Math.max(0, (activeEpoch && activeEpoch.unattributed !== undefined)
-            ? activeEpoch.unattributed
+        const unattrTok = Math.max(0, (activeCheckpoint && activeCheckpoint.unattributed !== undefined)
+            ? activeCheckpoint.unattributed
             : ((breakdown && breakdown.unattributed) || 0));
         if (unattrTok > 0) {
             segments.push({
@@ -306,7 +293,7 @@
                 type: "unattributed",
                 label: "Unattributed Overhead",
                 tokens: unattrTok,
-                color: "#64748b",
+                color: "#6E7F9B",
                 colorKey: "bg-slate-500",
                 tooltipContent: `Unattributed Tokens: ${unattrTok.toLocaleString()}`,
             });
@@ -319,15 +306,15 @@
      * Main context bar rendering function.
      * Computes normalized capacity t = (m/n)*p and runs Atc multi-row layout.
      */
-    function renderContextBar(cur, state, steps, activeEpoch, epochSteps, maxTokens, containerWidth) {
-        const segments = extractGranularSegments(cur, state, steps, activeEpoch, epochSteps, maxTokens);
+    function renderContextBar(cur, state, steps, activeCheckpoint, checkpointSteps, maxTokens, containerWidth) {
+        const segments = extractGranularSegments(cur, state, steps, activeCheckpoint, checkpointSteps, maxTokens);
         const rawSegmentsSum = segments.reduce((acc, seg) => acc + (seg.tokens || 0), 0);
-        const epochs = (cur && cur.epochs) || [];
-        const isLatestEpoch = (state.activeEpochIndex === -1 || state.activeEpochIndex === epochs.length - 1);
-        const selectedEpochTotal = (activeEpoch && activeEpoch.total_tokens !== undefined)
-            ? (activeEpoch.total_tokens || 0)
-            : (isLatestEpoch ? (cur.total_tokens || 0) : rawSegmentsSum);
-        const activeTokensSum = selectedEpochTotal > 0 ? selectedEpochTotal : rawSegmentsSum;
+        const checkpoints = (cur && cur.checkpoints) || [];
+        const isLatestCheckpoint = (state.activeCheckpointIndex === -1 || state.activeCheckpointIndex === checkpoints.length - 1);
+        const selectedCheckpointTotal = (activeCheckpoint && activeCheckpoint.total_tokens !== undefined)
+            ? (activeCheckpoint.total_tokens || 0)
+            : (isLatestCheckpoint ? (cur.total_tokens || 0) : rawSegmentsSum);
+        const activeTokensSum = selectedCheckpointTotal > 0 ? selectedCheckpointTotal : rawSegmentsSum;
         const totalTokens = activeTokensSum;
 
         const ROW_CAPACITY = Math.max(64000, Math.ceil(maxTokens / 4));
@@ -338,7 +325,7 @@
             : 1.0;
 
         if (rawSegmentsSum === 0 && activeTokensSum > 0) {
-            segments.push({ id: "context-gap", itemKey: "context-gap", type: "unattributed", label: "Unattributed Context", tokens: activeTokensSum, color: "#64748b", colorKey: "bg-slate-500", tooltipContent: `Unattributed Context (${activeTokensSum.toLocaleString()} tokens)` });
+            segments.push({ id: "context-gap", itemKey: "context-gap", type: "unattributed", label: "Unattributed Context", tokens: activeTokensSum, color: "#6E7F9B", colorKey: "bg-slate-500", tooltipContent: `Unattributed Context (${activeTokensSum.toLocaleString()} tokens)` });
         }
 
         const rows = [];
@@ -395,15 +382,15 @@
         const n = activeTokensSum;
         const rawFillPct = p > 0 ? (n / p) * 100 : 0;
         const clampedFillPct = Math.min(100, rawFillPct).toFixed(1);
-        const effProvisional = (activeEpoch && activeEpoch.is_provisional !== undefined) ? activeEpoch.is_provisional : (cur && cur.is_provisional);
-        const effCacheTokens = (activeEpoch && typeof activeEpoch.cache_tokens === "number") ? activeEpoch.cache_tokens : ((cur && cur.cache_tokens) || 0);
+        const effProvisional = (activeCheckpoint && activeCheckpoint.is_provisional !== undefined) ? activeCheckpoint.is_provisional : (cur && cur.is_provisional);
+        const effCacheTokens = (activeCheckpoint && typeof activeCheckpoint.cache_tokens === "number") ? activeCheckpoint.cache_tokens : ((cur && cur.cache_tokens) || 0);
         const estBadge = effProvisional ? ' <span class="agyis-hud-pill agyis-hud-pill-amber" title="Provisional estimate">~est</span>' : "";
         const burnRate = (cur && cur.burn_rate_tokens_per_min) || 0;
         const burnBadge = burnRate > 0 ? ` <span class="agyis-hud-pill agyis-hud-pill-teal">${burnRate.toFixed(0)} tok/m</span>` : "";
         const cacheHitBadge = effCacheTokens > 0 ? ` <span class="agyis-hud-pill agyis-hud-pill-green">Cache: ${(effCacheTokens / 1000).toFixed(1)}k</span>` : "";
 
-        const activeEpIdx = state.activeEpochIndex >= 0 ? state.activeEpochIndex : 0;
-        const activeEp = epochs[activeEpIdx] || activeEpoch || { start_index: 0, end_index: steps.length - 1 };
+        const activeCpIdx = state.activeCheckpointIndex >= 0 ? state.activeCheckpointIndex : 0;
+        const activeCp = checkpoints[activeCpIdx] || activeCheckpoint || { start_index: 0, end_index: steps.length - 1 };
 
         // Render rows HTML
         const trackHeight = rowCount <= 1 ? 24 : 14;
@@ -414,7 +401,7 @@
                 const isUnused = seg === null;
                 const isSelected = !isUnused && seg.stepIndex !== undefined && seg.stepIndex === state.selectedIndex;
                 const isHovered = !isUnused && seg.itemKey && state.hoveredItemKey === seg.itemKey;
-                const colorStyle = isUnused ? "background: #27272a;" : `background: ${seg.color};`;
+                const colorStyle = isUnused ? "background: #162238;" : `background: ${seg.color};`;
                 const borderRight = isUnused ? "" : "border-right: 1px solid rgba(0, 0, 0, 0.35);";
                 const leftPct = (cell.startFraction * 100).toFixed(4);
                 const widthPct = (cell.widthFraction * 100).toFixed(4);
@@ -439,8 +426,8 @@
 
             rowsHtml += `
                 <div class="agyis-context-row-wrap" style="display: flex; align-items: center; gap: 8px;">
-                    <span class="agyis-context-row-label" style="font-family: ui-monospace, monospace; font-size: 10px; color: #a1a1aa; width: 34px; text-align: right; flex-shrink: 0; user-select: none;">${Math.round((rIdx * ROW_CAPACITY) / 1000)}k</span>
-                    <div class="agyis-context-row-track" style="flex: 1; height: ${trackHeight}px; position: relative; background: #27272a; border-radius: 4px; overflow: hidden; border: 1px solid #3f3f46;">
+                    <span class="agyis-context-row-label" style="font-family: var(--agyis-font-mono, monospace); font-size: 10px; color: #9AA8BE; width: 34px; text-align: right; flex-shrink: 0; user-select: none;">${Math.round((rIdx * ROW_CAPACITY) / 1000)}k</span>
+                    <div class="agyis-context-row-track" style="flex: 1; height: ${trackHeight}px; position: relative; background: #0B1322; border-radius: 4px; overflow: hidden; border: 1px solid #1E2C47;">
                         ${cellsHtml}
                     </div>
                 </div>
@@ -451,15 +438,15 @@
             <div class="agyis-context-bar-wrap">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 8px;">
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 11px; font-weight: 700; color: #fbbf24;">Context Window (${rowCount} row${rowCount > 1 ? "s" : ""})</span>
-                        <div style="display: inline-flex; align-items: center; gap: 4px; background: #202023; border: 1px solid #3f3f46; border-radius: 6px; padding: 2px 6px;">
-                            <button id="agyis-epoch-prev" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${activeEpIdx <= 0 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>◀ Prev Epoch</button>
-                            <span style="font-size: 10px; font-family: monospace; color: #cbd5e1; padding: 0 4px;">Epoch ${activeEpIdx + 1} of ${Math.max(1, epochs.length)} (Steps #${activeEp.start_index}-#${activeEp.end_index})</span>
-                            <button id="agyis-epoch-next" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${activeEpIdx >= epochs.length - 1 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>Next Epoch ▶</button>
+                        <span style="font-size: 11px; font-weight: 700; color: #5C8AFF;">Context Window (${rowCount} row${rowCount > 1 ? "s" : ""})</span>
+                        <div style="display: inline-flex; align-items: center; gap: 4px; background: #0B1322; border: 1px solid #1E2C47; border-radius: 6px; padding: 2px 6px;">
+                            <button id="agyis-checkpoint-prev" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${activeCpIdx <= 0 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>◀ Prev Checkpoint</button>
+                            <span style="font-size: 10px; font-family: var(--agyis-font-mono, monospace); color: #F4F6FA; padding: 0 4px;">Checkpoint ${activeCpIdx + 1} of ${Math.max(1, checkpoints.length)} (Steps #${activeCp.start_index}-#${activeCp.end_index})</span>
+                            <button id="agyis-checkpoint-next" class="agyis-hud-btn" style="padding: 2px 6px; font-size: 10px;" ${activeCpIdx >= checkpoints.length - 1 ? 'disabled style="opacity:0.4; cursor:default;"' : ""}>Next Checkpoint ▶</button>
                         </div>
                     </div>
-                    <div style="font-family: monospace; font-size: 11px; color: #a1a1aa; display: flex; align-items: center; gap: 6px;">
-                        <span>Active Context: <b style="color: #38bdf8;">${n.toLocaleString()}</b> / ${p.toLocaleString()} max (${clampedFillPct}%${rawFillPct > 100.05 ? " over" : ""})</span>${estBadge}${cacheHitBadge}${burnBadge}
+                    <div style="font-family: var(--agyis-font-mono, monospace); font-size: 11px; color: #9AA8BE; display: flex; align-items: center; gap: 6px;">
+                        <span>Active Context: <b style="color: #26D0CE;">${n.toLocaleString()}</b> / ${p.toLocaleString()} max (${clampedFillPct}%${rawFillPct > 100.05 ? " over" : ""})</span>${estBadge}${cacheHitBadge}${burnBadge}
                     </div>
                 </div>
                 <div class="agyis-context-track" style="display: flex; flex-direction: column; gap: 3px; background: transparent; border: none;">
@@ -468,14 +455,14 @@
                 <div id="agyis-hover-tooltip" class="agyis-context-tooltip" style="display: none;"></div>
                 <div class="agyis-context-legend">
                     <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #6366f1;"></span> System Prompt</span>
-                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #06b6d4;"></span> Tool Defs</span>
-                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #16a34a;"></span> Checkpoint</span>
-                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #3b82f6;"></span> User</span>
-                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #f59e0b;"></span> Model</span>
-                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #14b8a6;"></span> Tool</span>
-                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #a855f7;"></span> System</span>
-                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #3f3f46;"></span> Unused</span>
+                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #5C8AFF;"></span> System Prompt</span>
+                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #26D0CE;"></span> Tool Defs</span>
+                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #2AD089;"></span> Checkpoint</span>
+                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #1B4DFF;"></span> User</span>
+                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #F5B74F;"></span> Model</span>
+                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #26D0CE;"></span> Tool</span>
+                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #8FB0FF;"></span> System</span>
+                        <span class="agyis-legend-item"><span class="agyis-legend-dot" style="background: #1E2C47;"></span> Unused</span>
                     </div>
                 </div>
             </div>
@@ -485,26 +472,26 @@
     /**
      * Binds mouse and click events for the context bar, including bidirectional hover syncing.
      */
-    function bindContextBarEvents(hudEl, state, cur, epochs, renderCallback, selectStepCallback) {
+    function bindContextBarEvents(hudEl, state, cur, checkpoints, renderCallback, selectStepCallback) {
         if (!hudEl) return;
 
-        // Epoch navigation
-        hudEl.querySelector("#agyis-epoch-prev")?.addEventListener("click", () => {
-            if (state.activeEpochIndex > 0) {
-                state.activeEpochIndex -= 1;
-                if (epochs[state.activeEpochIndex] && selectStepCallback) {
-                    selectStepCallback(epochs[state.activeEpochIndex].start_index);
+        // Checkpoint navigation
+        hudEl.querySelector("#agyis-checkpoint-prev")?.addEventListener("click", () => {
+            if (state.activeCheckpointIndex > 0) {
+                state.activeCheckpointIndex -= 1;
+                if (checkpoints[state.activeCheckpointIndex] && selectStepCallback) {
+                    selectStepCallback(checkpoints[state.activeCheckpointIndex].start_index, { preserveCheckpoint: true });
                 } else if (renderCallback) {
                     renderCallback();
                 }
             }
         });
 
-        hudEl.querySelector("#agyis-epoch-next")?.addEventListener("click", () => {
-            if (state.activeEpochIndex < epochs.length - 1) {
-                state.activeEpochIndex += 1;
-                if (epochs[state.activeEpochIndex] && selectStepCallback) {
-                    selectStepCallback(epochs[state.activeEpochIndex].start_index);
+        hudEl.querySelector("#agyis-checkpoint-next")?.addEventListener("click", () => {
+            if (state.activeCheckpointIndex < checkpoints.length - 1) {
+                state.activeCheckpointIndex += 1;
+                if (checkpoints[state.activeCheckpointIndex] && selectStepCallback) {
+                    selectStepCallback(checkpoints[state.activeCheckpointIndex].start_index, { preserveCheckpoint: true });
                 } else if (renderCallback) {
                     renderCallback();
                 }
@@ -531,7 +518,7 @@
 
                 if (tooltipEl) {
                     tooltipEl.style.display = "block";
-                    tooltipEl.innerHTML = `<b style="color: #fbbf24;">${escapeHtml(sName)}</b><br>Tokens: ${sTok.toLocaleString()} (${escapeHtml(sPct)}%)${sTip ? `<br><span style="color: #a1a1aa; font-style: italic;">${escapeHtml(sTip)}</span>` : ""}`;
+                    tooltipEl.innerHTML = `<b style="color: #5C8AFF;">${escapeHtml(sName)}</b><br>Tokens: ${sTok.toLocaleString()} (${escapeHtml(sPct)}%)${sTip ? `<br><span style="color: #9AA8BE; font-style: italic;">${escapeHtml(sTip)}</span>` : ""}`;
                 }
             });
 
@@ -551,18 +538,17 @@
                 if (stepIdxAttr !== null && stepIdxAttr !== undefined && stepIdxAttr !== "") {
                     const sIdx = parseInt(stepIdxAttr, 10);
                     if (!isNaN(sIdx) && selectStepCallback) {
-                        selectStepCallback(sIdx);
+                        selectStepCallback(sIdx, { preserveCheckpoint: true });
                     }
                 }
             });
         });
     }
 
-    // Export module onto window namespace
-    global.xtc = xtc;
-    global.ytc = ytc;
-    global.ztc = ztc;
-    global.Atc = Atc;
+    // Export cleanroom sizing helpers strictly under the __agyis_context_bar namespace
+    // to prevent colliding with Closure-minified globals (e.g. Antigravity 2.35.2's
+    // WebSocket ConnectRPC transport functions xtc/ytc/ztc/Atc).
+    global.__agyis_context_bar = { xtc, ytc, ztc, Atc };
     global.extractGranularSegments = extractGranularSegments;
     global.renderContextBar = renderContextBar;
     global.bindContextBarEvents = bindContextBarEvents;

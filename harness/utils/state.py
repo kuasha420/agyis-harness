@@ -112,7 +112,7 @@ def load_history(conv_id: str, target_dir: Optional[Path] = None) -> List[Any]:
         data = json.loads(history_file.read_text(encoding="utf-8"))
         return data if isinstance(data, list) else []
     except (OSError, json.JSONDecodeError, ValueError) as exc:
-        sys.stderr.write(f"PSL State Warning: Failed to load history '{history_file}': {exc}\n")
+        sys.stderr.write(f"[AGYIS STATE] Warning: Failed to load history '{history_file}': {exc}\n")
         return []
 
 

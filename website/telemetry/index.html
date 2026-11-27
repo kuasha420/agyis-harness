@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script>try{const s=localStorage.getItem("color-scheme");if(s==="light"||s==="dark"){document.querySelector('meta[name="color-scheme"]').content=s;}}catch{}</script>
+  <title>Telemetry Observatory | Agyis Harness 1.1.0</title>
+  <meta name="description" content="Empirical telemetry observatory for Agyis Harness covering 3,856 sessions, voluntary provenance ledger, era progression, model reliability, compactor simulations, and Titan trajectory dissection.">
+  <meta property="og:title" content="Telemetry Observatory | Agyis Harness 1.1.0">
+  <meta property="og:description" content="Interactive empirical telemetry observatory across 3,856 sessions, 742,273 steps, and 405,666 tool calls with full source provenance and privacy audit verification.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://kuasha420.github.io/agyis-harness/telemetry/">
+  <meta property="og:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Telemetry Observatory | Agyis Harness 1.1.0">
+  <meta name="twitter:description" content="3,856 sessions, voluntary provenance ledger, and 4 interactive SVG telemetry charts.">
+  <meta name="twitter:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
+  <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#080e1a" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="../favicon.ico" sizes="any">
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+  <link rel="manifest" href="../site.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    @layer components {
+      .telemetry-band {
+        padding-block: clamp(2.5rem, 5vw, 4rem);
+        border-block-end: 1px solid var(--border);
+        background-color: var(--bg);
+        color: var(--ink);
+      }
+
+      .telemetry-band--tint {
+        background-color: var(--surface);
+      }
+
+      .telemetry-band p {
+        color: var(--ink-muted);
+      }
+
+      .telemetry-band h2,
+      .telemetry-band h3 {
+        color: var(--ink);
+      }
+
+      .page-hero .telemetry-meta-line {
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        font-variant-numeric: tabular-nums;
+        color: var(--accent);
+        margin-block-start: 0.75rem;
+      }
+
+      .tabular-num,
+      .kpi-value,
+      .chart-svg text,
+      .data-table td,
+      .data-table th {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .stream-card {
+        padding: 1.5rem;
+        border-radius: var(--radius-md);
+        background: linear-gradient(180deg, var(--sheen-top), var(--sheen-bot)), var(--surface-card);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-card);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.75rem;
+        min-width: 0;
+        max-inline-size: 100%;
+      }
+
+      .stream-card > * {
+        min-inline-size: 0;
+      }
+
+      .stream-stat-list {
+        list-style: none;
+        padding: 0;
+        display: grid;
+        gap: 0.25rem;
+        font-size: var(--text-sm);
+        color: var(--ink-muted);
+      }
+
+      .stream-stat-list li {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 0.25rem 1rem;
+        padding-block: 0.45rem;
+        border-block-end: 1px solid var(--border);
+      }
+
+      .stream-stat-list li:last-child {
+        border-block-end: 0;
+      }
+
+      .stream-stat-val {
+        font-family: var(--font-mono);
+        color: var(--ink);
+        font-variant-numeric: tabular-nums;
+        text-align: end;
+      }
+
+      .integrity-key {
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        color: var(--ink);
+        overflow-wrap: anywhere;
+      }
+
+      .integrity-val {
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        font-weight: 600;
+        color: var(--semantic-pass);
+      }
+
+      .integrity-note {
+        font-size: var(--text-sm);
+        color: var(--ink-muted);
+      }
+
+      .segmented-group {
+        display: inline-flex;
+        flex-wrap: wrap;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        background-color: var(--surface-well);
+        box-shadow: var(--shadow-inset);
+      }
+
+      .segmented-btn {
+        appearance: none;
+        border: 0;
+        border-inline-end: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink-muted);
+        padding: 0.5rem 0.875rem;
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        font-weight: 500;
+        cursor: pointer;
+        min-block-size: 2.75rem;
+        transition-property: background-color, color;
+        transition-duration: 160ms;
+        transition-timing-function: var(--ease-out);
+      }
+
+      .segmented-btn:last-child {
+        border-inline-end: 0;
+      }
+
+      .segmented-btn:hover {
+        color: var(--ink);
+        background-color: var(--surface-elevated);
+      }
+
+      .segmented-btn[aria-checked="true"],
+      .segmented-btn.is-active {
+        background-color: var(--accent-solid);
+        color: var(--accent-solid-ink);
+      }
+
+      .chart-canvas-wrap {
+        padding: 0.75rem 0.875rem;
+        border-radius: var(--radius-sm);
+        background-color: var(--surface-well);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-inset);
+      }
+
+      .chart-readout {
+        margin-block-start: 0.25rem;
+        padding: 0.75rem 1rem;
+        border-radius: var(--radius-sm);
+        background-color: var(--surface-well);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-inset);
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        color: var(--ink);
+        font-variant-numeric: tabular-nums;
+        min-block-size: 2.75rem;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem 1.25rem;
+      }
+
+      .chart-point-target {
+        cursor: pointer;
+        transition-property: opacity, stroke-width;
+        transition-duration: 140ms;
+        transition-timing-function: var(--ease-out);
+      }
+
+      .chart-point-target:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+        stroke: var(--chart-ink);
+        stroke-width: 2.5;
+      }
+
+      .archetype-bar {
+        display: flex;
+        inline-size: 100%;
+        block-size: 2.25rem;
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-inset);
+        margin-block: 0.5rem;
+      }
+
+      .archetype-seg {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.25rem;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--bg);
+        color: light-dark(#ffffff, #080e1a);
+        overflow: hidden;
+        white-space: nowrap;
+        padding-inline: 0.375rem;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .archetype-seg--survivor { background-color: var(--semantic-pass); }
+      .archetype-seg--breakthrough { background-color: var(--cyan); }
+      .archetype-seg--trap { background-color: var(--semantic-fail); }
+
+      @media (max-width: 640px) {
+        .archetype-seg-label {
+          display: none;
+        }
+      }
+
+      .compactor-kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+        gap: 1px;
+        background-color: var(--border);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        box-shadow: var(--shadow-inset);
+        margin-block: 0.5rem 0.75rem;
+      }
+
+      .compactor-kpi-box {
+        padding: 0.875rem 1rem;
+        background-color: var(--surface-well);
+        display: grid;
+        gap: 0.25rem;
+        min-width: 0;
+      }
+
+      .compactor-kpi-val {
+        font-family: var(--font-mono);
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--cyan);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .compactor-kpi-val--pass {
+        color: var(--semantic-pass);
+      }
+
+      .compactor-kpi-lbl {
+        font-size: var(--text-sm);
+        color: var(--ink-muted);
+      }
+
+      .exit1-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        gap: 1px;
+        background-color: var(--border);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        box-shadow: var(--shadow-inset);
+        margin-block-start: 0.75rem;
+      }
+
+      .exit1-card {
+        padding: 0.875rem 1rem;
+        background-color: var(--surface-well);
+        min-width: 0;
+      }
+
+      .exit1-num {
+        font-family: var(--font-mono);
+        font-size: 1.125rem;
+        font-weight: 700;
+        color: var(--ink);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .exit1-desc {
+        font-size: var(--text-sm);
+        color: var(--ink-muted);
+        margin-block-start: 0.25rem;
+      }
+
+      .control-field {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: var(--text-sm);
+        color: var(--ink);
+        min-width: 0;
+      }
+
+      .control-field select,
+      .control-field input[type="search"] {
+        background-color: var(--surface-card);
+        color: var(--ink);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-sm);
+        padding: 0.5rem 0.75rem;
+        font-size: var(--text-sm);
+        min-block-size: 2.75rem;
+        max-inline-size: 100%;
+        box-shadow: var(--shadow-inset);
+      }
+
+      .control-checkbox {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: var(--text-sm);
+        color: var(--ink);
+        cursor: pointer;
+        min-block-size: 2.75rem;
+        padding-inline: 0.75rem;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-strong);
+        background-color: var(--surface-card);
+      }
+
+      .control-checkbox input[type="checkbox"] {
+        inline-size: 1.0625rem;
+        block-size: 1.0625rem;
+        accent-color: var(--accent);
+      }
+
+      .hash-code {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        overflow-wrap: anywhere;
+      }
+
+      .table-caption-meta {
+        font-size: var(--text-sm);
+        color: var(--ink-muted);
+        margin-block-end: 0.75rem;
+        font-variant-numeric: tabular-nums;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .segmented-btn,
+        .chart-point-target {
+          transition: none;
+        }
+      }
+    }
+  </style>
+  <script type="module" defer src="../app.js"></script>
+  <script type="module" defer src="./telemetry.js"></script>
+</head>
+<body id="top" data-route="telemetry" data-data-root="../data/">
+  <a href="#main-content" class="skip-link visually-hidden">Skip to main content</a>
+  <div id="status-announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+
+  <header class="site-header">
+    <nav id="site-nav" class="container nav-inner" aria-label="Primary">
+      <a href="../" class="brand-link">
+        <img src="../assets/logo.svg" alt="" width="30" height="30">
+        <span class="brand-name">Agyis Harness</span>
+      </a>
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-nav-links" aria-label="Toggle navigation menu">Menu</button>
+      <ul id="site-nav-links" class="nav-links">
+        <li><a href="../" class="nav-link">Platform</a></li>
+        <li><a href="../telemetry/" class="nav-link is-active" aria-current="page">Telemetry</a></li>
+        <li><a href="../cognitive/" class="nav-link">Cognitive</a></li>
+        <li><a href="../hud-re/" class="nav-link">HUD &amp; RE</a></li>
+        <li><a href="../brand/" class="nav-link">Brand</a></li>
+      </ul>
+      <div class="nav-actions">
+        <button type="button" class="theme-toggle" id="theme-toggle">
+          <span class="theme-toggle-opt theme-toggle-opt--to-light">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            <span class="sr-only">Switch to light theme</span>
+          </span>
+          <span class="theme-toggle-opt theme-toggle-opt--to-dark">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            <span class="sr-only">Switch to dark theme</span>
+          </span>
+        </button>
+        <a class="nav-cta" href="../#install">Install</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="page-hero" aria-labelledby="main-content">
+      <div class="container">
+        <h1 id="main-content" tabindex="-1">Empirical telemetry observatory</h1>
+        <p>Live metrics hydrated from pre-baked, privacy-audited JSON bundles covering 3,856 engineering sessions. The corpus combines personal multi-device founder captures (@kuasha420 and local workstations) with voluntary anonymized Purrfect Software Limited (PSL) team submissions routed via PSL's self-hosted instance of the open-source <code>server/</code> package in this repository.</p>
+        <p class="telemetry-meta-line" id="corpus-span-line">Corpus span: 2026-05-24 to 2026-11-25 UTC | Export schema 1.1.0 | Generated 2026-11-25T23:22:00Z</p>
+
+        <div class="kpi-strip" aria-label="Corpus summary metrics">
+          <div class="kpi-card" data-tilt>
+            <span class="kpi-value" id="kpi-sessions">3,856</span>
+            <span class="kpi-label">Total sessions audited</span>
+          </div>
+          <div class="kpi-card" data-tilt>
+            <span class="kpi-value" id="kpi-steps">742,273</span>
+            <span class="kpi-label">Total agent steps recorded</span>
+          </div>
+          <div class="kpi-card" data-tilt>
+            <span class="kpi-value" id="kpi-tools">405,666</span>
+            <span class="kpi-label" id="kpi-tools-sub">Tool calls (3.24% error rate)</span>
+          </div>
+          <div class="kpi-card" data-tilt>
+            <span class="kpi-value" id="kpi-compaction">58.3%</span>
+            <span class="kpi-label" id="kpi-compaction-sub">2KB savings (0 lost failures)</span>
+          </div>
+          <div class="kpi-card" data-tilt>
+            <span class="kpi-value" id="kpi-titans">92</span>
+            <span class="kpi-label" id="kpi-titans-sub">Titan runs (31.9% step share)</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <nav class="subnav" aria-label="Telemetry sections">
+      <div class="container subnav-inner">
+        <ul class="subnav-links">
+          <li><a href="#provenance">Source &amp; provenance</a></li>
+          <li><a href="#era-progression">Era progression</a></li>
+          <li><a href="#model-reliability">Model reliability</a></li>
+          <li><a href="#compactor-simulator">Compactor simulator</a></li>
+          <li><a href="#titan-dissection">Titan dissection</a></li>
+        </ul>
+      </div>
+    </nav>
+
+    <section id="provenance" class="page-section telemetry-band" aria-labelledby="provenance-heading">
+      <div class="container">
+        <h2 id="provenance-heading">Telemetry source and voluntary provenance ledger</h2>
+        <p>Every figure on this observatory traces back to two transparent contribution streams, redacted client-side before leaving developer workstations and verified against automated leak gates before publication.</p>
+
+        <div class="provenance-callout">
+          <div class="provenance-callout-head">
+            <svg class="provenance-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect x="4" y="11" width="16" height="10" rx="2"></rect>
+              <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
+            </svg>
+            <h3>Zero third-party SaaS analytics and zero background phone-home</h3>
+          </div>
+          <p>Synchronization is strictly opt-in through <code>agyis sync</code> or the optional user daemon (<code>agyis sync --service</code>). PSL operates an internal hub compiled directly from the open-source <code>server/</code> directory in this repository. All prompt bodies, emails, secrets, and local home paths are removed client-side before upload and re-checked during static bundle export.</p>
+        </div>
+
+        <div class="split-grid" style="margin-block-start: 1.5rem;">
+          <article class="stream-card">
+            <h3>Stream 1: Personal founder multi-device captures</h3>
+            <p>Workstation sessions recorded across desktop, laptop, and handheld Linux nodes under founder handle <code>@kuasha420</code> and local unauthenticated sqlite/transcript captures.</p>
+            <ul class="stream-stat-list" id="stream-founder-list">
+              <li><span>Combined founder share</span><span class="stream-stat-val">3,460 sessions (89.7%)</span></li>
+              <li><span><code>kuasha420</code> synced handle</span><span class="stream-stat-val">1,280 sessions (328,540 steps)</span></li>
+              <li><span><code>local</code> workstation captures</span><span class="stream-stat-val">2,180 sessions (315,493 steps)</span></li>
+              <li><span>Primary hashed host (<code>node-69e9e817</code>)</span><span class="stream-stat-val">2,261 sessions</span></li>
+            </ul>
+          </article>
+
+          <article class="stream-card">
+            <h3>Stream 2: Voluntary PSL team submissions</h3>
+            <p>Opt-in anonymized sessions contributed by Purrfect Software Limited (PSL) engineers synced through PSL's internal hub running <code>server/app.py</code>.</p>
+            <ul class="stream-stat-list" id="stream-team-list">
+              <li><span>Team contributor share</span><span class="stream-stat-val">396 sessions (10.3%)</span></li>
+              <li><span><code>contributor-b7b2be88</code></span><span class="stream-stat-val">396 sessions (98,240 steps)</span></li>
+              <li><span>Redacted remote synced summary</span><span class="stream-stat-val">729 sessions across 12 workspaces</span></li>
+              <li><span>Local workspace repos audited</span><span class="stream-stat-val">28 repositories (25 UUID-masked)</span></li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="split-grid" style="margin-block-start: 1.25rem;">
+          <article class="stream-card">
+            <h3>Capture surfaces and ingestion sources</h3>
+            <p>Corpus spans both Antigravity IDE sessions and headless CLI runs across SQLite and transcript storage formats.</p>
+            <ul class="stream-stat-list" id="surface-kind-list">
+              <li><span>IDE surface (<code>client_surfaces.ide</code>)</span><span class="stream-stat-val">3,552 sessions (736,124 steps)</span></li>
+              <li><span>CLI surface (<code>client_surfaces.cli</code>)</span><span class="stream-stat-val">304 sessions (6,149 steps)</span></li>
+              <li><span><code>sqlite_db</code> source records</span><span class="stream-stat-val">2,088 sessions</span></li>
+              <li><span><code>transcript_full</code> source records</span><span class="stream-stat-val">889 sessions</span></li>
+              <li><span><code>transcript</code> source records</span><span class="stream-stat-val">879 sessions</span></li>
+            </ul>
+          </article>
+
+          <article class="stream-card">
+            <h3>Self-hosted open-source sync architecture</h3>
+            <p>Built with Starlette ASGI (<code>server/app.py</code>), GitHub PAT and <code>purrfectsoft</code> organization verification cached for 300 seconds (<code>server/auth.py</code>), and dual PostgreSQL/SQLite storage (<code>server/storage.py</code>). Corpus hygiene also repaired <strong>256,841</strong> duplicate telemetry rows via <code>harness/telemetry/integrity_dedup.py</code>.</p>
+            <div class="table-card-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Method &amp; endpoint</th>
+                    <th scope="col">Auth &amp; behavior</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td data-label="Method &amp; endpoint"><code>GET /api/v1/health</code></td>
+                    <td data-label="Auth &amp; behavior">Zero-auth database connectivity probe</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Method &amp; endpoint"><code>POST /api/v1/auth/verify</code></td>
+                    <td data-label="Auth &amp; behavior">GitHub PAT and org membership check (300s cache)</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Method &amp; endpoint"><code>POST /api/v1/sync/push</code></td>
+                    <td data-label="Auth &amp; behavior">Bearer batch upsert (alias <code>/api/v1/telemetry/batch</code>)</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Method &amp; endpoint"><code>GET /api/v1/sync/pull</code></td>
+                    <td data-label="Auth &amp; behavior">Keyset delta pull (<code>after_seq</code>/<code>cursor</code>, anti-echo self-exclusion; alias <code>/api/v1/telemetry/delta</code>)</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Method &amp; endpoint"><code>GET /api/v1/sync/inventory</code></td>
+                    <td data-label="Auth &amp; behavior">Anonymized per-developer, machine, and surface span summary</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+
+        <h3 style="margin-block-start: 2rem; margin-block-end: 0.75rem;">Live export privacy audit (<code>manifest.json.privacy_audit</code>)</h3>
+        <div class="integrity-strip" id="privacy-audit-grid" aria-live="polite">
+          <div class="integrity-tile">
+            <span class="integrity-key">raw_prompts_included</span>
+            <span class="integrity-val">false</span>
+            <span class="integrity-note">Prompt bodies stripped via <code>_BLOCKED_KEYS</code></span>
+          </div>
+          <div class="integrity-tile">
+            <span class="integrity-key">emails_redacted</span>
+            <span class="integrity-val">true</span>
+            <span class="integrity-note">All email addresses scrubbed before export</span>
+          </div>
+          <div class="integrity-tile">
+            <span class="integrity-key">secrets_stripped</span>
+            <span class="integrity-val">true</span>
+            <span class="integrity-note">PEM, Bearer, <code>ghp_</code>, <code>AKIA</code>, <code>sk-</code>, <code>AIza</code>, <code>xox*</code></span>
+          </div>
+          <div class="integrity-tile">
+            <span class="integrity-key">home_paths_anonymized</span>
+            <span class="integrity-val">true</span>
+            <span class="integrity-note">Home directories and private repo names SHA-256 masked</span>
+          </div>
+          <div class="integrity-tile">
+            <span class="integrity-key">leak_checks_passed</span>
+            <span class="integrity-val">true</span>
+            <span class="integrity-note">Verified by <code>_assert_no_leaks()</code> at export</span>
+          </div>
+        </div>
+
+        <h3 style="margin-block-start: 2rem; margin-block-end: 0.75rem;">Bundle SHA-256 verification ledger</h3>
+        <div class="table-card-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Bundle file</th>
+                <th scope="col">Size (bytes)</th>
+                <th scope="col">SHA-256 digest</th>
+              </tr>
+            </thead>
+            <tbody id="manifest-bundles-tbody">
+              <tr>
+                <td data-label="Bundle file"><code>overview.json</code></td>
+                <td data-label="Size (bytes)">2,531</td>
+                <td data-label="SHA-256 digest"><code class="hash-code">e3e217c8e6cdec030f462782afcb65cec87f649fec531f7630ec78fdbb0541e2</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="era-progression" class="page-section page-section--tint telemetry-band telemetry-band--tint" aria-labelledby="era-heading">
+      <div class="container">
+        <div class="chart-frame">
+          <div class="chart-header">
+            <div>
+              <h2 id="era-heading">Longitudinal era progression and controlled comparison</h2>
+              <p>Tracks harness impact across 12 release eras from Pre-Harness baseline through v1.0.0 HEAD. Subtle vertical volume bars show session count per era so low-N cohorts remain transparent.</p>
+            </div>
+            <div class="control-bar">
+              <label class="control-field" for="era-metric-select">
+                <span>Metric</span>
+                <select id="era-metric-select">
+                  <option value="interventions_per_100_steps">Interventions / 100 steps</option>
+                  <option value="errors_per_1k_calls">Errors / 1k tool calls</option>
+                  <option value="loop_candidates_per_1k_calls">Loop candidates / 1k calls</option>
+                  <option value="compaction_savings_2kb_pct">2KB compaction savings (%)</option>
+                </select>
+              </label>
+              <label class="control-field" for="era-cohort-select">
+                <span>Cohort</span>
+                <select id="era-cohort-select">
+                  <option value="all">All 3,856 sessions</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="chart-canvas-wrap">
+            <svg id="era-chart-svg" class="chart-svg" viewBox="0 0 960 360" role="img" aria-label="Longitudinal era progression line and session volume chart"></svg>
+          </div>
+
+          <div id="era-chart-readout" class="chart-readout" aria-live="polite">
+            Focus or hover any era node to inspect exact session count, step volume, error rate, and intervention rate.
+          </div>
+
+          <ul class="chart-legend" aria-hidden="true">
+            <li><span class="legend-swatch" style="background-color: var(--chart-line);"></span> Selected metric trajectory</li>
+            <li><span class="legend-swatch" style="background-color: var(--chart-bar-strong);"></span> Era session volume (N)</li>
+          </ul>
+
+          <details class="sr-table-toggle">
+            <summary>Inspect accessible era progression table</summary>
+            <div class="table-card-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Era</th>
+                    <th scope="col">Sessions</th>
+                    <th scope="col">Steps</th>
+                    <th scope="col">Errors / 1k</th>
+                    <th scope="col">Interventions / 100</th>
+                    <th scope="col">Loops / 1k</th>
+                    <th scope="col">2KB savings</th>
+                  </tr>
+                </thead>
+                <tbody id="era-table-tbody"></tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="model-reliability" class="page-section telemetry-band" aria-labelledby="model-heading">
+      <div class="container">
+        <div class="chart-frame">
+          <div class="chart-header">
+            <div>
+              <h2 id="model-heading">Model and reasoning-tier reliability matrix</h2>
+              <p>Compares attributed reasoning tiers across tool error rate, per-call reliability, step horizon, and deliberation depth. Unattributed legacy buckets remain isolated off by default.</p>
+            </div>
+            <div class="control-bar">
+              <label class="control-field" for="model-metric-select">
+                <span>Ranking metric</span>
+                <select id="model-metric-select">
+                  <option value="tool_error_rate_pct">Tool error rate % (and per-call reliability)</option>
+                  <option value="average_steps">Average steps per session</option>
+                  <option value="average_thinking_tokens">Average thinking tokens</option>
+                </select>
+              </label>
+              <label class="control-checkbox" for="include-legacy-toggle">
+                <input type="checkbox" id="include-legacy-toggle">
+                <span id="legacy-toggle-label">Include unattributed legacy buckets (unattributed_legacy: 624, unknown: 10)</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="methodology-note">
+            <strong>Metric honesty note on <code>accuracy_percent</code>:</strong> In <code>models.json</code>, <code>accuracy_percent</code> measures strict zero-error sessions (0 tool errors across an entire run), not task pass rate. Deep frontier runs such as <code>gemini-4-neon</code> (7 sessions, 399.4 average steps, 76,604 average thinking tokens) execute hundreds of shell probes and record 0.0% zero-error runs while sustaining a 4.12% tool error rate (95.88% per-call reliability).
+          </div>
+
+          <div class="chart-canvas-wrap">
+            <svg id="model-chart-svg" class="chart-svg" viewBox="0 0 960 460" role="img" aria-label="Model and reasoning-tier horizontal comparison chart"></svg>
+          </div>
+
+          <div id="model-chart-readout" class="chart-readout" aria-live="polite">
+            Focus or hover any model bar to inspect tool error rate, per-call reliability, zero-error session rate, average steps, and thinking tokens.
+          </div>
+
+          <ul class="chart-legend" aria-hidden="true">
+            <li><span class="legend-swatch" style="background-color: var(--accent);"></span> Attributed empirical tier</li>
+            <li><span class="legend-swatch" style="background-color: var(--semantic-warn);"></span> Isolated unattributed legacy bucket (when enabled)</li>
+          </ul>
+
+          <details class="sr-table-toggle">
+            <summary>Inspect accessible model and reasoning-tier table</summary>
+            <div class="table-card-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Tier</th>
+                    <th scope="col">Attribution</th>
+                    <th scope="col">Sessions</th>
+                    <th scope="col">Tool error rate</th>
+                    <th scope="col">Per-call reliability</th>
+                    <th scope="col">Zero-error sessions</th>
+                    <th scope="col">Avg steps</th>
+                    <th scope="col">Avg thinking tokens</th>
+                  </tr>
+                </thead>
+                <tbody id="model-table-tbody"></tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="compactor-simulator" class="page-section page-section--tint telemetry-band telemetry-band--tint" aria-labelledby="compactor-heading">
+      <div class="container">
+        <div class="chart-frame">
+          <div class="chart-header">
+            <div>
+              <h2 id="compactor-heading">Output volume and compactor cap simulator</h2>
+              <p>Simulates PostToolUse truncation across 190,708,985 recorded output tokens while preserving 100% of non-zero command diagnostics and tracebacks.</p>
+            </div>
+            <div class="control-bar">
+              <div id="compactor-cap-controls" class="segmented-group" role="radiogroup" aria-label="Compactor threshold cap"></div>
+            </div>
+          </div>
+
+          <div class="compactor-kpi-grid" aria-live="polite">
+            <div class="compactor-kpi-box">
+              <span class="compactor-kpi-val" id="sim-pct-reduction">58.30%</span>
+              <span class="compactor-kpi-lbl">Output volume reduction</span>
+            </div>
+            <div class="compactor-kpi-box">
+              <span class="compactor-kpi-val" id="sim-saved-tokens">111.18M</span>
+              <span class="compactor-kpi-lbl">Estimated tokens saved</span>
+            </div>
+            <div class="compactor-kpi-box">
+              <span class="compactor-kpi-val" id="sim-impacted-calls">110,005</span>
+              <span class="compactor-kpi-lbl">Compacted tool calls</span>
+            </div>
+            <div class="compactor-kpi-box">
+              <span class="compactor-kpi-val compactor-kpi-val--pass" id="sim-violations">0</span>
+              <span class="compactor-kpi-lbl" id="sim-failures-preserved">Failure violations (2,173 preserved)</span>
+            </div>
+          </div>
+
+          <div class="split-grid">
+            <div>
+              <h3 style="margin-block-end: 0.5rem;">Savings curve across cap thresholds</h3>
+              <div class="chart-canvas-wrap">
+                <svg id="compactor-chart-svg" class="chart-svg" viewBox="0 0 540 280" role="img" aria-label="Compactor threshold reduction comparison chart"></svg>
+              </div>
+            </div>
+            <div>
+              <h3 style="margin-block-end: 0.5rem;">Output size distribution by tool (top 8 tools)</h3>
+              <div class="chart-canvas-wrap">
+                <svg id="tool-dist-svg" class="chart-svg" viewBox="0 0 540 280" role="img" aria-label="Stacked horizontal bar chart of tool output size buckets"></svg>
+              </div>
+              <ul class="chart-legend" aria-hidden="true" style="margin-block-start: 0.5rem;">
+                <li><span class="legend-swatch" style="background-color: var(--semantic-pass);"></span> &lt;500B</li>
+                <li><span class="legend-swatch" style="background-color: var(--cyan);"></span> 500B-2KB</li>
+                <li><span class="legend-swatch" style="background-color: var(--accent);"></span> 2KB-10KB</li>
+                <li><span class="legend-swatch" style="background-color: var(--semantic-warn);"></span> 10KB-50KB</li>
+                <li><span class="legend-swatch" style="background-color: var(--semantic-fail);"></span> &gt;50KB</li>
+              </ul>
+            </div>
+          </div>
+
+          <div id="compactor-chart-readout" class="chart-readout" aria-live="polite">
+            Select a threshold cap or focus a tool distribution bar to inspect exact call counts and character savings.
+          </div>
+
+          <h3 style="margin-block-start: 1.5rem;">Exit code 1 root-cause breakdown (6,351 command exits)</h3>
+          <div class="exit1-grid" id="exit1-breakdown-grid">
+            <div class="exit1-card">
+              <div class="exit1-num">1,277 (20.11%)</div>
+              <div class="exit1-desc">Benign <code>grep</code> / <code>diff</code> empty-match exits</div>
+            </div>
+            <div class="exit1-card">
+              <div class="exit1-num">872 (13.73%)</div>
+              <div class="exit1-desc">Python runtime tracebacks</div>
+            </div>
+            <div class="exit1-card">
+              <div class="exit1-num">180 (2.83%)</div>
+              <div class="exit1-desc">Python syntax errors (27 f-string backslashes)</div>
+            </div>
+            <div class="exit1-card">
+              <div class="exit1-num">4,022 (63.33%)</div>
+              <div class="exit1-desc">Other CLI verification and build exits</div>
+            </div>
+          </div>
+
+          <details class="sr-table-toggle">
+            <summary>Inspect accessible compactor threshold and tool distribution tables</summary>
+            <div class="table-card-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Threshold</th>
+                    <th scope="col">Impacted calls</th>
+                    <th scope="col">Saved tokens</th>
+                    <th scope="col">Volume reduction</th>
+                    <th scope="col">Failures preserved</th>
+                    <th scope="col">Violations</th>
+                  </tr>
+                </thead>
+                <tbody id="compactor-table-tbody"></tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="titan-dissection" class="page-section telemetry-band" aria-labelledby="titan-heading">
+      <div class="container">
+        <div class="chart-frame">
+          <div class="chart-header">
+            <div>
+              <h2 id="titan-heading">Titan trajectory dissection and context saturation</h2>
+              <p>92 Titan sessions (at least 1,000 steps each) represent 2.4% of runs yet consume 31.9% of all recorded steps (236,861 steps) and 32.7% of all tool calls.</p>
+            </div>
+          </div>
+
+          <div class="archetype-bar" id="titan-archetype-bar" role="img" aria-label="Titan session archetype split: 29 survivors, 22 breakthroughs, 41 thrashing traps">
+            <div class="archetype-seg archetype-seg--survivor" style="width: 31.5%;" title="Survivor: 29" aria-label="Survivor: 29"><span class="archetype-seg-label">Survivor:</span><span class="archetype-seg-count">29</span></div>
+            <div class="archetype-seg archetype-seg--breakthrough" style="width: 23.9%;" title="Breakthrough: 22" aria-label="Breakthrough: 22"><span class="archetype-seg-label">Breakthrough:</span><span class="archetype-seg-count">22</span></div>
+            <div class="archetype-seg archetype-seg--trap" style="width: 44.6%;" title="Thrashing trap: 41" aria-label="Thrashing trap: 41"><span class="archetype-seg-label">Thrashing trap:</span><span class="archetype-seg-count">41</span></div>
+          </div>
+
+          <ul class="chart-legend" id="titan-archetype-legend" style="margin-block-end: 1.5rem;">
+            <li><span class="legend-swatch" style="background-color: var(--semantic-pass);"></span> Survivor: 29 (TYPE_A_SURVIVOR)</li>
+            <li><span class="legend-swatch" style="background-color: var(--cyan);"></span> Breakthrough: 22 (TYPE_B_SYSTEMS_BREAKTHROUGH)</li>
+            <li><span class="legend-swatch" style="background-color: var(--semantic-fail);"></span> Thrashing trap: 41 (TYPE_C_THRASHING_TRAP)</li>
+          </ul>
+
+          <h3 style="margin-block-end: 0.5rem;">Context token saturation vs failure amplification</h3>
+          <p id="context-dynamics-note" style="margin-block-end: 0.75rem;">Across 171,127,860 estimated tokens (808 protobuf-instrumented sessions), 112,762 steps exceed 2KB (59.33% potential token savings). Error rates climb 17.6x and interventions climb 9.9x from under-20k runs to 200k+ runs.</p>
+
+          <div class="chart-canvas-wrap">
+            <svg id="saturation-chart-svg" class="chart-svg" viewBox="0 0 960 300" role="img" aria-label="Context token saturation histogram showing session count, average errors, and average interventions per token bucket"></svg>
+          </div>
+
+          <div id="saturation-chart-readout" class="chart-readout" aria-live="polite">
+            Focus or hover any saturation bucket to inspect session volume, average steps, average errors, and average interventions.
+          </div>
+
+          <details class="sr-table-toggle" style="margin-block-end: 1.75rem;">
+            <summary>Inspect accessible token saturation bucket table</summary>
+            <div class="table-card-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Token bucket</th>
+                    <th scope="col">Sessions</th>
+                    <th scope="col">Avg steps</th>
+                    <th scope="col">Avg errors</th>
+                    <th scope="col">Avg interventions</th>
+                    <th scope="col">Avg tokens</th>
+                  </tr>
+                </thead>
+                <tbody id="saturation-table-tbody"></tbody>
+              </table>
+            </div>
+          </details>
+
+          <div class="chart-header" style="margin-block-start: 1.5rem;">
+            <div>
+              <h3>Titan session inspector (92 deep trajectories)</h3>
+              <p class="table-caption-meta" id="titan-filter-count">Showing 92 of 92 Titan sessions</p>
+            </div>
+            <div class="control-bar">
+              <label class="control-field" for="titan-search-input">
+                <span>Search</span>
+                <input type="search" id="titan-search-input" placeholder="Session ID or workspace">
+              </label>
+              <label class="control-field" for="titan-archetype-select">
+                <span>Archetype</span>
+                <select id="titan-archetype-select">
+                  <option value="all">All archetypes (92)</option>
+                  <option value="TYPE_A_SURVIVOR">Survivor (29)</option>
+                  <option value="TYPE_B_SYSTEMS_BREAKTHROUGH">Systems breakthrough (22)</option>
+                  <option value="TYPE_C_THRASHING_TRAP">Thrashing trap (41)</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="table-card-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Session</th>
+                  <th scope="col">Archetype</th>
+                  <th scope="col">Steps</th>
+                  <th scope="col">Tool calls</th>
+                  <th scope="col">Error rate</th>
+                  <th scope="col">Interventions / 100</th>
+                  <th scope="col">Duration (h)</th>
+                  <th scope="col">Workspace</th>
+                  <th scope="col">Date</th>
+                </tr>
+              </thead>
+              <tbody id="titan-sessions-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a href="../" class="brand-link">
+          <img src="../assets/logo.svg" alt="" width="24" height="24">
+          <span class="brand-name">Agyis Harness</span>
+        </a>
+        <p>Copyright (c) 2026 Arafat Zahan (@kuasha420). Corporate Stewardship &amp; Infrastructure: Purrfect Software Limited (PSL), governed by ICARO-42/b Ordinance (Company-Supported Personal IP Framework). Released under Apache License 2.0.</p>
+        <p class="footer-legal">Google Antigravity&trade; is a trademark of Google LLC. Agyis Harness is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Google LLC.</p>
+      </div>
+      <nav aria-label="Footer">
+        <ul class="footer-links">
+          <li><a href="../">Platform</a></li>
+          <li><a href="./" aria-current="page">Telemetry</a></li>
+          <li><a href="../cognitive/">Cognitive</a></li>
+          <li><a href="../hud-re/">HUD &amp; RE</a></li>
+          <li><a href="../brand/">Brand</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness" target="_blank" rel="noopener noreferrer">Repository</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.0" target="_blank" rel="noopener noreferrer">Releases</a></li>
+        </ul>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

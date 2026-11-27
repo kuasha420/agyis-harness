@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.1.0",
+  "generated_at": "2026-11-25T23:22:00Z",
+  "source_db": "telemetry.db",
+  "bundles": {
+    "overview.json": {
+      "bytes": 2531,
+      "sha256": "e3e217c8e6cdec030f462782afcb65cec87f649fec531f7630ec78fdbb0541e2"
+    },
+    "eras.json": {
+      "bytes": 79717,
+      "sha256": "7746fefe48b255de2455b2836bae75def0e80b44c7739ec0d52974ca2c0e3dfa"
+    },
+    "models.json": {
+      "bytes": 33882,
+      "sha256": "6923609510c3a2fb8462c433e6c7cbf7ddb156ae75dbaaa7e9e9bff89e0a14e1"
+    },
+    "fleet_and_team.json": {
+      "bytes": 8204,
+      "sha256": "622f31a3cac118d7c3cd4da82df8db6b24db9f41603e15fe86016e9d76261939"
+    },
+    "deep_metrics.json": {
+      "bytes": 71640,
+      "sha256": "f048362c50934e6c89cf3f4d15933e61cfa4de0adb306e9d77524b964befb5b9"
+    }
+  },
+  "privacy_audit": {
+    "raw_prompts_included": false,
+    "emails_redacted": true,
+    "secrets_stripped": true,
+    "home_paths_anonymized": true,
+    "leak_checks_passed": true
+  }
+}

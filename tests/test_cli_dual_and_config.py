@@ -153,10 +153,17 @@ class TestCliDualExecutionMatrix(unittest.TestCase):
 
     def test_dual_version_invocations(self):
         """Verifies agyis --version is clean, while psl --version emits deprecation warning."""
+        import tomllib
         from harness import __version__
         from harness.cli import PSL_DEPRECATION_WARNING, deprecated_psl_main
 
-        self.assertRegex(__version__, r"^1\.0\.0(?:-rc\d+)?$")
+        repo_root = Path(__file__).resolve().parent.parent
+        pyproject_version = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+        plugin_version = json.loads((repo_root / "plugin.json").read_text(encoding="utf-8"))["version"]
+
+        self.assertRegex(__version__, r"^\d+\.\d+\.\d+(?:-rc\d+)?$")
+        self.assertEqual(__version__, pyproject_version)
+        self.assertEqual(__version__, plugin_version)
 
         # agyis --version
         with patch("sys.stdout", new_callable=io.StringIO) as agyis_out, \
@@ -377,22 +384,22 @@ class TestCliDualExecutionMatrix(unittest.TestCase):
             self.assertIn(PSL_DEPRECATION_WARNING.strip(), psl_err.getvalue())
 
     def test_experimental_rea_flags_parsed(self):
-        """Verifies --experimental-rea flag is accepted on doctor, init, onboard, and install."""
+        """Verifies --rea and deprecated --experimental-rea flags are accepted cleanly on doctor, init, onboard, and install."""
         from harness.cli import build_parser
 
         parser = build_parser()
 
-        args_doc = parser.parse_args(["doctor", "--experimental-rea"])
-        self.assertTrue(args_doc.experimental_rea)
+        for subcmd in ("doctor", "init", "onboard", "install"):
+            with patch("sys.stderr", new_callable=io.StringIO) as err_rea:
+                args_rea = parser.parse_args([subcmd, "--rea"])
+                self.assertTrue(args_rea.rea)
+                self.assertEqual(err_rea.getvalue(), "")
 
-        args_init = parser.parse_args(["init", "--experimental-rea"])
-        self.assertTrue(args_init.experimental_rea)
-
-        args_onb = parser.parse_args(["onboard", "--experimental-rea"])
-        self.assertTrue(args_onb.experimental_rea)
-
-        args_inst = parser.parse_args(["install", "--experimental-rea"])
-        self.assertTrue(args_inst.experimental_rea)
+            with patch("sys.stderr", new_callable=io.StringIO) as err_exp:
+                args_exp = parser.parse_args([subcmd, "--experimental-rea"])
+                self.assertTrue(args_exp.experimental_rea)
+                self.assertTrue(args_exp.rea)
+                self.assertIn("DeprecationWarning", err_exp.getvalue())
 
 
 if __name__ == "__main__":

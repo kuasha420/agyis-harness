@@ -408,18 +408,19 @@ class TestReaToolingDiagnostics(unittest.TestCase):
             "spec": {},
         }
 
-        with patch("subprocess.run", side_effect=mock_run), \
+        with tempfile.TemporaryDirectory() as clean_ws, \
+             patch("subprocess.run", side_effect=mock_run), \
              patch("harness.runtime.doctor.check_tool", return_value=mock_tool), \
              patch("harness.runtime.doctor.check_cli_binary", return_value=mock_cli), \
              patch("harness.runtime.doctor.check_rea_tooling", return_value=mock_rea), \
              patch("harness.runtime.doctor.check_telemetry_daemon", return_value={"status": "OK"}), \
              patch("harness.runtime.doctor.check_database_port_conflicts", return_value={"status": "PASS"}):
-            audit = run_doctor(DEFAULT_MATRIX, experimental_rea=True)
+            audit = run_doctor(DEFAULT_MATRIX, workspace_root=Path(clean_ws), rea=True)
             self.assertEqual(audit["rea_tooling"]["status"], "warning")
             self.assertGreaterEqual(audit["summary"]["warning"], 1)
 
-            # Conversely, when experimental_rea=False, fast-path adds 0 warnings
-            audit_fast = run_doctor(DEFAULT_MATRIX, experimental_rea=False)
+            # Conversely, when rea=False and experimental_rea=False in clean workspace, fast-path adds 0 warnings
+            audit_fast = run_doctor(DEFAULT_MATRIX, workspace_root=Path(clean_ws), experimental_rea=False)
             self.assertEqual(audit_fast["summary"]["warning"], 0)
 
     def test_print_cli_report_rea_formatting_variants(self):

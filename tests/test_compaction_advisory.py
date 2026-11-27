@@ -381,7 +381,7 @@ class TestFailOpenResilienceAndBenchmark(unittest.TestCase):
             self.assertEqual(ret, 0)
             res = json.loads(mock_out.getvalue().strip())
             self.assertEqual(res, {"injectSteps": []})
-            self.assertIn("[PSL PRE-INVOCATION HOOK]", mock_err.getvalue())
+            self.assertIn("[AGYIS PRE-INVOCATION HOOK]", mock_err.getvalue())
 
     def test_sub_millisecond_benchmark(self):
         """Direct execution benchmark: evaluates in < 5.0ms (typically <0.1ms)."""

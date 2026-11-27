@@ -149,7 +149,7 @@ const window = {
     __agyis_hud_state: {
         convoId: "convo-root",
         selectedIndex: 0,
-        activeEpochIndex: 0,
+        activeCheckpointIndex: 0,
         tablePage: 0,
         isMaximized: false,
         filterQuery: "",
@@ -365,9 +365,9 @@ class TestPhase2HudUiAndContextBar(unittest.TestCase):
             model: "default",
             total_tokens: 95000,
             token_breakdown: {{ system_prompt: 20000, user: 75000 }},
-            epochs: [{{ start_index: 0, end_index: 0, total_tokens: 95000, token_breakdown: {{ system_prompt: 20000, user: 75000 }} }}]
+            checkpoints: [{{ start_index: 0, end_index: 0, total_tokens: 95000, token_breakdown: {{ system_prompt: 20000, user: 75000 }} }}]
         }};
-        const html = window.renderContextBar(cur, {{ activeEpochIndex: 0 }}, [], cur.epochs[0], [], 256000, 800);
+        const html = window.renderContextBar(cur, {{ activeCheckpointIndex: 0 }}, [], cur.checkpoints[0], [], 256000, 800);
         const rowWraps = (html.match(/agyis-context-row-wrap/g) || []).length;
         console.log(JSON.stringify({{ rowWraps, hasTitle: html.includes("Context Window (2 rows)") }}));
         """)
@@ -391,9 +391,9 @@ class TestPhase2HudUiAndContextBar(unittest.TestCase):
         const cur = {{
             total_tokens: 100000,
             token_breakdown: {{ system_prompt: 40000, tool_defs: 40000 }},
-            epochs: [{{ start_index: 0, end_index: 0, total_tokens: 100000 }}]
+            checkpoints: [{{ start_index: 0, end_index: 0, total_tokens: 100000 }}]
         }};
-        const html = window.renderContextBar(cur, {{ activeEpochIndex: 0 }}, [], cur.epochs[0], [], 256000, 800);
+        const html = window.renderContextBar(cur, {{ activeCheckpointIndex: 0 }}, [], cur.checkpoints[0], [], 256000, 800);
         const btnMatches = [...html.matchAll(/<button[^>]*data-seg-id="([^"]+)"[^>]*data-seg-tokens="(\\d+)"[^>]*width:\\s*([\\d.]+)%/gs)];
         const widths = {{}};
         const tokens = {{}};
@@ -407,25 +407,52 @@ class TestPhase2HudUiAndContextBar(unittest.TestCase):
         self.assertAlmostEqual(res["widths"].get("prompt-section-root"), 78.125, places=3)
         self.assertAlmostEqual(res["widths"].get("tool-defs-root"), 78.125, places=3)
 
-    def test_t1_f04_05_over_capacity_indicator(self) -> None:
-        """F04.05: Real renderContextBar emits 'over' capacity indicator when active tokens exceed max_context."""
+    def test_t1_f04_05_over_capacity_and_checkpoint_nav_interactions(self) -> None:
+        """F04.05+: Real renderContextBar emits 'over' badge and bindContextBarEvents passes preserveCheckpoint on Prev/Next/segment click."""
         ctx_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_context_bar.js")))
+        utils_js = json.dumps(str(importlib.resources.files("harness.gui.assets").joinpath("hud_utils.js")))
         res = self._run_node(f"""
         const fs = require('fs');
+        eval(fs.readFileSync({utils_js}, 'utf8'));
         eval(fs.readFileSync({ctx_js}, 'utf8'));
         const cur = {{
             total_tokens: 260000,
             token_breakdown: {{ system_prompt: 60000, user: 200000 }},
-            epochs: [{{ start_index: 0, end_index: 0, total_tokens: 260000 }}]
+            checkpoints: [
+                {{ checkpoint_index: 0, start_index: 0, end_index: 3, total_tokens: 40000 }},
+                {{ checkpoint_index: 1, start_index: 4, end_index: 7, total_tokens: 260000 }}
+            ]
         }};
-        const html = window.renderContextBar(cur, {{ activeEpochIndex: 0 }}, [], cur.epochs[0], [], 256000, 800);
+        const html = window.renderContextBar(cur, {{ activeCheckpointIndex: 1 }}, [], cur.checkpoints[1], [], 256000, 800);
+        const st = {{ activeCheckpointIndex: 0, selectedIndex: 0 }};
+        const calls = [];
+        const prevBtn = makeElement("button"); prevBtn.id = "agyis-checkpoint-prev";
+        const nextBtn = makeElement("button"); nextBtn.id = "agyis-checkpoint-next";
+        const segEl = makeElement("button"); segEl.classList.add("agyis-context-segment");
+        segEl.setAttribute("data-step-index", "4");
+        hudRoot.appendChild(prevBtn);
+        hudRoot.appendChild(nextBtn);
+        hudRoot.appendChild(segEl);
+        const selectCb = (sIdx, opts) => calls.push({{ sIdx, opts, activeCp: st.activeCheckpointIndex }});
+        window.bindContextBarEvents(hudRoot, st, cur, cur.checkpoints, () => {{}}, selectCb);
+        nextBtn.dispatchEvent({{ type: "click" }});
+        prevBtn.dispatchEvent({{ type: "click" }});
+        segEl.dispatchEvent({{ type: "click" }});
         console.log(JSON.stringify({{
             hasOver: html.includes("100.0% over"),
-            hasTotal: html.includes("260,000")
+            hasTotal: html.includes("260,000"),
+            hasCheckpointLabel: html.includes("Checkpoint 2 of 2 (Steps #4-#7)"),
+            calls
         }}));
         """)
         self.assertTrue(res["hasOver"])
         self.assertTrue(res["hasTotal"])
+        self.assertTrue(res["hasCheckpointLabel"])
+        self.assertEqual(res["calls"], [
+            {"sIdx": 4, "opts": {"preserveCheckpoint": True}, "activeCp": 1},
+            {"sIdx": 0, "opts": {"preserveCheckpoint": True}, "activeCp": 0},
+            {"sIdx": 4, "opts": {"preserveCheckpoint": True}, "activeCp": 0},
+        ])
 
     # --- T2 B01: Real XSS escaping & trajectory path safety ---
 

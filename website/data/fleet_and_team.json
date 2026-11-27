@@ -1,0 +1,319 @@
+{
+  "generated_at": "2026-11-25T23:22:00Z",
+  "date_range": {
+    "min_utc": "2026-05-24T20:06:25Z",
+    "max_utc": "2026-11-25T23:14:25Z"
+  },
+  "client_surfaces": {
+    "ide": {
+      "sessions": 3552,
+      "steps": 736124,
+      "tool_calls": 403096,
+      "tool_errors": 13012,
+      "interventions": 6992
+    },
+    "cli": {
+      "sessions": 304,
+      "steps": 6149,
+      "tool_calls": 2570,
+      "tool_errors": 116,
+      "interventions": 64
+    }
+  },
+  "source_kinds": {
+    "transcript": 879,
+    "sqlite_db": 2088,
+    "transcript_full": 889
+  },
+  "developers": {
+    "kuasha420": {
+      "sessions": 1280,
+      "steps": 328540,
+      "tool_calls": 166358,
+      "tool_errors": 4914,
+      "interventions": 3050
+    },
+    "local": {
+      "sessions": 2180,
+      "steps": 315493,
+      "tool_calls": 196702,
+      "tool_errors": 6415,
+      "interventions": 1517
+    },
+    "contributor-b7b2be88": {
+      "sessions": 396,
+      "steps": 98240,
+      "tool_calls": 42606,
+      "tool_errors": 1799,
+      "interventions": 2489
+    }
+  },
+  "machine_count": 1,
+  "machines": {
+    "node-69e9e817": 2261
+  },
+  "workspaces": {
+    "local_workspace_count": 28,
+    "redacted_remote_summary": {
+      "workspace_entries": 12,
+      "session_count": 729,
+      "developers": [
+        "contributor-b7b2be88",
+        "kuasha420"
+      ]
+    },
+    "unattributed_uuid_workspaces_count": 25,
+    "top_local_repositories": [
+      {
+        "repo_name": "workspace-3a2ce6",
+        "sessions": 184,
+        "avg_steps": 232.8,
+        "error_rate_pct": 3.2,
+        "interventions_per_session": 1.3,
+        "autonomous_pct": 73.9,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "agyis-harness",
+        "sessions": 162,
+        "avg_steps": 213.6,
+        "error_rate_pct": 3.49,
+        "interventions_per_session": 1.09,
+        "autonomous_pct": 43.2,
+        "rule_file_count": 2,
+        "skill_count": 60
+      },
+      {
+        "repo_name": "workspace-ebd55a",
+        "sessions": 84,
+        "avg_steps": 119.6,
+        "error_rate_pct": 5.1,
+        "interventions_per_session": 0.0,
+        "autonomous_pct": 45.2,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-07d2c3",
+        "sessions": 83,
+        "avg_steps": 252.7,
+        "error_rate_pct": 4.11,
+        "interventions_per_session": 1.63,
+        "autonomous_pct": 39.8,
+        "rule_file_count": 1,
+        "skill_count": 1
+      },
+      {
+        "repo_name": "psl-agy-harness",
+        "sessions": 74,
+        "avg_steps": 175.6,
+        "error_rate_pct": 3.03,
+        "interventions_per_session": 1.47,
+        "autonomous_pct": 66.2,
+        "rule_file_count": 2,
+        "skill_count": 60
+      },
+      {
+        "repo_name": "psl-agy-harness",
+        "sessions": 71,
+        "avg_steps": 148.8,
+        "error_rate_pct": 2.9,
+        "interventions_per_session": 0.38,
+        "autonomous_pct": 52.1,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-dd767a",
+        "sessions": 45,
+        "avg_steps": 163.7,
+        "error_rate_pct": 4.06,
+        "interventions_per_session": 0.53,
+        "autonomous_pct": 55.6,
+        "rule_file_count": 1,
+        "skill_count": 7
+      },
+      {
+        "repo_name": "workspace-094829",
+        "sessions": 39,
+        "avg_steps": 251.3,
+        "error_rate_pct": 3.22,
+        "interventions_per_session": 2.92,
+        "autonomous_pct": 56.4,
+        "rule_file_count": 1,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-dffb4a",
+        "sessions": 23,
+        "avg_steps": 227.8,
+        "error_rate_pct": 3.91,
+        "interventions_per_session": 1.0,
+        "autonomous_pct": 34.8,
+        "rule_file_count": 2,
+        "skill_count": 2
+      },
+      {
+        "repo_name": "workspace-f4f07c",
+        "sessions": 23,
+        "avg_steps": 309.1,
+        "error_rate_pct": 1.98,
+        "interventions_per_session": 1.04,
+        "autonomous_pct": 52.2,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-9495fe",
+        "sessions": 22,
+        "avg_steps": 204.5,
+        "error_rate_pct": 4.08,
+        "interventions_per_session": 0.0,
+        "autonomous_pct": 36.4,
+        "rule_file_count": 11,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-23def8",
+        "sessions": 15,
+        "avg_steps": 124.9,
+        "error_rate_pct": 5.27,
+        "interventions_per_session": 0.07,
+        "autonomous_pct": 40.0,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-c4e700",
+        "sessions": 7,
+        "avg_steps": 105.0,
+        "error_rate_pct": 2.64,
+        "interventions_per_session": 0.0,
+        "autonomous_pct": 71.4,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-d1b638",
+        "sessions": 4,
+        "avg_steps": 116.5,
+        "error_rate_pct": 6.67,
+        "interventions_per_session": 0.5,
+        "autonomous_pct": 25.0,
+        "rule_file_count": 1,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-9075bb",
+        "sessions": 3,
+        "avg_steps": 90.0,
+        "error_rate_pct": 6.88,
+        "interventions_per_session": 0.33,
+        "autonomous_pct": 0.0,
+        "rule_file_count": 6,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-c72266",
+        "sessions": 3,
+        "avg_steps": 112.0,
+        "error_rate_pct": 1.33,
+        "interventions_per_session": 0.67,
+        "autonomous_pct": 66.7,
+        "rule_file_count": 1,
+        "skill_count": 6
+      },
+      {
+        "repo_name": "workspace-4aa521",
+        "sessions": 3,
+        "avg_steps": 78.0,
+        "error_rate_pct": 0.93,
+        "interventions_per_session": 0.0,
+        "autonomous_pct": 100.0,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-dd789f",
+        "sessions": 2,
+        "avg_steps": 22.0,
+        "error_rate_pct": 0.0,
+        "interventions_per_session": 0.5,
+        "autonomous_pct": 0.0,
+        "rule_file_count": 8,
+        "skill_count": 17
+      },
+      {
+        "repo_name": "workspace-df589c",
+        "sessions": 2,
+        "avg_steps": 54.0,
+        "error_rate_pct": 5.45,
+        "interventions_per_session": 0.0,
+        "autonomous_pct": 50.0,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-2a43d9",
+        "sessions": 2,
+        "avg_steps": 157.0,
+        "error_rate_pct": 4.2,
+        "interventions_per_session": 0.0,
+        "autonomous_pct": 50.0,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-4eae0e",
+        "sessions": 1,
+        "avg_steps": 278.0,
+        "error_rate_pct": 0.0,
+        "interventions_per_session": 21.0,
+        "autonomous_pct": 0.0,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-dfb101",
+        "sessions": 1,
+        "avg_steps": 304.0,
+        "error_rate_pct": 4.92,
+        "interventions_per_session": 0.0,
+        "autonomous_pct": 0.0,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-3ac376",
+        "sessions": 1,
+        "avg_steps": 239.0,
+        "error_rate_pct": 2.17,
+        "interventions_per_session": 6.0,
+        "autonomous_pct": 0.0,
+        "rule_file_count": 0,
+        "skill_count": 0
+      },
+      {
+        "repo_name": "workspace-a1dc94",
+        "sessions": 1,
+        "avg_steps": 204.0,
+        "error_rate_pct": 9.09,
+        "interventions_per_session": 0.0,
+        "autonomous_pct": 0.0,
+        "rule_file_count": 1,
+        "skill_count": 4
+      },
+      {
+        "repo_name": "workspace-71373e",
+        "sessions": 1,
+        "avg_steps": 126.0,
+        "error_rate_pct": 32.99,
+        "interventions_per_session": 0.0,
+        "autonomous_pct": 0.0,
+        "rule_file_count": 0,
+        "skill_count": 0
+      }
+    ]
+  }
+}

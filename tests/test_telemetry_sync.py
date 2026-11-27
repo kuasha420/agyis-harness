@@ -647,9 +647,11 @@ class TestSyncPush(unittest.TestCase):
             self.assertEqual(req.get_header("Authorization"), "Bearer test-bearer-token")
             self.assertEqual(req.get_header("Content-type"), "application/json")
 
+            from harness import __version__
+
             # Parse sent payload and verify redaction
             payload = json.loads(req.data.decode("utf-8"))
-            self.assertEqual(payload["client_version"], "1.0.0")
+            self.assertEqual(payload["client_version"], __version__)
 
             # 1. Sessions: paths anonymized
             p_sess = payload["sessions"][0]

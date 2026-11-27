@@ -454,7 +454,7 @@ class TestDeliveryWorkspaceInit(unittest.TestCase):
         self.assertTrue((ws / "AGENTS.md").is_file())
 
         content = (ws / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("# 🧪 Project Verification & Native Toolchain", content)
+        self.assertIn("# ◆ Project Verification & Native Toolchain", content)
         self.assertIn("npm test", content)
         self.assertIn("<!-- Added by AGYIS-HARNESS -->", content)
 

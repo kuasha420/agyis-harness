@@ -25,6 +25,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -553,6 +555,126 @@ class TestDeliverySurfacesAndLaunchers(unittest.TestCase):
         self.assertEqual(rc, 0)
         mock_ext.assert_not_called()
         mock_doc.assert_called_once()
+
+    def test_launcher_prefers_cwd_checkout_and_cwd_venv_over_installed_paths(self) -> None:
+        """Generated bin launcher puts CWD checkout at sys.path[0] and prefers CWD .venv python (Issue #120)."""
+        from harness.delivery.bin_launcher import _build_launcher_content
+
+        def _make_repo(root: Path, origin_tag: str) -> None:
+            root.mkdir(parents=True, exist_ok=True)
+            (root / "pyproject.toml").write_text('[project]\nname = "agyis-harness"\n', encoding="utf-8")
+            (root / "tests").mkdir(parents=True, exist_ok=True)
+            (root / "harness").mkdir(parents=True, exist_ok=True)
+            (root / "harness" / "__init__.py").write_text("", encoding="utf-8")
+            (root / "harness" / "cli.py").write_text(
+                "import json, os, sys\n"
+                "def main():\n"
+                f"    print(json.dumps({{'origin': {origin_tag!r}, 'sys_path_0': sys.path[0], 'venv_flag': os.environ.get('CWD_VENV_RAN', '')}}))\n"
+                "    return 0\n",
+                encoding="utf-8",
+            )
+
+        fake_home = self.isolated_base / "home"
+        plugin_dir = fake_home / ".gemini" / "config" / "plugins" / "agyis-harness"
+        target_dir = self.isolated_base / "target_dir"
+        source_dir = self.isolated_base / "installed_source"
+        cwd_repo = self.isolated_base / "cwd_checkout"
+        unrelated_dir = self.isolated_base / "unrelated_dir"
+        unrelated_dir.mkdir(parents=True)
+
+        _make_repo(plugin_dir, "plugin_dir")
+        _make_repo(target_dir, "target_dir")
+        _make_repo(source_dir, "source_dir")
+        _make_repo(cwd_repo, "cwd_repo")
+
+        # Install executable .venv/bin/python shims in both source_dir and cwd_repo
+        for repo_root, env_key in ((source_dir, "SRC_VENV_RAN"), (cwd_repo, "CWD_VENV_RAN")):
+            venv_py = repo_root / ".venv" / "bin" / "python"
+            venv_py.parent.mkdir(parents=True, exist_ok=True)
+            venv_py.write_text(
+                f"#!/bin/sh\nexport {env_key}=1\nexec {sys.executable!r} \"$@\"\n",
+                encoding="utf-8",
+            )
+            venv_py.chmod(0o755)
+
+        launcher_src = self.bin_dir / "agyis_source_mode"
+        self.bin_dir.mkdir(parents=True, exist_ok=True)
+        launcher_src.write_text(
+            _build_launcher_content(
+                str(target_dir.resolve()),
+                str(source_dir.resolve()),
+                entrypoint_func="main",
+                python_executable=None,
+            ),
+            encoding="utf-8",
+        )
+        launcher_src.chmod(0o755)
+
+        clean_env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "_AGYIS_LAUNCHER_REEXEC")}
+        clean_env["HOME"] = str(fake_home)
+
+        # 1. From CWD checkout root: CWD checkout wins sys.path[0] & CWD .venv/bin/python runs
+        run_cwd = subprocess.run(
+            [sys.executable, str(launcher_src)],
+            cwd=str(cwd_repo),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        cwd_payload = json.loads(run_cwd.stdout.strip())
+        self.assertEqual(cwd_payload["origin"], "cwd_repo")
+        self.assertEqual(cwd_payload["sys_path_0"], str(cwd_repo.resolve()))
+        self.assertEqual(cwd_payload["venv_flag"], "1")
+
+        # 2. From CWD checkout subdirectory (tests/): still detects ancestor CWD checkout
+        run_sub = subprocess.run(
+            [sys.executable, str(launcher_src)],
+            cwd=str(cwd_repo / "tests"),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        sub_payload = json.loads(run_sub.stdout.strip())
+        self.assertEqual(sub_payload["origin"], "cwd_repo")
+        self.assertEqual(sub_payload["sys_path_0"], str(cwd_repo.resolve()))
+
+        # 3. From unrelated directory: falls back to source_dir
+        run_other = subprocess.run(
+            [sys.executable, str(launcher_src)],
+            cwd=str(unrelated_dir),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        other_payload = json.loads(run_other.stdout.strip())
+        self.assertEqual(other_payload["origin"], "source_dir")
+
+        # 4. Packaged launcher with explicit python_executable still gives CWD checkout sys.path[0]
+        launcher_pkg = self.bin_dir / "agyis_pkg_mode"
+        launcher_pkg.write_text(
+            _build_launcher_content(
+                str(target_dir.resolve()),
+                str(source_dir.resolve()),
+                entrypoint_func="main",
+                python_executable=sys.executable,
+            ),
+            encoding="utf-8",
+        )
+        launcher_pkg.chmod(0o755)
+        run_pkg = subprocess.run(
+            [str(launcher_pkg)],
+            cwd=str(cwd_repo),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        pkg_payload = json.loads(run_pkg.stdout.strip())
+        self.assertEqual(pkg_payload["origin"], "cwd_repo")
+        self.assertEqual(pkg_payload["sys_path_0"], str(cwd_repo.resolve()))
 
 
 if __name__ == "__main__":

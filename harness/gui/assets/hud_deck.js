@@ -23,9 +23,9 @@
         if (!type) return "agyis-hud-pill-blue";
         if (type === "PLANNER_RESPONSE" || type === "MODEL_OUTPUT") return "agyis-hud-pill-amber";
         if (type === "CHECKPOINT") return "agyis-hud-pill-green";
-        if (type.includes("COMMAND") || type.includes("TOOL") || type.includes("TASK") || type.includes("SEARCH")) return "agyis-hud-pill-teal";
-        if (type.includes("FILE") || type.includes("EDIT") || type.includes("READ") || type.includes("WRITE") || type.includes("REPLACE")) return "agyis-hud-pill-green";
-        if (type === "INVOKE_SUBAGENT" || type.includes("SWARM") || type.includes("BOARD") || type.includes("WORKFLOW") || type.includes("SUBAGENT")) return "agyis-hud-pill-purple";
+        if (/COMMAND|TOOL|TASK|SEARCH|PLAN|FOCUS|STEPS|QUESTION|MCP|MARKETPLACE|PLUGIN/.test(type)) return "agyis-hud-pill-teal";
+        if (/FILE|EDIT|READ|WRITE|REPLACE|RESOURCE/.test(type)) return "agyis-hud-pill-green";
+        if (type === "INVOKE_SUBAGENT" || /SWARM|BOARD|WORKFLOW|SUBAGENT/.test(type)) return "agyis-hud-pill-purple";
         if (type === "SYSTEM") return "agyis-hud-pill-zinc";
         return "agyis-hud-pill-blue";
     }
@@ -33,7 +33,7 @@
     /**
      * Renders the complete Split Deck HTML (main pane, splitter, inspector pane).
      */
-    function renderMainDeck(cur, state, steps, epochs, activeEpoch, epochSteps, filteredIndices, inspectorContentHtml, currentStep, containerWidth) {
+    function renderMainDeck(cur, state, steps, checkpoints, activeCheckpoint, checkpointSteps, filteredIndices, inspectorContentHtml, currentStep, containerWidth) {
         const rawOrientation = state.layoutOrientation || "horizontal";
         const orientation = (rawOrientation === "vertical" || rawOrientation === "stack") ? "vertical" : "horizontal";
         const pageSize = 50;
@@ -72,14 +72,14 @@
                 <div class="agyis-step-grid-row agyis-step-grid-item ${isSelected ? "selected" : ""} ${isHovered ? "context-cell-hovered" : ""}"
                      data-index="${idx}"
                      data-item-key="step-${idx}">
-                    <div style="color: #71717a;">${s.exec_index || 1}</div>
-                    <div style="color: #71717a;">${s.inv_index || 1}</div>
+                    <div style="color: #6E7F9B;">${s.exec_index || 1}</div>
+                    <div style="color: #6E7F9B;">${s.inv_index || 1}</div>
                     <div style="font-weight: 700;">#${s.step_index ?? idx}</div>
                     <div><span class="agyis-hud-pill ${pillClass}">${escapeHtml(type)}</span></div>
-                    <div style="color: #a1a1aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(details || "—")}</div>
+                    <div style="color: #9AA8BE; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(details || "—")}</div>
                     <div><span class="agyis-hud-pill ${statusPillClass}">${escapeHtml(status)}</span></div>
-                    <div style="text-align: right; color: #cbd5e1;">${(s.tokens || 0).toLocaleString()}</div>
-                    <div style="text-align: right; color: #71717a;">${formatBytes(s.size_bytes)}</div>
+                    <div style="text-align: right; color: #F4F6FA;">${(s.tokens || 0).toLocaleString()}</div>
+                    <div style="text-align: right; color: #6E7F9B;">${formatBytes(s.size_bytes)}</div>
                 </div>
             `;
         }).join("");
@@ -95,7 +95,7 @@
             const maxTokens = (cur && cur.max_context_tokens)
                 || (inferCtx ? inferCtx((cur && cur.model) || (state && state.sessionModel)) : 256000);
             const contextBarHtml = typeof global.renderContextBar === "function"
-                ? global.renderContextBar(cur, state, steps, activeEpoch, epochSteps, maxTokens, containerWidth)
+                ? global.renderContextBar(cur, state, steps, activeCheckpoint, checkpointSteps, maxTokens, containerWidth)
                 : "<div style='padding: 20px;'>Context Bar Loading...</div>";
 
             mainPaneBodyHtml = `
@@ -106,12 +106,12 @@
                     <div style="text-align: right;" title="Serialized size of the step as received by this view, which subscribes at FULL verbosity (untruncated). The production UI receives smaller payloads: at PROD_UI verbosity the server strips fields it does not render (raw tool outputs, planner tool calls, thinking signatures, ...).">SIZE</div>
                 </div>
                 <div class="agyis-step-grid-body">
-                    ${gridRowsHtml || "<div style='padding: 20px; text-align: center; color: #71717a;'>No results found</div>"}
+                    ${gridRowsHtml || "<div style='padding: 20px; text-align: center; color: #6E7F9B;'>No results found</div>"}
                 </div>
-                <div class="agyis-step-grid-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #141416; border-top: 1px solid #27272a; font-size: 11px; flex-shrink: 0;">
+                <div class="agyis-step-grid-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #10192B; border-top: 1px solid #1E2C47; font-size: 11px; flex-shrink: 0;">
                     <div style="display: flex; gap: 4px; align-items: center;">
                         <button id="agyis-page-prev" class="agyis-hud-btn" ${state.tablePage <= 0 ? 'disabled style="opacity:0.4; cursor:default;"' : ""} aria-label="Load earlier steps">◀ Prev 50</button>
-                        <span style="font-family: monospace; color: #cbd5e1; padding: 0 6px;">Page ${state.tablePage + 1} of ${totalPages} (${totalFiltered > 0 ? pageStart + 1 : 0}-${pageEnd} of ${totalFiltered})</span>
+                        <span style="font-family: var(--agyis-font-mono, monospace); color: #F4F6FA; padding: 0 6px;">Page ${state.tablePage + 1} of ${totalPages} (${totalFiltered > 0 ? pageStart + 1 : 0}-${pageEnd} of ${totalFiltered})</span>
                         <button id="agyis-page-next" class="agyis-hud-btn" ${state.tablePage >= totalPages - 1 ? 'disabled style="opacity:0.4; cursor:default;"' : ""} aria-label="Load later steps">Next 50 ▶</button>
                     </div>
                     <button id="agyis-page-jump-selected" class="agyis-hud-btn" title="Jump to selected step">Jump to Selected</button>
@@ -127,6 +127,15 @@
             inspectorStyle = `height: ${state.inspectorHeight}px; flex: none;`;
         }
 
+        const hasFilter = Boolean((state.filterQuery || "").trim());
+        const navIndices = hasFilter ? filteredIndices : steps.map((_, i) => i);
+        const navPos = navIndices.indexOf(state.selectedIndex);
+        const canFirst = navIndices.length > 0 && state.selectedIndex !== navIndices[0];
+        const canPrev = navIndices.length > 0 && (navPos > 0 || (navPos === -1 && navIndices.some(idx => idx < state.selectedIndex)));
+        const canNext = navIndices.length > 0 && (navPos !== -1 ? navPos < navIndices.length - 1 : navIndices.some(idx => idx > state.selectedIndex));
+        const canLast = navIndices.length > 0 && state.selectedIndex !== navIndices[navIndices.length - 1];
+        const navCounterLabel = navIndices.length > 0 ? `${navPos >= 0 ? navPos + 1 : "-"} / ${navIndices.length}` : "0 / 0";
+
         return `
             <div id="agyis-hud-deck" class="agyis-hud-main-deck ${orientation}">
                 <div class="agyis-grid-pane">
@@ -141,14 +150,14 @@
                     <div class="agyis-inspector-header">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-weight: 700; font-size: 12px;">Step #${currentStep ? (currentStep.step_index ?? state.selectedIndex) : "-"}</span>
-                            ${currentStep ? `<span class="agyis-hud-pill agyis-hud-pill-amber">${escapeHtml(currentStep.type || "STEP")}</span>` : ""}
+                            ${currentStep ? `<span class="agyis-hud-pill agyis-hud-pill-cobalt">${escapeHtml(currentStep.type || "STEP")}</span>` : ""}
                         </div>
                         <div style="display: flex; gap: 4px; align-items: center;">
-                            <button id="agyis-step-first" class="agyis-hud-btn" ${state.selectedIndex <= 0 ? 'disabled style="opacity:0.4;"' : ""} title="First step">«</button>
-                            <button id="agyis-step-prev" class="agyis-hud-btn" ${state.selectedIndex <= 0 ? 'disabled style="opacity:0.4;"' : ""} title="Previous step">‹</button>
-                            <span style="font-size: 11px; font-family: monospace; padding: 0 4px; color: #a1a1aa;">${steps.length > 0 ? state.selectedIndex + 1 : 0} / ${steps.length}</span>
-                            <button id="agyis-step-next" class="agyis-hud-btn" ${state.selectedIndex >= steps.length - 1 ? 'disabled style="opacity:0.4;"' : ""} title="Next step">›</button>
-                            <button id="agyis-step-last" class="agyis-hud-btn" ${state.selectedIndex >= steps.length - 1 ? 'disabled style="opacity:0.4;"' : ""} title="Last step">»</button>
+                            <button id="agyis-step-first" class="agyis-hud-btn" ${!canFirst ? 'disabled style="opacity:0.4;"' : ""} title="First step">«</button>
+                            <button id="agyis-step-prev" class="agyis-hud-btn" ${!canPrev ? 'disabled style="opacity:0.4;"' : ""} title="Previous step">‹</button>
+                            <span style="font-size: 11px; font-family: var(--agyis-font-mono, monospace); padding: 0 4px; color: #9AA8BE;">${navCounterLabel}</span>
+                            <button id="agyis-step-next" class="agyis-hud-btn" ${!canNext ? 'disabled style="opacity:0.4;"' : ""} title="Next step">›</button>
+                            <button id="agyis-step-last" class="agyis-hud-btn" ${!canLast ? 'disabled style="opacity:0.4;"' : ""} title="Last step">»</button>
                         </div>
                     </div>
                     <div class="agyis-inspector-tabs">
@@ -260,18 +269,31 @@
             });
         });
 
-        // Step arrow navigation
+        // Step arrow navigation (respects active filter when present)
+        const hasFilter = Boolean((state.filterQuery || "").trim());
+        const navIndices = hasFilter ? filteredIndices : steps.map((_, i) => i);
+        const navPos = navIndices.indexOf(state.selectedIndex);
         hudEl.querySelector("#agyis-step-first")?.addEventListener("click", () => {
-            if (steps.length > 0 && selectStepCallback) selectStepCallback(0);
+            if (navIndices.length > 0 && selectStepCallback) selectStepCallback(navIndices[0]);
         });
         hudEl.querySelector("#agyis-step-prev")?.addEventListener("click", () => {
-            if (state.selectedIndex > 0 && selectStepCallback) selectStepCallback(state.selectedIndex - 1);
+            if (!selectStepCallback || navIndices.length === 0) return;
+            if (navPos > 0) selectStepCallback(navIndices[navPos - 1]);
+            else if (navPos === -1) {
+                const prevHits = navIndices.filter(idx => idx < state.selectedIndex);
+                if (prevHits.length > 0) selectStepCallback(prevHits[prevHits.length - 1]);
+            }
         });
         hudEl.querySelector("#agyis-step-next")?.addEventListener("click", () => {
-            if (state.selectedIndex < steps.length - 1 && selectStepCallback) selectStepCallback(state.selectedIndex + 1);
+            if (!selectStepCallback || navIndices.length === 0) return;
+            if (navPos >= 0 && navPos < navIndices.length - 1) selectStepCallback(navIndices[navPos + 1]);
+            else if (navPos === -1) {
+                const nextHit = navIndices.find(idx => idx > state.selectedIndex);
+                if (nextHit !== undefined) selectStepCallback(nextHit);
+            }
         });
         hudEl.querySelector("#agyis-step-last")?.addEventListener("click", () => {
-            if (steps.length > 0 && selectStepCallback) selectStepCallback(steps.length - 1);
+            if (navIndices.length > 0 && selectStepCallback) selectStepCallback(navIndices[navIndices.length - 1]);
         });
 
         // Step grid row clicks & hover
@@ -306,8 +328,12 @@
             if (fIdx >= 0) {
                 state.tablePage = Math.floor(fIdx / pageSize);
                 if (renderCallback) renderCallback();
-                const rowEl = hudEl.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
-                if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                if (typeof _u().scrollSelectedStepIntoView === "function") {
+                    _u().scrollSelectedStepIntoView(hudEl, state, state.selectedIndex);
+                } else {
+                    const rowEl = hudEl.querySelector(`.agyis-step-grid-item[data-index="${state.selectedIndex}"]`);
+                    if (rowEl) rowEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+                }
             }
         });
     }

@@ -45,7 +45,7 @@ class TestCleanHygiene(unittest.TestCase):
         art_dir.mkdir(parents=True, exist_ok=True)
 
         for i in range(10):
-            (art_dir / f"compaction_checkpoint_{100 + i}.md").write_text(f"epoch {i}\n")
+            (art_dir / f"compaction_checkpoint_{100 + i}.md").write_text(f"checkpoint {i}\n")
         (art_dir / "compaction_checkpoint_latest.md").write_text("latest\n")
 
         # Dry run should identify 5 files without unlinking
@@ -321,12 +321,12 @@ class TestCleanCLI(unittest.TestCase):
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
         for i in range(7):
-            (art_dir / f"compaction_checkpoint_{200 + i}.md").write_text(f"epoch {i}\n")
+            (art_dir / f"compaction_checkpoint_{200 + i}.md").write_text(f"checkpoint {i}\n")
 
         ret = cli_main(["clean", "--workspace", str(self.ws)])
         self.assertEqual(ret, 0)
         out = mock_stdout.getvalue()
-        self.assertIn("=== Agyis Hygiene & Workspace Cleanup ===", out)
+        self.assertIn("Agyis Hygiene & Workspace Cleanup", out)
         self.assertIn("Checkpoints: 2 pruned", out)
         self.assertIn("Worktrees:", out)
         self.assertIn("Branches:", out)
@@ -358,7 +358,7 @@ class TestCleanCLI(unittest.TestCase):
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
         for i in range(8):
-            (art_dir / f"compaction_checkpoint_{300 + i}.md").write_text(f"epoch {i}\n")
+            (art_dir / f"compaction_checkpoint_{300 + i}.md").write_text(f"checkpoint {i}\n")
 
         ret = cli_main(["clean", "--checkpoints", "--retention", "3", "--workspace", str(self.ws)])
         self.assertEqual(ret, 0)
@@ -373,7 +373,7 @@ class TestCleanCLI(unittest.TestCase):
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
         for i in range(3):
-            (art_dir / f"compaction_checkpoint_{400 + i}.md").write_text(f"epoch {i}\n", encoding="utf-8")
+            (art_dir / f"compaction_checkpoint_{400 + i}.md").write_text(f"checkpoint {i}\n", encoding="utf-8")
         latest_cp = art_dir / "compaction_checkpoint_latest.md"
         latest_cp.write_text("latest\n", encoding="utf-8")
 
@@ -437,7 +437,7 @@ class TestCleanCLI(unittest.TestCase):
         art_dir = self.ws / ".agents" / "artifacts"
         art_dir.mkdir(parents=True, exist_ok=True)
         for i in range(7):
-            (art_dir / f"compaction_checkpoint_{800 + i}.md").write_text(f"epoch {i}\n", encoding="utf-8")
+            (art_dir / f"compaction_checkpoint_{800 + i}.md").write_text(f"checkpoint {i}\n", encoding="utf-8")
 
         dist_dir = self.ws / "dist"
         dist_dir.mkdir(parents=True, exist_ok=True)
@@ -527,7 +527,7 @@ class TestCleanCLI(unittest.TestCase):
                 self.assertEqual(ret_err_human, 1)
                 self.assertIn("Failed to clean dist/", err_human.getvalue())
                 self.assertIn("Permission denied", err_human.getvalue())
-                self.assertNotIn("✔ Completed", out_err_human.getvalue())
+                self.assertNotIn("● Completed", out_err_human.getvalue())
 
             with patch("sys.stdout", new_callable=io.StringIO) as out_err_json:
                 ret_err_json = cli_main(["clean", "--dist", "--workspace", str(self.ws), "--json"])

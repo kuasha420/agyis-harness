@@ -23,7 +23,7 @@ COMPACTION_THRESHOLD: int = RED_THRESHOLD
 
 SUBAGENT_ELEVATED_PCT: float = 0.65
 SUBAGENT_HIGH_PCT: float = 0.80
-SOFT_EPOCH_STEP_ADVISORY: int = 80
+SOFT_CHECKPOINT_STEP_ADVISORY: int = 80
 
 MAX_SAFE_BURN_RATE_PER_MIN: float = 2000.0
 CRITICAL_BURN_RATE_PER_MIN: float = 4000.0
@@ -38,28 +38,43 @@ _EXACT_ROLE_ALIASES: Dict[str, Tuple[str, ...]] = {
         ROLE_DEEP_EXECUTION, "agyis_builder", "agyis_custodian", "agyis_architect",
         "architect", "implementer", "master_implementer", "executioner", "builder",
         "custodian", "harness_custodian", "git_custodian", "harness_builder",
-        "deep_coding", "deep_coder", "coder", "execution",
+        "deep_coding", "deep_coder", "deepcoder", "coder", "execution", "fixer", "worker",
         "monolithic_swe_pairing", "monolithic", "monolith", "swe_pairing", "pairing", "swe",
     ),
     ROLE_FORENSIC_AUDITOR: (
         ROLE_FORENSIC_AUDITOR, "agyis_reviewer", "agyis_auditor", "agyis_investigator",
         "reviewer", "harness_reviewer", "harness_auditor", "investigator", "detective",
         "forensic", "verifier", "auditor", "hammer", "forensics", "inspector",
+        "challenger", "explorer", "research", "researcher",
     ),
     ROLE_SWARM_ORCHESTRATOR: (
         ROLE_SWARM_ORCHESTRATOR, "orchestrator", "swarm", "mesh_coordinator", "mesh",
     ),
     ROLE_FLIGHT_DIRECTOR: (
         ROLE_FLIGHT_DIRECTOR, "agyis_coordinator", "agyis_planner", "planner",
-        "coordinator", "cockpit_director", "flight", "director", "cockpit", "root",
+        "coordinator", "cockpit_director", "flight", "flight_lead", "director", "cockpit", "root",
     ),
 }
 
 _SUBSTRING_ROLE_TOKENS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
-    (ROLE_DEEP_EXECUTION, ("executioner", "builder", "custodian", "deep_execution", "deep_coding", "monolith", "swe_pairing", "architect")),
-    (ROLE_FORENSIC_AUDITOR, ("hammer", "auditor", "forensic", "reviewer", "investigator", "detective", "verifier")),
+    (
+        ROLE_DEEP_EXECUTION,
+        (
+            "executioner", "builder", "custodian", "deep_execution", "deep_coding",
+            "deepcoder", "monolith", "swe_pairing", "architect",
+            "_fixer", "fixer_", "fixer-", "fix_", "_worker",
+        ),
+    ),
+    (
+        ROLE_FORENSIC_AUDITOR,
+        (
+            "hammer", "auditor", "audit-", "audit_", "forensic", "reviewer",
+            "investigator", "detective", "verifier",
+            "challenger", "explorer", "research", "researcher",
+        ),
+    ),
     (ROLE_SWARM_ORCHESTRATOR, ("orchestrator", "swarm")),
-    (ROLE_FLIGHT_DIRECTOR, ("flight", "cockpit", "planner")),
+    (ROLE_FLIGHT_DIRECTOR, ("flight_director", "flight_lead", "cockpit", "planner")),
 )
 
 
@@ -90,7 +105,7 @@ class SubagentContextStatus:
     latency_ms: float
     parent_conversation_id: Optional[str] = None
     max_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
-    epoch_step_count: int = 0
+    checkpoint_step_count: int = 0
     is_provisional: bool = False
     transcript_path: str = ""
     last_updated: Optional[str] = None
@@ -98,7 +113,7 @@ class SubagentContextStatus:
 
 @dataclass(frozen=True)
 class TokenBreakdown:
-    """Honest per-epoch context breakdown: measured buckets + explicit unattributed gap."""
+    """Honest per-checkpoint context breakdown: measured buckets + explicit unattributed gap."""
 
     user: int = 0
     model: int = 0
@@ -188,11 +203,51 @@ def infer_model_context_window(model_name: Optional[str]) -> int:
     lower = model_name.lower()
     if "1m" in lower or "1000k" in lower or "1048576" in lower:
         return 1_000_000
+    if any(tag in lower for tag in ("gpt-oss-120b", "gpt oss 120b")):
+        return 80_000
+    if any(
+        tag in lower
+        for tag in (
+            "claude-sonnet-4-6",
+            "claude-sonnet-4.6",
+            "claude sonnet 4.6",
+            "claude-4-6-sonnet",
+            "claude-4.6-sonnet",
+        )
+    ):
+        return 160_000
+    if any(
+        tag in lower
+        for tag in (
+            "claude-sonnet-5-5",
+            "claude-sonnet-5.5",
+            "claude sonnet 5.5",
+            "claude-5-5-sonnet",
+            "claude-5.5-sonnet",
+            "claude-opus-5-5",
+            "claude-opus-5.5",
+            "claude opus 5.5",
+            "claude-5-5-opus",
+            "claude-5.5-opus",
+        )
+    ):
+        return 840_000
     if "512k" in lower or any(
         tag in lower
         for tag in (
             "gemini-4-hydrogen",
             "gemini-4-neon",
+            "gemini-4-argon",
+            "gemini-4-carbon",
+            "gemini 4 hydrogen",
+            "gemini 4 neon",
+            "gemini 4 argon",
+            "gemini 4 carbon",
+            "gemini-pro-orchestrator",
+            "gemini pro orchestrator",
+            "gemini-pro-coordinator",
+            "gemini pro coordinator",
+            "orchestrator (",
             "gemini-3.8-flash-s",
             "gemini-3.8-flash-h",
             "gemini-3.8-flash-medium",
@@ -243,17 +298,17 @@ def classify_context_health(
     max_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
 ) -> Tuple[str, str]:
     """
-    Grades conversation health from active-epoch window percentage and epoch step depth.
+    Grades conversation health from active-checkpoint window percentage and checkpoint step depth.
     Replaces fixed 40k/80k premature retirement cutoffs with model-scaled ratios:
-      - HEALTHY / REUSE: < 65% fill AND < 80 epoch steps
-      - AMBER / COMPACT_SOON: 65%..80% fill OR >= 80 epoch steps
+      - HEALTHY / REUSE: < 65% fill AND < 80 checkpoint steps
+      - AMBER / COMPACT_SOON: 65%..80% fill OR >= 80 checkpoint steps
       - RED_ALERT / HANDOFF_OR_COMPACT: >= 80% fill
     """
     window = max(1, int(max_context_tokens or DEFAULT_CONTEXT_WINDOW_TOKENS))
     ratio = max(0, int(estimated_tokens)) / float(window)
     if ratio >= SUBAGENT_HIGH_PCT:
         return "RED_ALERT", "HANDOFF_OR_COMPACT"
-    if ratio >= SUBAGENT_ELEVATED_PCT or step_count >= SOFT_EPOCH_STEP_ADVISORY:
+    if ratio >= SUBAGENT_ELEVATED_PCT or step_count >= SOFT_CHECKPOINT_STEP_ADVISORY:
         return "AMBER", "COMPACT_SOON"
     return "HEALTHY", "REUSE"
 
@@ -270,9 +325,9 @@ class TrajectoryMetrics:
     max_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
     has_explicit_max_context: bool = False
     total_steps: int = 0
-    epoch_steps: int = 0
-    epoch_index: int = 0
-    epoch_start_idx: int = 0
+    checkpoint_steps: int = 0
+    checkpoint_index: int = 0
+    checkpoint_start_idx: int = 0
     checkpoint_count: int = 0
     compaction_summary: str = ""
     turn0_prompt: str = ""

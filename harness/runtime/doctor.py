@@ -50,6 +50,8 @@ from harness.runtime.tool_checks import (
     find_rea_binary,
     parse_version,
 )
+from harness.runtime.tool_checks_common import register_rea_flags
+from harness.utils import theme
 
 DEFAULT_MATRIX = Path(__file__).resolve().parent / "matrix.json"
 
@@ -150,6 +152,27 @@ def check_telemetry_daemon() -> Optional[Dict[str, Any]]:
                 "sync_health": sync_health,
                 "telemetry_lag": telemetry_lag,
             }
+        daemon_ver = str(sync_health.get("daemon_version") or "").strip()
+        if daemon_ver:
+            import harness
+            current_ver = str(getattr(harness, "__version__", "") or "").strip()
+            if current_ver and daemon_ver != current_ver:
+                remediation = (
+                    f"agyis-sync.service is running version {daemon_ver} != installed {current_ver}. "
+                    "Run 'agyis sync --service restart'."
+                )
+                return {
+                    "status": "WARNING",
+                    "service": "agyis-sync.service",
+                    "state": "version_drift",
+                    "daemon_version": daemon_ver,
+                    "installed_version": current_ver,
+                    "message": remediation,
+                    "details": remediation,
+                    "remediation": remediation,
+                    "sync_health": sync_health,
+                    "telemetry_lag": telemetry_lag,
+                }
         return {
             "status": "OK",
             "service": "agyis-sync.service",
@@ -202,6 +225,22 @@ def run_doctor_checks(*args: Any, **kwargs: Any) -> Dict[str, Any]:
     return run_doctor(*args, **kwargs)
 
 
+def _workspace_config_has_rea(workspace_root: Optional[Path] = None) -> bool:
+    """Return True when workspace .agyis/config.json or .psl/config.json enables REA."""
+    curr = (workspace_root or Path.cwd()).resolve()
+    for rel in (".agyis/config.json", ".psl/config.json"):
+        cfg_file = curr / rel
+        if not cfg_file.is_file():
+            continue
+        try:
+            data = json.loads(cfg_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict) and bool(data.get("rea") or data.get("experimental_rea")):
+            return True
+    return False
+
+
 def audit_environment(*args: Any, **kwargs: Any) -> Dict[str, Any]:
     """Alias for run_doctor for backward-compatible environment auditing."""
     return run_doctor(*args, **kwargs)
@@ -216,6 +255,7 @@ def run_doctor(
     repo_root: Optional[Path] = None,
     experimental_rea: bool = False,
     re_toolchain: bool = False,
+    rea: bool = False,
 ) -> Dict[str, Any]:
     """Perform complete workstation runtime audit."""
     eff_matrix = matrix_path if matrix_path is not None else DEFAULT_MATRIX
@@ -237,13 +277,20 @@ def run_doctor(
     architectural_fitness = check_architectural_fitness(effective_workspace)
 
     is_re = is_re_workspace(effective_workspace)
-    re_active = re_toolchain or is_re
+    ws_cfg_rea = _workspace_config_has_rea(effective_workspace)
+    re_active = bool(re_toolchain or is_re)
+    rea_active = bool(rea or experimental_rea or re_active or ws_cfg_rea)
 
     # Execute independent subprocess probes concurrently to keep fast-path doctor <1.0s.
     with ThreadPoolExecutor(max_workers=12) as pool:
         fut_db = pool.submit(check_database_port_conflicts, workspace_root=effective_workspace)
         fut_daemon = pool.submit(check_telemetry_daemon)
-        fut_rea = pool.submit(check_rea_tooling, mcp_config_path=mcp_config_path, experimental_rea=experimental_rea)
+        fut_rea = pool.submit(
+            check_rea_tooling,
+            mcp_config_path=mcp_config_path,
+            experimental_rea=rea_active,
+            rea=rea_active,
+        )
         fut_ft = pool.submit(audit_forensic_toolchain, workspace_dir=effective_workspace) if re_active else None
         tool_futures: Dict[Tuple[str, str], Any] = {}
         for tier_key, tier_data in matrix.get("tiers", {}).items():
@@ -284,7 +331,8 @@ def run_doctor(
         "rea_tooling": rea_tooling,
         "architectural_fitness": architectural_fitness,
         "antigravity_surfaces": antigravity_surfaces,
-        "experimental_rea": experimental_rea,
+        "rea": rea_active,
+        "experimental_rea": rea_active,
         "re_toolchain": re_active,
         "forensic_toolchain": forensic_toolchain,
         "tiers": {},
@@ -317,13 +365,13 @@ def run_doctor(
     if architectural_fitness and architectural_fitness.get("status") in ("WARNING", "FAIL"):
         results["summary"]["warning"] += 1
 
-    if experimental_rea:
+    if rea_active:
         if rea_tooling.get("status") == "warning":
             results["summary"]["warning"] += 1
         elif rea_tooling.get("status") == "optional_missing":
             results["summary"]["optional_missing"] += 1
     else:
-        # Fast path (experimental_rea=False): strictly 0 warnings added
+        # Fast path (rea_active=False): strictly 0 warnings added
         if rea_tooling.get("status") == "optional_missing":
             results["summary"]["optional_missing"] += 1
 
@@ -361,12 +409,23 @@ def run_doctor(
     return results
 
 
+def _format_status_row(label: str, kind: str, detail: str, remediation: Optional[str] = None, label_width: int = 21) -> None:
+    """Print an aligned status row with bracketed badge and optional remediation."""
+    badge_txt = theme.badge(kind, kind, bracketed=True)
+    print(f" {theme.pad_display(label, label_width)} {badge_txt} -> {detail}")
+    if remediation:
+        print(f"    Remediation:\n      {remediation}")
+
+
 def print_cli_report(audit: Dict[str, Any]) -> None:
     """Print beautifully styled terminal report."""
-    print("\n" + "=" * 70)
-    print(" 🩺  AGYIS WORKSTATION DOCTOR & RUNTIME GUARANTEE AUDIT")
-    print("     Antigravity Immune System (Autonomous Agent Runtime)")
-    print("=" * 70)
+    print(
+        "\n"
+        + theme.banner(
+            "AGYIS WORKSTATION DOCTOR & RUNTIME GUARANTEE AUDIT",
+            subtitle="Antigravity Immune System (Autonomous Agent Runtime)",
+        )
+    )
     print(f" OS Family: {audit['os_family'].upper()}")
     herm_py = audit.get("hermetic_python_available")
     if herm_py:
@@ -376,112 +435,74 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
 
     cli_bin = audit.get("cli_binary")
     if cli_bin:
-        if cli_bin.get("collision"):
-            print(f" Agyis Launcher:     [\033[33mWARN\033[0m] -> {cli_bin.get('details')}")
-            if cli_bin.get("remediation"):
-                print(f"    Remediation:\n      {cli_bin.get('remediation')}")
+        if cli_bin.get("collision") or cli_bin.get("status") == "WARNING":
+            _format_status_row("Agyis Launcher:", "WARN", str(cli_bin.get("details", "")), cli_bin.get("remediation"), 20)
         elif cli_bin.get("status") == "OK" or cli_bin.get("agyis_status") == "OK":
-            print(f" Agyis Launcher:     [\033[32mPASS\033[0m] -> {cli_bin.get('agyis_path') or cli_bin.get('path')}")
-        elif cli_bin.get("status") == "WARNING":
-            print(f" Agyis Launcher:     [\033[33mWARN\033[0m] -> {cli_bin.get('details')}")
-            if cli_bin.get("remediation"):
-                print(f"    Remediation:\n      {cli_bin.get('remediation')}")
+            _format_status_row("Agyis Launcher:", "PASS", str(cli_bin.get("agyis_path") or cli_bin.get("path") or ""), None, 20)
         else:
-            print(f" Agyis Launcher:     [\033[34mINFO\033[0m] -> {cli_bin.get('details')}")
+            _format_status_row("Agyis Launcher:", "INFO", str(cli_bin.get("details", "")), None, 20)
 
         psl_details = cli_bin.get("psl_details") or cli_bin.get("psl_collision") or audit.get("psl_collision")
         if psl_details:
             if psl_details.get("collision"):
-                print(f" PSL Compatibility:  [\033[33mWARN\033[0m] -> {psl_details.get('details')}")
-                if psl_details.get("remediation"):
-                    print(f"    Remediation:\n      {psl_details.get('remediation')}")
+                _format_status_row("Legacy 'psl' Alias:", "WARN", str(psl_details.get("details", "")), psl_details.get("remediation"), 20)
             elif psl_details.get("status") == "OK":
-                print(f" PSL Compatibility:  [\033[32mPASS\033[0m] -> {psl_details.get('path')} (Deprecated shim)")
+                _format_status_row("Legacy 'psl' Alias:", "PASS", f"{psl_details.get('path')} (Deprecated shim)", None, 20)
             else:
-                print(f" PSL Compatibility:  [\033[34mINFO\033[0m] -> {psl_details.get('details')}")
+                _format_status_row("Legacy 'psl' Alias:", "INFO", str(psl_details.get("details", "")), None, 20)
     else:
         psl_col = audit.get("psl_collision")
         if psl_col:
             if psl_col.get("collision"):
-                print(f" PSL Launcher:       [\033[33mWARN\033[0m] -> {psl_col.get('details')}")
-                if psl_col.get("remediation"):
-                    print(f"    Remediation:\n      {psl_col.get('remediation')}")
+                _format_status_row("Legacy 'psl' Alias:", "WARN", str(psl_col.get("details", "")), psl_col.get("remediation"), 20)
             elif psl_col.get("status") == "OK":
-                print(f" PSL Launcher:       [\033[32mPASS\033[0m] -> {psl_col.get('path')}")
+                _format_status_row("Legacy 'psl' Alias:", "PASS", str(psl_col.get("path", "")), None, 20)
             else:
-                print(f" PSL Launcher:       [\033[34mINFO\033[0m] -> {psl_col.get('details')}")
+                _format_status_row("Legacy 'psl' Alias:", "INFO", str(psl_col.get("details", "")), None, 20)
 
-    dup_agents = audit.get("duplicate_agents")
-    if dup_agents:
-        if dup_agents.get("status") == "WARNING":
-            print(f" Duplicate Agents: [\033[33mWARN\033[0m] -> {dup_agents.get('details')}")
-            if dup_agents.get("remediation"):
-                print(f"    Remediation:\n      {dup_agents.get('remediation')}")
-        elif dup_agents.get("status") == "OK":
-            print(f" Duplicate Agents: [\033[32mPASS\033[0m] -> {dup_agents.get('details')}")
+    for key, label, lw in (
+        ("duplicate_agents", "Duplicate Agents:", 21),
+        ("duplicate_skills", "Duplicate Skills:", 21),
+        ("node_script_hygiene", "Node Script Hygiene:", 21),
+    ):
+        item = audit.get(key)
+        if not item:
+            continue
+        st = item.get("status")
+        if st == "WARNING":
+            _format_status_row(label, "WARN", str(item.get("details", "")), item.get("remediation"), lw)
+        elif st in ("OK", "PASS"):
+            _format_status_row(label, "PASS", str(item.get("details", "")), None, lw)
         else:
-            print(f" Duplicate Agents: [\033[34mINFO\033[0m] -> {dup_agents.get('details')}")
-
-    dup_skills = audit.get("duplicate_skills")
-    if dup_skills:
-        if dup_skills.get("status") == "WARNING":
-            print(f" Duplicate Skills:    [\033[33mWARN\033[0m] -> {dup_skills.get('details')}")
-            if dup_skills.get("remediation"):
-                print(f"    Remediation:\n      {dup_skills.get('remediation')}")
-        elif dup_skills.get("status") in ("OK", "PASS"):
-            print(f" Duplicate Skills:    [\033[32mPASS\033[0m] -> {dup_skills.get('details')}")
-        else:
-            print(f" Duplicate Skills:    [\033[34mINFO\033[0m] -> {dup_skills.get('details')}")
-
-    node_hyg = audit.get("node_script_hygiene")
-    if node_hyg:
-        if node_hyg.get("status") == "WARNING":
-            print(f" Node Script Hygiene: [\033[33mWARN\033[0m] -> {node_hyg.get('details')}")
-            if node_hyg.get("remediation"):
-                print(f"    Remediation:\n      {node_hyg.get('remediation')}")
-        elif node_hyg.get("status") == "OK":
-            print(f" Node Script Hygiene: [\033[32mPASS\033[0m] -> {node_hyg.get('details')}")
-        else:
-            print(f" Node Script Hygiene: [\033[34mINFO\033[0m] -> {node_hyg.get('details')}")
+            _format_status_row(label, "INFO", str(item.get("details", "")), None, lw)
 
     hooks_h = audit.get("hooks_health")
     if hooks_h:
         if hooks_h.get("status") == "WARNING":
-            print(f" Lifecycle Hooks:     [\033[33mWARN\033[0m] -> {len(hooks_h.get('failures', []))} failure(s) in {hooks_h.get('hooks_path')}")
+            _format_status_row("Lifecycle Hooks:", "WARN", f"{len(hooks_h.get('failures', []))} failure(s) in {hooks_h.get('hooks_path')}")
             for fail in hooks_h.get("failures", []):
-                print(f"    ⚠️  {fail}")
+                print(f"    {theme.badge('WARN', str(fail))}")
             if hooks_h.get("remediation"):
                 print(f"    Remediation:\n      {hooks_h['remediation']}")
         elif hooks_h.get("status") == "OK":
             hook_count = len(hooks_h.get("checked_hooks", []))
-            print(f" Lifecycle Hooks:     [\033[32mPASS\033[0m] -> {hook_count} hooks verified ({hooks_h.get('hooks_path')})")
+            _format_status_row("Lifecycle Hooks:", "PASS", f"{hook_count} hooks verified ({hooks_h.get('hooks_path')})")
         else:
-            print(f" Lifecycle Hooks:     [\033[34mINFO\033[0m] -> {hooks_h.get('status')}")
+            _format_status_row("Lifecycle Hooks:", "INFO", str(hooks_h.get("status", "")))
 
     db_conflict = audit.get("database_port_conflicts")
     if db_conflict:
         port = db_conflict.get("port", 5432)
-        if db_conflict.get("status") == "WARNING":
-            print(f" Database Port ({port}): [\033[33mWARN\033[0m] -> {db_conflict.get('details')}")
-            if db_conflict.get("remediation"):
-                print(f"    Remediation:\n      {db_conflict.get('remediation')}")
-        elif db_conflict.get("status") in ("OK", "PASS"):
-            print(f" Database Port ({port}): [\033[32mPASS\033[0m] -> {db_conflict.get('details')}")
-        else:
-            print(f" Database Port ({port}): [\033[34mINFO\033[0m] -> {db_conflict.get('details')}")
+        db_st = db_conflict.get("status")
+        db_kind = "WARN" if db_st == "WARNING" else ("PASS" if db_st in ("OK", "PASS") else "INFO")
+        _format_status_row(f"Database Port ({port}):", db_kind, str(db_conflict.get("details", "")), db_conflict.get("remediation") if db_kind == "WARN" else None)
 
     telem_d = audit.get("telemetry_daemon")
     if telem_d:
         st = telem_d.get("status")
-        msg = telem_d.get("message") or telem_d.get("details", "")
-        if st in ("OK", "PASS"):
-            print(f" Telemetry Daemon:    [\033[32mPASS\033[0m] -> {msg}")
-        elif st == "WARNING":
-            print(f" Telemetry Daemon:    [\033[33mWARN\033[0m] -> {msg}")
-            if telem_d.get("remediation"):
-                print(f"    Remediation:\n      {telem_d.get('remediation')}")
-        else:
-            print(f" Telemetry Daemon:    [\033[34mINFO\033[0m] -> {msg}")
+        msg = str(telem_d.get("message") or telem_d.get("details", ""))
+        td_kind = "PASS" if st in ("OK", "PASS") else ("WARN" if st == "WARNING" else "INFO")
+        _format_status_row("Telemetry Daemon:", td_kind, msg, telem_d.get("remediation") if td_kind == "WARN" else None)
         lag = telem_d.get("telemetry_lag") or {}
         sh = telem_d.get("sync_health") or {}
         if sh.get("last_harvest_at") or lag.get("unsynced_local") or lag.get("stale_local"):
@@ -497,12 +518,8 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
         score = aff_data.get("score", 100.0)
         scanned = aff_data.get("scanned_files_count", 0)
         lat = aff_data.get("benchmark_latency_s", 0.0)
-        if st in ("PASS", "OK"):
-            print(f" Architectural Fitness (AFF): [\033[32mPASS\033[0m] -> Score: {score:.1f}/100 ({scanned} files in {lat:.3f}s)")
-        elif st == "WARNING":
-            print(f" Architectural Fitness (AFF): [\033[33mWARN\033[0m] -> Score: {score:.1f}/100 ({scanned} files in {lat:.3f}s)")
-        else:
-            print(f" Architectural Fitness (AFF): [\033[31mFAIL\033[0m] -> Score: {score:.1f}/100 ({scanned} files in {lat:.3f}s)")
+        aff_kind = "PASS" if st in ("PASS", "OK") else ("WARN" if st == "WARNING" else "FAIL")
+        _format_status_row("Architectural Fitness (AFF):", aff_kind, f"Score: {score:.1f}/100 ({scanned} files in {lat:.3f}s)", label_width=28)
 
     rea_t = audit.get("rea_tooling")
     if rea_t:
@@ -510,69 +527,66 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
         fast_path = rea_t.get("fast_path", False)
         if fast_path:
             if st == "ok":
-                print(f" REA Tooling:         [\033[32mPASS\033[0m] -> {rea_t.get('details')}")
+                _format_status_row("REA Tooling:", "PASS", str(rea_t.get("details", "")))
             else:
-                print(" REA Tooling:         [\033[34mINFO\033[0m] -> REA not detected (optional reverse engineering toolchain)")
-                if rea_t.get("remediation"):
-                    print(f"    Remediation:\n      {rea_t.get('remediation')}")
+                _format_status_row("REA Tooling:", "INFO", "REA not detected (optional reverse engineering toolchain)", rea_t.get("remediation"))
         else:
             if st == "ok":
                 v = rea_t.get("version") or "unknown"
                 bin_path = rea_t.get("binary") or "rea"
                 prov_active = len((rea_t.get("providers") or {}).get("active") or [])
                 mcp_str = "Configured" if rea_t.get("mcp_configured") else "Not configured"
-                print(f" REA Tooling:         [\033[32mPASS\033[0m] -> rea {v} ({bin_path}) | Providers: {prov_active} active | MCP: {mcp_str}")
+                _format_status_row("REA Tooling:", "PASS", f"rea {v} ({bin_path}) | Providers: {prov_active} active | MCP: {mcp_str}")
             elif st == "optional_missing":
-                print(" REA Tooling:         [\033[34mINFO\033[0m] -> REA not detected (optional reverse engineering toolchain)")
-                if rea_t.get("remediation"):
-                    print(f"    Remediation:\n      {rea_t.get('remediation')}")
+                _format_status_row("REA Tooling:", "INFO", "REA not detected (optional reverse engineering toolchain)", rea_t.get("remediation"))
             elif st == "warning":
-                print(f" REA Tooling:         [\033[33mWARN\033[0m] -> {rea_t.get('details')}")
-                if rea_t.get("remediation"):
-                    print(f"    Remediation:\n      {rea_t.get('remediation')}")
+                _format_status_row("REA Tooling:", "WARN", str(rea_t.get("details", "")), rea_t.get("remediation"))
             else:
-                print(f" REA Tooling:         [\033[34mINFO\033[0m] -> {rea_t.get('details', '')}")
+                _format_status_row("REA Tooling:", "INFO", str(rea_t.get("details", "")))
 
-            # Dynamic render of native provider candidates from rea providers --json
             prov_data = rea_t.get("providers") or {}
-            details = prov_data.get("details") or []
-            for p in details:
-                name = p.get("name") or "Unknown"
-                is_avail = p.get("available")
-                reason = p.get("reason")
-                if is_avail:
-                    print(f"   • {name:20}: [\033[32mPASS\033[0m] -> Active & verified")
+            for p in prov_data.get("details") or []:
+                name = str(p.get("name") or "Unknown")
+                if p.get("available"):
+                    sym = theme.badge("PASS", "PASS", bracketed=True)
+                    print(f"   • {theme.pad_display(name, 20)}: {sym} -> Active & verified")
                 else:
-                    reason_str = f" ({reason})" if reason else ""
-                    print(f"   • {name:20}: [\033[34mINFO\033[0m] -> Unavailable{reason_str}")
-    print("-" * 70)
+                    sym = theme.badge("INFO", "INFO", bracketed=True)
+                    reason_str = f" ({p.get('reason')})" if p.get("reason") else ""
+                    print(f"   • {theme.pad_display(name, 20)}: {sym} -> Unavailable{reason_str}")
+    print(theme.rule())
 
     symbols = {
-        "OK": "[\033[32mPASS\033[0m]",
-        "PASS": "[\033[32mPASS\033[0m]",
-        "WARNING": "[\033[33mWARN\033[0m]",
-        "WARN": "[\033[33mWARN\033[0m]",
-        "OUTDATED": "[\033[31mFAIL\033[0m]",
-        "MISSING": "[\033[31mMISS\033[0m]",
-        "OPTIONAL_MISSING": "[\033[34mINFO\033[0m]",
-        "INFO": "[\033[34mINFO\033[0m]",
-        "UNKNOWN_VERSION": "[\033[33mUNKN\033[0m]",
+        "OK": theme.badge("PASS", "PASS", bracketed=True),
+        "PASS": theme.badge("PASS", "PASS", bracketed=True),
+        "WARNING": theme.badge("WARN", "WARN", bracketed=True),
+        "WARN": theme.badge("WARN", "WARN", bracketed=True),
+        "OUTDATED": theme.badge("FAIL", "FAIL", bracketed=True),
+        "MISSING": theme.badge("MISS", "MISS", bracketed=True),
+        "OPTIONAL_MISSING": theme.badge("INFO", "INFO", bracketed=True),
+        "INFO": theme.badge("INFO", "INFO", bracketed=True),
+        "UNKNOWN_VERSION": theme.badge("UNKN", "UNKN", bracketed=True),
     }
 
+    arrow = theme.style(theme.GLYPHS["ARROW"], "optical")
     for tier_key, tier_data in audit["tiers"].items():
         tier_title = tier_key.replace("_", " ").upper()
-        print(f"\n▶ {tier_title}: {tier_data['description']}")
+        print(f"\n{arrow} {theme.style(tier_title, 'ink', bold=True)}: {tier_data['description']}")
         for tool in tier_data["tools"]:
             sym = symbols.get(tool["status"], "[????]")
             v_info = tool["version"] or "N/A"
             req_info = f"(min: {tool['min_version']})" if tool["min_version"] else ""
-            shim_note = f" ⚠️  {tool['shim_details']}" if tool["is_shim"] else ""
-            print(f"  {sym:16} {tool['name']:10} {v_info:12} {req_info:14} -> {tool['path'] or 'NOT FOUND'}{shim_note}")
+            shim_note = f" {theme.badge('WARN', str(tool['shim_details']))}" if tool["is_shim"] else ""
+            print(
+                f"  {theme.pad_display(sym, 8)} {theme.pad_display(tool['name'], 10)} "
+                f"{theme.pad_display(v_info, 12)} {theme.pad_display(req_info, 14)} "
+                f"-> {tool['path'] or 'NOT FOUND'}{shim_note}"
+            )
 
     ft = audit.get("forensic_toolchain")
     if ft:
         prof = ft.get("profile", "static-cleanroom")
-        print(f"\n▶ REVERSE ENGINEERING & DIRTYROOM TOOLCHAIN (Profile: {prof})")
+        print(f"\n{arrow} {theme.style(f'REVERSE ENGINEERING & DIRTYROOM TOOLCHAIN (Profile: {prof})', 'ink', bold=True)}")
         for tool in ft.get("tools", []):
             st = tool.get("status", "INFO")
             sym = symbols.get(st, f"[{st:^4}]")
@@ -580,16 +594,19 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
             v_info = tool.get("version") or "N/A"
             p_info = tool.get("path") or "NOT FOUND"
             cat = f"[{tool.get('category', 'core')}]"
-            print(f"  {sym:16} {t_name:20} {cat:10} {v_info:14} -> {p_info}")
+            print(
+                f"  {theme.pad_display(sym, 8)} {theme.pad_display(t_name, 20)} "
+                f"{theme.pad_display(cat, 10)} {theme.pad_display(v_info, 14)} -> {p_info}"
+            )
         if ft.get("remediation"):
             print("    Remediation:")
             for rem in ft.get("remediation"):
                 print(f"      • {rem}")
 
     summ = audit["summary"]
-    print("\n" + "-" * 70)
+    print("\n" + theme.rule())
     print(f" Summary: {summ['ok']} OK | {summ['warning']} Warnings | {summ['outdated']} Outdated | {summ['missing']} Missing")
-    print("=" * 70 + "\n")
+    print(theme.rule("━") + "\n")
 
 
 def main() -> int:
@@ -605,9 +622,15 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Output raw JSON results")
     parser.add_argument("--heal", action="store_true", help="Execute safe user-space auto-healing")
     parser.add_argument(
-        "--experimental-rea",
-        action="store_true",
-        help="Enable experimental Reverse Engineer Anything (REA) diagnostics and provider audit",
+        "--workspace",
+        "-w",
+        type=Path,
+        default=None,
+        help="Target workspace path to inspect for config/RE activation",
+    )
+    register_rea_flags(
+        parser,
+        help_text="Enable Reverse Engineer Anything (REA) diagnostics and provider audit",
     )
     parser.add_argument(
         "--re",
@@ -615,36 +638,70 @@ def main() -> int:
         action="store_true",
         help="Audit reverse engineering & dirtyroom forensic toolchain (Ghidra, objdump, tshark, ydotool)",
     )
+    parser.add_argument(
+        "--anti-synthetic",
+        action="store_true",
+        help="Audit test files for synthetic, tautological, and fake test smells (Epic #51 R1)",
+    )
+    parser.add_argument(
+        "--test-path",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Target directory or specific test file to audit (defaults to workspace test suites)",
+    )
     args = parser.parse_args()
 
-    exp_rea = getattr(args, "experimental_rea", False)
-    re_tool = getattr(args, "re_toolchain", False)
-    cwd = Path.cwd()
+    if getattr(args, "anti_synthetic", False):
+        from harness.doctor.test_smells import run_anti_synthetic_doctor
+        return run_anti_synthetic_doctor(
+            target_path=getattr(args, "test_path", None),
+            as_json=bool(getattr(args, "json", False)),
+        )
+
+    rea_flag = bool(getattr(args, "rea", False) or getattr(args, "experimental_rea", False))
+    re_tool = bool(getattr(args, "re_toolchain", False) or getattr(args, "re", False))
+    ws_root = Path(args.workspace).resolve() if getattr(args, "workspace", None) else Path.cwd().resolve()
     audit = run_doctor(
         args.matrix,
-        workspace_root=cwd,
-        experimental_rea=exp_rea,
+        workspace_root=ws_root,
+        rea=rea_flag,
+        experimental_rea=rea_flag,
         re_toolchain=re_tool,
     )
 
-    if args.json:
-        print(json.dumps(audit, indent=2))
-        return 0
-
-    print_cli_report(audit)
-
+    is_json = bool(getattr(args, "json", False))
     if args.heal:
-        print("\n🔧 Executing Auto-Healing...")
+        if not is_json:
+            print_cli_report(audit)
+            print(f"\n{theme.badge('BRAND')} {theme.style('Executing Auto-Healing...', 'ink', bold=True)}")
         actions = heal_environment(
             audit,
             args.matrix,
-            experimental_rea=exp_rea,
+            rea=rea_flag,
+            experimental_rea=rea_flag,
             re_toolchain=re_tool,
-            workspace_dir=cwd,
+            workspace_dir=ws_root,
         )
-        for act in actions:
-            print(f"  ✔ {act}")
-        print()
+        if not is_json:
+            for act in actions:
+                print(f"  {theme.badge('PASS')} {act}")
+            print()
+        audit = run_doctor(
+            args.matrix,
+            workspace_root=ws_root,
+            rea=rea_flag,
+            experimental_rea=rea_flag,
+            re_toolchain=re_tool,
+        )
+        if is_json:
+            audit = dict(audit)
+            audit["heal_actions"] = actions
+    elif not is_json:
+        print_cli_report(audit)
+
+    if is_json:
+        print(json.dumps(audit, indent=2))
 
     # Non-zero exit if required tools are missing or outdated
     if audit["summary"]["missing"] > 0 or audit["summary"]["outdated"] > 0:

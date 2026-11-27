@@ -15,7 +15,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 *Explicit CLI palettes yield 10x lower human intervention rates:*
 
 ```bash
-# 🧪 Verification & Testing (Hermetic, 2,441 tests, sub-second modules)
+# 🧪 Verification & Testing (Hermetic, 2,572 tests, sub-second modules)
 ./agyis test                                   # Run complete project test suite (~24s full suite, <1.0s modules)
 python3 -m harness.cli test                    # Run complete project test suite
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
@@ -61,6 +61,7 @@ python3 -m harness.cli audit inventory         # Catalog plugins, skills, hooks 
 agyis audit certify                            # Run full suite, AFF & doctor audit, issue signed audit_verdict.json
 agyis audit verdict                            # Inspect active out-of-band auditor clearance status (Gate 2)
 agyis audit aff                                # Audit architectural fitness, boundary violations & structural debt
+agyis audit sync-check                         # Audit manifest versions, live test counts, tools & empirical baselines
 
 # 🧩 Skills, Rules & Subagents Discovery & Deduplication
 agyis skills                                   # List installed modular skills & triggers
@@ -120,8 +121,8 @@ rea providers --json                           # List available disassembler eng
 agyis verify                                   # Formally verify typed cleanroom obligations against evidence
 rea evaluate-coverage                          # Calculate reconstruction coverage against obligation ledger
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
-agyis doctor --experimental-rea                # Audit REA providers, JDK 21+, Ghidra & MCP registration
-agyis doctor --experimental-rea --heal         # Safe zero-sudo auto-healing & REA skill provisioning
+agyis doctor --rea                             # Audit REA providers, JDK 21+, Ghidra & MCP registration (or --re)
+agyis doctor --rea --heal                      # Safe zero-sudo auto-healing & REA skill provisioning
 agyis re cache [status|clear]                  # Inspect & purge decompiler query cache (<5ms responses, Issue #113)
 agyis re daemon [status|start|stop]            # Manage persistent REA bridge supervisor daemon (Issue #113)
 agyis re patch-rea [--apply|--revert|--check]  # Manage direct-mount acceleration patch & zero-copy bypass

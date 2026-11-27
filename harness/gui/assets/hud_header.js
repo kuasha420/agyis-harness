@@ -21,6 +21,10 @@
 
     const escapeHeaderHtml = (global.__agyis_utils && global.__agyis_utils.escapeHtml)
         || (val => String(val ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch])));
+    const _theme = () => global.__agyis_theme || {};
+    const svgIcon = (name, size = 13) => (_theme().svgIcon ? _theme().svgIcon(name, size) : "");
+    const shieldMarkSvg = () => _theme().SHIELD_MARK_SVG
+        || '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="16" height="16" aria-hidden="true" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M40 12 L88 12 L112 32 L112 74 L64 116 L16 74 L16 32 Z" fill="#101C33" stroke="#5C8AFF" stroke-width="5"/></svg>';
 
     /**
      * Renders the top HUD navigation header HTML.
@@ -51,14 +55,14 @@
             <div style="position: relative;">
                 <button id="agyis-subagents-dropdown-toggle"
                         class="agyis-hud-pill agyis-hud-pill-purple"
-                        style="cursor: pointer; background: rgba(168, 85, 247, 0.1); color: rgb(192, 132, 252); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 9999px; padding: 2px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;"
+                        style="cursor: pointer; background: rgba(92, 138, 255, 0.14); color: #8FB0FF; border: 1px solid rgba(92, 138, 255, 0.32); border-radius: 9999px; padding: 2px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;"
                         title="View child subagents">
                     <span>${subagents.length} Child Subagent${subagents.length === 1 ? "" : "s"}</span>
                     <span class="agyis-subagents-arrow" style="font-size: 9px; transform: ${state.subagentsDropdownOpen ? "rotate(180deg)" : "rotate(0deg)"}; transition: transform 0.15s;">▼</span>
                 </button>
                 <div id="agyis-subagents-menu"
-                     style="display: ${state.subagentsDropdownOpen ? "block" : "none"}; position: absolute; top: 100%; left: 0; margin-top: 4px; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); z-index: 200; min-width: 260px; max-height: 240px; overflow-y: auto;">
-                    <div style="font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #a1a1aa; padding: 6px 10px; border-bottom: 1px solid #27272a;">
+                     style="display: ${state.subagentsDropdownOpen ? "block" : "none"}; position: absolute; top: 100%; left: 0; margin-top: 4px; background: #10192B; border: 1px solid #1E2C47; border-radius: 6px; box-shadow: 0 10px 25px rgba(4, 8, 18, 0.85); z-index: 200; min-width: 260px; max-height: 240px; overflow-y: auto;">
+                    <div style="font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #9AA8BE; padding: 6px 10px; border-bottom: 1px solid #1E2C47;">
                         Child Subagents (${subagents.length})
                     </div>
                     ${subagents.map((sid, idx) => {
@@ -66,9 +70,9 @@
                         return `
                             <div class="agyis-subagent-item"
                                  data-sub-id="${escapeHeaderHtml(sid)}"
-                                 style="padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #27272a; transition: background 0.15s;">
-                                <div style="font-weight: 600; color: #c084fc; font-size: 11px;">${escapeHeaderHtml(info.name)}</div>
-                                <div style="font-size: 10px; color: #a1a1aa; font-family: monospace;">${escapeHeaderHtml(sid.slice(0, 16))}...</div>
+                                 style="padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #1E2C47; transition: background 0.15s;">
+                                <div style="font-weight: 600; color: #5C8AFF; font-size: 11px;">${escapeHeaderHtml(info.name)}</div>
+                                <div style="font-size: 10px; color: #9AA8BE; font-family: var(--agyis-font-mono, monospace);">${escapeHeaderHtml(sid.slice(0, 16))}...</div>
                             </div>
                         `;
                     }).join("")}
@@ -80,7 +84,7 @@
         const parentPillHtml = isChildView ? `
             <button id="agyis-parent-btn"
                     class="agyis-hud-pill agyis-hud-pill-blue"
-                    style="cursor: pointer; background: rgba(59, 130, 246, 0.1); color: rgb(96, 165, 250); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 9999px; padding: 2px 10px; font-size: 11px;"
+                    style="cursor: pointer; background: rgba(27, 77, 255, 0.16); color: #5C8AFF; border: 1px solid rgba(92, 138, 255, 0.35); border-radius: 9999px; padding: 2px 10px; font-size: 11px;"
                     title="Navigate up to parent: ${escapeHeaderHtml(parentId)}">
                 ← Parent
             </button>
@@ -90,7 +94,8 @@
         const q = (state.filterQuery || "").trim().toLowerCase();
         const steps = (cur && cur.steps) || [];
         const matchCount = state.searchMatchIndices ? state.searchMatchIndices.length : 0;
-        const matchDisplay = q ? `${matchCount > 0 ? (state.currentMatchIdx || 0) + 1 : 0}/${matchCount}` : `${steps.length}/${steps.length}`;
+        const hasActiveMatch = typeof state.currentMatchIdx === "number" && state.currentMatchIdx >= 0 && state.currentMatchIdx < matchCount;
+        const matchDisplay = q ? (matchCount === 0 ? "0/0" : `${hasActiveMatch ? state.currentMatchIdx + 1 : "-"}/${matchCount}`) : `${steps.length}/${steps.length}`;
 
         const isSide = (state.layoutOrientation || "horizontal") === "horizontal" || state.layoutOrientation === "side";
         const isStack = state.layoutOrientation === "vertical" || state.layoutOrientation === "stack";
@@ -98,9 +103,10 @@
         return `
             <div class="agyis-hud-header">
                 <div class="agyis-hud-header-left">
-                    <div style="display: inline-flex; align-items: center; gap: 4px;">
-                        <span class="agyis-hud-pill agyis-hud-pill-amber" style="font-weight: 700;">Trajectory Debug View</span>
-                        ${isChildView ? '<span class="agyis-hud-subagent-tag" style="color: #a1a1aa; font-size: 11px; margin-left: 2px; flex-shrink: 0;">(subagent)</span>' : ""}
+                    <div style="display: inline-flex; align-items: center; gap: 6px;">
+                        ${shieldMarkSvg()}
+                        <span class="agyis-hud-pill agyis-hud-pill-cobalt" style="font-weight: 700;">Trajectory Debug View</span>
+                        ${isChildView ? '<span class="agyis-hud-subagent-tag" style="color: #9AA8BE; font-size: 11px; margin-left: 2px; flex-shrink: 0;">(subagent)</span>' : ""}
                     </div>
                     <select id="agyis-convo-select" class="agyis-hud-select" title="Search conversations (by name or Cascade ID)">
                         ${effectiveConvoList.map(c => {
@@ -111,7 +117,7 @@
                             return `<option value="${escapeHeaderHtml(c.id)}" ${isSelected ? "selected" : ""}>${escapeHeaderHtml(titleText)}</option>`;
                         }).join("")}
                     </select>
-                    <button id="agyis-refresh-btn" class="agyis-hud-btn" title="Refresh Trajectory from Server">🔄 Refresh</button>
+                    <button id="agyis-refresh-btn" class="agyis-hud-btn" title="Refresh Trajectory from Server">${svgIcon("refresh")} Refresh</button>
                     ${parentPillHtml}
                     ${subagentsDropdownHtml}
                     <div class="agyis-hud-search-box">
@@ -121,22 +127,22 @@
                                placeholder="Search steps..."
                                value="${escapeHeaderHtml(state.filterQuery || "")}">
                         <span class="agyis-hud-search-counter" title="Search match counter">${matchDisplay}</span>
-                        ${q ? '<button id="agyis-search-clear" title="Clear search (Esc)" style="background: none; border: none; color: #a1a1aa; cursor: pointer; padding: 0 2px;">✕</button>' : ""}
+                        ${q ? `<button id="agyis-search-clear" title="Clear search (Esc)" style="background: none; border: none; color: #9AA8BE; cursor: pointer; padding: 0 2px; display: inline-flex; align-items: center;">${svgIcon("close", 11)}</button>` : ""}
                     </div>
                 </div>
                 <div class="agyis-hud-header-right">
-                    <div role="group" aria-label="Debug view layout" style="display: inline-flex; border: 1px solid #3f3f46; border-radius: 6px; overflow: hidden;">
+                    <div role="group" aria-label="Debug view layout" style="display: inline-flex; border: 1px solid #1E2C47; border-radius: 6px; overflow: hidden;">
                         <button id="agyis-layout-side"
                                 class="agyis-hud-btn ${isSide ? "active" : ""}"
                                 style="border: none; border-radius: 0;"
-                                title="Side-by-side layout">◫ Side-by-Side</button>
+                                title="Side-by-side layout">${svgIcon("split")} Side-by-Side</button>
                         <button id="agyis-layout-stack"
                                 class="agyis-hud-btn ${isStack ? "active" : ""}"
                                 style="border: none; border-radius: 0;"
-                                title="Stacked layout">☰ Stacked</button>
+                                title="Stacked layout">${svgIcon("stack")} Stacked</button>
                     </div>
-                    <button id="agyis-maximize-btn" class="agyis-hud-btn" title="Toggle Maximize">${state.isMaximized ? "❐ Restore" : "⛶ Maximize"}</button>
-                    <button id="agyis-close-btn" class="agyis-hud-btn" title="Close (Escape)">✕</button>
+                    <button id="agyis-maximize-btn" class="agyis-hud-btn" title="Toggle Maximize">${state.isMaximized ? `${svgIcon("restore")} Restore` : `${svgIcon("maximize")} Maximize`}</button>
+                    <button id="agyis-close-btn" class="agyis-hud-btn" title="Close (Escape)">${svgIcon("close")}</button>
                 </div>
             </div>
         `;
@@ -162,9 +168,10 @@
                 || (typeof window.__agyis_extract_convo_id === "function" ? window.__agyis_extract_convo_id() : null);
             if (targetId && typeof window.__agyis_hud_load_convo === "function") {
                 const btn = hudEl.querySelector("#agyis-refresh-btn");
-                if (btn) btn.textContent = "⏳...";
-                Promise.resolve(window.__agyis_hud_load_convo(targetId)).finally(() => {
-                    if (btn) btn.textContent = "🔄 Refresh";
+                if (btn) btn.innerHTML = `${svgIcon("refresh")} ...`;
+                const preserve = Boolean(state.convoId && targetId === state.convoId);
+                Promise.resolve(window.__agyis_hud_load_convo(targetId, { preserveCursor: preserve })).finally(() => {
+                    if (btn) btn.innerHTML = `${svgIcon("refresh")} Refresh`;
                 });
             }
         });
@@ -211,23 +218,32 @@
                 const arrow = hudEl.querySelector("#agyis-subagents-dropdown-toggle .agyis-subagents-arrow, #agyis-subagents-dropdown-toggle span:last-child");
                 if (arrow) arrow.style.transform = "rotate(0deg)";
 
-                const applySubSnapshot = (subData) => {
-                    state.currentData = subData;
-                    state.convoId = sid || subData.conversation_id || state.convoId;
-                    if (subData.model) state.sessionModel = subData.model;
-                    const epochs = subData.epochs || [];
-                    state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
-                    state.selectedIndex = Math.max(0, (subData.steps || []).length - 1);
+                const applySnapshotState = (targetData, fallbackCid) => {
+                    state.currentData = targetData;
+                    state.convoId = fallbackCid || targetData.conversation_id || targetData.id || state.convoId;
+                    if (targetData.model) state.sessionModel = targetData.model;
+                    if (typeof window.__agyis_hud_sync === "function") {
+                        window.__agyis_hud_sync(state);
+                    } else if (global.__agyis_utils && typeof global.__agyis_utils.syncToLatestState === "function") {
+                        global.__agyis_utils.syncToLatestState(state);
+                    } else {
+                        const checkpoints = targetData.checkpoints || [];
+                        const steps = targetData.steps || [];
+                        state.activeCheckpointIndex = checkpoints.length > 0 ? checkpoints.length - 1 : -1;
+                        state.selectedIndex = Math.max(0, steps.length - 1);
+                        state.tablePage = Math.max(0, Math.ceil(steps.length / (state.pageSize || 50)) - 1);
+                        state.timelinePage = Math.max(0, Math.ceil(steps.length / 200) - 1);
+                    }
                     if (renderCallback) renderCallback();
                 };
 
                 const subTraj = cur && cur.subagent_trajectories ? cur.subagent_trajectories[sid] : null;
                 if (sid && typeof window.__agyis_hud_load_convo === "function") {
                     Promise.resolve(window.__agyis_hud_load_convo(sid)).then((loaded) => {
-                        if (!loaded && subTraj) applySubSnapshot(subTraj);
+                        if (!loaded && subTraj) applySnapshotState(subTraj, sid);
                     });
                 } else if (subTraj) {
-                    applySubSnapshot(subTraj);
+                    applySnapshotState(subTraj, sid);
                 }
             });
         });
@@ -240,53 +256,91 @@
                 state.currentData = state.rootData;
                 state.convoId = state.rootData.conversation_id || state.rootData.id || state.convoId;
                 if (state.rootData.model) state.sessionModel = state.rootData.model;
-                const epochs = state.rootData.epochs || [];
-                state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
-                state.selectedIndex = Math.max(0, (state.rootData.steps || []).length - 1);
+                if (typeof window.__agyis_hud_sync === "function") {
+                    window.__agyis_hud_sync(state);
+                } else if (global.__agyis_utils && typeof global.__agyis_utils.syncToLatestState === "function") {
+                    global.__agyis_utils.syncToLatestState(state);
+                } else {
+                    const checkpoints = state.rootData.checkpoints || [];
+                    const steps = state.rootData.steps || [];
+                    state.activeCheckpointIndex = checkpoints.length > 0 ? checkpoints.length - 1 : -1;
+                    state.selectedIndex = Math.max(0, steps.length - 1);
+                    state.tablePage = Math.max(0, Math.ceil(steps.length / (state.pageSize || 50)) - 1);
+                    state.timelinePage = Math.max(0, Math.ceil(steps.length / 200) - 1);
+                }
                 if (renderCallback) renderCallback();
             }
         });
 
-        // Debounced search input
-        let searchDebounceTimer = null;
+        // Debounced search input (stores timer on state.searchDebounceTimer and preserves caret)
         hudEl.querySelector("#agyis-search-input")?.addEventListener("input", (e) => {
             const val = e.target.value;
-            clearTimeout(searchDebounceTimer);
-            searchDebounceTimer = setTimeout(() => {
+            const selStart = typeof e.target.selectionStart === "number" ? e.target.selectionStart : val.length;
+            const selEnd = typeof e.target.selectionEnd === "number" ? e.target.selectionEnd : val.length;
+            if (state.searchDebounceTimer) clearTimeout(state.searchDebounceTimer);
+            state.searchDebounceTimer = setTimeout(() => {
+                state.searchDebounceTimer = null;
                 state.filterQuery = val;
-                state.currentMatchIdx = 0;
-                state.tablePage = 0;
+                state.currentMatchIdx = -1;
+                const curSteps = (cur && cur.steps) || [];
+                const utils = global.__agyis_utils || {};
+                const nextFiltered = typeof utils.computeFilteredIndices === "function"
+                    ? utils.computeFilteredIndices(curSteps, val)
+                    : [];
+                const pageSize = state.pageSize || 50;
+                const matchPos = nextFiltered.indexOf(state.selectedIndex);
+                state.tablePage = matchPos >= 0 ? Math.floor(matchPos / pageSize) : 0;
                 if (renderCallback) renderCallback();
                 const inputEl = hudEl.querySelector("#agyis-search-input");
-                if (inputEl) {
+                if (inputEl && (typeof document === "undefined" || document.activeElement !== inputEl) && typeof inputEl.focus === "function") {
                     inputEl.focus();
-                    inputEl.setSelectionRange(val.length, val.length);
+                    if (typeof inputEl.setSelectionRange === "function") {
+                        inputEl.setSelectionRange(selStart, selEnd);
+                    }
                 }
             }, 150);
         });
 
-        // Search keyboard navigation (Enter: Next match, Shift+Enter: Prev match, Esc: Clear)
+        // Search keyboard navigation (Enter: Next match starting at 0, Shift+Enter: Prev match, Esc: Clear)
         hudEl.querySelector("#agyis-search-input")?.addEventListener("keydown", (e) => {
             if (e.key === "Enter" && state.searchMatchIndices && state.searchMatchIndices.length > 0) {
                 e.preventDefault();
                 const len = state.searchMatchIndices.length;
-                state.currentMatchIdx = e.shiftKey
-                    ? ((state.currentMatchIdx || 0) - 1 + len) % len
-                    : ((state.currentMatchIdx || 0) + 1) % len;
+                const curMatch = typeof state.currentMatchIdx === "number" ? state.currentMatchIdx : -1;
+                if (curMatch < 0 || curMatch >= len) {
+                    state.currentMatchIdx = e.shiftKey ? (len - 1) : 0;
+                } else {
+                    state.currentMatchIdx = e.shiftKey
+                        ? (curMatch - 1 + len) % len
+                        : (curMatch + 1) % len;
+                }
                 if (selectStepCallback) {
                     selectStepCallback(state.searchMatchIndices[state.currentMatchIdx]);
                 }
             } else if (e.key === "Escape") {
+                if (state.searchDebounceTimer) {
+                    clearTimeout(state.searchDebounceTimer);
+                    state.searchDebounceTimer = null;
+                }
+                if (e.target && typeof e.target.value === "string") e.target.value = "";
                 state.filterQuery = "";
-                state.tablePage = 0;
+                state.currentMatchIdx = -1;
+                state.tablePage = Math.floor(Math.max(0, state.selectedIndex || 0) / (state.pageSize || 50));
                 if (renderCallback) renderCallback();
             }
         });
 
         // Clear search button
         hudEl.querySelector("#agyis-search-clear")?.addEventListener("click", () => {
+            if (state.searchDebounceTimer) {
+                clearTimeout(state.searchDebounceTimer);
+                state.searchDebounceTimer = null;
+            }
+            const inputEl = hudEl.querySelector("#agyis-search-input");
+            if (inputEl && typeof inputEl.value === "string") inputEl.value = "";
             state.filterQuery = "";
-            state.tablePage = 0;
+            state.currentMatchIdx = -1;
+            state.tablePage = Math.floor(Math.max(0, state.selectedIndex || 0) / (state.pageSize || 50));
             if (renderCallback) renderCallback();
         });
     }

@@ -11,13 +11,39 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import List, Tuple
+import sys
+from typing import List, Optional, Tuple
+
+from harness.delivery.constants import is_packaged_wheel_install
+from harness.runtime.tool_checks_common import find_hermetic_uv_python
+
+
+def _resolve_launcher_python(source_dir: Optional[Path] = None) -> Optional[str]:
+    """Resolve active venv/uv python interpreter for packaged wheel or non-repo venv installs."""
+    src = Path(source_dir).resolve() if source_dir is not None else None
+    in_packaged = is_packaged_wheel_install(src)
+    repo_venv = (src / ".venv").resolve() if src is not None else None
+    in_non_repo_venv = (
+        sys.prefix != sys.base_prefix
+        and (repo_venv is None or Path(sys.prefix).resolve() != repo_venv)
+    )
+    if not (in_packaged or in_non_repo_venv):
+        return None
+
+    exe = os.path.abspath(sys.executable) if sys.executable else None
+    if in_non_repo_venv and exe:
+        return exe
+    uv_py = find_hermetic_uv_python()
+    if uv_py is not None:
+        return str(uv_py)
+    return exe
 
 
 def _build_launcher_content(
     target_resolved: str,
     source_resolved: str,
     entrypoint_func: str = "main",
+    python_executable: Optional[str] = None,
 ) -> str:
     """Builds executable python launcher script content."""
     import_line = (
@@ -27,10 +53,51 @@ def _build_launcher_content(
     )
     call_line = f"    sys.exit({entrypoint_func}())\n"
 
+    use_direct_shebang = bool(
+        python_executable
+        and len(python_executable) <= 120
+        and not any(ch.isspace() for ch in python_executable)
+    )
+    shebang = f"#!{python_executable}\n" if use_direct_shebang else "#!/usr/bin/env python3\n"
+
+    if python_executable:
+        reexec_target_block = f"target_py_abs = os.path.abspath({python_executable!r})\n"
+    else:
+        reexec_target_block = (
+            "_cwd_venv_py = _cwd_repo / '.venv' / 'bin' / 'python' if _cwd_repo is not None else None\n"
+            "target_py_abs = (\n"
+            "    os.path.abspath(str(_cwd_venv_py))\n"
+            "    if _cwd_venv_py is not None and _cwd_venv_py.is_file() and os.access(str(_cwd_venv_py), os.X_OK)\n"
+            "    else os.path.abspath(str(source_dir / '.venv' / 'bin' / 'python'))\n"
+            ")\n"
+        )
+    reexec_block = (
+        f"{reexec_target_block}"
+        "if os.path.exists(target_py_abs) and os.path.abspath(sys.executable) != target_py_abs:\n"
+        "    if not os.environ.get('_AGYIS_LAUNCHER_REEXEC'):\n"
+        "        os.environ['_AGYIS_LAUNCHER_REEXEC'] = '1'\n"
+        "        os.execv(target_py_abs, [target_py_abs] + sys.argv)\n"
+        "os.environ.pop('_AGYIS_LAUNCHER_REEXEC', None)\n\n"
+    )
+
     return (
-        "#!/usr/bin/env python3\n"
+        f"{shebang}"
+        "import os\n"
         "import sys\n"
         "from pathlib import Path\n\n"
+        "def _detect_cwd_checkout():\n"
+        "    try:\n"
+        "        cwd = Path.cwd().resolve()\n"
+        "    except OSError:\n"
+        "        return None\n"
+        "    for candidate in (cwd, *cwd.parents):\n"
+        "        if (\n"
+        "            (candidate / 'pyproject.toml').is_file()\n"
+        "            and (candidate / 'harness' / 'cli.py').is_file()\n"
+        "            and (candidate / 'tests').is_dir()\n"
+        "        ):\n"
+        "            return candidate\n"
+        "    return None\n\n"
         f"target_dir = Path({target_resolved!r})\n"
         "if target_dir.exists() and str(target_dir) not in sys.path:\n"
         "    sys.path.insert(0, str(target_dir))\n\n"
@@ -43,10 +110,13 @@ def _build_launcher_content(
         f"source_dir = Path({source_resolved!r})\n"
         "if source_dir.exists() and str(source_dir) not in sys.path:\n"
         "    sys.path.insert(0, str(source_dir))\n\n"
-        "venv_py = source_dir / '.venv' / 'bin' / 'python'\n"
-        "if venv_py.exists() and sys.executable != str(venv_py):\n"
-        "    import os\n"
-        "    os.execv(str(venv_py), [str(venv_py)] + sys.argv)\n\n"
+        "_cwd_repo = _detect_cwd_checkout()\n"
+        "if _cwd_repo is not None:\n"
+        "    _cwd_repo_str = str(_cwd_repo)\n"
+        "    if _cwd_repo_str in sys.path:\n"
+        "        sys.path.remove(_cwd_repo_str)\n"
+        "    sys.path.insert(0, _cwd_repo_str)\n\n"
+        f"{reexec_block}"
         f"{import_line}\n"
         "if __name__ == '__main__':\n"
         f"{call_line}"
@@ -67,9 +137,20 @@ def install_launchers(
     bin_dir.mkdir(parents=True, exist_ok=True)
     target_resolved = str(target.resolve()) if target.exists() else str(target)
     source_resolved = str(source_dir.resolve())
+    python_executable = _resolve_launcher_python(source_dir)
 
-    agyis_content = _build_launcher_content(target_resolved, source_resolved, entrypoint_func="main")
-    psl_content = _build_launcher_content(target_resolved, source_resolved, entrypoint_func="deprecated_psl_main")
+    agyis_content = _build_launcher_content(
+        target_resolved,
+        source_resolved,
+        entrypoint_func="main",
+        python_executable=python_executable,
+    )
+    psl_content = _build_launcher_content(
+        target_resolved,
+        source_resolved,
+        entrypoint_func="deprecated_psl_main",
+        python_executable=python_executable,
+    )
 
     def _deploy_file(dest: Path, content: str) -> None:
         if dest.is_symlink() or dest.exists():

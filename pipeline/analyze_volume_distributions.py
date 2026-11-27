@@ -34,6 +34,7 @@ from pipeline.extract_transcripts import (
 )
 
 
+from harness.telemetry.db import get_db_connection
 from harness.utils.tokens import estimate_tokens
 
 
@@ -58,30 +59,47 @@ def analyze_volumes(
     batch_size: int = 5000,
 ) -> Dict[str, Any]:
     """Core analysis function querying telemetry.db in bounded batches and returning aggregated metrics."""
-    conn = sqlite3.connect(db_path)
+    resolved = Path(db_path).resolve()
+    if auto_backfill:
+        conn = sqlite3.connect(resolved)
+    else:
+        conn = get_db_connection(resolved, row_factory=False, read_only=True)
     try:
-        ensure_volume_columns(conn)
+        if auto_backfill:
+            ensure_volume_columns(conn)
         cur = conn.cursor()
 
-        # Check unpopulated rows
-        cur.execute("SELECT COUNT(*) FROM tool_calls WHERE output_length_chars IS NULL")
-        missing_count = cur.fetchone()[0]
+        cur.execute("PRAGMA table_info(tool_calls)")
+        tc_cols = {r[1] for r in cur.fetchall()}
 
-        if missing_count > 0 and auto_backfill:
-            if verbose:
-                print(f"[*] Found {missing_count} unpopulated tool calls. Running backfill...")
-            conn.close()
-            backfill_tool_volumes(db_path, verbose=verbose)
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
+        if auto_backfill and "output_length_chars" in tc_cols:
+            cur.execute("SELECT COUNT(*) FROM tool_calls WHERE output_length_chars IS NULL")
+            missing_count = cur.fetchone()[0]
+            if missing_count > 0:
+                if verbose:
+                    print(f"[*] Found {missing_count} unpopulated tool calls. Running backfill...")
+                conn.close()
+                backfill_tool_volumes(resolved, verbose=verbose)
+                conn = sqlite3.connect(resolved)
+                cur = conn.cursor()
+                cur.execute("PRAGMA table_info(tool_calls)")
+                tc_cols = {r[1] for r in cur.fetchall()}
+
+        out_col = "output_length_chars" if "output_length_chars" in tc_cols else "0"
+        arg_col = "arguments_length_chars" if "arguments_length_chars" in tc_cols else "0"
+        trunc_col = "is_truncated" if "is_truncated" in tc_cols else "0"
+        cat_col = "COALESCE(command_category, 'unclassified')" if "command_category" in tc_cols else "'unclassified'"
+        cmd_col = "command_line" if "command_line" in tc_cols else "NULL"
 
         # 1. High-level aggregates
-        cur.execute("""
+        err_cond = "status != 'SUCCESS' OR (exit_code IS NOT NULL AND exit_code != 0)" if "exit_code" in tc_cols else "status != 'SUCCESS'"
+
+        cur.execute(f"""
             SELECT COUNT(*),
-                   COALESCE(SUM(output_length_chars), 0),
-                   COALESCE(SUM(arguments_length_chars), 0),
-                   COALESCE(SUM(CASE WHEN is_truncated = 1 THEN 1 ELSE 0 END), 0),
-                   COALESCE(SUM(CASE WHEN status != 'SUCCESS' THEN 1 ELSE 0 END), 0)
+                   COALESCE(SUM({out_col}), 0),
+                   COALESCE(SUM({arg_col}), 0),
+                   COALESCE(SUM(CASE WHEN {trunc_col} = 1 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN {err_cond} THEN 1 ELSE 0 END), 0)
             FROM tool_calls
         """)
         row = cur.fetchone()
@@ -92,22 +110,22 @@ def analyze_volumes(
         total_errors = row[4]
 
         # 2. Per-tool volume distributions (aggregated in SQL + streamed sorted outputs for exact percentiles)
-        cur.execute("""
+        cur.execute(f"""
             SELECT tool_name,
                    COUNT(*),
-                   COALESCE(SUM(CASE WHEN status != 'SUCCESS' THEN 1 ELSE 0 END), 0),
-                   COALESCE(SUM(CASE WHEN is_truncated = 1 THEN 1 ELSE 0 END), 0),
-                   COALESCE(SUM(output_length_chars), 0),
-                   COALESCE(SUM(arguments_length_chars), 0),
-                   COALESCE(MAX(output_length_chars), 0),
-                   COALESCE(SUM(CASE WHEN COALESCE(output_length_chars, 0) < 500 THEN 1 ELSE 0 END), 0),
-                   COALESCE(SUM(CASE WHEN COALESCE(output_length_chars, 0) BETWEEN 500 AND 2048 THEN 1 ELSE 0 END), 0),
-                   COALESCE(SUM(CASE WHEN COALESCE(output_length_chars, 0) > 2048 AND COALESCE(output_length_chars, 0) <= 10240 THEN 1 ELSE 0 END), 0),
-                   COALESCE(SUM(CASE WHEN COALESCE(output_length_chars, 0) > 10240 AND COALESCE(output_length_chars, 0) <= 51200 THEN 1 ELSE 0 END), 0),
-                   COALESCE(SUM(CASE WHEN COALESCE(output_length_chars, 0) > 51200 THEN 1 ELSE 0 END), 0)
+                   COALESCE(SUM(CASE WHEN {err_cond} THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN {trunc_col} = 1 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM({out_col}), 0),
+                   COALESCE(SUM({arg_col}), 0),
+                   COALESCE(MAX({out_col}), 0),
+                   COALESCE(SUM(CASE WHEN COALESCE({out_col}, 0) < 500 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN COALESCE({out_col}, 0) BETWEEN 500 AND 2048 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN COALESCE({out_col}, 0) > 2048 AND COALESCE({out_col}, 0) <= 10240 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN COALESCE({out_col}, 0) > 10240 AND COALESCE({out_col}, 0) <= 51200 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN COALESCE({out_col}, 0) > 51200 THEN 1 ELSE 0 END), 0)
             FROM tool_calls
             GROUP BY tool_name
-            ORDER BY COALESCE(SUM(output_length_chars), 0) DESC
+            ORDER BY COALESCE(SUM({out_col}), 0) DESC
         """)
         tool_agg_rows = cur.fetchall()
 
@@ -128,7 +146,7 @@ def analyze_volumes(
             b_gt_50k,
         ) in tool_agg_rows:
             pcts = {f"p{int(p * 100)}": 0 for p in percentiles}
-            if cnt > 0:
+            if cnt > 0 and "output_length_chars" in tc_cols:
                 for p in percentiles:
                     idx = max(0, min(cnt - 1, math.ceil(p * cnt) - 1))
                     cur.execute(
@@ -171,10 +189,10 @@ def analyze_volumes(
             })
 
         # 3. Command category breakdown (chunked fetchmany for run_command)
-        cur.execute("""
-            SELECT COALESCE(command_category, 'unclassified') as cat,
-                   output_length_chars,
-                   command_line,
+        cur.execute(f"""
+            SELECT {cat_col} as cat,
+                   {out_col},
+                   {cmd_col},
                    status
             FROM tool_calls
             WHERE tool_name = 'run_command'
@@ -211,37 +229,40 @@ def analyze_volumes(
             gt_2k = category_gt_2k.get(cat, 0)
             p50_idx = max(0, min(cnt - 1, math.ceil(0.50 * cnt) - 1))
             p90_idx = max(0, min(cnt - 1, math.ceil(0.90 * cnt) - 1))
-            cur.execute(
-                """
-                SELECT COALESCE(output_length_chars, 0)
-                FROM tool_calls
-                WHERE tool_name = 'run_command' AND COALESCE(command_category, 'unclassified') = ?
-                ORDER BY COALESCE(output_length_chars, 0) ASC
-                LIMIT 1 OFFSET ?
-                """,
-                (cat, p50_idx),
-            )
-            r50 = cur.fetchone()
-            cur.execute(
-                """
-                SELECT COALESCE(output_length_chars, 0)
-                FROM tool_calls
-                WHERE tool_name = 'run_command' AND COALESCE(command_category, 'unclassified') = ?
-                ORDER BY COALESCE(output_length_chars, 0) ASC
-                LIMIT 1 OFFSET ?
-                """,
-                (cat, p90_idx),
-            )
-            r90 = cur.fetchone()
-            cur.execute(
-                """
-                SELECT COALESCE(MAX(output_length_chars), 0)
-                FROM tool_calls
-                WHERE tool_name = 'run_command' AND COALESCE(command_category, 'unclassified') = ?
-                """,
-                (cat,),
-            )
-            rmax = cur.fetchone()
+            if "output_length_chars" in tc_cols:
+                cur.execute(
+                    f"""
+                    SELECT COALESCE(output_length_chars, 0)
+                    FROM tool_calls
+                    WHERE tool_name = 'run_command' AND {cat_col} = ?
+                    ORDER BY COALESCE(output_length_chars, 0) ASC
+                    LIMIT 1 OFFSET ?
+                    """,
+                    (cat, p50_idx),
+                )
+                r50 = cur.fetchone()
+                cur.execute(
+                    f"""
+                    SELECT COALESCE(output_length_chars, 0)
+                    FROM tool_calls
+                    WHERE tool_name = 'run_command' AND {cat_col} = ?
+                    ORDER BY COALESCE(output_length_chars, 0) ASC
+                    LIMIT 1 OFFSET ?
+                    """,
+                    (cat, p90_idx),
+                )
+                r90 = cur.fetchone()
+                cur.execute(
+                    f"""
+                    SELECT COALESCE(MAX(output_length_chars), 0)
+                    FROM tool_calls
+                    WHERE tool_name = 'run_command' AND {cat_col} = ?
+                    """,
+                    (cat,),
+                )
+                rmax = cur.fetchone()
+            else:
+                r50 = r90 = rmax = (0,)
             category_stats.append({
                 "category": cat,
                 "call_count": cnt,
@@ -260,33 +281,34 @@ def analyze_volumes(
         category_stats.sort(key=lambda x: x["total_output_chars"], reverse=True)
 
         # 4. Compactor Threshold Simulation (chunked streaming without loading full table into RAM)
-        thresholds = [1024, 2048, 4096, 8192, 16384]
+        thresholds = [1024, 2048, 4096, 8192, 16384, 32768]
         compacted_len = 500 + 1000 + 120
         impacted_by_t = {t: 0 for t in thresholds}
         saved_by_t = {t: 0 for t in thresholds}
         preserved_by_t = {t: 0 for t in thresholds}
 
-        cur.execute("""
-            SELECT output_length_chars, status
-            FROM tool_calls
-            WHERE COALESCE(output_length_chars, 0) > ?
-        """, (min(thresholds),))
-        while True:
-            batch = cur.fetchmany(batch_size)
-            if not batch:
-                break
-            for out_len, status in batch:
-                v = out_len or 0
-                is_success = status == "SUCCESS"
-                for t_val in thresholds:
-                    if v <= t_val:
-                        continue
-                    if not is_success:
-                        preserved_by_t[t_val] += 1
-                        continue
-                    if v > compacted_len:
-                        impacted_by_t[t_val] += 1
-                        saved_by_t[t_val] += v - compacted_len
+        if "output_length_chars" in tc_cols:
+            cur.execute("""
+                SELECT output_length_chars, status
+                FROM tool_calls
+                WHERE COALESCE(output_length_chars, 0) > ?
+            """, (min(thresholds),))
+            while True:
+                batch = cur.fetchmany(batch_size)
+                if not batch:
+                    break
+                for out_len, status in batch:
+                    v = out_len or 0
+                    is_success = status == "SUCCESS"
+                    for t_val in thresholds:
+                        if v <= t_val:
+                            continue
+                        if not is_success:
+                            preserved_by_t[t_val] += 1
+                            continue
+                        if v > compacted_len:
+                            impacted_by_t[t_val] += 1
+                            saved_by_t[t_val] += v - compacted_len
 
         simulations = []
         for t_val in thresholds:
@@ -411,9 +433,11 @@ def generate_markdown_report(data: Dict[str, Any]) -> str:
     md.append("> [!IMPORTANT]")
     md.append("> **Failure Preservation Audit (ADR-008)**: Across all tested thresholds, `failure_preservation_violations` is strictly **0**. Every tool execution terminating with non-zero exit code or error status is preserved 100% in full for developer diagnosis.\n")
 
+    sim_2k = next((x for x in sims if x["threshold_bytes"] == 2048), None)
+    pct_2k = sim_2k["pct_volume_reduction"] if sim_2k else 0.0
     md.append("---")
     md.append("## 5. Architectural Findings & Next Steps\n")
-    md.append("1. **2KB Sweet Spot Validated**: The 2KB threshold provides an optimal balance, reducing total output volume by over **20%** while compacting only the long-tail bloaters (>2KB) and leaving short commands completely unmodified.")
+    md.append(f"1. **2KB Sweet Spot Validated**: The 2KB threshold reduces total output volume by **{pct_2k}%** while compacting only long-tail bloaters (>2KB) and leaving short commands completely unmodified.")
     md.append("2. **Category Heavyweights**: Test runners and package managers generate the largest individual payloads, highlighting the need for project-level test runner output compactors.")
     md.append("3. **Input vs. Output Asymmetry**: File modification tools (`write_file`) are dominated by input arguments rather than outputs, confirming that output compaction correctly targets the read/exec tools (`run_command`, `read_file`).\n")
 

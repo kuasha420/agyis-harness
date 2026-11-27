@@ -5,7 +5,7 @@
 
 """
 Hermetic verification suite for the Canonical Trajectory SSOT Engine (ADR-035).
-Covers protobuf metadata decoding, epoch splitting, UsageMetadata precedence,
+Covers protobuf metadata decoding, checkpoint splitting, UsageMetadata precedence,
 protobuf Timestamp velocity calculation, escaped-JSON subagent lineage resolution,
 strict parent_conversation_id filtering, honest breakdown, and 256k health scaling.
 """
@@ -119,7 +119,7 @@ class TestTrajectorySSOT(unittest.TestCase):
 
     def test_checkpoint_ignores_summarizer_usage_and_uses_provisional_summary(self) -> None:
         """
-        Compaction step (step_type=23) carries ~258k summarizer UsageMetadata; new epoch
+        Compaction step (step_type=23) carries ~258k summarizer UsageMetadata; new checkpoint
         must ignore pre-compaction summarizer tokens and use bounded provisional <summary> size
         until the first post-compaction LLM UsageMetadata arrives, plus compute real tok/min velocity.
         """
@@ -148,8 +148,8 @@ class TestTrajectorySSOT(unittest.TestCase):
         self.assertGreater(m_gap.tokens, 500)
         self.assertLess(m_gap.tokens, 50000)
         self.assertEqual(m_gap.checkpoint_count, 1)
-        self.assertEqual(m_gap.epoch_steps, 0)
-        self.assertEqual(m_gap.epoch_index, 1)
+        self.assertEqual(m_gap.checkpoint_steps, 0)
+        self.assertEqual(m_gap.checkpoint_index, 1)
 
         # Two post-compaction turns arrive 120 seconds apart -> non-zero tok/min velocity!
         conn = sqlite3.connect(db_path)
@@ -168,7 +168,7 @@ class TestTrajectorySSOT(unittest.TestCase):
         m_live = read_db_trajectory_state(cid, db_dir=self.db_dir)
         self.assertFalse(m_live.is_provisional)
         self.assertEqual(m_live.tokens, 28000)
-        self.assertEqual(m_live.epoch_steps, 3)
+        self.assertEqual(m_live.checkpoint_steps, 3)
         self.assertEqual(m_live.total_steps, 5)
         # 28,000 - 22,000 = 6,000 tokens over 120 seconds = 3,000 tok/min
         self.assertAlmostEqual(m_live.burn_rate_tokens_per_min, 3000.0, places=1)
@@ -309,6 +309,29 @@ class TestTrajectorySSOT(unittest.TestCase):
         self.assertEqual(bd["tool_defs"], 6_000)
         self.assertEqual(bd["unattributed"], 0)
         self.assertEqual(sum(v for k, v in bd.items() if k != "system_prompt"), 40_500)
+
+    def test_sdk_injection_markers_filter_both_checkpoint_and_epoch_advisories(self) -> None:
+        """_SDK_INJECTION_MARKERS filters both new checkpoint horizon and legacy epoch horizon advisories."""
+        from harness.trajectory.sqlite_step_parser import _is_sdk_injection_text
+
+        new_adv = "[AGYIS CHECKPOINT HORIZON ADVISORY: Checkpoint step 80/80 — consider verifying diff & checkpoints]"
+        old_adv = "[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/80 — consider verifying diff & checkpoints]"
+        self.assertTrue(_is_sdk_injection_text(new_adv))
+        self.assertTrue(_is_sdk_injection_text(old_adv))
+
+        cid = "cid-sdk-marker-compat"
+        db_path = self.db_dir / f"{cid}.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, step_data TEXT)")
+        conn.execute("INSERT INTO steps VALUES (0, 101, ?)", (json.dumps({"prompt": f"[Message] {old_adv}"}),))
+        conn.execute("INSERT INTO steps VALUES (1, 101, ?)", (json.dumps({"prompt": "[Message] Implement feature X"}),))
+        conn.execute("INSERT INTO steps VALUES (2, 101, ?)", (json.dumps({"prompt": f"[Message] {new_adv}"}),))
+        conn.commit()
+        conn.close()
+
+        metrics = read_db_trajectory_state(cid, db_dir=self.db_dir)
+        self.assertEqual(metrics.turn0_prompt, "[Message] Implement feature X")
+        self.assertEqual(metrics.latest_user_prompt, "[Message] Implement feature X")
 
 
 if __name__ == "__main__":

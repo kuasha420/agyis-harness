@@ -16,6 +16,7 @@ import sys
 import urllib.error
 
 from harness.telemetry import config
+from harness.utils import theme
 
 
 def cmd_auth(args: argparse.Namespace) -> int:
@@ -106,7 +107,7 @@ def cmd_auth(args: argparse.Namespace) -> int:
                 "endpoint": endpoint,
             }, indent=2))
         else:
-            print(f"✔ Successfully authenticated as {username} ({org})")
+            print(theme.badge("PASS", f"Successfully authenticated as {username} ({org})"))
             print(f"  Endpoint: {endpoint}")
         return 0
 
@@ -131,14 +132,12 @@ def cmd_auth(args: argparse.Namespace) -> int:
             }, indent=2))
             return 0 if is_auth else 1
 
-        print("=" * 60)
-        print(" Agyis Telemetry Authentication Status")
-        print("=" * 60)
+        print(theme.banner("Agyis Telemetry Authentication Status"))
         print(f"  Authenticated: {'Yes' if is_auth else 'No'}")
         print(f"  Username:      {username or 'Not logged in'}")
         print(f"  Token:         {masked or 'None'}")
         print(f"  Hub Endpoint:  {endpoint}")
-        print("=" * 60)
+        print(theme.rule("━"))
         return 0 if is_auth else 1
 
     elif sub == "logout":
@@ -146,7 +145,7 @@ def cmd_auth(args: argparse.Namespace) -> int:
         if getattr(args, "json", False):
             print(json.dumps({"status": "success", "message": "Credentials cleared successfully."}, indent=2))
         else:
-            print("✔ Credentials cleared successfully.")
+            print(theme.badge("PASS", "Credentials cleared successfully."))
         return 0
 
     else:

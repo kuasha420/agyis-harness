@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 import http.server
+import importlib.resources
 import json
 import logging
 import os
@@ -50,6 +51,29 @@ _TRAJECTORY_CACHE_LOCK = threading.Lock()
 _TRAJECTORY_CACHE: "OrderedDict[str, Tuple[int, int, int, int, Dict[str, Any]]]" = OrderedDict()
 
 _ALLOWED_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+_ALLOWED_PLAYBACK_ASSETS = frozenset({
+    "hud_styles.css",
+    "hud_theme.js",
+    "hud_utils.js",
+    "hud_header.js",
+    "hud_context_bar.js",
+    "hud_timeline.js",
+    "hud_inspector.js",
+    "hud_deck.js",
+    "hud_stream.js",
+    "hud_rpc.js",
+    "playback_boot.js",
+})
+_ASSET_MIME_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+}
+
+
+def _load_playback_asset_bytes(asset_name: str) -> bytes:
+    """Loads an allowlisted static asset from harness.gui.assets via importlib.resources."""
+    return importlib.resources.files("harness.gui.assets").joinpath(asset_name).read_bytes()
 
 
 def _is_allowed_origin(origin: str) -> bool:
@@ -207,6 +231,27 @@ class TrajectoryRequestHandler(http.server.BaseHTTPRequestHandler):
         path = parsed_url.path
         query = urllib.parse.parse_qs(parsed_url.query)
 
+        if path in ("/", "/index.html"):
+            try:
+                body = _load_playback_asset_bytes("playback_shell.html")
+                self._write_bytes(200, _ASSET_MIME_TYPES[".html"], body)
+            except (FileNotFoundError, OSError) as exc:
+                self._write_json(500, {"error": str(exc)})
+            return
+
+        if path.startswith("/assets/"):
+            asset_name = urllib.parse.unquote(path[len("/assets/"):])
+            if asset_name not in _ALLOWED_PLAYBACK_ASSETS:
+                self._write_json(404, {"error": "Not Found", "path": path})
+                return
+            mime = _ASSET_MIME_TYPES.get(Path(asset_name).suffix, "application/octet-stream")
+            try:
+                body = _load_playback_asset_bytes(asset_name)
+                self._write_bytes(200, mime, body)
+            except (FileNotFoundError, OSError) as exc:
+                self._write_json(404, {"error": str(exc), "path": path})
+            return
+
         if path == "/health":
             payload = {"status": "ok", "port": self.server.server_port}
             self._write_json(200, payload)
@@ -271,14 +316,17 @@ class TrajectoryRequestHandler(http.server.BaseHTTPRequestHandler):
 
         self._write_json(404, {"error": "Not Found", "path": path})
 
-    def _write_json(self, status_code: int, data: Any) -> None:
-        encoded = json.dumps(data).encode("utf-8")
+    def _write_bytes(self, status_code: int, content_type: str, body: bytes) -> None:
         self.send_response(status_code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self._send_cors_headers()
         self.end_headers()
-        self.wfile.write(encoded)
+        self.wfile.write(body)
+
+    def _write_json(self, status_code: int, data: Any) -> None:
+        self._write_bytes(status_code, "application/json; charset=utf-8", json.dumps(data).encode("utf-8"))
 
 
 class TrajectoryServer(http.server.ThreadingHTTPServer):
@@ -324,10 +372,16 @@ def start_trajectory_server(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_TRAJECTORY_PORT,
     brain_dir: Optional[Path] = None,
+    poll_interval: float = 0.5,
 ) -> TrajectoryServer:
     """Creates and starts the TrajectoryServer on a background daemon thread."""
     server = TrajectoryServer((host, port), RequestHandlerClass=TrajectoryRequestHandler, brain_dir=brain_dir)
-    thread = threading.Thread(target=server.serve_forever, daemon=True, name="AgyisTrajectoryServer")
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": poll_interval},
+        daemon=True,
+        name="AgyisTrajectoryServer",
+    )
     thread.start()
     return server
 

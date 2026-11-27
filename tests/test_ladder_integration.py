@@ -64,7 +64,7 @@ from harness.hooks.pre_invocation_hook import (
     evaluate_pre_invocation,
     ROLE_DEEP_EXECUTION,
     ROLE_FORENSIC_AUDITOR,
-    SOFT_EPOCH_STEP_ADVISORY,
+    SOFT_CHECKPOINT_STEP_ADVISORY,
 )
 from harness.hooks.anti_loop_hook import STEP_INTERRUPT_THRESHOLD
 from harness.subagents import (
@@ -200,10 +200,10 @@ class TestSubagentLadderIntegration(unittest.TestCase):
         )
 
         # ---------------------------------------------------------------------
-        # 3. Epoch Step 80: Soft Epoch Horizon Advisory (Non-Blocking)
+        # 3. Checkpoint Step 80: Soft Checkpoint Horizon Advisory (Non-Blocking)
         # ---------------------------------------------------------------------
         pulse_ok_80 = pulse_stage_heartbeat(
-            step_count=SOFT_EPOCH_STEP_ADVISORY,
+            step_count=SOFT_CHECKPOINT_STEP_ADVISORY,
             last_action="verifying local edits",
             status="in_progress",
             workspace_dir=self.workspace_dir,
@@ -211,14 +211,14 @@ class TestSubagentLadderIntegration(unittest.TestCase):
         self.assertTrue(pulse_ok_80)
 
         res_80 = evaluate_pre_invocation(
-            {"step_count": SOFT_EPOCH_STEP_ADVISORY}, workspace_dir=self.workspace_dir
+            {"step_count": SOFT_CHECKPOINT_STEP_ADVISORY}, workspace_dir=self.workspace_dir
         )
         inject_steps_80 = res_80.get("injectSteps", [])
         self.assertEqual(len(inject_steps_80), 1)
         self.assertIn("systemMessage", inject_steps_80[0])
         self.assertNotIn("ephemeralMessage", inject_steps_80[0])
         msg_80 = inject_steps_80[0]["systemMessage"]["systemMessage"]
-        self.assertIn(f"[AGYIS EPOCH HORIZON ADVISORY: Epoch step 80/{SOFT_EPOCH_STEP_ADVISORY}", msg_80)
+        self.assertIn(f"[AGYIS CHECKPOINT HORIZON ADVISORY: Checkpoint step 80/{SOFT_CHECKPOINT_STEP_ADVISORY}", msg_80)
 
         # Assert exploratory sweeps and payload calls stay non-blocking (allow) at step 80
         self.assertEqual(
@@ -227,7 +227,7 @@ class TestSubagentLadderIntegration(unittest.TestCase):
                 {"DirectoryPath": str(self.workspace_dir)},
                 conv_id=conv_id,
                 state_dir=self.workspace_dir,
-                step_count=SOFT_EPOCH_STEP_ADVISORY,
+                step_count=SOFT_CHECKPOINT_STEP_ADVISORY,
                 role=ANTI_LOOP_ROLE_DEEP_EXECUTION,
             ).get("decision"),
             "allow",
@@ -235,7 +235,7 @@ class TestSubagentLadderIntegration(unittest.TestCase):
         payload_sweep = {
             "conversationId": conv_id,
             "toolCall": {"name": "list_dir", "args": {"DirectoryPath": str(self.workspace_dir)}},
-            "step_count": SOFT_EPOCH_STEP_ADVISORY,
+            "step_count": SOFT_CHECKPOINT_STEP_ADVISORY,
             "role": ANTI_LOOP_ROLE_DEEP_EXECUTION,
         }
         self.assertEqual(
@@ -244,20 +244,28 @@ class TestSubagentLadderIntegration(unittest.TestCase):
         )
 
         # ---------------------------------------------------------------------
-        # 4. Epoch Step 80: Non-Blocking Advisory on Edits + Tests/Reads Allowed
+        # 4. Checkpoint Step 80: Non-Blocking Advisory on Edits + Tests/Reads Allowed
         # ---------------------------------------------------------------------
+        import contextlib
+        import io
+        from harness.hooks.wire_compat import drain_pending_advisories
+
         for tool in sorted(CODE_MUTATION_TOOLS):
             with self.subTest(fence_tool=tool):
-                res_fence = check_pre_tool_use(
-                    tool,
-                    {"TargetFile": str(target_src), "CodeContent": "# progress"},
-                    conv_id=conv_id,
-                    state_dir=self.workspace_dir,
-                    step_count=EXECUTIONER_HORIZON_STEPS,
-                    role=FENCE_ROLE_DEEP_EXECUTION,
-                )
-                self.assertEqual(res_fence.get("decision"), "allow")
-                self.assertIn("[EPOCH HORIZON: 80/80 STEPS]", res_fence.get("advisory", ""))
+                err_buf = io.StringIO()
+                with contextlib.redirect_stderr(err_buf):
+                    res_fence = check_pre_tool_use(
+                        tool,
+                        {"TargetFile": str(target_src), "CodeContent": "# progress"},
+                        conv_id=conv_id,
+                        state_dir=self.workspace_dir,
+                        step_count=EXECUTIONER_HORIZON_STEPS,
+                        role=FENCE_ROLE_DEEP_EXECUTION,
+                    )
+                self.assertEqual(res_fence, {"decision": "allow"})
+                self.assertIn("[CHECKPOINT HORIZON: 80/80 STEPS]", err_buf.getvalue())
+                queued = drain_pending_advisories(conv_id, state_dir=self.workspace_dir)
+                self.assertTrue(any("[CHECKPOINT HORIZON: 80/80 STEPS]" in item for item in queued))
 
         # Assert Work Preservation Invariant: File content remains unaltered by advisory hook
         self.assertEqual(target_src.read_text(encoding="utf-8"), "# clean production code\n")

@@ -47,8 +47,8 @@ These operational rules govern cognitive discipline, epistemic honesty, and arch
 ---
 
 ## 4. Context Signal Hygiene & Runway Discipline (PSL-INV-004)
-1. **Scaled 512k/1M Context Runway & 80-Step Soft Epoch Horizon**:
-   - Track context consumption proportionally across modern `512k`/`1M` windows: converge active deliverables around `~70%` (amber), generate a pre-compaction checkpoint at `~90%` (red), and respect the `80`-step soft epoch horizon.
+1. **Scaled 512k/1M Context Runway & 80-Step Soft Checkpoint Horizon**:
+   - Track context consumption proportionally across modern `512k`/`1M` windows: converge active deliverables around `~70%` (amber), generate a pre-compaction checkpoint at `~90%` (red), and respect the `80`-step soft checkpoint horizon.
 2. **Anti-Loop & Reactive Wait Discipline**:
    - Do not repeatedly call `read_file` on the same slice or repeat identical search queries.
    - Never poll `manage_task(Action='status')` or tail background logs (`tail`, `cat`); emit one concise update and await reactive wakeup (`swarm_wait` or turn completion).

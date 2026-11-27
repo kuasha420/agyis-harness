@@ -287,7 +287,7 @@ def sync_surfaces_impl(
     return results
 
 
-def _resolve_canonical_config_dir(config_dir: Optional[Path] = None) -> Path:
+def resolve_canonical_config_dir(config_dir: Optional[Path] = None) -> Path:
     """Resolves canonical config directory respecting AGYIS_CONFIG_DIR/PSL_CONFIG_DIR."""
     if config_dir is not None:
         return Path(config_dir).expanduser().resolve()
@@ -303,6 +303,9 @@ def _resolve_canonical_config_dir(config_dir: Optional[Path] = None) -> Path:
     return (Path.home() / ".gemini" / "config").resolve()
 
 
+_resolve_canonical_config_dir = resolve_canonical_config_dir
+
+
 def discover_surfaces(config_dir: Optional[Path] = None) -> List[Path]:
     """Discovers Antigravity surface directories for synchronization (ADR-030)."""
     env_surfaces = os.environ.get("AGYIS_SURFACES")
@@ -312,7 +315,7 @@ def discover_surfaces(config_dir: Optional[Path] = None) -> List[Path]:
             for p in env_surfaces.split(os.pathsep)
             if p.strip()
         ]
-    cfg_root = _resolve_canonical_config_dir(config_dir)
+    cfg_root = resolve_canonical_config_dir(config_dir)
     base_gemini = cfg_root.parent
     return [(base_gemini / name).resolve() for name in DEFAULT_SURFACE_NAMES]
 
@@ -323,7 +326,7 @@ def sync_surfaces(
     dry_run: bool = False,
 ) -> List[Dict[str, Any]]:
     """Standalone helper for multi-surface synchronization across Antigravity paths."""
-    cfg_root = _resolve_canonical_config_dir(config_dir)
+    cfg_root = resolve_canonical_config_dir(config_dir)
     target_surfaces = (
         [Path(s).expanduser().resolve() for s in surfaces]
         if surfaces is not None

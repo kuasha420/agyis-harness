@@ -65,7 +65,7 @@ def record_telemetry_proof(
         proof_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return True
     except OSError as exc:
-        sys.stderr.write(f"PSL Anti-Drift: Failed to record telemetry proof: {exc}\n")
+        sys.stderr.write(f"[AGYIS ANTI-DRIFT] Failed to record telemetry proof: {exc}\n")
         return False
 
 
@@ -154,7 +154,7 @@ def check_ledger_cluster_tables(
         return {
             "decision": "deny",
             "reason": (
-                f"PSL Anti-Drift Gate: Modification to '{target_name}' contains cluster status "
+                f"[AGYIS ANTI-DRIFT] Gate: Modification to '{target_name}' contains cluster status "
                 "or node metrics tables without live CLI telemetry proof. "
                 "Execute 'knot ledger generate --json' or 'knot status --json' to verify "
                 "live cluster metrics before updating ledger."
@@ -211,7 +211,7 @@ def check_ledger_persona_truth(
                 ),
             }
     except Exception as exc:
-        sys.stderr.write(f"PSL Anti-Drift: Failed checking ledger persona truth: {exc}\n")
+        sys.stderr.write(f"[AGYIS ANTI-DRIFT] Failed checking ledger persona truth: {exc}\n")
 
     return None
 

@@ -17,6 +17,7 @@ import sys
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from harness.discovery import inject_non_interactive_guards, resolve_affected_tests
+from harness.utils import theme
 from harness.mutation.probe_operators import (
     ACTIVE_BACKUPS,
     _install_safety_handlers,
@@ -483,7 +484,7 @@ def run_micro_mutation_probe(
             passed=False,
             ecosystem_tool=ecosystem_tool,
             report_text=(
-                f"✖ Exceeded hard mutant cap of 20 mutants per inner-loop run (generated {len(mutants)}). "
+                f"{theme.badge('FAIL')} Exceeded hard mutant cap of 20 mutants per inner-loop run (generated {len(mutants)}). "
                 f"Scope your diff or apply '# agyis: no-mutant' pragmas to non-critical logic to prevent runaway loops."
             ),
         )
@@ -497,7 +498,7 @@ def run_micro_mutation_probe(
             score=100.0,
             passed=True,
             ecosystem_tool=ecosystem_tool,
-            report_text="✔ 0 mutants generated for current diff (clean working tree or arid lines). Mutation score: 100.0%.",
+            report_text=f"{theme.badge('PASS')} 0 mutants generated for current diff (clean working tree or arid lines). Mutation score: 100.0%.",
         )
 
     killed = 0
@@ -577,7 +578,7 @@ def run_micro_mutation_probe(
         lines.append(f"Ecosystem Mutation Runner Detected: {ecosystem_tool}")
 
     if surviving_mutants:
-        lines.append("\n✖ SURVIVING MUTANTS DETECTED (Insufficient Test Coverage):")
+        lines.append("\n" + theme.badge("FAIL", "SURVIVING MUTANTS DETECTED (Insufficient Test Coverage):"))
         for sm in surviving_mutants:
             lines.append(f"\n--- [{sm.mutant_id}] {sm.file_path}:{sm.line_number} in {sm.function_name}() ({sm.operator}) ---")
             lines.append(sm.diff.strip())
@@ -586,9 +587,9 @@ def run_micro_mutation_probe(
             "'# agyis: no-mutant <reason>'."
         )
     elif errors > 0:
-        lines.append(f"\n✖ MUTATION PROBE FAILED: {errors} execution/baseline error(s) prevented verification.")
+        lines.append("\n" + theme.badge("FAIL", f"MUTATION PROBE FAILED: {errors} execution/baseline error(s) prevented verification."))
     elif passed:
-        lines.append("\n✔ All mutants killed! Diff verification passed.")
+        lines.append("\n" + theme.badge("PASS", "All mutants killed! Diff verification passed."))
 
     report_text = "\n".join(lines)
 

@@ -7,12 +7,94 @@
 
 from __future__ import annotations
 
+import argparse
+import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 from typing import Any, Dict, Optional, Tuple
+
+
+_CPYTHON_DIR_VER_RE = re.compile(r"^cpython-(\d+)\.(\d+)(?:\.(\d+))?(?:[^0-9].*)?$")
+
+
+def _parse_cpython_version(name: str) -> Optional[Tuple[int, int, int]]:
+    """Parse CPython version tuple (major, minor, patch) from a uv directory name."""
+    match = _CPYTHON_DIR_VER_RE.match(name)
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3) or 0))
+
+
+def find_hermetic_uv_python() -> Optional[Path]:
+    """Find installed CPython 3.12+ in uv's toolchain directory via numeric version sort."""
+    uv_python_dir = Path.home() / ".local/share/uv/python"
+    if not uv_python_dir.is_dir():
+        return None
+    candidates: list[Tuple[Tuple[int, int, int], str, Path]] = []
+    try:
+        entries = list(uv_python_dir.iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        if not entry.is_dir():
+            continue
+        ver = _parse_cpython_version(entry.name)
+        if ver is None or (ver[0], ver[1]) < (3, 12):
+            continue
+        python_bin = entry / "bin" / "python3"
+        if python_bin.is_file() and os.access(python_bin, os.X_OK):
+            candidates.append((ver, entry.name, python_bin))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
+
+REA_DEPRECATION_WARNING = (
+    "DeprecationWarning: '--experimental-rea' is deprecated; "
+    "use '--rea' (or '--re' on doctor).\n"
+)
+
+
+class _DeprecatedReaAction(argparse.Action):
+    """Argparse action enabling --rea while warning to stderr when --experimental-rea is passed."""
+
+    def __init__(self, option_strings: Any, dest: str, **kwargs: Any) -> None:
+        kwargs.setdefault("nargs", 0)
+        kwargs.setdefault("default", False)
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: Optional[str] = None,
+    ) -> None:
+        sys.stderr.write(REA_DEPRECATION_WARNING)
+        setattr(namespace, self.dest, True)
+        setattr(namespace, "rea", True)
+
+
+def register_rea_flags(
+    parser: argparse.ArgumentParser,
+    help_text: str,
+) -> None:
+    """Register primary --rea flag and deprecated --experimental-rea compatibility alias."""
+    parser.add_argument(
+        "--rea",
+        dest="rea",
+        action="store_true",
+        help=help_text,
+    )
+    parser.add_argument(
+        "--experimental-rea",
+        dest="experimental_rea",
+        action=_DeprecatedReaAction,
+        help="Deprecated alias for --rea",
+    )
 
 
 def parse_version(v_str: str) -> Tuple[int, ...]:

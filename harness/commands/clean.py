@@ -28,9 +28,12 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+
+from harness.utils import theme
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from harness.delivery import purge_build_caches
 from harness.delivery.compaction_checkpoint import prune_stale_checkpoints
 
 
@@ -506,10 +509,11 @@ def cmd_clean(args: argparse.Namespace) -> int:
     do_branches = getattr(args, "branches", False)
     do_scratch = getattr(args, "scratch", False)
     do_dist = bool(getattr(args, "dist", False))
+    do_caches = bool(getattr(args, "caches", False))
     do_all = getattr(args, "all", False)
 
     # Default to --all if no specific category is selected
-    if not (do_checkpoints or do_worktrees or do_branches or do_scratch or do_dist or do_all):
+    if not (do_checkpoints or do_worktrees or do_branches or do_scratch or do_dist or do_caches or do_all):
         do_all = True
 
     if do_all:
@@ -538,6 +542,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
     pruned_scrs: List[str] = []
     pruned_scr_dirs: List[str] = []
     pruned_dist: List[str] = []
+    pruned_caches: List[str] = []
     dist_error: Optional[str] = None
 
     if do_checkpoints:
@@ -558,6 +563,8 @@ def cmd_clean(args: argparse.Namespace) -> int:
             pruned_dist = clean_dist(ws, dry_run=dry_run)
         except OSError as exc:
             dist_error = str(exc)
+    if do_caches:
+        pruned_caches = purge_build_caches(ws, dry_run=dry_run)
 
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     total_pruned = (
@@ -567,6 +574,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
         + len(pruned_scrs)
         + len(pruned_scr_dirs)
         + len(pruned_dist)
+        + len(pruned_caches)
     )
 
     if json_output:
@@ -584,6 +592,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
                 "dirs_count": len(pruned_scr_dirs),
             },
             "dist": {"pruned": pruned_dist, "count": len(pruned_dist)},
+            "caches": {"pruned": pruned_caches, "count": len(pruned_caches)},
             "total_pruned": total_pruned,
             "elapsed_ms": elapsed_ms,
         }
@@ -593,11 +602,11 @@ def cmd_clean(args: argparse.Namespace) -> int:
         return 1 if dist_error is not None else 0
 
     if dist_error is not None:
-        print(f"❌ Failed to clean dist/: {dist_error}", file=sys.stderr)
+        print(theme.badge("FAIL", f"Failed to clean dist/: {dist_error}", stream=sys.stderr), file=sys.stderr)
         return 1
 
-    mode_label = "[DRY-RUN] " if dry_run else ""
-    print(f"=== Agyis Hygiene & Workspace Cleanup {mode_label}===")
+    mode_label = " [DRY-RUN]" if dry_run else ""
+    print(theme.banner(f"Agyis Hygiene & Workspace Cleanup{mode_label}"))
     print(f"Workspace: {ws}")
 
     if do_checkpoints:
@@ -629,5 +638,10 @@ def cmd_clean(args: argparse.Namespace) -> int:
         for d_item in pruned_dist:
             print(f"  - {Path(d_item).name}")
 
-    print(f"✔ Completed in {elapsed_ms:.2f} ms (Total items cleaned: {total_pruned})")
+    if do_caches:
+        print(f"Caches:      {len(pruned_caches)} build cache directories purged")
+        for c_item in pruned_caches:
+            print(f"  - {Path(c_item).name}")
+
+    print(theme.badge("PASS", f"Completed in {elapsed_ms:.2f} ms (Total items cleaned: {total_pruned})"))
     return 0

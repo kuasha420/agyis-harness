@@ -10,15 +10,19 @@ Decoupled into harness package core to allow standalone daemon execution without
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
-import os
 from pathlib import Path
 import re
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
+from harness.telemetry.config import infer_client_surface, resolve_machine_id
+from harness.telemetry.models import normalize_model, normalize_utc_iso
 from harness.telemetry.schema import SCHEMA_SQL, ensure_sync_columns
+from harness.telemetry.sibling_db import find_sibling_conversation_db, read_sibling_gen_metadata
+from harness.trajectory.health import is_transcript_checkpoint_step
+from harness.trajectory.protobuf import extract_context_window_from_json
 
 
 def parse_iso_ts(ts_str: Optional[str]) -> Optional[datetime]:
@@ -37,6 +41,11 @@ def calculate_duration(start_str: Optional[str], end_str: Optional[str]) -> Opti
     t1 = parse_iso_ts(start_str)
     t2 = parse_iso_ts(end_str)
     if t1 and t2:
+        if (t1.tzinfo is None) != (t2.tzinfo is None):
+            if t1.tzinfo is None:
+                t1 = t1.replace(tzinfo=timezone.utc)
+            if t2.tzinfo is None:
+                t2 = t2.replace(tzinfo=timezone.utc)
         return abs((t2 - t1).total_seconds())
     return None
 
@@ -107,6 +116,9 @@ def classify_command(cmd_line: Optional[str]) -> Optional[str]:
 def ensure_volume_columns(conn: sqlite3.Connection) -> None:
     """Non-destructively ensures volume & character distribution columns exist."""
     cur = conn.cursor()
+    cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tool_calls'")
+    if not cur.fetchone():
+        return
     cur.execute("PRAGMA table_info(tool_calls)")
     existing_cols = {row[1] for row in cur.fetchall()}
 
@@ -131,9 +143,70 @@ def ensure_volume_columns(conn: sqlite3.Connection) -> None:
 
 def ensure_telemetry_schema(conn: sqlite3.Connection) -> None:
     """Ensures all canonical telemetry tables, columns, and unique indexes exist."""
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sessions'")
+    if cur.fetchone():
+        ensure_sync_columns(conn)
+        ensure_volume_columns(conn)
     conn.cursor().executescript(SCHEMA_SQL)
     ensure_volume_columns(conn)
     ensure_sync_columns(conn)
+
+
+_SOURCE_KIND_RANK: Dict[str, int] = {
+    "sqlite_db": 1,
+    "transcript": 2,
+    "transcript_full": 3,
+}
+
+
+def _infer_source_kind_rank(source_kind: Optional[str], transcript_path: Optional[str]) -> int:
+    if source_kind and source_kind in _SOURCE_KIND_RANK:
+        return _SOURCE_KIND_RANK[source_kind]
+    if transcript_path:
+        low = str(transcript_path).lower()
+        if low.endswith("transcript_full.jsonl"):
+            return 3
+        if low.endswith(".jsonl"):
+            return 2
+        if low.endswith(".db"):
+            return 1
+    return 0
+
+
+def _normalize_session_row_timestamps(row: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(row)
+    for k in ("start_time", "end_time", "remote_synced_at"):
+        if out.get(k) is not None:
+            out[k] = normalize_utc_iso(out[k])
+    return out
+
+
+def _normalize_child_rows(
+    step_rows: List[Dict[str, Any]],
+    tool_rows: List[Dict[str, Any]],
+    interv_rows: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    norm_steps = []
+    for r in step_rows:
+        nr = dict(r)
+        if nr.get("created_at") is not None:
+            nr["created_at"] = normalize_utc_iso(nr["created_at"])
+        norm_steps.append(nr)
+    norm_tools = []
+    for r in tool_rows:
+        nr = dict(r)
+        for k in ("started_at", "completed_at"):
+            if nr.get(k) is not None:
+                nr[k] = normalize_utc_iso(nr[k])
+        norm_tools.append(nr)
+    norm_intervs = []
+    for r in interv_rows:
+        nr = dict(r)
+        if nr.get("created_at") is not None:
+            nr["created_at"] = normalize_utc_iso(nr["created_at"])
+        norm_intervs.append(nr)
+    return norm_steps, norm_tools, norm_intervs
 
 
 def upsert_session_telemetry(
@@ -146,21 +219,86 @@ def upsert_session_telemetry(
 ) -> None:
     """Atomically upserts session, steps, tool_calls, and user_interventions via schema.py."""
     cur = conn.cursor()
-    s_id = session_row["session_id"]
+    s_row = _normalize_session_row_timestamps(session_row)
+    s_id = s_row["session_id"]
 
-    # Preserve remote sync metadata unless new steps arrived locally.
-    cur.execute("SELECT remote_synced_at, origin_developer, total_steps FROM sessions WHERE session_id = ?", (s_id,))
+    # Ensure additive columns exist before reading/writing expanded schema
+    cur.execute("PRAGMA table_info(sessions)")
+    existing_cols = {r[1] for r in cur.fetchall()}
+    if "source_kind" not in existing_cols:
+        ensure_sync_columns(conn)
+
+    cur.execute(
+        "SELECT remote_synced_at, origin_developer, total_steps, source_kind, transcript_path "
+        "FROM sessions WHERE session_id = ?",
+        (s_id,),
+    )
     existing = cur.fetchone()
     if existing:
-        existing_synced_at, existing_origin, existing_steps = existing[0], existing[1], existing[2]
-        if existing_steps is not None and (session_row.get("total_steps") or 0) > existing_steps:
-            session_row["remote_synced_at"] = None
-        elif existing_synced_at and not session_row.get("remote_synced_at"):
-            session_row["remote_synced_at"] = existing_synced_at
-        if existing_origin and existing_origin != "local":
-            session_row["origin_developer"] = existing_origin
+        existing_synced_at, existing_origin, existing_steps, existing_sk, existing_tp = existing
+        existing_rank = _infer_source_kind_rank(existing_sk, existing_tp)
+        incoming_rank = _infer_source_kind_rank(s_row.get("source_kind"), s_row.get("transcript_path"))
+        if incoming_rank < existing_rank:
+            # Preserve richer transcript source and child rows; enrich only missing/superior metadata.
+            inc_model = s_row.get("model")
+            if inc_model in (None, "", "Unknown", "Gemini 3.5/Flash/Pro (Default)"):
+                inc_model = None
+            cur.execute(
+                """
+                UPDATE sessions
+                SET origin_machine = COALESCE(origin_machine, ?),
+                    client_surface = COALESCE(client_surface, ?),
+                    model = CASE
+                        WHEN model IS NULL OR model IN ('', 'Unknown', 'Gemini 3.5/Flash/Pro (Default)')
+                        THEN COALESCE(?, model)
+                        ELSE model END,
+                    model_slug = COALESCE(model_slug, ?),
+                    model_display_name = COALESCE(model_display_name, ?),
+                    max_context_tokens = COALESCE(max_context_tokens, ?),
+                    total_input_tokens = CASE
+                        WHEN ? IS NOT NULL AND (total_input_tokens IS NULL OR ? > total_input_tokens)
+                        THEN ? ELSE total_input_tokens END,
+                    total_cache_read_tokens = CASE
+                        WHEN ? IS NOT NULL AND (total_cache_read_tokens IS NULL OR ? > total_cache_read_tokens)
+                        THEN ? ELSE total_cache_read_tokens END,
+                    total_output_tokens = CASE
+                        WHEN ? IS NOT NULL AND (total_output_tokens IS NULL OR ? > total_output_tokens)
+                        THEN ? ELSE total_output_tokens END,
+                    total_thought_tokens = CASE
+                        WHEN ? IS NOT NULL AND (total_thought_tokens IS NULL OR ? > total_thought_tokens)
+                        THEN ? ELSE total_thought_tokens END,
+                    peak_context_tokens = CASE
+                        WHEN ? IS NOT NULL AND (peak_context_tokens IS NULL OR ? > peak_context_tokens)
+                        THEN ? ELSE peak_context_tokens END
+                WHERE session_id = ?
+                """,
+                (
+                    s_row.get("origin_machine"),
+                    s_row.get("client_surface"),
+                    inc_model,
+                    s_row.get("model_slug"),
+                    s_row.get("model_display_name"),
+                    s_row.get("max_context_tokens"),
+                    s_row.get("total_input_tokens"), s_row.get("total_input_tokens"), s_row.get("total_input_tokens"),
+                    s_row.get("total_cache_read_tokens"), s_row.get("total_cache_read_tokens"), s_row.get("total_cache_read_tokens"),
+                    s_row.get("total_output_tokens"), s_row.get("total_output_tokens"), s_row.get("total_output_tokens"),
+                    s_row.get("total_thought_tokens"), s_row.get("total_thought_tokens"), s_row.get("total_thought_tokens"),
+                    s_row.get("peak_context_tokens"), s_row.get("peak_context_tokens"), s_row.get("peak_context_tokens"),
+                    s_id,
+                ),
+            )
+            if commit:
+                conn.commit()
+            return
 
-    for tbl in ("steps", "tool_calls", "user_interventions"):
+        if existing_steps is not None and (s_row.get("total_steps") or 0) > existing_steps:
+            s_row["remote_synced_at"] = None
+        elif existing_synced_at and not s_row.get("remote_synced_at"):
+            s_row["remote_synced_at"] = existing_synced_at
+        if existing_origin and existing_origin != "local":
+            s_row["origin_developer"] = existing_origin
+
+    for tbl in ("tool_calls", "user_interventions", "steps"):
         cur.execute(f"DELETE FROM {tbl} WHERE session_id = ?", (s_id,))
 
     sess_cols = (
@@ -168,26 +306,48 @@ def upsert_session_telemetry(
         "model", "workspace_path", "transcript_path", "file_size_bytes", "has_errors",
         "tool_call_count", "tool_error_count", "intervention_count",
         "origin_developer", "remote_synced_at",
+        "origin_machine", "client_surface", "source_kind",
+        "model_slug", "model_display_name", "max_context_tokens",
+        "total_input_tokens", "total_cache_read_tokens", "total_output_tokens",
+        "total_thought_tokens", "peak_context_tokens", "server_seq",
     )
     sess_defaults = {
         "has_errors": 0, "tool_call_count": 0, "tool_error_count": 0,
         "intervention_count": 0, "origin_developer": "local",
     }
-    sess_vals = tuple(session_row.get(c, sess_defaults.get(c)) for c in sess_cols)
-    updates = ", ".join(f"{c}=excluded.{c}" for c in sess_cols[1:])
+    sess_vals = tuple(s_row.get(c, sess_defaults.get(c)) for c in sess_cols)
+    coalesce_cols = {
+        "origin_machine", "client_surface", "source_kind",
+        "model_slug", "model_display_name", "max_context_tokens",
+        "total_input_tokens", "total_cache_read_tokens", "total_output_tokens",
+        "total_thought_tokens", "peak_context_tokens", "server_seq",
+    }
+    update_parts = []
+    for c in sess_cols[1:]:
+        if c == "model":
+            update_parts.append(
+                "model=CASE WHEN excluded.model IS NOT NULL AND excluded.model != 'Unknown' "
+                "THEN excluded.model ELSE COALESCE(sessions.model, excluded.model) END"
+            )
+        elif c in coalesce_cols:
+            update_parts.append(f"{c}=COALESCE(excluded.{c}, sessions.{c})")
+        else:
+            update_parts.append(f"{c}=excluded.{c}")
+    updates = ", ".join(update_parts)
     cur.execute(
         f"INSERT INTO sessions ({', '.join(sess_cols)}) VALUES ({', '.join(['?'] * len(sess_cols))}) "
         f"ON CONFLICT(session_id) DO UPDATE SET {updates}",
         sess_vals,
     )
 
+    norm_steps, norm_tools, norm_intervs = _normalize_child_rows(step_rows, tool_rows, interv_rows)
     child_specs = (
         (
             "steps",
             ("session_id", "step_index", "step_type", "source", "status", "created_at",
              "content_length", "content_snippet", "has_thinking", "thinking_length", "tool_count"),
             {},
-            step_rows,
+            norm_steps,
         ),
         (
             "tool_calls",
@@ -196,14 +356,14 @@ def upsert_session_telemetry(
              "duration_seconds", "status", "exit_code", "error_snippet", "is_loop_candidate",
              "output_length_chars", "output_lines", "arguments_length_chars", "command_category", "is_truncated"),
             {"is_loop_candidate": 0, "output_length_chars": 0, "output_lines": 0, "arguments_length_chars": 0, "is_truncated": 0},
-            tool_rows,
+            norm_tools,
         ),
         (
             "user_interventions",
             ("session_id", "step_index", "created_at", "prompt_text", "prompt_length",
              "preceding_tool_failed", "preceding_tool_name", "preceding_error_snippet", "intervention_type"),
             {"prompt_length": 0, "preceding_tool_failed": 0, "preceding_tool_name": "", "preceding_error_snippet": ""},
-            interv_rows,
+            norm_intervs,
         ),
     )
     for tbl, cols, defaults, rows in child_specs:
@@ -218,10 +378,13 @@ def upsert_session_telemetry(
 
 
 _MODEL_ID_PATTERN = re.compile(
-    r"\b(gemini-4-(?:neon|hydrogen)(?:-[a-z0-9._-]+)?|"
+    r"\b(gemini-4-(?:neon|hydrogen|argon|carbon|1m)(?:-[a-z0-9._-]+)?|"
+    r"gemini-pro-(?:orchestrator|coordinator)(?:-[a-z0-9._-]+)?|"
     r"gemini-3\.8-flash(?:-[a-z0-9._-]+)?|"
     r"gemini-[234](?:\.\d+)?-(?:pro|flash|ultra)(?:-[a-z0-9._-]+)?|"
     r"claude-(?:sonnet|opus|haiku)-[0-9a-z._-]+|"
+    r"claude-[0-9._-]+-(?:sonnet|opus|haiku)(?:-[a-z0-9._-]+)?|"
+    r"gpt-oss-120b(?:-[a-z0-9._-]+)?|"
     r"gpt-[45](?:\.\d+)?(?:-[a-z0-9._-]+)?)\b",
     re.IGNORECASE,
 )
@@ -255,122 +418,240 @@ def _extract_step_model(step: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _extract_step_usage_and_model(
+    step: Dict[str, Any],
+) -> Tuple[Optional[str], Optional[str], int, int, int, int, int, int]:
+    """Extracts (model_slug, model_display_name, in_tok, cache_tok, out_tok, thought_tok, est_tok, max_ctx)."""
+    meta = step.get("metadata") if isinstance(step.get("metadata"), dict) else {}
+    usage = meta.get("modelUsage") or meta.get("model_usage") or {}
+    if not isinstance(usage, dict):
+        usage = {}
+    slug = step.get("model_slug") or step.get("modelSlug") or meta.get("modelSlug") or meta.get("model_slug") or usage.get("modelSlug")
+    disp = step.get("model_display_name") or step.get("modelDisplayName") or meta.get("modelDisplayName") or meta.get("model_display_name")
+    slug_s = slug.strip() if isinstance(slug, str) and slug.strip() else None
+    disp_s = disp.strip() if isinstance(disp, str) and disp.strip() else None
+
+    def _int(val: Any) -> int:
+        return int(val) if isinstance(val, (int, float)) and int(val) > 0 else 0
+
+    in_tok = _int(step.get("input_tokens") or step.get("inputTokens") or usage.get("inputTokens") or usage.get("input_tokens") or usage.get("promptTokenCount"))
+    cache_tok = _int(step.get("cache_read_tokens") or step.get("cacheReadTokens") or usage.get("cacheReadTokens") or usage.get("cache_read_tokens") or usage.get("cachedContentTokenCount"))
+    out_tok = _int(step.get("output_tokens") or step.get("outputTokens") or usage.get("outputTokens") or usage.get("output_tokens") or usage.get("candidatesTokenCount"))
+    thought_tok = _int(step.get("thought_tokens") or step.get("thoughtTokens") or usage.get("thoughtTokens") or usage.get("thought_tokens") or usage.get("thoughtsTokenCount"))
+    est_tok, max_ctx = extract_context_window_from_json(step)
+    return slug_s, disp_s, in_tok, cache_tok, out_tok, thought_tok, est_tok, max_ctx
+
+
+_RE_MODEL_SELECTION = re.compile(r"Model Selection` from .*? to ([^\n\r`]+)")
+_RE_CLEAN_PROMPT = re.compile(
+    r"<USER_REQUEST>|\</USER_REQUEST\>|<ADDITIONAL_METADATA>[\s\S]*?</ADDITIONAL_METADATA>"
+)
+_RE_CREATED_AT = re.compile(r"Created At:\s*([^\n\r]+)")
+_RE_COMPLETED_AT = re.compile(r"Completed At:\s*([^\n\r]+)")
+_RE_EXIT_CODE = re.compile(r"(?:failed with exit code:|exited with code)\s*(\d+)", re.IGNORECASE)
+_PATH_ARG_KEYS = ("Path", "TargetFile", "AbsolutePath", "FilePath", "Target", "SearchPath", "DirectoryPath")
+
+
+def _project_transcript_step(s: Dict[str, Any]) -> Dict[str, Any]:
+    """Projects a raw JSONL transcript step to bounded fields, discarding multi-MB blobs."""
+    raw_idx = s.get("step_index")
+    has_int_idx = isinstance(raw_idx, int)
+    raw_step_index = raw_idx if "step_index" in s else 0
+    s_type, source, status = s.get("type", "UNKNOWN"), s.get("source", "UNKNOWN"), s.get("status", "DONE")
+    created_at_iso = normalize_utc_iso(s.get("created_at"))
+
+    raw_content = s.get("content", "")
+    content_str = str(raw_content)
+    content_length = len(content_str)
+    content_snippet = content_str[:200] if raw_content else None
+
+    s_model = _extract_step_model(s)
+    s_content_model: Optional[str] = None
+    if not s_model and s_type in ("SYSTEM_MESSAGE", "USER_INPUT", "PLANNER_RESPONSE"):
+        if "Model Selection" in content_str:
+            m_sel = _RE_MODEL_SELECTION.search(content_str)
+            if m_sel:
+                s_content_model = m_sel.group(1).strip().rstrip(".")
+        if s_content_model is None:
+            m_id = _MODEL_ID_PATTERN.search(content_str)
+            if m_id:
+                s_content_model = m_id.group(1).strip()
+
+    s_workspace: Optional[str] = None
+    if content_str:
+        for ws_pat in _WORKSPACE_PATTERNS:
+            m_ws = ws_pat.search(content_str)
+            if m_ws:
+                s_workspace = m_ws.group(1).strip()
+                break
+
+    clean_prompt: Optional[str] = None
+    if raw_idx != 0 and (s_type == "USER_INPUT" or source == "USER_EXPLICIT"):
+        clean_prompt = _RE_CLEAN_PROMPT.sub("", content_str).strip() or None
+
+    raw_tools = s.get("tool_calls", [])
+    tool_count = len(raw_tools) if isinstance(raw_tools, list) else 0
+    projected_tools: Optional[List[Tuple[Any, ...]]] = None
+    if raw_tools and isinstance(raw_tools, list):
+        projected_tools = []
+        for tc in raw_tools:
+            if not isinstance(tc, dict):
+                continue
+            t_name = tc.get("name", "unknown")
+            t_args = tc.get("modified_args") or tc.get("modifiedArgs") or tc.get("args", {})
+            if isinstance(t_args, str):
+                try:
+                    parsed_args = json.loads(t_args)
+                    if isinstance(parsed_args, dict):
+                        t_args = parsed_args
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            is_dict_args = isinstance(t_args, dict)
+            target_path = next((t_args.get(k) for k in _PATH_ARG_KEYS if t_args.get(k)), None) if is_dict_args else None
+            cmd_line = t_args.get("CommandLine") if is_dict_args else None
+            args_json = json.dumps(t_args) if is_dict_args else str(t_args)
+            projected_tools.append((t_name, target_path, cmd_line, str(target_path or cmd_line or t_args), args_json, str(t_args)[:250]))
+
+    res_meta: Optional[Tuple[Any, ...]] = None
+    if has_int_idx:
+        step_err = s.get("error")
+        step_err_bool, step_err_800 = bool(step_err), (str(step_err)[:800] if step_err else "")
+        res_started_at = res_completed_at = res_duration = res_exit_code = None
+        res_has_exec_err = res_has_trunc_tag = False
+        res_output_lines, res_err_preview = 0, ""
+        if content_str:
+            res_output_lines = content_str.count("\n") + 1
+            m_created, m_completed = _RE_CREATED_AT.search(content_str), _RE_COMPLETED_AT.search(content_str)
+            if m_created and m_completed:
+                res_started_at = normalize_utc_iso(m_created.group(1).strip())
+                res_completed_at = normalize_utc_iso(m_completed.group(1).strip())
+                res_duration = calculate_duration(res_started_at, res_completed_at)
+            m_exit = _RE_EXIT_CODE.search(content_str)
+            if m_exit:
+                res_exit_code = int(m_exit.group(1))
+            res_has_exec_err = "Encountered error in tool execution:" in content_str
+            res_has_trunc_tag = "<truncated" in content_str
+            if (res_exit_code is not None and res_exit_code != 0) or (
+                res_exit_code is None and (step_err_bool or res_has_exec_err or status == "ERROR")
+            ):
+                res_err_preview = content_str[:800]
+        trunc_fields = s.get("truncated_fields")
+        res_meta = (
+            status, content_length, res_output_lines, res_started_at, res_completed_at, res_duration,
+            res_exit_code, step_err_bool, step_err_800, res_has_exec_err, res_has_trunc_tag,
+            bool(trunc_fields and "content" in trunc_fields), res_err_preview,
+        )
+
+    is_cp_step = (
+        s_type in ("CHECKPOINT", "CORTEX_STEP_TYPE_CHECKPOINT")
+        or isinstance(s.get("checkpoint"), dict)
+        or is_transcript_checkpoint_step(s)
+    )
+    return {
+        "int_idx": raw_idx if has_int_idx else None, "raw_step_index": raw_step_index,
+        "sort_key": raw_idx if has_int_idx else 0, "type": s_type, "source": source,
+        "status": status, "created_at_iso": created_at_iso, "content_length": content_length,
+        "content_snippet": content_snippet, "has_thinking": 1 if s.get("thinking") else 0,
+        "thinking_length": len(str(s.get("thinking", ""))), "tool_count": tool_count,
+        "usage": _extract_step_usage_and_model(s), "is_cp_step": is_cp_step,
+        "s_model": s_model, "s_content_model": s_content_model, "s_workspace": s_workspace,
+        "clean_prompt": clean_prompt, "tools": projected_tools, "res_meta": res_meta,
+    }
+
+
 def extract_session(
     transcript_path: Path,
 ) -> Optional[Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]]:
     """Extracts session, steps, tool calls, and user interventions from transcript JSONL."""
-    session_id = transcript_path.parts[-4]
+    session_id = transcript_path.parts[-4] if len(transcript_path.parts) >= 4 else transcript_path.parent.name
     try:
         raw_size = transcript_path.stat().st_size
     except OSError:
         return None
 
-    with open(transcript_path, encoding="utf-8", errors="replace") as f:
-        steps: List[Dict[str, Any]] = []
-        for line in f:
-            if line.strip():
-                try:
-                    obj = json.loads(line)
-                    if isinstance(obj, dict):
-                        steps.append(obj)
-                except (json.JSONDecodeError, ValueError):
-                    continue
+    steps: List[Dict[str, Any]] = []
+    try:
+        with open(transcript_path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        obj = json.loads(line)
+                        if isinstance(obj, dict):
+                            steps.append(_project_transcript_step(obj))
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+    except (FileNotFoundError, OSError):
+        return None
 
     if not steps:
         return None
 
-    def _step_key(s: Any) -> int:
-        if isinstance(s, dict):
-            idx = s.get("step_index")
-            if isinstance(idx, int):
-                return idx
-        return 0
-
-    steps.sort(key=_step_key)
-    start_time, end_time = steps[0].get("created_at"), steps[-1].get("created_at")
+    steps.sort(key=lambda s: s["sort_key"])
+    start_time = steps[0]["created_at_iso"]
+    end_time = steps[-1]["created_at_iso"]
     duration_s = calculate_duration(start_time, end_time)
 
     model_detected = "Unknown"
+    model_slug: Optional[str] = None
+    model_display_name: Optional[str] = None
+    step_in_tot = step_cache_tot = step_out_tot = step_thought_tot = step_max_ctx = step_peak_ctx = cp_peak_ctx = 0
     workspace_detected = ""
     tool_calls_extracted: List[Dict[str, Any]] = []
     interventions_extracted: List[Dict[str, Any]] = []
     has_errors, tool_error_count = False, 0
-    step_by_idx = {
-        s.get("step_index"): s
+    res_by_idx = {
+        s["int_idx"]: s["res_meta"]
         for s in steps
-        if isinstance(s, dict) and isinstance(s.get("step_index"), int)
+        if s["int_idx"] is not None and s["res_meta"] is not None
     }
     recent_tool_failed, recent_tool_name, recent_error_snippet = False, "", ""
     last_tool_sig, repeated_tool_count = None, 0
 
     for i, s in enumerate(steps):
-        if not isinstance(s, dict):
-            continue
-        raw_idx = s.get("step_index")
-        s_idx = raw_idx if isinstance(raw_idx, int) else i
-        s_type, source = s.get("type", "UNKNOWN"), s.get("source", "UNKNOWN")
-        content = str(s.get("content", ""))
+        raw_idx = s["int_idx"]
+        s_idx = raw_idx if raw_idx is not None else i
+        s_type, source = s["type"], s["source"]
 
-        s_model = _extract_step_model(s)
-        if s_model:
-            model_detected = s_model
-        elif model_detected == "Unknown" and s_type in ("SYSTEM_MESSAGE", "USER_INPUT", "PLANNER_RESPONSE"):
-            if "Model Selection" in content:
-                m = re.search(r"Model Selection` from .*? to ([^.\n\r]+)", content)
-                if m:
-                    model_detected = m.group(1).strip()
-            if model_detected == "Unknown":
-                m_id = _MODEL_ID_PATTERN.search(content)
-                if m_id:
-                    model_detected = m_id.group(1).strip()
+        s_slug, s_disp, s_in, s_cache, s_out, s_thought, s_est, s_mct = s["usage"]
+        if s_slug:
+            model_slug = s_slug
+        if s_disp:
+            model_display_name = s_disp
+        step_in_tot += s_in
+        step_cache_tot += s_cache
+        step_out_tot += s_out
+        step_thought_tot += s_thought
+        step_max_ctx = max(step_max_ctx, s_mct)
+        step_ctx_val = (s_in + s_cache) or s_est
+        if s["is_cp_step"]:
+            cp_peak_ctx = max(cp_peak_ctx, step_ctx_val)
+        else:
+            step_peak_ctx = max(step_peak_ctx, step_ctx_val)
 
-        if not workspace_detected and content:
-            for ws_pat in _WORKSPACE_PATTERNS:
-                m = ws_pat.search(content)
-                if m:
-                    workspace_detected = m.group(1).strip()
-                    break
+        if s["s_model"]:
+            model_detected = s["s_model"]
+        elif model_detected == "Unknown" and s["s_content_model"]:
+            model_detected = s["s_content_model"]
 
-        if s_idx > 0 and (s_type == "USER_INPUT" or source == "USER_EXPLICIT"):
-            clean_prompt = re.sub(
-                r"<USER_REQUEST>|\</USER_REQUEST\>|<ADDITIONAL_METADATA>[\s\S]*?</ADDITIONAL_METADATA>",
-                "", content,
-            ).strip()
-            if clean_prompt:
-                interventions_extracted.append({
-                    "session_id": session_id, "step_index": s_idx, "created_at": s.get("created_at"),
-                    "prompt_text": clean_prompt, "prompt_length": len(clean_prompt),
-                    "preceding_tool_failed": 1 if recent_tool_failed else 0,
-                    "preceding_tool_name": recent_tool_name,
-                    "preceding_error_snippet": recent_error_snippet[:500],
-                    "intervention_type": classify_intervention(clean_prompt, recent_tool_failed),
-                })
+        if not workspace_detected and s["s_workspace"]:
+            workspace_detected = s["s_workspace"]
 
-        raw_tools = s.get("tool_calls", [])
-        if raw_tools and isinstance(raw_tools, list):
-            for tool_offset, tc in enumerate(raw_tools):
-                if not isinstance(tc, dict):
-                    continue
-                t_name, t_args = tc.get("name", "unknown"), tc.get("args", {})
-                if isinstance(t_args, str):
-                    try:
-                        parsed_args = json.loads(t_args)
-                        if isinstance(parsed_args, dict):
-                            t_args = parsed_args
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-                target_path = (
-                    t_args.get("Path")
-                    or t_args.get("TargetFile")
-                    or t_args.get("AbsolutePath")
-                    or t_args.get("FilePath")
-                    or t_args.get("Target")
-                    or t_args.get("SearchPath")
-                    or t_args.get("DirectoryPath")
-                ) if isinstance(t_args, dict) else None
-                cmd_line = t_args.get("CommandLine") if isinstance(t_args, dict) else None
+        if s_idx > 0 and (s_type == "USER_INPUT" or source == "USER_EXPLICIT") and s["clean_prompt"]:
+            clean_prompt = s["clean_prompt"]
+            interventions_extracted.append({
+                "session_id": session_id, "step_index": s_idx,
+                "created_at": s["created_at_iso"],
+                "prompt_text": clean_prompt, "prompt_length": len(clean_prompt),
+                "preceding_tool_failed": 1 if recent_tool_failed else 0,
+                "preceding_tool_name": recent_tool_name,
+                "preceding_error_snippet": recent_error_snippet[:500],
+                "intervention_type": classify_intervention(clean_prompt, recent_tool_failed),
+            })
 
-                tool_sig = (t_name, str(target_path or cmd_line or t_args))
+        proj_tools = s["tools"]
+        if proj_tools:
+            for tool_offset, (t_name, target_path, cmd_line, sig_val, args_json, args_snippet) in enumerate(proj_tools):
+                tool_sig = (t_name, sig_val)
                 is_loop = 0
                 if tool_sig == last_tool_sig:
                     repeated_tool_count += 1
@@ -379,73 +660,101 @@ def extract_session(
                     last_tool_sig, repeated_tool_count = tool_sig, 1
 
                 res_idx = (s_idx + 1 + tool_offset) if isinstance(s_idx, int) else None
-                res_step = step_by_idx.get(res_idx) if res_idx is not None else None
+                res_meta = res_by_idx.get(res_idx) if res_idx is not None else None
                 t_status, exit_code, err_snippet = "SUCCESS", 0, ""
-                res_content = str(res_step.get("content", "")) if isinstance(res_step, dict) else ""
-                step_err = res_step.get("error") if isinstance(res_step, dict) else None
                 started_at = completed_at = tool_duration = None
+                res_content_len = res_output_lines = is_trunc = 0
 
-                if res_content:
-                    m_created = re.search(r"Created At:\s*([^\n\r]+)", res_content)
-                    m_completed = re.search(r"Completed At:\s*([^\n\r]+)", res_content)
-                    if m_created and m_completed:
-                        started_at, completed_at = m_created.group(1).strip(), m_completed.group(1).strip()
-                        tool_duration = calculate_duration(started_at, completed_at)
-
-                    m_exit = re.search(r"(?:failed with exit code:|exited with code)\s*(\d+)", res_content, re.IGNORECASE)
-                    if m_exit:
-                        exit_code = int(m_exit.group(1))
-                        if exit_code != 0:
-                            t_status, has_errors = "FAILED", True
+                if res_meta is not None:
+                    (
+                        res_status, res_content_len, res_output_lines,
+                        res_started_at, res_completed_at, res_duration,
+                        res_exit_code, step_err_bool, step_err_800,
+                        res_has_exec_err, res_has_trunc_tag, res_trunc_field, res_err_preview,
+                    ) = res_meta
+                    if res_content_len > 0:
+                        started_at, completed_at, tool_duration = res_started_at, res_completed_at, res_duration
+                        if res_exit_code is not None:
+                            exit_code = res_exit_code
+                            if exit_code != 0:
+                                t_status, has_errors = "FAILED", True
+                                tool_error_count += 1
+                                err_snippet = res_err_preview
+                        elif step_err_bool or res_has_exec_err or res_status == "ERROR":
+                            t_status = "ERROR"
+                            exit_code = -1
+                            has_errors = True
                             tool_error_count += 1
-                            err_snippet = res_content[:800]
-                    elif step_err or "Encountered error in tool execution:" in res_content or (isinstance(res_step, dict) and res_step.get("status") == "ERROR"):
-                        t_status = "ERROR"
-                        exit_code = -1
-                        has_errors = True
-                        tool_error_count += 1
-                        err_snippet = (str(step_err) if step_err else res_content)[:800]
-                elif step_err or (isinstance(res_step, dict) and res_step.get("status") == "ERROR"):
-                    t_status = "ERROR"
-                    exit_code = -1
-                    has_errors = True
-                    tool_error_count += 1
-                    err_snippet = str(step_err or "ERROR")[:800]
+                            err_snippet = step_err_800 if step_err_bool else res_err_preview
+                        is_trunc = 1 if (res_has_trunc_tag or res_trunc_field) else 0
+                    else:
+                        res_output_lines = 0
+                        if step_err_bool or res_status == "ERROR":
+                            t_status = "ERROR"
+                            exit_code = -1
+                            has_errors = True
+                            tool_error_count += 1
+                            err_snippet = step_err_800 if step_err_bool else "ERROR"
 
                 if t_status in ("FAILED", "ERROR"):
                     recent_tool_failed, recent_tool_name, recent_error_snippet = True, t_name, err_snippet
                 else:
                     recent_tool_failed, recent_tool_name, recent_error_snippet = False, "", ""
 
-                args_json = json.dumps(t_args) if isinstance(t_args, dict) else str(t_args)
-                is_trunc = 1 if (
-                    res_content and ("<truncated" in res_content or "content" in (res_step or {}).get("truncated_fields", ()))
-                ) else 0
                 tool_calls_extracted.append({
-                    "session_id": session_id, "step_index": s_idx, "result_step_index": res_idx if res_step else None,
-                    "tool_name": t_name, "arguments_json": args_json, "arguments_snippet": str(t_args)[:250],
+                    "session_id": session_id, "step_index": s_idx, "result_step_index": res_idx if res_meta is not None else None,
+                    "tool_name": t_name, "arguments_json": args_json, "arguments_snippet": args_snippet,
                     "target_path": str(target_path) if target_path else None,
                     "command_line": str(cmd_line) if cmd_line else None,
                     "started_at": started_at, "completed_at": completed_at, "duration_seconds": tool_duration,
                     "status": t_status, "exit_code": exit_code, "error_snippet": err_snippet,
-                    "is_loop_candidate": is_loop, "output_length_chars": len(res_content) if res_content else 0,
-                    "output_lines": (res_content.count("\n") + 1) if res_content else 0,
+                    "is_loop_candidate": is_loop, "output_length_chars": res_content_len,
+                    "output_lines": res_output_lines,
                     "arguments_length_chars": len(args_json),
                     "command_category": classify_command(cmd_line) if cmd_line else None, "is_truncated": is_trunc,
                 })
 
+    gen_meta = read_sibling_gen_metadata(find_sibling_conversation_db(transcript_path, session_id))
+    model_slug = model_slug or gen_meta.get("model_slug")
+    model_display_name = model_display_name or gen_meta.get("model_display_name")
+    if model_detected == "Unknown":
+        model_detected = model_slug or model_display_name or "Unknown"
+
+    norm_model = normalize_model(model_detected, model_slug=model_slug, model_display_name=model_display_name)
+    if not model_slug and norm_model.attribution_status == "attributed":
+        if " " not in model_detected and "(" not in model_detected:
+            model_slug = model_detected
+        else:
+            model_slug = norm_model.canonical_model
+    if not model_display_name and model_detected != "Unknown" and (" " in model_detected or "(" in model_detected):
+        model_display_name = model_detected
+
+    resolved_max_ctx = step_max_ctx or gen_meta.get("max_context_tokens") or norm_model.context_window_tokens
+    total_in = max(step_in_tot, gen_meta.get("total_input_tokens") or 0) or None
+    total_cache = max(step_cache_tot, gen_meta.get("total_cache_read_tokens") or 0) or None
+    total_out = max(step_out_tot, gen_meta.get("total_output_tokens") or 0) or None
+    total_thought = max(step_thought_tot, gen_meta.get("total_thought_tokens") or 0) or None
+    effective_step_peak = (
+        step_peak_ctx
+        if step_peak_ctx > 0
+        else (min(resolved_max_ctx, cp_peak_ctx) if resolved_max_ctx > 0 else cp_peak_ctx)
+    )
+    peak_ctx = max(effective_step_peak, gen_meta.get("peak_context_tokens") or 0) or None
+
     step_rows = [
         {
-            "session_id": session_id, "step_index": s.get("step_index", 0), "step_type": s.get("type", "UNKNOWN"),
-            "source": s.get("source", "UNKNOWN"), "status": s.get("status", "DONE"), "created_at": s.get("created_at"),
-            "content_length": len(str(s.get("content", ""))),
-            "content_snippet": str(s.get("content", ""))[:200] if s.get("content") else None,
-            "has_thinking": 1 if s.get("thinking") else 0, "thinking_length": len(str(s.get("thinking", ""))),
-            "tool_count": len(s.get("tool_calls", [])) if isinstance(s.get("tool_calls"), list) else 0,
+            "session_id": session_id, "step_index": s["raw_step_index"], "step_type": s["type"],
+            "source": s["source"], "status": s["status"],
+            "created_at": s["created_at_iso"],
+            "content_length": s["content_length"],
+            "content_snippet": s["content_snippet"],
+            "has_thinking": s["has_thinking"], "thinking_length": s["thinking_length"],
+            "tool_count": s["tool_count"],
         }
         for s in steps
     ]
 
+    source_kind = "transcript_full" if transcript_path.name == "transcript_full.jsonl" else "transcript"
     session_row = {
         "session_id": session_id, "start_time": start_time, "end_time": end_time,
         "duration_seconds": duration_s, "total_steps": len(steps), "model": model_detected,
@@ -453,6 +762,17 @@ def extract_session(
         "file_size_bytes": raw_size, "has_errors": 1 if has_errors else 0,
         "tool_call_count": len(tool_calls_extracted), "tool_error_count": tool_error_count,
         "intervention_count": len(interventions_extracted), "origin_developer": "local", "remote_synced_at": None,
+        "origin_machine": resolve_machine_id(workspace_detected or None),
+        "client_surface": infer_client_surface(transcript_path),
+        "source_kind": source_kind,
+        "model_slug": model_slug,
+        "model_display_name": model_display_name,
+        "max_context_tokens": resolved_max_ctx,
+        "total_input_tokens": total_in,
+        "total_cache_read_tokens": total_cache,
+        "total_output_tokens": total_out,
+        "total_thought_tokens": total_thought,
+        "peak_context_tokens": peak_ctx,
     }
     return session_row, step_rows, tool_calls_extracted, interventions_extracted
 

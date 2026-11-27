@@ -9,6 +9,7 @@ Telemetry synchronization coordinator (ADR-030).
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 import sqlite3
 import sys
@@ -40,6 +41,8 @@ def sync_telemetry(
     developer: Optional[str] = None,
     since: Optional[str] = None,
     retry_backoff: Optional[float] = None,
+    machine: Optional[str] = None,
+    batch_limit: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Coordinates bi-directional sync (push then pull), push-only, or pull-only.
 
@@ -53,14 +56,16 @@ def sync_telemetry(
         workspace_root: Workspace root for config and path anonymization
         limit: Max sessions to push
         dry_run: If True, simulates push without sending or updating DB
-        on_progress: Optional progress callback for batch push progress
+        on_progress: Optional progress callback for batch push and pull progress
         input_stream: Optional input stream for interactive review
         output_stream: Optional output stream for interactive review
         all_developers: If True, bypasses anti-echo filter when pulling
-        include_self: Alias for all_developers
+        include_self: Include own remote sessions from other machines when pulling
         developer: Optional developer username to filter pulled telemetry
         since: Optional ISO timestamp watermark to pull from
         retry_backoff: Optional sleep duration in seconds between network retries
+        machine: Optional origin_machine filter when pulling
+        batch_limit: Optional page size limit when pulling
     """
     if direction not in ("both", "push", "pull"):
         raise ValueError(f"Invalid sync direction: '{direction}'. Must be 'both', 'push', or 'pull'.")
@@ -129,17 +134,30 @@ def sync_telemetry(
         sync_pkg = sys.modules.get("harness.telemetry.sync")
         pull_fn = getattr(sync_pkg, "pull_remote_sessions", _pull_remote_sessions)
 
-        pull_result = pull_fn(
-            endpoint=endpoint,
-            token=token,
-            db_path=db_path,
-            since=since,
-            all_developers=all_developers,
-            include_self=include_self,
-            developer=developer,
-            dry_run=dry_run,
-            retry_backoff=retry_backoff,
-        )
+        pull_kwargs: Dict[str, Any] = {
+            "endpoint": endpoint,
+            "token": token,
+            "db_path": db_path,
+            "since": since,
+            "all_developers": all_developers,
+            "include_self": include_self,
+            "developer": developer,
+            "dry_run": dry_run,
+            "retry_backoff": retry_backoff,
+        }
+        try:
+            sig_params = inspect.signature(pull_fn).parameters
+        except (TypeError, ValueError):
+            sig_params = {}
+        accepts_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_params.values())
+        if "on_progress" in sig_params or accepts_var_kw:
+            pull_kwargs["on_progress"] = on_progress
+        if machine is not None and ("machine" in sig_params or accepts_var_kw):
+            pull_kwargs["machine"] = machine
+        if batch_limit is not None and ("batch_limit" in sig_params or accepts_var_kw):
+            pull_kwargs["batch_limit"] = batch_limit
+
+        pull_result = pull_fn(**pull_kwargs)
 
     return {
         "status": "success" if not dry_run else "dry_run",

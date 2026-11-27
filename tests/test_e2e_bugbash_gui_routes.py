@@ -246,7 +246,7 @@ class TestBugBashGuiRoutes(unittest.TestCase):
         """F10.5: Real build_trajectory_hud_script & hotkey.js purge stale DOM/styles (PSL-INV-007)."""
         script = build_trajectory_hud_script(
             "convo-fresh",
-            {"conversation_id": "convo-fresh", "steps": [], "epochs": []},
+            {"conversation_id": "convo-fresh", "steps": [], "checkpoints": []},
             [],
             open_view=True,
         )

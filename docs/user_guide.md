@@ -6,7 +6,7 @@
 # Agyis Harness — Canonical User & Operator Guide
 
 **Target Audience**: Engineers, Operators, and Teams Running Google Antigravity™  
-**Version**: `1.0.0` (`2026-11-25`)  
+**Version**: `1.1.0` (`2026-11-27`)  
 **Primary CLI Entrypoint**: `agyis` (backward-compatible alias: `psl`)  
 
 ---
@@ -17,7 +17,7 @@
 
 - **Silent Runtime & Shell Failures**: Injects a certified CPython >= 3.12 runtime via `uv`, disables interactive terminal pagers (`PAGER=cat`, `SYSTEMD_PAGER=cat`), and neutralizes benign exit-code-1 returns on standalone `grep`/`rg`/`diff` probes.
 - **Runaway Tool Loops & Polling**: Breaks 3+ identical consecutive tool invocations and blocks token-wasting `manage_task(status)` / log-tailing polling loops.
-- **Context Runway & Compaction Succession**: Dynamically scales across **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`)** and **`256k`** context windows (`70%` amber, `90%` red, `80`-step soft epoch horizon), emitting `v2.34.0+` nested `systemMessage` advisories and serializing CID-scoped checkpoints (`.agents/artifacts/checkpoints/<conv_id>.md`).
+- **Context Runway & Compaction Succession**: Dynamically scales across **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`)** and **`256k`** context windows (`70%` amber, `90%` red, `80`-step soft checkpoint horizon), emitting `v2.34.0+` nested `systemMessage` advisories and serializing CID-scoped checkpoints (`.agents/artifacts/checkpoints/<conv_id>.md`).
 - **Premature Completion & Cleanroom Fences**: Blocks stopping until modified source (`code_dirty`) clears `agyis test` or modified cleanroom contracts (`spec_dirty`) clear `agyis verify --spec`.
 - **Single-Source Workspace Hygiene**: Onboards repositories on isolated branches without duplicating global rules, skills, or agents across precedence tiers.
 

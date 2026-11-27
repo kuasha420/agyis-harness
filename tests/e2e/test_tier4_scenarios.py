@@ -119,7 +119,7 @@ class TestTier4Scenarios(OpaqueBoxTestCase):
     def test_s5_bug_report_submission_with_doctor_integration_journey(self) -> None:
         """Simulates automated bug reporting workflow harvesting doctor telemetry into issue templates."""
         # Step 1: Harvest doctor diagnostics
-        code, out, _ = self.run_cli(["doctor", "--json"])
+        code, out, _ = self.run_cli(["doctor", "-w", str(self.ws), "--json"])
         self.assertIn(code, (0, 1))
         audit = json.loads(out)
         summary = audit.get("summary", {})
@@ -147,7 +147,7 @@ class TestTier4Scenarios(OpaqueBoxTestCase):
         """
         Scenario 6: REA Cleanroom Specification Authoring, Manifest Clearance & Fence Gating.
         Simulates an agent executing cleanroom binary reconstruction:
-        1. Initialize workspace with --experimental-rea opt-in.
+        1. Initialize workspace with --rea opt-in.
         2. Author declarative cleanroom specification in docs/specs/crypto_core.md.
         3. Attempting to stop without verification is gated with cleanroom-specific prompt (no unit test coercion).
         4. Formal manifest clearance in .agents/ledger/manifest.json unblocks completion fence.
@@ -158,7 +158,7 @@ class TestTier4Scenarios(OpaqueBoxTestCase):
 
         # Step 1: Initialize cleanroom workspace (avoid slow external rea subprocess probe)
         with unittest.mock.patch("harness.runtime.healing.provision_rea_skill"):
-            code_init, out_init, err_init = self.run_cli(["init", "--experimental-rea", str(self.ws)])
+            code_init, out_init, err_init = self.run_cli(["init", "--rea", str(self.ws)])
         self.assertEqual(code_init, 0)
         self.assertTrue((self.ws / ".agents" / "ledger").is_dir())
 

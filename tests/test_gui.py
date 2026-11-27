@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib.resources
 import io
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import socket
 import struct
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -1336,6 +1340,137 @@ class TestGuiCommandCLI(unittest.TestCase):
             self.assertIn("SecurityError", data["message"])
 
 
+_Tok = tuple[str, str]
+_GLOBAL_TARGETS = frozenset({("IDENT", t) for t in ("window", "global", "globalThis", "self")})
+_MEMBER_OPS, _NON_REGEX_OPS = frozenset({("OP", "."), ("OP", "?.")}), frozenset({")", "]", "++", "--"})
+_NEST_OPEN, _NEST_CLOSE = frozenset({("OP", "("), ("OP", "["), ("OP", "{")}), frozenset({("OP", ")"), ("OP", "]"), ("OP", "}")})
+_SHORT_IDENT_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]{0,3}$")
+_REGEX_WORDS = frozenset({"return", "throw", "case", "typeof", "void", "delete", "await", "yield", "in", "of", "instanceof", "new", "else", "do"})
+_TMPL_CHUNK_RE = re.compile(r"(?:\\[\s\S]|\$(?!\{)|[^`\\$])*")
+_REGEX_RE = re.compile(r"/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\[\n])+/[A-Za-z]*")
+_TOKEN_RE = re.compile(
+    r"(?P<WS>(?:\s|//[^\n]*|/\*(?:[\s\S]*?\*/|[\s\S]*))+)|(?P<STR>'(?:\\[\s\S]|[^'\\])*'|\"(?:\\[\s\S]|[^\"\\])*\")"
+    r"|(?P<NUM>(?:0[xXbBoO][0-9A-Fa-f_]+|\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?|\.\d[\d_]*)n?)|(?P<IDENT>[A-Za-z_$][A-Za-z0-9_$]*)"
+    r"|(?P<OP>===|!==|>>>=|>>>|<<=|>>=|\*\*=|&&=|\|\|=|\?\?=|\.\.\.|\?\.(?!\d)|=>|==|!=|<=|>=|&&|\|\||\?\?|\+\+|--|\*\*|<<|>>|[+\-*/%&|^]=|[()\[\]{}.,:;?~!+\-*/%<>=&|^])"
+)
+
+
+def _advance_special(src: str, idx: int, depth: int, stack: list[int], regex_ok: bool) -> tuple[_Tok | None, int, int, bool] | None:
+    """Scan a JS template boundary/resumption or regex literal at idx."""
+    ch = src[idx]
+    if ch == "`" or (ch == "}" and stack[-1:] == [depth - 1]):
+        if ch == "}":
+            stack.pop()
+            depth -= 1
+        m = _TMPL_CHUNK_RE.match(src, idx + 1)
+        if src.startswith("${", m.end()):
+            stack.append(depth)
+            return ("STRING", m.group()), m.end() + 2, depth + 1, True
+        return ("STRING", m.group()), min(len(src), m.end() + 1), depth, False
+    if regex_ok and ch == "/" and (m := _REGEX_RE.match(src, idx)):
+        return None, m.end(), depth, False
+    return None
+
+
+def _emit_token(m: re.Match[str], depth: int, regex_ok: bool, tokens: list[_Tok]) -> tuple[_Tok | None, int, bool]:
+    """Convert a _TOKEN_RE match to an optional (kind, text) token and updated state."""
+    kind, text = m.lastgroup, m.group()
+    if kind in {"WS", "NUM"}:
+        return None, depth, (regex_ok if kind == "WS" else False)
+    if kind == "STR":
+        return ("STRING", text[1:-1]), depth, False
+    if kind == "IDENT":
+        return ("IDENT", text), depth, text in _REGEX_WORDS and (not tokens or tokens[-1] not in _MEMBER_OPS)
+    return ("OP", text), max(0, depth + (text == "{") - (text == "}")), text not in _NON_REGEX_OPS
+
+
+def _tokenize_js(src: str) -> list[_Tok]:
+    """Tokenize JS in a single shallow pass into (kind, text) for IDENT, STRING, and OP."""
+    tokens, stack, idx, n, depth, regex_ok = [], [], 0, len(src), 0, True
+    while idx < n:
+        if special := _advance_special(src, idx, depth, stack, regex_ok):
+            tok, idx, depth, regex_ok = special
+        elif m := _TOKEN_RE.match(src, idx):
+            tok, depth, regex_ok = _emit_token(m, depth, regex_ok, tokens)
+            idx = m.end()
+        else:
+            tok, idx = None, idx + 1
+        if tok is not None:
+            tokens.append(tok)
+    return tokens
+
+
+def _extract_object_keys(tokens: list[_Tok], idx: int) -> tuple[list[str], int]:
+    """Extract top-level property keys from a '{ ... }' span starting after '{'."""
+    keys, n, depth, at_key = [], len(tokens), 0, True
+    while idx < n:
+        tok = tokens[idx]
+        if depth == 0:
+            if tok == ("OP", "}"):
+                return keys, idx + 1
+            if at_key:
+                nxt = tuple(tokens[idx + 1 : idx + 2])
+                if (tok[0] == "IDENT" and nxt in {(("OP", ":"),), (("OP", ","),), (("OP", "}"),), (("OP", "("),)}) or (tok[0] == "STRING" and nxt == (("OP", ":"),)):
+                    keys.append(tok[1])
+                at_key = False
+            else:
+                at_key = tok == ("OP", ",")
+        depth += (tok in _NEST_OPEN) - (tok in _NEST_CLOSE)
+        idx += 1
+    return keys, idx
+
+
+def _scan_object_assign_args(tokens: list[_Tok], idx: int) -> list[str]:
+    """Collect <=4-char top-level object literal keys passed to Object.assign."""
+    found, n, depth, at_arg = [], len(tokens), 0, True
+    while idx < n:
+        tok = tokens[idx]
+        if depth == 0:
+            if tok == ("OP", ")"):
+                break
+            if at_arg and tok == ("OP", "{"):
+                keys, idx = _extract_object_keys(tokens, idx + 1)
+                found.extend(f"Object.assign:{k}" for k in keys if _SHORT_IDENT_RE.match(k))
+                at_arg = False
+                continue
+            at_arg = tok == ("OP", ",")
+        depth += (tok in _NEST_OPEN) - (tok in _NEST_CLOSE)
+        idx += 1
+    return found
+
+
+def _match_target_export(span: list[_Tok]) -> str | None:
+    """Match 'target.short =' or 'target[\"short\"] =' at start of token span."""
+    if len(span) >= 4 and (span[1], span[3]) == (("OP", "."), ("OP", "=")):
+        return f"dot:{span[2][1]}" if span[2][0] == "IDENT" and len(span[2][1]) <= 4 else None
+    if len(span) >= 5 and (span[1], *span[3:5]) == (("OP", "["), ("OP", "]"), ("OP", "=")):
+        return f"bracket:{span[2][1]}" if span[2][0] == "STRING" and _SHORT_IDENT_RE.match(span[2][1]) else None
+    return None
+
+
+def _match_object_export(tokens: list[_Tok], i: int) -> list[str]:
+    """Match Object.defineProperty(target, 'short', ...) and Object.assign(target, ...)."""
+    span = tokens[i : i + 7]
+    if len(span) < 7 or span[:2] != [("IDENT", "Object"), ("OP", ".")] or span[4] not in _GLOBAL_TARGETS or (span[3], span[5]) != (("OP", "("), ("OP", ",")):
+        return []
+    if (span[2], span[6][0]) == (("IDENT", "defineProperty"), "STRING") and _SHORT_IDENT_RE.match(span[6][1]):
+        return [f"defineProperty:{span[6][1]}"]
+    return _scan_object_assign_args(tokens, i + 6) if span[2] == ("IDENT", "assign") else []
+
+
+def _find_short_global_exports(source: str) -> list[str]:
+    """Detect <=4-char global exports via dot, bracket, Object.defineProperty, or Object.assign."""
+    tokens, offenders = _tokenize_js(source), []
+    for i, tok in enumerate(tokens):
+        if i > 0 and tokens[i - 1] in _MEMBER_OPS:
+            continue
+        if tok in _GLOBAL_TARGETS and (hit := _match_target_export(tokens[i : i + 5])):
+            offenders.append(hit)
+        elif tok == ("IDENT", "Object"):
+            offenders.extend(_match_object_export(tokens, i))
+    return offenders
+
+
 class TestTrajectoryHUDDataModel(unittest.TestCase):
     """Tests data modeling, timing metrics extraction, and subagent pre-bundling."""
 
@@ -1668,7 +1803,7 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
         total_tokens = data["total_tokens"]
         breakdown = data["token_breakdown"]
 
-        # Active epoch post-checkpoint only (excludes pre-checkpoint 1200+3000+1500 steps)
+        # Active checkpoint window post-checkpoint only (excludes pre-checkpoint 1200+3000+1500 steps)
         self.assertEqual(total_tokens, 2500)
         self.assertEqual(sum(breakdown.values()), total_tokens)
         self.assertEqual(breakdown["checkpoint"], 2000)
@@ -1687,12 +1822,143 @@ class TestTrajectoryHUDDataModel(unittest.TestCase):
             toggle=False,
         )
         # Titlebar clipping fix assertions
-        self.assertIn("top: 38px;", script)
-        self.assertIn("height: calc(100vh - 38px) !important;", script)
+        self.assertIn("top: var(--pane-titlebar-height, 40px);", script)
+        self.assertIn("height: calc(100vh - var(--pane-titlebar-height, 40px)) !important;", script)
         self.assertIn("-webkit-app-region: no-drag;", script)
         # Cumulative token sync in JS
         self.assertIn("rawSegmentsSum = segments.reduce", script)
-        self.assertIn("activeTokensSum = selectedEpochTotal > 0 ? selectedEpochTotal : rawSegmentsSum", script)
+        self.assertIn("activeTokensSum = selectedCheckpointTotal > 0 ? selectedCheckpointTotal : rawSegmentsSum", script)
+
+    def test_hud_assets_do_not_clobber_minified_globals(self) -> None:
+        """Regression: HUD injection must never export short Closure-minified globals (e.g. xtc/ytc/ztc/Atc)."""
+        assets_dir = importlib.resources.files("harness.gui.assets")
+        js_entries = sorted(
+            (entry for entry in assets_dir.iterdir() if entry.name.endswith(".js")),
+            key=lambda entry: entry.name,
+        )
+        self.assertGreaterEqual(len(js_entries), 13)
+
+        offenders = []
+        for entry in js_entries:
+            for finding in _find_short_global_exports(entry.read_text(encoding="utf-8")):
+                offenders.append(f"{entry.name}: {finding}")
+
+        self.assertEqual(
+            offenders,
+            [],
+            f"HUD JS assets must not export <=4-char globals that can collide with Antigravity minified code: {offenders}",
+        )
+
+        script = build_trajectory_hud_script(
+            convo_id="convo-no-clobber",
+            trajectory_data={"conversation_id": "convo-no-clobber", "steps": []},
+            conversations=[],
+            open_view=False,
+            toggle=False,
+        )
+        compiled_offenders = _find_short_global_exports(script)
+        self.assertEqual(
+            compiled_offenders,
+            [],
+            f"Compiled HUD script must not export <=4-char globals: {compiled_offenders}",
+        )
+
+    def test_short_global_export_scanner_edge_cases(self) -> None:
+        """Verify _find_short_global_exports handles strings/templates/regexes/members and catches exports."""
+        cases = [
+            ("string_dot", 'const s = "window.xtc = 1";', []),
+            ("string_assign", "const s = 'Object.assign(global, { xtc: 1 })';", []),
+            ("template_static", "const t = `global.xtc = 1`;", []),
+            ("regex_literal", "const r = /window.xtc=1/;", []),
+            ("member_chain_dot", "obj.global.xtc = 1;", []),
+            ("member_chain_bracket", 'foo.self["xtc"] = 1;', []),
+            ("equality_check", "if (window.xtc == 1 || window.ytc === 2) {}", []),
+            ("value_shorthand_fp", "Object.assign(window, { longName: xtc });", []),
+            ("spaced_dot", "window . xtc = 1;", ["dot:xtc"]),
+            ("newline_dot", "window\n  .xtc = 1;", ["dot:xtc"]),
+            ("assign_after_void_regex", "Object.assign(window, void /)/, { xtc: 1 });", ["Object.assign:xtc"]),
+            ("assign_shorthand", "Object.assign(global, { xtc });", ["Object.assign:xtc"]),
+            ("bracket_assign", 'window["xtc"] = 1;', ["bracket:xtc"]),
+            ("define_property", 'Object.defineProperty(globalThis, "Atc", { value: 1 });', ["defineProperty:Atc"]),
+            ("template_interp_export", "const t = `${window.xtc = 1}`;", ["dot:xtc"]),
+        ]
+        for label, snippet, expected in cases:
+            with self.subTest(case=label):
+                self.assertEqual(_find_short_global_exports(snippet), expected)
+
+    def test_hud_script_vm_preserves_minified_globals(self) -> None:
+        """Black-box Node VM verification that executing compiled HUD script preserves xtc/ytc/ztc/Atc."""
+        if (node_bin := shutil.which("node")) is None:
+            self.skipTest("node binary not found; skipping Node VM runtime verification")
+        trajectory = {
+            "conversation_id": "convo-vm-no-clobber", "model": "claude-sonnet-4", "total_tokens": 12500, "max_context_tokens": 200000,
+            "steps": [{"step_index": 0, "type": "USER_INPUT", "content": "Hello", "tokens": 500}, {"step_index": 1, "type": "PLANNER_RESPONSE", "content": "World", "tokens": 2000}],
+            "checkpoints": [{"checkpoint_index": 0, "start_index": 0, "end_index": 1, "step_count": 2, "total_tokens": 12500}],
+            "system_prompt_slices": [{"name": "identity", "tag": "identity", "tokens": 4000}],
+            "tool_def_slices": [{"name": "run_command", "tokens": 6000}],
+        }
+        script = build_trajectory_hud_script(
+            convo_id="convo-vm-no-clobber", trajectory_data=trajectory,
+            conversations=[{"conversation_id": "convo-vm-no-clobber", "summary": "VM Test", "step_count": 2}], open_view=True, toggle=False,
+        )
+        node_vm_harness = r"""
+const fs = require("fs"), vm = require("vm");
+const noop = () => {}, empty = () => [], nil = () => null, byId = new Map();
+const makeEl = (tag) => ({
+    tagName: String(tag || "div").toUpperCase(), id: "", className: "", textContent: "", _html: "",
+    get innerHTML() { return this._html; }, set innerHTML(v) { this._html = String(v ?? ""); },
+    value: "", style: {}, children: [], parentNode: null, clientWidth: 1000, clientHeight: 700, dataset: {},
+    classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
+    setAttribute: noop, getAttribute: nil, removeAttribute: noop, querySelector: nil, querySelectorAll: empty,
+    addEventListener: noop, removeEventListener: noop, focus: noop, setSelectionRange: noop, scrollIntoView: noop,
+    contains(o) { return o === this || this.children.includes(o); },
+    appendChild(c) { if (c) { c.parentNode = this; this.children.push(c); if (c.id) byId.set(c.id, c); } return c; },
+    removeChild(c) { const i = this.children.indexOf(c); if (i !== -1) this.children.splice(i, 1); if (c && c.id && byId.get(c.id) === c) byId.delete(c.id); return c; },
+    remove() { if (this.id && byId.get(this.id) === this) byId.delete(this.id); },
+});
+const document = { head: makeEl("head"), body: makeEl("body"), activeElement: null, getElementById: (id) => byId.get(id) || null, createElement: makeEl, querySelector: nil, querySelectorAll: empty, addEventListener: noop, removeEventListener: noop };
+const sentinels = { xtc() { return "x"; }, ytc() { return "y"; }, ztc() { return "z"; }, Atc() { return "A"; } }, consoleErrors = [];
+const sandbox = {
+    document, innerWidth: 1280, innerHeight: 800, addEventListener: noop, removeEventListener: noop, dispatchEvent: () => true,
+    location: { hostname: "127.0.0.1", protocol: "http:", origin: "http://127.0.0.1:40624", pathname: "/", search: "" },
+    history: { pushState: noop, replaceState: noop }, localStorage: { getItem: nil, setItem: noop, removeItem: noop },
+    navigator: { clipboard: { writeText: async () => {} } }, CSS: { escape: String }, URLSearchParams, AbortController, TextEncoder, TextDecoder,
+    Event: typeof Event !== "undefined" ? Event : function Event(t) { this.type = t; }, crypto: globalThis.crypto,
+    MutationObserver: class { observe() {} disconnect() {} }, requestAnimationFrame: () => 1, cancelAnimationFrame: noop,
+    fetch: async () => ({ ok: false, status: 503, json: async () => null }),
+    console: { log: noop, warn: noop, error: (...a) => consoleErrors.push(a.map(String).join(" ")) },
+    __AGYIS_SENTINELS__: sentinels, ...sentinels,
+};
+sandbox.window = sandbox.global = sandbox.globalThis = sandbox.self = sandbox;
+vm.createContext(sandbox);
+const preShort = new Set(vm.runInContext("Object.getOwnPropertyNames(globalThis)", sandbox).filter((k) => k.length <= 4));
+const runResult = vm.runInContext(fs.readFileSync(0, "utf8"), sandbox);
+const addedShortGlobals = vm.runInContext("Object.getOwnPropertyNames(globalThis)", sandbox).filter((k) => k.length <= 4 && !preShort.has(k));
+const vmState = vm.runInContext(`(() => {
+    const names = ["xtc", "ytc", "ztc", "Atc"], targets = [window, global, globalThis, self], ns = globalThis.__agyis_context_bar;
+    return {
+        sentinelsIntact: names.every((n) => targets.every((t) => t[n] === __AGYIS_SENTINELS__[n])),
+        nsExportsCallable: Boolean(ns && typeof ns === "object" && names.every((n) => typeof ns[n] === "function" && ns[n] !== __AGYIS_SENTINELS__[n])),
+        atcSample: ns ? ns.Atc([{ id: "s1", tokens: 100 }], 1000, 500) : null,
+        hudGlobalsOk: typeof globalThis.renderContextBar === "function" && typeof globalThis.extractGranularSegments === "function" && typeof globalThis.bindContextBarEvents === "function",
+    };
+})()`, sandbox);
+const hud = document.getElementById("agyis-trajectory-hud");
+console.log(JSON.stringify({ success: Boolean(runResult && runResult.success), consoleErrors, addedShortGlobals, mounted: Boolean(hud && hud.innerHTML.includes("agyis-context-bar")), ...vmState }));
+"""
+        proc = subprocess.run([node_bin, "-e", node_vm_harness], input=script, capture_output=True, text=True, timeout=5, check=True)
+        observed = json.loads(proc.stdout.strip())
+        self.assertTrue(observed["success"])
+        self.assertEqual(observed["consoleErrors"], [])
+        self.assertTrue(observed["mounted"])
+        self.assertTrue(observed["sentinelsIntact"])
+        self.assertEqual(observed["addedShortGlobals"], [])
+        self.assertTrue(observed["nsExportsCallable"])
+        self.assertTrue(observed["hudGlobalsOk"])
+        self.assertEqual(observed["atcSample"]["rowCount"], 1)
+        self.assertEqual(observed["atcSample"]["pxPerToken"], 0.5)
+        self.assertAlmostEqual(observed["atcSample"]["rows"][0][0]["widthFraction"], 0.1)
+        self.assertEqual(observed["atcSample"]["rows"][0][0]["sliceTokens"], 100)
 
 
 class TestGUISystemdService(unittest.TestCase):
@@ -1782,8 +2048,8 @@ class TestGUISystemdService(unittest.TestCase):
         self.assertEqual(args_status.service, "status")
 
 
-class TestCheckpointEpochPartitioning(unittest.TestCase):
-    """Tests trajectory partitioning into epochs based on CHECKPOINT steps (ADR-014 / PSL-INV-007)."""
+class TestCheckpointPartitioning(unittest.TestCase):
+    """Tests disjoint Option B trajectory partitioning into checkpoint windows (ADR-014 / PSL-INV-007)."""
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -1800,21 +2066,24 @@ class TestCheckpointEpochPartitioning(unittest.TestCase):
             for s in steps:
                 f.write(json.dumps(s) + "\n")
 
-    def test_epoch_partitioning_no_checkpoints(self) -> None:
+    def test_checkpoint_partitioning_no_checkpoints(self) -> None:
         convo_id = "convo-no-cp"
         steps = [{"source": "user", "content": f"msg {i}"} for i in range(5)]
         self._create_convo_transcript(convo_id, steps)
 
         data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
-        epochs = data.get("epochs", [])
-        self.assertEqual(len(epochs), 1)
-        self.assertEqual(epochs[0]["epoch_index"], 0)
-        self.assertEqual(epochs[0]["start_index"], 0)
-        self.assertEqual(epochs[0]["end_index"], 4)
-        self.assertEqual(epochs[0]["step_count"], 5)
-        self.assertFalse(epochs[0]["has_checkpoint"])
+        checkpoints = data.get("checkpoints", [])
+        self.assertEqual(len(checkpoints), 1)
+        self.assertEqual(checkpoints[0]["checkpoint_index"], 0)
+        self.assertEqual(checkpoints[0]["start_index"], 0)
+        self.assertEqual(checkpoints[0]["end_index"], 4)
+        self.assertEqual(checkpoints[0]["step_count"], 5)
+        self.assertFalse(checkpoints[0]["has_checkpoint"])
+        self.assertEqual(checkpoints[0]["summary"], "Initial Trajectory")
+        self.assertEqual(data["checkpoint_index"], 0)
+        self.assertEqual(data["checkpoint_steps"], 5)
 
-    def test_epoch_partitioning_single_checkpoint(self) -> None:
+    def test_checkpoint_partitioning_single_checkpoint(self) -> None:
         convo_id = "convo-single-cp"
         steps = []
         for i in range(10):
@@ -1825,25 +2094,28 @@ class TestCheckpointEpochPartitioning(unittest.TestCase):
         self._create_convo_transcript(convo_id, steps)
 
         data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
-        epochs = data.get("epochs", [])
-        self.assertEqual(len(epochs), 2)
+        checkpoints = data.get("checkpoints", [])
+        self.assertEqual(len(checkpoints), 2)
 
-        # Epoch 0: step 0 to step 4 (inclusive)
-        self.assertEqual(epochs[0]["epoch_index"], 0)
-        self.assertEqual(epochs[0]["start_index"], 0)
-        self.assertEqual(epochs[0]["end_index"], 4)
-        self.assertEqual(epochs[0]["step_count"], 5)
-        self.assertTrue(epochs[0]["has_checkpoint"])
-        self.assertEqual(epochs[0]["summary"], "Compacted at 4")
+        # Window 0: steps 0..3 (disjoint pre-checkpoint Initial Trajectory)
+        self.assertEqual(checkpoints[0]["checkpoint_index"], 0)
+        self.assertEqual(checkpoints[0]["start_index"], 0)
+        self.assertEqual(checkpoints[0]["end_index"], 3)
+        self.assertEqual(checkpoints[0]["step_count"], 4)
+        self.assertFalse(checkpoints[0]["has_checkpoint"])
+        self.assertEqual(checkpoints[0]["summary"], "Initial Trajectory")
 
-        # Epoch 1: step 4 to step 9 (inclusive)
-        self.assertEqual(epochs[1]["epoch_index"], 1)
-        self.assertEqual(epochs[1]["start_index"], 4)
-        self.assertEqual(epochs[1]["end_index"], 9)
-        self.assertEqual(epochs[1]["step_count"], 6)
-        self.assertTrue(epochs[1]["has_checkpoint"])
+        # Window 1: steps 4..9 (checkpoint c0..N-1)
+        self.assertEqual(checkpoints[1]["checkpoint_index"], 1)
+        self.assertEqual(checkpoints[1]["start_index"], 4)
+        self.assertEqual(checkpoints[1]["end_index"], 9)
+        self.assertEqual(checkpoints[1]["step_count"], 6)
+        self.assertTrue(checkpoints[1]["has_checkpoint"])
+        self.assertEqual(checkpoints[1]["summary"], "Compacted at 4")
+        self.assertEqual(data["checkpoint_index"], 1)
+        self.assertEqual(data["checkpoint_steps"], 6)
 
-    def test_epoch_partitioning_multiple_checkpoints(self) -> None:
+    def test_checkpoint_partitioning_multiple_checkpoints(self) -> None:
         convo_id = "convo-multi-cp"
         steps = []
         for i in range(12):
@@ -1856,22 +2128,43 @@ class TestCheckpointEpochPartitioning(unittest.TestCase):
         self._create_convo_transcript(convo_id, steps)
 
         data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
-        epochs = data.get("epochs", [])
-        self.assertEqual(len(epochs), 3)
+        checkpoints = data.get("checkpoints", [])
+        self.assertEqual(len(checkpoints), 3)
 
-        self.assertEqual(epochs[0]["start_index"], 0)
-        self.assertEqual(epochs[0]["end_index"], 3)
-        self.assertEqual(epochs[0]["step_count"], 4)
+        self.assertEqual((checkpoints[0]["start_index"], checkpoints[0]["end_index"]), (0, 2))
+        self.assertEqual(checkpoints[0]["step_count"], 3)
+        self.assertFalse(checkpoints[0]["has_checkpoint"])
+        self.assertEqual(checkpoints[0]["summary"], "Initial Trajectory")
 
-        self.assertEqual(epochs[1]["start_index"], 3)
-        self.assertEqual(epochs[1]["end_index"], 7)
-        self.assertEqual(epochs[1]["step_count"], 5)
+        self.assertEqual((checkpoints[1]["start_index"], checkpoints[1]["end_index"]), (3, 6))
+        self.assertEqual(checkpoints[1]["step_count"], 4)
+        self.assertTrue(checkpoints[1]["has_checkpoint"])
+        self.assertEqual(checkpoints[1]["summary"], "First summary")
 
-        self.assertEqual(epochs[2]["start_index"], 7)
-        self.assertEqual(epochs[2]["end_index"], 11)
-        self.assertEqual(epochs[2]["step_count"], 5)
+        self.assertEqual((checkpoints[2]["start_index"], checkpoints[2]["end_index"]), (7, 11))
+        self.assertEqual(checkpoints[2]["step_count"], 5)
+        self.assertTrue(checkpoints[2]["has_checkpoint"])
+        self.assertEqual(checkpoints[2]["summary"], "Second summary")
 
-    def test_epoch_partitioning_last_step_checkpoint(self) -> None:
+    def test_checkpoint_partitioning_first_step_checkpoint(self) -> None:
+        convo_id = "convo-first-cp"
+        steps = [
+            {"type": "CHECKPOINT", "compaction_summary": "Compacted at start"},
+            {"source": "user", "content": "msg 1"},
+            {"source": "model", "content": "reply 2"},
+        ]
+        self._create_convo_transcript(convo_id, steps)
+
+        data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
+        checkpoints = data.get("checkpoints", [])
+        self.assertEqual(len(checkpoints), 1)
+        self.assertEqual((checkpoints[0]["start_index"], checkpoints[0]["end_index"]), (0, 2))
+        self.assertEqual(checkpoints[0]["step_count"], 3)
+        self.assertTrue(checkpoints[0]["has_checkpoint"])
+        self.assertEqual(checkpoints[0]["summary"], "Compacted at start")
+        self.assertEqual(data["checkpoint_index"], 0)
+
+    def test_checkpoint_partitioning_last_step_checkpoint(self) -> None:
         convo_id = "convo-last-cp"
         steps = []
         for i in range(5):
@@ -1882,19 +2175,24 @@ class TestCheckpointEpochPartitioning(unittest.TestCase):
         self._create_convo_transcript(convo_id, steps)
 
         data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
-        epochs = data.get("epochs", [])
-        self.assertEqual(len(epochs), 1)
-        self.assertEqual(epochs[0]["start_index"], 0)
-        self.assertEqual(epochs[0]["end_index"], 4)
-        self.assertEqual(epochs[0]["step_count"], 5)
-        self.assertTrue(epochs[0]["has_checkpoint"])
+        checkpoints = data.get("checkpoints", [])
+        self.assertEqual(len(checkpoints), 2)
+        self.assertEqual((checkpoints[0]["start_index"], checkpoints[0]["end_index"]), (0, 3))
+        self.assertEqual(checkpoints[0]["step_count"], 4)
+        self.assertFalse(checkpoints[0]["has_checkpoint"])
+        self.assertEqual((checkpoints[1]["start_index"], checkpoints[1]["end_index"]), (4, 4))
+        self.assertEqual(checkpoints[1]["step_count"], 1)
+        self.assertTrue(checkpoints[1]["has_checkpoint"])
+        self.assertEqual(checkpoints[1]["summary"], "Summary at end")
+        self.assertEqual(data["checkpoint_index"], 1)
 
-    def test_epoch_partitioning_empty(self) -> None:
+    def test_checkpoint_partitioning_empty(self) -> None:
         convo_id = "convo-empty"
         self._create_convo_transcript(convo_id, [])
 
         data = load_conversation_trajectory(convo_id, brain_dir=self.brain_dir)
-        self.assertEqual(data.get("epochs", []), [])
+        self.assertEqual(data.get("checkpoints", []), [])
+        self.assertEqual(data["checkpoint_index"], 0)
 
 
 class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
@@ -1908,8 +2206,8 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
                 {"step_index": 1, "type": "MODEL_OUTPUT", "tokens": 12000, "content": "World"},
             ],
             "max_context_tokens": 256000,
-            "epochs": [
-                {"epoch_index": 0, "start_index": 0, "end_index": 1, "step_count": 2, "has_checkpoint": False, "summary": "Initial"}
+            "checkpoints": [
+                {"checkpoint_index": 0, "start_index": 0, "end_index": 1, "step_count": 2, "has_checkpoint": False, "summary": "Initial"}
             ],
         }
         script = build_trajectory_hud_script(
@@ -1928,14 +2226,14 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertIn("agyis-context-row-track", script)
         self.assertIn("Math.round((rIdx * ROW_CAPACITY) / 1000)", script)
 
-    def test_hud_script_contains_epoch_switcher(self) -> None:
-        sample_data = {"conversation_id": "test-ep", "steps": []}
-        script = build_trajectory_hud_script("test-ep", sample_data, [], open_view=True)
+    def test_hud_script_contains_checkpoint_switcher(self) -> None:
+        sample_data = {"conversation_id": "test-cp", "steps": []}
+        script = build_trajectory_hud_script("test-cp", sample_data, [], open_view=True)
 
-        self.assertIn("agyis-epoch-prev", script)
-        self.assertIn("agyis-epoch-next", script)
-        self.assertIn("Prev Epoch", script)
-        self.assertIn("Next Epoch", script)
+        self.assertIn("agyis-checkpoint-prev", script)
+        self.assertIn("agyis-checkpoint-next", script)
+        self.assertIn("Prev Checkpoint", script)
+        self.assertIn("Next Checkpoint", script)
 
     def test_hud_script_contains_pagination_and_debouncing(self) -> None:
         sample_data = {"conversation_id": "test-page", "steps": []}
@@ -1950,21 +2248,21 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertIn("150", script)
 
     def test_hud_script_contains_sync_to_latest_state(self) -> None:
-        """BUILD-TOGGLE-LATEST-EPOCH-STEP-PAGE-001: Assert syncToLatestState exists and is called across entrypoints."""
+        """BUILD-TOGGLE-LATEST-CHECKPOINT-STEP-PAGE-001: Assert syncToLatestState exists and is called across entrypoints."""
         sample_data = {
             "conversation_id": "test-sync-latest",
             "steps": [{"step_index": i, "type": "USER_PROMPT"} for i in range(105)],
-            "epochs": [
-                {"epoch_index": 0, "start_index": 0, "end_index": 49},
-                {"epoch_index": 1, "start_index": 50, "end_index": 99},
-                {"epoch_index": 2, "start_index": 100, "end_index": 104},
+            "checkpoints": [
+                {"checkpoint_index": 0, "start_index": 0, "end_index": 49},
+                {"checkpoint_index": 1, "start_index": 50, "end_index": 99},
+                {"checkpoint_index": 2, "start_index": 100, "end_index": 104},
             ],
         }
         script = build_trajectory_hud_script("test-sync-latest", sample_data, [], open_view=True, toggle=True)
 
         # 1. Assert helper function is defined
         self.assertIn("function syncToLatestState(state)", script)
-        self.assertIn("state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;", script)
+        self.assertIn("state.activeCheckpointIndex = checkpoints.length > 0 ? checkpoints.length - 1 : -1;", script)
         self.assertIn("state.selectedIndex = Math.max(0, steps.length - 1);", script)
         self.assertIn("const totalPages = Math.max(1, Math.ceil(totalSteps / pageSize));", script)
         self.assertIn("state.tablePage = totalPages - 1;", script)
@@ -1974,9 +2272,9 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertIn("syncToLatestState(state);", script)
         self.assertIn("if (typeof renderHud === \"function\") renderHud();", script)
 
-        # 3. Assert initial state initialization sets latest epoch, step, and table page and syncs
+        # 3. Assert initial state initialization sets latest checkpoint, step, and table page and syncs
         self.assertIn("window.__agyis_hud_state = {", script)
-        self.assertIn("activeEpochIndex: epochs.length > 0 ? epochs.length - 1 : -1,", script)
+        self.assertIn("activeCheckpointIndex: checkpoints.length > 0 ? checkpoints.length - 1 : -1,", script)
         self.assertIn("tablePage: Math.max(0, Math.ceil(steps.length / 50) - 1),", script)
         self.assertIn("syncToLatestState(window.__agyis_hud_state);", script)
 
@@ -1995,65 +2293,43 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertTrue(display_pos != -1 and scroll_pos != -1 and display_pos < scroll_pos)
 
     def test_sync_to_latest_state_node_evaluation(self) -> None:
-        """BUILD-TOGGLE-LATEST-EPOCH-STEP-PAGE-001: Execute syncToLatestState in node to assert exact runtime behavior."""
+        """BUILD-TOGGLE-LATEST-CHECKPOINT-STEP-PAGE-001: Execute real hud_utils.js syncToLatestState in node."""
         import subprocess
 
-        js_harness = """
-        function syncToLatestState(state) {
-            if (!state || !state.currentData) return;
-            const steps = state.currentData.steps || [];
-            const epochs = state.currentData.epochs || [];
-
-            // 1. Show latest epoch
-            state.activeEpochIndex = epochs.length > 0 ? epochs.length - 1 : -1;
-
-            // 2. Select latest step
-            state.selectedIndex = Math.max(0, steps.length - 1);
-
-            // 3. Show latest 50 steps on steps list (last table page)
-            const totalSteps = steps.length;
-            const pageSize = 50;
-            const totalPages = Math.max(1, Math.ceil(totalSteps / pageSize));
-            state.tablePage = totalPages - 1;
-        }
-
+        utils_js = importlib.resources.files("harness.gui.assets").joinpath("hud_utils.js").read_text(encoding="utf-8")
+        js_harness = (
+            "global.window = {};\n"
+            + utils_js
+            + """
         const cases = [
-            // Case 0: Empty trajectory
-            { currentData: { steps: [], epochs: [] } },
-            // Case 1: 30 steps (single page, 1 epoch)
-            { currentData: { steps: new Array(30).fill({}), epochs: [{ epoch_index: 0 }] } },
-            // Case 2: 50 steps (exact 1 page boundary)
-            { currentData: { steps: new Array(50).fill({}), epochs: [{ epoch_index: 0 }] } },
-            // Case 3: 51 steps (page 1)
-            { currentData: { steps: new Array(51).fill({}), epochs: [{ epoch_index: 0 }, { epoch_index: 1 }] } },
-            // Case 4: 120 steps across 3 epochs (page 2, last step 119, epoch 2)
-            { currentData: { steps: new Array(120).fill({}), epochs: [{ epoch_index: 0 }, { epoch_index: 1 }, { epoch_index: 2 }] } }
+            { currentData: { steps: [], checkpoints: [] } },
+            { currentData: { steps: new Array(30).fill({}), checkpoints: [{ checkpoint_index: 0 }] } },
+            { currentData: { steps: new Array(50).fill({}), checkpoints: [{ checkpoint_index: 0 }] } },
+            { currentData: { steps: new Array(51).fill({}), checkpoints: [{ checkpoint_index: 0 }, { checkpoint_index: 1 }] } },
+            { currentData: { steps: new Array(220).fill({}), checkpoints: [{ checkpoint_index: 0 }, { checkpoint_index: 1 }, { checkpoint_index: 2 }] } }
         ];
 
         const results = cases.map(st => {
-            syncToLatestState(st);
+            window.__agyis_utils.syncToLatestState(st);
             return {
-                activeEpochIndex: st.activeEpochIndex,
+                activeCheckpointIndex: st.activeCheckpointIndex,
                 selectedIndex: st.selectedIndex,
-                tablePage: st.tablePage
+                tablePage: st.tablePage,
+                timelinePage: st.timelinePage
             };
         });
 
         console.log(JSON.stringify(results));
         """
+        )
         try:
             res = subprocess.run(["node", "-e", js_harness], capture_output=True, text=True, check=True)
             results = json.loads(res.stdout.strip())
-            # Case 0: Empty
-            self.assertEqual(results[0], {"activeEpochIndex": -1, "selectedIndex": 0, "tablePage": 0})
-            # Case 1: 30 steps
-            self.assertEqual(results[1], {"activeEpochIndex": 0, "selectedIndex": 29, "tablePage": 0})
-            # Case 2: 50 steps
-            self.assertEqual(results[2], {"activeEpochIndex": 0, "selectedIndex": 49, "tablePage": 0})
-            # Case 3: 51 steps
-            self.assertEqual(results[3], {"activeEpochIndex": 1, "selectedIndex": 50, "tablePage": 1})
-            # Case 4: 120 steps
-            self.assertEqual(results[4], {"activeEpochIndex": 2, "selectedIndex": 119, "tablePage": 2})
+            self.assertEqual(results[0], {"activeCheckpointIndex": -1, "selectedIndex": 0, "tablePage": 0, "timelinePage": 0})
+            self.assertEqual(results[1], {"activeCheckpointIndex": 0, "selectedIndex": 29, "tablePage": 0, "timelinePage": 0})
+            self.assertEqual(results[2], {"activeCheckpointIndex": 0, "selectedIndex": 49, "tablePage": 0, "timelinePage": 0})
+            self.assertEqual(results[3], {"activeCheckpointIndex": 1, "selectedIndex": 50, "tablePage": 1, "timelinePage": 0})
+            self.assertEqual(results[4], {"activeCheckpointIndex": 2, "selectedIndex": 219, "tablePage": 4, "timelinePage": 1})
         except FileNotFoundError:
             pass
 
@@ -2122,8 +2398,8 @@ class TestDynamic4RowContextBarAndPrettifiedInspector(unittest.TestCase):
         self.assertIn("agyis-subagent-card", script)
         self.assertIn("agyis-checkpoint-card", script)
         self.assertIn("Compaction Checkpoint", script)
-        self.assertIn("Jump to Previous Epoch", script)
-        self.assertIn("agyis-jump-prev-epoch", script)
+        self.assertIn("Jump to Previous Checkpoint", script)
+        self.assertIn("agyis-jump-prev-checkpoint", script)
 
         # Timing Header Guard
         self.assertIn("isModelStep && totalDurationMs > 0", script)

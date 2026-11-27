@@ -418,6 +418,67 @@ class TestServerApi(unittest.TestCase):
         self.assertEqual(len(p3["sessions"]), 1)
         self.assertFalse(p3["has_more"])
 
+    def test_sync_inventory_and_keyset_cursor_pagination(self):
+        """Verifies GET /api/v1/sync/inventory and keyset after_seq/machine/developers pull filters."""
+        self.client.post(
+            "/api/v1/sync/push",
+            headers={"Authorization": "Bearer test-token-alice"},
+            json={
+                "sessions": [{
+                    "session_id": "sess-inv-1",
+                    "start_time": "2026-04-01T10:00:00Z",
+                    "total_steps": 4,
+                    "origin_machine": "desktop-a",
+                    "client_surface": "ide",
+                }],
+                "steps": [], "tool_calls": [], "user_interventions": [],
+            },
+        )
+        self.client.post(
+            "/api/v1/sync/push",
+            headers={"Authorization": "Bearer test-token-bob"},
+            json={
+                "sessions": [{
+                    "session_id": "sess-inv-2",
+                    "start_time": "2026-04-02T10:00:00Z",
+                    "total_steps": 7,
+                    "origin_machine": "laptop-b",
+                    "client_surface": "cli",
+                }],
+                "steps": [], "tool_calls": [], "user_interventions": [],
+            },
+        )
+
+        unauth = self.client.get("/api/v1/sync/inventory")
+        self.assertEqual(unauth.status_code, 401)
+
+        inv_resp = self.client.get(
+            "/api/v1/sync/inventory",
+            headers={"Authorization": "Bearer test-token-charlie"},
+        )
+        self.assertEqual(inv_resp.status_code, 200)
+        inv = inv_resp.json()
+        self.assertEqual(inv["total_sessions"], 2)
+        self.assertEqual(len(inv["developers"]), 2)
+
+        p1 = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&limit=1",
+            headers={"Authorization": "Bearer test-token-charlie"},
+        ).json()
+        self.assertTrue(p1["has_more"])
+        p2 = self.client.get(
+            f"/api/v1/sync/pull?after_seq={p1['next_after_seq']}&limit=10",
+            headers={"Authorization": "Bearer test-token-charlie"},
+        ).json()
+        self.assertEqual(len(p2["sessions"]), 1)
+        self.assertFalse(p2["has_more"])
+
+        filt = self.client.get(
+            "/api/v1/sync/pull?since=1970-01-01T00:00:00Z&machine=laptop-b&developers=bob",
+            headers={"Authorization": "Bearer test-token-charlie"},
+        ).json()
+        self.assertEqual([s["session_id"] for s in filt["sessions"]], ["sess-inv-2"])
+
 
 if __name__ == "__main__":
     unittest.main()

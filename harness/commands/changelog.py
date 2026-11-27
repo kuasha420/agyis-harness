@@ -16,6 +16,7 @@ import sys
 from typing import Any, Dict
 
 from harness.delivery.changelog import backfill_changelog, generate_changelog
+from harness.utils import theme
 
 
 def cmd_changelog(args: argparse.Namespace) -> int:
@@ -61,7 +62,7 @@ def cmd_changelog(args: argparse.Namespace) -> int:
                 write=write_flag,
             )
     except (ValueError, RuntimeError) as exc:
-        print(f"❌ {exc}", file=sys.stderr)
+        print(theme.badge("FAIL", str(exc), stream=sys.stderr), file=sys.stderr)
         return 1
 
     if is_json:
@@ -72,7 +73,7 @@ def cmd_changelog(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2))
     elif write_flag:
         versions_summary = ", ".join(result.updated_versions) or result.version
-        print(f"✨ Updated {result.file_path} ({versions_summary})")
+        print(theme.badge("PASS", f"Updated {result.file_path} ({versions_summary})"))
     elif backfill_flag:
         print(result.document_markdown, end="")
     else:

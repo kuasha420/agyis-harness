@@ -71,11 +71,11 @@ Never invoke ad-hoc headless decompilers or MCP analysis tools on target binarie
 ### 2.1 Pre-Flight Toolchain Audit
 Verify JDK 21+, Ghidra 11.0+, REA CLI/MCP (`rea@6.9.0`), SQLite, `objdump`, and `tshark` before starting analysis:
 ```bash
-# Deep opt-in RE toolchain audit (keeps standard 'agyis doctor' < 1.0s)
-agyis doctor --experimental-rea
+# Deep RE + REA provider & forensic toolchain audit (keeps standard 'agyis doctor' < 1.0s)
+agyis doctor --rea    # (or agyis doctor --re)
 
 # Safe zero-sudo user-space healing and upstream REA skill provisioning
-agyis doctor --experimental-rea --heal
+agyis doctor --rea --heal
 ```
 
 ### 2.2 Three-Tier Acceleration Hierarchy
@@ -327,5 +327,5 @@ rea evaluate-coverage
 
 - **Dirty-Room Operations Runbook**: `docs/runbooks/dirtyroom-operations.md` (in `agyis-harness`) — End-to-end preparation, seeding, priming, maintenance, and troubleshooting matrix.
 - **REA Native Architecture Specification**: `docs/official-specs/rea-antigravity-architecture.md` (in `agyis-harness`) — `PSL-SPEC-2026-REA-001` covering the 255 MCP tools (`rea@6.9.0`), CLI commands, provider matrix, direct-mount benchmarks, and cleanroom contracts.
-- **Upstream REA Dynamic Skill**: `reverse-engineer-anything` (provisioned dynamically via `agyis doctor --experimental-rea --heal` or `agyis init --experimental-rea`; never vendored in-tree).
+- **Upstream REA Dynamic Skill**: `reverse-engineer-anything` (provisioned dynamically via `agyis doctor --rea --heal`, `agyis init --rea`, or `agyis onboard --rea`; never vendored in-tree).
 - **3-Tier Skill Extensibility (Layer 1 vs. Layer 3)**: This `re-ops` skill is the target-agnostic **Layer 1** product skill distributed with `agyis-harness` (provisioned via `--role re`, `--role cleanroom`, or the `ops` skill group). Target-specific protocol constants, engine quirks, and workspace CLI extensions (`agyis ext`) belong exclusively in project-scoped **Layer 3** skills under `<workspace>/.agents/skills/` to preserve **ADR-014** Product vs. Project bifurcation.

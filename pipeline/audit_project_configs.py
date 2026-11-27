@@ -31,6 +31,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional
 
 
+from harness.telemetry.db import get_db_connection
 from harness.utils.tokens import estimate_tokens
 
 
@@ -143,61 +144,129 @@ def audit_workspace_config(ws_path_str: str) -> Dict[str, Any]:
     }
 
 
+_UUID_WS_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
+def _is_redacted_or_remote_ws(ws_path: str, origin_dev: Optional[str]) -> bool:
+    if "[WORKSPACE_ROOT]" in ws_path or "[USER_HOME]" in ws_path:
+        return True
+    local_devs = {"", "local"}
+    for cand in (Path.home().name, os.environ.get("USER", ""), os.environ.get("LOGNAME", "")):
+        if cand and cand.strip():
+            local_devs.add(cand.strip().lower())
+    if (origin_dev or "").strip().lower() not in local_devs and not Path(ws_path).exists():
+        return True
+    return False
+
+
 def analyze_all_workspaces(db_path: Path, limit: int = 100) -> Dict[str, Any]:
-    conn = sqlite3.connect(db_path)
+    conn = get_db_connection(db_path, row_factory=False, read_only=True)
     try:
         c = conn.cursor()
+        c.execute("PRAGMA table_info(sessions)")
+        sess_cols = {r[1] for r in c.fetchall()}
+        dev_col = "COALESCE(origin_developer, 'local')" if "origin_developer" in sess_cols else "'local'"
 
         c.execute(
-            """
-            SELECT 
+            f"""
+            SELECT
                 workspace_path,
+                {dev_col} as origin_dev,
                 COUNT(*) as session_count,
                 ROUND(AVG(total_steps), 1) as avg_steps,
-                SUM(tool_call_count) as total_tools,
-                SUM(tool_error_count) as total_errors,
-                ROUND(SUM(tool_error_count) * 100.0 / NULLIF(SUM(tool_call_count), 0), 2) as error_rate_pct,
-                SUM(intervention_count) as total_interventions,
-                ROUND(SUM(intervention_count) * 1.0 / COUNT(*), 2) as interv_per_sess,
-                SUM(CASE WHEN tool_error_count <= 1 AND intervention_count = 0 AND total_steps >= 15 THEN 1 ELSE 0 END) as autonomous_sessions
+                SUM(COALESCE(tool_call_count, 0)) as total_tools,
+                SUM(COALESCE(tool_error_count, 0)) as total_errors,
+                ROUND(SUM(COALESCE(tool_error_count, 0)) * 100.0 / NULLIF(SUM(COALESCE(tool_call_count, 0)), 0), 2) as error_rate_pct,
+                SUM(COALESCE(intervention_count, 0)) as total_interventions,
+                ROUND(SUM(COALESCE(intervention_count, 0)) * 1.0 / COUNT(*), 2) as interv_per_sess,
+                SUM(CASE WHEN COALESCE(tool_error_count, 0) <= 1 AND COALESCE(intervention_count, 0) = 0 AND COALESCE(total_steps, 0) >= 15 THEN 1 ELSE 0 END) as autonomous_sessions
             FROM sessions
             WHERE workspace_path IS NOT NULL AND workspace_path != ""
-            GROUP BY workspace_path
+            GROUP BY workspace_path, origin_dev
             ORDER BY session_count DESC
             LIMIT ?
             """,
-            (max(1, limit),),
+            (max(1, limit * 2),),
         )
         rows = c.fetchall()
     finally:
         conn.close()
 
-    workspace_analyses = []
+    local_agg: Dict[str, Dict[str, Any]] = {}
+    redacted_remote_workspaces: List[Dict[str, Any]] = []
+    unattributed_uuid_count = 0
+    unattributed_uuid_sessions = 0
+    redacted_remote_sessions = 0
+    redacted_devs: set[str] = set()
+
     for r in rows:
-        ws_path = r[0]
-        config = audit_workspace_config(ws_path)
+        ws_path, origin_dev, s_cnt, avg_steps, tot_tools, tot_errs, err_pct, tot_int, int_per_s, auto_s = r
         perf = {
-            "session_count": r[1],
-            "avg_steps": r[2],
-            "total_tools": r[3],
-            "total_errors": r[4],
-            "error_rate_pct": r[5] or 0.0,
-            "total_interventions": r[6],
-            "interventions_per_session": r[7] or 0.0,
-            "autonomous_sessions": r[8],
-            "autonomous_pct": round(r[8] * 100.0 / r[1], 1) if r[1] else 0.0
+            "session_count": s_cnt,
+            "avg_steps": avg_steps or 0.0,
+            "total_tools": tot_tools or 0,
+            "total_errors": tot_errs or 0,
+            "error_rate_pct": err_pct or 0.0,
+            "total_interventions": tot_int or 0,
+            "interventions_per_session": int_per_s or 0.0,
+            "autonomous_sessions": auto_s or 0,
+            "autonomous_pct": round((auto_s or 0) * 100.0 / s_cnt, 1) if s_cnt else 0.0,
         }
-        workspace_analyses.append({
-            "workspace_path": ws_path,
-            "repo_name": Path(ws_path).name,
-            "config": config,
-            "performance": perf
-        })
+        if _UUID_WS_RE.match(ws_path.strip()):
+            unattributed_uuid_count += 1
+            unattributed_uuid_sessions += s_cnt
+            continue
+        if _is_redacted_or_remote_ws(ws_path, origin_dev):
+            redacted_remote_sessions += s_cnt
+            if origin_dev:
+                redacted_devs.add(origin_dev)
+            redacted_remote_workspaces.append({
+                "workspace_path": ws_path,
+                "origin_developer": origin_dev or "remote",
+                "performance": perf,
+            })
+            continue
+
+        cur_entry = local_agg.get(ws_path)
+        if cur_entry is None:
+            local_agg[ws_path] = {
+                "workspace_path": ws_path,
+                "repo_name": Path(ws_path).name,
+                "config": audit_workspace_config(ws_path),
+                "performance": perf,
+            }
+        else:
+            p = cur_entry["performance"]
+            new_sc = p["session_count"] + s_cnt
+            p["avg_steps"] = round(((p["avg_steps"] * p["session_count"]) + ((avg_steps or 0.0) * s_cnt)) / max(1, new_sc), 1)
+            p["session_count"] = new_sc
+            p["total_tools"] += tot_tools or 0
+            p["total_errors"] += tot_errs or 0
+            p["error_rate_pct"] = round(p["total_errors"] * 100.0 / p["total_tools"], 2) if p["total_tools"] else 0.0
+            p["total_interventions"] += tot_int or 0
+            p["interventions_per_session"] = round(p["total_interventions"] * 1.0 / max(1, new_sc), 2)
+            p["autonomous_sessions"] += auto_s or 0
+            p["autonomous_pct"] = round(p["autonomous_sessions"] * 100.0 / max(1, new_sc), 1)
+
+    workspace_analyses = sorted(
+        local_agg.values(),
+        key=lambda x: x["performance"]["session_count"],
+        reverse=True,
+    )[: max(1, limit)]
 
     return {
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
         "total_workspaces": len(workspace_analyses),
-        "workspaces": workspace_analyses
+        "local_workspace_count": len(workspace_analyses),
+        "redacted_remote_summary": {
+            "workspace_entries": len(redacted_remote_workspaces),
+            "session_count": redacted_remote_sessions,
+            "developers": sorted(redacted_devs),
+        },
+        "unattributed_uuid_workspaces_count": unattributed_uuid_count,
+        "unattributed_uuid_sessions_count": unattributed_uuid_sessions,
+        "workspaces": workspace_analyses,
+        "redacted_remote_workspaces": redacted_remote_workspaces,
     }
 
 
@@ -242,90 +311,19 @@ When we evaluate the agent's behavior across distinct workspaces, failures are r
     if len(workspaces) > max_rows:
         md += f"| *({len(workspaces) - max_rows} additional workspaces omitted)* | - | - | - | - |\n"
 
-    md += """└──────────────────────────────┴────────────┴───────────┴────────────┴───────────────────┘
+    rr = data.get("redacted_remote_summary", {})
+    md += f"""└──────────────────────────────┴────────────┴───────────┴────────────┴───────────────────┘
 ```
 
----
-
-## 🔍 Deep-Dive: 4 Architectural Ecosystem Profiles
-
-### Profile 1: The Golden Monorepo (Web + API)
-* **Metrics**: **99 sessions**, **326.1 avg steps**, **2.0% error rate**, **1.91 interventions/session**.
-* **Configuration Shape**:
-  - Root `AGENTS.md` (~2,700 tokens) with razor-sharp monorepo boundaries (`packages/shared`, `apps/api`, `apps/web`).
-  - **Explicit Testing & DB Contracts**: Exact port defined (`Local PostgreSQL runs on port 5436`), exact migrations (`pnpm db:generate`, `pnpm db:migrate`), exact router abstraction (`createRouter()`).
-  - **Strict Architectural Decision Tree**: Bound to an ultra-compact canonical cheat-sheet under 50 lines.
-  - **Why It Succeeded**: The agent never had to probe ports, guess database commands, or invent validation layers. Autonomy remained consistently high over 99 multi-step sessions.
+- **Local Workspaces Audited**: **{data.get('local_workspace_count', len(workspaces))}**
+- **Redacted / Remote Workspace Buckets**: **{rr.get('workspace_entries', 0)}** ({rr.get('session_count', 0):,} sessions across `{', '.join(rr.get('developers', [])) or 'none'}`)
+- **UUID-Only Trajectory Placeholders Excluded**: **{data.get('unattributed_uuid_workspaces_count', 0)}** ({data.get('unattributed_uuid_sessions_count', 0):,} sessions)
 
 ---
 
-### Profile 2: The Explicit Command Dictionary (Bot + CLI Monorepo)
-* **Metrics**: **55 sessions**, **160.7 avg steps**, **3.8% error rate**, **1.67 interventions/session** (Lowest intervention rate among active multi-task repos).
-* **Configuration Shape**:
-  - Root `AGENTS.md` with an **explicit command dictionary**:
-    ```bash
-    pnpm --filter @example/app test
-    pnpm --filter @example/cli test
-    pnpm prisma:generate
-    ```
-  - **Why It Succeeded**: Providing explicit, copy-pasteable CLI invocations eliminated Exit Code 127 (`command not found`) and Exit Code 2 (`syntax error`). The agent executed the exact filters required by the monorepo instead of guessing root npm commands.
+## 🔍 Architectural Ecosystem Patterns
 
----
-
-### Profile 3: The Rule Fragmentation Trap (Multi-File Rules)
-* **Metrics**: **20 sessions**, **858.1 avg steps**, **5.7% error rate**, **18.2 interventions/session** (**10x higher intervention rate** than Profile 1!).
-* **Configuration Shape**:
-  - Root `AGENTS.md` contained no inline technical specifications. Instead, it instructed the agent:
-    ```markdown
-    Start with these rule files before making changes:
-    - .agent/rules/README.md
-    - .agent/rules/overview.md
-    - .agent/rules/development.md
-    - .agent/rules/code-review.md
-    - .agent/rules/workflow.md
-    ```
-  - **The Failure Mode**: The agent spent dozens of steps opening and reading 5 separate markdown documents (`read_file` loops), consuming 40k+ tokens before understanding the project context.
-  - Furthermore, when asked to deploy staging infrastructure, the rules provided **zero remote-execution guidelines**, causing repeated `apt-get` non-interactive hangs and SSH connection drops.
-
----
-
-### Profile 4: Deep Systems & Physical Hardware Mesh
-* **Configuration Shape**:
-  - System invariants (KDE Plasma DBus script evaluation, Arch Linux pacman/yay non-interactive flags, container preservation, multi-node SSH topologies).
-  - Dedicated skills: `subagent-router`, `remote-ops`, `display-ops`.
-* **Why Interventions Were High**:
-  - **Legitimate Human-in-the-Loop Boundaries**: Interventions in systems repositories are often **mandatory safety gates** for sudo passwords, package-manager lock releases, physical display verification across devices, and GPG signed commits.
-  - **The Rule 1 Friction**: Enforcing an absolute ban on `|| true` without probing exceptions caused benign probe commands like `git diff | grep -i secret` (exiting with code `1` on empty match) to look like failures.
-
----
-
-## 💡 Key Empirical Discoveries & Root Causes
-
-### 1. The "Explicit Command Dictionary" Advantage
-Repositories that declare exact test, lint, and build commands in `AGENTS.md` see **50% fewer command errors** than repositories that assume the agent can infer Turborepo or workspace filter syntax.
-
-### 2. Multi-File Indirection is a Context Trap
-Forcing the agent to traverse multiple `.agent/rules/*.md` files leads directly to:
-1. Redundant `read_file` tool loops (3,951 repeated file-read loop calls in the baseline audit).
-2. Premature context window saturation before the task even begins.
-3. Information loss as rule content gets pushed beyond the attention boundary.
-*Recommendation*: **Consolidate all essential invariants into a single root `AGENTS.md` under 200 lines.**
-
-### 3. Rigid Negative Rules Need Probing Exceptions
-Banning `|| true` without distinguishing between **production code** and **agent terminal inspection** created false-positive exit code 1 failures. The rule must explicitly distinguish:
-- *Prohibited*: Swallowing errors in production code, build scripts, or CI checks.
-- *Permitted/Encouraged*: Probing pattern matches where zero results is a valid outcome (`grep -E 'pattern' || [ $? -eq 1 ]`).
-
----
-
-## 🛠️ Recommendations for `agyis-harness`
-
-1. **Rule Linter & Compactor Tool (`agyis rules --lint`)**:
-   - Inspects a repo's `AGENTS.md` and flags multi-file rule indirection, duplicate declarations, and rule echoes.
-2. **Context-Injected Command Palettes**:
-   - Automatically expose the repo's primary scripts from `package.json` / `Makefile` / `pyproject.toml` as a structured palette so agents never guess invocations.
-3. **Calibrated Reference `AGENTS.md`**:
-   - Merge concise architectural invariants with an Explicit Command Dictionary into reference harness rules.
+Workspaces with consolidated root `AGENTS.md` files, explicit command dictionaries, and single-source `.agents/skills` prevent `read_file` indirection loops and Exit Code 127 tool errors while keeping human steering low.
 """
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

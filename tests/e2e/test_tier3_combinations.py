@@ -71,7 +71,7 @@ class TestTier3Combinations(OpaqueBoxTestCase):
 
     def test_c5_doctor_toolchain_audit_plus_template_correlation(self) -> None:
         """Assures doctor audit metrics correspond to host_toolchain_versions in issue template."""
-        code, out, _ = self.run_cli(["doctor", "--json"])
+        code, out, _ = self.run_cli(["doctor", "-w", str(self.ws), "--json"])
         self.assertIn(code, (0, 1))
         report = json.loads(out)
         self.assertIn("os_family", report)

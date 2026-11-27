@@ -15,6 +15,8 @@ from pathlib import Path
 import re
 from typing import Dict, List, Optional, Tuple
 
+from harness.utils import theme
+
 from harness.mutation.probe_safety import (
     ACTIVE_BACKUPS,
     MUTATABLE_EXTENSIONS,
@@ -98,16 +100,17 @@ class SurvivingMutant:
     def to_actionable_report(self) -> str:
         """Formats an actionable diagnostic diff and cognitive guidance report."""
         loc = f"{self.file_path}:{self.line_number}"
+        divider = theme.rule()
         return (
-            f"\n❌ MUTATION TEST FAILURE: Surviving mutant detected!\n"
+            f"\n{theme.badge('FAIL', 'MUTATION TEST FAILURE: Surviving mutant detected!')}\n"
             f"The test suite passed on mutated code, indicating missing test assertions.\n\n"
-            f"──────────────────────────────────────────────────────────────────────\n"
+            f"{divider}\n"
             f"[Surviving Mutant]\n"
             f"  Location: {loc}\n"
             f"  Function: `{self.function_name}`\n"
             f"  Operator: {self.operator}\n"
             f"  Test Target: {self.test_target}\n"
-            f"──────────────────────────────────────────────────────────────────────\n"
+            f"{divider}\n"
             f"Unified Diff:\n"
             f"{self.diff_snippet}\n\n"
             f"Cognitive Guidance:\n"
@@ -115,7 +118,7 @@ class SurvivingMutant:
             f"  • Remediation: Add test assertions exercising this branch or boundary.\n"
             f"  • Equivalent Mutant? If semantically equivalent, suppress with:\n"
             f"    # agyis: no-mutant <reason>\n"
-            f"──────────────────────────────────────────────────────────────────────\n"
+            f"{divider}\n"
         )
 
 

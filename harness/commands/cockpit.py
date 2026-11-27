@@ -42,6 +42,7 @@ from harness.subagents.routing import (
     list_routes,
 )
 from harness.subagents.stage_role import read_stage_role
+from harness.utils import theme
 from harness.utils.plan_parser import find_active_plan
 
 
@@ -54,11 +55,11 @@ def _classify_token_horizon(tokens: int, max_context_tokens: Optional[int] = Non
     amber_k = int(round(amber_t / 1000))
     red_k = int(round(red_t / 1000))
     if tokens < amber_t:
-        return "HEALTHY", f"🟢 Healthy Zone (<{amber_k}k tokens)"
+        return "HEALTHY", f"{theme.badge('HEALTHY')} Healthy Zone (<{amber_k}k tokens)"
     elif tokens < red_t:
-        return "AMBER", f"🟡 Amber Warning Zone ({amber_k}k–{red_k - 1}k tokens)"
+        return "AMBER", f"{theme.badge('AMBER')} Amber Warning Zone ({amber_k}k–{red_k - 1}k tokens)"
     else:
-        return "RED_ALERT", f"🔴 Compaction Imminent (>={red_k}k tokens)"
+        return "RED_ALERT", f"{theme.badge('RED_ALERT')} Compaction Imminent (>={red_k}k tokens)"
 
 
 def _get_active_checkpoint_info(
@@ -73,19 +74,56 @@ def _get_active_checkpoint_info(
     scoped_candidates: List[Path] = []
     if conv_id:
         scoped_candidates.append(cp_dir / f"{conv_id}.md")
-    scoped_candidates.extend([
-        cp_dir / "session.md",
+    scoped_candidates.append(cp_dir / "session.md")
+
+    legacy_candidates: List[Path] = [
         workspace / ".agents" / "artifacts" / "cockpit_checkpoint.md",
         workspace / ".agents" / "artifacts" / "compaction_checkpoint_latest.md",
-    ])
+    ]
 
-    target_cp = next((c for c in scoped_candidates if c.exists()), None)
+    target_cp = next((c for c in scoped_candidates if c.is_file()), None)
     scoped_to_session = target_cp is not None
-    if target_cp is None and cp_dir.is_dir():
-        other_cps = sorted((p for p in cp_dir.glob("*.md") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
+
+    if target_cp is None:
+        other_cps: List[Path] = []
+        if cp_dir.is_dir():
+            try:
+                other_cps = sorted(
+                    (p for p in cp_dir.glob("*.md") if p.is_file()),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+            except OSError:
+                other_cps = []
+
+        existing_legacy = [c for c in legacy_candidates if c.is_file()]
+        legacy_cp: Optional[Path] = None
+        if existing_legacy:
+            try:
+                legacy_cp = max(existing_legacy, key=lambda p: p.stat().st_mtime)
+            except OSError:
+                legacy_cp = existing_legacy[0]
+
         if other_cps:
-            target_cp = other_cps[0]
-            scoped_to_session = conv_id is None
+            newest_cp = other_cps[0]
+            if legacy_cp is None:
+                target_cp = newest_cp
+                scoped_to_session = conv_id is None
+            else:
+                try:
+                    newest_mtime = newest_cp.stat().st_mtime
+                    legacy_mtime = legacy_cp.stat().st_mtime
+                except OSError:
+                    newest_mtime, legacy_mtime = 0.0, 0.0
+                if newest_mtime >= legacy_mtime:
+                    target_cp = newest_cp
+                    scoped_to_session = conv_id is None
+                else:
+                    target_cp = legacy_cp
+                    scoped_to_session = True
+        elif legacy_cp is not None:
+            target_cp = legacy_cp
+            scoped_to_session = True
 
     if target_cp is None:
         target_cp = scoped_candidates[0]
@@ -211,6 +249,7 @@ def _audit_flight_director_invariants(
 
     # Invariant 4: Checkpoint availability & freshness
     from harness.subagents.liveness import (
+        TEAMWORK_IGNORED_DIRS,
         get_app_data_dir,
         is_conversation_completed,
         probe_subagent_liveness,
@@ -278,7 +317,7 @@ def _audit_flight_director_invariants(
         if tw_root.is_dir():
             try:
                 for child in tw_root.iterdir():
-                    if child.is_dir() and not child.name.startswith("."):
+                    if child.is_dir() and not child.name.startswith(".") and child.name not in TEAMWORK_IGNORED_DIRS:
                         if any(p.is_file() for p in child.rglob("*")):
                             has_teamwork_subagents = True
                             break
@@ -486,9 +525,7 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
             print(json.dumps(data, indent=2))
             return 0
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🛫 AGYIS COCKPIT FLIGHT DECK STATUS")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(theme.banner("AGYIS COCKPIT FLIGHT DECK STATUS"))
         print(f"• Proximity Zone     : {zone_label} (~{tokens:,} / {max_ctx:,} tokens)")
         print(f"• Active Stage Role  : {stage_role.get('stage_name', 'None') if stage_role else 'ROOT_ATC'} ({stage_role.get('specialist_agent', 'cockpit_director') if stage_role else 'cockpit_director'})")
         print(f"• Active Plan        : {plan_path.name if plan_path else 'None declared'}")
@@ -502,7 +539,7 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
             tokens_val = getattr(s, "token_count", 0)
             print(f"  └─ [{cid_short}] {getattr(s, 'role', 'worker')}: {steps} steps, ~{tokens_val:,} tokens [{getattr(s, 'health_zone', 'HEALTHY')}]")
         print(f"• Checkpoint Freshness: {'Fresh (' + str(cp_info.get('age_seconds')) + 's old)' if cp_info['is_fresh'] else ('Present' if cp_info['exists'] else 'Missing')}")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(theme.rule("━"))
         return 0
 
     elif action == "route":
@@ -519,7 +556,7 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
                     "valid_aliases": [r.alias for r in CANONICAL_ROUTES],
                 }, indent=2))
             else:
-                print(f"❌ Error: Unknown workflow route '{query}'.", file=sys.stderr)
+                print(theme.badge("FAIL", f"Error: Unknown workflow route '{query}'.", stream=sys.stderr), file=sys.stderr)
                 print(f"Valid route letters: {valid_letters}", file=sys.stderr)
                 print(f"Valid route aliases: {valid_aliases}", file=sys.stderr)
             return 1
@@ -570,11 +607,9 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
             }, indent=2))
             return 0 if overall_pass else 1
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🩺 AGYIS COCKPIT FLIGHT DECK INVARIANTS AUDIT")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(theme.banner("AGYIS COCKPIT FLIGHT DECK INVARIANTS AUDIT"))
         for res in results:
-            mark = "🟢 PASS" if res["passed"] else "🔴 FAIL"
+            mark = theme.badge("PASS", "PASS") if res["passed"] else theme.badge("FAIL", "FAIL")
             print(f"{mark} | {res['invariant']}: {res['details']}")
             if not res["passed"] and res.get("violations"):
                 for v in res["violations"][:5]:
@@ -582,12 +617,12 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
                 if len(res["violations"]) > 5:
                     print(f"       └─ ... and {len(res['violations']) - 5} more")
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(theme.rule("━"))
         if overall_pass:
-            print("✨ Overall Result: PASSED (All Flight Director Invariants Verified)")
+            print(theme.badge("PASS", "Overall Result: PASSED (All Flight Director Invariants Verified)"))
             return 0
         else:
-            print("❌ Overall Result: FAILED (Flight Director Invariant Violations Detected)")
+            print(theme.badge("FAIL", "Overall Result: FAILED (Flight Director Invariant Violations Detected)"))
             if not allow_dirty:
                 print("Tip: Use --allow-dirty to permit in-flight uncommitted code modifications.")
             return 1

@@ -7,7 +7,7 @@
 
 - **Document Identifier:** `REA-INV-ANTIGRAVITY-V2_34-2026-11-21`
 - **Governing Standards:** ADR-014, ADR-028, Codex v2 (`PSL-INV-002`, `PSL-INV-007`, `PSL-RE-001`)
-- **Purpose:** Canonical living inventory tracking breaking deltas and compatibility drift between `agyis-harness` (`v1.0.0`, evolved from the `v1.0.0-rc13` / `agy 1.5.14` baseline) and the upgraded Google Antigravity platform stack (`v2.34.0+` / `agy v1.5.15`).
+- **Purpose:** Canonical living inventory tracking breaking deltas and compatibility drift between `agyis-harness` (`v1.0.0`/`v1.1.0`, evolved from the `v1.0.0-rc13` / `agy 1.5.14` baseline) and the upgraded Google Antigravity platform stack (`v2.34.0+` / `agy v1.5.15`).
 
 ---
 

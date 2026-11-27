@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-import os
 from pathlib import Path
 import re
 import sys
@@ -41,6 +40,7 @@ from harness.hooks.fence_tasks import (
     check_background_task_detachment, check_command_verification,
     check_shell_command_mutation, handle_post_tool_use, sync_background_tasks,
 )
+from harness.hooks.wire_compat import PRE_TOOL_WIRE_KEYS, STOP_WIRE_KEYS, strip_wire_keys
 from harness.utils.state import get_state_dir
 from harness.utils.workspace import is_harness_workspace
 
@@ -128,7 +128,7 @@ def _is_pre_tool_denied_by_guards(
         if check_auditor_write_block(payload) is not None:
             return True
     except Exception as exc:
-        sys.stderr.write(f"PSL Fence Warning: PreToolUse drift precheck error: {exc}\n")
+        sys.stderr.write(f"[AGYIS FENCE] Warning: PreToolUse drift precheck error: {exc}\n")
     try:
         from harness.hooks.command_safety_hook import DANGEROUS_PATTERNS, INTERACTIVE_COMMANDS, check_pause_safety
         ws_dir = Path(cwd) if cwd and Path(cwd).is_dir() else None
@@ -144,7 +144,7 @@ def _is_pre_tool_denied_by_guards(
                 if first_tok in INTERACTIVE_COMMANDS:
                     return True
     except Exception as exc:
-        sys.stderr.write(f"PSL Fence Warning: PreToolUse safety precheck error: {exc}\n")
+        sys.stderr.write(f"[AGYIS FENCE] Warning: PreToolUse safety precheck error: {exc}\n")
     return False
 
 
@@ -244,12 +244,10 @@ def _handle_tool_call_event(
             state["active_turn_id"] = turn_id
             save_state(state, conv_id=conv_id, state_dir=state_dir)
 
-    pre_advisory: str | None = None
     if not is_post:
         pre_check = check_pre_tool_use(tool_name=tool_name, tool_args=tool_args, payload=payload, conv_id=conv_id, state_dir=state_dir, cwd=cwd)
         if pre_check.get("decision") == "deny":
             return pre_check
-        pre_advisory = pre_check.get("advisory")
 
     if tool_name in CODE_MUTATION_TOOLS:
         target = (
@@ -300,8 +298,6 @@ def _handle_tool_call_event(
 
         handle_post_tool_use(tool_name, tool_args, res_dict, conv_id=conv_id, state_dir=state_dir)
         return {}
-    if pre_advisory:
-        return {"decision": "allow", "advisory": pre_advisory}
     return {"decision": "allow"}
 
 
@@ -313,11 +309,11 @@ def main() -> None:
         else:
             raw_stdin = sys.stdin.read()
         if not raw_stdin.strip():
-            print(json.dumps(evaluate_stop("default")))
+            print(json.dumps(strip_wire_keys(evaluate_stop("default"), allowed_keys=STOP_WIRE_KEYS)))
             return
         payload = json.loads(raw_stdin)
         if not isinstance(payload, dict):
-            print(json.dumps(evaluate_stop("default")))
+            print(json.dumps(strip_wire_keys(evaluate_stop("default"), allowed_keys=STOP_WIRE_KEYS)))
             return
     except (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError):
         print(json.dumps({"decision": "allow"}))
@@ -335,14 +331,17 @@ def main() -> None:
     if action in ("record_edit", "record_verification", "task_completed", "check_command_verification", "clear_spec_dirty", "reset", "evaluate_stop"):
         result = _handle_action(action, payload, conv_id, state_dir, cwd, turn_id, brain_dir)
     elif "toolCall" in payload:
-        result = _handle_tool_call_event(payload, conv_id, state_dir, cwd, turn_id)
+        result = strip_wire_keys(_handle_tool_call_event(payload, conv_id, state_dir, cwd, turn_id), allowed_keys=PRE_TOOL_WIRE_KEYS)
     elif "command" in payload or "CommandLine" in payload:
         cmd = payload.get("command") or payload.get("CommandLine") or ""
         extracted = extract_exit_code(payload)
         matched = check_command_verification(cmd, exit_code=(extracted if extracted is not None else 0), conv_id=conv_id, state_dir=state_dir, cwd=cwd)
         result = {"status": "ok", "matched": matched, "state": load_state(conv_id=conv_id, state_dir=state_dir), "decision": "allow"}
     else:
-        result = evaluate_stop(conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id, brain_dir=brain_dir, payload=payload)
+        result = strip_wire_keys(
+            evaluate_stop(conv_id=conv_id, state_dir=state_dir, cwd=cwd, turn_id=turn_id, brain_dir=brain_dir, payload=payload),
+            allowed_keys=STOP_WIRE_KEYS,
+        )
     print(json.dumps(result))
 
 

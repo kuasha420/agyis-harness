@@ -17,6 +17,9 @@ Authoritative ground-truth metrics compiled strictly from `data/*.json`, read-on
 | Failure Classifier (`classified_failures.json`) | 1,734 | 389,329 | 178,747 | 4,132 (`2.31%`) | 3,008 (`1.73/sess`) | — |
 | Intervention Summary (`operator_interventions_summary.json`) | — | — | — | — | 3,275 | 26 (`0.79%`) |
 | Live DB Snapshot (`data/telemetry.db`, 2026-11-11) | 2,875 | 598,911 | 424,817 | 11,510 (`2.71%`) | 5,604 (`1.95/sess`) | 113 (`2.02%`) |
+| Gate 0 Canonical Corpus (`website/data/*.json`, 2026-11-25) | 3,856 | 742,273 | 405,666 | 13,128 (`3.24%`) | 7,056 (`1.83/sess`) | — |
+
+> **Gate 0 Full-Corpus Snapshot (`website/data/*.json`, `2026-05-24`–`2026-11-25`)**: Across **`3,856` sessions** (`3,552` IDE sessions / `736,124` steps / `403,096` calls vs `304` CLI sessions / `6,149` steps / `2,570` calls) spanning **12 eras** (`0_Pre-Harness` through `11_Post_v1.0.0_HEAD`) with **`256,841` duplicate rows repaired**, **`92` ultra-deep titan sessions** accounted for `236,861` steps (**`31.9%`** corpus share), while output compaction achieved **`58.3%`** `>2KB` savings and **`6.58%`** `>32KB` read savings (`0` failure-preservation violations; verified surface: `30` skills, `8` agents, `7` hook blocks).
 
 ---
 

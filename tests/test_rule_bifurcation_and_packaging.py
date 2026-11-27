@@ -516,8 +516,10 @@ class TestWheelInstallModesAndManifest(unittest.TestCase):
         from harness import __version__
 
         pyproject_data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        plugin_data = json.loads((REPO_ROOT / "plugin.json").read_text(encoding="utf-8"))
         self.assertEqual(pyproject_data["project"]["version"], __version__)
-        self.assertRegex(__version__, r"^1\.0\.0(?:-rc\d+)?$")
+        self.assertEqual(plugin_data["version"], __version__)
+        self.assertRegex(__version__, r"^\d+\.\d+\.\d+(?:-rc\d+)?$")
 
         sdist_only_include = pyproject_data["tool"]["hatch"]["build"]["targets"]["sdist"]["only-include"]
         for expected in (

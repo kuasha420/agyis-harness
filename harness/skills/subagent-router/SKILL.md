@@ -43,7 +43,7 @@ The Subagent Router enforces the **Dual-Sovereignty Principle** (Cognition vs. H
 - **The Harness governs boundaries, state verification, and physical execution guarantees**: Deterministic pre-tool-use write blocks for read-only agents, terminal command safety, output compaction (<2KB), and completion fence verification gates.
 
 Key cognitive benefits include:
-1. **Zero Context Carryover**: Subagents operate in lean, task-focused contexts (well below the `~70%`/`~90%` compaction runway of the `512k`/`1M` window and `80`-step soft epoch horizon), preserving high reasoning capability and deterministic instruction following.
+1. **Zero Context Carryover**: Subagents operate in lean, task-focused contexts (well below the `~70%`/`~90%` compaction runway of the `512k`/`1M` window and `80`-step soft checkpoint horizon), preserving high reasoning capability and deterministic instruction following.
 2. **Cognitive Role Isolation**: Separates the builder from the reviewer. An agent that writes code never reviews or audits its own diffs.
 3. **Hermetic State Preservation**: High-level milestone state, plan artifacts, and empirical test logs are preserved in persistent markdown documents, resilient to conversational compaction or session resets.
 4. **Anti-Anchoring Invariant**: Reviewers and auditors approach incoming diffs skeptically to break them with real repository tests rather than passively confirming prior attempts.
@@ -81,7 +81,7 @@ Every engineering milestone progressing through the sequential execution path ad
 2. **Stage 2 — Surgical Execution (`agyis_builder` / `agyis_architect`)**: Applies single contiguous edits (`edit_file`) and verifies locally via component tests (<1.0s benchmark).
 3. **Stage 3 — Code Review and Quality Audit (`agyis_reviewer` — The Hammer)**: Audits diffs against the 8 Universal Invariants (`PSL-INV-001`..`PSL-INV-008`), Zero Error Swallowing, and Zero Self-Certification; emits PASS or Defect Ledger.
 4. **Stage 4 — Macro Architectural Audit and Git Commit Gate (`agyis_custodian`)**: Runs the 4-Pillar Quality Gate (DRY, `agyis audit aff`, Asset Decoupling, Git Porcelain), stages plan-declared targets only, and commits on `HEAD`.
-5. **Stage 5 — Hermetic QA and Verification Audit (`agyis_auditor`)**: Evaluates strictly the committed `HEAD` revision using `agyis test` (2,441 hermetic tests) + <1.0s benchmarks; returns failures to Stage 2/RCA and back through Hammer.
+5. **Stage 5 — Hermetic QA and Verification Audit (`agyis_auditor`)**: Evaluates strictly the committed `HEAD` revision using `agyis test` (2,572 hermetic tests) + <1.0s benchmarks; returns failures to Stage 2/RCA and back through Hammer.
 6. **Stage 6 — Phase Archival and Promotion (`cockpit-director` / `agyis_coordinator`)**: Archives delivery report to `.agents/artifacts/phase_X_delivery.md`, updates `docs/taxonomy/project-ledger.md`, retires subagents, and proposes Phase X+1.
 
 For the full visual 6-Stage Pipeline diagram and state-transition formulas, see:

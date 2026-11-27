@@ -92,7 +92,7 @@ An official Antigravity plugin bundles manifests, MCP definitions, lifecycle hoo
 {
   "name": "agyis-harness",
   "displayName": "Agyis Harness for Google Antigravity™",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Autonomous agent runtime harness and immune system for Google Antigravity™",
   "logo": "assets/logo.svg",
   "author": {
@@ -528,7 +528,7 @@ Audited telemetry baselines in [`../taxonomy/empirical-baselines.md`](../taxonom
    - `anti_loop_hook.py`: Repeat call circuit breaker across canonical `v2.34+` tools, Issue #41 non-blocking `manage_task(Action='status')` advisory allow, and Exit 2 log-polling deny.
    - `output_compactor_hook.py`: Deterministic **`2 KB` / `32 KB` `overwriteResult`** output compactor (`<0.25 ms`; errors 100% verbatim `{}`).
    - `anti_drift_hook.py` & `completion_fence_hook.py`: Plan adherence, read-only auditor write fence, Q5 read-only shell mutation guard, and decoupled `code_dirty` / `spec_dirty` stop gating.
-   - `token_proximity_guard.py` & `pre_invocation_hook.py`: Scaled **`256k` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`) / `1M`** runway gauges (`70%`/`90%`, `80`-step epoch), role pinning, nested `systemMessage` advisories, and `.agents/artifacts/compaction_checkpoint_latest.md` / `cockpit_checkpoint.md` succession.
+   - `token_proximity_guard.py` & `pre_invocation_hook.py`: Scaled **`256k` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`) / `1M`** runway gauges (`70%`/`90%`, `80`-step checkpoint), role pinning, nested `systemMessage` advisories, and `.agents/artifacts/compaction_checkpoint_latest.md` / `cockpit_checkpoint.md` succession.
 3. **Tier 3 — Modular Skills, Agent Personas & Remote CLI**:
    - Package **30** progressive-disclosure skills (`<24,576 B` cap, `>100 L` ToC) and **8** dual-mode agent personas (`agyis_architect`, `agyis_coordinator`, `agyis_investigator`, `agyis_planner`, `agyis_builder`, `agyis_reviewer`, `agyis_custodian`, `agyis_auditor`, `<=20` canonical `v2.34+` tools).
    - Standardize remote execution through OpenSSH ControlMaster multiplexing via **`agyis remote`** (`ADR-027`) and the `remote-ops` skill, isolating network timeouts from context windows.

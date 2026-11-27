@@ -52,7 +52,7 @@ class TestCommandSafetyRemote(unittest.TestCase):
         mod, changed = inject_ssh_timeouts(cmd)
         self.assertTrue(changed)
         self.assertIn("-o ControlMaster=auto", mod)
-        self.assertIn("-o ControlPath=~/.cache/psl/ssh/cm_%C", mod)
+        self.assertIn(f"-o ControlPath={self.temp_dir.name}/ssh/cm_%C", mod)
         self.assertIn("-o ControlPersist=10m", mod)
         self.assertIn("-o BatchMode=yes", mod)
         self.assertIn("-o ConnectTimeout=10", mod)

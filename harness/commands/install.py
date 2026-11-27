@@ -11,15 +11,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from harness.delivery import DeliveryMode, PluginInstaller
-from harness.delivery.constants import is_packaged_wheel_install
+from harness.delivery.constants import DEFAULT_PLUGIN_DIR, is_packaged_wheel_install
 
 
 from harness.commands.init import cmd_init
+from harness.utils import theme
 
 
 def cmd_install(args: argparse.Namespace) -> int:
@@ -51,11 +53,11 @@ def cmd_install(args: argparse.Namespace) -> int:
         all_surfaces=all_surfaces,
     )
 
-    exp_rea = bool(getattr(args, "experimental_rea", False))
+    rea_enabled = bool(getattr(args, "rea", False) or getattr(args, "experimental_rea", False))
     rea_mcp_configured = False
     rea_mcp_errors: List[str] = []
     rea_skill_provisioned = False
-    if exp_rea and result.success and not getattr(args, "dry_run", False):
+    if rea_enabled and result.success and not getattr(args, "dry_run", False):
         from harness.runtime.healing import provision_rea_skill
         from harness.runtime.tool_checks import configure_rea_mcp_server
 
@@ -66,6 +68,23 @@ def cmd_install(args: argparse.Namespace) -> int:
         prov = provision_rea_skill(global_skills, link=True, allow_download=False)
         rea_skill_provisioned = bool(prov)
 
+    env_plugin_override = (os.environ.get("AGYIS_PLUGINS_DIR") or os.environ.get("PSL_PLUGINS_DIR") or "").strip()
+    is_live_plugin_target = (
+        (target_dir is None and not env_plugin_override)
+        or (target_dir is not None and target_dir.expanduser().resolve() == DEFAULT_PLUGIN_DIR.resolve())
+    )
+    daemon_restart: Optional[Dict[str, Any]] = None
+    if (
+        result.success
+        and not getattr(args, "dry_run", False)
+        and sys.platform.startswith("linux")
+        and not getattr(args, "no_restart", False)
+        and is_live_plugin_target
+    ):
+        from harness.telemetry.sync.systemd import try_restart_service
+
+        daemon_restart = try_restart_service()
+
     if getattr(args, "json", False):
         payload: Dict[str, Any] = {
             "success": result.success,
@@ -74,19 +93,24 @@ def cmd_install(args: argparse.Namespace) -> int:
             "source_dir": str(result.source_dir),
             "items_installed": result.items_installed,
             "message": result.message,
-            "experimental_rea": exp_rea,
+            "rea": rea_enabled,
+            "experimental_rea": rea_enabled,
             "rea_mcp_configured": rea_mcp_configured,
         }
-        if exp_rea:
+        if rea_enabled:
             payload["rea_skill_provisioned"] = rea_skill_provisioned
         if rea_mcp_errors:
             payload["rea_mcp_errors"] = rea_mcp_errors
+        if daemon_restart is not None:
+            payload["daemon_restart"] = daemon_restart
         print(json.dumps(payload, indent=2))
         return 0 if result.success else 1
 
     if result.success:
-        print(f"✔ {result.message}")
-        if exp_rea:
+        print(theme.badge("PASS", result.message))
+        if daemon_restart and daemon_restart.get("restarted"):
+            print("  • Sync Daemon: Restarted agyis-sync.service")
+        if rea_enabled:
             if getattr(args, "dry_run", False):
                 print("  • REA: Would configure global Reverse Engineer Anything MCP server (~/.gemini/config/mcp_config.json)")
             elif rea_mcp_configured:
@@ -96,7 +120,7 @@ def cmd_install(args: argparse.Namespace) -> int:
                 print(f"  • REA: Failed to configure MCP server{err_detail}")
         return 0
     else:
-        sys.stderr.write(f"✘ Error: {result.message}\n")
+        sys.stderr.write(theme.badge("FAIL", f"Error: {result.message}", stream=sys.stderr) + "\n")
         return 1
 
 
@@ -126,8 +150,8 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         return 0 if result.success else 1
 
     if result.success:
-        print(f"✔ {result.message}")
+        print(theme.badge("PASS", result.message))
         return 0
     else:
-        sys.stderr.write(f"✘ Error: {result.message}\n")
+        sys.stderr.write(theme.badge("FAIL", f"Error: {result.message}", stream=sys.stderr) + "\n")
         return 1

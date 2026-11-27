@@ -19,6 +19,7 @@ from harness.delivery.release_notes import (
     collect_release_notes,
     sync_github_release,
 )
+from harness.utils import theme
 
 
 def cmd_release_notes(args: argparse.Namespace) -> int:
@@ -47,7 +48,7 @@ def cmd_release_notes(args: argparse.Namespace) -> int:
             target_rev=target_rev,
         )
     except (ValueError, RuntimeError) as exc:
-        print(f"❌ {exc}", file=sys.stderr)
+        print(theme.badge("FAIL", str(exc), stream=sys.stderr), file=sys.stderr)
         return 1
 
     if is_json:
@@ -85,9 +86,9 @@ def cmd_release_notes(args: argparse.Namespace) -> int:
             title=title,
         )
         if ok:
-            print(f"✨ {msg}")
+            print(theme.badge("PASS", msg))
         else:
-            print(f"❌ {msg}", file=sys.stderr)
+            print(theme.badge("FAIL", msg, stream=sys.stderr), file=sys.stderr)
             return 1
 
     return 0

@@ -19,6 +19,8 @@ import struct
 import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from harness.utils import theme
+
 from harness.re.scaffold import resolve_binary_path
 
 _MAX_HEADER_READ_BYTES = 16 * 1024 * 1024
@@ -667,7 +669,7 @@ def execute_cmd_addr(args: argparse.Namespace, conn: Optional[sqlite3.Connection
         print(json.dumps(info, indent=2))
         return 0
 
-    print(f"=== Address Inspection: {info['input']} ({info['input_type']}) ===")
+    print(theme.style(f"=== Address Inspection: {info['input']} ({info['input_type']}) ===", "ink", bold=True))
     print(f"  Binary:      {bin_path.name}")
     print(f"  VA:          {info['va_hex']} ({info['va']})")
     print(f"  RVA:         {info['rva_hex']} (+{info['rva']})")

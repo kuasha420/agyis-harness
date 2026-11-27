@@ -2,7 +2,7 @@
 title: Telemetry Setup, Background Daemon & Fleet Sync Runbook
 description: Human operator runbook for installing agyis-harness globally, optional self-hosted telemetry hub authentication, background sync daemon management, and multi-device SSH/fleet verification.
 version: 2.1.0
-last_updated: 2026-11-25
+last_updated: 2026-11-27
 target_audience: [developer, operator]
 related_adrs: [ADR-014, ADR-015, ADR-027, ADR-030]
 ---

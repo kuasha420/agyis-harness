@@ -19,6 +19,12 @@ import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Union
 
+from harness.commands.onboard_gates import (
+    commit_onboarded_files,
+    run_onboard_verification,
+)
+from harness.runtime.healing import provision_workspace_rea
+
 from harness.delivery import (
     GitTopology,
     GitTopologyProbe,
@@ -46,6 +52,8 @@ from harness.skills import (
 
 _logger = logging.getLogger(__name__)
 
+from harness.utils import theme
+
 
 def cmd_onboard(
     workspace: Union[Path, str, argparse.Namespace] = Path.cwd(),
@@ -65,6 +73,11 @@ def cmd_onboard(
     upstream_remote: Optional[str] = None,
     base_branch: Optional[str] = None,
     config_dir: Optional[Union[Path, str]] = None,
+    verify: bool = False,
+    no_verify: bool = False,
+    commit: bool = False,
+    rea: bool = False,
+    experimental_rea: bool = False,
 ) -> int:
     """
     Onboards a repository to the Agyis harness runtime.
@@ -101,6 +114,11 @@ def cmd_onboard(
         upstream_remote = getattr(args, "upstream_remote", None)
         base_branch = getattr(args, "base_branch", None)
         config_dir = getattr(args, "config_dir", None)
+        verify = bool(getattr(args, "verify", False))
+        no_verify = bool(getattr(args, "no_verify", False))
+        commit = bool(getattr(args, "commit", False))
+        rea = bool(getattr(args, "rea", False))
+        experimental_rea = bool(getattr(args, "experimental_rea", False))
     else:
         target_path = Path(workspace)
         if isinstance(skills, str):
@@ -117,7 +135,7 @@ def cmd_onboard(
         if json_output:
             print(json.dumps({"success": False, "error": err_msg, "workspace": str(ws)}, indent=2))
         else:
-            sys.stderr.write(f"✘ Error: {err_msg}\n")
+            sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
         return 1
 
     # 1. Probe git topology
@@ -127,7 +145,7 @@ def cmd_onboard(
         if json_output:
             print(json.dumps({"success": False, "error": str(exc), "workspace": str(ws)}, indent=2))
         else:
-            sys.stderr.write(f"✘ Error: {exc}\n")
+            sys.stderr.write(theme.badge("FAIL", f"Error: {exc}", stream=sys.stderr) + "\n")
         return 1
 
     if base_branch:
@@ -146,7 +164,7 @@ def cmd_onboard(
                 "topology": topology.to_dict(),
             }, indent=2))
         else:
-            print(f"💡 {msg}")
+            print(theme.badge("WARN", msg))
         return 0
 
     # 3. Auxiliary clone check
@@ -161,11 +179,12 @@ def cmd_onboard(
                 "topology": topology.to_dict(),
             }, indent=2))
         else:
-            print(f"💡 {msg}")
+            print(theme.badge("WARN", msg))
         return 0
 
     # 4. Working tree dirty safety check
     safety_patch_path: Optional[str] = None
+    untracked_warning: Optional[str] = None
     if topology.is_dirty:
         if not allow_dirty:
             err_msg = "Working tree has uncommitted changes. Stash/commit your changes or use --allow-dirty."
@@ -177,8 +196,18 @@ def cmd_onboard(
                     "is_dirty": True,
                 }, indent=2))
             else:
-                sys.stderr.write(f"✘ Error: {err_msg}\n")
+                sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
             return 1
+
+        if topology.untracked_files:
+            sample = ", ".join(topology.untracked_files[:5]) + (
+                "..." if len(topology.untracked_files) > 5 else ""
+            )
+            untracked_warning = (
+                f"{len(topology.untracked_files)} untracked file(s) present ({sample}); "
+                "untracked files are NOT included in pre_onboard_safety.patch."
+            )
+            sys.stderr.write(f"Warning: {untracked_warning}\n")
 
         patch_file = ws / ".agents" / "artifacts" / "pre_onboard_safety.patch"
         compat_patch_file = ws / ".agents" / "artifacts" / "wip-safety-pre-onboard.patch"
@@ -266,7 +295,7 @@ def cmd_onboard(
                     if json_output:
                         print(json.dumps({"success": False, "error": err_msg, "workspace": str(ws)}, indent=2))
                     else:
-                        sys.stderr.write(f"✘ Error: {err_msg}\n")
+                        sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
                     return 1
                 topology.current_branch = branch_name
 
@@ -277,7 +306,7 @@ def cmd_onboard(
         if json_output:
             print(json.dumps({"success": False, "error": err_msg, "workspace": str(ws)}, indent=2))
         else:
-            sys.stderr.write(f"✘ Error: {err_msg}\n")
+            sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
         return 1
 
     # 7. Purge stale build caches (.next/, .turbo/) before verification gates
@@ -315,7 +344,7 @@ def cmd_onboard(
                 "error": harm_res.message,
             }, indent=2))
         else:
-            sys.stderr.write(f"✘ Error: {harm_res.message}\n")
+            sys.stderr.write(theme.badge("FAIL", f"Error: {harm_res.message}", stream=sys.stderr) + "\n")
         return 1
 
     # 10. Provision skills with decoupled presets or explicit list
@@ -388,7 +417,55 @@ def cmd_onboard(
         dry_run=dry_run,
     )
 
-    # 13. Pull Request creation if requested
+    # 12c. Provision REA config, ledger & re-ops skill when --rea is requested
+    rea_enabled = bool(rea or experimental_rea)
+    if rea_enabled:
+        provision_workspace_rea(subproject_path, dry_run=dry_run)
+
+    # 13a. Optional native test verification gate before commit / PR
+    should_verify = bool((verify or open_pr) and not no_verify)
+    verification_res: Optional[Dict[str, Any]] = None
+    if should_verify:
+        verification_res = run_onboard_verification(subproject_path, dry_run=dry_run)
+        if not verification_res.get("passed", False):
+            err_msg = (
+                f"Native verification failed ({verification_res.get('command')}; "
+                f"exit {verification_res.get('exit_code')})"
+            )
+            if json_output:
+                print(json.dumps({
+                    "success": False,
+                    "workspace": str(ws),
+                    "target_workspace": str(subproject_path),
+                    "error": err_msg,
+                    "verification": verification_res,
+                }, indent=2))
+            else:
+                sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
+            return 1
+
+    # 13b. Atomic commit for onboarded files (--commit or --pr)
+    commit_created = False
+    commit_sha: Optional[str] = None
+    if (commit or open_pr) and not dry_run:
+        commit_created, commit_sha, commit_err = commit_onboarded_files(
+            ws,
+            subproject=subproject,
+            include_legacy_agent=bool(harm_res.legacy_agent_dir_found),
+        )
+        if commit_err:
+            err_msg = f"Failed to commit onboarded files: {commit_err}"
+            if json_output:
+                print(json.dumps({
+                    "success": False,
+                    "workspace": str(ws),
+                    "error": err_msg,
+                }, indent=2))
+            else:
+                sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
+            return 1
+
+    # 13c. Pull Request creation if requested
     pr_created = False
     pr_url: Optional[str] = None
     pr_msg: Optional[str] = None
@@ -442,6 +519,8 @@ def cmd_onboard(
             "dry_run": dry_run,
             "stack": effective_stack,
             "role": effective_role,
+            "rea": rea_enabled,
+            "experimental_rea": rea_enabled,
             "topology": topology.to_dict(),
             "harmonize": harm_res.to_dict(),
             "skills_provisioned": skills_list,
@@ -449,8 +528,12 @@ def cmd_onboard(
             "caches_purged": purged_caches,
             "purged_caches": purged_caches,
             "safety_patch": safety_patch_path,
+            "untracked_warning": untracked_warning,
             "created_branch": created_branch_name,
             "database_port_check": db_check,
+            "verification": verification_res,
+            "committed": commit_created,
+            "commit_sha": commit_sha,
             "polluting_files": polluting_files,
             "pr_opened": pr_created,
             "pr_url": pr_url,
@@ -460,8 +543,8 @@ def cmd_onboard(
         print(json.dumps(out_data, indent=2))
         return 0
 
-    prefix = "✔ [DRY-RUN] " if dry_run else "✔ "
-    print(f"{prefix}Workspace onboarded: {ws}")
+    prefix = "[DRY-RUN] " if dry_run else ""
+    print(theme.badge("PASS", f"{prefix}Workspace onboarded: {ws}"))
     print(f"  • Current branch: {topology.current_branch} (base: {topology.active_base_branch})")
     if created_branch_name:
         prefix_branch = "[dry-run] Would checkout" if dry_run else "Switched to"
@@ -472,10 +555,15 @@ def cmd_onboard(
     if subproject:
         print(f"  • Subproject: {subproject}")
     print(f"  • Stack: {effective_stack} (role: {effective_role or 'none'})")
+    if rea_enabled:
+        label_rea = "Would scaffold" if dry_run else "Enabled"
+        print(f"  • REA: {label_rea} Reverse Engineer Anything support (.agents/ledger/)")
     print(f"  • Skills: {', '.join(skills_list) if skills_list else 'none'}")
     if pruned_skills:
         prefix_dedup = "[dry-run] Would prune" if dry_run else "Pruned"
         print(f"  • {prefix_dedup} {len(pruned_skills)} duplicate skill(s) shadowing global plugin: {', '.join(Path(p).name for p in pruned_skills)}")
+    if untracked_warning:
+        print(f"  • Warning: {untracked_warning}")
     if safety_patch_path:
         prefix_patch = "[dry-run] Would record" if dry_run else "Recorded"
         print(f"  • {prefix_patch} pre-onboard safety patch: .agents/artifacts/pre_onboard_safety.patch")
@@ -486,6 +574,15 @@ def cmd_onboard(
         print(f"  • Harmonized legacy .agent/: yes (pruned: {'yes' if effective_prune else 'no'})")
     if db_check and db_check.get("status") == "WARNING":
         print(f"  • Warning: Database port conflict detected on port {db_check.get('port')}: {db_check.get('details')}")
+    if verification_res:
+        if verification_res.get("skipped"):
+            print(f"  • Verification: skipped ({verification_res.get('reason')})")
+        else:
+            print(f"  • Verification: passed ({verification_res.get('command')})")
+    if commit_created:
+        print(f"  • Commit: {commit_sha or 'created'} (atomic onboarding commit)")
+    elif commit and dry_run:
+        print("  • [dry-run] Would commit onboarded files atomically")
     if open_pr:
         print(f"  • Pull Request: {pr_msg}")
     if polluting_files:

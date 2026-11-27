@@ -171,11 +171,18 @@ class TestCompletionFenceHook(unittest.TestCase):
         res2 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)
         self.assertEqual(res2.get("decision"), "continue")
 
-        # Block 3: Anti-deadlock valve trips!
-        res3 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)
-        self.assertEqual(res3.get("decision"), "allow")
-        self.assertIn("warning", res3)
-        self.assertIn("Anti-deadlock valve tripped after 2 verification blocks", res3["warning"])
+        # Block 3: Anti-deadlock valve trips (strict exa.hooks_pb allow + stderr/pending_advisories)
+        import contextlib
+        import io
+        from harness.hooks.wire_compat import drain_pending_advisories
+
+        err_buf = io.StringIO()
+        with contextlib.redirect_stderr(err_buf):
+            res3 = evaluate_stop(conv_id=conv_id, state_dir=self.state_dir)
+        self.assertEqual(res3, {"decision": "allow"})
+        self.assertIn("Anti-deadlock valve tripped after 2 verification blocks", err_buf.getvalue())
+        queued = drain_pending_advisories(conv_id, state_dir=self.state_dir)
+        self.assertTrue(any("Anti-deadlock valve tripped after 2 verification blocks" in item for item in queued))
 
     def test_record_edit_rearms_fence_by_resetting_block_count(self):
         """A new code edit resets block_count to 0 so the fence re-arms."""

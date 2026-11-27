@@ -15,10 +15,16 @@ from pathlib import Path
 import sys
 from typing import List
 
+from harness.utils import theme
+
 
 def cmd_skills(args: argparse.Namespace) -> int:
     """Lists, inspects, or synchronizes modular product skills."""
-    from harness.delivery.surfaces import enforce_single_source_skills, find_workspace_root
+    from harness.delivery.surfaces import (
+        enforce_single_source_skills,
+        find_workspace_root,
+        resolve_canonical_config_dir,
+    )
     from harness.skills import get_skill, list_skills, sync_skills
 
     if getattr(args, "prune_duplicates", False):
@@ -28,11 +34,8 @@ def cmd_skills(args: argparse.Namespace) -> int:
         else:
             ws_root = find_workspace_root()
 
-        config_dir = getattr(args, "config_dir", None)
-        if config_dir is None:
-            config_dir = Path.home() / ".gemini" / "config"
-        else:
-            config_dir = Path(config_dir).resolve()
+        raw_cfg_dir = getattr(args, "config_dir", None)
+        config_dir = resolve_canonical_config_dir(Path(raw_cfg_dir) if raw_cfg_dir else None)
 
         dry_run = getattr(args, "dry_run", False)
 
@@ -57,7 +60,7 @@ def cmd_skills(args: argparse.Namespace) -> int:
 
         prefix = "Would prune" if dry_run else "Pruned"
         if removed:
-            print(f"✔ {prefix} {len(removed)} duplicate skill(s):")
+            print(theme.badge("PASS", f"{prefix} {len(removed)} duplicate skill(s):"))
             for p in removed:
                 print(f"  • {Path(p).name} ({p})")
         else:
@@ -108,7 +111,7 @@ def cmd_skills(args: argparse.Namespace) -> int:
         elif stack_arg:
             label = f"stack={stack_arg}"
 
-        print(f"✔ Synchronized {len(synced)} skill(s) ({label}) to {dest}:")
+        print(theme.badge("PASS", f"Synchronized {len(synced)} skill(s) ({label}) to {dest}:"))
         for p in synced:
             print(f"  • {p.parent.name} -> {p}")
         return 0
@@ -134,7 +137,7 @@ def cmd_skills(args: argparse.Namespace) -> int:
         print(f"Skill: {spec.name}")
         print(f"Path:  {spec.path}")
         print(f"Description:\n  {spec.description}\n")
-        print("=" * 60)
+        print(theme.rule())
         print(spec.body.strip())
         return 0
 
@@ -156,9 +159,9 @@ def cmd_skills(args: argparse.Namespace) -> int:
         )
         return 0
 
-    print(f"Agyis Modular Skills ({len(skills)} available):")
-    print("-" * 60)
+    print(theme.style(f"Agyis Modular Skills ({len(skills)} available):", "ink", bold=True))
+    print(theme.rule())
     for s in skills:
-        print(f"  • {s.name:<24} {s.description}")
+        print(f"  • {theme.pad_display(s.name, 24)} {s.description}")
     print()
     return 0

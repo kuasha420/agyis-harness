@@ -599,6 +599,68 @@ class TestCliSyncAuthRemote(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(mock_err.getvalue(), "")
 
+    def test_cli_install_auto_restart_live_target_only(self):
+        """Issue #121: Live Linux install restarts agyis-sync.service unless --no-restart, --dry-run, or custom --target."""
+        import subprocess
+        from harness.delivery.constants import DEFAULT_PLUGIN_DIR, DeliveryResult
+
+        ok_res = DeliveryResult(
+            success=True,
+            mode="symlink",
+            target_dir=DEFAULT_PLUGIN_DIR,
+            source_dir=Path(self.temp_dir.name),
+            items_installed=["harness"],
+            message="Installed",
+        )
+        clean_env = {k: v for k, v in os.environ.items() if k not in ("AGYIS_PLUGINS_DIR", "PSL_PLUGINS_DIR")}
+        ok_proc = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+        with patch("harness.commands.install.sys.platform", "linux"), \
+             patch.dict(os.environ, clean_env, clear=True), \
+             patch("harness.delivery.PluginInstaller.install", return_value=ok_res), \
+             patch("shutil.which", return_value="/usr/bin/systemctl"), \
+             patch("subprocess.run", return_value=ok_proc) as mock_run:
+            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                self.assertEqual(main(["install", "--json"]), 0)
+                data = json.loads(mock_out.getvalue())
+                self.assertTrue(data["daemon_restart"]["restarted"])
+                mock_run.assert_called_once_with(
+                    ["systemctl", "--user", "try-restart", "agyis-sync.service"],
+                    capture_output=True, text=True, timeout=5.0,
+                )
+
+            mock_run.reset_mock()
+            with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                for argv in (
+                    ["install", "--no-restart", "--json"],
+                    ["install", "--dry-run", "--json"],
+                    ["install", "--target", str(Path(self.temp_dir.name) / "custom_plugin"), "--json"],
+                ):
+                    self.assertEqual(main(argv), 0)
+                    payload = json.loads(mock_out.getvalue())
+                    self.assertNotIn("daemon_restart", payload)
+                    mock_out.truncate(0)
+                    mock_out.seek(0)
+                self.assertEqual(mock_run.call_count, 0)
+
+        with patch("harness.commands.install.sys.platform", "linux"), \
+             patch.dict(os.environ, {"AGYIS_PLUGINS_DIR": str(Path(self.temp_dir.name) / "env_plugin")}, clear=False), \
+             patch("harness.delivery.PluginInstaller.install", return_value=ok_res), \
+             patch("subprocess.run") as mock_run, \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            self.assertEqual(main(["install", "--json"]), 0)
+            self.assertNotIn("daemon_restart", json.loads(mock_out.getvalue()))
+            self.assertEqual(mock_run.call_count, 0)
+
+        with patch("harness.commands.install.sys.platform", "darwin"), \
+             patch.dict(os.environ, clean_env, clear=True), \
+             patch("harness.delivery.PluginInstaller.install", return_value=ok_res), \
+             patch("subprocess.run") as mock_run, \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            self.assertEqual(main(["install", "--json"]), 0)
+            self.assertNotIn("daemon_restart", json.loads(mock_out.getvalue()))
+            self.assertEqual(mock_run.call_count, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

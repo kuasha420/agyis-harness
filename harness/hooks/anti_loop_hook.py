@@ -13,22 +13,28 @@ Intercepts consecutive redundant tool calls to prevent agent thrashing loops
 
 from __future__ import annotations
 
+import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import sys
 from typing import Any
 
+from harness.hooks.role_lineage import resolve_hook_role_and_agent
+from harness.hooks.wire_compat import (
+    PRE_TOOL_WIRE_KEYS,
+    emit_stderr_diagnostic,
+    enqueue_pending_advisory,
+    strip_wire_keys,
+)
 from harness.trajectory.health import (
     ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR,
-    ROLE_SWARM_ORCHESTRATOR,
-    SOFT_EPOCH_STEP_ADVISORY,
+    SOFT_CHECKPOINT_STEP_ADVISORY,
     normalize_role_str,
 )
-from harness.trajectory.sqlite_reader import resolve_epoch_step_count
+from harness.trajectory.sqlite_reader import resolve_checkpoint_step_count
 from harness.utils.state import get_state_dir, load_history, save_history
 
 EXPLORATORY_SWEEP_TOOLS: frozenset[str] = frozenset({
@@ -42,8 +48,8 @@ EXPLORATORY_SWEEP_TOOLS: frozenset[str] = frozenset({
 _EXPLORATORY_SHELL_BINS: frozenset[str] = frozenset({
     "ls", "find", "fd", "fdfind", "rg", "grep", "egrep", "fgrep", "tree", "du", "ag", "ack",
 })
-STEP_INTERRUPT_THRESHOLD: int = SOFT_EPOCH_STEP_ADVISORY
-EXECUTIONER_HORIZON_STEPS: int = SOFT_EPOCH_STEP_ADVISORY
+STEP_INTERRUPT_THRESHOLD: int = SOFT_CHECKPOINT_STEP_ADVISORY
+EXECUTIONER_HORIZON_STEPS: int = SOFT_CHECKPOINT_STEP_ADVISORY
 _normalize_role_str = normalize_role_str
 
 
@@ -91,6 +97,20 @@ _NON_FUNCTIONAL_METADATA_KEYS: frozenset[str] = frozenset({
     "WaitMsBeforeAsync",
     "timeout",
 })
+
+
+def _compact_history_args(args: Any, max_len: int = 512) -> Any:
+    """Hash and truncate oversized string arguments before storing anti-loop signatures."""
+    if isinstance(args, str):
+        if len(args) > max_len:
+            digest16 = hashlib.sha256(args.encode("utf-8", errors="replace")).hexdigest()[:16]
+            return f"__sha256:{digest16}:{len(args)}:{args[:64]}..."
+        return args
+    if isinstance(args, dict):
+        return {k: _compact_history_args(v, max_len=max_len) for k, v in args.items()}
+    if isinstance(args, list):
+        return [_compact_history_args(item, max_len=max_len) for item in args]
+    return args
 
 
 def _normalize_tool_args(args: Any) -> Any:
@@ -323,48 +343,44 @@ def check_anti_loop(
     - Strict Background Polling Rate Limit: manage_task(Action='status') emits a non-blocking
       advisory on the first 2 calls and denies at >= 3 consecutive or >= 3 in a 10-call window.
 
-    Soft Epoch Horizon Advisory (Issue #109):
-    - When role is ROLE_DEEP_EXECUTION and epoch step_count >= SOFT_EPOCH_STEP_ADVISORY (80),
+    Soft Checkpoint Horizon Advisory (Issue #109):
+    - When role is ROLE_DEEP_EXECUTION and checkpoint step_count >= SOFT_CHECKPOINT_STEP_ADVISORY (80),
       exploratory sweep tools emit a soft horizon advisory encouraging targeted lookups without blocking.
 
     Returns:
         {"decision": "allow"} or {"decision": "deny", "reason": ...}
     """
-    effective_step = resolve_epoch_step_count(payload, conv_id=conv_id, explicit_step=step_count)
-
-    effective_role = role
-    if effective_role is None and payload:
-        for rk in ("role", "agent_role", "subagent_role", "archetype", "agentType", "agent_type"):
-            rv = payload.get(rk)
-            if isinstance(rv, str) and rv.strip():
-                effective_role = rv.strip()
-                break
-    if not effective_role:
-        effective_role = os.environ.get("AGYIS_ROLE") or os.environ.get("PSL_AGENT_ROLE")
-
-    norm_role = _normalize_role_str(effective_role)
-
-    advisory_msg: str | None = None
-    # Soft epoch horizon advisory (Issue #109 — never hard-block healthy agents on step count alone)
-    if _is_exploratory_sweep(tool_name, tool_args):
-        if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_EPOCH_STEP_ADVISORY:
-            advisory_msg = (
-                f"[EPOCH HORIZON: {effective_step}/{SOFT_EPOCH_STEP_ADVISORY} STEPS] "
-                "Extended epoch reached — prefer targeted symbol lookups over broad sweeps."
-            )
-            sys.stderr.write(advisory_msg + "\n")
-            sys.stderr.flush()
+    effective_step = resolve_checkpoint_step_count(payload, conv_id=conv_id, explicit_step=step_count)
 
     target_dir = state_dir or get_state_dir()
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        sys.stderr.write(f"PSL Anti-Loop Warning: Failed creating state dir '{target_dir}': {exc}\n")
+        sys.stderr.write(f"[AGYIS ANTI-LOOP] Warning: Failed creating state dir '{target_dir}': {exc}\n")
+
+    resolved_role, exact_agent = resolve_hook_role_and_agent(
+        payload,
+        role=role,
+        conv_id=conv_id,
+        state_dir=state_dir,
+    )
+    norm_role = _normalize_role_str(resolved_role or exact_agent)
+
+    # Soft checkpoint horizon advisory (Issue #109 — never hard-block healthy agents on step count alone)
+    if _is_exploratory_sweep(tool_name, tool_args):
+        if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_CHECKPOINT_STEP_ADVISORY:
+            advisory_msg = (
+                f"[CHECKPOINT HORIZON: {effective_step}/{SOFT_CHECKPOINT_STEP_ADVISORY} STEPS] "
+                "Extended checkpoint window reached — prefer targeted symbol lookups over broad sweeps."
+            )
+            emit_stderr_diagnostic(advisory_msg)
+            enqueue_pending_advisory(conv_id, advisory_msg, state_dir=target_dir)
 
     history = load_history(conv_id, target_dir=target_dir)
 
-    # Current signature
-    sig = {"name": tool_name, "args": tool_args}
+    # Current signature (compacted before history matching/persistence to keep state bounded)
+    raw_sig = {"name": tool_name, "args": tool_args}
+    sig = {"name": tool_name, "args": _compact_history_args(tool_args)}
 
     # -1. Peer Heartbeat Exemption (progress.md or teamwork metadata inspection)
     if _is_peer_heartbeat(tool_name, tool_args):
@@ -373,17 +389,17 @@ def check_anti_loop(
         try:
             save_history(conv_id, history, target_dir=target_dir)
         except OSError as exc:
-            sys.stderr.write(f"PSL Anti-Loop Warning: Failed saving history: {exc}\n")
-        return {"decision": "allow", **({"advisory": advisory_msg} if advisory_msg else {})}
+            sys.stderr.write(f"[AGYIS ANTI-LOOP] Warning: Failed saving history: {exc}\n")
+        return {"decision": "allow"}
 
     # -2. Verification Reset Invariant:
     # When any code edit tool is called, automatically clear/reset the
     # sliding-window frequency counters or history for test verification commands.
-    if _is_code_edit(sig):
+    if _is_code_edit(raw_sig):
         history = [item for item in history if not _is_test_verification_command(item)]
 
     # 0. Background task polling check (strictly denies >= 3 consecutive or >= 3 in 10-call window)
-    if _is_background_poll(sig):
+    if _is_background_poll(raw_sig):
         consecutive_inspections = 0
         for prev in reversed(history):
             if _is_background_poll(prev):
@@ -394,7 +410,7 @@ def check_anti_loop(
             return {
                 "decision": "deny",
                 "reason": (
-                    f"PSL Anti-Loop Guard: Intercepted {consecutive_inspections + 1} consecutive background task inspections. "
+                    f"[AGYIS ANTI-LOOP] Intercepted {consecutive_inspections + 1} consecutive background task inspections. "
                     "Never poll background task logs ('tail', 'cat', 'view_file' on .system_generated/tasks/ or .system_generated/logs/ or manage_task 'status') "
                     "for progress updates. Stop calling tools and await reactive wakeup."
                 ),
@@ -406,19 +422,19 @@ def check_anti_loop(
             return {
                 "decision": "deny",
                 "reason": (
-                    f"PSL Anti-Loop Guard: Background task inspection appeared {freq_tasks} times "
+                    f"[AGYIS ANTI-LOOP] Background task inspection appeared {freq_tasks} times "
                     f"within sliding window of {len(window_tasks)} calls. "
                     "Never poll background task logs or status. Stop calling tools and await reactive wakeup."
                 ),
             }
 
-        if _is_manage_task_status(sig):
+        if _is_manage_task_status(raw_sig):
             history.append(sig)
             history = history[-HISTORY_WINDOW:]
             try:
                 save_history(conv_id, history, target_dir=target_dir)
             except OSError as exc:
-                sys.stderr.write(f"PSL Anti-Loop Warning: Failed saving history: {exc}\n")
+                sys.stderr.write(f"[AGYIS ANTI-LOOP] Warning: Failed saving history: {exc}\n")
             return {
                 "decision": "allow",
                 "reason": "Advisory: Background tasks notify reactively upon exit. Avoid polling status to conserve steps.",
@@ -432,7 +448,7 @@ def check_anti_loop(
         else:
             break
 
-    is_idempotent = _is_idempotent_status_command(sig)
+    is_idempotent = _is_idempotent_status_command(raw_sig)
     if is_idempotent:
         effective_max_repeats = MAX_IDEMPOTENT_FREQUENCY_REPEATS
     else:
@@ -442,7 +458,7 @@ def check_anti_loop(
         return {
             "decision": "deny",
             "reason": (
-                f"PSL Anti-Loop Guard: Intercepted {repeats + 1} identical consecutive executions "
+                f"[AGYIS ANTI-LOOP] Intercepted {repeats + 1} identical consecutive executions "
                 f"of '{tool_name}'. Refine arguments, inspect prior outputs, or pursue an alternative strategy."
             ),
         }
@@ -472,7 +488,7 @@ def check_anti_loop(
         return {
             "decision": "deny",
             "reason": (
-                f"PSL Anti-Loop Guard: Tool signature '{tool_name}' appeared {freq_count} times "
+                f"[AGYIS ANTI-LOOP] Tool signature '{tool_name}' appeared {freq_count} times "
                 f"within a sliding window of {len(window_seq)} calls (threshold is {max_freq}). "
                 "Denying execution to prevent thrashing loop. Refine arguments or pursue an alternative strategy."
             ),
@@ -498,7 +514,7 @@ def check_anti_loop(
                 return {
                     "decision": "deny",
                     "reason": (
-                        f"PSL Anti-Loop Guard: Intercepted cyclic tool execution pattern of period {p} "
+                        f"[AGYIS ANTI-LOOP] Intercepted cyclic tool execution pattern of period {p} "
                         f"({cycle_names}) repeating >= 2 consecutive cycles. "
                         "Break the cycle by altering parameters, inspecting past outputs, or changing approach."
                     ),
@@ -510,9 +526,9 @@ def check_anti_loop(
     try:
         save_history(conv_id, history, target_dir=target_dir)
     except OSError as exc:
-        sys.stderr.write(f"PSL Anti-Loop Warning: Failed saving history: {exc}\n")
+        sys.stderr.write(f"[AGYIS ANTI-LOOP] Warning: Failed saving history: {exc}\n")
 
-    return {"decision": "allow", **({"advisory": advisory_msg} if advisory_msg else {})}
+    return {"decision": "allow"}
 
 
 def evaluate_tool_call(
@@ -568,12 +584,12 @@ def main() -> None:
             return
     except Exception as exc:
         # Default allow if input cannot be read
-        sys.stderr.write(f"PSL Anti-Loop Warning: Failed parsing stdin payload: {exc}\n")
+        sys.stderr.write(f"[AGYIS ANTI-LOOP] Warning: Failed parsing stdin payload: {exc}\n")
         print(json.dumps({"decision": "allow"}))
         return
 
     result = handle_pre_tool_use(payload)
-    print(json.dumps(result))
+    print(json.dumps(strip_wire_keys(result, allowed_keys=PRE_TOOL_WIRE_KEYS)))
 
 
 if __name__ == "__main__":

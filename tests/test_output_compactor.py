@@ -184,7 +184,7 @@ class TestOutputCompactor(unittest.TestCase):
         self.assertIn("Detected failure in post-flight validation pipeline", compacted)
 
         # 5. Compactor marker present
-        self.assertIn("[... PSL Compactor:", compacted)
+        self.assertIn("[... AGYIS Compactor:", compacted)
         self.assertIn("characters truncated", compacted)
 
         # 6. Non-error middle filler omitted
@@ -281,13 +281,21 @@ class TestOutputCompactor(unittest.TestCase):
         self.assertFalse(r3["wasCompacted"])
         self.assertEqual(r3["compactedOutput"], large_error)
 
-        # 4. Text containing exit code failure pattern
+        # 4. Text containing exit code failure pattern on command execution tool
         text_with_exit_code = f"{large_error}\nCommand failed with exit code: 1"
-        p4 = {"output": text_with_exit_code}
+        p4 = {"toolCall": {"name": "run_command", "args": {"CommandLine": "cmd"}}, "output": text_with_exit_code}
         r4 = process_payload(p4, state_dir=self.state_dir)
         self.assertFalse(r4["wasCompacted"])
         self.assertEqual(r4["exitCode"], 1)
         self.assertTrue(r4["isError"])
+
+        # 5. Non-command read_file (>32KB) containing exit code text must still compact
+        huge_read = ("x" * 35000) + "\nCommand failed with exit code: 1"
+        p5 = {"toolCall": {"name": "read_file", "args": {"AbsolutePath": "/tmp/app.log"}}, "output": huge_read}
+        r5 = process_payload(p5, state_dir=self.state_dir)
+        self.assertTrue(r5["wasCompacted"])
+        self.assertEqual(r5["exitCode"], 0)
+        self.assertFalse(r5["isError"])
 
     # -------------------------------------------------------------------------
     # 4. Edge Cases: Empty Input, Invalid JSON, Boundary Lengths
@@ -441,7 +449,7 @@ class TestOutputCompactor(unittest.TestCase):
         self.assertLess(len(out), 2048)
         self.assertTrue(out.startswith("HEAD_START_"))
         self.assertTrue(out.endswith("_TAIL_END\n") or out.endswith("_TAIL_END"))
-        self.assertIn("[... PSL Compactor:", out)
+        self.assertIn("[... AGYIS Compactor:", out)
 
     def test_exec_wrap_nonzero_exit_preserves_full_output(self) -> None:
         """run_with_compaction preserves full output when exit code != 0."""
@@ -450,7 +458,7 @@ class TestOutputCompactor(unittest.TestCase):
         code, out = run_with_compaction(cmd, shell=False)
         self.assertEqual(code, 7)
         self.assertGreater(len(out), 8000)
-        self.assertNotIn("[... PSL Compactor:", out)
+        self.assertNotIn("[... AGYIS Compactor:", out)
 
     def test_exec_wrap_cli_helper(self) -> None:
         """CLI helper executes command and prints compacted output."""
@@ -535,7 +543,7 @@ class TestOutputCompactor(unittest.TestCase):
         self.assertIn("FAILURE: late validation failure", compacted)
         # Deep center error was skipped by 200KB pre-slicing
         self.assertNotIn("FATAL: deep skipped center failure", compacted)
-        self.assertIn("[... PSL Compactor:", compacted)
+        self.assertIn("[... AGYIS Compactor:", compacted)
 
     def test_bounding_preserved_diagnostic_error_lines_to_max_50(self) -> None:
         """

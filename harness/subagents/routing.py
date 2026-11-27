@@ -413,19 +413,20 @@ def format_route_briefing(route: WorkflowRoute, task_id: str = "TASK-001") -> st
     )
 
     aliases_str = ", ".join(route.mnemonic_aliases)
+    rule = "─" * 72
     return (
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🛫 ROUTE {route.letter}: {route.title.upper()}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"• Mode               : {route.mode.value}\n"
-        f"• Entry Specialist   : {route.starting_specialist}\n"
-        f"• Ladder Sequence    : {route.pipeline_route}\n"
-        f"• Mnemonic Aliases   : {aliases_str}\n"
-        f"• Invariant Boundary : {route.critical_invariants}\n"
-        f"• Primary Deliverable: {route.primary_deliverable}\n"
-        f"• Empirical Precedent: {route.empirical_precedent}\n"
+        f"{rule}\n"
+        f"◆ ROUTE {route.letter}: {route.title.upper()}\n"
+        f"{rule}\n"
+        f"- **Mode**: {route.mode.value}\n"
+        f"- **Entry Specialist**: {route.starting_specialist}\n"
+        f"- **Ladder Sequence**: {route.pipeline_route}\n"
+        f"- **Mnemonic Aliases**: {aliases_str}\n"
+        f"- **Invariant Boundary**: {route.critical_invariants}\n"
+        f"- **Primary Deliverable**: {route.primary_deliverable}\n"
+        f"- **Empirical Precedent**: {route.empirical_precedent}\n"
         f"\n"
-        f"📋 STAGE TRANSITION DISPATCH TEMPLATE (psl_stage_transition_payload.json):\n"
+        f"### Stage Transition Dispatch Template (psl_stage_transition_payload.json)\n"
         f"```json\n"
         f"{json.dumps(template_payload, indent=2)}\n"
         f"```\n"

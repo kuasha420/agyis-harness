@@ -138,16 +138,56 @@ class TestAuditForensicToolchain(unittest.TestCase):
 class TestDoctorForensicIntegration(unittest.TestCase):
     """Verifies integration into run_doctor and cli rendering."""
 
+    def _run_doc_isolated(self, workspace: Path, **kwargs):
+        mock_tool = {
+            "name": "mock",
+            "binary": "mock",
+            "status": "OK",
+            "path": "/usr/bin/mock",
+            "version": "99.0.0",
+            "min_version": "1.0.0",
+            "is_shim": False,
+            "shim_details": None,
+            "is_collision": False,
+            "collision_details": None,
+            "spec": {},
+        }
+        mock_cli = {
+            "status": "OK",
+            "path": "/usr/bin/agyis",
+            "collision": False,
+            "psl_details": {"status": "OK", "collision": False, "path": "/usr/bin/psl"},
+            "psl_collision": {"status": "OK", "collision": False, "path": "/usr/bin/psl"},
+        }
+        mock_ft = {
+            "profile": "static-cleanroom",
+            "tools": [{"name": "ghidra", "category": "core", "status": "PASS"}],
+            "missing_packages": [],
+            "summary": {"pass": 1, "warn": 0, "info": 0},
+        }
+        with patch.multiple(
+            "harness.runtime.doctor",
+            check_tool=MagicMock(return_value=mock_tool),
+            check_cli_binary=MagicMock(return_value=mock_cli),
+            check_telemetry_daemon=MagicMock(return_value={"status": "OK"}),
+            check_database_port_conflicts=MagicMock(return_value={"status": "PASS"}),
+            check_hooks_health=MagicMock(return_value={"status": "OK", "checked_hooks": []}),
+            check_rea_tooling=MagicMock(return_value={"status": "ok", "fast_path": False}),
+            audit_forensic_toolchain=MagicMock(return_value=mock_ft),
+        ):
+            return run_doctor(DEFAULT_MATRIX, workspace_root=workspace, config_dir=workspace, **kwargs)
+
     def test_run_doctor_omits_forensic_toolchain_in_regular_workspace(self):
         with tempfile.TemporaryDirectory() as td:
-            audit = run_doctor(DEFAULT_MATRIX, workspace_root=Path(td), re_toolchain=False)
+            audit = self._run_doc_isolated(Path(td), re_toolchain=False)
             self.assertFalse(audit["re_toolchain"])
             self.assertIsNone(audit["forensic_toolchain"])
 
     def test_run_doctor_includes_forensic_toolchain_when_flag_passed(self):
         with tempfile.TemporaryDirectory() as td:
-            audit = run_doctor(DEFAULT_MATRIX, workspace_root=Path(td), re_toolchain=True)
+            audit = self._run_doc_isolated(Path(td), re_toolchain=True)
             self.assertTrue(audit["re_toolchain"])
+            self.assertTrue(audit["rea"])
             self.assertIsNotNone(audit["forensic_toolchain"])
             self.assertIn("tools", audit["forensic_toolchain"])
 
@@ -155,8 +195,9 @@ class TestDoctorForensicIntegration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             dr = Path(td) / ".dirtyroom"
             dr.mkdir()
-            audit = run_doctor(DEFAULT_MATRIX, workspace_root=Path(td), re_toolchain=False)
+            audit = self._run_doc_isolated(Path(td), re_toolchain=False)
             self.assertTrue(audit["re_toolchain"])
+            self.assertTrue(audit["rea"])
             self.assertIsNotNone(audit["forensic_toolchain"])
 
     def test_print_cli_report_renders_forensic_section(self):
