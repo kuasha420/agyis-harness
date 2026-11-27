@@ -48,7 +48,12 @@ def _quote_systemd_token(value: str) -> str:
 
 def _is_transient_dir(path: Path) -> bool:
     parts = {p.lower() for p in path.parts}
-    return bool(parts.intersection({"worktrees", "site-packages", "dist-packages"})) or str(path).startswith("/tmp/")
+    norm = path.as_posix().lower()
+    return (
+        bool(parts.intersection({"worktrees", "site-packages", "dist-packages", "plugins"}))
+        or "/.gemini/config/plugins" in norm
+        or norm.startswith("/tmp/")
+    )
 
 
 def generate_systemd_service(
@@ -62,14 +67,19 @@ def generate_systemd_service(
     if working_dir:
         resolved_work_dir = Path(working_dir).resolve()
     else:
-        # Detect stable repo root without pinning to transient worktrees or site-packages
+        # Detect stable repo root without pinning to transient worktrees, plugin dirs, or site-packages
         cand = Path(__file__).resolve().parents[3]
         if (cand / "harness").is_dir() and not _is_transient_dir(cand):
             resolved_work_dir = cand
-        elif (Path.cwd() / "harness").is_dir() and not _is_transient_dir(Path.cwd().resolve()):
-            resolved_work_dir = Path.cwd().resolve()
         else:
-            resolved_work_dir = Path.home()
+            try:
+                cwd_resolved = Path.cwd().resolve()
+            except OSError:
+                cwd_resolved = None
+            if cwd_resolved is not None and (cwd_resolved / "harness").is_dir() and not _is_transient_dir(cwd_resolved):
+                resolved_work_dir = cwd_resolved
+            else:
+                resolved_work_dir = Path.home()
 
     work_dir = _quote_systemd_token(str(resolved_work_dir))
 
@@ -280,6 +290,51 @@ def stop_service(
     return 0
 
 
+def restart_service(
+    unit_path: Optional[Union[str, Path]] = None,
+    json_output: bool = False,
+    service_path: Optional[Union[str, Path]] = None,
+) -> int:
+    """Restarts the systemd user service."""
+    if not shutil.which("systemctl"):
+        sys.stderr.write(theme.badge("FAIL", "systemctl command not found. Systemd is not available on this system.", stream=sys.stderr) + "\n")
+        return 1
+
+    target = get_service_unit_path(unit_path or service_path)
+    if not target.exists():
+        sys.stderr.write(theme.badge("FAIL", f"Service '{SERVICE_NAME}' is not installed. Run 'agyis sync --service install' first.", stream=sys.stderr) + "\n")
+        return 1
+
+    try:
+        res = _run_systemctl(["restart", SERVICE_NAME])
+        if res.returncode != 0:
+            _handle_systemctl_error(res.stderr)
+            return 1
+    except subprocess.TimeoutExpired:
+        sys.stderr.write(theme.badge("FAIL", "Timed out: operation timed out restarting service.", stream=sys.stderr) + "\n")
+        return 1
+
+    if json_output:
+        print(json.dumps({"service": SERVICE_NAME, "action": "restart", "success": True}, indent=2))
+    else:
+        print(theme.badge("PASS", f"Restarted {SERVICE_NAME}"))
+    return 0
+
+
+def try_restart_service(timeout: float = 5.0) -> Dict[str, Any]:
+    """Safely runs systemctl --user try-restart agyis-sync.service without failing on bus-less hosts."""
+    if not shutil.which("systemctl"):
+        return {"service": SERVICE_NAME, "attempted": False, "restarted": False, "reason": "systemctl_not_found"}
+    try:
+        res = _run_systemctl(["try-restart", SERVICE_NAME], timeout=timeout)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        return {"service": SERVICE_NAME, "attempted": True, "restarted": False, "reason": str(exc)}
+    if res.returncode == 0:
+        return {"service": SERVICE_NAME, "attempted": True, "restarted": True, "reason": "ok"}
+    err = (res.stderr or res.stdout or "").strip()
+    return {"service": SERVICE_NAME, "attempted": True, "restarted": False, "reason": err or f"exit_{res.returncode}"}
+
+
 def uninstall_service(
     unit_path: Optional[Union[str, Path]] = None,
     json_output: bool = False,
@@ -326,10 +381,11 @@ def manage_service(
         "status": lambda: service_status(unit_path=target_path, json_output=json_output),
         "start": lambda: start_service(unit_path=target_path, json_output=json_output),
         "stop": lambda: stop_service(unit_path=target_path, json_output=json_output),
+        "restart": lambda: restart_service(unit_path=target_path, json_output=json_output),
         "uninstall": lambda: uninstall_service(unit_path=target_path, json_output=json_output),
     }
     handler = dispatch.get(action)
     if not handler:
-        sys.stderr.write(theme.badge("FAIL", f"Unknown service action '{action}'. Choose from: install, status, start, stop, uninstall.", stream=sys.stderr) + "\n")
+        sys.stderr.write(theme.badge("FAIL", f"Unknown service action '{action}'. Choose from: install, status, start, stop, restart, uninstall.", stream=sys.stderr) + "\n")
         return 2
     return handler()

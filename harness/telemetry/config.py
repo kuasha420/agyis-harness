@@ -94,15 +94,21 @@ def get_config_path() -> Path:
 
 def find_workspace_root(start_dir: Optional[Union[str, Path]] = None) -> Optional[Path]:
     """Searches upward from start_dir (default cwd) for .agyis, .psl, .agents, or .git."""
-    curr = Path(start_dir).resolve() if start_dir else Path.cwd().resolve()
+    try:
+        curr = Path(start_dir).resolve() if start_dir else Path.cwd().resolve()
+    except (FileNotFoundError, OSError):
+        return None
     while True:
-        if (
-            (curr / ".agyis").exists()
-            or (curr / ".psl").exists()
-            or (curr / ".agents").exists()
-            or (curr / ".git").exists()
-        ):
-            return curr
+        try:
+            if (
+                (curr / ".agyis").exists()
+                or (curr / ".psl").exists()
+                or (curr / ".agents").exists()
+                or (curr / ".git").exists()
+            ):
+                return curr
+        except OSError:
+            return None
         parent = curr.parent
         if parent == curr:
             break

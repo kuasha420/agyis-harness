@@ -741,6 +741,37 @@ class TestTelemetryDaemonDoctor(unittest.TestCase):
         self.assertIn("2 consecutive failure(s): timeout", res_mock["remediation"])
         self.assertIn("agyis sync --service status", res_mock["message"])
 
+    def test_check_telemetry_daemon_version_drift_warning_and_match(self):
+        """Issue #121: Active daemon with mismatched daemon_version surfaces WARNING with restart guidance."""
+        import harness
+
+        status_file = self.state_dir / "telemetry_sync_status.json"
+        status_file.write_text(
+            json.dumps({"status": "ok", "consecutive_failures": 0, "daemon_version": "0.0.1-stale"}),
+            encoding="utf-8",
+        )
+        proc = MagicMock(stdout="active\n", stderr="", returncode=0)
+        with patch("shutil.which", return_value="/usr/bin/systemctl"), \
+             patch("subprocess.run", return_value=proc), \
+             patch("harness.telemetry.sync.daemon.compute_telemetry_lag", return_value={}):
+            drift = check_telemetry_daemon()
+        self.assertEqual(drift["status"], "WARNING")
+        self.assertEqual(drift["state"], "version_drift")
+        self.assertEqual(drift["installed_version"], harness.__version__)
+        self.assertIn("0.0.1-stale", drift["remediation"])
+        self.assertIn("agyis sync --service restart", drift["remediation"])
+
+        status_file.write_text(
+            json.dumps({"status": "ok", "consecutive_failures": 0, "daemon_version": harness.__version__}),
+            encoding="utf-8",
+        )
+        with patch("shutil.which", return_value="/usr/bin/systemctl"), \
+             patch("subprocess.run", return_value=proc), \
+             patch("harness.telemetry.sync.daemon.compute_telemetry_lag", return_value={}):
+            ok_res = check_telemetry_daemon()
+        self.assertEqual(ok_res["status"], "OK")
+        self.assertEqual(ok_res["state"], "active")
+
     def test_doctor_summary_accounting_and_legacy_cli_hooks_check(self):
         """DRIFT-P2-04: run_doctor keeps ok <= total_tools, reports antigravity_surfaces, and flags legacy cli hooks.json."""
         from harness.runtime.doctor import run_doctor

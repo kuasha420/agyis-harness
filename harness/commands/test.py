@@ -12,10 +12,11 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import unittest
 
 from harness.discovery import (
@@ -60,6 +61,81 @@ def _is_agyis_source_repo(cwd: Path) -> bool:
         except OSError:
             return False
     return False
+
+
+def _same_resolved_dir(raw_path: str, target: Path) -> bool:
+    try:
+        return Path(raw_path).resolve() == target
+    except OSError:
+        return os.path.abspath(raw_path) == str(target)
+
+
+def _build_delegated_test_cmd(runner_py: str, args: argparse.Namespace) -> List[str]:
+    """Forward test CLI arguments to the delegated checkout runner."""
+    cmd = [runner_py, "-m", "harness.cli", "test"]
+    if getattr(args, "verbose", False):
+        cmd.append("--verbose")
+    start_dir = getattr(args, "start_dir", None)
+    if start_dir is not None:
+        cmd.extend(["--start-dir", str(start_dir)])
+    if getattr(args, "diff", False):
+        cmd.append("--diff")
+    branch = getattr(args, "branch", None)
+    if branch:
+        cmd.extend(["--branch", str(branch)])
+    if getattr(args, "affected", False):
+        cmd.append("--affected")
+    pkg = getattr(args, "pkg", None)
+    if pkg:
+        cmd.extend(["--pkg", str(pkg)])
+    if getattr(args, "full", False):
+        cmd.append("--full")
+    if getattr(args, "harmonize", False):
+        cmd.append("--harmonize")
+    if getattr(args, "dry_run", False):
+        cmd.append("--dry-run")
+    if getattr(args, "mutation", False):
+        cmd.append("--mutation")
+    if getattr(args, "json", False):
+        cmd.append("--json")
+    if getattr(args, "no_buffer", False):
+        cmd.append("--no-buffer")
+    return cmd
+
+
+def _delegate_to_cwd_checkout(cwd: Path, args: argparse.Namespace) -> int:
+    """Delegate `agyis test` to the active source checkout in cwd when loaded from another root."""
+    venv_py = cwd / ".venv" / "bin" / "python"
+    runner_py = (
+        os.path.abspath(str(venv_py))
+        if venv_py.is_file() and os.access(str(venv_py), os.X_OK)
+        else sys.executable
+    )
+    cmd = _build_delegated_test_cmd(runner_py, args)
+
+    env = os.environ.copy()
+    existing_pypath = env.get("PYTHONPATH", "")
+    pypath_parts = [p for p in existing_pypath.split(os.pathsep) if p and not _same_resolved_dir(p, cwd)]
+    env["PYTHONPATH"] = os.pathsep.join([str(cwd), *pypath_parts]) if pypath_parts else str(cwd)
+    env["_AGYIS_TEST_REEXEC"] = "1"
+
+    has_real_fds = True
+    try:
+        sys.stdout.fileno()
+        sys.stderr.fileno()
+    except (AttributeError, io.UnsupportedOperation, ValueError):
+        has_real_fds = False
+
+    if has_real_fds:
+        proc = subprocess.run(cmd, cwd=str(cwd), env=env)
+        return proc.returncode
+
+    proc = subprocess.run(cmd, cwd=str(cwd), env=env, capture_output=True, text=True)
+    if isinstance(proc.stdout, str) and proc.stdout:
+        sys.stdout.write(proc.stdout)
+    if isinstance(proc.stderr, str) and proc.stderr:
+        sys.stderr.write(proc.stderr)
+    return proc.returncode
 
 
 def _emit_test_json(payload: Dict[str, Any]) -> None:
@@ -126,6 +202,11 @@ def cmd_test(args: argparse.Namespace) -> int:
     """Runs the test suite with diff-awareness and tier-gated verification."""
     cwd = Path.cwd().resolve()
     as_json = bool(getattr(args, "json", False))
+
+    if os.environ.get("_AGYIS_TEST_REEXEC"):
+        os.environ.pop("_AGYIS_TEST_REEXEC", None)
+    elif _is_agyis_source_repo(cwd) and REPO_ROOT.resolve() != cwd:
+        return _delegate_to_cwd_checkout(cwd, args)
 
     # 1. Harmonization pre-step if requested
     if getattr(args, "harmonize", False):
@@ -285,33 +366,55 @@ def cmd_test(args: argparse.Namespace) -> int:
             sys.stderr.write(f"{err_msg}\n")
         return 1
 
-    loader = unittest.TestLoader()
-    suite = loader.discover(start_dir=str(test_dir), pattern="test_*.py")
-    verbosity = 2 if getattr(args, "verbose", False) else 1
-    buffer_output = not getattr(args, "no_buffer", False)
-    if as_json:
-        stream = io.StringIO()
-        runner = unittest.TextTestRunner(stream=stream, verbosity=verbosity, buffer=True)
+    resolved_test_dir = test_dir.resolve()
+    has_pkg_init = (resolved_test_dir / "__init__.py").is_file()
+    top_dir = cwd if (resolved_test_dir == (cwd / "tests").resolve() and has_pkg_init) else resolved_test_dir
+
+    orig_sys_path = list(sys.path)
+    try:
+        if str(cwd) in sys.path:
+            sys.path.remove(str(cwd))
+        sys.path.insert(0, str(cwd))
+        if str(top_dir) != str(cwd) and str(top_dir) not in sys.path:
+            sys.path.insert(1, str(top_dir))
+
+        loader = unittest.TestLoader()
+        suite = loader.discover(
+            start_dir=str(test_dir),
+            pattern="test_*.py",
+            top_level_dir=str(top_dir),
+        )
+        if str(cwd) in sys.path:
+            sys.path.remove(str(cwd))
+        sys.path.insert(0, str(cwd))
+
+        verbosity = 2 if getattr(args, "verbose", False) else 1
+        buffer_output = not getattr(args, "no_buffer", False)
+        if as_json:
+            stream = io.StringIO()
+            runner = unittest.TextTestRunner(stream=stream, verbosity=verbosity, buffer=True)
+            result = runner.run(suite)
+            success = bool(result.wasSuccessful())
+            _record_verification_all(success=success, tier="full")
+            _emit_test_json({
+                "passed": success,
+                "success": success,
+                "mode": "unittest",
+                "test_dir": str(test_dir),
+                "tests_run": getattr(result, "testsRun", 0),
+                "failures": len(getattr(result, "failures", [])),
+                "errors": len(getattr(result, "errors", [])),
+                "skipped": len(getattr(result, "skipped", [])),
+                "exit_code": 0 if success else 1,
+                "output": stream.getvalue(),
+            })
+            return 0 if success else 1
+
+        runner = unittest.TextTestRunner(verbosity=verbosity, buffer=buffer_output)
         result = runner.run(suite)
-        success = bool(result.wasSuccessful())
+
+        success = result.wasSuccessful()
         _record_verification_all(success=success, tier="full")
-        _emit_test_json({
-            "passed": success,
-            "success": success,
-            "mode": "unittest",
-            "test_dir": str(test_dir),
-            "tests_run": getattr(result, "testsRun", 0),
-            "failures": len(getattr(result, "failures", [])),
-            "errors": len(getattr(result, "errors", [])),
-            "skipped": len(getattr(result, "skipped", [])),
-            "exit_code": 0 if success else 1,
-            "output": stream.getvalue(),
-        })
         return 0 if success else 1
-
-    runner = unittest.TextTestRunner(verbosity=verbosity, buffer=buffer_output)
-    result = runner.run(suite)
-
-    success = result.wasSuccessful()
-    _record_verification_all(success=success, tier="full")
-    return 0 if success else 1
+    finally:
+        sys.path[:] = orig_sys_path

@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from harness.delivery import DeliveryMode, PluginInstaller
-from harness.delivery.constants import is_packaged_wheel_install
+from harness.delivery.constants import DEFAULT_PLUGIN_DIR, is_packaged_wheel_install
 
 
 from harness.commands.init import cmd_init
@@ -67,6 +68,23 @@ def cmd_install(args: argparse.Namespace) -> int:
         prov = provision_rea_skill(global_skills, link=True, allow_download=False)
         rea_skill_provisioned = bool(prov)
 
+    env_plugin_override = (os.environ.get("AGYIS_PLUGINS_DIR") or os.environ.get("PSL_PLUGINS_DIR") or "").strip()
+    is_live_plugin_target = (
+        (target_dir is None and not env_plugin_override)
+        or (target_dir is not None and target_dir.expanduser().resolve() == DEFAULT_PLUGIN_DIR.resolve())
+    )
+    daemon_restart: Optional[Dict[str, Any]] = None
+    if (
+        result.success
+        and not getattr(args, "dry_run", False)
+        and sys.platform.startswith("linux")
+        and not getattr(args, "no_restart", False)
+        and is_live_plugin_target
+    ):
+        from harness.telemetry.sync.systemd import try_restart_service
+
+        daemon_restart = try_restart_service()
+
     if getattr(args, "json", False):
         payload: Dict[str, Any] = {
             "success": result.success,
@@ -83,11 +101,15 @@ def cmd_install(args: argparse.Namespace) -> int:
             payload["rea_skill_provisioned"] = rea_skill_provisioned
         if rea_mcp_errors:
             payload["rea_mcp_errors"] = rea_mcp_errors
+        if daemon_restart is not None:
+            payload["daemon_restart"] = daemon_restart
         print(json.dumps(payload, indent=2))
         return 0 if result.success else 1
 
     if result.success:
         print(theme.badge("PASS", result.message))
+        if daemon_restart and daemon_restart.get("restarted"):
+            print("  • Sync Daemon: Restarted agyis-sync.service")
         if rea_enabled:
             if getattr(args, "dry_run", False):
                 print("  • REA: Would configure global Reverse Engineer Anything MCP server (~/.gemini/config/mcp_config.json)")

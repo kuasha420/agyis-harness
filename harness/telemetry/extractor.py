@@ -442,6 +442,123 @@ def _extract_step_usage_and_model(
     return slug_s, disp_s, in_tok, cache_tok, out_tok, thought_tok, est_tok, max_ctx
 
 
+_RE_MODEL_SELECTION = re.compile(r"Model Selection` from .*? to ([^\n\r`]+)")
+_RE_CLEAN_PROMPT = re.compile(
+    r"<USER_REQUEST>|\</USER_REQUEST\>|<ADDITIONAL_METADATA>[\s\S]*?</ADDITIONAL_METADATA>"
+)
+_RE_CREATED_AT = re.compile(r"Created At:\s*([^\n\r]+)")
+_RE_COMPLETED_AT = re.compile(r"Completed At:\s*([^\n\r]+)")
+_RE_EXIT_CODE = re.compile(r"(?:failed with exit code:|exited with code)\s*(\d+)", re.IGNORECASE)
+_PATH_ARG_KEYS = ("Path", "TargetFile", "AbsolutePath", "FilePath", "Target", "SearchPath", "DirectoryPath")
+
+
+def _project_transcript_step(s: Dict[str, Any]) -> Dict[str, Any]:
+    """Projects a raw JSONL transcript step to bounded fields, discarding multi-MB blobs."""
+    raw_idx = s.get("step_index")
+    has_int_idx = isinstance(raw_idx, int)
+    raw_step_index = raw_idx if "step_index" in s else 0
+    s_type, source, status = s.get("type", "UNKNOWN"), s.get("source", "UNKNOWN"), s.get("status", "DONE")
+    created_at_iso = normalize_utc_iso(s.get("created_at"))
+
+    raw_content = s.get("content", "")
+    content_str = str(raw_content)
+    content_length = len(content_str)
+    content_snippet = content_str[:200] if raw_content else None
+
+    s_model = _extract_step_model(s)
+    s_content_model: Optional[str] = None
+    if not s_model and s_type in ("SYSTEM_MESSAGE", "USER_INPUT", "PLANNER_RESPONSE"):
+        if "Model Selection" in content_str:
+            m_sel = _RE_MODEL_SELECTION.search(content_str)
+            if m_sel:
+                s_content_model = m_sel.group(1).strip().rstrip(".")
+        if s_content_model is None:
+            m_id = _MODEL_ID_PATTERN.search(content_str)
+            if m_id:
+                s_content_model = m_id.group(1).strip()
+
+    s_workspace: Optional[str] = None
+    if content_str:
+        for ws_pat in _WORKSPACE_PATTERNS:
+            m_ws = ws_pat.search(content_str)
+            if m_ws:
+                s_workspace = m_ws.group(1).strip()
+                break
+
+    clean_prompt: Optional[str] = None
+    if raw_idx != 0 and (s_type == "USER_INPUT" or source == "USER_EXPLICIT"):
+        clean_prompt = _RE_CLEAN_PROMPT.sub("", content_str).strip() or None
+
+    raw_tools = s.get("tool_calls", [])
+    tool_count = len(raw_tools) if isinstance(raw_tools, list) else 0
+    projected_tools: Optional[List[Tuple[Any, ...]]] = None
+    if raw_tools and isinstance(raw_tools, list):
+        projected_tools = []
+        for tc in raw_tools:
+            if not isinstance(tc, dict):
+                continue
+            t_name = tc.get("name", "unknown")
+            t_args = tc.get("modified_args") or tc.get("modifiedArgs") or tc.get("args", {})
+            if isinstance(t_args, str):
+                try:
+                    parsed_args = json.loads(t_args)
+                    if isinstance(parsed_args, dict):
+                        t_args = parsed_args
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            is_dict_args = isinstance(t_args, dict)
+            target_path = next((t_args.get(k) for k in _PATH_ARG_KEYS if t_args.get(k)), None) if is_dict_args else None
+            cmd_line = t_args.get("CommandLine") if is_dict_args else None
+            args_json = json.dumps(t_args) if is_dict_args else str(t_args)
+            projected_tools.append((t_name, target_path, cmd_line, str(target_path or cmd_line or t_args), args_json, str(t_args)[:250]))
+
+    res_meta: Optional[Tuple[Any, ...]] = None
+    if has_int_idx:
+        step_err = s.get("error")
+        step_err_bool, step_err_800 = bool(step_err), (str(step_err)[:800] if step_err else "")
+        res_started_at = res_completed_at = res_duration = res_exit_code = None
+        res_has_exec_err = res_has_trunc_tag = False
+        res_output_lines, res_err_preview = 0, ""
+        if content_str:
+            res_output_lines = content_str.count("\n") + 1
+            m_created, m_completed = _RE_CREATED_AT.search(content_str), _RE_COMPLETED_AT.search(content_str)
+            if m_created and m_completed:
+                res_started_at = normalize_utc_iso(m_created.group(1).strip())
+                res_completed_at = normalize_utc_iso(m_completed.group(1).strip())
+                res_duration = calculate_duration(res_started_at, res_completed_at)
+            m_exit = _RE_EXIT_CODE.search(content_str)
+            if m_exit:
+                res_exit_code = int(m_exit.group(1))
+            res_has_exec_err = "Encountered error in tool execution:" in content_str
+            res_has_trunc_tag = "<truncated" in content_str
+            if (res_exit_code is not None and res_exit_code != 0) or (
+                res_exit_code is None and (step_err_bool or res_has_exec_err or status == "ERROR")
+            ):
+                res_err_preview = content_str[:800]
+        trunc_fields = s.get("truncated_fields")
+        res_meta = (
+            status, content_length, res_output_lines, res_started_at, res_completed_at, res_duration,
+            res_exit_code, step_err_bool, step_err_800, res_has_exec_err, res_has_trunc_tag,
+            bool(trunc_fields and "content" in trunc_fields), res_err_preview,
+        )
+
+    is_cp_step = (
+        s_type in ("CHECKPOINT", "CORTEX_STEP_TYPE_CHECKPOINT")
+        or isinstance(s.get("checkpoint"), dict)
+        or is_transcript_checkpoint_step(s)
+    )
+    return {
+        "int_idx": raw_idx if has_int_idx else None, "raw_step_index": raw_step_index,
+        "sort_key": raw_idx if has_int_idx else 0, "type": s_type, "source": source,
+        "status": status, "created_at_iso": created_at_iso, "content_length": content_length,
+        "content_snippet": content_snippet, "has_thinking": 1 if s.get("thinking") else 0,
+        "thinking_length": len(str(s.get("thinking", ""))), "tool_count": tool_count,
+        "usage": _extract_step_usage_and_model(s), "is_cp_step": is_cp_step,
+        "s_model": s_model, "s_content_model": s_content_model, "s_workspace": s_workspace,
+        "clean_prompt": clean_prompt, "tools": projected_tools, "res_meta": res_meta,
+    }
+
+
 def extract_session(
     transcript_path: Path,
 ) -> Optional[Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]]:
@@ -452,30 +569,26 @@ def extract_session(
     except OSError:
         return None
 
-    with open(transcript_path, encoding="utf-8", errors="replace") as f:
-        steps: List[Dict[str, Any]] = []
-        for line in f:
-            if line.strip():
-                try:
-                    obj = json.loads(line)
-                    if isinstance(obj, dict):
-                        steps.append(obj)
-                except (json.JSONDecodeError, ValueError):
-                    continue
+    steps: List[Dict[str, Any]] = []
+    try:
+        with open(transcript_path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        obj = json.loads(line)
+                        if isinstance(obj, dict):
+                            steps.append(_project_transcript_step(obj))
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+    except (FileNotFoundError, OSError):
+        return None
 
     if not steps:
         return None
 
-    def _step_key(s: Any) -> int:
-        if isinstance(s, dict):
-            idx = s.get("step_index")
-            if isinstance(idx, int):
-                return idx
-        return 0
-
-    steps.sort(key=_step_key)
-    start_time = normalize_utc_iso(steps[0].get("created_at"))
-    end_time = normalize_utc_iso(steps[-1].get("created_at"))
+    steps.sort(key=lambda s: s["sort_key"])
+    start_time = steps[0]["created_at_iso"]
+    end_time = steps[-1]["created_at_iso"]
     duration_s = calculate_duration(start_time, end_time)
 
     model_detected = "Unknown"
@@ -486,23 +599,20 @@ def extract_session(
     tool_calls_extracted: List[Dict[str, Any]] = []
     interventions_extracted: List[Dict[str, Any]] = []
     has_errors, tool_error_count = False, 0
-    step_by_idx = {
-        s.get("step_index"): s
+    res_by_idx = {
+        s["int_idx"]: s["res_meta"]
         for s in steps
-        if isinstance(s, dict) and isinstance(s.get("step_index"), int)
+        if s["int_idx"] is not None and s["res_meta"] is not None
     }
     recent_tool_failed, recent_tool_name, recent_error_snippet = False, "", ""
     last_tool_sig, repeated_tool_count = None, 0
 
     for i, s in enumerate(steps):
-        if not isinstance(s, dict):
-            continue
-        raw_idx = s.get("step_index")
-        s_idx = raw_idx if isinstance(raw_idx, int) else i
-        s_type, source = s.get("type", "UNKNOWN"), s.get("source", "UNKNOWN")
-        content = str(s.get("content", ""))
+        raw_idx = s["int_idx"]
+        s_idx = raw_idx if raw_idx is not None else i
+        s_type, source = s["type"], s["source"]
 
-        s_slug, s_disp, s_in, s_cache, s_out, s_thought, s_est, s_mct = _extract_step_usage_and_model(s)
+        s_slug, s_disp, s_in, s_cache, s_out, s_thought, s_est, s_mct = s["usage"]
         if s_slug:
             model_slug = s_slug
         if s_disp:
@@ -513,78 +623,35 @@ def extract_session(
         step_thought_tot += s_thought
         step_max_ctx = max(step_max_ctx, s_mct)
         step_ctx_val = (s_in + s_cache) or s_est
-        is_cp_step = (
-            s_type in ("CHECKPOINT", "CORTEX_STEP_TYPE_CHECKPOINT")
-            or isinstance(s.get("checkpoint"), dict)
-            or is_transcript_checkpoint_step(s)
-        )
-        if is_cp_step:
+        if s["is_cp_step"]:
             cp_peak_ctx = max(cp_peak_ctx, step_ctx_val)
         else:
             step_peak_ctx = max(step_peak_ctx, step_ctx_val)
 
-        s_model = _extract_step_model(s)
-        if s_model:
-            model_detected = s_model
-        elif model_detected == "Unknown" and s_type in ("SYSTEM_MESSAGE", "USER_INPUT", "PLANNER_RESPONSE"):
-            if "Model Selection" in content:
-                m = re.search(r"Model Selection` from .*? to ([^\n\r`]+)", content)
-                if m:
-                    model_detected = m.group(1).strip().rstrip(".")
-            if model_detected == "Unknown":
-                m_id = _MODEL_ID_PATTERN.search(content)
-                if m_id:
-                    model_detected = m_id.group(1).strip()
+        if s["s_model"]:
+            model_detected = s["s_model"]
+        elif model_detected == "Unknown" and s["s_content_model"]:
+            model_detected = s["s_content_model"]
 
-        if not workspace_detected and content:
-            for ws_pat in _WORKSPACE_PATTERNS:
-                m = ws_pat.search(content)
-                if m:
-                    workspace_detected = m.group(1).strip()
-                    break
+        if not workspace_detected and s["s_workspace"]:
+            workspace_detected = s["s_workspace"]
 
-        if s_idx > 0 and (s_type == "USER_INPUT" or source == "USER_EXPLICIT"):
-            clean_prompt = re.sub(
-                r"<USER_REQUEST>|\</USER_REQUEST\>|<ADDITIONAL_METADATA>[\s\S]*?</ADDITIONAL_METADATA>",
-                "", content,
-            ).strip()
-            if clean_prompt:
-                interventions_extracted.append({
-                    "session_id": session_id, "step_index": s_idx,
-                    "created_at": normalize_utc_iso(s.get("created_at")),
-                    "prompt_text": clean_prompt, "prompt_length": len(clean_prompt),
-                    "preceding_tool_failed": 1 if recent_tool_failed else 0,
-                    "preceding_tool_name": recent_tool_name,
-                    "preceding_error_snippet": recent_error_snippet[:500],
-                    "intervention_type": classify_intervention(clean_prompt, recent_tool_failed),
-                })
+        if s_idx > 0 and (s_type == "USER_INPUT" or source == "USER_EXPLICIT") and s["clean_prompt"]:
+            clean_prompt = s["clean_prompt"]
+            interventions_extracted.append({
+                "session_id": session_id, "step_index": s_idx,
+                "created_at": s["created_at_iso"],
+                "prompt_text": clean_prompt, "prompt_length": len(clean_prompt),
+                "preceding_tool_failed": 1 if recent_tool_failed else 0,
+                "preceding_tool_name": recent_tool_name,
+                "preceding_error_snippet": recent_error_snippet[:500],
+                "intervention_type": classify_intervention(clean_prompt, recent_tool_failed),
+            })
 
-        raw_tools = s.get("tool_calls", [])
-        if raw_tools and isinstance(raw_tools, list):
-            for tool_offset, tc in enumerate(raw_tools):
-                if not isinstance(tc, dict):
-                    continue
-                t_name = tc.get("name", "unknown")
-                t_args = tc.get("modified_args") or tc.get("modifiedArgs") or tc.get("args", {})
-                if isinstance(t_args, str):
-                    try:
-                        parsed_args = json.loads(t_args)
-                        if isinstance(parsed_args, dict):
-                            t_args = parsed_args
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-                target_path = (
-                    t_args.get("Path")
-                    or t_args.get("TargetFile")
-                    or t_args.get("AbsolutePath")
-                    or t_args.get("FilePath")
-                    or t_args.get("Target")
-                    or t_args.get("SearchPath")
-                    or t_args.get("DirectoryPath")
-                ) if isinstance(t_args, dict) else None
-                cmd_line = t_args.get("CommandLine") if isinstance(t_args, dict) else None
-
-                tool_sig = (t_name, str(target_path or cmd_line or t_args))
+        proj_tools = s["tools"]
+        if proj_tools:
+            for tool_offset, (t_name, target_path, cmd_line, sig_val, args_json, args_snippet) in enumerate(proj_tools):
+                tool_sig = (t_name, sig_val)
                 is_loop = 0
                 if tool_sig == last_tool_sig:
                     repeated_tool_count += 1
@@ -593,58 +660,56 @@ def extract_session(
                     last_tool_sig, repeated_tool_count = tool_sig, 1
 
                 res_idx = (s_idx + 1 + tool_offset) if isinstance(s_idx, int) else None
-                res_step = step_by_idx.get(res_idx) if res_idx is not None else None
+                res_meta = res_by_idx.get(res_idx) if res_idx is not None else None
                 t_status, exit_code, err_snippet = "SUCCESS", 0, ""
-                res_content = str(res_step.get("content", "")) if isinstance(res_step, dict) else ""
-                step_err = res_step.get("error") if isinstance(res_step, dict) else None
                 started_at = completed_at = tool_duration = None
+                res_content_len = res_output_lines = is_trunc = 0
 
-                if res_content:
-                    m_created = re.search(r"Created At:\s*([^\n\r]+)", res_content)
-                    m_completed = re.search(r"Completed At:\s*([^\n\r]+)", res_content)
-                    if m_created and m_completed:
-                        started_at = normalize_utc_iso(m_created.group(1).strip())
-                        completed_at = normalize_utc_iso(m_completed.group(1).strip())
-                        tool_duration = calculate_duration(started_at, completed_at)
-
-                    m_exit = re.search(r"(?:failed with exit code:|exited with code)\s*(\d+)", res_content, re.IGNORECASE)
-                    if m_exit:
-                        exit_code = int(m_exit.group(1))
-                        if exit_code != 0:
-                            t_status, has_errors = "FAILED", True
+                if res_meta is not None:
+                    (
+                        res_status, res_content_len, res_output_lines,
+                        res_started_at, res_completed_at, res_duration,
+                        res_exit_code, step_err_bool, step_err_800,
+                        res_has_exec_err, res_has_trunc_tag, res_trunc_field, res_err_preview,
+                    ) = res_meta
+                    if res_content_len > 0:
+                        started_at, completed_at, tool_duration = res_started_at, res_completed_at, res_duration
+                        if res_exit_code is not None:
+                            exit_code = res_exit_code
+                            if exit_code != 0:
+                                t_status, has_errors = "FAILED", True
+                                tool_error_count += 1
+                                err_snippet = res_err_preview
+                        elif step_err_bool or res_has_exec_err or res_status == "ERROR":
+                            t_status = "ERROR"
+                            exit_code = -1
+                            has_errors = True
                             tool_error_count += 1
-                            err_snippet = res_content[:800]
-                    elif step_err or "Encountered error in tool execution:" in res_content or (isinstance(res_step, dict) and res_step.get("status") == "ERROR"):
-                        t_status = "ERROR"
-                        exit_code = -1
-                        has_errors = True
-                        tool_error_count += 1
-                        err_snippet = (str(step_err) if step_err else res_content)[:800]
-                elif step_err or (isinstance(res_step, dict) and res_step.get("status") == "ERROR"):
-                    t_status = "ERROR"
-                    exit_code = -1
-                    has_errors = True
-                    tool_error_count += 1
-                    err_snippet = str(step_err or "ERROR")[:800]
+                            err_snippet = step_err_800 if step_err_bool else res_err_preview
+                        is_trunc = 1 if (res_has_trunc_tag or res_trunc_field) else 0
+                    else:
+                        res_output_lines = 0
+                        if step_err_bool or res_status == "ERROR":
+                            t_status = "ERROR"
+                            exit_code = -1
+                            has_errors = True
+                            tool_error_count += 1
+                            err_snippet = step_err_800 if step_err_bool else "ERROR"
 
                 if t_status in ("FAILED", "ERROR"):
                     recent_tool_failed, recent_tool_name, recent_error_snippet = True, t_name, err_snippet
                 else:
                     recent_tool_failed, recent_tool_name, recent_error_snippet = False, "", ""
 
-                args_json = json.dumps(t_args) if isinstance(t_args, dict) else str(t_args)
-                is_trunc = 1 if (
-                    res_content and ("<truncated" in res_content or "content" in (res_step or {}).get("truncated_fields", ()))
-                ) else 0
                 tool_calls_extracted.append({
-                    "session_id": session_id, "step_index": s_idx, "result_step_index": res_idx if res_step else None,
-                    "tool_name": t_name, "arguments_json": args_json, "arguments_snippet": str(t_args)[:250],
+                    "session_id": session_id, "step_index": s_idx, "result_step_index": res_idx if res_meta is not None else None,
+                    "tool_name": t_name, "arguments_json": args_json, "arguments_snippet": args_snippet,
                     "target_path": str(target_path) if target_path else None,
                     "command_line": str(cmd_line) if cmd_line else None,
                     "started_at": started_at, "completed_at": completed_at, "duration_seconds": tool_duration,
                     "status": t_status, "exit_code": exit_code, "error_snippet": err_snippet,
-                    "is_loop_candidate": is_loop, "output_length_chars": len(res_content) if res_content else 0,
-                    "output_lines": (res_content.count("\n") + 1) if res_content else 0,
+                    "is_loop_candidate": is_loop, "output_length_chars": res_content_len,
+                    "output_lines": res_output_lines,
                     "arguments_length_chars": len(args_json),
                     "command_category": classify_command(cmd_line) if cmd_line else None, "is_truncated": is_trunc,
                 })
@@ -678,13 +743,13 @@ def extract_session(
 
     step_rows = [
         {
-            "session_id": session_id, "step_index": s.get("step_index", 0), "step_type": s.get("type", "UNKNOWN"),
-            "source": s.get("source", "UNKNOWN"), "status": s.get("status", "DONE"),
-            "created_at": normalize_utc_iso(s.get("created_at")),
-            "content_length": len(str(s.get("content", ""))),
-            "content_snippet": str(s.get("content", ""))[:200] if s.get("content") else None,
-            "has_thinking": 1 if s.get("thinking") else 0, "thinking_length": len(str(s.get("thinking", ""))),
-            "tool_count": len(s.get("tool_calls", [])) if isinstance(s.get("tool_calls"), list) else 0,
+            "session_id": session_id, "step_index": s["raw_step_index"], "step_type": s["type"],
+            "source": s["source"], "status": s["status"],
+            "created_at": s["created_at_iso"],
+            "content_length": s["content_length"],
+            "content_snippet": s["content_snippet"],
+            "has_thinking": s["has_thinking"], "thinking_length": s["thinking_length"],
+            "tool_count": s["tool_count"],
         }
         for s in steps
     ]

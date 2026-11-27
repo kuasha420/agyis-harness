@@ -162,6 +162,120 @@ class TestCliParityAndLaunchers(unittest.TestCase):
             self.assertIn("os.path.abspath(sys.executable) != target_py_abs", src_txt)
             self.assertIn("os.environ.pop('_AGYIS_LAUNCHER_REEXEC', None)", src_txt)
 
+    def test_cmd_test_delegates_to_cwd_checkout_and_forwards_flags(self) -> None:
+        """cmd_test delegates to CWD checkout venv/PYTHONPATH when REPO_ROOT != cwd (Issue #120)."""
+        import harness.commands.test as test_cmd_mod
+
+        cwd_repo = self.ws / "cwd_checkout"
+        cwd_repo.mkdir(parents=True)
+        (cwd_repo / "pyproject.toml").write_text('[project]\nname = "agyis-harness"\n', encoding="utf-8")
+        (cwd_repo / "tests").mkdir()
+        (cwd_repo / "harness").mkdir()
+        (cwd_repo / "harness" / "__init__.py").write_text("", encoding="utf-8")
+        (cwd_repo / "harness" / "cli.py").write_text(
+            "import json, os, sys\n"
+            "from pathlib import Path\n"
+            "def main():\n"
+            "    payload = {\n"
+            "        'cwd': str(Path.cwd().resolve()),\n"
+            "        'argv': sys.argv[1:],\n"
+            "        'pypath_first': sys.path[0],\n"
+            "        'reexec': os.environ.get('_AGYIS_TEST_REEXEC'),\n"
+            "        'venv_ran': os.environ.get('CWD_VENV_RAN', ''),\n"
+            "    }\n"
+            "    print(json.dumps(payload))\n"
+            "    return 3 if '--verbose' in sys.argv else 0\n"
+            "if __name__ == '__main__':\n"
+            "    sys.exit(main())\n",
+            encoding="utf-8",
+        )
+        venv_py = cwd_repo / ".venv" / "bin" / "python"
+        venv_py.parent.mkdir(parents=True, exist_ok=True)
+        venv_py.write_text(
+            f"#!/bin/sh\nexport CWD_VENV_RAN=1\nexec {sys.executable!r} \"$@\"\n",
+            encoding="utf-8",
+        )
+        venv_py.chmod(0o755)
+
+        orig_cwd = os.getcwd()
+        os.chdir(cwd_repo)
+        try:
+            with patch.object(test_cmd_mod, "REPO_ROOT", self.ws / "other_installed_root"), \
+                 patch.dict(os.environ, {"PYTHONPATH": str(self.ws / "stale_root")}, clear=False), \
+                 patch("sys.stdout", new_callable=io.StringIO) as out_buf:
+                os.environ.pop("_AGYIS_TEST_REEXEC", None)
+                rc = cli_main(["test", "--json", "--verbose", "--no-buffer"], prog="agyis")
+
+            self.assertEqual(rc, 3)
+            delegated = json.loads(out_buf.getvalue().strip())
+            self.assertEqual(delegated["cwd"], str(cwd_repo.resolve()))
+            self.assertEqual(delegated["reexec"], "1")
+            self.assertEqual(delegated["venv_ran"], "1")
+            self.assertEqual(delegated["pypath_first"], str(cwd_repo.resolve()))
+            self.assertIn("--json", delegated["argv"])
+            self.assertIn("--verbose", delegated["argv"])
+            self.assertIn("--no-buffer", delegated["argv"])
+        finally:
+            os.chdir(orig_cwd)
+
+    def test_cmd_test_same_root_inserts_cwd_at_sys_path_zero_for_package_imports(self) -> None:
+        """cmd_test sets sys.path[0] to cwd and top_level_dir cleanly so tests/pipeline/server import (Issue #120)."""
+        from harness.delivery.constants import REPO_ROOT as REAL_REPO_ROOT
+
+        repo = self.ws / "local_repo"
+        (repo / "tests").mkdir(parents=True)
+        (repo / "pipeline").mkdir()
+        (repo / "server").mkdir()
+        (repo / "pyproject.toml").write_text('[project]\nname = "agyis-harness"\n', encoding="utf-8")
+        (repo / "harness").symlink_to(REAL_REPO_ROOT / "harness")
+        (repo / "tests" / "__init__.py").write_text("", encoding="utf-8")
+        (repo / "tests" / "helper_pkg.py").write_text("VALUE = 'tests-ok'\n", encoding="utf-8")
+        (repo / "pipeline" / "__init__.py").write_text("VALUE = 'pipeline-ok'\n", encoding="utf-8")
+        (repo / "server" / "__init__.py").write_text("VALUE = 'server-ok'\n", encoding="utf-8")
+        (repo / "tests" / "test_pkg_imports.py").write_text(
+            "import sys, unittest\n"
+            "import pipeline\n"
+            "import server\n"
+            "import tests.helper_pkg as helper_pkg\n"
+            "class PkgImportTest(unittest.TestCase):\n"
+            "    def test_imports(self):\n"
+            "        self.assertEqual(pipeline.VALUE, 'pipeline-ok')\n"
+            "        self.assertEqual(server.VALUE, 'server-ok')\n"
+            "        self.assertEqual(helper_pkg.VALUE, 'tests-ok')\n"
+            f"        self.assertEqual(sys.path[0], {str(repo.resolve())!r})\n",
+            encoding="utf-8",
+        )
+
+        # Invoke harness.commands.test.cmd_test in a fresh interpreter with repo initially
+        # removed from sys.path so cmd_test itself must wire sys.path[0] and top_level_dir.
+        probe_code = (
+            "import argparse, os, sys\n"
+            "from pathlib import Path\n"
+            "import harness.commands.test as tmod\n"
+            "target_repo = Path(os.environ['TEST_TARGET_REPO']).resolve()\n"
+            "tmod.REPO_ROOT = target_repo\n"
+            "tmod._record_verification_all = lambda **kw: None\n"
+            "sys.path[:] = [p for p in sys.path if p not in ('', str(target_repo))]\n"
+            "args = argparse.Namespace(json=True, verbose=False, no_buffer=False, start_dir=None, "
+            "diff=False, affected=False, branch=None, pkg=None, full=False, harmonize=False, dry_run=False, mutation=False)\n"
+            "sys.exit(tmod.cmd_test(args))\n"
+        )
+        env = {k: v for k, v in os.environ.items() if k not in ("_AGYIS_TEST_REEXEC",)}
+        env["PYTHONPATH"] = str(REAL_REPO_ROOT.resolve())
+        env["TEST_TARGET_REPO"] = str(repo.resolve())
+        proc = subprocess.run(
+            [sys.executable, "-c", probe_code],
+            cwd=str(repo),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, f"stderr={proc.stderr}\nstdout={proc.stdout}")
+        payload = json.loads(proc.stdout.strip())
+        self.assertTrue(payload["passed"])
+        self.assertEqual(payload["tests_run"], 1)
+
 
 class TestOnboardWave1Contracts(unittest.TestCase):
     """Tests onboard --rea, --verify, --no-verify, --commit, and untracked safety warnings."""

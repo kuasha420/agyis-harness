@@ -152,6 +152,27 @@ def check_telemetry_daemon() -> Optional[Dict[str, Any]]:
                 "sync_health": sync_health,
                 "telemetry_lag": telemetry_lag,
             }
+        daemon_ver = str(sync_health.get("daemon_version") or "").strip()
+        if daemon_ver:
+            import harness
+            current_ver = str(getattr(harness, "__version__", "") or "").strip()
+            if current_ver and daemon_ver != current_ver:
+                remediation = (
+                    f"agyis-sync.service is running version {daemon_ver} != installed {current_ver}. "
+                    "Run 'agyis sync --service restart'."
+                )
+                return {
+                    "status": "WARNING",
+                    "service": "agyis-sync.service",
+                    "state": "version_drift",
+                    "daemon_version": daemon_ver,
+                    "installed_version": current_ver,
+                    "message": remediation,
+                    "details": remediation,
+                    "remediation": remediation,
+                    "sync_health": sync_health,
+                    "telemetry_lag": telemetry_lag,
+                }
         return {
             "status": "OK",
             "service": "agyis-sync.service",

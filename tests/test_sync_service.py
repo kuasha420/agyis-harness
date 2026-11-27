@@ -54,6 +54,20 @@ class TestSyncServiceGenerator(unittest.TestCase):
         self.assertIn("ExecStart=/usr/custom/python3 -m harness.cli sync --watch --interval 15.0", unit)
         self.assertIn("WorkingDirectory=/opt/custom", unit)
 
+    def test_is_transient_dir_excludes_plugins_and_deleted_cwd(self):
+        """Issue #121: Plugin installation dirs are transient and deleted CWD falls back safely."""
+        self.assertTrue(systemd._is_transient_dir(Path("/home/user/.gemini/config/plugins/agyis-harness")))
+        self.assertTrue(systemd._is_transient_dir(Path("/opt/agyis/plugins/agyis-harness")))
+        self.assertFalse(systemd._is_transient_dir(Path("/home/user/Dev/agyis-harness")))
+
+        plugin_cand = Path(tempfile.gettempdir()) / "fake_home" / ".gemini" / "config" / "plugins" / "agyis-harness" / "harness" / "telemetry" / "sync" / "systemd.py"
+        with patch.object(systemd, "__file__", str(plugin_cand)), \
+             patch("pathlib.Path.cwd", side_effect=FileNotFoundError(2, "deleted cwd")), \
+             patch("shutil.which", return_value=None):
+            unit = systemd.generate_systemd_service(interval_sec=5.0)
+        self.assertIn(f"WorkingDirectory={Path.home()}", unit)
+        self.assertNotIn("/plugins/", unit)
+
 
 class TestSyncServiceLifecycle(unittest.TestCase):
     """Verifies systemctl lifecycle management operations."""
@@ -280,6 +294,46 @@ class TestSyncServiceLifecycle(unittest.TestCase):
             self.assertEqual(rc, 1)
             self.assertIn("timed out", mock_err.getvalue())
 
+    @patch("shutil.which", return_value="/usr/bin/systemctl")
+    @patch("subprocess.run")
+    def test_restart_service_and_try_restart_service(self, mock_run, mock_which):
+        """Issue #121: restart_service and try_restart_service handle success and bus/missing errors safely."""
+        with patch("sys.stderr", new_callable=io.StringIO):
+            self.assertEqual(systemd.restart_service(unit_path=self.unit_path), 1)
+
+        self.unit_path.parent.mkdir(parents=True, exist_ok=True)
+        self.unit_path.write_text("[Unit]\n", encoding="utf-8")
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            rc = systemd.manage_service("restart", unit_path=self.unit_path)
+            self.assertEqual(rc, 0)
+            self.assertIn("Restarted agyis-sync.service", mock_out.getvalue())
+            mock_run.assert_any_call(
+                ["systemctl", "--user", "restart", "agyis-sync.service"],
+                capture_output=True, text=True, timeout=15.0,
+            )
+
+        res_ok = systemd.try_restart_service()
+        self.assertTrue(res_ok["attempted"])
+        self.assertTrue(res_ok["restarted"])
+
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="Failed to connect to bus"
+        )
+        res_nobus = systemd.try_restart_service()
+        self.assertTrue(res_nobus["attempted"])
+        self.assertFalse(res_nobus["restarted"])
+        self.assertIn("Failed to connect to bus", res_nobus["reason"])
+
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["systemctl"], timeout=5.0)):
+            res_to = systemd.try_restart_service()
+            self.assertFalse(res_to["restarted"])
+
+        with patch("shutil.which", return_value=None):
+            res_missing = systemd.try_restart_service()
+            self.assertFalse(res_missing["attempted"])
+            self.assertFalse(res_missing["restarted"])
+
 
 class TestSyncServiceCliIntegration(unittest.TestCase):
     """Verifies CLI flag parsing and dispatch through agyis sync --service."""
@@ -311,6 +365,26 @@ class TestSyncServiceCliIntegration(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 main(["sync", "--service", "invalid-action"])
             self.assertEqual(cm.exception.code, 2)
+
+    @patch("shutil.which", return_value="/usr/bin/systemctl")
+    @patch("subprocess.run")
+    def test_cli_sync_service_restart_dispatch(self, mock_run, mock_which):
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as tmp_xdg:
+            unit = Path(tmp_xdg) / "systemd" / "user" / "agyis-sync.service"
+            unit.parent.mkdir(parents=True, exist_ok=True)
+            unit.write_text("[Unit]\n", encoding="utf-8")
+            with patch.dict(os.environ, {"XDG_CONFIG_HOME": tmp_xdg}, clear=False), \
+                 patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                code = main(["sync", "--service", "restart", "--json"])
+                self.assertEqual(code, 0)
+                data = json.loads(mock_out.getvalue())
+                self.assertEqual(data["action"], "restart")
+                self.assertTrue(data["success"])
+            mock_run.assert_called_with(
+                ["systemctl", "--user", "restart", "agyis-sync.service"],
+                capture_output=True, text=True, timeout=15.0,
+            )
 
 
 if __name__ == "__main__":

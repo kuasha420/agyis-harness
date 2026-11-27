@@ -350,9 +350,9 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_sync.add_argument("--systemd", action="store_true", help="Output systemd user service unit definition")
     p_sync.add_argument(
         "--service",
-        choices=["install", "status", "start", "stop", "uninstall"],
+        choices=["install", "status", "start", "stop", "restart", "uninstall"],
         default=None,
-        help="Manage background sync systemd user service (install, status, start, stop, uninstall)",
+        help="Manage background sync systemd user service (install, status, start, stop, restart, uninstall)",
     )
     p_sync.add_argument("--limit", "-l", type=int, default=None, help="Maximum number of sessions to push")
     p_sync.add_argument("--dry-run", action="store_true", help="Simulate synchronization without modifications")
@@ -579,6 +579,7 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_install.add_argument("--symlink", action="store_true", help="Install via symlink mode (default in source checkouts)")
     p_install.add_argument("--wheel", action="store_true", help="Build and install frozen release wheel via uv build (source checkout only)")
     p_install.add_argument("--dry-run", action="store_true", help="Simulate installation without writing to disk")
+    p_install.add_argument("--no-restart", action="store_true", help="Do not restart agyis-sync.service after upgrading the live plugin")
     p_install.add_argument("--all-surfaces", action="store_true", help="Sync all Antigravity surfaces to canonical config")
     p_install.add_argument("--target", type=Path, default=None, help="Custom target installation directory")
     p_install.add_argument("--workspace", "-w", nargs="?", const=True, default=None, help="Initialize workspace project instead of global plugin")

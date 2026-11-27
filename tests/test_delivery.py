@@ -505,6 +505,90 @@ class TestPluginDelivery(unittest.TestCase):
         self.assertFalse(agyis_bin.exists())
         self.assertFalse(psl_bin.exists())
 
+    def test_copy_over_wheel_prunes_stale_wheel_and_deleted_entries(self) -> None:
+        """DeliveryMode.COPY over a prior WHEEL install prunes dist/, *.dist-info/, and deleted entries (Issue #119)."""
+        import zipfile
+
+        fake_src = self.isolated_base / "fake_src_repo"
+        (fake_src / "harness").mkdir(parents=True)
+        (fake_src / "harness" / "__init__.py").write_text('__version__ = "1.0.0"\n', encoding="utf-8")
+        (fake_src / "assets").mkdir()
+        (fake_src / "assets" / "logo.svg").write_text("<svg/>\n", encoding="utf-8")
+        (fake_src / "skills" / "demo-skill").mkdir(parents=True)
+        (fake_src / "skills" / "demo-skill" / "SKILL.md").write_text("# Demo\n", encoding="utf-8")
+        (fake_src / "agents").mkdir()
+        (fake_src / "agents" / "demo_agent.md").write_text("# Agent\n", encoding="utf-8")
+        (fake_src / "rules").mkdir()
+        (fake_src / "rules" / "GLOBAL_AGENTS.md").write_text("# Global Rules\n", encoding="utf-8")
+        (fake_src / "plugin.json").write_text('{"name": "agyis-harness", "version": "1.0.0"}\n', encoding="utf-8")
+        (fake_src / "matrix.json").write_text('{"matrix": true}\n', encoding="utf-8")
+        (fake_src / "hooks.json").write_text('{"hooks": {}}\n', encoding="utf-8")
+
+        fake_wheel = self.isolated_base / "agyis_harness-1.0.0-py3-none-any.whl"
+        with zipfile.ZipFile(fake_wheel, "w") as zf:
+            zf.writestr("harness/__init__.py", '__version__ = "1.0.0"\n')
+            zf.writestr("agyis_harness-1.0.0.dist-info/METADATA", "Name: agyis-harness\n")
+
+        installer = PluginInstaller(
+            source_dir=fake_src,
+            default_target_dir=self.target_dir,
+            bin_dir=self.bin_dir,
+            config_dir=self.config_dir,
+            surfaces=self.surfaces,
+        )
+        with patch.object(installer, "_build_frozen_wheel", return_value=fake_wheel):
+            wheel_res = installer.install(mode=DeliveryMode.WHEEL)
+        self.assertTrue(wheel_res.success)
+        self.assertTrue((self.target_dir / "dist" / fake_wheel.name).is_file())
+        self.assertTrue((self.target_dir / "agyis_harness-1.0.0.dist-info" / "METADATA").is_file())
+        self.assertEqual(installer.get_install_info(self.target_dir)["mode"], "wheel")
+
+        # Simulate obsolete entries and a file deleted from source_dir in a newer release
+        (self.target_dir / "obsolete_dir").mkdir()
+        (self.target_dir / "obsolete_dir" / "legacy.txt").write_text("stale", encoding="utf-8")
+        (self.target_dir / "deleted_top.txt").write_text("stale", encoding="utf-8")
+        (fake_src / "matrix.json").unlink()
+
+        copy_res = installer.install(mode=DeliveryMode.COPY)
+        self.assertTrue(copy_res.success)
+        self.assertEqual(copy_res.mode, "copy")
+        self.assertFalse((self.target_dir / "dist").exists())
+        self.assertEqual(list(self.target_dir.glob("*.dist-info")), [])
+        self.assertFalse((self.target_dir / "obsolete_dir").exists())
+        self.assertFalse((self.target_dir / "deleted_top.txt").exists())
+        self.assertFalse((self.target_dir / "matrix.json").exists())
+        self.assertTrue((self.target_dir / "harness" / "__init__.py").is_file())
+        self.assertTrue((self.target_dir / "plugin.json").is_file())
+        self.assertTrue((self.target_dir / "rules" / "AGENTS.md").is_file())
+        self.assertEqual(installer.get_install_info(self.target_dir)["mode"], "copy")
+
+    def test_copy_unlinks_destination_symlinks_without_mutating_targets(self) -> None:
+        """DeliveryMode.COPY unlinks symlinks at harness/skills/agents/rules/stale entries safely (Issue #119)."""
+        canary_dir = self.isolated_base / "canary_target"
+        canary_dir.mkdir(parents=True)
+        (canary_dir / "keep.txt").write_text("do not delete", encoding="utf-8")
+
+        self.target_dir.mkdir(parents=True)
+        for name in ("harness", "skills", "agents", "rules"):
+            (self.target_dir / name).symlink_to(canary_dir)
+        (self.target_dir / "dangling_stale").symlink_to(self.isolated_base / "missing_target")
+
+        installer = PluginInstaller(
+            source_dir=REPO_ROOT,
+            default_target_dir=self.target_dir,
+            bin_dir=self.bin_dir,
+            config_dir=self.config_dir,
+            surfaces=self.surfaces,
+        )
+        res = installer.install(mode=DeliveryMode.COPY)
+        self.assertTrue(res.success)
+        for name in ("harness", "skills", "agents", "rules"):
+            dst = self.target_dir / name
+            self.assertFalse(dst.is_symlink(), f"{name} symlink should be unlinked")
+            self.assertTrue(dst.is_dir())
+        self.assertFalse((self.target_dir / "dangling_stale").is_symlink())
+        self.assertEqual((canary_dir / "keep.txt").read_text(encoding="utf-8"), "do not delete")
+
 
 if __name__ == "__main__":
     unittest.main()
