@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Optional, Set
+from typing import Dict, Optional, Set, Tuple
 
 COMMON_FILE_EXTENSIONS: frozenset[str] = frozenset({
     "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "cjs", "json", "md", "markdown",
@@ -157,32 +157,55 @@ parse_plan_files = extract_plan_files
 def is_plan_completed(content: str) -> bool:
     r"""
     Determines if an implementation plan is 100% completed.
-    Scans for task checkboxes with regex r"[-*+]\s*\[([ xX])\]".
-    Returns True if total checkboxes > 0 and pending checkboxes (`[ ]`) == 0.
+    Scans for task checkboxes with regex r"[-*+]\s*\[([ xX/])\]".
+    Returns True if total checkboxes > 0 and pending/in-progress checkboxes (`[ ]`, `[/]`) == 0.
     Returns False otherwise.
     """
     if not content or not isinstance(content, str):
         return False
-    matches = re.findall(r"[-*+]\s*\[([ xX])\]", content)
+    matches = re.findall(r"[-*+]\s*\[([ xX/])\]", content)
     if not matches:
         return False
-    pending = sum(1 for m in matches if m == " ")
+    pending = sum(1 for m in matches if m in (" ", "/"))
     return len(matches) > 0 and pending == 0
 
 
-def find_active_plan(
+def _has_active_plan_markers(content: str) -> bool:
+    """Returns True if content carries active plan task checkboxes (- [ ], - [/]) or status: active."""
+    if not content or not isinstance(content, str):
+        return False
+    if re.search(r"[-*+]\s*\[[ /]\]", content):
+        return True
+    return bool(re.search(r"(?im)(?:^|\s|[\"'*])status(?:[\"'*])?\s*:\s*[\"']?active[\"']?\b", content))
+
+
+def _should_accept_workspace_plan(
+    match: Path,
+    scan_dir: Path,
+    ws_root: Path,
+    content: str,
+    allow_unmarked_root_plans: bool,
+) -> bool:
+    """Rejects static prose *PLAN*.md / docs/*plan*.md files lacking active markers (#94)."""
+    if scan_dir in (ws_root / ".agents" / "artifacts", ws_root / ".agents"):
+        return True
+    if scan_dir == ws_root / "docs":
+        return _has_active_plan_markers(content)
+    if not allow_unmarked_root_plans or "PLAN" in match.name:
+        return _has_active_plan_markers(content)
+    return True
+
+
+def resolve_active_plan(
     conv_id: Optional[str] = None,
     workspace_root: Optional[Path | str] = None,
     brain_dir: Optional[Path | str] = None,
     ignore_completed: bool = True,
-) -> Optional[Path]:
+    allow_unmarked_root_plans: bool = True,
+) -> Tuple[Optional[Path], str]:
     """
-    Locates the active implementation plan markdown file.
-    Searches in priority order:
-    1. PSL_PLAN_PATH override
-    2. Active Brain Directory (*plan*.md, *plan*.json, newest mtime first)
-    3. Workspace Artifacts (.agents/artifacts/, .agents/, docs/, workspace_root)
-    4. Fallback to newest completed plan overall if all candidates completed.
+    Locates the active implementation plan and returns (path, source_type).
+    Source types: 'env_override', 'session_brain', 'workspace_artifact', 'workspace_active_plan', or 'none'.
     """
     import os
     import tempfile
@@ -192,7 +215,7 @@ def find_active_plan(
     if env_plan:
         p = Path(env_plan)
         if p.is_file():
-            return p
+            return p, "env_override"
 
     def _safe_mtime(p: Path) -> float:
         try:
@@ -295,16 +318,17 @@ def find_active_plan(
 
     if not ignore_completed:
         if tier2_candidates:
-            return tier2_candidates[0]
+            return tier2_candidates[0], "session_brain"
     else:
         for cand in tier2_candidates:
             content = _safe_read(cand)
             if not is_plan_completed(content):
-                return cand
+                return cand, "session_brain"
 
     # Tier 3 (Workspace Artifacts)
     tier3_candidates: list[Path] = []
     tier3_seen: set[Path] = set()
+    tier3_sources: Dict[Path, str] = {}
 
     ws_roots: list[Path] = []
     if workspace_root:
@@ -332,9 +356,18 @@ def find_active_plan(
                 for match in s_dir.iterdir():
                     if match.is_file() and _is_plan_filename(match.name):
                         res = match.resolve()
-                        if res not in tier3_seen and res not in tier2_seen:
-                            tier3_seen.add(res)
-                            tier3_candidates.append(match)
+                        if res in tier3_seen or res in tier2_seen:
+                            continue
+                        content = _safe_read(match)
+                        if not _should_accept_workspace_plan(match, s_dir, ws_root, content, allow_unmarked_root_plans):
+                            continue
+                        tier3_seen.add(res)
+                        tier3_candidates.append(match)
+                        tier3_sources[res] = (
+                            "workspace_artifact"
+                            if s_dir in (ws_root / ".agents" / "artifacts", ws_root / ".agents")
+                            else "workspace_active_plan"
+                        )
             except OSError:
                 pass
 
@@ -342,17 +375,45 @@ def find_active_plan(
 
     if not ignore_completed:
         if tier3_candidates:
-            return tier3_candidates[0]
+            top = tier3_candidates[0]
+            return top, tier3_sources.get(top.resolve(), "workspace_active_plan")
     else:
         for cand in tier3_candidates:
             content = _safe_read(cand)
             if not is_plan_completed(content):
-                return cand
+                return cand, tier3_sources.get(cand.resolve(), "workspace_active_plan")
 
     # Fallback: newest completed candidate overall across Tier 2 and Tier 3
     all_candidates = tier2_candidates + tier3_candidates
     if all_candidates:
         all_candidates.sort(key=_safe_mtime, reverse=True)
-        return all_candidates[0]
+        chosen = all_candidates[0]
+        src = "session_brain" if chosen.resolve() in tier2_seen else tier3_sources.get(chosen.resolve(), "workspace_active_plan")
+        return chosen, src
 
-    return None
+    return None, "none"
+
+
+def find_active_plan(
+    conv_id: Optional[str] = None,
+    workspace_root: Optional[Path | str] = None,
+    brain_dir: Optional[Path | str] = None,
+    ignore_completed: bool = True,
+    allow_unmarked_root_plans: bool = True,
+) -> Optional[Path]:
+    """
+    Locates the active implementation plan markdown file.
+    Searches in priority order:
+    1. PSL_PLAN_PATH override
+    2. Active Brain Directory (*plan*.md, *plan*.json, newest mtime first)
+    3. Workspace Artifacts (.agents/artifacts/, .agents/, active docs/ or marked root plans)
+    4. Fallback to newest completed plan overall if all eligible candidates completed.
+    """
+    plan_path, _ = resolve_active_plan(
+        conv_id=conv_id,
+        workspace_root=workspace_root,
+        brain_dir=brain_dir,
+        ignore_completed=ignore_completed,
+        allow_unmarked_root_plans=allow_unmarked_root_plans,
+    )
+    return plan_path

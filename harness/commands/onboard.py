@@ -21,8 +21,11 @@ from typing import Any, Dict, List, Optional, Union
 
 from harness.commands.onboard_gates import (
     commit_onboarded_files,
+    resolve_workspace_rea_enabled,
+    run_onboard_test_manifest_sync,
     run_onboard_verification,
 )
+from harness.runtime.engine_checks import check_package_engines
 from harness.runtime.healing import provision_workspace_rea
 
 from harness.delivery import (
@@ -33,6 +36,7 @@ from harness.delivery import (
     create_pull_request,
     enforce_single_source_rules,
     enforce_single_source_skills,
+    ensure_project_registered,
     get_plugin_provided_skills,
     harmonize_workspace,
     install_workspace,
@@ -78,6 +82,7 @@ def cmd_onboard(
     commit: bool = False,
     rea: bool = False,
     experimental_rea: bool = False,
+    ensure_project: bool = False,
 ) -> int:
     """
     Onboards a repository to the Agyis harness runtime.
@@ -119,6 +124,7 @@ def cmd_onboard(
         commit = bool(getattr(args, "commit", False))
         rea = bool(getattr(args, "rea", False))
         experimental_rea = bool(getattr(args, "experimental_rea", False))
+        ensure_project = bool(getattr(args, "ensure_project", False))
     else:
         target_path = Path(workspace)
         if isinstance(skills, str):
@@ -249,6 +255,7 @@ def cmd_onboard(
 
     # 5. Dedicated branch isolation
     created_branch_name: Optional[str] = None
+    planned_branch_name: Optional[str] = None
     if create_branch:
         branch_name = (
             create_branch
@@ -258,7 +265,8 @@ def cmd_onboard(
         created_branch_name = branch_name
         if topology.current_branch != branch_name:
             if dry_run:
-                topology.current_branch = branch_name
+                planned_branch_name = branch_name
+                topology.planned_branch = branch_name
             else:
                 base_b = topology.active_base_branch or "main"
                 checkout_proc = subprocess.run(
@@ -297,9 +305,9 @@ def cmd_onboard(
                     else:
                         sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
                     return 1
-                topology.current_branch = branch_name
+                topology.apply_checked_out_branch(branch_name)
 
-    # 6. Monorepo subproject path resolution
+    # 6. Monorepo subproject path resolution & pre-flight checks
     subproject_path = (ws / subproject).resolve() if subproject else ws
     if subproject and not subproject_path.is_dir():
         err_msg = f"Subproject directory '{subproject}' does not exist in {ws}"
@@ -309,10 +317,24 @@ def cmd_onboard(
             sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
         return 1
 
-    # 7. Purge stale build caches (.next/, .turbo/) before verification gates
+    rea_enabled = resolve_workspace_rea_enabled(
+        ws,
+        subproject_path,
+        rea=rea,
+        experimental_rea=experimental_rea,
+    )
+    engine_check = check_package_engines(subproject_path)
+
+    # 7. Purge stale build caches (.next/, .turbo/) before verification gates (git-tracked safe)
     purged_caches: List[str] = []
+    skipped_caches: List[str] = []
     if effective_purge_caches:
-        purged_caches = purge_build_caches(ws, subproject=subproject, dry_run=dry_run)
+        purged_caches = purge_build_caches(
+            ws,
+            subproject=subproject,
+            dry_run=dry_run,
+            skipped_tracked=skipped_caches,
+        )
 
     # 8. Configure git exclusions for runtime safety
     if not dry_run:
@@ -322,11 +344,16 @@ def cmd_onboard(
             _logger.debug("configure_git_exclude skipped: %s", exc)
 
     # Resolve canonical config_dir up front to avoid installing+immediately-pruning plugin-shadowed skills
-    config_dir_path = (
-        Path(config_dir).resolve()
-        if config_dir is not None
-        else Path(os.environ.get("AGYIS_CONFIG_DIR") or os.environ.get("PSL_CONFIG_DIR") or (Path.home() / ".gemini" / "config")).resolve()
+    raw_cfg_dir = (
+        config_dir
+        if config_dir is not None and str(config_dir).strip()
+        else (
+            os.environ.get("AGYIS_CONFIG_DIR")
+            or os.environ.get("PSL_CONFIG_DIR")
+            or (Path.home() / ".gemini" / "config")
+        )
     )
+    config_dir_path = Path(raw_cfg_dir).expanduser().resolve()
 
     # 9. Harmonize workspace (legacy .agent/ migration, rules tags, archive/prune; skills handled in step 10/11)
     harm_res = harmonize_workspace(
@@ -335,6 +362,7 @@ def cmd_onboard(
         prune_legacy=effective_prune,
         backup=True,
         stack=None,
+        rea_enabled=rea_enabled,
     )
     if not harm_res.success:
         if json_output:
@@ -417,10 +445,12 @@ def cmd_onboard(
         dry_run=dry_run,
     )
 
-    # 12c. Provision REA config, ledger & re-ops skill when --rea is requested
-    rea_enabled = bool(rea or experimental_rea)
+    # 12c. Provision REA config, ledger & re-ops skill when REA is active
     if rea_enabled:
-        provision_workspace_rea(subproject_path, dry_run=dry_run)
+        provision_workspace_rea(subproject_path, dry_run=dry_run, config_dir=config_dir_path)
+
+    # 12d. Auto-write .agyis/test_manifest.json without mutating package.json
+    test_manifest_info = run_onboard_test_manifest_sync(subproject_path, dry_run=dry_run)
 
     # 13a. Optional native test verification gate before commit / PR
     should_verify = bool((verify or open_pr) and not no_verify)
@@ -432,17 +462,32 @@ def cmd_onboard(
                 f"Native verification failed ({verification_res.get('command')}; "
                 f"exit {verification_res.get('exit_code')})"
             )
+            if engine_check.get("status") in ("WARNING", "ERROR") and engine_check.get("details"):
+                err_msg = f"{err_msg} | Engine mismatch: {engine_check['details']}"
             if json_output:
                 print(json.dumps({
                     "success": False,
                     "workspace": str(ws),
                     "target_workspace": str(subproject_path),
                     "error": err_msg,
+                    "engine_check": engine_check,
                     "verification": verification_res,
                 }, indent=2))
             else:
                 sys.stderr.write(theme.badge("FAIL", f"Error: {err_msg}", stream=sys.stderr) + "\n")
+                for hint in engine_check.get("fix_hints") or []:
+                    sys.stderr.write(f"  Fix hint: {hint}\n")
             return 1
+
+    # 13a-post. Register workspace in Antigravity project registry when requested
+    project_registry_res: Optional[Dict[str, Any]] = None
+    if ensure_project:
+        project_registry_res = ensure_project_registered(
+            ws,
+            config_dir=config_dir_path,
+            default_branch=topology.active_base_branch,
+            dry_run=dry_run,
+        )
 
     # 13b. Atomic commit for onboarded files (--commit or --pr)
     commit_created = False
@@ -527,10 +572,15 @@ def cmd_onboard(
             "skills_deduplicated": pruned_skills,
             "caches_purged": purged_caches,
             "purged_caches": purged_caches,
+            "skipped_caches": skipped_caches,
             "safety_patch": safety_patch_path,
             "untracked_warning": untracked_warning,
             "created_branch": created_branch_name,
+            "planned_branch": planned_branch_name,
             "database_port_check": db_check,
+            "engine_check": engine_check,
+            "test_manifest": test_manifest_info,
+            "project_registry": project_registry_res,
             "verification": verification_res,
             "committed": commit_created,
             "commit_sha": commit_sha,
@@ -570,8 +620,29 @@ def cmd_onboard(
     if purged_caches:
         prefix_cache = "[dry-run] Would purge" if dry_run else "Purged"
         print(f"  • {prefix_cache} {len(purged_caches)} build cache directory(ies): {', '.join(Path(p).name for p in purged_caches)}")
+    if skipped_caches:
+        print(f"  • Preserved {len(skipped_caches)} git-tracked cache directory(ies): {', '.join(Path(p).name for p in skipped_caches)}")
     if harm_res.legacy_agent_dir_found:
         print(f"  • Harmonized legacy .agent/: yes (pruned: {'yes' if effective_prune else 'no'})")
+    if engine_check and engine_check.get("status") in ("WARNING", "ERROR"):
+        print(f"  • Engine Check ({engine_check['status']}): {engine_check.get('details')}")
+        hints = engine_check.get("fix_hints") or []
+        if hints:
+            print(f"    Fix hints: {' | '.join(hints)}")
+    if test_manifest_info:
+        tm_label = "[dry-run] Would write" if dry_run else "Generated"
+        print(f"  • Test Manifest: {tm_label} .agyis/test_manifest.json ({test_manifest_info['framework']} / {test_manifest_info['package_manager']})")
+    if project_registry_res:
+        proj_action = project_registry_res.get("action")
+        proj_id = project_registry_res.get("project_id") or "-"
+        if proj_action == "would_create":
+            print(f"  • Project Registry: [dry-run] Would register project ({proj_id})")
+        elif proj_action == "already_registered":
+            print(f"  • Project Registry: already registered ({proj_id})")
+        elif proj_action == "created":
+            print(f"  • Project Registry: registered ({proj_id})")
+        else:
+            print(f"  • Project Registry: {proj_action} ({project_registry_res.get('error') or proj_id})")
     if db_check and db_check.get("status") == "WARNING":
         print(f"  • Warning: Database port conflict detected on port {db_check.get('port')}: {db_check.get('details')}")
     if verification_res:

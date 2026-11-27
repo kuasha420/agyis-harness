@@ -326,6 +326,7 @@ def check_tool(
 
     # 3. Version comparison
     status = "OK"
+    shim_mitigated = False
     if not version_str:
         status = "UNKNOWN_VERSION"
     elif min_version_str:
@@ -333,12 +334,24 @@ def check_tool(
         required_v = parse_version(min_version_str)
         if version_less_than(current_v, required_v):
             status = "OUTDATED"
-        elif is_shim or is_collision:
+        elif is_collision:
             status = "WARNING"
+        elif is_shim:
+            if hermetic_str:
+                status = "OK"
+                shim_mitigated = True
+            else:
+                status = "WARNING"
         else:
             status = "OK"
-    elif is_shim or is_collision:
+    elif is_collision:
         status = "WARNING"
+    elif is_shim:
+        if hermetic_str:
+            status = "OK"
+            shim_mitigated = True
+        else:
+            status = "WARNING"
 
     result_dict = {
         "name": name,
@@ -353,6 +366,8 @@ def check_tool(
         "collision_details": collision_details,
         "spec": spec,
     }
+    if shim_mitigated:
+        result_dict["shim_mitigated"] = True
     if hermetic_str:
         result_dict["hermetic_python_path"] = hermetic_str
     return result_dict

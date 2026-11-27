@@ -218,6 +218,115 @@ class TSJSTestSmellScanner:
             i += 1
         return "".join(out)
 
+    @staticmethod
+    def _mask_js_strings_and_comments_preserve_lines(code: str) -> str:
+        """Masks single/double/template string literals and JS comments while preserving line count."""
+        out: List[str] = []
+        i = 0
+        n = len(code)
+
+        def _consume_quoted(quote_char: str, pos: int) -> int:
+            out.append(" ")
+            pos += 1
+            while pos < n:
+                ch = code[pos]
+                if ch == "\\":
+                    out.append(" ")
+                    if pos + 1 < n:
+                        out.append("\n" if code[pos + 1] == "\n" else " ")
+                        pos += 2
+                    else:
+                        pos += 1
+                    continue
+                out.append("\n" if ch == "\n" else " ")
+                pos += 1
+                if ch == quote_char:
+                    break
+            return pos
+
+        def _consume_template(pos: int) -> int:
+            out.append(" ")
+            pos += 1
+            while pos < n:
+                ch = code[pos]
+                nxt = code[pos + 1] if pos + 1 < n else ""
+                if ch == "\\":
+                    out.append(" ")
+                    if pos + 1 < n:
+                        out.append("\n" if nxt == "\n" else " ")
+                        pos += 2
+                    else:
+                        pos += 1
+                    continue
+                if ch == "`":
+                    out.append(" ")
+                    return pos + 1
+                if ch == "$" and nxt == "{":
+                    out.extend((" ", " "))
+                    pos += 2
+                    depth = 1
+                    while pos < n and depth > 0:
+                        c = code[pos]
+                        c_nxt = code[pos + 1] if pos + 1 < n else ""
+                        if c in ("'", '"'):
+                            pos = _consume_quoted(c, pos)
+                        elif c == "`":
+                            pos = _consume_template(pos)
+                        elif c == "/" and c_nxt == "/":
+                            while pos < n and code[pos] != "\n":
+                                out.append(" ")
+                                pos += 1
+                        elif c == "/" and c_nxt == "*":
+                            out.extend((" ", " "))
+                            pos += 2
+                            while pos < n:
+                                if code[pos] == "*" and pos + 1 < n and code[pos + 1] == "/":
+                                    out.extend((" ", " "))
+                                    pos += 2
+                                    break
+                                out.append("\n" if code[pos] == "\n" else " ")
+                                pos += 1
+                        else:
+                            if c == "{":
+                                depth += 1
+                            elif c == "}":
+                                depth -= 1
+                            out.append("\n" if c == "\n" else " ")
+                            pos += 1
+                    continue
+                out.append("\n" if ch == "\n" else " ")
+                pos += 1
+            return pos
+
+        while i < n:
+            ch = code[i]
+            nxt = code[i + 1] if i + 1 < n else ""
+            if ch in ("'", '"'):
+                i = _consume_quoted(ch, i)
+                continue
+            if ch == "`":
+                i = _consume_template(i)
+                continue
+            if ch == "/" and nxt == "/":
+                while i < n and code[i] != "\n":
+                    out.append(" ")
+                    i += 1
+                continue
+            if ch == "/" and nxt == "*":
+                out.extend((" ", " "))
+                i += 2
+                while i < n:
+                    if code[i] == "*" and i + 1 < n and code[i + 1] == "/":
+                        out.extend((" ", " "))
+                        i += 2
+                        break
+                    out.append("\n" if code[i] == "\n" else " ")
+                    i += 1
+                continue
+            out.append(ch)
+            i += 1
+        return "".join(out)
+
     def scan(self) -> Tuple[List[TestSmell], List[BoundaryExemptionRecord], int]:
         """Executes lexical analysis on the test file."""
         # 1. Boundary inspection from imports or file stem
@@ -310,7 +419,8 @@ class TSJSTestSmellScanner:
         # Detect Header(props) or Button({ onClick }) instead of render(<Header />)
         # Exclude dot-preceded property calls like ApiClient.Connect(), Result.Ok(), DateTime.Now()
         pascal_call_pattern = re.compile(r'(?<!\.)(?<!\?)(?<!new\s)(?<!<\s)\b([A-Z][a-zA-Z0-9]+)\s*\(')
-        for offset, bline in enumerate(block_lines):
+        sm002_lines = self._mask_js_strings_and_comments_preserve_lines(block_code).splitlines()
+        for offset, bline in enumerate(sm002_lines):
             cur_line = start_line + offset
             # Skip lines with mounting or standard react creation
             if any(m in bline for m in ("render(", "mount(", "shallow(", "renderHook(", "createElement(", "jsx(", "jsxs(")):

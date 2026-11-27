@@ -13,12 +13,16 @@ Enforces strict workspace path containment and symlink safety without following 
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import sys
 from typing import List, Optional, Sequence, Set, Union
+
+_logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_TARGETS: tuple[str, ...] = (".next", ".turbo", "node_modules/.cache")
 
@@ -79,12 +83,59 @@ def _assert_contained(cand: Path, ws_resolved: Path) -> None:
             )
 
 
+def _has_git_marker(ws_resolved: Path) -> bool:
+    """Return True if workspace or any ancestor directory contains a .git entry."""
+    return any((cand / ".git").exists() for cand in (ws_resolved, *ws_resolved.parents))
+
+
+def _has_git_tracked_files(ws_resolved: Path, target: Path, ws: Path) -> bool:
+    """Return True if `git ls-files -z -- <relpath>` finds any tracked file under target."""
+    try:
+        rel_path = target.relative_to(ws).as_posix()
+    except ValueError:
+        try:
+            rel_path = target.resolve().relative_to(ws_resolved).as_posix()
+        except ValueError:
+            return True
+
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(ws_resolved), "ls-files", "-z", "--", rel_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        _logger.warning("Timed out checking git tracked status for '%s'; skipping purge.", rel_path)
+        return True
+    except OSError as exc:
+        _logger.debug("Skipping git ls-files check for '%s': %s", rel_path, exc)
+        return False
+
+    if proc.returncode != 0:
+        return False
+
+    tracked_entries = [p for p in proc.stdout.split(b"\x00") if p]
+    if tracked_entries:
+        sample = tracked_entries[0].decode("utf-8", errors="replace")
+        _logger.warning(
+            "Skipping cache purge for '%s': contains %d git-tracked file(s) (e.g. %s).",
+            rel_path,
+            len(tracked_entries),
+            sample,
+        )
+        return True
+    return False
+
+
 def purge_workspace_build_caches(
     workspace_dir: Union[Path, str],
     target_dirs: Optional[Sequence[str]] = None,
     dry_run: bool = False,
     max_depth: int = 3,
     subproject: Optional[Union[Path, str]] = None,
+    skipped_tracked: Optional[List[str]] = None,
 ) -> List[str]:
     """
     Purge stale build cache directories and files across workspace root and subprojects.
@@ -183,8 +234,13 @@ def purge_workspace_build_caches(
         # Prune dirs in-place to avoid descending into ignored or target subtrees
         dirs[:] = [d for d in dirs if d not in prune_names]
 
+    in_git_tree = bool(found_targets) and _has_git_marker(ws_resolved)
     purged: List[str] = []
     for target in sorted(found_targets, key=lambda p: str(p)):
+        if in_git_tree and _has_git_tracked_files(ws_resolved, target, ws):
+            if skipped_tracked is not None:
+                skipped_tracked.append(str(target))
+            continue
         if dry_run:
             purged.append(str(target))
         else:

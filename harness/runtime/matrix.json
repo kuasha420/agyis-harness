@@ -14,7 +14,7 @@
         "python": {
           "binary": "python3",
           "min_version": "3.12.0",
-          "recommended": "3.12.8",
+          "recommended": "3.14.0",
           "manager": "uv",
           "version_command": "python3 --version",
           "version_regex": "Python\\s+([0-9]+\\.[0-9]+\\.[0-9]+)",
@@ -22,7 +22,7 @@
           "heal_strategy": {
             "type": "user_space_manager",
             "manager_binary": "uv",
-            "install_command": "uv python install 3.12"
+            "install_command": "uv python install 3.14"
           }
         },
         "uv": {

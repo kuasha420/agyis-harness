@@ -6,7 +6,7 @@
 # Agyis Harness — Developer & Architecture Guide
 
 **Target Audience**: Harness Contributors, Maintainers, and Autonomous Agent Architects  
-**Version**: `1.1.1` (`2026-11-27`)  
+**Version**: `1.1.2` (`2026-11-27`)  
 **Repository**: `agyis-harness` (Package module: `harness`)  
 
 ---
@@ -23,54 +23,54 @@ agyis-harness/
 ├── hooks.json                # Declarative lifecycle hook registrations (7 blocks -> 8 runner targets)
 │
 ├── harness/                  # [THE PRODUCT] Distributable core package
-│   ├── cli.py                # Unified 29-command `agyis` CLI dispatcher (`30` parser entries incl. `changelogs`; `psl` legacy alias)
-│   ├── discovery.py          # Global/workspace resource discovery & root path resolution
+│   ├── cli.py                # Unified 30-command `agyis` CLI dispatcher (`31` parser entries incl. `changelogs`; `psl` legacy alias)
+│   ├── discovery.py          # Global/workspace resource discovery, `.agyis/test_manifest.json` (`discovery_manifest.py`) & root path resolution
 │   ├── agents/               # 8 canonical `agyis_*` specialist personas (<=20 v2.34+ tools)
 │   ├── cleanroom/            # Specification, obligation ledger (rea@6.9.0), and reconstruction verifiers
-│   ├── commands/             # 27 handler/helper modules + __init__.py backing 29 top-level subcommands
-│   ├── delivery/             # Installer, harmonizer, onboarder, release bumper, git topology, checkpoints
-│   ├── doctor/               # Modular diagnostics & health check runners
+│   ├── commands/             # 28 handler/helper modules + __init__.py backing 30 logical top-level subcommands
+│   ├── delivery/             # Installer, harmonizer, `rules_inject.py`, `projects.py`, onboarder, release bumper, git topology, checkpoints
+│   ├── doctor/               # Modular diagnostics & health check runners (incl. `SM002` comment/string masking & Qt/PySide6 exclusions)
 │   ├── gui/                  # Electron CDP WebSocket unlockers & HUD (`assets/` via importlib.resources)
-│   ├── harmonize/            # Legacy `.agent/` -> `.agents/` harmonization engine
-│   ├── hooks/                # 7 hooks.json blocks (8 doctor hook checks; fail-safe runner, anti-clobber & semaphore)
+│   ├── harmonize/            # Legacy `.agent/` -> `.agents/` harmonization & `.agyis/test_manifest.json` probes (`test_runner.py`, `test_probes.py`)
+│   ├── hooks/                # 7 hooks.json blocks (8 doctor hook checks; fail-safe runner, `#101` `inline_script_guard.py`, `#93` anti-clobber & `#67` semaphore)
 │   ├── mutation/             # Atomic file mutation & backup/patch helpers
 │   ├── re/                   # Cleanroom reverse-engineering & REA integration modules
 │   ├── remote/               # ControlMaster SSH multiplexing & compact triage (<2KB)
-│   ├── rules/                # Curated agent governance (Codex v2: PSL-INV-001..008 + PSL-RE-001)
-│   ├── runtime/              # Diagnostics, `healing.py` (`agyis-harness` REA path), hygiene checks, AFF
+│   ├── rules/                # Curated agent governance (Codex v2: PSL-INV-001..008 + PSL-RE-001; slim Prettier-clean `universal_agents.md`)
+│   ├── runtime/              # Diagnostics, `engine_checks.py` (`engines`/`packageManager`), `healing.py`, hygiene checks, AFF
 │   ├── skills/               # 32 modular skills (incl. `pause`, `resume`; `>100` L carry ToC, `<24,576` B cap; `.agents/skills/` symlinks)
 │   ├── subagents/            # Routing (`routing.py`), liveness, truth, succession, spec & scaffolding
 │   ├── telemetry/            # Session harvester, hub sync client & systemd user daemon
-│   └── utils/                # Shared helpers including state (`state.py`) & context metadata (`context.py`)
+│   └── utils/                # Shared helpers including state (`state.py`), plan parsing (`plan_parser.py`) & context metadata (`context.py`)
 │
 ├── pipeline/                 # [THE PROJECT] Telemetry extraction & empirical classification lab
 ├── data/                     # [THE PROJECT] Local empirical SQLite telemetry store (`telemetry.db`)
 ├── docs/                     # [THE PROJECT] ADRs (`001–035`), 7 Official Specs, 4 RE Specs, 4 Runbooks, 2 Taxonomy, Archive Index (`0069329`)
-└── tests/                    # [THE PROJECT] 121 test_*.py + 4 e2e/test_*.py hermetic suites (125 total)
+└── tests/                    # [THE PROJECT] 127 test_*.py + 4 e2e/test_*.py hermetic suites (131 total)
 ```
 
 ### Key Non-Negotiable Architecture Rules
-1. **Zero Mandatory External Dependencies (`PSL-INV-008`)**: `harness/` uses **strictly Python 3.12+ standard library**. Never import `pytest`, `requests`, `pydantic`, or `pipeline/` inside `harness/` (enforced by `agyis audit aff`).
+1. **Zero Mandatory External Dependencies (`PSL-INV-008`)**: `harness/` uses **strictly Python 3.12+ standard library** (CPython `3.14` recommended via `uv`). Never import `pytest`, `requests`, `pydantic`, or `pipeline/` inside `harness/` (enforced by `agyis audit aff`).
 2. **Externalized Foreign Assets (`PSL-INV-008`)**: Place browser/UI JS and CSS assets under `harness/gui/assets/` and load via `importlib.resources`, never as raw multiline Python strings.
 3. **Hermetic State Isolation (`harness/utils/state.py`, `PSL-INV-001`)**: Persistent runtime state defaults to `/tmp/agyis_harness_state_{uid}` and honors `AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR` overrides. Tests must inject isolated `tempfile.TemporaryDirectory()` paths.
-4. **On-Demand REA Skill Provisioning (`harness/runtime/healing.py`)**: Searches installed `rea-agents` packages and `~/.gemini/config/plugins/agyis-harness/skills/reverse-engineer-anything` rather than vendoring upstream skills in-tree; full cleanroom RE rules (`PSL-RE-001`) load on demand via `harness/skills/re-ops/SKILL.md`.
+4. **On-Demand REA Skill Provisioning (`harness/runtime/healing.py`)**: Searches installed `rea-agents` packages, standalone `<config_dir>/skills/reverse-engineer-anything`, and `~/.gemini/config/plugins/agyis-harness/skills/reverse-engineer-anything` rather than vendoring upstream skills in-tree; full cleanroom RE rules (`PSL-RE-001`) load on demand via `harness/skills/re-ops/SKILL.md`.
 
 ---
 
-## 2. Unified 28-Command CLI Architecture (`harness/cli.py`)
+## 2. Unified 30-Command CLI Architecture (`harness/cli.py`)
 
-`harness/cli.py` registers **28** top-level subparsers (`router` and `ladder` separately, plus `changelogs` alias on `changelog`) backed by 25 modules in `harness/commands/`:
+`harness/cli.py` registers **30** logical top-level subcommands (`31` top-level subparsers incl. `changelogs` alias on `changelog`; `router` and `ladder` as sibling subparsers) backed by 28 handler/helper modules in `harness/commands/`:
 
-| Domain | Top-Level Subcommands (`28`) | Primary Backing Modules |
+| Domain | Top-Level Subcommands (`30`) | Primary Backing Modules |
 | :--- | :--- | :--- |
 | **Diagnostics & Testing** | `doctor`, `test`, `status` | `harness/commands/{doctor,test,status}.py`, `harness/runtime/` |
 | **Lifecycle Hooks** | `hook` | `harness/commands/hook.py`, `harness/hooks/runner.py` |
 | **Cockpit & Routing** | `cockpit`, `router`, `ladder`, `checkpoint`, `subagents` | `harness/commands/{cockpit,checkpoint,subagents}.py`, `harness/subagents/routing.py` |
-| **Workspace & Onboarding** | `init`, `harmonize`, `onboard`, `clean`, `ext` | `harness/commands/{init,harmonize,onboard,clean,ext}.py`, `harness/delivery/` |
+| **Workspace & Onboarding** | `init`, `harmonize`, `onboard`, `project`, `clean`, `ext` | `harness/commands/{init,harmonize,onboard,project,clean,ext}.py`, `harness/delivery/` |
 | **Governance & Discovery** | `rules`, `skills`, `agents` | `harness/commands/{rules,skills,agents}.py`, `harness/subagents/` |
 | **Telemetry & AFF Audits** | `audit`, `sync`, `auth` | `harness/commands/{audit,sync,auth}.py`, `harness/telemetry/` |
 | **Cleanroom & Reverse Eng.** | `verify`, `re` | `harness/commands/{verify,re}.py`, `harness/cleanroom/`, `harness/re/` |
-| **Delivery, GUI & Releases** | `install`, `uninstall`, `gui`, `remote`, `release-notes`, `changelog` | `harness/commands/{install,gui,remote,release_notes,changelog}.py`, `harness/gui/` |
+| **Delivery, GUI & Releases** | `install`, `uninstall`, `gui`, `remote`, `release`, `release-notes`, `changelog` | `harness/commands/{install,gui,remote,release,release_notes,changelog}.py`, `harness/gui/` |
 
 Authoritative flags, sub-actions, and platform boundaries live in [`cli-palette.md`](official-specs/cli-palette.md) and [`platform-surface-mapping.md`](official-specs/platform-surface-mapping.md).
 
@@ -105,7 +105,7 @@ All hooks fail open on malformed stdin. Full protojson payload contracts, scaled
 ## 5. GUI HUD, Cleanroom Specs & Extensible Workspace CLI
 
 - **Electron CDP HUD (`agyis gui`)**: Assets under `harness/gui/assets/` track SPA routes (including split routes `/c/<id1>+<id2>?focused=<id2>`), fall back to `localStorage["agy_session_csrf_token"]`, stream live ConnectRPC updates, and purge stale DOM/style nodes on re-injection (`PSL-INV-007`). Opt-in CDP desktop launcher management lives in `harness/gui/launcher.py`.
-- **Cleanroom Verification (`agyis verify`)**: Validates **4** cleanroom RE specifications (including `antigravity_v2_34_compatibility_inventory.md`; verified via `agyis verify --spec`) in `docs/specs/` (zero executable code permitted inside `docs/specs/`), and verifies typed `.agents/ledger/obligation_ledger.json` coverage via `agyis verify` (`rea@6.9.0` schema, `ADR-028`, `PSL-INV-002`, `PSL-RE-001`).
+- **Cleanroom Verification (`agyis verify`)**: Validates **4** cleanroom RE specifications (including `antigravity_v2_34_compatibility_inventory.md`; verified via `agyis verify --spec`) in `docs/specs/` (zero executable code permitted inside `docs/specs/`), and verifies typed `.agents/ledger/{obligation_ledger.json,obligations.json}` coverage via `agyis verify` (`rea@6.9.0` schema, `ADR-028`, `PSL-INV-002`, `PSL-RE-001`).
 - **Dirtyroom Acceleration (`agyis re`) & Extensions (`agyis ext`)**: `.dirtyroom/` Ghidra `-noanalysis -readOnly` queries stay isolated under `PSL-RE-001` ([`rea-antigravity-architecture.md`](official-specs/rea-antigravity-architecture.md)); workspace extensions run inside `.agents/commands/` under `ADR-034`.
 
 ---

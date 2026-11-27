@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -49,27 +50,92 @@ __all__ = [
     "DEFAULT_BOUNDARY_RULES", "IGNORED_DIRS", "MAX_AFF_DISK_CACHE", "MAX_JS_ASSETS",
     "MAX_MODULE_LINES", "MAX_SCANNED_FILES", "MAX_TOP_LEVEL_DEFS",
     "SmellDefect", "aff_exempt", "audit_architectural_fitness", "audit_dependency_cycles",
-    "audit_import_boundaries", "audit_structural_smells",
+    "audit_import_boundaries", "audit_structural_smells", "filter_gitignored_paths",
 ]
 
 MAX_AFF_DISK_CACHE = 1024
 MAX_SCANNED_FILES = 10_000
 MAX_JS_ASSETS = 2_000
 _AFF_CACHE_VERSION = 1
+_EXTRA_IGNORED_DIRS = {"public", "dist-scripts", "out", ".out", "coverage"}
+
+
+def _find_git_root(resolved_base: Path) -> Optional[Path]:
+    """Return nearest ancestor directory containing .git, else None."""
+    for cand in (resolved_base, *resolved_base.parents):
+        if (cand / ".git").exists():
+            return cand
+    return None
+
+
+def filter_gitignored_paths(base_dir: Path, paths: List[Path]) -> List[Path]:
+    """Filter out gitignored paths using one batched `git check-ignore --stdin -z` call."""
+    if not paths:
+        return paths
+    resolved_base = base_dir.resolve()
+    git_root = _find_git_root(resolved_base)
+    if git_root is None:
+        return paths
+
+    rel_by_path: Dict[Path, str] = {}
+    rel_inputs: List[str] = []
+    seen_rels: Set[str] = set()
+    for p in paths:
+        try:
+            rel = (resolved_base / p.relative_to(base_dir)).relative_to(git_root).as_posix()
+        except (ValueError, OSError):
+            try:
+                rel = p.resolve().relative_to(git_root).as_posix()
+            except (ValueError, OSError):
+                continue
+        rel_by_path[p] = rel
+        if rel not in seen_rels:
+            seen_rels.add(rel)
+            rel_inputs.append(rel)
+
+    if not rel_inputs:
+        return paths
+
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(git_root), "check-ignore", "--stdin", "-z"],
+            input="\0".join(rel_inputs) + "\0",
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=2.0,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return paths
+
+    if proc.returncode not in (0, 1):
+        return paths
+
+    ignored = {item for item in proc.stdout.split("\0") if item}
+    if not ignored:
+        return paths
+    return [p for p in paths if rel_by_path.get(p) not in ignored]
 
 
 def _discover_workspace_files(base_dir: Path) -> Tuple[List[Path], List[Path]]:
-    """Single os.walk discovering bounded .py and .js files while skipping ignored dirs."""
+    """Single os.walk discovering bounded .py and .js files while skipping ignored dirs and gitignored files."""
+    effective_ignored = IGNORED_DIRS | _EXTRA_IGNORED_DIRS
     py_files: List[Path] = []
     js_files: List[Path] = []
     for root, dirs, files in os.walk(base_dir):
-        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith(".")]
+        dirs[:] = [d for d in dirs if d not in effective_ignored and not d.startswith(".")]
         root_path = Path(root)
         for f in files:
             if f.endswith(".py"):
                 py_files.append(root_path / f)
-            elif f.endswith(".js"):
+            elif f.endswith(".js") and not f.endswith(".min.js"):
                 js_files.append(root_path / f)
+    all_discovered = py_files + js_files
+    if all_discovered:
+        kept = set(filter_gitignored_paths(base_dir, all_discovered))
+        py_files = [p for p in py_files if p in kept]
+        js_files = [p for p in js_files if p in kept]
     py_files.sort()
     js_files.sort()
     return py_files[:MAX_SCANNED_FILES], js_files[:MAX_JS_ASSETS]

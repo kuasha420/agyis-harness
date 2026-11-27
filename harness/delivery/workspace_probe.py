@@ -613,7 +613,7 @@ def format_command_dictionary(
     descriptions: Optional[Dict[str, str]] = None,
     workspace_dir: Optional[Path] = None,
 ) -> str:
-    """Formats the command dictionary into shell code block annotations."""
+    """Formats the command dictionary into Prettier-clean shell code block annotations."""
     if not cmd_dict:
         return ""
     inferred_desc: Dict[str, str] = {}
@@ -624,16 +624,35 @@ def format_command_dictionary(
 
     lines = ["# ◆ Project Verification & Native Toolchain"]
     for verb, cmd in cmd_dict.items():
+        cmd_clean = " ".join(str(cmd).split())
+        if not cmd_clean:
+            continue
         desc = inferred_desc.get(verb) or STANDARD_VERB_DESCRIPTIONS.get(verb, f"Execute {verb}")
-        lines.append(f"{cmd:<46} # {desc}".rstrip())
+        desc_clean = " ".join(str(desc).split())
+        lines.append(f"{cmd_clean:<46} # {desc_clean}".rstrip())
     return "\n".join(lines)
 
 
 def normalize_tagged_rules(text: str) -> str:
     """Normalizes Markdown whitespace, blank lines, and emphasis for idempotent tagged block diffing."""
-    lines = [line.rstrip() for line in text.replace("\r\n", "\n").split("\n")]
-    norm = "\n".join(lines).strip()
-    norm = re.sub(r"\n{3,}", "\n\n", norm)
-    # Normalize standalone italics (*text* -> _text_) without touching **bold**
-    norm = re.sub(r"(?<!\*)\*([^\*\n]+)\*(?!\*)", r"_\1_", norm)
-    return norm
+    norm_lines: list[str] = []
+    in_fence = False
+    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        cleaned = line.rstrip(" \t")
+        stripped = cleaned.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            norm_lines.append(cleaned)
+            continue
+        if not in_fence:
+            parts = re.split(r"(`+[^`]*`+)", cleaned)
+            for idx in range(0, len(parts), 2):
+                parts[idx] = re.sub(
+                    r"(?<![*\\])\*([^\s*][^*\n]*?[^\s*]|[^\s*])\*(?!\*)",
+                    r"_\1_",
+                    parts[idx],
+                )
+            cleaned = "".join(parts)
+        norm_lines.append(cleaned)
+    norm = "\n".join(norm_lines).strip()
+    return re.sub(r"\n{3,}", "\n\n", norm)

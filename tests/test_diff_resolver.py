@@ -406,6 +406,48 @@ class TestSubshellGuards(unittest.TestCase):
         guarded_p, _ = inject_non_interactive_guards(cmd_pnpm)
         self.assertEqual(guarded_p, "pnpm test -- --no-watch")
 
+    def test_inject_guards_skips_non_watch_tools_and_compound_chains(self):
+        for cmd in (
+            "turbo run test",
+            "node --test tests/a.test.js",
+            "tsx --test scripts/validate.test.ts",
+            "npx playwright test",
+            "pnpm exec vitest related src/a.ts --run && cargo test",
+            "pnpm test && echo ok",
+            "pnpm test; echo done",
+            "pnpm test || true",
+            "npm test -- tests/a.test.js",
+        ):
+            guarded, _ = inject_non_interactive_guards(cmd)
+            self.assertEqual(guarded, cmd, f"Unexpected guard rewrite for: {cmd}")
+
+    def test_inject_guards_inspects_package_json_script_bodies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            pkg = ws / "package.json"
+
+            for body in (
+                "turbo run test",
+                "node --test tests/*.test.js",
+                "tsx --test scripts/env.test.ts",
+                "playwright test",
+                "vitest run",
+                "npm --prefix template run test",
+                'echo "No tests specified" && exit 0',
+            ):
+                pkg.write_text(json.dumps({"scripts": {"test": body}}), encoding="utf-8")
+                for pm_cmd in ("pnpm test", "npm test", "yarn test"):
+                    guarded, _ = inject_non_interactive_guards(pm_cmd, cwd=ws)
+                    self.assertEqual(guarded, pm_cmd, f"Unexpected --no-watch for {pm_cmd} -> {body}")
+
+            pkg.write_text(json.dumps({"scripts": {"test": "jest"}}), encoding="utf-8")
+            guarded_jest, _ = inject_non_interactive_guards("npm test", cwd=ws)
+            self.assertEqual(guarded_jest, "npm test -- --watchAll=false")
+
+            pkg.write_text(json.dumps({"scripts": {"test": "echo ok"}}), encoding="utf-8")
+            guarded_echo, _ = inject_non_interactive_guards("npm test", cwd=ws)
+            self.assertEqual(guarded_echo, "npm test -- --no-watch")
+
 
 class TestCLIDiffIntegration(unittest.TestCase):
     """Tests CLI command integration for diff-aware test flags."""

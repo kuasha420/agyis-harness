@@ -32,15 +32,14 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from harness.delivery.constants import GIT_EXCLUDE_PATTERNS, REPO_ROOT
 from harness.delivery.git_hygiene import configure_git_exclude
+from harness.delivery.rules_inject import (
+    build_workspace_rules_block,
+    has_tagged_block,
+    inject_tagged_block_clean,
+)
 from harness.delivery.workspace import (
-    LEGACY_TAG_END,
-    LEGACY_TAG_START,
-    TAG_END,
-    TAG_START,
-    TAGGED_BLOCK_PATTERN,
     adapt_spdx_license,
     detect_repository_license,
-    extract_command_descriptions,
     extract_command_dictionary,
     format_command_dictionary,
     normalize_tagged_rules,
@@ -85,13 +84,12 @@ def _find_git_root(path: Path) -> Optional[Path]:
 
 def _rewrite_legacy_agent_references(text: str) -> str:
     """
-    Rewrites references to legacy .agent/ paths (such as .agent/rules/, .agent/agents/,
-    .agent/workflows/, .agent/skills/, .agent/overlays/, .agent/overview.md) to modern .agents/ paths in markdown text.
-    Handles relative paths (../.agent/), link targets ([...](.agent/...)), and inline mentions.
+    Rewrites legacy .agent/ paths and bare .agent directory prose mentions to .agents
+    in markdown text without modifying .agents/ or hyphenated names like user-agent.
     """
     return re.sub(
-        r"(?<![a-zA-Z0-9_-])\.agent/(rules|agents|workflows|skills|overlays|overview\.md|[a-zA-Z0-9_.-]+)",
-        r".agents/\1",
+        r"(?<![a-zA-Z0-9_.-])\.agent(?=/|(?=[)\]\s`\"'.,:;!?*]|$))",
+        ".agents",
         text,
     )
 
@@ -223,6 +221,7 @@ def harmonize_workspace(
     skills: Optional[List[str]] = None,
     role: Optional[str] = None,
     subproject: Optional[Union[Path, str]] = None,
+    rea_enabled: bool = False,
 ) -> HarmonizeResult:
     """
     Non-destructively harmonizes a workspace from legacy .agent/ configuration
@@ -420,57 +419,45 @@ def harmonize_workspace(
 
     # 5. Harmonize AGENTS.md tagged block & rewrite internal references
     rules_path = ws / "AGENTS.md"
-    universal_rules_file = src / "harness" / "rules" / "universal_agents.md"
-    if not universal_rules_file.is_file():
-        for cand in [src / "rules" / "universal_agents.md", src / "rules" / "AGENTS.md"]:
-            if cand.is_file():
-                universal_rules_file = cand
-                break
-
-    if universal_rules_file.is_file():
-        universal_text = universal_rules_file.read_text(encoding="utf-8").strip()
-    else:
-        universal_text = "# Universal Empirical Agent Rules: Agyis Harness Guidelines"
-
+    stack_tokens = (
+        [s.strip() for s in stack.split(",") if s.strip() and s.strip() != "generic"]
+        if stack
+        else None
+    )
+    block_body = build_workspace_rules_block(
+        workspace_dir=ws,
+        source_dir=src,
+        formatted_commands=format_command_dictionary(cmd_dict, workspace_dir=ws),
+        stacks=stack_tokens,
+        rea_enabled=rea_enabled,
+        fallback_text="# Universal Empirical Agent Rules: Agyis Harness Guidelines",
+    )
+    assert block_body is not None
     if repo_license:
-        universal_text = adapt_spdx_license(universal_text, repo_license)
+        block_body = adapt_spdx_license(block_body, repo_license)
 
-    formatted_cmds = format_command_dictionary(cmd_dict, workspace_dir=ws)
-    if formatted_cmds:
-        if "```bash\n" in universal_text:
-            universal_text = universal_text.replace("```bash\n", f"```bash\n{formatted_cmds}\n\n", 1)
-        else:
-            universal_text = f"```bash\n{formatted_cmds}\n```\n\n{universal_text}"
-
-    tagged_block = f"{TAG_START}\n{universal_text}\n{TAG_END}"
     rules_action = "already_up_to_date"
-
     if rules_path.is_file():
         existing_rules = rules_path.read_text(encoding="utf-8")
         rewritten_existing = _rewrite_legacy_agent_references(existing_rules)
         if repo_license:
             rewritten_existing = adapt_spdx_license(rewritten_existing, repo_license)
-        if TAGGED_BLOCK_PATTERN.search(rewritten_existing):
-            new_rules = TAGGED_BLOCK_PATTERN.sub(tagged_block, rewritten_existing)
-            if new_rules != existing_rules and normalize_tagged_rules(new_rules) != normalize_tagged_rules(existing_rules):
+        new_rules = inject_tagged_block_clean(rewritten_existing, block_body)
+        if has_tagged_block(rewritten_existing):
+            if new_rules != existing_rules and normalize_tagged_rules(
+                new_rules
+            ) != normalize_tagged_rules(existing_rules):
                 rules_action = "migrated_tagged_block"
                 any_modified = True
                 if not dry_run:
                     rules_path.write_text(new_rules, encoding="utf-8")
-            else:
-                rules_action = "already_up_to_date"
         else:
-            existing_clean = rewritten_existing.rstrip()
-            if existing_clean:
-                new_rules = f"{existing_clean}\n\n{tagged_block}\n"
-            else:
-                new_rules = f"{tagged_block}\n"
             rules_action = "inserted_tagged_block"
             any_modified = True
             if not dry_run:
                 rules_path.write_text(new_rules, encoding="utf-8")
     else:
-        new_rules = f"{tagged_block}\n"
+        new_rules = inject_tagged_block_clean("", block_body)
         rules_action = "created_rules_file"
         any_modified = True
         if not dry_run:

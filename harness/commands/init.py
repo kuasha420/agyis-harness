@@ -79,15 +79,16 @@ def cmd_init(args: argparse.Namespace) -> int:
     dry_run = bool(getattr(args, "dry_run", False))
 
     config_dir_arg = getattr(args, "config_dir", None)
-    config_dir_path = (
-        Path(config_dir_arg).resolve()
-        if config_dir_arg is not None
-        else Path(
+    raw_cfg_dir = (
+        config_dir_arg
+        if config_dir_arg is not None and str(config_dir_arg).strip()
+        else (
             os.environ.get("AGYIS_CONFIG_DIR")
             or os.environ.get("PSL_CONFIG_DIR")
             or (Path.home() / ".gemini" / "config")
-        ).resolve()
+        )
     )
+    config_dir_path = Path(raw_cfg_dir).expanduser().resolve()
 
     # Avoid installing skills already provided by global plugins (PSL-INV-004)
     plugin_shadowed = {
@@ -139,7 +140,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     if rea_enabled and res.success:
         from harness.runtime.healing import provision_workspace_rea
 
-        provision_workspace_rea(target_ws, dry_run=dry_run)
+        provision_workspace_rea(target_ws, dry_run=dry_run, config_dir=config_dir_path)
 
     if getattr(args, "json", False):
         data = {

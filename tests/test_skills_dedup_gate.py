@@ -20,6 +20,7 @@ import shutil
 import tempfile
 import unittest
 
+from harness.delivery.surfaces import enforce_single_source_skills
 from harness.runtime.hygiene_checks import check_in_tree_skills_symlinks
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -175,6 +176,46 @@ class TestSkillsDedupGate(unittest.TestCase):
             result = check_in_tree_skills_symlinks(ws)
             self.assertEqual(result["status"], "PASS")
             self.assertEqual(result["checked"], 0)
+
+    def test_enforce_single_source_skills_prunes_standalone_global_shadows(self) -> None:
+        """enforce_single_source_skills prunes workspace copies/symlinks shadowing <config_dir>/skills/* even with 0 plugins."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cfg = root / "config"
+            ws = root / "consumer_ws"
+
+            # Standalone global skill (e.g. reverse-engineer-anything) with empty plugins/
+            standalone = cfg / "skills" / "reverse-engineer-anything"
+            standalone.mkdir(parents=True)
+            (standalone / "SKILL.md").write_text("# Global REA\n", encoding="utf-8")
+            (cfg / "plugins").mkdir(parents=True)
+
+            # Workspace duplicates: one symlink, one physical copy, one unique skill
+            ws_skills = ws / ".agents" / "skills"
+            ws_skills.mkdir(parents=True)
+            ws_link = ws_skills / "reverse-engineer-anything"
+            ws_link.symlink_to(standalone)
+
+            standalone2 = cfg / "skills" / "global-tool"
+            standalone2.mkdir(parents=True)
+            (standalone2 / "SKILL.md").write_text("# Global Tool\n", encoding="utf-8")
+            ws_copy = ws_skills / "global-tool"
+            ws_copy.mkdir(parents=True)
+            (ws_copy / "SKILL.md").write_text("# Copy\n", encoding="utf-8")
+
+            ws_custom = ws_skills / "repo-local-only"
+            ws_custom.mkdir(parents=True)
+            (ws_custom / "SKILL.md").write_text("# Repo Local\n", encoding="utf-8")
+
+            removed = enforce_single_source_skills(config_dir=cfg, workspace_dir=ws, dry_run=False)
+            self.assertIn(str(ws_link), removed)
+            self.assertIn(str(ws_copy), removed)
+            self.assertFalse(ws_link.exists() or ws_link.is_symlink())
+            self.assertFalse(ws_copy.exists())
+            # Standalone global skills and unique workspace skills remain intact
+            self.assertTrue((standalone / "SKILL.md").is_file())
+            self.assertTrue((standalone2 / "SKILL.md").is_file())
+            self.assertTrue((ws_custom / "SKILL.md").is_file())
 
 
 if __name__ == "__main__":

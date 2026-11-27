@@ -7,7 +7,7 @@
 
 # Empirical Agent Rules: Agyis Harness Guidelines
 
-These operational rules govern cognitive behavior and human-in-the-loop alignment for **agyis-harness** (formerly `psl-agy-harness`). Deterministic environment guarantees (CPython >= 3.12 runtime injection, pager normalization, surgical grep/diff exit sanitization, output compaction, and compaction runway advisories) are enforced transparently by harness hooks.
+These operational rules govern cognitive behavior and human-in-the-loop alignment for **agyis-harness** (formerly `psl-agy-harness`). Deterministic environment guarantees (CPython >= 3.12 with `3.14` recommended via `uv`, pager normalization, surgical grep/diff exit sanitization, output compaction, and compaction runway advisories) are enforced transparently by harness hooks.
 
 ---
 
@@ -15,7 +15,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 *Explicit CLI palettes yield 10x lower human intervention rates:*
 
 ```bash
-# 🧪 Verification & Testing (Hermetic, 2,623 tests, sub-second modules)
+# 🧪 Verification & Testing (Hermetic, 2,695 tests, sub-second modules)
 ./agyis test                                   # Run complete project test suite (~24s full suite, <1.0s modules)
 python3 -m harness.cli test                    # Run complete project test suite
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
@@ -33,6 +33,9 @@ agyis onboard [path] [flags]                   # Golden path onboarding (branch 
 agyis onboard . --create-branch chore/onboard  # Onboard target repository in isolated git branch
 agyis onboard . --allow-dirty                  # Proceed safely on dirty tree with pre-onboard safety patch
 agyis onboard . --skills db-ops,remote-ops     # Explicitly provision specialist skills override
+agyis onboard . --ensure-project               # Onboard and idempotently register workspace in projects/*.json
+agyis project list                             # List workspaces registered in <config_dir>/projects/*.json
+agyis project ensure [path] [--dry-run]        # Register workspace in Antigravity desktop project registry
 agyis init [path] [-s <stack>] [-r <role>]     # Initialize workspace project with stack skills & tagged rules
 agyis harmonize [path] [--dry-run|--apply]     # Harmonize legacy .agent/ directories into modern .agents/
 

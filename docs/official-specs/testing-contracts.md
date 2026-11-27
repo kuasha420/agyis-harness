@@ -9,7 +9,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Scope**: Project-Internal Test Standards & Product-Delivered Testing Invariants  
-**Last Updated**: 2026-11-27 (`v1.1.1`)  
+**Last Updated**: 2026-11-27 (`v1.1.2`)  
 
 ---
 
@@ -37,7 +37,7 @@ All unit, integration, and replay tests inside `tests/` must adhere to five inva
 - Fixtures must allocate isolated temporary directories (`tempfile.TemporaryDirectory()`) and clean up on teardown.
 
 ### B. The Sub-Second Benchmark Invariant (`PSL-INV-001`)
-- Individual component test modules must execute cleanly in **under 1.0 second**, while the macro repository suite across **121** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules (`125` total, **2,623** tests) executes hermetically (`./agyis test` or `python3 -m harness.cli test`) with zero external service dependencies.
+- Individual component test modules must execute cleanly in **under 1.0 second**, while the macro repository suite across **127** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules (`131` total, **2,695** tests) executes hermetically (`./agyis test` or `python3 -m harness.cli test`) with zero external service dependencies.
 - Unbounded sleeps, slow model invocations, and whole-filesystem sweeps are strictly prohibited in unit and integration tests.
 - Hook dispatch overhead remains sub-millisecond in steady state (verified at `<0.25 ms` / `241.3 us` on `50 KB` payloads for the 2 KB output compactor).
 
@@ -51,13 +51,13 @@ Every lifecycle hook must be validated against Antigravity's camelCase protojson
 - Defensive hooks include regression replay cases derived from historical failure trajectories recorded in `data/telemetry.db` (e.g., [test_command_safety.py](../../tests/test_command_safety.py) replays the PEP 701 f-string syntax trap to guarantee CPython >= 3.12 sanitization).
 
 ### E. Suite Layout & Execution Commands
-The `tests/` tree comprises **121** `tests/test_*.py` + **4** `tests/e2e/test_*.py` hermetic modules (`125` total, **2,623** tests) covering hooks, CLI commands, subagent contracts, delivery, cleanroom verification, and empirical pipeline stages (representative suites):
+The `tests/` tree comprises **127** `tests/test_*.py` + **4** `tests/e2e/test_*.py` hermetic modules (`131` total, **2,695** tests) covering hooks, CLI commands, subagent contracts, delivery, cleanroom verification, and empirical pipeline stages (representative suites):
 ```text
 tests/
 ├── test_agent_scaffold.py           # Agent scaffolding, workspace discovery, YAML frontmatter
 ├── test_anti_drift.py               # Plan boundary enforcement, native plan-mode lock, exemptions
 ├── test_anti_loop.py                # Repeat thresholds, reactive wait invariant, Issue #41 manage_task advisory
-├── test_cli.py                      # 29-command CLI dispatcher, subparser routing, lazy pipeline loading
+├── test_cli.py                      # 30-command CLI dispatcher, 31 subparsers, lazy pipeline loading
 ├── test_command_safety.py           # Dangerous patterns, TUI blocks, hermetic CPython, grep rewrite
 ├── test_command_safety_remote.py    # Remote grep rewrite, ControlMaster multiplexing, SSH timeouts
 ├── test_completion_fence.py         # Decoupled code_dirty/spec_dirty gating, exemptions, 2-block safety valve
@@ -117,3 +117,9 @@ Agyis Harness supplies modular on-demand testing skills (`psl-test-python`, `psl
 - Enforce hermetic execution contracts and diff-aware targeted runs (`test:diff`, `test:affected`, `test:full`).
 - Extract failing test cases, stack traces, and assertions cleanly.
 - Work alongside `output_compactor` hooks to keep test output compact before the agent processes it.
+
+### D. Non-Mutating Manifest Discovery & Strict Runner Gates (`v1.1.2`)
+Onboarding and `agyis test` enforce deterministic runner discovery across polyglot consumer repositories without unrequested project manifest edits:
+- **Non-Mutating `.agyis/test_manifest.json`**: `agyis onboard` generates `.agyis/test_manifest.json` (`mutate_package_json=False`, written unless `--dry-run`) preserving existing `package.json` indentation and Unicode characters (`ensure_ascii=False`), scoping `test:pkg` strictly to monorepos (including Cargo `[workspace]` and `[tool.uv.workspace]`), and emitting `ui_mounting.anti_synthetic_score: "not_applicable"` for non-frontend repositories.
+- **Script-Aware `--no-watch` Guard Suppression**: `inject_non_interactive_guards()` / `guard_package_manager_cmd()` suppresses `-- --no-watch` on `turbo`, `node --test`, `tsx`, `@playwright/test`, `jest`, compound shell chains (`&&`, `;`, `||`), and scripts whose body runs non-watch tools (normalizing `jest`/`react-scripts` to `--watchAll=false`), while honoring `packageManager` precedence (`yarn test` vs `pnpm` / `bun` / `npm`) and `.agyis/test_manifest.json` overrides.
+- **Strict `no_executable_runner` Gate**: When non-Python manifests (`package.json`, `Cargo.toml`, `go.mod`, etc.) or JS/TS/Playwright test files (`*.spec.*`, `*.test.*`, `e2e/*`) exist without an executable runner script, `agyis test` and onboarding verification fail explicitly (`status: "no_executable_runner"`, exit `1`) instead of falling back to a `0 tests` Python `unittest` false pass (unless `--allow-no-tests` is passed explicitly).

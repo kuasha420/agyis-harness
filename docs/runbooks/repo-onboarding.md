@@ -23,10 +23,10 @@ This human operator runbook establishes **`agyis onboard`** as the universal pat
 
 | Requirement | Minimum Version | Verification Command | Notes |
 | :--- | :--- | :--- | :--- |
-| **Python** | CPython >= 3.12 | `python3 --version` | Standard library only; zero external runtime dependencies. |
+| **Python** | CPython >= 3.12 (`3.14` recommended) | `python3 --version` | Standard library only; zero external runtime dependencies. |
 | **Git** | 2.38+ | `git --version` | Safe worktree and exclude support. |
 | **GitHub CLI (`gh`)** | 2.30+ | `gh auth status` | Required for remote permission checks and PR creation. |
-| **Agyis Harness** | `1.1.1` | `agyis doctor` | Installed globally (`~/.local/bin/agyis`) or via `./agyis`. |
+| **Agyis Harness** | `1.1.2` | `agyis doctor` | Installed globally (`~/.local/bin/agyis`) or via `./agyis`. |
 
 For cross-organization PRs or fork provisioning, ensure `repo` and `read:org` scopes are active:
 
@@ -60,8 +60,12 @@ flowchart TD
 # Preview every action safely without touching disk or git
 agyis onboard . --dry-run --json
 
-# Standard local onboarding in an isolated branch
+# Standard local onboarding in an isolated branch (auto-generates .agyis/test_manifest.json & slim Prettier-clean AGENTS.md)
 agyis onboard . --create-branch chore/agyis-harness-onboarding
+
+# Onboard and register workspace in <config_dir>/projects/*.json for Antigravity desktop discovery
+agyis onboard . --create-branch chore/agyis-harness-onboarding --ensure-project
+agyis project {list,ensure}
 
 # Explicit language + architectural role (supports monorepo subprojects)
 agyis onboard . --lang typescript --role frontend --create-branch --pr
@@ -85,7 +89,7 @@ agyis harmonize [path] --prune-legacy --backup # Legacy .agent/ -> .agents/ only
 
 ## 3. Build Cache Invalidation & Single-Source Skill Hygiene
 
-Stale framework caches (`.next/`, `.turbo/`, `node_modules/.cache/`) cause phantom build or TypeScript failures after branch switching or rebases. `agyis onboard` purges these caches by default (`--purge-caches`; opt out only with `--no-cache-purge`). To purge manually before running native tests:
+Stale framework caches (`.next/`, `.turbo/`, `node_modules/.cache/`) cause phantom build or TypeScript failures after branch switching or rebases. `agyis onboard` purges untracked caches by default (`--purge-caches`; opt out only with `--no-cache-purge`) while preserving any `git ls-files`-tracked paths inside candidate directories. To purge manually before running native tests:
 
 ```bash
 rm -rf .next/ .turbo/ node_modules/.cache/ apps/*/.next/ apps/*/.turbo/ packages/*/.turbo/
@@ -97,7 +101,7 @@ Copying standard harness skills into a client repository's `.agents/skills/` was
 
 | Tier | Location | Purpose |
 | :--- | :--- | :--- |
-| **Tier 1: Global Plugin** | `~/.gemini/config/plugins/agyis-harness/skills/` | Standard 30 harness capabilities (`db-ops`, `remote-ops`, `code-review`, stack/test skills). |
+| **Tier 1: Global Plugin** | `~/.gemini/config/plugins/agyis-harness/skills/` | Standard 32 harness capabilities (`db-ops`, `remote-ops`, `code-review`, stack/test skills). |
 | **Tier 2: Project Specialist** | `<workspace>/.agents/skills/` | Bespoke repository-only workflows or domain codegen. |
 | **Tier 3: User Standalone** | `~/.gemini/config/skills/` | Personal cross-workspace user skills. |
 

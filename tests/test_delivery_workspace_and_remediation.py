@@ -732,6 +732,55 @@ class TestDeliveryEngineRemediation(unittest.TestCase):
         self.assertTrue(skill_file.is_file())
         self.assertIn("SPDX-License-Identifier: MIT OR Apache-2.0", skill_file.read_text(encoding="utf-8"))
 
+    def test_install_workspace_emits_slim_prettier_clean_agents_md(self) -> None:
+        """install_workspace strips frontmatter, global PSL-INV duplicates, and inapplicable CLIs."""
+        (self.ws / "package.json").write_text(
+            json.dumps({"name": "ts-only", "license": "MIT", "scripts": {"test": "vitest"}}),
+            encoding="utf-8",
+        )
+        res = install_workspace(self.ws, stack="typescript", skills=["psl-stack-typescript"], source_dir=REPO_ROOT)
+        self.assertTrue(res.success)
+
+        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertNotIn("trigger: manual", content)
+        self.assertNotIn("PSL-INV-001)", content)
+        self.assertNotIn("agyis audit aff", content)
+        self.assertNotIn("agyis verify --spec", content)
+        self.assertIn("Inherits universal invariants PSL-INV-001 through PSL-INV-008", content)
+        self.assertTrue(content.endswith("\n"))
+        self.assertFalse(content.endswith("\n\n"))
+        for line in content.splitlines():
+            self.assertEqual(line, line.rstrip(" \t"))
+
+    def test_install_workspace_relocates_custom_sections_and_repairs_heading_fence(self) -> None:
+        """install_workspace rescues custom sections inside legacy fences and fixes ## <!-- Added by ... -->."""
+        (self.ws / "AGENTS.md").write_text(
+            "# Workspace Rules\n\n"
+            "## <!-- Added by AGYIS-HARNESS -->\n"
+            "## 2. Empirical Verification & Clean-Room Testing (PSL-INV-001)\n"
+            "- Global copy.\n\n"
+            "## 2.1 Oracle Grounding Invariant\n"
+            "- Keep this custom invariant.\n"
+            "<!-- End AGYIS-HARNESS -->\n",
+            encoding="utf-8",
+        )
+        res1 = install_workspace(self.ws, skills=[], source_dir=REPO_ROOT)
+        self.assertTrue(res1.success)
+        self.assertTrue(res1.rules_updated)
+
+        updated = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertNotIn("## <!-- Added by AGYIS-HARNESS -->", updated)
+        self.assertNotIn("Global copy.", updated)
+        self.assertIn("<!-- Added by AGYIS-HARNESS -->", updated)
+        self.assertGreater(
+            updated.index("## 2.1 Oracle Grounding Invariant"),
+            updated.index("<!-- End AGYIS-HARNESS -->"),
+        )
+
+        res2 = install_workspace(self.ws, skills=[], source_dir=REPO_ROOT)
+        self.assertTrue(res2.success)
+        self.assertFalse(res2.rules_updated)
+
 
 if __name__ == "__main__":
     unittest.main()

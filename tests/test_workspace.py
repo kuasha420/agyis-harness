@@ -132,11 +132,11 @@ class TestWorkspaceDetection(unittest.TestCase):
         self.assertEqual(detect_project_test_runner(self.workspace_dir), "npm test")
 
     def test_detect_npm_test_runner_with_yarn_lock(self):
-        """package.json with yarn.lock triggers 'npm test'."""
+        """package.json with yarn.lock triggers 'yarn test'."""
         (self.workspace_dir / "package.json").write_text("{}", encoding="utf-8")
         (self.workspace_dir / "yarn.lock").touch()
 
-        self.assertEqual(detect_project_test_runner(self.workspace_dir), "npm test")
+        self.assertEqual(detect_project_test_runner(self.workspace_dir), "yarn test")
 
     def test_detect_cargo_test_runner(self):
         """Cargo.toml triggers 'cargo test'."""

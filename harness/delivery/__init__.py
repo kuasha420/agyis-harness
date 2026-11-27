@@ -139,6 +139,12 @@ from harness.delivery.release_bump import (
     normalize_release_version,
     plan_release_bump,
 )
+from harness.delivery.projects import (
+    ensure_project_registered,
+    extract_project_folder_uris,
+    list_registered_projects,
+    normalize_folder_uri,
+)
 
 purge_build_caches = purge_workspace_build_caches
 
@@ -254,4 +260,8 @@ __all__ = [
     "format_release_check_report",
     "normalize_release_version",
     "plan_release_bump",
+    "ensure_project_registered",
+    "extract_project_folder_uris",
+    "list_registered_projects",
+    "normalize_folder_uri",
 ]

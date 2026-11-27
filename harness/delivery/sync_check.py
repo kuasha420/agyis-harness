@@ -116,12 +116,15 @@ def count_surface_inventory(workspace_root: Path) -> Dict[str, int]:
     subparsers = parser.add_subparsers(dest="command")
     register_core_parsers(subparsers)
     register_ops_parsers(subparsers)
-    cli_subparsers = len(getattr(subparsers, "_name_parser_map", {}))
+    name_parser_map = getattr(subparsers, "_name_parser_map", {})
+    cli_subparsers = len(name_parser_map)
+    cli_logical_subcommands = len({id(p) for p in name_parser_map.values()})
     return {
         "skills": skills,
         "agents": agents,
         "hooks": hooks,
         "cli_subparsers": cli_subparsers,
+        "cli_logical_subcommands": cli_logical_subcommands,
     }
 
 
@@ -424,7 +427,8 @@ def format_sync_check_report(report: Dict[str, Any]) -> str:
             f"skills={report['surface_inventory'].get('skills')}, "
             f"agents={report['surface_inventory'].get('agents')}, "
             f"hooks={report['surface_inventory'].get('hooks')}, "
-            f"cli_subparsers={report['surface_inventory'].get('cli_subparsers')}"
+            f"cli_subparsers={report['surface_inventory'].get('cli_subparsers')} "
+            f"({report['surface_inventory'].get('cli_logical_subcommands', report['surface_inventory'].get('cli_subparsers'))} logical)"
         ),
         f" Tests:       {report['tests'].get('live_tests'):,} live across {report['tests'].get('live_modules')} modules",
         f" IncludeSite: {report.get('include_site')}",

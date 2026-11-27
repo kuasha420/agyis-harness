@@ -3,20 +3,20 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Official Specification: Consolidated 29-Subparser CLI Palette
+# Official Specification: Consolidated 30-Command / 31-Subparser CLI Palette
 
 **Document**: Canonical CLI Subcommand Palette & Reference Guide  
 **Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Binary Entrypoint**: `agyis` (Primary) / `psl` (Deprecated Alias) / `python3 -m harness.cli`  
-**Last Updated**: 2026-11-27 (`v1.1.1`)  
+**Last Updated**: 2026-11-27 (`v1.1.2`)  
 
 ---
 
 ## 1. Executive Overview
 
-The unified developer CLI (`agyis` or `python3 -m harness.cli`, with backward-compatible alias `psl`) registers **29 top-level subparsers** (`30` registered parser keys including `changelogs` alias; `router` and `ladder` registered as sibling subparsers) across `harness/commands/`, `harness/delivery/`, `harness/subagents/`, `harness/remote/`, and `harness/telemetry/`. Per ADR-014 (Product vs. Project Bifurcation), core product CLI commands execute hermetically with zero mandatory third-party Python dependencies.
+The unified developer CLI (`agyis` or `python3 -m harness.cli`, with backward-compatible alias `psl`) registers **30 logical top-level subcommands** (`31` registered subparsers including `changelogs` alias; `router` and `ladder` registered as sibling subparsers) across `harness/commands/`, `harness/delivery/`, `harness/subagents/`, `harness/remote/`, and `harness/telemetry/`. Per ADR-014 (Product vs. Project Bifurcation), core product CLI commands execute hermetically with zero mandatory third-party Python dependencies.
 
 > [!NOTE]
 > **CLI Nomenclature & Deprecation Lifecycle**: `agyis` is the primary executable. The legacy command `psl` is preserved as a backward-compatible alias (`DeprecationWarning: 'psl' is deprecated and will be removed in 3 months. Use 'agyis' instead.` on `stderr`).
@@ -50,6 +50,7 @@ agyis [-h] [-v]
   ├── router        Dynamic subagent router across canonical workflows
   ├── ladder        Sibling subparser alias for `router` across canonical workflows
   ├── clean         Multi-branch workspace hygiene, worktree pruning & build artifact removal (ADR-031A, ADR-031B)
+  ├── project       List or idempotently register workspaces in Antigravity desktop project registry
   ├── re            Cleanroom reverse engineering toolsuite & Ghidra acceleration (ADR-028, ADR-034)
   └── ext           Extensible workspace CLI command runner & scaffolding suite (ADR-034)
 ```
@@ -60,15 +61,15 @@ agyis [-h] [-v]
 
 ### 1. `doctor`
 * **Syntax**: `agyis doctor [--matrix <path>] [-w|--workspace <path>] [--heal] [--json] [--rea] [--re] [--anti-synthetic] [--test-path <path>]`
-* **Purpose**: Audits the host environment against the 3-tier runtime compatibility matrix ([matrix.json](../../harness/runtime/matrix.json)) plus active `hooks.json` registration (`7` hook blocks / `8` verified hook runner checks):
-  - **Tier 1 (Languages/Packaging)**: Python >= 3.12 (PEP 701 f-strings), Node >= 20, `uv`, `pnpm`.
+* **Purpose**: Audits the host environment against the 3-tier runtime compatibility matrix ([matrix.json](../../harness/runtime/matrix.json)), `package.json` `engines`/`packageManager` constraints, and active `hooks.json` registration (`7` hook blocks / `8` verified hook runner checks):
+  - **Tier 1 (Languages/Packaging)**: Python >= 3.12 (`3.14` recommended via `uv`, PEP 701 f-strings; shim warnings downgrade to `[INFO]` when hermetic `uv` Python satisfies `min_version`), Node >= 20, `uv`, `pnpm`.
   - **Tier 2 (Core SWE CLI)**: `git >= 2.38`, `gh >= 2.30`, `ripgrep >= 13.0`, `fd >= 8.7`.
   - **Tier 3 (Mesh Host)**: `ssh >= 8.9`, `knot >= 1.0`.
   - **Port Collision Probing**: Probes TCP port 5432 to identify foreign container collisions and recommends dynamic port re-binding.
 * **Flags**:
   - `--matrix <path>`: Custom path to runtime matrix configuration (defaults to `harness/runtime/matrix.json`).
-  - `-w`, `--workspace <path>`: Target workspace path to inspect for config/RE activation.
-  - `--heal`: Executes safe zero-sudo user-space auto-healing via `uv` (provisions certified CPython >= 3.12).
+  - `-w`, `--workspace <path>`: Target workspace path to inspect for config/RE activation and `engines`/`packageManager` checks.
+  - `--heal`: Executes safe zero-sudo user-space auto-healing via `uv` (provisions certified CPython `3.14`, minimum `>= 3.12`).
   - `--rea` (deprecated alias: `--experimental-rea`): Audits Reverse Engineer Anything (`REA 6.9.0`, `255` MCP tools), MCP server registration, dynamic JDK 21+ discovery ladder, Ghidra 11.0+/12.2+ headless analyzer, and Hopper display socket contracts.
   - `--re`: Audits reverse engineering & dirtyroom forensic toolchain (`ghidra`, `objdump`, `tshark`, `ydotool`) and activates unified REA diagnostics.
   - `--anti-synthetic`: Audits test files for synthetic, tautological, and fake test smells.
@@ -90,8 +91,8 @@ agyis [-h] [-v]
 * **Behavior**: Delegates to `harness.hooks.runner.run_hook()`, providing fail-open deadlock protection (`{"decision": "allow"}`, `{}`, or `{"injectSteps": []}`).
 
 ### 3. `test`
-* **Syntax**: `agyis test [-v] [-s <dir>] [--diff] [--branch <ref>] [--affected] [--pkg <name>] [--full] [--harmonize] [--dry-run] [--mutation] [--json]`
-* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **121** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules = `125` total, **2,623** tests, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant) and clears verification fence flags on success.
+* **Syntax**: `agyis test [-v] [-s <dir>] [--diff] [--branch <ref>] [--affected] [--pkg <name>] [--full] [--harmonize] [--dry-run] [--mutation] [--allow-no-tests] [--json]`
+* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **127** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules = `131` total, **2,695** tests, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant), consults `.agyis/test_manifest.json` before `packageManager`/lockfile runner detection, rejects non-Python repos lacking executable runners (`no_executable_runner`, exit `1`) unless `--allow-no-tests` is passed, and clears verification fence flags on success.
 * **Flags**:
   - `-v`, `--verbose`: Enables detailed individual test case reporting.
   - `-s`, `--start-dir <path>`: Directory containing test suites (defaults to `tests/`).
@@ -103,6 +104,7 @@ agyis [-h] [-v]
   - `--harmonize`: Harmonizes test manifests before executing tests.
   - `--dry-run`: Previews test execution or harmonization without modifying files.
   - `--mutation`: Runs diff-aware in-harness micro-mutation testing against modified code.
+  - `--allow-no-tests`: Exits cleanly with status `0` when no executable test runner or zero discovered tests exist.
   - `--json`: Outputs test or mutation results in structured JSON format.
 * **Side Effects**: Upon zero exit code, sweeps `$AGYIS_HARNESS_STATE_DIR/verification_state_*.json` (or `$PSL_HARNESS_STATE_DIR`), setting `code_dirty = False` and `block_count = 0` to unlock agent completion.
 
@@ -232,7 +234,7 @@ agyis [-h] [-v]
 
 ### 14. `onboard`
 * **Syntax**: `agyis onboard [path] [flags]`
-* **Purpose**: Turnkey brownfield workspace onboarding combining git topology probing, legacy `.agent/` archiving and deterministic 2-step pruning, decoupled language & architectural role presets, explicit skills provisioning, cache purging, git exclusion configuration, and pull request creation.
+* **Purpose**: Turnkey brownfield workspace onboarding combining git topology probing (with `dry_run` branch truth), `engines`/`packageManager` preflight, `git ls-files`-safe build cache purging, 4-phase legacy `.agent/` archiving and pruning, slim Prettier-clean `AGENTS.md` injection (preserving custom headings), decoupled language & architectural role presets, single-source skill/rule deduplication (incl. standalone `<config_dir>/skills/`), non-mutating `.agyis/test_manifest.json` generation, strict native verification, optional `--ensure-project` desktop registration, and pull request creation.
 * **Flags**:
   - `path`: Target workspace path (defaults to current directory).
   - `--lang`, `--stack`, `-s`: Language preset (`typescript`, `node`, `javascript`, `python`, `rust`, `go`, `systems`, `shell`, `auto`).
@@ -243,15 +245,16 @@ agyis [-h] [-v]
   - `--base-branch`: Explicit base branch to target (default: auto-detected default/active branch).
   - `--create-branch [name]`: Dedicated onboarding branch isolation (defaults to `chore/agyis-harness-onboarding`).
   - `--allow-dirty`: Proceed on a dirty tree by automatically exporting `.agents/artifacts/pre_onboard_safety.patch` (and `wip-safety-pre-onboard.patch` backward-compat alias).
-  - `--purge-caches` / `--no-cache-purge`: Purge build caches (`.next`, `.turbo`) before verification (default: True).
+  - `--purge-caches` / `--no-cache-purge`: Purge untracked build caches (`.next`, `.turbo`) while protecting `git ls-files`-tracked paths before verification (default: True).
   - `--prune-legacy` / `--no-prune`: Safely archive legacy `.agent/` to tar.gz and prune (default: True).
-  - `--config-dir`: Optional custom configuration directory (overrides `~/.gemini/config`).
+  - `--config-dir`: Optional custom configuration directory (overrides `AGYIS_CONFIG_DIR` / `PSL_CONFIG_DIR` / `~/.gemini/config`).
+  - `--ensure-project`: Ensure the workspace is registered in `<config_dir>/projects/*.json` for Antigravity desktop discovery.
   - `--pr`, `--open-pr`, `--create-pr`: Open GitHub Pull Request via `gh pr create` upon verified test pass.
-  - `--verify` / `--no-verify`: Run native test verification before commit/PR (automatically active with `--pr` unless `--no-verify` is specified).
+  - `--verify` / `--no-verify`: Run strict native test verification before commit/PR (automatically active with `--pr` unless `--no-verify` is specified).
   - `--commit`: Create an atomic git commit for onboarded files (automatically active with `--pr`).
-  - `--dry-run`: Preview all onboarding operations without filesystem or git mutations.
+  - `--dry-run`: Preview all onboarding operations without filesystem or git mutations (preserves true `current_branch` and exposes `planned_branch`).
   - `--json`: Output machine-readable structured JSON report.
-  - `--rea` (deprecated alias: `--experimental-rea`): Provision Reverse Engineer Anything config, ledgers, and `re-ops` skill.
+  - `--rea` (deprecated alias: `--experimental-rea`): Provision Reverse Engineer Anything config, ledgers, and `re-ops` skill (also auto-inherited from `.agyis/config.json` `experimental_rea`).
 * **Exit Codes**: `0` on success; `1` on dirty tree without `--allow-dirty`, invalid git repository, verification failure, or missing path.
 
 ### 15. `install`
@@ -281,7 +284,7 @@ agyis [-h] [-v]
 * **Flags**:
   - `--spec`: Verifies cleanroom specifications in `docs/specs/**`. Asserts zero executable code files exist inside specification directories and resets `spec_dirty = False` in the completion fence.
   - `--scaffold`: Scaffolds a typed `.agents/ledger/obligation_ledger.json` adhering to `REA 6.9.0` strictObject schema.
-  - Without `--spec` / `--scaffold`: When `.agents/ledger/obligation_ledger.json` exists, delegates to `rea build-reconstruction-obligation-ledger` and `rea evaluate-reconstruction-coverage` (otherwise attempts `rea verify-reconstruction`), falling back to native validation of `.agents/ledger/obligation_ledger.json` or `.agents/ledger/manifest.json` and `docs/specs/**` when `rea` is unavailable.
+  - Without `--spec` / `--scaffold`: When `.agents/ledger/obligation_ledger.json` or `.agents/ledger/obligations.json` exists, delegates to `rea build-reconstruction-obligation-ledger` and `rea evaluate-reconstruction-coverage` (otherwise attempts `rea verify-reconstruction`), falling back to native validation of `.agents/ledger/{obligation_ledger.json,obligations.json,manifest.json}` and `docs/specs/**` when `rea` is unavailable.
   - `--workspace`, `-w`: Target workspace root path (default: current directory).
   - `--json`: Structured JSON verification output.
 * **Exit Codes**: `0` on satisfied specifications/manifests; `1` if executable code exists in `docs/specs/` or if obligations remain unsatisfied.
@@ -366,7 +369,14 @@ agyis [-h] [-v]
   - `--retention <N>` / `--scratch-hours <H>`: Checkpoint retention count (default `5`) and scratchpad age threshold in hours (default `24.0`).
   - `--dry-run`, `-w|--workspace`, `--json`: Preview mode, workspace root override, and JSON report.
 
-### 28. `re`
+### 28. `project`
+* **Syntax**: `agyis project {list,ensure} [args]`
+* **Purpose**: Inspects and idempotently registers Antigravity desktop workspace entries inside `<config_dir>/projects/*.json` (`harness/commands/project.py`, `harness/delivery/projects.py`), deduplicating normalized `file:///.../` folder URIs across both `gitFolder.folderUri` and bare `folderUri` entries.
+* **Subcommands**:
+  - `list [--config-dir <path>] [--json]`: Lists registered Antigravity projects (`name`, `id`, `kind`, `default_branch`, `folder_uris`).
+  - `ensure [path] [--config-dir <path>] [--name <name>] [--branch <branch>] [--dry-run] [--json]`: Idempotently registers `path` (default: CWD) with canonical `gitFolder` schema unless already registered (`action: "already_registered" | "would_create" | "created"`).
+
+### 29. `re`
 * **Syntax**: `agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs,addr,cache,daemon,seed,prime,clean} [args]`
 * **Purpose**: Cleanroom reverse engineering toolsuite, Ghidra direct-mount acceleration, persistent MCP daemon bridge & query caching engine (ADR-028, ADR-034, `PSL-RE-001`, Issue #113).
 * **Subcommands**:
@@ -386,7 +396,7 @@ agyis [-h] [-v]
   - `prime [--top <N>] [--file <path>] [--binary <name>] [--timeout <N>] [--dry-run] [--json]`: Pre-warms decompiler query cache on priority functions to guarantee sub-millisecond retrieval.
   - `clean [--locks] [--logs] [--vacuum] [--force] [--dry-run] [--json]`: Safe hygiene and space reclamation; removes orphan Ghidra locks, prunes old logs, and vacuums SQLite database.
 
-### 29. `ext`
+### 30. `ext`
 * **Syntax**: `agyis ext {list,run,init} [args]`
 * **Purpose**: Extensible workspace CLI command runner and management suite (ADR-034).
 * **Subcommands**:
@@ -400,12 +410,12 @@ agyis [-h] [-v]
 To verify the CLI palette programmatically:
 
 ```bash
-# Verify all 29 top-level subparsers (30 parser entries incl. changelogs alias; router and ladder separate subparsers) are registered:
+# Verify all 30 logical subcommands (31 subparser entries incl. changelogs alias; router and ladder separate subparsers) are registered:
 agyis --help
 # or: python3 -m harness.cli --help
 
 # Verify individual subcommand help dispatch:
-for cmd in doctor hook test audit rules skills agents subagents status remote auth sync init harmonize onboard install uninstall verify gui release release-notes changelog checkpoint cockpit router ladder clean re ext; do
+for cmd in doctor hook test audit rules skills agents subagents status remote auth sync init harmonize onboard install uninstall verify gui release release-notes changelog checkpoint cockpit router ladder clean project re ext; do
     agyis "$cmd" --help > /dev/null
 done
 ```

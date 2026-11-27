@@ -469,7 +469,7 @@ const SKILL_CATALOG = {
   "psl-audit-toolkit": { category: "telemetry", desc: "Empirical telemetry analysis toolkit for session performance, failure classification, loop detection, and harness tuning." },
   "psl-harmonize": { category: "workflow", desc: "Inspect, diagnose, and migrate legacy .agent/ directories and workflows into modular .agents/ single-source layouts." },
   "psl-stack-backend": { category: "stack", desc: "Backend architectural patterns, multi-tenant isolation, API contract discipline, and database migration safety." },
-  "psl-stack-python": { category: "stack", desc: "Hermetic CPython >= 3.12 development standards, runtime execution hygiene, and stdlib-first CLI engineering." },
+  "psl-stack-python": { category: "stack", desc: "Hermetic CPython >= 3.12 (3.14 recommended) development standards, runtime execution hygiene, and stdlib-first CLI engineering." },
   "psl-stack-shell": { category: "stack", desc: "Strict bash scripting standards, exit-code safety (grep/diff || [ $? -eq 1 ]), and non-interactive pipeline patterns." },
   "psl-stack-systems": { category: "stack", desc: "Systems engineering, Linux/Wayland automation, systemd user services, and network/workstation diagnostics." },
   "psl-stack-typescript": { category: "stack", desc: "Strict TypeScript contracts, bounded module boundaries, and zero-any architectural invariants." },

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from harness.doctor.smell_models import (
@@ -35,6 +36,44 @@ from harness.doctor.smell_models import (
 )
 
 
+QT_FRAMEWORK_CLASSES: Set[str] = {
+    "QApplication",
+    "QCoreApplication",
+    "QDialog",
+    "QFrame",
+    "QGraphicsScene",
+    "QGraphicsView",
+    "QGridLayout",
+    "QGuiApplication",
+    "QHBoxLayout",
+    "QLabel",
+    "QMainWindow",
+    "QObject",
+    "QPushButton",
+    "QQmlApplicationEngine",
+    "QQmlComponent",
+    "QQmlContext",
+    "QQmlEngine",
+    "QQuickItem",
+    "QQuickView",
+    "QQuickWidget",
+    "QSignalSpy",
+    "QStackedWidget",
+    "QTest",
+    "QThread",
+    "QTimer",
+    "QVBoxLayout",
+    "QWebEngineView",
+    "QWidget",
+}
+_QT_SYMBOL_RE = re.compile(r"^Q[A-Z]")
+
+
+def _is_qt_module(module_name: str) -> bool:
+    base = (module_name or "").split(".", 1)[0]
+    return base == "qtpy" or base.startswith(("PySide", "PyQt"))
+
+
 class PythonTestSmellVisitor(ast.NodeVisitor):
     """AST Visitor auditing Python test functions for synthetic test smells."""
 
@@ -48,6 +87,8 @@ class PythonTestSmellVisitor(ast.NodeVisitor):
         # Maps local symbol name -> qualified module name (e.g. "sp" -> "subprocess", "run" -> "subprocess.run")
         self.boundary_symbols: Dict[str, str] = {}
         self.class_boundary_modules: List[str] = []
+        self.qt_framework_symbols: Set[str] = set()
+        self._has_qt_wildcard_import: bool = False
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -66,6 +107,12 @@ class PythonTestSmellVisitor(ast.NodeVisitor):
                     self.boundary_symbols[local_name] = f"{node.module}.{alias.name}"
                 self.boundary_symbols[node.module] = node.module
                 self.boundary_symbols[base_mod] = base_mod
+            if _is_qt_module(node.module):
+                for alias in node.names:
+                    if alias.name == "*":
+                        self._has_qt_wildcard_import = True
+                    else:
+                        self.qt_framework_symbols.add(alias.asname or alias.name)
         self.generic_visit(node)
 
     def _collect_patch_boundary_mods(self, call: ast.Call, out: List[str], check_object: bool = True) -> None:
@@ -214,6 +261,16 @@ class PythonTestSmellVisitor(ast.NodeVisitor):
                             local_constants[tgt.id] = c_val
         constant_tautologies: List[Tuple[int, str]] = []
 
+        local_qt_symbols: Set[str] = set(self.qt_framework_symbols)
+        local_qt_wildcard = self._has_qt_wildcard_import
+        for imp_node in ast.walk(node):
+            if isinstance(imp_node, ast.ImportFrom) and imp_node.module and _is_qt_module(imp_node.module):
+                for alias in imp_node.names:
+                    if alias.name == "*":
+                        local_qt_wildcard = True
+                    else:
+                        local_qt_symbols.add(alias.asname or alias.name)
+
         for subnode in ast.walk(node):
             if subnode is node:
                 continue
@@ -266,10 +323,16 @@ class PythonTestSmellVisitor(ast.NodeVisitor):
 
                 if isinstance(subnode.func, ast.Name):
                     callee = subnode.func.id
+                    is_qt_symbol = (
+                        callee in QT_FRAMEWORK_CLASSES
+                        or callee in local_qt_symbols
+                        or (local_qt_wildcard and bool(_QT_SYMBOL_RE.match(callee)))
+                    )
                     if (
                         callee
                         and callee[0].isupper()
                         and callee not in JS_BUILTIN_PASCAL_CASE
+                        and not is_qt_symbol
                         and not callee.endswith("Error")
                         and (
                             callee.endswith("Component")

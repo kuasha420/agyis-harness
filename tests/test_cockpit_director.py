@@ -395,5 +395,93 @@ class TestCockpitCheckpointScoping(unittest.TestCase):
                 self.assertTrue(any("Missing stage transition payload" in v for v in inv5_real["violations"]))
 
 
+class TestStalePlanExclusionIssue94(unittest.TestCase):
+    """Regression coverage for #94 stale workspace prose *PLAN*.md exclusion and source_type reporting."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_ignores_static_prose_plan_docs_without_active_markers(self) -> None:
+        """Zero-checkbox and completed-only *PLAN*.md in root/docs/ are rejected when no brain plan exists (#94)."""
+        from harness.utils.plan_parser import find_active_plan, resolve_active_plan
+
+        (self.workspace / "ARCHITECTURE_REFACTORING_PLAN.md").write_text(
+            "# Architecture Refactoring Plan\n\nStatic architecture notes without task markers.\n",
+            encoding="utf-8",
+        )
+        docs_dir = self.workspace / "docs"
+        docs_dir.mkdir(parents=True)
+        (docs_dir / "migration_plan.md").write_text(
+            "# Migration Plan\n\n- [x] Old step completed in 2025\n",
+            encoding="utf-8",
+        )
+
+        self.assertIsNone(find_active_plan(workspace_root=self.workspace))
+        resolved, src_type = resolve_active_plan(workspace_root=self.workspace, allow_unmarked_root_plans=False)
+        self.assertIsNone(resolved)
+        self.assertEqual(src_type, "none")
+
+        parser = build_parser()
+        args_json = parser.parse_args(["cockpit", "status", "--workspace", str(self.workspace), "--json"])
+        out_json = io.StringIO()
+        with patch.dict(os.environ, {"ANTIGRAVITY_APP_DATA_DIR": str(self.workspace / "app")}, clear=False), \
+             patch("sys.stdout", out_json):
+            self.assertEqual(cmd_cockpit(args_json), 0)
+        payload = json.loads(out_json.getvalue())
+        self.assertIsNone(payload["active_plan"])
+        self.assertEqual(payload["source_type"], "none")
+
+        args_txt = parser.parse_args(["cockpit", "status", "--workspace", str(self.workspace)])
+        out_txt = io.StringIO()
+        with patch.dict(os.environ, {"ANTIGRAVITY_APP_DATA_DIR": str(self.workspace / "app")}, clear=False), \
+             patch("sys.stdout", out_txt):
+            self.assertEqual(cmd_cockpit(args_txt), 0)
+        self.assertIn("None declared (source_type: none)", out_txt.getvalue())
+
+    def test_binds_marked_active_workspace_plan_and_prefers_brain_plan(self) -> None:
+        """Binds - [ ] / - [/] / status: active plans and prioritizes session brain implementation_plan.md."""
+        from harness.utils.plan_parser import find_active_plan
+
+        (self.workspace / "ARCHITECTURE_REFACTORING_PLAN.md").write_text(
+            "# Static Prose Plan\n\nNo active checkboxes.\n",
+            encoding="utf-8",
+        )
+        docs_dir = self.workspace / "docs"
+        docs_dir.mkdir(parents=True)
+        active_doc = docs_dir / "ACTIVE_MIGRATION_PLAN.md"
+        active_doc.write_text("# Active Migration Plan\n\n- [/] In progress task\n", encoding="utf-8")
+
+        self.assertEqual(find_active_plan(workspace_root=self.workspace), active_doc)
+
+        parser = build_parser()
+        args_active = parser.parse_args(["cockpit", "status", "--workspace", str(self.workspace), "--json"])
+        out_active = io.StringIO()
+        with patch.dict(os.environ, {"ANTIGRAVITY_APP_DATA_DIR": str(self.workspace / "app")}, clear=False), \
+             patch("sys.stdout", out_active):
+            self.assertEqual(cmd_cockpit(args_active), 0)
+        payload_active = json.loads(out_active.getvalue())
+        self.assertEqual(Path(payload_active["active_plan"]), active_doc)
+        self.assertEqual(payload_active["source_type"], "workspace_active_plan")
+
+        brain_cid_dir = self.workspace / "app" / "brain" / "sess-94"
+        brain_cid_dir.mkdir(parents=True)
+        brain_plan = brain_cid_dir / "implementation_plan.md"
+        brain_plan.write_text("# Session Plan\n- [ ] Do work\n", encoding="utf-8")
+        out_brain = io.StringIO()
+        with patch.dict(
+            os.environ,
+            {"ANTIGRAVITY_APP_DATA_DIR": str(self.workspace / "app"), "ANTIGRAVITY_CONVERSATION_ID": "sess-94"},
+            clear=False,
+        ), patch("sys.stdout", out_brain):
+            self.assertEqual(cmd_cockpit(args_active), 0)
+        payload_brain = json.loads(out_brain.getvalue())
+        self.assertEqual(Path(payload_brain["active_plan"]), brain_plan)
+        self.assertEqual(payload_brain["source_type"], "session_brain")
+
+
 if __name__ == "__main__":
     unittest.main()

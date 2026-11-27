@@ -8,7 +8,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Repository**: `kuasha420/agyis-harness`  
-**Last Updated**: 2026-11-27 (`v1.1.1`)  
+**Last Updated**: 2026-11-27 (`v1.1.2`)  
 
 ---
 
@@ -19,7 +19,7 @@
 2. **The Reference Extension Harness** (`harness/`): Zero-dependency standard-library runtime enforcing deterministic protections rather than relying on prompt rules alone.
 
 ### Non-Negotiable Contracts
-- **Code Enforces, Prompts Guide Cognition**: Runtime PATH/Python `>=3.12` injection (`uv`), `PAGER=cat`, `grep`/`diff` exit-1 sanitization, 2KB output compaction (`39.69%` output volume / `21.31%` context saved), loop breaking, and completion fences live in code hooks; **Codex v2** (`GLOBAL_AGENTS.md` / `AGENTS.md`) governs cognitive discipline via **8** core invariants (`PSL-INV-001`–`008`) plus the on-demand `PSL-RE-001` cleanroom RE pack.
+- **Code Enforces, Prompts Guide Cognition**: Runtime PATH/Python `>=3.12` (`3.14` recommended via `uv`) injection, `PAGER=cat`, `grep`/`diff` exit-1 sanitization, 2KB output compaction (`39.69%` output volume / `21.31%` context saved), loop breaking, and completion fences live in code hooks; **Codex v2** (`GLOBAL_AGENTS.md` / `AGENTS.md`) governs cognitive discipline via **8** core invariants (`PSL-INV-001`–`008`) plus the on-demand `PSL-RE-001` cleanroom RE pack.
 - **3-Tier Coexistence**: Layer 3 Workspace Local (`.agents/`) > Layer 2 User Environment (`~/.gemini/config/`, `~/.gemini/antigravity/`) > Layer 1 Global Plugin (`~/.gemini/config/plugins/agyis-harness/`).
 - **Product vs. Project Bifurcation (`ADR-014`)**: Distributable `harness/` never imports from or bundles `pipeline/`, `data/`, `tests/`, or `docs/` (`agyis audit aff`).
 - **Hermetic State & Single-Source Hygiene**: Hook state persists under `/tmp/agyis_harness_state_{uid}` (`AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR` override); `.agents/skills/` and `.agents/agents/` mirror `../../harness/` via symlinks (`~4,500` tokens/turn saved).
@@ -38,18 +38,18 @@ Dynamically scaled across **`256k`**, **Gemini 4 (`gemini-4-neon`, `gemini-4-hyd
 
 ---
 
-## 3. Completed Baseline (`v1.1.1` Uplift — Antigravity `v2.35.2`, Live HUD & Orbital Aegis Showcase)
+## 3. Completed Baseline (`v1.1.2` Uplift — Antigravity `v2.35.2`, Live HUD & 10-Repo Onboarding Hardening)
 
-Phases 0.5 through **`v1.0.0` GA** and the **`v1.1.0` Two-Stream Uplift** (`Horizon 0` empirical ground truth & `3,856`-session Gate 0 corpus, `Horizon 1` core foundation, `v1.0.0-rc11` bug bash & modular ConnectRPC HUD, **29/29** Antigravity `v2.34.0+` / `agy v1.5.15` / `IDE v2.8.0` / `rea@6.9.0` compatibility fixes across `rc12`–`rc13`, continuous CI & wheel release publishing in `rc14`, **PSL Invariant Codex v2** `PSL-INV-001`–`008` + `PSL-RE-001` in `v1.0.0` GA, plus `v1.1.0` Waves 1.1–1.4 `v2.35.2` `exa.hooks_pb` wire compatibility, SQLite lineage role pinning, Option-B checkpoint HUD / `:40624` playback parity, Waves 2–2.5 Orbital Aegis Light/Dark `2.5D` 5-route site, and Wave 2.6 `#119`/`#120`/`#121` hardening) are complete:
-- **Verified Surface**: **29** CLI subcommands (`30` parser entries including `release` & `changelogs` alias; `router` & `ladder` separate), **32** modular skills (including `pause` and `resume` alongside `graceful-parking` and `powerloss-resume`; `>100` L ToC, `<24,576` B cap), **8** canonical `v2.34+`/`2.35.2` agent personas (`19` canonical tools `<=20` ceiling), **7** `hooks.json` blocks (**8** `doctor` hook checks), **4** cleanroom RE specifications (including the 29-entry `v2.34.0` drift inventory), **7** official specs, and **4** human runbooks.
-- **Verified Quality Gate**: **2,623** hermetic tests (`121` `tests/test_*.py` + `4` `tests/e2e/test_*.py` modules = `125` total), **AFF** architectural fitness gate (`agyis audit aff`, `PSL-INV-008`), **4** cleanroom RE specifications (`agyis verify --spec`), SSOT parity audit (`agyis audit sync-check`), continuous CI (`.github/workflows/ci.yml`), and zero live `config.json` mutation.
+Phases 0.5 through **`v1.0.0` GA** and the **`v1.1.x` Uplift** (`Horizon 0` empirical ground truth & `3,856`-session Gate 0 corpus, `Horizon 1` core foundation, `v1.0.0-rc11` bug bash & modular ConnectRPC HUD, **29/29** Antigravity `v2.34.0+` / `agy v1.5.15` / `IDE v2.8.0` / `rea@6.9.0` compatibility fixes across `rc12`–`rc13`, continuous CI & wheel release publishing in `rc14`, **PSL Invariant Codex v2** `PSL-INV-001`–`008` + `PSL-RE-001` in `v1.0.0` GA, `v1.1.0`–`v1.1.1` `v2.35.2` `exa.hooks_pb` wire compatibility, SQLite lineage role pinning, Option-B checkpoint HUD / `:40624` playback parity, Orbital Aegis Light/Dark `2.5D` 5-route site, `/pause` + `/resume` skills, unified `agyis release`, plus `v1.1.2` CPython `3.14` uplift, slim Prettier-clean `AGENTS.md` injection, `.agyis/test_manifest.json` non-mutating onboarding, `agyis project {list,ensure}`, `engines`/`packageManager` preflight, `#101` POSIX quote scanner, `#94` plan exclusion, burn-rate & `PreInvocation` status fixes) are complete:
+- **Verified Surface**: **30** logical CLI subcommands (`31` parser entries including `project`, `release` & `changelogs` alias; `router` & `ladder` separate), **32** modular skills (including `pause` and `resume` alongside `graceful-parking` and `powerloss-resume`; `>100` L ToC, `<24,576` B cap), **8** canonical `v2.34+`/`2.35.2` agent personas (`19` canonical tools `<=20` ceiling), **7** `hooks.json` blocks (**8** `doctor` hook checks), **4** cleanroom RE specifications (including the 29-entry `v2.34.0` drift inventory), **7** official specs, and **4** human runbooks.
+- **Verified Quality Gate**: **2,695** hermetic tests (`127` `tests/test_*.py` + `4` `tests/e2e/test_*.py` modules = `131` total), **AFF** architectural fitness gate (`agyis audit aff`, `PSL-INV-008`), **4** cleanroom RE specifications (`agyis verify --spec`), SSOT parity audit (`agyis audit sync-check`), continuous CI (`.github/workflows/ci.yml`), and zero live `config.json` mutation.
 - **Release History**: [`CHANGELOG.md`](CHANGELOG.md)
 - **Full Historical Ledger (Phases 1–35)**: [`0069329:docs/archive/ledger/project-ledger-rc10-historical.md`](docs/archive/README.md#ledger)
 - **Active Post-RC10 Summary & ADRs**: [`docs/taxonomy/project-ledger.md`](docs/taxonomy/project-ledger.md) · [`docs/adr/README.md`](docs/adr/README.md) (`ADR-001`–`ADR-035`)
 
 ---
 
-## 4. Post-`v1.1.1` Horizon 2 Priorities
+## 4. Post-`v1.1.2` Horizon 2 Priorities
 
 | Priority Track | Scope & Target Deliverables | Acceptance Gate |
 | :--- | :--- | :--- |

@@ -18,16 +18,30 @@ import sys
 from typing import Any, Dict, List, Optional
 
 from harness.hooks.completion_fence_hook import clear_spec_dirty, is_manifest_verified
+from harness.hooks.fence_classifiers import resolve_cleanroom_ledger_path
 from harness.utils import theme
+
+
+def _is_legacy_manifest_file(path: Path) -> bool:
+    """Return True when file uses the legacy verified manifest shape rather than typed REA ledger."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    if "evidence_bundle" in data or "reviewed_obligations" in data:
+        return False
+    return "evidence_hash" in data and "obligations" in data
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
     """
-    Verifies cleanroom specifications in docs/specs/** and reconstruction manifest
-    in .agents/ledger/manifest.json (ADR-028).
+    Verifies cleanroom specifications in docs/specs/** and reconstruction ledger/manifest
+    in .agents/ledger/{obligation_ledger.json,obligations.json,manifest.json} (ADR-028).
 
     - If 'rea' executable is found and not in explicit spec mode, delegates to
-      'rea build-reconstruction-obligation-ledger' when obligation_ledger.json exists.
+      'rea build-reconstruction-obligation-ledger' when typed obligation ledger exists.
     - Otherwise validates cleanroom manifest/ledger.
     - Returns 0 on valid/clean specs (--spec) or verified manifest/ledger.
     - Returns 1 if manifest/ledger is missing or invalid, or if REA fails/times out.
@@ -116,7 +130,12 @@ def cmd_verify(args: argparse.Namespace) -> int:
         return 0
 
     # 2. Delegation to REA obligation engine if applicable
-    typed_ledger_path = workspace / ".agents" / "ledger" / "obligation_ledger.json"
+    ledger_dir = workspace / ".agents" / "ledger"
+    typed_ledger_path = ledger_dir / "obligation_ledger.json"
+    if not typed_ledger_path.is_file():
+        alt_ledger_path = ledger_dir / "obligations.json"
+        if alt_ledger_path.is_file() and not _is_legacy_manifest_file(alt_ledger_path):
+            typed_ledger_path = alt_ledger_path
     if shutil.which("rea") and typed_ledger_path.is_file():
         try:
             res_build = subprocess.run(
@@ -190,16 +209,18 @@ def cmd_verify(args: argparse.Namespace) -> int:
             return 1
 
     # 3. Native cleanroom manifest and specifications validation
-    manifest_path = workspace / ".agents" / "ledger" / "manifest.json"
-    target_ledger = typed_ledger_path if typed_ledger_path.is_file() else manifest_path
-    ledger_exists = target_ledger.is_file()
+    target_ledger = resolve_cleanroom_ledger_path(workspace)
+    ledger_exists = target_ledger is not None and target_ledger.is_file()
     if not ledger_exists:
         if is_json:
             print(
                 json.dumps(
                     {
                         "status": "failed",
-                        "reason": "No cleanroom obligation ledger or manifest found (.agents/ledger/obligation_ledger.json or manifest.json).",
+                        "reason": (
+                            "No cleanroom obligation ledger or manifest found "
+                            "(.agents/ledger/obligation_ledger.json, obligations.json, or manifest.json)."
+                        ),
                         "workspace": str(workspace),
                         "manifest": None,
                         "manifest_verified": False,

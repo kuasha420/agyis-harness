@@ -553,28 +553,40 @@ def check_rea_tooling(
             "details": "REA binary not found (--rea requested).",
         }
 
+    version_timeout = max(float(timeout), 5.0)
     version_str: Optional[str] = None
-    try:
-        proc = sub_mod.run(
-            [str(rea_bin), "--version"],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=timeout,
-        )
-        if proc.returncode == 0:
+    for _attempt in range(2):
+        try:
+            proc = sub_mod.run(
+                [str(rea_bin), "--version"],
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=version_timeout,
+            )
             stdout = proc.stdout if isinstance(proc.stdout, str) else ""
             stderr = proc.stderr if isinstance(proc.stderr, str) else ""
-            combined = (stdout + " " + stderr).strip()
-            m = re.search(r"([0-9]+(?:\.[0-9]+)+)", combined)
-            if not m:
-                m = re.search(r"([0-9]+\.[0-9]+(?:\.[0-9]+)?)", combined)
-            if m:
-                version_str = m.group(1)
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError, UnicodeDecodeError):
-        version_str = None
+            if proc.returncode == 0:
+                combined = (stdout + " " + stderr).strip()
+                m = re.search(r"([0-9]+(?:\.[0-9]+)+)", combined)
+                if not m:
+                    m = re.search(r"([0-9]+\.[0-9]+(?:\.[0-9]+)?)", combined)
+                if m:
+                    version_str = m.group(1)
+                    break
+                if stdout.strip():
+                    break
+            elif stdout.strip():
+                break
+        except subprocess.TimeoutExpired:
+            version_str = None
+            continue
+        except (subprocess.SubprocessError, OSError, UnicodeDecodeError):
+            version_str = None
+            break
 
     providers: Dict[str, Any] = {"active": [], "unavailable": [], "details": []}
+    providers_data: Any = None
     try:
         proc_prov = sub_mod.run(
             [str(rea_bin), "providers", "--json"],
@@ -586,8 +598,20 @@ def check_rea_tooling(
         stdout_prov = proc_prov.stdout if isinstance(proc_prov.stdout, str) else ""
         if proc_prov.returncode == 0 and stdout_prov.strip():
             providers = parse_prov_fn(stdout_prov)
+            try:
+                providers_data = json.loads(stdout_prov)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                providers_data = None
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError, UnicodeDecodeError):
         providers = {"active": [], "unavailable": [], "details": []}
+
+    if not version_str and isinstance(providers_data, dict):
+        server_id = providers_data.get("server_identity")
+        srv_ver = server_id.get("version") if isinstance(server_id, dict) else None
+        if isinstance(srv_ver, str) and srv_ver.strip():
+            m_srv = re.search(r"([0-9]+(?:\.[0-9]+)+)", srv_ver.strip())
+            if m_srv:
+                version_str = m_srv.group(1)
 
     min_version = "6.0.0"
     current_v = parse_ver_fn(version_str) if version_str else (0,)

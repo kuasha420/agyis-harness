@@ -20,6 +20,15 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 from harness.delivery.cache import purge_workspace_build_caches
 from harness.delivery.constants import REPO_ROOT
+from harness.delivery.rules_inject import (
+    LEGACY_TAG_END,
+    LEGACY_TAG_START,
+    TAG_END,
+    TAG_START,
+    TAGGED_BLOCK_PATTERN,
+    build_workspace_rules_block,
+    inject_tagged_block_clean,
+)
 from harness.delivery.surfaces import find_workspace_root
 from harness.skills import (
     ARCHITECTURAL_ROLE_PRESETS,
@@ -27,15 +36,6 @@ from harness.skills import (
     STACK_PRESETS,
     detect_workspace_stack,
     resolve_skills_to_sync,
-)
-
-TAG_START = "<!-- Added by AGYIS-HARNESS -->"
-TAG_END = "<!-- End AGYIS-HARNESS -->"
-LEGACY_TAG_START = "<!-- Added by PSL-HARNESS -->"
-LEGACY_TAG_END = "<!-- End PSL-HARNESS -->"
-
-TAGGED_BLOCK_PATTERN = re.compile(
-    r"<!-- Added by (?:AGYIS-HARNESS|PSL-HARNESS) -->[\s\S]*?<!-- End (?:AGYIS-HARNESS|PSL-HARNESS) -->"
 )
 
 def _dedup_skills(skills: Sequence[str]) -> List[str]:
@@ -191,6 +191,7 @@ def install_workspace(
     role: Optional[str] = None,
     subproject: Optional[Union[Path, str]] = None,
     update_rules: bool = True,
+    rea_enabled: bool = False,
 ) -> WorkspaceInstallResult:
     """
     Initializes a workspace with stack-tailored skills, tagged rules, and optional subagents.
@@ -337,46 +338,42 @@ def install_workspace(
     # Tagged rules management in <ws>/AGENTS.md
     rules_updated = False
     rules_path = ws / "AGENTS.md"
-    universal_rules_file = src / "harness" / "rules" / "universal_agents.md"
-    if not universal_rules_file.is_file():
-        for cand in [src / "rules" / "universal_agents.md", src / "rules" / "AGENTS.md"]:
-            if cand.is_file():
-                universal_rules_file = cand
-                break
-    if update_rules and universal_rules_file.is_file():
-        universal_text = universal_rules_file.read_text(encoding="utf-8").strip()
-        if repo_license:
-            universal_text = adapt_spdx_license(universal_text, repo_license)
-        formatted_cmds = format_command_dictionary(cmd_dict, workspace_dir=ws)
-        if formatted_cmds:
-            if "```bash\n" in universal_text:
-                universal_text = universal_text.replace("```bash\n", f"```bash\n{formatted_cmds}\n\n", 1)
-            else:
-                universal_text = f"```bash\n{formatted_cmds}\n```\n\n{universal_text}"
-
-        tagged_block = f"{TAG_START}\n{universal_text}\n{TAG_END}"
-
-        if rules_path.exists():
-            existing_rules = rules_path.read_text(encoding="utf-8")
+    if update_rules:
+        stack_tokens = [
+            s.strip()
+            for s in detected_stack.split(",")
+            if s.strip() and s.strip() != "generic"
+        ]
+        block_body = build_workspace_rules_block(
+            workspace_dir=ws,
+            source_dir=src,
+            formatted_commands=format_command_dictionary(cmd_dict, workspace_dir=ws),
+            stacks=stack_tokens or None,
+            rea_enabled=rea_enabled,
+        )
+        if block_body is not None:
             if repo_license:
-                existing_rules = adapt_spdx_license(existing_rules, repo_license)
-            pattern = TAGGED_BLOCK_PATTERN
-            if pattern.search(existing_rules):
-                new_rules = pattern.sub(tagged_block, existing_rules)
+                block_body = adapt_spdx_license(block_body, repo_license)
+
+            if rules_path.exists():
+                existing_rules = rules_path.read_text(encoding="utf-8")
+                adapted_existing = (
+                    adapt_spdx_license(existing_rules, repo_license)
+                    if repo_license
+                    else existing_rules
+                )
+                new_rules = inject_tagged_block_clean(adapted_existing, block_body)
+                if new_rules != existing_rules and normalize_tagged_rules(
+                    new_rules
+                ) != normalize_tagged_rules(existing_rules):
+                    if not dry_run:
+                        rules_path.write_text(new_rules, encoding="utf-8")
+                    rules_updated = True
             else:
-                existing_clean = existing_rules.rstrip()
-                if existing_clean:
-                    new_rules = f"{existing_clean}\n\n{tagged_block}\n"
-                else:
-                    new_rules = f"{tagged_block}\n"
-            if new_rules != existing_rules and normalize_tagged_rules(new_rules) != normalize_tagged_rules(existing_rules):
+                new_rules = inject_tagged_block_clean("", block_body)
                 if not dry_run:
                     rules_path.write_text(new_rules, encoding="utf-8")
                 rules_updated = True
-        else:
-            if not dry_run:
-                rules_path.write_text(f"{tagged_block}\n", encoding="utf-8")
-            rules_updated = True
 
     return WorkspaceInstallResult(
         success=True,

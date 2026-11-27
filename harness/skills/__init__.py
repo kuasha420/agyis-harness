@@ -534,6 +534,18 @@ def is_monorepo(workspace_root: Path) -> bool:
                     return True
             except OSError:
                 pass
+    for toml_name, keys in (("Cargo.toml", ("workspace",)), ("pyproject.toml", ("tool", "uv", "workspace"))):
+        toml_path = root / toml_name
+        if toml_path.is_file():
+            try:
+                import tomllib
+                node: Any = tomllib.loads(toml_path.read_text(encoding="utf-8", errors="replace"))
+                for key in keys:
+                    node = node.get(key) if isinstance(node, dict) else None
+                if isinstance(node, dict):
+                    return True
+            except (OSError, ValueError, TypeError):
+                pass
     return False
 
 

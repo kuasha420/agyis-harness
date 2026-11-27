@@ -17,6 +17,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.2] - 2026-11-27
+
+### Features & Architecture
+- feat(project,cli): add `agyis project {list,ensure}` and `agyis onboard --ensure-project` (`harness/delivery/projects.py`, `harness/commands/project.py`, expanding CLI to `30` logical subcommands / `31` subparsers) to inspect and idempotently register workspaces in `<config_dir>/projects/*.json` with normalized URI deduplication across `gitFolder` and bare `folderUri` entries
+- feat(rules,harmonize): extract `harness/delivery/rules_inject.py` and slim `harness/rules/universal_agents.md` to strip YAML frontmatter, omit redundant global `PSL-INV-*` copies, filter `agyis verify` / `agyis audit aff` lines by workspace stack/specs, relocate custom headings outside `<!-- End AGYIS-HARNESS -->`, enforce Prettier-clean Markdown, and rewrite bare/nested `.agent/` paths to `.agents/` (`#53`, `#70`, `#106`)
+- feat(test,discovery): extract `harness/discovery_manifest.py` and `harness/harmonize/test_probes.py` to auto-generate `.agyis/test_manifest.json` during `agyis onboard` without mutating `package.json` (`mutate_package_json=False`), detect Cargo `[workspace]` and `[tool.uv.workspace]` monorepos, preserve `package.json` indentation & Unicode (`ensure_ascii=False`), and detect `@playwright/test` + `axe-core` / `vitest-axe` (`#58`, `#81`, `#106`, `#120`)
+- feat(runtime): uplift recommended Python runtime target to **CPython `3.14`** (`.python-version`, `pyproject.toml`, `harness/runtime/matrix.json`, `harness/runtime/healing.py`, keeping `requires-python = ">=3.12"`), and add `harness/runtime/engine_checks.py` for `package.json` `engines` and `packageManager` version preflight in `agyis doctor` & `agyis onboard`
+
+### Bug Fixes & Hardening
+- fix(hooks): extract `harness/hooks/inline_script_guard.py` with a POSIX shell quote scanner handling `'\''` splices, double quotes, ANSI-C `$'...'` literals, and embedded triple-quoted Python payloads without corrupting inline-to-scratch promotion (`#101`)
+- fix(hooks,status): add `resolve_display_velocity_tier()` in `harness/trajectory/health.py` (wired into `status.py` and `token_proximity_guard.py`) to gate premature `- CRITICAL` burn-rate alerts below `25%` context fill, and parse flat `PreInvocation`/`Stop` `hooks.json` entries in `_load_live_hooks_summary()` so `agyis status` renders non-blank hook command names
+- fix(plan,cockpit): exclude zero-checkbox static prose `*PLAN*.md` docs from `find_active_plan()` in `harness/utils/plan_parser.py` and surface clear `source_type` diagnostics in `agyis cockpit status` (`#94`)
+- fix(discovery,test): honor `packageManager` / `yarn.lock` (`yarn test` instead of `"npm test"`), suppress `-- --no-watch` on `turbo`, `node --test`, `tsx`, `playwright`, `jest`, compound shell chains, and non-watch scripts (`guard_package_manager_cmd`), emit `status: "no_executable_runner"` (exit `1`) instead of false `0 tests` Python `unittest` passes on non-Python repos lacking a runner, and add `agyis test --allow-no-tests` explicit opt-out
+- fix(cache,onboard,verify): guard `purge_workspace_build_caches()` with `git ls-files` so tracked assets inside `.next/`/`.turbo/` are preserved, keep `topology.current_branch` truthful in `onboard --dry-run` (exposing `planned_branch`), inherit `.agyis/config.json` `experimental_rea` / `rea_enabled`, enforce strict `--verify` before `--commit`, and recognize `.agents/ledger/obligations.json` alongside `obligation_ledger.json` and `manifest.json`
+- fix(doctor,skills,aff): downgrade `.pyenv`/shim warnings to `[INFO]` when hermetic `uv` Python satisfies `min_version`, deduplicate workspace skills and `provision_workspace_rea()` against standalone `<config_dir>/skills/`, harden `check_rea_tooling` `--version` timeouts/fallback, mask JS/TS literals/comments in `SM002`, exclude PySide6/PyQt framework symbols in `python_smell_visitor.py`, set `anti_synthetic_score: "not_applicable"` on non-frontend repos, and ignore `public/`, `dist-scripts/`, `out/`, and gitignored paths in `aff.py` & `hygiene_checks.py`
+
+### Documentation & Website
+- docs(release): reconcile `README.md`, `roadmap.md`, `CHANGELOG.md`, `docs/taxonomy/project-ledger.md`, `docs/user_guide.md`, `docs/developer_guide.md`, `docs/official-specs/{cli-palette,testing-contracts}.md`, `docs/adr/README.md`, `docs/runbooks/repo-onboarding.md`, `harness/rules/AGENTS.md`, `harness/agents/agyis_auditor.md`, `harness/skills/{subagent-router,psl-stack-python}/SKILL.md`, `website/**/*.html`, `website/cognitive/cognitive.js`, and Open Graph cards for `v1.1.2` (`2,695` hermetic tests across `131` modules, `30` logical subcommands / `31` subparsers)
+
+---
+
 ## [1.1.1] - 2026-11-27
 
 ### Features & Architecture
@@ -589,7 +610,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release candidate for Agyis Harness for Google Antigravity™.
 - Autonomous agent runtime harness, empirical audit telemetry pipeline, and lifecycle hooks immune system.
 
-[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/kuasha420/agyis-harness/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/kuasha420/agyis-harness/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc14...v1.0.0

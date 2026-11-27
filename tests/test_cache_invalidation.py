@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import stat
+import subprocess
 import tempfile
 import unittest
 
@@ -286,6 +287,70 @@ class TestCacheInvalidation(unittest.TestCase):
             self.assertFalse(dangling_link.exists())
         finally:
             os.chmod(parent_dir, 0o755)
+
+    def test_git_tracked_cache_files_preserved_while_untracked_purged(self):
+        """Verifies git-tracked files under .next/.turbo are preserved while untracked caches are purged."""
+        subprocess.run(["git", "init", "-b", "main"], cwd=self.ws, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=self.ws, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=self.ws, check=True)
+
+        # Tracked file inside .next/ and tracked subproject .turbo/
+        tracked_next = self.ws / ".next"
+        tracked_next.mkdir()
+        tracked_file = tracked_next / "committed-asset.txt"
+        tracked_file.write_text("tracked asset\n", encoding="utf-8")
+        (tracked_next / "untracked-sidecar.bin").write_text("temp\n", encoding="utf-8")
+
+        sub_tracked_turbo = self.ws / "apps" / "web" / ".turbo"
+        sub_tracked_turbo.mkdir(parents=True)
+        sub_tracked_file = sub_tracked_turbo / "config.json"
+        sub_tracked_file.write_text('{"pipeline": {}}\n', encoding="utf-8")
+
+        subprocess.run(["git", "add", ".next/committed-asset.txt", "apps/web/.turbo/config.json"], cwd=self.ws, check=True)
+        subprocess.run(["git", "commit", "-m", "track cache assets"], cwd=self.ws, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Purely untracked caches that SHOULD be purged
+        untracked_turbo = self.ws / ".turbo"
+        untracked_turbo.mkdir()
+        (untracked_turbo / "cache.json").write_text("{}\n", encoding="utf-8")
+        untracked_sub_next = self.ws / "apps" / "docs" / ".next"
+        untracked_sub_next.mkdir(parents=True)
+        (untracked_sub_next / "trace").write_text("trace\n", encoding="utf-8")
+
+        skipped: list[str] = []
+        with self.assertLogs("harness.delivery.cache", level="WARNING"):
+            dry_purged = purge_workspace_build_caches(self.ws, dry_run=True, skipped_tracked=skipped)
+
+        self.assertEqual(
+            dry_purged,
+            sorted([str(untracked_turbo), str(untracked_sub_next)]),
+        )
+        self.assertEqual(
+            sorted(skipped),
+            sorted([str(tracked_next), str(sub_tracked_turbo)]),
+        )
+
+        skipped_live: list[str] = []
+        with self.assertLogs("harness.delivery.cache", level="WARNING"):
+            purged = purge_workspace_build_caches(self.ws, dry_run=False, skipped_tracked=skipped_live)
+
+        self.assertEqual(
+            purged,
+            sorted([str(untracked_turbo), str(untracked_sub_next)]),
+        )
+        self.assertEqual(
+            sorted(skipped_live),
+            sorted([str(tracked_next), str(sub_tracked_turbo)]),
+        )
+        self.assertTrue(tracked_file.is_file())
+        self.assertEqual(tracked_file.read_text(encoding="utf-8"), "tracked asset\n")
+        self.assertTrue(sub_tracked_file.is_file())
+        self.assertFalse(untracked_turbo.exists())
+        self.assertFalse(untracked_sub_next.exists())
+
+        # git status must remain clean of deleted tracked files
+        st = subprocess.run(["git", "status", "--short"], cwd=self.ws, capture_output=True, text=True, check=True)
+        self.assertNotIn("D ", st.stdout)
 
 
 if __name__ == "__main__":

@@ -1205,6 +1205,51 @@ class TestDynamicContextWindowScaling(unittest.TestCase):
         self.assertEqual(ctx_win["tokens"], 25000)
         self.assertEqual(ctx_win["max_context_tokens"], 512000)
 
+    def test_burn_rate_critical_clamped_below_25_percent_fill_in_gauge_display(self):
+        """High burn rate below 25% fill clamps CRITICAL display tier to ELEVATED unless ETA <= 5m."""
+        from harness.trajectory.health import resolve_display_velocity_tier
+
+        self.assertEqual(resolve_display_velocity_tier(48_353, 512_000, "CRITICAL", 28.0), "ELEVATED")
+        self.assertEqual(resolve_display_velocity_tier(128_000, 512_000, "CRITICAL", 28.0), "CRITICAL")
+        self.assertEqual(resolve_display_velocity_tier(20_000, 512_000, "CRITICAL", 4.5), "CRITICAL")
+
+        gauge_low_fill = format_terminal_gauge(
+            48_353,
+            threshold=512_000,
+            burn_rate=21_599.0,
+            mins_to_compaction=19.0,
+            velocity_tier="CRITICAL",
+        )
+        self.assertIn("+21,599 tok/min", gauge_low_fill)
+        self.assertIn("~19m to 460k", gauge_low_fill)
+        self.assertIn(" - ELEVATED", gauge_low_fill)
+        self.assertNotIn(" - CRITICAL", gauge_low_fill)
+
+        conv_id = "test-low-fill-fast-burn"
+        db_path = self.db_dir / f"{conv_id}.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, token_count INTEGER, created_at TEXT)")
+        conn.execute("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data TEXT)")
+        conn.execute("INSERT INTO steps VALUES (1, 40000, '2026-10-27 12:00:00')")
+        conn.execute("INSERT INTO steps VALUES (2, 48000, '2026-10-27 12:01:00')")
+        conn.execute(
+            "INSERT INTO gen_metadata VALUES (1, ?)",
+            (json.dumps({"chatStartMetadata": {"contextWindowMetadata": {"estimatedTokensUsed": 48000, "maxContextTokens": 512000}}}),),
+        )
+        conn.commit()
+        conn.close()
+
+        vel = get_active_conversation_token_velocity(conv_id, db_dir=self.db_dir)
+        self.assertEqual(vel["velocity_tier"], "CRITICAL")
+
+        with patch.dict(os.environ, {"AGYIS_CONVERSATIONS_DIR": str(self.db_dir)}):
+            err_buf = io.StringIO()
+            run_token_proximity_guard({"conversationId": conv_id}, stderr=err_buf)
+            rendered = err_buf.getvalue()
+            self.assertIn("+8,000 tok/min", rendered)
+            self.assertIn("ELEVATED", rendered)
+            self.assertNotIn("CRITICAL", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
