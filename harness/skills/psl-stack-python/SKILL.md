@@ -18,8 +18,8 @@ This skill codifies empirical Python development standards, hermetic execution r
 
 ## 1. Runtime Environment Invariants
 
-### 1.1 Hermetic CPython >= 3.12 Enforcement
-- All scripts and harness lifecycle hooks must target CPython >= 3.12.
+### 1.1 Hermetic CPython >= 3.12 Enforcement (3.14 Recommended)
+- All scripts and harness lifecycle hooks must support CPython >= 3.12 (with CPython 3.14 recommended and provisioned via `uv python install 3.14`).
 - The harness dynamically discovers and prefers hermetic, isolated Python runtimes (e.g. from the `uv` python cache or isolated venvs) via `harness.runtime.doctor.find_hermetic_uv_python()` or `sys.executable`.
 - Never rely on mutating global system Python packages or running unpinned user-space dependencies.
 
@@ -67,7 +67,7 @@ This skill codifies empirical Python development standards, hermetic execution r
   ```
 
 ### 2.2 Sub-Second Component Test Invariant (ADR-015, PSL-INV-001)
-- Individual unit and contract test modules must execute in **under 1.0 second** (sub-second component benchmark; full suite runs hermetically via `agyis test` across 2,623 tests).
+- Individual unit and contract test modules must execute in **under 1.0 second** (sub-second component benchmark; full suite runs hermetically via `agyis test` across 2,695 tests).
 - Unit tests must be hermetic and in-memory:
   - Do not make external network requests.
   - Do not introduce `time.sleep()` delays; mock time or use deterministic event loops.
@@ -81,7 +81,7 @@ This skill codifies empirical Python development standards, hermetic execution r
 
 ## 3. Python Verification Checklist
 
-1. [ ] Code targets CPython >= 3.12.
+1. [ ] Code supports CPython >= 3.12 (3.14 recommended).
 2. [ ] Zero bare `except:` or `except Exception: pass` blocks.
 3. [ ] All test state isolated in `tempfile.TemporaryDirectory()` or in-memory fixtures.
 4. [ ] Modified/targeted component test modules complete in `<1.0s` and full `agyis test` exits `0`.

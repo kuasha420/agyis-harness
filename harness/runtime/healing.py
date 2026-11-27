@@ -146,14 +146,50 @@ def provision_rea_skill(
     return None
 
 
-def provision_workspace_rea(target_ws: Path, dry_run: bool = False) -> Tuple[bool, Path]:
+def _is_rea_globally_provisioned(config_dir: Optional[Path | str] = None) -> bool:
+    """Return True when reverse-engineer-anything skill exists under global config or plugins."""
+    from harness.delivery.surfaces import resolve_canonical_config_dir
+
+    cfg = resolve_canonical_config_dir(Path(config_dir) if config_dir is not None else None)
+    candidates: List[Path] = [cfg / "skills" / "reverse-engineer-anything"]
+    plugins_dir = cfg / "plugins"
+    if plugins_dir.is_dir():
+        try:
+            for plugin_dir in sorted(plugins_dir.iterdir()):
+                if plugin_dir.is_dir() and not plugin_dir.name.startswith("."):
+                    candidates.append(plugin_dir / "skills" / "reverse-engineer-anything")
+        except OSError:
+            pass
+    for cand in candidates:
+        if cand.is_dir() and ((cand / "SKILL.md").is_file() or any(cand.glob("*.md"))):
+            return True
+    return False
+
+
+def provision_workspace_rea(
+    target_ws: Optional[Path | str] = None,
+    dry_run: bool | Path | str = False,
+    config_dir: Optional[Path | str] = None,
+    *,
+    workspace_root: Optional[Path | str] = None,
+) -> Tuple[bool, Path]:
     """Configure workspace .agyis/config.json (or .psl/config.json), ledger dir, and REA skill."""
+    ws_arg = workspace_root if workspace_root is not None else target_ws
+    if ws_arg is None:
+        raise TypeError("provision_workspace_rea() missing required workspace path")
+    ws_path = Path(ws_arg)
+    if isinstance(dry_run, (Path, str)) and config_dir is None:
+        config_dir = dry_run
+        is_dry_run = False
+    else:
+        is_dry_run = bool(dry_run)
+
     cfg_file = (
-        (target_ws / ".psl" / "config.json")
-        if (target_ws / ".psl").is_dir() and not (target_ws / ".agyis").exists()
-        else (target_ws / ".agyis" / "config.json")
+        (ws_path / ".psl" / "config.json")
+        if (ws_path / ".psl").is_dir() and not (ws_path / ".agyis").exists()
+        else (ws_path / ".agyis" / "config.json")
     )
-    if dry_run:
+    if is_dry_run:
         return False, cfg_file
 
     cfg_file.parent.mkdir(parents=True, exist_ok=True)
@@ -167,8 +203,10 @@ def provision_workspace_rea(target_ws: Path, dry_run: bool = False) -> Tuple[boo
             ws_cfg = {}
     ws_cfg["rea"] = True
     cfg_file.write_text(json.dumps(ws_cfg, indent=2) + "\n", encoding="utf-8")
-    (target_ws / ".agents" / "ledger").mkdir(parents=True, exist_ok=True)
-    provisioned = provision_rea_skill(target_ws / ".agents" / "skills", link=True, allow_download=False)
+    (ws_path / ".agents" / "ledger").mkdir(parents=True, exist_ok=True)
+    if _is_rea_globally_provisioned(config_dir=config_dir):
+        return False, cfg_file
+    provisioned = provision_rea_skill(ws_path / ".agents" / "skills", link=True, allow_download=False)
     return bool(provisioned), cfg_file
 
 
@@ -371,7 +409,7 @@ def heal_environment(
     os_family = audit["os_family"]
     missing_distro_pkgs: List[str] = []
 
-    # Check for uv Python 3.12 provisioning
+    # Check for uv Python 3.14 provisioning
     uv_path = shutil.which("uv")
     if not uv_path:
         home_uv = Path.home() / ".local/bin/uv"
@@ -389,22 +427,22 @@ def heal_environment(
 
             if st in ("MISSING", "OUTDATED", "WARNING"):
                 if name == "python" and st in ("OUTDATED", "WARNING"):
-                    # If host python is outdated or shimmed, ensure uv python 3.12 is ready
+                    # If host python is outdated or shimmed, ensure uv python 3.14 is ready
                     if uv_path:
-                        print(f"[*] Provisioning hermetic Python 3.12 via {uv_path}...", file=sys.stderr)
+                        print(f"[*] Provisioning hermetic Python 3.14 via {uv_path}...", file=sys.stderr)
                         try:
                             proc = subprocess.run(
-                                [uv_path, "python", "install", "3.12"],
+                                [uv_path, "python", "install", "3.14"],
                                 capture_output=True,
                                 text=True,
                                 timeout=DEFAULT_PKG_MANAGER_TIMEOUT,
                             )
                             if proc.returncode == 0:
-                                actions_taken.append("Installed/verified CPython 3.12 in user-space uv toolchain.")
+                                actions_taken.append("Installed/verified CPython 3.14 in user-space uv toolchain.")
                             else:
-                                actions_taken.append(f"Failed to install Python 3.12 via uv: {proc.stderr.strip()}")
+                                actions_taken.append(f"Failed to install Python 3.14 via uv: {proc.stderr.strip()}")
                         except subprocess.TimeoutExpired:
-                            actions_taken.append(f"Timed out installing Python 3.12 via uv ({DEFAULT_PKG_MANAGER_TIMEOUT:.0f}s limit).")
+                            actions_taken.append(f"Timed out installing Python 3.14 via uv ({DEFAULT_PKG_MANAGER_TIMEOUT:.0f}s limit).")
                 elif strat_type == "distro_package":
                     pkg_map = heal_strat.get("package_names", {})
                     pkg_name = pkg_map.get(os_family) or pkg_map.get("debian")

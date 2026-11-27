@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <script>try{const s=localStorage.getItem("color-scheme");if(s==="light"||s==="dark"){document.querySelector('meta[name="color-scheme"]').content=s;}}catch{}</script>
-  <title>Agyis Harness 1.1.1 | Deterministic guardrails for Google Antigravity</title>
-  <meta name="description" content="Deterministic lifecycle hooks, 28-subcommand developer CLI, and empirical telemetry harness for Google Antigravity and Gemini 4.">
-  <meta property="og:title" content="Agyis Harness 1.1.1">
+  <title>Agyis Harness 1.1.2 | Deterministic guardrails for Google Antigravity</title>
+  <meta name="description" content="Deterministic lifecycle hooks, 30-subcommand developer CLI, and empirical telemetry harness for Google Antigravity and Gemini 4.">
+  <meta property="og:title" content="Agyis Harness 1.1.2">
   <meta property="og:description" content="Deterministic lifecycle hooks, hermetic verification, and turnkey repository onboarding for Google Antigravity and Gemini 4.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://kuasha420.github.io/agyis-harness/">
@@ -15,7 +15,7 @@
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Agyis Harness 1.1.1">
+  <meta name="twitter:title" content="Agyis Harness 1.1.2">
   <meta name="twitter:description" content="Deterministic guardrails for Google Antigravity and Gemini 4.">
   <meta name="twitter:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
   <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
@@ -73,9 +73,9 @@
 
       <div class="container hero-inner">
         <h1 id="main-content" tabindex="-1">Deterministic guardrails for Antigravity.</h1>
-        <p class="hero-copy">Agyis Harness 1.1.1 stops output floods, runaway loops, and premature completions in deterministic Python hooks across Google Antigravity and Gemini 4.</p>
+        <p class="hero-copy">Agyis Harness 1.1.2 stops output floods, runaway loops, and premature completions in deterministic Python hooks across Google Antigravity and Gemini 4.</p>
         <div class="hero-cta">
-          <a href="#install" class="btn-primary">Install v1.1.1</a>
+          <a href="#install" class="btn-primary">Install v1.1.2</a>
         </div>
 
         <div class="workbench" data-tabs="hero-workbench">
@@ -202,7 +202,7 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
           <li class="hook-entry">
             <p class="hook-meta"><code>PreToolUse</code> / <code>psl-command-safety-guard</code></p>
             <h3>Sanitize shell execution and MCP tool calls</h3>
-            <p>Injects certified CPython 3.12+ via <code>uv</code>, enforces <code>PAGER=cat</code> and <code>SYSTEMD_PAGER=cat</code>, normalizes eager and lazy MCP tool arguments, guards <code>swarm</code> kill actions during pauses, and shields benign Exit 1 probes.</p>
+            <p>Injects certified CPython 3.12+ (3.14 recommended) via <code>uv</code>, enforces <code>PAGER=cat</code> and <code>SYSTEMD_PAGER=cat</code>, normalizes eager and lazy MCP tool arguments, promotes inline scripts safely, guards <code>swarm</code> kill actions during pauses, and shields benign Exit 1 probes.</p>
           </li>
           <li class="hook-entry">
             <p class="hook-meta"><code>PreToolUse</code> / <code>psl-anti-loop-guard</code></p>
@@ -423,7 +423,7 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
       <div class="container">
         <div class="section-header">
           <h2>One CLI for diagnostics, routing, and cleanroom audits</h2>
-          <p>The unified <code>agyis</code> binary exposes 29 top-level subcommands (30 registered keys across 27 handlers), including 15 <code>agyis re</code> subcommands, unified <code>agyis release</code> automation, automatic <code>.venv/bin/python</code> promotion, and structured JSON output.</p>
+          <p>The unified <code>agyis</code> binary exposes 30 logical top-level subcommands (31 registered keys across 28 handlers), including 15 <code>agyis re</code> subcommands, <code>agyis project</code> registry management, unified <code>agyis release</code> automation, automatic <code>.venv/bin/python</code> promotion, and structured JSON output.</p>
         </div>
 
         <div class="cli-explorer" data-tabs="cli-groups">
@@ -450,9 +450,14 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
                   </thead>
                   <tbody>
                     <tr>
-                      <td data-label="Command"><code>agyis onboard [path] [--verify|--commit|--rea]</code></td>
-                      <td data-label="Purpose">Run the atomic 10-phase repository onboarding pipeline with cache invalidation, verification, and optional PR creation.</td>
+                      <td data-label="Command"><code>agyis onboard [path] [--verify|--commit|--ensure-project|--rea]</code></td>
+                      <td data-label="Purpose">Run the atomic 10-phase onboarding pipeline with <code>.agyis/test_manifest.json</code> generation, slim <code>AGENTS.md</code> injection, cache purge, verification, and optional PR creation.</td>
                       <td data-label="Action"><button type="button" class="copy-btn" data-copy="agyis onboard . --verify --commit" aria-label="Copy agyis onboard command">Copy</button></td>
+                    </tr>
+                    <tr>
+                      <td data-label="Command"><code>agyis project {list,ensure} [path]</code></td>
+                      <td data-label="Purpose">Inspect or idempotently register workspaces in Antigravity's desktop <code>projects/*.json</code> registry.</td>
+                      <td data-label="Action"><button type="button" class="copy-btn" data-copy="agyis project list" aria-label="Copy agyis project list command">Copy</button></td>
                     </tr>
                     <tr>
                       <td data-label="Command"><code>agyis init [path] [-s stack]</code></td>
@@ -488,7 +493,7 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
                   <tbody>
                     <tr>
                       <td data-label="Command"><code>agyis doctor [--heal]</code></td>
-                      <td data-label="Purpose">Audit Python 3.12+, Node 20+, git, gh, ripgrep, hook runner checks, and port 5432 collisions.</td>
+                      <td data-label="Purpose">Audit Python 3.12+ (3.14 recommended), Node 20+, <code>engines</code>/<code>packageManager</code>, git, gh, ripgrep, hook runner checks, and port 5432 collisions.</td>
                       <td data-label="Action"><button type="button" class="copy-btn" data-copy="agyis doctor" aria-label="Copy agyis doctor command">Copy</button></td>
                     </tr>
                     <tr>
@@ -498,7 +503,7 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
                     </tr>
                     <tr>
                       <td data-label="Command"><code>agyis test [-v]</code></td>
-                      <td data-label="Purpose">Execute the full 2,623 hermetic tests suite and clear <code>code_dirty</code>.</td>
+                      <td data-label="Purpose">Execute the full 2,695 hermetic tests suite (131 modules) and clear <code>code_dirty</code>.</td>
                       <td data-label="Action"><button type="button" class="copy-btn" data-copy="agyis test" aria-label="Copy agyis test command">Copy</button></td>
                     </tr>
                     <tr>
@@ -682,7 +687,7 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
       <div class="container">
         <div class="section-header section-header-dark">
           <h2>Grounded in 3,856 audited agent sessions</h2>
-          <p>Every guardrail in Agyis 1.1.1 traces to empirical measurements from the 2026-05-24 to 2026-11-25 audited corpus across 742,273 steps and 405,666 tool calls.</p>
+          <p>Every guardrail in Agyis 1.1.2 traces to empirical measurements from the 2026-05-24 to 2026-11-25 audited corpus across 742,273 steps and 405,666 tool calls.</p>
         </div>
 
         <div class="telemetry-grid">
@@ -718,7 +723,7 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
 
           <div class="table-card-container">
             <table class="data-table">
-              <caption>Version 1.1.1 verification ledger &amp; empirical corpus baseline</caption>
+              <caption>Version 1.1.2 verification ledger &amp; empirical corpus baseline</caption>
               <thead>
                 <tr>
                   <th scope="col">Metric</th>
@@ -749,8 +754,8 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
                 </tr>
                 <tr>
                   <td data-label="Metric">Hermetic verification</td>
-                  <td data-label="Observed figure" class="num">2,623 hermetic tests</td>
-                  <td data-label="Scope">100.0 / 100 AFF score, 19 canonical + 4 swarm tools (max 20), 32 skills, 8 personas</td>
+                  <td data-label="Observed figure" class="num">2,695 hermetic tests</td>
+                  <td data-label="Scope">131 test modules, 100.0 / 100 AFF score, 19 canonical + 4 swarm tools (max 20), 32 skills, 8 personas</td>
                 </tr>
               </tbody>
             </table>
@@ -795,7 +800,7 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
     <section id="install" class="section-install">
       <div class="container">
         <div class="section-header">
-          <h2>Install Agyis Harness 1.1.1</h2>
+          <h2>Install Agyis Harness 1.1.2</h2>
           <p>Deploy the workstation plugin and <code>agyis</code> CLI in under five minutes, then run <code>agyis doctor</code> to verify your host matrix.</p>
         </div>
 
@@ -811,7 +816,7 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
             <div role="tabpanel" aria-labelledby="inst-tab-plugin">
               <div class="tab-panel-inner install-box">
                 <div class="install-box-top">
-                  <p>Recommended: build and install the frozen v1.1.1 wheel across all Antigravity surfaces, then enable the optional Trajectory HUD launcher.</p>
+                  <p>Recommended: build and install the frozen v1.1.2 wheel across all Antigravity surfaces, then enable the optional Trajectory HUD launcher.</p>
                   <button type="button" class="copy-btn" data-copy="git clone https://github.com/kuasha420/agyis-harness.git&#10;cd agyis-harness&#10;./agyis install --global --wheel --all-surfaces&#10;agyis doctor" aria-label="Copy plugin wheel install commands">Copy</button>
                 </div>
                 <pre class="install-code"><code>git clone https://github.com/kuasha420/agyis-harness.git
@@ -837,7 +842,7 @@ cd agyis-harness
             <div role="tabpanel" aria-labelledby="inst-tab-pip" hidden="until-found">
               <div class="tab-panel-inner install-box">
                 <div class="install-box-top">
-                  <p>Install in editable mode inside a Python 3.12+ virtual environment for contributor development and local hook testing.</p>
+                  <p>Install in editable mode inside a Python 3.12+ (3.14 recommended) virtual environment for contributor development and local hook testing.</p>
                   <button type="button" class="copy-btn" data-copy="python3 -m venv .venv&#10;.venv/bin/pip install -e .&#10;.venv/bin/agyis doctor&#10;.venv/bin/agyis audit aff" aria-label="Copy pip editable install commands">Copy</button>
                 </div>
                 <pre class="install-code"><code>python3 -m venv .venv
@@ -863,7 +868,7 @@ agyis doctor</code></pre>
         </div>
 
         <div class="install-cta">
-          <a href="https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.1" class="btn-primary" target="_blank" rel="noopener noreferrer">View v1.1.1 release on GitHub</a>
+          <a href="https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.2" class="btn-primary" target="_blank" rel="noopener noreferrer">View v1.1.2 release on GitHub</a>
         </div>
       </div>
     </section>
@@ -887,7 +892,7 @@ agyis doctor</code></pre>
           <li><a href="./hud-re/">HUD &amp; RE</a></li>
           <li><a href="./brand/">Brand</a></li>
           <li><a href="https://github.com/kuasha420/agyis-harness" target="_blank" rel="noopener noreferrer">Repository</a></li>
-          <li><a href="https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.1" target="_blank" rel="noopener noreferrer">Releases</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.2" target="_blank" rel="noopener noreferrer">Releases</a></li>
         </ul>
       </nav>
     </div>

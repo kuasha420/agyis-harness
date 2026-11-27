@@ -13,12 +13,15 @@ import argparse
 import json
 import logging
 from pathlib import Path
+import re
+import shlex
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import harness
 from harness.commands.subagents import format_subagents_table
 from harness.runtime import doctor as psl_doctor
+from harness.trajectory.health import resolve_display_velocity_tier
 from harness.utils import theme
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -37,12 +40,36 @@ _HOOK_DESCRIPTIONS: Dict[str, str] = {
 }
 
 
-def _load_live_hooks_summary() -> tuple[List[str], List[Dict[str, Any]]]:
+def _extract_hook_check_name(cmd: str, event_name: str, block_name: str) -> str:
+    """Extracts canonical hook check slug from a hooks.json command entry."""
+    try:
+        tokens = shlex.split(cmd.strip())
+    except ValueError:
+        tokens = cmd.strip().split()
+    for i, tok in enumerate(tokens):
+        if tok in ("harness.hooks.runner", "runner") and i + 1 < len(tokens):
+            return tokens[i + 1]
+        if tok == "hook" and i > 0 and "cli" in tokens[i - 1] and i + 1 < len(tokens):
+            return tokens[i + 1]
+    for i, tok in enumerate(tokens):
+        if tok == "-m" and i + 1 < len(tokens):
+            return tokens[i + 1].rsplit(".", 1)[-1].replace("_", "-")
+    if tokens:
+        last = tokens[-1]
+        return Path(last).stem.replace("_", "-") if last.endswith(".py") else last
+    slug = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", event_name).lower()
+    return slug or block_name
+
+
+def _load_live_hooks_summary(hooks_path: Optional[Path] = None) -> tuple[List[str], List[Dict[str, Any]]]:
     """Reads live lifecycle hooks dynamically from harness/hooks/hooks.json (PSL-INV-007)."""
-    candidates = [
-        Path(__file__).resolve().parent.parent / "hooks" / "hooks.json",
-        REPO_ROOT / "hooks.json",
-    ]
+    if hooks_path is not None:
+        candidates = [Path(hooks_path)]
+    else:
+        candidates = [
+            Path(__file__).resolve().parent.parent / "hooks" / "hooks.json",
+            REPO_ROOT / "hooks.json",
+        ]
     hooks_file = next((p for p in candidates if p.is_file()), None)
     if hooks_file is None:
         return [], []
@@ -72,13 +99,19 @@ def _load_live_hooks_summary() -> tuple[List[str], List[Dict[str, Any]]]:
             for entry in entries:
                 if not isinstance(entry, dict):
                     continue
-                for hook_def in entry.get("hooks", []) or []:
+                nested = entry.get("hooks")
+                hook_defs = (
+                    nested
+                    if isinstance(nested, list)
+                    else ([entry] if ("command" in entry or "type" in entry) else [])
+                )
+                for hook_def in hook_defs:
                     if not isinstance(hook_def, dict):
                         continue
                     cmd = str(hook_def.get("command", "")).strip()
                     if not cmd:
                         continue
-                    check_name = cmd.split()[-1]
+                    check_name = _extract_hook_check_name(cmd, str(event_name), str(block_name))
                     if check_name not in block_checks:
                         block_checks.append(check_name)
                     if check_name not in seen_checks:
@@ -188,8 +221,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         if tokens <= 0 and conv_id:
             tokens = get_active_conversation_tokens(conv_id)
         burn_rate = vel.get("burn_rate_tokens_per_min", 0.0)
-        mins_to_comp = vel.get("mins_to_compaction") or vel.get("mins_to_50k")
-        vel_tier = vel.get("velocity_tier", "SAFE")
+        mins_to_comp = (
+            vel.get("mins_to_compaction")
+            if vel.get("mins_to_compaction") is not None
+            else vel.get("mins_to_50k")
+        )
+        raw_vel_tier = vel.get("velocity_tier", "SAFE")
+        vel_tier = resolve_display_velocity_tier(tokens, max_ctx, raw_vel_tier, mins_to_comp)
 
         token_metrics = {
             "active_tokens": tokens,
@@ -310,7 +348,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     if live_hook_blocks:
         for blk in live_hook_blocks:
             events_str = "/".join(blk["events"]) or "unknown"
-            checks_str = ", ".join(blk["checks"])
+            checks_str = ", ".join(blk["checks"]) or events_str or blk["name"]
             desc = "; ".join(
                 _HOOK_DESCRIPTIONS[c] for c in blk["checks"] if c in _HOOK_DESCRIPTIONS
             )
@@ -375,8 +413,13 @@ def cmd_status(args: argparse.Namespace) -> int:
             if tokens <= 0:
                 tokens = get_active_conversation_tokens(conv_id)
             burn_rate = vel.get("burn_rate_tokens_per_min", 0.0)
-            mins_to_comp = vel.get("mins_to_compaction") or vel.get("mins_to_50k")
-            vel_tier = vel.get("velocity_tier", "SAFE")
+            mins_to_comp = (
+                vel.get("mins_to_compaction")
+                if vel.get("mins_to_compaction") is not None
+                else vel.get("mins_to_50k")
+            )
+            raw_vel_tier = vel.get("velocity_tier", "SAFE")
+            vel_tier = resolve_display_velocity_tier(tokens, max_ctx, raw_vel_tier, mins_to_comp)
             if tokens > 0 or burn_rate > 0:
                 gauge = format_terminal_gauge(
                     tokens,

@@ -8,9 +8,9 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity_v2.34-4285F4.svg)](https://antigravity.google)
 [![Models](https://img.shields.io/badge/Models-Gemini_4_Ready_(512k%2F1M)-8E75B2.svg)](docs/specs/antigravity_v2_34_compatibility_inventory.md)
-[![Version](https://img.shields.io/badge/Version-v1.1.1-brightgreen.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.1)
+[![Version](https://img.shields.io/badge/Version-v1.1.2-brightgreen.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.2)
 [![CI](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-2623_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
+[![Tests](https://img.shields.io/badge/Tests-2695_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
 [![AFF](https://img.shields.io/badge/AFF-100%2F100-brightgreen.svg)](docs/taxonomy/project-ledger.md)
 [![Website](https://img.shields.io/badge/Website-GitHub_Pages-1B4DFF.svg)](https://kuasha420.github.io/agyis-harness/)
 
@@ -37,7 +37,7 @@ Antigravity agents powered by the **Gemini 4 model family (`gemini-4-neon`, `gem
 | **Runaway Loops** | Agents repeat failing tool calls or identical searches (`21,410` loop candidates observed across `1,734` sessions). | **Anti-Loop Breaker** tracks canonical `v2.34` tools (`read_file`, `write_file`, `edit_file`, `swarm`, `run_workflow`), denies 3+ identical consecutive calls, and blocks background log-polling loops. |
 | **Premature Completion** | Agents declare tasks "complete" with failing tests, unverified specs, or read-only roles mutating files via shell. | **Phase-Aware Completion Fence & Q5 Shell Guard** halts termination until native tests (`code_dirty`) or cleanroom specs (`spec_dirty`) verify, and blocks mutating shell commands for review/planning/auditor roles. |
 | **Prompt Token Bloat** | Workspaces duplicate global skills in `.agents/skills/`, wasting ~4,500 tokens on every turn. | **Single-Source Skill & Rule Deduplication** purges shadowed skills and duplicate global rules across the 3-tier hierarchy, keeping workspaces ultra-lean. |
-| **Runtime & Stack Drift** | Host pyenv/conda shims run outdated Python, and Antigravity `v2.34` removed default CDP DevTools ports. | **Hermetic `uv` CPython >= 3.12 Injection + Opt-In CDP Launcher (`agyis gui --install-launcher`)** keeps runtimes and the live ConnectRPC Trajectory HUD working seamlessly. |
+| **Runtime & Stack Drift** | Host pyenv/conda shims run outdated Python, and Antigravity `v2.34` removed default CDP DevTools ports. | **Hermetic `uv` CPython >= 3.12 (3.14 Recommended) Injection + Opt-In CDP Launcher (`agyis gui --install-launcher`)** keeps runtimes and the live ConnectRPC Trajectory HUD working seamlessly. |
 
 ---
 
@@ -73,7 +73,7 @@ agyis install --copy --all-surfaces
 
 ### Step 2: Verify Workstation Health & Auto-Heal
 
-Audit your host environment against the 3-tier runtime matrix (Python >= 3.12, Node >= 20, `git`, `gh`, `ripgrep`), **8** hook runner checks, and port `5432` collisions:
+Audit your host environment against the 3-tier runtime matrix (Python >= 3.12 with `3.14` recommended, Node >= 20, `engines`/`packageManager` constraints, `git`, `gh`, `ripgrep`), **8** hook runner checks, and port `5432` collisions:
 
 ```bash
 # Audit workstation runtimes, hooks, symlinks, and database port collisions
@@ -141,11 +141,12 @@ flowchart TD
 ### Common Onboarding Invocations
 
 ```bash
-agyis onboard .                                       # Auto-detect stack/role, purge cache, deduplicate skills
+agyis onboard .                                       # Auto-detect stack/role, generate .agyis/test_manifest.json, slim AGENTS.md & dedup skills
 agyis onboard . --create-branch chore/onboard-harness # Onboard on an isolated feature branch
+agyis onboard . --ensure-project                      # Also register workspace in <config_dir>/projects/*.json for Antigravity desktop
 agyis onboard . --lang typescript --role frontend     # Explicit language + architectural role
 agyis onboard . --subproject services/billing --role backend # Scoped monorepo subproject
-agyis onboard . --dry-run --json                      # Safe preview without disk/git mutation
+agyis onboard . --dry-run --json                      # Safe preview without disk/git mutation or branch falsification
 agyis onboard . --allow-dirty --create-branch         # Preserve dirty tree into pre_onboard_safety.patch
 agyis onboard . --create-branch --pr                  # End-to-end onboarding with headless PR delivery
 ```
@@ -154,13 +155,14 @@ agyis onboard . --create-branch --pr                  # End-to-end onboarding wi
 
 ---
 
-## 🛠️ Consolidated 29-Command CLI Palette
+## 🛠️ Consolidated 30-Command CLI Palette
 
-The unified `agyis` CLI registers **29** top-level subcommands (`30` parser entries including `changelogs` alias; `router` and `ladder` separately — see [`docs/official-specs/cli-palette.md`](docs/official-specs/cli-palette.md)):
+The unified `agyis` CLI registers **30** logical top-level subcommands (`31` parser entries including `changelogs` alias; `router` and `ladder` separately — see [`docs/official-specs/cli-palette.md`](docs/official-specs/cli-palette.md)):
 
 ```bash
 # 🚀 Workspace Onboarding & Hygiene
-agyis onboard [path] [flags]     # Atomic 10-phase repository onboarding
+agyis onboard [path] [flags]     # Atomic 10-phase repository onboarding (--ensure-project supported)
+agyis project {list,ensure}      # List or idempotently register workspaces in <config_dir>/projects/*.json
 agyis init [path] [-s <stack>]   # Initialize workspace rules, skills & cleanroom ledgers
 agyis harmonize [path] [--dry-run] # Migrate legacy .agent/ configs into .agents/
 agyis clean [--all] [--caches] [--checkpoints] [--worktrees] # Purge stale caches, checkpoints & worktrees
@@ -225,7 +227,7 @@ agyis uninstall                  # Clean plugin uninstallation without collatera
 
 Agyis declares **7** registration blocks in [`hooks.json`](hooks.json) (symlink to [`harness/hooks/hooks.json`](harness/hooks/hooks.json)) backed by **8** runner targets verified by `agyis doctor` (default state path `/tmp/agyis_harness_state_{uid}`, overridable via `AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR`):
 
-1. **`psl-command-safety-guard` (`PreToolUse`)**: Injects certified CPython >= 3.12 (`uv`), enforces `PAGER=cat` & `SYSTEMD_PAGER=cat`, normalizes `call_mcp_tool` & eager `mcp_*` arguments, guards `swarm{action:"kill"}` during pause states, adds SSH timeouts + user PATH shims, runs the **#93 Anti-Clobber Guard** (conflict-marker, catastrophic contraction, and append-only `##` monotonic protection), and enforces the **#67 Memory Guard & Cross-Worktree Concurrency Semaphore** (`matrix.json` `system_thresholds`).
+1. **`psl-command-safety-guard` (`PreToolUse`)**: Injects certified CPython >= 3.12 (`3.14` recommended via `uv`), enforces `PAGER=cat` & `SYSTEMD_PAGER=cat`, normalizes `call_mcp_tool` & eager `mcp_*` arguments, guards `swarm{action:"kill"}` during pause states, adds SSH timeouts + user PATH shims, promotes inline scripts via POSIX quote-aware scanning (`#101`), runs the **#93 Anti-Clobber Guard** (conflict-marker, catastrophic contraction, and append-only `##` monotonic protection), and enforces the **#67 Memory Guard & Cross-Worktree Concurrency Semaphore** (`matrix.json` `system_thresholds`).
 2. **`psl-anti-loop-guard` (`PreToolUse`)**: Covers `read_file`/`view_file`, `write_file`/`edit_file`, `swarm`, and `run_workflow`; breaks 3+ identical consecutive tool calls and blocks status/log polling loops.
 3. **`psl-output-compactor` (`PostToolUse`)**: Emits `{"overwriteResult": compacted}` on succeeding `run_command` outputs `>2KB` and `read_file`/`view_file` outputs `>32KB`, while preserving failing commands (`exitCode != 0` or `error`) **100% verbatim** (`{}`).
 4. **`psl-stop-verification-fence` (`PreToolUse`, `PostToolUse`, `Stop`)**: Tracks decoupled `code_dirty` vs `spec_dirty` via `verification-fence` and `post-verification-fence`; inspects `hookEventName` and `payload["error"]`, honors `StopHookArgs.continuationActive`, verifies native `invoke_subagent` / `run_workflow` / swarm dispatch Stop-Gate truth, and clears on `agyis test` or `agyis verify --spec`.
@@ -285,7 +287,7 @@ Full reconciled tables and Issue #83 Route A/B/C scorecards:
 
 ## 🧪 Verification & Testing Contract
 
-All **2,623** unit, integration, and contract tests across **125 modules** (`121` `tests/test_*.py` + `4` `tests/e2e/test_*.py`) run hermetically with zero external network dependencies and zero live `~/.gemini/config/config.json` mutation:
+All **2,695** unit, integration, and contract tests across **131 modules** (`127` `tests/test_*.py` + `4` `tests/e2e/test_*.py`) run hermetically with zero external network dependencies and zero live `~/.gemini/config/config.json` mutation:
 
 ```bash
 ./agyis test                         # Full hermetic suite (~24s; sub-second component modules)
@@ -303,8 +305,8 @@ python3 -m harness.cli rules --lint  # Verify agent rules & zero echo duplicatio
 
 ## 🗺️ Master Roadmap & Architectural Horizons
 
-- **Horizon 0 & 1 (Completed — `v1.0.0` GA -> `v1.1.1` Uplift)**: Empirical taxonomy (`3,856`-session Gate 0 corpus), **PSL Invariant Codex v2** (`PSL-INV-001`–`008` + `PSL-RE-001`), **7** lifecycle hook blocks (**8** runner checks), **29**-command CLI suite (`30` parser entries incl. `release` & `changelogs`), **32** modular skills (incl. `pause` & `resume`), **8** canonical `v2.34+`/`v2.35.2` personas (`<=20` tool ceiling), strict `exa.hooks_pb` wire compatibility, Option-B checkpoint ConnectRPC Trajectory HUD & `:40624` playback parity, Orbital Aegis 5-route Light/Dark `2.5D` showcase, ELF/PE cleanroom RE tooling, **29/29** Antigravity `v2.34.0` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`) compatibility drifts resolved, hardened sync-daemon/COPY/launcher stability (`#119`, `#120`, `#121`), and CI/release wheel publishing.
-- **Horizon 2 (Post-`v1.1.1`)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, and RE & Audit Hardening.
+- **Horizon 0 & 1 (Completed — `v1.0.0` GA -> `v1.1.2` Uplift)**: Empirical taxonomy (`3,856`-session Gate 0 corpus), **PSL Invariant Codex v2** (`PSL-INV-001`–`008` + `PSL-RE-001`), **7** lifecycle hook blocks (**8** runner checks), **30**-command CLI suite (`31` parser entries incl. `project`, `release` & `changelogs`), **32** modular skills (incl. `pause` & `resume`), **8** canonical `v2.34+`/`v2.35.2` personas (`<=20` tool ceiling), strict `exa.hooks_pb` wire compatibility, Option-B checkpoint ConnectRPC Trajectory HUD & `:40624` playback parity, Orbital Aegis 5-route Light/Dark `2.5D` showcase, ELF/PE cleanroom RE tooling, **29/29** Antigravity `v2.34.0` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`) compatibility drifts resolved, hardened sync-daemon/COPY/launcher stability (`#119`, `#120`, `#121`), CPython `3.14` recommended runtime, slim Prettier-clean `AGENTS.md` injection & non-mutating `.agyis/test_manifest.json` onboarding (`agyis project {list,ensure}`, `--ensure-project`, `engines`/`packageManager` preflight, `#101`/`#94`/burn-rate/PreInvocation fixes), and CI/release wheel publishing.
+- **Horizon 2 (Post-`v1.1.2`)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, and RE & Audit Hardening.
 
 👉 **[roadmap.md](roadmap.md)** | **[CHANGELOG.md](CHANGELOG.md)** | **[docs/taxonomy/project-ledger.md](docs/taxonomy/project-ledger.md)** | **[docs/adr/README.md](docs/adr/README.md)**
 
@@ -321,7 +323,7 @@ python3 -m harness.cli rules --lint  # Verify agent rules & zero echo duplicatio
   - [Git, Worktree & Dirty-Tree Hygiene](docs/runbooks/git-and-worktree-hygiene.md)
   - [Dirtyroom & Cleanroom RE Operations](docs/runbooks/dirtyroom-operations.md)
 - **Official Specifications (`7`)**:
-  - [Consolidated 28-Command CLI Palette](docs/official-specs/cli-palette.md)
+  - [Consolidated 30-Command CLI Palette](docs/official-specs/cli-palette.md)
   - [Deterministic Lifecycle Hooks Contract](docs/official-specs/lifecycle-hooks.md)
   - [Cockpit Flight Director & Routing Spec](docs/official-specs/cockpit-director.md)
   - [Custom Codebase & Workspace-Aware Agents](docs/official-specs/custom-agents.md)

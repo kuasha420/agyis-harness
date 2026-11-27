@@ -489,6 +489,56 @@ class TestHarmonizeEngine(unittest.TestCase):
         self.assertIsInstance(res.command_dictionary, dict)
         self.assertTrue((self.ws / "AGENTS.md").is_file())
 
+    def test_harmonize_slim_agents_md_omits_frontmatter_and_inapplicable_clis(self) -> None:
+        (self.ws / "package.json").write_text(
+            json.dumps({"name": "pure-ts", "scripts": {"test": "vitest"}}),
+            encoding="utf-8",
+        )
+        res = harmonize_workspace(self.ws, dry_run=False, source_dir=REPO_ROOT, stack="typescript")
+        self.assertTrue(res.success)
+        content = (self.ws / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertNotIn("trigger: manual", content)
+        self.assertNotIn("PSL-INV-001)", content)
+        self.assertNotIn("agyis audit aff", content)
+        self.assertNotIn("agyis verify --spec", content)
+        self.assertIn("Inherits universal invariants PSL-INV-001 through PSL-INV-008", content)
+        self.assertIn("npm test", content)
+
+    def test_harmonize_relocates_custom_sections_and_repairs_heading_fence(self) -> None:
+        agents_md = self.ws / "AGENTS.md"
+        agents_md.write_text(
+            "# Repo Header\n\n"
+            "## <!-- Added by AGYIS-HARNESS -->\n"
+            "trigger: manual\n"
+            "description: old\n"
+            "---\n\n"
+            "## 2. Empirical Verification & Clean-Room Testing (PSL-INV-001)\n"
+            "- Duplicate rule\n\n"
+            "## 2.1 Oracle Grounding Invariant\n"
+            "- Preserve repo oracle rule.\n\n"
+            "## Hardware Tests\n"
+            "```bash\ncargo test --test live_hardware -- --ignored\n```\n"
+            "<!-- End AGYIS-HARNESS -->\n",
+            encoding="utf-8",
+        )
+        res1 = harmonize_workspace(self.ws, dry_run=False, source_dir=REPO_ROOT)
+        self.assertTrue(res1.success)
+        self.assertEqual(res1.rules_action, "migrated_tagged_block")
+
+        updated = agents_md.read_text(encoding="utf-8")
+        self.assertNotIn("## <!-- Added by AGYIS-HARNESS -->", updated)
+        self.assertNotIn("trigger: manual", updated)
+        self.assertNotIn("Duplicate rule", updated)
+        self.assertIn("<!-- Added by AGYIS-HARNESS -->", updated)
+        self.assertIn("<!-- End AGYIS-HARNESS -->", updated)
+        self.assertGreater(updated.index("## 2.1 Oracle Grounding Invariant"), updated.index(TAG_END))
+        self.assertGreater(updated.index("## Hardware Tests"), updated.index(TAG_END))
+
+        res2 = harmonize_workspace(self.ws, dry_run=False, source_dir=REPO_ROOT)
+        self.assertTrue(res2.success)
+        self.assertEqual(res2.rules_action, "already_up_to_date")
+        self.assertEqual(updated.count("## 2.1 Oracle Grounding Invariant"), 1)
+
 
 class TestHarmonizeCLI(unittest.TestCase):
     """Hermetic CLI tests for agyis harmonize and psl harmonize."""
@@ -1207,6 +1257,22 @@ class TestWorkspaceLinkSanitizer(unittest.TestCase):
         content = migrated_skill.read_text(encoding="utf-8")
         self.assertNotIn(".agent/rules/r.md", content)
         self.assertIn(".agents/rules/r.md", content)
+
+    def test_sanitize_workspace_links_rewrites_bare_agent_prose(self) -> None:
+        """Rewrites bare .agent/ and .agent prose in .agents/rules/*.md while sparing .agents/ & user-agent."""
+        rules_dir = self.ws / ".agents" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        readme = rules_dir / "README.md"
+        readme.write_text(
+            "# Rules\nSee `.agent/` and .agent/foo/bar.md or the .agent directory.\n"
+            "Keep .agents/existing.md and user-agent headers intact.\n",
+            encoding="utf-8",
+        )
+        sanitized = sanitize_workspace_links(self.ws, dry_run=False)
+        self.assertIn(readme.resolve(), [p.resolve() for p in sanitized])
+        updated = readme.read_text(encoding="utf-8")
+        self.assertIn("`.agents/` and .agents/foo/bar.md or the .agents directory.", updated)
+        self.assertIn("Keep .agents/existing.md and user-agent headers intact.", updated)
 
 
 class TestHarmonizeDecoupledRoleAndSubproject(unittest.TestCase):

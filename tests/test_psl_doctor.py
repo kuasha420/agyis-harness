@@ -9,11 +9,14 @@ Unit tests for pipeline/psl_doctor.py
 """
 
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from harness.runtime.tool_checks import check_rea_tooling
 from pipeline.psl_doctor import (
     check_cli_binary,
     check_duplicate_agents,
@@ -298,6 +301,89 @@ class TestPslDoctor(unittest.TestCase):
             self.assertEqual(res["status"], "OK")
             self.assertTrue(res["is_esm"])
             self.assertEqual(res["violations"], [])
+
+    def test_check_tool_pyenv_shim_downgrades_with_hermetic_uv(self):
+        """pyenv shim downgrades WARNING -> OK when hermetic uv python exists and version >= min_version."""
+        spec = {
+            "binary": "python3",
+            "min_version": "3.12.0",
+            "version_command": "python3 --version",
+            "version_regex": r"Python\s+([0-9]+\.[0-9]+\.[0-9]+)",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            shim_py = root / ".pyenv" / "shims" / "python3"
+            shim_py.parent.mkdir(parents=True)
+            shim_py.write_text("#!/bin/sh\n", encoding="utf-8")
+            shim_py.chmod(0o755)
+
+            uv_py = root / "uv_python" / "bin" / "python3"
+            uv_py.parent.mkdir(parents=True)
+            uv_py.write_text("#!/bin/sh\n", encoding="utf-8")
+            uv_py.chmod(0o755)
+
+            ok_proc = MagicMock(returncode=0, stdout="Python 3.14.0\n", stderr="")
+            with patch("shutil.which", return_value=str(shim_py)), \
+                 patch("subprocess.run", return_value=ok_proc):
+                res_ok = check_tool("python", spec, hermetic_python_path=uv_py)
+                self.assertEqual(res_ok["status"], "OK")
+                self.assertTrue(res_ok["is_shim"])
+                self.assertTrue(res_ok["shim_mitigated"])
+                self.assertIn("hermetic uv Python ready", res_ok["shim_details"])
+
+                res_no_herm = check_tool("python", spec, hermetic_python_path=None)
+                self.assertEqual(res_no_herm["status"], "WARNING")
+                self.assertTrue(res_no_herm["is_shim"])
+
+            old_proc = MagicMock(returncode=0, stdout="Python 3.10.12\n", stderr="")
+            with patch("shutil.which", return_value=str(shim_py)), \
+                 patch("subprocess.run", return_value=old_proc):
+                res_old = check_tool("python", spec, hermetic_python_path=uv_py)
+                self.assertEqual(res_old["status"], "OUTDATED")
+
+    def test_check_rea_tooling_timeout_floor_retry_and_providers_fallback(self):
+        """check_rea_tooling enforces >=5.0s version timeout, retries once, and falls back to server_identity.version."""
+        seen_timeouts = []
+        version_calls = {"count": 0}
+
+        def mock_retry_then_ok(cmd, *args, **kwargs):
+            if "--version" in cmd:
+                seen_timeouts.append(kwargs.get("timeout"))
+                version_calls["count"] += 1
+                if version_calls["count"] == 1:
+                    raise subprocess.TimeoutExpired(cmd=cmd, timeout=5.0)
+                return MagicMock(returncode=0, stdout="rea 6.9.0\n", stderr="")
+            if "-v" in cmd or "node" in str(cmd[0]):
+                return MagicMock(returncode=0, stdout="v24.22.1\n", stderr="")
+            return MagicMock(returncode=0, stdout=json.dumps({"analysis_provider_candidates": []}), stderr="")
+
+        with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
+             patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
+             patch("subprocess.run", side_effect=mock_retry_then_ok):
+            res = check_rea_tooling(timeout=1.0, rea=True)
+        self.assertEqual(res["status"], "ok")
+        self.assertEqual(res["version"], "6.9.0")
+        self.assertEqual(version_calls["count"], 2)
+        self.assertTrue(all(t >= 5.0 for t in seen_timeouts))
+
+        # Fallback to providers --json server_identity.version when --version returns empty
+        def mock_empty_ver_fallback(cmd, *args, **kwargs):
+            if "--version" in cmd:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if "-v" in cmd or "node" in str(cmd[0]):
+                return MagicMock(returncode=0, stdout="v24.22.1\n", stderr="")
+            return MagicMock(
+                returncode=0,
+                stdout=json.dumps({"server_identity": {"version": "6.9.0"}, "analysis_provider_candidates": []}),
+                stderr="",
+            )
+
+        with patch("harness.runtime.tool_checks.find_rea_binary", return_value=Path("/usr/local/bin/rea")), \
+             patch("harness.runtime.tool_checks.is_rea_mcp_configured", return_value=True), \
+             patch("subprocess.run", side_effect=mock_empty_ver_fallback):
+            res_fb = check_rea_tooling(timeout=2.0, rea=True)
+        self.assertEqual(res_fb["status"], "ok")
+        self.assertEqual(res_fb["version"], "6.9.0")
 
     def test_check_hooks_health_canonical(self):
         """Canonical repo hooks.json passes health audit with status OK and all 5 hooks verified."""

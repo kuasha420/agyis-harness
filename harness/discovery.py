@@ -30,114 +30,37 @@ import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+from harness.discovery_manifest import (
+    detect_node_runner_command,
+    detect_non_node_runner,
+    guard_package_manager_cmd,
+    has_non_python_test_surface,
+    pm_exec_prefix,
+    read_test_manifest,
+    resolve_manifest_full_command,
+    resolve_node_package_manager,
+)
+
 
 def detect_project_test_runner(cwd: Union[Path, str, None] = None) -> Optional[str]:
     """
     Inspects cwd for client project test runners:
-      * package.json / lockfiles -> 'pnpm test', 'bun test', 'npm test'
-      * Cargo.toml -> 'cargo test'
-      * pyproject.toml / pytest.ini / setup.cfg -> 'pytest'
-      * go.mod -> 'go test ./...'
-      * CMakeLists.txt -> 'ctest'
-      * gradlew / build.gradle / build.gradle.kts -> './gradlew test' or 'gradle test'
-      * mvnw / pom.xml -> './mvnw test' or 'mvn test'
-      * *.sln / *.csproj / *.fsproj -> 'dotnet test'
-      * Makefile / makefile -> 'make test'
-      * tests/*.sh or test/*.sh -> 'bash tests/*.sh' or 'bash test/*.sh'
+      * .agyis/test_manifest.json (tier_3_full / tier_2b_full / test:full)
+      * package.json / packageManager / lockfiles -> 'pnpm test', 'yarn test', 'bun test', 'npm test', Playwright/Vitest/Jest
+      * Cargo.toml, pyproject.toml, go.mod, Gradle, Maven, .NET, CMake, Makefile, Elixir, tests/*.sh
     Returns None if no recognized runner is identified.
     """
-    if cwd is None:
-        root = Path.cwd()
-    else:
-        root = Path(cwd)
-
+    root = Path.cwd() if cwd is None else Path(cwd)
     try:
         if not root.is_dir():
             return None
-
-        # 1. Node / JavaScript / TypeScript / Bun projects
-        pnpm_lock = root / "pnpm-lock.yaml"
-        alt_pnpm_lock = root / ".pnpm-lock.yaml"
-        bun_lockb = root / "bun.lockb"
-        bun_lock = root / "bun.lock"
-        bunfig = root / "bunfig.toml"
-        yarn_lock = root / "yarn.lock"
-        package_json = root / "package.json"
-
-        if pnpm_lock.exists() or alt_pnpm_lock.exists():
-            return "pnpm test"
-        if bun_lockb.exists() or bun_lock.exists() or bunfig.exists():
-            return "bun test"
-        if yarn_lock.exists():
-            return "npm test"  # Preserves existing workspace contract test expectation
-        if package_json.is_file():
-            try:
-                data = json.loads(package_json.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    scripts = data.get("scripts", {})
-                    if isinstance(scripts, dict) and "test" in scripts:
-                        return "npm test"
-            except (json.JSONDecodeError, OSError):
-                pass
-
-        # 2. Rust projects
-        if (root / "Cargo.toml").exists():
-            return "cargo test"
-
-        # 3. Python projects
-        if (
-            (root / "pyproject.toml").exists()
-            or (root / "pytest.ini").exists()
-            or (root / "setup.cfg").exists()
-        ):
-            return "pytest"
-
-        # 4. Go projects
-        if (root / "go.mod").exists():
-            return "go test ./..."
-
-        # 5. JVM: Gradle
-        if (root / "gradlew").exists():
-            return "./gradlew test"
-        if (root / "build.gradle").exists() or (root / "build.gradle.kts").exists():
-            return "gradle test"
-
-        # 6. JVM: Maven
-        if (root / "mvnw").exists():
-            return "./mvnw test"
-        if (root / "pom.xml").exists():
-            return "mvn test"
-
-        # 7. .NET / C# / F#
-        try:
-            if any(root.glob("*.sln")) or any(root.glob("*.csproj")) or any(root.glob("*.fsproj")):
-                return "dotnet test"
-        except OSError:
-            pass
-
-        # 8. C / C++ CMake
-        if (root / "CMakeLists.txt").exists():
-            return "ctest"
-
-        # 9. Makefile projects
-        if (root / "Makefile").exists() or (root / "makefile").exists():
-            return "make test"
-
-        # 10. Elixir projects
-        if (root / "mix.exs").exists():
-            return "mix test"
-
-        # 11. Shell test suites
-        for test_dirname in ("tests", "test"):
-            test_dir = root / test_dirname
-            if test_dir.is_dir():
-                try:
-                    if any(test_dir.glob("*.sh")):
-                        return f"bash {test_dirname}/*.sh"
-                except OSError:
-                    pass
-
-        return None
+        manifest_cmd = resolve_manifest_full_command(root)
+        if manifest_cmd:
+            return manifest_cmd
+        node_cmd = detect_node_runner_command(root)
+        if node_cmd:
+            return node_cmd
+        return detect_non_node_runner(root)
     except OSError:
         return None
 
@@ -389,6 +312,71 @@ def is_test_file_path(p_str: str) -> bool:
     return False
 
 
+def _resolve_native_js_rust_tests(
+    root: Path,
+    files: List[str],
+    js_ts_files: List[str],
+    rust_files: List[str],
+    pm_exec: str,
+    cargo_cmd: str,
+    has_vitest: bool,
+    has_jest: bool,
+    has_cargo: bool,
+    mode: str,
+    pkg: Optional[str],
+) -> Optional[ResolvedTests]:
+    """Resolve Level 1 native runner commands for Vitest, Jest, and Cargo workspaces."""
+    if has_vitest or has_jest:
+        if rust_files and not js_ts_files:
+            return ResolvedTests(
+                runner_cmd=cargo_cmd, test_files=[], source_files=files,
+                tier=1, tier_name="native", scope=mode, package=pkg,
+            )
+        target_files = js_ts_files or files
+        files_arg = " ".join(shlex.quote(f) for f in target_files)
+        js_cmd = (
+            f"{pm_exec}vitest related {files_arg} --run"
+            if has_vitest
+            else f"{pm_exec}jest --findRelatedTests {files_arg} --passWithNoTests"
+        )
+        cmd = f"{js_cmd} && {cargo_cmd}" if (rust_files and js_ts_files) else js_cmd
+        return ResolvedTests(
+            runner_cmd=cmd, test_files=[], source_files=files,
+            tier=1, tier_name="native", scope=mode, package=pkg,
+        )
+    if has_cargo and rust_files and not js_ts_files:
+        return ResolvedTests(
+            runner_cmd=cargo_cmd, test_files=[], source_files=files,
+            tier=1, tier_name="native", scope=mode, package=pkg,
+        )
+    return None
+
+
+def _resolve_js_file_runner_cmd(root: Path, quoted_tests: str, pkg_data: Optional[Dict[str, Any]]) -> str:
+    """Resolve targeted JS/TS test file execution without injecting broken npm --no-watch flags."""
+    has_node_markers = (root / "package.json").is_file() or any(
+        (root / lf).is_file()
+        for lf in ("pnpm-lock.yaml", ".pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock", "bunfig.toml")
+    )
+    pm = resolve_node_package_manager(root, pkg_data)
+    pm_exec = pm_exec_prefix(pm) if has_node_markers else ""
+    scripts = pkg_data.get("scripts", {}) if isinstance(pkg_data, dict) and isinstance(pkg_data.get("scripts"), dict) else {}
+    deps = (
+        {**(pkg_data.get("dependencies") or {}), **(pkg_data.get("devDependencies") or {})}
+        if isinstance(pkg_data, dict) else {}
+    )
+    test_script = str(scripts.get("test", ""))
+    if "@playwright/test" in deps or "playwright" in deps or any(root.glob("playwright.config.*")):
+        return f"{pm_exec}playwright test {quoted_tests}"
+    if "node --test" in test_script or "node --test" in str(scripts):
+        return f"node --test {quoted_tests}"
+    if "tsx" in test_script:
+        return f"{pm_exec}tsx --test {quoted_tests}"
+    if pm == "yarn":
+        return f"yarn test {quoted_tests}"
+    return f"{pm} test -- {quoted_tests}"
+
+
 def resolve_affected_tests(
     repo_root: Union[Path, str, None] = None,
     modified_files: Optional[List[str]] = None,
@@ -403,11 +391,7 @@ def resolve_affected_tests(
     Level 3: Enclosing directory / package scope fallback
     """
     root = Path(repo_root or Path.cwd()).resolve()
-
-    if modified_files is None:
-        files = get_git_modified_files(cwd=root, branch=branch)
-    else:
-        files = list(modified_files)
+    files = get_git_modified_files(cwd=root, branch=branch) if modified_files is None else list(modified_files)
 
     if pkg:
         prefix_matches = (f"packages/{pkg}/", f"apps/{pkg}/", f"{pkg}/")
@@ -415,156 +399,58 @@ def resolve_affected_tests(
 
     if not files:
         return ResolvedTests(
-            runner_cmd="",
-            test_files=[],
-            source_files=[],
-            tier=0,
-            tier_name="empty",
-            scope=mode,
-            package=pkg,
-            is_empty=True,
+            runner_cmd="", test_files=[], source_files=[],
+            tier=0, tier_name="empty", scope=mode, package=pkg, is_empty=True,
         )
 
-    # Classify files by language for multi-stack / polyglot resolution
     js_ts_exts = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".svelte", ".vue", ".html", ".css"}
-    rust_exts = {".rs"}
     js_ts_files = [f for f in files if Path(f).suffix.lower() in js_ts_exts]
     rust_files = [
         f for f in files
-        if Path(f).suffix.lower() in rust_exts or (Path(f).parts and Path(f).parts[0] in ("src-tauri", "native"))
+        if Path(f).suffix.lower() == ".rs" or (Path(f).parts and Path(f).parts[0] in ("src-tauri", "native"))
     ]
 
-    # Level 1: Native runner capabilities (Vitest / Jest / Cargo)
     package_json = root / "package.json"
-    has_vitest = False
-    has_jest = False
-
+    pkg_data: Optional[Dict[str, Any]] = None
+    has_vitest = bool(list(root.glob("vitest.config.*")))
+    has_jest = bool(list(root.glob("jest.config.*")))
     try:
-        if list(root.glob("vitest.config.*")):
-            has_vitest = True
-        if list(root.glob("jest.config.*")):
-            has_jest = True
         if package_json.is_file():
-            data = json.loads(package_json.read_text(encoding="utf-8"))
-            deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
-            scripts = data.get("scripts", {})
-            if not has_vitest and ("vitest" in deps or "vitest" in str(scripts.get("test", ""))):
-                has_vitest = True
-            if not has_jest and ("jest" in deps or "jest" in str(scripts.get("test", ""))):
-                has_jest = True
+            loaded = json.loads(package_json.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                pkg_data = loaded
+                deps = {**(loaded.get("dependencies") or {}), **(loaded.get("devDependencies") or {})}
+                scripts = loaded.get("scripts") or {}
+                if not has_vitest and ("vitest" in deps or "vitest" in str(scripts.get("test", ""))):
+                    has_vitest = True
+                if not has_jest and ("jest" in deps or "jest" in str(scripts.get("test", ""))):
+                    has_jest = True
     except Exception:
         pass
 
-    # Package manager execution prefix (pnpm exec, bun x, yarn, npx)
-    pm_exec = ""
-    if (root / "pnpm-lock.yaml").is_file() or (root / ".pnpm-lock.yaml").is_file():
-        pm_exec = "pnpm exec "
-    elif (root / "bun.lockb").is_file() or (root / "bun.lock").is_file() or (root / "bunfig.toml").is_file():
-        pm_exec = "bun x "
-    elif (root / "yarn.lock").is_file():
-        pm_exec = "yarn "
-    elif package_json.is_file():
-        pm_exec = "npx "
+    has_node_lock = any(
+        (root / lf).is_file()
+        for lf in ("pnpm-lock.yaml", ".pnpm-lock.yaml", "bun.lockb", "bun.lock", "bunfig.toml", "yarn.lock")
+    )
+    pm_exec = pm_exec_prefix(resolve_node_package_manager(root, pkg_data)) if (package_json.is_file() or has_node_lock) else ""
 
-    # Cargo runner detection
     cargo_manifest_arg = ""
     has_cargo = False
-    if (root / "src-tauri" / "Cargo.toml").is_file():
-        cargo_manifest_arg = " --manifest-path src-tauri/Cargo.toml"
-        has_cargo = True
-    elif (root / "native" / "Cargo.toml").is_file():
-        cargo_manifest_arg = " --manifest-path native/Cargo.toml"
-        has_cargo = True
-    elif (root / "Cargo.toml").is_file():
+    for sub in ("src-tauri", "native"):
+        if (root / sub / "Cargo.toml").is_file():
+            cargo_manifest_arg = f" --manifest-path {sub}/Cargo.toml"
+            has_cargo = True
+            break
+    if not has_cargo and (root / "Cargo.toml").is_file():
         has_cargo = True
     cargo_cmd = f"cargo test{cargo_manifest_arg}"
 
-    if has_vitest:
-        if rust_files and not js_ts_files:
-            return ResolvedTests(
-                runner_cmd=cargo_cmd,
-                test_files=[],
-                source_files=files,
-                tier=1,
-                tier_name="native",
-                scope=mode,
-                package=pkg,
-            )
-        elif rust_files and js_ts_files:
-            js_arg = " ".join(shlex.quote(f) for f in js_ts_files)
-            vitest_cmd = f"{pm_exec}vitest related {js_arg} --run"
-            combined_cmd = f"{vitest_cmd} && {cargo_cmd}"
-            return ResolvedTests(
-                runner_cmd=combined_cmd,
-                test_files=[],
-                source_files=files,
-                tier=1,
-                tier_name="native",
-                scope=mode,
-                package=pkg,
-            )
-        elif js_ts_files or not rust_files:
-            target_files = js_ts_files or files
-            files_arg = " ".join(shlex.quote(f) for f in target_files)
-            cmd = f"{pm_exec}vitest related {files_arg} --run"
-            return ResolvedTests(
-                runner_cmd=cmd,
-                test_files=[],
-                source_files=files,
-                tier=1,
-                tier_name="native",
-                scope=mode,
-                package=pkg,
-            )
-
-    if has_jest:
-        if rust_files and not js_ts_files:
-            return ResolvedTests(
-                runner_cmd=cargo_cmd,
-                test_files=[],
-                source_files=files,
-                tier=1,
-                tier_name="native",
-                scope=mode,
-                package=pkg,
-            )
-        elif rust_files and js_ts_files:
-            js_arg = " ".join(shlex.quote(f) for f in js_ts_files)
-            jest_cmd = f"{pm_exec}jest --findRelatedTests {js_arg} --passWithNoTests"
-            combined_cmd = f"{jest_cmd} && {cargo_cmd}"
-            return ResolvedTests(
-                runner_cmd=combined_cmd,
-                test_files=[],
-                source_files=files,
-                tier=1,
-                tier_name="native",
-                scope=mode,
-                package=pkg,
-            )
-        elif js_ts_files or not rust_files:
-            target_files = js_ts_files or files
-            files_arg = " ".join(shlex.quote(f) for f in target_files)
-            cmd = f"{pm_exec}jest --findRelatedTests {files_arg} --passWithNoTests"
-            return ResolvedTests(
-                runner_cmd=cmd,
-                test_files=[],
-                source_files=files,
-                tier=1,
-                tier_name="native",
-                scope=mode,
-                package=pkg,
-            )
-
-    if has_cargo and rust_files and not js_ts_files:
-        return ResolvedTests(
-            runner_cmd=cargo_cmd,
-            test_files=[],
-            source_files=files,
-            tier=1,
-            tier_name="native",
-            scope=mode,
-            package=pkg,
-        )
+    level1 = _resolve_native_js_rust_tests(
+        root, files, js_ts_files, rust_files, pm_exec, cargo_cmd,
+        has_vitest, has_jest, has_cargo, mode, pkg,
+    )
+    if level1 is not None:
+        return level1
 
     # Level 2: Structural heuristic mapping
     matched_test_files: Set[str] = set()
@@ -575,29 +461,29 @@ def resolve_affected_tests(
                 matched_test_files.add(f)
             continue
 
-        stem = p.stem
-        suffix = p.suffix
-        candidates: List[Path] = []
-
-        # Co-located
-        candidates.append(p.parent / f"{stem}.test{suffix}")
-        candidates.append(p.parent / f"{stem}.spec{suffix}")
-        candidates.append(p.parent / f"test_{stem}{suffix}")
-        candidates.append(p.parent / "__tests__" / f"{stem}.test{suffix}")
-
-        # Mapped tests/
+        stem, suffix = p.stem, p.suffix
+        candidates: List[Path] = [
+            p.parent / f"{stem}.test{suffix}",
+            p.parent / f"{stem}.spec{suffix}",
+            p.parent / f"test_{stem}{suffix}",
+            p.parent / "__tests__" / f"{stem}.test{suffix}",
+        ]
         if p.parts and p.parts[0] == "src":
             rel_dir = Path(*p.parts[1:-1]) if len(p.parts) > 2 else Path(".")
-            candidates.append(Path("tests") / rel_dir / f"test_{stem}{suffix}")
-            candidates.append(Path("tests") / rel_dir / f"{stem}.test{suffix}")
-            candidates.append(Path("tests") / rel_dir / f"{stem}.spec{suffix}")
-            candidates.append(Path("tests") / f"test_{stem}{suffix}")
+            candidates.extend([
+                Path("tests") / rel_dir / f"test_{stem}{suffix}",
+                Path("tests") / rel_dir / f"{stem}.test{suffix}",
+                Path("tests") / rel_dir / f"{stem}.spec{suffix}",
+                Path("tests") / f"test_{stem}{suffix}",
+            ])
         elif p.parts and p.parts[0] == "harness":
             candidates.append(Path("tests") / f"test_{stem}.py")
         else:
-            candidates.append(Path("tests") / p.parent / f"test_{stem}{suffix}")
-            candidates.append(Path("tests") / f"test_{stem}{suffix}")
-            candidates.append(Path("tests") / f"{stem}.test{suffix}")
+            candidates.extend([
+                Path("tests") / p.parent / f"test_{stem}{suffix}",
+                Path("tests") / f"test_{stem}{suffix}",
+                Path("tests") / f"{stem}.test{suffix}",
+            ])
 
         for cand in candidates:
             if (root / cand).is_file():
@@ -606,36 +492,26 @@ def resolve_affected_tests(
     if matched_test_files:
         sorted_tests = sorted(matched_test_files)
         quoted_tests = " ".join(shlex.quote(t) for t in sorted_tests)
-        # Determine runner command
         if any(t.endswith(".py") for t in sorted_tests):
             if (root / "pyproject.toml").exists() or (root / "pytest.ini").exists() or (root / "setup.cfg").exists():
                 cmd = f"pytest {quoted_tests}"
             else:
                 cmd = f"python3 -m unittest {quoted_tests}"
         elif any(t.endswith((".ts", ".tsx", ".js", ".jsx")) for t in sorted_tests):
-            cmd = f"npm test -- {quoted_tests}"
+            cmd = _resolve_js_file_runner_cmd(root, quoted_tests, pkg_data)
         elif any(t.endswith(".rs") for t in sorted_tests):
-            if (root / "src-tauri" / "Cargo.toml").is_file():
-                cmd = f"cargo test --manifest-path src-tauri/Cargo.toml {quoted_tests}"
-            else:
-                cmd = f"cargo test {quoted_tests}"
+            cmd = f"{cargo_cmd} {quoted_tests}"
         elif any(t.endswith(".go") for t in sorted_tests):
             cmd = f"go test {quoted_tests}"
         else:
             cmd = f"python3 -m unittest {quoted_tests}"
 
         return ResolvedTests(
-            runner_cmd=cmd,
-            test_files=sorted_tests,
-            source_files=files,
-            tier=2,
-            tier_name="structural",
-            scope=mode,
-            package=pkg,
+            runner_cmd=cmd, test_files=sorted_tests, source_files=files,
+            tier=2, tier_name="structural", scope=mode, package=pkg,
         )
 
     # Level 3: Enclosing directory / package scope fallback
-    # A. Monorepo package check
     for f in files:
         p = Path(f)
         for parent in [p] + list(p.parents):
@@ -644,20 +520,14 @@ def resolve_affected_tests(
                 try:
                     data = json.loads(pkg_manifest.read_text(encoding="utf-8"))
                     detected_pkg = data.get("name") or parent.name
-                    cmd = f"pnpm --filter {detected_pkg} test"
                     return ResolvedTests(
-                        runner_cmd=cmd,
-                        test_files=[],
-                        source_files=files,
-                        tier=3,
-                        tier_name="fallback",
-                        scope=mode,
-                        package=detected_pkg,
+                        runner_cmd=f"pnpm --filter {detected_pkg} test",
+                        test_files=[], source_files=files,
+                        tier=3, tier_name="fallback", scope=mode, package=detected_pkg,
                     )
                 except Exception:
                     pass
 
-    # B. Directory test search
     fallback_tests: Set[str] = set()
     for f in files:
         p = Path(f)
@@ -665,9 +535,7 @@ def resolve_affected_tests(
         if p.parts and p.parts[0] == "src":
             rel_dir = Path(*p.parts[1:-1]) if len(p.parts) > 2 else Path(".")
             dirs_to_check.append(root / "tests" / rel_dir)
-        dirs_to_check.append(root / p.parent)
-        dirs_to_check.append(root / p.parent / "__tests__")
-
+        dirs_to_check.extend([root / p.parent, root / p.parent / "__tests__"])
         for d in dirs_to_check:
             if d.is_dir():
                 try:
@@ -683,27 +551,18 @@ def resolve_affected_tests(
         if any(t.endswith(".py") for t in sorted_fallback):
             cmd = f"python3 -m unittest {quoted_fallback}"
         else:
-            cmd = f"npm test -- {quoted_fallback}"
+            cmd = _resolve_js_file_runner_cmd(root, quoted_fallback, pkg_data)
         return ResolvedTests(
-            runner_cmd=cmd,
-            test_files=sorted_fallback,
-            source_files=files,
-            tier=3,
-            tier_name="fallback",
-            scope=mode,
-            package=pkg,
+            runner_cmd=cmd, test_files=sorted_fallback, source_files=files,
+            tier=3, tier_name="fallback", scope=mode, package=pkg,
         )
 
-    # Default fallback to project runner
-    runner = detect_project_test_runner(root) or "python3 -m unittest discover -s tests"
+    runner = detect_project_test_runner(root)
+    if not runner:
+        runner = "" if has_non_python_test_surface(root) else "python3 -m unittest discover -s tests"
     return ResolvedTests(
-        runner_cmd=runner,
-        test_files=[],
-        source_files=files,
-        tier=3,
-        tier_name="fallback",
-        scope=mode,
-        package=pkg,
+        runner_cmd=runner, test_files=[], source_files=files,
+        tier=3, tier_name="fallback", scope=mode, package=pkg,
     )
 
 
@@ -735,22 +594,10 @@ def is_non_interactive_context() -> bool:
 def inject_non_interactive_guards(
     cmd: str,
     env: Optional[Dict[str, str]] = None,
+    cwd: Union[Path, str, None] = None,
 ) -> Tuple[str, Dict[str, str]]:
-    """Guards test subshells by injecting CI=true and appending non-watch flags."""
+    """Guards test subshells by injecting CI=true and safe non-watch flags."""
     new_env = dict(env if env is not None else os.environ)
     new_env["CI"] = "true"
     new_env["NONINTERACTIVE"] = "true"
-
-    clean_cmd = cmd.strip()
-    # Vitest watch suppression
-    if re.search(r"\bvitest\b", clean_cmd) and not re.search(r"(?:^|\s)(?:run|--run|--no-watch)(?:\s|$)", clean_cmd):
-        clean_cmd += " --run"
-    # Jest watch suppression
-    elif re.search(r"\bjest\b", clean_cmd) and not re.search(r"(?:--watchAll=false|--no-watch|--watch=false|--watchAll=0)", clean_cmd):
-        clean_cmd += " --watchAll=false"
-    # Package manager test script watch suppression
-    elif re.search(r"\b(?:pnpm|npm|yarn|bun)\b.*?\b(?:run\s+)?test(?::\w+)?\b", clean_cmd):
-        if "--no-watch" not in clean_cmd and "--watch=false" not in clean_cmd:
-            clean_cmd += " -- --no-watch" if " -- " not in clean_cmd else " --no-watch"
-
-    return clean_cmd, new_env
+    return guard_package_manager_cmd(cmd.strip(), cwd=cwd), new_env

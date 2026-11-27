@@ -121,6 +121,11 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Do not buffer stdout/stderr during test execution (shows negative assertion output)",
     )
+    p_test.add_argument(
+        "--allow-no-tests",
+        action="store_true",
+        help="Exit cleanly with status 0 when no executable test runner or zero tests are discovered",
+    )
 
     # audit
     p_audit = subparsers.add_parser("audit", help="Run empirical telemetry laboratory pipelines")
@@ -553,6 +558,12 @@ def register_core_parsers(subparsers: argparse._SubParsersAction) -> None:
         "--commit",
         action="store_true",
         help="Create an atomic git commit for onboarded files",
+    )
+    p_onboard.add_argument(
+        "--ensure-project",
+        action="store_true",
+        default=False,
+        help="Ensure the workspace is registered in <config_dir>/projects/*.json for Antigravity desktop discovery",
     )
     p_onboard.add_argument(
         "--dry-run",

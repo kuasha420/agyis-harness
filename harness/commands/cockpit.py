@@ -33,6 +33,8 @@ from harness.delivery import (
 from harness.utils.context import (
     get_active_brain_dir,
     get_active_conversation_id,
+    is_in_live_home_gemini,
+    is_in_temp_dir,
 )
 from harness.subagents.routing import (
     CANONICAL_ROUTES,
@@ -43,7 +45,7 @@ from harness.subagents.routing import (
 )
 from harness.subagents.stage_role import read_stage_role
 from harness.utils import theme
-from harness.utils.plan_parser import find_active_plan
+from harness.utils.plan_parser import find_active_plan, resolve_active_plan
 
 
 def _classify_token_horizon(tokens: int, max_context_tokens: Optional[int] = None) -> Tuple[str, str]:
@@ -476,12 +478,21 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
         subagents = collect_active_subagents(workspace)
         stage_role = read_stage_role(workspace)
         plan_path: Optional[Path] = None
-        if conv_id:
-            cid_plan = get_active_brain_dir() / conv_id / "implementation_plan.md"
+        plan_source_type: str = "none"
+        brain_base = get_active_brain_dir()
+        allow_cid_brain = (not is_in_temp_dir(workspace)) or (not is_in_live_home_gemini(brain_base))
+        if conv_id and allow_cid_brain:
+            cid_plan = brain_base / conv_id / "implementation_plan.md"
             if cid_plan.is_file():
                 plan_path = cid_plan
+                plan_source_type = "session_brain"
         if plan_path is None:
-            plan_path = find_active_plan(workspace_root=workspace)
+            plan_path, plan_source_type = resolve_active_plan(
+                conv_id=conv_id if allow_cid_brain else None,
+                workspace_root=workspace,
+                brain_dir=(brain_base / conv_id) if (conv_id and allow_cid_brain) else None,
+                allow_unmarked_root_plans=False,
+            )
         cp_info = _get_active_checkpoint_info(workspace, conv_id=conv_id)
 
         data: Dict[str, Any] = {
@@ -498,6 +509,8 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
                 "proximity_label": zone_label,
             },
             "active_plan": str(plan_path) if plan_path else None,
+            "source_type": plan_source_type,
+            "active_plan_source_type": plan_source_type,
             "active_stage_role": stage_role,
             "git": {
                 "branch": git_state.branch,
@@ -528,7 +541,10 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
         print(theme.banner("AGYIS COCKPIT FLIGHT DECK STATUS"))
         print(f"• Proximity Zone     : {zone_label} (~{tokens:,} / {max_ctx:,} tokens)")
         print(f"• Active Stage Role  : {stage_role.get('stage_name', 'None') if stage_role else 'ROOT_ATC'} ({stage_role.get('specialist_agent', 'cockpit_director') if stage_role else 'cockpit_director'})")
-        print(f"• Active Plan        : {plan_path.name if plan_path else 'None declared'}")
+        if plan_path:
+            print(f"• Active Plan        : {plan_path.name} (source_type: {plan_source_type})")
+        else:
+            print(f"• Active Plan        : None declared (source_type: {plan_source_type})")
         print(f"• Git State          : Branch '{git_state.branch}' @ {git_state.commit_short} ({'DIRTY' if git_state.is_dirty else 'CLEAN'})")
         if git_state.is_dirty:
             print(f"  └─ Modified: {len(git_state.modified_files)} | Untracked: {len(git_state.untracked_files)}")

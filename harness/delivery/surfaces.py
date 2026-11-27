@@ -141,7 +141,15 @@ def enforce_single_source_skills(
 
     plugin_skill_names = get_plugin_provided_skills(cfg, plugin_skills_dir=plugin_skills_dir)
 
-    if not plugin_skill_names:
+    standalone_skills_dir = cfg / "skills"
+    standalone_skill_names: Set[str] = set()
+    if standalone_skills_dir.is_dir():
+        for item in standalone_skills_dir.iterdir():
+            if item.is_dir() and not item.name.startswith("."):
+                if (item / "SKILL.md").is_file() or any(item.glob("*.md")):
+                    standalone_skill_names.add(item.name)
+
+    if not plugin_skill_names and not standalone_skill_names:
         return []
 
     candidate_dirs = [cfg / "skills"]
@@ -184,9 +192,17 @@ def enforce_single_source_skills(
         if not is_harness_workspace(ws_root):
             ws_skills = ws_root / ".agents" / "skills"
             if ws_skills.is_dir():
-                for sname in plugin_skill_names:
+                global_skill_names = plugin_skill_names | standalone_skill_names
+                for sname in sorted(global_skill_names):
                     dup_ws_dir = ws_skills / sname
-                    if dup_ws_dir.exists():
+                    if dup_ws_dir.exists() or dup_ws_dir.is_symlink():
+                        if not dup_ws_dir.is_symlink():
+                            standalone_cand = standalone_skills_dir / sname
+                            try:
+                                if standalone_cand.is_symlink() and standalone_cand.resolve() == dup_ws_dir.resolve():
+                                    continue
+                            except OSError:
+                                pass
                         if not dry_run:
                             try:
                                 if dup_ws_dir.is_symlink():

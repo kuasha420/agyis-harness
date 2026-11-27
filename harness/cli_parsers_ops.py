@@ -679,6 +679,68 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
         help="Output structured cleanup report in JSON format",
     )
 
+    # project
+    p_project = subparsers.add_parser(
+        "project",
+        help="List and register Antigravity desktop project registry entries",
+        description="Manage canonical <config_dir>/projects/*.json workspace registrations",
+    )
+    p_project.add_argument(
+        "--config-dir",
+        type=Path,
+        default=None,
+        help="Optional custom configuration directory (overrides AGYIS_CONFIG_DIR / ~/.gemini/config)",
+    )
+    p_project.add_argument("--json", action="store_true", help="Output result in JSON format")
+    project_subparsers = p_project.add_subparsers(
+        dest="project_action",
+        title="actions",
+        description="Project registry commands",
+    )
+
+    p_proj_list = project_subparsers.add_parser(
+        "list",
+        help="List registered Antigravity projects",
+        description="List projects registered in <config_dir>/projects/*.json",
+    )
+    p_proj_list.add_argument(
+        "--config-dir",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Optional custom configuration directory (overrides AGYIS_CONFIG_DIR / ~/.gemini/config)",
+    )
+    p_proj_list.add_argument(
+        "--json", action="store_true", default=argparse.SUPPRESS, help="Output registered projects in JSON format"
+    )
+
+    p_proj_ensure = project_subparsers.add_parser(
+        "ensure",
+        help="Ensure a workspace is registered in Antigravity projects registry",
+        description="Idempotently register workspace in <config_dir>/projects/<uuid>.json",
+    )
+    p_proj_ensure.add_argument(
+        "path", nargs="?", default=None, help="Target workspace directory (defaults to current working directory)"
+    )
+    p_proj_ensure.add_argument(
+        "--config-dir",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Optional custom configuration directory (overrides AGYIS_CONFIG_DIR / ~/.gemini/config)",
+    )
+    p_proj_ensure.add_argument(
+        "--name", type=str, default=None, help="Override registered project display name"
+    )
+    p_proj_ensure.add_argument(
+        "--branch", "--default-branch", dest="branch", type=str, default=None,
+        help="Override git defaultBranch (default: auto-detected from repository)",
+    )
+    p_proj_ensure.add_argument(
+        "--dry-run", action="store_true", help="Preview project registration without writing to disk"
+    )
+    p_proj_ensure.add_argument(
+        "--json", action="store_true", default=argparse.SUPPRESS, help="Output registration result in JSON format"
+    )
+
     # re
     p_re = subparsers.add_parser(
         "re",

@@ -30,6 +30,7 @@ import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
+from harness.runtime.engine_checks import check_package_engines
 from harness.runtime.healing import heal_environment
 from harness.runtime.hygiene_checks import (
     check_database_port_conflicts,
@@ -67,6 +68,7 @@ __all__ = [
     "check_duplicate_skills",
     "check_hooks_health",
     "check_node_script_hygiene",
+    "check_package_engines",
     "check_psl_collision",
     "check_rea_tooling",
     "check_telemetry_daemon",
@@ -284,6 +286,7 @@ def run_doctor(
     # Execute independent subprocess probes concurrently to keep fast-path doctor <1.0s.
     with ThreadPoolExecutor(max_workers=12) as pool:
         fut_db = pool.submit(check_database_port_conflicts, workspace_root=effective_workspace)
+        fut_pkg_eng = pool.submit(check_package_engines, effective_workspace or Path.cwd())
         fut_daemon = pool.submit(check_telemetry_daemon)
         fut_rea = pool.submit(
             check_rea_tooling,
@@ -300,6 +303,7 @@ def run_doctor(
                 )
 
         database_port_conflicts = fut_db.result()
+        package_engines = fut_pkg_eng.result()
         telemetry_daemon = fut_daemon.result()
         rea_tooling = fut_rea.result()
         forensic_toolchain = fut_ft.result() if fut_ft else None
@@ -325,6 +329,7 @@ def run_doctor(
         "duplicate_agents": duplicate_agents,
         "duplicate_skills": duplicate_skills,
         "node_script_hygiene": node_script_hygiene,
+        "package_engines": package_engines,
         "hooks_health": hooks_health,
         "database_port_conflicts": database_port_conflicts,
         "telemetry_daemon": telemetry_daemon,
@@ -355,6 +360,8 @@ def run_doctor(
     if duplicate_skills.get("status") == "WARNING":
         results["summary"]["warning"] += 1
     if node_script_hygiene.get("status") == "WARNING":
+        results["summary"]["warning"] += 1
+    if package_engines and package_engines.get("status") in ("WARNING", "ERROR"):
         results["summary"]["warning"] += 1
     if hooks_health.get("status") != "OK":
         results["summary"]["warning"] += 1
@@ -476,6 +483,17 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
         else:
             _format_status_row(label, "INFO", str(item.get("details", "")), None, lw)
 
+    pkg_eng = audit.get("package_engines")
+    if pkg_eng and pkg_eng.get("status") != "SKIPPED":
+        pe_st = pkg_eng.get("status")
+        pe_rem = "; ".join(pkg_eng.get("fix_hints") or []) or pkg_eng.get("remediation")
+        if pe_st == "ERROR":
+            _format_status_row("Package Engines:", "FAIL", str(pkg_eng.get("details", "")), pe_rem, 21)
+        elif pe_st == "WARNING":
+            _format_status_row("Package Engines:", "WARN", str(pkg_eng.get("details", "")), pe_rem, 21)
+        elif pe_st in ("OK", "PASS"):
+            _format_status_row("Package Engines:", "PASS", str(pkg_eng.get("details", "")), None, 21)
+
     hooks_h = audit.get("hooks_health")
     if hooks_h:
         if hooks_h.get("status") == "WARNING":
@@ -576,7 +594,11 @@ def print_cli_report(audit: Dict[str, Any]) -> None:
             sym = symbols.get(tool["status"], "[????]")
             v_info = tool["version"] or "N/A"
             req_info = f"(min: {tool['min_version']})" if tool["min_version"] else ""
-            shim_note = f" {theme.badge('WARN', str(tool['shim_details']))}" if tool["is_shim"] else ""
+            if tool.get("is_shim"):
+                shim_kind = "INFO" if tool.get("status") == "OK" else "WARN"
+                shim_note = f" {theme.badge(shim_kind, shim_kind, bracketed=True)} {tool['shim_details']}"
+            else:
+                shim_note = ""
             print(
                 f"  {theme.pad_display(sym, 8)} {theme.pad_display(tool['name'], 10)} "
                 f"{theme.pad_display(v_info, 12)} {theme.pad_display(req_info, 14)} "

@@ -18,18 +18,27 @@ Audits, sanitizes, and normalizes terminal and MCP tool calls before execution:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
-import shlex
 import shutil
 import sys
-import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 from harness.hooks.anti_clobber import WRITE_CLOBBER_TOOLS, check_anti_clobber
+from harness.hooks.inline_script_guard import (
+    INLINE_INTERPRETER_CONFIGS,
+    INLINE_INTERPRETER_PATTERNS,
+    INLINE_SCRIPT_DENY_REASON,
+    check_inline_script_hygiene,
+    extract_command_binary,
+    is_inline_python_command,
+    is_python_command,
+    promote_inline_script_to_scratch,
+    resolve_scratch_target_path,
+    split_shell_pipes,
+)
 from harness.hooks.resource_semaphore import evaluate_resource_semaphore
 from harness.hooks.mcp_normalizer import (
     FILE_PATH_TOOLS,
@@ -88,19 +97,6 @@ SHELL_BUILTINS: frozenset[str] = frozenset({
     "read", "set", "trap", "wait", "shift", "history", "pwd", "pushd", "popd", "dirs", "exec", "type", "command",
     "hash", "kill", "jobs", "fg", "bg", "umask", "shopt", "bind", "builtin",
 })
-_CMD_BOUNDARY = r"(?:^|[;&|(\n]\s*)(?:(?:sudo|xargs|nohup|exec|env|time|command)(?:\s+-[^\s]+)*\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)*"
-INLINE_INTERPRETER_CONFIGS: List[Tuple[str, Any, str, str]] = [
-    ("python", re.compile(_CMD_BOUNDARY + r"\bpython3?(?:\.\d+)?\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL), "-c", ".py"),
-    ("node", re.compile(_CMD_BOUNDARY + r"\bnode\s+(?:-[^\s]+\s+)*-e\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL), "-e", ".js"),
-    ("bash", re.compile(_CMD_BOUNDARY + r"\bbash\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL), "-c", ".sh"),
-    ("sh", re.compile(_CMD_BOUNDARY + r"\bsh\s+(?:-[^\s]+\s+)*-c\s*\$?('''|\"\"\"|'|\")((?:\\.|(?!\1).)*?)\1", re.DOTALL), "-c", ".sh"),
-]
-INLINE_INTERPRETER_PATTERNS = [cfg[1] for cfg in INLINE_INTERPRETER_CONFIGS]
-INLINE_SCRIPT_DENY_REASON = (
-    "[PSL-INV-003 VIOLATION] Multi-line or complex inline script detected (>250 chars or newlines). "
-    "In accordance with PSL-INV-003, write multi-line scripts to a temporary scratch file "
-    "('scratch/probe.py' or 'scratch/probe.sh') and execute the script file instead of fragile multi-line shell escaping."
-)
 PAUSE_GATE_FILES = (Path(".agents/artifacts/pause_gate.json"), Path(".pause_gate"), Path(".agents/artifacts/PARKED_STATE.md"), Path(".agents/teamwork/PARKED_STATE.md"))
 PAUSE_KILL_SHELL_REGEX = re.compile(r"\b(?:kill|pkill|killall)\s+-(?:9|SIGKILL|KILL)\b")
 RUN_COMMAND_ALLOWED_KEYS: frozenset[str] = frozenset({
@@ -112,27 +108,6 @@ RUN_COMMAND_ALLOWED_KEYS: frozenset[str] = frozenset({
 })
 
 _ACTIVE_CONVO_ID: Optional[str] = None
-
-
-def extract_command_binary(cmd: str) -> Optional[str]:
-    """Extracts the root executable binary name, skipping env assignments and wrappers."""
-    stripped = cmd.strip()
-    if not stripped:
-        return None
-    tokens = re.split(r"[;&|]", stripped)[0].strip().split()
-    wrappers = {"sudo", "xargs", "nohup", "exec", "env", "time", "command"}
-    idx = 0
-    while idx < len(tokens):
-        tok = tokens[idx]
-        if "=" in tok and not tok.startswith("-"):
-            idx += 1
-        elif tok in wrappers:
-            idx += 1
-            while idx < len(tokens) and tokens[idx].startswith("-"):
-                idx += 1
-        else:
-            return tok.split("/")[-1]
-    return None
 
 
 def check_preflight_tool_availability(cmd: str) -> Dict[str, Any]:
@@ -183,180 +158,11 @@ def sanitize_ssh_remote_payload(cmd: str) -> Tuple[str, bool, List[str]]:
 
 
 def find_hermetic_uv_python_bin() -> Optional[Path]:
-    """Finds installed CPython 3.12+ bin directory in uv's cache."""
+    """Finds highest installed CPython 3.12+ (preferring 3.14) bin directory in uv's cache."""
     from harness.runtime.tool_checks_common import find_hermetic_uv_python
 
     py_bin = find_hermetic_uv_python()
     return py_bin.parent if py_bin is not None else None
-
-
-def is_inline_python_command(cmd: str) -> bool:
-    """Detects inline python -c / python3 -c invocations."""
-    return bool(re.search(r"\b(?:python3?)\s+-c\b", cmd))
-
-
-def is_python_command(cmd: str) -> bool:
-    """Detects python / python3 invocations (inline -c, -m module, or script execution)."""
-    if re.search(r"\bpython3?(?:\.\d+)?\b", cmd):
-        return True
-    bin_name = extract_command_binary(cmd)
-    if bin_name and bin_name.endswith(".py"):
-        return True
-    return False
-
-
-def _find_promotable_inline_matches(cmd: str) -> List[Tuple[Any, str, str, str, str]]:
-    """Returns genuine complex/multi-line inline script matches requiring scratch promotion."""
-    if not cmd or not cmd.strip() or os.environ.get("PSL_ALLOW_INLINE_SCRIPTS") == "1":
-        return []
-    cmd_lower = cmd.lower()
-    if "# agyis: allow-inline-script" in cmd_lower or "# allow-inline" in cmd_lower:
-        return []
-    if re.search(r"<<-?\s*['\"]?[A-Za-z_][A-Za-z0-9_]*", cmd):
-        return []
-
-    matches: List[Tuple[Any, str, str, str, str]] = []
-    for interp, pattern, flag, ext in INLINE_INTERPRETER_CONFIGS:
-        for match in pattern.finditer(cmd):
-            body = match.group(2)
-            stripped = body.strip()
-            has_real_nl = "\n" in body or "\r" in body
-            if interp in ("bash", "sh"):
-                if not has_real_nl and len(stripped) <= 250:
-                    continue
-                if has_real_nl and len(stripped) <= 250:
-                    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
-                    if len(lines) >= 2 and all(ln.endswith(("\\", "|", "&&", "||")) for ln in lines[:-1]) and not re.search(r"\b(?:for|while|if|case|function)\b", stripped):
-                        continue
-            elif not has_real_nl and len(stripped) <= 250:
-                if "\\n" not in body or "\\n" not in re.sub(r"'(?:\\.|[^'])*'|\"(?:\\.|[^\"])*\"|\\\"(?:\\\\.|[^\"])*\\\"", "", body):
-                    continue
-            matches.append((match, interp, flag, ext, body))
-    return matches
-
-
-def resolve_scratch_target_path(ext: str, script_hash: str, workspace_dir: Optional[Path] = None) -> Tuple[Path, str]:
-    """Resolves verified absolute scratch path (workspacePaths/cwd -> brain scratch -> tempdir)."""
-    cid = _ACTIVE_CONVO_ID or os.environ.get("AGYIS_CONVERSATION_ID") or get_active_conversation_id() or "default"
-    candidates: List[Path] = []
-    base = workspace_dir or Path.cwd()
-    if "/.gemini/config/plugins/" not in str(base) and "/site-packages/" not in str(base):
-        candidates.append(base / "scratch" if (base / "scratch").is_dir() else base / ".agents" / "scratch")
-    try:
-        candidates.append(get_active_brain_dir() / cid / "scratch")
-    except (OSError, ValueError):
-        pass
-    candidates.append(Path(tempfile.gettempdir()) / "agyis_scratch" / cid)
-    for scratch_dir in candidates:
-        try:
-            scratch_dir.mkdir(parents=True, exist_ok=True)
-            target = (scratch_dir / f"exec_{script_hash}{ext}").resolve()
-            target.touch(exist_ok=True)
-            t_str = str(target)
-            return target, (shlex.quote(t_str) if any(c in t_str for c in " \t'\"$") else t_str)
-        except (OSError, PermissionError):
-            continue
-    raise OSError("Unable to resolve writable scratch target directory")
-
-
-def promote_inline_script_to_scratch(cmd: str, workspace_dir: Optional[Path] = None) -> Tuple[str, Optional[str], Optional[str]]:
-    """Promotes complex/multi-line inline scripts into verified absolute scratch files."""
-    matches = _find_promotable_inline_matches(cmd)
-    if not matches:
-        return ("allow", None, None)
-    try:
-        modified_cmd, promoted_paths = cmd, []
-        for match, _interp, flag, ext, body in reversed(sorted(matches, key=lambda item: item[0].start())):
-            script_body = body.replace(r'\"', '"').replace(r'\$', '$').replace(r'\\', '\\') if match.group(1) == '"' else body
-            if "\n" not in script_body and r"\n" in script_body:
-                script_body = script_body.replace(r"\n", "\n")
-            if "\r" not in script_body and r"\r" in script_body:
-                script_body = script_body.replace(r"\r", "\r")
-            script_hash = hashlib.sha256(script_body.encode("utf-8")).hexdigest()[:8]
-            target_file, exec_path = resolve_scratch_target_path(ext, script_hash, workspace_dir)
-            header = "//" if ext == ".js" else "#"
-            target_file.write_text(f"{header} Transparently promoted by PSL command_safety_hook (PSL-INV-003)\n{script_body}\n", encoding="utf-8")
-            if ext == ".sh":
-                target_file.chmod(target_file.stat().st_mode | 0o755)
-            promoted_paths.append(exec_path)
-            replace_start = match.start() + match.group(0)[: match.start(1) - match.start()].rfind(flag)
-            modified_cmd = modified_cmd[:replace_start] + exec_path + modified_cmd[match.end() :]
-        hint = (
-            f"[AGYIS COGNITIVE HINT] In accordance with PSL-INV-003, your inline script was "
-            f"transparently promoted to '{promoted_paths[-1]}' and executed. For subsequent complex scripts, "
-            "author directly into temporary scratch files."
-        )
-        return ("allow", modified_cmd, hint)
-    except Exception as e:
-        sys.stderr.write(f"[AGYIS COMMAND SAFETY] Warning: Error during scratch promotion: {e}\n")
-        return ("deny", None, INLINE_SCRIPT_DENY_REASON)
-
-
-def check_inline_script_hygiene(
-    cmd: str, route_to_promotion: bool = False, workspace_dir: Optional[Path] = None,
-) -> Tuple[str, Optional[str]] | Tuple[str, Optional[str], Optional[str]]:
-    """Validates inline script hygiene; allows short single-line commands and routes complex ones."""
-    if not _find_promotable_inline_matches(cmd):
-        return ("allow", None) if not route_to_promotion else ("allow", None, None)
-    return promote_inline_script_to_scratch(cmd, workspace_dir=workspace_dir) if route_to_promotion else ("deny", INLINE_SCRIPT_DENY_REASON)
-
-
-def split_shell_pipes(cmd: str, split_compound: bool = False) -> Tuple[List[str], bool]:
-    """Splits command into pipeline (or compound) segments respecting quotes, returning (segments, has_control_flow)."""
-    segments: List[str] = []
-    cur: List[str] = []
-    in_s = in_d = esc = has_cf = False
-    i, n = 0, len(cmd)
-    while i < n:
-        c = cmd[i]
-        if esc:
-            cur.append(c); esc = False
-        elif c == "\\":
-            cur.append(c); esc = True
-        elif c == "'" and not in_d:
-            cur.append(c); in_s = not in_s
-        elif c == '"' and not in_s:
-            cur.append(c); in_d = not in_d
-        elif not in_s and not in_d and c in (";", "&", "\n"):
-            if c == "\n" and not split_compound:
-                cur.append(c)
-            else:
-                has_cf = True
-                if split_compound:
-                    if c == "&" and i + 1 < n and cmd[i + 1] == "&":
-                        i += 1
-                    seg = "".join(cur).strip()
-                    if seg:
-                        segments.append(seg)
-                    cur = []
-                else:
-                    cur.append(c)
-        elif not in_s and not in_d and c == "|" and i + 1 < n and cmd[i + 1] == "|":
-            has_cf = True
-            if split_compound:
-                seg = "".join(cur).strip()
-                if seg:
-                    segments.append(seg)
-                cur = []
-            else:
-                cur.extend("||")
-            i += 2; continue
-        elif not in_s and not in_d and c == "|":
-            seg = "".join(cur).strip()
-            if seg or not split_compound:
-                segments.append(seg)
-            cur = []
-        else:
-            cur.append(c)
-        i += 1
-    tail = "".join(cur).strip()
-    if tail or (cur and not split_compound):
-        segments.append(tail)
-    if split_compound and re.match(r"^(?:for|if|while|until|case)\b|^[{(]", cmd.lstrip()):
-        has_cf = True
-    elif not split_compound and not in_s and not in_d and re.search(r"\b(?:if|then|else|fi|test)\b|\[\s*\[?", cmd):
-        has_cf = True
-    return segments, has_cf
 
 
 def should_sanitize_grep_or_diff(cmd: str) -> bool:

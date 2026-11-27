@@ -61,6 +61,16 @@ class GitTopology:
     pr_head_branch: Optional[str] = None
     requires_fork: bool = False
     viewer_permission: Optional[str] = None
+    planned_branch: Optional[str] = None
+
+    def apply_checked_out_branch(self, branch_name: str) -> None:
+        """Update branch state after a real checkout without falsifying dry-run topology."""
+        self.current_branch = branch_name
+        self.planned_branch = None
+        if self.pr_head_branch and ":" in self.pr_head_branch and self.authenticated_user:
+            self.pr_head_branch = f"{self.authenticated_user}:{branch_name}"
+        else:
+            self.pr_head_branch = branch_name
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -82,6 +92,7 @@ class GitTopology:
             "pr_head_branch": self.pr_head_branch,
             "requires_fork": self.requires_fork,
             "viewer_permission": self.viewer_permission,
+            "planned_branch": self.planned_branch,
         }
 
 

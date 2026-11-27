@@ -210,9 +210,10 @@ def check_node_script_hygiene(workspace_root: Optional[Path] = None) -> Dict[str
         }
 
     ignored_dir_names = {
-        "node_modules", ".git", ".venv", "venv", "dist", "build",
-        ".cache", ".next", "__pycache__", ".agents", ".psl", "scratch",
-        ".dirtyroom", "target", ".turbo", "out", ".out", ".svelte-kit", ".nuxt",
+        "node_modules", ".git", ".venv", "venv", "dist", "dist-scripts", "build",
+        "public", "coverage", ".cache", ".next", "__pycache__", ".agents", ".psl",
+        ".agyis", "scratch", ".dirtyroom", "target", ".turbo", "out", ".out",
+        ".svelte-kit", ".nuxt",
     }
 
     cjs_patterns = [
@@ -221,33 +222,40 @@ def check_node_script_hygiene(workspace_root: Optional[Path] = None) -> Dict[str
         (re.compile(r"\bexports\.[a-zA-Z0-9_$]+"), "exports."),
     ]
 
-    violations: List[Dict[str, Any]] = []
-
+    candidate_js: List[Path] = []
     for root_dir, dirs, files in os.walk(ws):
         dirs[:] = [d for d in dirs if d not in ignored_dir_names]
 
         for fname in files:
-            if fname.endswith(".js"):
-                fpath = Path(root_dir) / fname
-                try:
-                    content = fpath.read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    continue
+            if fname.endswith(".js") and not fname.endswith(".min.js"):
+                candidate_js.append(Path(root_dir) / fname)
 
-                matched_patterns = []
-                for regex, pat_label in cjs_patterns:
-                    if regex.search(content):
-                        matched_patterns.append(pat_label)
+    if candidate_js:
+        from harness.runtime.aff import filter_gitignored_paths
 
-                if matched_patterns:
-                    try:
-                        rel = str(fpath.relative_to(ws))
-                    except ValueError:
-                        rel = str(fpath)
-                    violations.append({
-                        "file": rel,
-                        "patterns": matched_patterns,
-                    })
+        candidate_js = filter_gitignored_paths(ws, candidate_js)
+
+    violations: List[Dict[str, Any]] = []
+    for fpath in candidate_js:
+        try:
+            content = fpath.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        matched_patterns = []
+        for regex, pat_label in cjs_patterns:
+            if regex.search(content):
+                matched_patterns.append(pat_label)
+
+        if matched_patterns:
+            try:
+                rel = str(fpath.relative_to(ws))
+            except ValueError:
+                rel = str(fpath)
+            violations.append({
+                "file": rel,
+                "patterns": matched_patterns,
+            })
 
     if violations:
         violation_files = [v["file"] for v in violations]

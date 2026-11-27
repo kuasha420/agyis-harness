@@ -6,7 +6,7 @@
 # Agyis Harness — Canonical User & Operator Guide
 
 **Target Audience**: Engineers, Operators, and Teams Running Google Antigravity™  
-**Version**: `1.1.1` (`2026-11-27`)  
+**Version**: `1.1.2` (`2026-11-27`)  
 **Primary CLI Entrypoint**: `agyis` (backward-compatible alias: `psl`)  
 
 ---
@@ -15,7 +15,7 @@
 
 **Agyis Harness (`agyis-harness`)** is the autonomous agent runtime harness and immune system for **Google Antigravity™** (`Desktop v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`). Grounded in [`empirical-baselines.md`](taxonomy/empirical-baselines.md) and **PSL Invariant Codex v2** (`PSL-INV-001`–`008` core invariants + on-demand `PSL-RE-001` in `re-ops`), it protects coding sessions and multi-agent runs deterministically in code:
 
-- **Silent Runtime & Shell Failures**: Injects a certified CPython >= 3.12 runtime via `uv`, disables interactive terminal pagers (`PAGER=cat`, `SYSTEMD_PAGER=cat`), and neutralizes benign exit-code-1 returns on standalone `grep`/`rg`/`diff` probes.
+- **Silent Runtime & Shell Failures**: Injects a certified CPython >= 3.12 (`3.14` recommended via `uv`) runtime, disables interactive terminal pagers (`PAGER=cat`, `SYSTEMD_PAGER=cat`), and neutralizes benign exit-code-1 returns on standalone `grep`/`rg`/`diff` probes.
 - **Runaway Tool Loops & Polling**: Breaks 3+ identical consecutive tool invocations and blocks token-wasting `manage_task(status)` / log-tailing polling loops.
 - **Context Runway & Compaction Succession**: Dynamically scales across **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`)** and **`256k`** context windows (`70%` amber, `90%` red, `80`-step soft checkpoint horizon), emitting `v2.34.0+` nested `systemMessage` advisories and serializing CID-scoped checkpoints (`.agents/artifacts/checkpoints/<conv_id>.md`).
 - **Premature Completion & Cleanroom Fences**: Blocks stopping until modified source (`code_dirty`) clears `agyis test` or modified cleanroom contracts (`spec_dirty`) clear `agyis verify --spec`.
@@ -24,7 +24,7 @@
 ### Three-Tier Precedence Hierarchy
 1. **Layer 3 — Workspace Local (`.agents/`)**: Repository-specific stack rules (`AGENTS.md`), project-only specialist skills/agents, and workspace commands (`agyis ext`).
 2. **Layer 2 — User Preferences (`~/.gemini/antigravity/`, `~/.gemini/config/`)**: Personal workstation defaults and user standalone skills (`~/.gemini/config/skills/`).
-3. **Layer 1 — Global Plugin (`~/.gemini/config/plugins/agyis-harness/`)**: Core **7** `hooks.json` blocks (**8** `doctor` hook runner checks), `GLOBAL_AGENTS.md` (Codex v2), **30** modular skills (`>100` lines include ToC, `<24,576` B cap), and **8** `agyis_*` agent personas (`<=20` canonical `v2.34+` tools).
+3. **Layer 1 — Global Plugin (`~/.gemini/config/plugins/agyis-harness/`)**: Core **7** `hooks.json` blocks (**8** `doctor` hook runner checks), `GLOBAL_AGENTS.md` (Codex v2), **32** modular skills (`>100` lines include ToC, `<24,576` B cap), and **8** `agyis_*` agent personas (`<=20` canonical `v2.34+` tools).
 
 ---
 
@@ -39,22 +39,22 @@ agyis gui --install-launcher
 # so the single-instance Electron process launches with `--remote-debugging-port=0`.
 agyis gui --service install
 
-# Audit 3-tier runtime matrix, 8 hook runner checks & port 5432 collisions
+# Audit 3-tier runtime matrix, engines/packageManager constraints, 8 hook runner checks & port 5432 collisions
 agyis doctor
-agyis doctor --heal          # Safe zero-sudo user-space remediation (uv CPython >= 3.12)
+agyis doctor --heal          # Safe zero-sudo user-space remediation (uv CPython 3.14 recommended / >= 3.12)
 agyis doctor --re            # Audit reverse-engineering toolchain (JDK, Ghidra, REA, objdump)
 agyis status                 # Show harness readiness, hooks, attention horizon & active subagents
 ```
 
-When REA diagnostics or initialization run, `harness/runtime/healing.py` checks `~/.gemini/config/plugins/agyis-harness/skills/reverse-engineer-anything` (alongside local `rea-agents` packages) before fetching on demand.
+When REA diagnostics or initialization run, `harness/runtime/healing.py` checks both `<config_dir>/skills/reverse-engineer-anything` and `~/.gemini/config/plugins/agyis-harness/skills/reverse-engineer-anything` (alongside local `rea-agents` packages) before fetching on demand, preventing duplicate workspace provisioning.
 
 ---
 
 ## 3. Onboarding, Harmonizing & Git Hygiene
 
 - **Greenfield Init**: `agyis init [path] -s python -r cli` scaffolds `.agents/` stack rules, skills, and cleanroom ledgers.
-- **Brownfield Golden Path**: `agyis onboard . --create-branch chore/onboard` (supports `--allow-dirty`, `--lang`, `--role`, `--subproject`, `--skills`, `--pr`) handles branch isolation, cache invalidation, 4-phase `.agent/` pruning, single-source skill deduplication, port `5432` checks, and PR creation.
-- **Maintenance Commands**: `agyis harmonize . [--dry-run]`, `agyis skills --prune-duplicates`, `agyis rules --lint`, and `agyis rules --dedup`.
+- **Brownfield Golden Path**: `agyis onboard . --create-branch chore/onboard` (supports `--allow-dirty`, `--ensure-project`, `--lang`, `--role`, `--subproject`, `--skills`, `--pr`) handles branch isolation, `git ls-files`-safe cache invalidation, 4-phase `.agent/` pruning with full `.agent/` link rewriting, slim Prettier-clean `AGENTS.md` injection (relocating custom project sections safely), non-mutating `.agyis/test_manifest.json` generation, `engines`/`packageManager` preflight, single-source skill deduplication, port `5432` checks, and PR creation.
+- **Project Registry & Maintenance Commands**: `agyis project list`, `agyis project ensure [path] [--dry-run]`, `agyis harmonize . [--dry-run]`, `agyis skills --prune-duplicates`, `agyis rules --lint`, and `agyis rules --dedup`.
 
 For detailed human workflows, see:
 - **[Repository Onboarding, Agent Boundaries & Cross-Repo PRs](runbooks/repo-onboarding.md)**
@@ -62,16 +62,16 @@ For detailed human workflows, see:
 
 ---
 
-## 4. Consolidated 29-Command CLI Overview
+## 4. Consolidated 30-Command CLI Overview
 
-`agyis` (legacy alias `psl`) registers **29** top-level subcommands (`30` parser entries including `release` & `changelogs` alias; `router` and `ladder` registered separately):
+`agyis` (legacy alias `psl`) registers **30** logical top-level subcommands (`31` parser entries including `project`, `release` & `changelogs` alias; `router` and `ladder` registered separately):
 
-| Domain | Top-Level Commands (`29`) | Primary Focus |
+| Domain | Top-Level Commands (`30`) | Primary Focus |
 | :--- | :--- | :--- |
-| **Diagnostics & Testing** | `doctor`, `test`, `status` | Host matrix/port audits, hermetic & diff-aware testing, live dashboard |
+| **Diagnostics & Testing** | `doctor`, `test`, `status` | Host matrix/`engines`/port audits, hermetic & diff-aware testing, live dashboard |
 | **Lifecycle Hooks** | `hook` | Direct protojson execution of lifecycle guards |
 | **Cockpit & Subagent Routing** | `cockpit`, `router`, `ladder`, `checkpoint`, `subagents` | Flight direction (`A`–`L`), checkpoints, liveness & context gauges |
-| **Workspace & Onboarding** | `init`, `harmonize`, `onboard`, `clean`, `ext` | Scaffolding, `.agent/` pruning, cache/worktree cleanup, `.agents/commands/` |
+| **Workspace & Onboarding** | `init`, `harmonize`, `onboard`, `project`, `clean`, `ext` | Scaffolding, `.agent/` pruning, `projects/*.json` registry, cache/worktree cleanup, `.agents/commands/` |
 | **Governance & Discovery** | `rules`, `skills`, `agents` | Rule lint/dedup, 32 modular skills (incl. `pause`, `resume`), 8 `agyis_*` personas |
 | **Telemetry & AFF Audits** | `audit`, `sync`, `auth` | Transcript mining, AFF fitness checks, hub sync & systemd daemon |
 | **Cleanroom & Reverse Eng.** | `verify`, `re` | `docs/specs/` claim verification (`--spec`), ledgers, `.dirtyroom/` Ghidra |
@@ -84,7 +84,7 @@ Authoritative flags, sub-actions, and exit codes live in **[cli-palette.md](offi
 ## 5. Lifecycle Hooks & Runtime State
 
 Agyis registers **7** hook blocks in `hooks.json` covering **8** runner targets verified by `agyis doctor`:
-- `PreToolUse`: `command-safety` (CPython `>=3.12`, eager/lazy MCP normalization, `/swarm` pause guard, `#93` anti-clobber guard, `#67` memory/concurrency semaphore), `anti-loop`, `anti-drift` (plan boundaries, `#93` anti-clobber, Auditor write-block, Q5 read-only shell guard), `token-proximity`, and `verification-fence` dirty tracking.
+- `PreToolUse`: `command-safety` (CPython `>=3.12` / `3.14` recommended, `#101` POSIX quote-aware inline script promotion, eager/lazy MCP normalization, `/swarm` pause guard, `#93` anti-clobber guard, `#67` memory/concurrency semaphore), `anti-loop`, `anti-drift` (plan boundaries, `#94` static `*PLAN*.md` exclusion, `#93` anti-clobber, Auditor write-block, Q5 read-only shell guard), `token-proximity` (`resolve_display_velocity_tier` `<25%` fill burn-rate gate), and `verification-fence` dirty tracking.
 - `PostToolUse`: `compactor` (`overwriteResult` on `>2KB` succeeding `run_command` & `>32KB` `read_file`, 100% verbatim on errors) and `post-verification-fence`.
 - `PreInvocation`: `pre-invocation` (scaled `256k`/`512k`/`1M` runway, window-scaled checkpoint step horizon `80`/`160`/`320`, and `systemMessage` advisories + checkpoint auto-save).
 - `Stop`: `verification-fence` (`code_dirty` vs `spec_dirty` clearance with `continuationActive` awareness, native `invoke_subagent` Stop-Gate truth & 2-block anti-deadlock valve).
@@ -117,7 +117,7 @@ agyis sync --service install && agyis sync --service status
 ### Cleanroom Specs, RE & Antigravity GUI
 ```bash
 agyis verify --spec               # Verify 4 cleanroom RE specs (including v2.34.0 drift inventory)
-agyis verify                      # Validate .agents/ledger/obligation_ledger.json (rea@6.9.0 schema)
+agyis verify                      # Validate .agents/ledger/{obligation_ledger.json,obligations.json} (rea@6.9.0 schema)
 agyis re init && agyis re pre-analyze ./target.bin
 agyis re addr 0x401000 --binary ./target.bin # Inspect PE32/PE32+ & Linux ELF64/ELF32 addresses/symbols
 agyis re patch-rea --apply        # Apply zero-copy direct mount patch (bypasses 1.3GB disk clone)
@@ -136,7 +136,7 @@ agyis gui                         # Unlock Trajectory Debug HUD over CDP WebSock
 ## 7. Quick Troubleshooting & Reference Map
 
 - **Stop Hook Blocks Completion**: Run `agyis test` (or native repo tests per [testing-contracts.md](official-specs/testing-contracts.md)) to clear `code_dirty`; run `agyis verify --spec` to clear `spec_dirty` after `docs/specs/` edits.
-- **Python / Runtime Warnings**: Run `agyis doctor --heal` to provision CPython >= 3.12 via `uv`.
+- **Python / Runtime Warnings**: Run `agyis doctor --heal` to provision CPython `3.14` (minimum `>= 3.12`) via `uv`.
 - **Port 5432 Collisions**: Run `detect_port_collision.py --find-free --rebind --env .env` (see [repo-onboarding.md](runbooks/repo-onboarding.md#6-database-port-5432-collision-check-prisma-p1000)).
 - **High Context Overhead**: Run `agyis skills --prune-duplicates` and `agyis rules --dedup`.
 - **Stale Worktrees or Index Locks**: Follow [git-and-worktree-hygiene.md](runbooks/git-and-worktree-hygiene.md) (`agyis clean --checkpoints --worktrees`).

@@ -13,7 +13,11 @@ import sys
 import tempfile
 import unittest
 
-from harness.delivery.sync_check import run_sync_check
+from harness.delivery.sync_check import (
+    count_surface_inventory,
+    format_sync_check_report,
+    run_sync_check,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -145,6 +149,28 @@ class TestSyncCheckUplift(unittest.TestCase):
         self.assertIn("uv run --frozen python3 -m harness.cli audit sync-check --include-site", rel_text)
         self.assertIn("parse_changelog_document", rel_text)
         self.assertIn("normalize_changelog_version", rel_text)
+
+    def test_surface_inventory_reports_31_subparsers_and_30_logical_subcommands(self) -> None:
+        surface = count_surface_inventory(REPO_ROOT)
+        self.assertEqual(surface["cli_subparsers"], 31)
+        self.assertEqual(surface["cli_logical_subcommands"], 30)
+
+        formatted = format_sync_check_report({
+            "status": "PASS",
+            "manifest": {"pyproject_version": "1.1.1", "plugin_version": "1.1.1"},
+            "tool_registry": {
+                "canonical": 19,
+                "max_agent_tools": 20,
+                "root_plan_mode": 2,
+                "legacy_aliases": 9,
+                "antigravity_platform_total": 30,
+            },
+            "surface_inventory": surface,
+            "tests": {"live_tests": 2623, "live_modules": 125},
+            "include_site": False,
+            "mismatches": [],
+        })
+        self.assertIn("cli_subparsers=31 (30 logical)", formatted)
 
 
 if __name__ == "__main__":

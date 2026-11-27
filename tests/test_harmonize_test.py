@@ -466,5 +466,260 @@ class TestCLIIntegration(unittest.TestCase):
         self.assertIn("[DRY-RUN]", stdout_buf.getvalue())
 
 
+class TestWS2ProbesAndManifestFidelity(unittest.TestCase):
+    """WS2 tests for formatting preservation, probes, non-monorepo & manifest-only modes."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.ws = Path(self.temp_dir.name).resolve()
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_preserves_four_space_indent_unicode_and_omits_test_pkg_on_single_pkg(self):
+        pkg_json = self.ws / "package.json"
+        original = (
+            '{\n'
+            '    "name": "café-app",\n'
+            '    "description": "Résumé — 🚀",\n'
+            '    "scripts": {\n'
+            '        "test": "vitest run"\n'
+            '    },\n'
+            '    "devDependencies": {\n'
+            '        "vitest": "^2.0.0"\n'
+            '    }\n'
+            '}\n'
+        )
+        pkg_json.write_text(original, encoding="utf-8")
+
+        res = harmonize_test_runners(self.ws, dry_run=False, apply=True)
+        self.assertTrue(res.success)
+        updated_text = pkg_json.read_text(encoding="utf-8")
+        self.assertIn('    "name": "café-app",', updated_text)
+        self.assertIn('"description": "Résumé — 🚀"', updated_text)
+        self.assertTrue(updated_text.endswith("\n"))
+        updated = json.loads(updated_text)
+        self.assertNotIn("test:pkg", updated["scripts"])
+
+    def test_manifest_only_mode_skips_package_json_mutation(self):
+        pkg_json = self.ws / "package.json"
+        original = json.dumps({
+            "name": "mm-flextime",
+            "packageManager": "yarn@4.11.0",
+            "scripts": {"test:e2e": "playwright test"},
+            "devDependencies": {"@playwright/test": "^1.56.1"},
+        }, indent=4) + "\n"
+        pkg_json.write_text(original, encoding="utf-8")
+        (self.ws / "tests" / "e2e").mkdir(parents=True)
+        (self.ws / "tests" / "e2e" / "app.spec.js").write_text("test('ok', () => {});\n", encoding="utf-8")
+
+        dry_res = harmonize_test_runners(
+            self.ws, dry_run=True, apply=False, backup=False,
+            mutate_package_json=False, write_manifest=False,
+        )
+        self.assertEqual(dry_res.mutations, [])
+        self.assertFalse((self.ws / ".agyis" / "test_manifest.json").exists())
+        self.assertEqual(dry_res.manifest_data["tiers"]["tier_2b_full"]["command"], "yarn test:e2e")
+        self.assertTrue(dry_res.manifest_data["ui_mounting"]["vrt_pixel_diff"])
+
+        apply_res = harmonize_test_runners(
+            self.ws, dry_run=False, apply=True, backup=False,
+            mutate_package_json=False, write_manifest=True,
+        )
+        self.assertTrue(apply_res.success)
+        self.assertEqual(pkg_json.read_text(encoding="utf-8"), original)
+        manifest = json.loads((self.ws / ".agyis" / "test_manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["tiers"]["tier_2b_full"]["command"], "yarn test:e2e")
+        self.assertEqual(manifest["package_manager"], "yarn")
+
+    def test_playwright_and_axe_detection_and_anti_synthetic_not_applicable(self):
+        (self.ws / "package.json").write_text(json.dumps({
+            "name": "chess-app",
+            "dependencies": {"next": "^15.0.0", "react": "^19.0.0"},
+            "devDependencies": {
+                "vitest": "^2.0.0",
+                "@playwright/test": "^1.50.0",
+                "axe-core": "^4.9.0",
+                "vitest-axe": "^0.1.0",
+            },
+            "scripts": {"test": "vitest run"},
+        }), encoding="utf-8")
+        (self.ws / "playwright.config.ts").write_text("export default {};\n", encoding="utf-8")
+        (self.ws / "e2e").mkdir()
+        (self.ws / "e2e" / "home.spec.ts").write_text("export {};\n", encoding="utf-8")
+
+        harmonizer = TestHarmonizer(self.ws)
+        audit = harmonizer.audit()
+        self.assertTrue(audit.vrt_pixel_diff)
+        self.assertTrue(audit.a11y_axe)
+        self.assertEqual(audit.vrt_status, "pixel_diff")
+        self.assertTrue(any(r.get("test_framework") == "playwright" for r in audit.secondary_runners))
+        manifest = harmonizer.build_test_manifest(audit)
+        self.assertTrue(manifest["ui_mounting"]["vrt_pixel_diff"])
+        self.assertTrue(manifest["ui_mounting"]["a11y_axe"])
+        self.assertIn("playwright", manifest["runners"])
+
+        # Non-frontend workspace sets anti_synthetic_score to "not_applicable"
+        lib_ws = self.ws / "lib_repo"
+        lib_ws.mkdir()
+        (lib_ws / "package.json").write_text(json.dumps({
+            "name": "pure-lib",
+            "scripts": {"test": "vitest run"},
+            "devDependencies": {"vitest": "^2.0.0"},
+        }), encoding="utf-8")
+        lib_h = TestHarmonizer(lib_ws)
+        lib_manifest = lib_h.build_test_manifest(lib_h.audit())
+        self.assertFalse(lib_manifest["ui_mounting"]["detected_frontend"])
+        self.assertEqual(lib_manifest["ui_mounting"]["anti_synthetic_score"], "not_applicable")
+
+    def test_nested_manifests_and_no_broken_diff_flags_on_turbo_or_node_test(self):
+        from harness.harmonize.test_probes import discover_node_manifests
+
+        (self.ws / "package.json").write_text(json.dumps({
+            "name": "rn-template",
+            "scripts": {"test": "npm --prefix template run test"},
+        }), encoding="utf-8")
+        (self.ws / "template").mkdir()
+        (self.ws / "template" / "package.json").write_text(json.dumps({
+            "name": "template-app",
+            "scripts": {"test": "jest"},
+            "devDependencies": {"jest": "^29.0.0"},
+        }), encoding="utf-8")
+        (self.ws / "node_modules" / "ignored_pkg").mkdir(parents=True)
+        (self.ws / "node_modules" / "ignored_pkg" / "package.json").write_text("{}", encoding="utf-8")
+
+        manifests = discover_node_manifests(self.ws)
+        rel_manifests = [m.relative_to(self.ws).as_posix() for m in manifests]
+        self.assertEqual(rel_manifests, ["package.json", "template/package.json"])
+
+        res = harmonize_test_runners(self.ws, dry_run=True)
+        self.assertEqual(res.audit.test_framework, "jest")
+        self.assertIn("template/package.json", res.audit.nested_manifests)
+
+        # Turbo workspace never gets -- --diff
+        turbo_ws = self.ws / "turbo_repo"
+        turbo_ws.mkdir()
+        (turbo_ws / "turbo.json").write_text("{}", encoding="utf-8")
+        (turbo_ws / "package.json").write_text(json.dumps({
+            "name": "turbo-bot",
+            "scripts": {"test": "turbo run test"},
+            "devDependencies": {"turbo": "^2.0.0"},
+        }), encoding="utf-8")
+        (turbo_ws / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+        turbo_res = harmonize_test_runners(turbo_ws, dry_run=True)
+        proposed_turbo = json.loads(turbo_res.mutations[0].proposed_content)
+        self.assertEqual(proposed_turbo["scripts"]["test:diff"], "turbo run test --affected")
+        self.assertNotIn("-- --diff", proposed_turbo["scripts"]["test:diff"])
+
+        # node --test workspace never gets -- --diff / -- --affected
+        node_ws = self.ws / "node_test_repo"
+        node_ws.mkdir()
+        (node_ws / "package.json").write_text(json.dumps({
+            "name": "node-bot",
+            "scripts": {"test": "node --test"},
+        }), encoding="utf-8")
+        node_res = harmonize_test_runners(node_ws, dry_run=True)
+        proposed_node = json.loads(node_res.mutations[0].proposed_content)
+        self.assertNotIn("-- --diff", proposed_node["scripts"]["test:diff"])
+        self.assertNotIn("-- --affected", proposed_node["scripts"]["test:affected"])
+
+    def test_python_caps_probe_and_cargo_uv_monorepo_detection(self):
+        from harness.harmonize.test_probes import detect_python_runner_caps
+        from harness.skills import is_monorepo
+
+        cargo_ws = self.ws / "cargo_mono"
+        cargo_ws.mkdir()
+        (cargo_ws / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/*"]\n', encoding="utf-8")
+        self.assertTrue(is_monorepo(cargo_ws))
+
+        uv_ws = self.ws / "uv_mono"
+        uv_ws.mkdir()
+        (uv_ws / "pyproject.toml").write_text('[tool.uv.workspace]\nmembers = ["pkgs/*"]\n', encoding="utf-8")
+        self.assertTrue(is_monorepo(uv_ws))
+
+        with patch("importlib.util.find_spec", return_value=None), patch("shutil.which", return_value=None):
+            caps = detect_python_runner_caps(uv_ws)
+            self.assertEqual(caps["diff_command"], "pytest")
+            self.assertEqual(caps["watch_command"], "pytest")
+            (uv_ws / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+            res = harmonize_test_runners(uv_ws, dry_run=True)
+            self.assertEqual(res.manifest_data["tiers"]["tier_1a_diff"]["command"], "pytest")
+            self.assertEqual(res.manifest_data["human_loop"]["watch_command"], "pytest")
+            self.assertEqual(res.manifest_data["ui_mounting"]["anti_synthetic_score"], "not_applicable")
+
+        # Simulated workspace .venv with pytest-picked and ptw
+        (uv_ws / ".venv" / "bin").mkdir(parents=True)
+        (uv_ws / ".venv" / "bin" / "ptw").write_text("#!/bin/sh\n", encoding="utf-8")
+        (uv_ws / ".venv" / "lib" / "python3.14" / "site-packages" / "pytest_picked").mkdir(parents=True)
+        with patch("importlib.util.find_spec", return_value=None), patch("shutil.which", return_value=None):
+            caps_venv = detect_python_runner_caps(uv_ws)
+            self.assertEqual(caps_venv["diff_command"], "pytest --picked")
+            self.assertEqual(caps_venv["watch_command"], "ptw")
+
+    def test_non_mutating_makefile_only_probes_actual_targets(self):
+        from harness.commands.onboard_gates import run_onboard_test_manifest_sync
+
+        makefile = self.ws / "Makefile"
+        original_makefile = ".PHONY: test\ntest:\n\t@echo ok\n"
+        makefile.write_text(original_makefile, encoding="utf-8")
+
+        dry_res = harmonize_test_runners(
+            self.ws,
+            dry_run=True,
+            apply=False,
+            backup=False,
+            mutate_package_json=False,
+            write_manifest=False,
+        )
+        self.assertEqual(dry_res.mutations, [])
+        self.assertEqual(dry_res.manifest_data["tiers"]["tier_2b_full"]["command"], "make test")
+        self.assertEqual(dry_res.manifest_data["tiers"]["tier_1a_diff"]["command"], "make test")
+        self.assertEqual(dry_res.manifest_data["tiers"]["tier_1b_affected"]["command"], "make test")
+        self.assertEqual(dry_res.manifest_data["scripts"]["test:full"], "make test")
+        self.assertIsNone(dry_res.manifest_data["human_loop"]["watch_command"])
+        self.assertEqual(dry_res.manifest_data["runners"]["make"]["full"], "make test")
+        self.assertNotIn("make test:full", json.dumps(dry_res.manifest_data))
+
+        apply_res = harmonize_test_runners(
+            self.ws,
+            dry_run=False,
+            apply=True,
+            backup=False,
+            mutate_package_json=False,
+            write_manifest=True,
+        )
+        self.assertEqual(apply_res.mutations, [])
+        self.assertEqual(makefile.read_text(encoding="utf-8"), original_makefile)
+        manifest_written = json.loads((self.ws / ".agyis" / "test_manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest_written["tiers"]["tier_2b_full"]["command"], "make test")
+
+        sync_res = run_onboard_test_manifest_sync(self.ws, dry_run=False)
+        self.assertTrue(sync_res["generated"])
+        self.assertEqual(sync_res["tiers"]["tier_2b_full"]["command"], "make test")
+        self.assertEqual(makefile.read_text(encoding="utf-8"), original_makefile)
+
+        # Fallback to `make check` when `test:` is absent and `check:` is present
+        check_ws = self.ws / "check_only"
+        check_ws.mkdir()
+        (check_ws / "Makefile").write_text("check:\n\t@echo checking\n", encoding="utf-8")
+        check_res = harmonize_test_runners(
+            check_ws, dry_run=True, mutate_package_json=False, write_manifest=False
+        )
+        self.assertEqual(check_res.manifest_data["tiers"]["tier_2b_full"]["command"], "make check")
+        self.assertEqual(check_res.manifest_data["tiers"]["tier_1a_diff"]["command"], "make check")
+        self.assertEqual(check_res.manifest_data["tiers"]["tier_1b_affected"]["command"], "make check")
+
+        # Explicit `test:diff:` is honored while missing `test:full:` still falls back to `make test`
+        partial_ws = self.ws / "partial_targets"
+        partial_ws.mkdir()
+        (partial_ws / "Makefile").write_text("test:\n\t@echo all\ntest:diff:\n\t@echo diff\n", encoding="utf-8")
+        partial_res = harmonize_test_runners(
+            partial_ws, dry_run=True, mutate_package_json=False, write_manifest=False
+        )
+        self.assertEqual(partial_res.manifest_data["tiers"]["tier_1a_diff"]["command"], "make test:diff")
+        self.assertEqual(partial_res.manifest_data["tiers"]["tier_1b_affected"]["command"], "make test:diff")
+        self.assertEqual(partial_res.manifest_data["tiers"]["tier_2b_full"]["command"], "make test")
+
+
 if __name__ == "__main__":
     unittest.main()

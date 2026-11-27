@@ -104,11 +104,17 @@ class TestRuleBifurcation(unittest.TestCase):
 class TestReleaseWorkflowAndLockHygiene(unittest.TestCase):
     """Contract assertions for .python-version pinning and hardened release.yml pipeline."""
 
-    def test_python_version_pinned_to_3_12(self) -> None:
-        """.python-version must pin 3.12 instead of unsupported 'system'."""
+    def test_python_version_pinned_to_3_14(self) -> None:
+        """.python-version must pin 3.14 and pyproject.toml retains >=3.12 with 3.14 classifier."""
         pv_path = REPO_ROOT / ".python-version"
         self.assertTrue(pv_path.is_file(), f"Missing {pv_path}")
-        self.assertEqual(pv_path.read_text(encoding="utf-8").strip(), "3.12")
+        self.assertEqual(pv_path.read_text(encoding="utf-8").strip(), "3.14")
+        pyproject_data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertEqual(pyproject_data["project"]["requires-python"], ">=3.12")
+        self.assertIn(
+            "Programming Language :: Python :: 3.14",
+            pyproject_data["project"]["classifiers"],
+        )
 
     def test_release_workflow_hardened_contracts(self) -> None:
         """.github/workflows/release.yml enforces lockfile hygiene, deterministic tag validation, gates, smoke test, and race-safe publish."""

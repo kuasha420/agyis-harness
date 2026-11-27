@@ -336,6 +336,24 @@ def get_urgency_tier(
     return "SAFE"
 
 
+def resolve_display_velocity_tier(
+    tokens: int,
+    max_context_tokens: int,
+    raw_tier: str,
+    mins_to_compaction: Optional[float] = None,
+) -> str:
+    """Clamps premature CRITICAL burn-rate display tier to ELEVATED below 25% fill unless compaction <= 5m."""
+    tier = str(raw_tier or "SAFE").strip().upper()
+    if (
+        tier == "CRITICAL"
+        and max_context_tokens > 0
+        and (max(0, int(tokens)) / float(max_context_tokens)) < 0.25
+        and (mins_to_compaction is None or mins_to_compaction > 5.0)
+    ):
+        return "ELEVATED"
+    return tier
+
+
 def classify_context_health(
     estimated_tokens: int,
     step_count: int,

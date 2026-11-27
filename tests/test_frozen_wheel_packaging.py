@@ -149,9 +149,9 @@ with tempfile.TemporaryDirectory() as tmp:
         "print('HATCHLING_WHEEL_OK')"
     )
     subprocess.run(
-        [base_py, "-c", check, str(repo), str(whl_extract)],
+        [base_py, "-s", "-c", check, str(repo), str(whl_extract)],
         cwd=empty_cwd,
-        env={"PATH": "", "PYTHONPATH": str(whl_extract)},
+        env={"PATH": "", "PYTHONPATH": str(whl_extract), "PYTHONNOUSERSITE": "1"},
         check=True,
     )
 """

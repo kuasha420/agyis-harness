@@ -8,7 +8,7 @@
 **Document Identifier**: `PSL-SPEC-2026-COCKPIT-DIRECTOR-001`  
 **Classification**: Authoritative System Living Contract & Track C Standard  
 **Governing ADRs**: ADR-012 (Artifact-First Planning), ADR-013 (Terminal Invariants), ADR-014 (Product vs. Project Bifurcation), ADR-015 (Clean-Room Testing & Verification), ADR-028 (Cleanroom Reconstruction), ADR-031A (Native Orchestration Alignment), ADR-032 (Tool-Native Primacy & Anti-Polling)  
-**System Target**: Google Antigravity (`Desktop v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`, Gemini 4 `512k`/`1M`) & Agyis Harness (`agyis-harness v1.1.1`)  
+**System Target**: Google Antigravity (`Desktop v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`, Gemini 4 `512k`/`1M`) & Agyis Harness (`agyis-harness v1.1.2`)  
 **Status**: APPROVED & LOCKED  
 **Date**: November 27, 2026  
 

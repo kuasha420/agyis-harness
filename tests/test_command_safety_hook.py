@@ -479,5 +479,111 @@ class TestInlineScriptHygieneHook(unittest.TestCase):
                 self.assertFalse(mutated, f"Scratch write must remain exempt: {cmd}")
 
 
+class TestInlineScriptGuardPosixScannerV112(unittest.TestCase):
+    """Regression suite for #101 POSIX shell scanner, quote unescaping, and CPython 3.14 preference."""
+
+    def test_reexports_from_inline_script_guard_and_command_safety_hook(self):
+        """Extracted symbols remain identically exported from both modules."""
+        from harness.hooks import command_safety_hook as csh, inline_script_guard as isg
+
+        for sym in (
+            "INLINE_INTERPRETER_CONFIGS",
+            "INLINE_SCRIPT_DENY_REASON",
+            "check_inline_script_hygiene",
+            "promote_inline_script_to_scratch",
+            "resolve_scratch_target_path",
+        ):
+            self.assertIs(getattr(csh, sym), getattr(isg, sym))
+
+    def test_escaped_single_quote_splice_short_and_multiline(self):
+        """Handles '\\'' single-quote splices cleanly without truncating or corrupting quotes (#101)."""
+        import py_compile
+        import subprocess
+        from harness.hooks.command_safety_hook import check_inline_script_hygiene, promote_inline_script_to_scratch
+
+        short_cmd = "python3 -c 'print('\\''it works'\\'')'"
+        dec_short, reason_short = check_inline_script_hygiene(short_cmd)
+        self.assertEqual(dec_short, "allow", f"Short splice must stay allowed: {reason_short}")
+
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td).resolve()
+            multi_cmd = "python3 -c 'import sys\nprint('\\''it works'\\'')' && echo ok"
+            dec, mod_cmd, _ = promote_inline_script_to_scratch(multi_cmd, workspace_dir=ws)
+            self.assertEqual(dec, "allow")
+            self.assertIsNotNone(mod_cmd)
+            self.assertTrue(mod_cmd.endswith(" && echo ok"), f"Trailing pipeline lost: {mod_cmd}")
+            scratch_path = Path(mod_cmd.split()[1])
+            self.assertEqual(mod_cmd.split()[0], "python3")
+            body = scratch_path.read_text(encoding="utf-8")
+            self.assertIn("print('it works')", body)
+            py_compile.compile(str(scratch_path), doraise=True)
+            syntax_res = subprocess.run(["sh", "-n", "-c", mod_cmd], capture_output=True, text=True)
+            self.assertEqual(syntax_res.returncode, 0, syntax_res.stderr)
+
+    def test_ansi_c_quotes_triple_quotes_and_trailing_pipeline(self):
+        """Handles $'...' ANSI-C escapes, embedded triple quotes, and trailing shell pipelines."""
+        import py_compile
+        import subprocess
+        from harness.hooks.command_safety_hook import promote_inline_script_to_scratch
+
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td).resolve()
+
+            # 1. ANSI-C $'...' inside bash -c
+            ansi_bash = r"bash -c $'echo line1\necho '\''line2'\''' | grep line"
+            dec_b, mod_b, _ = promote_inline_script_to_scratch(ansi_bash, workspace_dir=ws)
+            self.assertEqual(dec_b, "allow")
+            self.assertIsNotNone(mod_b)
+            self.assertTrue(mod_b.endswith(" | grep line"))
+            sh_path = Path(mod_b.split()[1])
+            sh_text = sh_path.read_text(encoding="utf-8")
+            self.assertIn("echo line1\necho 'line2'", sh_text)
+            self.assertEqual(subprocess.run(["sh", "-n", str(sh_path)], capture_output=True, text=True).returncode, 0)
+
+            # 2. Embedded triple quotes inside bash -c
+            nested_tq = "bash -c 'python3 -c \"\"\"\nprint(\"hi\")\n\"\"\"'"
+            dec_tq, mod_tq, _ = promote_inline_script_to_scratch(nested_tq, workspace_dir=ws)
+            self.assertEqual(dec_tq, "allow")
+            tq_path = Path(mod_tq.split()[1])
+            self.assertIn('python3 -c """\nprint("hi")\n"""', tq_path.read_text(encoding="utf-8"))
+            self.assertEqual(subprocess.run(["sh", "-n", str(tq_path)], capture_output=True, text=True).returncode, 0)
+
+            # 3. Triple quotes + '\'' inside python3 -c
+            py_tq = "python3 -c 'doc = \"\"\"\nhello '\\''world'\\''\n\"\"\"\nprint(doc)'"
+            dec_py, mod_py, _ = promote_inline_script_to_scratch(py_tq, workspace_dir=ws)
+            self.assertEqual(dec_py, "allow")
+            py_path = Path(mod_py.split()[1])
+            self.assertIn("hello 'world'", py_path.read_text(encoding="utf-8"))
+            py_compile.compile(str(py_path), doraise=True)
+
+    def test_positional_script_and_quoted_commit_not_misclassified(self):
+        """Script args after positional script or inside git commit quotes are never promoted."""
+        from harness.hooks.command_safety_hook import check_inline_script_hygiene
+
+        for safe_cmd in (
+            'python3 my_tool.py -c "line1\nline2"',
+            r"""git commit -m "Fix python3 -c 'print('\''a\nb'\'')'" """,
+        ):
+            dec, rsn = check_inline_script_hygiene(safe_cmd)
+            self.assertEqual(dec, "allow", f"False positive promotion on {safe_cmd}: {rsn}")
+
+    def test_hermetic_uv_python_bin_prefers_cpython_314(self):
+        """find_hermetic_uv_python_bin picks CPython 3.14 ahead of 3.12/3.13 via tool_checks_common."""
+        from harness.hooks.command_safety_hook import find_hermetic_uv_python_bin
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            uv_dir = root / ".local" / "share" / "uv" / "python"
+            for ver in ("cpython-3.12.13-linux-x86_64", "cpython-3.13.2-linux-x86_64", "cpython-3.14.0-linux-x86_64"):
+                py_bin = uv_dir / ver / "bin" / "python3"
+                py_bin.parent.mkdir(parents=True, exist_ok=True)
+                py_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+                py_bin.chmod(0o755)
+            with patch.object(Path, "home", return_value=root):
+                resolved = find_hermetic_uv_python_bin()
+        self.assertIsNotNone(resolved)
+        self.assertIn("cpython-3.14.0", str(resolved))
+
+
 if __name__ == "__main__":
     unittest.main()

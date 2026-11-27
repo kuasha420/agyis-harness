@@ -52,6 +52,7 @@ def _fast_doctor_probes():
         check_duplicate_skills=MagicMock(return_value={"status": "OK"}),
         check_hooks_health=MagicMock(return_value={"status": "OK"}),
         check_node_script_hygiene=MagicMock(return_value={"status": "OK"}),
+        check_package_engines=MagicMock(return_value={"status": "SKIPPED", "checks": [], "issues": [], "fix_hints": []}),
         check_rea_tooling=MagicMock(return_value={"status": "optional_missing", "fast_path": True}),
         check_telemetry_daemon=MagicMock(return_value={"status": "OK", "message": "ok"}),
     )
@@ -848,6 +849,56 @@ class TestTelemetryDaemonDoctor(unittest.TestCase):
                 colored = out_color.getvalue()
         self.assertIn("\033[", colored)
         self.assertEqual(theme.strip_ansi(colored), plain)
+
+    def test_print_cli_report_shim_info_vs_warn_and_package_engines(self):
+        """Doctor report renders [INFO] for mitigated pyenv shims and Package Engines rows."""
+        sample_audit = {
+            "os_family": "linux",
+            "hermetic_python_available": "/home/user/.local/share/uv/python/cpython-3.14.0/bin/python3",
+            "package_engines": {
+                "status": "ERROR",
+                "details": "pnpm 9.15.9 does not satisfy engines.pnpm '>=10.0.0'.",
+                "fix_hints": ["corepack enable"],
+            },
+            "tiers": {
+                "tier_1_languages": {
+                    "description": "Core Languages",
+                    "tools": [
+                        {
+                            "name": "python",
+                            "status": "OK",
+                            "version": "3.14.0",
+                            "min_version": "3.12.0",
+                            "path": "/home/user/.pyenv/shims/python3",
+                            "is_shim": True,
+                            "shim_details": "pyenv shim active in PATH (hermetic uv Python ready)",
+                        },
+                        {
+                            "name": "node",
+                            "status": "WARNING",
+                            "version": "22.0.0",
+                            "min_version": "20.0.0",
+                            "path": "/home/user/conda/bin/node",
+                            "is_shim": True,
+                            "shim_details": "conda environment active in PATH",
+                        },
+                    ],
+                }
+            },
+            "summary": {"ok": 1, "warning": 2, "outdated": 0, "missing": 0},
+        }
+        with patch.dict(os.environ, {"NO_COLOR": "1"}, clear=False), \
+             patch("sys.stdout", new_callable=io.StringIO) as out_buf:
+            print_cli_report(sample_audit)
+            out = out_buf.getvalue()
+        self.assertIn("Package Engines:", out)
+        self.assertIn("corepack enable", out)
+        py_line = next(ln for ln in out.splitlines() if "python" in ln and ".pyenv/shims" in ln)
+        self.assertIn("[PASS]", py_line)
+        self.assertIn("[INFO]", py_line)
+        self.assertNotIn("[WARN]", py_line)
+        node_line = next(ln for ln in out.splitlines() if "node" in ln and "conda" in ln)
+        self.assertIn("[WARN]", node_line)
 
 
 if __name__ == "__main__":

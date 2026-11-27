@@ -55,6 +55,7 @@ from harness.trajectory import (
     record_locked_conversation,
     unlock_conversation,
 )
+from harness.trajectory.health import resolve_display_velocity_tier
 from harness.utils.state import atomic_write_json, get_state_dir, sanitize_conv_id
 
 LOCK_EXPIRY_SECONDS: float = 2.0
@@ -334,12 +335,19 @@ def format_terminal_gauge(
 
     styles, reset = _resolve_gauge_style(stream=stream)
     if velocity_tier:
-        v_upper = velocity_tier.upper()
+        eff_vel_tier = (
+            resolve_display_velocity_tier(tokens, denom, "CRITICAL", mins_to_compaction)
+            if velocity_tier.strip().upper() == "CRITICAL"
+            else velocity_tier
+        )
+        v_upper = eff_vel_tier.upper()
         tier_key = "CRITICAL" if "CRITICAL" in v_upper else ("ELEVATED" if "ELEVATED" in v_upper else "SAFE")
-        color, status = styles[tier_key], velocity_tier
-    elif tokens >= eff_red or (burn_rate is not None and burn_rate >= CRITICAL_BURN_RATE_PER_MIN):
-        color = styles["CRITICAL"]
-        status = "CRITICAL (COMPACTION IMMINENT)" if tokens >= eff_red else "CRITICAL"
+        color, status = styles[tier_key], eff_vel_tier
+    elif tokens >= eff_red:
+        color, status = styles["CRITICAL"], "CRITICAL (COMPACTION IMMINENT)"
+    elif burn_rate is not None and burn_rate >= CRITICAL_BURN_RATE_PER_MIN:
+        disp_tier = resolve_display_velocity_tier(tokens, denom, "CRITICAL", mins_to_compaction)
+        color, status = styles[disp_tier], disp_tier
     elif tokens >= eff_amber or (burn_rate is not None and burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN):
         color = styles["ELEVATED"]
         status = "ELEVATED (APPROACHING THRESHOLD)" if tokens >= eff_amber else "ELEVATED"
@@ -464,14 +472,19 @@ def _evaluate_and_emit_gauge(
             return False
 
     target_err = out_err if out_err is not None else sys.stderr
+    raw_vel_tier = str(vel.get("velocity_tier", "SAFE"))
+    mins_to_comp = vel.get("mins_to_compaction")
+    display_vel_tier = resolve_display_velocity_tier(
+        tokens, metrics.max_context_tokens, raw_vel_tier, mins_to_comp
+    )
     gauge = format_terminal_gauge(
         tokens,
         threshold=metrics.max_context_tokens,
         step_count=step_count,
         role=role,
         burn_rate=burn_rate,
-        mins_to_compaction=vel.get("mins_to_compaction"),
-        velocity_tier=str(vel.get("velocity_tier", "SAFE")) if rapid_burn and tokens < metrics.amber_threshold else None,
+        mins_to_compaction=mins_to_comp,
+        velocity_tier=display_vel_tier if rapid_burn and tokens < metrics.amber_threshold else None,
         amber_threshold=metrics.amber_threshold,
         red_threshold=metrics.red_threshold,
         compaction_threshold=metrics.compaction_threshold,

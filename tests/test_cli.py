@@ -500,6 +500,49 @@ class TestPslCli(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue(custom_db.exists())
 
+    def test_cli_project_subcommand_and_onboard_ensure_project_flag(self):
+        """Verifies `agyis project {list,ensure}` dispatch and `onboard --ensure-project` parser wiring."""
+        from harness.cli import build_parser
+
+        parser = build_parser()
+        self.assertFalse(parser.parse_args(["onboard"]).ensure_project)
+        self.assertTrue(parser.parse_args(["onboard", "--ensure-project"]).ensure_project)
+
+        cfg_dir = Path(self.temp_dir.name) / "agyis_cfg"
+        ws_dir = Path(self.temp_dir.name) / "sample_ws"
+        ws_dir.mkdir(parents=True)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            rc = main(["project", "ensure", str(ws_dir), "--config-dir", str(cfg_dir), "--dry-run", "--json"])
+            self.assertEqual(rc, 0)
+            data = json.loads(mock_out.getvalue())
+            self.assertTrue(data["success"])
+            self.assertEqual(data["action"], "would_create")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            rc = main(["project", "list", "--config-dir", str(cfg_dir), "--json"])
+            self.assertEqual(rc, 0)
+            listed = json.loads(mock_out.getvalue())
+            self.assertEqual(listed["count"], 0)
+
+    def test_cli_test_allow_no_tests_parser_and_delegated_forwarding(self):
+        """Verifies `agyis test --allow-no-tests` is registered on parser and forwarded on re-exec."""
+        import sys as _sys
+        from harness.cli import build_parser
+        from harness.commands.test import _build_delegated_test_cmd
+
+        parser = build_parser("agyis")
+        self.assertFalse(parser.parse_args(["test"]).allow_no_tests)
+        parsed = parser.parse_args(["test", "--full", "--allow-no-tests", "--json"])
+        self.assertTrue(parsed.allow_no_tests)
+        self.assertTrue(parsed.full)
+        self.assertTrue(parsed.json)
+
+        forwarded = _build_delegated_test_cmd(_sys.executable, parsed)
+        self.assertIn("--allow-no-tests", forwarded)
+        self.assertIn("--full", forwarded)
+        self.assertIn("--json", forwarded)
+
 
 if __name__ == "__main__":
     unittest.main()

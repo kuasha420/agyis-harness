@@ -400,73 +400,88 @@ def is_test_command(command: str, cwd: Path | str | None = None) -> bool:
     return any(pat.search(cmd_clean) is not None for pat in UNIVERSAL_TEST_RUNNER_PATTERNS)
 
 
+CLEANROOM_LEDGER_CANDIDATES: tuple[str, ...] = (
+    "obligation_ledger.json",
+    "obligations.json",
+    "manifest.json",
+)
+
+
+def resolve_cleanroom_ledger_path(cwd: Path | str | None = None) -> Path | None:
+    """Return the highest-priority cleanroom ledger/manifest file under `.agents/ledger/`."""
+    effective_cwd = Path(cwd).resolve() if cwd else Path.cwd().resolve()
+    ledger_dir = effective_cwd / ".agents" / "ledger"
+    for filename in CLEANROOM_LEDGER_CANDIDATES:
+        candidate = ledger_dir / filename
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _validate_typed_ledger_file(ledger_path: Path) -> bool:
+    """Validate REA 6.8.0+ typed obligation ledger and verify all dispositions are resolved."""
+    try:
+        from harness.cleanroom.obligation import validate_obligation_ledger
+
+        valid, _errors = validate_obligation_ledger(ledger_path)
+        if not valid:
+            return False
+        data = json.loads(ledger_path.read_text(encoding="utf-8"))
+        reviewed = data.get("reviewed_obligations", [])
+        for ob in reviewed:
+            if ob.get("disposition") not in ("active", "out-of-scope"):
+                return False
+        return True
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS FENCE] Warning: Failed validating obligation ledger '{ledger_path}': {exc}\n")
+        return False
+
+
+def _validate_legacy_manifest_dict(data: dict) -> bool:
+    """Validate legacy cleanroom manifest dictionary schema."""
+    if data.get("status") != "verified":
+        return False
+    evidence_hash = data.get("evidence_hash")
+    if not isinstance(evidence_hash, str) or not re.match(r"^[a-f0-9]{64}$", evidence_hash):
+        return False
+    obligations = data.get("obligations")
+    if not isinstance(obligations, list) or len(obligations) == 0:
+        return False
+    for ob in obligations:
+        if not isinstance(ob, dict) or ob.get("status") != "satisfied":
+            return False
+    return True
+
+
 def is_manifest_verified(cwd: Path | str | None = None) -> bool:
     """
-    Validates cleanroom obligation ledger or manifest against formal schema:
-    1. If .agents/ledger/obligation_ledger.json exists, enforces strict REA 6.8.0
-       schema via validate_obligation_ledger() and verifies all obligations are satisfied.
-    2. Fallback: validates .agents/ledger/manifest.json against REA 6.8.0 or legacy schema.
+    Validates cleanroom obligation ledger or manifest against formal schema
+    in priority order:
+    1. `.agents/ledger/obligation_ledger.json` (strict REA 6.8.0+ typed schema).
+    2. `.agents/ledger/obligations.json` (REA typed schema or legacy verified schema).
+    3. `.agents/ledger/manifest.json` (REA typed schema or legacy verified schema).
     """
     effective_cwd = Path(cwd).resolve() if cwd else Path.cwd().resolve()
-    ledger_path = effective_cwd / ".agents" / "ledger" / "obligation_ledger.json"
-    manifest_path = effective_cwd / ".agents" / "ledger" / "manifest.json"
+    ledger_dir = effective_cwd / ".agents" / "ledger"
+    ledger_path = ledger_dir / "obligation_ledger.json"
 
-    # 1. Prefer typed obligation_ledger.json adhering to REA 6.8.0
+    # 1. Prefer typed obligation_ledger.json adhering to REA 6.8.0+
     if ledger_path.is_file():
+        return _validate_typed_ledger_file(ledger_path)
+
+    # 2. Fallback to obligations.json -> manifest.json (supports typed REA or legacy manifest)
+    for filename in ("obligations.json", "manifest.json"):
+        cand_path = ledger_dir / filename
+        if not cand_path.is_file():
+            continue
         try:
-            from harness.cleanroom.obligation import validate_obligation_ledger
-            valid, errors = validate_obligation_ledger(ledger_path)
-            if not valid:
-                return False
-            data = json.loads(ledger_path.read_text(encoding="utf-8"))
-            reviewed = data.get("reviewed_obligations", [])
-            for ob in reviewed:
-                if ob.get("disposition") not in ("active", "out-of-scope"):
-                    return False
-            return True
-        except Exception as exc:
-            sys.stderr.write(f"[AGYIS FENCE] Warning: Failed validating obligation ledger '{ledger_path}': {exc}\n")
+            data = json.loads(cand_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
             return False
-
-    # 2. Check manifest.json
-    if not manifest_path.is_file():
-        return False
-
-    try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             return False
-
-        # If manifest.json is in REA 6.8.0 typed format:
         if "evidence_bundle" in data and "reviewed_obligations" in data:
-            from harness.cleanroom.obligation import validate_obligation_ledger
-            valid, errors = validate_obligation_ledger(manifest_path)
-            if not valid:
-                return False
-            reviewed = data.get("reviewed_obligations", [])
-            for ob in reviewed:
-                if ob.get("disposition") not in ("active", "out-of-scope"):
-                    return False
-            return True
+            return _validate_typed_ledger_file(cand_path)
+        return _validate_legacy_manifest_dict(data)
 
-        # Legacy manifest validation:
-        if data.get("status") != "verified":
-            return False
-
-        evidence_hash = data.get("evidence_hash")
-        if not isinstance(evidence_hash, str) or not re.match(r"^[a-f0-9]{64}$", evidence_hash):
-            return False
-
-        obligations = data.get("obligations")
-        if not isinstance(obligations, list) or len(obligations) == 0:
-            return False
-
-        for ob in obligations:
-            if not isinstance(ob, dict):
-                return False
-            if ob.get("status") != "satisfied":
-                return False
-
-        return True
-    except (json.JSONDecodeError, OSError):
-        return False
+    return False

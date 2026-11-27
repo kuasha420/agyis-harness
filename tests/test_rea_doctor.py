@@ -28,7 +28,12 @@ from harness.commands.doctor import cmd_doctor
 from harness.commands.init import cmd_init
 from harness.commands.install import cmd_install
 from harness.runtime.doctor import DEFAULT_MATRIX, print_cli_report, run_doctor
-from harness.runtime.healing import heal_environment, heal_rea_tooling, provision_rea_skill
+from harness.runtime.healing import (
+    heal_environment,
+    heal_rea_tooling,
+    provision_rea_skill,
+    provision_workspace_rea,
+)
 from harness.runtime.tool_checks import (
     _parse_rea_providers,
     check_rea_tooling,
@@ -408,6 +413,8 @@ class TestReaCliFlagsAndProvisioning(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws_dir = Path(tmp_dir) / "test_repo"
             ws_dir.mkdir()
+            cfg_dir = Path(tmp_dir) / "isolated_cfg"
+            cfg_dir.mkdir()
 
             args = argparse.Namespace(
                 path=str(ws_dir),
@@ -422,9 +429,11 @@ class TestReaCliFlagsAndProvisioning(unittest.TestCase):
                 json=True,
                 rea=True,
                 experimental_rea=False,
+                config_dir=cfg_dir,
             )
 
-            with patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
+            with patch.dict(os.environ, {"AGYIS_CONFIG_DIR": str(cfg_dir), "PSL_CONFIG_DIR": str(cfg_dir)}), \
+                 patch("sys.stdout", new_callable=io.StringIO) as mock_out, \
                  patch("harness.runtime.healing.provision_rea_skill") as mock_prov:
                 code = cmd_init(args)
             self.assertEqual(code, 0)
@@ -442,6 +451,25 @@ class TestReaCliFlagsAndProvisioning(unittest.TestCase):
             # Assert .agents/ledger/ directory exists
             ledger_dir = ws_dir / ".agents" / "ledger"
             self.assertTrue(ledger_dir.is_dir())
+
+    def test_provision_workspace_rea_skips_local_symlink_when_global_rea_skill_exists(self):
+        """Verifies provision_workspace_rea skips local skill symlink when global REA skill exists in config_dir."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            ws_dir = root / "repo"
+            ws_dir.mkdir()
+            cfg_dir = root / "cfg"
+            global_rea = cfg_dir / "skills" / "reverse-engineer-anything"
+            global_rea.mkdir(parents=True)
+            (global_rea / "SKILL.md").write_text("---\nname: reverse-engineer-anything\n---\n", encoding="utf-8")
+
+            with patch("harness.runtime.healing.provision_rea_skill") as mock_prov:
+                provisioned, cfg_file = provision_workspace_rea(ws_dir, dry_run=False, config_dir=cfg_dir)
+
+            self.assertFalse(provisioned)
+            self.assertTrue(cfg_file.is_file())
+            self.assertFalse((ws_dir / ".agents" / "skills" / "reverse-engineer-anything").exists())
+            mock_prov.assert_not_called()
 
     def test_cmd_install_configures_global_rea_mcp(self):
         """Verifies `agyis install --experimental-rea` configures global MCP server in config."""
