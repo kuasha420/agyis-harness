@@ -9,8 +9,10 @@ PreToolUse & Stop Gate Evaluators for Completion Fence Hook (ADR-022).
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+import sqlite3
 import sys
 from typing import Optional
 
@@ -26,8 +28,24 @@ from harness.hooks.fence_tasks import sync_background_tasks
 from harness.hooks.role_lineage import resolve_hook_role_and_agent
 from harness.hooks.wire_compat import emit_stderr_diagnostic, enqueue_pending_advisory
 from harness.subagents.liveness import TEAMWORK_IGNORED_DIRS
-from harness.trajectory.health import SOFT_CHECKPOINT_STEP_ADVISORY
-from harness.trajectory.sqlite_reader import resolve_checkpoint_step_count
+from harness.trajectory.health import (
+    CONTEXT_WINDOW_TOKENS,
+    SOFT_CHECKPOINT_STEP_ADVISORY,
+    extract_payload_context_window,
+    get_scaled_step_horizon,
+)
+from harness.trajectory.sqlite_reader import read_db_trajectory_state, resolve_checkpoint_step_count
+from harness.trajectory.transcript_reader import (
+    extract_spawned_subagents,
+    find_transcript_path,
+    load_transcript_steps,
+)
+from harness.utils.context import (
+    get_active_app_data_dir,
+    get_active_brain_dir,
+    is_in_live_home_gemini,
+    is_in_temp_dir,
+)
 from harness.utils.workspace import is_harness_workspace
 
 _STOP_BYPASS_TERMINATION_REASONS: frozenset[str] = frozenset({
@@ -76,15 +94,21 @@ def check_pre_tool_use(
     if norm_role and norm_role != ROLE_DEEP_EXECUTION:
         return {"decision": "allow"}
 
-    if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_CHECKPOINT_STEP_ADVISORY:
+    if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= 40:
         if tool_name in CODE_MUTATION_TOOLS:
-            msg = (
-                f"[CHECKPOINT HORIZON: {effective_step}/{SOFT_CHECKPOINT_STEP_ADVISORY} STEPS] "
-                "Extended checkpoint window reached — verify diffs, update checkpoints, or compact when convenient."
-            )
-            emit_stderr_diagnostic(msg)
-            enqueue_pending_advisory(conv_id, msg, state_dir=state_dir)
-            return {"decision": "allow"}
+            max_ctx = extract_payload_context_window(payload)
+            if max_ctx is None and conv_id and conv_id != "default":
+                db_metrics = read_db_trajectory_state(conv_id)
+                max_ctx = db_metrics.max_context_tokens if db_metrics else CONTEXT_WINDOW_TOKENS
+            horizon = get_scaled_step_horizon(max_ctx)
+            if effective_step >= horizon:
+                msg = (
+                    f"[CHECKPOINT HORIZON: {effective_step}/{horizon} STEPS] "
+                    "Extended checkpoint window reached — verify diffs, update checkpoints, or compact when convenient."
+                )
+                emit_stderr_diagnostic(msg)
+                enqueue_pending_advisory(conv_id, msg, state_dir=state_dir)
+                return {"decision": "allow"}
 
     return {"decision": "allow"}
 
@@ -92,8 +116,65 @@ def check_pre_tool_use(
 check_completion_fence_pre_tool = check_pre_tool_use
 
 
-def _has_dispatched_subagents(effective_cwd: Path | str, payload: Optional[dict]) -> bool:
-    """Returns True when subagents were dispatched via teamwork dirs or explicit payload metadata."""
+def _resolve_isolated_native_dirs(
+    effective_cwd: Path | str,
+    payload: Optional[dict],
+    eff_cid: str,
+    brain_dir: Optional[Path | str] = None,
+) -> tuple[Optional[Path], Optional[Path]]:
+    """
+    Resolves (brain_root, app_data_dir) for native subagent probing while preventing
+    /tmp test workspaces from leaking into host ~/.gemini/antigravity.
+    """
+    cwd_is_temp = is_in_temp_dir(Path(effective_cwd))
+    explicit_brain: Optional[Path] = None
+    explicit_app: Optional[Path] = None
+
+    if brain_dir is not None and str(brain_dir).strip():
+        cand = Path(os.path.expanduser(str(brain_dir).strip()))
+        explicit_brain = cand.parent if cand.name == eff_cid else cand
+    elif payload:
+        for k in ("brain_dir", "brainDirectory", "brainPath", "artifactDirectoryPath"):
+            val = payload.get(k)
+            if isinstance(val, str) and val.strip():
+                cand = Path(os.path.expanduser(val.strip()))
+                explicit_brain = cand.parent if cand.name == eff_cid else cand
+                break
+
+    if explicit_brain is None:
+        for env_k in ("ANTIGRAVITY_BRAIN_DIR", "GEMINI_BRAIN_DIR"):
+            val = (os.environ.get(env_k) or "").strip()
+            if val:
+                cand = Path(os.path.expanduser(val))
+                if not (cwd_is_temp and is_in_live_home_gemini(cand)):
+                    explicit_brain = cand.parent if cand.name == eff_cid else cand
+                    break
+
+    env_app = (os.environ.get("ANTIGRAVITY_APP_DATA_DIR") or "").strip()
+    if env_app:
+        cand_app = Path(os.path.expanduser(env_app))
+        if not (cwd_is_temp and is_in_live_home_gemini(cand_app)):
+            explicit_app = cand_app
+            if explicit_brain is None:
+                explicit_brain = cand_app / "brain"
+
+    if explicit_brain is None and explicit_app is None:
+        if cwd_is_temp:
+            return None, None
+        return get_active_brain_dir(), get_active_app_data_dir()
+
+    eff_app = explicit_app or (explicit_brain.parent if explicit_brain is not None else None)
+    return explicit_brain, eff_app
+
+
+def _has_dispatched_subagents(
+    effective_cwd: Path | str,
+    payload: Optional[dict],
+    *,
+    conv_id: Optional[str] = None,
+    brain_dir: Optional[Path | str] = None,
+) -> bool:
+    """Returns True when subagents were dispatched via teamwork dirs, payload metadata, or native Antigravity tools."""
     teamwork_dir = Path(effective_cwd) / ".agents" / "teamwork"
     if teamwork_dir.is_dir():
         try:
@@ -105,6 +186,85 @@ def _has_dispatched_subagents(effective_cwd: Path | str, payload: Optional[dict]
 
     if payload and (payload.get("subagents_dispatched") or payload.get("dispatched_subagents")):
         return True
+
+    eff_cid = str(
+        conv_id
+        or (payload.get("conversationId") or payload.get("conversation_id") if isinstance(payload, dict) else "")
+        or ""
+    ).strip()
+    if not eff_cid or eff_cid == "default":
+        return False
+
+    eff_brain, eff_app = _resolve_isolated_native_dirs(
+        effective_cwd, payload, eff_cid, brain_dir=brain_dir
+    )
+    if eff_brain is None and eff_app is None:
+        return False
+
+    # a. Native swarm plan.json
+    if eff_brain is not None:
+        plan_path = eff_brain / eff_cid / ".system_generated" / "swarm" / "plan.json"
+        if plan_path.is_file():
+            try:
+                plan_data = json.loads(plan_path.read_text(encoding="utf-8", errors="replace"))
+                if isinstance(plan_data, dict):
+                    for key in ("workers", "members", "agents", "nodes"):
+                        items = plan_data.get(key)
+                        if isinstance(items, (list, dict)) and len(items) > 0:
+                            return True
+            except (OSError, json.JSONDecodeError, ValueError, TypeError):
+                pass
+
+        # b. Native transcript inspection (invoke_subagent / run_workflow / swarm add / manage_subagents spawn)
+        t_path, resolved_id = find_transcript_path(eff_cid, brain_dir=eff_brain)
+        if t_path is not None:
+            steps, _, _ = load_transcript_steps(t_path)
+            if extract_spawned_subagents(steps, parent_cid=resolved_id):
+                return True
+            for step in steps:
+                if not isinstance(step, dict):
+                    continue
+                raw_tcs = step.get("tool_calls") or step.get("toolCalls") or []
+                if not isinstance(raw_tcs, list):
+                    continue
+                for tc in raw_tcs:
+                    if not isinstance(tc, dict):
+                        continue
+                    t_name = str(tc.get("name") or "").strip()
+                    if t_name in ("invoke_subagent", "run_workflow"):
+                        return True
+                    t_args = tc.get("args") or tc.get("arguments") or {}
+                    if isinstance(t_args, str):
+                        try:
+                            t_args = json.loads(t_args)
+                        except (json.JSONDecodeError, ValueError, TypeError):
+                            t_args = {}
+                    if not isinstance(t_args, dict):
+                        continue
+                    action_val = str(t_args.get("action") or t_args.get("Action") or "").strip().lower()
+                    if t_name in ("swarm", "swarm_manage") and action_val == "add":
+                        return True
+                    if t_name == "manage_subagents" and action_val in ("spawn", "create", "start", "add", "launch"):
+                        return True
+
+    # c. Read-only conversation_summaries.db check (0.2s timeout)
+    if eff_app is not None:
+        summaries_db = eff_app / "conversation_summaries.db"
+        if summaries_db.is_file():
+            try:
+                conn = sqlite3.connect(f"file:{summaries_db.resolve()}?mode=ro", uri=True, timeout=0.2)
+                try:
+                    cur = conn.execute(
+                        "SELECT 1 FROM conversation_summaries WHERE parent_conversation_id = ? LIMIT 1",
+                        (eff_cid,),
+                    )
+                    if cur.fetchone() is not None:
+                        return True
+                finally:
+                    conn.close()
+            except sqlite3.Error:
+                pass
+
     return False
 
 
@@ -117,22 +277,35 @@ def _evaluate_orchestrator_stop(
     payload: Optional[dict],
 ) -> dict:
     """Evaluates Persona Truth Gate and Gate 2 Auditor Verdict Fence for orchestrator roles."""
-    has_subagents = _has_dispatched_subagents(effective_cwd, payload)
+    has_subagents = _has_dispatched_subagents(effective_cwd, payload, conv_id=conv_id, brain_dir=brain_dir)
 
     if has_subagents:
         from harness.subagents.truth import validate_transition_payload_truth
         allow_synth = bool(os.environ.get("AGYIS_SYNTHETIC_TEST") == "1")
-        is_truth_valid, _ = validate_transition_payload_truth(Path(effective_cwd), allow_synthetic=allow_synth)
+        truth_brain_root, _ = _resolve_isolated_native_dirs(
+            effective_cwd, payload, conv_id, brain_dir=brain_dir
+        )
+        is_truth_valid, truth_errors = validate_transition_payload_truth(
+            Path(effective_cwd),
+            brain_dir=truth_brain_root,
+            conv_id=conv_id,
+            allow_synthetic=allow_synth,
+        )
         if not is_truth_valid:
             block_count = state.get("block_count", 0)
             if block_count < 2:
                 state["block_count"] = block_count + 1
                 save_state(state, conv_id=conv_id, state_dir=state_dir)
+                detail = (
+                    "; ".join(truth_errors)
+                    if truth_errors
+                    else "no verified psl_stage_transition_payload.json was found on disk"
+                )
                 return {
                     "decision": "continue",
                     "reason": (
-                        "Persona Truth Violation: Subagents were dispatched in this session, but no verified "
-                        "psl_stage_transition_payload.json was found on disk. Root orchestrators cannot declare "
+                        f"Persona Truth Violation: {detail}. "
+                        "Subagents were dispatched in this session; root orchestrators cannot declare "
                         "completion without verified delegate artifacts (Anti-Code-Monkey Invariant)."
                     ),
                 }
@@ -430,7 +603,7 @@ def evaluate_stop(
     ) and eff_role_token not in ("agyis_builder", "agyis_reviewer", "agyis_custodian", "agyis_auditor", "agyis_investigator")
 
     if is_orchestrator:
-        if not is_planner or _has_dispatched_subagents(effective_cwd, payload):
+        if not is_planner or _has_dispatched_subagents(effective_cwd, payload, conv_id=conv_id, brain_dir=brain_dir):
             return _evaluate_orchestrator_stop(state, effective_cwd, conv_id, state_dir, brain_dir, payload)
 
     if turn_id is not None:

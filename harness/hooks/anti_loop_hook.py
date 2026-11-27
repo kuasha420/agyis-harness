@@ -28,13 +28,16 @@ from harness.hooks.wire_compat import (
     strip_wire_keys,
 )
 from harness.trajectory.health import (
+    CONTEXT_WINDOW_TOKENS,
     ROLE_DEEP_EXECUTION,
     ROLE_FLIGHT_DIRECTOR,
     ROLE_FORENSIC_AUDITOR,
     SOFT_CHECKPOINT_STEP_ADVISORY,
+    extract_payload_context_window,
+    get_scaled_step_horizon,
     normalize_role_str,
 )
-from harness.trajectory.sqlite_reader import resolve_checkpoint_step_count
+from harness.trajectory.sqlite_reader import read_db_trajectory_state, resolve_checkpoint_step_count
 from harness.utils.state import get_state_dir, load_history, save_history
 
 EXPLORATORY_SWEEP_TOOLS: frozenset[str] = frozenset({
@@ -368,13 +371,19 @@ def check_anti_loop(
 
     # Soft checkpoint horizon advisory (Issue #109 — never hard-block healthy agents on step count alone)
     if _is_exploratory_sweep(tool_name, tool_args):
-        if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= SOFT_CHECKPOINT_STEP_ADVISORY:
-            advisory_msg = (
-                f"[CHECKPOINT HORIZON: {effective_step}/{SOFT_CHECKPOINT_STEP_ADVISORY} STEPS] "
-                "Extended checkpoint window reached — prefer targeted symbol lookups over broad sweeps."
-            )
-            emit_stderr_diagnostic(advisory_msg)
-            enqueue_pending_advisory(conv_id, advisory_msg, state_dir=target_dir)
+        if norm_role == ROLE_DEEP_EXECUTION and effective_step is not None and effective_step >= 40:
+            max_ctx = extract_payload_context_window(payload)
+            if max_ctx is None and conv_id and conv_id != "default":
+                db_metrics = read_db_trajectory_state(conv_id)
+                max_ctx = db_metrics.max_context_tokens if db_metrics else CONTEXT_WINDOW_TOKENS
+            horizon = get_scaled_step_horizon(max_ctx)
+            if effective_step >= horizon:
+                advisory_msg = (
+                    f"[CHECKPOINT HORIZON: {effective_step}/{horizon} STEPS] "
+                    "Extended checkpoint window reached — prefer targeted symbol lookups over broad sweeps."
+                )
+                emit_stderr_diagnostic(advisory_msg)
+                enqueue_pending_advisory(conv_id, advisory_msg, state_dir=target_dir)
 
     history = load_history(conv_id, target_dir=target_dir)
 

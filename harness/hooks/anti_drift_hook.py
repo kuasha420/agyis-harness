@@ -20,6 +20,7 @@ from pathlib import Path
 import sys
 from typing import Callable, List, Optional
 
+from harness.hooks.anti_clobber import check_anti_clobber
 from harness.hooks.drift_guards import (
     _MUTATION_TOOL_NAMES,
     _extract_target_file,
@@ -39,6 +40,7 @@ from harness.hooks.drift_validators import (
     has_telemetry_proof,
     record_telemetry_proof,
 )
+from harness.hooks.resource_semaphore import check_memory_guard
 from harness.hooks.role_pinning import resolve_conv_and_brain
 from harness.hooks.wire_compat import PRE_TOOL_WIRE_KEYS, strip_wire_keys
 from harness.utils.plan_parser import (
@@ -228,6 +230,12 @@ def main() -> None:
     workspace_root = workspace_paths[0] if workspace_paths else None
     artifact_dir = payload.get("artifactDirectoryPath")
 
+    # Phase 0.7: PSL Anti-Clobber & Append-Only Guard (Issue #93) — BEFORE find_active_plan / is_exempt_file
+    clobber_block = check_anti_clobber(payload, workspace_dir=workspace_root)
+    if clobber_block and clobber_block.get("decision") == "deny":
+        print(json.dumps(strip_wire_keys(clobber_block, allowed_keys=PRE_TOOL_WIRE_KEYS)))
+        return
+
     tool_call = payload.get("toolCall", {})
     tool_name = tool_call.get("name", "") if isinstance(tool_call, dict) else ""
     tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else {}
@@ -244,11 +252,15 @@ def main() -> None:
     ):
         reset_flight_director_edits(conv_id=resolve_conv_and_brain(payload)[0])
 
-    # Auto-record telemetry proof if run_command is executed with knot status / knot ledger
+    # Auto-record telemetry proof & enforce Linux MemAvailable guard (Issue #67) before file extraction
     if tool_lower in ("run_command", "execute_command", "bash"):
         cmd = tool_args.get("CommandLine") or tool_args.get("command") or ""
         if cmd:
             record_telemetry_proof(cmd, conv_id=str(conv_id or "default"))
+            mem_block = check_memory_guard(cmd, workspace_dir=workspace_root)
+            if mem_block and mem_block.get("decision") == "deny":
+                print(json.dumps(strip_wire_keys(mem_block, allowed_keys=PRE_TOOL_WIRE_KEYS)))
+                return
 
     target_file = _extract_target_file(payload)
 

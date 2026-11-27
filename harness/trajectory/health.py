@@ -272,6 +272,50 @@ def get_scaled_thresholds(max_context_tokens: Optional[int] = None) -> Tuple[int
     return amber, red
 
 
+def get_scaled_step_horizon(max_context_tokens: Optional[int] = None) -> int:
+    """
+    Returns model-window-scaled soft checkpoint step horizon:
+      - None, <= 0, or 256k -> 80 (SOFT_CHECKPOINT_STEP_ADVISORY)
+      - 512k -> 160
+      - >= 1M (1,000,000 or 1,048,576+) -> 320
+      - Other windows -> proportionally scaled and clamped to [40, 320].
+    """
+    if max_context_tokens is None or max_context_tokens <= 0 or max_context_tokens == CONTEXT_WINDOW_TOKENS:
+        return SOFT_CHECKPOINT_STEP_ADVISORY
+    if max_context_tokens >= 1_000_000:
+        return 320
+    if max_context_tokens == 512_000:
+        return 160
+    scaled = int(round(SOFT_CHECKPOINT_STEP_ADVISORY * (max_context_tokens / float(CONTEXT_WINDOW_TOKENS))))
+    return max(40, min(320, scaled))
+
+
+def extract_payload_context_window(payload: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Extracts explicit or model-inferred max_context_tokens from a hook payload, or None if absent."""
+    if not isinstance(payload, dict):
+        return None
+    csm = payload.get("chatStartMetadata") if isinstance(payload.get("chatStartMetadata"), dict) else {}
+    cwm = payload.get("contextWindowMetadata") or csm.get("contextWindowMetadata") or {}
+    for container in (payload, cwm if isinstance(cwm, dict) else {}):
+        for key in ("maxContextTokens", "max_context_tokens"):
+            val = container.get(key)
+            if isinstance(val, (int, float)) and not isinstance(val, bool) and int(val) > 0:
+                return int(val)
+            if isinstance(val, str) and val.strip().isdigit() and int(val.strip()) > 0:
+                return int(val.strip())
+    model_name = str(
+        payload.get("model")
+        or payload.get("modelName")
+        or payload.get("model_name")
+        or csm.get("model")
+        or csm.get("modelName")
+        or ""
+    ).strip()
+    if model_name:
+        return infer_model_context_window(model_name)
+    return None
+
+
 def get_urgency_tier(
     tokens: int,
     threshold: Optional[int] = None,
@@ -298,17 +342,18 @@ def classify_context_health(
     max_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
 ) -> Tuple[str, str]:
     """
-    Grades conversation health from active-checkpoint window percentage and checkpoint step depth.
-    Replaces fixed 40k/80k premature retirement cutoffs with model-scaled ratios:
-      - HEALTHY / REUSE: < 65% fill AND < 80 checkpoint steps
-      - AMBER / COMPACT_SOON: 65%..80% fill OR >= 80 checkpoint steps
+    Grades conversation health from active-checkpoint window percentage and scaled checkpoint step depth.
+    Replaces fixed 40k/80k premature retirement cutoffs with model-scaled ratios and step horizons:
+      - HEALTHY / REUSE: < 65% fill AND < scaled step horizon (256k->80, 512k->160, 1M->320)
+      - AMBER / COMPACT_SOON: 65%..80% fill OR >= scaled step horizon
       - RED_ALERT / HANDOFF_OR_COMPACT: >= 80% fill
     """
     window = max(1, int(max_context_tokens or DEFAULT_CONTEXT_WINDOW_TOKENS))
     ratio = max(0, int(estimated_tokens)) / float(window)
+    horizon = get_scaled_step_horizon(window)
     if ratio >= SUBAGENT_HIGH_PCT:
         return "RED_ALERT", "HANDOFF_OR_COMPACT"
-    if ratio >= SUBAGENT_ELEVATED_PCT or step_count >= SOFT_CHECKPOINT_STEP_ADVISORY:
+    if ratio >= SUBAGENT_ELEVATED_PCT or step_count >= horizon:
         return "AMBER", "COMPACT_SOON"
     return "HEALTHY", "REUSE"
 

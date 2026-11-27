@@ -61,7 +61,9 @@ def enqueue_pending_advisory(
     except (OSError, json.JSONDecodeError, ValueError, TypeError):
         items = []
 
-    if text in items:
+    if "[CHECKPOINT HORIZON:" in text:
+        items = [item for item in items if "[CHECKPOINT HORIZON:" not in item]
+    elif text in items:
         items.remove(text)
     items.append(text)
     if len(items) > cap:
