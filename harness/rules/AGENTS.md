@@ -15,7 +15,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 *Explicit CLI palettes yield 10x lower human intervention rates:*
 
 ```bash
-# 🧪 Verification & Testing (Hermetic, 2,572 tests, sub-second modules)
+# 🧪 Verification & Testing (Hermetic, 2,623 tests, sub-second modules)
 ./agyis test                                   # Run complete project test suite (~24s full suite, <1.0s modules)
 python3 -m harness.cli test                    # Run complete project test suite
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
@@ -37,13 +37,13 @@ agyis init [path] [-s <stack>] [-r <role>]     # Initialize workspace project wi
 agyis harmonize [path] [--dry-run|--apply]     # Harmonize legacy .agent/ directories into modern .agents/
 
 # 🪝 Lifecycle Hooks Dispatcher
-python3 -m harness.cli hook command-safety     # PreToolUse terminal safety guard
+python3 -m harness.cli hook command-safety     # PreToolUse terminal safety, #93 anti-clobber & #67 memory/concurrency semaphore
 python3 -m harness.cli hook anti-loop          # PreToolUse redundant call breaker
 python3 -m harness.cli hook compactor          # PostToolUse 2KB/32KB output compactor
-python3 -m harness.cli hook anti-drift         # PreToolUse plan boundary and auditor write guard
-python3 -m harness.cli hook token-proximity-guard # PreToolUse attention horizon token guard
-python3 -m harness.cli hook pre-invocation     # PreInvocation runway & checkpoint advisory
-python3 -m harness.cli hook completion-fence   # Stop gate verification fence (code_dirty vs spec_dirty)
+python3 -m harness.cli hook anti-drift         # PreToolUse plan boundary, #93 anti-clobber & auditor write guard
+python3 -m harness.cli hook token-proximity-guard # PreToolUse attention horizon token guard (256k/512k/1M)
+python3 -m harness.cli hook pre-invocation     # PreInvocation runway & scaled step horizon (80/160/320) advisory
+python3 -m harness.cli hook completion-fence   # Stop gate verification fence (code_dirty/spec_dirty & native subagent truth)
 
 # 📊 Empirical Telemetry Laboratory & Background Daemon
 ./agyis sync                                   # Audit & synchronize active session into telemetry.db
@@ -89,14 +89,17 @@ agyis checkpoint [status|generate|create|verify|prune] # Carrier-grade pre-compa
 agyis router <letter|alias>                    # Dynamic subagent router CLI alias (e.g. agyis router victory)
 agyis ladder <letter|alias>                    # Backwards-compatible router CLI alias (e.g. agyis ladder builder)
 
-# 🧹 Multi-Branch Workspace, Clean & Cache Hygiene
+# 🧹 Multi-Branch Workspace, Release Automation, Clean & Cache Hygiene
+agyis release bump <ver> [--dry-run|--apply]   # Atomic SemVer release bump across manifests, lockfile, OG card, site & docs
+agyis release check [--include-site]           # Verify release SemVer & SSOT parity across manifests, OG SVG, changelog & site
 agyis clean [--all] [--checkpoints] [--worktrees] [--dist] # Purge stale checkpoints, worktrees, scratchpads & opt-in dist/ (ADR-031A, ADR-031B)
 rm -rf .next/ .turbo/ node_modules/.cache      # Invalidate stale build caches prior to verification gates
 python3 -c "from harness.delivery import purge_build_caches; purge_build_caches('.')" # Standalone cache purge
 
-# 🛠️ Workstation & Remote Modular Skills
+# 🛠️ Workstation & Remote Modular Skills (32 Skills)
 # cockpit-director: Air Traffic Control Tower runbook, root flight deck pairing, 12 routing workflows, compaction thresholds
 # subagent-router:  Dynamic subagent routing, 12 workflows, 4 execution modes (Ladder, Fan-Out, Teamwork, Boost), swarm PRs
+# pause / resume:   Zero-kill /pause quiescence handshake (pause_gate.json, PARKED_STATE.md) & live-first /resume 3-branch triage
 # storage-ops:      Bounded disk triage (`du -h -d 1`), pacman cache (`paccache -r`), journalctl vacuum, Docker prune, Btrfs, ntfs3
 # audio-ops:        PipeWire/WirePlumber user diagnostics (`wpctl status`), sink recovery, bluetoothctl, loudnorm, VLC split-package
 # display-ops:      Wayland probe (`kscreen-doctor -o`), portal restart (no -9), Electron Ozone/PipeWire flags, Sunshine KMS capture

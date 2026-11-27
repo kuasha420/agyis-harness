@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import tomllib
 import unittest
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -56,7 +57,24 @@ _MODULE_COUNT_RE = re.compile(
     r"|\((?P<tot>\d{3})\s+total(?:,\s*`python3|\)))",
     re.I,
 )
-_HISTORICAL_LINE_MARKERS = ("| **`v0.", "| **`v1.0.", "(historical baseline", "pre-hardening baseline")
+_HISTORICAL_LINE_MARKERS = (
+    "| **`v0.",
+    "| **`v1.0.",
+    "| **`v1.1.",
+    "(historical baseline",
+    "pre-hardening baseline",
+)
+_SEMVER_PATTERN = r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
+_OG_OVERLAY_VER_RE = re.compile(rf"\bVersion\s+(?P<ver>{_SEMVER_PATTERN})\b")
+_SITE_RELEASE_VERSION_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
+    ("title/brand release version", re.compile(rf"\bAgyis(?:\s+Harness)?\s+(?P<ver>{_SEMVER_PATTERN})\b")),
+    ("release tag URL", re.compile(rf"/releases/tag/v(?P<ver>{_SEMVER_PATTERN})\b")),
+    ("install CTA version", re.compile(rf"\bInstall\s+v(?P<ver>{_SEMVER_PATTERN})\b")),
+    ("verification ledger version", re.compile(rf"\bVersion\s+(?P<ver>{_SEMVER_PATTERN})\s+verification ledger\b")),
+    ("wheel install version", re.compile(rf"\bfrozen\s+v(?P<ver>{_SEMVER_PATTERN})\s+wheel\b")),
+    ("release link CTA version", re.compile(rf"\bView\s+v(?P<ver>{_SEMVER_PATTERN})\s+release\b")),
+    ("brand card release version", re.compile(rf"\bfor\s+v(?P<ver>{_SEMVER_PATTERN})\s+release\s+links\b")),
+)
 
 
 def count_live_tests_and_modules(tests_dir: Path, workspace_root: Path) -> Tuple[int, int]:
@@ -108,15 +126,30 @@ def count_surface_inventory(workspace_root: Path) -> Dict[str, int]:
 
 
 def _check_manifests(root: Path, mismatches: List[str]) -> Dict[str, Optional[str]]:
-    """Verify pyproject.toml and plugin.json versions agree."""
+    """Verify pyproject.toml agrees with plugin.json, harness/__init__.py, package.json, uv.lock, and og-overlay.svg."""
     py_ver: Optional[str] = None
+    py_name: str = "agyis-harness"
     plugin_ver: Optional[str] = None
+    harness_init_ver: Optional[str] = None
+    package_json_ver: Optional[str] = None
+    uv_lock_ver: Optional[str] = None
+    og_overlay_ver: Optional[str] = None
 
     py_file = root / "pyproject.toml"
     if py_file.is_file():
-        m = re.search(r'^version\s*=\s*"([^"]+)"', py_file.read_text(encoding="utf-8", errors="replace"), re.M)
-        if m:
-            py_ver = m.group(1).strip()
+        py_raw = py_file.read_text(encoding="utf-8", errors="replace")
+        try:
+            py_doc = tomllib.loads(py_raw)
+            proj = py_doc.get("project") if isinstance(py_doc, dict) else None
+            if isinstance(proj, dict):
+                if isinstance(proj.get("version"), str) and proj["version"].strip():
+                    py_ver = proj["version"].strip()
+                if isinstance(proj.get("name"), str) and proj["name"].strip():
+                    py_name = proj["name"].strip()
+        except (tomllib.TOMLDecodeError, ValueError):
+            m = re.search(r'^version\s*=\s*"([^"]+)"', py_raw, re.M)
+            if m:
+                py_ver = m.group(1).strip()
 
     for cand_rel in ("plugin.json", ".agents/plugin.json", ".claude-plugin/plugin.json"):
         p_file = root / cand_rel
@@ -133,7 +166,73 @@ def _check_manifests(root: Path, mismatches: List[str]) -> Dict[str, Optional[st
 
     if py_ver and not plugin_ver and (root / "plugin.json").is_file():
         mismatches.append("Missing version field in plugin.json")
-    return {"pyproject_version": py_ver, "plugin_version": plugin_ver}
+
+    init_file = root / "harness" / "__init__.py"
+    if init_file.is_file():
+        init_raw = init_file.read_text(encoding="utf-8", errors="replace")
+        m_init = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', init_raw, re.M)
+        if m_init:
+            harness_init_ver = m_init.group(1).strip()
+            if py_ver and harness_init_ver != py_ver:
+                mismatches.append(
+                    f"Manifest version mismatch: pyproject.toml={py_ver} != harness/__init__.py={harness_init_ver}"
+                )
+        elif py_ver:
+            mismatches.append("Missing __version__ declaration in harness/__init__.py")
+
+    pkg_json_file = root / "package.json"
+    if pkg_json_file.is_file():
+        try:
+            pkg_data = json.loads(pkg_json_file.read_text(encoding="utf-8"))
+            ver = str(pkg_data.get("version") or "").strip() if isinstance(pkg_data, dict) else ""
+            package_json_ver = ver or None
+            if py_ver and ver and ver != py_ver:
+                mismatches.append(f"Manifest version mismatch: pyproject.toml={py_ver} != package.json={ver}")
+            elif py_ver and not ver:
+                mismatches.append("Missing version field in package.json")
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            mismatches.append(f"Malformed manifest package.json: {exc}")
+
+    uv_lock_file = root / "uv.lock"
+    if uv_lock_file.is_file():
+        try:
+            lock_doc = tomllib.loads(uv_lock_file.read_text(encoding="utf-8", errors="replace"))
+            packages = lock_doc.get("package") if isinstance(lock_doc, dict) else None
+            if isinstance(packages, list):
+                for pkg in packages:
+                    if isinstance(pkg, dict) and pkg.get("name") in (py_name, "agyis-harness"):
+                        ver = str(pkg.get("version") or "").strip()
+                        if ver:
+                            uv_lock_ver = ver
+                            break
+            if py_ver and uv_lock_ver and uv_lock_ver != py_ver:
+                mismatches.append(f"Manifest version mismatch: pyproject.toml={py_ver} != uv.lock={uv_lock_ver}")
+            elif py_ver and not uv_lock_ver:
+                mismatches.append(f"Missing package version entry for '{py_name}' in uv.lock")
+        except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
+            mismatches.append(f"Malformed lockfile uv.lock: {exc}")
+
+    og_svg_file = root / "website" / "brand" / "svg" / "og-overlay.svg"
+    if og_svg_file.is_file():
+        og_raw = og_svg_file.read_text(encoding="utf-8", errors="replace")
+        m_og = _OG_OVERLAY_VER_RE.search(og_raw)
+        if m_og:
+            og_overlay_ver = m_og.group("ver").strip()
+            if py_ver and og_overlay_ver != py_ver:
+                mismatches.append(
+                    f"Manifest version mismatch: pyproject.toml={py_ver} != website/brand/svg/og-overlay.svg={og_overlay_ver}"
+                )
+        elif py_ver:
+            mismatches.append("Missing 'Version <semver>' text in website/brand/svg/og-overlay.svg")
+
+    return {
+        "pyproject_version": py_ver,
+        "plugin_version": plugin_ver,
+        "harness_init_version": harness_init_ver,
+        "package_json_version": package_json_ver,
+        "uv_lock_version": uv_lock_ver,
+        "og_overlay_version": og_overlay_ver,
+    }
 
 
 def _check_tool_registry(root: Path, mismatches: List[str]) -> Dict[str, int]:
@@ -179,6 +278,7 @@ def _check_test_and_empirical_parity(
     surface: Dict[str, int],
     include_site: bool,
     mismatches: List[str],
+    py_ver: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Verify SSOT docs against live test counts and Gate 0 empirical telemetry JSON bundles."""
     if live_tests > 0:
@@ -243,14 +343,25 @@ def _check_test_and_empirical_parity(
             pass
 
     if include_site and (root / "website").is_dir():
-        for html_file in sorted((root / "website").glob("*.html")):
+        for html_file in sorted((root / "website").rglob("*.html")):
+            rel_html = html_file.relative_to(root).as_posix()
             htxt = html_file.read_text(encoding="utf-8", errors="replace")
-            if live_tests > 0:
-                for idx, line in enumerate(htxt.splitlines(), 1):
+            for idx, line in enumerate(htxt.splitlines(), 1):
+                if any(marker in line for marker in _HISTORICAL_LINE_MARKERS):
+                    continue
+                if live_tests > 0:
                     for tm in _TOTAL_TEST_RE.finditer(line):
                         raw_num = (tm.group("badge") or tm.group("bold") or tm.group("count") or "").replace(",", "")
                         if raw_num.isdigit() and int(raw_num) >= 1500 and int(raw_num) != live_tests:
-                            mismatches.append(f"website/{html_file.name}:{idx} claims {int(raw_num):,} tests (live: {live_tests:,})")
+                            mismatches.append(f"{rel_html}:{idx} claims {int(raw_num):,} tests (live: {live_tests:,})")
+                if py_ver:
+                    for label, pattern in _SITE_RELEASE_VERSION_PATTERNS:
+                        for vm in pattern.finditer(line):
+                            found_ver = vm.group("ver").strip()
+                            if found_ver != py_ver:
+                                mismatches.append(
+                                    f"{rel_html}:{idx} {label} '{found_ver}' != pyproject.toml '{py_ver}'"
+                                )
     return empirical
 
 
@@ -268,7 +379,13 @@ def run_sync_check(
     surface = count_surface_inventory(root)
     live_tests, live_modules = count_live_tests_and_modules(root / "tests", root)
     empirical = _check_test_and_empirical_parity(
-        root, live_tests, live_modules, surface, include_site, mismatches
+        root,
+        live_tests,
+        live_modules,
+        surface,
+        include_site,
+        mismatches,
+        py_ver=manifests.get("pyproject_version"),
     )
 
     return {

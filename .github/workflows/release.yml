@@ -126,6 +126,23 @@ jobs:
               )
               sys.exit(1)
 
+          from pathlib import Path
+          from harness.delivery.changelog import normalize_changelog_version, parse_changelog_document
+
+          changelog_path = Path("CHANGELOG.md")
+          if not changelog_path.is_file():
+              print("::error::CHANGELOG.md is missing.", file=sys.stderr)
+              sys.exit(1)
+          _, changelog_sections, _ = parse_changelog_document(changelog_path.read_text(encoding="utf-8"))
+          expected_changelog_ver = normalize_changelog_version(tag)
+          if expected_changelog_ver not in changelog_sections:
+              print(
+                  f"::error::CHANGELOG.md is missing required release section "
+                  f"'## [{expected_changelog_ver}]' for tag '{tag}'.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
           is_pre = bool(re.search(r"(rc|alpha|beta|dev)", tag, re.IGNORECASE))
           try:
               from packaging.version import Version
@@ -150,6 +167,7 @@ jobs:
           uv run --frozen python3 -m harness.cli agents validate --json
           uv run --frozen python3 -m harness.cli rules --lint
           uv run --frozen python3 -m harness.cli audit aff
+          uv run --frozen python3 -m harness.cli audit sync-check --include-site
           uv run --frozen python3 -m harness.cli doctor --anti-synthetic --test-path tests
           uv run --frozen python3 -m harness.cli test
 

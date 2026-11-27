@@ -452,7 +452,7 @@ const ARCHITECTURAL_ROLE_PRESETS = {
   cleanroom: ["re-ops"],
 };
 
-// Ground-truth 30 workspace skills verified against overview.json.workspace_inventory.skills.names
+// Ground-truth 32 workspace skills verified against overview.json.workspace_inventory.skills.names
 const SKILL_CATALOG = {
   "agent-builder": { category: "workflow", desc: "Interactive creation, scaffolding, and validation of custom codebase-aware specialist subagents under <= 20 tool ceiling." },
   "audio-ops": { category: "ops", desc: "PipeWire, WirePlumber, Bluetooth audio codecs, wpctl sink diagnostics, and EBU R128 loudnorm normalization." },
@@ -464,6 +464,7 @@ const SKILL_CATALOG = {
   "graceful-parking": { category: "workflow", desc: "Zero-kill multi-agent swarm parking, context checkpoint handoff, and deterministic resumption under token pressure." },
   "media-ops": { category: "ops", desc: "Native stream acquisition (yt-dlp impersonation ladder) and lossless ffmpeg transforms with hardware acceleration probes." },
   "milestone-handoff": { category: "workflow", desc: "Milestone completion protocol, ledger compaction (<50 lines), roadmap alignment, and fresh session reset criteria." },
+  "pause": { category: "workflow", desc: "Zero-kill /pause execution suspension runbook enforcing pause_gate.json, subagent quiescence handshakes, PARKED_STATE.md, and checkpoints." },
   "powerloss-resume": { category: "workflow", desc: "Non-destructive disaster recovery runbook for resuming workspaces after power outages or workstation crashes." },
   "psl-audit-toolkit": { category: "telemetry", desc: "Empirical telemetry analysis toolkit for session performance, failure classification, loop detection, and harness tuning." },
   "psl-harmonize": { category: "workflow", desc: "Inspect, diagnose, and migrate legacy .agent/ directories and workflows into modular .agents/ single-source layouts." },
@@ -479,6 +480,7 @@ const SKILL_CATALOG = {
   "psl-test-python": { category: "testing", desc: "Hermetic pytest and unittest discovery with TemporaryDirectory isolation and sub-second latency benchmarks." },
   "re-ops": { category: "re", desc: "Cleanroom reverse engineering (PSL-RE-001), quarantined .dirtyroom/ scaffolding, direct-mount Ghidra, and 18-key ledgers." },
   "remote-ops": { category: "ops", desc: "OpenSSH ControlMaster multiplexing, zero-footprint stdin script streaming, and <2KB compact remote server triage." },
+  "resume": { category: "workflow", desc: "Live-first /resume runbook auditing live subagents and checkpoints before 3-branch triage (reattach, in-place revival, recovery) and gate removal." },
   "sec-forensics": { category: "ops", desc: "Ephemeral read-only Docker container triage, cloud credential revocation, remote diagnostics, and forensics reports." },
   "storage-ops": { category: "ops", desc: "Bounded disk triage (du -h -d 1), pacman cache hygiene, journal vacuuming, Docker pruning, Btrfs, and ntfs3 mounts." },
   "subagent-ladder": { category: "workflow", desc: "Backwards-compatible alias for subagent-router routing specialist pipelines across 12 canonical workflows." },

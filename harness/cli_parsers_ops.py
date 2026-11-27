@@ -102,6 +102,41 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
         help="Print verbose retry diagnostics to stderr",
     )
 
+    # release
+    p_release = subparsers.add_parser(
+        "release",
+        help="Unified single-command release version bump and parity verification",
+        description="Atomic Release Version Bump, OG Card, Changelog & SSOT Parity Controller",
+    )
+    p_release.add_argument("--workspace", "-w", type=Path, default=None, help="Path to repository workspace (default: current directory)")
+    p_release.add_argument("--json", action="store_true", help="Output structured result in JSON format")
+    release_subparsers = p_release.add_subparsers(dest="release_action", title="actions", description="Release automation commands")
+
+    p_rel_bump = release_subparsers.add_parser(
+        "bump",
+        help="Plan or apply an atomic SemVer release bump across manifests, changelog, OG card, website, and docs",
+    )
+    p_rel_bump.add_argument("version", type=str, help="Target SemVer release version (e.g., 1.1.1 or v1.1.1)")
+    rel_mode_group = p_rel_bump.add_mutually_exclusive_group()
+    rel_mode_group.add_argument("--dry-run", action="store_true", help="Preview planned release mutations without modifying disk (default)")
+    rel_mode_group.add_argument("--apply", action="store_true", help="Atomically write planned release changes and run toolchain actions")
+    p_rel_bump.add_argument("--skip-og", action="store_true", help="Skip OG SVG edit and rsvg-convert/magick raster recomposition")
+    p_rel_bump.add_argument("--skip-lock", action="store_true", help="Skip running 'uv lock' during --apply")
+    p_rel_bump.add_argument("--skip-changelog", action="store_true", help="Skip CHANGELOG.md upsert")
+    p_rel_bump.add_argument("--date", type=str, default=None, help="Release date override in YYYY-MM-DD format (default: today UTC)")
+    p_rel_bump.add_argument("--repo-url", type=str, default=None, help="GitHub repository URL override for changelog compare links")
+    p_rel_bump.add_argument("--workspace", "-w", type=Path, default=argparse.SUPPRESS, help="Path to repository workspace")
+    p_rel_bump.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Output structured bump result in JSON format")
+
+    p_rel_check = release_subparsers.add_parser(
+        "check",
+        help="Verify release version parity across manifests, uv.lock, OG SVG, CHANGELOG, docs, and website",
+    )
+    p_rel_check.add_argument("--version", type=str, default=None, help="Expected SemVer release version to verify against")
+    p_rel_check.add_argument("--workspace", "-w", type=Path, default=argparse.SUPPRESS, help="Path to repository workspace")
+    p_rel_check.add_argument("--include-site", action="store_true", help="Include all website/**/*.html routes in parity verification")
+    p_rel_check.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Output parity verification report in JSON format")
+
     # release-notes
     p_relnotes = subparsers.add_parser(
         "release-notes",

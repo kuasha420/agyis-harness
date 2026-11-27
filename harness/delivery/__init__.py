@@ -126,6 +126,19 @@ from harness.delivery.compaction_checkpoint import (
     prune_stale_checkpoints,
     resolve_checkpoint_retention,
 )
+from harness.delivery.release_bump import (
+    EXCLUDED_RELEASE_PATHS,
+    ReleaseActionStatus,
+    ReleaseBumpPlan,
+    ReleaseBumpResult,
+    ReleaseFileEdit,
+    apply_release_bump,
+    check_release_parity,
+    format_release_bump_report,
+    format_release_check_report,
+    normalize_release_version,
+    plan_release_bump,
+)
 
 purge_build_caches = purge_workspace_build_caches
 
@@ -230,4 +243,15 @@ __all__ = [
     "assemble_compaction_checkpoint",
     "prune_stale_checkpoints",
     "resolve_checkpoint_retention",
+    "EXCLUDED_RELEASE_PATHS",
+    "ReleaseActionStatus",
+    "ReleaseBumpPlan",
+    "ReleaseBumpResult",
+    "ReleaseFileEdit",
+    "apply_release_bump",
+    "check_release_parity",
+    "format_release_bump_report",
+    "format_release_check_report",
+    "normalize_release_version",
+    "plan_release_bump",
 ]
