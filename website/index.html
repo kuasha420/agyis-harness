@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script>try{const s=localStorage.getItem("color-scheme");if(s==="light"||s==="dark"){document.querySelector('meta[name="color-scheme"]').content=s;}}catch{}</script>
   <title>Agyis Harness 1.0.0 | Deterministic guardrails for Google Antigravity</title>
   <meta name="description" content="Deterministic lifecycle hooks, 28-subcommand developer CLI, and empirical telemetry harness for Google Antigravity and Gemini 4.">
   <meta property="og:title" content="Agyis Harness 1.0.0">
@@ -16,7 +18,8 @@
   <meta name="twitter:title" content="Agyis Harness 1.0.0">
   <meta name="twitter:description" content="Deterministic guardrails for Google Antigravity and Gemini 4.">
   <meta name="twitter:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
-  <meta name="theme-color" content="#080E1A">
+  <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#080e1a" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="./favicon.ico" sizes="any">
   <link rel="icon" href="./assets/logo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png">
@@ -44,8 +47,20 @@
         <li><a href="./cognitive/" class="nav-link">Cognitive</a></li>
         <li><a href="./hud-re/" class="nav-link">HUD &amp; RE</a></li>
         <li><a href="./brand/" class="nav-link">Brand</a></li>
-        <li><a href="#install" class="nav-cta">Install</a></li>
       </ul>
+      <div class="nav-actions">
+        <button type="button" class="theme-toggle" id="theme-toggle">
+          <span class="theme-toggle-opt theme-toggle-opt--to-light">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            <span class="sr-only">Switch to light theme</span>
+          </span>
+          <span class="theme-toggle-opt theme-toggle-opt--to-dark">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            <span class="sr-only">Switch to dark theme</span>
+          </span>
+        </button>
+        <a class="nav-cta" href="./#install">Install</a>
+      </div>
     </nav>
   </header>
 
@@ -171,10 +186,10 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
           <h2>Every tool call checked before and after execution</h2>
           <p>Prompt instructions drift as context grows. Agyis enforces runtime invariants in deterministic Python hooks registered across seven blocks in <code>hooks.json</code>, backed by 19 canonical platform tools plus 4 swarm runtime tools (<code>MAX_AGENT_TOOLS = 20</code> ceiling, 2 root plan-mode tools, 9 legacy aliases across 30 platform tools, and 8 specialist personas).</p>
           <p>All runtime state isolates cleanly under <code>AGYIS_HARNESS_STATE_DIR</code>, targeting Antigravity Desktop v2.34.0+, <code>agy</code> v1.5.15, IDE v2.8.0, and Gemini 4.</p>
-          <figure class="hooks-art">
+          <figure class="hooks-art" data-tilt>
             <picture>
               <source srcset="./assets/art/art-deterministic-gate.webp" type="image/webp">
-              <img src="./assets/art/art-deterministic-gate.png" alt="Brushed aerospace titanium hexagonal optical aperture blades locking a sapphire-cobalt prism on a stone plinth" width="1200" height="900" loading="lazy">
+              <img src="./assets/art/art-deterministic-gate.png" alt="Brushed aerospace titanium hexagonal optical aperture blades locking a sapphire-cobalt prism on a stone plinth" width="1200" height="900">
             </picture>
           </figure>
           <div class="inline-links">
@@ -483,7 +498,7 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
                     </tr>
                     <tr>
                       <td data-label="Command"><code>agyis test [-v]</code></td>
-                      <td data-label="Purpose">Execute the full 2,559 hermetic tests suite and clear <code>code_dirty</code>.</td>
+                      <td data-label="Purpose">Execute the full 2,560 hermetic tests suite and clear <code>code_dirty</code>.</td>
                       <td data-label="Action"><button type="button" class="copy-btn" data-copy="agyis test" aria-label="Copy agyis test command">Copy</button></td>
                     </tr>
                     <tr>
@@ -674,28 +689,28 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
           <figure class="telemetry-figure">
             <svg role="img" aria-label="Empirical telemetry impact bars comparing 2 KB compaction savings, benign grep and diff exit isolation, and controlled gemini-3.8-flash error reduction" viewBox="0 0 560 320" width="560" height="320" class="telemetry-svg">
               <title>Empirical telemetry measurements from 3,856 agent sessions</title>
-              <g font-family="Instrument Sans, sans-serif" font-size="14" fill="#F4F6FA">
+              <g font-family="Instrument Sans, sans-serif" font-size="14" fill="var(--chart-ink)">
                 <text x="0" y="28">Architectural Fitness Gate (0 boundary or DAG defects)</text>
-                <rect x="0" y="40" width="460" height="16" rx="2" fill="#1E2C47"></rect>
-                <rect x="0" y="40" width="460" height="16" rx="2" fill="#2AD089"></rect>
-                <text x="472" y="53" fill="#2AD089" font-weight="600">100.0%</text>
+                <rect x="0" y="40" width="460" height="16" rx="2" fill="var(--chart-grid)"></rect>
+                <rect x="0" y="40" width="460" height="16" rx="2" fill="var(--semantic-pass)"></rect>
+                <text x="472" y="53" fill="var(--semantic-pass)" font-weight="600">100.0%</text>
 
                 <text x="0" y="98">Same-model error drop: gemini-3.8-flash (37.86 to 11.85 / 1k)</text>
-                <rect x="0" y="110" width="460" height="16" rx="2" fill="#1E2C47"></rect>
-                <rect x="0" y="110" width="316" height="16" rx="2" fill="#5C8AFF"></rect>
-                <text x="472" y="123" fill="#5C8AFF" font-weight="600">-68.7%</text>
+                <rect x="0" y="110" width="460" height="16" rx="2" fill="var(--chart-grid)"></rect>
+                <rect x="0" y="110" width="316" height="16" rx="2" fill="var(--accent)"></rect>
+                <text x="472" y="123" fill="var(--accent)" font-weight="600">-68.7%</text>
 
                 <text x="0" y="168">Output tokens saved at 2 KB cap (111,175,732 saved tokens)</text>
-                <rect x="0" y="180" width="460" height="16" rx="2" fill="#1E2C47"></rect>
-                <rect x="0" y="180" width="268.2" height="16" rx="2" fill="#26D0CE"></rect>
-                <text x="472" y="193" fill="#F4F6FA" font-weight="600">58.3%</text>
+                <rect x="0" y="180" width="460" height="16" rx="2" fill="var(--chart-grid)"></rect>
+                <rect x="0" y="180" width="268.2" height="16" rx="2" fill="var(--cyan)"></rect>
+                <text x="472" y="193" fill="var(--chart-ink)" font-weight="600">58.3%</text>
 
                 <text x="0" y="238">Benign grep/diff empty matches in exit_code == 1 (1,277 / 6,351)</text>
-                <rect x="0" y="250" width="460" height="16" rx="2" fill="#1E2C47"></rect>
-                <rect x="0" y="250" width="92.5" height="16" rx="2" fill="#5C8AFF"></rect>
-                <text x="472" y="263" fill="#F4F6FA" font-weight="600">20.11%</text>
+                <rect x="0" y="250" width="460" height="16" rx="2" fill="var(--chart-grid)"></rect>
+                <rect x="0" y="250" width="92.5" height="16" rx="2" fill="var(--accent)"></rect>
+                <text x="472" y="263" fill="var(--chart-ink)" font-weight="600">20.11%</text>
 
-                <text x="0" y="304" fill="#9AA8BE" font-size="13">gemini-3.8-flash interventions dropped 1.45 -> 0.78 -> 0.26 per 100 steps (0 failure truncations).</text>
+                <text x="0" y="304" fill="var(--chart-axis)" font-size="13">gemini-3.8-flash interventions dropped 1.45 -> 0.78 -> 0.26 per 100 steps (0 failure truncations).</text>
               </g>
             </svg>
             <figcaption>Exported from live sanitized bundles in <code>website/data/overview.json</code>, <code>eras.json</code>, and <code>deep_metrics.json</code>.</figcaption>
@@ -734,7 +749,7 @@ ANSI TrueColor / 256-color / NO_COLOR safe, zero terminal BEL</code></pre>
                 </tr>
                 <tr>
                   <td data-label="Metric">Hermetic verification</td>
-                  <td data-label="Observed figure" class="num">2,559 hermetic tests</td>
+                  <td data-label="Observed figure" class="num">2,560 hermetic tests</td>
                   <td data-label="Scope">100.0 / 100 AFF score, 19 canonical + 4 swarm tools (max 20), 30 skills, 8 personas</td>
                 </tr>
               </tbody>

@@ -73,9 +73,22 @@ class _RouteDocumentParser(HTMLParser):
         self._capture_tabpanel_id: Optional[str] = None
         self._tabpanel_depth: int = 0
         self.tabpanels_by_labelledby: Dict[str, List[str]] = {}
+        self.color_scheme_meta_content: Optional[str] = None
+        self._expect_fouc_script: bool = False
+        self._in_fouc_script: bool = False
+        self._fouc_script_parts: List[str] = []
+        self.fouc_script_after_meta: str = ""
+        self._nav_actions_div_depth: int = 0
+        self.has_theme_toggle_in_nav_actions: bool = False
+        self.img_attrs: List[Dict[str, Optional[str]]] = []
 
     def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
         attr_map: Dict[str, Optional[str]] = {k.lower(): v for k, v in attrs}
+        if self._expect_fouc_script:
+            self._expect_fouc_script = False
+            if tag == "script" and "src" not in attr_map:
+                self._in_fouc_script = True
+
         elem_id = attr_map.get("id")
         if elem_id:
             self.ids.add(elem_id)
@@ -84,16 +97,30 @@ class _RouteDocumentParser(HTMLParser):
             charset = (attr_map.get("charset") or "").strip().lower()
             if charset == "utf-8":
                 self.charset_utf8 = True
-            if (attr_map.get("name") or "").strip().lower() == "viewport" and (
-                attr_map.get("content") or ""
-            ).strip():
+            meta_name = (attr_map.get("name") or "").strip().lower()
+            meta_content = (attr_map.get("content") or "").strip()
+            if meta_name == "viewport" and meta_content:
                 self.has_viewport = True
+            if meta_name == "color-scheme":
+                self.color_scheme_meta_content = meta_content
+                if meta_content == "light dark":
+                    self._expect_fouc_script = True
         elif tag == "title":
             self._in_title = True
         elif tag == "body":
             self.body_attrs = {k: (v or "") for k, v in attr_map.items()}
         elif tag == "input" and elem_id:
             self.input_attrs_by_id[elem_id] = attr_map
+        elif tag == "img":
+            self.img_attrs.append(attr_map)
+
+        if tag == "div":
+            if self._nav_actions_div_depth > 0:
+                self._nav_actions_div_depth += 1
+            elif "nav-actions" in (attr_map.get("class") or "").split():
+                self._nav_actions_div_depth = 1
+        if self._nav_actions_div_depth > 0 and elem_id == "theme-toggle":
+            self.has_theme_toggle_in_nav_actions = True
 
         if tag == "nav":
             if elem_id == "site-nav":
@@ -135,12 +162,24 @@ class _RouteDocumentParser(HTMLParser):
         self, tag: str, attrs: List[Tuple[str, Optional[str]]]
     ) -> None:
         self.handle_starttag(tag, attrs)
-        if tag in ("nav", "footer") or self._capture_tabpanel_id is not None:
+        if (
+            tag in ("nav", "footer")
+            or self._capture_tabpanel_id is not None
+            or (tag == "div" and self._nav_actions_div_depth > 0)
+            or (tag == "script" and self._in_fouc_script)
+        ):
             self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
+        if tag != "meta":
+            self._expect_fouc_script = False
+        if tag == "script" and self._in_fouc_script:
+            self._in_fouc_script = False
+            self.fouc_script_after_meta = "".join(self._fouc_script_parts).strip()
         if tag == "title":
             self._in_title = False
+        if tag == "div" and self._nav_actions_div_depth > 0:
+            self._nav_actions_div_depth -= 1
         if tag == "nav" and self._nav_depth > 0:
             self._nav_depth -= 1
         if tag == "footer" and self._footer_depth > 0:
@@ -152,6 +191,10 @@ class _RouteDocumentParser(HTMLParser):
                 self._tabpanel_depth = 0
 
     def handle_data(self, data: str) -> None:
+        if self._in_fouc_script:
+            self._fouc_script_parts.append(data)
+        elif self._expect_fouc_script and data.strip():
+            self._expect_fouc_script = False
         if self._in_title:
             self.title_parts.append(data)
         if self._footer_depth > 0:
@@ -510,6 +553,74 @@ class TestWebsiteRoutesAndSync(unittest.TestCase):
         self.assertIn("actions/upload-pages-artifact@v3", build_block)
         self.assertIn("needs: build", deploy_block)
         self.assertIn("actions/deploy-pages@v4", deploy_block)
+
+    def test_light_dark_theme_and_polarity_adaptive_chart_contract(self) -> None:
+        for rel_route in EXPECTED_ROUTES:
+            parsed = self.parsed_routes[rel_route]
+            self.assertEqual(
+                parsed.color_scheme_meta_content,
+                "light dark",
+                f"{rel_route} missing <meta name='color-scheme' content='light dark'>",
+            )
+            self.assertIn(
+                'localStorage.getItem("color-scheme")',
+                parsed.fouc_script_after_meta,
+                f"{rel_route} missing immediate inline FOUC-prevention script after color-scheme meta",
+            )
+            self.assertTrue(
+                parsed.has_theme_toggle_in_nav_actions,
+                f"{rel_route} missing #theme-toggle inside .nav-actions",
+            )
+
+        styles_text = (WEBSITE_DIR / "styles.css").read_text(encoding="utf-8")
+        for required_css in (
+            "color-scheme: light dark;",
+            ':has(> head > meta[name="color-scheme"][content="dark"])',
+            "@supports (color: light-dark(white, black))",
+            "--chart-grid: light-dark(",
+            "--chart-ink: light-dark(",
+        ):
+            self.assertIn(required_css, styles_text, f"website/styles.css missing {required_css!r}")
+
+        telemetry_js = (WEBSITE_DIR / "telemetry" / "telemetry.js").read_text(encoding="utf-8")
+        for chart_var in (
+            "var(--chart-grid)",
+            "var(--chart-axis)",
+            "var(--chart-ink)",
+            "var(--chart-line)",
+            "var(--chart-bar)",
+            "var(--chart-bar-strong)",
+            "var(--chart-dot-fill)",
+        ):
+            self.assertIn(chart_var, telemetry_js, f"telemetry.js missing polarity-adaptive token {chart_var}")
+        telemetry_js_lower = telemetry_js.lower()
+        for legacy_hex in ("#9aa8be", "#1e2c47"):
+            self.assertNotIn(
+                legacy_hex,
+                telemetry_js_lower,
+                f"telemetry.js still contains dark-only hardcoded color {legacy_hex}",
+            )
+
+        for rel_route, image_name in (
+            ("index.html", "art-deterministic-gate.png"),
+            ("hud-re/index.html", "art-telemetry-optics.png"),
+        ):
+            img_matches = [
+                attrs
+                for attrs in self.parsed_routes[rel_route].img_attrs
+                if (attrs.get("src") or "").endswith(image_name)
+            ]
+            self.assertGreater(
+                len(img_matches),
+                0,
+                f"{rel_route} missing primary 3D illustration {image_name}",
+            )
+            for attrs in img_matches:
+                self.assertNotEqual(
+                    (attrs.get("loading") or "").strip().lower(),
+                    "lazy",
+                    f"{rel_route} primary illustration {image_name} must not carry loading='lazy'",
+                )
 
     def test_website_index_and_workspace_sync_check_parity(self) -> None:
         report = sync_check.run_sync_check(REPO_ROOT, include_site=True)

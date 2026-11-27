@@ -1,5 +1,132 @@
 const bundleCache = new Map();
 const intFormatter = new Intl.NumberFormat("en-US");
+const THEME_STORAGE_KEY = "color-scheme";
+const TILT_MAX_DEG = 2.2;
+let themeGlobalsBound = false;
+
+function getColorSchemeMeta() {
+  return document.querySelector('meta[name="color-scheme"]');
+}
+
+function readStoredColorScheme() {
+  try {
+    const value = localStorage.getItem(THEME_STORAGE_KEY);
+    return value === "light" || value === "dark" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredColorScheme(scheme) {
+  try {
+    if (scheme === "light" || scheme === "dark") {
+      localStorage.setItem(THEME_STORAGE_KEY, scheme);
+    } else {
+      localStorage.removeItem(THEME_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage denial (e.g. strict privacy modes); meta state still applies in-memory
+  }
+}
+
+function getSystemTheme() {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function getActiveTheme() {
+  const metaContent = getColorSchemeMeta()?.getAttribute("content")?.trim();
+  if (metaContent === "light" || metaContent === "dark") {
+    return metaContent;
+  }
+  const stored = readStoredColorScheme();
+  if (stored) {
+    return stored;
+  }
+  return getSystemTheme();
+}
+
+function applyMetaColorScheme(contentValue) {
+  const meta = getColorSchemeMeta();
+  if (meta && meta.getAttribute("content") !== contentValue) {
+    meta.setAttribute("content", contentValue);
+  }
+}
+
+function dispatchThemeChange(theme) {
+  window.dispatchEvent(
+    new CustomEvent("agyis-theme-change", {
+      detail: { theme },
+    })
+  );
+}
+
+function initThemeToggle() {
+  const initialStored = readStoredColorScheme();
+  if (initialStored) {
+    applyMetaColorScheme(initialStored);
+  }
+
+  if (!themeGlobalsBound) {
+    themeGlobalsBound = true;
+
+    window.addEventListener("storage", (event) => {
+      if (event.key !== null && event.key !== THEME_STORAGE_KEY) return;
+      const nextStored =
+        event.key === THEME_STORAGE_KEY &&
+        (event.newValue === "light" || event.newValue === "dark")
+          ? event.newValue
+          : readStoredColorScheme();
+      applyMetaColorScheme(nextStored ?? "light dark");
+      dispatchThemeChange(getActiveTheme());
+    });
+
+    const schemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleSystemSchemeChange = () => {
+      // Never remove stored override when OS changes to match it; only notify when following system
+      if (!readStoredColorScheme()) {
+        const metaContent = getColorSchemeMeta()?.getAttribute("content")?.trim();
+        if (metaContent !== "light" && metaContent !== "dark") {
+          dispatchThemeChange(getActiveTheme());
+        }
+      }
+    };
+
+    if (typeof schemeQuery.addEventListener === "function") {
+      schemeQuery.addEventListener("change", handleSystemSchemeChange);
+    }
+  }
+
+  const toggleBtn = document.getElementById("theme-toggle");
+  if (!toggleBtn || toggleBtn.dataset.themeBound === "1") return;
+  toggleBtn.dataset.themeBound = "1";
+
+  toggleBtn.addEventListener("click", () => {
+    const current = getActiveTheme();
+    const systemScheme = getSystemTheme();
+    const target = current === "dark" ? "light" : "dark";
+    const root = document.documentElement;
+
+    if (root) {
+      root.classList.add("is-theme-switching");
+    }
+
+    if (target !== systemScheme) {
+      writeStoredColorScheme(target);
+      applyMetaColorScheme(target);
+    } else {
+      writeStoredColorScheme(null);
+      applyMetaColorScheme("light dark");
+    }
+
+    if (root) {
+      void root.offsetHeight;
+      requestAnimationFrame(() => root.classList.remove("is-theme-switching"));
+    }
+
+    dispatchThemeChange(target);
+    announce(`Switched to ${target} theme`);
+  });
+}
 
 function getAnnouncer() {
   return document.getElementById("status-announcer");
@@ -410,12 +537,108 @@ function initOnboardingStepper() {
   }
 }
 
+function clampValue(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function resetTiltCard(card) {
+  if (!card) return;
+  if (card._agyisTiltRaf) {
+    cancelAnimationFrame(card._agyisTiltRaf);
+    card._agyisTiltRaf = 0;
+  }
+  delete card.dataset.tilting;
+  card.style.removeProperty("--tilt-x");
+  card.style.removeProperty("--tilt-y");
+  card.style.removeProperty("--spot-x");
+  card.style.removeProperty("--spot-y");
+}
+
+function initPointerTilt(root = document) {
+  if (!root) return;
+  const motionQuery = window.matchMedia("(prefers-reduced-motion: no-preference)");
+  const hoverQuery = window.matchMedia("(hover: hover)");
+  const isTiltEnabled = () => motionQuery.matches && hoverQuery.matches;
+
+  const cards = root.querySelectorAll("[data-tilt], .art-card, .kpi-card");
+  if (cards.length === 0) return;
+
+  if (!isTiltEnabled()) {
+    for (const card of cards) {
+      resetTiltCard(card);
+    }
+  }
+
+  for (const card of cards) {
+    if (card.dataset.tiltBound === "1") continue;
+    card.dataset.tiltBound = "1";
+
+    let lastX = 0;
+    let lastY = 0;
+
+    const scheduleUpdate = (event) => {
+      if (!isTiltEnabled() || event.pointerType === "touch") {
+        resetTiltCard(card);
+        return;
+      }
+      lastX = event.clientX;
+      lastY = event.clientY;
+      card.dataset.tilting = "1";
+      if (card._agyisTiltRaf) return;
+
+      card._agyisTiltRaf = requestAnimationFrame(() => {
+        card._agyisTiltRaf = 0;
+        if (!isTiltEnabled() || card.dataset.tilting !== "1") return;
+        const rect = card.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+
+        const relX = clampValue(lastX - rect.left, 0, rect.width);
+        const relY = clampValue(lastY - rect.top, 0, rect.height);
+        const normX = relX / rect.width - 0.5;
+        const normY = relY / rect.height - 0.5;
+
+        const tiltX = clampValue(-normY * (TILT_MAX_DEG * 2), -TILT_MAX_DEG, TILT_MAX_DEG);
+        const tiltY = clampValue(normX * (TILT_MAX_DEG * 2), -TILT_MAX_DEG, TILT_MAX_DEG);
+
+        card.style.setProperty("--tilt-x", `${tiltX.toFixed(2)}deg`);
+        card.style.setProperty("--tilt-y", `${tiltY.toFixed(2)}deg`);
+        card.style.setProperty("--spot-x", `${relX.toFixed(1)}px`);
+        card.style.setProperty("--spot-y", `${relY.toFixed(1)}px`);
+      });
+    };
+
+    card.addEventListener("pointerenter", scheduleUpdate);
+    card.addEventListener("pointermove", scheduleUpdate);
+    card.addEventListener("pointerleave", () => resetTiltCard(card));
+    card.addEventListener("pointercancel", () => resetTiltCard(card));
+  }
+
+  if (!root._agyisTiltListenersBound) {
+    root._agyisTiltListenersBound = true;
+    const handleCapabilityChange = () => {
+      if (!isTiltEnabled()) {
+        document
+          .querySelectorAll("[data-tilt], .art-card, .kpi-card")
+          .forEach((card) => resetTiltCard(card));
+      }
+    };
+    if (typeof motionQuery.addEventListener === "function") {
+      motionQuery.addEventListener("change", handleCapabilityChange);
+    }
+    if (typeof hoverQuery.addEventListener === "function") {
+      hoverQuery.addEventListener("change", handleCapabilityChange);
+    }
+  }
+}
+
 function bootSharedShell() {
+  initThemeToggle();
   document.querySelectorAll("[data-tabs]").forEach((el) => initTabs(el));
   initOnboardingStepper();
   bindCopyButtons(document);
   initHeaderScroll();
   initNavbar();
+  initPointerTilt(document);
 }
 
 window.AgyisSite = Object.freeze({
@@ -427,6 +650,7 @@ window.AgyisSite = Object.freeze({
   bindCopyButtons,
   initTabs,
   announce,
+  getActiveTheme,
 });
 
 if (document.readyState === "loading") {

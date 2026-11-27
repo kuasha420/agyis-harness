@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script>try{const s=localStorage.getItem("color-scheme");if(s==="light"||s==="dark"){document.querySelector('meta[name="color-scheme"]').content=s;}}catch{}</script>
   <title>Cognitive Architecture &amp; Subagent Ladder | Agyis Harness 1.0.0</title>
   <meta name="description" content="PSL Invariant Codex v2, 19+4 / max 20 tool ceiling, 8 specialist personas, Cockpit Flight Director A-L 12-workflow router, 512k/840k/1M checkpoint runway, and 30 provisionable skills.">
   <meta property="og:title" content="Cognitive Architecture &amp; Subagent Ladder | Agyis Harness 1.0.0">
@@ -16,7 +18,8 @@
   <meta name="twitter:title" content="Cognitive Architecture | Agyis Harness 1.0.0">
   <meta name="twitter:description" content="PSL Codex v2, 8 specialist personas, A-L 12-workflow router, and 30 modular skills.">
   <meta name="twitter:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
-  <meta name="theme-color" content="#080E1A">
+  <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#080e1a" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="../favicon.ico" sizes="any">
   <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
@@ -30,21 +33,21 @@
       .cog-band {
         padding-block: clamp(2.5rem, 5vw, 4rem);
         border-block-end: 1px solid var(--border);
+        background-color: var(--bg);
+        color: var(--ink);
       }
 
-      .cog-band--dark {
-        background-color: var(--console-bg);
-        color: var(--console-ink);
-        border-block-end-color: var(--console-border);
+      .cog-band--tint {
+        background-color: var(--surface);
       }
 
-      .cog-band--dark p {
-        color: var(--console-muted);
+      .cog-band p {
+        color: var(--ink-muted);
       }
 
-      .cog-band--dark h2,
-      .cog-band--dark h3 {
-        color: var(--console-ink);
+      .cog-band h2,
+      .cog-band h3 {
+        color: var(--ink);
       }
 
       .tabular-num,
@@ -60,12 +63,8 @@
         border: 1px solid var(--border);
         border-radius: var(--radius-sm);
         overflow: hidden;
-        background-color: var(--surface);
-      }
-
-      .cog-band--dark .segmented-group {
-        border-color: var(--console-border);
-        background-color: var(--console-bg);
+        background-color: var(--surface-well);
+        box-shadow: var(--shadow-inset);
       }
 
       .segmented-btn {
@@ -84,37 +83,28 @@
         transition-timing-function: var(--ease-out);
       }
 
-      .cog-band--dark .segmented-btn {
-        border-inline-end-color: var(--console-border);
-        color: var(--console-muted);
-      }
-
       .segmented-btn:last-child {
         border-inline-end: 0;
       }
 
       .segmented-btn:hover {
         color: var(--ink);
-        background-color: var(--bg);
-      }
-
-      .cog-band--dark .segmented-btn:hover {
-        color: var(--console-ink);
-        background-color: var(--console-surface);
+        background-color: var(--surface-elevated);
       }
 
       .segmented-btn[aria-pressed="true"],
       .segmented-btn[aria-checked="true"],
       .segmented-btn.is-active {
-        background-color: var(--accent);
-        color: #f4f6fa;
+        background-color: var(--accent-solid);
+        color: var(--accent-solid-ink);
       }
 
       .codex-card {
         padding: 1.375rem;
         border-radius: var(--radius-md);
-        background-color: var(--surface);
+        background: linear-gradient(180deg, var(--sheen-top), var(--sheen-bot)), var(--surface-card);
         border: 1px solid var(--border);
+        box-shadow: var(--shadow-card);
         display: grid;
         gap: 0.625rem;
         align-content: start;
@@ -144,18 +134,30 @@
       .tool-cell {
         padding: 0.625rem 0.875rem;
         border-radius: var(--radius-sm);
-        background-color: var(--console-surface);
-        border: 1px solid var(--console-border);
+        background: linear-gradient(180deg, var(--sheen-top), var(--sheen-bot)), var(--surface-card);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-card);
         font-family: var(--font-mono);
         font-size: var(--text-sm);
-        color: var(--console-ink);
+        color: var(--ink);
         overflow-wrap: anywhere;
+      }
+
+      .inspector-panel .tool-cell {
+        background: var(--surface-well);
+        box-shadow: var(--shadow-inset);
+      }
+
+      .tool-cell code {
+        background-color: transparent;
+        padding: 0;
+        color: inherit;
       }
 
       .tool-cell-sub {
         display: block;
         font-size: 0.75rem;
-        color: var(--console-muted);
+        color: var(--ink-muted);
         margin-block-start: 0.2rem;
       }
 
@@ -178,29 +180,32 @@
         text-align: start;
         padding: 0.625rem 0.875rem;
         border-radius: var(--radius-sm);
-        border: 1px solid var(--console-border);
-        background-color: var(--console-surface);
-        color: var(--console-muted);
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, var(--sheen-top), var(--sheen-bot)), var(--surface-card);
+        box-shadow: var(--shadow-card);
+        color: var(--ink-muted);
         cursor: pointer;
         display: flex;
         justify-content: space-between;
         align-items: center;
         gap: 0.5rem;
         min-block-size: 2.75rem;
-        transition-property: background-color, border-color, color;
+        transition-property: background-color, border-color, color, transform;
         transition-duration: 150ms;
         transition-timing-function: var(--ease-out);
       }
 
       .selector-item:hover {
-        color: var(--console-ink);
-        border-color: var(--console-accent);
+        color: var(--ink);
+        border-color: var(--border-strong);
+        background: var(--surface-elevated);
+        transform: translateY(-1px);
       }
 
       .selector-item.is-active {
-        background-color: var(--accent);
-        border-color: var(--accent);
-        color: #f4f6fa;
+        background: var(--accent-solid);
+        border-color: var(--accent-solid);
+        color: var(--accent-solid-ink);
       }
 
       .selector-item code {
@@ -212,8 +217,10 @@
       .inspector-panel {
         padding: 1.5rem;
         border-radius: var(--radius-md);
-        background-color: var(--console-surface);
-        border: 1px solid var(--console-border);
+        background: linear-gradient(180deg, var(--sheen-top), var(--sheen-bot)), var(--surface-card);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-card);
+        color: var(--ink);
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         gap: 1rem;
@@ -225,40 +232,65 @@
         min-inline-size: 0;
       }
 
+      .inspector-list {
+        padding-inline-start: 1.25rem;
+        display: grid;
+        gap: 0.5rem;
+        color: var(--ink-muted);
+      }
+
+      .inspector-list strong {
+        color: var(--ink);
+      }
+
       .detail-kv-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-        gap: 0.75rem;
+        gap: 1px;
+        background-color: var(--border);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        box-shadow: var(--shadow-inset);
       }
 
       .detail-kv {
-        padding: 0.75rem;
+        padding: 0.75rem 0.875rem;
         border-radius: var(--radius-sm);
-        background-color: var(--console-bg);
-        border: 1px solid var(--console-border);
+        background-color: var(--surface-well);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-inset);
         min-width: 0;
+      }
+
+      .detail-kv-grid > .detail-kv {
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
       }
 
       .detail-kv-label {
         display: block;
         font-size: 0.8125rem;
-        color: var(--console-muted);
+        color: var(--ink-muted);
       }
 
       .detail-kv-val {
         display: block;
         font-family: var(--font-mono);
         font-size: var(--text-sm);
-        color: var(--console-ink);
+        color: var(--ink);
         margin-block-start: 0.2rem;
         overflow-wrap: anywhere;
       }
 
       .code-panel {
+        color-scheme: only dark;
         max-inline-size: 100%;
         min-inline-size: 0;
-        background-color: var(--console-bg);
-        border: 1px solid var(--console-border);
+        background-color: #080e1a;
+        border: 1px solid #1e2c47;
+        box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.45);
         border-radius: var(--radius-sm);
         padding: 1rem;
         overflow-x: auto;
@@ -267,7 +299,9 @@
         font-family: var(--font-mono);
         font-size: 0.8125rem;
         line-height: 1.55;
-        color: var(--console-ink);
+        color: #f4f6fa;
+        accent-color: #5c8aff;
+        scrollbar-color: var(--raw-scrollbar-thumb-dark) var(--console-surface);
         margin: 0;
       }
 
@@ -275,6 +309,9 @@
       .code-panel code {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
+        background-color: transparent;
+        color: inherit;
+        padding: 0;
       }
 
       .route-grid-buttons {
@@ -287,7 +324,7 @@
       .runway-bar-list {
         display: grid;
         gap: 0.875rem;
-        margin-block-start: 1rem;
+        margin-block-start: 0.5rem;
       }
 
       .runway-row {
@@ -302,14 +339,16 @@
         gap: 0.25rem 1rem;
         font-family: var(--font-mono);
         font-size: var(--text-sm);
+        color: var(--ink);
         font-variant-numeric: tabular-nums;
       }
 
       .runway-track {
         block-size: 0.75rem;
         border-radius: 9999px;
-        background-color: var(--console-surface);
-        border: 1px solid var(--console-border);
+        background-color: var(--surface-well);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-inset);
         overflow: hidden;
         display: flex;
       }
@@ -323,33 +362,29 @@
         align-items: center;
         gap: 0.5rem;
         font-size: var(--text-sm);
+        color: var(--ink);
         min-width: 0;
       }
 
       .control-field select,
       .control-field input[type="search"] {
-        background-color: var(--bg);
+        background-color: var(--surface-card);
         color: var(--ink);
-        border: 1px solid var(--border);
+        border: 1px solid var(--border-strong);
         border-radius: var(--radius-sm);
         padding: 0.5rem 0.75rem;
         font-size: var(--text-sm);
         min-block-size: 2.75rem;
         max-inline-size: 100%;
-      }
-
-      .cog-band--dark .control-field select,
-      .cog-band--dark .control-field input[type="search"] {
-        background-color: var(--console-bg);
-        color: var(--console-ink);
-        border-color: var(--console-border);
+        box-shadow: var(--shadow-inset);
       }
 
       .preset-box {
         padding: 1.25rem;
         border-radius: var(--radius-md);
-        background-color: var(--surface);
+        background: linear-gradient(180deg, var(--sheen-top), var(--sheen-bot)), var(--surface-card);
         border: 1px solid var(--border);
+        box-shadow: var(--shadow-card);
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         gap: 0.875rem;
@@ -361,8 +396,9 @@
       .skill-card {
         padding: 1.125rem;
         border-radius: var(--radius-sm);
-        background-color: var(--surface);
+        background: linear-gradient(180deg, var(--sheen-top), var(--sheen-bot)), var(--surface-card);
         border: 1px solid var(--border);
+        box-shadow: var(--shadow-card);
         display: grid;
         gap: 0.375rem;
         align-content: start;
@@ -393,6 +429,10 @@
         .selector-item {
           transition: none;
         }
+
+        .selector-item:hover {
+          transform: none;
+        }
       }
     }
   </style>
@@ -416,8 +456,20 @@
         <li><a href="../cognitive/" class="nav-link is-active" aria-current="page">Cognitive</a></li>
         <li><a href="../hud-re/" class="nav-link">HUD &amp; RE</a></li>
         <li><a href="../brand/" class="nav-link">Brand</a></li>
-        <li><a href="../#install" class="nav-cta">Install</a></li>
       </ul>
+      <div class="nav-actions">
+        <button type="button" class="theme-toggle" id="theme-toggle">
+          <span class="theme-toggle-opt theme-toggle-opt--to-light">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            <span class="sr-only">Switch to light theme</span>
+          </span>
+          <span class="theme-toggle-opt theme-toggle-opt--to-dark">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            <span class="sr-only">Switch to dark theme</span>
+          </span>
+        </button>
+        <a class="nav-cta" href="../#install">Install</a>
+      </div>
     </nav>
   </header>
 
@@ -429,26 +481,26 @@
             <h1 id="main-content" tabindex="-1">Cognitive architecture and subagent ladder</h1>
             <p>Agyis pairs deterministic lifecycle hooks with explicit behavioral invariants, strict tool-ceiling enforcement, role-isolated specialist personas, and 12 canonical routing workflows verified against shipped source modules.</p>
             <div class="kpi-strip" style="margin-block-start: 1.5rem;" aria-label="Cognitive inventory metrics">
-              <div class="kpi-card">
+              <div class="kpi-card" data-tilt>
                 <span class="kpi-value" id="cog-kpi-agents">8</span>
                 <span class="kpi-label">Specialist personas</span>
               </div>
-              <div class="kpi-card">
+              <div class="kpi-card" data-tilt>
                 <span class="kpi-value">19+4 / 20</span>
                 <span class="kpi-label">Canonical + swarm / max ceiling</span>
               </div>
-              <div class="kpi-card">
+              <div class="kpi-card" data-tilt>
                 <span class="kpi-value">12</span>
                 <span class="kpi-label">Canonical workflows (A to L)</span>
               </div>
-              <div class="kpi-card">
+              <div class="kpi-card" data-tilt>
                 <span class="kpi-value" id="cog-kpi-skills">30</span>
                 <span class="kpi-label">Provisionable workspace skills</span>
               </div>
             </div>
           </div>
 
-          <figure class="art-card art-card--4x3">
+          <figure class="art-card art-card--4x3" data-tilt>
             <picture>
               <source srcset="../assets/art/art-cognitive-lattice.webp" type="image/webp">
               <img src="../assets/art/art-cognitive-lattice.png" alt="Isometric 3D architectural lattice of 8 obsidian and sapphire nodes connected by cobalt and cyan optical filaments converging into a central verification prism" width="1200" height="900" decoding="async" fetchpriority="high">
@@ -490,7 +542,7 @@
       </div>
     </section>
 
-    <section id="personas" class="page-section page-section--dark cog-band cog-band--dark" aria-labelledby="personas-heading">
+    <section id="personas" class="page-section page-section--tint cog-band cog-band--tint" aria-labelledby="personas-heading">
       <div class="container">
         <h2 id="personas-heading">Tool ceiling and specialist persona matrix</h2>
         <p>Defined in <code>harness/subagents/spec.py</code> and validated via <code>agyis agents validate --json</code>. Every specialist declares at most <code>MAX_AGENT_TOOLS = 20</code> tools drawn exclusively from Antigravity v2.34+ canonical names, never static MCP tool names or runtime-injected swarm board tools.</p>
@@ -533,7 +585,7 @@
       </div>
     </section>
 
-    <section id="router" class="page-section page-section--dark cog-band cog-band--dark" aria-labelledby="router-heading">
+    <section id="router" class="page-section cog-band" aria-labelledby="router-heading">
       <div class="container">
         <h2 id="router-heading">Cockpit Flight Director and 12-workflow router (A to L)</h2>
         <p>Defined verbatim in <code>harness/subagents/routing.py</code> (Protocol <code>2026.1</code>). Invoke via <code>agyis cockpit route &lt;letter|alias&gt;</code>, <code>agyis router &lt;alias&gt;</code>, or <code>agyis ladder &lt;alias&gt;</code>.</p>
@@ -541,11 +593,11 @@
         <div class="card-grid-2" style="margin-block: 1.25rem;">
           <div class="inspector-panel">
             <h3>Four multi-agent execution modes</h3>
-            <ul style="padding-inline-start: 1.25rem; display: grid; gap: 0.5rem; color: var(--console-muted);">
-              <li><strong style="color: var(--console-ink);"><code>LADDER</code>:</strong> Sequential specialist quality gates (Investigator, Planner, Builder, Reviewer, Custodian, Auditor).</li>
-              <li><strong style="color: var(--console-ink);"><code>PARALLEL_FANOUT</code>:</strong> Coordinator-led parallel research and diagnostic tracks without context cross-contamination.</li>
-              <li><strong style="color: var(--console-ink);"><code>TEAMWORK_DAG</code>:</strong> Native <code>/swarm</code>, <code>run_workflow</code>, or <code>/teamwork</code> task graphs with isolated worktrees.</li>
-              <li><strong style="color: var(--console-ink);"><code>BOOST_TOURNAMENT</code>:</strong> Native <code>/boost</code> multi-perspective competition pairing Deep Coding Agents with High-Reliability Reviewers.</li>
+            <ul class="inspector-list">
+              <li><strong><code>LADDER</code>:</strong> Sequential specialist quality gates (Investigator, Planner, Builder, Reviewer, Custodian, Auditor).</li>
+              <li><strong><code>PARALLEL_FANOUT</code>:</strong> Coordinator-led parallel research and diagnostic tracks without context cross-contamination.</li>
+              <li><strong><code>TEAMWORK_DAG</code>:</strong> Native <code>/swarm</code>, <code>run_workflow</code>, or <code>/teamwork</code> task graphs with isolated worktrees.</li>
+              <li><strong><code>BOOST_TOURNAMENT</code>:</strong> Native <code>/boost</code> multi-perspective competition pairing Deep Coding Agents with High-Reliability Reviewers.</li>
             </ul>
           </div>
           <div class="inspector-panel">
@@ -593,7 +645,7 @@ agyis cockpit verify --allow-dirty</code></pre>
       </div>
     </section>
 
-    <section id="runway" class="page-section page-section--dark cog-band cog-band--dark" aria-labelledby="runway-heading">
+    <section id="runway" class="page-section page-section--tint cog-band cog-band--tint" aria-labelledby="runway-heading">
       <div class="container">
         <div class="split-grid">
           <article class="inspector-panel">
@@ -639,10 +691,10 @@ agyis checkpoint prune</code></pre>
           <article class="inspector-panel">
             <h2>Gate 2 dual-auditor certification</h2>
             <p>Code authors never self-certify production diffs (PSL-INV-006). Before branch promotion, independent Reviewer and Auditor specialists evaluate the clean committed revision on HEAD.</p>
-            <ul style="padding-inline-start: 1.25rem; display: grid; gap: 0.5rem; color: var(--console-muted);">
-              <li><strong style="color: var(--console-ink);"><code>agyis_reviewer</code> (Hammer):</strong> Delta-focused diff review (<code>git diff -U3</code>) checking DRY duplication and architectural smells.</li>
-              <li><strong style="color: var(--console-ink);"><code>agyis_custodian</code> (Commit Gate):</strong> Enforces 4-pillar AFF hygiene and atomic commits without repo document pollution.</li>
-              <li><strong style="color: var(--console-ink);"><code>agyis_auditor</code> (Victory Auditor):</strong> Executes the full hermetic test suite, <code>agyis audit aff</code> (100.0/100), and <code>agyis doctor</code>, writing signed <code>.agents/artifacts/audit_verdict.json</code>.</li>
+            <ul class="inspector-list">
+              <li><strong><code>agyis_reviewer</code> (Hammer):</strong> Delta-focused diff review (<code>git diff -U3</code>) checking DRY duplication and architectural smells.</li>
+              <li><strong><code>agyis_custodian</code> (Commit Gate):</strong> Enforces 4-pillar AFF hygiene and atomic commits without repo document pollution.</li>
+              <li><strong><code>agyis_auditor</code> (Victory Auditor):</strong> Executes the full hermetic test suite, <code>agyis audit aff</code> (100.0/100), and <code>agyis doctor</code>, writing signed <code>.agents/artifacts/audit_verdict.json</code>.</li>
             </ul>
             <pre class="code-panel"><code>agyis audit certify --task-id TASK-001
 agyis audit verdict</code></pre>

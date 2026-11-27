@@ -15,7 +15,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 *Explicit CLI palettes yield 10x lower human intervention rates:*
 
 ```bash
-# 🧪 Verification & Testing (Hermetic, 2,559 tests, sub-second modules)
+# 🧪 Verification & Testing (Hermetic, 2,560 tests, sub-second modules)
 ./agyis test                                   # Run complete project test suite (~24s full suite, <1.0s modules)
 python3 -m harness.cli test                    # Run complete project test suite
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**

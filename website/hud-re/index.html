@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script>try{const s=localStorage.getItem("color-scheme");if(s==="light"||s==="dark"){document.querySelector('meta[name="color-scheme"]').content=s;}}catch{}</script>
   <title>Trajectory HUD, Cleanroom RE &amp; Operations | Agyis Harness 1.0.0</title>
   <meta name="description" content="Orbital Aegis Trajectory HUD (:40624 playback / :40623 ConnectRPC), Cleanroom Reverse Engineering (PSL-RE-001, 15 agyis re subcommands, 18-key obligation ledger), Remote Ops, Sync, and AFF 100.0/100.">
   <meta property="og:title" content="Trajectory HUD, Cleanroom RE &amp; Operations | Agyis Harness 1.0.0">
@@ -16,7 +18,8 @@
   <meta name="twitter:title" content="Trajectory HUD &amp; Cleanroom RE | Agyis Harness 1.0.0">
   <meta name="twitter:description" content="Orbital Aegis Trajectory HUD schematic, 15 agyis re subcommands, 18-key ledger, and AFF 100.0/100.">
   <meta name="twitter:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
-  <meta name="theme-color" content="#080E1A">
+  <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#080e1a" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="../favicon.ico" sizes="any">
   <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
@@ -30,21 +33,21 @@
       .ops-band {
         padding-block: clamp(2.5rem, 5vw, 4rem);
         border-block-end: 1px solid var(--border);
+        background-color: var(--bg);
+        color: var(--ink);
       }
 
-      .ops-band--dark {
-        background-color: var(--console-bg);
-        color: var(--console-ink);
-        border-block-end-color: var(--console-border);
+      .ops-band--tint {
+        background-color: var(--surface);
       }
 
-      .ops-band--dark p {
-        color: var(--console-muted);
+      .ops-band p {
+        color: var(--ink-muted);
       }
 
-      .ops-band--dark h2,
-      .ops-band--dark h3 {
-        color: var(--console-ink);
+      .ops-band h2,
+      .ops-band h3 {
+        color: var(--ink);
       }
 
       .tabular-num,
@@ -54,18 +57,41 @@
         font-variant-numeric: tabular-nums;
       }
 
-      /* Orbital Aegis HUD Anatomical Schematic */
+      /* Orbital Aegis HUD Anatomical Schematic (Genuine Recessed Dark Console) */
+      .hud-schematic {
+        color-scheme: only dark;
+        background-color: var(--console-bg);
+        color: var(--console-ink);
+        accent-color: var(--console-accent);
+      }
+
+      .hud-schematic h3 {
+        color: var(--console-ink);
+      }
+
+      .hud-schematic p {
+        color: var(--console-muted);
+      }
+
+      .hud-schematic code {
+        color: var(--console-ink);
+        background-color: var(--console-surface);
+        border: 1px solid var(--console-border);
+        padding: 0.1rem 0.375rem;
+        border-radius: 0.25rem;
+      }
+
       .hud-titlebar-inset {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 0.75rem;
         padding: 0.5rem 1rem;
-        background-color: #0b1322;
-        border-block-end: 1px dashed #283a5e;
+        background-color: var(--console-surface);
+        border-block-end: 1px dashed var(--console-border-ui);
         font-family: var(--font-mono);
         font-size: 0.8125rem;
-        color: #9aa8be;
+        color: var(--console-muted);
         flex-wrap: wrap;
       }
 
@@ -75,8 +101,8 @@
         justify-content: space-between;
         gap: 0.75rem;
         padding: 0.75rem 1rem;
-        background-color: #10192b;
-        border-block-end: 1px solid #1e2c47;
+        background-color: var(--console-surface);
+        border-block-end: 1px solid var(--console-border);
         flex-wrap: wrap;
       }
 
@@ -86,7 +112,7 @@
         gap: 0.625rem;
         font-size: var(--text-sm);
         font-weight: 600;
-        color: #f4f6fa;
+        color: var(--console-ink);
         flex-wrap: wrap;
       }
 
@@ -95,9 +121,9 @@
         font-size: 0.8125rem;
         padding: 0.1875rem 0.625rem;
         border-radius: 9999px;
-        background-color: rgba(27, 77, 255, 0.16);
-        border: 1px solid rgba(92, 138, 255, 0.35);
-        color: #5c8aff;
+        background-color: rgba(27, 77, 255, 0.18);
+        border: 1px solid rgba(99, 144, 255, 0.38);
+        color: #93b4ff;
       }
 
       .hud-body {
@@ -117,8 +143,9 @@
       }
 
       .hud-wtc-track-wrap {
-        background-color: #0b1322;
-        border: 1px solid #1e2c47;
+        background-color: var(--console-bg);
+        border: 1px solid var(--console-border);
+        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45);
         border-radius: var(--radius-sm);
         padding: 0.875rem;
         display: grid;
@@ -134,7 +161,7 @@
         flex-wrap: wrap;
         font-family: var(--font-mono);
         font-size: 0.8125rem;
-        color: #9aa8be;
+        color: var(--console-muted);
         font-variant-numeric: tabular-nums;
       }
 
@@ -148,8 +175,8 @@
         block-size: 1.25rem;
         border-radius: 4px;
         overflow: hidden;
-        background-color: #10192b;
-        border: 1px solid #1e2c47;
+        background-color: var(--console-surface);
+        border: 1px solid var(--console-border);
       }
 
       .hud-wtc-seg {
@@ -166,7 +193,7 @@
         gap: 0.5rem 1.125rem;
         font-family: var(--font-mono);
         font-size: 0.8125rem;
-        color: #9aa8be;
+        color: var(--console-muted);
         font-variant-numeric: tabular-nums;
       }
 
@@ -192,23 +219,24 @@
       .hud-math-card {
         padding: 0.875rem;
         border-radius: var(--radius-sm);
-        background-color: #10192b;
-        border: 1px solid #1e2c47;
+        background-color: var(--console-surface);
+        border: 1px solid var(--console-border);
         display: grid;
         gap: 0.3rem;
         min-width: 0;
       }
 
       .hud-math-card code {
-        color: #26d0ce;
+        color: var(--console-cyan);
         font-weight: 600;
         background-color: transparent;
+        border: 0;
         padding: 0;
       }
 
       .hud-math-card p {
         font-size: var(--text-sm);
-        color: #9aa8be;
+        color: var(--console-muted);
       }
 
       .segmented-group {
@@ -217,13 +245,8 @@
         border: 1px solid var(--border);
         border-radius: var(--radius-sm);
         overflow: hidden;
-        background-color: var(--surface);
-      }
-
-      .ops-band--dark .segmented-group,
-      .hud-schematic .segmented-group {
-        border-color: #1e2c47;
-        background-color: #080e1a;
+        background-color: var(--surface-well);
+        box-shadow: var(--shadow-inset);
       }
 
       .segmented-btn {
@@ -232,20 +255,14 @@
         border-inline-end: 1px solid var(--border);
         background: transparent;
         color: var(--ink-muted);
-        padding: 0.45rem 0.85rem;
+        padding: 0.5rem 0.875rem;
         font-size: var(--text-sm);
         font-weight: 500;
         cursor: pointer;
         min-block-size: 2.75rem;
         transition-property: background-color, color;
-        transition-duration: 150ms;
+        transition-duration: 160ms;
         transition-timing-function: var(--ease-out);
-      }
-
-      .ops-band--dark .segmented-btn,
-      .hud-schematic .segmented-btn {
-        border-inline-end-color: #1e2c47;
-        color: #9aa8be;
       }
 
       .segmented-btn:last-child {
@@ -254,20 +271,36 @@
 
       .segmented-btn:hover {
         color: var(--ink);
-        background-color: var(--bg);
-      }
-
-      .ops-band--dark .segmented-btn:hover,
-      .hud-schematic .segmented-btn:hover {
-        color: #f4f6fa;
-        background-color: #10192b;
+        background-color: var(--surface-elevated);
       }
 
       .segmented-btn[aria-checked="true"],
       .segmented-btn[aria-pressed="true"],
       .segmented-btn.is-active {
-        background-color: #1b4dff;
-        color: #f4f6fa;
+        background-color: var(--accent-solid);
+        color: var(--accent-solid-ink);
+      }
+
+      .hud-schematic .segmented-group {
+        border-color: var(--console-border);
+        background-color: var(--console-bg);
+      }
+
+      .hud-schematic .segmented-btn {
+        border-inline-end-color: var(--console-border);
+        color: var(--console-muted);
+      }
+
+      .hud-schematic .segmented-btn:hover {
+        color: var(--console-ink);
+        background-color: var(--console-surface);
+      }
+
+      .hud-schematic .segmented-btn[aria-checked="true"],
+      .hud-schematic .segmented-btn[aria-pressed="true"],
+      .hud-schematic .segmented-btn.is-active {
+        background-color: var(--accent-solid);
+        color: var(--accent-solid-ink);
       }
 
       .control-field {
@@ -275,34 +308,42 @@
         align-items: center;
         gap: 0.5rem;
         font-size: var(--text-sm);
+        color: var(--ink);
         min-width: 0;
       }
 
       .control-field select,
       .control-field input[type="search"] {
-        background-color: var(--bg);
+        background-color: var(--surface-card);
         color: var(--ink);
-        border: 1px solid var(--border);
+        border: 1px solid var(--border-strong);
         border-radius: var(--radius-sm);
         padding: 0.5rem 0.75rem;
         font-size: var(--text-sm);
         min-block-size: 2.75rem;
         max-inline-size: 100%;
+        box-shadow: var(--shadow-inset);
       }
 
-      .ops-band--dark .control-field select,
-      .ops-band--dark .control-field input[type="search"],
+      .hud-schematic .control-field {
+        color: var(--console-muted);
+      }
+
       .hud-schematic .control-field select {
-        background-color: #0b1322;
-        color: #f4f6fa;
-        border-color: #1e2c47;
+        color-scheme: only dark;
+        background-color: var(--console-bg);
+        color: var(--console-ink);
+        border-color: var(--console-border-ui);
+        accent-color: var(--console-accent);
       }
 
       .re-panel {
-        padding: 1.375rem;
+        padding: 1.5rem;
         border-radius: var(--radius-md);
-        background-color: var(--console-surface);
-        border: 1px solid var(--console-border);
+        background: linear-gradient(180deg, var(--sheen-top), var(--sheen-bot)), var(--surface-card);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-deck);
+        color: var(--ink);
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         gap: 0.875rem;
@@ -314,11 +355,18 @@
         min-inline-size: 0;
       }
 
-      .code-panel {
+      .re-panel p {
+        color: var(--ink-muted);
+      }
+
+      .code-panel,
+      .re-cmd-well {
+        color-scheme: only dark;
         max-inline-size: 100%;
         min-inline-size: 0;
         background-color: var(--console-bg);
         border: 1px solid var(--console-border);
+        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45);
         border-radius: var(--radius-sm);
         padding: 1rem;
         overflow-x: auto;
@@ -328,13 +376,39 @@
         font-size: 0.8125rem;
         line-height: 1.55;
         color: var(--console-ink);
+        accent-color: var(--console-accent);
+        scrollbar-color: var(--raw-scrollbar-thumb-dark) var(--console-surface);
         margin: 0;
       }
 
       .code-panel pre,
-      .code-panel code {
+      .code-panel code,
+      .re-cmd-well pre,
+      .re-cmd-well code {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
+        background-color: transparent;
+        border: 0;
+        color: inherit;
+        padding: 0;
+      }
+
+      .re-cmd-select-btn {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        padding: 0;
+        color: inherit;
+        font: inherit;
+        text-align: start;
+        cursor: pointer;
+        min-block-size: 2.25rem;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .data-table tr.is-selected {
+        background-color: var(--accent-soft);
       }
 
       .key-chip-grid {
@@ -349,37 +423,32 @@
         text-align: start;
         padding: 0.625rem 0.875rem;
         border-radius: var(--radius-sm);
-        border: 1px solid var(--console-border);
-        background-color: var(--console-surface);
-        color: var(--console-ink);
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, var(--sheen-top), var(--sheen-bot)), var(--surface-card);
+        box-shadow: var(--shadow-card);
+        color: var(--ink-muted);
         font-family: var(--font-mono);
         font-size: 0.8125rem;
         cursor: pointer;
         min-block-size: 2.75rem;
         overflow-wrap: anywhere;
-        transition-property: background-color, border-color, color;
+        transition-property: background-color, border-color, color, transform, box-shadow;
         transition-duration: 140ms;
         transition-timing-function: var(--ease-out);
       }
 
       .key-selector-btn:hover {
-        border-color: var(--console-accent);
+        color: var(--ink);
+        border-color: var(--border-strong);
+        background: var(--surface-elevated);
+        box-shadow: var(--shadow-card-hover);
+        transform: translateY(-1px);
       }
 
       .key-selector-btn.is-active {
-        background-color: var(--accent);
-        border-color: var(--accent);
-        color: #f4f6fa;
-      }
-
-      .pillar-card {
-        padding: 1.25rem;
-        border-radius: var(--radius-md);
-        background-color: var(--surface);
-        border: 1px solid var(--border);
-        display: grid;
-        gap: 0.5rem;
-        min-width: 0;
+        background: var(--accent-solid);
+        border-color: var(--accent-solid);
+        color: var(--accent-solid-ink);
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -387,6 +456,10 @@
         .key-selector-btn,
         .hud-wtc-seg {
           transition: none;
+        }
+
+        .key-selector-btn:hover {
+          transform: none;
         }
       }
     }
@@ -411,8 +484,20 @@
         <li><a href="../cognitive/" class="nav-link">Cognitive</a></li>
         <li><a href="../hud-re/" class="nav-link is-active" aria-current="page">HUD &amp; RE</a></li>
         <li><a href="../brand/" class="nav-link">Brand</a></li>
-        <li><a href="../#install" class="nav-cta">Install</a></li>
       </ul>
+      <div class="nav-actions">
+        <button type="button" class="theme-toggle" id="theme-toggle">
+          <span class="theme-toggle-opt theme-toggle-opt--to-light">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            <span class="sr-only">Switch to light theme</span>
+          </span>
+          <span class="theme-toggle-opt theme-toggle-opt--to-dark">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            <span class="sr-only">Switch to dark theme</span>
+          </span>
+        </button>
+        <a class="nav-cta" href="../#install">Install</a>
+      </div>
     </nav>
   </header>
 
@@ -435,7 +520,7 @@
       </div>
     </nav>
 
-    <section id="trajectory-hud" class="page-section page-section--dark ops-band ops-band--dark" aria-labelledby="hud-heading">
+    <section id="trajectory-hud" class="page-section page-section--tint ops-band ops-band--tint" aria-labelledby="hud-heading">
       <div class="container">
         <h2 id="hud-heading">Orbital Aegis Trajectory HUD anatomy (PSL-INV-007)</h2>
         <p>Built from externalized browser assets under <code>harness/gui/assets/</code> (<code>playback_shell.html</code>, <code>hud_styles.css</code>, <code>hud_context_bar.js</code>, <code>hud_header.js</code>). Live overlays query ConnectRPC (port <code>40623</code>) directly while headless offline playback runs on <code>http://127.0.0.1:40624/</code> with a bounded 32-entry / 64 MB LRU cache.</p>
@@ -513,32 +598,32 @@
       </div>
     </section>
 
-    <section id="cleanroom-re" class="page-section page-section--dark ops-band ops-band--dark" aria-labelledby="re-heading">
+    <section id="cleanroom-re" class="page-section ops-band" aria-labelledby="re-heading">
       <div class="container">
         <div class="split-grid" style="align-items: center;">
           <div>
             <h2 id="re-heading">Cleanroom reverse engineering (PSL-RE-001 &amp; rea@6.9.0)</h2>
             <p>Enforces a hard physical quarantine between binary inspection inside <code>.dirtyroom/</code> and verified cleanroom specifications under <code>docs/specs/**</code>. Integrates <code>rea@6.9.0</code> (255 MCP tools), headless Ghidra pre-analysis, direct-mount read-only acceleration (<code>-noanalysis -readOnly</code>), a persistent bridge supervisor daemon, and a sub-5ms SQLite decompiler query cache.</p>
             <div class="kpi-strip" style="margin-block-start: 1.25rem;">
-              <div class="kpi-card">
+              <div class="kpi-card" data-tilt>
                 <span class="kpi-value">15</span>
                 <span class="kpi-label"><code>agyis re</code> subcommands</span>
               </div>
-              <div class="kpi-card">
+              <div class="kpi-card" data-tilt>
                 <span class="kpi-value">&lt;5ms</span>
                 <span class="kpi-label">SQLite decompiler cache</span>
               </div>
-              <div class="kpi-card">
+              <div class="kpi-card" data-tilt>
                 <span class="kpi-value">255</span>
                 <span class="kpi-label"><code>rea@6.9.0</code> MCP tools</span>
               </div>
             </div>
           </div>
 
-          <figure class="art-card art-card--4x3">
+          <figure class="art-card art-card--4x3" data-tilt>
             <picture>
               <source srcset="../assets/art/art-telemetry-optics.webp" type="image/webp">
-              <img src="../assets/art/art-telemetry-optics.png" alt="Dual-chamber 3D studio cleanroom optical quarantine lens separating smoked-glass binary pulses on the left across a cyan laser membrane into emerald and cobalt crystalline specifications on the right" width="1200" height="900" decoding="async" loading="lazy">
+              <img src="../assets/art/art-telemetry-optics.png" alt="Dual-chamber 3D studio cleanroom optical quarantine lens separating smoked-glass binary pulses on the left across a cyan laser membrane into emerald and cobalt crystalline specifications on the right" width="1200" height="900">
             </picture>
             <figcaption>Dirtyroom Quarantine Membrane (<code>.dirtyroom/</code>) separated by a deterministic verification plane from cleanroom specifications (<code>docs/specs/**</code>).</figcaption>
           </figure>
@@ -578,7 +663,7 @@
       </div>
     </section>
 
-    <section id="obligation-ledger" class="page-section page-section--dark ops-band ops-band--dark" aria-labelledby="ledger-heading">
+    <section id="obligation-ledger" class="page-section page-section--tint ops-band ops-band--tint" aria-labelledby="ledger-heading">
       <div class="container">
         <h2 id="ledger-heading">Typed cleanroom obligation ledger (18 strictObject keys)</h2>
         <p>Verified verbatim against <code>_REVIEWED_OBLIGATION_KEYS</code> in <code>harness/cleanroom/obligation.py</code>. Validated by <code>agyis verify</code> and <code>agyis verify --spec</code>. Top-level ledgers require exactly <code>evidence_bundle</code> (7 arrays: <code>artifacts</code>, <code>captures</code>, <code>environments</code>, <code>providers</code>, <code>records</code>, <code>scenarios</code>, <code>unknowns</code>), <code>reviewed_obligations</code>, and <code>manifest</code> (<code>bindings</code>, <code>contradictions</code>), with zero top-level <code>$schema</code> key permitted.</p>
@@ -604,19 +689,19 @@
         <p>Continuous structural verification paired with zero-footprint SSH operations, opt-in delta synchronization, and deterministic workspace lifecycle hygiene.</p>
 
         <div class="kpi-strip" style="margin-block: 1.25rem;" aria-label="Live Architectural Fitness Function metrics">
-          <div class="kpi-card">
+          <div class="kpi-card" data-tilt>
             <span class="kpi-value" id="aff-score">100.0/100</span>
             <span class="kpi-label" id="aff-status">AFF status: PASS</span>
           </div>
-          <div class="kpi-card">
+          <div class="kpi-card" data-tilt>
             <span class="kpi-value" id="aff-files">164</span>
             <span class="kpi-label">Python source files scanned</span>
           </div>
-          <div class="kpi-card">
+          <div class="kpi-card" data-tilt>
             <span class="kpi-value" id="aff-assets">16</span>
             <span class="kpi-label">Externalized assets verified</span>
           </div>
-          <div class="kpi-card">
+          <div class="kpi-card" data-tilt>
             <span class="kpi-value" id="aff-defects">0</span>
             <span class="kpi-label">Boundary / DAG / cache defects (&lt;0.25s)</span>
           </div>

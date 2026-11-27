@@ -411,7 +411,7 @@ function initReCommandPalette() {
         <button type="button" class="copy-btn" data-copy-text="${escapeHtml(cmd.example)}">Copy example</button>
       </div>
       <p>${escapeHtml(cmd.purpose)}</p>
-      <pre class="code-panel"><code>$ ${escapeHtml(cmd.example)}
+      <pre class="code-panel re-cmd-well"><code>$ ${escapeHtml(cmd.example)}
 # Flags: ${escapeHtml(cmd.flags)}</code></pre>
     `;
 
@@ -459,20 +459,29 @@ function initReCommandPalette() {
       return;
     }
 
-    tbodyEl.innerHTML = filtered.map((c) => `
-      <tr data-re-row="${escapeHtml(c.name)}" style="cursor: pointer;">
-        <td data-label="Subcommand"><code>agyis re ${escapeHtml(c.name)}</code></td>
+    tbodyEl.innerHTML = filtered.map((c) => {
+      const isSelected = active ? c.name === active.name : false;
+      return `
+      <tr data-re-row="${escapeHtml(c.name)}" class="${isSelected ? "is-selected" : ""}" style="cursor: pointer;">
+        <td data-label="Subcommand"><button type="button" class="re-cmd-select-btn" data-re-select="${escapeHtml(c.name)}" aria-pressed="${isSelected ? "true" : "false"}"><code>agyis re ${escapeHtml(c.name)}</code></button></td>
         <td data-label="Category"><span class="status-pill status-pill--info">${escapeHtml(c.category)}</span></td>
         <td data-label="Key flags"><code>${escapeHtml(c.flags)}</code></td>
         <td data-label="Purpose">${escapeHtml(c.purpose)}</td>
       </tr>
-    `).join("");
+    `;
+    }).join("");
   }
 
   tbodyEl.addEventListener("click", (ev) => {
     const row = ev.target.closest("tr[data-re-row]");
     if (!row) return;
     selectedName = row.dataset.reRow;
+    for (const tr of tbodyEl.querySelectorAll("tr[data-re-row]")) {
+      const isSelected = tr.dataset.reRow === selectedName;
+      tr.classList.toggle("is-selected", isSelected);
+      const selectBtn = tr.querySelector("button[data-re-select]");
+      if (selectBtn) selectBtn.setAttribute("aria-pressed", String(isSelected));
+    }
     const match = RE_SUBCOMMANDS.find((c) => c.name === selectedName);
     if (match) renderSelected(match);
   });
@@ -515,11 +524,14 @@ function initObligationLedgerExplorer() {
       }
     }
 
-    buttonsEl.innerHTML = filtered.map((item) => `
-      <button type="button" class="key-selector-btn ${item.key === activeKey ? "is-active" : ""}" data-ledger-key="${escapeHtml(item.key)}">
+    buttonsEl.innerHTML = filtered.map((item) => {
+      const isSelected = item.key === activeKey;
+      return `
+      <button type="button" class="key-selector-btn ${isSelected ? "is-active" : ""}" aria-pressed="${isSelected ? "true" : "false"}" data-ledger-key="${escapeHtml(item.key)}">
         ${escapeHtml(item.key)}
       </button>
-    `).join("");
+    `;
+    }).join("");
 
     const selected = filtered.find((k) => k.key === activeKey) || filtered[0];
     if (selected) {

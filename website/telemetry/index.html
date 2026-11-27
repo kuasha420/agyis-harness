@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script>try{const s=localStorage.getItem("color-scheme");if(s==="light"||s==="dark"){document.querySelector('meta[name="color-scheme"]').content=s;}}catch{}</script>
   <title>Telemetry Observatory | Agyis Harness 1.0.0</title>
   <meta name="description" content="Empirical telemetry observatory for Agyis Harness covering 3,856 sessions, voluntary provenance ledger, era progression, model reliability, compactor simulations, and Titan trajectory dissection.">
   <meta property="og:title" content="Telemetry Observatory | Agyis Harness 1.0.0">
@@ -16,7 +18,8 @@
   <meta name="twitter:title" content="Telemetry Observatory | Agyis Harness 1.0.0">
   <meta name="twitter:description" content="3,856 sessions, voluntary provenance ledger, and 4 interactive SVG telemetry charts.">
   <meta name="twitter:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
-  <meta name="theme-color" content="#080E1A">
+  <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#080e1a" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="../favicon.ico" sizes="any">
   <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
@@ -30,21 +33,21 @@
       .telemetry-band {
         padding-block: clamp(2.5rem, 5vw, 4rem);
         border-block-end: 1px solid var(--border);
+        background-color: var(--bg);
+        color: var(--ink);
       }
 
-      .telemetry-band--dark {
-        background-color: var(--console-bg);
-        color: var(--console-ink);
-        border-block-end-color: var(--console-border);
+      .telemetry-band--tint {
+        background-color: var(--surface);
       }
 
-      .telemetry-band--dark p {
-        color: var(--console-muted);
+      .telemetry-band p {
+        color: var(--ink-muted);
       }
 
-      .telemetry-band--dark h2,
-      .telemetry-band--dark h3 {
-        color: var(--console-ink);
+      .telemetry-band h2,
+      .telemetry-band h3 {
+        color: var(--ink);
       }
 
       .page-hero .telemetry-meta-line {
@@ -66,8 +69,9 @@
       .stream-card {
         padding: 1.5rem;
         border-radius: var(--radius-md);
-        background-color: var(--console-surface);
-        border: 1px solid var(--console-border);
+        background: linear-gradient(180deg, var(--sheen-top), var(--sheen-bot)), var(--surface-card);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-card);
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         gap: 0.75rem;
@@ -83,9 +87,9 @@
         list-style: none;
         padding: 0;
         display: grid;
-        gap: 0.5rem;
+        gap: 0.25rem;
         font-size: var(--text-sm);
-        color: var(--console-muted);
+        color: var(--ink-muted);
       }
 
       .stream-stat-list li {
@@ -93,8 +97,8 @@
         flex-wrap: wrap;
         justify-content: space-between;
         gap: 0.25rem 1rem;
-        padding-block: 0.375rem;
-        border-block-end: 1px solid var(--console-border);
+        padding-block: 0.45rem;
+        border-block-end: 1px solid var(--border);
       }
 
       .stream-stat-list li:last-child {
@@ -103,7 +107,7 @@
 
       .stream-stat-val {
         font-family: var(--font-mono);
-        color: var(--console-ink);
+        color: var(--ink);
         font-variant-numeric: tabular-nums;
         text-align: end;
       }
@@ -111,7 +115,7 @@
       .integrity-key {
         font-family: var(--font-mono);
         font-size: var(--text-sm);
-        color: var(--console-ink);
+        color: var(--ink);
         overflow-wrap: anywhere;
       }
 
@@ -124,24 +128,25 @@
 
       .integrity-note {
         font-size: var(--text-sm);
-        color: var(--console-muted);
+        color: var(--ink-muted);
       }
 
       .segmented-group {
         display: inline-flex;
         flex-wrap: wrap;
-        border: 1px solid var(--console-border);
+        border: 1px solid var(--border);
         border-radius: var(--radius-sm);
         overflow: hidden;
-        background-color: var(--console-bg);
+        background-color: var(--surface-well);
+        box-shadow: var(--shadow-inset);
       }
 
       .segmented-btn {
         appearance: none;
         border: 0;
-        border-inline-end: 1px solid var(--console-border);
+        border-inline-end: 1px solid var(--border);
         background: transparent;
-        color: var(--console-muted);
+        color: var(--ink-muted);
         padding: 0.5rem 0.875rem;
         font-family: var(--font-mono);
         font-size: var(--text-sm);
@@ -158,25 +163,34 @@
       }
 
       .segmented-btn:hover {
-        color: var(--console-ink);
-        background-color: var(--console-surface);
+        color: var(--ink);
+        background-color: var(--surface-elevated);
       }
 
       .segmented-btn[aria-checked="true"],
       .segmented-btn.is-active {
-        background-color: var(--accent);
-        color: var(--console-ink);
+        background-color: var(--accent-solid);
+        color: var(--accent-solid-ink);
+      }
+
+      .chart-canvas-wrap {
+        padding: 0.75rem 0.875rem;
+        border-radius: var(--radius-sm);
+        background-color: var(--surface-well);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-inset);
       }
 
       .chart-readout {
-        margin-block-start: 0.75rem;
+        margin-block-start: 0.25rem;
         padding: 0.75rem 1rem;
         border-radius: var(--radius-sm);
-        background-color: var(--console-surface);
-        border: 1px solid var(--console-border);
+        background-color: var(--surface-well);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-inset);
         font-family: var(--font-mono);
         font-size: var(--text-sm);
-        color: var(--console-ink);
+        color: var(--ink);
         font-variant-numeric: tabular-nums;
         min-block-size: 2.75rem;
         display: flex;
@@ -193,9 +207,10 @@
       }
 
       .chart-point-target:focus-visible {
-        outline: none;
-        stroke: var(--console-ink);
-        stroke-width: 3;
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+        stroke: var(--chart-ink);
+        stroke-width: 2.5;
       }
 
       .archetype-bar {
@@ -204,8 +219,9 @@
         block-size: 2.25rem;
         border-radius: var(--radius-sm);
         overflow: hidden;
-        border: 1px solid var(--console-border);
-        margin-block: 1rem;
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-inset);
+        margin-block: 0.5rem;
       }
 
       .archetype-seg {
@@ -216,7 +232,8 @@
         font-family: var(--font-mono);
         font-size: 0.8125rem;
         font-weight: 600;
-        color: #080e1a;
+        color: var(--bg);
+        color: light-dark(#ffffff, #080e1a);
         overflow: hidden;
         white-space: nowrap;
         padding-inline: 0.375rem;
@@ -224,7 +241,7 @@
       }
 
       .archetype-seg--survivor { background-color: var(--semantic-pass); }
-      .archetype-seg--breakthrough { background-color: var(--console-cyan); }
+      .archetype-seg--breakthrough { background-color: var(--cyan); }
       .archetype-seg--trap { background-color: var(--semantic-fail); }
 
       @media (max-width: 640px) {
@@ -236,15 +253,18 @@
       .compactor-kpi-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-        gap: 0.875rem;
-        margin-block: 1rem 1.25rem;
+        gap: 1px;
+        background-color: var(--border);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        box-shadow: var(--shadow-inset);
+        margin-block: 0.5rem 0.75rem;
       }
 
       .compactor-kpi-box {
         padding: 0.875rem 1rem;
-        border-radius: var(--radius-sm);
-        background-color: var(--console-bg);
-        border: 1px solid var(--console-border);
+        background-color: var(--surface-well);
         display: grid;
         gap: 0.25rem;
         min-width: 0;
@@ -254,7 +274,7 @@
         font-family: var(--font-mono);
         font-size: 1.25rem;
         font-weight: 700;
-        color: var(--console-cyan);
+        color: var(--cyan);
         font-variant-numeric: tabular-nums;
       }
 
@@ -264,21 +284,24 @@
 
       .compactor-kpi-lbl {
         font-size: var(--text-sm);
-        color: var(--console-muted);
+        color: var(--ink-muted);
       }
 
       .exit1-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-        gap: 0.75rem;
-        margin-block-start: 1.25rem;
+        gap: 1px;
+        background-color: var(--border);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        box-shadow: var(--shadow-inset);
+        margin-block-start: 0.75rem;
       }
 
       .exit1-card {
         padding: 0.875rem 1rem;
-        border-radius: var(--radius-sm);
-        background-color: var(--console-surface);
-        border: 1px solid var(--console-border);
+        background-color: var(--surface-well);
         min-width: 0;
       }
 
@@ -286,13 +309,13 @@
         font-family: var(--font-mono);
         font-size: 1.125rem;
         font-weight: 700;
-        color: var(--console-ink);
+        color: var(--ink);
         font-variant-numeric: tabular-nums;
       }
 
       .exit1-desc {
         font-size: var(--text-sm);
-        color: var(--console-muted);
+        color: var(--ink-muted);
         margin-block-start: 0.25rem;
       }
 
@@ -301,20 +324,21 @@
         align-items: center;
         gap: 0.5rem;
         font-size: var(--text-sm);
-        color: var(--console-ink);
+        color: var(--ink);
         min-width: 0;
       }
 
       .control-field select,
       .control-field input[type="search"] {
-        background-color: var(--console-bg);
-        color: var(--console-ink);
-        border: 1px solid var(--console-border);
+        background-color: var(--surface-card);
+        color: var(--ink);
+        border: 1px solid var(--border-strong);
         border-radius: var(--radius-sm);
         padding: 0.5rem 0.75rem;
         font-size: var(--text-sm);
         min-block-size: 2.75rem;
         max-inline-size: 100%;
+        box-shadow: var(--shadow-inset);
       }
 
       .control-checkbox {
@@ -322,13 +346,19 @@
         align-items: center;
         gap: 0.5rem;
         font-size: var(--text-sm);
-        color: var(--console-ink);
+        color: var(--ink);
         cursor: pointer;
         min-block-size: 2.75rem;
         padding-inline: 0.75rem;
         border-radius: var(--radius-sm);
-        border: 1px solid var(--console-border);
-        background-color: var(--console-bg);
+        border: 1px solid var(--border-strong);
+        background-color: var(--surface-card);
+      }
+
+      .control-checkbox input[type="checkbox"] {
+        inline-size: 1.0625rem;
+        block-size: 1.0625rem;
+        accent-color: var(--accent);
       }
 
       .hash-code {
@@ -339,7 +369,7 @@
 
       .table-caption-meta {
         font-size: var(--text-sm);
-        color: var(--console-muted);
+        color: var(--ink-muted);
         margin-block-end: 0.75rem;
         font-variant-numeric: tabular-nums;
       }
@@ -372,8 +402,20 @@
         <li><a href="../cognitive/" class="nav-link">Cognitive</a></li>
         <li><a href="../hud-re/" class="nav-link">HUD &amp; RE</a></li>
         <li><a href="../brand/" class="nav-link">Brand</a></li>
-        <li><a href="../#install" class="nav-cta">Install</a></li>
       </ul>
+      <div class="nav-actions">
+        <button type="button" class="theme-toggle" id="theme-toggle">
+          <span class="theme-toggle-opt theme-toggle-opt--to-light">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            <span class="sr-only">Switch to light theme</span>
+          </span>
+          <span class="theme-toggle-opt theme-toggle-opt--to-dark">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            <span class="sr-only">Switch to dark theme</span>
+          </span>
+        </button>
+        <a class="nav-cta" href="../#install">Install</a>
+      </div>
     </nav>
   </header>
 
@@ -385,23 +427,23 @@
         <p class="telemetry-meta-line" id="corpus-span-line">Corpus span: 2026-05-24 to 2026-11-25 UTC | Export schema 1.1.0 | Generated 2026-11-25T23:22:00Z</p>
 
         <div class="kpi-strip" aria-label="Corpus summary metrics">
-          <div class="kpi-card">
+          <div class="kpi-card" data-tilt>
             <span class="kpi-value" id="kpi-sessions">3,856</span>
             <span class="kpi-label">Total sessions audited</span>
           </div>
-          <div class="kpi-card">
+          <div class="kpi-card" data-tilt>
             <span class="kpi-value" id="kpi-steps">742,273</span>
             <span class="kpi-label">Total agent steps recorded</span>
           </div>
-          <div class="kpi-card">
+          <div class="kpi-card" data-tilt>
             <span class="kpi-value" id="kpi-tools">405,666</span>
             <span class="kpi-label" id="kpi-tools-sub">Tool calls (3.24% error rate)</span>
           </div>
-          <div class="kpi-card">
+          <div class="kpi-card" data-tilt>
             <span class="kpi-value" id="kpi-compaction">58.3%</span>
             <span class="kpi-label" id="kpi-compaction-sub">2KB savings (0 lost failures)</span>
           </div>
-          <div class="kpi-card">
+          <div class="kpi-card" data-tilt>
             <span class="kpi-value" id="kpi-titans">92</span>
             <span class="kpi-label" id="kpi-titans-sub">Titan runs (31.9% step share)</span>
           </div>
@@ -421,7 +463,7 @@
       </div>
     </nav>
 
-    <section id="provenance" class="page-section page-section--dark telemetry-band telemetry-band--dark" aria-labelledby="provenance-heading">
+    <section id="provenance" class="page-section telemetry-band" aria-labelledby="provenance-heading">
       <div class="container">
         <h2 id="provenance-heading">Telemetry source and voluntary provenance ledger</h2>
         <p>Every figure on this observatory traces back to two transparent contribution streams, redacted client-side before leaving developer workstations and verified against automated leak gates before publication.</p>
@@ -563,7 +605,7 @@
       </div>
     </section>
 
-    <section id="era-progression" class="page-section page-section--dark telemetry-band telemetry-band--dark" aria-labelledby="era-heading">
+    <section id="era-progression" class="page-section page-section--tint telemetry-band telemetry-band--tint" aria-labelledby="era-heading">
       <div class="container">
         <div class="chart-frame">
           <div class="chart-header">
@@ -599,8 +641,8 @@
           </div>
 
           <ul class="chart-legend" aria-hidden="true">
-            <li><span class="legend-swatch" style="background-color: #26d0ce;"></span> Selected metric trajectory</li>
-            <li><span class="legend-swatch" style="background-color: #1b4dff; opacity: 0.45;"></span> Era session volume (N)</li>
+            <li><span class="legend-swatch" style="background-color: var(--chart-line);"></span> Selected metric trajectory</li>
+            <li><span class="legend-swatch" style="background-color: var(--chart-bar-strong);"></span> Era session volume (N)</li>
           </ul>
 
           <details class="sr-table-toggle">
@@ -626,7 +668,7 @@
       </div>
     </section>
 
-    <section id="model-reliability" class="page-section page-section--dark telemetry-band telemetry-band--dark" aria-labelledby="model-heading">
+    <section id="model-reliability" class="page-section telemetry-band" aria-labelledby="model-heading">
       <div class="container">
         <div class="chart-frame">
           <div class="chart-header">
@@ -663,8 +705,8 @@
           </div>
 
           <ul class="chart-legend" aria-hidden="true">
-            <li><span class="legend-swatch" style="background-color: #5c8aff;"></span> Attributed empirical tier</li>
-            <li><span class="legend-swatch" style="background-color: #f5b74f;"></span> Isolated unattributed legacy bucket (when enabled)</li>
+            <li><span class="legend-swatch" style="background-color: var(--accent);"></span> Attributed empirical tier</li>
+            <li><span class="legend-swatch" style="background-color: var(--semantic-warn);"></span> Isolated unattributed legacy bucket (when enabled)</li>
           </ul>
 
           <details class="sr-table-toggle">
@@ -691,7 +733,7 @@
       </div>
     </section>
 
-    <section id="compactor-simulator" class="page-section page-section--dark telemetry-band telemetry-band--dark" aria-labelledby="compactor-heading">
+    <section id="compactor-simulator" class="page-section page-section--tint telemetry-band telemetry-band--tint" aria-labelledby="compactor-heading">
       <div class="container">
         <div class="chart-frame">
           <div class="chart-header">
@@ -736,11 +778,11 @@
                 <svg id="tool-dist-svg" class="chart-svg" viewBox="0 0 540 280" role="img" aria-label="Stacked horizontal bar chart of tool output size buckets"></svg>
               </div>
               <ul class="chart-legend" aria-hidden="true" style="margin-block-start: 0.5rem;">
-                <li><span class="legend-swatch" style="background-color: #2ad089;"></span> &lt;500B</li>
-                <li><span class="legend-swatch" style="background-color: #26d0ce;"></span> 500B-2KB</li>
-                <li><span class="legend-swatch" style="background-color: #5c8aff;"></span> 2KB-10KB</li>
-                <li><span class="legend-swatch" style="background-color: #f5b74f;"></span> 10KB-50KB</li>
-                <li><span class="legend-swatch" style="background-color: #ff6b6b;"></span> &gt;50KB</li>
+                <li><span class="legend-swatch" style="background-color: var(--semantic-pass);"></span> &lt;500B</li>
+                <li><span class="legend-swatch" style="background-color: var(--cyan);"></span> 500B-2KB</li>
+                <li><span class="legend-swatch" style="background-color: var(--accent);"></span> 2KB-10KB</li>
+                <li><span class="legend-swatch" style="background-color: var(--semantic-warn);"></span> 10KB-50KB</li>
+                <li><span class="legend-swatch" style="background-color: var(--semantic-fail);"></span> &gt;50KB</li>
               </ul>
             </div>
           </div>
@@ -791,7 +833,7 @@
       </div>
     </section>
 
-    <section id="titan-dissection" class="page-section page-section--dark telemetry-band telemetry-band--dark" aria-labelledby="titan-heading">
+    <section id="titan-dissection" class="page-section telemetry-band" aria-labelledby="titan-heading">
       <div class="container">
         <div class="chart-frame">
           <div class="chart-header">
@@ -808,9 +850,9 @@
           </div>
 
           <ul class="chart-legend" id="titan-archetype-legend" style="margin-block-end: 1.5rem;">
-            <li><span class="legend-swatch" style="background-color: #2ad089;"></span> Survivor: 29 (TYPE_A_SURVIVOR)</li>
-            <li><span class="legend-swatch" style="background-color: #26d0ce;"></span> Breakthrough: 22 (TYPE_B_SYSTEMS_BREAKTHROUGH)</li>
-            <li><span class="legend-swatch" style="background-color: #ff6b6b;"></span> Thrashing trap: 41 (TYPE_C_THRASHING_TRAP)</li>
+            <li><span class="legend-swatch" style="background-color: var(--semantic-pass);"></span> Survivor: 29 (TYPE_A_SURVIVOR)</li>
+            <li><span class="legend-swatch" style="background-color: var(--cyan);"></span> Breakthrough: 22 (TYPE_B_SYSTEMS_BREAKTHROUGH)</li>
+            <li><span class="legend-swatch" style="background-color: var(--semantic-fail);"></span> Thrashing trap: 41 (TYPE_C_THRASHING_TRAP)</li>
           </ul>
 
           <h3 style="margin-block-end: 0.5rem;">Context token saturation vs failure amplification</h3>

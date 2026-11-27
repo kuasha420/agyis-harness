@@ -761,7 +761,7 @@ function initWorkflowRouter() {
     }
 
     gridEl.innerHTML = filtered.map((r) => `
-      <button type="button" class="selector-item ${r.letter === activeLetter ? "is-active" : ""}" data-route-letter="${escapeHtml(r.letter)}">
+      <button type="button" class="selector-item ${r.letter === activeLetter ? "is-active" : ""}" aria-pressed="${r.letter === activeLetter ? "true" : "false"}" data-route-letter="${escapeHtml(r.letter)}">
         <span><strong>${escapeHtml(r.letter)}</strong>: ${escapeHtml(r.alias)}</span>
       </button>
     `).join("");

@@ -257,7 +257,7 @@ function initEraChart(erasData) {
 
     svg.innerHTML = "";
     if (series.length === 0) {
-      svg.appendChild(svgEl("text", { x: 480, y: 180, fill: "#9AA8BE", "text-anchor": "middle" }, "No era records available for this cohort."));
+      svg.appendChild(svgEl("text", { x: 480, y: 180, fill: "var(--chart-axis)", "text-anchor": "middle" }, "No era records available for this cohort."));
       return;
     }
 
@@ -286,14 +286,14 @@ function initEraChart(erasData) {
         y1: y,
         x2: W - pad.right,
         y2: y,
-        stroke: "#1E2C47",
+        stroke: "var(--chart-grid)",
         "stroke-dasharray": i === 0 ? null : "4 4",
         "stroke-width": 1,
       }));
       svg.appendChild(svgEl("text", {
         x: pad.left - 10,
         y: y + 4,
-        fill: "#9AA8BE",
+        fill: "var(--chart-axis)",
         "text-anchor": "end",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 11,
@@ -312,8 +312,7 @@ function initEraChart(erasData) {
         width: barW.toFixed(1),
         height: barH.toFixed(1),
         rx: 3,
-        fill: "#1B4DFF",
-        opacity: "0.28",
+        fill: "var(--chart-bar)",
       }));
     });
 
@@ -322,7 +321,7 @@ function initEraChart(erasData) {
     svg.appendChild(svgEl("polyline", {
       points: pointsStr,
       fill: "none",
-      stroke: "#26D0CE",
+      stroke: "var(--chart-line)",
       "stroke-width": 2.75,
       "stroke-linejoin": "round",
       "stroke-linecap": "round",
@@ -342,7 +341,7 @@ function initEraChart(erasData) {
       svg.appendChild(svgEl("text", {
         x: cx.toFixed(1),
         y: pad.top + plotH + 22,
-        fill: "#9AA8BE",
+        fill: "var(--chart-ink)",
         "text-anchor": "middle",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 11,
@@ -351,7 +350,7 @@ function initEraChart(erasData) {
       svg.appendChild(svgEl("text", {
         x: cx.toFixed(1),
         y: pad.top + plotH + 38,
-        fill: "#6E7F9B",
+        fill: "var(--chart-axis)",
         "text-anchor": "middle",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 11,
@@ -361,8 +360,8 @@ function initEraChart(erasData) {
         cx: cx.toFixed(1),
         cy: cy.toFixed(1),
         r: 6,
-        fill: "#080E1A",
-        stroke: "#26D0CE",
+        fill: "var(--chart-dot-fill)",
+        stroke: "var(--chart-line)",
         "stroke-width": 2.5,
         tabindex: "0",
         role: "button",
@@ -496,7 +495,7 @@ function initModelChart(modelsData) {
       const y = pad.top + idx * rowH;
       const val = Number(row[metricKey]) || 0;
       const barW = Math.max(4, (val / maxVal) * plotW);
-      const barColor = row.isLegacy ? "#F5B74F" : "#5C8AFF";
+      const barColor = row.isLegacy ? "var(--semantic-warn)" : "var(--accent)";
       const errRate = Number(row.tool_error_rate_pct || 0);
       const perCallRel = Math.max(0, 100 - errRate);
 
@@ -512,13 +511,14 @@ function initModelChart(modelsData) {
         y: y - 2,
         width: W,
         height: rowH - 2,
-        fill: idx % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent",
+        fill: idx % 2 === 0 ? "var(--chart-grid)" : "transparent",
+        "fill-opacity": idx % 2 === 0 ? "0.3" : null,
       }));
 
       g.appendChild(svgEl("text", {
         x: pad.left - 12,
         y: y + 16,
-        fill: row.isLegacy ? "#F5B74F" : "#F4F6FA",
+        fill: row.isLegacy ? "var(--semantic-warn)" : "var(--chart-ink)",
         "text-anchor": "end",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 11.5,
@@ -539,7 +539,7 @@ function initModelChart(modelsData) {
       g.appendChild(svgEl("text", {
         x: (pad.left + barW + 8).toFixed(1),
         y: y + 16,
-        fill: "#9AA8BE",
+        fill: "var(--chart-axis)",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 11,
       }, rightLabel));
@@ -693,13 +693,13 @@ function initCompactorSimulator(deepData) {
         y1: y,
         x2: W - pad.right,
         y2: y,
-        stroke: "#1E2C47",
+        stroke: "var(--chart-grid)",
         "stroke-dasharray": p === 0 ? null : "3 3",
       }));
       compSvg.appendChild(svgEl("text", {
         x: pad.left - 8,
         y: y + 4,
-        fill: "#9AA8BE",
+        fill: "var(--chart-axis)",
         "text-anchor": "end",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 11,
@@ -728,14 +728,14 @@ function initCompactorSimulator(deepData) {
         width: barW.toFixed(1),
         height: barH.toFixed(1),
         rx: 4,
-        fill: isSelected ? "#26D0CE" : "#1B4DFF",
-        opacity: isSelected ? "1" : "0.55",
+        fill: isSelected ? "var(--chart-line)" : "var(--chart-bar-strong)",
       }));
 
       g.appendChild(svgEl("text", {
         x: cx.toFixed(1),
         y: (y - 6).toFixed(1),
-        fill: isSelected ? "#F4F6FA" : "#9AA8BE",
+        fill: isSelected ? "var(--chart-ink)" : "var(--chart-axis)",
+        "font-weight": isSelected ? "700" : "400",
         "text-anchor": "middle",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 11,
@@ -744,7 +744,8 @@ function initCompactorSimulator(deepData) {
       g.appendChild(svgEl("text", {
         x: cx.toFixed(1),
         y: pad.top + plotH + 22,
-        fill: isSelected ? "#26D0CE" : "#9AA8BE",
+        fill: isSelected ? "var(--chart-ink)" : "var(--chart-axis)",
+        "font-weight": isSelected ? "700" : "400",
         "text-anchor": "middle",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 11,
@@ -784,11 +785,11 @@ function initCompactorSimulator(deepData) {
     const rowH = (H - pad.top - pad.bottom) / Math.max(tools.length, 1);
 
     const bucketSpecs = [
-      { key: "lt_500", color: "#2AD089", label: "<500B" },
-      { key: "500_to_2k", color: "#26D0CE", label: "500B-2KB" },
-      { key: "2k_to_10k", color: "#5C8AFF", label: "2KB-10KB" },
-      { key: "10k_to_50k", color: "#F5B74F", label: "10KB-50KB" },
-      { key: "gt_50k", color: "#FF6B6B", label: ">50KB" },
+      { key: "lt_500", color: "var(--semantic-pass)", label: "<500B" },
+      { key: "500_to_2k", color: "var(--cyan)", label: "500B-2KB" },
+      { key: "2k_to_10k", color: "var(--accent)", label: "2KB-10KB" },
+      { key: "10k_to_50k", color: "var(--semantic-warn)", label: "10KB-50KB" },
+      { key: "gt_50k", color: "var(--semantic-fail)", label: ">50KB" },
     ];
 
     tools.forEach((tool, idx) => {
@@ -809,7 +810,7 @@ function initCompactorSimulator(deepData) {
       g.appendChild(svgEl("text", {
         x: pad.left - 8,
         y: y + rowH * 0.62,
-        fill: "#F4F6FA",
+        fill: "var(--chart-ink)",
         "text-anchor": "end",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 11,
@@ -833,7 +834,7 @@ function initCompactorSimulator(deepData) {
       g.appendChild(svgEl("text", {
         x: W - pad.right + 6,
         y: y + rowH * 0.62,
-        fill: "#9AA8BE",
+        fill: "var(--chart-axis)",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 10.5,
       }, `${Number(tool.pct_exceeding_2kb || 0).toFixed(1)}% >2K`));
@@ -886,9 +887,9 @@ function initTitanAndSaturation(deepData) {
   }
   if (barLegend) {
     barLegend.innerHTML = `
-      <li><span class="legend-swatch" style="background-color: #2ad089;"></span> Survivor: ${formatInt(surv)} (TYPE_A_SURVIVOR)</li>
-      <li><span class="legend-swatch" style="background-color: #26d0ce;"></span> Breakthrough: ${formatInt(brk)} (TYPE_B_SYSTEMS_BREAKTHROUGH)</li>
-      <li><span class="legend-swatch" style="background-color: #ff6b6b;"></span> Thrashing trap: ${formatInt(trap)} (TYPE_C_THRASHING_TRAP)</li>
+      <li><span class="legend-swatch" style="background-color: var(--semantic-pass);"></span> Survivor: ${formatInt(surv)} (TYPE_A_SURVIVOR)</li>
+      <li><span class="legend-swatch" style="background-color: var(--cyan);"></span> Breakthrough: ${formatInt(brk)} (TYPE_B_SYSTEMS_BREAKTHROUGH)</li>
+      <li><span class="legend-swatch" style="background-color: var(--semantic-fail);"></span> Thrashing trap: ${formatInt(trap)} (TYPE_C_THRASHING_TRAP)</li>
     `;
   }
 
@@ -924,13 +925,13 @@ function initTitanAndSaturation(deepData) {
         y1: y,
         x2: W - pad.right,
         y2: y,
-        stroke: "#1E2C47",
+        stroke: "var(--chart-grid)",
         "stroke-dasharray": i === 0 ? null : "4 4",
       }));
       satSvg.appendChild(svgEl("text", {
         x: pad.left - 10,
         y: y + 4,
-        fill: "#9AA8BE",
+        fill: "var(--chart-axis)",
         "text-anchor": "end",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 11,
@@ -958,14 +959,13 @@ function initTitanAndSaturation(deepData) {
         width: barW.toFixed(1),
         height: barH.toFixed(1),
         rx: 4,
-        fill: "#1B4DFF",
-        opacity: "0.52",
+        fill: "var(--chart-bar-strong)",
       }));
 
       g.appendChild(svgEl("text", {
         x: cx.toFixed(1),
         y: pad.top + plotH + 22,
-        fill: "#F4F6FA",
+        fill: "var(--chart-ink)",
         "text-anchor": "middle",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 11,
@@ -974,7 +974,7 @@ function initTitanAndSaturation(deepData) {
       g.appendChild(svgEl("text", {
         x: cx.toFixed(1),
         y: pad.top + plotH + 38,
-        fill: "#9AA8BE",
+        fill: "var(--chart-axis)",
         "text-anchor": "middle",
         "font-family": "JetBrains Mono, monospace",
         "font-size": 10.5,
@@ -994,7 +994,7 @@ function initTitanAndSaturation(deepData) {
     satSvg.appendChild(svgEl("polyline", {
       points: errPoints.join(" "),
       fill: "none",
-      stroke: "#FF6B6B",
+      stroke: "var(--semantic-fail)",
       "stroke-width": 2.5,
       "stroke-linejoin": "round",
     }));
@@ -1005,7 +1005,9 @@ function initTitanAndSaturation(deepData) {
         cx: cx.toFixed(1),
         cy: yErr.toFixed(1),
         r: 4.5,
-        fill: "#FF6B6B",
+        fill: "var(--semantic-fail)",
+        stroke: "var(--chart-dot-fill)",
+        "stroke-width": 1.5,
       }));
     });
   }

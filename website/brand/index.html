@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script>try{const s=localStorage.getItem("color-scheme");if(s==="light"||s==="dark"){document.querySelector('meta[name="color-scheme"]').content=s;}}catch{}</script>
   <title>Brand Kit | Agyis Harness 1.0.0</title>
   <meta name="description" content="Official vector marks, monochrome lockups, neon-generated studio visuals, multi-format raster exports, color architecture, and typography specifications for Agyis Harness.">
   <meta property="og:title" content="Agyis Harness Brand Kit">
@@ -12,7 +14,8 @@
   <meta property="og:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta name="theme-color" content="#080E1A">
+  <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#080e1a" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="../favicon.ico" sizes="any">
   <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
@@ -40,8 +43,20 @@
         <li><a href="../cognitive/" class="nav-link">Cognitive</a></li>
         <li><a href="../hud-re/" class="nav-link">HUD &amp; RE</a></li>
         <li><a href="./" class="nav-link is-active" aria-current="page">Brand</a></li>
-        <li><a href="../#install" class="nav-cta">Install</a></li>
       </ul>
+      <div class="nav-actions">
+        <button type="button" class="theme-toggle" id="theme-toggle">
+          <span class="theme-toggle-opt theme-toggle-opt--to-light">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            <span class="sr-only">Switch to light theme</span>
+          </span>
+          <span class="theme-toggle-opt theme-toggle-opt--to-dark">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            <span class="sr-only">Switch to dark theme</span>
+          </span>
+        </button>
+        <a class="nav-cta" href="../#install">Install</a>
+      </div>
     </nav>
   </header>
 
@@ -53,7 +68,7 @@
           <p>The Orbital Aegis identity unifies Web CSS, the Electron Trajectory HUD, ANSI/NO_COLOR terminal output, and hook log prefixes under one high-contrast material language. All vector marks, raster packs, and studio visuals are open under Apache License 2.0.</p>
           <p class="brand-summary-meta">SVG vector masters, PNG exports (32 px to 1024 px), lossless WebP, multi-size ICO, 7 aspect-matched studio renders, and verified 4-surface color tokens.</p>
         </div>
-        <figure class="brand-masthead-emblem">
+        <figure class="brand-masthead-emblem" data-tilt>
           <picture>
             <source srcset="../assets/art/brand-emblem-3d.webp" type="image/webp">
             <img src="../assets/art/brand-emblem-3d.png" alt="Sculptural 3D satin obsidian-marine hexagonal shield emblem suspending a sapphire-cobalt optical keystone" width="1024" height="1024" fetchpriority="high">
@@ -181,7 +196,7 @@
         </div>
 
         <div class="art-gallery">
-          <figure class="art-card art-card--16x9 art-card-light">
+          <figure class="art-card art-card--16x9 art-card-light" data-tilt>
             <picture>
               <source srcset="../assets/art/hero-aegis-prism.webp" type="image/webp">
               <img src="../assets/art/hero-aegis-prism.png" alt="Obsidian-marine aluminum chamfered hexagonal shield ring suspending a sapphire-cobalt octahedron above a bright porcelain studio floor" width="1600" height="900" loading="lazy">
@@ -198,7 +213,7 @@
             </figcaption>
           </figure>
 
-          <figure class="art-card art-card--4x3 art-card-light">
+          <figure class="art-card art-card--4x3 art-card-light" data-tilt>
             <picture>
               <source srcset="../assets/art/art-deterministic-gate.webp" type="image/webp">
               <img src="../assets/art/art-deterministic-gate.png" alt="Interlocking brushed titanium optical aperture blades surrounding a sapphire-cobalt prism on a cool stone plinth" width="1200" height="900" loading="lazy">
@@ -215,7 +230,7 @@
             </figcaption>
           </figure>
 
-          <figure class="art-card art-card--4x3">
+          <figure class="art-card art-card--4x3" data-tilt>
             <picture>
               <source srcset="../assets/art/art-cognitive-lattice.webp" type="image/webp">
               <img src="../assets/art/art-cognitive-lattice.png" alt="Isometric directed-acyclic lattice of eight sapphire and obsidian prismatic nodes linked by cobalt and cyan laser filaments toward a central verification prism" width="1200" height="900" loading="lazy">
@@ -232,7 +247,7 @@
             </figcaption>
           </figure>
 
-          <figure class="art-card art-card--4x3">
+          <figure class="art-card art-card--4x3" data-tilt>
             <picture>
               <source srcset="../assets/art/art-telemetry-optics.webp" type="image/webp">
               <img src="../assets/art/art-telemetry-optics.png" alt="Dual-chamber optical cleanroom quarantine lens filtering raw binary signal pulses across a cyan barrier plane into emerald and cobalt crystalline blocks" width="1200" height="900" loading="lazy">
@@ -249,7 +264,7 @@
             </figcaption>
           </figure>
 
-          <figure class="art-card art-card--1x1">
+          <figure class="art-card art-card--1x1" data-tilt>
             <picture>
               <source srcset="../assets/art/brand-emblem-3d.webp" type="image/webp">
               <img src="../assets/art/brand-emblem-3d.png" alt="Sculptural 3D satin obsidian-marine hexagonal shield and aperture emblem with a central sapphire-cobalt crystal" width="1024" height="1024" loading="lazy">
@@ -266,7 +281,7 @@
             </figcaption>
           </figure>
 
-          <figure class="art-card art-card--og">
+          <figure class="art-card art-card--og" data-tilt>
             <picture>
               <source srcset="../assets/art/og-backdrop-1-0.webp" type="image/webp">
               <img src="../assets/art/og-backdrop-1-0.png" alt="Clean obsidian-marine 1200 by 630 studio backdrop featuring an optical prism refracting a cyan beam with negative space for typography" width="1200" height="630" loading="lazy">
@@ -283,7 +298,7 @@
             </figcaption>
           </figure>
 
-          <figure class="art-card art-card--og">
+          <figure class="art-card art-card--og" data-tilt>
             <picture>
               <source srcset="../assets/og-image.webp" type="image/webp">
               <img src="../assets/og-image.png" alt="Open Graph release card showing Agyis Harness wordmark and optical prism refracting a cyan beam" width="1200" height="630" loading="lazy">
@@ -307,95 +322,103 @@
       <div class="container">
         <div class="section-header">
           <h2>Cross-surface color and token matrix</h2>
-          <p>High-contrast porcelain and obsidian-marine surfaces anchored by signal cobalt and ice cyan refraction accents. Select any hex token to copy it, or inspect all four rendering surfaces below.</p>
+          <p>Unified Light and Dark <code>light-dark()</code> porcelain and obsidian-marine surfaces anchored by signal cobalt, refraction teal, and 2.5D elevation shadows. Select any hex token to copy it, or inspect all four rendering surfaces below.</p>
         </div>
 
         <ol class="swatch-ledger">
           <li class="swatch-row">
-            <span class="swatch-chip" style="background-color: #F4F6FA; border-color: #D2DAE6;"></span>
+            <span class="swatch-chip" style="background-color: #F2F5FB; border-color: var(--border-strong);"></span>
             <div class="swatch-info">
               <h3>Porcelain canvas</h3>
-              <p>Primary light page surface and high-key studio ground.</p>
+              <p>Primary light page canvas (<code>--raw-bg-light</code>), paired with Obsidian marine <code>#070C17</code> in dark mode.</p>
             </div>
-            <button type="button" class="copy-btn" data-copy="#F4F6FA" aria-label="Copy hex color #F4F6FA">#F4F6FA</button>
+            <button type="button" class="copy-btn" data-copy="#F2F5FB" aria-label="Copy hex color #F2F5FB">#F2F5FB</button>
           </li>
           <li class="swatch-row">
-            <span class="swatch-chip" style="background-color: #E8EDF5; border-color: #D2DAE6;"></span>
+            <span class="swatch-chip" style="background-color: #E7EDF7; border-color: var(--border-strong);"></span>
             <div class="swatch-info">
               <h3>Silver mist</h3>
-              <p>Secondary tonal band and inline code surface.</p>
+              <p>Secondary light tonal band (<code>--raw-surface-light</code>), paired with <code>#0C1425</code> in dark mode.</p>
             </div>
-            <button type="button" class="copy-btn" data-copy="#E8EDF5" aria-label="Copy hex color #E8EDF5">#E8EDF5</button>
+            <button type="button" class="copy-btn" data-copy="#E7EDF7" aria-label="Copy hex color #E7EDF7">#E7EDF7</button>
           </li>
           <li class="swatch-row">
-            <span class="swatch-chip" style="background-color: #080E1A; border-color: #1E2C47;"></span>
+            <span class="swatch-chip" style="background-color: #070C17; border-color: var(--border-strong);"></span>
             <div class="swatch-info">
               <h3>Obsidian marine</h3>
-              <p>Primary dark ink, console backdrop, and shield body.</p>
+              <p>Primary dark canvas (<code>--raw-bg-dark</code>), recessed hardware console well (<code>--console-bg</code>), and shield body.</p>
             </div>
-            <button type="button" class="copy-btn" data-copy="#080E1A" aria-label="Copy hex color #080E1A">#080E1A</button>
+            <button type="button" class="copy-btn" data-copy="#070C17" aria-label="Copy hex color #070C17">#070C17</button>
           </li>
           <li class="swatch-row">
-            <span class="swatch-chip" style="background-color: #10192B; border-color: #1E2C47;"></span>
+            <span class="swatch-chip" style="background-color: #101A2E; border-color: var(--border-strong);"></span>
             <div class="swatch-info">
               <h3>Marine slate</h3>
-              <p>Elevated dark panel surface for telemetry figures and code header bars.</p>
+              <p>Dark elevated card surface (<code>--raw-surface-card-dark</code>), paired with <code>#FFFFFF</code> in light mode.</p>
             </div>
-            <button type="button" class="copy-btn" data-copy="#10192B" aria-label="Copy hex color #10192B">#10192B</button>
+            <button type="button" class="copy-btn" data-copy="#101A2E" aria-label="Copy hex color #101A2E">#101A2E</button>
           </li>
           <li class="swatch-row">
-            <span class="swatch-chip" style="background-color: #162238; border-color: #4A5D7A;"></span>
+            <span class="swatch-chip" style="background-color: #16243E; border-color: var(--border-strong);"></span>
             <div class="swatch-info">
               <h3>Elevated slate</h3>
-              <p>Tooltip, interactive control, and elevated HUD card surface.</p>
+              <p>Dark elevated chrome and HUD surface (<code>--raw-surface-elevated-dark</code>), paired with <code>#F7F9FE</code> in light mode.</p>
             </div>
-            <button type="button" class="copy-btn" data-copy="#162238" aria-label="Copy hex color #162238">#162238</button>
+            <button type="button" class="copy-btn" data-copy="#16243E" aria-label="Copy hex color #16243E">#16243E</button>
           </li>
           <li class="swatch-row">
-            <span class="swatch-chip" style="background-color: #1B4DFF; border-color: #143ED6;"></span>
+            <span class="swatch-chip" style="background-color: #1B4DFF; border-color: var(--border-strong);"></span>
             <div class="swatch-info">
               <h3>Signal cobalt</h3>
-              <p>Primary interactive CTA, active tab underline, and focus ring on light surfaces.</p>
+              <p>Light-mode primary interactive CTA, active tab underline, and focus ring (<code>--raw-accent-light</code>).</p>
             </div>
             <button type="button" class="copy-btn" data-copy="#1B4DFF" aria-label="Copy hex color #1B4DFF">#1B4DFF</button>
           </li>
           <li class="swatch-row">
-            <span class="swatch-chip" style="background-color: #5C8AFF; border-color: #1E2C47;"></span>
+            <span class="swatch-chip" style="background-color: #6390FF; border-color: var(--border-strong);"></span>
             <div class="swatch-info">
               <h3>Optical cobalt</h3>
-              <p>High-contrast accent, active tab highlight, and focus indicator on dark surfaces.</p>
+              <p>Dark-mode high-contrast accent, active tab highlight, and focus indicator (<code>--raw-accent-dark</code>).</p>
             </div>
-            <button type="button" class="copy-btn" data-copy="#5C8AFF" aria-label="Copy hex color #5C8AFF">#5C8AFF</button>
+            <button type="button" class="copy-btn" data-copy="#6390FF" aria-label="Copy hex color #6390FF">#6390FF</button>
           </li>
           <li class="swatch-row">
-            <span class="swatch-chip" style="background-color: #26D0CE; border-color: #1E2C47;"></span>
+            <span class="swatch-chip" style="background-color: #0B7C84; border-color: var(--border-strong);"></span>
+            <div class="swatch-info">
+              <h3>Refraction teal</h3>
+              <p>Light-mode secondary optical chart line and accent (<code>--raw-cyan-light</code>), paired with <code>#26D0CE</code> in dark mode.</p>
+            </div>
+            <button type="button" class="copy-btn" data-copy="#0B7C84" aria-label="Copy hex color #0B7C84">#0B7C84</button>
+          </li>
+          <li class="swatch-row">
+            <span class="swatch-chip" style="background-color: #26D0CE; border-color: var(--border-strong);"></span>
             <div class="swatch-info">
               <h3>Ice cyan refraction</h3>
-              <p>Secondary optical highlight for gradient edges and telemetry chart bars.</p>
+              <p>Dark-mode optical highlight for gradient edges and console telemetry bars (<code>--raw-cyan-dark</code>).</p>
             </div>
             <button type="button" class="copy-btn" data-copy="#26D0CE" aria-label="Copy hex color #26D0CE">#26D0CE</button>
           </li>
           <li class="swatch-row">
-            <span class="swatch-chip" style="background-color: #2AD089; border-color: #1E2C47;"></span>
+            <span class="swatch-chip" style="background-color: #2AD089; border-color: var(--border-strong);"></span>
             <div class="swatch-info">
               <h3>Verified pass</h3>
-              <p>Semantic pass state inside hook traces, CLI badges, and verified benchmarks.</p>
+              <p>Semantic pass state in dark mode (<code>--raw-pass-dark</code>), paired with <code>#118555</code> in light mode.</p>
             </div>
             <button type="button" class="copy-btn" data-copy="#2AD089" aria-label="Copy hex color #2AD089">#2AD089</button>
           </li>
           <li class="swatch-row">
-            <span class="swatch-chip" style="background-color: #F5B74F; border-color: #1E2C47;"></span>
+            <span class="swatch-chip" style="background-color: #F5B74F; border-color: var(--border-strong);"></span>
             <div class="swatch-info">
               <h3>Amber warning</h3>
-              <p>70% context runway alert, stale heartbeat, and dirty-tree advisory state.</p>
+              <p>70% context runway alert and dirty-tree advisory state (<code>--raw-warn-dark</code>, <code>#A16207</code> light).</p>
             </div>
             <button type="button" class="copy-btn" data-copy="#F5B74F" aria-label="Copy hex color #F5B74F">#F5B74F</button>
           </li>
           <li class="swatch-row">
-            <span class="swatch-chip" style="background-color: #FF6B6B; border-color: #1E2C47;"></span>
+            <span class="swatch-chip" style="background-color: #FF6B6B; border-color: var(--border-strong);"></span>
             <div class="swatch-info">
               <h3>Critical fail</h3>
-              <p>90% red alert, loop denial, and verification gate block indicator.</p>
+              <p>90% red alert, loop denial, and verification gate block indicator (<code>--raw-fail-dark</code>, <code>#C62828</code> light).</p>
             </div>
             <button type="button" class="copy-btn" data-copy="#FF6B6B" aria-label="Copy hex color #FF6B6B">#FF6B6B</button>
           </li>
@@ -415,35 +438,105 @@
                 <div class="token-code-header">
                   <div>
                     <h3>Web CSS custom properties (<code>website/styles.css</code>)</h3>
-                    <p>Dual-polarity daylight porcelain and dark obsidian-marine console tokens.</p>
+                    <p>Unified Light + Dark <code>light-dark()</code> palette, fixed console wells, and 2.5D elevation tokens.</p>
                   </div>
-                  <button type="button" class="copy-btn" data-copy-target="#orbital-aegis-css-tokens" data-copy-label="Copied CSS tokens" data-copy-announce="Copied all Orbital Aegis CSS tokens to clipboard">Copy all CSS tokens</button>
+                  <button type="button" id="copy-css-tokens" class="copy-btn" data-copy-target="#orbital-aegis-css-tokens" data-copy-label="Copied CSS tokens" data-copy-announce="Copied all Orbital Aegis CSS tokens to clipboard">Copy all CSS tokens</button>
                 </div>
                 <pre><code id="orbital-aegis-css-tokens">:root {
-  --bg: #F4F6FA;
-  --surface: #E8EDF5;
-  --elevated: #162238;
-  --border-subtle: #1E2C47;
-  --border-ui: #4A5D7A;
-  --ink: #080E1A;
-  --ink-muted: #445166;
-  --border: #D2DAE6;
-  --accent: #1B4DFF;
-  --accent-hover: #143ED6;
-  --console-bg: #080E1A;
-  --console-surface: #10192B;
-  --console-elevated: #162238;
-  --console-border: #1E2C47;
-  --console-border-ui: #4A5D7A;
-  --console-ink: #F4F6FA;
-  --console-muted: #9AA8BE;
-  --console-accent: #5C8AFF;
-  --console-cyan: #26D0CE;
-  --semantic-pass: #2AD089;
-  --semantic-warn: #F5B74F;
-  --semantic-fail: #FF6B6B;
-  --font-sans: "Instrument Sans", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: light dark;
+  &amp;:has(&gt; head &gt; meta[name="color-scheme"][content="dark"]) { color-scheme: dark; }
+  &amp;:has(&gt; head &gt; meta[name="color-scheme"][content="light"]) { color-scheme: light; }
+
+  /* Raw Light / Dark Primitives */
+  --raw-bg-light: #f2f5fb;
+  --raw-bg-dark: #070c17;
+  --raw-surface-light: #e7edf7;
+  --raw-surface-dark: #0c1425;
+  --raw-surface-card-light: #ffffff;
+  --raw-surface-card-dark: #101a2e;
+  --raw-surface-elevated-light: #f7f9fe;
+  --raw-surface-elevated-dark: #16243e;
+  --raw-surface-well-light: #edf1f8;
+  --raw-surface-well-dark: #050912;
+  --raw-ink-light: #091121;
+  --raw-ink-dark: #f2f5fb;
+  --raw-ink-muted-light: #445269;
+  --raw-ink-muted-dark: #9aa9c2;
+  --raw-accent-light: #1b4dff;
+  --raw-accent-dark: #6390ff;
+  --raw-accent-solid-light: #1b4dff;
+  --raw-accent-solid-dark: #2557ff;
+  --raw-accent-solid-hover-light: #143ed6;
+  --raw-accent-solid-hover-dark: #3566ff;
+  --raw-cyan-light: #0b7c84;
+  --raw-cyan-dark: #26d0ce;
+
+  @supports (color: light-dark(white, black)) {
+    --bg: light-dark(#f2f5fb, #070c17);
+    --surface: light-dark(#e7edf7, #0c1425);
+    --surface-card: light-dark(#ffffff, #101a2e);
+    --surface-elevated: light-dark(#f7f9fe, #16243e);
+    --surface-well: light-dark(#edf1f8, #050912);
+    --surface-glass: light-dark(rgba(247, 250, 255, 0.78), rgba(11, 18, 34, 0.78));
+    --ink: light-dark(#091121, #f2f5fb);
+    --ink-muted: light-dark(#445269, #9aa9c2);
+    --border: light-dark(rgba(15, 29, 58, 0.11), rgba(132, 162, 218, 0.16));
+    --border-strong: light-dark(rgba(15, 29, 58, 0.22), rgba(132, 162, 218, 0.30));
+    --accent: light-dark(#1b4dff, #6390ff);
+    --accent-hover: light-dark(#143ed6, #80a5ff);
+    --accent-solid: light-dark(#1b4dff, #2557ff);
+    --accent-solid-hover: light-dark(#143ed6, #3566ff);
+    --accent-solid-ink: #ffffff;
+    --accent-soft: light-dark(rgba(27, 77, 255, 0.09), rgba(99, 144, 255, 0.16));
+    --cyan: light-dark(#0b7c84, #26d0ce);
+    --semantic-pass: light-dark(#118555, #2ad089);
+    --semantic-warn: light-dark(#a16207, #f5b74f);
+    --semantic-fail: light-dark(#c62828, #ff6b6b);
+    --rim-top: light-dark(rgba(255, 255, 255, 0.92), rgba(168, 198, 255, 0.18));
+    --sheen-top: light-dark(rgba(255, 255, 255, 0.88), rgba(28, 44, 76, 0.52));
+    --sheen-bot: light-dark(rgba(240, 245, 253, 0.72), rgba(12, 20, 38, 0.92));
+    --chart-grid: light-dark(rgba(15, 29, 58, 0.11), rgba(132, 162, 218, 0.16));
+    --chart-axis: light-dark(#445269, #9aa9c2);
+    --chart-ink: light-dark(#091121, #f2f5fb);
+    --chart-line: var(--cyan);
+    --chart-bar: light-dark(rgba(27, 77, 255, 0.16), rgba(92, 138, 255, 0.24));
+    --chart-bar-strong: var(--accent);
+    --chart-dot-fill: var(--surface-well);
+  }
+
+  /* Fixed Dark Optical Console Well Palette */
+  --console-bg: #070c17;
+  --console-surface: #0e172a;
+  --console-elevated: #16243e;
+  --console-border: rgba(132, 162, 218, 0.18);
+  --console-border-ui: rgba(132, 162, 218, 0.34);
+  --console-ink: #f2f5fb;
+  --console-muted: #9aa9c2;
+  --console-accent: #6390ff;
+  --console-cyan: #26d0ce;
+
+  /* 2.5D Elevation Shadow Scales (Light default, Polarity-Adaptive) */
+  --shadow-card:
+    inset 0 1px 0 var(--rim-top),
+    0 1px 2px rgba(9, 17, 33, 0.05),
+    0 10px 24px -14px rgba(15, 29, 58, 0.14);
+  --shadow-card-hover:
+    inset 0 1px 0 var(--rim-top),
+    0 2px 4px rgba(9, 17, 33, 0.06),
+    0 18px 34px -16px rgba(15, 29, 58, 0.22);
+  --shadow-deck:
+    inset 0 1px 0 var(--rim-top),
+    0 2px 6px rgba(9, 17, 33, 0.06),
+    0 22px 48px -22px rgba(15, 29, 58, 0.18);
+  --shadow-inset:
+    inset 0 2px 6px rgba(9, 17, 33, 0.08),
+    inset 0 1px 2px rgba(9, 17, 33, 0.05);
+  --shadow-float:
+    inset 0 1px 0 var(--rim-top),
+    0 12px 32px -12px rgba(9, 17, 33, 0.16);
+
+  --font-sans: "Instrument Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }</code></pre>
               </div>
             </div>
